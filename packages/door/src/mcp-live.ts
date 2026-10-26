@@ -8,6 +8,10 @@
 // time, one that didn't is left alone for a backoff (45 s) so a sleeping laptop never makes every call slow. A try that
 // outlasts its budget keeps going in the background and, if it ends well, marks the machine up for the next call.
 // A host on another PROTOCOL is as good as away, with the command that fixes it.
+//
+// A write tries again inside the backoff (`fresh`, PIE-1351): a queued write costs far more than a 2 s wait, and a link
+// that dropped for a minute is often back. A write that then gets no answer marks the machine away (`lost`), so the
+// next calls don't wait on it too.
 import { meetRules } from "@ep0ch/outliner/client-code";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { forwardTo } from "./machine";
@@ -39,6 +43,8 @@ export interface LiveOptions {
   now?: () => number;
   budgetMs?: number;
   backoffMs?: number;
+  /** How long one request over the link waits for its answer: past it, a write is queued (PIE-1351). */
+  requestTimeoutMs?: number;
   log?: (line: string) => void;
 }
 
@@ -57,6 +63,7 @@ export class LiveMachines {
   private readonly now: () => number;
   private readonly budgetMs: number;
   private readonly backoffMs: number;
+  private readonly requestTimeoutMs: number;
   private readonly log: (line: string) => void;
   private closed = false;
 
@@ -65,6 +72,7 @@ export class LiveMachines {
     this.now = o.now ?? Date.now;
     this.budgetMs = o.budgetMs ?? LIVE_BUDGET_MS;
     this.backoffMs = o.backoffMs ?? LIVE_BACKOFF_MS;
+    this.requestTimeoutMs = o.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
     this.log = o.log ?? (() => {});
   }
 
@@ -88,11 +96,14 @@ export class LiveMachines {
     return { up: false, at: this.now(), why, ...(command ? { command } : {}) };
   }
 
-  /** The outline's board on `machine`'s own host, or why not (and the mirror serves). The whole try is within the budget. */
-  async board(machine: string, outline: string): Promise<LiveAnswer> {
+  /**
+   * The outline's board on `machine`'s own host, or why not (and the mirror serves). The whole try is within the budget.
+   * `fresh`: try even inside the backoff of a failed try (a write, and the gateway's drain).
+   */
+  async board(machine: string, outline: string, o: { fresh?: boolean } = {}): Promise<LiveAnswer> {
     const key = `${machine}/${outline}`;
     const known = this.verdicts.get(key);
-    if (known && !known.up && this.now() - known.at < this.backoffMs) return this.away(machine, known);
+    if (!o.fresh && known && !known.up && this.now() - known.at < this.backoffMs) return this.away(machine, known);
     let attempt = this.tries.get(key);
     if (!attempt) {
       const started: Promise<Verdict> = this.reach(machine, outline).finally(() => { if (this.tries.get(key) === started) this.tries.delete(key); });
@@ -113,13 +124,18 @@ export class LiveMachines {
     return verdict.up ? { board: verdict.board, host: verdict.host } : this.away(machine, verdict);
   }
 
+  /** A request to the live board got no answer (`why`): the machine is away until the backoff passes or a fresh try finds it. */
+  lost(machine: string, outline: string, why: string): void {
+    this.verdicts.set(`${machine}/${outline}`, this.fail(why));
+  }
+
   /** The forward answers, its host speaks this PROTOCOL and opens the outline: the outline is live. */
   private async reach(machine: string, outline: string): Promise<Verdict> {
     let socket: string;
     try { socket = (await this.forward(machine)).socket; }
     catch (e) { this.log(`mcp live: ${machine}: ${firstLine(e)}`); return this.fail(firstLine(e)); }
     if (this.closed) return this.fail("the gateway is shutting down");
-    const probe = new SocketBoard(socket, REQUEST_TIMEOUT_MS);
+    const probe = new SocketBoard(socket, this.requestTimeoutMs);
     try {
       const r = await probe.request<{ protocolVersion: number; grammarVersion: number }>("ping");
       await meetRules(r);
@@ -133,7 +149,7 @@ export class LiveMachines {
     const key = `${machine}/${outline}/${socket}`;
     let board = this.boards.get(key);
     if (!board) {
-      board = Object.assign(new SocketBoard(socket, REQUEST_TIMEOUT_MS, outline), { address: { outline, machine } }) as SocketBoard;
+      board = Object.assign(new SocketBoard(socket, this.requestTimeoutMs, outline), { address: { outline, machine } }) as SocketBoard;
       this.boards.set(key, board);
     }
     let host: string;

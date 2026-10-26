@@ -86,7 +86,8 @@ export function receiptStatus(r: NetmailReceipt, ctx: { summary: NetmailSummary 
   if (r.state === "queued") {
     const lastPull = ctx.summary?.lastPull ?? null;
     return { ...base, state: "queued", lastPull, waiting: ctx.summary?.waiting ?? 1,
-      said: `still queued for ${target}: ${lastPull ? `${r.machine} last pulled ${lastPull}, before or without it` : `${r.machine} hasn't pulled yet`}; it lands when ${r.machine} next pulls` };
+      // A pull after it was queued that settled nothing means that machine's pull couldn't apply it: it says why there.
+      said: `still queued for ${target}: ${!lastPull ? `${r.machine} hasn't pulled yet` : lastPull > r.queuedAt ? `${r.machine} pulled at ${lastPull} but hasn't said what it became (\`ep0ch mcp pull\` on ${r.machine} says why)` : `${r.machine} last pulled ${lastPull}, before it was queued`}; it lands when this server reaches ${r.machine} again (it tries every few seconds) or ${r.machine} next pulls` };
   }
   const settled = { ...base, ...(r.settledAt ? { settledAt: r.settledAt } : {}) };
   if (r.state === "refused") return { ...settled, state: "rejected", reason: r.said ?? "refused", said: `rejected by ${target}: ${r.said ?? "refused"}` };

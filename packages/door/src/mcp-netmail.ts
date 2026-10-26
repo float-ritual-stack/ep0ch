@@ -5,6 +5,11 @@
 //   queue   the gateway adds an entry: the outline and block (its URI), the write (src/mcp-writes.ts's shape), and what
 //           the mirror showed of the block: its revision, its text's hash, and the instance id of the database the
 //           copy came from (the home machine's, read from the copy's metadata), with who wrote it and when.
+//   drain   the gateway itself, whenever it reaches that machine's own host over the link again (PIE-1351): a call that
+//           finds it live, or the gateway's own try every LIVE_BACKOFF_MS while entries wait. Each entry is claimed
+//           (`applying`, so a pull's take skips it), applied over the link with the same `applyEntry` a pull uses, and
+//           settled here; one that got no answer goes back to `queued`. The pull below stays the way in for a machine the
+//           gateway can't reach but that can reach it.
 //   pull    the home machine, whenever it's online (its backup job every 15 minutes, or `ep0ch mcp pull`), asks over ssh
 //           for its entries (`ep0ch mcp queue take --machine <name> --json` on the hub, in a login shell), applies each
 //           to its own outline with the same `applyWrite` the gateway uses for a live one, and reports what each became
@@ -102,7 +107,8 @@ const entryOf = (r: Record<string, unknown>): NetmailEntry => ({
   subject: r.subject as string, clientId: r.client_id as string | null, queuedAt: r.queued_at as string,
 });
 const receiptOf = (r: Record<string, unknown>): NetmailReceipt => ({
-  ...entryOf(r), state: r.state as NetmailReceipt["state"], settledAt: r.settled_at as string | null, said: r.said as string | null,
+  // One a drain is applying right now is still waiting, as far as anyone reading it knows.
+  ...entryOf(r), state: (r.state === "applying" ? "queued" : r.state) as NetmailReceipt["state"], settledAt: r.settled_at as string | null, said: r.said as string | null,
   resultUri: r.result_uri as string | null, resultRevision: r.result_revision as number | null, proposalUri: r.proposal_uri as string | null,
 });
 
@@ -137,12 +143,18 @@ export class Netmail {
     }
   }
 
-  enqueue(e: Omit<NetmailEntry, "id" | "queuedAt">, now = Date.now()): NetmailEntry {
-    const entry: NetmailEntry = { ...e, id: randomUUID(), queuedAt: new Date(now).toISOString() };
+  /** `id`: one minted before the write was tried live (its comment's request id), so the queued retry is the same write. */
+  enqueue(e: Omit<NetmailEntry, "id" | "queuedAt">, now = Date.now(), id: string = randomUUID()): NetmailEntry {
+    const entry: NetmailEntry = { ...e, id, queuedAt: new Date(now).toISOString() };
     this.db.query(`INSERT INTO entries (id, machine, outline, uri, block_id, tool, input, revision, mirror_revision, text_hash, instance_id, level, actor_id, subject, client_id, queued_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(entry.id, entry.machine, entry.outline, entry.uri, entry.blockId, entry.tool, JSON.stringify(entry.input),
       entry.revision, entry.mirrorRevision, entry.textHash, entry.instanceId, entry.level, entry.actorId, entry.subject, entry.clientId, entry.queuedAt);
     return entry;
+  }
+
+  /** Every machine's waiting entries, oldest first: what `ep0ch mcp queue status` lists, so one can be dropped by its id. */
+  waiting(): NetmailEntry[] {
+    return (this.db.query("SELECT * FROM entries WHERE state = 'queued' ORDER BY queued_at, rowid").all() as Record<string, unknown>[]).map(entryOf);
   }
 
   /** The machine's waiting entries, oldest first; `pulled` records that it dialed in. */
@@ -187,16 +199,51 @@ export class Netmail {
    */
   forBlock(machine: string, outline: string, blockId: string, who: { actorId: string; subject: string }, pending = true): NetmailReceipt[] {
     const principal = parseActor(who.actorId).principal;
-    return (this.db.query(`SELECT * FROM entries WHERE machine = ? AND outline = ? AND block_id = ? AND (subject = ? OR substr(subject, 1, ?) = ?)${pending ? " AND (state = 'queued' OR (state = 'applied' AND result_revision IS NOT NULL))" : ""} ORDER BY queued_at, rowid`)
+    return (this.db.query(`SELECT * FROM entries WHERE machine = ? AND outline = ? AND block_id = ? AND (subject = ? OR substr(subject, 1, ?) = ?)${pending ? " AND (state IN ('queued', 'applying') OR (state = 'applied' AND result_revision IS NOT NULL))" : ""} ORDER BY queued_at, rowid`)
       .all(machine, outline, blockId, who.subject, who.subject.length + 1, `${who.subject}#`) as Record<string, unknown>[]).map(receiptOf).filter(entry => {
         const other = parseActor(entry.actorId).principal;
         return principal !== undefined && other !== undefined ? other === principal : entry.actorId === who.actorId;
       });
   }
 
-  /** Records what the machine's entries became; an id it doesn't hold waiting is skipped. Returns how many settled. */
+  /**
+   * The gateway's drain takes one entry for itself (`applying`): true when it was still waiting, so a pull's take, or
+   * another drain, no longer lists it. `release` puts one whose outcome is unknown back.
+   */
+  claim(id: string): boolean {
+    return this.db.query("UPDATE entries SET state = 'applying' WHERE id = ? AND state = 'queued'").run(id).changes === 1;
+  }
+  release(id: string): void { this.db.query("UPDATE entries SET state = 'queued' WHERE id = ? AND state = 'applying'").run(id); }
+  /**
+   * Every claim back to waiting: run once as the gateway starts (it is the only claimer), so a drain cut off by a restart
+   * (a deploy) is tried again, as a retry, rather than left claimed. Returns how many.
+   */
+  releaseAll(): number { return this.db.query("UPDATE entries SET state = 'queued' WHERE state = 'applying'").run().changes; }
+
+  /** When `machine` last took its entries (a pull), or null. */
+  lastPull(machine: string): string | null {
+    return (this.db.query("SELECT at FROM pulls WHERE machine = ?").get(machine) as { at: string } | null)?.at ?? null;
+  }
+
+  /**
+   * Withdraws waiting entries (`ep0ch mcp queue drop`): each becomes refused, saying `why`, so its receipt says so and no
+   * pull or drain applies it. Answers what each was, or why it wasn't dropped.
+   */
+  drop(ids: readonly string[], why: string, now = Date.now()): { id: string; dropped: boolean; said: string }[] {
+    const at = new Date(now).toISOString();
+    return ids.map(id => {
+      const r = this.receipt(id);
+      if (!r) return { id, dropped: false, said: "no such entry" };
+      const what = `${r.tool} on ${r.uri} by ${r.actorId}, queued ${r.queuedAt}`;
+      if (r.state !== "queued") return { id, dropped: false, said: `${what}: already ${r.state}${r.said ? ` (${r.said})` : ""}` };
+      const n = this.db.query("UPDATE entries SET state = 'refused', settled_at = ?, said = ? WHERE id = ? AND state = 'queued'").run(at, why, id).changes;
+      return n ? { id, dropped: true, said: what } : { id, dropped: false, said: `${what}: taken by a drain just now` };
+    });
+  }
+
+  /** Records what the machine's entries became; an id it doesn't hold waiting (or claimed) is skipped. Returns how many settled. */
   settle(machine: string, results: NetmailSettled[]): number {
-    const q = this.db.query("UPDATE entries SET state = ?, settled_at = ?, said = ?, result_uri = ?, result_revision = ?, proposal_uri = ? WHERE id = ? AND machine = ? AND state = 'queued'");
+    const q = this.db.query("UPDATE entries SET state = ?, settled_at = ?, said = ?, result_uri = ?, result_revision = ?, proposal_uri = ? WHERE id = ? AND machine = ? AND state IN ('queued', 'applying')");
     let n = 0;
     this.db.transaction(() => { for (const r of results) n += q.run(r.state, r.at, r.said, r.uri ?? null, Number.isInteger(r.revision) ? r.revision! : null, typeof r.proposal === "string" ? r.proposal : null, r.id, machine).changes; })();
     return n;
@@ -206,7 +253,7 @@ export class Netmail {
   summaries(): NetmailSummary[] {
     const out = new Map<string, NetmailSummary>();
     const of = (machine: string) => { let s = out.get(machine); if (!s) out.set(machine, s = { machine, waiting: 0, oldest: null, lastPull: null, byOutline: {} }); return s; };
-    for (const r of this.db.query("SELECT machine, outline, count(*) AS n, min(queued_at) AS oldest FROM entries WHERE state = 'queued' GROUP BY machine, outline").all() as { machine: string; outline: string; n: number; oldest: string }[]) {
+    for (const r of this.db.query("SELECT machine, outline, count(*) AS n, min(queued_at) AS oldest FROM entries WHERE state IN ('queued', 'applying') GROUP BY machine, outline").all() as { machine: string; outline: string; n: number; oldest: string }[]) {
       const s = of(r.machine);
       s.waiting += r.n; s.byOutline[r.outline] = r.n;
       if (!s.oldest || r.oldest < s.oldest) s.oldest = r.oldest;
@@ -217,7 +264,7 @@ export class Netmail {
 
   /** The latest entries settled, newest first: for `ep0ch mcp queue status`. */
   settled(limit = 10): (NetmailSettled & { outline: string; machine: string; tool: string; actorId: string })[] {
-    return (this.db.query("SELECT id, machine, outline, tool, actor_id, state, said, result_uri, settled_at FROM entries WHERE state != 'queued' ORDER BY settled_at DESC LIMIT ?").all(limit) as Record<string, string>[])
+    return (this.db.query("SELECT id, machine, outline, tool, actor_id, state, said, result_uri, settled_at FROM entries WHERE state NOT IN ('queued', 'applying') ORDER BY settled_at DESC LIMIT ?").all(limit) as Record<string, string>[])
       .map(r => ({ id: r.id!, machine: r.machine!, outline: r.outline!, tool: r.tool!, actorId: r.actor_id!, state: r.state as NetmailSettled["state"], said: r.said ?? "", ...(r.result_uri ? { uri: r.result_uri } : {}), at: r.settled_at! }));
   }
 
@@ -236,12 +283,16 @@ export function readSummaries(path: string): NetmailSummary[] {
 export const QUEUE_USAGE = `  ep0ch mcp queue [status] [--json]
                                    the remote MCP gateway's queued writes for other machines' outlines (netmail): how many wait
                                    for each machine, the oldest, its last pull, and what the latest became
+  ep0ch mcp queue drop <id>… [--why <words>]
+                                   withdraw waiting writes (a write redone by hand): each is settled as refused, saying why,
+                                   so neither the gateway's drain nor a pull applies it; prints what each was
   ep0ch mcp queue take --machine <name> --json   (run over ssh by that machine's pull) its waiting writes
   ep0ch mcp queue settle --machine <name>        (the same, after applying) what each became, as JSON on stdin
   ep0ch mcp pull [--from <ssh-name>]
                                    on an outline's home machine: apply the writes queued for it on the gateway's machine
                                    (EP0CH_MCP_HUB, its ssh name; this machine is EP0CH_BACKUP_MACHINE there). The backup job
-                                   runs it every 15 minutes`;
+                                   runs it every 15 minutes; the gateway also drains a machine's writes itself, over the link,
+                                   as soon as it reaches that machine again`;
 
 type Io = { out: (line: string) => void; err: (line: string) => void; stdin?: () => Promise<string> };
 
@@ -253,14 +304,30 @@ export async function queueCommand(args: readonly string[], io: Io, env: Env = p
   const file = netmailFile(env);
   if (sub === "status") {
     const sums = readSummaries(file);
+    const read = <T>(f: (n: Netmail) => T, none: T): T => { if (!existsSync(file)) return none; const n = new Netmail(file); try { return f(n); } finally { n.close(); } };
+    const waiting = read(n => n.waiting(), []);
     if (args.includes("--json")) {
-      const recent = existsSync(file) ? (() => { const n = new Netmail(file); try { return n.settled(); } finally { n.close(); } })() : [];
-      io.out(JSON.stringify({ store: file, machines: sums, recent }, null, 2));
+      io.out(JSON.stringify({ store: file, machines: sums, waiting: waiting.map(e => ({ id: e.id, machine: e.machine, outline: e.outline, uri: e.uri, tool: e.tool, actorId: e.actorId, queuedAt: e.queuedAt })), recent: read(n => n.settled(), []) }, null, 2));
       return 0;
     }
     if (!sums.length) { io.out(`no queued writes (${file}${existsSync(file) ? "" : " doesn't exist yet"})`); return 0; }
     for (const s of sums) io.out(`${s.machine}: ${s.waiting} waiting${s.oldest ? `, oldest ${s.oldest}` : ""}${Object.keys(s.byOutline).length ? ` (${Object.entries(s.byOutline).map(([o, n]) => `${o} ${n}`).join(", ")})` : ""}; last pull ${s.lastPull ?? "never"}`);
+    for (const e of waiting) io.out(`  ${e.id}  ${e.tool} ${e.uri}  by ${e.actorId}, queued ${e.queuedAt}`);
+    if (waiting.length) io.out("  (ep0ch mcp queue drop <id>… withdraws one, e.g. a write redone by hand)");
     return 0;
+  }
+  if (sub === "drop") {
+    const whyAt = args.indexOf("--why");
+    if (whyAt >= 0 && (!args[whyAt + 1] || args[whyAt + 1]!.startsWith("--"))) { io.err("ep0ch mcp queue drop: --why needs the words to record"); return 2; }
+    const ids = args.slice(1).filter((a, i) => !a.startsWith("--") && i + 1 !== whyAt + 1);
+    if (!ids.length) { io.err(`ep0ch mcp queue drop: name the entries to withdraw (their ids: \`ep0ch mcp queue status --json\`, or outline_write_status's queueId)\n${QUEUE_USAGE}`); return 2; }
+    if (!existsSync(file)) { io.err(`ep0ch mcp queue drop: nothing was ever queued here (${file} doesn't exist)`); return 1; }
+    const why = whyAt >= 0 ? `withdrawn by hand: ${args[whyAt + 1]}` : "withdrawn by hand (ep0ch mcp queue drop)";
+    const n = new Netmail(file);
+    let out: ReturnType<Netmail["drop"]>;
+    try { out = n.drop(ids, why); } finally { n.close(); }
+    for (const r of out) io.out(`${r.dropped ? "dropped" : "not dropped"} ${r.id}: ${r.said}`);
+    return out.every(r => r.dropped) ? 0 : 1;
   }
   const machine = flagOf(args, "--machine");
   if (!machine || !MACHINE.test(machine)) { io.err(`ep0ch mcp queue ${sub}: --machine <name> names the machine whose writes these are`); return 2; }
@@ -281,7 +348,7 @@ export async function queueCommand(args: readonly string[], io: Io, env: Env = p
     try { io.out(JSON.stringify({ machine, settled: n.settle(machine, results) })); } finally { n.close(); }
     return 0;
   }
-  io.err(`ep0ch mcp queue: ${sub}? one of status, take, settle\n${QUEUE_USAGE}`);
+  io.err(`ep0ch mcp queue: ${sub}? one of status, drop, take, settle\n${QUEUE_USAGE}`);
   return 2;
 }
 
@@ -352,6 +419,15 @@ export interface PullResult { ok: boolean; detail: string; taken: number; settle
 /** The service answered no (or the operation refused before writing): the entry is settled as refused. */
 const definitive = (e: unknown) => e instanceof Refused || (e as Error)?.name === "WorkToolRefusal" || (e as Error)?.name === "DraftPatchRefusal";
 
+/**
+ * Nothing answered: the request timed out, the socket closed under it or wasn't there. Whether the write landed is
+ * unknown, so it is kept (queued, or waiting in the ledger) and tried again as a cut-off write is.
+ */
+export const noAnswer = (e: unknown): boolean => {
+  const code = (e as NodeJS.ErrnoException)?.code, message = (e as Error)?.message ?? "";
+  return !definitive(e) && (["ECONNREFUSED", "ECONNRESET", "ENOENT", "EPIPE", "ETIMEDOUT"].includes(code ?? "") || / timed out$/.test(message) || message === "outline socket closed");
+};
+
 /** What a receipt keeps of a write's answer: the revision it made, or the proposal it became (as the agent operations answer). */
 function receiptDetail(done: WriteOutcome, uri: (blockId: string) => string): Pick<NetmailSettled, "revision" | "proposal"> {
   const d = done.detail as { edits?: { revision?: number }[]; revision?: number; proposalId?: string } | null;
@@ -359,12 +435,30 @@ function receiptDetail(done: WriteOutcome, uri: (blockId: string) => string): Pi
   return { ...(Number.isInteger(revision) ? { revision } : {}), ...(done.outcome === "proposed" && d?.proposalId ? { proposal: uri(d.proposalId) } : {}) };
 }
 
+/** How long before its entry was queued a block counts as made by that write (a live try whose answer was lost). */
+const MADE_SLACK_MS = 60_000;
+
+/** How long after a machine's pull the gateway's drain leaves its entries to that pull. */
+export const PULL_GRACE_MS = 120_000;
+
 /**
- * Applies one queued entry to this machine's outline, as its access allows now; null when the outcome is unknown (the
- * service didn't answer), so it waits for the next pull. `retry`: a write begun before and cut off, whose block may
- * already be made.
+ * An entry whose outcome is unknown (nothing answered, or the outline couldn't be read): it waits, and this says why.
+ * `unanswered`: the link or host didn't answer at all, rather than an error about this one entry.
  */
-export async function applyEntry(board: NotesBoard, e: NetmailEntry, now: () => number, retry = false): Promise<NetmailSettled | null> {
+export interface NetmailWaiting { id: string; waiting: string; unanswered: boolean }
+const firstLine = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0]!;
+
+/**
+ * Applies one queued entry to this machine's outline, as its access allows now; `waiting` (with why) when the outcome
+ * is unknown (the service didn't answer), so it is tried again later. `retry`: a write begun before and cut off, whose
+ * block may already be made.
+ */
+export async function applyEntry(board: NotesBoard, e: NetmailEntry, now: () => number, retry = false): Promise<NetmailSettled | NetmailWaiting> {
+  try { return await applyOnce(board, e, now, retry); }
+  catch (err) { return { id: e.id, waiting: firstLine(err), unanswered: noAnswer(err) }; }
+}
+
+async function applyOnce(board: NotesBoard, e: NetmailEntry, now: () => number, retry: boolean): Promise<NetmailSettled | NetmailWaiting> {
   const at = () => new Date(now()).toISOString();
   const refused = (said: string): NetmailSettled => ({ id: e.id, state: "refused", said, uri: e.uri, at: at() });
   if (!isWriteTool(e.tool)) return refused(`${e.tool} isn't a write this machine knows`);
@@ -376,7 +470,8 @@ export async function applyEntry(board: NotesBoard, e: NetmailEntry, now: () => 
   const input = (e.tool === "outline_comment" || e.tool === "outline_reply" || e.tool === "outline_resolve_thread") && !e.input.requestId ? { ...e.input, requestId: `netmail:${e.id}` } : e.input;
   const write: McpWrite = { tool: e.tool, blockId: e.blockId, input, ...(e.revision !== null ? { revision: e.revision } : {}) };
   if (retry && e.tool === "outline_create") {
-    const made = (await board.children(e.blockId)).find(c => c.text === e.input.text && c.author === e.actorId);
+    // Made by this write, not an older note with the same words: one made around when it was queued, or since.
+    const made = (await board.children(e.blockId)).find(c => c.text === e.input.text && c.author === e.actorId && c.createdAt >= Date.parse(e.queuedAt) - MADE_SLACK_MS);
     if (made) return { id: e.id, state: "applied", said: `created ${uri(made.id)} under ${e.uri} (found made by a pull cut off before; queued ${e.queuedAt})`, uri: uri(made.id), at: at() };
   }
   // Whether the note is still what the mirror showed: the same database at the same revision, or (a database replaced
@@ -397,9 +492,45 @@ export async function applyEntry(board: NotesBoard, e: NetmailEntry, now: () => 
     return { id: e.id, state: done.outcome, said: `${done.said} (queued ${e.queuedAt})`, ...(done.uri ? { uri: done.uri } : {}), ...receiptDetail(done, uri), at: at() };
   } catch (err) {
     if (definitive(err)) return refused(`refused here: ${(err as Error).message}`);
-    return null;
+    return { id: e.id, waiting: firstLine(err), unanswered: noAnswer(err) };
   }
 }
+
+/**
+ * The gateway's drain (PIE-1351): `machine`'s entries for `outline`, oldest first, applied over the link to that machine's
+ * own host (`board`) by the same `applyEntry` a pull uses, each claimed first and settled here. Every entry is applied as
+ * a retry (a create already made under its parent is found, not made again), since a live write whose answer was lost
+ * is queued too. All are claimed before the first is applied, so a pull's take meanwhile lists none of them. Stops at
+ * the first that gets no answer (the link went again: `waiting`), putting the rest back; one whose apply fails for a
+ * reason of its own waits (`stuck`) without holding up those after it.
+ */
+export async function drainNetmail(store: Netmail, board: NotesBoard, machine: string, outline: string, now: () => number = Date.now): Promise<{ settled: NetmailSettled[]; waiting?: string; held?: string; stuck?: string[] }> {
+  const settled: NetmailSettled[] = [];
+  // Entries the machine's own pull took a moment ago (queued before it) may be being applied there: left to it for a
+  // while, and drained if it never says what they became.
+  const pulled = store.lastPull(machine);
+  const pullHas = (e: NetmailEntry) => !!pulled && e.queuedAt <= pulled && now() - Date.parse(pulled) < PULL_GRACE_MS;
+  const entries = store.take(machine).filter(x => x.outline === outline);
+  const mine = entries.filter(e => !pullHas(e) && store.claim(e.id));
+  const held = mine.length < entries.length ? { held: `${machine}'s pull at ${pulled} took ${entries.length - mine.length} of them and may be applying them` } : {};
+  const stuck: string[] = [];
+  for (const [i, e] of mine.entries()) {
+    const r = await applyEntry(board, e, now, true);
+    if ("waiting" in r) {
+      store.release(e.id);
+      if (!r.unanswered) { stuck.push(`${e.id}: ${r.waiting}`); continue; }
+      for (const rest of mine.slice(i + 1)) store.release(rest.id);
+      return { settled, waiting: r.waiting, ...held, ...(stuck.length ? { stuck } : {}) };
+    }
+    store.settle(machine, [r]);
+    settled.push(r);
+  }
+  return { settled, ...held, ...(stuck.length ? { stuck } : {}) };
+}
+
+/** What settled entries became, in words: `2 applied, 1 proposed`. */
+export const countsOf = (settled: readonly NetmailSettled[]): string =>
+  (["applied", "proposed", "unchanged", "refused"] as const).map(s => [s, settled.filter(r => r.state === s).length] as const).filter(([, n]) => n).map(([s, n]) => `${n} ${s}`).join(", ");
 
 /** One pull: take this machine's entries from the hub, apply each, settle them there. */
 export async function pullNetmail(o: PullOptions): Promise<PullResult> {
@@ -419,6 +550,8 @@ export async function pullNetmail(o: PullOptions): Promise<PullResult> {
   const open = o.open ?? (name => boardFor(["--ws", name, "--here"]));
   const boards = new Map<string, NotesBoard | { error: string }>();
   const results: NetmailSettled[] = [];
+  // Why each entry that waits does: said in the pull's answer, so `ep0ch mcp pull` and the job's state name it.
+  const why = new Set<string>();
   let waiting = 0;
   try {
     for (const e of entries) {
@@ -427,12 +560,13 @@ export async function pullNetmail(o: PullOptions): Promise<PullResult> {
       let board = boards.get(e.outline);
       if (!board) boards.set(e.outline, board = await open(e.outline));
       // An outline that isn't open here now waits for the next pull; it isn't settled.
-      if ("error" in board) { say(`netmail: ${e.outline} isn't open here (${board.error}); its writes wait`); waiting++; continue; }
+      if ("error" in board) { say(`netmail: ${e.outline} isn't open here (${board.error}); its writes wait`); waiting++; why.add(`${e.outline} isn't open here: ${board.error}`); continue; }
       ledger[e.id] = { id: e.id, state: "applying", at: new Date(now()).toISOString() };
       writeLedger(o.state, ledger);
-      const r = await applyEntry(board, e, now, !!had).catch(() => null);
+      // Always as a retry: a write queued because its live answer was lost may already be made (found, not made again).
+      const r = await applyEntry(board, e, now, true);
       // Unknown (the service didn't answer): it stays `applying`, and the next pull tries it again.
-      if (!r) { say(`netmail ${e.outline}: ${e.id} got no answer; it waits for the next pull`); waiting++; continue; }
+      if ("waiting" in r) { say(`netmail ${e.outline}: ${e.id} didn't land (${r.waiting}); it waits for the next pull`); waiting++; why.add(`${e.outline}: ${r.waiting}`); continue; }
       ledger[e.id] = r;
       writeLedger(o.state, ledger);
       results.push(r);
@@ -444,7 +578,8 @@ export async function pullNetmail(o: PullOptions): Promise<PullResult> {
   // Entries the ledger holds that the hub no longer lists were settled by an earlier pull whose answer was lost.
   const listed = new Set(entries.map(e => e.id));
   for (const id of Object.keys(ledger)) if (!listed.has(id)) delete ledger[id];
-  if (!results.length) { writeLedger(o.state, ledger); return { ok: true, detail: `${entries.length} queued on ${o.hub}, none applied here yet`, taken: entries.length, settled: [] }; }
+  const because = why.size ? ` (${[...why].join("; ")})` : "";
+  if (!results.length) { writeLedger(o.state, ledger); return { ok: true, detail: `${entries.length} queued on ${o.hub}, none applied here yet${because}`, taken: entries.length, settled: [] }; }
   const settled = await ssh(o.env, o.hub, `ep0ch mcp queue settle --machine ${o.machine}`, JSON.stringify({ results }));
   if (settled.code !== 0) {
     writeLedger(o.state, ledger);
@@ -452,6 +587,5 @@ export async function pullNetmail(o: PullOptions): Promise<PullResult> {
   }
   for (const r of results) delete ledger[r.id];
   writeLedger(o.state, ledger);
-  const counts = (["applied", "proposed", "unchanged", "refused"] as const).map(s => [s, results.filter(r => r.state === s).length] as const).filter(([, n]) => n).map(([s, n]) => `${n} ${s}`).join(", ");
-  return { ok: true, detail: `${results.length} from ${o.hub}: ${counts}${waiting ? `; ${waiting} wait for the next pull` : ""}`, taken: entries.length, settled: results };
+  return { ok: true, detail: `${results.length} from ${o.hub}: ${countsOf(results)}${waiting ? `; ${waiting} wait for the next pull${because}` : ""}`, taken: entries.length, settled: results };
 }

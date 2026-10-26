@@ -13,7 +13,7 @@ import { forwardFor } from "@ep0ch/outliner/machine-forward";
 import { gatewayConfig, machineOutlines, startGateway, type Gateway } from "../src/mcp-gateway";
 import { LiveMachines } from "../src/mcp-live";
 import { OutlineMirror } from "../src/mcp-mirror";
-import { pullNetmail } from "../src/mcp-netmail";
+import { drainNetmail, Netmail, pullNetmail, queueCommand } from "../src/mcp-netmail";
 import { canonicalLocalMachineName, type NotesBoard } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
 import { outliner, ScratchHost, scratchDir } from "./scratch";
@@ -35,7 +35,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
   const ids: Record<string, string> = {};
   const forwardEnv: Record<string, string> = {};
   const pullEnv: Record<string, string> = {};
-  let nextId = 1, clock = Date.now(), forwardCalls = 0;
+  let nextId = 1, clock = Date.now(), forwardCalls = 0, queuedKeys = "";
 
   const boardOn = (host: ScratchHost, outline: string, machine: string): NotesBoard => {
     const b = Object.assign(new SocketBoard(host.sock, 30_000, outline), { address: { outline, machine } });
@@ -111,7 +111,8 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
     if ("error" in config) throw new Error(config.error);
     const mirror = new OutlineMirror("attic-notes", FAR, mirrors, line => logs.push(line), Date.now, async () => null);
-    const outlines = machineOutlines(undefined, line => logs.push(line), async () => ({ error: "no local outlines" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), live);
+    // The gateway's own tries (its drain's timer) are off here, so the backoff's counts are the calls'; the drain test starts its own.
+    const outlines = machineOutlines(undefined, line => logs.push(line), async () => ({ error: "no local outlines" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), live, undefined, { drainEveryMs: 0, writeWaitMs: 0 });
     closeOutlines = outlines.close;
     gateway = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: line => logs.push(line) });
   }, 90_000);
@@ -171,7 +172,10 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     expect(row).toMatchObject({ source: "mirror", writes: "queued", route: { via: "mirror", why: expect.stringContaining("didn't answer") } });
     // The write queues, and the caller's own read shows it laid over the mirror.
     const queued = await tool("outline_patch", { ref: ids.keys, outline: "attic-notes", revision: read.json.revision, patches: [{ observed: "Three brass keys", replacement: "Four brass keys" }] });
-    expect(queued.json).toMatchObject({ outcome: "queued", queuedFor: `attic-notes@${FAR}` });
+    expect(queued.json).toMatchObject({ outcome: "queued", queuedFor: `attic-notes@${FAR}`, why: expect.stringContaining(`${FAR} didn't answer over link or ssh`) });
+    // It says why it queued, and that it lands when the gateway reaches the laptop again, not only at a pull.
+    expect(queued.json.said).toMatch(new RegExp(`^${FAR} didn't answer over link or ssh.*: queued for attic-notes@${FAR} \\(${FAR} hasn't pulled yet\\); it lands when this server reaches ${FAR} again`));
+    queuedKeys = queued.json.queueId;
     expect((await farRecord(ids.keys!)).text).toContain("Three brass keys");
     const again = await tool("outline_read", { ref: ids.keys, outline: "attic-notes" });
     expect(again.json.pending).toBeTruthy();
@@ -189,27 +193,25 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     expect(forwardCalls).toBe(calls + 1);
   }, 90_000);
 
-  test("the laptop is back: live again after the backoff, the queued write still overlays the read, a live write and the queued one apply once each", async () => {
+  test("the laptop is back: the first call that finds it live drains what was queued, in order, before its own write; nothing is left for a pull", async () => {
     laptopBack();
-    // Still inside the backoff of the last failed try: the mirror, then live once it has passed.
+    // Still inside the backoff of the last failed try: a read keeps to the mirror, then is live once it has passed.
     expect((await tool("outline_read", { ref: ids.keys, outline: "attic-notes" })).json.reachability.source).toBe("mirror");
     clock += 50_000;
     const read = await tool("outline_read", { ref: ids.keys, outline: "attic-notes" });
     expect(read.json.reachability).toMatchObject({ source: "live", machine: FAR });
-    expect(read.json.pending).toBeTruthy();
-    // The patch queued while the laptop was away is still waiting; a live patch to the same note goes straight through.
-    const keysNow = await tool("outline_read", { ref: ids.keys, outline: "attic-notes" });
-    const second = await tool("outline_patch", { ref: ids.keys, outline: "attic-notes", revision: keysNow.json.revision, patches: [{ observed: "brass keys", replacement: "brass and iron keys" }] });
-    expect(second.json).toMatchObject({ outcome: "applied", source: "live", queuedEarlier: [expect.any(String)] });
-    expect(second.json.said).toContain("still queued");
-    // The laptop pulls: the queued patch was made against the note's old revision, so it is proposed, not applied over the live edit.
-    const first = await pull();
-    expect(first).toMatchObject({ ok: true, taken: 1 });
-    expect(first.settled.map(s => s.state)).toEqual(["proposed"]);
-    const text = (await farRecord(ids.keys!)).text;
-    expect(text).toContain("Three brass and iron keys");
-    expect(text).not.toContain("Four");
-    // A second pull applies nothing again.
+    // The patch queued while the laptop was away landed over the link before the read was answered.
+    expect((await farRecord(ids.keys!)).text).toContain("Four brass keys");
+    expect(read.json.pending).toBeFalsy();
+    const status = await tool("outline_write_status", { queueId: queuedKeys });
+    expect(status.json).toMatchObject({ state: "applied" });
+    // A live patch after it goes straight through, with nothing still queued before it.
+    const second = await tool("outline_patch", { ref: ids.keys, outline: "attic-notes", revision: read.json.revision, patches: [{ observed: "brass keys", replacement: "brass and iron keys" }] });
+    expect(second.json).toMatchObject({ outcome: "applied", source: "live" });
+    expect(second.json.queuedEarlier).toBeUndefined();
+    expect((await farRecord(ids.keys!)).text).toContain("Four brass and iron keys");
+    expect(logs.join("\n")).toContain(`mcp drain: attic-notes@${FAR}: 1 applied`);
+    // The laptop's pull finds nothing: the gateway settled it.
     expect(await pull()).toMatchObject({ ok: true, taken: 0 });
   }, 120_000);
 
@@ -222,11 +224,117 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     clock += 50_000;
     const l = await tool("outline_create", { ref: ids.map, outline: "attic-notes", text: "Live child" });
     expect(l.json).toMatchObject({ outcome: "applied", source: "live" });
-    expect((await pull()).settled.map(s => s.state)).toEqual(["applied"]);
-    expect((await childrenOf(ids.map!)).sort()).toEqual(["Live child", "Queued child"]);
     expect(await pull()).toMatchObject({ taken: 0 });
-    expect((await childrenOf(ids.map!)).length).toBe(2);
+    expect((await childrenOf(ids.map!)).sort()).toEqual(["Live child", "Queued child"]);
   }, 120_000);
+
+  test("a write inside the backoff of a failed try tries the laptop again before it queues (a short link drop)", async () => {
+    laptopAway();
+    clock += 50_000;
+    expect((await tool("outline_read", { ref: ids.trunk, outline: "attic-notes" })).json.reachability.source).toBe("mirror");
+    // The link is back seconds later: a read inside the backoff still keeps to the mirror; a write tries again, and lands.
+    laptopBack();
+    clock += 1000;
+    expect((await tool("outline_read", { ref: ids.trunk, outline: "attic-notes" })).json.reachability.source).toBe("mirror");
+    const w = await tool("outline_create", { ref: ids.trunk, outline: "attic-notes", text: "Written just after the drop" });
+    expect(w.json).toMatchObject({ outcome: "applied", source: "live" });
+    expect(await childrenOf(ids.trunk!)).toContain("Written just after the drop");
+  }, 60_000);
+
+  test("a write rides out a link restart (a deploy's): it waits a few seconds for the laptop instead of queueing", async () => {
+    const own = new LiveMachines({ forward: m => forwardFor(m, here.outlines, forwardEnv as NodeJS.ProcessEnv), now: () => clock, budgetMs: 30_000, backoffMs: 45_000 });
+    const mirror = new OutlineMirror("attic-notes", FAR, mirrors, () => {}, Date.now, async () => null);
+    const outlines = machineOutlines(undefined, () => {}, async () => ({ error: "none" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), own, undefined, { drainEveryMs: 0, writeWaitMs: 10_000 });
+    const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
+    if ("error" in config) throw new Error(config.error);
+    const gw = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: () => {} });
+    try {
+      laptopAway();
+      // The link comes back two seconds into the write.
+      setTimeout(laptopBack, 2000);
+      const w = await tool("outline_create", { ref: ids.map, outline: "attic-notes", text: "Written across a restart" }, gw);
+      expect(w.json).toMatchObject({ outcome: "applied", source: "live" });
+      expect((await childrenOf(ids.map!)).filter(t => t === "Written across a restart")).toHaveLength(1);
+    } finally { gw.stop(); outlines.close(); laptopBack(); }
+  }, 60_000);
+
+  test("with no call and no pull, the gateway drains a laptop's queued writes within seconds of its link coming back", async () => {
+    const own = new LiveMachines({ forward: m => forwardFor(m, here.outlines, forwardEnv as NodeJS.ProcessEnv), now: () => clock, budgetMs: 30_000, backoffMs: 45_000 });
+    const mirror = new OutlineMirror("attic-notes", FAR, mirrors, () => {}, Date.now, async () => null);
+    const quiet: string[] = [];
+    const outlines = machineOutlines(undefined, line => quiet.push(line), async () => ({ error: "none" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), own, undefined, { drainEveryMs: 150, writeWaitMs: 0 });
+    const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
+    if ("error" in config) throw new Error(config.error);
+    const gw = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: () => {} });
+    try {
+      laptopAway();
+      const q = await tool("outline_create", { ref: ids.keys, outline: "attic-notes", text: "Queued while the link was down" }, gw);
+      expect(q.json).toMatchObject({ outcome: "queued", why: expect.stringContaining("didn't answer") });
+      const p = await tool("outline_comment", { ref: ids.keys, outline: "attic-notes", whole: true, body: "A note on the keys, queued" }, gw);
+      expect(p.json.outcome).toBe("queued");
+      // Within the backoff, with no call coming in and the laptop never pulling: the gateway's own try finds it back.
+      laptopBack();
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline && !(await childrenOf(ids.keys!)).includes("Queued while the link was down")) await Bun.sleep(100);
+      expect((await childrenOf(ids.keys!)).filter(t => t === "Queued while the link was down")).toHaveLength(1);
+      for (let i = 0; i < 50 && (await tool("outline_write_status", { queueId: p.json.queueId }, gw)).json.state !== "applied"; i++) await Bun.sleep(100);
+      expect((await tool("outline_write_status", { queueId: q.json.queueId }, gw)).json).toMatchObject({ state: "applied" });
+      expect((await tool("outline_write_status", { queueId: p.json.queueId }, gw)).json).toMatchObject({ state: "applied" });
+      expect(quiet.join("\n")).toMatch(/mcp drain: attic-notes@laptop: \d+ applied/);
+      expect(await pull()).toMatchObject({ ok: true, taken: 0 });
+    } finally { gw.stop(); outlines.close(); laptopBack(); }
+  }, 60_000);
+
+  test("a live write whose answer is lost is queued with why, as the same write, and lands once", async () => {
+    // A stand-in link that passes everything to the laptop's host but loses the answer to one create.
+    const proxy = join(dir, "lossy.sock");
+    let lose = true;
+    const server: Server = createServer(c => {
+      const up = connect(far.sock);
+      const dropped = new Set<unknown>();
+      let inBuf = "", outBuf = "";
+      c.on("data", d => {
+        inBuf += d.toString();
+        for (let nl = inBuf.indexOf("\n"); nl >= 0; nl = inBuf.indexOf("\n")) {
+          const line = inBuf.slice(0, nl); inBuf = inBuf.slice(nl + 1);
+          const msg = JSON.parse(line);
+          if (lose && msg.action === "create") { lose = false; dropped.add(msg.id); }
+          up.write(line + "\n");
+        }
+      });
+      up.on("data", d => {
+        outBuf += d.toString();
+        for (let nl = outBuf.indexOf("\n"); nl >= 0; nl = outBuf.indexOf("\n")) {
+          const line = outBuf.slice(0, nl); outBuf = outBuf.slice(nl + 1);
+          if (!dropped.has(JSON.parse(line).id)) c.write(line + "\n");
+        }
+      });
+      const end = () => { c.destroy(); up.destroy(); };
+      c.on("error", end); up.on("error", end); c.on("close", end); up.on("close", end);
+    });
+    await new Promise<void>(r => server.listen(proxy, r));
+    const lossy = new LiveMachines({ forward: async () => ({ socket: proxy }), now: () => clock, budgetMs: 10_000, backoffMs: 45_000, requestTimeoutMs: 1500 });
+    const mirror = new OutlineMirror("attic-notes", FAR, mirrors, () => {}, Date.now, async () => null);
+    const outlines = machineOutlines(undefined, () => {}, async () => ({ error: "none" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), lossy, undefined, { drainEveryMs: 0, writeWaitMs: 0 });
+    const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
+    if ("error" in config) throw new Error(config.error);
+    const gw = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: () => {} });
+    try {
+      const w = await tool("outline_create", { ref: ids.lamps, outline: "attic-notes", text: "A lamp whose answer was lost" }, gw);
+      expect(w.isError, w.text).toBe(false);
+      expect(w.json).toMatchObject({ outcome: "queued", why: expect.stringContaining("didn't answer the write"), base: { source: "live" } });
+      // It did land on the laptop; the answer was what got lost.
+      expect((await childrenOf(ids.lamps!)).filter(t => t === "A lamp whose answer was lost")).toHaveLength(1);
+      // The next call that finds the laptop live drains it: found made, not made again.
+      clock += 50_000;
+      expect((await tool("outline_read", { ref: ids.lamps, outline: "attic-notes" }, gw)).json.reachability.source).toBe("live");
+      const status = (await tool("outline_write_status", { queueId: w.json.queueId }, gw)).json;
+      expect(status).toMatchObject({ state: "applied" });
+      expect(status.said).toContain("found made");
+      expect((await childrenOf(ids.lamps!)).filter(t => t === "A lamp whose answer was lost")).toHaveLength(1);
+      expect(await pull()).toMatchObject({ ok: true, taken: 0 });
+    } finally { gw.stop(); outlines.close(); server.close(); }
+  }, 60_000);
 
   test("a host on another protocol is as good as away: the mirror serves, and the reason names the command to run on the laptop", async () => {
     // A stand-in host that answers the forward's questions but speaks another PROTOCOL.
@@ -342,7 +450,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     let proxyDown = false;
     const named = new LiveMachines({ forward: async () => { if (proxyDown) throw new Error("no route to host"); return { socket: proxy }; }, now: () => clock, budgetMs: 10_000 });
     const mirror = new OutlineMirror("attic-notes", FAR, mirrors, () => {}, Date.now, async () => null);
-    const outlines = machineOutlines(undefined, () => {}, async () => ({ error: "none" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), named);
+    const outlines = machineOutlines(undefined, () => {}, async () => ({ error: "none" }), [mirror], async () => [], join(mirrors, ".netmail.sqlite"), named, undefined, { drainEveryMs: 0, writeWaitMs: 0 });
     const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
     if ("error" in config) throw new Error(config.error);
     const gw = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: () => {} });
@@ -375,4 +483,74 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
       expect((await childrenOf(ids.trunk!)).filter(t => t.startsWith("Queued under"))).toEqual(["Queued under the machine's own name"]);
     } finally { gw.stop(); outlines.close(); server.close(); rmSync(join(mirrors, ".home"), { recursive: true, force: true }); }
   }, 60_000);
+});
+
+describe("the hub's queue: a drain's claim, and withdrawing a write by hand", () => {
+  const entry = (outline: string) => ({ machine: "laptop", outline, uri: `ep0ch://${outline}@laptop/b/b1`, blockId: "b1", tool: "outline_create" as const, input: { text: "Spare fuse" },
+    revision: null, mirrorRevision: null, textHash: null, instanceId: null, level: "full" as const, actorId: "mcp:daddy/chat.example.test", subject: "user_fictional_a", clientId: null });
+
+  test("an entry the gateway's drain has claimed is not taken by a pull, still counts as waiting, and goes back when its outcome is unknown", () => {
+    const dir = scratchDir("ep0ch-netmail-claim-");
+    const n = new Netmail(join(dir, ".netmail.sqlite"));
+    try {
+      const e = n.enqueue(entry("shed-notes"));
+      expect(n.claim(e.id)).toBe(true);
+      expect(n.claim(e.id)).toBe(false);
+      expect(n.take("laptop")).toEqual([]);
+      expect(n.summaries()[0]).toMatchObject({ waiting: 1 });
+      expect(n.receipt(e.id)!.state).toBe("queued");
+      n.release(e.id);
+      expect(n.take("laptop").map(x => x.id)).toEqual([e.id]);
+      // A drain a restart cut off: the gateway, starting, puts its claims back.
+      expect(n.claim(e.id)).toBe(true);
+      expect(n.releaseAll()).toBe(1);
+      expect(n.take("laptop").map(x => x.id)).toEqual([e.id]);
+    } finally { n.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test("entries the laptop's own pull just took are left to it for a while; ones queued after it are drained", async () => {
+    const dir = scratchDir("ep0ch-netmail-held-");
+    const n = new Netmail(join(dir, ".netmail.sqlite"));
+    try {
+      const t0 = Date.parse("2026-03-14T09:00:00.000Z");
+      n.enqueue(entry("shed-notes"), t0);
+      n.take("laptop", t0 + 1000);
+      // No board is needed: nothing of the pull's is applied, and nothing else waits.
+      const r = await drainNetmail(n, {} as never, "laptop", "shed-notes", () => t0 + 5000);
+      expect(r.settled).toEqual([]);
+      expect(r.held).toContain("pull at 2026-03-14T09:00:01.000Z took 1");
+      expect(n.take("laptop")).toHaveLength(1);
+    } finally { n.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test("ep0ch mcp queue drop withdraws waiting writes by id, says what each was, and leaves the rest", async () => {
+    const dir = scratchDir("ep0ch-netmail-drop-");
+    const env = { HOME: dir, EP0CH_MCP_MIRROR_DIR: dir };
+    const n = new Netmail(join(dir, ".netmail.sqlite"));
+    const [a, b, c] = [n.enqueue(entry("shed-notes")), n.enqueue(entry("shed-notes")), n.enqueue(entry("shed-notes"))];
+    n.close();
+    const out: string[] = [], err: string[] = [];
+    const io = { out: (l: string) => out.push(l), err: (l: string) => err.push(l) };
+    try {
+      expect(await queueCommand(["status"], io, env)).toBe(0);
+      expect(out.join("\n")).toContain(`${a.id}  outline_create ep0ch://shed-notes@laptop/b/b1  by mcp:daddy/chat.example.test`);
+      out.length = 0;
+      expect(await queueCommand(["drop", a.id, b.id, "--why", "redone by hand on the laptop"], io, env)).toBe(0);
+      expect(out).toEqual([
+        `dropped ${a.id}: outline_create on ep0ch://shed-notes@laptop/b/b1 by mcp:daddy/chat.example.test, queued ${a.queuedAt}`,
+        `dropped ${b.id}: outline_create on ep0ch://shed-notes@laptop/b/b1 by mcp:daddy/chat.example.test, queued ${b.queuedAt}`,
+      ]);
+      out.length = 0;
+      expect(await queueCommand(["drop", a.id, "no-such-id"], io, env)).toBe(1);
+      expect(out[0]).toContain(`not dropped ${a.id}: outline_create on ep0ch://shed-notes@laptop/b/b1`);
+      expect(out[0]).toContain("already refused (withdrawn by hand: redone by hand on the laptop)");
+      expect(out[1]).toBe("not dropped no-such-id: no such entry");
+      expect(await queueCommand(["drop"], io, env)).toBe(2);
+      const after = new Netmail(join(dir, ".netmail.sqlite"));
+      try {
+        expect(after.take("laptop").map(x => x.id)).toEqual([c.id]);
+        expect(after.receipt(a.id)).toMatchObject({ state: "refused", said: "withdrawn by hand: redone by hand on the laptop" });
+      } finally { after.close(); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
 });

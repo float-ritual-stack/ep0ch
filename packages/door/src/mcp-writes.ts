@@ -15,8 +15,9 @@
 //   (outline_assign_id stamps a work id, and outline_restore brings a note back from Trash, which is no proposal: each is applied at full and refused below it.)
 //   full        applied, through the service's revision checks; a note open in someone's draft merges outside
 //               their cursor block; a conflict is refused without a proposal.
-// An outline whose home is another machine is never written here: its writes queue (src/mcp-netmail.ts), and that
-// machine applies them with this same `applyWrite` when it pulls them.
+// An outline whose home is another machine is never written here: its write goes over the link to that machine's own
+// host (src/mcp-live.ts) and is applied there by this same `applyWrite`; only while that host doesn't answer does it
+// queue (src/mcp-netmail.ts), and the gateway drains the queue over the link once it answers again (or the machine pulls).
 //
 // Every write is `author: agent`, its actor `mcp:[<persona>/]<principal>` (the principal auth proved: the OAuth client, a URL client id by its host, so claude.ai's
 // reads `mcp:claude.ai`, or `claude-code@float-2` on stdio; the persona a declared label within it: `mcp:loki/claude-code@float-2`) and its sessionId the OAuth subject and the call it came in (`<subject>#<call>`, PIE-685), so the outline's activity, the door's flash and the gateway's
@@ -364,7 +365,7 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
     additionalProperties: false,
     oneOf: [{ required: ["ref"] }, { required: ["uri"] }],
   });
-  const answer = "Pass optional persona when an agent other than the connector's owner writes through it (for example, loki); omission keeps today's mapping. The answer says applied, proposed (with why and the proposal's URI) or queued (an outline whose home is another machine: it lands when that machine pulls it), with the block's URI and `by` saying who it was recorded as. " +
+  const answer = "Pass optional persona when an agent other than the connector's owner writes through it (for example, loki); omission keeps today's mapping. The answer says applied, proposed (with why and the proposal's URI) or queued (an outline whose home is another machine that doesn't answer now, saying why: it lands when this server reaches that machine again, within seconds of its link coming back, or the machine pulls it; never write it again by hand), with the block's URI and `by` saying who it was recorded as. " +
     "An outline at `propose` access takes proposals only; `full` applies; `read` takes no writes (list_outlines shows each one's access).";
   const shared = SHARED_WRITE_TOOLS.map(definition => {
     // The block it acts on is the gateway's address (uri, or ref in outline); a thread tool's address is the note it is on.
