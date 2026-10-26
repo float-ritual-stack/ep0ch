@@ -187,6 +187,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
 
   afterAll(async () => {
     for (const s of [...(A().stack ?? []), ...(A().background ?? [])]) end(s);
+    // The last door ends as each one before it did (newApp): what it bound (the outline's extensions) goes with it.
+    try { app?.quit(); } catch { /* gone */ }
     board?.close();
     await scratch.dispose();
     for (const f of restore.splice(0).reverse()) f();

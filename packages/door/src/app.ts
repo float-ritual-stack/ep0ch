@@ -38,7 +38,7 @@ import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
-import { EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, scriptInstallWords, connectScriptActions, scriptPressMessage } from "./extensions";
+import { bindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, scriptInstallWords, connectScriptActions, scriptPressMessage } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
@@ -1262,6 +1262,8 @@ export class App implements Ctx {
     this.display.programStatus?.(null);
     this.disarm();
     this.waitingAsks.stop();
+    // The extensions it bound (their actions, tile kinds, passage choices) go with the door that read them.
+    bindExtensions(null);
     outlineBoards(this).close();
     this.display.dispose();
     this.done();
