@@ -8,6 +8,7 @@ import type { Msg } from "../src/board";
 import { Desk } from "../src/desk/desk";
 import type { ReaderPane } from "../src/desk/panes";
 import type { TreePane } from "../src/desk/tree";
+import { plainly } from "../src/note-move";
 import { MainMenu, MessageList } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
@@ -17,6 +18,11 @@ import { visible } from "../src/style";
 import { outliner, Scratch, until as untilQuick } from "./scratch";
 
 const until = (ok: () => boolean, what: string, ms = 15_000) => untilQuick(ok, what, Math.max(ms, 15_000));
+
+test("a move said to a person names each note by its whole title, parentheses and all (PIE-1289)", () => {
+  const said = "moved ((00000000-0000-4000-8000-000000000021|Rough edges (x))) under ((00000000-0000-4000-8000-000000000022))";
+  expect(plainly(said)).toBe('moved "Rough edges (x)" under that note');
+});
 
 test("the river column loads on its own (a static import cycle through the power bar broke the door's start)", async () => {
   const p = Bun.spawn([process.execPath, "-e", 'await import("./src/river/column.ts")'], { cwd: join(import.meta.dir, ".."), env: { ...process.env, EP0CH_STATE: join(import.meta.dir, "..", ".nonexistent-state") }, stdout: "pipe", stderr: "pipe", stdin: "ignore" });

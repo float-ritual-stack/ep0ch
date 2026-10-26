@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### EchoNet copies keep labelled links whole (PIE-1289)
+
+- **A labelled reference survives the trip.** `((id|Rough edges (x)))` in an echoed note reads `[Rough edges (x)](ep0ch://…)` in
+  the copy (it was cut at the first `)`), `[[PIE-12|the plan]]` links PIE-12 as "the plan" (it looked up a page named
+  `PIE-12|the plan`), and `[[[[2026-10-06]] - notes]]` stays one link. A reference to another outline (`((attic:id))`) stays as written.
+- **One grammar.** The tosser reads links with outline-core's, bundled beside it (`link-grammar.js`, written and checked by
+  `bun scripts/link-grammar.ts`, which also writes the Claude mod's); the door's move messages name a note by its whole title.
+- **Run:** `ep0ch install --apply` on each machine with a node: it refreshes the installed copies, so both ends of a toss read links the same way.
+
 ### A note can leave out its reader header: `[header::none]` (PIE-1319)
 
 - **A dashboard draws only its body.** `[header::none]` on a note's first line leaves out the crumbs, the title and the

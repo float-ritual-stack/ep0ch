@@ -233,6 +233,33 @@ test("an area is a named view: its query, its children and the notes tagged with
   expect(shackList.text).toContain("reads our areas");
 }, 60_000);
 
+test("a copy keeps labelled references and labelled page links whole: label and target, by outline-core's grammar (PIE-1289)", async () => {
+  const { machine, toss, create, board } = await setup(["shack", "cafe"]);
+  await create("shack", "Recon [type::virtual-branch] [query::type=recon] [echo::recon]");
+  const plan = await create("shack", "The plan for the beds [page::bed-plan]");
+  const rough = "00000000-0000-4000-8000-000000000011";
+  await create("shack", [
+    "Recon: labels survive [type::recon]",
+    "",
+    `See ((${rough}|Rough edges (x))) and ((${rough}^beds|the beds)).`,
+    "The plan: [[bed-plan|the plan]], or [[bed-plan]].",
+    "Yesterday: [[[[2026-10-06]] - notes]].",
+    "Elsewhere: ((attic:00000000-0000-4000-8000-000000000012|the attic's)) and [web](https://example.com/a_(b)).",
+  ].join("\n"));
+  const sub = await create("cafe", `Recon from the shack [subscribe::shack@${machine}] [echo::recon] [since::all]`);
+  await toss("shack");
+  await toss("cafe");
+  const { copies } = await board("cafe", sub, `shack@${machine}`);
+  const uri = (id: string) => `ep0ch://shack@${machine}/b/${id}`;
+  expect(copies.map((copy) => copy.text.split("\n").slice(1).join("\n"))).toEqual([[
+    "",
+    `See [Rough edges (x)](${uri(rough)}) and [the beds](${uri(rough)}#beds).`,
+    `The plan: [the plan](${uri(plan.id)}), or [bed-plan](${uri(plan.id)}).`,
+    "Yesterday: 2026-10-06 - notes (in shack).",
+    "Elsewhere: ((attic:00000000-0000-4000-8000-000000000012|the attic's)) and [web](https://example.com/a_(b)).",
+  ].join("\n")]);
+}, 60_000);
+
 test("a toss that moved nothing writes no log; its nodelist's last toss and its bulletin say it ran (PIE-798)", async () => {
   const { machine, outlines, toss, create, where, board } = await setup(["shack", "cafe"]);
   await create("shack", "Plot 1: the beans are up [echo::plot]");

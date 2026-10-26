@@ -26,6 +26,7 @@
 // has for it waits.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { BLOCK_ID_PATTERN, linkOccurrences, pageAddressReferences, pageAddressText } from "./link-grammar.js";
 import { lockFile } from "./lock";
 import { outline, type OutlineRequest, type Route } from "./outline";
 import {
@@ -396,10 +397,19 @@ function localProse(origin: Origin, text: string): string {
   const uri = (id: string) => `ep0ch://${origin.node.id}/b/${id}`;
   let out = text.replace(OWNED, (_all, key: string, value: string) => (key === "welcome" ? "" : `[from-${key}::${value}]`))
     .replace(TRANSPORT, (_all, key: string, value: string) => `[source-${key}::${value}]`);
-  out = out.replace(/!?\(\(([0-9a-f-]{36})(?:\|([^)]*))?\)\)/g, (_all, id: string, label?: string) => `[${label?.trim() || `a note in ${origin.node.outline}`}](${uri(id)})`);
-  for (const page of new Set([...out.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1]!))) {
-    const id = origin.page(page);
-    out = out.split(`[[${page}]]`).join(id ? `[${page}](${uri(id)})` : `${page} (in ${origin.node.outline})`);
+  // The links as outline-core reads them (labels with parentheses, `[[page|label]]`, a page whose address holds one), each
+  // replaced whole, last first so the offsets hold. A reference qualified with another outline, or by a short id, stays as written.
+  for (const link of linkOccurrences(out, []).reverse()) {
+    let local: string | undefined;
+    if (link.kind === "block" && !link.outline && BLOCK_ID_PATTERN.test(link.blockId)) {
+      const label = link.label === undefined ? `a note in ${origin.node.outline}` : pageAddressText(link.label.trim());
+      local = `[${label}](${uri(link.blockId)}${link.fragmentId ? `#${link.fragmentId}` : ""})`;
+    } else if (link.kind === "page" && !link.outline) {
+      const id = origin.page(link.displayAddress);
+      const label = link.label ?? pageAddressText(link.displayAddress);
+      local = id ? `[${label}](${uri(id)})` : `${label} (in ${origin.node.outline})`;
+    }
+    if (local !== undefined) out = out.slice(0, link.start) + local + out.slice(link.end);
   }
   return out;
 }
@@ -1040,8 +1050,9 @@ async function buildBulletin(lastToss: string | undefined): Promise<Bulletin> {
     }
   }
   const pages: Record<string, string | null> = {};
-  for (const id of messages) for (const match of (blocks[id]?.text ?? "").matchAll(/\[\[([^\]]+)\]\]/g)) {
-    const name = match[1]!;
+  for (const id of messages) for (const link of pageAddressReferences(blocks[id]?.text ?? "")) {
+    const name = link.displayAddress;
+    if (link.nested || link.outline) continue;
     if (name in pages) continue;
     const resolved = await mine<{ status: string; block?: { id: string } }>({ action: "pages.resolve", address: name }).catch(() => undefined);
     pages[name] = resolved?.status === "resolved" && resolved.block ? resolved.block.id : null;
