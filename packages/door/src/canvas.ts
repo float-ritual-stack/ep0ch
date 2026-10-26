@@ -117,6 +117,22 @@ export class Canvas {
     line[x] = c;
   }
 
+  /**
+   * `from`'s cells in `r` written over these (the screen's floats and menus put back above the drawer, PIE-1221). A
+   * wide glyph cut by the rectangle's edge leaves a space, so the row keeps its width.
+   */
+  copy(from: Canvas, r: Rect): void {
+    const x0 = Math.max(0, r.col), x1 = Math.min(r.col + r.cols, this.cols, from.cols);
+    for (let y = Math.max(0, r.row); y < r.row + r.rows && y < this.rows && y < from.rows; y++) {
+      const src = from.cells[y]!, line = this.cells[y]!;
+      for (let x = x0; x < x1; x++) {
+        const c = src[x]!;
+        const cut = (x === x0 && c.ch === "") || (x === x1 - 1 && src[x + 1]?.ch === "");
+        this.put(line, x, cut ? { ch: " ", sgr: c.sgr } : { ...c });
+      }
+    }
+  }
+
   /** Blank a rectangle (used under floating overlays). */
   clear(r: Rect, sgr = ""): void {
     for (let y = r.row; y < r.row + r.rows; y++) {

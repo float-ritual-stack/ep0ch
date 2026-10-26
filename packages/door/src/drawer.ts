@@ -66,7 +66,7 @@ import { words } from "./text";
 import { WHAT_CHANGED_KIND_NAME, type WhatChangedPane } from "./desk/what-changed";
 import { realTileDeps, tileOf, type TileOfAnswer, type TileProc } from "./tile-of";
 import { isBarKey } from "./shell-keys";
-import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, lockChipText, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
+import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, layerOrder, layersAbove, lockChipText, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
 import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, preset, agentLabel, type ActRequest, type Again } from "./surface/actions";
@@ -1487,6 +1487,24 @@ export class AgentDrawer {
   /** The drawer's desk's rows on the terminal: the drawer's, below its bar. */
   private deskRow(): number { return (this.rect?.row ?? 0) + 1; }
 
+  /**
+   * The drawer's cells the screen shown draws over (PIE-1221), by the one layer order (`layerOrder`): its menus always,
+   * its floats unless the person is in the drawer. The frame paints the screen's cells there (`paint`, shadows
+   * included), and a click there is the screen's (`hit`).
+   */
+  covers(shown: Screen | undefined): { paint: Rect[]; hit: Rect[] } {
+    const r = this.shown ? this.rect : null, d = tilesOf(shown);
+    if (!r || !d || d === this.d) return { paint: [], hit: [] };
+    const above = layersAbove(layerOrder({ inDrawer: this.entered }), "drawer"), drawn = d.drawnAbove();
+    const floats = above.includes("floats") ? drawn.floats : [], menus = above.includes("menus") ? drawn.menus : [];
+    const clip = (b: Rect): Rect[] => {
+      const col = Math.max(b.col, r.col), row = Math.max(b.row, r.row);
+      const cols = Math.min(b.col + b.cols, r.col + r.cols) - col, rows = Math.min(b.row + b.rows, r.row + r.rows) - row;
+      return cols > 0 && rows > 0 ? [{ col, row, cols, rows }] : [];
+    };
+    return { paint: [...floats.map(f => f.shade), ...menus].flatMap(clip), hit: [...floats.map(f => f.rect), ...menus].flatMap(clip) };
+  }
+
   private mouse(k: Extract<Key, { kind: "mouse" }>, shown: Screen | undefined, rows: number, run: DrawerRun): boolean {
     const screen = tilesOf(shown);
     if (this.dragging) {
@@ -1498,7 +1516,9 @@ export class AgentDrawer {
     const r = this.shown ? this.rect : null;
     const chip = this.chipAt;
     const onChip = !!chip && k.y === chip.row && k.x >= chip.from && k.x < chip.to;
-    const inDrawer = !!r && k.y >= r.row && k.y < r.row + r.rows;
+    // A cell the screen's float or menu is drawn over (covers) is the screen's, its edge and chips too.
+    const covered = this.covers(shown).hit.some(c => k.x >= c.col && k.x < c.col + c.cols && k.y >= c.row && k.y < c.row + c.rows);
+    const inDrawer = !!r && k.y >= r.row && k.y < r.row + r.rows && !covered;
     // alt+l waiting for a tile (PIE-700): a click on the other desk picks it, the drawer's list linking to a reader of the
     // screen above or a screen tile to one in the drawer; the keys stay where they are.
     if (k.action === "down" && screen && this.d && screen !== this.d) {

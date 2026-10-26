@@ -3432,6 +3432,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.tileSpots = [];
     this.pointerHits = [];
     this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.dockCloses = []; this.floatButtons = []; this.foldButtons = []; this.liftButtons = []; this.holdButtons = []; this.closeButtons = []; this.wireChips = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
+    this.raised = { floats: [], menus: [] };
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
     // A tile drawn over another (a flow's column over a peek's box, a dock, a float) takes away the images under it;
     // drawTile paints every cell of its box.
@@ -3458,6 +3459,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (id === this.focus && this.keysHere()) canvas.backdrop(values);
       canvas.shadow(r, values);
       lay(id, r, false, true);
+      if (this.floatDrag?.id !== id) this.raised.floats.push({ rect: r, shade });
       canvas.under(r, bgRgb(floatTheme(values).bg));
       canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
     }
@@ -3509,6 +3511,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (hintSetting(card.id, look.hints) !== "card") { card.clearHits(); continue; }
       const rect = card.draw(canvas, anchor, area, look.hints === "brief", this.hintPointer, TONE[look.tone], look);
       this.overlayHits.push(rect);
+      this.raised.menus.push(rect);
       placements = uncover(placements, rect);
     }
     this.completionFloat = null;
@@ -3525,6 +3528,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       lines.forEach((line, i) => canvas.text(rect.col, rect.row + i, line, rect.cols));
       this.completionFloat = { completer: completion, rect, origin };
       this.overlayHits.push(rect);
+      this.raised.menus.push(rect);
       placements = uncover(placements, rect);
     }
     // Images would bleed through an overlay.
@@ -3532,6 +3536,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const p = this.focusedPane(), values = p ? this.lookAt(p, cols).values : lookFor(this.lookSrc, { screen: this.name }, cols).values;
       withRowLimit(values["rows.lines"], () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 }, values));
       placements = [];
+      const box = o.drawn();
+      if (box) this.raised.menus.push({ ...box, cols: box.cols + 1, rows: box.rows + 1 });
     }
     // A screen mounted in a tile has no hint row of its own: the outermost screen's says the focused tile's keys (PIE-1305).
     // It still works its own chord box out (the person is in it), which draws in its rectangle. A tile lifted out of it
@@ -6617,6 +6623,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(p.id), pane: p.n, axis, by };
   }
 
+  /** What the last frame drew that may sit above your drawer (`drawnAbove`). */
+  private raised: { floats: { rect: Rect; shade: Rect }[]; menus: Rect[] } = { floats: [], menus: [] };
+  /**
+   * What this desk drew that may sit above your drawer (PIE-1221; the order is `layerOrder`'s, read by the host layer's
+   * `covers`), in the screen's cells: its floats, each with its shadow (`shade`), the one being dragged left out so a drop
+   * into the drawer still finds the drawer; and its menus (a picker, a hint card, a completion list), shadows included.
+   */
+  drawnAbove(): { floats: { rect: Rect; shade: Rect }[]; menus: Rect[] } {
+    const o = this.screenOrigin, at = (r: Rect): Rect => ({ ...r, col: r.col + o.col, row: r.row + o.row });
+    return { floats: this.raised.floats.map(f => ({ rect: at(f.rect), shade: at(f.shade) })), menus: this.raised.menus.map(at) };
+  }
   get lifted() { return this.layout.lift; }
   /** Pane `p` is the tile lifted on this desk. */
   liftsPane(p: Pane): boolean { const l = this.layout.lift; return !!l && this.panes.get(l.tile) === p; }

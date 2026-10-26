@@ -18,7 +18,7 @@ import { actorLabel } from "@ep0ch/outline-core/attribution";
 import { lookFor, tuningOf } from "./look";
 import { nextFrame, onMediaChange } from "./media";
 import { onResizeEnd, resizing } from "./resize";
-import { uncover, type Placement } from "./kitty";
+import { uncover, within, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
@@ -1606,10 +1606,21 @@ export class App implements Ctx {
     let placements = this.graphics ? [...(frame.placements ?? [])] : [];
     if (this.drawer.shown) {
       const d = this.drawer.render(cols, rows, s.title);
+      const screen = lines, screenPlacements = placements;
       lines = overlay(lines, d);
       // Images under the drawer would show through it; the drawer's tiles' own are drawn in it.
       // One running down under it is cut short at its edge (a spine's long title, PIE-794), not dropped whole.
       placements = [...uncover(placements, { col: 0, row: d.rect.row, cols, rows: rows - d.rect.row }), ...(this.graphics ? d.placements : [])];
+      // The screen's floats and menus above the drawer (PIE-1221, layerOrder): their cells and pictures, as the screen drew them.
+      const covers = this.drawer.covers(s).paint;
+      if (covers.length) {
+        const under = new Canvas(cols, rows - 1), canvas = new Canvas(cols, rows - 1);
+        screen.forEach((line, row) => under.text(0, row, line, cols));
+        lines.forEach((line, row) => canvas.text(0, row, line, cols));
+        for (const r of covers) canvas.copy(under, r);
+        lines = canvas.lines();
+        placements = [...covers.reduce(uncover, placements), ...covers.flatMap(r => screenPlacements.flatMap(p => within(p, r) ?? []))];
+      }
       // Your drawer's ^W panel (PIE-1338), over the whole screen: the drawer's rows are too few for it.
       const keysDesk = this.drawer.desk;
       if (keysDesk?.keyPanelOpen()) {
