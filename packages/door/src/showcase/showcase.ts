@@ -943,6 +943,24 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "ext-settings", need: "see an extension's settings (set, its default and what that does, missing, failing with its last error), where they live, and change them without opening a file",
+    part: "an extension's settings (PIE-1343): the service reads each one's config.json against its manifest's configSchema and secrets and lists the state on extensions.list (outliner src/extension-settings.ts); the power bar's extensions scope (&) puts the state on its row and a settings row beside it; ext.<id>.settings is an action whose arguments are the schema's fields (src/extension-settings.ts: the one new part, the schema-to-argument mapping), so ⏎ opens the action form every action with arguments has (src/bar/form.ts, askInBar), filled with what config.json has; the service checks a change against the schema and writes config.json on the host (extensions.configure), and the next call uses it; tidy's failure says where to fix it",
+    files: "outliner src/extension-settings.ts, outliner src/server.ts (extensions.configure), src/extension-settings.ts, src/bar/sources.ts (EXTENSIONS), src/bar/form.ts",
+    aside: "ctrl+k then & settings tidy: its row says default: claude -p --model haiku --tools \"\", ⏎ opens its form (answer, filled with what's set), ⏎ on the act line saves it to config.json on this host; the row then says settings set. unset=answer (or an empty answer) takes it out, back to the default. A value the schema refuses is refused with its reason, and nothing is written · an agent: act ext.tidy.settings answer='claude -p --model sonnet'",
+    stage(_n, show) {
+      // Tidy's page (its settings line says where config.json is and what the default is); the power bar is the rest.
+      const page = new ReaderPane();
+      const d = stageDesk({ title: "showcase · extension settings", panes: [page] });
+      show(ctx => void (async () => {
+        const l = extensionList() ?? await ctx.board.listExtensions().catch(() => null);
+        const p = l?.pages?.tidy ? await ctx.board.get(l.pages.tidy) : null;
+        if (p) page.show(p, d);
+        ctx.redraw();
+      })().catch(() => {}));
+      return d;
+    },
+  },
+  {
     key: "forms", need: "enter data through a form written in the note it's for: one action, each note its own fields",
     part: "the action's arguments (PIE-784) from the note (PIE-828): an action with fieldsFrom: block asks for the [form-field::<name> <type> …] chips of the block it runs on (outline-core's form-fields.ts reads them; the service checks the answers as declared arguments, extensions.args lists them on that block); NoteSurface draws one form in place, text and number boxes using the shared Draft editor, choices as radio chips, defaults selected and required warnings kept beside the answers; ext.form.fill submits through the existing action; an agent gives them in with=; a chip that can't be read is saved and warned on, with a did-you-mean",
     files: "outline-core/src/form-fields.ts, outliner src/extension-calls.ts (argsOn), src/surface/note-form.ts, src/surface/note.ts, src/extensions.ts (askingFirst)",

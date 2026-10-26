@@ -20,18 +20,24 @@ function listStart(lines: string[], from: number, to: number): number | null {
   return null;
 }
 
-// The model is a command (prompt on stdin, JSON on stdout): config.answer in this copy's config.json, else Haiku.
-const DEFAULT_ANSWER = ["claude", "-p", "--model", "haiku", "--tools", ""];
+// The model is a command (prompt on stdin, JSON on stdout): config.answer in this copy's config.json, else the
+// schema's default (Haiku), read from extension.json so the door's settings say what actually runs.
+const DEFAULT_ANSWER: string[] = (await Bun.file(join(import.meta.dir, "extension.json")).json()).configSchema.properties.answer.default;
 const CONFIG = join(import.meta.dir, "config.json");
 const answerCommand = () => request.config?.answer ?? DEFAULT_ANSWER;
 const shown = (argv: string[]) => argv.map(a => (a === "" || /[\s"'$]/.test(a) ? JSON.stringify(a) : a)).join(" ");
-const firstLines = (text: string) => text.trim().split("\n").filter(Boolean).slice(0, 2).join(" / ").slice(0, 240);
+const firstLines = (text: string) => text.trim().split("\n").filter(Boolean).slice(0, 2).join(" / ").slice(0, 120);
 
-/** A failed call says what ran, which config it came from (or that there is none) and what to write there. */
+/**
+ * A failed call says what ran, whether it came from tidy's settings or its default, and where to fix it: the settings
+ * action (its form in the door's power bar, or `act`), which writes config.json on the host. Kept short: the service
+ * shows the last 600 characters of what a failed call wrote to stderr.
+ */
 function failure(command: string[], why: string): Error {
-  const from = request.config?.answer ? `from ${CONFIG}` : `tidy's default; no config.answer in ${existsSync(CONFIG) ? CONFIG : `${CONFIG} (not there yet)`}`;
-  const fix = `write {"config": {"answer": ${JSON.stringify(["/full/path/to/claude", ...DEFAULT_ANSWER.slice(1)])}}} in ${CONFIG} (\`which claude\` gives the path), or sign in with \`claude\``;
-  return new Error(`${why}: ${shown(command)} (${from}). To fix: ${fix}`);
+  const from = request.config?.answer ? "from tidy's settings" : "tidy's default";
+  const fix = `ctrl+k then & settings tidy in the door, or ep0ch act ext.tidy.settings answer='/full/path/to/claude ${DEFAULT_ANSWER.slice(1).map(a => a || '""').join(" ")}', or sign in with claude`;
+  const ran = shown(command);
+  return new Error(`${why}: ${ran.length > 100 ? `${ran.slice(0, 99)}…` : ran} (${from}). To fix: ${fix}`);
 }
 
 async function modelAnswer(command: string[], prompt: string): Promise<unknown> {
@@ -125,6 +131,9 @@ else {
   try { ok(await respond()); }
   catch (error) {
     const message = `couldn't rewrite: ${error instanceof Error ? error.message : String(error)}`;
-    ok(request.input.resolution ? {ambiguous: message} : {message});
+    // A resolution that can't be made is an answer (ambiguous); a rewrite that can't is a failed call, so tidy's
+    // settings say "failing" with this message (PIE-1343), and the ask says it under its line.
+    if (request.input.resolution) ok({ ambiguous: message });
+    else { process.stderr.write(message); process.exitCode = 1; }
   }
 }

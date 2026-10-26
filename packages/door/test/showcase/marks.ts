@@ -111,6 +111,7 @@ export const marks: Record<string, string[]> = {
   runbook: ["Try a terminal runbook", "[run]"],
   // The Extensions hub beside the notifications hub's page: its README, and its demo boards under it.
   "ext-pages": ["Extensions", "## Installed", "Notifications hub", "A deterministic fetcher"],
+  "ext-settings": ["Bare @tidy"],
   // Two notes, each writing its own form: the reading log and the shed repairs, side by side.
   forms: ["Reading log", "Shed repairs"],
   // The outliner's example rules, installed by the seed: meeting-card's card, shout's band, the job done-stamp watches.

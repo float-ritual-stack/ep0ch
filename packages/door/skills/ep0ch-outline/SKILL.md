@@ -862,7 +862,7 @@ Everything an extension writes is attributed `author: agent`, `actorId: ext:<id>
 
 An extension is a folder: in the outline's own `extensions/<id>/` (under `~/outlines/<name>/`; it travels with that outline), or the
 service host's user folder (`~/.config/pi-herdr-outliner/extensions/<id>/`, every outline): `extension.json`,
-the code, `config.json` (secrets as references, never literals). `outliner ext ls` lists them, `outliner ext add
+the code, `config.json` (secrets as references, never literals; set from its configSchema with `ep0ch act ext.<id>.settings <field>=<value>`, or ctrl+k then `& settings <name>` in the door). `outliner ext ls` lists them, `outliner ext add
 <id>` copies a built-in example (moon, horoscope, fancy-horror, tarot, tidy, jira, meeting-card, done-stamp, shout) into the user folder, or with
 `--outline-folder <outline root>` into the outline's, `outliner ext remove <id>` takes it away (both apply
 without a restart), `ep0ch install --apply` refreshes a copy nobody changed when the built-in moves on (`outliner ext

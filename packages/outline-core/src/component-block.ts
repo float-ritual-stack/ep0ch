@@ -110,6 +110,9 @@ export function splitWords(line: string, lines: boolean, shell = true): Word[][]
 /** An action line's words, quotes taken out: the CLI's, the power bar's, a script's. */
 export function lineWords(line: string): string[] { return splitWords(line, false).flat().map(word => word.value); }
 
+/** `lineWords`'s inverse: a command's words as one line, a word with a space, a quote or a backslash quoted, an empty one `""`. */
+export function commandLine(argv: readonly string[]): string { return argv.map(w => (w === "" || /[\s"'$\\]/.test(w) ? JSON.stringify(w) : w)).join(" "); }
+
 /** One attribute word: `.class`, `key=value` (quotes already taken out), or a bare `key` (on). */
 const ATTR_KEY = /^[A-Za-z][\w.-]*$/;
 

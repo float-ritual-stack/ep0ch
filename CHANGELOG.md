@@ -22,6 +22,18 @@ are its record. The outliner's entries from then are kept below, under
 - **The panel fits more screens:** too tall at its widest, it lays out in more, narrower columns before giving up.
 - **What changed's ⋯ menu** now lists "open its note", "the change" and "all seen".
 
+### An extension's settings show and edit in the door (PIE-1343)
+
+- **See them where you find the extension.** ctrl+k then `&`: each extension's row says its settings (default, set,
+  needs setup, failing), and `settings <name>` previews every field, its value or default, and the `config.json` it
+  lives in on the machine that hosts the outline.
+- **Change them without the file.** ⏎ on that row opens a form drawn from the extension's configSchema, filled with
+  what's set; saving checks it against the schema (a bad value is refused with why, nothing written) and the next call
+  uses it. An agent: `ep0ch act ext.tidy.settings answer='claude -p --model sonnet'`. Secrets are only references.
+- **A failing @tidy says where to fix it,** and tidy's row says `failing` with its error until the settings change.
+- Wire change: `extensions.list` entries carry `settings`, and the new `extensions.configure` request writes them
+  (PROTOCOL bump).
+
 ### A lock says which layout it is; alt+k opens the power bar (PIE-1346)
 
 - **Your drawer's lock names itself.** Locking or unlocking says so on the status bar, naming the layout ("locked your

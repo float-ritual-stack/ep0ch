@@ -574,6 +574,14 @@ export class SocketBoard implements Board {
     return this.request<ExtensionInstalled>("extensions.install", { extension: id, mutation: requesterOf(actor) });
   }
 
+  /**
+   * Set an extension's settings (`extensions.configure`, PIE-1343): the service checks them against its configSchema
+   * and writes config.json on the machine that hosts the outline, then reads its folders again.
+   */
+  configureExtension(id: string, change: Omit<import("@ep0ch/outline-core/protocol").ExtensionsConfigureRequest, "extension">, actor: Actor = USER): Promise<import("@ep0ch/outline-core/protocol").ExtensionsConfigured> {
+    return this.request("extensions.configure", { extension: id, ...change, mutation: requesterOf(actor) });
+  }
+
   /** Remove an installed extension (`extensions.uninstall`); its demo notes `keep` or `remove` (to Trash, unless changed). */
   uninstallExtension(id: string, demo: "keep" | "remove", actor: Actor = USER): Promise<ExtensionUninstalled> {
     return this.request<ExtensionUninstalled>("extensions.uninstall", { extension: id, demo, mutation: requesterOf(actor) });
