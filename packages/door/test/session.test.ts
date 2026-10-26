@@ -1239,6 +1239,50 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     b2.close();
   }, 180_000);
 
+  // PIE-1286 (Evan's pie door, Oct 25): after the session's handovers, `tile.info tile=drawer.agent` said "closed" while the
+  // drawer's program ran. The program is the tile with role agent, kept with its tile through a handover; both of Evan's
+  // buttons name it that way (`agent.lift`, `tile.zoom tile=role:agent reach=column`).
+  test("the drawer's own program through a handover: role:agent and drawer.agent still name the running program, and both lift it", async () => {
+    const a = await HandoffClient.attach(sessionSocket(dir), 140, 40);
+    await until(() => a.screen().includes("outline"), "the desk", 10_000);
+    const info = (tile: string) => control({ cmd: "act", action: "tile.info", tile, as: "test-agent" });
+    const running = async (tile: string) => {
+      for (let i = 0; i < 100; i++) {
+        try { const r = await info(tile); if (r.terminal?.running) return r; } catch { /* not there yet */ }
+        await Bun.sleep(100);
+      }
+      return info(tile);
+    };
+    a.type("\x1ba");                                        // alt+a: the drawer comes up and starts its program
+    const before = await running("role:agent");
+    expect(before.terminal.running).toBe(true);
+    expect((await info("drawer.agent")).tile).toBe(before.tile);
+    a.type("\x1d");                                         // ctrl+]: the keys back to the screen
+    for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.drawer?.entered; i++) await Bun.sleep(100);
+
+    const hand = async (c: HandoffClient) => {
+      expect(await request({ t: "upgrade" })).toMatchObject({ t: "ask", message: "handed over" });
+      await until(() => c.closed, "the old daemon to let the terminal go", 5000);
+      return HandoffClient.attach(sessionSocket(dir), 140, 40);
+    };
+    let at = await hand(a);
+    for (let handover = 1; handover <= 2; handover++) {
+      await until(() => at.screen().includes("outline"), `the desk after handover ${handover}`, 10_000);
+      const after = await running("role:agent");
+      expect([handover, after.terminal.pid, after.tile]).toEqual([handover, before.terminal.pid, before.tile]);   // the same program, the same tile
+      expect((await info("drawer.agent")).tile).toBe(before.tile);
+      // Evan's two buttons: the preset, and tile.zoom by role. Each lifts, and drops.
+      for (const lift of [{ action: "agent.lift", args: {} }, { action: "tile.zoom", tile: "role:agent", args: { reach: "column" } }]) {
+        const up = await control({ cmd: "act", ...lift, as: "test-agent" });
+        expect([handover, lift.action, up.zoomed]).toEqual([handover, lift.action, true]);
+        const down = await control({ cmd: "act", ...lift, as: "test-agent" });
+        expect([handover, lift.action, down.zoomed]).toEqual([handover, lift.action, false]);
+      }
+      if (handover === 1) at = await hand(at);
+    }
+    at.close();
+  }, 120_000);
+
   test("`session restart`: a new daemon, the same shell with its output, the screens and the edit open again", async () => {
     const a = await HandoffClient.attach(sessionSocket(dir), 140, 40);
     await until(() => a.screen().includes("outline"), "the desk", 10_000);
