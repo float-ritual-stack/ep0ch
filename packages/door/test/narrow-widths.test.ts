@@ -41,7 +41,7 @@ describe("figures at 40 columns", () => {
   test("a Work ID hangs only a title it leads, never other text after it", () => {
     expect(rowLines("PC-12 / the intake flow", 12, Infinity)).toEqual(["PC-12 / the", "intake flow"]);
     expect(rowLines("PC-12 · the intake flow", 16, Infinity)).toEqual(["PC-12 · the", "        intake", "        flow"]);
-    // A note's label in the power bar: the id, then its title (noteLabel).
+    // A note's label in the power bar: the id, then its title (headedTitle).
     expect(rowLines("PC-12 the intake flow", 16, Infinity)).toEqual(["PC-12 the intake", "      flow"]);
   });
 });

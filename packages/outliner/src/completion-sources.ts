@@ -5,6 +5,7 @@
 // Each source asks the service's own read actions (`pages.complete`, `tree.search`, `fragments.candidates`,
 // `files.complete`, `blocks.context`, `extensions.list`); none keeps an index or a ranking of its own.
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
+import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery, type PageAddressMatch } from "@ep0ch/outline-core/completion-triggers";
 import { pickKey, sourceAnswers, triggerOf, type Picks, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
 import { FRAGMENT_ID_SOURCE, qualifiedReference, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
@@ -35,10 +36,15 @@ interface ServiceSource { decl: SourceDecl; rows(ask: Asked, svc: CompletionServ
 const notConfigured = (s?: { status: string; message?: string }) => s?.status === "unavailable" && /not configured/i.test(s.message ?? "");
 const REASON = { linked: "linked from here", near: "near here", yours: "you edited" } as const;
 const clean = (lines: string[]) => lines.map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim();
-/** The service's snippet of a hit, its first line left out when it's the title the row already shows. */
+/**
+ * The service's snippet of a hit, its first line left out when it's the title the row already shows: the title as
+ * written, or (a Work ID put first, `HUB-062 · …`, outline-core's headedTitle) the same words after that ID.
+ */
 const hitSnippet = (title: string, text: string) => {
-  const lines = text.split(/\r?\n/);
-  return clean(withoutPropertyTokens(lines[0] ?? "").trim().startsWith(title.slice(0, 24)) ? lines.slice(1) : lines);
+  const lines = text.split(/\r?\n/), first = withoutPropertyTokens(lines[0] ?? "").trim();
+  const dot = title.indexOf(" · "), id = dot > 0 ? title.slice(0, dot) : null;
+  const same = first.startsWith(title.slice(0, 24)) || (id !== null && workIdTitle(first, id).title.startsWith(title.slice(dot + 3, dot + 3 + 24)));
+  return clean(same ? lines.slice(1) : lines);
 };
 
 /**

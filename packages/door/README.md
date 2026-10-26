@@ -2505,7 +2505,7 @@ replaces what's selected there. In a terminal tile `cmd+c` is the program's, as 
 | `v` | the keyboard mode, from the first row in view (or taking over a mouse selection); `h j k l`, arrows, `PgUp PgDn`, `Home End` move its end; `v` or `esc` leaves |
 | release of a drag, double or triple click | copy what it selected (copy on select; `EP0CH_COPY_ON_SELECT=0` turns it off) |
 | `y`, `cmd+c` | copy what's drawn: links as their titles, rows as they're drawn |
-| `Y` | copy the source: exactly the selected words when they read the same in the note's text, else the whole source lines the selection covers (a link's `((…))`, `**bold**`). With nothing selected, `Y` copies the whole note's source (`note.copy`; the tile menu's "copy note"; "copied the note, N lines"; an agent's `act note.copy` returns the text) |
+| `Y` | copy the source: exactly the selected words when they read the same in the note's text, else the whole source lines the selection covers (a link's `((…))`, `**bold**`). With nothing selected, `Y` copies the whole note (`note.copy`; the tile menu's "copy note"): its text as stored with each live figure's results under it as Markdown (PIE-1355: steps, a table, a list per tab, `((id|title))` rows, at most 50 a figure and a cut said with the `ep0ch find` command for the rest; "copied the page with N figures' results (K cut)"); "copy source only" (`note.copy source=true`) copies the text alone; an agent's `act note.copy` returns the text. `ep0ch show <id> --markdown` prints the same |
 | `esc` | let go of the selection |
 
 With text selected, `C` starts the comment's passage on it. An agent selects with `select` (`text=`, as
@@ -2619,6 +2619,9 @@ Bodies render with `src/doc.ts`:
   header's surface; a clear step down in a tile without the keys), one dim line (author, day, `i N properties`, the summary values as links, the comment count; in a narrow tile the summary takes its own
   line) and one blank row. The header owns the full title (PIE-917): the border carries only the short Work ID,
   tile name and mode (`4 HOME-042 · detail · held → detail2`). A folded spine keeps the full title.
+  Everywhere else a note's name is drawn (the tile bar and its tabs, spines, the drawer's tabs, river columns and rows,
+  the outline tile, `((` completion, the power bar, backlinks, `ep0ch find`, the publisher) it is the same string,
+  `HOME-042 · <title>`, from outline-core's `headedTitle` (PIE-1356): the ID first and said once, the title cut from its end.
   Titles stay normal-width bold in every video mode, including Kitty CRT: a sizing probe cannot establish
   that the terminal's font actually enlarges instead of leaving spaced letters. The welcome preview keeps
   the breadcrumb beside its “read here” control instead of drawing a second subject line.

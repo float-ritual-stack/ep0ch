@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 // key or value the outline's property index (`properties.catalog`), a tile kind the tile-kind registry. A kind is
 // registered here once (`registerArgKind`), as a bar source is, so a new kind of thing is one entry, never a branch in
 // the bar.
-import { noteLabel } from "../board";
+import { headedTitle } from "../board";
 import type { ArgKind } from "../surface/actions";
 import { USER, hostRequest } from "../socket";
 import { filtered } from "./filter";
@@ -48,7 +48,7 @@ registerArgKind("note", async (typed, host) => {
     const { recentNotes } = await import("./sources");
     return (await recentNotes(host).catch(() => [])).map(r => ({ value: r.key, label: r.label, detail: r.detail ?? "changed lately", preview: { note: r.key } }));
   }
-  return (await host.ctx.board.search(t, 20, { near: host.near() ?? undefined })).map(m => ({ value: m.id, label: noteLabel(m), detail: "found", preview: { note: m.id } }));
+  return (await host.ctx.board.search(t, 20, { near: host.near() ?? undefined })).map(m => ({ value: m.id, label: headedTitle(m), detail: "found", preview: { note: m.id } }));
 });
 
 registerArgKind("page", async (typed, host) => {
@@ -65,7 +65,7 @@ registerArgKind("screen", async (typed, host) => {
 
 registerArgKind("view", async (typed, host) => {
   const views = await host.ctx.board.byProp("type", "virtual-branch", 200);
-  const rows = views.filter(m => !m.deleted).map(m => ({ value: m.id, label: noteLabel(m), detail: "a saved view", preview: { note: m.id } as BarPreview }));
+  const rows = views.filter(m => !m.deleted).map(m => ({ value: m.id, label: headedTitle(m), detail: "a saved view", preview: { note: m.id } as BarPreview }));
   return filtered(rows, typed, r => [r.label]);
 });
 

@@ -47,7 +47,7 @@ import { componentRowFields, listFieldsTuned, listTarget, lookFor, pageOf as loo
 import { fencedLines, LIST_ITEM, listLayers, listStart, type StyleLayer } from "@ep0ch/outline-core/style-cascade";
 import { onlyScrolled, overscrollRows, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
-import { subject, titleLine, type Msg } from "../board";
+import { headedTitle, subject, titleLine, type Msg } from "../board";
 import { editArmMs } from "../arm";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
@@ -79,6 +79,8 @@ import { boxStatus, stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { addressedResource, destinationOf, external, externalOpenCommand, fileOpenCommand, opensRemotely, openRemote } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, noteReplyTarget, recordAs, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
+import { pageWithResults } from "../page-results";
+import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
@@ -1640,8 +1642,8 @@ export class NoteSurface {
     const omit = this.printed ? { crumbs: false, title: false, byline: false } : headerOmits(m);
     // The rows above the title: the crumbs, unless the note leaves them out.
     const above = omit.crumbs ? 0 : 1;
-    const named = workIdTitle(subject(m), prop(m, "work-id")), focused = host?.focused !== false;
-    const title = named.workId ? `${named.workId} · ${named.title}` : named.title;
+    // The one name (board's headedTitle); its two parts colour it, the ID in the accent.
+    const named = workIdTitle(subject(m), prop(m, "work-id")), focused = host?.focused !== false, title = headedTitle(m);
     // In the theme's heading colour (PIE-809): the theme caps white near the body text's grey, so a white title read as
     // body; the note's top heading is drawn as its headings are.
     const ink = (focused ? fg(C.yellow) : fgRgb(theme().palette[C.yellow]!.map(c => Math.round(c * TITLE_UNFOCUSED)) as unknown as Rgb)) + BOLD;
@@ -5962,21 +5964,32 @@ export class NoteSurface {
   }
 
   /**
-   * The whole note's source text, as stored (header chips, fences and all): the person's goes to their clipboard (OSC 52)
-   * and is said as "copied N lines", like a block's; an agent's is only returned. Works whatever the reader draws.
+   * The whole note's text, as stored (header chips, fences and all), with each live figure's results under it as Markdown
+   * (PIE-1355, page-results.ts: the rows this reader draws, capped, a cut said with the command that reads the rest);
+   * `source` copies the text alone. The person's goes to their clipboard (OSC 52) and is said as "copied the page with N
+   * figures' results"; an agent's is only returned. Works whatever the reader draws.
    */
-  async copyNote(host: SurfaceHost, actor: Actor): Promise<{ id: string; text: string; lines: number; clipboard: boolean }> {
+  async copyNote(host: SurfaceHost, actor: Actor, source = false): Promise<{ id: string; text: string; lines: number; clipboard: boolean; figures: number; cut: number; unanswered: number }> {
     const m = await this.whole();
-    const text = m.text, lines = text.split("\n").length, said = `${lines} line${lines === 1 ? "" : "s"}`;
-    if (!text.trim()) throw new ActionRefused("the note has nothing in it to copy");
+    if (!m.text.trim()) throw new ActionRefused("the note has nothing in it to copy");
+    // Where the command that reads a cut figure's rest is pointed: this tile's outline, and the machine it is on when not here.
+    const outline = m.address?.outline ?? host.ctx.board.outline ?? host.ctx.outline, machine = m.address?.machine ?? host.ctx.machine;
+    const page = source ? { text: m.text, figures: 0, cut: 0, unanswered: 0 } : await pageWithResults(host.ctx.board, m.text, m.id, { ...(outline ? { outline } : {}), ...(machine ? { machine } : {}), at: Date.now() }, 5_000);
+    const text = page.text, lines = text.split("\n").length;
+    // A figure the outline didn't answer in time says so in the copy, and here.
+    const late = page.unanswered ? ` · ${page.unanswered} figure${page.unanswered === 1 ? "" : "s"} not answered in time` : "";
+    const said = page.figures
+      ? `copied the page with ${page.figures} figure${page.figures === 1 ? "'s" : "s'"} results${page.cut ? ` (${page.cut} cut)` : ""}, ${lines} lines${late}`
+      : `copied the note${source ? "'s source" : ""}, ${lines} line${lines === 1 ? "" : "s"}${late}`;
+    const r = { id: m.id, text, lines, figures: page.figures, cut: page.cut, unanswered: page.unanswered };
     if (actor.kind === "user") {
-      if (host.ctx.copy?.(text) === false) throw new ActionRefused(`not copied: ${[...text].length} chars is more than the clipboard takes`);
-      host.ctx.flash(`copied the note, ${said}`);
-      return { id: m.id, text, lines, clipboard: true };
+      if (host.ctx.copy?.(text) === false) throw new ActionRefused(`not copied: ${[...text].length} chars is more than the clipboard takes${page.figures ? " · the source alone: note.copy source=true" : ""}`);
+      host.ctx.flash(said);
+      return { ...r, clipboard: true };
     }
-    host.ctx.flash(`copied the note, ${said}, for itself · your clipboard is untouched`);
-    this.noteAgent(actor, `copied the note, ${said}`);
-    return { id: m.id, text, lines, clipboard: false };
+    host.ctx.flash(`${said}, for itself · your clipboard is untouched`);
+    this.noteAgent(actor, said);
+    return { ...r, clipboard: false };
   }
 
   /**
@@ -5985,9 +5998,7 @@ export class NoteSurface {
    */
   async copyNoteRef(kind: "id" | "ref", host: SurfaceHost, actor: Actor): Promise<{ id: string; kind: string; text: string; clipboard: boolean }> {
     const m = await this.whole();
-    // A label holds no | or parentheses: either would end the reference early.
-    const label = subject(m).replace(/[|()]/g, " ").replace(/\s+/g, " ").trim();
-    const text = kind === "ref" ? `((${m.id}${label ? `|${label}` : ""}))` : m.id;
+    const text = kind === "ref" ? blockRefText(m.id, subject(m)) : m.id;
     const what = kind === "ref" ? "a reference to the note" : "the note's id";
     if (actor.kind === "user") {
       if (host.ctx.copy?.(text) === false) throw new ActionRefused("the clipboard refused it");
@@ -11791,13 +11802,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "note.copy": def({
-    summary: "copy the whole note's source text as stored (header chips, fences and all): the person's goes to their clipboard (OSC 52) and the status line says \"copied the note, N lines\"; an agent's is returned to it and never touches the person's clipboard",
-    keys: "Y with nothing selected, the tile menu's \"copy note\"",
+    summary: "copy the whole note as stored (header chips, fences and all) with each live figure's results under it as Markdown (PIE-1355: a checklist as - [ ]/- [x] steps, a table as a table, tabs a list per group, links ((id|title)); at most 50 rows a figure, a cut said with the ep0ch find command that reads the rest); source=true copies the text alone. The person's goes to their clipboard (OSC 52) and the status line says \"copied the page with N figures' results (K cut)\"; an agent's is returned to it and never touches the person's clipboard",
+    keys: "Y with nothing selected, the tile menu's \"copy note\" (and \"copy source only\")",
     touches: "nothing", replay: "safe",
-    menu: noteRow("copy note", "Y"),
-    args: {},
-    async run(_, { surface, host }, actor) {
-      const r = await surface.copyNote(host, actor);
+    menu: [noteRow("copy note", "Y"), { ...noteRow("copy source only", "", {}), args: { source: true } }],
+    args: { source: { type: "boolean", optional: true, about: "the note's text alone, without its figures' results" } },
+    examples: [{ act: "note.copy", does: "answers the note's text with its live figures' results" }, { act: "note.copy source=true", does: "answers the note's text as stored" }],
+    async run({ source }, { surface, host }, actor) {
+      const r = await surface.copyNote(host, actor, source === true);
       host.redraw();
       return r;
     },

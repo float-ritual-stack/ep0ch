@@ -10,6 +10,32 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A note's Work ID comes first wherever its title is drawn (PIE-1356)
+
+- **One name, ID first.** A note with `[work-id::HUB-062]` titled "PC-582 acceptance summary…" reads
+  `HUB-062 · PC-582 acceptance summary…` in the tile bar and its tabs, spines, the drawer's tabs, river columns and
+  their rows, the outline tile's rows, `((` completion, the power bar, backlinks, `ep0ch find` and the publisher's
+  page and index titles, as the reader's header already did. Another ticket key in the title no longer reads as the ID.
+- **Said once.** A title that already starts with its ID (pie's `PIE-n — …`) reads `PIE-n · …`, never doubled.
+- **The title is cut, never the ID.** A short room cuts the title from its end.
+- One rule for all of them, outline-core's `headedTitle` (`work-id-title.ts`); the per-place versions are gone. The
+  outline tile's row no longer repeats the ID as its right-hand tag (it shows the status or type).
+- GRAMMAR 6 → 7 (a draw rule). No PROTOCOL or schema change; `ep0ch install --apply` as usual.
+
+### Copying a page carries its live figures' results (PIE-1355)
+
+- **`Y` copies what a live page says now.** With nothing selected, `Y` (the tile menu's "copy note", `act note.copy`)
+  copies the note's text and, under each live figure (`query:` or `view:`), its rows as plain Markdown: a check as
+  `- [ ]`/`- [x]` steps, a table as a Markdown table, tabs as a list per group, every row a `((id|title))` link. Each
+  is headed with the figure's title, its row count, the time and its query. An agent without the outline's MCP can
+  read a pasted page.
+- **Cut, and said so.** At most 50 rows a figure (400 in one copy): a cut figure ends with
+  `showing 50 of 60 · the rest: ep0ch find --ws <outline> --query …` and the `outline_query` arguments. Rows are never
+  dropped silently. The status line says `copied the page with 3 figures' results (1 cut)`.
+- **The text alone is still there:** the tile menu's "copy source only", or `act note.copy source=true`.
+- **`ep0ch show <id> --markdown`** prints the same at a shell. The rows are the ones the reader draws: no second query.
+- No wire change, no PROTOCOL bump, no schema change.
+
 ### Desk screens draw each frame for less (PIE-1347, PIE-1335)
 
 - **EchoNet, Welcome and the home base no longer rebuild their logo every frame:** its cells, its densest rows and

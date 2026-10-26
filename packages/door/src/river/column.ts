@@ -12,8 +12,7 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // column, with the same keys and the same actions as every reader. What the column adds is its own: picking a card,
 // replies in place, a filter, a column of the same property, a column stacked under it, its text selected and copied.
 // The layout (widen, hold, close, back and forward) is the engine's tile actions.
-import { headedTitle } from "../board";
-import { bodyLinesOf, subject, type Msg } from "../board";
+import { bodyLinesOf, headedTitle, subject, type Msg } from "../board";
 import { authorName, USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { actorHandle } from "@ep0ch/outline-core/attribution";
 import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
@@ -221,7 +220,7 @@ export class RiverColumn extends ReaderPane {
   titleOf(): string {
     if (this.source.kind === "roots") return "Library";
     if (this.source.kind === "tag") return `#${this.source.value}`;
-    return this.root ? subject(this.root) : "…";
+    return this.root ? headedTitle(this.root) : "…";
   }
   override title() {
     const st = this.surface.state();
@@ -239,7 +238,7 @@ export class RiverColumn extends ReaderPane {
   }
   override spine() {
     const hold = this.surface.draft ? "✎" : this.surface.session ? "¶" : "";
-    return { title: this.root && this.source.kind !== "roots" && this.source.kind !== "tag" ? headedTitle(this.root) : this.titleOf(), marks: [hold ? fg(C.yellow) + hold + RESET : fg(C.dark) + "·" + RESET] };
+    return { title: this.titleOf(), marks: [hold ? fg(C.yellow) + hold + RESET : fg(C.dark) + "·" + RESET] };
   }
   /** The desk's current note moved: a column keeps its own. */
   override select() {}
@@ -454,7 +453,7 @@ export class RiverColumn extends ReaderPane {
       const m = row.m, on = n === this.sel;
       const rail = fg(C.blue) + "│ ".repeat(row.depth) + RESET;
       const tw = Math.max(8, w - row.depth * 2 - 2);
-      for (const line of rowLines(` ${glyph(m)} ${subject(m)}`, tw, undefined, { hang: 3 })) push(rail + (on ? selectedRow(line, tw + 1, active) : " " + fg(C.white) + pad(line, tw) + RESET), n);
+      for (const line of rowLines(` ${glyph(m)} ${headedTitle(m)}`, tw, undefined, { hang: 3 })) push(rail + (on ? selectedRow(line, tw + 1, active) : " " + fg(C.white) + pad(line, tw) + RESET), n);
       push(rail + " " + pad(`${fg(authorColour(m.author))}${authorName(m.author)}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m)}`, tw), n);
       // Links read as their titles here too (not as raw ((ids))); an embed reads as its title.
       const gist = visible(presentLinks(bodyLines(m).slice(0, 2).join(" ").replace(/!\(\(/g, "(("), false, desk ? { board: desk.ctx.board, redraw: () => desk.redraw() } : null, m.text));
@@ -845,10 +844,10 @@ export class RiverColumn extends ReaderPane {
   }
 
   /** `column.note`: the whole note the column shows, copied as the reader copies it (note.copy). */
-  copyNote(actor: Actor, desk: DeskApi) {
+  copyNote(actor: Actor, desk: DeskApi, source = false) {
     const m = this.noteOf();
     if (!m || this.surface.msg?.id !== m.id) throw new ActionRefused(`${this.titleOf()} shows no note's text`);
-    return this.surface.copyNote(this.host(desk), actor);
+    return this.surface.copyNote(this.host(desk), actor, source);
   }
 
   /** `column.block`: a code block, quote or callout of the note the column shows, copied as the reader copies one (block.copy). */
@@ -1039,11 +1038,12 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     run: ({ n }, { pane, desk }, actor) => columnOf(pane).copyBlock(n, actor, desk),
   }),
   "column.note": def({
-    summary: "copy the whole note a river column shows, source text as stored, as the reader's note.copy: the person's goes to their clipboard (\"copied the note, N lines\"), an agent's is given back",
+    summary: "copy the whole note a river column shows as the reader's note.copy does: its text as stored with each live figure's results under it (source=true: the text alone); the person's goes to their clipboard (\"copied the page with N figures' results\", or \"copied the note, N lines\"), an agent's is given back",
     keys: "Y with nothing selected",
     touches: "nothing", replay: "safe",
-    args: {},
-    run: (_, { pane, desk }, actor) => columnOf(pane).copyNote(actor, desk),
+    args: { source: { type: "boolean", optional: true, about: "the note's text alone, without its figures' results" } },
+    examples: [{ act: "column.note", does: "answers the column's note with its live figures' results" }, { act: "column.note source=true", does: "answers the note's text as stored" }],
+    run: ({ source }, { pane, desk }, actor) => columnOf(pane).copyNote(actor, desk, source === true),
   }),
   "column.copy": def({
     summary: "copy the text selected in a river column (its drawn rows: drag, or v and move): the person's goes to their clipboard (a drag's when the button comes up); an agent's is given back, the clipboard left alone",
