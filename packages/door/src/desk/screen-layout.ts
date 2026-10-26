@@ -1910,9 +1910,12 @@ class Step<I> {
     this.present(id);
     const lift = this.d.lift;
     if (this.agent && lift?.by.kind === "user") refuse("the person's lift stays up until they drop it");
+    // A spine lifted or zoomed would come up a spine, one column wide: it opens first, and stays open when dropped.
+    const unfold = () => { if (this.d.collapsed.has(id)) this.collapse(id, false); };
     if (reach !== "screen") {
       const want = on ?? !(lift?.tile === id && lift.reach === reach);
       if (this.agent && want && ((this.ctx.person.here !== false && id === this.d.focus) || id === this.ctx.person.typingIn)) refuse(`${this.name(id)} has the person's keys; an agent lifts another tile`);
+      if (want) unfold();
       this.d.lift = want ? { tile: id, reach, by: this.ctx.actor } : null;
       this.d.answer = { zoomed: want, reach };
       return;
@@ -1922,7 +1925,7 @@ class Step<I> {
     // Zooming another tile would hide the one with the person's keys.
     if (this.agent && want && id !== this.d.focus) refuse(`zooming tile ${this.name(id)} would hide tile ${this.name(this.d.focus)}, which has the person's keys`);
     if (!want) this.d.zoom = null;
-    else { this.d.zoom = id; if (!this.agent) this.d.focus = id; }
+    else { unfold(); this.d.zoom = id; if (!this.agent) this.d.focus = id; }
     this.d.answer = { zoomed: this.d.zoom === id };
   }
 
