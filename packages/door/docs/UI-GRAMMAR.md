@@ -252,7 +252,7 @@ calls it. **Tree/Detail** is the outliner's equivalent (or "none").
 | status bar | Last row: screen, host:workspace, offline, video | `app:242` | Herdr frame title |
 | flash | A 4-second message in the status bar | `flash` `app:116` | expiring receipt |
 | Esc | **Closes the innermost temporary thing, and never leaves the screen or logs off.** Innermost first: what holds the keys (a picker or menu, the tile menu `⋯` too; a popup or overlay that takes keys; the keys box, `? more`; a pending chord, `^W`; link mode, `alt+l`; a search or filter being typed; an edit, with nothing typed, or with unsaved text `Esc` twice, PIE-475), then the drawer when it's up and the person is out of it, then what's lit in the tile the keys are in (a link or element, a selection, a tint), then the screen's own (a zoom, a dock the keys are in or one sliding over, the keys back home, a float's keys back to the tile under it). With nothing left it does nothing and says `nothing to close · q leaves` on the focused tile's frame and the status bar (a refusal, PIE-727: again, it stays up, loud). Leaving a screen is `q` (`screen.back`) and the menu's own keys; quitting is `G` or `ctrl+c` | `nothingToClose` in `src/shell-keys.ts`; the desk's chain in `Desk.keyIn` | `Esc` closes Detail's editor |
-| drawer | Your drawer, the host layer's (PIE-513, PIE-498): tabs of tiles that belong to the App, not a screen, pulled up over (or beside) any screen from the status bar; its first tab is its own program (the agent, or a shell). **Drawer** means only this: a tile put in it travels with the person (`tile.drawer`, `^W a`), its own first tab too | `AgentDrawer` on `hostLayer`, its desk `hostSpec` (`src/drawer.ts`) | a Herdr pane |
+| drawer | Your drawer, the host layer's (PIE-513, PIE-498): tabs of tiles that belong to the App, not a screen, pulled up over (or beside) any screen from the status bar; its agents are ordinary terminal tabs with role `agent` (PIE-1331). **Drawer** means only this: a tile put in it travels with the person (`tile.drawer`, `^W a`), an agent tab too | `AgentDrawer` on `hostLayer`, its desk `hostSpec` (`src/drawer.ts`) | a Herdr pane |
 | power bar | One palette over every screen and the drawer (PIE-656): `ctrl+k`, the status bar's `^K`; a list of rows from its sources (tiles, notes, actions, recent, screens, an extension's), scoped by a prefix or alt+← alt+→, the lit one read on the right; ⏎ goes (an action that takes arguments: its form, a field per argument with the act line under them), alt+⏎ is the alternate, esc puts it away. "Palette" and "cmd-k" mean it | `PowerBar` (`src/bar/bar.ts`), `BarSource` (`src/bar/source.ts`), `BAR_ACTIONS` | Herdr's cmd-k (panes, not tiles) |
 | bar source | What a power bar scope lists, previews and does: rows for a query, a preview, a pick, through the shared paths. The door's own (`%` tiles, `/` notes, `>` actions, `+` recent, `@` screens) and an extension's `bar[]` | `registerBarSource` (`src/bar/source.ts`), `src/bar/sources.ts`, outliner `extensions.bar` | none |
 | action form | An action's arguments as fields in the power bar (PIE-1031): the ones it needs first, then `tile=` (the selector, not an argument), then the rest, each with what it means and its values (its `ArgSpec`'s `choices`, true or false, its `kind`'s values: tiles, notes, screens, views, properties); the act line it will run under them. It is the one action-argument prompt (`askInBar`, the `ask` scope), never a widget of the bar's own | `openActionForm` (`src/bar/form.ts`), `registerArgKind` (`src/bar/arg-kinds.ts`), `bar.form` | a note's `[form-field::]` form (PIE-1212), drawn in place by NoteForm |
@@ -260,7 +260,7 @@ calls it. **Tree/Detail** is the outliner's equivalent (or "none").
 | session | The door kept running without a terminal (PIE-418): one per outline (`src/session/place.ts`), holding the screens, layouts, drafts and terminal tiles; ended only by `session.end` (`E`, `ep0ch session end`) | `src/session/daemon.ts` | a Herdr session |
 | client, attach, detach | A terminal showing a session: `ep0ch` attaches (starting the session when none runs), quitting detaches (`G`, `ctrl+c`, a closed terminal); several at once, the keys wherever the person last typed; `--watch` is read-only | `src/session/client.ts`, `SessionTerm` | Herdr's attach, `ctrl+b q` |
 | nest | The layers a program runs in, outermost first (`ssh:pts/5 › door:<pid>/desk/t1:claude`), each appended by the layer that starts the next; `ep0ch where` checks each | `EP0CH_NEST`, `src/nest.ts`, `src/where.ts` | none |
-| chip | A label on the status bar that stands for the drawer (`▲ claude +2`: its own program, two tiles more); a click pulls it up; a tile dragged onto it goes in as a tab (it lights up: `into your drawer: travels with you`) | `AgentDrawer.chip` | none |
+| chip | A label on the status bar that stands for the drawer (`▲ claude +2`: the tab shown, two tiles more); a click pulls it up; a tile dragged onto it goes in as a tab (it lights up: `into your drawer: travels with you`) | `AgentDrawer.chip` | none |
 | hint row | Key help above the status bar | `dsk:210` `del:1450` `riv:397` | menu row |
 | workspace | The outline connected to (one per run) | `ctx.workspace`, `--ws` | workspace |
 | video mode | Kitty+CRT, Kitty, cells (`V`) | `cycleVideo` `app:118` | none |
@@ -1189,7 +1189,7 @@ The keymap is one file, `src/hyper.ts` (`HYPER_KEYS`); this table is checked aga
 | `✦-` `✦=` | `tile.collapse on=true/false` | bare `-` `+` `=`, `alt+h`, `^W c`, the frame card's fold row, a click on a spine |
 | `✦z` | `tile.zoom` | `^W z` |
 | `✦u` | `tile.zoom reach=column`, lift or drop the focused tile's column | `^W Z` |
-| `✦a` | `agent.lift`, `tile.zoom` as a column on the agent tab you're using (a preset: the one you last typed in or clicked, an agent from `alt+g` too, else the drawer's own program, `tile=role:agent`, alias `drawer.agent`, wherever the tile grammar finds it; one out on a screen not shown comes home first, one not running is started first, and a closed one opens again); again drops it | a status-bar button (`::button{label="▲ lift" act="agent.lift"}`), `act` |
+| `✦a` | `agent.lift`, `tile.zoom` as a column on the agent tab you're using (a preset: the one you last typed in or clicked, an agent from `alt+g` too, `tile=role:agent`, alias `drawer.agent`, wherever the tile grammar finds it; one on a screen not shown comes into the drawer first, and with none open a new agent tab opens); again drops it | a status-bar button (`::button{label="▲ lift" act="agent.lift"}`), `act` |
 | `✦n` | `note.new` | `ctrl+n` |
 
 **What passes through what.** Checked in a real pane with injected bytes (a physical keyboard, macOS and ssh from a
@@ -1308,7 +1308,7 @@ More sections (running agents, switching outlines from a sidebar) are tiles a la
   filled from the hub (`hub:<id>`), its docks and floats the desk's, saved as a layout in `delivery.json`;
   a board saved by name is a screen note (PIE-565). The `board` layout still puts
   the whole board screen in a tile (`ScreenTile`), a preview tile after its card.
-- **The host layer's tabs: your drawer (PIE-498).** The host layer holds the drawer's desk: its own program first, then any tile put in (`tile.drawer`, `^W a`, a drop on the chip or the open drawer, a screen left with terminals running), kept across screens and restarts. Still to come: the admin outline and detail as default tabs, and the drawer from another edge.
+- **The host layer's tabs: your drawer (PIE-498).** The host layer holds the drawer's desk: its agent tabs and any tile put in (`tile.drawer`, `^W a`, a drop on the chip or the open drawer, a screen left with terminals running), kept across screens and restarts. Still to come: the admin outline and detail as default tabs, and the drawer from another edge.
 - **Where the keys are** (focus) is the person's, an input to the screen-layout module (`ctx.person`), and each operation
   answers where they go after it. The board's own moves between its areas (the lanes, the preview, the details) set
   them directly; PIE-514 makes the keys and "typing in" a shell-owned query.
@@ -1438,8 +1438,8 @@ that tile, including a tile in the drawer.
 A mode's key hints belong in its tile footer once. The drawer edge and the status line show state and controls;
 they do not repeat the tile's mode hints. An explicit keys figure can teach the home or empty panel's first steps.
 
-A plain click on the drawer agent chip opens and closes the drawer (the most frequent click: never anything else); alt+click or a right click opens `host.agent`'s picker. Choosing replaces its own agent tab and
-asks first when it is busy. The picker includes the folder and this-outline/every-outline scope. An
+A plain click on the drawer agent chip opens and closes the drawer (the most frequent click: never anything else); alt+click or a right click opens `host.agent`'s picker, "a new agent tab". Choosing starts the pick in a new tab and
+ends nothing (PIE-1331): only ^W x on a tab ends its program. The picker includes the folder and this-outline/every-outline scope. An
 `EP0CH_DAILY_AGENT` override is named on the chip, explained in the picker and doctor, with the shell line to
 remove. `ep0ch agent use <name> [--everywhere]` uses that same action.
 

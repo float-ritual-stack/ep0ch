@@ -342,7 +342,7 @@ describe("the drawer", () => {
       expect(d.app.drawer.state(Date.now() + 5000)).toBe("idle");
       // The launcher says it lives in Herdr: the door asks Herdr (read-only) for its state.
       const r: any = await d.app.act({ action: "tile.herdr", tile: DRAWER_TILE_ID, args: { pane: "door-claude" }, as: "door" });
-      expect(r).toMatchObject({ tile: DRAWER_TILE_ID, herdr: { pane: "door-claude" } });
+      expect(r).toMatchObject({ tile: d.app.drawer.agentId(), name: "claude", herdr: { pane: "door-claude" } });
       d.app.drawer.state();
       await wait(() => d.app.drawer.state() === "blocked");
       expect(d.app.drawer.chipText()).toBe("▼ claude (from EP0CH_DAILY_AGENT) · needs you");
@@ -379,7 +379,8 @@ describe("the drawer", () => {
     try {
       const leaves = (n: any): any[] => (n.kids ? n.kids.flatMap(leaves) : n.tabs ? n.tabs.flatMap(leaves) : [n]);
       expect(leaves(builtin("daily")!.root).some((l: any) => l.kind === "pty" && l.name === "claude")).toBe(false);
-      expect(makeTile({ kind: "pty", cmd: ["cat"], name: "claude" })).not.toBe(d.app.drawer.pane());
+      d.app.drawer.desk;
+      expect(makeTile({ kind: "pty", cmd: ["cat"], name: "claude" })).not.toBe(d.app.drawer.tile);
       expect(d.app.describe().drawer).toMatchObject({ tile: { tile: d.app.drawer.tabs()[0]!.id, name: "claude" } });
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
@@ -452,8 +453,10 @@ describe("the drawer", () => {
       d.app.push(d.screen("main menu") as any);
       d.key(ALT("a")); d.paint();
       const peek = { screen: d.app.describe(), text: [] };
+      // An agent tab's program is told its own tile's id, as any terminal's is.
+      const id = peek.screen.drawer.tile!.tile;
       const w = await whereIs({
-        env: { EP0CH_NEST: `door:${process.pid}/drawer/${DRAWER_TILE_ID}:claude`, EP0CH_CONTROL: "/nowhere.sock", EP0CH_TILE_ID: DRAWER_TILE_ID, EP0CH_TILE: "claude" },
+        env: { EP0CH_NEST: `door:${process.pid}/drawer/${id}:claude`, EP0CH_CONTROL: "/nowhere.sock", EP0CH_TILE_ID: id, EP0CH_TILE: "claude" },
         pid: 1, peek: async () => peek, herdr: null, alive: () => true, ttyExists: () => true, ancestors: () => [],
       });
       expect(w.door?.tile).toMatchObject({ id: peek.screen.drawer.tile!.tile, found: true, drawer: true, shown: true });
@@ -517,7 +520,7 @@ describe.skipIf(!outliner)("the drawer and the daily desk, against a scratch out
   test("an agent types to the agent by agent.type (never tile.type: it's no tile), and never while the person types in it", async () => {
     const d = await dailyDoor();
     try {
-      await expect(d.app.act({ action: "agent.type", args: { text: "hello" }, as: "claude-7" })).rejects.toThrow(/isn't running/);
+      await expect(d.app.act({ action: "agent.type", args: { text: "hello" }, as: "claude-7" })).rejects.toThrow(/no agent tab is open/);
       d.key(ALT("a"));                                           // the person's pull: they're in it
       await wait(() => d.app.drawer.tile?.running === true);
       expect(d.app.drawer.entered).toBe(true);

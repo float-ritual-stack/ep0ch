@@ -16,7 +16,7 @@
 // - an agent program that reports nothing (codex, pi) runs in it, found the way Herdr finds one: the terminal's
 //   processes by name (KNOWN_AGENTS), read from /proc (a `claude` typed in a `^W o s` shell is a session from then on,
 //   until it exits); without /proc, the tile's own command;
-// - it is the drawer's own tab running an agent (the same rule: it runs one).
+// - it is an agent tab the drawer opened (role agent) running an agent (the same rule: it runs one).
 //
 // Identity is the folder plus the program, so resuming is the program's own "continue the last conversation in this
 // folder" (`resumeArgs`), whoever started it and however.
@@ -44,7 +44,7 @@ export interface AgentProcess { pid: number; program: string; argv: string[]; cw
 
 /** Where a session is shown now. */
 export type Shown =
-  | { in: "drawer"; tile: string; name: string; own: boolean; herdr?: string }
+  | { in: "drawer"; tile: string; name: string; herdr?: string }
   | { in: "screen"; screen: string; tile: string; name: string; here: boolean }
   | { in: "nowhere" };
 
@@ -58,7 +58,7 @@ export interface AgentSession {
   folder: string;
   persona: string | null;
   config: string | null;
-  /** How it became one: started as a session, found running in a terminal tile, or the drawer's own tab. */
+  /** How it became one: started as a session, an agent tab the drawer opened (role agent), or found running in a terminal tile. */
   how: "started" | "found" | "drawer";
   state: SessionState;
   /** The state in words (`asks you`, `working 40%`). */
@@ -157,7 +157,7 @@ export function asSession(p: PtyPane, o: { own?: boolean; proc?: string; now?: n
   // The mark is the launch's: once the agent it started has exited, what runs in the shell left is read as it is.
   const mark = p.agentExit === null ? p.run.session : undefined;
   // The launcher's tile shows an agent that runs in Herdr: its agent is the launcher's --agent, in the tile's folder.
-  if (p.herdr) return { program: mark?.program ?? programName(p.run.cmd), folder: p.run.cwd ?? process.cwd(), persona: mark?.persona ?? null, config: mark?.config ?? null, how: o.own ? "drawer" : mark ? "started" : "found", pane: p };
+  if (p.herdr) return { program: mark?.program ?? programName(p.run.cmd), folder: p.run.cwd ?? process.cwd(), persona: mark?.persona ?? null, config: mark?.config ?? null, how: mark ? "started" : o.own ? "drawer" : "found", pane: p };
   const proc = o.proc ?? "/proc";
   // What the program says it is (OSC 7501's app, kept by the tile) is the answer; its processes are looked at only for
   // what they know that a report doesn't (the folder it runs in, its persona) and for programs that send no reports.
@@ -171,7 +171,7 @@ export function asSession(p: PtyPane, o: { own?: boolean; proc?: string; now?: n
   }
   const program = mark?.program ?? said ?? live?.program ?? programName(p.run.cmd);
   const folder = live?.cwd ?? p.run.cwd ?? process.cwd();
-  return { program, folder, persona: mark?.persona ?? live?.persona ?? null, config: mark?.config ?? null, how: o.own ? "drawer" : mark ? "started" : "found", pane: p };
+  return { program, folder, persona: mark?.persona ?? live?.persona ?? null, config: mark?.config ?? null, how: mark ? "started" : o.own ? "drawer" : "found", pane: p };
 }
 
 /** Each terminal's number among sessions, given once and kept wherever it moves: a second of the same is told apart by it. */
@@ -210,7 +210,7 @@ export function pickSession<T extends AgentSession>(rows: readonly T[], sel: str
 
 /** Where it's shown, in words. */
 export function shownWords(s: Shown): string {
-  if (s.in === "drawer") return `in your drawer${s.own ? " (its own tab)" : ` (${s.name})`}${s.herdr ? ` · Herdr pane ${s.herdr}` : ""}`;
+  if (s.in === "drawer") return `in your drawer (${s.name})${s.herdr ? ` · Herdr pane ${s.herdr}` : ""}`;
   if (s.in === "screen") return s.here ? `here (${s.name})` : `on the ${s.screen} (${s.name})`;
   return "not shown";
 }

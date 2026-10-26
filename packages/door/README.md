@@ -93,7 +93,7 @@ One walk through the door, in the order you meet things. Each step has its own s
    shape for a task, `^W w` saves the screen by name as a screen note in the outline, `^W r` lays it out as one
    ([The desk](#the-desk)). `M` on the menu starts a blank screen to build from ([Screens you make](#screens-you-make)).
 4. **Your drawer.** `alt+a` or a click on the status bar's `▲ claude` chip pulls your drawer up over any screen, with
-   your keys in it: its own program (your `EP0CH_DAILY_AGENT`, else a shell) and any tile you put in. `^W a` puts
+   your keys in it: its agent tabs (your pick, `EP0CH_DAILY_AGENT`, else a shell) and any tile you put in. `^W a` puts
    the tile you're on in it (a terminal with a Claude in it, a reader, the tree) and it travels with you across screens,
    still running; `^W a` in the drawer takes it out. A screen you leave with a terminal running puts it there too. `ctrl+]` gives the keys back; `alt+a` again, or `Esc` once
    you're out, puts it away ([The drawer](#the-drawer-pie-498)).
@@ -731,7 +731,7 @@ See [machine-link installation](../outliner/docs/machine-link.md#installing-over
 | `EP0CH_SCROLL_ROWS` | rows one wheel report scrolls a reader, a draft, a column or a scrollback (1 to 20, default 1). A trackpad then moves the text with your fingers, and a mouse wheel in Ghostty (three reports a notch) moves 3 rows a notch; in a terminal that sends one report a notch (xterm, most Linux terminals) set 3. In lists (the tree, a lane, the BBS lists) a report moves the selection one row |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
 | `EP0CH_NOW_PAGE` | the page the welcome screen (C) shows while no note is tagged `welcome`, and the `daily` layout's "now" tile shows (default `claude-now`); `EP0CH_NOW_LABEL` names it |
-| `EP0CH_DAILY_AGENT` | overrides the drawer's own agent for this door (a test door's `sh`, a one-off): unset, the drawer runs the agent chosen for the outline's session (`host.agent`, the picker its first pull offers), else a shell. The drawer's choice is the way to set it; see [The drawer](#the-drawer-pie-498) |
+| `EP0CH_DAILY_AGENT` | overrides what a new agent tab in the drawer runs, for this door (a test door's `sh`, a one-off): unset, the drawer runs the agent chosen for the outline's session (`host.agent`, the picker its first pull offers), else a shell. The drawer's choice is the way to set it; see [The drawer](#the-drawer-pie-498) |
 | `EP0CH_DAILY_DRAFT` | the file the `daily` layout's editor tile opens (default `scratch.md` in the door's state) |
 
 ## Remote MCP gateway (claude.ai)
@@ -1365,7 +1365,7 @@ in the tile, the program's own keys run the same actions. A layout saves its kin
 and it comes back after a restart. When its extension goes away while the door runs, the tile ends its
 program and says why in its place; when the extension comes back, so does the tile. A kind whose program is
 on another host than this door says so instead of running.
-`EP0CH_DAILY_AGENT` (the drawer's own program; unset, a shell; its folder follows the rule in [The drawer](#the-drawer-pie-498)) and
+`EP0CH_DAILY_AGENT` (what a new agent tab in the drawer runs; unset, your pick or a shell; its folder follows the rule in [The drawer](#the-drawer-pie-498)) and
 `EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state) set the drawer's program and the daily draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
 The agent has one home, the host layer (the drawer, below): the daily layout has no tile for it, and lets
 the drawer sit beside the desk (its policy's `host: beside`). A layout saved with the old agent tile (marked
@@ -1379,7 +1379,7 @@ the drawer; a terminal you made yourself stays yours.
 | `q`, going to the menu | keep running: the desk stays alive in the background, and `D` on the menu brings it back as it was |
 | `!` / `^W !`, drop to shell | keep running while your shell has the terminal (the door keeps reading them and answering its control socket; it paints nothing) |
 | `^W x` on a running program's tile | asks first; again within 3s closes the tile and ends the program |
-| the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `^W x` closes it (at once: nothing runs), `ctrl+]` goes back to the door (in the drawer, `Esc` too), other keys wait. A tab in the drawer closes by its `×` too. The last tile closes too, including the drawer's own tab. An empty screen or drawer shows home with the power bar and New note / Shell / Agent buttons. Nothing respawns; alt+s opens a shell, alt+g opens agents |
+| the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `^W x` closes it (at once: nothing runs), `ctrl+]` goes back to the door (in the drawer, `Esc` too), other keys wait. A tab in the drawer closes by its `×` too. The last tile closes too, including an agent tab. An empty screen or drawer shows home with the power bar and New note / Shell / Agent buttons. Nothing respawns; alt+s opens a shell, alt+g opens agents |
 | loading a layout | a tile with the same name keeps its program; ones the layout has no place for go in a shut dock on the right |
 | detaching from a session (`ctrl+c`, logging off with `G`, closing the terminal, a dropped ssh; see [Sessions](#sessions-quit-is-detach)) | keep running, scrollback and all: the next `ep0ch` attaches to them. `E` on the main menu or `ep0ch session end` ends them with the session (asking first) |
 | quitting a door in its own terminal (`--no-daemon`: `ctrl+c`, logging off from the menu) | asks twice (it names what's running), then ends them. nvim with unsaved changes keeps them in its swap file and offers to recover them next time; without, it leaves nothing behind |
@@ -1389,8 +1389,8 @@ the drawer; a terminal you made yourself stays yours.
 
 ### The daily agent in Herdr
 
-Choose an agent "in Herdr" in the drawer's picker (`host.agent name=claude herdr=true`) and the drawer's
-own tab runs it in a Herdr pane of this outline's session and shows it. Herdr lists it (`herdr agent list`), other
+Choose an agent "in Herdr" in the drawer's picker (`host.agent name=claude herdr=true`) and a new agent tab runs it in
+a Herdr pane of this outline's session and shows it. Herdr lists it (`herdr agent list`), other
 agents message it (`herdr agent prompt door-<outline>-<hash> "…"`), and it keeps running when the door quits.
 
 - **Where it runs.** The launcher (`scripts/door-agent-herdr.ts --session <outline>[@machine] --agent <agent>`)
@@ -1479,17 +1479,18 @@ terminal tile your terminal's selection modifier (Shift in Ghostty) selects what
 ### The drawer (PIE-498)
 
 Your drawer stays with you on every screen: the menu, the BBS screens, the desk, the kanban, the Quay and the
-welcome. It's your tabs above every screen (the host layer's). Its first tab is its own program, and any
-tile can join it and leave it again: a terminal with a Claude in it, a reader, the tree, a query tile. The chip at
+welcome. It's your tabs above every screen (the host layer's). Its agents are tabs like any other (PIE-1331: each a
+terminal tab with role `agent`), and any tile can join it and leave it again: a terminal with a Claude in it, a reader, the tree, a query tile. The chip at
 the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two tiles in it), pulls it up.
 
-- **What its own tab runs: your choice, per outline.** `host.agent` (the person's: a picker; offered on the drawer's first pull) opens a picker of the agents
+- **A new agent tab: your pick, remembered per outline.** `host.agent` (the person's: a picker titled "a new agent tab", from the chip's alt+click or right-click; offered on the drawer's first pull) opens a picker of the agents
   installed here (`claude`, `codex`, `pi`, `gemini`, `opencode`, `aider` and the rest of Herdr's agent kinds found
   on your PATH), each also "in Herdr" when Herdr is installed, and a shell. The choice is saved for this outline's
   session (`drawer-agent.json` in its folder of the state dir; `host.agent default=true` makes it the default for
   every outline; `in=<folder>` saves the folder it starts in with it). Pulling the drawer up with nothing chosen yet offers the picker; until then it's a shell.
-  `EP0CH_DAILY_AGENT` overrides it for one door and is named on the chip. Click that chip any time to choose again.
-  Choosing restarts the same tab, asking first if it is busy. `ep0ch agent use claude [--everywhere]` does the same from a shell. `ep0ch doctor` lists each session's drawer agent, where the
+  `EP0CH_DAILY_AGENT` overrides it for one door and is named on the chip. Choosing starts the pick in a new tab beside
+  the one shown and ends nothing: the agents already running keep running in their tabs, and `^W x` on a tab is the only
+  way one ends. The last pick is what the next new agent tab starts (the drawer's first, a lift with none open). `ep0ch agent use claude [--everywhere]` does the same from a shell. `ep0ch doctor` lists each session's drawer agent, where the
   choice came from, and the command to change it.
 - **No dead panes.** Every agent, in the drawer or in a terminal tile, starts inside your login shell. When it exits
   or crashes, the tile says so (`claude exited · shell`) and is your shell, in the same folder with the same
@@ -1569,13 +1570,9 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
 - **Taking it out again.** `^W a` in the drawer, `^W A` on the screen (the drawer's tab shown comes beside your tile:
   the way back for a terminal in the drawer, whose keys are its program's while you're in it), or drag its tab's title out over the screen: it lands by the screen's
   own drop zones (a side splits, a header or the centre makes tabs, the outer edge a column). `act tile.drawer
-  on=false tile=<t> to=<tile> where=<side>`. The drawer's own tab can leave too: it becomes an ordinary terminal tile
-  on the screen, its program still running, whole (PIE-892). Its tab stays and starts nothing (a second client of the
-  same agent, a Herdr session's, was a "watching" mirror nobody could type in or close): it says where the program
-  went, `shell is on the desk · ⏎ or a click brings it back`, and that puts the same tile back in its tab, nothing
-  restarted (`agent.back`; so does `^W a` on it, or `tile.drawer` from its screen). `agent.restart` is refused while
-  it's out, saying where it is; once its tile is closed, the tab runs the drawer's own program again. The drawer remembers it's out across a handover
-  (`drawer.json`'s `out`, the program's key). `^W x` doesn't close the drawer's own tab: it says so, and what to do instead.
+  on=false tile=<t> to=<tile> where=<side>`. An agent tab leaves the same way, its program running on, whole, and
+  nothing holds its place (PIE-1331); `^W a` on it, or `tile.drawer` from its screen, brings it back. Gathered into a
+  group, in the drawer or on a screen, it comes back in that group after a handover, the same program (PIE-1330).
 - **Followers follow.** A preview following a tile (`source=tile:tree`) keeps following it into the drawer and back.
 - **In the drawer.** Its tiles are tiles: a reader in the drawer reads and edits, a tree in the drawer opens, a terminal in the drawer
   types, and `^W P` opens the policy panel. Click a tab to show it (`^W ] [` between them). `Esc` or `ctrl+]` gives your keys back to the screen.
@@ -1604,9 +1601,11 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   daily desk: the screen is drawn shorter while it's up), or not at all (a screen that keeps the whole screen).
 - **Putting it away.** `alt+a` again, a click on the chip, or `Esc` once you've left it with `ctrl+]`.
 - **Its height.** Drag its top edge, or press `alt+A` to step through 40%, 50%, 60% and 75%.
-- **One agent, one home.** Its own tab runs the agent chosen for this session (in Herdr: the session's own pane), and it starts the first time you pull it up. It's the host layer's (PIE-513): a layout on the same
-  engine as the screens, a dock holding a tab set whose first tab is the agent, above every screen. No screen has a
-  copy of it, so one door never attaches twice; leaving a screen never ends it.
+- **Agents, in tabs.** The first pull of a drawer never used before opens one agent tab running your pick (in Herdr:
+  the session's own pane). The drawer is the host layer's (PIE-513): a layout on the same engine as the screens, a
+  dock holding a tab set, above every screen; leaving a screen never ends what runs in it. `drawer.agent` (and
+  `role:agent`) names the agent tab you typed in or clicked last; the chip, `agent.lift`, `agent.type`,
+  `agent.knows` and `agent.restart` act on it.
 - **What it's doing.** The chip says `working` while the agent writes to its screen and `idle` after. With the
   agent in Herdr, it's Herdr's own state (`herdr agent get`, every few seconds): `working`, `idle`, or
   `needs you` when Herdr says it's blocked. `exited` once the program has ended (`⏎` in the drawer runs it again).
@@ -1675,7 +1674,7 @@ it's the same process and the same conversation.
   says how many it left out and which are behind. Only `--machine` names the machine, never `EP0CH_MACHINE` or a
   `.ep0ch`, so a restart can't follow an outline to another machine by accident. The script is the one implementation;
   `ep0ch agent` is argument handling and the ssh hop (`src/agent-fleet.ts`).
-- `EP0CH_DAILY_CWD` is gone: the drawer's own agent starts in the folder chosen with it (`host.agent in=<folder>`),
+- `EP0CH_DAILY_CWD` is gone: a new agent tab starts in the folder chosen with its pick (`host.agent in=<folder>`),
   else the project's or the outline's; any other folder gets its own session with `ep0ch agent` there. `ep0ch
   doctor` says it when the variable is still set, with the command.
 

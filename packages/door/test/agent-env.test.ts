@@ -142,8 +142,9 @@ describe("one set of agent variables, whichever way the agent is started", () =>
     for (const k of AGENT_VARS) expect(fromHerdr[k]).toBeTruthy();
 
     expect(fromTile).toMatchObject({ EP0CH_TILE: "claude", EP0CH_TILE_ID: "t5", EP0CH_IN_DOOR: "1" });
-    expect(fromDrawer!).toMatchObject({ EP0CH_TILE: "claude", EP0CH_TILE_ID: DRAWER_TILE_ID, EP0CH_IN_DOOR: "1" });
-    expect(fromDrawer!.EP0CH_NEST).toMatch(/door:\d+\/drawer\/drawer\.agent:claude$/);
+    // An agent tab is told its own tile's id, as any terminal tile is (PIE-1331), and its nest says it's in the drawer.
+    expect(fromDrawer!).toMatchObject({ EP0CH_TILE: "claude", EP0CH_TILE_ID: expect.stringMatching(/^t-/), EP0CH_IN_DOOR: "1" });
+    expect(fromDrawer!.EP0CH_NEST).toMatch(/door:\d+\/drawer\/t-[0-9a-f-]+:claude$/);
     // In Herdr: the link the launcher points at the attached door, the tile's nest then the pane's layer.
     expect(fromHerdr).toMatchObject({ EP0CH_TILE: "claude", EP0CH_TILE_ID: DRAWER_TILE_ID, EP0CH_IN_DOOR: "1", EP0CH_CONTROL: cfg.link });
     // A test door (its own EP0CH_STATE): its own pane, `door-claude-<hash>`, never the person's.
@@ -355,9 +356,10 @@ describe("what a running agent knows", () => {
       expect(check).toMatchObject({ group: "claude", name: `agent ${stale[0]!.pid}`, status: "behind" });
       expect(check!.detail).toContain("door:");
       expect(check!.fix).toContain("/exit");                              // a tile's own claude: restarted by hand
-      // The door's agent (its tile id, or its Herdr pane made by an older door) is restarted by the chip.
+      // An agent tab in a door's drawer (its nest's drawer layer), or the door's Herdr pane, is restarted by the chip.
       const drawer = (env: Record<string, string>) => doorAgentChecks({ claude: { agents: [{ pid: 9, cmd: "claude", env, startedAt: 0, knows: { state: "stale", why: "x" } }] } } as unknown as Facts)[0]!.fix;
-      expect(drawer({ EP0CH_TILE_ID: DRAWER_TILE_ID })).toContain("⟳");
+      expect(drawer({ EP0CH_NEST: "door:1/drawer/t-1a2b3c4d-0000-4000-8000-000000000000:claude", EP0CH_TILE_ID: "t-1a2b3c4d-0000-4000-8000-000000000000" })).toContain("⟳");
+      expect(drawer({ EP0CH_NEST: "door:1/desk/t-1a2b3c4d-0000-4000-8000-000000000000:claude" })).toContain("/exit");
       expect(drawer({ EP0CH_NEST: "door:1/daily/t3:claude › herdr:door-claude" })).toContain("⟳");
       expect(doorAgentChecks({ claude: { agents: [] } } as unknown as Facts)).toEqual([{ group: "claude", name: "door agents", status: "info", detail: "no Claude running in a door tile or the door's Herdr pane" }]);
       expect(doorAgentChecks({ claude: {} } as unknown as Facts)).toEqual([]);

@@ -176,6 +176,8 @@ export interface Ctx<I = number> {
   screenHost?: HostMode;
   /** Names held by tiles in the other layer. */
   otherNames?: readonly string[];
+  /** It may be left with no tile (the drawer: its last tab may leave for a screen, as it may close). */
+  empties?: boolean;
   beside?: ReadonlyMap<I, I>;
   outward?: string;
   opened?: ReadonlyMap<string, { ids: I[]; active: I | null }>;
@@ -1131,6 +1133,8 @@ class Step<I> {
       this.give(op.tile);
       if (from !== undefined) { const f = flowHolding(this.d.tree, op.tile)!; this.rememberFlowSides(f.flow); arrive(f.flow, f.ci, columnOf(f.flow, from), coversOf(this.d, f.flow, this.ctx.area, id => !!this.facts(id).holds), this.d.touched); }
     }
+    // Into a layout left with no tile (the drawer, its last tab gone): the focus was on nothing, so the new tile has it.
+    if (!this.all().includes(this.d.focus)) this.d.focus = op.tile;
     // Opened as where another tile's opens land (tile.preview): linked in the same step, by link's rules.
     if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
     for (const from of op.selectFrom ?? []) this.linkTo(from, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, "select");
@@ -1227,7 +1231,7 @@ class Step<I> {
     const e = this.policyAt(id), f = this.facts(id);
     if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
     if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
-    if (!heir && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
+    if (!heir && !this.ctx.empties && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
     if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't take it away`);
     if (heir) {
       if (this.all().includes(heir.id)) refuse(`${this.name(heir.id)} is in the layout already`);

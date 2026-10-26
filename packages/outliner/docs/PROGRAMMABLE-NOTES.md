@@ -214,7 +214,7 @@ const home = (props.layout && props.layout[0]) || '';
 const stay = !!(props.stay && props.stay[0]);
 const before = await act('layout.get');
 if (before.locked) return 'fantasia: the screen is locked; alt+k unlocks it, then run again';
-const dancers = (before.tiles || []).filter(t => t.shown && t.kind !== 'drawer.own').map(t => ({ id: t.id, name: t.name }));
+const dancers = (before.tiles || []).filter(t => t.shown).map(t => ({ id: t.id, name: t.name }));
 const notes = [], floated = [];
 for (const d of dancers) {
   try { const r = await act('tile.float', { tile: d.id, on: true, motion: style }); floated.push({ id: r && r.now && r.now !== d.name ? r.now : d.id, name: d.name }); }

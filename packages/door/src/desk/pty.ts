@@ -225,8 +225,8 @@ export class PtyPane implements Pane {
    * into the drawer (PIE-498) gets a new id there, but its program is still the one the terminal host keeps under this.
    */
   keptKey: string | null = null;
-  /** What a save adds so a moved tile adopts its program after a restart: the key it runs under, when not its own. */
-  get movedKey(): string | null { return this.keptKey && this.keptKey !== this.ownKey ? this.keptKey : null; }
+  /** When the person last typed in it or clicked it: of several agent tabs, the one used last is `role:agent` and the lift's. */
+  get usedAt(): number { return Math.max(this.personKeyAt, this.personClickAt); }
   /** When the program last wrote anything (Date.now()): the drawer's chip calls an agent working while it does (PIE-498). */
   lastOutput = 0;
   /** When the person last typed or pasted into it (an agent's `tile.type` doesn't count): `agent.restart` waits for them. */
@@ -265,7 +265,7 @@ export class PtyPane implements Pane {
   onView: ((v: NvimView) => void) | null = null;
 
   constructor(readonly run: PtySpec) {}
-  spec(): Record<string, unknown> { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}), ...(this.run.agent ? { agent: true as const } : {}), ...(this.run.session ? { session: this.run.session } : {}), ...(this.movedKey ? { kept: this.movedKey } : {}) }; }
+  spec(): Record<string, unknown> { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}), ...(this.run.agent ? { agent: true as const } : {}), ...(this.run.session ? { session: this.run.session } : {}) }; }
   dispose() { this.kill(); this.term?.dispose(); this.term = null; this.stopForegroundWatch(); dropStatus(this); }
 
   get running() { return !!this.proc && this.exited === null; }

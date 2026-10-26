@@ -1659,6 +1659,58 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     at.close();
   }, 120_000);
 
+  // PIE-1330 (Evan's pie door, Oct 26, 05:51–05:56): the drawer's agent gathered into a group, then a handover: the group's
+  // tab drew "drawer.own isn't available here", the program was never reattached, `kept` went on listing it after it died,
+  // and the next agent started in the drawer ended it. Every drawer agent is a terminal tab with role agent (PIE-1331): in a
+  // group, on the desk or in the drawer, it comes back running in its group after a handover, the same program.
+  test("the drawer's agent in a group through a handover, in the drawer and on the desk: the same program comes back running in its group; nothing is left kept (PIE-1330)", async () => {
+    const info = (tile: string) => control({ cmd: "act", action: "tile.info", tile, as: "test-agent" });
+    const running = async (tile: string) => {
+      for (let i = 0; i < 100; i++) {
+        try { const r = await info(tile); if (r.terminal?.running) return r; } catch { /* not there yet */ }
+        await Bun.sleep(100);
+      }
+      return info(tile);
+    };
+    const hand = async (c: HandoffClient) => {
+      expect(await request({ t: "upgrade" })).toMatchObject({ t: "ask", message: "handed over" });
+      await until(() => c.closed, "the old daemon to let the terminal go", 5000);
+      const n = await HandoffClient.attach(sessionSocket(dir), 140, 40);
+      await until(() => n.screen().includes("handed over to a new"), "the handover said", 10_000);
+      return n;
+    };
+    const kept = async () => (await infoOn(sessionSocket(dir)))!.kept ?? [];
+    let at = await HandoffClient.attach(sessionSocket(dir), 140, 40);
+    await until(() => at.screen().includes("outline"), "the desk", 10_000);
+    // The test before left the drawer's agent out on the desk, a terminal tile with role agent.
+    const before = await running("role:agent");
+    expect(before.terminal.running).toBe(true);
+    // On the desk: gathered into a group, handed over.
+    const bench = await control({ cmd: "act", action: "tile.group", tile: "role:agent", args: { name: "bench" }, as: "test-agent" });
+    expect(bench.grouped).toEqual([before.name]);
+    at = await hand(at);
+    let back = await running("role:agent");
+    expect([back.terminal.running, back.terminal.pid]).toEqual([true, before.terminal.pid]);
+    expect(at.screen()).not.toContain("isn't available here");
+    expect(await kept()).toEqual([]);
+    // Back into the drawer, beside a shell, both gathered into a group there (Evan's group3), handed over.
+    await control({ cmd: "act", action: "tile.group", tile: "bench", args: { on: false }, as: "test-agent" });
+    await control({ cmd: "act", action: "tile.drawer", tile: "role:agent", args: {}, as: "test-agent" });
+    const shell = await control({ cmd: "act", action: "host.shell", as: "test-agent" });
+    const group3 = await control({ cmd: "act", action: "tile.group", tile: "role:agent@drawer", args: { with: shell.name, name: "group3" }, as: "test-agent" });
+    expect(group3.grouped).toEqual([before.name, shell.name]);
+    at = await hand(at);
+    back = await running("role:agent");
+    expect([back.terminal.running, back.terminal.pid]).toEqual([true, before.terminal.pid]);
+    expect((await control({ cmd: "peek" })).text.join("\n")).not.toContain("isn't available here");
+    expect(await kept()).toEqual([]);
+    // A new agent tab started in the drawer then (05:54:35) ends nothing: the one in group3 runs on.
+    await control({ cmd: "act", action: "host.agent", args: { name: "shell" }, as: "test-agent" }).catch(() => null);
+    await Bun.sleep(300);
+    expect((await info(back.tile)).terminal).toMatchObject({ running: true, pid: before.terminal.pid });
+    at.close();
+  }, 120_000);
+
   test("ending the session ends its terminal host and the programs in it; nothing is left to restore", async () => {
     const info = (await infoOn(sessionSocket(dir)))!;
     const shell = await shellPid();

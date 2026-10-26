@@ -148,6 +148,8 @@ export async function serve(args: string[]): Promise<never> {
     try { writeFileSync(tmp, JSON.stringify(info(), null, 1), { mode: 0o600 }); renameSync(tmp, file); } catch { /* not fatal */ }
   };
   term.onClients = writeInfo;
+  // What the terminal host keeps for no tile changes as tiles adopt it and as programs end: session.json says it as it is.
+  host.onKept = writeInfo;
   // Logging off (Goodbye, ctrl+c) detaches the client it was done from: the session says so and goes on.
   term.onLogoff = c => { writeLastCall(loggedOnAt); c.link.close({ t: "bye", reason: "detached", message: detachedSaying(place) }); };
 

@@ -6,7 +6,6 @@ import { byFolder, lnCommand, sh } from "./links";
 import { clauses } from "./progress";
 import { hyperOn } from "../hyper";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
-import { DRAWER_TILE_ID } from "../desk/agent-env";
 import { CHANGE_AGENT } from "../desk/drawer-program";
 import { backupChecks } from "./backups";
 import { resticChecks } from "../backup/setup";
@@ -241,11 +240,11 @@ export function skillChecks(f: Facts): Check[] {
 
 /** The fix for a door agent that doesn't know what it should: a restart, which keeps the conversation. */
 export const AGENT_RESTART_FIX = {
-  drawer: "restart it: the ⟳ on its door's drawer chip (▲ claude), alt+R, or `ep0ch act agent.restart` (it keeps the conversation)",
+  drawer: "restart it: show its tab in the drawer, then the ⟳ on the drawer chip (▲ claude), alt+R, or `ep0ch act agent.restart` (it keeps the conversation)",
   tile: "restart it: /exit in its tile, then claude --continue",
 };
-/** The door's own agent (the ▲ claude chip, D's daily tile, its Herdr pane): `agent.restart` restarts it. */
-const isDrawerAgent = (env: Record<string, string> | null) => env?.EP0CH_TILE_ID === DRAWER_TILE_ID || /(^| › )herdr:[^›]*$/.test(env?.EP0CH_NEST ?? "") && !!env?.EP0CH_NEST?.includes("door:");
+/** An agent tab in a door's drawer (its nest's door layer is `door:<pid>/drawer/…`), or the door's Herdr pane: `agent.restart` restarts it. */
+const isDrawerAgent = (env: Record<string, string> | null) => /(^| › )door:[^›]*\/drawer\//.test(env?.EP0CH_NEST ?? "") || /(^| › )herdr:[^›]*$/.test(env?.EP0CH_NEST ?? "") && !!env?.EP0CH_NEST?.includes("door:");
 
 /** Door agents (Claude in a door tile or the door's Herdr pane) running on an older mod, or without door tools. */
 export function doorAgentChecks(f: Facts): Check[] {
