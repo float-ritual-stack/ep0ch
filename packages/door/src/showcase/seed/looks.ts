@@ -111,6 +111,10 @@ export const HEADINGS = [
   "- [ ] Order the seed trays for the raised beds before the first frost comes in",
   "::",
   "",
+  "",
+  "## A plain heading long enough to wrap in the narrow reader",
+  "Wrapped whole under its words, never cut.",
+  "",
   "::graph-table", "---", "headers: [Job, Who]", "rows:", "  - [SHED-4 / oil the hinge and the padlock on the shed door, Sam]", "---", "::",
 ].join("\n");
 

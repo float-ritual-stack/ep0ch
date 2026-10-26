@@ -2,6 +2,8 @@
 // figures, rowLines). Nothing is cut that the next line has room for, and no source leaks. Scratch outline, made-up notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { primitiveLines } from "../src/components";
+import { foldPoints, renderDoc } from "../src/doc";
 import { figureSource, renderGraph } from "../src/graphs";
 import { drawNote } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
@@ -13,10 +15,18 @@ const plain = (s: string) => visible(s).trimEnd();
 const figure = (kind: string, lines: string[], w = 40) => renderGraph(kind, figureSource(lines), w).map(plain);
 
 describe("figures at 40 columns", () => {
-  test("a checklist row is never cut: its words wrap onto every row they take", () => {
-    const out = figure("check", ["---", "title: Before the frost", "---", "- [ ] Order the seed trays for the north beds before the frost comes in"]).join("\n");
+  test("a checklist row is never cut: its words wrap onto every row they take, in the figure and the component alike (PIE-1348)", () => {
+    const step = "Order the seed trays for the north beds before the frost comes in";
+    const out = figure("check", ["---", "title: Before the frost", "---", `- [ ] ${step}`]).join("\n");
     expect(out).not.toContain("…");
-    expect(out.replace(/[┊\s]+/g, " ")).toContain("Order the seed trays for the north beds before the frost comes in");
+    expect(out.replace(/[┊\s]+/g, " ")).toContain(step);
+    // A component's checklist is the same drawing: the same box, gap and hang, the same rows.
+    const component = primitiveLines({ type: "checklist", items: [{ label: step, done: false }] }, 36).map(plain);
+    const inFigure = out.split("\n").filter(l => /\[ \]|^┊ {6}\S/.test(l)).map(l => l.slice(2, -1).trimEnd());
+    expect(component).toEqual(inFigure);
+    expect(component[0]).toMatch(/^\[ \]  Order/);
+    // The words hang under themselves: the next row starts where "Order" did.
+    expect(component[1]!.search(/\S/)).toBe(component[0]!.indexOf("Order"));
   });
 
   test("a table cell's next row starts at the cell's edge, not under a Work ID's indent", () => {
@@ -33,6 +43,28 @@ describe("figures at 40 columns", () => {
     expect(rowLines("PC-12 · the intake flow", 16, Infinity)).toEqual(["PC-12 · the", "        intake", "        flow"]);
     // A note's label in the power bar: the id, then its title (noteLabel).
     expect(rowLines("PC-12 the intake flow", 16, Infinity)).toEqual(["PC-12 the intake", "      flow"]);
+  });
+});
+
+describe("a plain heading at 40 columns (PIE-1348)", () => {
+  const ENV = { width: 40, cellW: 9, cellH: 16, graphics: false, maxImageRows: 4, unfold: false };
+  test("wraps whole under its words, past its #s, and a copy takes it joined as written", () => {
+    const body = "## Order the seed trays for the raised beds before the frost\nx";
+    const doc = renderDoc(body, { ...ENV, folds: { points: foldPoints(body), folded: new Set() } });
+    const lines = doc.lines.map(plain), first = lines.findIndex(l => l.startsWith("▾ ## Order"));
+    expect(lines.slice(first, first + 2)).toEqual(["▾ ## Order the seed trays for the raised", "     beds before the frost"]);
+    expect(lines.join("\n")).not.toContain("…");
+    expect(doc.trims.get(first + 1)?.cuts).toContainEqual([0, 5]);
+    expect(doc.wraps?.get(first + 1)).toBe(" ");
+    // Without folds (an embed, ep0ch show's first pass) the same, past the #s alone.
+    const flat = renderDoc(body, ENV).lines.map(plain);
+    expect(flat.slice(0, 2)).toEqual(["## Order the seed trays for the raised", "   beds before the frost"]);
+    // Beside an inline embed too: its rows join, its hang is drawing.
+    const id = "aaaaaaaa-1111-4222-8333-444444444444";
+    const embedded = renderDoc(`## Order the seed trays for the raised beds before the frost !((${id}))`, { ...ENV, embed: () => ["[the embed]"] });
+    expect(embedded.lines.map(plain).slice(0, 3)).toEqual(["## Order the seed trays for the raised", "   beds before the frost", "[the embed]"]);
+    expect(embedded.wraps?.get(1)).toBe(" ");
+    expect(embedded.trims.get(1)?.cuts).toContainEqual([0, 3]);
   });
 });
 

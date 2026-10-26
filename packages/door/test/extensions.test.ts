@@ -74,7 +74,8 @@ describe("a component's view in the terminal", () => {
     expect(text[1]).toBe("▌ two beds still to dig");
     expect(text[2]).toMatch(/^ {2}Beds {2}6 of 8 +Rain {2}_▒░█$/);
     expect(text[3]).toMatch(/^ {2}Dug {2}█+░+ {2}6\/8/);
-    expect(text.slice(4, 6)).toEqual(["  [x] dig the leek bed", "  [ ] net the brassicas"]);
+    // The checklist figure's drawing (PIE-1348): its box, two spaces, the words.
+    expect(text.slice(4, 6)).toEqual(["  [x]  dig the leek bed", "  [ ]  net the brassicas"]);
     expect(text.slice(6, 10).map(l => l.trimEnd())).toEqual(["  Bed  Crop", "  ───  ─────", "  1    leeks", "  2    kale"]);
     expect(linked).toEqual(["aaaaaaaa-1111-4222-8333-444444444444"]);
     expect(text.at(-3)).toMatch(/^ {2}┌─ Note ─+┐$/);
@@ -252,7 +253,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     const source = readFileSync(join(outliner!, "extensions/fancy-horror/fancy-horror.ts"), "utf8");
     const omenList = [...source.match(/const OMENS = \[([\s\S]*?)\];/)![1]!.matchAll(/"([^"]+)"/g)].map(m => m[1]!);
     expect(omenList.length).toBeGreaterThan(3);
-    const drawn = omenList.filter(o => t.includes(`[ ] ${o}`));
+    const drawn = omenList.filter(o => t.includes(`[ ]  ${o}`));
     expect(drawn.length).toBeGreaterThanOrEqual(1);
     expect(t).not.toContain("[w ward] [keep] [r run again]");
     expect(t).toMatch(/Tidy @tidy · applied · formatted 1 line/);
