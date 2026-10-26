@@ -2586,7 +2586,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   private controlsHint(id: number): Hint {
     const pane = this.panes.get(id);
-    return { id: "frame", title: `${this.numLabel(id)}${this.displayTitle(id)} controls`, lines: [FRAME_LEGEND, ...(pane instanceof ReaderPane ? pane.surface.buttonHint() : [])] };
+    return { id: "frame", title: `${this.numLabel(id)}${this.displayTitle(id)} · ${shortTileId(this.tileId(id))} controls`, lines: [FRAME_LEGEND, ...(pane instanceof ReaderPane ? pane.surface.buttonHint() : [])] };
   }
   linkingHint(): Hint | null {
     if (!this.linking) return null;
@@ -5915,6 +5915,22 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return this.tileAnswer(this.tile(name).id);
   }
 
+  /** `tile.copy-ref` (PIE-1297): the tile's id, or the address of its place (`tileAddressesOf`), to the person's clipboard or back to an agent. */
+  copyTileRef(sel: string | undefined, kind: "id" | "ref", actor: Actor) {
+    const t = this.tile(sel), refs = this.tileAddressesOf(this.panes.get(t.id)!);
+    if (!refs) throw new ActionRefused(`${this.nameOf(t.id)} isn't reachable from here to name`);
+    const text = kind === "ref" ? refs.place ?? refs.id : refs.id;
+    const answer = { ...this.tileAnswer(t.id), kind, text, id: refs.id, ...(refs.place ? { place: refs.place } : {}) };
+    const what = kind === "ref" && !refs.place ? `${text} (nothing else names ${refs.name} alone, so its id)` : text;
+    if (actor.kind === "user") {
+      if (this.ctx.copy?.(text) === false) throw new ActionRefused("the clipboard refused it");
+      this.ctx.flash(`copied ${what}`);
+      return { ...answer, clipboard: true };
+    }
+    this.ctx.flash(`@${actor.id ?? "agent"} copied ${refs.name}'s ${kind === "ref" ? "reference" : "id"} for itself · your clipboard is untouched`);
+    return { ...answer, clipboard: false };
+  }
+
   /** `tile.info`: the tile as `layout.get` lists it, with what it follows and where its opens land in plain words (PIE-855, ^W P's rows). */
   tileInfo(sel: string | undefined) {
     const t = this.tile(sel), view = this.tileView(t.id);
@@ -6599,7 +6615,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const b = this.menuButtons.find(x => x.id === t.id), r = this.rectsNow().get(t.id) ?? (this.isFloat(t.id) ? this.floatRect(this.floats.find(f => f.id === t.id)!) : undefined);
       anchor = b ? { col: b.from, row: b.row + 1, right: true } : r ? { col: r.col + r.cols - 1, row: r.row + 1, right: true } : { col: 0, row: 0 };
     }
-    this.overlays.push(tileMenu<Desk>({ title: this.nameOf(t.id), rows: every, at: anchor, look: w => this.lookAt(this.panes.get(t.id)!, w).values, ...(q ? { q } : {}) }));
+    this.overlays.push(tileMenu<Desk>({ title: `${this.nameOf(t.id)} · ${shortTileId(this.tileId(t.id))}`, rows: every, at: anchor, look: w => this.lookAt(this.panes.get(t.id)!, w).values, ...(q ? { q } : {}) }));
     this.redraw();
     return { ...this.tileAnswer(t.id), open: true, rows };
   }

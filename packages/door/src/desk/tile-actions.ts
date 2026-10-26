@@ -571,6 +571,15 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     args: {},
     run(_, { d, reader }) { return d.tileInfo(reader); },
   }),
+  "tile.copy-ref": def({
+    summary: "copy the tile's address (PIE-1297): kind=id its id (t-<uuid>, exactly this tile, kept through moves, saves and restarts), kind=ref the address of its place in the tile grammar (drawer.agent, role:<role>, <slot>@<screen>: whichever tile fills it), or its id when nothing else names it alone. The person's goes to their clipboard; an agent's is returned to it and never touches the clipboard",
+    keys: "the tile menu's \"copy id\" and \"copy reference\"",
+    touches: "nothing", replay: "safe",
+    menu: [{ label: "copy id", group: TILE, args: { kind: "id" } }, { label: "copy reference", group: TILE, args: { kind: "ref" } }],
+    args: { kind: { type: "string", optional: true, choices: ["id", "ref"], about: "id (default): the tile's t-<uuid>; ref: the address of its place, which a restarted tile answers to" } },
+    examples: [{ act: "tile.copy-ref kind=ref tile=drawer.agent", does: "answers drawer.agent and the program's t-<uuid>, for a button's tile= or a script" }],
+    run({ kind }, { d, reader }, actor) { return d.copyTileRef(reader, (kind ?? "id") as "id" | "ref", actor); },
+  }),
   "layout.resize": def({
     summary: "move a border: in split split=<id> (layout.get gives each split's id, s<n>; it stays with the split when tiles move around it), or the split at path=<p> (\"\" the root, \"1.0\" its second kid's first kid: where it is now, so pass expected=<rev> too), the border after kid border=<i> is placed so kid i and kid i+1 share their room share=<0-1> to (1-share). The answer names the split, its path and its tiles",
     keys: "drag a border",

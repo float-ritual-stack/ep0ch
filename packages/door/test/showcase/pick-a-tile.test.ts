@@ -108,4 +108,26 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await act("button.press", { note, label: "pop it" });
     await until(() => !drawer.made.lifted, "dropped");
   });
+
+  // PIE-1297: copy a tile's and a note's id and reference from where you see them.
+  test("the tile menu heads with the tile's id and has copy id and copy reference, beside the note's own", async () => {
+    const links = (await act("tile.info", {}, "links")).tile as string;
+    const menu = await act("tile.menu", {}, "notes", AGENT);
+    const rows = (menu.rows as { label: string; group: string; action: string }[]).map(r => `${r.group}: ${r.label}`);
+    expect(rows).toEqual(expect.arrayContaining(["Tile: copy id", "Tile: copy reference", "Note: copy id", "Note: copy reference"]));
+    // An agent's copy comes back to it; the person's clipboard is untouched.
+    expect(await act("tile.copy-ref", { kind: "id" }, "links", AGENT)).toMatchObject({ text: links, clipboard: false });
+    const ref = await act("tile.copy-ref", { kind: "ref" }, "drawer.agent", AGENT);
+    expect(ref).toMatchObject({ text: "drawer.agent", place: "drawer.agent", clipboard: false });
+    const note = seeded.notes.pickATile.id;
+    expect(await act("note.copy-ref", { kind: "ref" }, "notes", AGENT)).toMatchObject({ text: `((${note}|Pick a tile instead of typing its id))`, clipboard: false });
+    // The person's goes to their clipboard (OSC 52) and the status line says what.
+    const before = h.written.length;
+    expect(await act("note.copy-ref", { kind: "id" }, "notes")).toMatchObject({ text: note, clipboard: true });
+    expect(h.written.slice(before).join("")).toContain(Buffer.from(note).toString("base64"));
+    // The person's menu, opened, is headed with the tile's name and its short id.
+    await act("tile.menu", {}, "links");
+    await until(() => screen().includes(`links · ${links.slice(0, 10)}`), "the menu's heading");
+    h.press({ kind: "esc" } as never);
+  });
 });

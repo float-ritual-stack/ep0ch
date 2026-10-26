@@ -5880,6 +5880,26 @@ export class NoteSurface {
     return { id: m.id, text, lines, clipboard: false };
   }
 
+  /**
+   * `note.copy-ref` (PIE-1297): the note's full id (a short one doesn't resolve), or a reference to paste into another note,
+   * `((id|title))`. The person's goes to their clipboard; an agent's is returned to it and never touches the clipboard.
+   */
+  async copyNoteRef(kind: "id" | "ref", host: SurfaceHost, actor: Actor): Promise<{ id: string; kind: string; text: string; clipboard: boolean }> {
+    const m = await this.whole();
+    // A label holds no | or parentheses: either would end the reference early.
+    const label = subject(m).replace(/[|()]/g, " ").replace(/\s+/g, " ").trim();
+    const text = kind === "ref" ? `((${m.id}${label ? `|${label}` : ""}))` : m.id;
+    const what = kind === "ref" ? "a reference to the note" : "the note's id";
+    if (actor.kind === "user") {
+      if (host.ctx.copy?.(text) === false) throw new ActionRefused("the clipboard refused it");
+      host.ctx.flash(`copied ${what}: ${text}`);
+      return { id: m.id, kind, text, clipboard: true };
+    }
+    host.ctx.flash(`copied ${what} for itself · your clipboard is untouched`);
+    this.noteAgent(actor, `copied ${what}`);
+    return { id: m.id, kind, text, clipboard: false };
+  }
+
   /** Refused unless the last render drew the note (the elements come from it). */
   requireDrawn() {
     if (!this.drawn && !this.digesting) throw new ActionRefused("this reader doesn't draw the note now (it's editing, commenting, reading the note, or it's a river column's digest; link.select steps a river column's links)");
@@ -11572,6 +11592,19 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: {},
     async run(_, { surface, host }, actor) {
       const r = await surface.copyNote(host, actor);
+      host.redraw();
+      return r;
+    },
+  }),
+  "note.copy-ref": def({
+    summary: "copy the note's id (kind=id, the full id: a short one doesn't resolve) or a reference to it (kind=ref, ((id|title)), ready to paste into another note). The person's goes to their clipboard and the status line says what was copied; an agent's is returned to it and never touches the person's clipboard",
+    keys: "the tile menu's \"copy id\" and \"copy reference\" (Note), the power bar",
+    touches: "nothing", replay: "safe",
+    menu: [noteRow("copy id", "", {}), noteRow("copy reference", "", {})].map((r, i) => ({ ...r, args: { kind: i ? "ref" : "id" } })),
+    args: { kind: { type: "string", optional: true, choices: ["id", "ref"], about: "id (default): the note's full id; ref: ((id|title))" } },
+    examples: [{ act: "note.copy-ref kind=ref", does: "answers ((<id>|<title>)) for the note shown" }],
+    async run({ kind }, { surface, host }, actor) {
+      const r = await surface.copyNoteRef((kind ?? "id") as "id" | "ref", host, actor);
       host.redraw();
       return r;
     },
