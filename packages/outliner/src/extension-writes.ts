@@ -15,7 +15,7 @@ import { removedListItemIds } from "./checklist-items";
  *   proposal beside the note it acted on.
  * - What landed is kept as an undo step (`undo`, the door's ctrl+z and `ext.undo`), the last 100 since the host
  *   started: undone whole, and only while nothing it touched changed since. The service's own groups (a quote of
- *   marks, `marks.quote`) are kept the same way (`keepMade`), so one undo contract serves both.
+ *   marks, `quote`) are kept the same way (`keepMade`), so one undo contract serves both.
  */
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { VIA_TRIGGER } from "@ep0ch/outline-core/rules";
@@ -72,7 +72,7 @@ export const MAX_WRITE_TEXT = 64 * 1024;
 const MAX_ORDER = 500;
 const LOCAL_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
 const MAX_UNDO = 100;
-/** The owner of a write group the service made itself (`marks.quote`), not an extension's. */
+/** The owner of a write group the service made itself (`quote`), not an extension's. */
 export const SERVICE_GROUP = "ep0ch";
 
 /** A draft proposal waiting under a block (src/draft-patch.ts): beside its note, not one of its children to order. */
@@ -352,7 +352,7 @@ export class ExtensionWrites {
   }
 
   /**
-   * Blocks the service itself made as one write group (`marks.quote`), kept as one undo step like an action's:
+   * Blocks the service itself made as one write group (`quote`), kept as one undo step like an action's:
    * `extensions.undo` with the answer takes them to the Trash, while they're as they were made.
    */
   keepMade(action: string, made: readonly string[]): string | undefined {

@@ -207,12 +207,12 @@ test("blocks.markRead (EchoNet's reader): blocks read at the revision shown leav
   await expect(client.request({ action: "blocks.markRead", blocks: ["nope"] } as never)).rejects.toThrow(/needs blocks/);
 });
 
-test("a mark quoted into a block of its own (marks.quote): a reply under its note as an agent, transcluded and linked back; the mark says quoted in until it's undone; a note that isn't a mark is refused", async () => {
+test("a mark quoted into a block of its own (quote): a reply under its note as an agent, transcluded and linked back; the mark says quoted in until it's undone; a note that isn't a mark is refused", async () => {
   const { client, comment, reply, threads, store, note } = await setup(false);
   const thread = await comment("q1", "tomatoes at dawn", "Dawn, or before?");
   const answer = (await reply("q2", thread, "Before the glass warms.")).annotations[0]!.block.id;
   const quoted = await client.request<{ block: { id: string; parentId: string; text: string; author: string; actorId?: string }; placement: { said: string }; undo: string }>({
-    action: "marks.quote", input: { marks: [answer], place: { kind: "note" } }, mutation: { author: "agent", actorId: "fern" },
+    action: "quote", input: { subjects: [{ kind: "mark", id: answer }], place: { kind: "note" } }, mutation: { author: "agent", actorId: "fern" },
   });
   expect(quoted.block).toMatchObject({ parentId: note.id, author: "agent", actorId: "fern" });
   expect(quoted.block.text).toBe(`Quoting “Before the glass warms.”\n[from::((${answer}))]\n!((${answer}))`);
@@ -221,8 +221,8 @@ test("a mark quoted into a block of its own (marks.quote): a reply under its not
   await client.request({ action: "extensions.undo", undo: quoted.undo, mutation: { author: "user" } });
   expect(store.get(quoted.block.id)?.effectiveDeletedRootId).toBeTruthy();
   expect((await threads()).find(t => t.block.id === thread)!.replies[0]!.quotedIn).toEqual([]);
-  await expect(client.request({ action: "marks.quote", input: { marks: [note.id] }, mutation: { author: "user" } })).rejects.toThrow(/isn't a mark/);
-  await expect(client.request({ action: "marks.quote", input: { marks: [thread], place: { kind: "under", blockId: "no-such-block" } }, mutation: { author: "user" } })).rejects.toThrow(/No live note no-such-block/);
+  await expect(client.request({ action: "quote", input: { subjects: [{ kind: "mark", id: note.id }] }, mutation: { author: "user" } })).rejects.toThrow(/isn't a mark/);
+  await expect(client.request({ action: "quote", input: { subjects: [{ kind: "mark", id: thread }], place: { kind: "under", blockId: "no-such-block" } }, mutation: { author: "user" } })).rejects.toThrow(/No live note no-such-block/);
 });
 
 test("a hub is a block with two or more views under it: child>=2: counts the children that have the property", async () => {

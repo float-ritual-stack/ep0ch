@@ -995,14 +995,14 @@ listener is untouched (below): read-only, marked notes only.
   in the card, and tapping them opens their card inside it.
 - **Quote** (the margin's quote-tweet): a card's Quote, or Pick on several cards and then Quote N, opens a sheet: the
   Inbox (the default), under this note, or under a note found by its words (`<base>/_marginalia/find`), and words of
-  your own. `marks.quote` makes one block that transcludes each mark under a `[from::((mark))]` line, drawn on its
+  your own. `quote` (with mark subjects) makes one block that transcludes each mark under a `[from::((mark))]` line, drawn on its
   page as "from <the mark>"; each mark's card then says "quoted in" it. The toast opens the new block or undoes it
   (`extensions.undo`, only a quote these pages made, once). Through a share link, "under" names notes inside the
   share, and a block outside it is said, never linked.
 - **Every write goes through the service's own paths**, the door's: a comment or ask is `annotations.batch` (a
   `block-comment` on the exact passage: block, revision, quote, prefix, suffix, found once in the note's source or
   refused with why), a highlight is the extension's passage action (`extensions.act`), a reply `annotations.reply`, a
-  resolve `annotations.lifecycle`, a quote `marks.quote`. They're the person's (`author: user`), as the door writes his, so the door, Detail
+  resolve `annotations.lifecycle`, a quote `quote`. They're the person's (`author: user`), as the door writes his, so the door, Detail
   and agents see the same threads. Words that can't be placed still land, on the whole note, quoted.
 - **What guards the writes.** The routes are `<base>/_marginalia/threads`, `/find` and `/complete` (GET) and `<base>/_marginalia/write`
   (POST) on the tailnet listener, and below a share link. A write must name this host in its `Origin` and be sent as JSON, so a page on

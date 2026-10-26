@@ -114,13 +114,25 @@ export interface Comment {
    * tone). A highlight is a thread with no body.
    */
   props?: Record<string, string[]>;
-  /** The blocks quoting it (`marks.quote`), oldest first: each holds `[from::((this))]`. */
+  /** The blocks quoting it (`quote`), oldest first: each holds `[from::((this))]`. */
   quotedIn?: string[];
 }
-/** Where a quote of marks goes (`marks.quote`): the top of the Inbox, under the first mark's note, or under a block. */
-export type QuotePlace = { kind: "inbox" } | { kind: "note" } | { kind: "under"; blockId: string };
-/** What `marks.quote` made: the block, where it went (in words too), and the undo step that takes it back. */
-export interface QuoteReceipt { block: { id: string; text: string }; placement: { parentId: string; said: string }; marks: string[]; undo?: string }
+/**
+ * What `quote` materializes (PIE-1247, outliner src/quote.ts): a mark, or an element of a note by its anchor or by a
+ * line of it (the note's revision with it: the service writes the anchor).
+ */
+export type QuoteSubject = { kind: "mark"; id: string } | { kind: "element"; blockId: string; anchor?: string; line?: number; revision?: number; next?: true };
+/**
+ * Where it goes: a new block at the top of the Inbox, under the first subject's note, under a block, under `.detached`
+ * (a tile of its own, no header), or into a note's text after a line (the drag's drop).
+ */
+export type QuotePlace = { kind: "inbox" } | { kind: "note" } | { kind: "under"; blockId: string } | { kind: "detached" } | { kind: "into"; blockId: string; line: number };
+/** A subject as the service read it: `ref` is what links to it (`note^anchor`), `anchored` when its anchor was just written. */
+export interface QuotedSubject { ref: string; label: string; kind?: string; anchored?: boolean }
+/** What `quote` made: a block, where it went (in words too) and the undo step that takes it back; or what it put into a note. */
+export type QuoteReceipt =
+  | { block: { id: string; text: string }; placement: { parentId: string; said: string }; marks: string[]; subjects: QuotedSubject[]; undo?: string }
+  | { into: { blockId: string; outcome: "applied" | "proposed"; revision?: number; reason?: string }; subjects: QuotedSubject[]; said: string };
 /**
  * A passage to comment on: exact source text of the note, where it starts (UTF-16 offset), and the text around it
  * (outline-core passage.ts), so a comment on a note that moved on since lands where the words are, once.
@@ -1267,13 +1279,14 @@ export class SocketBoard implements Board {
    * replies' new ones). Bookkeeping: nothing in the thread changes, and repeating it is harmless.
    */
   /**
-   * Quote marks (highlights, comments, replies) into a new block (`marks.quote`): each transcluded and linked back
-   * with `[from::((mark))]`, placed where `place` says, as `actor`. One write, one undo step (`undoExtension(undo)`).
+   * Materialize marks or elements (`quote`, PIE-1247): into a new block, each transcluded and linked back with
+   * `[from::((…))]`, placed where `place` says (one write, one undo step: `undoExtension(undo)`), or into a note's text
+   * after a line, as a reference or (`as: copy`) an element's own lines, through draft.patch. As `actor`.
    */
-  quoteMarks(marks: string[], place: QuotePlace, actor: Actor = USER, text?: string): Promise<QuoteReceipt> {
+  quote(subjects: QuoteSubject[], place: QuotePlace, actor: Actor = USER, opts: { as?: "reference" | "copy"; text?: string } = {}): Promise<QuoteReceipt> {
     // A block the person makes is theirs with no actor id (the service takes one only on an agent's), as a comment is.
     const mutation = actor.kind === "agent" || actor.with?.length ? mutationFor(actor) : { author: "user" };
-    return this.request<QuoteReceipt>("marks.quote", { input: { marks, place, ...(text ? { text } : {}) }, mutation });
+    return this.request<QuoteReceipt>("quote", { input: { subjects, place, ...(opts.as ? { as: opts.as } : {}), ...(opts.text ? { text: opts.text } : {}) }, mutation });
   }
 
   async readThread(annotationId: string): Promise<{ thread: string; marked: number }> {

@@ -27,7 +27,7 @@ import { ECHO_COPIES, ECHO_NODELIST, ECHO_POSTS, ECHO_SEEN_BY, ECHO_TOSSER, ECHO
 import { PROJECT_FIGURE, PROJECT_TICKETS, VENT_RAIL } from "./seed/self";
 import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, laneQuery, societyText } from "./seed/work";
 import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, KEYS_TEXT, dashboardText, figuresText, markdownFiguresText } from "./seed/figures";
-import { DEEP_LINKS, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
+import { DEEP_LINKS, SHED_JOBS, SHED_PAD, SHED_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
 import { LIST_FOLDS } from "./seed/list-folds";
 import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
@@ -452,6 +452,9 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.stickyPlan = await make(notes.root.id, STICKY_PLAN);
   for (const job of STICKY_JOBS) await make(notes.stickyPlan.id, job);
   notes.stickyPad = await make(notes.root.id, STICKY_PAD);
+  notes.shedPlan = await make(notes.root.id, SHED_PLAN);
+  for (const job of SHED_JOBS) await make(notes.shedPlan.id, job);
+  notes.shedPad = await make(notes.root.id, SHED_PAD);
   notes.sources = await make(notes.root.id, SOURCES);
   notes.swapDay = await make(notes.root.id, `${SEED.swapDay} [page::${SEED.swapDay}]\nBring seeds in paper envelopes, labelled with what and when.`);
   notes.margin = await make(notes.root.id, MARGIN);

@@ -641,6 +641,14 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(q.json.detail.block.text).toContain(`[from::((${id}))]\n!((${id}))`);
     expect((await garden.comments(ids.seeds!)).find(t => t.id === id)!.quotedIn).toEqual([q.json.detail.block.id]);
     expect((await tool("outline_quote", { uri: seeds, marks: ["no-such-mark"] })).text).toContain("No mark no-such-mark");
+    // A part of a note by its anchor (PIE-1247): detached into a block of its own, then embedded into another note.
+    const plan = await garden.request<{ id: string }>("create", { parentId: null, text: "Bed plan\nFour beds.\n\n::graph-stat ^beds\n- beds: 4\n::", author: "user" });
+    const planUri = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: plan.id });
+    const det = await tool("outline_quote", { uri: planUri, elements: ["^beds"], where: "detached" });
+    expect(det.json.detail.block.text).toBe(`graph-stat [header::none]\n[from::((${plan.id}^beds))]\n!((${plan.id}^beds))`);
+    const into = await tool("outline_quote", { uri: planUri, elements: ["beds"], into: ids.seeds!, at: 1 });
+    expect(into.json).toMatchObject({ outcome: "applied" });
+    expect((await garden.get(ids.seeds!))!.text.split("\n")[1]).toBe(`!((${plan.id}^beds))`);
     // A thread that isn't on the note is refused; a bad shape is too.
     expect((await tool("outline_reply", { uri: seeds, thread: "no-such-thread", body: "hello" })).text).toContain("No thread no-such-thread");
     expect((await tool("outline_resolve_thread", { uri: seeds, thread: id })).isError).toBe(true);

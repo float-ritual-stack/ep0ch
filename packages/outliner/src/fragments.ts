@@ -498,6 +498,24 @@ export function ensureFragmentAnchor(
   };
 }
 
+/**
+ * The element line `line` belongs to (PIE-1247: what a press, a drag or `element.detach` on that line means): the
+ * innermost of the note's figures, callouts, quotes, list items, paragraphs and heading sections that holds it, with
+ * its anchor when it has one, else the line its anchor would go on. Null for a line no element holds (the title, a
+ * property line, a blank between parts).
+ */
+export function elementAt(text: string, line: number): FragmentCandidate | null {
+  let best: { c: FragmentCandidate; span: number } | null = null;
+  for (const c of fragmentCandidates(text, "", "passage")) {
+    const anchored = c.fragmentId ? { text, id: c.fragmentId } : (() => { const a = ensureFragmentAnchor(text, c.lineIndex); return { text: a.text, id: a.fragmentId }; })();
+    const r = resolveFragmentSlice(anchored.text, anchored.id);
+    if (r.status !== "resolved" || line < r.slice.startLine || line > r.slice.endLine) continue;
+    const span = r.slice.endLine - r.slice.startLine;
+    if (!best || span < best.span) best = { c, span };
+  }
+  return best?.c ?? null;
+}
+
 /** A passage's anchor: its first three words, short enough to type (`^water-the-seedlings`). */
 function passageSlug(label: string): string {
   const words = label.replace(/^\[[ xX~>-]\]\s*/, "").split(/\s+/).filter(w => /[A-Za-z0-9]/.test(w)).slice(0, 3).join(" ");

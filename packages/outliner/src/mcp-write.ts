@@ -168,20 +168,27 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
       return { outcome: "applied", uri: o.uri(write.blockId), said: `thread ${r.thread} on ${o.uri(write.blockId)} is now ${r.lifecycle}`, detail: r };
     }
     case "outline_quote": {
-      const marks = (write.input.marks as unknown[]).map(String), where = String(write.input.where ?? "inbox").trim();
-      const listed = marks.map(m => `((${m}))`).join(", ");
+      const marks = ((write.input.marks as unknown[] | undefined) ?? []).map(String), elements = ((write.input.elements as unknown[] | undefined) ?? []).map(e => String(e).replace(/^\^/, ""));
+      if (!marks.length && !elements.length) throw new Error("outline_quote needs marks (ids outline_threads returned) or elements (the note's ^anchors, as outline_read shows them)");
+      const where = String(write.input.where ?? "inbox").trim(), into = write.input.into === undefined ? undefined : String(write.input.into);
+      const listed = [...marks.map(m => `((${m}))`), ...elements.map(e => `((${write.blockId}^${e}))`)].join(", ");
       if (kind !== "applied" || o.proposeOnly) {
         // A new block is a proposal at propose access: a comment on the note, for its owner to quote.
-        const body = `Proposed quote of ${listed} into a new block (${where === "note" ? "under this note" : where === "inbox" ? "in the Inbox" : `under ${where}`}), from ${actorLabel(o.actor.actorId)}${write.input.text ? `:\n\n${String(write.input.text)}` : ""}`;
+        const body = `Proposed quote of ${listed} ${into ? `into ${into}` : `into a new block (${where === "note" ? "under this note" : where === "inbox" ? "in the Inbox" : where === "detached" ? "detached" : `under ${where}`})`}, from ${actorLabel(o.actor.actorId)}${write.input.text ? `:\n\n${String(write.input.text)}` : ""}`;
         const c = await tools.commentOn(client, { ref: write.blockId, whole: true, body }, o.actor);
         return { outcome: "proposed", uri: o.uri(write.blockId), said: `proposed as a comment on ${o.uri(write.blockId)} (thread ${c.thread}): this outline takes proposals, not new blocks`, detail: c };
       }
-      const on = new Set((await board.comments(write.blockId)).flatMap(t => [t.id, ...t.replies.map(r => r.id)]));
-      const away = marks.find(m => !on.has(m));
-      if (away) throw new Error(`No mark ${away} on ${o.uri(write.blockId)}; outline_threads lists the note's threads and replies.`);
-      const place = where === "inbox" ? { kind: "inbox" as const } : where === "note" ? { kind: "note" as const } : { kind: "under" as const, blockId: (await tools.resolveRef(client, where)).id };
-      const r = await client.request<{ block: { id: string }; placement: { said: string }; undo?: string }>({ action: "marks.quote", input: { marks, place, ...(write.input.text ? { text: String(write.input.text) } : {}) }, mutation: { author: "agent", ...o.actor } });
-      return { outcome: "applied", uri: o.uri(r.block.id), said: `quoted ${listed} ${r.placement.said}: ${o.uri(r.block.id)} transcludes each and links back with [from::]`, detail: r };
+      if (marks.length) {
+        const on = new Set((await board.comments(write.blockId)).flatMap(t => [t.id, ...t.replies.map(r => r.id)]));
+        const away = marks.find(m => !on.has(m));
+        if (away) throw new Error(`No mark ${away} on ${o.uri(write.blockId)}; outline_threads lists the note's threads and replies.`);
+      }
+      const subjects = [...marks.map(id => ({ kind: "mark", id })), ...elements.map(anchor => ({ kind: "element", blockId: write.blockId, anchor }))];
+      const place = into ? { kind: "into" as const, blockId: (await tools.resolveRef(client, into)).id, line: Math.max(0, Number(write.input.at ?? 1) - 1) }
+        : where === "inbox" ? { kind: "inbox" as const } : where === "note" ? { kind: "note" as const } : where === "detached" ? { kind: "detached" as const } : { kind: "under" as const, blockId: (await tools.resolveRef(client, where)).id };
+      const r = await client.request<{ block?: { id: string }; placement?: { said: string }; undo?: string; into?: { blockId: string; outcome: string }; said?: string }>({ action: "quote", input: { subjects, place, ...(write.input.as ? { as: String(write.input.as) } : {}), ...(write.input.text ? { text: String(write.input.text) } : {}) }, mutation: { author: "agent", ...o.actor } });
+      if (r.into) return { outcome: r.into.outcome === "applied" ? "applied" : "proposed", uri: o.uri(r.into.blockId), said: `${r.said} of ${o.uri(r.into.blockId)}: ${listed}`, detail: r };
+      return { outcome: "applied", uri: o.uri(r.block!.id), said: `quoted ${listed} ${r.placement!.said}: ${o.uri(r.block!.id)} transcludes each and links back with [from::]`, detail: r };
     }
     case "outline_create": {
       if (kind === "applied" && !o.proposeOnly) {
