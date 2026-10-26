@@ -1,4 +1,4 @@
-import { blockAfter } from "@ep0ch/outline-core/block-insert";
+import { blockAfter, landingLine } from "@ep0ch/outline-core/block-insert";
 import { ReaderPosition, PositionRows } from "./reader-position";
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
@@ -401,7 +401,9 @@ export class Draft {
     const before = this.text, at = Math.max(0, Math.min(after, this.lines.length - 1));
     const added = blockAfter(this.lines, at, block).split("\n");
     this.lines.splice(at, 1, ...added);
-    if (this.row > at) { this.row += added.length - 1; if (this.anchor && this.anchor.row > at) this.anchor = { ...this.anchor, row: this.anchor.row + added.length - 1 }; }
+    // The cursor and a selection's other end each move down when below the insert (a backward selection's too).
+    if (this.row > at) this.row += added.length - 1;
+    if (this.anchor && this.anchor.row > at) this.anchor = { ...this.anchor, row: this.anchor.row + added.length - 1 };
     this.note = "";
     if (this.text !== before) this.wrote(by, "the dropped part");
   }
@@ -1114,11 +1116,15 @@ export class Draft {
    */
   dropAt(x: number, y: number): { line: number; row: number } | null {
     const f = this.frame, rows = this.shown.rows;
-    if (!f || !rows.length || y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols) return null;
-    let k = Math.min(rows.length - 1, this.top + (y - f.row));
-    const blank = (i: number) => !(this.lines[rows[i]!.line] ?? "").trim();
-    while (k + 1 < rows.length && !blank(k) && !blank(k + 1)) k++;
-    return { line: rows[k]!.line, row: Math.min(f.row + f.rows - 1, f.row + (k - this.top) + 1) };
+    // Rich edit draws no source rows (PIE-1357): the part lands after the block the cursor is in, with no line drawn.
+    if (!f || !rows.length) return { line: landingLine(this.lines, this.row), row: -1 };
+    if (y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols) return null;
+    const line = landingLine(this.lines, rows[Math.min(rows.length - 1, this.top + (y - f.row))]!.line);
+    // Its drop line: under the last row the landing line is drawn on, when that row is in view.
+    let k = rows.length - 1;
+    while (k > 0 && rows[k]!.line > line) k--;
+    const row = f.row + (k - this.top) + 1;
+    return { line, row: row > f.row && row < f.row + f.rows ? row : -1 };
   }
 
   posAt(x: number, y: number): { row: number; col: number } {

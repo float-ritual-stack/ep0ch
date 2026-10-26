@@ -7351,7 +7351,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // its drop line, under that block across the tile, shows the place before the release.
       const at = this.local(hit[0], hit[1], x, y), land = pane.surface.dropAt(at.x, at.y);
       const line = land?.line ?? (pane.surface.draft ?? pane.msg).text.split("\n").length - 1;
-      const r = hit[1], row = land ? y + (land.row - at.y) : null;
+      const r = hit[1], row = land && land.row >= 0 ? y + (land.row - at.y) : null;
       const bar = row !== null && row > r.row && row < r.row + r.rows - 1 ? { row, col: r.col + 1, cols: r.cols - 2, rows: 1 } : null;
       return { kind: "into", tile: hit[0], note: pane.msg.id, line, bar, draft: !!land?.draft, label: `→ drop: embed or copy here, in ${subject(pane.msg)}${land?.draft ? " (your edit)" : ""} after line ${line + 1}` };
     }

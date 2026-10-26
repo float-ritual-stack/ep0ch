@@ -55,6 +55,7 @@ import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { propertyTokensInLine, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { fragmentAnchorMatch, linkOccurrences, referencedBlock, withoutFragmentAnchor, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
+import { landingLine } from "@ep0ch/outline-core/block-insert";
 import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import type { Step } from "../session/restore";
 import { childEnv, codeSpans, foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
@@ -6687,7 +6688,7 @@ export class NoteSurface {
    */
   dropAt(x: number, y: number): { line: number; row: number; draft: boolean } | null {
     const own = this.drafting?.openedBy.kind === "user" ? this.drafting.draft : null;
-    if (own) { const at = own.dropAt(x, y); return at && { ...at, draft: true }; }
+    if (own) { const at = own.dropAt(x, y); return at && { line: at.line, row: at.row, draft: true }; }
     const d = this.drawn, m = this.msg;
     const pos = d && m ? this.posAt(x, y) : null;
     if (!d || !m || !pos || pos.row < d.top) return null;
@@ -6698,7 +6699,9 @@ export class NoteSurface {
     // Down the block under the pointer: its rows, drawn edges (-1) included, to the row before a blank line.
     while (!blank(row) && !blank(row + 1) && row + 1 < d.top + d.body.length) { row++; const l = lineOf(row); if (l !== undefined && l >= 0) last = l; }
     if (last < 0) return null;
-    return { line: last, row: row - this.scroll + d.heroRows + 1, draft: false };
+    // Never inside a fence or a component the rows didn't show whole (outline-core's one landing rule).
+    const line = landingLine(text, last);
+    return { line, row: line === last ? row - this.scroll + d.heroRows + 1 : -1, draft: false };
   }
 
   /**
