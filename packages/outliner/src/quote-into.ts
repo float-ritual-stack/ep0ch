@@ -11,17 +11,25 @@ export { readQuoteInput };
 
 export async function quoteInto(store: Pick<OutlinerStore, "quoteSubjects">, drafts: Pick<DraftPatchRouter, "read" | "patch">, input: QuoteInput, mutation: MutationProvenance): Promise<QuoteReceipt> {
   if (input.place.kind !== "into") throw new Error("quoteInto needs place into");
-  const { blockId, line } = input.place;
+  const { blockId, observed: seen } = input.place;
+  // Refused before anything is written (an anchor in the part's note included).
+  if (input.subjects.some(s => (s.kind === "element" ? s.blockId : s.id) === blockId)) throw new Error("a part of this note can't be quoted into itself: drop it into another note, or detach it");
   const draft = await drafts.read(blockId);
   const lines = draft.text.split("\n");
+  let line = input.place.line;
+  // The line as the dropper saw it: moved since (lines written above it), it is where it is now, once.
+  if (seen !== undefined && lines[line] !== seen) {
+    const at = lines.flatMap((l, i) => (l === seen ? [i] : []));
+    if (at.length !== 1) throw new Error(`the line it was dropped after ("${seen.slice(0, 40)}") ${at.length ? "is there more than once now" : "changed since"}: drop it again`);
+    line = at[0]!;
+  }
   if (line >= lines.length) throw new Error(`${blockId} has ${lines.length} lines: line ${line + 1} isn't one of them`);
   const subjects = store.quoteSubjects(input.subjects, mutation);
-  if (subjects.some(s => s.ref.startsWith(`${blockId}^`) || s.ref === blockId)) throw new Error("a part of this note can't be quoted into itself: drop it into another note, or detach it");
   const inserted = subjects.map(s => quoteLine(s, input.as)).join("\n");
   const start = lines.slice(0, line).reduce((n, l) => n + l.length + 1, 0), observed = lines[line]!;
   const mark = markBelow(lines, line);
   const result = await drafts.patch({
-    blockId, revision: draft.revision, mutation, current: true, policy: "edit",
+    blockId, revision: draft.revision, mutation, current: true, policy: "edit", propose: "on-conflict",
     patches: [{ observed, range: { start, end: start + observed.length }, replacement: `${observed}\n${inserted}` }],
     ...(mark ? { mark: { text: mark } } : {}),
   });

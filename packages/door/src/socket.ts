@@ -126,7 +126,7 @@ export type QuoteSubject = { kind: "mark"; id: string } | { kind: "element"; blo
  * Where it goes: a new block at the top of the Inbox, under the first subject's note, under a block, under `.detached`
  * (a tile of its own, no header), or into a note's text after a line (the drag's drop).
  */
-export type QuotePlace = { kind: "inbox" } | { kind: "note" } | { kind: "under"; blockId: string } | { kind: "detached" } | { kind: "into"; blockId: string; line: number };
+export type QuotePlace = { kind: "inbox" } | { kind: "note" } | { kind: "under"; blockId: string } | { kind: "detached" } | { kind: "into"; blockId: string; line: number; observed?: string };
 /** A subject as the service read it: `ref` is what links to it (`note^anchor`), `anchored` when its anchor was just written. */
 export interface QuotedSubject { ref: string; label: string; kind?: string; anchored?: boolean }
 /** What `quote` made: a block, where it went (in words too) and the undo step that takes it back; or what it put into a note. */

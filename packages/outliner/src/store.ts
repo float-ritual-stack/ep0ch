@@ -1352,6 +1352,9 @@ export class OutlinerStore {
    */
   private quotedSubjectsFromCurrentRead(subjects: readonly QuoteSubject[], mutation: MutationProvenance): { quoted: QuotedSubject[]; marks: string[]; on?: string } {
     const quoted: QuotedSubject[] = [], marks: string[] = [];
+    // The revision each note had when this quote began: an anchor written for one part moves it on, and a second
+    // part of the same note named at that first revision is still the same note (an anchor never moves a line).
+    const began = new Map<string, number>();
     let on: string | undefined;
     for (const subject of subjects) {
       if (subject.kind === "mark") {
@@ -1377,9 +1380,10 @@ export class OutlinerStore {
       }
       let block = this.getFromCurrentRead(subject.blockId);
       if (!block || block.effectiveDeletedRootId) throw new Error(`No note ${subject.blockId}: it's gone or in the Trash`);
+      if (!began.has(block.id)) began.set(block.id, block.revision);
       let anchor = subject.anchor, anchored = false;
       if (anchor === undefined) {
-        if (subject.revision !== block.revision) throw new Error(`${subject.blockId} changed since revision ${subject.revision} (it's at ${block.revision}): read it again and name the line`);
+        if (subject.revision !== began.get(block.id)) throw new Error(`${subject.blockId} changed since revision ${subject.revision} (it's at ${block.revision}): read it again and name the line`);
         let element = elementAt(block.text, subject.line!);
         // "Where I am" (`next`): the first part at or after the line.
         for (let at = subject.line! + 1, n = block.text.split("\n").length; !element && subject.next && at < n; at++) element = elementAt(block.text, at);

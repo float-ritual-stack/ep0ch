@@ -7350,7 +7350,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const place = this.moveArgs(t.drop);
       return void this.run("element.detach", { line: e.line + 1, ...(place.to ? { to: place.to } : {}), where: place.where }, src);
     }
-    const quote = (as: "reference" | "copy") => this.run("element.quote", { line: e.line + 1, into: t.note, at: t.line + 1, as }, src);
+    // The line as the person saw it: lines written above it while the choice is open don't move where it lands.
+    const after = (this.panes.get(t.tile) as ReaderPane).msg?.text.split("\n")[t.line];
+    const quote = (as: "reference" | "copy") => this.run("element.quote", { line: e.line + 1, into: t.note, at: t.line + 1, as, ...(after !== undefined ? { after } : {}) }, src);
     this.overlays.push(dropAsPicker(subject((this.panes.get(t.tile) as ReaderPane).msg!), quote));
     this.redraw();
   }

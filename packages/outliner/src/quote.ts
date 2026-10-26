@@ -33,8 +33,11 @@ export type QuoteSubject =
 
 export type QuotePlace =
   | { kind: "inbox" } | { kind: "note" } | { kind: "under"; blockId: string } | { kind: "detached" }
-  /** Into a note's text, after its line `line` (from 0): the drag's drop. */
-  | { kind: "into"; blockId: string; line: number };
+  /**
+   * Into a note's text, after its line `line` (from 0): the drag's drop. `observed`: that line as the dropper saw it;
+   * moved since (lines written above it), the quote goes after it where it is now, found once, or is refused.
+   */
+  | { kind: "into"; blockId: string; line: number; observed?: string };
 
 export type QuoteAs = "reference" | "copy";
 
@@ -134,9 +137,10 @@ export function readQuoteInput(input: unknown): QuoteInput {
   if (kind === "inbox" || kind === "note" || kind === "detached") return { ...base, place: { kind } };
   if (kind === "under") return { ...base, place: { kind, blockId: id((place as { blockId?: unknown }).blockId, "place under") } };
   if (kind === "into") {
-    const p = place as { blockId?: unknown; line?: unknown };
+    const p = place as { blockId?: unknown; line?: unknown; observed?: unknown };
     if (!Number.isSafeInteger(p.line) || (p.line as number) < 0) throw new Error("place into names the line (from 0) the quote goes after");
-    return { ...base, place: { kind, blockId: id(p.blockId, "place into"), line: p.line as number } };
+    if (p.observed !== undefined && typeof p.observed !== "string") throw new Error("place into's observed is the line's text, as the dropper saw it");
+    return { ...base, place: { kind, blockId: id(p.blockId, "place into"), line: p.line as number, ...(typeof p.observed === "string" ? { observed: p.observed } : {}) } };
   }
   throw new Error("place is { kind: \"inbox\" } (the default), { kind: \"note\" } (under the note the first subject is on), { kind: \"detached\" }, { kind: \"under\", blockId } or { kind: \"into\", blockId, line }");
 }

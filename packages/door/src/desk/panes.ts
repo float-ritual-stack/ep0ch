@@ -928,7 +928,12 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
     async run({ line, anchor, where, to }, { pane, desk }, actor) {
       const r = await pane.surface.materialize({ kind: "detached" }, pane.host(desk), actor, { ...(anchor ? { anchor } : {}), ...(line !== undefined ? { line: line - 1 } : {}) });
       if (!("block" in r)) throw new ActionRefused("the service put it into a note, not a block of its own");
-      const opened = desk.perform ? await desk.perform("tile.open", { kind: "reader", mode: "held", note: r.block.id, where: where ?? "right", ...(to ? { to } : {}) }, actor, to ?? pane) : null;
+      let opened: unknown = null;
+      // A tile that can't open there (a locked screen, a tile that isn't one) takes the detached block back: nothing is left behind.
+      try { opened = desk.perform ? await desk.perform("tile.open", { kind: "reader", mode: "held", note: r.block.id, where: where ?? "right", ...(to ? { to } : {}) }, actor, to ?? pane) : null; } catch (err) {
+        if (r.undo) await desk.ctx.board.undoExtension(r.undo, actor).catch(() => undefined);
+        throw err;
+      }
       return { detached: r.block.id, part: r.subjects[0]!.ref, ...(r.subjects[0]!.anchored ? { anchored: true } : {}), ...(r.undo ? { undo: r.undo } : {}), ...(opened && typeof opened === "object" ? { opened } : {}) };
     },
   }),
@@ -938,6 +943,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
     touches: "draft", draft: "write", replay: "ask",
     args: {
       into: { type: "string", optional: false, kind: "note", about: "the note it goes into: an id or ((id))" },
+      after: { type: "string", optional: true, about: "the text of line at= as you read it: moved since, the part goes after it where it is now (or is refused)" },
       at: { type: "number", optional: false, about: "the line of that note it goes after, from 1" },
       as: { type: "string", optional: true, choices: ["reference", "copy"], about: "reference (the default) or copy" },
       line: { type: "number", optional: true, about: "the part's line in this reader's note, from 1 (default: the current element)" },
@@ -947,9 +953,9 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
       { act: "element.quote tile=plan line=4 into=((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34)) at=2", does: "embeds the plan's figure in the sticky pad after its second line" },
       { act: "element.quote tile=plan anchor=bed-jobs into=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 at=1 as=copy", does: "copies the figure, query and all, into the pad after its first line" },
     ],
-    async run({ into, at, as, line, anchor }, { pane, desk }, actor) {
+    async run({ into, at, as, line, anchor, after }, { pane, desk }, actor) {
       const blockId = /\(\(([^)|^]+)/.exec(String(into))?.[1] ?? String(into).trim();
-      const r = await pane.surface.materialize({ kind: "into", blockId, line: Math.max(0, Number(at) - 1) }, pane.host(desk), actor, { ...(anchor ? { anchor } : {}), ...(line !== undefined ? { line: line - 1 } : {}), ...(as ? { as: as as "reference" | "copy" } : {}) });
+      const r = await pane.surface.materialize({ kind: "into", blockId, line: Math.max(0, Number(at) - 1), ...(after !== undefined ? { observed: String(after) } : {}) }, pane.host(desk), actor, { ...(anchor ? { anchor } : {}), ...(line !== undefined ? { line: line - 1 } : {}), ...(as ? { as: as as "reference" | "copy" } : {}) });
       if (!("into" in r)) throw new ActionRefused("the service made a block, not an edit of that note");
       return { into: r.into, part: r.subjects[0]!.ref, ...(r.subjects[0]!.anchored ? { anchored: true } : {}), said: r.said };
     },

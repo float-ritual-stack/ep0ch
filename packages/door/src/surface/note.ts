@@ -6692,13 +6692,13 @@ export class NoteSurface {
     const here = opts.anchor === undefined && opts.line === undefined;
     const line = opts.anchor ? undefined : opts.line ?? this.elementLine() ?? -1;
     if (line !== undefined && line < 0) throw new ActionRefused("no part of the note is there: move to a figure, a callout, a list item or a paragraph (or name line= or anchor=)");
-    // The line was read from the note as drawn. Saved since (an anchor written on another line by the last drop) and
-    // that line still reads the same, without anchors, in as many lines: it's the same part, at the newer revision.
+    // The line was read from the note as drawn. Saved since with only anchors written (the last drop's): the same
+    // note, at the newer revision. Any other change is the service's to refuse ("changed since").
     let revision = m.revision!;
     if (line !== undefined) {
       const now = await host.ctx.board.get(m.id).catch(() => null);
-      const was = m.text.split("\n"), is = now?.text.split("\n");
-      if (now && now.revision !== revision && is!.length === was.length && withoutFragmentAnchor(is![line] ?? "") === withoutFragmentAnchor(was[line] ?? "")) revision = now.revision!;
+      const bare = (t: string) => t.split("\n").map(withoutFragmentAnchor).join("\n");
+      if (now && now.revision !== revision && bare(now.text) === bare(m.text)) revision = now.revision!;
     }
     const subject: QuoteSubject = opts.anchor ? { kind: "element", blockId: m.id, anchor: opts.anchor.replace(/^\^/, "") }
       : { kind: "element", blockId: m.id, line: line!, revision, ...(here ? { next: true as const } : {}) };

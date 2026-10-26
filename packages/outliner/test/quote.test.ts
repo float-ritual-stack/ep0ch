@@ -79,7 +79,24 @@ test("refused, nothing written: a stale line, a line no part holds, a note into 
   const plan = store.create(PLAN, null, "user");
   await expect(quote({ subjects: [{ kind: "element", blockId: plan.id, line: 3, revision: plan.revision + 1 }], place: { kind: "detached" } })).rejects.toThrow(/changed since revision/);
   await expect(quote({ subjects: [{ kind: "element", blockId: plan.id, line: 2, revision: plan.revision }], place: { kind: "detached" } })).rejects.toThrow(/in no part/);
-  await expect(quote({ subjects: [{ kind: "element", blockId: plan.id, anchor: "nope" }], place: { kind: "into", blockId: plan.id, line: 0 } })).rejects.toThrow(/no \^nope/);
+  const pad = store.create("Pad", null, "user");
+  await expect(quote({ subjects: [{ kind: "element", blockId: plan.id, anchor: "nope" }], place: { kind: "into", blockId: pad.id, line: 0 } })).rejects.toThrow(/no \^nope/);
+  await expect(quote({ subjects: [{ kind: "element", blockId: plan.id, anchor: "nope" }], place: { kind: "into", blockId: plan.id, line: 0 } })).rejects.toThrow(/into itself/);
   await expect(quote({ subjects: [{ kind: "mark", id: plan.id }], as: "copy" })).rejects.toThrow(/copy is for an element/);
   expect(store.get(plan.id)!.text).toBe(PLAN);
+});
+
+test("two parts of one note named at one revision both get their anchors; a refused quote into itself writes none; a drop line that moved is found where it is", async () => {
+  const { store, quote } = await service();
+  const plan = store.create(PLAN, null, "user");
+  const pad = store.create("Pad\nFirst.\nSecond.", null, "user");
+  const both = await quote({ subjects: [{ kind: "element", blockId: plan.id, line: 3, revision: plan.revision }, { kind: "element", blockId: plan.id, line: 13, revision: plan.revision }], place: { kind: "inbox" } }) as Extract<QuoteReceipt, { block: unknown }>;
+  expect(both.subjects.map(s => s.ref)).toEqual([`${plan.id}^bed-jobs`, `${plan.id}^stake-the-peas`]);
+  const before = store.get(plan.id)!;
+  await expect(quote({ subjects: [{ kind: "element", blockId: plan.id, line: 10, revision: before.revision }], place: { kind: "into", blockId: plan.id, line: 0 } })).rejects.toThrow(/into itself/);
+  expect(store.get(plan.id)!.revision).toBe(before.revision);
+  // Dropped after "Second." (line 2), then a line written above it: it lands after "Second." where it is now.
+  store.update(pad.id, "Pad\nNew line.\nFirst.\nSecond.", store.get(pad.id)!.revision, { author: "user" });
+  await quote({ subjects: [{ kind: "element", blockId: plan.id, anchor: "bed-jobs" }], place: { kind: "into", blockId: pad.id, line: 2, observed: "Second." } });
+  expect(store.get(pad.id)!.text).toBe(`Pad\nNew line.\nFirst.\nSecond.\n!((${plan.id}^bed-jobs))`);
 });
