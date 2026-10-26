@@ -2543,6 +2543,11 @@ Bodies render with `src/doc.ts`:
   own). A river column draws the header where it's written. `[alt::…]` is said on its caption. A value that isn't one
   of these is said on the line in yellow.
 
+  **No header** (PIE-1319). A note that is a composition (a dashboard, a contents page) can leave out the reader's
+  header with `[header::none]` on its first line: no crumbs, title or byline in any reader, a river column or the
+  drawer, its body on the first row. `[header::crumbs]` or `[header::title]` leave out only those rows. The tile menu
+  (⋯) still has the comment, comments, properties and sources rows.
+
   **Dark first.** A bright image is dimmed as it's scaled, so it's cached dimmed and never shown bright, not even for
   a frame: its brightness is scaled so the mean luminance of the part drawn (a header's crop), as it shows on the
   door's dark ground (a transparent pixel is the ground), is at most 0.3. Dark art is untouched; the caption says
