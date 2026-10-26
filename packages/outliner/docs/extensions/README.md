@@ -321,6 +321,33 @@ A manifest's `secrets` may name the group itself (`"token": { "group": "readwise
 (`credentials`; a group key also as its own variable), and are scrubbed from what it returns. `"enabled": false` keeps the folder
 but serves nothing.
 
+### Settings in the door (PIE-1343)
+
+Nobody has to find or hand-edit `config.json`. From the manifest's `configSchema` and `secrets`, `extensions.list` gives
+each extension a `settings`: the file's path on the machine that hosts the outline, each field (its type, description,
+`enum` choices, `default`, the value set) and each secret (its reference in words, `env TOKEN`, and whether it finds a
+value, never the value), and one state:
+
+| State | When |
+|---|---|
+| `default` | nothing is set: each field's schema `default` applies (write one, so the row can say what it does: tidy's is `claude -p --model haiku --tools ""`) |
+| `set` | `config.json` sets a field |
+| `missing` | a `required` field is left out, or a secret has no reference or nothing where it points |
+| `failing` | `config.json` doesn't load (the folder's error), or the extension's last call failed after the file last changed (its error) |
+
+- **In the door:** the power bar's extensions (ctrl+k then `&`) puts the state on the extension's row, and a
+  `settings <name>` row beside it previews every field and the file; ⏎ opens the form of `ext.<id>.settings`, an action
+  whose arguments are the schema's fields (a command field as its words, `secret-<name>` as `env:NAME`, `file:~/path` or
+  `group:GROUP/KEY`), filled with what's set. An agent: `ep0ch act ext.tidy.settings answer='claude -p --model sonnet'`;
+  an empty value takes a field out (back to its default); the fields not named stay.
+- **The request:** `extensions.configure` (`extension`, `config` replacing the file's `config`, `secrets` setting or,
+  with `null`, taking out a reference) is checked against the schema first (the same words a load uses) and refused
+  whole with the reason; the file's `enabled` and `sources` stay; a secret's value is refused (only references pass).
+  It writes `config.json` in the folder the host serves the extension from, reloads, and answers the new `settings`.
+  It works on a folder whose `config.json` doesn't load, which is when it's needed.
+- **A failing call points here:** a failure an extension reports with a non-zero exit (and its message on stderr) is
+  its settings' `failing` error. Tidy's says what ran, from where, and `ext.tidy.settings` to fix it.
+
 ## An extension's page and its demo notes
 
 Every installed extension has a page in the outline that explains and demonstrates it, under one **Extensions** hub
