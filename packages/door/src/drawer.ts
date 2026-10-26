@@ -283,7 +283,7 @@ export class AgentDrawer {
     const first = made ? this.firstTab : null;
     const done = first && (d.pane(String(first.name)) as PtyPane | undefined)?.run.cmd.join(" ") === prog.cmd.join(" ") ? first : this.agentTab(d, actor, prog);
     if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
-    else (d.pane(done.tile) as PtyPane).startNow(this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3));
+    else (d.pane(done.tile) as PtyPane).startNow(...this.termSize());
     this.host.redraw();
     return done;
   }
@@ -572,7 +572,7 @@ export class AgentDrawer {
     // The session's own command and mark, before its program starts (it starts now: an agent's tab isn't drawn yet).
     p.run.cmd = cmd;
     p.run.session = { program, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}) };
-    p.startNow(this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3));
+    p.startNow(...this.termSize());
     if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
     this.host.redraw();
     return { attached: false, started: true, program, folder, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}), cmd, resumed, tile: done.tile, name: done.name };
@@ -696,7 +696,7 @@ export class AgentDrawer {
     // As the spec's own tile would be: the drawer's focus, which is no one's keys until the person goes in.
     if (fresh && !d.tileCount()) this.firstTab = this.agentTab(d, USER);
     // Not when first drawn (PIE-1342): asked before the drawer is up, the agent tab names its running program, and a lift lifts that one.
-    if (!fresh) for (const c of d.addressable([d])) { const p = c.value.pane; if (p instanceof PtyPane && !p.running && p.keptAs && ptyBackend().holds(p.keptAs)) p.startNow(this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3)); }
+    if (!fresh) for (const c of d.addressable([d])) { const p = c.value.pane; if (p instanceof PtyPane && !p.running && p.keptAs && ptyBackend().holds(p.keptAs)) p.startNow(...this.termSize()); }
     return d;
   }
   /**
@@ -817,6 +817,8 @@ export class AgentDrawer {
     if (moved) for (const d of this.desks()) d.liftedDesk?.dropLiftElsewhere();
     return r;
   }
+  /** A drawer terminal's size, cols and rows, from the room last drawn: what a program started or adopted off screen gets. */
+  private termSize(): [number, number] { return [this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3)]; }
   /** The terminal's size as last drawn (the host layer's room). */
   private rows = 30;
   private cols = 100;
@@ -1214,9 +1216,11 @@ export class AgentDrawer {
   }
   /**
    * The agent tab used last and the desk it is on, as the tile grammar's `drawer.agent` reads it (the one finder:
-   * resolveTile and the lift ask it): in the drawer or on the screen shown. Null when none is open. Never made by asking.
+   * resolveTile and the lift ask it): in the drawer or on the screen shown. Null when none is open. A saved drawer is restored to answer; a new tab is never
+   * made by asking.
    */
   agentPane(): { pane: PtyPane; desk: Desk } | null {
+    this.asking();
     const hit = this.findAgent(this.desks());
     return hit ? { pane: hit.pane, desk: hit.desk } : null;
   }

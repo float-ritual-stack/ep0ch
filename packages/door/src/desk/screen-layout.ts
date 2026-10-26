@@ -1926,6 +1926,8 @@ class Step<I> {
       if (front && shown !== undefined && shown !== id) {
         if (this.agent && ((this.ctx.person.here !== false && shown === this.d.focus) || shown === this.ctx.person.typingIn)) refuse(`lifting ${this.name(id)} would hide tile ${this.name(shown)}, which has the person's keys`);
         activate(this.d.tree, id);
+        // The keys on the tab it hid move with it, as a tab's switch moves them: the person's, or a desk's no one is in.
+        if (shown === this.d.focus && (!this.agent || this.ctx.person.here === false)) this.d.focus = id;
       }
       this.d.lift = want ? { tile: id, reach, by: this.ctx.actor } : null;
       this.d.answer = { zoomed: want, reach };
