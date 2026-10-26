@@ -14,7 +14,7 @@ import type { InlineListDraw } from "./surface/inline-list";
 // in what it shows, so the reader can offer their status controls where they're drawn.
 import { anchorsOfText, nearestAnchor } from "@ep0ch/outline-core/reference-warnings";
 import type { Msg } from "./board";
-import { subject } from "./board";
+import { bodyMatch, subject } from "./board";
 import type { DocEnv } from "./doc";
 import { printable, summarySegments, viewSummaryKeys, type Source, prop } from "./props";
 import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, MISSING_MARK, outlineChanged, drawShortId, type LinkTarget } from "./refs";
@@ -291,7 +291,11 @@ function viewRegion(target: Msg, v: ViewRead, w: number, sink: LinkTarget[] | un
   const keys = viewSummaryKeys(target) ?? [];
   return [head(`≡ ${title} · ${count}`), ...v.items.map(m => {
     const summary = summarySegments(m.properties ?? [], keys).map(s => s.plain).join(" · ");
-    return S(fg(C.lcyan) + "  ∙ " + fg(C.white) + tagged(sink, { block: m.id, role: "row" }, printable(subject(m))) + (summary ? fg(C.brown) + " · " + summary : "") + RESET);
+    // A row a line chip put here (PIE-1277) opens at that line, lit, as a ::fields row does, and says which line.
+    const line = bodyMatch(m);
+    const to: LinkTarget = { block: m.id, role: "row", ...(line ? { at: line.start, atSays: `the line its ${line.key} is written on` } : {}) };
+    const where = line ? fg(C.dark) + ` · line ${line.line + 1}${line.task ? ` ${line.task === "todo" ? "to do" : line.task}` : ""}` : "";
+    return S(fg(C.lcyan) + "  ∙ " + fg(C.white) + tagged(sink, to, printable(subject(m))) + where + (summary ? fg(C.brown) + " · " + summary : "") + RESET);
   })];
 }
 

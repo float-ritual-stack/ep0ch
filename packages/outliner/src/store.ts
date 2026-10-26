@@ -734,10 +734,12 @@ type TreeLabel = Pick<TreeIndexBlock, "preview" | "previewReferences" | "textDig
 type TreeLabels = Map<string, { text: string; hasProperties: boolean; dependencies: Map<string, Block | null>; label: TreeLabel }>;
 
 function compactTreeBlock(
-  { text, displayText: _displayText, propertyMatches: _matches, ...metadata }: VisibleBlock,
+  { text, displayText: _displayText, propertyMatches, ...withMatches }: VisibleBlock,
   lookup: (blockId: string) => Block | null,
   labels: TreeLabels,
 ): TreeIndexBlock {
+  // A view that reads line chips (PIE-1277) keeps where each row matched: the door opens the row at that line.
+  const metadata = propertyMatches?.some(match => match.scope !== "block") ? { ...withMatches, propertyMatches } : withMatches;
   const cached = labels.get(metadata.id);
   const hasProperties = metadata.properties.length > 0;
   if (cached && cached.text === text && cached.hasProperties === hasProperties && [...cached.dependencies].every(([id, before]) => {

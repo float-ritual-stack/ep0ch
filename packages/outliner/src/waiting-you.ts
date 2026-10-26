@@ -8,14 +8,21 @@ import { checklistItems } from "./checklist-items";
 const NEEDS = "needs NOT work-stage=done NOT work-stage=superseded";
 
 export function waitingAsks(store: OutlinerStore): WaitingAsk[] {
-  const { blocks } = store.queryBlocks({ where: `(${NEEDS}) OR (type=draft-proposal proposal-status=open) OR type=capability OR type=design`, limit: 1000 });
+  // Every scope (PIE-1277): a `- [ ] … [needs::sysop: …]` on line 30 of a long note is an ask too, opened at its line.
+  const { blocks } = store.queryBlocks({ where: `(${NEEDS}) OR (type=draft-proposal proposal-status=open) OR type=capability OR type=design`, propertyScope: "all", limit: 1000 });
   const rows: WaitingAsk[] = [];
   for (const b of blocks) {
     const values = (key: string) => b.properties.filter(p => p.key === key).map(p => p.value);
     const base = { properties: b.properties, block: b.id, title: firstLineWithoutPropertyTokens(b.text) ?? "Untitled", by: b.actorId ?? b.author, revision: b.revision };
     const needs = values("needs").filter(v => /^sysop(?:\s*:|$)/i.test(v));
-    if (!values("work-stage").some(v => v === "done" || v === "superseded") && needs.length) {
+    const settled = values("work-stage").some(v => v === "done" || v === "superseded");
+    if (!settled && needs.length) {
       rows.push({ ...base, kind: "decision", reason: needs.map(v => v.replace(/^sysop\s*:?\s*/i, "")).join("; ") });
+    }
+    // An ask written on a line of its own: the query's matches say where (a ticked step's chip no longer matches).
+    for (const m of b.propertyMatches ?? []) if (!settled && m.scope !== "block" && m.key === "needs" && /^sysop(?:\s*:|$)/i.test(m.value)) {
+      const label = b.text.slice(m.start, m.end);
+      rows.push({ ...base, kind: "decision", reason: m.value.replace(/^sysop\s*:?\s*/i, ""), line: m.line, at: m.start, label });
     }
     if (values("type").includes("draft-proposal") && values("proposal-status").includes("open")) rows.push({ ...base, kind: "proposal", reason: "open proposal" });
     if (!values("type").some(v => v === "capability" || v === "design")) continue;

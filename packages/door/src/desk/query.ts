@@ -14,7 +14,8 @@ import { rowLines } from "../text";
 // The board's lanes come from data: a columns container whose `source` is `hub:<id>` holds one query tile per
 // view under that hub (HUB_SOURCE, src/desk/lanes.ts). The desk asks the source and keeps each tile by its view, so a lane's
 // cursor and collapse survive a refill; the board never lays its lanes out itself.
-import { subject, type Msg } from "../board";
+import { bodyMatch, subject, type Msg } from "../board";
+import { markReveal } from "../reveal";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { C, fg, pad, RESET, selectedRow } from "../style";
@@ -222,7 +223,9 @@ export class QueryPane implements Pane {
       const wid = prop(m, "work-id") ?? prop(m, "ticket") ?? "";
       const title = wid ? subject(m).replace(new RegExp(`^${wid}\\s*[—:-]?\\s*`), "") : subject(m);
       const pri = PRIORITY[prop(m, "priority") ?? ""] ?? C.dark;
-      const extra = (keys ? summarySegments(m.properties, keys).map(x => x.value) : [prop(m, "track"), prop(m, "to") && `→ ${prop(m, "to")}`, prop(m, "channel"), prop(m, "waiting-on") && `waiting on ${prop(m, "waiting-on")}`]).filter(Boolean).join(" · ");
+      // A row a line chip matched says where, and the step's state when it sits on one (PIE-1277).
+      const line = bodyMatch(m), where = line ? `line ${line.line + 1}${line.task ? ` ${line.task === "todo" ? "to do" : line.task}` : ""} ${line.key}: ${line.value}` : "";
+      const extra = [where, ...(keys ? summarySegments(m.properties, keys).map(x => x.value) : [prop(m, "track"), prop(m, "to") && `→ ${prop(m, "to")}`, prop(m, "channel"), prop(m, "waiting-on") && `waiting on ${prop(m, "waiting-on")}`])].filter(Boolean).join(" · ");
       if (sel) {
         lines.push(selectedRow(` ${wid} ${prop(m, "priority") ?? ""} ${extra} · ${ago(m.updatedAt)}`, w, focused, "idleRow"));
         lines.push(...rowLines(` ${title}`, w, undefined, { hang: 1 }).map(line => selectedRow(line, w, focused, "idleRow")));
@@ -254,6 +257,9 @@ export class QueryPane implements Pane {
     const items = this.items ?? [];
     const m = items[i];
     if (!m) throw new ActionRefused(this.items ? (items.length ? `${this.name} has ${items.length} card${items.length === 1 ? "" : "s"}; n is 1-${items.length}` : `${this.name} is empty`) : `${this.name} is still being read`);
+    // A row a line chip put here (PIE-1277: the view's [property-scope::all]) opens at that line, lit, as a ::fields row does.
+    const line = bodyMatch(m);
+    if (line) markReveal(m, { at: line.start, says: `the line its ${line.key} is written on` }, actor);
     // An agent's pick is its own: the person's cursor and what the tile shows stay.
     if (standing) { this.sel = i; if (this.home && desk.showFrom) desk.showFrom(this, m, actor); else desk.setCurrent(m, { from: this, by: actor }); }
     if (open || fresh) desk.setCurrent(m, { from: this, link: true, ...(fresh ? { fresh: true } : {}), by: actor });

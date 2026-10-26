@@ -4,12 +4,13 @@
 // (notes-cli.ts's selectNotes): this file pages that answer and turns the ids into block records. No second engine.
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { pathsOf, selectNotes, type NotesBoard } from "./notes-cli";
+import type { LineMatch } from "./board";
 import { callRegistry, callShown } from "./mcp-calls";
 import { foldIds, type Changes, type FoldedRow } from "./mcp-orient";
 
 export const QUERY_LIMIT = { fallback: 20, max: 50 } as const;
 
-export interface QueryRow { record: BlockRecord; changes?: Changes; path?: string }
+export interface QueryRow { record: BlockRecord; changes?: Changes; path?: string; /** Where a line-scope query or view matched it (PIE-1277). */ matched?: LineMatch[] }
 
 export interface QueryAnswer {
   query?: string;
@@ -46,16 +47,19 @@ export interface QueryAsk {
   omitCall?: string;
   /** Rows carry their path (the ancestors' titles). */
   path?: boolean;
+  /** Which chips the query reads (PIE-1277): block (the default), line, inline or all. */
+  propertyScope?: string;
 }
 
 /** The CLI's words for the same selection mean nothing to a tool caller. */
-const inTool = (why: string) => why.replace(/--sort/g, "sort").replace(/--direction/g, "direction").replace(/--under/g, "under").replace(/\n\s+\(.*lists them\)|\n\s+the grammar is.*$/gs, "");
+const inTool = (why: string) => why.replace(/--property-scope/g, "propertyScope").replace(/--query/g, "query").replace(/--sort/g, "sort").replace(/--direction/g, "direction").replace(/--under/g, "under").replace(/\n\s+\(.*lists them\)|\n\s+the grammar is.*$/gs, "");
 
 /** One page of what a query or a saved view holds, in the order the service gives them, as records. */
 export async function queryPage(board: NotesBoard, a: QueryAsk): Promise<QueryAnswer | { error: string }> {
   const picked = await selectNotes(board, {
     ids: [], words: [], dates: [], ...(a.query ? { query: a.query } : {}), ...(a.view ? { view: viewIdOf(a.view) } : {}),
     ...(a.sort ? { sort: a.sort.field, direction: a.sort.direction } : {}), ...(a.under ? { under: a.under } : {}),
+    ...(a.propertyScope ? { propertyScope: a.propertyScope } : {}),
   });
   if ("error" in picked) return { error: inTool(picked.error) };
   let ids = picked.ids, ownOmitted: QueryAnswer["ownOmitted"];
@@ -86,7 +90,8 @@ export async function queryPage(board: NotesBoard, a: QueryAsk): Promise<QueryAn
     ...(picked.truncated ? { truncated: picked.truncated } : {}), ...(picked.hint ? { hint: picked.hint } : {}),
     rows: page.flatMap(f => {
       const record = byId.get(f.id);
-      return record ? [{ record, ...(f.changes ? { changes: f.changes } : {}), ...(pathOf && at.get(f.id) ? { path: pathOf(at.get(f.id)!) } : {}) }] : [];
+      const matched = picked.matches?.get(f.id);
+      return record ? [{ record, ...(f.changes ? { changes: f.changes } : {}), ...(pathOf && at.get(f.id) ? { path: pathOf(at.get(f.id)!) } : {}), ...(matched ? { matched } : {}) }] : [];
     }),
   };
 }

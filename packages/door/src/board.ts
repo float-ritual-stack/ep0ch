@@ -44,7 +44,19 @@ export interface Msg {
     /** Why a passage can't be commented on (a ticket, a PDF, a file that can't be read); absent when it can. */
     uncommentable?: string;
   };
+  /**
+   * Where a question that reads line chips matched this row (PIE-1277: a view's `[property-scope::all]`): each chip's
+   * offset and line (from 0) in the note's text, its scope, and on a checklist step the step's status. Opening the row
+   * lands on the first one off the note's own header.
+   */
+  lineMatches?: LineMatch[];
 }
+
+/** One matched chip of a line-scope question (the service's `propertyMatches`). */
+export interface LineMatch { key: string; value: string; ordinal: number; start: number; end: number; line: number; scope: "block" | "line" | "inline"; task?: string }
+
+/** The first chip a row matched on a line of its own, not the note's header: where the row opens. */
+export const bodyMatch = (m: Msg): LineMatch | undefined => m.lineMatches?.find(x => x.scope !== "block");
 
 export interface Caller {
   id: string;

@@ -1630,7 +1630,7 @@ export interface BlockReadCollection {
   fields: BlockReadField[];
 }
 
-export interface TreeIndexBlock extends Omit<VisibleBlock, "text" | "displayText" | "propertyMatches"> {
+export interface TreeIndexBlock extends Omit<VisibleBlock, "text" | "displayText"> {
   preview: string;
   previewReferences: TreePreviewReference[];
   textDigest: string;
