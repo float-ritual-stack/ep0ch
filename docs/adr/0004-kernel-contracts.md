@@ -405,6 +405,23 @@ service-side sources as tools that exist (`outline_find`); no palette.
 
 **PROTOCOL.** Bumps: `SourceRow`, the `source` operation, `extensions.source`, contract 3, the triggers.
 
+**Built for completion (PIE-1340, Oct 26).** The completion half, with what Helix, pi and opencode showed it lacked:
+- **The contract** is outline-core's `completion-source.ts`: `SourceDecl` (triggers, `keys` for `key::`, priority,
+  `ranked`) and `SourceRow` (label, kind, detail, docs, insert as text or a snippet with a selected span, preselect,
+  the reference fields an insert checks), asked with a `SourceAsk` that carries an abort signal. `SourceRow` is its own
+  type, not `ListRow`: a completion row's one activation is always `insert`, and it carries what an insert checks.
+- **The triggers** are outline-core's `completion-triggers.ts`, the door's and Detail's detectors in one.
+- **One merge, one matcher** (`mergeSourceAnswers`): search-match's rungs coarsened into tiers, then the host's picks
+  (frecency, kept in the metadata table, `completion.picked`), then priority; a `ranked` source (the notes search,
+  Jev) keeps its order; the lit letters are `searchMatchSpans`.
+- **The service's sources** (pages, blocks and fragments, files, agents) and the extensions' answer
+  `completion.rows`; the door's own (components, properties, callouts, filters, a fence's settings, a button's steps)
+  are its `DOOR_SOURCES`. Detail, Tree and Quick Capture ask `completion.rows` and merge the same way.
+- **The manifest** gained `sources[]` (`prefix`/`main` for the bar, `triggers`/`keys` for completion), answered by the
+  `source` operation. `bar[]` is still read as the old name rather than refused, since installed extensions on the
+  owner's machines use it; `contract` stays 2. The bar's own `BarRow` and `extensions.bar` are unchanged (the bar
+  half of this contract is still to do).
+
 ### 5. The passage target
 
 **Evidence.** Three paths build a passage, each its own way: Detail's selection (`detail-controller.ts:996`), MCP's

@@ -2042,8 +2042,10 @@ kitchen sink's actions section.
   README, what it adds, its demo notes under it), the repo's extensions that aren't installed (⏎ on `install <name>`
   installs one, with its page and demo notes), and, once you type a name, removing one, keeping its demo notes or not
   (the outliner's `docs/extensions/README.md`, "An extension's page and its demo notes").
-- **Extensions** add sources: an extension's `bar[]` in its `extension.json` answers what's typed with rows that open a
-  block, run one of its actions or copy text (the outliner's `docs/extensions/README.md`, "Bar sources").
+- **Extensions** add sources: an extension's `sources[]` entry with a `prefix` in its `extension.json` (the old `bar[]`
+  too) answers what's typed with rows that open a block, run one of its actions or copy text (the outliner's
+  `docs/extensions/README.md`, "Bar sources"); one with `triggers` adds rows to completion where you type, ranked with
+  the built-ins ("Completion sources"; the kitchen sink's `sources` section).
 - **Agents:** `act bar.open query=… scope=…` answers the rows and opens nothing; `act bar.pick n=… query=…` picks as the
   agent, through the same paths and their rules; your open bar is yours (an agent can't close it, and while it's open
   you're busy, so an agent's move of your screen waits). `bar.edit op=complete query=… scope=…` completes an agent's
