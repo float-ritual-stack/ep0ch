@@ -1580,6 +1580,8 @@ export function nextStep(share: number): number {
   return HEIGHT_STEPS.find(s => s > share + 0.01) ?? HEIGHT_STEPS[0];
 }
 
+/** The drawer is up: drawn, not put away or folded to its strip (agent.lift only goes into it then, PIE-1336). */
+const drawerUp = (d: AgentDrawer) => d.shown && !d.folded;
 /** How the drawer's keys and clicks run its actions: as the person, a refusal said on the status bar. */
 export type DrawerRun = (name: "host.toggle" | "host.size" | "agent.restart" | "host.enter" | "host.leave" | "host.shell" | "host.agent" | "agents.open", args: Record<string, unknown>) => void;
 
@@ -1833,28 +1835,33 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     },
   }),
   // A preset (PIE-1279): tile.zoom on the agent tab the person is using (Drawer.liftPick: the one lifted, else the one
-  // typed in or clicked last), so its toggle is tile.zoom's own. Its own steps first: a drawer put away comes up (alt+a),
-  // and with no agent tab open one opens running the last agent picked (Evan, Oct 25; PIE-1331).
+  // typed in or clicked last), so its toggle is tile.zoom's own. A folded or put-away drawer stays as it is unless
+  // drawer=true brings it up (alt+a) with the lift (Evan, Oct 26: "if the drawer isn't already expanded, it shouldn't
+  // expand the drawer to float the agent"); with no agent tab open one opens running the last agent picked (PIE-1331).
   "agent.lift": preset({
-    summary: "lift the agent tab you're using above everything as a column (reach=full: across the terminal), wherever it is: the one you last typed in or clicked (an agent from alt+g too); with none open, a new agent tab running the last agent picked opens first. Again, or on=false, drops it. The person's keys go to it; an agent's lift never replaces the person's",
+    summary: "lift the agent tab you're using above everything as a column (reach=full: across the terminal), wherever it is: the one you last typed in or clicked (an agent from alt+g too); with none open, a new agent tab running the last agent picked opens first. A folded or put-away drawer stays as it is (drawer=true brings it up too). Again, or on=false, drops it. With the drawer up, the person's keys go to it; an agent's lift never replaces the person's",
     keys: "✦a; a status-bar button (::button{label=\"▲ lift\" act=\"agent.lift\"} in your bar note); ^W Z on its tile does the same where it is",
     touches: "screen", host: true, replay: "safe",
     says: (out: { zoomed?: boolean }) => ({ text: out?.zoomed ? "· lifted the agent tab" : "· dropped the agent tab", ms: 4000 }),
     args: {
       on: { type: "boolean", optional: true, about: "true lifts, false drops; left out, it toggles" },
       reach: { type: "string", optional: true, choices: ["column", "full"], about: "column (default) or full" },
+      drawer: { type: "boolean", optional: true, about: "true brings a folded or put-away drawer up with the lift, as alt+a does; left out, the drawer stays as it is" },
     },
     examples: [
-      { act: "agent.lift", does: "lifts the agent tab you're using as a column wherever it is, or drops it when it's lifted" },
+      { act: "agent.lift", does: "lifts the agent tab you're using as a column wherever it is, or drops it when it's lifted; the drawer stays as it is" },
       { act: "agent.lift reach=full", does: "lifts it across the whole terminal" },
+      { act: "agent.lift drawer=true", does: "lifts it and brings the drawer up with it" },
     ],
-    to: { action: "tile.zoom", tile: ({ on }, { drawer }, actor) => drawer.liftTile(actor, on), args: { reach: "column" } },
-    // A lift of it (not a drop) comes with the person's keys, as alt+a gives them: the program in the drawer pulls it up and
-    // goes into it (host.enter is the person's own), one on a screen takes the focus there.
+    to: { action: "tile.zoom", tile: ({ on }, { drawer }, actor) => drawer.liftTile(actor, on), args: { reach: "column" }, own: ["drawer"] },
+    // A lift of it (not a drop) comes with the person's keys while the drawer is up (drawer=true brings it up first, as alt+a
+    // does): the program in the drawer is gone into (host.enter is the person's own), one on a screen takes the focus there.
+    // With the drawer down and not asked up, it's tile.zoom alone, as `tile.zoom tile=role:agent reach=column` is.
     first: [
-      { action: "host.toggle", args: { open: true }, when: ({ on }, { drawer }) => on !== false && !drawer.liftsAgent() && !drawer.shown && (drawer.liftPick()?.inDrawer ?? true) },
-      { action: "tile.focus", tile: ({ on }, { drawer }, actor) => drawer.liftTile(actor, on), when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsAgent() && drawer.standsFor(actor) },
-      { action: "host.enter", when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsAgent() && actor.kind === "user" && (drawer.liftPick()?.inDrawer ?? false) && !drawer.entered },
+      { action: "host.toggle", args: { open: true }, when: (a, { drawer }) => a.on !== false && a.drawer === true && !drawer.liftsAgent() && !drawer.shown && (drawer.liftPick()?.inDrawer ?? true) },
+      { action: "tile.collapse", args: { on: false }, tile: ({ on }, { drawer }, actor) => drawer.liftTile(actor, on), when: (a, { drawer }) => a.on !== false && a.drawer === true && !drawer.liftsAgent() && drawer.folded && (drawer.liftPick()?.inDrawer ?? true) },
+      { action: "tile.focus", tile: ({ on }, { drawer }, actor) => drawer.liftTile(actor, on), when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsAgent() && drawer.standsFor(actor) && (drawerUp(drawer) || !(drawer.liftPick()?.inDrawer ?? true)) },
+      { action: "host.enter", when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsAgent() && actor.kind === "user" && drawerUp(drawer) && (drawer.liftPick()?.inDrawer ?? false) && !drawer.entered },
     ],
   }),
   "agent.restart": def({

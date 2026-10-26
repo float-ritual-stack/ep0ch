@@ -724,6 +724,35 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       } finally { d.app.quit(); }
     });
 
+    // Evan, Oct 26: "when lifting a tile/agent, if the drawer isn't already expanded, it shouldn't expand the drawer to float
+    // the agent". `tile.zoom tile=role:agent reach=column` already left it alone; agent.lift pulled it up. drawer=true asks.
+    for (const how of ["folded", "put away"] as const) {
+      test(`with the drawer ${how}, agent.lift lifts the agent tab and leaves the drawer ${how}; drawer=true brings it up`, async () => {
+        const d = await door();
+        try {
+          d.key({ kind: "alt", ch: "a" }); d.paint();
+          await until(() => d.app.drawer.tile?.running === true, "the agent tab runs");
+          const drawer = d.app.drawer.desk!, own = d.app.drawer.tile!;
+          if (how === "folded") await d.app.dispatch.act({ action: "tile.collapse", tile: "drawer.agent", args: { on: true } }, USER);
+          else await d.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
+          const as = () => ({ open: d.app.drawer.open, folded: d.app.drawer.folded });
+          const before = as(), entered = d.app.drawer.entered;
+          expect(before).toEqual(how === "folded" ? { open: true, folded: true } : { open: false, folded: false });
+          expect(await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER)).toMatchObject({ zoomed: true });
+          expect(drawer.liftsPane(own)).toBe(true);
+          expect(as()).toEqual(before);
+          expect(d.app.drawer.entered).toBe(entered);
+          await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER);
+          expect(drawer.lifted).toBeNull();
+          expect(as()).toEqual(before);
+          // Asked for, the drawer comes up with the lift and the person's keys go into it, as before.
+          expect(await d.app.dispatch.act({ action: "agent.lift", args: { drawer: true } }, USER)).toMatchObject({ zoomed: true });
+          expect(as()).toEqual({ open: true, folded: false });
+          expect(d.app.drawer.entered).toBe(true);
+        } finally { d.app.quit(); }
+      });
+    }
+
     test("with no agent tab left, lift opens a new one running the last agent picked and lifts it", async () => {
       const d = await door();
       try {
