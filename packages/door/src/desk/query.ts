@@ -14,7 +14,8 @@ import { rowLines } from "../text";
 // The board's lanes come from data: a columns container whose `source` is `hub:<id>` holds one query tile per
 // view under that hub (HUB_SOURCE, src/desk/lanes.ts). The desk asks the source and keeps each tile by its view, so a lane's
 // cursor and collapse survive a refill; the board never lays its lanes out itself.
-import { bodyMatch, matchWords, subject, type Msg } from "../board";
+import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
+import { bodyMatch, headedTitle, matchWords, subject, type Msg } from "../board";
 import { markReveal } from "../reveal";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -133,7 +134,7 @@ export class QueryPane implements Pane {
   title() { return `${this.name} ${this.items ? this.items.length : "…"}`; }
   subject() { return this.items?.[this.sel]?.id ?? null; }
   /** Its header names the view as written ("Reading now"), not the tile (`Reading-now`). */
-  headName() { return this.def ? subject(this.def) : this.name; }
+  headName() { return this.def ? headedTitle(this.def) : this.name; }
   hint() {
     if (this.boardHint) return this.boardHint;
     if (!this.home) return "j k pick · ⏎ open · r reload";
@@ -221,7 +222,7 @@ export class QueryPane implements Pane {
       at.push(lines.length);
       const sel = j === this.sel;
       const wid = prop(m, "work-id") ?? prop(m, "ticket") ?? "";
-      const title = wid ? subject(m).replace(new RegExp(`^${wid}\\s*[—:-]?\\s*`), "") : subject(m);
+      const title = workIdTitle(subject(m), wid).title;
       const pri = PRIORITY[prop(m, "priority") ?? ""] ?? C.dark;
       // A row a line chip matched says where, and the step's state when it sits on one (PIE-1277).
       const line = bodyMatch(m), where = line ? matchWords(line) : "";

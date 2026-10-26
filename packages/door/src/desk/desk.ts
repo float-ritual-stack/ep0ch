@@ -28,7 +28,6 @@ import type { Ctx, Frame, Refusal, Screen, ViewState } from "../app";
 import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
 import { valuesOf } from "@ep0ch/outline-core/block-record";
 import { interpolate } from "@ep0ch/outline-core/interpolation";
-import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { headedTitle, subject, type Msg } from "../board";
 import { BORDER_BOXES, Canvas, DOTTED_BOX, LINE_BOX, NO_BOX, overflows, shadowRects, type BoxGlyphs, type Rect } from "../canvas";
 import { TONE } from "../callouts";
@@ -49,7 +48,7 @@ import { INVITES } from "../surface/invite";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
-import { armsEdit, headerOmits, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
+import { armsEdit, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRows, pickRow } from "../surface/picker";
@@ -4037,11 +4036,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(id)!, m = this.noteOf(id);
     if ((p.writtenTitle && !p.systemTitle) || !m || (tabsOf(this.root, id)?.ids.length ?? 0) > 1) return this.displayTitle(id);
     if (rows !== undefined && p instanceof ReaderPane && !p.surface.titleShown(rows - 2)) {
-      // A note that leaves its title out (PIE-1319) is named here alone, so its Work ID is said here too.
-      const named = workIdTitle(subject(m), prop(m, "work-id"));
-      return [p.surface.state(), headerOmits(m).title && named.workId ? `${named.workId} · ${named.title}` : named.title].filter(Boolean).join(" · ");
+      // A note that leaves its title out (PIE-1319) is named here alone, its Work ID first as everywhere (PIE-1356).
+      return [p.surface.state(), headedTitle(m)].filter(Boolean).join(" · ");
     }
-    const name = this.nameOf(id), own = visibleText(p.title()), sub = subject(m);
+    const name = this.nameOf(id), own = visibleText(p.title()), sub = headedTitle(m);
     const rest = own.startsWith(sub) ? own.slice(sub.length).replace(/^\s*·\s*/, "") : null;
     const kindWord = kindOf(p)?.word ?? p.kind;
     const word = rest === null ? own : !rest ? kindWord : /^\d/.test(rest) ? `${kindWord} ${rest}` : rest;
@@ -4053,7 +4051,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(id)!;
     const shownNote = this.noteOf(id);
     const note = p.titleNote ?? shownNote ?? this.showing(p);
-    const system = p.headName?.() ?? (shownNote ? subject(shownNote) : p.title());
+    // A note's own name, its Work ID first (PIE-1356): the tile bar, its tabs and a spine say it as the header does.
+    const system = p.headName?.() ?? (shownNote ? headedTitle(shownNote) : p.title());
     if (!p.writtenTitle || p.systemTitle) return system;
     return interpolate(p.writtenTitle, span => {
       const missing = () => span.default === undefined ? [`⚠ {{${span.expression}}}`] : undefined;

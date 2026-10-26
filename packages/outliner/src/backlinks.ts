@@ -14,7 +14,7 @@ import {
   type OutlinerReferenceOccurrence,
   type PropertyReferenceOccurrence,
 } from "./reference-occurrences";
-import { blockDisplayTitle } from "./references";
+import { blockDisplayTitle, blockHeadedTitle } from "./references";
 import { workIdReferences, type TicketPrefixes } from "./work-ids";
 import type {
   BacklinkCollection,
@@ -179,7 +179,7 @@ function backlinkSource(
 ): BacklinkSource {
   return {
     blockId: source.id,
-    title: blockDisplayTitle(source),
+    title: blockHeadedTitle(source),
     subtitle: subtitleOf(source),
     parentContext: parentContext(source, blocksById),
     createdAt: source.createdAt,

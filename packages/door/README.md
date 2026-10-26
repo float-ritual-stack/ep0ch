@@ -2619,6 +2619,9 @@ Bodies render with `src/doc.ts`:
   header's surface; a clear step down in a tile without the keys), one dim line (author, day, `i N properties`, the summary values as links, the comment count; in a narrow tile the summary takes its own
   line) and one blank row. The header owns the full title (PIE-917): the border carries only the short Work ID,
   tile name and mode (`4 HOME-042 · detail · held → detail2`). A folded spine keeps the full title.
+  Everywhere else a note's name is drawn (the tile bar and its tabs, spines, the drawer's tabs, river columns and rows,
+  the outline tile, `((` completion, the power bar, backlinks, `ep0ch find`, the publisher) it is the same string,
+  `HOME-042 · <title>`, from outline-core's `headedTitle` (PIE-1356): the ID first and said once, the title cut from its end.
   Titles stay normal-width bold in every video mode, including Kitty CRT: a sizing probe cannot establish
   that the terminal's font actually enlarges instead of leaving spaced letters. The welcome preview keeps
   the breadcrumb beside its “read here” control instead of drawing a second subject line.
