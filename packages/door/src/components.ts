@@ -8,6 +8,7 @@ import { printable, rowLines, wrap } from "./text";
 import { BAND_ALIGNS, BAND_PATTERNS, BAND_ROWS, BUILTIN_HEADING_STYLE_REGISTRY, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import type { CalloutTone } from "@ep0ch/outline-core/callouts";
 import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
+import { drawCheck } from "./figures/check";
 import { TONE as CALLOUT_TONE } from "./callouts";
 import { imageSource, type ImagePrimitive } from "@ep0ch/outline-core/media-line";
 import type { ListPrimitive } from "@ep0ch/outline-core/list-row";
@@ -162,12 +163,9 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       return [fg(C.grey) + label + fg(C.lcyan) + spark(values.slice(-room)) + RESET];
     }
     case "checklist": {
+      // The checklist figure's own drawing (PIE-1348), so a step looks and wraps the same in both.
       const items = Array.isArray(n.items) ? n.items as Node[] : [];
-      return items.flatMap(it => {
-        const box = it.done ? fg(C.lcyan) + "[x]" : fg(C.dark) + "[ ]";
-        // Never cut short (PIE-1302): a cut item loses its meaning.
-        return rowLines(one(it.label), w - 4, Infinity).map((l, i) => (i ? "    " : box + RESET + " ") + fg(it.done ? C.dark : C.white) + l + RESET);
-      });
+      return drawCheck({ items: items.map(it => ({ label: one(it.label), done: !!it.done })) }, w);
     }
     case "table": {
       const columns = (Array.isArray(n.columns) ? n.columns : []).map(one);

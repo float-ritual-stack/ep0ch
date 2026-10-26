@@ -1152,8 +1152,9 @@ function headingRows(line: string, W: number, env: DocEnv, literal: boolean, fol
   if (styled) return styled;
   const m = env.look?.values["heading.margin"];
   if (!m || (!m.top && !m.bottom) || !HEADING.test(line) || literal) return null;
-  const rows = prose(line, W, fold, literal);
-  return { rows: [...Array(m.top).fill(""), ...rows, ...Array(m.bottom).fill("")], headRow: m.top, margin: m, plainAt: m.top };
+  const joins: (string | undefined)[] = [];
+  const rows = prose(line, W, fold, literal, undefined, joins);
+  return { rows: [...Array(m.top).fill(""), ...rows, ...Array(m.bottom).fill("")], headRow: m.top, margin: m, plainAt: m.top, copy: { at: m.top, cuts: [], joins } };
 }
 
 /** A property token left on a heading in a band (`[who::sam]`): a chip after the heading, never its text. */
@@ -1210,7 +1211,11 @@ function styledHeading(line: string, W: number, env: DocEnv, literal: boolean, f
     const words = wrap(headingWords(h[2]!, st.level, { tone: st.style.tone, letters: "plain" }, fold), Math.max(1, W - lead), { joins });
     plain = words.map((l, k) => (k ? " ".repeat(lead) : glyph) + l);
     copy = { at: 0, cuts: plain.map(() => (lead ? [[0, lead]] : [])), joins };
-  } else plain = prose(st.text, W, fold, literal);
+  } else {
+    const joins: (string | undefined)[] = [];
+    plain = prose(st.text, W, fold, literal, undefined, joins);
+    copy = { at: 0, cuts: proseCuts(st.text, W, fold), joins };
+  }
   if (!margin) return { rows: plain, headRow: 0, ...(copy ? { copy } : {}) };
   const m = withMargin(margin, plain, 0);
   return { rows: m.rows, headRow: m.textRow, margin, ...(copy ? { copy: { ...copy, at: m.textRow } } : {}) };
@@ -1220,7 +1225,7 @@ function styledHeading(line: string, W: number, env: DocEnv, literal: boolean, f
  * A styled heading's rows; `copy`: for its plain rows (PIE-1302), from row `at`, the drawing cells a copy leaves out and
  * how the wrap joined them (renderDoc's cut and wrapped).
  */
-interface StyledHeading { rows: string[]; headRow: number; margin?: { top: number; bottom: number }; copy?: { at: number; cuts: [number, number][][]; joins: (string | undefined)[] } }
+interface StyledHeading { rows: string[]; headRow: number; margin?: { top: number; bottom: number }; copy?: { at: number; cuts: [number, number, string?][][]; joins: (string | undefined)[] } }
 
 /** A rule (`---`) with a style: its track, or as written when narrow. Null for a line that isn't one, or a plain one. */
 function styledRule(line: string, W: number, env: DocEnv): { rows: string[]; margin?: { top: number; bottom: number } } | null {
@@ -1259,7 +1264,12 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false, task
   const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
   const tint = fold?.selected ? fg(C.yellow) : fg(C.lcyan);
   const h = line.match(HEADING);
-  if (h) return [(glyph ? tint + glyph + " " : "") + fg(C.dark) + h[1] + " " + RESET + BOLD + fg(fold?.selected ? C.yellow : C.white) + styleMarks(h[2]!, { bold: false }) + RESET + (fold?.folded ? foldedNote(fold) : "")];
+  if (h) {
+    // Its words wrap under themselves (PIE-1348), never cut: the next rows hang past the disclosure and the #s.
+    const lead = (glyph ? 2 : 0) + h[1]!.length + 1, words = wrap(h[2]!, Math.max(1, W - lead), { joins });
+    const head = (glyph ? tint + glyph + " " : "") + fg(C.dark) + h[1] + " " + RESET;
+    return words.map((l, k) => (k ? " ".repeat(lead) : head) + BOLD + fg(fold?.selected ? C.yellow : C.white) + styleMarks(l, { bold: false }) + RESET + (fold?.folded && k === words.length - 1 ? foldedNote(fold) : ""));
+  }
   const li = line.match(ITEM);
   if (li) {
     const indent = li[1]!.length, num = /\d/.test(li[2]!);
@@ -1330,7 +1340,11 @@ function proseCuts(line: string, W: number, fold?: Disclosure): [number, number,
     return wrap(body, W - 2, BODY).map((_, k) => (k === 0 && item ? [[0, 2], [2 + item[1]!.length, 4 + item[1]!.length, item[2]! + " "]] : [[0, 2]]));
   }
   const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
-  if (HEADING.test(line)) return [glyph ? [[0, 2]] : []];
+  const h = line.match(HEADING);
+  if (h) {
+    const lead = (glyph ? 2 : 0) + h[1]!.length + 1;
+    return wrap(h[2]!, Math.max(1, W - lead)).map((_, k) => (k ? [[0, lead]] : glyph ? [[0, 2]] : []));
+  }
   const li = line.match(ITEM);
   if (!li) return [];
   const indent = li[1]!.length, num = /\d/.test(li[2]!);
