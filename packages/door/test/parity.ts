@@ -607,7 +607,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       if (req.action.startsWith("list.")) return skip(key, req, way, "a list's rows");
       const keyed = await press(key, req.action);
       if (typeof keyed === "string") return skip(key, req, way, keyed);
-      if (!keyed.ran?.tile) return skip(key, req, way, `on a screen built now the key runs no ${req.action} on a tile (an earlier probe changed what the screen is built from)`);
+      if (!keyed.ran?.tile) return skip(key, req, way, `on a screen built now the key runs no ${req.action} on a tile${keyed.said ? ` (it said ${JSON.stringify(keyed.said.slice(0, 120))})` : ""}: an earlier probe changed what the screen is built from`);
       const name = keyed.ran.tile.name;
       const named_ = await press(key, req.action, () => {
         const at = (A().stack.at(-1) as Screen | undefined)?.dispatch?.tile(name) ?? A().drawer.desk?.dispatch.tile(name);

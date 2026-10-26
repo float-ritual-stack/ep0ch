@@ -498,8 +498,10 @@ thing after someone else's change.
   here: agent, reader`, `no screen x is on show or mounted here`); it never acts on the tile in focus instead. A key,
   a click or a menu row addresses its tile by `t-<uuid>` through the same path (`Desk.run`, the hyper chords, the ^W
   chords), so pointing and naming can't drift apart: `test/parity.ts` presses every key and click, and for each targeted
-  action it ran alone, runs it again as the act string says it, `tile=t-<uuid>` and `tile=role:<role>`, and the screen must
-  come out as the key left it. `tile.rename` (`^W n`) changes a name and title, never a role.
+  action it ran alone, presses the key again on a fresh build with only its request's tile said as the act string says it,
+  `tile=t-<uuid>` and `tile=role:<role>` (`rewriteRequests`, resolved as an `act` is): it must reach the same tile, say the
+  same and leave the screen as the key did. The key's own gesture (the pointer, the row a click lights) and arguments are
+  the same both times, so only the address differs. `tile.rename` (`^W n`) changes a name and title, never a role.
 - **`tile=<tile>`** (`parseActArgs` and the control socket read it) takes a
   name, an id, a number, an alias (a place: the board's `detail`, `float`, `lanes`),
   `focused`, or a block id (the tile showing that note: the agent's own draft of it first, then one on screen
