@@ -5972,8 +5972,9 @@ export class NoteSurface {
   async copyNote(host: SurfaceHost, actor: Actor, source = false): Promise<{ id: string; text: string; lines: number; clipboard: boolean; figures: number; cut: number; unanswered: number }> {
     const m = await this.whole();
     if (!m.text.trim()) throw new ActionRefused("the note has nothing in it to copy");
-    const outline = m.address?.outline ?? host.ctx.board.outline ?? host.ctx.outline;
-    const page = source ? { text: m.text, figures: 0, cut: 0, unanswered: 0 } : await pageWithResults(host.ctx.board, m.text, m.id, { ...(outline ? { outline } : {}), at: Date.now() }, 5_000);
+    // Where the command that reads a cut figure's rest is pointed: this tile's outline, and the machine it is on when not here.
+    const outline = m.address?.outline ?? host.ctx.board.outline ?? host.ctx.outline, machine = m.address?.machine ?? host.ctx.machine;
+    const page = source ? { text: m.text, figures: 0, cut: 0, unanswered: 0 } : await pageWithResults(host.ctx.board, m.text, m.id, { ...(outline ? { outline } : {}), ...(machine ? { machine } : {}), at: Date.now() }, 5_000);
     const text = page.text, lines = text.split("\n").length;
     // A figure the outline didn't answer in time says so in the copy, and here.
     const late = page.unanswered ? ` · ${page.unanswered} figure${page.unanswered === 1 ? "" : "s"} not answered in time` : "";

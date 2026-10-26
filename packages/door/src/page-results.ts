@@ -36,11 +36,11 @@ export interface PageResults { text: string; figures: number; cut: number; unans
  * hasn't come yet (ask again once liveSettled has waited), unless `final`: then each one says it wasn't answered in time.
  * Figures that ask nothing are left as written.
  */
-export function withFigureResults(text: string, note: string, ctx: Omit<ResultsContext, "cap">, final = false): PageResults {
+export function withFigureResults(text: string, note: string, ctx: Omit<ResultsContext, "cap" | "note">, final = false): PageResults {
   const lines = text.split("\n"), placed: { at: number; lines: string[] }[] = [];
   let budget = RESULTS_BUDGET, figures = 0, cut = 0, unanswered = 0, waiting = false;
   for (const f of noteFigures(text, note)) {
-    const r = figureResults(f.kind, f.source, { ...ctx, cap: Math.min(RESULTS_CAP, budget) }, final);
+    const r = figureResults(f.kind, f.source, { ...ctx, note, cap: Math.min(RESULTS_CAP, budget) }, final);
     if (!r) continue;
     if (r.waiting) { waiting = true; continue; }
     budget = Math.max(0, budget - r.shown);
@@ -54,10 +54,10 @@ export function withFigureResults(text: string, note: string, ctx: Omit<ResultsC
 }
 
 /**
- * The page with its figures' results once their answers have come (at most `ms`), asked of `board` as its reader asks.
- * The caller connects `board` for figures (the door has; `ep0ch show` and export do it with connectFigures).
+ * The page with its figures' results once their answers have come (at most `ms`), asked of `board` as its reader asks
+ * (lent for the asking, withFigureBoard: the reader's own when the door has it).
  */
-export async function pageWithResults(board: SocketBoard, text: string, note: string, ctx: Omit<ResultsContext, "cap">, ms = 10_000): Promise<PageResults> {
+export async function pageWithResults(board: SocketBoard, text: string, note: string, ctx: Omit<ResultsContext, "cap" | "note">, ms = 10_000): Promise<PageResults> {
   const read = (final: boolean) => withFigureBoard(board, () => {}, () => withFigureResults(text, note, { ...ctx, at: Date.now() }, final));
   const first = read(false);
   if (!first.waiting) return first;

@@ -556,8 +556,6 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
       if (e.domain === "resource-catalog") resourceChanged(e.resourceId ?? null, e.resourceId ? undefined : e.blockId);
     });
     let code = 0, shown = 0;
-    // --markdown: live figures ask this outline as a reader's do (the door's own connection, when this runs inside one).
-    if (markdown && liveBoard() !== board) connectFigures(board, () => {});
     const named = await resolveNotes(board, ids);
     for (const [at, id] of ids.entries()) {
       const found = named[at]!;
@@ -577,7 +575,7 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
       // --source: the note's text as written; else the drawing (a JSON object a line with --cells).
       const written = source ? (await board.get(noteId))?.text : undefined;
       // --markdown: the text as written with each live figure's results under it, as a page copy (Y) gives it.
-      const page = markdown && written !== undefined ? await pageWithResults(board, written, noteId, { outline: board.address.outline, at: Date.now() }) : null;
+      const page = markdown && written !== undefined ? await pageWithResults(board, written, noteId, { outline: board.address.outline, ...(board.address.machine !== canonicalLocalMachineName() ? { machine: board.address.machine } : {}), at: Date.now() }) : null;
       // A figure the outline didn't answer in time is said in its place; the exit code says the copy isn't whole.
       if (page?.unanswered) { io.err(`ep0ch: ${page.unanswered} figure${page.unanswered === 1 ? "" : "s"} in ${id} not answered in time: ask again with ep0ch show ${id} --markdown`); code = 1; }
       const text = page ? page.text : written;

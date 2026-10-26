@@ -4,16 +4,18 @@
 // never a question of its own. Each figure's results are headed with its title, the row count, the time and its
 // query, capped per figure, and a cut says so with the command that reads the rest. Pure: no I/O.
 //
-//   **Results · Open beds** · 3 rows · as of 2026-10-26 17:50 · query: `type=bed`
+//   **Results · Open beds** · 3 rows · as of 2026-10-26 17:50 +00:00 · query: `type=bed`
 //
 //   - [x] ((id|Dig the bed))           check: a step per row ([x] done or approved, else [ ]; any other status said after it)
 //   | Title | Updated |                table: the figure's columns, its title cell a reference
 //   **doing** · 2                      tabs: a list per group, its other columns after the title
-//   _showing 50 of 60 · the rest: ep0ch find --ws pie --query 'type=bed' --sort updated --direction desc · MCP: outline_query {…}_
+//   _showing 50 of 60 · the rest: `ep0ch find --ws pie --query type=bed --sort updated --direction desc` · MCP: `outline_query {…}`_
 import { isChecklistStatus, statusWord, stepDone, type ChecklistStatus } from "./checklist-marks";
-import { NONE } from "./figure-live";
+import { groupWhere, NONE } from "./figure-live";
 import type { Props } from "./figure-props";
 import { blockRefText } from "./link-syntax";
+import { withThisAs } from "./query-atoms";
+import { shellQuote as quoted } from "./shell-word";
 
 /** The most rows one figure's results carry, unless the caller says. */
 export const RESULTS_CAP = 50;
@@ -21,8 +23,11 @@ export const RESULTS_CAP = 50;
 export const RESULTS_BUDGET = 400;
 
 export interface ResultsContext {
-  /** The outline the figure is in: named in the command that reads the rest. */
+  /** The outline the figure is in, and the machine it was reached on: named in the command that reads the rest. */
   outline?: string;
+  machine?: string;
+  /** The note the figure is in: what `this` in its question stands for, in that command. */
+  note?: string;
   /** When the results were read (ms). */
   at: number;
   /** Rows this figure may carry (RESULTS_CAP). */
@@ -40,11 +45,12 @@ const code = (s: string) => {
   const ticks = "`".repeat(Math.max(0, ...[...s.matchAll(/`+/g)].map(m => m[0].length)) + 1);
   return ticks.length > 1 || s.startsWith(" ") || s.endsWith(" ") ? `${ticks} ${s} ${ticks}` : `\`${s}\``;
 };
-/** A shell word: as written when it needs no quoting, else in single quotes. */
-const quoted = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
 const two = (n: number) => String(n).padStart(2, "0");
-/** A time as `2026-10-26 17:50`, in this machine's zone. */
-export const resultsTime = (ms: number) => { const d = new Date(ms); return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`; };
+/** A time as `2026-10-26 17:50 +01:00`, in this machine's zone, said. */
+export const resultsTime = (ms: number) => {
+  const d = new Date(ms), off = -d.getTimezoneOffset(), zone = `${off < 0 ? "-" : "+"}${two(Math.floor(Math.abs(off) / 60))}:${two(Math.abs(off) % 60)}`;
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())} ${zone}`;
+};
 const rows = (n: number, truncated: boolean) => `${n}${truncated ? "+" : ""} row${n === 1 && !truncated ? "" : "s"}`;
 /** A table cell: one line, its pipes escaped (a GFM parser gives them back). */
 const cell = (s: string) => s.replace(/\r?\n/g, " ").replace(/\|/g, "\\|");
@@ -56,10 +62,15 @@ function asked(p: Props): string | null {
   return null;
 }
 
-/** How to read every result of a question: the `ep0ch find` command, and outline_query's arguments from `offset`. */
-export function restCommand(p: Props, outline: string | undefined, offset: number, where = p.query ? String(p.query) : undefined): string | null {
-  const ws = outline ? ` --ws ${quoted(outline)}` : "";
-  const of = outline ? { outline } : {};
+/**
+ * How to read every result of a question: the `ep0ch find` command, and outline_query's arguments from `offset`. `this`
+ * in it is the note it was asked for (`ctx.note`), since at a shell it stands for nothing.
+ */
+export function restCommand(p: Props, ctx: Pick<ResultsContext, "outline" | "machine" | "note">, offset: number, asked = p.query ? String(p.query) : undefined): string | null {
+  const { outline, machine } = ctx;
+  const ws = `${outline ? ` --ws ${quoted(outline)}` : ""}${machine ? ` --machine ${quoted(machine)}` : ""}`;
+  const of = outline ? { outline: machine ? `${outline}@${machine}` : outline } : {};
+  const where = asked !== undefined && ctx.note ? withThisAs(asked, ctx.note) : asked;
   if (where !== undefined) {
     const sort = String(p.sort ?? "updated"), direction = String(p.direction ?? "desc");
     return `${code(`ep0ch find${ws} --query ${quoted(where)} --sort ${quoted(sort)} --direction ${quoted(direction)}`)} · MCP: ${code(`outline_query ${JSON.stringify({ ...of, query: where, sort: `${sort} ${direction}`, offset })}`)}`;
@@ -96,10 +107,7 @@ function list(t: Props, n: number): string[] {
 }
 
 /** A tab's question: the figure's, narrowed to the tab's value (or to no value, for the NONE tab), as a rank bar's is. */
-const tabWhere = (p: Props, value: string) => {
-  const group = String(p.group ?? "status");
-  return `(${p.query}) AND ${value === NONE ? `NOT ${group}` : `${group}=${JSON.stringify(value)}`}`;
-};
+const tabWhere = (p: Props, value: string) => groupWhere(String(p.query), String(p.group ?? "status"), value === NONE ? null : value);
 
 /** The line a figure's results start with (and the blank line after it): its title, `count`, the time and its question. */
 export function resultsHead(kind: string, props: Props, count: string, at: number): string[] {
@@ -134,7 +142,7 @@ function written(kind: string, props: Props, found: ResultsFound | null, ctx: Re
     // A question that came back cut (more results than it asks for) is cut here too, whatever the cap.
     const shown = Math.min(cap, all.length), cut = shown < total || truncated;
     const lines = [...head(rows(total, truncated)), ...(all.length ? all.slice(0, shown) : ["_no results_"])];
-    if (cut) lines.push("", cutLine(shown, total, truncated, restCommand(props, ctx.outline, shown)));
+    if (cut) lines.push("", cutLine(shown, total, truncated, restCommand(props, ctx, shown)));
     return { lines, shown, total, cut };
   };
   switch (kind) {
@@ -153,7 +161,7 @@ function written(kind: string, props: Props, found: ResultsFound | null, ctx: Re
     case "table": {
       const all: unknown[] = props.rows ?? [], shown = Math.min(cap, all.length), total = all.length, cut = shown < total || truncated;
       const lines = [...head(rows(total, truncated)), ...(total ? table(props, shown) : ["_no results_"])];
-      if (cut) lines.push("", cutLine(shown, total, truncated, restCommand(props, ctx.outline, shown)));
+      if (cut) lines.push("", cutLine(shown, total, truncated, restCommand(props, ctx, shown)));
       return { lines, shown, total, cut };
     }
     case "tabs": {
@@ -165,7 +173,7 @@ function written(kind: string, props: Props, found: ResultsFound | null, ctx: Re
         const count = Number(t.count) || 0, have: number = (t.rows ?? []).length, k = Math.min(cap - shown, have);
         shown += k; total += count;
         lines.push(...(i ? [""] : []), `**${t.value}** · ${count}`, "", ...(k ? list(t, k) : count ? [] : [`_nothing in ${t.value}_`]));
-        if (k < count) { cut = true; lines.push(...(k ? [""] : []), cutLine(k, count, false, props.query ? restCommand(props, ctx.outline, k, tabWhere(props, String(t.value))) : null)); }
+        if (k < count) { cut = true; lines.push(...(k ? [""] : []), cutLine(k, count, false, props.query ? restCommand(props, ctx, k, tabWhere(props, String(t.value))) : null)); }
       });
       return { lines, shown, total, cut };
     }
@@ -177,7 +185,7 @@ function written(kind: string, props: Props, found: ResultsFound | null, ctx: Re
     case "meter": {
       const items: Props[] = props.items ?? [];
       const said = items.length ? items.map(i => `- ${i.label ? `${i.label}: ` : ""}${i.value}`) : [`- ${props.caption ?? `${Math.round(Number(props.value) * 100)}%`}`];
-      return { lines: [...head(rows(n, truncated)), ...said], shown: n, total: n, cut: false };
+      return { lines: [...head(rows(n, truncated)), ...said], shown: said.length, total: n, cut: false };
     }
     default:
       return null;

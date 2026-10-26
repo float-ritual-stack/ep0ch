@@ -1043,6 +1043,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     keys: "Y with nothing selected",
     touches: "nothing", replay: "safe",
     args: { source: { type: "boolean", optional: true, about: "the note's text alone, without its figures' results" } },
+    examples: [{ act: "column.note", does: "answers the column's note with its live figures' results" }, { act: "column.note source=true", does: "answers the note's text as stored" }],
     run: ({ source }, { pane, desk }, actor) => columnOf(pane).copyNote(actor, desk, source === true),
   }),
   "column.copy": def({

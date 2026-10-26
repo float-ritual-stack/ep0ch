@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { first, lex, paragraphs, resultsOf, type Tokens } from "./results-markdown";
-import { figureResultsMarkdown, RESULTS_CAP } from "@ep0ch/outline-core/figure-results";
+import { figureResultsMarkdown, restCommand, RESULTS_CAP } from "@ep0ch/outline-core/figure-results";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch } from "./scratch";
 
@@ -91,6 +91,11 @@ describe("what a figure's results say beyond its rows", () => {
     expect(r.lines.join("\n")).toContain('_showing 10 of 40 · the rest: `ep0ch find --query \'(type=job) AND stage="done"\'');
   });
 
+  test("the rest's command asks what the figure asked: `this` is its note, another machine's outline is named with it", () => {
+    expect(restCommand({ query: "parent:this type=task", sort: "created", direction: "asc" }, { outline: "plot", machine: "shed-pi", note: "n-1" }, 50)).toBe(
+      '`ep0ch find --ws plot --machine shed-pi --query \'parent:((n-1)) type=task\' --sort created --direction asc` · MCP: `outline_query {"outline":"plot@shed-pi","query":"parent:((n-1)) type=task","sort":"created asc","offset":50}`');
+  });
+
   test("the service's word on an answer is said under it; a question not answered says so", () => {
     const hinted = figureResultsMarkdown("table", { title: "Typo", query: "staeg=doing", headers: ["title"], rows: [], blocks: [] }, { n: 0, truncated: false }, { at }, "no notes have staeg; nearest: stage")!;
     expect(paragraphs(lex(hinted.lines.join("\n")))).toEqual([expect.stringContaining("0 rows"), "_no results_", "_no notes have staeg; nearest: stage_"]);
@@ -128,7 +133,7 @@ describe.skipIf(!outliner)("ep0ch show --markdown against a scratch host", () =>
     const tokens = lex(r.out);
 
     const check = results(tokens, "Crates");
-    expect(paragraphs(check)[0]).toMatch(/^\*\*Results · Crates\*\* · 3 rows · as of \d{4}-\d\d-\d\d \d\d:\d\d · query: `type=crate`$/);
+    expect(paragraphs(check)[0]).toMatch(/^\*\*Results · Crates\*\* · 3 rows · as of \d{4}-\d\d-\d\d \d\d:\d\d [+-]\d\d:\d\d · query: `type=crate`$/);
     const steps = first<Tokens.List>(check, "list");
     expect(steps.items.map(i => [i.checked, i.text])).toEqual([
       [true, `((${crates.apples}|Apples crate))`], [false, `((${crates.beets}|Beets crate))`], [true, `((${crates.chard}|Chard crate))`],

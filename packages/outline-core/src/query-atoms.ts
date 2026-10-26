@@ -40,6 +40,14 @@ export const isQueryRelationAtom = (kind: string): kind is QueryRelationAtom => 
 /** The target `this` stands for the block a question is asked for (ADR 0004): a component's note, a tile's aim. */
 export const THIS_TARGET = "this";
 
+/**
+ * `expression` with each relation's `this` target (`parent:this`, `links:this`) written as the block it stands for,
+ * `((id))`: the same question asked from where `this` means nothing (a shell's `ep0ch find`, an MCP query).
+ */
+export function withThisAs(expression: string, id: string): string {
+  return expression.replace(new RegExp(`\\b(${RELATIONS.join("|")}):${THIS_TARGET}\\b`, "gi"), (_, atom: string) => `${atom}:((${id}))`);
+}
+
 export class QueryAtomError extends Error {
   constructor(message: string) {
     super(message);

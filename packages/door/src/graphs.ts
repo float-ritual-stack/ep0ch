@@ -444,8 +444,8 @@ export function figureResults(kind: string, source: FigureSource, ctx: ResultsCo
   const found = live.status ? live.found ?? { n: 0, truncated: false } : null;
   const md = figureResultsMarkdown(kind, live.props, found, ctx, live.error);
   if (md) return md;
-  const n = live.found?.n ?? 0;
-  return { lines: [...resultsHead(kind, live.props, "as drawn", ctx.at), "```", ...figureAscii(kind, source), "```"], shown: n, total: n, cut: false };
+  // Its drawing, not its rows: it takes none of the copy's row budget.
+  return { lines: [...resultsHead(kind, live.props, "as drawn", ctx.at), "```", ...figureAscii(kind, source), "```"], shown: 0, total: live.found?.n ?? 0, cut: false };
 }
 
 /** A table's or tabs figure's density as a control on its footer, where a reader can change it (a click, ⏎ on it, =). */
