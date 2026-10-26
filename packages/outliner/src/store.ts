@@ -67,6 +67,7 @@ import {
   type ValueBinder,
   type QueryRelations,
   parseSearchExpression,
+  matchedChips,
   positivePropertyFilters,
   sortQueriedBlocks,
 } from "./block-query";
@@ -875,6 +876,15 @@ export class OutlinerStore {
   private readonly instance: OutlineInstance;
   private closed = false;
   private readonly treeLabels: TreeLabels = new Map();
+  /** Each block's line-chip step states (PIE-1277), kept while its text is the same: a graph load parses only what changed. */
+  private readonly lineTasks = new Map<string, { text: string; tasks: Map<number, ChecklistStatus> }>();
+  private lineTasksOf(id: string, text: string, records: readonly PropertyRecord[]): Map<number, ChecklistStatus> {
+    const kept = this.lineTasks.get(id);
+    if (kept?.text === text) return kept.tasks;
+    const tasks = lineChipTasks(text, records);
+    this.lineTasks.set(id, { text, tasks });
+    return tasks;
+  }
   /** The last graph `loadGraph` read, and the counts it is current for. */
   private graph: { key: string; graph: LoadedGraph } | undefined;
 
@@ -5026,7 +5036,7 @@ export class OutlinerStore {
     for (const row of rows) {
       const records = propertyRecordsByBlock.get(row.id);
       if (!records) continue;
-      const tasks = lineChipTasks(row.text, records);
+      const tasks = this.lineTasksOf(row.id, row.text, records);
       if (!tasks.size) continue;
       lineTasksByBlock.set(row.id, tasks);
       if (![...tasks.values()].some(stepClosed)) continue;
@@ -5071,6 +5081,7 @@ export class OutlinerStore {
     const propertyScope = options.propertyScope ?? "block";
     const where = options.where ? compileQueryExpression(options.where, options.now, this.queryRelations(graph)) : null;
     const contextFilters = [...(options.filters ?? []), ...(options.where ? positivePropertyFilters(options.where) : [])];
+    const evidenceAt = options.now ?? Date.now();
     const visit = (block: Block, depth: number): boolean => {
       const effectivelyDeleted = Boolean(block.effectiveDeletedRootId);
       if (deletedMode === "active" && effectivelyDeleted) return false;
@@ -5116,7 +5127,7 @@ export class OutlinerStore {
           ...(propertyScope !== "block" && contextFilters.length
             ? {
                 propertyMatches: propertyMatchContexts(
-                  matchingPropertyRecords(propertyRecords, contextFilters, propertyScope),
+                  matchedChips(matchingPropertyRecords(propertyRecords, [], propertyScope), options.filters ?? [], options.where, evidenceAt),
                   graph.lineTasksByBlock.get(block.id),
                 ),
               }
@@ -5988,6 +5999,15 @@ export class OutlinerStore {
     this.syncDeclaredPageAddresses(blockId, blockProperties);
   }
 
+  /** One block's records as a question reads them (the graph's propertyRecordsByBlock, for one block): a ticked step's chips settled. */
+  private questionRecordsFromCurrentRead(block: Block): PropertyRecord[] {
+    const records = (this.database.query(
+      "SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties WHERE block_id = ? ORDER BY ordinal",
+    ).all(block.id) as PropertyRow[]).map(propertyRecordFromRow);
+    const tasks = this.lineTasksOf(block.id, block.text, records);
+    return records.filter(record => !stepClosed(tasks.get(record.ordinal) ?? "todo"));
+  }
+
   private roadmapBranchMembershipsFromCurrentRead(
     block: Block,
   ): RoadmapBranchMembership[] {
@@ -6005,7 +6025,7 @@ export class OutlinerStore {
       if (!config) continue;
       // A view that reads line chips ([property-scope::…]) holds the item by them too, as views.read does.
       const scope = config.propertyScope ?? "block";
-      const records = scope === "block" ? block.properties : this.loadGraph().propertyRecordsByBlock.get(block.id) ?? [];
+      const records = scope === "block" ? block.properties : this.questionRecordsFromCurrentRead(block);
       if (!matchesFilters(records, config.filters, scope)) continue;
       if (config.where && !compileQueryExpression(config.where)({ ...block,
         childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, records, scope)) continue;

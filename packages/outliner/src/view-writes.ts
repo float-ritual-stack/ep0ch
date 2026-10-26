@@ -94,6 +94,8 @@ export function writeView(id: string, definition: Pick<Block, "id" | "text" | "p
   if (!isVirtualBranchDefinition(definition)) return { ok: false, id, name, reason: `${name} is unsupported: only type=virtual-branch views plan writes` };
   const parsed = parseVirtualBranchConfig(definition, []);
   if (!parsed.config) return { ok: false, id, name, reason: `${name} is invalid: ${parsed.configurationErrors[0] ?? "no reason given"}` };
+  // A view that reads line chips (PIE-1277) holds a note by a line of it: a patch to its header can't stand for that.
+  if (parsed.config.propertyScope) return { ok: false, id, name, reason: `${name} reads chips on any line ([property-scope::${parsed.config.propertyScope}]): write the chip on the line it's about, in the note` };
   const { filters, where } = parsed.config;
   const query = normalizeBlockSearchQuery(virtualBranchMembershipQuery(id, parsed.config));
   if (filters.some(f => f.key === "deleted")) {

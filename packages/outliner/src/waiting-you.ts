@@ -9,6 +9,7 @@ const NEEDS = "needs NOT work-stage=done NOT work-stage=superseded";
 
 export function waitingAsks(store: OutlinerStore): WaitingAsk[] {
   // Every scope (PIE-1277): a `- [ ] … [needs::sysop: …]` on line 30 of a long note is an ask too, opened at its line.
+  // NOT reads the note's own header at any scope, so a body line's `[work-stage::done]` never hides the note.
   const { blocks } = store.queryBlocks({ where: `(${NEEDS}) OR (type=draft-proposal proposal-status=open) OR type=capability OR type=design`, propertyScope: "all", limit: 1000 });
   const rows: WaitingAsk[] = [];
   for (const b of blocks) {
@@ -35,7 +36,9 @@ export function waitingAsks(store: OutlinerStore): WaitingAsk[] {
       const end = headings.slice(i + 1).find(next => next.token.type === "heading" && next.token.depth <= depth)?.span.startLine ?? b.text.split("\n").length;
       for (let line = h.span.endLine + 1; line < end; line++) calls.add(line);
     }
-    for (const item of checklistItems(b.text)) if (item.status === "todo" && calls.has(item.span.startLine)) {
+    // A step that is already a decision row (its own [needs::sysop: …]) isn't listed twice.
+    const asked = new Set(rows.filter(r => r.block === b.id && r.line !== undefined).map(r => r.line));
+    for (const item of checklistItems(b.text)) if (item.status === "todo" && calls.has(item.span.startLine) && !asked.has(item.span.startLine)) {
       rows.push({ ...base, kind: "call", reason: item.text.replace(/^\s*[-+*]\s+\[ \]\s*/, ""), line: item.span.startLine, at: item.span.start, label: item.text });
     }
   }

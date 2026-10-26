@@ -51,7 +51,8 @@ function figureChecklistItems(text: string, properties: PropertyRecord[]): Check
 export function lineChipTasks(text: string, properties: readonly PropertyRecord[]): Map<number, ChecklistStatus> {
   const tasks = new Map<number, ChecklistStatus>();
   if (!properties.some(property => property.scope !== "block") || !STEP_BOX_ANYWHERE.test(text)) return tasks;
-  for (const item of listChecklistItems(text, [...properties])) {
+  // A `::graph-check` row's box too (PIE-864): ticked there, its chips settle the same way.
+  for (const item of checklistItems(text, [...properties], { figures: true })) {
     for (const property of item.properties) if (property.scope !== "block") tasks.set(property.ordinal, item.status);
   }
   return tasks;
