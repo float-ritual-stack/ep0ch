@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { W_GROUPS, W_KEYS, wKey, wPanel, wRows, type WKey } from "../src/desk/wkeys";
-import { panelLines, tileKeys } from "../src/desk/key-panel";
+import { panelFoot, panelLines, tileKeys } from "../src/desk/key-panel";
 import { C, fg } from "../src/style";
 import type { Msg } from "../src/board";
 import { openScreen } from "../src/desk/screen-specs";
@@ -62,8 +62,10 @@ describe("the ^W key table", () => {
     expect(plain(drawn.lines[0]!).startsWith("this tile: what-changed")).toBe(true);
     expect(drawn.lines[0]!.startsWith(fg(C.lcyan))).toBe(true);
     expect(drawn.spots.find(s => s.key === "d" && s.action)).toMatchObject({ line: 2, action: "changes.diff" });
-    // ^W's own d is still there, as the key after ^W.
+    // ^W's own d is still there, as the key after ^W; the foot says the tile's keys are typed once the panel is closed.
     expect(drawn.spots.filter(s => s.key === "d" && !s.action)).toHaveLength(1);
+    expect(panelFoot([], true)).toContain("esc close: then this tile's keys are its own");
+    expect(panelFoot([])).not.toContain("this tile");
   });
 });
 
