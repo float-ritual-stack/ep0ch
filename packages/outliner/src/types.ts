@@ -2486,6 +2486,14 @@ export type OutlinerRequestAction =
   /** Capability `extensions.list`. `reload` reads the folders now instead of waiting for the watcher. */
   | ({ id: string; action: "extensions.list"; reload?: boolean } & Pick<import("@ep0ch/outline-core/site").SiteAnswerRequest, "blockId" | "line" | "draft" | "chain">)
   /**
+   * The service's completion sources for the token at the cursor (PIE-1340): pages, blocks and their fragments, files,
+   * agents and the extensions' completion sources, each answering on outline-core's row contract, with the trigger's
+   * picks. `{ answers: [{ source, rows, problem?, truncated?, empty?, partial?, heading?, jev? }], picks }`. It writes nothing.
+   */
+  | ({ id: string; action: "completion.rows" } & import("@ep0ch/outline-core/protocol").CompletionRowsRequest)
+  /** A completion row was chosen (PIE-1340): its pick is counted, so every client ranks it higher next time. `{ picks }`. */
+  | ({ id: string; action: "completion.picked" } & import("@ep0ch/outline-core/protocol").CompletionPickedRequest)
+  /**
    * An extension's command-palette source answers a query (PIE-656, the door's power bar): `{ extension, source,
    * rows: [{ id, label, detail?, preview?, block?, action?, args?, copy? }] }`. It writes nothing.
    */
