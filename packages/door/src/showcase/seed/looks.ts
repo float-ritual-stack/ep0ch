@@ -67,7 +67,7 @@ export const LOOKS_LAB = [
 
 export const HEADINGS = [
   `${SEED.headings} [page::${SEED.headings}]`,
-  "A heading keeps its Markdown; a style draws it inside a band. Name a style, give one heading its own fields, or declare a style on any line. Narrow, it is the heading as written.",
+  "A heading keeps its Markdown; a style draws it inside a band. Name a style, give one heading its own fields, or declare a style on any line. Narrow, it is the heading's words alone.",
   "",
   HEADING_STYLE_LINE,
   "",
@@ -106,6 +106,12 @@ export const HEADINGS = [
   "",
   "## Plain",
   "As Markdown writes it.",
+  "",
+  "::graph-check",
+  "- [ ] Order the seed trays for the raised beds before the first frost comes in",
+  "::",
+  "",
+  "::graph-table", "---", "headers: [Job, Who]", "rows:", "  - [SHED-4 / oil the hinge and the padlock on the shed door, Sam]", "---", "::",
 ].join("\n");
 
 export const DISPATCH_SKIN = [

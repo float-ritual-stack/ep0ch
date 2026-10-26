@@ -66,9 +66,9 @@ export interface RowInline {
 /**
  * A row's words `w` wide in `ink`, through the reader's inline pipeline (`inline`): code spans magenta (a click copies
  * one), links in the link colour and followable, emphasis drawn. Without it, wrapped as written. `linked`: the row is a
- * link to its note (see RowInline.present).
+ * link to its note (see RowInline.present). `lines`: at most that many rows (the lent row limit by default).
  */
-export function inlineRows(text: string, w: number, ink: number, inline?: RowInline, linked = false): string[] {
-  if (!inline) return rowLines(text, w).map(l => fg(ink) + l + RESET);
-  return rowLines(colourInline(inline.present(text, linked), ink), w);
+export function inlineRows(text: string, w: number, ink: number, inline?: RowInline, linked = false, lines?: number): string[] {
+  if (!inline) return rowLines(text, w, lines).map(l => fg(ink) + l + RESET);
+  return rowLines(colourInline(inline.present(text, linked), ink), w, lines);
 }

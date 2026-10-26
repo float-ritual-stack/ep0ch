@@ -117,13 +117,14 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
 
   // A row's box is a checklist step's (PIE-864): drawn by its status, and a control where the reader lends one. Its
   // words and side note go through the reader's inline drawing, so a code span copies and a link follows as in the note.
+  // A step is never cut short (PIE-1302): a cut item loses its meaning, so its words wrap onto as many rows as they take.
   check: (p, w, link, ui) => (p.items ?? []).flatMap((it: Props) => {
     const status: ChecklistStatus = it.status ?? (it.done ? "done" : "todo");
     const mark = STEP_BOXES[status], shown = ui?.rows?.box?.(it, mark);
     const box = shown ? colourInline(shown, ACCENT) : fg(stepDone(status) ? ACCENT : DIM) + mark + RESET;
     const ink = stepDone(status) ? HI : stepClosed(status) ? DIM : INK;
-    const lines = inlineRows(String(it.label ?? ""), w - 6, ink, ui?.rows, typeof it.block === "string");
-    const note = it.note ? inlineRows(String(it.note), w - 6, DIM, ui?.rows) : [];
+    const lines = inlineRows(String(it.label ?? ""), w - 6, ink, ui?.rows, typeof it.block === "string", Infinity);
+    const note = it.note ? inlineRows(String(it.note), w - 6, DIM, ui?.rows, false, Infinity) : [];
     return rowLinks(link, it.block, lines).map((l, i) => (i ? "      " : box + "  ") + l)
       .concat(note.map(l => "      " + l));
   }),

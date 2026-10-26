@@ -165,7 +165,8 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       const items = Array.isArray(n.items) ? n.items as Node[] : [];
       return items.flatMap(it => {
         const box = it.done ? fg(C.lcyan) + "[x]" : fg(C.dark) + "[ ]";
-        return rowLines(one(it.label), w - 4).map((l, i) => (i ? "    " : box + RESET + " ") + fg(it.done ? C.dark : C.white) + l + RESET);
+        // Never cut short (PIE-1302): a cut item loses its meaning.
+        return rowLines(one(it.label), w - 4, Infinity).map((l, i) => (i ? "    " : box + RESET + " ") + fg(it.done ? C.dark : C.white) + l + RESET);
       });
     }
     case "table": {
