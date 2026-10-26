@@ -267,8 +267,12 @@ describe.skipIf(!outliner)("bare - + = on the desk, and the hyper layer, against
     expect(drawer.open).toBe(false);                     // a put-away drawer stays put away (Evan, Oct 26): the lift is tile.zoom's
     expect(drawer.made.lifted.reach).toBe("column");
     expect(drawer.made.liftsPane(drawer.tile)).toBe(true);
+    expect(drawer.entered).toBe(true);                   // the person's keys are the lifted agent's, the drawer down (PIE-1359)
+    expect((app as any).person().keys).toBe("host");
     key({ kind: "hyper", ch: "a" });
     await until(() => !drawer.made.lifted, "the lift dropped");
+    expect(drawer.entered).toBe(false);                  // and back on the screen when it drops
+    expect((app as any).person().keys).toBe("screen");
     // The person's press of the same action, as a status-bar button runs it; drawer=true brings the drawer up and goes into it.
     await (app as any).dispatch.press("agent.lift", { reach: "full", drawer: true });
     expect(drawer.made.lifted?.reach).toBe("full");

@@ -6664,6 +6664,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Pane `p` is the tile lifted on this desk. */
   liftsPane(p: Pane): boolean { const l = this.layout.lift; return !!l && this.panes.get(l.tile) === p; }
   get liftedDesk() { return this.descend().find(d => d.lifted); }
+  /** The lifted tile's name on this desk, or null. */
+  liftedName(): string | null { const l = this.layout.lift; return l ? this.nameOf(l.tile) : null; }
   private liftedRect: Rect | null = null;
   // Cards, completion and hints can extend beyond a column lift.
   private overlayHits: Rect[] = [];
