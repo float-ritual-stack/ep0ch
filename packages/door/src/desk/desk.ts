@@ -49,7 +49,7 @@ import { INVITES } from "../surface/invite";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
-import { armsEdit, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
+import { armsEdit, headerOmits, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRows, pickRow } from "../surface/picker";
@@ -4009,7 +4009,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(id)!, m = this.noteOf(id);
     if ((p.writtenTitle && !p.systemTitle) || !m || (tabsOf(this.root, id)?.ids.length ?? 0) > 1) return this.displayTitle(id);
     if (rows !== undefined && p instanceof ReaderPane && !p.surface.titleShown(rows - 2)) {
-      return [p.surface.state(), workIdTitle(subject(m), prop(m, "work-id")).title].filter(Boolean).join(" · ");
+      // A note that leaves its title out (PIE-1319) is named here alone, so its Work ID is said here too.
+      const named = workIdTitle(subject(m), prop(m, "work-id"));
+      return [p.surface.state(), headerOmits(m).title && named.workId ? `${named.workId} · ${named.title}` : named.title].filter(Boolean).join(" · ");
     }
     const name = this.nameOf(id), own = visibleText(p.title()), sub = subject(m);
     const rest = own.startsWith(sub) ? own.slice(sub.length).replace(/^\s*·\s*/, "") : null;

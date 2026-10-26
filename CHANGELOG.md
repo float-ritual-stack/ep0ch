@@ -27,6 +27,41 @@ are its record. The outliner's entries from then are kept below, under
   groups, drawer, layouts & more), each in its action's own words; a click on a row runs it, esc closes it. A fast typist
   never sees it. `^W o` and `^W O` show the kinds they open the same way. `act keys.panel` opens it at once; an agent's
   answers the groups and moves nothing. The short keys box it replaces is gone.
+### Views, finds and agents read a line's properties, not only the note's header (PIE-1277)
+
+- **A view says `[property-scope::all]`** and its query reads every chip in the note: a `- [ ] … [needs::sysop: …]`
+  on line 30 puts the note in the view. Without it a view reads the header only, as before. The scope applies to the
+  query's positive clauses; a `NOT` clause still asks the note's own header, so a body line's `[work-stage::done]`
+  never hides a note.
+- **A ticked step settles its chips.** A chip on an `[x]`, `[✓]` or `[✗]` step no longer matches, so an ask drops
+  out of the view when its box is ticked. Facets and groups count line chips at the same scope.
+- **Each row says where it matched,** with the step's state: the door's view rows read `line 12 to do`, and opening
+  one lands on that line, lit, as a `::fields` row does.
+- **`ep0ch find --query … --property-scope all`**, the mod's `outline_find` and MCP `outline_query` take the same
+  scope (`propertyScope`) and return each note's matched lines. The door's waiting-on-you list finds buried
+  `[needs::sysop: …]` asks too, each opening at its line.
+- **To use it on Waiting on Evan,** add `[property-scope::all]` to the view note once the host runs this.
+- Kitchen sink: the **line-asks** section.
+
+### EchoNet copies keep labelled links whole (PIE-1289)
+
+- **A labelled reference survives the trip.** `((id|Rough edges (x)))` in an echoed note reads `[Rough edges (x)](ep0ch://…)` in
+  the copy (it was cut at the first `)`), `[[PIE-12|the plan]]` links PIE-12 as "the plan" (it looked up a page named
+  `PIE-12|the plan`), and `[[[[2026-10-06]] - notes]]` stays one link. `((attic:id))` links the attic on the origin's machine, and code (any fence, indented code, a component's YAML) stays as written.
+- **One grammar.** The tosser reads links with outline-core's, bundled beside it (`link-grammar.js`, written and checked by
+  `bun scripts/link-grammar.ts`, which also writes the Claude mod's); the door's move messages name a note by its whole title.
+- **Run:** `ep0ch install --apply` on each machine with a node: it refreshes the installed copies, so both ends of a toss read links the same way.
+
+### A note can leave out its reader header: `[header::none]` (PIE-1319)
+
+- **A dashboard draws only its body.** `[header::none]` on a note's first line leaves out the crumbs, the title and the
+  byline in the readers, a river column and the drawer (the BBS message reader keeps its own header): its figures start on the first row, and the tile's border
+  still names it. `[header::crumbs]` or `[header::title]` leave out only those rows; `[header::crumbs, title]` both.
+  Take it off and the header comes back at once.
+- **Still reachable:** the tile menu (⋯) has comment on the whole note, comments, properties and sources, the byline's
+  ways in. `ep0ch show` keeps the title first, as scripts read its first line.
+- **It describes itself:** the component library has a `header` page, and `[header::` completes its three values
+  with what each leaves out. The showcase's `header` section is a dashboard in a reader and a river column.
 ### A button asks for what it's missing; copy any tile's or note's address; a `::button` line is read as you type (PIE-1298, PIE-1297, PIE-1312)
 
 - **An empty slot asks.** `::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}`: pressed with `target=`

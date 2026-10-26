@@ -2633,6 +2633,17 @@ Spaced values use the same canonical filter syntax:
 [query::status="in progress" project=pi-outliner]
 ```
 
+A view reads the note's own header chips unless it says otherwise:
+`[property-scope::all]` (or `line`, `inline`) reads a chip on any line, as
+`outliner list --property-scope all` does. The scope widens what puts a note in;
+a `NOT` clause still asks the note's own header, so a body line listing a done
+ticket never hides the note. A view that reads line chips plans no writes (a
+header patch can't stand for a line).
+Each row's `propertyMatches` names the chip, its offset and line, and on a
+checklist step the step's status (`task`); a chip on a ticked step (`[x]`, `[✓]`,
+`[✗]`) is settled and no longer matches, so an ask drops out when its box is
+ticked. Facets and groups count line chips at the same scope.
+
 A virtual branch can override the workspace Tree summary order for its projected
 occurrences with `[summary-properties::key,key,…]`. The override is
 presentation-only; ordinary and projected rows continue to read the same

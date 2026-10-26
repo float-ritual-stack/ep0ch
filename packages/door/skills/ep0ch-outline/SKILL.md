@@ -255,7 +255,12 @@ one.
 ## Views, boards and hubs
 
 - A **view** (virtual branch) is a block with `[type::virtual-branch]` and one `[query::…]`, plus optional
-  `[sort::]`, `[limit::]`, `[machinery::show|only]`, `[summary-properties::]`, `[create::key=value]` and `[create-parent::<id>]`.
+  `[sort::]`, `[limit::]`, `[machinery::show|only]`, `[property-scope::all]`, `[summary-properties::]`, `[create::key=value]` and `[create-parent::<id>]`.
+  `[property-scope::all]` reads the chips on every line, not only the note's header: a `- [ ] … [needs::sysop: …]` on
+  line 30 puts the note in the view, the row says `line 30 to do`, opens there lit, and drops out once the box is
+  ticked. The scope widens what puts a note in; a `NOT` clause still asks the note's own header, so a body line's
+  `[work-stage::done]` never hides it. A comparison (`cost < 10`) names the chip that holds. `outline_find` and `outline_query` take `propertyScope: "all"`, and
+  `ep0ch find --query … --property-scope all`; each row then names its matched lines.
   A view, a find and an agent's feed leave out the notes tools stamped `[machine::<producer>]` (file touches, EchoNet's
   logs, deliveries, backup runs) unless `machinery` says `show` or `only`; `by:user` or `by:agent` and `revision >= 2`
   ask who wrote a note last and how often it was saved. Stamp your own tool's bookkeeping notes `[machine::<tool>]`.
@@ -589,6 +594,10 @@ optional list mark, with its layout as properties beside it: `[img::path]` (or `
 title, the full width, whole when it fits in a third of the pane (or its `height`), else cropped to fill
 (`[fit::contain]`: whole, centred), scrolling away with the note's top. Only the first hero counts. A bright image is
 dimmed: the door is dark-first, so write `[dim::0]` only when the person asks for it; `[dim::0.6]` dims it more.
+
+**A page of figures with no header** (PIE-1319): `[header::none]` on a note's first line leaves out the reader's crumbs,
+title and byline, so a dashboard or a contents page starts with its first figure (the tile's border still names it);
+`[header::crumbs]` or `[header::title]` leave out only those rows.
 
 ```
 - [img::~/shots/plot-at-dusk.png] [layout::hero] [height::14] [alt::the plot at dusk]

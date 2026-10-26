@@ -26,7 +26,7 @@ import { SEED, SEED_AGENT, SHOWCASE_MARK, type SeedName, WORK_PREFIX } from "./s
 import { ECHO_COPIES, ECHO_NODELIST, ECHO_POSTS, ECHO_SEEN_BY, ECHO_TOSSER, ECHO_TOSSES } from "./seed/echonet";
 import { PROJECT_FIGURE, PROJECT_TICKETS, VENT_RAIL } from "./seed/self";
 import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, laneQuery, societyText } from "./seed/work";
-import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, KEYS_TEXT, figuresText, markdownFiguresText } from "./seed/figures";
+import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, KEYS_TEXT, dashboardText, figuresText, markdownFiguresText } from "./seed/figures";
 import { DEEP_LINKS, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
 import { LIST_FOLDS } from "./seed/list-folds";
 import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
@@ -461,6 +461,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   await board.comment("showcase-span-copy", spanCopy.id, spanCopy.revision!, "Try `comment-copy`.", { quote: "Paragraph `paragraph-copy`.", start: SPAN_COPY.indexOf("Paragraph `paragraph-copy`.") }, SEED_AGENT);
   notes.images = await make(notes.root.id, imagesText());
   notes.hero = await make(notes.root.id, heroText());
+  notes.dashboard = await make(notes.root.id, dashboardText());
   notes.artifacts = await make(notes.root.id, artifactsText(await placeArtifacts(board)));
   notes.replies = await make(notes.root.id, `${SEED.replies} [thread::orchard]\n\nR writes beside this message. Save keeps the reply; Esc closes it. Select words and press R to quote.\n\n${Array.from({ length: 35 }, (_, i) => `Orchard row ${i + 1}: leave the small apples for the birds.`).join("\n")}`);
   notes.snapshot = await make(notes.root.id, `${SEED.snapshot}\n\nUse the power bar (ctrl+k), > outline.snapshot, to copy a one-time snapshot link. The link expires in 15 minutes; ep0ch share revoke ends it sooner. It includes private notes.\n\nFrom a shell on this machine:\n\n\`\`\`sh\nep0ch outline snapshot showcase --out /tmp/showcase.sqlite\nsqlite3 -readonly /tmp/showcase.sqlite 'select count(*) from blocks;'\n\`\`\`\n\nWith a publisher running: ep0ch outline snapshot showcase --link prints a curl command. Fetch it, then run the same query. A finished download uses the link once; a headers-only preview or an interrupted download leaves it usable until expiry. A second finished fetch is refused. Share the curl command in a code block to avoid chat link previews. The snapshot record logs each attempt without its token. Add ?gz=1 for gzip.\n\nRemote MCP clients receive a notifications/tools/list_changed notification on the authenticated event stream, including when they reconnect after a gateway deploy. A listening client can refresh its tools without restarting the chat app.\n`);
@@ -599,6 +600,14 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   const MACHINERY_QUERY = "[query::type=chore OR type=toss OR type=backup-run OR type=file-touch]";
   notes.machineryPeople = await make(notes.root.id, `${SEED.machineryPeople} [type::virtual-branch] ${MACHINERY_QUERY}`);
   notes.machineryTools = await make(notes.root.id, `${SEED.machineryTools} [type::virtual-branch] ${MACHINERY_QUERY} [machinery::only]`);
+  // Line chips (PIE-1277): an ask buried on a step of long minutes, one ticked already; one query, asked of the header and of every line.
+  notes.lineAsksMinutes = await make(notes.root.id, [`${SEED.lineAsksMinutes} [club-ask::chair: approve the minutes]`, "",
+    ...["Apologies from plot 4 and plot 9.", "The water butts are full again.", "Compost bays: bay two is ready to turn.", "Seed swap moves to the first Saturday.",
+      "Rats seen near the shed; traps set.", "Path edging: the brick pile is free to take.", "Treasurer: subs are due by the end of the month."],
+    "", "- [x] Order a new padlock [club-ask::treasurer: paid from petty cash]", "- [ ] Which day for the work party? [club-ask::members: Saturday or Sunday]",
+    "", "Next meeting in the shed, weather allowing."].join("\n"));
+  notes.lineAsksHeader = await make(notes.root.id, `${SEED.lineAsksHeader} [type::virtual-branch] [query::club-ask]`);
+  notes.lineAsksAll = await make(notes.root.id, `${SEED.lineAsksAll} [type::virtual-branch] [query::club-ask] [property-scope::all]`);
   notes.gallery = await make(notes.root.id, galleryText());
   for (const card of galleryCards()) await make(notes.gallery.id, card);
   // Marginalia (PIE-753): its kit installed as the rules are; the plan, the notebook, a highlight and an answered question.

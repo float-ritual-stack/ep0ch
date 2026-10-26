@@ -867,6 +867,17 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "line-asks", need: "find an ask written on line 12 of long minutes, not only the ones in a note's header, and open the note at that line",
+    part: "a saved view's [property-scope::all] (PIE-1277): the service's one matcher reads every chip at that scope (block_properties keeps each with its line and column), a chip on a ticked step is settled and drops out, and each row carries propertyMatches (the line, and the step's state). The view's row says the line and opens there, lit, through the reveal a ::fields row uses; ep0ch find --property-scope all, outline_find's and outline_query's propertyScope ask the same question",
+    files: "outliner src/virtual-branches.ts (property-scope), src/store.ts (lineTasksByBlock, traverseLoadedGraph), src/checklist-items.ts (lineChipTasks), src/embeds.ts (viewRegion), src/desk/query.ts, src/reveal.ts, src/notes-cli.ts (--property-scope)",
+    aside: "one query, club-ask, asked twice: left, of the notes' headers (the minutes' own chip only); right, with [property-scope::all], of every line: the open step on line 12 is listed with its line, the ticked padlock isn't. ⏎ or a click on a row opens the minutes at that line",
+    stage(n, show) {
+      const header = new ReaderPane(), all = new ReaderPane();
+      return deskOf({ title: "showcase · line asks", panes: [header, all], names: ["header", "any line"],
+        layout: ([a, b]) => row(0.5, a!, b!) }, show, [[header, n.lineAsksHeader], [all, n.lineAsksAll]]);
+    },
+  },
+  {
     key: "runbook", need: "run a note's steps in a terminal and answer a masked prompt",
     part: "runbook extension plans and records; compact asks through askInBar and ListPicker; PtyPane through PtyBackend in the desk",
     files: "src/runbook.ts, src/bar/ask.ts, src/desk/pty.ts, outliner/extensions/runbook",
@@ -1002,6 +1013,15 @@ export const SECTIONS: Section[] = [
       // A reader and a river column on the same note: the column keeps the reader's header above its scroll too.
       const r = new ReaderPane(), col = new RiverColumn({ kind: "block", id: n.hero?.id ?? "" });
       return deskOf({ title: "showcase · hero header", panes: [r, col], layout: ([a, b]) => row(0.6, a!, b!) }, show, [[r, n.hero]], d => { if (n.hero) col.hold(n.hero, d); });
+    },
+  },
+  {
+    key: "header", need: "leave the reader's header off a note that is a composition (a dashboard, a contents page, a brief), so its figures start on the first row", part: "the reader's header (NoteSurface.headerBlock, PIE-1319): the note's own `[header::none]` (or `crumbs`, `title`: only those rows) leaves those rows out in the readers, a river column (stickyHeader) and the drawer (a host's own header, the BBS message reader's, stays); outline-core's `header` component schema describes it, so the library, the [key:: completion and the property panel's values offer it; the tile menu (⋯) keeps the byline's comment, comments, properties and sources rows", files: "src/surface/note.ts (headerOmits, headerBlock), outline-core src/component-schemas-blocks.ts (HEADER), src/showcase/seed/figures.ts (dashboardText)",
+    aside: "the dashboard's first line says [header::none]: the reader on the left and the river column on the right draw its figures from their first row, the border naming the note · i (or the tile menu's properties) shows the property; take it off (properties.patch, or e and delete it) and the crumbs, the title and the byline come back at once · [header::crumbs] leaves out the crumbs only, [header::title] the title only · the tile menu (⋯) still has comment on the whole note, comments, properties and where this comes from · `ep0ch show` keeps the title first: scripts read its first line",
+    stage(n, show) {
+      // A reader and a river column on the same dashboard: the column's sticky header is the reader's header, left out too.
+      const r = new ReaderPane(), col = new RiverColumn({ kind: "block", id: n.dashboard?.id ?? "" });
+      return deskOf({ title: "showcase · no header", panes: [r, col], layout: ([a, b]) => row(0.6, a!, b!) }, show, [[r, n.dashboard]], d => { if (n.dashboard) col.hold(n.dashboard, d); });
     },
   },
   {

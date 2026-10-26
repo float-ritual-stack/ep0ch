@@ -19,6 +19,7 @@ import { heroLook } from "./hero-look";
 import { withFigureBoard } from "../graphs";
 import { outlineBoards, readNote, type NoteAddress } from "../desk/outline-boards";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
+import { HEADER_VALUES } from "@ep0ch/outline-core/component-schemas-blocks";
 import { InlineList, inlineRowKey } from "./inline-list";
 import { LISTVIEW_ACTIONS, listNamed, type ListHost } from "./list-actions";
 import { ListView, listRowLines, listRowsOf, PERSON, selectable, type ListHandle, type ListViewRow } from "./list-view";
@@ -67,7 +68,7 @@ import { decorationsOf, drawingPending, drawnPresses, extensionRegion, mayHavePr
 import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
-import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop } from "../props";
+import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
 import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, type LinkTarget } from "../refs";
 import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
@@ -396,12 +397,24 @@ export interface HeaderInfo {
 /** How much of the heading colour the title keeps in a tile that doesn't have the keys: a clear step down (not further: the night theme's text must keep 4.5:1), never brighter than the theme allows. */
 const TITLE_UNFOCUSED = 0.7;
 
+/**
+ * The reader's header rows a note leaves out (PIE-1319): its `[header::…]` values, as outline-core's `header` schema
+ * describes them (`none`, `crumbs`, `title`, or several). The note decides, so it follows the note into every reader.
+ */
+export function headerOmits(m: Pick<Msg, "properties">): { crumbs: boolean; title: boolean; byline: boolean } {
+  const said = new Set(propValues(m, "header").map(v => v.trim().toLowerCase()));
+  const is = (v: keyof typeof HEADER_VALUES) => said.has(v) || said.has("none");
+  return { crumbs: is("crumbs"), title: is("title"), byline: is("none") };
+}
+
 /** The reader's header rows (NoteSurface.headerBlock): where its summary line is and its links, and its title's row. */
 interface HeaderBlock {
   rows: string[]; summary: string; summaryRow: number;
   summaryLinks: { from: number; to: number; link: Link; key: string }[];
-  /** The title's rows (null: a host's own header stands in for it). */
+  /** The title's rows (null: a host's own header stands in for it, or the note leaves it out). */
   title: { row: number; rows: number } | null;
+  /** A host's own header (the BBS message header) stands in for the title, byline and crumbs. */
+  own?: boolean;
   /** The crumbs' row (the path above the title), where a click shows the note in the outline; null: a host's own header. */
   crumbsRow?: number;
   /** The byline's [comment] (PIE-846): a click writes a comment on the whole note, as C with nothing selected does. */
@@ -1614,12 +1627,16 @@ export class NoteSurface {
     const props = !this.panel && count ? `${fg(C.dark)} · i ${count} propert${count === 1 ? "y" : "ies"}` : "";
     if (own) {
       const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : [];
-      return { rows: [...own, ...summaryRows].map(l => " ".repeat(gx) + l), summary, summaryRow: own.length, summaryLinks: summary ? summaryLinks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) : [], title: null };
+      return { rows: [...own, ...summaryRows].map(l => " ".repeat(gx) + l), summary, summaryRow: own.length, summaryLinks: summary ? summaryLinks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) : [], title: null, own: true };
     }
     // The note's title leads the header (PIE-657): the crumbs are an eyebrow above it, dim; the title is the one bright
     // bold line (brighter in the focused tile, a step down in the others), then one dim line holding everything else.
     // Keep normal cell width: a terminal's sizing probe cannot prove its font will scale instead of spacing the letters.
     // A note with a Work ID shows it first, in the accent (PIE-809: `HOME-011 · <title>`), said once (outline-core's rule).
+    // The rows the note leaves out (PIE-1319). `ep0ch show` (printed) keeps them all: its first line is what a script reads.
+    const omit = this.printed ? { crumbs: false, title: false, byline: false } : headerOmits(m);
+    // The rows above the title: the crumbs, unless the note leaves them out.
+    const above = omit.crumbs ? 0 : 1;
     const named = workIdTitle(subject(m), prop(m, "work-id")), focused = host?.focused !== false;
     const title = named.workId ? `${named.workId} · ${named.title}` : named.title;
     // In the theme's heading colour (PIE-809): the theme caps white near the body text's grey, so a white title read as
@@ -1651,11 +1668,11 @@ export class NoteSurface {
     const lines = width(title) <= w ? [title] : wrap(title, w);
     const titled = lines.map((l, i) => (i === 0 && named.workId && l.startsWith(`${named.workId} · `) ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${l.slice(named.workId.length + 3)}`, w) : ink + pad(l, w)) + RESET);
     const wholeMarks: NonNullable<HeaderBlock["wholeMarks"]> = [];
-    if (!this.printed) {
+    if (!this.printed && !omit.title) {
       let col = width(lines.at(-1) ?? "");
       for (const c of (this.comments ?? []).filter(c => isWholeNote(c) && !this.threadShown(c.id))) {
         if (col + 4 > w) break; // The gutter remains available when the title fills its row.
-        wholeMarks.push({ thread: c.id, row: lines.length, from: col + 1, to: col + 4 });
+        wholeMarks.push({ thread: c.id, row: above + lines.length - 1, from: col + 1, to: col + 4 });
         col += 4;
       }
       if (wholeMarks.length) {
@@ -1664,7 +1681,7 @@ export class NoteSurface {
       }
     }
     const titleControls: NonNullable<HeaderBlock["titleControls"]> = [];
-    if (!this.printed && !this.raw && isOutlineNote(m)) {
+    if (!this.printed && !this.raw && !omit.title && isOutlineNote(m)) {
       for (const decoration of decorationsOf(m, src).filter(d => d.place === "title")) {
         const tags: Link[] = [];
         const drawn = decorationRows(decoration, w, {
@@ -1677,20 +1694,23 @@ export class NoteSurface {
           let row = last, col = width(titled[last]!.trimEnd().replace(/ *\x1b\[0m$/, "")) + 1;
           if (col + width(text) > w) { row++; col = 0; titled.push(""); lines.push(""); }
           titled[row] = pad(titled[row]!.replace(/ *\x1b\[0m$/, "").trimEnd() + " ".repeat(col ? 1 : 0) + text, w) + RESET;
-          for (const r of control.ranges.filter(r => r.line === i)) titleControls.push({ row: row + 1, from: gx + col + r.from, to: gx + col + r.to, link: tags[r.n]! });
+          for (const r of control.ranges.filter(r => r.line === i)) titleControls.push({ row: row + above, from: gx + col + r.from, to: gx + col + r.to, link: tags[r.n]! });
         }
       }
     }
     const subtitle = subtitleOf(m);
     const subRows = subtitle ? [fg(C.dark) + pad(printable(subtitle, " "), w) + RESET] : [];
-    const first = (this.printed ? 1 : 2) + lines.length - 1 + subRows.length;
+    const titleRows = omit.title ? [] : [...titled, ...subRows];
+    // The byline's row: after the crumbs and the title, as many of them as are drawn.
+    const first = this.printed ? lines.length + subRows.length : above + titleRows.length;
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
     const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
-    const rows = this.printed ? [...titled, ...subRows, ...metas, crumbs] : [crumbs, ...titled, ...subRows, ...metas];
-    // The chip ends the first byline row (the one `said` is on), where it fits in the tile.
-    const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped && commentOn ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
-    const sourcesChip = chipped && sourcesOn ? { row: first, from: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) - width(SOURCES_CHIP), to: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) } : undefined;
-    return { rows: rows.map(l => " ".repeat(gx) + l), titleControls, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary, summaryRow: apart ? first + 1 : first, summaryLinks: links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: { row: this.printed ? 0 : 1, rows: lines.length }, crumbsRow: this.printed ? rows.length - 1 : 0, ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(sourcesChip ? { sourcesChip: { ...sourcesChip, from: sourcesChip.from + gx, to: sourcesChip.to + gx } } : {}), ...(marginChip ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
+    const rows = this.printed ? [...titled, ...subRows, ...metas, crumbs] : [...(omit.crumbs ? [] : [crumbs]), ...titleRows, ...(omit.byline ? [] : metas)];
+    // The chip ends the first byline row (the one `said` is on), where it fits in the tile; with no byline, the tile
+    // menu (⋯) has the same rows: comment on the whole note, comments, properties, sources.
+    const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped && commentOn && !omit.byline ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
+    const sourcesChip = chipped && sourcesOn && !omit.byline ? { row: first, from: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) - width(SOURCES_CHIP), to: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) } : undefined;
+    return { rows: rows.map(l => " ".repeat(gx) + l), titleControls, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary: omit.byline ? "" : summary, summaryRow: apart ? first + 1 : first, summaryLinks: omit.byline ? [] : links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: omit.title ? null : { row: this.printed ? 0 : above, rows: lines.length }, ...(this.printed ? { crumbsRow: rows.length - 1 } : omit.crumbs ? {} : { crumbsRow: 0 }), ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(sourcesChip ? { sourcesChip: { ...sourcesChip, from: sourcesChip.from + gx, to: sourcesChip.to + gx } } : {}), ...(marginChip && !omit.byline ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
   }
 
   /**
@@ -1704,7 +1724,7 @@ export class NoteSurface {
     this.lookAt(m, w, host);
     const { rows, summaryRow, summaryLinks } = this.headerBlock(m, w, host, src);
     const lines = [...rows];
-    const headerRule = this.headerRule(w);
+    const headerRule = rows.length ? this.headerRule(w) : "";
     if (headerRule) lines.push(headerRule);
     const d = this.digested?.m.id === m.id && this.digested.m.revision === m.revision ? this.digested : null;
     this.backdropShown = null;
@@ -1846,7 +1866,7 @@ export class NoteSurface {
     if (foot) h -= 1;
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
     const open = openConstructs(m.text);
-    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip, sourcesChip, marginChip, wholeMarks, titleControls } = this.headerBlock(m, w, host, src);
+    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, own, crumbsRow, commentChip, sourcesChip, marginChip, wholeMarks, titleControls } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
     const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (" · " + this.proposalKeys(m.id).replace(/ · $/, "") + (proposalApplies(m) ? "" : " · it can't be applied: its passage was already gone")), w) + RESET]) } : null;
@@ -1888,9 +1908,13 @@ export class NoteSurface {
     }
     // The look's margin.y: blank rows above the body (edge rows: never copied), then one blank row between the header
     // and the body (PIE-657); a rule only under the property panel, which it closes.
+    const headed = head.length > 0;
     for (let r = 0; r < this.my; r++) head.push("");
-    if (this.panel || !host?.header || head.length + 1 < h) head.push(this.panel ? rule(w) : "");
-    const headerRule = this.headerRule(w);
+    // A note with no header rows at all (PIE-1319: `[header::none]`) starts its body on the first row: no blank, no rule,
+    // except once the person has selected words: the row above the body holds the selection's count and toolbar. It
+    // comes when the drag ends, so nothing moves under the mouse while it's down (the selection moves with the body).
+    if (this.panel || (headed ? !host?.header || head.length + 1 < h : !!this.selection && !this.dragging)) head.push(this.panel ? rule(w) : "");
+    const headerRule = headerBlock.length ? this.headerRule(w) : "";
     if (headerRule) head.push(headerRule);
     const top = head.length;
     const laid = this.layOut(m, w, h, head, summaryRow, summary ? summaryLinks : [], host, src);
@@ -1904,9 +1928,11 @@ export class NoteSurface {
     this.positionRows.leading = this.hero?.pinned ? 0 : this.hero?.full ?? 0;
     this.positionRows.settle();
     const whole = new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id));
-    const gutterRow = (k: Mark) => whole.has(k.thread) ? (title?.row ?? 1) : top + k.row - this.scroll;
+    // A whole-note thread's mark is on the title's row; a note that leaves its title out (PIE-1319) has it on the body's first.
+    const wholeRow = title?.row ?? (own ? 1 : top);
+    const gutterRow = (k: Mark) => whole.has(k.thread) ? wholeRow : top + k.row - this.scroll;
     this.elems = laid.elems.map(e => e.kind === "comment" && whole.has(e.thread!)
-      ? { ...e, row: title?.row ?? 1, ruler: [title?.row ?? 1, (title?.row ?? 1) + 1] as [number, number] } : e);
+      ? { ...e, row: wholeRow, ruler: [wholeRow, wholeRow + 1] as [number, number] } : e);
 
     // An opened proposal's [apply] [dismiss] (in the header, so not part of the kept layout): elements and click targets.
     if (proposalHead) {
@@ -1982,7 +2008,7 @@ export class NoteSurface {
     room = roomAt(this.scroll);
     const heroRows = pinned ? full : Math.max(0, full - this.scroll);
     h -= heroRows;
-    this.drawn = { w, h, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + title.rows] : [0, 1] };
+    this.drawn = { w, h, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + title.rows] : own ? [0, 1] : [0, 0] };
     // The inline box's text and controls, where the scroll put them (a click or a drag there is the draft's).
     if (comp?.inline && writingIn) placeBox(writingIn, comp.inline.box, top + comp.inline.at - this.scroll, this.bx);
     if (sm?.place === "inline" && inline) {
@@ -2733,9 +2759,10 @@ export class NoteSurface {
 
   /**
    * Whether the reader, drawn in `rows` rows, shows the note's title in its own header: then its tile's frame bar
-   * needn't say it again (a short tile, or a host's own header or an edit in its place, leaves the title to the frame).
+   * needn't say it again (a short tile, a host's own header or an edit in its place, or a note that leaves its title out
+   * with `[header::…]`, PIE-1319, leaves the title to the frame).
    */
-  titleShown(rows: number): boolean { return !!this.msg && rows >= 2 && !this.modes.covers; }
+  titleShown(rows: number): boolean { return !!this.msg && rows >= 2 && !this.modes.covers && !headerOmits(this.msg).title; }
 
   /** What a host's header is told (SurfaceHost.header). */
   private headerInfo(m: Msg, properties: number): HeaderInfo {

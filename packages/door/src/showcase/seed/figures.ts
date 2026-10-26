@@ -138,3 +138,14 @@ export const KEYS_TEXT = [
   ...fig("keys", ["title: The reader (from the registry)", "actions: note", "learn: [edit, comment, element.open]", "limit: 14"]),
   ...mdFig("keys", ["title: Getting about"], ["- **g then d: the desk**", "- ctrl+k: the command palette", "- ( ) then f: fold a heading", "- esc: close what popped up · q: back"]),
 ].join("\n");
+
+/**
+ * The header section's dashboard (PIE-1319): a note that is a page of figures, `[header::none]` on its first line, so
+ * a reader and a river column draw its figures from their first row. Its counts are live, over the house work items.
+ */
+export const dashboardText = () => [
+  `${SEED.dashboard} [header::none]`,
+  ...fig("stat", ["title: the house this week", `items: [{ label: doing, query: "type=roadmap-item project=house work-stage=doing" }, { label: queued, query: "type=roadmap-item project=house work-stage=queued" }, { label: done, query: "type=roadmap-item project=house work-stage=done" }]`]),
+  ...fig("table", ["title: doing now", "query: type=roadmap-item project=house work-stage=doing", "columns: [title, priority]"]),
+  "A dashboard is a composition: the tile's border names it, so it has no header of its own (`[header::none]`). `[header::crumbs]` or `[header::title]` leave out only those rows. The tile menu (⋯) still writes a comment, lists the comments and opens the properties and the sources.",
+].join("\n");

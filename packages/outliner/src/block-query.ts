@@ -1,3 +1,4 @@
+import { PROPERTY_QUERY_SCOPES as QUERY_SCOPES } from "@ep0ch/outline-core/protocol";
 import { MACHINE_KEY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
 import { StillCounting } from "./site-budget";
 import { matchesFilters, normalizePropertyKey } from "./properties";
@@ -27,12 +28,7 @@ const KEYED_RANGE = new RegExp(`^(${PROPERTY_KEY_SOURCE})(<=|>=|<|>)(.*)$`, "s")
 const CHILD_COUNT = /^child(?:>=(\d{1,4}))?:/i;
 
 const BOOLEAN_OPERATORS = new Set(["and", "not", "or"]);
-const PROPERTY_QUERY_SCOPES = new Set<PropertyQueryScope>([
-  "block",
-  "line",
-  "inline",
-  "all",
-]);
+const PROPERTY_QUERY_SCOPES = new Set<PropertyQueryScope>(QUERY_SCOPES);
 
 export function normalizePropertyQueryScope(value: unknown): PropertyQueryScope {
   if (typeof value !== "string" || !PROPERTY_QUERY_SCOPES.has(value as PropertyQueryScope)) {
@@ -940,8 +936,10 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
       };
     }
     case "not": {
+      // What excludes a note is its own (PIE-1277): under a wider scope, `NOT work-stage=done` still asks the note's
+      // header, so a body line listing a done ticket never hides it. The scope widens what puts a note in, only.
       const operand = compileQueryExpression(expression.operand, now, relations);
-      return (subject, properties, scope) => !operand(subject, properties, scope);
+      return (subject, properties) => !operand(subject, properties, "block");
     }
     case "and": {
       const operands = expression.operands.map(operand => compileQueryExpression(operand, now, relations));
@@ -952,6 +950,29 @@ export function compileQueryExpression(expression: QueryExpression, now = Date.n
       return (subject, properties, scope) => operands.some(operand => operand(subject, properties, scope));
     }
   }
+}
+
+/**
+ * The chips a row matched on (PIE-1277): of `records` (already in the question's scope), those a positive clause
+ * holds for on its own: a plain filter, a `key=value` (a date on that day too) or a comparison (`cost < 10` keeps
+ * the 5, not the 100), never one under NOT. A row opens at the first.
+ */
+export function matchedChips(records: readonly PropertyRecord[], filters: readonly PropertyFilter[], where: QueryExpression | undefined, now = Date.now()): PropertyRecord[] {
+  const wall = wallClock(now);
+  const tests: ((p: PropertyRecord) => boolean)[] = filters.map(f => p => matchesFilters([p], [f], "all"));
+  const visit = (e: QueryExpression): void => {
+    if (e.kind === "and" || e.kind === "or") { e.operands.forEach(visit); return; }
+    if (e.kind === "property" && !e.relation) {
+      const day = e.value === undefined || readNumber(e.value) !== null ? null : readDateBound(e.value, wall);
+      const filter = { key: e.key, ...(e.value === undefined ? {} : { value: e.value }) };
+      tests.push(p => matchesFilters([p], [filter], "all") || (!!day && p.key === e.key && valueHolds(p.value, "=", { kind: "date", when: day }, wall) === true));
+    } else if (e.kind === "compare" && e.key !== "revision") {
+      const bound = readBound(e.value, wall);
+      tests.push(p => p.key === e.key && valueHolds(p.value, e.op, bound, wall) === true);
+    }
+  };
+  if (where) visit(where);
+  return tests.length ? records.filter(p => tests.some(test => test(p))) : [];
 }
 
 /** Property clauses that can contribute match context (not under NOT). */

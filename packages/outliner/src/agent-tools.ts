@@ -30,11 +30,11 @@ import { randomUUID } from "node:crypto";
 import { checkToolArgs, closest } from "@ep0ch/outline-core/tool-args";
 import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
 import { createBlockComment } from "./block-comments";
-import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
+import { matchFacts, resourceTextRevision } from "@ep0ch/outline-core/protocol";
 import { authoredResourceReferenceOccurrences, type AuthoredResourceReference } from "./resource-references";
 import { resourceCommentSource } from "./resource-comments";
 import type { ResourceDescription } from "./resources";
-import { parsePropertyFilterClause } from "./block-query";
+import { normalizePropertyQueryScope, parsePropertyFilterClause } from "./block-query";
 import { DRAFT_PATCH_POLICIES, droppedStructure, type DraftPatchInput, type DraftPatchPolicyName, type DraftPatchResult } from "./draft-patch";
 import { chipText, headerLine } from "@ep0ch/outline-core/header-line";
 import { isPropertyKey } from "@ep0ch/outline-core/property-grammar";
@@ -65,6 +65,8 @@ import type {
   ProjectedBlock,
   ResolvedBlockReferences,
   PropertyFilter,
+  PropertyMatchContext,
+  PropertyQueryScope,
   VirtualBranchOrder,
   VisibleBlockCollection,
 } from "./types";
@@ -453,7 +455,12 @@ export interface FindInput {
   limit?: number;
   /** `hide` (the default) leaves out what tools wrote for their own bookkeeping (`[machine::…]`); `only` or `show`. */
   machinery?: string;
+  /** Which chips property, hasKey and query read (PIE-1277): `block` (the note's own, the default), `line`, `inline` or `all`. */
+  propertyScope?: string;
 }
+
+/** A chip a line-scope find matched (PIE-1277), as outline-core's matchFacts gives it: `line` counts from 1. */
+export type FindMatch = ReturnType<typeof matchFacts>;
 
 export interface FindRow {
   id: string;
@@ -464,9 +471,11 @@ export interface FindRow {
   created: string;
   updated: string;
   workId?: string;
+  /** With a propertyScope other than block: the chips that matched, so a buried `[needs::…]` says its line. */
+  matches?: FindMatch[];
 }
 
-function findRow(block: Block): FindRow {
+function findRow(block: Block & { propertyMatches?: PropertyMatchContext[] }): FindRow {
   const workId = workIdOf(block);
   return {
     id: block.id,
@@ -476,7 +485,13 @@ function findRow(block: Block): FindRow {
     created: block.createdAt,
     updated: block.updatedAt,
     ...(workId ? { workId } : {}),
+    ...(block.propertyMatches?.length ? { matches: block.propertyMatches.map(matchFacts) } : {}),
   };
+}
+
+function propertyScopeInput(value: string): PropertyQueryScope {
+  try { return normalizePropertyQueryScope(value.trim().toLowerCase()); }
+  catch { throw new WorkToolRefusal(`propertyScope is block, line, inline or all, not ${value}: "all" reads a [key::value] on any line, as well as the note's own`); }
 }
 
 /**
@@ -488,8 +503,8 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
   const limit = boundedInteger(input.limit, "limit", 20, 1, 200);
   const given = (key: keyof FindInput) => typeof input[key] === "string" && (input[key] as string).trim() !== "";
   if (given("view")) {
-    if (["text", "property", "hasKey", "query", "under"].some(key => given(key as keyof FindInput))) {
-      throw new WorkToolRefusal("A view is read on its own; drop text, property, hasKey, query and under");
+    if (["text", "property", "hasKey", "query", "under", "propertyScope"].some(key => given(key as keyof FindInput))) {
+      throw new WorkToolRefusal("A view is read on its own (its [property-scope::] says which chips it reads); drop text, property, hasKey, query, under and propertyScope");
     }
     await client.requireCompatibleService();
     const view = await resolveRef(client, input.view!);
@@ -515,6 +530,7 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
     ...(given("under") ? { subtreeRootId: (await resolveRef(client, input.under!)).id } : {}),
     ...(given("this") ? { this: input.this } : {}),
     ...(input.machinery !== undefined ? { machinery: machineryInput(input.machinery) } : {}),
+    ...(given("propertyScope") ? { propertyScope: propertyScopeInput(input.propertyScope!) } : {}),
   };
   // An older service ignores `where` and would return unfiltered results.
   if (query.where !== undefined) await client.requireCompatibleService();
