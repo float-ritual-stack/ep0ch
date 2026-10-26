@@ -6110,7 +6110,8 @@ export class NoteSurface {
     }
     // A step's box: its status choice opens under it, as ⏎ on it does (PIE-472); a link (or a summary-line
     // value) opens where ⏎ on it would. Both are element.open on that element.
-    if (e) { void this.runKey(e.link?.press ? "button.press" : "element.open", { n: this.elems.indexOf(e) + 1, ...(host.freshClick && e.link?.press?.alt ? { alt: true } : {}) }, host); host.redraw(); return true; }
+    // alt+click: a button's alt=, or, on one with slots and no alt= of its own, asking for its slots again (PIE-1298).
+    if (e) { void this.runKey(e.link?.press ? "button.press" : "element.open", { n: this.elems.indexOf(e) + 1, ...(host.freshClick && e.link?.press ? { alt: true } : {}) }, host); host.redraw(); return true; }
     const i = this.links.findIndex(x => sameLink(x, h.link));
     if (i >= 0 && h.value === undefined) { void this.runKey("link.follow", { n: i + 1 }, host); return true; }
     // A link drawn outside the note's elements and links (none today): opened as ⏎ on it would.
