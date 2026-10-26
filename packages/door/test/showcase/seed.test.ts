@@ -220,6 +220,9 @@ describe.skipIf(!outliner)("the showcase seed", () => {
         // A checklist step wraps whole, and a table cell's next row starts at the cell's edge.
         expect(text).not.toContain("first fro…");
         expect(text.replace(/[┊\s]+/g, " ")).toContain("Order the seed trays for the raised beds before the first frost comes in");
+        // A long plain heading wraps whole under its words (PIE-1348).
+        const long = lines.findIndex(l => l.includes("▾ ## A plain heading"));
+        expect(lines.slice(long, long + 3).map(l => l.trim()).join(" ")).toContain("▾ ## A plain heading long enough to wrap in the narrow reader");
         const job = lines.findIndex(l => l.includes("SHED-4 /")), col = lines[job]!.indexOf("SHED-4");
         expect(lines[job + 1]!.slice(col), "the cell's next row at its edge").toMatch(/^\S/);
         expect(lines.map(l => l.trim()).filter(l => l === "---").length).toBe(2);

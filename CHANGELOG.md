@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One checklist drawing, and plain headings wrap when narrow (PIE-1348)
+
+- **A component's checklist looks like a `::graph-check`:** the same box, two spaces, the words in the step's ink, and
+  the same hang under the words. There is one drawing now (`src/figures/check.ts`), so a fix to one is a fix to both.
+- **A long `##` heading wraps under its words** in a narrow reader, past its `#`s, instead of running off the edge. A
+  copy takes it as one line.
+
 ### Narrow readers never cut a checklist step or show a heading's source (PIE-1302)
 
 - **A checklist step wraps whole:** a `::graph-check` row (and a component's checklist) takes as many rows as its
