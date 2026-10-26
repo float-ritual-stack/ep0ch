@@ -1133,6 +1133,8 @@ class Step<I> {
       this.give(op.tile);
       if (from !== undefined) { const f = flowHolding(this.d.tree, op.tile)!; this.rememberFlowSides(f.flow); arrive(f.flow, f.ci, columnOf(f.flow, from), coversOf(this.d, f.flow, this.ctx.area, id => !!this.facts(id).holds), this.d.touched); }
     }
+    // Into a layout left with no tile (the drawer, its last tab gone): the focus was on nothing, so the new tile has it.
+    if (!this.all().includes(this.d.focus)) this.d.focus = op.tile;
     // Opened as where another tile's opens land (tile.preview): linked in the same step, by link's rules.
     if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
     for (const from of op.selectFrom ?? []) this.linkTo(from, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, "select");

@@ -1449,9 +1449,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const k = kindOf(p), kept = this.unregistered.get(id);
     const slot = [...this.specTiles].find(([, tile]) => tile === id)?.[0];
     const wires = [...this.layout.wires.filter(w => w.from === id && this.panes.has(w.to)).map(w => ({ verb: w.verb, to: this.tileId(w.to), ...(w.rule ? { rule: w.rule } : {}) })), ...(this.extSpec(id).wires ?? [])];
+    // The key its program runs under, when it comes back here under another (PIE-1330): a terminal moved into a group not
+    // drawn since still has the place it left, so only this desk knows the key a restore gives it (`<home>:<id>`).
+    const runs = p instanceof PtyPane && !p.run.temp ? p.keptKey : null, back = `${this.home ?? this.spec.saves ?? ""}:${this.tileId(id)}`;
     return {
       ...(kept ? (({ link: _l, linkRole: _r, ...rest }) => rest)(kept) : {}),
       t: "leaf", kind: kept?.kind ?? p.kind, name: this.nameOf(id), id: this.tileId(id), ...(kept ? {} : (k?.save ? k.save(p) : p.spec?.()) ?? {}),
+      ...(runs && runs !== back ? { kept: runs } : {}),
       ...(slot ? { slot } : {}),
       ...tileRegistry.saved(p),
       ...(p.writtenTitle !== undefined ? { writtenTitle: p.writtenTitle, systemTitle: p.systemTitle ?? false } : {}),

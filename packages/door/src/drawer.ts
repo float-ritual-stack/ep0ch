@@ -216,8 +216,8 @@ export class AgentDrawer {
     this.prog = this.program();
     // An older door's drawer (its own program a drawer.own leaf): read once as an agent tab (PIE-1332 deletes this).
     if (persist) {
-      const tiles = readState<unknown>("drawer-tiles.json"), was = oldOwnLeaves(tiles, s as { gen?: unknown; out?: unknown } | null);
-      if (tiles && was.changed) writeState("drawer-tiles.json", was.value);
+      const tiles = readState<unknown>("drawer-tiles.json", outlineState()), was = oldOwnLeaves(tiles, s as { gen?: unknown; out?: unknown } | null);
+      if (tiles && was.changed) writeState("drawer-tiles.json", was.value, outlineState());
     }
   }
 
@@ -676,7 +676,7 @@ export class AgentDrawer {
     if (this.d) return this.d;
     const ctx = this.host.ctx?.();
     if (!ctx) return null;
-    const fresh = !this.persist || readState<unknown>("drawer-tiles.json") === null;
+    const fresh = !this.persist || readState<unknown>("drawer-tiles.json", outlineState()) === null;
     // Its tiles' ids are `k<n>`: a tile in the drawer's id is never a screen tile's (tile= reaches either by id).
     const d = new Desk(hostSpec(this.persist), { where: () => this.whereIn(), idPrefix: "k" });
     this.d = d;

@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App, type Screen } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { hostSpec } from "../src/drawer";
+import { hostSpec, oldOwnLeaves } from "../src/drawer";
 import { openScreen } from "../src/desk/screen-specs";
 import { screenNames } from "../src/desk/screen-spec";
 import { ArtViewer, MainMenu } from "../src/screens";
@@ -886,7 +886,8 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
           d = await door(left); alive.push(d);
           d.paint();
           if (!d.app.drawer.open) d.key({ kind: "alt", ch: "a" });
-          if (!d.app.drawer.isAway()) await d.app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, USER);
+          const agent = d.app.drawer.tile;
+          if (agent && d.app.drawer.made?.nameOfPane(agent)) await d.app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, USER);
           d.paint();
         };
         if (scene === "on the component library") { d.app.push(openScreen("library")); d.paint(); }
@@ -898,10 +899,10 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
           await until(() => d.app.drawer.tile?.running === true, "the next door's own program runs");
         } else if (scene === "after a handover with its program out on the desk") {
           const out = await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER) as any;
-          // What the next daemon reads: the saved screen holds the program with its role, the drawer says its program is out.
+          // What the next daemon reads: the saved screen holds the program with its role; the drawer holds nothing in its place.
           expect(leaves(d.desk.savedState().root).filter(l => l.role === "agent").map(l => l.name)).toEqual([out.name]);
           await again(async () => {}, () => d.desk.savedState());
-          expect(d.app.drawer.isAway()).toBe(true);
+          expect(d.app.drawer.tabs()).toEqual([]);
           await until(() => leaves(d.desk.savedState().root).some(l => l.role === "agent" && (d.desk.pane(l.name) as PtyPane | undefined)?.running), "the program is back on the desk");
         } else if (scene.startsWith("restored")) {
           await again(async () => {
@@ -909,9 +910,9 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
             d.app.quit();
             const file = join(outlineState(), "drawer-tiles.json");
             const saved = JSON.parse(readFileSync(file, "utf8"));
-            const own = leaves(saved.root).find(l => l.name === "drawer.agent");
+            const own = leaves(saved.root).find(l => l.role === "agent");
             expect(own).toBeTruthy();
-            Object.assign(own, { name: "shell", kept: "drawer.json#3:drawer.agent" });
+            Object.assign(own, { name: "shell" });
             writeFileSync(file, JSON.stringify(saved));
             d = await door(); alive.push(d);
             d.paint();
@@ -938,7 +939,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
           click(label); await settle(null, `${label}: drops it again`);
         }
         // Whichever button lifted it, it is the one program: nothing new was started.
-        expect(d.app.drawer.tabs()).toHaveLength(scene === "after a door restart" || scene.startsWith("restored") ? 2 : 1);
+        expect(d.app.drawer.tabs()).toHaveLength(scene === "after a door restart" || scene.startsWith("restored") ? 2 : scene.startsWith("after a handover") ? 0 : 1);
       } finally { for (const x of alive) try { x.app.quit(); } catch { /* quit twice */ } await board.trash(bar.id); }
     }, 60_000);
   }
@@ -997,7 +998,8 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
           expect(at("role:tree@desk")).toBe("tree");
           expect(at("reader@desk")).toBe("reader");
         }
-        expect([at("role:agent"), at("drawer.agent"), at("role:agent@drawer")]).toEqual(["drawer.agent", "drawer.agent", "drawer.agent"]);
+        const agent = d.app.drawer.agentName();
+        expect([at("role:agent"), at("drawer.agent"), at("role:agent@drawer")]).toEqual([agent, agent, agent]);
       }
       d.app.pop(); d.paint();
       expect(d.desk.dispatch.tile("kettle")?.name).toBe("kettle");              // a name is the screen's own, matched last
@@ -1025,7 +1027,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     const saved = JSON.parse(readFileSync(file, "utf8"));
     const walk = (n: any, f: (l: any) => void) => { if (!n) return; if (n.t === "leaf") f(n); for (const k of n.kids ?? []) walk(k, f); for (const k of n.tabs ?? []) walk(k, f); };
     walk(saved.root, l => {
-      if (l.name === "drawer.agent") { for (const k of ["slot", "role"]) delete l[k]; Object.assign(l, { kind: "pty", name: "shell", role: "shell", kept: "drawer.json:drawer.agent", cmd: ["cat"] }); }
+      if (l.role === "agent") { for (const k of ["slot", "role"]) delete l[k]; Object.assign(l, { kind: "pty", name: "shell", role: "shell", kept: "drawer.json:drawer.agent", cmd: ["cat"] }); }
       else { l.role = l.slot; delete l.slot; }
     });
     delete saved.records;
@@ -1043,24 +1045,25 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       const a = e.app.drawer.agentPane();
       expect(a?.pane).toBe(e.app.drawer.tile!);
       expect(e.app.drawer.resolveTile("drawer.agent")?.tile.id).toBe(e.app.drawer.resolveTile("role:agent")?.tile.id);
-      expect(e.app.drawer.tabs().map(t => t.name)).toEqual(["drawer.agent", "replies2"]);
+      expect(e.app.drawer.tabs().map(t => t.name)).toEqual(["cat", "replies2"]);
     } finally { e.app.quit(); }
   });
 
-  // PIE-1286: the address names one tile or is refused with the ids; the lift never throws from a step it asks first.
-  test("two tiles with role agent: the lift is refused with both ids, not thrown from a step; closing one lifts the other", async () => {
+  // PIE-1331: several agent tabs are no ambiguity. role:agent (drawer.agent) and the lift name the one the person used last.
+  test("two tiles with role agent: role:agent and the lift name the one used last, never a refusal", async () => {
     const d = await door();
     try {
       d.key({ kind: "alt", ch: "a" }); d.paint();
-      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      await until(() => d.app.drawer.tile?.running === true, "the agent tab runs");
+      const first = d.app.drawer.tile!;
       await d.app.dispatch.press("host.leave", {});
       tileRegistry.setRole(d.kettle()!, "agent");
-      for (const sel of [{ action: "agent.lift" }, { action: "tile.zoom", tile: "role:agent", args: { reach: "column" } }]) {
-        const why = await d.app.dispatch.act({ args: {}, ...sel }, USER).then(() => "", (e: Error) => e.message);
-        expect([sel.action, why]).toEqual([sel.action, expect.stringMatching(/role:agent names 2 tiles: .*use tile=<id>/)]);
-      }
-      tileRegistry.setRole(d.kettle()!, undefined);
-      expect((await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER) as any).zoomed).toBe(true);
+      expect(d.app.drawer.resolveTile("role:agent")?.tile.name).toBe(d.app.drawer.made!.nameOfPane(first));
+      await Bun.sleep(5);
+      expect(d.kettle()!.typed(char("x"))).toBe(true);
+      expect(d.app.drawer.resolveTile("role:agent")?.tile.name).toBe("kettle");
+      expect((await d.app.dispatch.act({ action: "tile.zoom", tile: "role:agent", args: { reach: "column" } }, USER) as any).zoomed).toBe(true);
+      expect(d.desk.liftsPane(d.kettle()!)).toBe(true);
     } finally { d.app.quit(); }
   });
 
@@ -1146,108 +1149,28 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   }, 30_000);
 
-  // PIE-892: the drawer's own program leaves whole. Its tab holds the place and starts nothing (a second client of a
-  // Herdr session was a mirror nobody could type in or close), says where it went, and ⏎ or a click brings it back.
-  test("the drawer's own tab leaves onto the screen whole: its tab starts nothing and says where it went; a click brings the same program back, no restart; a running close asks before ending it", async () => {
+  // PIE-892, then PIE-1331: an agent tab leaves whole and comes back whole, like any tab; nothing holds its place.
+  test("an agent tab leaves onto the screen whole and comes back whole, the same program; a running close asks before ending it", async () => {
     const d = await door();
     try {
       d.key({ kind: "alt", ch: "a" }); d.paint();
-      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
-      const own = d.app.drawer.tile!, pid = own.pid, name = d.app.drawer.name;
+      await until(() => d.app.drawer.tile?.running === true, "the agent tab runs");
+      const own = d.app.drawer.tile!, pid = own.pid, name = d.app.drawer.agentName();
       // ^W x on it: what and why in a person's words, no kind or policy names.
       const why = await d.app.drawer.desk!.dispatch.act({ action: "tile.close", args: {}, tile: "drawer.agent" }, USER).then(() => "", (e: Error) => e.message);
       expect(why).toContain("closing ends it");
       expect(why).not.toMatch(/drawer\.own|closable|draggable/);
       const out = await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER) as any;
-      expect(out).toMatchObject({ name, fresh: true, into: "desk" });
-      const moved = d.desk.pane(name) as PtyPane;
-      expect(moved).toBe(own);
-      expect([moved.pid, moved.running, moved.kind]).toEqual([pid, true, "pty"]);   // an ordinary terminal tile on the desk now
-      expect(d.app.drawer.open).toBe(false);                     // the person's: the drawer went away with it
-      // Its tab stays, starting nothing even when the drawer comes up: it says where the program went.
-      d.key({ kind: "alt", ch: "a" }); d.paint();
-      await Bun.sleep(300);
-      expect(d.app.drawer.tabs()[0]!.name).toBe("drawer.agent");
-      expect(d.app.drawer.tile).not.toBe(own);
-      expect(d.app.drawer.tile!.running).toBe(false);
-      expect(d.app.drawer.tile!.text().join(" ")).toContain(`${name} is on the desk · ⏎ or a click brings it back`);
-      // A click on it: the same program back in its own tab, nothing restarted, the desk without it.
-      const rows = d.paint(), y = rows.findIndex(l => l.includes("⏎ or a click brings it back")), x = rows[y]!.indexOf("brings it back");
-      d.key(mouse("down", x, y)); d.key(mouse("up", x, y));
-      await until(() => d.app.drawer.tile === own, "the program back in the drawer");
-      expect([own.pid, own.running, own.kind]).toEqual([pid, true, "drawer.own"]);
-      expect(d.app.drawer.tabs().map(t => t.name)).toEqual(["drawer.agent"]);
-      expect(d.desk.pane(name)).toBeUndefined();
-      // And again by act, both ways: out, then tile.drawer from the desk brings it back to its own tab.
-      d.key({ kind: "char", ch: "]", ctrl: true });
-      await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
+      expect(out).toMatchObject({ name, into: "desk" });
       expect(d.desk.pane(name)).toBe(own);
-      // Restarting it while it's out would start a second one: refused, saying where it is.
-      await expect(d.app.act({ action: "agent.restart", args: {}, as: AS })).rejects.toThrow("is on the desk");
-      await expect(d.app.act({ action: "agent.back", args: {}, as: AS })).rejects.toThrow("person's keys");
-      await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
-      d.key({ kind: "alt", ch: "a" }); d.paint();
-      expect(d.app.drawer.entered).toBe(true);
-      const focused = d.desk.focusedName();
-      expect(await d.app.act({ action: "agent.back", args: {}, as: AS })).toMatchObject({ tile: "drawer.agent", back: true });
-      expect(d.app.drawer.entered).toBe(true);
-      expect(d.desk.focusedName()).toBe(focused);
+      expect([own.pid, own.running, own.kind]).toEqual([pid, true, "pty"]);
+      expect(d.app.drawer.tabs()).toEqual([]);
+      // Back by act, from the desk: the same program, nothing restarted.
+      expect(await d.desk.dispatch.act({ action: "tile.drawer", args: {}, tile: name }, USER)).toMatchObject({ inDrawer: true });
       expect([d.app.drawer.tile, own.pid, own.running]).toEqual([own, pid, true]);
-      expect(d.app.drawer.tabs().map(t => t.name)).toEqual(["drawer.agent"]);
-      // Its holder isn't a program to take out; and once the program that's out is closed, the tab runs its own again.
-      await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
-      d.key({ kind: "alt", ch: "a" }); d.paint();
-      d.key({ kind: "enter" });
-      await until(() => d.app.drawer.tile === own, "Enter brings the program back");
-      expect(own.pid).toBe(pid);
-      d.key({ kind: "char", ch: "]", ctrl: true });
-      await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
-      await expect(d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER)).rejects.toThrow("brings it back");
-      await d.desk.dispatch.act({ action: "tile.close", args: {}, tile: name }, USER).catch(() => d.desk.dispatch.act({ action: "tile.close", args: {}, tile: name }, USER));
-      await until(() => !d.desk.pane(name), "the program's tile closed");
-      // agent.back (what ⏎ and a click on the tab run), as an agent: the program's gone, so the tab runs its own again.
-      await until(() => !own.running, "the closed program ends");
-      await d.app.act({ action: "agent.back", args: {}, as: AS });
-      d.key({ kind: "alt", ch: "a" }); d.paint();
-      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program again");
-      expect(d.app.drawer.tile!.pid).not.toBe(pid);
-      // The tab that holds the place is the drawer's own program again, and the role says so.
-      expect(d.app.drawer.resolveTile("role:agent")?.tile.name).toBe("drawer.agent");
-      // A second tile with the role makes the address ambiguous: refused with both ids, never one of them guessed.
-      const other = d.kettle()!;
-      tileRegistry.setRole(other, "agent");
-      expect(() => d.app.drawer.resolveTile("role:agent")).toThrow(/role:agent names 2 tiles: .*use tile=<id> or role:agent@<screen>/);
-      tileRegistry.setRole(other, undefined);
-    } finally { d.app.quit(); }
-  });
-
-  test("while the drawer's own program is out, a door started after (a handover) knows it: its own tab starts nothing; that program's tile goes back into its tab (PIE-892)", async () => {
-    const d = await door();
-    try {
-      d.key({ kind: "alt", ch: "a" }); d.paint();
-      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
-      const own = d.app.drawer.tile!, key = own.home;
-      await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
-      expect(JSON.parse(readFileSync(join(state, "drawer.json"), "utf8")).out).toBe(true);
-      // The program's role goes with its saved tile: that is how the next door knows which tile it is.
-      const leaves = (n: any): any[] => !n ? [] : n.t === "leaf" ? [n] : [...(n.kids ?? []), ...(n.tabs ?? []), n.kid, n.a, n.b].flatMap(leaves);
-      expect(leaves(d.desk.savedState().root).filter(l => l.role === "agent")).toHaveLength(1);
-      const e = await door();
-      try {
-        e.key({ kind: "alt", ch: "a" }); e.paint();
-        await Bun.sleep(300);
-        expect(e.app.drawer.tile!.running).toBe(false);
-        expect(e.app.drawer.tile!.text().join(" ")).toContain("is on a screen · ⏎ or a click brings it back");
-        // Its program, restored on the new door's desk with the role it was saved with (as a handover adopts it), goes back into the own tab.
-        await e.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "agent" } }, USER);
-        e.paint();
-        const back = e.desk.pane("agent") as PtyPane;
-        tileRegistry.setRole(back, "agent");
-        expect(await e.desk.dispatch.act({ action: "tile.drawer", args: {}, tile: "agent" }, USER)).toMatchObject({ tile: "drawer.agent", back: true });
-        expect(e.app.drawer.tile).toBe(back);
-        expect(back.kind).toBe("drawer.own");
-        expect(JSON.parse(readFileSync(join(state, "drawer.json"), "utf8")).out).toBeUndefined();
-      } finally { e.app.quit(); }
+      expect(d.desk.pane(name)).toBeUndefined();
+      // Restarting it is restarting that tab, wherever it is: the conversation goes on in the same tab.
+      expect(d.app.drawer.resolveTile("role:agent")?.tile.name).toBe(name);
     } finally { d.app.quit(); }
   });
 
@@ -1445,7 +1368,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       d.A.lastInput = 0;
       await d.app.dispatch.act({ action: "host.agent", args: {} }, USER);
       expect(d.app.drawer.open).toBe(true);
-      expect(d.paint().some(l => l.includes("the drawer's agent"))).toBe(true);
+      expect(d.paint().some(l => l.includes("a new agent tab"))).toBe(true);
       d.key({ kind: "esc" });
       // alt+g: the agent panel, a tab in the drawer.
       d.key({ kind: "alt", ch: "g" });
@@ -1463,7 +1386,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await until(() => !!d.app.drawer.made?.rawKeys(), "the person types in it");
       const raw = () => d.app.drawer.rawInput(d.A.drawerRun);
       void d.app.dispatch.act({ action: "host.agent", args: {} }, USER);
-      await until(() => d.paint().some(l => l.includes("the drawer's agent")), "the picker");
+      await until(() => d.paint().some(l => l.includes("a new agent tab")), "the picker");
       expect(d.app.drawer.made!.rawInput()).toBeNull();            // the picker has the keys, not cat
       expect(d.app.drawer.desk!.overlaid()).toBe(true);
       d.key({ kind: "esc" });
@@ -1511,62 +1434,85 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { two.quit(); }
   });
 
-  // PIE-1330 (Evan's pie door, Oct 26): the drawer's own tile gathered into a group, then a handover: its program was
-  // never reattached, the group's tab drew "drawer.own isn't available here", and the next own program ended it.
-  test("the drawer's own tab isn't gathered into a group: refused with the way to do it, and its program comes back in its tab in the next door", async () => {
+  // PIE-1330 (Evan's pie door, Oct 26): the drawer's own tile gathered into a group, then a handover: the group's inner
+  // screen was built again from its kinds, and drawer.own came back as "drawer.own isn't available here", its program
+  // never reattached. An agent tab is a terminal like any other: in a group, it comes back there.
+  test("an agent tab gathered into a group in the drawer comes back in its group in the next door, a terminal, still the agent (PIE-1330)", async () => {
     const d = await door();
     try {
       d.key({ kind: "alt", ch: "a" }); d.paint();
-      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
-      const own = d.app.drawer.tile!;
+      await until(() => d.app.drawer.tile?.running === true, "the agent tab runs");
       const drawer = d.app.drawer.desk!;
       await drawer.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "teapot" }, tile: "drawer.agent" }, USER);
-      for (const act of [{ action: "tile.group", args: {} }, { action: "tile.group", args: { with: "teapot" } }]) {
-        const r = drawer.dispatch.act({ ...act, tile: "drawer.agent" }, USER);
-        await expect(r).rejects.toThrow(/drawer\.agent stays: it is your drawer's own tab.*\^W a/);
-      }
-      // Gathering the tile beside it still works; the own tab stays out of the group.
-      await drawer.dispatch.act({ action: "tile.group", args: {}, tile: "teapot" }, USER);
-      expect(drawer.pane("drawer.agent")).toBe(own);
-      await expect(drawer.dispatch.act({ action: "tile.into", args: {}, tile: "drawer.agent" }, USER)).rejects.toThrow(/drawer\.agent stays: it is your drawer's own tab/);
-      expect(drawer.pane("drawer.agent")).toBe(own);
+      const g = await drawer.dispatch.act({ action: "tile.group", args: { with: "teapot", name: "bench" }, tile: "drawer.agent" }, USER) as any;
+      expect(g.grouped).toEqual([d.app.drawer.agentName(), "teapot"]);
+      expect(d.app.drawer.tile!.running).toBe(true);
+      // ^W i with two groups asks which one, and says so (it said "moved … into undefined").
+      await drawer.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "kettle2" }, tile: "bench" }, USER);
+      await drawer.dispatch.act({ action: "tile.group", args: { name: "shelf" }, tile: "kettle2" }, USER);
+      await drawer.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "kettle3" }, tile: "shelf" }, USER);
+      const asked = await drawer.dispatch.act({ action: "tile.into", args: {}, tile: "kettle3" }, USER) as any;
+      expect(asked.asked).toBe(true);
+      expect(d.A.message).toContain("kettle3: into which group?");
+      d.key({ kind: "esc" });
       d.app.quit();
       const e = await door();
       try {
         e.key({ kind: "alt", ch: "a" }); e.paint();
-        await until(() => e.app.drawer.tile?.running === true, "the drawer's own program runs in the next door");
-        expect(e.app.drawer.agentPane()?.pane).toBe(e.app.drawer.tile!);
+        await until(() => e.app.drawer.tile?.running === true, "the agent tab runs in the next door, in its group");
+        const a = e.app.drawer.agentPane()!;
+        expect(a.pane.kind).toBe("pty");
+        expect(e.app.drawer.made!.pathTo(a.pane)).toContain("bench/");
         expect(e.paint().join("\n")).not.toContain("isn't available here");
       } finally { e.app.quit(); }
     } finally { d.app.quit(); }
   });
 
-  test("saved under another name: the drawer's own tile comes back as its own, so drawer.agent still names it (Evan's door, Oct 25)", async () => {
+  // PIE-1331: a drawer an older door saved holds its own program as a drawer.own leaf, known by the key it ran under
+  // (drawer.json#<gen>:drawer.agent). The drawer reads it once as an agent tab adopting that key (PIE-1332 deletes this).
+  test("an older door's drawer.own leaf comes back as an agent tab that adopts the key its program ran under; the place a program out on a screen left goes", () => {
+    const old = { root: { t: "tabs", tabs: [{ t: "leaf", kind: "drawer.own", name: "drawer.agent", slot: "drawer.agent", role: "agent", cmd: ["/bin/bash"] }, { t: "leaf", kind: "reader", name: "notes" }], active: 0 }, records: 1 };
+    const got = oldOwnLeaves(old, { gen: 2 }).value as any;
+    expect(got.root.tabs[0]).toEqual({ t: "leaf", kind: "pty", name: "shell", role: "agent", cmd: ["/bin/bash"], kept: "drawer.json#2:drawer.agent" });
+    expect(got.root.tabs[1]).toEqual({ t: "leaf", kind: "reader", name: "notes" });
+    // In a group, and with the key it was saved with.
+    const grouped = { root: { t: "leaf", kind: "screen", name: "group3", inner: { root: { t: "leaf", kind: "drawer.own", name: "claude", kept: "drawer.json:drawer.agent", cmd: ["claude"] } } } };
+    expect((oldOwnLeaves(grouped, null).value as any).root.inner.root).toMatchObject({ kind: "pty", name: "claude", role: "agent", kept: "drawer.json:drawer.agent" });
+    // While its program was out on a screen, the leaf only held its place: it goes, and the tab set stays in range.
+    const out = oldOwnLeaves({ root: { t: "tabs", tabs: [old.root.tabs[1], old.root.tabs[0]], active: 1 } }, { gen: 2, out: true });
+    expect(out.changed).toBe(1);
+    expect((out.value as any).root).toEqual({ t: "tabs", tabs: [{ t: "leaf", kind: "reader", name: "notes" }], active: 0 });
+    // A drawer the new door saved: nothing changes.
+    expect(oldOwnLeaves(got, { gen: 2 }).changed).toBe(0);
+  });
+
+  test("an older door's drawer comes back in this door: its own program's leaf is an agent tab, drawer.agent names it, the file is rewritten once", async () => {
     const d = await door();
     d.paint();
     await d.app.act({ action: "tile.drawer", args: {}, tile: "replies", as: AS });
     d.app.quit();
-    // As in Evan's door: the own tile was saved as `shell` (its program's name), with the own program's key.
     const file = join(outlineState(), "drawer-tiles.json");
     const saved = JSON.parse(readFileSync(file, "utf8"));
     const leaves: any[] = [];
     const walk = (n: any) => { if (!n) return; if (n.t === "leaf") leaves.push(n); for (const k of n.kids ?? []) walk(k); for (const k of n.tabs ?? []) walk(k); };
     walk(saved.root);
-    const own = leaves.find(l => l.name === "drawer.agent");
+    const own = leaves.find(l => l.role === "agent");
     expect(own).toBeTruthy();
-    own.name = "shell";
-    // The key the program started under is not necessarily the drawer's key now: a program that left for a screen and
-    // came back numbers the next own program's key (`drawer.json#<gen>`), as in Evan's door.
-    own.kept = "drawer.json#3:drawer.agent";
+    // As the older door saved it.
+    Object.assign(own, { kind: "drawer.own", name: "drawer.agent", slot: "drawer.agent" });
+    delete own.kept;
     writeFileSync(file, JSON.stringify(saved));
+    writeFileSync(join(state, "drawer.json"), JSON.stringify({ open: false, share: 0.5, gen: 2 }));
     const e = await door();
     try {
-      expect(e.app.drawer.desk).toBeTruthy();                    // the drawer's desk is made, restored from the saved file
+      expect(readFileSync(file, "utf8")).not.toContain("drawer.own");
+      expect(e.app.drawer.desk).toBeTruthy();
       e.paint();
-      expect(e.app.drawer.tile).toBeTruthy();
-      const a = e.app.drawer.agentPane();
-      expect(a?.pane).toBe(e.app.drawer.tile!);
-      expect(e.app.drawer.resolveTile("drawer.agent")?.tile.id).toBe(a!.desk.answerFor(a!.pane)!.tile.id);
+      const a = e.app.drawer.agentPane()!;
+      expect(a.pane).toBe(e.app.drawer.tile!);
+      expect(a.pane.keptKey).toBe("drawer.json#2:drawer.agent");
+      expect(e.app.drawer.resolveTile("drawer.agent")?.tile.id).toBe(a.desk.answerFor(a.pane)!.tile.id);
+      expect(e.app.drawer.tabs().map(t => t.name)).toEqual(["cat", "replies2"]);
     } finally { e.app.quit(); }
   });
 
