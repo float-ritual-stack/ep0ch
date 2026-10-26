@@ -1,3 +1,4 @@
+import { eraseBack, wordEraseStart } from "@ep0ch/outline-core/graphemes";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { basename } from "node:path";
 import { freeOutlineName } from "@ep0ch/outline-core/outline-location";
@@ -98,7 +99,8 @@ export function chooserKey(chooser: OutlineChooser, key: TerminalKey): ChooserIn
     if (key.name === "escape") { chooser.input = undefined; chooser.status = ""; return "changed"; }
     if (key.ctrl && key.name === "c") return "close";
     if (key.name === "return") return "choose";
-    if (key.name === "backspace") { chooser.input.text = [...chooser.input.text].slice(0, -1).join(""); return "changed"; }
+    if (key.name === "backspace") { chooser.input.text = eraseBack(chooser.input.text, chooser.input.text.length).text; return "changed"; }
+    if (key.ctrl && key.name === "w") { chooser.input.text = chooser.input.text.slice(0, wordEraseStart(chooser.input.text, chooser.input.text.length)); return "changed"; }
     if (!key.ctrl && !key.meta && key.sequence && /^[^\x00-\x1f\x7f]+$/.test(key.sequence)) { chooser.input.text += key.sequence; return "changed"; }
     return null;
   }
