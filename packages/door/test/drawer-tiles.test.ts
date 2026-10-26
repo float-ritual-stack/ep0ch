@@ -775,7 +775,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
 
       // PIE-1359 (a regression from PIE-1336): the lift is the person's way into that program, the drawer down or not. Their
       // keys and clicks go to the lifted tile itself, the drawer stays as it is, and ✦a again gives the keys back to the screen.
-      test(`with the drawer ${how}, ✦a lifts the agent with the person's keys in it, a click in it keeps them there, and ✦a again hands them back`, async () => {
+      for (const onStrip of how === "folded" ? [false, true] : [false]) test(`with the drawer ${how}${onStrip ? " and the person on its strip" : ""}, ✦a lifts the agent with the person's keys in it, a click in it keeps them there, and ✦a again hands them back`, async () => {
         const d = await door();
         try {
           d.key({ kind: "alt", ch: "a" }); d.paint();
@@ -783,10 +783,10 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
           await until(() => own.running === true, "the agent tab runs");
           if (how === "folded") await d.app.dispatch.act({ action: "tile.collapse", tile: "drawer.agent", args: { on: true } }, USER);
           else await d.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
-          if (how === "folded") d.key({ kind: "esc" });                    // back on the screen, the strip left folded
+          if (how === "folded" && !onStrip) d.key({ kind: "esc" });       // back on the screen, the strip left folded
           const as = () => ({ open: d.app.drawer.open, folded: d.app.drawer.folded });
           const before = as();
-          expect(d.app.drawer.entered).toBe(false);
+          expect(d.app.drawer.entered).toBe(onStrip);
           const sink = () => (d.A.term.rawSink?.() ?? null) as ((s: string) => void) | null;
           const type = (s: string) => { const f = sink(); if (!f) throw new Error("no raw sink: the keys aren't the agent's"); f(s); };
           const echoed = (s: string) => until(() => own.text().some(l => l.includes(s)), `${s} reached the agent`);

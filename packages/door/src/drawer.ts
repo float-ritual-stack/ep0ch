@@ -805,6 +805,8 @@ export class AgentDrawer {
   private liftIn: Desk["lifted"] = null;
   /** That lift is still up: their keys are in its tile. One dropped (or lifted again since, an agent's too) isn't. */
   private inLift(): boolean { return !!this.liftIn && this.d?.lifted === this.liftIn; }
+  /** The person's keys are in the drawer's lifted tile, gone into with the drawer down (on its folded strip isn't). */
+  get inLifted(): boolean { return this.entered && this.liftIn !== null; }
   /** Where the screen shown lets the host layer appear: its policy's `host` (a screen without a drawer: none). */
   get mode(): HostMode { const s = this.host.screen?.(); return s?.noDrawer ? "none" : s?.hostMode?.() ?? "over"; }
   /** What the host layer's tiles are: the screen slot (it never closes or moves), the drawer with what runs in it. */
@@ -1950,7 +1952,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       { action: "host.enter", when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsAgent() && actor.kind === "user" && drawerUp(drawer) && (drawer.liftPick()?.inDrawer ?? false) && !drawer.entered },
     ],
     then: [
-      { action: "host.enter", when: (_a, { drawer }, actor, out) => actor.kind === "user" && !!(out as { zoomed?: boolean } | undefined)?.zoomed && !drawerUp(drawer) && !!drawer.made?.lifted && !drawer.entered },
+      { action: "host.enter", when: (_a, { drawer }, actor, out) => actor.kind === "user" && !!(out as { zoomed?: boolean } | undefined)?.zoomed && !drawerUp(drawer) && !!drawer.made?.lifted && !drawer.inLifted },
     ],
   }),
   "agent.restart": def({
