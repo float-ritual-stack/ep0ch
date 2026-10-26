@@ -34,7 +34,8 @@ export interface ButtonCall {
 export interface ButtonSlot { key: string; value: string }
 
 /** Attributes a button reads itself; every other word is a slot of the script it runs (`of=`). */
-const OWN = new Set(["label", "act", "of", "alt"]);
+export const BUTTON_OWN: ReadonlySet<string> = new Set(["label", "act", "of", "alt"]);
+const OWN = BUTTON_OWN;
 
 /** The closing body line, or the opener when this button has no closed body. */
 export function buttonBodyEnd(lines: readonly string[], i: number): number {
@@ -54,6 +55,18 @@ const refsOf = (text: string): string[] => [...text.matchAll(SLOT_REF)].map(m =>
 
 /** A slot's value as a word of an action line: as written when it is one word, else quoted. */
 const wordOf = (value: string) => (/^[^\s"'\\]+$/.test(value) ? value : '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"');
+
+/** The quote open at offset `at` of `text` ("" when none): the same reading as `balanced`. */
+function quoteAt(text: string, at: number): string {
+  let quote = "", escaped = false;
+  for (const c of text.slice(0, at)) {
+    if (escaped) { escaped = false; continue; }
+    if (c === "\\" && quote !== "'") { escaped = true; continue; }
+    if (quote) { if (c === quote) quote = ""; continue; }
+    if (c === '"' || c === "'") quote = c;
+  }
+  return quote;
+}
 
 /** Whether `text` closes every quote it opens (a quote inside the other kind, or escaped, is text). */
 function balanced(text: string): boolean {
@@ -107,7 +120,14 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
     else rest.push(p);
   }
   // In an action line a value is one word (quoted when it needs it); in a script's value it is the value itself.
-  const slotted = (text: string, raw = false) => text.replace(SLOT_REF, (whole, key: string) => { const s = slots.find(x => x.key === key); return s && s.value ? (raw ? s.value : wordOf(s.value)) : whole; });
+  // Inside a quoted value of the action line (`text="it is {who}"`) it goes in as text, its quotes escaped for that quote.
+  const slotted = (text: string, raw = false) => text.replace(SLOT_REF, (whole, key: string, at: number) => {
+    const s = slots.find(x => x.key === key);
+    if (!s || !s.value) return whole;
+    if (raw) return s.value;
+    const q = quoteAt(text, at);
+    return q === '"' ? s.value.replace(/(["\\])/g, "\\$1") : q === "'" ? s.value.replace(/'/g, "") : wordOf(s.value);
+  });
   const props: Record<string, string[]> = {};
   // Own keys only: a slot may be any word, `constructor` or `__proto__` included, and none reaches Object.prototype.
   if (of) for (const { key, value } of rest) {
@@ -135,7 +155,7 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
     if (said) problem = said;
   }
   // A `{key}` the line has no word for: the word to add.
-  const lost = [...new Set([...refsOf(act ?? ""), ...refsOf(body)])].filter(k => !slots.some(s => s.key === k) && !OWN.has(k));
+  const lost = [...new Set([...refsOf(act ?? ""), ...refsOf(body), ...refsOf(get("alt") ?? ""), ...(of ? rest.flatMap(p => refsOf(p.value)) : [])])].filter(k => !slots.some(s => s.key === k) && !OWN.has(k));
   if (!problem && lost.length) problem = `{${lost[0]}} has no word on the line to fill it; add ${lost[0]}= (left empty, a press asks for it)`;
   const empty = [...new Set([...steps.flatMap(s => refsOf(s.source)), ...Object.values(props).flat().flatMap(refsOf)])].filter(k => slots.some(s => s.key === k && !s.value));
   const line = problem && !steps.length ? null : steps.map(s => s.source).join("\n") || null;
@@ -215,7 +235,8 @@ export function withButtonSlot(line: string, key: string, value: string): string
     if (from < 0) break;
     cursor = from + w.raw.length;
     const eq = w.raw.indexOf("=");
-    if (eq > 0 && w.raw.slice(0, eq) === key) return line.slice(0, at + from) + say + line.slice(at + cursor);
+    // `key=…`, or a bare `key` (read as `key=on`): the first is the slot, as buttonCallAt reads it.
+    if (eq > 0 ? w.raw.slice(0, eq) === key : w.raw === key) return line.slice(0, at + from) + say + line.slice(at + cursor);
   }
   const tail = inner.endsWith(" ") ? "" : " ";
   return line.slice(0, at + inner.length) + (inner.trim() ? tail : "") + say + line.slice(at + inner.length);

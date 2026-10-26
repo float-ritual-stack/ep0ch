@@ -4,7 +4,7 @@
 // tile= that names no tile now. One reader for the editor's live marks and the save's warning, so they can never disagree.
 // Pure over its lookups; a save is never refused by it.
 
-import { buttonCallAt, buttonCallsOf, slotArgs } from "@ep0ch/outline-core/button-call";
+import { BUTTON_OWN, buttonCallAt, buttonCallsOf, slotArgs } from "@ep0ch/outline-core/button-call";
 import { COMPONENT_OPEN, splitWords } from "@ep0ch/outline-core/component-block";
 import { lineWords } from "@ep0ch/outline-core/action-line";
 import { closest } from "./cli-words";
@@ -27,7 +27,7 @@ export interface ButtonMarkSpan { from: number; to: number; kind: "misread" | "a
 /** One line's reading: its parts, what won't run (a tile= waits on `tiles`), and what it runs. */
 export interface ButtonLook { parts: ButtonPart[]; marks: ButtonMarkSpan[]; tiles: { from: number; to: number; sel: string }[]; runs: string | null; problem?: string }
 
-const OWN = new Set(["label", "act", "of", "alt"]);
+const OWN = BUTTON_OWN;
 const cp = (s: string) => [...s].length;
 
 /**
@@ -62,7 +62,7 @@ export function buttonLineLook(lines: readonly string[], i: number, ask: Pick<Bu
       const end = q === '"' || q === "'" ? value.indexOf(q, 1) : -1;
       if (end > 0 && end < value.length - 1) marks.push({ from: from + cp(key) + 1 + cp(value.slice(0, end + 1)), to, kind: "misread", message: call.problem });
     }
-    if (key.toLowerCase() !== "act" || eq < 0 || call.problem && call.act === null) continue;
+    if (key.toLowerCase() !== "act" || eq < 0 || call.problem && call.act === null || call.sequence) continue;
     // Inside act=: the action and its argument names, read against the action's own ActionDef.
     const value = w.raw.slice(eq + 1), q = /^["']/.test(value) ? 1 : 0, vFrom = from + cp(key) + 1 + q;
     const words = splitWords(value.slice(q, value.length - (q && value.length > 1 ? 1 : 0)), false, false).flat();
@@ -75,7 +75,7 @@ export function buttonLineLook(lines: readonly string[], i: number, ask: Pick<Bu
       const s = vFrom + cp(body.slice(0, o)), e = s + cp(aw.raw);
       if (i === 0) {
         parts.push({ from: s, to: e, is: "action" });
-        if (!value.startsWith("[") && ask.args(aw.value) === null && /^[a-z][\w-]*\.[\w.-]+$/.test(aw.value)) {
+        if (ask.args(aw.value) === null && /^[a-z][\w-]*\.[\w.-]+$/.test(aw.value)) {
           const near = closest(aw.value, ask.actions());
           marks.push({ from: s, to: e, kind: "action", message: `no action ${aw.value} here${near ? `; did you mean ${near}?` : ""}` });
         }
@@ -91,8 +91,8 @@ export function buttonLineLook(lines: readonly string[], i: number, ask: Pick<Bu
       else if (takes && arg !== "as" && !takes.includes(arg)) marks.push({ from: s, to: s + cp(arg), kind: "arg", message: `${action} takes no ${arg}= (it takes ${takes.length ? takes.join(", ") : "no arguments"})` });
     });
   }
-  // A body's steps: their action, arguments and tile=, said without a place on this line.
-  if (call.endLine > call.line) for (const step of call.steps) {
+  // A body's or a list's steps: each its own action, arguments and tile=, said without a place on this line.
+  if (call.sequence) for (const step of call.steps) {
     if (step.kind !== "act") continue;
     const [action, ...words] = lineWords(step.source), takes = action ? ask.args(action) : null;
     if (action && takes === null && /^[a-z][\w-]*\.[\w.-]+$/.test(action)) { const near = closest(action, ask.actions()); marks.push({ from: -1, to: -1, kind: "action", message: `no action ${action} here${near ? `; did you mean ${near}?` : ""}` }); }
@@ -126,7 +126,7 @@ export async function buttonMarks(text: string, ask: ButtonLookups): Promise<But
     if (!look) continue;
     const say = (message: string) => out.push({ line: call.line, message: `the ::button on line ${call.line + 1}: ${message}` });
     for (const m of look.marks) if (m.kind !== "misread") say(m.message);
-    for (const t of look.tiles) { const why = await ask.tile(t.sel); if (why) say(why); }
+    for (const sel of new Set(look.tiles.map(t => t.sel))) { const why = await ask.tile(sel); if (why) say(why); }
   }
   return out;
 }

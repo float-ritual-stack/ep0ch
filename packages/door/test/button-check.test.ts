@@ -46,4 +46,8 @@ test("a tile= and a filled slot are listed for the resolver; the save says the o
   const body = await buttonMarks('Title\n::button{label="Zoom"}\ntile.zoom tile=t-0123abcd\ntile.zom\n::', ask);
   expect(body.map(m => m.message)).toEqual(["the ::button on line 2: no action tile.zom here; did you mean tile.zoom?", "the ::button on line 2: no tile has the id t-0123abcd; tile.list shows the ids"]);
   expect(buttonLineLook(['::button{label="Zoom"}', "tile.zoom tile=links", "::"], 0, ask)!.runs).toBe("tile.zoom tile=links");
+  // A list's steps are each read against their own action; a slot filled into a body is asked about once.
+  expect(buttonLineLook(['::button{act="[tile.zoom reach=column, agent.lift on=true]"}'], 0, ask)!.marks).toEqual([]);
+  expect(buttonLineLook(['::button{act="[tile.zoom reach=column, tile.zom]"}'], 0, ask)!.marks.map(m => m.message)).toEqual(["no action tile.zom here; did you mean tile.zoom?"]);
+  expect(await buttonMarks('T\n::button{label="b" target=bad}\ntile.zoom tile={target}\n::', ask)).toHaveLength(1);
 });

@@ -102,6 +102,13 @@ test("a script's slot value is the value itself, spaces and all; an action line 
   expect(call.steps[0]!.source).toBe('say message="hello world"');
 });
 
+test("a slot inside a quoted value goes in as text; a bare slot word is the slot withButtonSlot writes; alt= and of= slots need their word", () => {
+  expect(buttonCallAt([`::button{act='note.comment text="it is {who}"' who="a b"}`], 0)!.act).toBe('note.comment text="it is a b"');
+  expect(withButtonSlot('::button{act="tile.zoom tile={t}" t}', "t", "t-1234abcd")).toBe('::button{act="tile.zoom tile={t}" t=t-1234abcd}');
+  expect(buttonCallAt(['::button{act="tile.zoom" alt="tile.close tile={u}"}'], 0)!.problem).toContain("u=");
+  expect(buttonCallAt(["::button{of=myscript path={dir}}"], 0)!.problem).toContain("dir=");
+});
+
 test("withButtonSlot writes one slot onto the line and leaves the rest as written", () => {
   const line = '::button{label="pop it" act="tile.zoom tile={target} reach=column" target=} ^pop';
   expect(withButtonSlot(line, "target", "drawer.agent")).toBe('::button{label="pop it" act="tile.zoom tile={target} reach=column" target=drawer.agent} ^pop');
