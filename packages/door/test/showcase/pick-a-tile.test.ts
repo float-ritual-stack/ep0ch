@@ -84,6 +84,37 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await expect(act("button.press", { note: seeded.notes.pickATile.id, label: "misread" }, undefined, AGENT)).rejects.toThrow(/act= ends early.*act='tile\.zoom reach=column tile=t-a6125371'/);
   });
 
+  // PIE-1312: a ::button line typed in the editor is drawn in parts, what won't run is underlined, and the row under the cursor
+  // says what it runs or why not, by the same reader as the save's warning. Typed as a person types.
+  test("typing a button: a wrong one is marked as it is typed, fixed, saved, and nothing is lost", async () => {
+    const { press, ch } = h;
+    await act("section", { name: "pick-a-tile" });
+    press({ kind: "enter" });
+    await until(() => h.S().focus === "stage", "in the stage");
+    await act("tile.focus", {}, "notes");
+    ch("e"); press({ kind: "enter" });
+    await until(() => !!desk().describe().panes[0].editing, "the note in an edit");
+    for (let i = 0; i < 8; i++) press({ kind: "pgdn" });
+    press({ kind: "end" }); press({ kind: "enter" });
+    for (const c of '::button{label="two" act="tile.zom reach="column" tile=links}') ch(c);
+    await until(() => screen().includes("✗ act= ends early"), "the misread said under the line");
+    // Underlined (SGR 4) where the line stops being read.
+    expect(h.painted.join("\n")).toContain("\x1b[4m");
+    // Fix it: the nested quotes go, and the action's name.
+    for (let i = 0; i < '"column" tile=links}'.length; i++) press({ kind: "backspace" });
+    for (const c of 'column tile=links"}') ch(c);
+    await until(() => screen().includes("✗ no action tile.zom here; did you mean tile.zoom?"), "the unknown action said");
+    for (let i = 0; i < 'm reach=column tile=links"}'.length; i++) press({ kind: "left" });
+    ch("o");
+    // The name's completion opens under the line; esc puts it away and the help row is under the line again.
+    press({ kind: "esc" });
+    expect(desk().describe().panes[0].editing).toBeTruthy();
+    await until(() => screen().includes("▸ runs tile.zoom reach=column tile=links"), "what it runs");
+    press({ kind: "char", ch: "s", ctrl: true });
+    await untilAsync(() => text().then(t => t.includes('::button{label="two" act="tile.zoom reach=column tile=links"}')), "saved as typed");
+    for (let i = 0; i < 4 && h.S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
   // Evan's probe, pie's "pop it" note, second line unmodified: press it in a reader, click the drawer's program, the line gets its
   // id, and the program lifts; press again, it drops.
   test("the probe: an empty target, the drawer's program chosen on the card, kept as its id; it lifts and drops", async () => {
@@ -130,4 +161,5 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await until(() => screen().includes(`links · ${links.slice(0, 10)}`), "the menu's heading");
     h.press({ kind: "esc" } as never);
   });
+
 });

@@ -118,7 +118,7 @@ import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsS
 import { askInBar } from "../bar/ask";
 import { argQuestion } from "../bar/form";
 import { parseTileAddress } from "../desk/tile-address";
-import { buttonMarks, describeButtonMarks, type ButtonLookups } from "../button-check";
+import { buttonLineLook, buttonMarks, describeButtonMarks, type ButtonLookups } from "../button-check";
 import { useRegion, type UseSite } from "../template-use";
 import { propQuestion } from "../template-stamp";
 import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
@@ -3023,7 +3023,9 @@ export class NoteSurface {
 
   private renderDraft(d: Draft, m: Msg, w: number, h: number, away = false, host?: SurfaceHost, attached = true): SurfaceView {
     if (attached && d.preview && host && !elementEdit(d).on) return this.renderEditPreview(d, m, w, h, away, host);
-    d.kept = this.keptDrawings(d, m);
+    const kept = this.keptDrawings(d, m), help = host ? this.buttonEditing(d, host) : null;
+    d.inks = help?.inks ?? null;
+    d.kept = help ? (line, width) => [...(kept?.(line, width) ?? []), ...help.under(line, width)] : kept;
     const by = writtenBy(d, "save");
     if (elementEdit(d).on) return { lines: elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined) };
     return { lines: renderEditor(d, {
@@ -3369,11 +3371,54 @@ export class NoteSurface {
     host.redraw();
   }
 
+  /**
+   * A `::button` line as it is typed (PIE-1312): its parts in colour and what won't run underlined, read by `buttonLineLook`, the
+   * reader the save's warning uses; under the line at the cursor, one row saying what it runs or why it won't. A tile= is asked
+   * about once per value (`tile.info`, the resolver's words) and the draft drawn again when the answer comes.
+   */
+  private buttonEditing(d: Draft, host: SurfaceHost): { inks: NonNullable<Draft["inks"]>; under: (line: number, w: number) => string[] } | null {
+    if (!d.text.includes("::button")) return null;
+    const ask = this.buttonLookups(host, USER);
+    // Asked once per value while this edit lasts: the next edit asks again (a tile closed since).
+    let tiles = BUTTON_TILES.get(d);
+    if (!tiles) BUTTON_TILES.set(d, (tiles = new Map()));
+    const looks = new Map<string, ReturnType<typeof buttonLineLook>>();
+    const lookOf = (text: string) => {
+      if (!looks.has(text)) looks.set(text, buttonLineLook(text, ask));
+      const look = looks.get(text)!;
+      for (const t of look?.tiles ?? []) if (!tiles.has(t.sel)) {
+        tiles.set(t.sel, undefined);
+        void ask.tile(t.sel).then(why => { tiles!.set(t.sel, why); host.redraw(); });
+      }
+      return look;
+    };
+    const INK = { name: C.lcyan, eq: C.dark, value: C.yellow, action: C.lgreen, arg: C.cyan } as const;
+    return {
+      inks: (_line, text) => {
+        const look = lookOf(text);
+        if (!look) return null;
+        return [...look.parts.map(p => ({ from: p.from, to: p.to, fg: INK[p.is] })),
+          ...look.marks.map(m => ({ from: m.from, to: m.to, fg: C.lred, under: true })),
+          ...look.tiles.filter(t => tiles!.get(t.sel)).map(t => ({ from: t.from, to: t.to, fg: C.lred, under: true }))];
+      },
+      under: (line, w) => {
+        if (line !== d.row) return [];
+        const look = lookOf(d.lines[line] ?? "");
+        if (!look) return [];
+        const why = [...look.marks.map(m => m.message), ...look.tiles.map(t => tiles!.get(t.sel)).filter((x): x is string => !!x)];
+        const say = why.length ? fg(C.lred) + `✗ ${why[0]}${why.length > 1 ? ` · and ${why.length - 1} more` : ""}`
+          : look.runs ? fg(C.dark) + `▸ runs ${look.runs.replace(/\n/g, " · ")}` : fg(C.lred) + `✗ ${look.problem ?? "it runs nothing"}`;
+        return [drawEllipsized(say, w) + RESET];
+      },
+    };
+  }
+
   /** What the door answers about a button's action line: the arguments an action takes, and why a tile= names no tile now. */
   buttonLookups(host: SurfaceHost, actor: Actor): ButtonLookups {
     const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
     return {
       args: action => { const info = d?.list().actions.find(a => a.name === action); return info ? Object.keys(info.args) : null; },
+      actions: () => d?.list().actions.map(a => a.name) ?? [],
       tile: async sel => { const r = await tileNamed(host, sel, actor); return "why" in r ? r.why : null; },
     };
   }
@@ -8965,6 +9010,9 @@ function handToEditor(surface: NoteSurface, host: SurfaceHost) {
   surface.external(host, writingIn(surface));
   return { comment: surface.session!.blockId, external: true };
 }
+
+/** What each tile= a draft's buttons name answered (`tile.info`'s refusal, or null), per edit (PIE-1312). */
+const BUTTON_TILES = new WeakMap<Draft, Map<string, string | null | undefined>>();
 
 /**
  * The tile `sel` names, as `tile=` reads it wherever the door runs a tile action (the screen shown, its mounts, the drawer):
