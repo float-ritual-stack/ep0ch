@@ -9390,7 +9390,7 @@ const FLOAT_MOVE_ARGS = {
 
 /** The completion list open in this reader's edit or the comment being written, or why there's none. */
 function openCompleter(surface: NoteSurface): Completer {
-  const d = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
+  const d = surface.writingDraft;
   const c = d && completerOf(d);
   if (!c?.shown?.items.length) throw new ActionRefused("no completion list is open; type [[, ((, :: or a [key:: in an edit or comment first");
   return c;
@@ -9583,7 +9583,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "complete.preview": def({
     ...COMPLETION_PREVIEW,
     run(args, { surface }: On, actor) {
-      const draft = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
+      const draft = surface.writingDraft;
       const c = draft && completerOf(draft);
       if (!c?.shown) throw new ActionRefused("no preview is open; type (( or :: in an edit or comment first");
       return COMPLETION_ACTIONS.run("complete.preview", args, c, actor);
@@ -9608,7 +9608,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "complete.ask": def({
     ...COMPLETION_ASK,
     run(args, { surface, host }, actor) {
-      const d = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
+      const d = surface.writingDraft;
       // Made on first use, as a key typed there would (the edit's own completer, with its note as the search's context).
       const c = d && (completerOf(d) ?? surface.completer(d, host));
       if (!c) throw new ActionRefused("nothing is being written here; open an edit or a comment first");
@@ -9651,7 +9651,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ text, key, insert, invitation, expect, refine, step }, { surface, host }, actor) {
       const board = host.ctx.board as unknown as CompletionBoard;
       if (typeof board?.completePages !== "function") throw new ActionRefused("this connection can't look references up");
-      const d = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
+      const d = surface.writingDraft;
       if ((insert !== undefined || refine !== undefined) && text !== undefined) throw new ActionRefused(`${insert !== undefined ? "insert" : "refine"} completes at the draft's cursor; leave text out`);
       if (refine !== undefined) {
         if (refine !== "^" && refine !== "#") throw new ActionRefused(`refine is ^ (every passage) or # (headings), not ${JSON.stringify(refine)}`);

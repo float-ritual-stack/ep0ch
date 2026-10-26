@@ -105,6 +105,14 @@ describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, th
     expect(draw(s, 60).join(" ")).toContain("line 20 of the watering notes.");
   });
 
+  test("the wheel over a list still finding its rows does nothing, and throws nothing (code review)", () => {
+    const d = new Draft("made-up", 0, "((gar");
+    d.place(0, 5);
+    const c = new Completer(d, {} as never, () => {});
+    c.state = { target: { kind: "block", start: 0, end: 5, query: "gar" }, at: { row: 0, col: 5, line: d.text }, index: 0, loading: true, truncated: null, message: "finding references...", items: [] };
+    expect(() => c.move(1)).not.toThrow();
+  });
+
   test("an insert the service refuses is said in the footer and never escapes as a rejection (Codex review)", async () => {
     const d = new Draft("made-up", 0, "((garden");
     d.place(0, 8);
@@ -129,6 +137,8 @@ describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, th
     expect(enterKeeps({ ...bare, picked: true })).toBeNull();
     const done = state("[[green-beds]]", { target: { kind: "page", start: 0, end: 14, query: "green-beds" }, index: 2 });
     expect(enterKeeps(done)).toBe("new line");
+    const yaml = state("title: Fo", { target: { kind: "yaml-value", start: 7, end: 9, query: "Fo", component: "graph-meter" } as any });
+    expect(enterKeeps(yaml)).toBe("new line");
     const filter = state("stage:do", { target: { kind: "filter-value", start: 6, end: 8, query: "do", key: "stage" } as any, line: true });
     expect(enterKeeps(filter)).toBe("applies");
   });

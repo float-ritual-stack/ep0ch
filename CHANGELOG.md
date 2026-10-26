@@ -17,8 +17,8 @@ are its record. The outliner's entries from then are kept below, under
   offered, a property's type).
 - **Docs beside the list.** The lit row's description wraps beside the list when 30 columns are free, else under it,
   sized to what it holds and never cut at its start; shift+↑↓, PgUp/PgDn or the wheel over it scroll it.
-- **⏎ and tab both insert.** ⏎ inserts the lit row as tab does, except before anything is typed for a property, a
-  heading's `::` or a figure's YAML (and where the row would change nothing): there the footer says `⏎ new line`. In a
+- **⏎ and tab both insert.** ⏎ inserts the lit row as tab does, except in a figure's YAML, before anything is typed for
+  a property or a heading's `::`, and where the row would change nothing: there the footer says `⏎ new line`. In a
   filter or a property's value, ⏎ still applies what's typed. ctrl+n and ctrl+p stay a new note and the edit preview.
 - **The list's keys are actions.** `complete.ask`, `complete.move by=`, `complete.accept n=`, `complete.dismiss` and
   `complete.preview` are what the keys, wheel and clicks run, so `act` drives the list the same way. The kitchen sink's

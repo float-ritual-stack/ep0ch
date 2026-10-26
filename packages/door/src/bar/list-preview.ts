@@ -41,7 +41,7 @@ function listWithDocs<T, H>(picker: ListPicker<T, H>, w: number, h: number, prev
     if (docRows > 0) {
       const rows = list.map((_, i) => picker.itemAt(at + i));
       return { listWidth: inset + listWidth, listCol: inset, preview: { col: 0, row: list.length + 1, cols: w, rows: docRows },
-        lines: [...list.map(l => " ".repeat(inset) + pad(l, listWidth)), fg(C.blue) + "─".repeat(w) + RESET, ...preview!(w, docRows).slice(0, docRows)],
+        lines: [...list.map(l => " ".repeat(inset) + pad(l, listWidth)), fg(C.blue) + "─".repeat(w) + RESET, ...docs.slice(0, docRows)],
         rows: [...rows, null, ...Array.from({ length: docRows }, () => null)] };
     }
   }

@@ -20,7 +20,7 @@ import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 // and links it, as one choice. `((Meeting^` searches inside the notes `((Meeting` listed, in the same order. The
 // triggers stay here until ADR 0004's source contract (slice 6, PIE-750) moves them into outline-core.
 import { ListPicker, pickRow } from "./picker";
-import { ActionRefused, actionSet, def } from "./actions";
+import { ActionRefused, actionSet, declaredKeys, def, keyCaption } from "./actions";
 import { listPreview } from "../bar/list-preview";
 import { litCells } from "../bar/filter";
 import { rankTextSearchMatches, matchesSearchText } from "@ep0ch/outline-core/search-match";
@@ -768,13 +768,8 @@ export class Completer {
     } catch { /* the snippet from the lookup stays */ }
   }
 
-  /** Whether the docs panel has more than it shows (a reference's reader always may): shift+up/down are its then. */
-  get docsScroll(): boolean {
-    const s = this.shown, item = s?.items[s.index];
-    if (!s || !item) return false;
-    if (item.blockId && item.preview) return true;
-    return !!s.previewLines && !!s.previewRect && s.previewLines.length > s.previewRect.rows;
-  }
+  /** Whether the docs panel has more than it shows: shift+up/down are its then (docsScroll). */
+  get docsScroll(): boolean { return !!this.shown && docsScroll(this.shown); }
 
   scrollPreview(by: number): boolean {
     if (!this.docsScroll) return false;
@@ -1060,7 +1055,9 @@ export const COMPLETION_ACTIONS = actionSet<Completer>()("completion", {
  * unhandled rejection. `act` callers await the action and get the refusal.
  */
 function personRuns<K extends "complete.move" | "complete.accept" | "complete.ask" | "complete.dismiss">(name: K, args: Parameters<typeof COMPLETION_ACTIONS.run<K>>[1], c: Completer): void {
-  COMPLETION_ACTIONS.run(name, args, c, USER).catch(() => {});
+  const refused = (e: unknown) => { if (!(e instanceof ActionRefused)) throw e; };
+  // An action's own run is called at once (ActionSet.call), so a refusal can come before there's a promise to catch.
+  try { COMPLETION_ACTIONS.run(name, args, c, USER).catch(refused); } catch (e) { refused(e); }
 }
 
 const byDraft = new WeakMap<CompletionField, Completer>();
@@ -1085,6 +1082,9 @@ export const completionOf = (d: CompletionField): CompletionState | null => byDr
 const AUTO_OPENING_KINDS: ReadonlySet<CompletionKind> = new Set([
   "button-step", "fence-setting", "component", "attribute", "attribute-value", "key", "value", "yaml-key", "yaml-value", "filter-key", "filter-value",
 ]);
+
+/** Where a line ends in ⏎ as it's written (a figure's YAML, a fence's settings): ⏎ stays a new line until a choice. */
+const ENTER_ENDS_THE_LINE: ReadonlySet<CompletionKind> = new Set(["yaml-key", "yaml-value", "fence-setting"]);
 
 const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" || k.ch === " " || k.ch === "@");
 
@@ -1286,10 +1286,11 @@ function rowWidth(it: CompletionItem): number {
 
 /**
  * Whether ⏎ is the field's rather than the popup's (PIE-1339), and what the footer says it does then. ⏎ inserts the lit
- * row as Tab does, except: a line (a filter, a property's value) keeps ⏎ to apply what's typed; a property, a heading's
- * `::` or a figure's YAML offered before anything is typed keeps ⏎ a new line; and a row that would leave the line as
- * it is (the value already typed out) does too. A deliberate choice (arrows, the wheel, a click, Tab or ctrl+space)
- * makes ⏎ insert. A lone new page is never taken by ⏎ unless chosen (PIE-592).
+ * row as Tab does, except: a filter's words or a property value's (filter-key, filter-value) keep ⏎ to apply what's
+ * typed (a `[[` or `((` in that line still inserts); a figure's YAML and a script fence's settings keep ⏎ a new line,
+ * since a line there ends in one; a property or a heading's `::` offered before anything is typed does too; and so does
+ * a row that would leave the line as it is (the value already typed out). A deliberate choice (arrows, the wheel, a
+ * click, Tab or ctrl+space) makes ⏎ insert. A lone new page is never taken by ⏎ unless chosen (PIE-592).
  */
 export function enterKeeps(s: CompletionState): "new line" | "applies" | null {
   const item = s.items[s.index];
@@ -1297,24 +1298,37 @@ export function enterKeeps(s: CompletionState): "new line" | "applies" | null {
   const word = s.line ? "applies" : "new line";
   if (s.items.length === 1 && item.newPage) return word;
   if (s.target.kind === "filter-key" || s.target.kind === "filter-value") return "applies";
+  if (ENTER_ENDS_THE_LINE.has(s.target.kind)) return word;
   if (AUTO_OPENING_KINDS.has(s.target.kind) && s.target.kind !== "component" && !s.target.query.trim()) return word;
   const line = s.at.line;
   if (line.slice(0, s.target.start) + item.insertion + line.slice(s.target.end) === line) return word;
   return null;
 }
 
+/** Whether the docs panel has more than it shows (a reference's reader always may): shift+up/down, PgUp/PgDn scroll it. */
+function docsScroll(s: CompletionState): boolean {
+  const item = s.items[s.index];
+  if (!item) return false;
+  if (item.blockId && item.preview) return true;
+  return !!s.previewLines && !!s.previewRect && s.previewLines.length > s.previewRect.rows;
+}
+
 /** The footer's words for the popup's keys, from what the lit row can do and what ⏎ does here: the popup's and its host's hint row. */
+/** The first `n` keys an action's own `keys` names, as keycaps (`up/down` is `↑ ↓`, `shift+up` `shift+↑`). */
+function caps(keys: string, n: number): string {
+  return [...declaredKeys(keys)].slice(0, n).map(keyCaption).join(" ").replace(/shift\+↑ shift\+↓/, "shift+↑↓");
+}
 export const popupHint = (s: CompletionState): string => completionHint(s, s.items[s.index]);
 function completionHint(s: CompletionState, selected: CompletionItem | undefined): string {
   const enter = enterKeeps(s);
-  const insert = enter ? `tab inserts · ⏎ ${enter}` : "⏎/tab inserts";
+  const insert = enter ? `tab inserts · ⏎ ${enter}` : `${caps(COMPLETION_ACCEPT.keys, 2).replace(" ", "/").split("/").reverse().join("/")} inserts`;
   if (!selected) return "esc dismisses";
-  const docs = s.previewLines && s.previewRect && s.previewLines.length > s.previewRect.rows || selected.blockId && selected.preview ? " · shift+↑↓ docs" : "";
+  const docs = docsScroll(s) ? ` · ${caps(COMPLETION_PREVIEW.keys, 2)} docs` : "";
   const extra = [
     selected.componentSchema ? "→ variations" : "", s.target.kind === "component" ? "← returns · y/[copy] source" : "",
     selected.definition ? "g/[g] definition" : "", s.target.kind === "block" && !parseFragmentCompletionQuery(s.target.query) ? "^/# narrow" : "",
   ].filter(Boolean).map(x => ` · ${x}`).join("");
-  return `↑↓ move · ${insert}${docs}${extra} · esc`;
+  return `${caps(COMPLETION_MOVE.keys, 2).replace(" ", "")} move · ${insert}${docs}${extra} · ${caps(COMPLETION_DISMISS.keys, 1)}`;
 }
 
 const pickers = new WeakMap<CompletionState, ListPicker<CompletionItem, void>>();
