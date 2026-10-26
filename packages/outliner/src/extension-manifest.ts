@@ -433,7 +433,7 @@ const ManifestV2 = Type.Object(
 );
 export type ExtensionManifest = Static<typeof ManifestV2>;
 
-const FolderConfig = Type.Object(
+export const FolderConfig = Type.Object(
   {
     config: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     secrets: Type.Optional(Type.Record(Type.String(), Type.Union([Credential, FileCredential, GroupCredential]), { maxProperties: 16 })),

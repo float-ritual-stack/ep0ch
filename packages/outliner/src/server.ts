@@ -21,7 +21,7 @@ import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
 import { RULE_NAME } from "@ep0ch/outline-core/rules";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
-import { PROTOCOL, GRAMMAR, SHARE_TTL, type McpAccessLevel, type McpAccessStatus, type ShareSession, type UploadLease } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, SHARE_TTL, type McpAccessLevel, type McpAccessStatus, type ShareSession, type UploadLease, type ExtensionSettings, type ExtensionsConfigured, type ExtensionSecretReference } from "@ep0ch/outline-core/protocol";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { readNewNoteIntent } from "./note-placement";
@@ -71,7 +71,9 @@ import { yoloTask } from "@ep0ch/outline-core/attribution";
 import { BUILT_IN_EXTENSIONS, ExtensionRegistry, extensionRoots } from "./extension-registry";
 import { ExtensionPages } from "./extension-pages";
 import { addExtension, removeExtension } from "./extension-install";
-import { ResourceExtensionRuntime, keychainItem, scrubCredentials, userExtensionsFolderInUse } from "./resource-extensions";
+import { ResourceExtensionRuntime, keychainItem, scrubCredentials, userExtensionsFolderInUse, type ExtensionRunStatus } from "./resource-extensions";
+import { readExtensionFolder, type ExtensionOrigin } from "./extension-manifest";
+import { settingsOf, writeExtensionSettings } from "./extension-settings";
 import { readGroupSecrets, secretGroupAllowed } from "./extension-secrets";
 import { extensionKeyLines, keyRows, scopeAllows, scopesFor, readScopesFile } from "./secret-keys";
 import { InstalledResourceProviderClient } from "./installed-resource-provider";
@@ -712,6 +714,44 @@ export class OutlinerServer {
     if (demo === "remove") lines.push(`moved ${removal.trashed} demo ${removal.trashed === 1 ? "note" : "notes"} to Trash${removal.kept.length ? `; kept ${removal.kept.length} you changed: ${removal.kept.join(", ")}` : ""}`);
     else if (left) lines.push(`kept its ${left} demo ${left === 1 ? "note" : "notes"} under its page: ep0ch ext remove ${id} --demo remove moves them to Trash`);
     return { id, lines, removed: !!entry, demo: { ...removal, left } };
+  }
+
+  /**
+   * An installed extension's settings (PIE-1343), from the version it serves; when its folder doesn't load now, from
+   * the folder as it is (its config.json unchecked), so the state says why and the form shows what's there to fix.
+   */
+  private async extensionSettingsOf(entry: { id: string; state: string; error?: string; directory: string; origin: ExtensionOrigin }, lastRun: ExtensionRunStatus | undefined): Promise<ExtensionSettings | undefined> {
+    let loaded = this.extensionRegistry.loaded(entry.id);
+    if (entry.state === "failed") loaded = await readExtensionFolder(entry.directory, entry.origin, { checkConfig: false }).catch(() => loaded);
+    if (!loaded || loaded.directory !== entry.directory) return undefined;
+    return settingsOf({
+      manifest: loaded.manifest, directory: entry.directory, config: loaded.config, credentials: loaded.credentials,
+      ...(entry.state === "failed" && entry.error ? { loadError: entry.error } : {}),
+      ...(lastRun && !lastRun.ok ? { lastFailure: { at: lastRun.at, ...(lastRun.error ? { error: lastRun.error } : {}) } } : {}),
+    });
+  }
+
+  /**
+   * `extensions.configure` (PIE-1343): config.json written in the folder the outline's host serves the extension from
+   * (the outline's own or the user folder), checked against its schema first; then the registry reads it again, so the
+   * next call uses it, and its page is written again.
+   */
+  private async configureExtension(id: string, config: unknown, secrets: unknown): Promise<ExtensionsConfigured> {
+    const entry = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed" && !candidate.script);
+    if (!entry) throw new Error(`No extension ${id} is installed here${this.extensionPages.availableNow().some((a) => a.id === id) ? `: install it first (ep0ch act extensions.install id=${id})` : ""}`);
+    if (config !== undefined && (!config || typeof config !== "object" || Array.isArray(config))) throw new Error("config must be an object: the settings by name, as the extension's configSchema names them");
+    if (secrets !== undefined && (!secrets || typeof secrets !== "object" || Array.isArray(secrets))) throw new Error("secrets must map a secret's name to a reference ({\"env\": NAME}, {\"file\": path}, {\"group\": G, \"key\": K}) or null");
+    if (config === undefined && secrets === undefined) throw new Error("extensions.configure needs config (the settings by name) or secrets (references by name)");
+    await writeExtensionSettings(entry.directory, entry.origin, {
+      ...(config !== undefined ? { config: config as Record<string, unknown> } : {}),
+      ...(secrets !== undefined ? { secrets: secrets as Record<string, ExtensionSecretReference | null> } : {}),
+    });
+    await this.extensionRegistry.reload();
+    await this.syncExtensionPages(true);
+    const now = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed" && !candidate.script) ?? entry;
+    const settings = await this.extensionSettingsOf(now, this.extensionRuntime.lastRun(id));
+    if (!settings) throw new Error(`${id} declares no settings (its extension.json has no configSchema or secrets)`);
+    return { id, settings, state: now.state, ...(now.error ? { error: now.error } : {}) };
   }
 
   /** The named outline this service runs, reported by `ping`. */
@@ -2253,7 +2293,8 @@ export class OutlinerServer {
       }
     }
     if (request.action === "extensions.list" || request.action === "extensions.act" || request.action === "extensions.bar" || request.action === "extensions.schedule.run" ||
-      request.action === "extensions.install" || request.action === "extensions.uninstall" || request.action === "extensions.undo" || request.action === "extensions.args") {
+      request.action === "extensions.install" || request.action === "extensions.uninstall" || request.action === "extensions.undo" || request.action === "extensions.args" ||
+      request.action === "extensions.configure") {
       try {
         let result: unknown;
         if (request.action === "extensions.undo") {
@@ -2271,6 +2312,9 @@ export class OutlinerServer {
           if (typeof request.extension !== "string") throw new Error("extensions.install needs extension: a built-in's name (extensions.list's available)");
           if (request.where !== undefined && request.where !== "user" && request.where !== "outline") throw new Error("where is user (every outline this host serves) or outline (this one's own)");
           result = await this.installExtension(request.extension, request.where);
+        } else if (request.action === "extensions.configure") {
+          if (typeof request.extension !== "string") throw new Error("extensions.configure needs extension: an installed extension's name");
+          result = await this.configureExtension(request.extension, request.config, request.secrets);
         } else if (request.action === "extensions.uninstall") {
           if (typeof request.extension !== "string") throw new Error("extensions.uninstall needs extension: an installed extension's name");
           result = await this.uninstallExtension(request.extension, request.demo as "keep" | "remove", declaredRequester(request, "extensions.uninstall"));
@@ -2299,7 +2343,7 @@ export class OutlinerServer {
           const heldByExtension = new Map<string, number>();
           for (const ask of this.agentRequests.held()) heldByExtension.set(ask.extensionId, (heldByExtension.get(ask.extensionId) ?? 0) + 1);
           // Each extension's schedules (PIE-754): when each runs next, and what its last run did.
-          const extensions = scriptsAt(this.store, listed.extensions, { blockId: request.blockId, line: request.line, draft: request.draft, chain: request.chain }).map((entry) => {
+          const extensions = await Promise.all(scriptsAt(this.store, listed.extensions, { blockId: request.blockId, line: request.line, draft: request.draft, chain: request.chain }).map(async (entry) => {
             const schedules = entry.state === "active" || entry.state === "failed" ? this.extensionSchedules.list(entry.id) : [];
             // Its last call (any kind): when, which, and why it failed (a crash's last stderr lines, scrubbed).
             const lastRun = this.extensionRuntime.lastRun(entry.id);
@@ -2307,8 +2351,10 @@ export class OutlinerServer {
             const loaded = this.extensionRegistry.loaded(entry.id);
             const keys = loaded ? extensionKeyLines(loaded, this.outline?.name) : [];
             const held = heldByExtension.get(entry.id);
-            return { ...entry, ...(schedules.length ? { schedules } : {}), ...(lastRun ? { lastRun } : {}), ...(keys.length ? { keys } : {}), ...(held ? { held } : {}) };
-          });
+            // Its settings (PIE-1343): config.json's path on this host, each field the schema declares and its state.
+            const settings = entry.state === "shadowed" || entry.script ? undefined : await this.extensionSettingsOf(entry, lastRun);
+            return { ...entry, ...(schedules.length ? { schedules } : {}), ...(lastRun ? { lastRun } : {}), ...(keys.length ? { keys } : {}), ...(held ? { held } : {}), ...(settings ? { settings } : {}) };
+          }));
           // Resource providers: the folders' (listed) and the legacy registry's.
           result = { ...listed, extensions, resourceProviders: this.resourceProviders, grants: this.agentRequests.grants(), ...this.extensionRules.list(), ...this.extensionPagesListed() };
         } else if (request.action === "extensions.schedule.run") {
@@ -2882,6 +2928,7 @@ export class OutlinerServer {
         case "extensions.schedule.run":
         case "extensions.install":
         case "extensions.uninstall":
+        case "extensions.configure":
         case "extensions.undo":
         case "extensions.args":
         case "echonet.bulletin":

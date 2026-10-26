@@ -20,8 +20,9 @@ function listStart(lines: string[], from: number, to: number): number | null {
   return null;
 }
 
-// The model is a command (prompt on stdin, JSON on stdout): config.answer in this copy's config.json, else Haiku.
-const DEFAULT_ANSWER = ["claude", "-p", "--model", "haiku", "--tools", ""];
+// The model is a command (prompt on stdin, JSON on stdout): config.answer in this copy's config.json, else the
+// schema's default (Haiku), read from extension.json so the door's settings say what actually runs.
+const DEFAULT_ANSWER: string[] = (await Bun.file(join(import.meta.dir, "extension.json")).json()).configSchema.properties.answer.default;
 const CONFIG = join(import.meta.dir, "config.json");
 const answerCommand = () => request.config?.answer ?? DEFAULT_ANSWER;
 const shown = (argv: string[]) => argv.map(a => (a === "" || /[\s"'$]/.test(a) ? JSON.stringify(a) : a)).join(" ");
@@ -30,7 +31,7 @@ const firstLines = (text: string) => text.trim().split("\n").filter(Boolean).sli
 /** A failed call says what ran, which config it came from (or that there is none) and what to write there. */
 function failure(command: string[], why: string): Error {
   const from = request.config?.answer ? `from ${CONFIG}` : `tidy's default; no config.answer in ${existsSync(CONFIG) ? CONFIG : `${CONFIG} (not there yet)`}`;
-  const fix = `write {"config": {"answer": ${JSON.stringify(["/full/path/to/claude", ...DEFAULT_ANSWER.slice(1)])}}} in ${CONFIG} (\`which claude\` gives the path), or sign in with \`claude\``;
+  const fix = `set answer in tidy's settings (in the door: ctrl+k, then & settings tidy; or ep0ch act extensions.configure id=tidy answer='/full/path/to/claude ${DEFAULT_ANSWER.slice(1).map(a => a || '""').join(" ")}'), which writes {"config": {"answer": [...]}} in ${CONFIG} (\`which claude\` gives the path), or sign in with \`claude\``;
   return new Error(`${why}: ${shown(command)} (${from}). To fix: ${fix}`);
 }
 

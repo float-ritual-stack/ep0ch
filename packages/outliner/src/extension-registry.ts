@@ -165,6 +165,8 @@ export interface ExtensionEntry {
   readonly keys?: readonly ExtensionKeyLine[];
   /** Requests for its agents held for a person's `r` (PIE-888): written by an agent or an extension that no grant lets wake it. Added by the service; absent when none. */
   readonly held?: number;
+  /** Its settings (PIE-1343): config.json's path on this host, each field its configSchema declares and its state. Added by the service; absent when it declares none. */
+  readonly settings?: import("@ep0ch/outline-core/protocol").ExtensionSettings;
 }
 
 export interface ExtensionsListResult {

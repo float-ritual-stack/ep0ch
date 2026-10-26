@@ -21,7 +21,8 @@ import { TXN } from "./surface/txn";
 import { INVITES } from "./surface/invite";
 import { useResourceProviders, type ResourceProviderEntry } from "./resource-providers";
 import { hostname } from "node:os";
-import type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource } from "@ep0ch/outline-core/protocol";
+import type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource, ExtensionSettings } from "@ep0ch/outline-core/protocol";
+import { settingsAction } from "./extension-settings";
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import type { Actor, SocketBoard } from "./socket";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
@@ -86,6 +87,8 @@ export interface ExtensionEntry {
   agents?: ExtensionAgent[];
   /** Its schedules (PIE-754): `action:<id>` or `handler:<key>`, every or cron, the next run and what the last did. */
   schedules?: ExtensionScheduleEntry[];
+  /** Its settings (PIE-1343): config.json's path on the host, each field its configSchema declares and its state. */
+  settings?: ExtensionSettings;
 }
 export interface ExtensionScheduleEntry {
   entry: string; every?: string; cron?: string; next: string; running?: boolean;
@@ -212,12 +215,22 @@ function cleaned(l: ExtensionList): ExtensionList {
     ...l,
     extensions: l.extensions.map(e => ({ ...e, ...(e.name !== undefined ? { name: oneLine(e.name) } : {}), description: clean(e.description), error: clean(e.error), handlers: e.handlers ?? [], actions: (e.actions ?? []).map(action), agents: e.agents ?? [],
       // A run's message and error are the extension's own words: one clean line each.
-      schedules: (e.schedules ?? []).map(x => ({ ...x, entry: oneLine(x.entry), ...(x.runsIn ? { runsIn: oneLine(x.runsIn) } : {}), ...(x.last ? { last: { ...x.last, message: clean(x.last.message), error: clean(x.last.error) } } : {}) })) })),
+      schedules: (e.schedules ?? []).map(x => ({ ...x, entry: oneLine(x.entry), ...(x.runsIn ? { runsIn: oneLine(x.runsIn) } : {}), ...(x.last ? { last: { ...x.last, message: clean(x.last.message), error: clean(x.last.error) } } : {}) })),
+      ...(e.settings ? { settings: cleanSettings(e.settings) } : {}) })),
     tileKinds: (l.tileKinds ?? []).map(t => ({ ...t, name: oneLine(t.name), description: clean(t.description), actions: (t.actions ?? []).map(action) })),
     rules: (l.rules ?? []).map(r => ({ ...r, name: oneLine(r.name), description: clean(r.description), ...(r.problem !== undefined ? { problem: oneLine(r.problem) } : {}) })),
     ruleProblems: (l.ruleProblems ?? []).map(oneLine),
     available: (l.available ?? []).map(a => ({ ...a, id: oneLine(a.id), name: oneLine(a.name) || oneLine(a.id), description: clean(a.description) })),
     resourceProviders: (l.resourceProviders ?? []).filter(p => /^[a-z0-9][a-z0-9.-]*$/.test(p.key)).map(p => ({ ...p, label: oneLine(p.label) })),
+  };
+}
+
+/** Settings as an extension's words: its descriptions, names and error drawn as one clean line each. */
+function cleanSettings(x: ExtensionSettings): ExtensionSettings {
+  return {
+    ...x, file: oneLine(x.file), ...(x.error !== undefined ? { error: oneLine(x.error) } : {}),
+    fields: x.fields.map(f => ({ ...f, name: oneLine(f.name), ...(f.description !== undefined ? { description: oneLine(f.description) } : {}), ...(f.choices ? { choices: f.choices.map(c => typeof c === "string" ? oneLine(c) : c) } : {}) })),
+    secrets: x.secrets.map(k => ({ ...k, name: oneLine(k.name), ...(k.description !== undefined ? { description: oneLine(k.description) } : {}), ...(k.reference !== undefined ? { reference: oneLine(k.reference) } : {}) })),
   };
 }
 
@@ -702,6 +715,8 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   const tiles = next?.tileKinds ?? [];
   const want = new Map<string, ActionDef<ExtArgs, ExtOn>>();
   for (const e of served) for (const a of e.actions) if (!(a.on ?? "block").startsWith("tile:")) want.set(a.name, lineAction(e, a));
+  // Its settings (PIE-1343), even while it fails (that's when they need fixing): an action of their own, unless it declares one by that name.
+  for (const e of next?.extensions ?? []) if (e.settings && e.state !== "shadowed" && !want.has(`ext.${e.id}.settings`)) want.set(`ext.${e.id}.settings`, settingsAction(e, e.settings));
   for (const name of boundActions) if (!want.has(name)) { EXT_ACTIONS.forget(name); boundActions.delete(name); }
   for (const [name, def] of want) { EXT_ACTIONS.define(name, def); boundActions.add(name); }
   // Tile kinds: registered through serviceKind; one whose entry changed is registered again, one gone is taken out.
