@@ -205,7 +205,8 @@ type PresetTile<S, H> = string | ((args: ArgsOf<S>, host: H, actor: Actor) => st
 export function preset<const S extends Record<string, ArgSpec>, H extends Again>(d: {
   summary: string; keys?: string; touches: Touches; host?: true; replay: Replay; args: S;
   says?: ActionDef<ArgsOf<S>, H>["says"]; examples?: readonly ActionExample[];
-  to: { action: string; tile?: PresetTile<S, H>; args?: Record<string, unknown> };
+  /** `own`: the preset's arguments its steps read and the target doesn't take (agent.lift's `drawer`); they aren't passed on. */
+  to: { action: string; tile?: PresetTile<S, H>; args?: Record<string, unknown>; own?: readonly (keyof S & string)[] };
   first?: readonly { action: string; args?: Record<string, unknown>; tile?: PresetTile<S, H>; when?(args: ArgsOf<S>, host: H, actor: Actor): boolean }[];
 }): ActionDef<ArgsOf<S>, H> {
   const { to, first = [], ...rest } = d;
@@ -214,7 +215,7 @@ export function preset<const S extends Record<string, ArgSpec>, H extends Again>
     ...rest,
     async run(args: ArgsOf<S>, host: H, actor: Actor) {
       for (const step of first) if (step.when?.(args, host, actor) ?? true) await host.again(step.action, step.args ?? {}, tileOf(step.tile, args, host, actor));
-      const given = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
+      const given = Object.fromEntries(Object.entries(args).filter(([k, v]) => v !== undefined && !to.own?.includes(k as keyof S & string)));
       return host.again(to.action, { ...to.args, ...given }, tileOf(to.tile, args, host, actor));
     },
   } as never) as ActionDef<ArgsOf<S>, H>;

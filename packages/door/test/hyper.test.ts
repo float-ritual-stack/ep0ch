@@ -253,7 +253,7 @@ describe.skipIf(!outliner)("bare - + = on the desk, and the hyper layer, against
     expect(message()).toContain("✦q isn't bound");
   });
 
-  test("on, ✦u lifts the focused tile's column and drops it; ✦a lifts the drawer's agent from the screen, starting it, and drops it", async () => {
+  test("on, ✦u lifts the focused tile's column and drops it; ✦a lifts the drawer's agent from the screen, starting it, and drops it, the drawer left put away", async () => {
     useHyper(true);
     const t = names()[0]!;
     focus(t);
@@ -264,14 +264,15 @@ describe.skipIf(!outliner)("bare - + = on the desk, and the hyper layer, against
     const drawer = (app as any).drawer;
     key({ kind: "hyper", ch: "a" });
     await until(() => !!drawer.made?.lifted, "the drawer's agent lifted");
-    expect(drawer.open).toBe(true);
+    expect(drawer.open).toBe(false);                     // a put-away drawer stays put away (Evan, Oct 26): the lift is tile.zoom's
     expect(drawer.made.lifted.reach).toBe("column");
     expect(drawer.made.liftsPane(drawer.tile)).toBe(true);
     key({ kind: "hyper", ch: "a" });
     await until(() => !drawer.made.lifted, "the lift dropped");
-    // The person's press of the same action, as a status-bar button runs it.
-    await (app as any).dispatch.press("agent.lift", { reach: "full" });
+    // The person's press of the same action, as a status-bar button runs it; drawer=true brings the drawer up and goes into it.
+    await (app as any).dispatch.press("agent.lift", { reach: "full", drawer: true });
     expect(drawer.made.lifted?.reach).toBe("full");
+    expect(drawer.open).toBe(true);
     await (app as any).dispatch.press("agent.lift", { on: false });
     expect(drawer.made.lifted).toBeNull();
     // An agent's lift never takes the person's keys: refused while they're in the drawer, said why.
