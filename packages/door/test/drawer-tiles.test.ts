@@ -797,6 +797,12 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
           expect(d.app.drawer.entered).toBe(true);
           type("sow the leeks\r");
           await echoed("sow the leeks");
+          // What it prints repaints the door: the lift is drawn though the drawer isn't.
+          let asked = 0;
+          const redraw = d.A.redraw.bind(d.A);
+          d.A.redraw = () => { asked++; redraw(); };
+          d.app.drawer.desk!.redraw();
+          expect(asked).toBe(1);
           d.paint();
           expect(d.app.drawer.desk!.liftsPane(own)).toBe(true);           // typing kept the lift up
           // A click inside the lifted tile, then typing: still the agent's.

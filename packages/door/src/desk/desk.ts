@@ -2370,7 +2370,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private shell(name: "screen.back" | "video.cycle") { shellKeyOf(name, this, this.ctx); }
 
   /** A repaint, while the desk is the screen shown (kept in the background, its programs don't repaint the menu). */
-  redraw() { if (this.onScreen) this.ctx?.redraw(); }
+  /** Repaint when drawn: shown, or (your drawer's desk put away) a tile of it lifted above the screen (PIE-1359). */
+  redraw() { if (this.onScreen || (this.layout.lift && this.ctx?.hostLayer?.isDrawer(this))) this.ctx?.redraw(); }
 
   private arrivals = new Map<number, { by: string; note?: string; remaining: number; at: number }>();
   private arriving(id: number): boolean { return (this.arrivals.get(id)?.remaining ?? 0) > 0; }
