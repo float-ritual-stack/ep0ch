@@ -1610,7 +1610,7 @@ export class App implements Ctx {
       placements = [...uncover(placements, { col: 0, row: d.rect.row, cols, rows: rows - d.rect.row }), ...(this.graphics ? d.placements : [])];
       // Your drawer's ^W panel (PIE-1338), over the whole screen: the drawer's rows are too few for it.
       const keysDesk = this.drawer.desk;
-      if (keysDesk) {
+      if (keysDesk?.keyPanelOpen()) {
         const canvas = new Canvas(cols, rows - 1);
         lines.forEach((line, row) => canvas.text(0, row, line, cols));
         const at = keysDesk.paintKeyPanel(canvas, cols, rows - 1);

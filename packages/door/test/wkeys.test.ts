@@ -8,7 +8,6 @@ import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { W_GROUPS, W_KEYS, wKey, wPanel, wRows, type WKey } from "../src/desk/wkeys";
 import { panelLines, tileKeys } from "../src/desk/key-panel";
-import { WHAT_CHANGED_ACTIONS } from "../src/desk/what-changed";
 import { C, fg } from "../src/style";
 import type { Msg } from "../src/board";
 import { openScreen } from "../src/desk/screen-specs";
@@ -49,12 +48,12 @@ describe("the ^W key table", () => {
     expect(narrow && Math.max(...narrow.lines.map(l => width(l)))).toBeLessThanOrEqual(24);
   });
 
-  test("the focused tile's own group (PIE-1338): its kind's keys in their actions' words, first and in the accent; a row carries its action", () => {
-    const own = tileKeys("what-changed", [WHAT_CHANGED_ACTIONS]);
+  test("the focused tile's own group (PIE-1338): its menu's rows with a key of their own, first and in the accent; a row carries its action", () => {
+    const row = (action: string, label: string, key?: string): MenuRow => ({ action, args: {}, tile: "t-1", label, group: "What changed", own: true, ...(key ? { key } : {}) });
+    const own = tileKeys("what-changed", [{ ...row("tile.tune", "tune its look", "alt+y"), own: undefined }, row("changes.go", "open its note", "enter"), row("changes.diff", "the change", "d"), row("tile.zoom", "zoom", "ctrl+w z"), row("tile.menu", "no key"), row("changes.seen", "all seen", "x"), row("other.d", "a second d", "d")]);
     expect(own.title).toBe("this tile: what-changed");
-    // Each keyed action once, with the key its menu row shows: d's row is the menu's words, j's the summary's first clause.
+    // The screen's every-tile rows aren't the tile's own; ^W's chords are ^W's group's; a key is listed once, its first row's.
     expect(own.keys).toEqual([
-      { key: "j", cap: "j", label: "pick a row of the what-changed list", action: "changes.pick" },
       { key: "enter", cap: "⏎", label: "open its note", action: "changes.go" },
       { key: "d", cap: "d", label: "the change", action: "changes.diff" },
       { key: "x", cap: "x", label: "all seen", action: "changes.seen" },
@@ -62,7 +61,7 @@ describe("the ^W key table", () => {
     const drawn = panelLines([own, ...wPanel(wRows(() => undefined))], 200, 40)!;
     expect(plain(drawn.lines[0]!).startsWith("this tile: what-changed")).toBe(true);
     expect(drawn.lines[0]!.startsWith(fg(C.lcyan))).toBe(true);
-    expect(drawn.spots.find(s => s.key === "d" && s.action)).toMatchObject({ line: 3, action: "changes.diff" });
+    expect(drawn.spots.find(s => s.key === "d" && s.action)).toMatchObject({ line: 2, action: "changes.diff" });
     // ^W's own d is still there, as the key after ^W.
     expect(drawn.spots.filter(s => s.key === "d" && !s.action)).toHaveLength(1);
   });

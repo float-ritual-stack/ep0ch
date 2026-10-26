@@ -4248,9 +4248,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!this.panelOpen()) return null;
     if (p === "wm") {
       const all = this.wRows().find(r => r.key === "?"), tile = this.keysTile();
-      // The focused tile's own keys first (PIE-1338), from its kind's actions: typed without ^W, a click runs one there.
-      const own = tile ? tileKeys(tile.desk.nameOf(tile.id), tile.sets) : null;
-      return { title: "^W  tile keys", foot: panelFoot(all ? [{ key: "?", action: all.action, label: all.label }] : []), groups: [...(own?.keys.length ? [own] : []), ...wPanel(this.wRows())] };
+      // The focused tile's own keys first (PIE-1338), its ⋯ menu's rows with a key: typed without ^W, a click runs the row there.
+      const rows = tile ? (() => { try { return tile.desk.dispatch.menu(tile.desk.tileId(tile.id), USER); } catch { return []; } })() : [];
+      this.panelRows = tile ? { desk: tile.desk, rows } : null;
+      const own = tile ? tileKeys(tile.desk.nameOf(tile.id), rows) : null, shows = !!own?.keys.length;
+      return { title: "^W  tile keys", foot: panelFoot(all ? [{ key: "?", action: all.action, label: all.label }] : [], shows), groups: [...(shows ? [own!] : []), ...wPanel(this.wRows())] };
     }
     const kinds = tileKinds().flatMap(k => (k.keys ?? []).map(x => ({ key: x.key, cap: x.key, label: x.label })));
     return { title: p === "add" ? "^W o  open beside" : "^W O  open as a tab", foot: panelFoot(), groups: [{ title: "kinds", keys: kinds }] };
@@ -4258,21 +4260,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /**
    * The tile the person's keys are on, for the ^W panel's own group (PIE-1338): the desk the App's keysScreen names
-   * (focusedDesk, PIE-1346) when it is this one or down in its groups, else this desk's focused tile; with its kind's sets.
+   * (focusedDesk, PIE-1346) when it is this one or down in its groups, else this desk's focused tile.
    */
-  private keysTile(): { desk: Desk; id: number; pane: Pane; sets: ActionSet<any, any>[] } | null {
+  private keysTile(): { desk: Desk; id: number } | null {
     const at = this.focusedDesk(), desk = at && this.descend().includes(at) ? at : this;
-    const pane = desk.panes.get(desk.focus), kind = kindOf(pane);
-    if (!pane || !kind) return null;
-    return { desk, id: desk.focus, pane, sets: kindActions(kind) };
+    return desk.panes.has(desk.focus) ? { desk, id: desk.focus } : null;
   }
+  /** The focused tile's menu rows the ^W panel's own group was drawn from (PIE-1338), and the desk the tile is on. */
+  private panelRows: { desk: Desk; rows: MenuRow[] } | null = null;
 
-  /** A click on a row of the ^W panel's own group: ^W is let go, and the action runs in that tile as its key would there. */
-  private runTileKey(action: string): void {
-    const tile = this.keysTile(), set = tile?.sets.find(s => s.has(action));
+  /** A click on a row of the ^W panel's own group: ^W is let go, and the drawn tile's menu row for that key runs, as its ⋯ menu runs it. */
+  private runTileKey(key: string): void {
+    const at = this.panelRows, row = at?.rows.find(r => r.key === key);
     this.prefix = ""; this.panelSince = null; this.stopPanelTimer();
     this.redraw();
-    if (tile && set) void tile.desk.press(tile.pane, set, action);
+    if (at && row) void at.desk.dispatch.press(row.action, row.args, row.tile);
   }
 
   /** Whether the pending prefix is one with a panel (^W, ^W o, ^W O). */
@@ -4284,17 +4286,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** The prefix's panel over the screen, above the hint row; false when the screen is too small for it (the strip stays). Your drawer's is the App's to draw (paintKeyPanel). */
   private drawKeyPanel(canvas: Canvas, cols: number, rows: number): boolean {
-    if (this.ctx?.hostLayer?.isDrawer(this)) return false;
-    const at = this.keyPanelAt(canvas, cols, rows, 0);
+    if (this.inDrawer()) return true;
+    const at = this.keyPanelAt(canvas, cols, rows);
     if (!at) return false;
     this.overlayHits.push(at.rect);
     this.keySpots.push(...at.spots);
     return true;
   }
 
-  /** Drawn: the panel's rectangle and its rows' spots, `dy` rows down from where this desk's keys are counted. */
-  private keyPanelAt(canvas: Canvas, cols: number, rows: number, dy: number): { rect: Rect; spots: Desk["keySpots"] } | null {
-    const p = this.hintPanel!, body = panelLines(p.groups, cols - 6, rows - 6);
+  /** Drawn: the panel's rectangle and its rows' spots, in the canvas's rows. */
+  private keyPanelAt(canvas: Canvas, cols: number, rows: number): { rect: Rect; spots: Desk["keySpots"] } | null {
+    // Too small for the tile's own group too, the panel is ^W's alone (as before PIE-1338) rather than none.
+    const p = this.hintPanel!, body = panelLines(p.groups, cols - 6, rows - 6) ?? panelLines(p.groups.filter(g => !g.accent), cols - 6, rows - 6);
     if (!body) return null;
     // Wide enough for its title and foot too (one group, ^W o's kinds, is narrower than either).
     const w = Math.min(cols, Math.max(body.width + 4, width(p.title) + 6, width(p.foot) + 6)), h = body.lines.length + 2;
@@ -4302,32 +4305,36 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const spots: Desk["keySpots"] = [];
     canvas.float(r, p.title, fg(C.dark) + p.foot, () => {
       body.lines.forEach((l, i) => canvas.text(r.col + 2, r.row + 1 + i, l, r.cols - 4));
-      for (const s of body.spots) spots.push({ y: r.row + 1 + s.line - dy, from: r.col + 2 + s.from, to: r.col + 2 + s.to, key: { kind: "char", ch: s.key }, ...(s.action ? { run: () => this.runTileKey(s.action!) } : {}) });
+      for (const s of body.spots) spots.push({ y: r.row + 1 + s.line, from: r.col + 2 + s.from, to: r.col + 2 + s.to, key: { kind: "char", ch: s.key }, ...(s.action ? { run: () => this.runTileKey(s.key) } : {}) });
     }, true, this.focusedPane() ? this.lookAt(this.focusedPane()!, cols).values : lookFor(this.lookSrc, { screen: this.name }, cols).values);
     return { rect: r, spots };
   }
 
-  /** Your drawer's ^W panel, drawn over the whole screen by the App (the drawer is too short for it): where it is, in the screen's rows. */
-  private screenPanel: { rect: Rect; spots: Desk["keySpots"] } | null = null;
+  /** This desk is your drawer's, or a group's in it: its ^W panel is drawn over the whole screen by the App. */
+  private inDrawer(): boolean { return !!this.ctx?.hostLayer?.isDrawer(this.top()); }
+  /** Your drawer's ^W panel over the whole screen (the drawer is too short for it): where it is, in the screen's rows, and whose it is. */
+  private screenPanel: { rect: Rect; spots: Desk["keySpots"]; desk: Desk } | null = null;
+  /** A ^W panel is open in your drawer (this desk's or a group's in it): the App draws it over the screen (paintKeyPanel). */
+  keyPanelOpen(): boolean { return this.descend().some(d => d.hintPanel !== null); }
   /**
    * The App's frame, with your drawer's ^W panel over it (PIE-1338): the drawer's own rows are too few for it, so it
-   * opens over the screen as a screen's does. Null with no panel open.
+   * opens over the screen as a screen's does, whichever desk in the drawer holds the ^W. Null with no panel open.
    */
   paintKeyPanel(canvas: Canvas, cols: number, rows: number): Rect | null {
     this.screenPanel = null;
-    if (!this.hintPanel || !this.ctx?.hostLayer?.isDrawer(this)) return null;
-    const at = this.keyPanelAt(canvas, cols, rows, this.screenOrigin.row);
-    if (at) this.screenPanel = at;
+    const desk = this.ctx?.hostLayer?.isDrawer(this) ? this.descend().find(d => d.hintPanel !== null) : undefined;
+    const at = desk?.keyPanelAt(canvas, cols, rows);
+    if (desk && at) this.screenPanel = { ...at, desk };
     return at?.rect ?? null;
   }
   /** A click on your drawer's panel over the screen: its row runs as the panel's rows do, the rest of it takes the click. */
   keyPanelInput(k: Key): boolean {
-    const p = this.screenPanel;
+    const p = this.keyPanelOpen() ? this.screenPanel : null;
     if (!p || k.kind !== "mouse" || k.y < p.rect.row || k.y >= p.rect.row + p.rect.rows || k.x < p.rect.col || k.x >= p.rect.col + p.rect.cols) return false;
     if (k.action !== "down") return true;
-    const y = k.y - this.screenOrigin.row, spot = p.spots.find(s => s.y === y && k.x >= s.from && k.x < s.to);
+    const spot = p.spots.find(s => s.y === k.y && k.x >= s.from && k.x < s.to);
     if (spot?.run) spot.run();
-    else if (spot && this.ctx) { this.redraw(); asBoundKey("click", () => this.key(spot.key, this.ctx)); }
+    else if (spot && p.desk.ctx) { p.desk.redraw(); asBoundKey("click", () => p.desk.key(spot.key, p.desk.ctx)); }
     return true;
   }
 

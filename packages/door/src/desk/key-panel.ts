@@ -1,17 +1,17 @@
 // The panel a prefix key opens (PIE-1304): every key that can follow it, grouped, each row clickable, laid out in
 // columns over the screen. It draws rows it is given and words none of its own: the ^W rows come from the key table
 // joined to each action's own words (wkeys.ts `wRows`), ^W o's from the tile kinds' own keys, and ^W's first group, the
-// focused tile's own keys (PIE-1338), from its kind's actions (`tileKeys`). A prefix shows it after a
+// focused tile's own keys (PIE-1338), from its tile menu's rows (`tileKeys`). A prefix shows it after a
 // short pause (which-key's), so a fast typist never sees it; the hint row's one-line strip stays where it can't fit.
 import { C, fg, pad, RESET, width } from "../style";
 import { drawEllipsized } from "../style";
 import { modeHint, type ModeKey } from "../surface/modes";
-import { actionKey, keyCaption, type ActionSet } from "../surface/actions";
-import { clause } from "./wkeys";
+import { keyCaption } from "../surface/actions";
+import type { MenuRow } from "../surface/dispatch";
 
 /**
  * One key in the panel: `key` as typed after the prefix (" " is the space bar), its keycap and what it does. With
- * `action`, the key is the tile's own, typed without the prefix: a click runs that action in the tile instead.
+ * `action`, the key is the tile's own, typed without the prefix: a click runs its menu row in the tile instead.
  */
 export interface PanelKey { key: string; cap: string; label: string; action?: string }
 /** A group of keys under its title; `accent`: drawn in the accent, the focused tile's own (PIE-1338). */
@@ -25,10 +25,15 @@ export const PANEL_KEYS: readonly ModeKey[] = [
   { key: "click", action: "keys.panel", label: "a row runs its key" },
   { key: "esc", action: "keys.panel", label: "close" },
 ];
+/**
+ * Esc's words when the panel lists the tile's own keys (PIE-1338): after ^W the next key is ^W's (x closes the tile), so
+ * the tile's own keys are typed once the panel is closed.
+ */
+export const PANEL_ESC_OWN: ModeKey = { key: "esc", action: "keys.panel", label: "close: then this tile's keys are its own" };
 
-/** The foot under a panel: its keys, then `more` (the prefix's own, as `?` on ^W). */
-export function panelFoot(more: readonly ModeKey[] = []): string {
-  const keys = [...PANEL_KEYS, ...more];
+/** The foot under a panel: its keys, then `more` (the prefix's own, as `?` on ^W); `own`, it lists the tile's own keys. */
+export function panelFoot(more: readonly ModeKey[] = [], own = false): string {
+  const keys = [...PANEL_KEYS.map(k => (own && k.key === "esc" ? PANEL_ESC_OWN : k)), ...more];
   return [modeHint(keys, () => undefined), ...keys.filter(k => k.key === "click").map(k => `${k.key}: ${k.label}`)].filter(Boolean).join(" · ");
 }
 
@@ -39,18 +44,15 @@ export function panelPauseMs(env: Record<string, string | undefined> = process.e
 }
 
 /**
- * The focused tile's own keys, the ^W panel's first group (PIE-1338): each action of its kind's sets that has a key, as
- * the action says it. The key is the one its tile menu row shows (`actionKey`); the words are that row's, else the
- * summary's first clause. A tile whose actions have no keys has no group.
+ * The focused tile's own keys, the ^W panel's first group (PIE-1338): its tile menu's own rows (the ⋯ menu,
+ * `Dispatcher.menu`, from its actions' own `menu` entries; `own`, not the screen's every-tile rows) that have a key of
+ * their own, not a ^W chord, each once.
  */
-export function tileKeys(name: string, sets: readonly ActionSet<any, any>[]): PanelGroup {
+export function tileKeys(name: string, rows: readonly MenuRow[]): PanelGroup {
   const keys: PanelKey[] = [];
-  for (const set of sets) for (const action of set.names()) {
-    const def = set.def(action)!, key = actionKey(def.keys);
-    if (!key || keys.some(k => k.key === key)) continue;
-    const menu = def.menu === undefined ? [] : Array.isArray(def.menu) ? def.menu : [def.menu];
-    const row = menu.find(m => (m.key ?? key) === key);
-    keys.push({ key, cap: keyCaption(key), label: row?.label ?? clause(def.summary), action });
+  for (const r of rows) {
+    if (!r.own || !r.key || r.key.includes(" ") || r.key === "ctrl+w" || keys.some(k => k.key === r.key)) continue;
+    keys.push({ key: r.key, cap: keyCaption(r.key), label: r.label, action: r.action });
   }
   return { title: `this tile: ${name}`, keys, accent: true };
 }
