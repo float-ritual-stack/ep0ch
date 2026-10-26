@@ -244,7 +244,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     const d = sc.tilesHere()!, original = d.layoutSpec();
     const frame = () => { (app as any).paint(true); return h.painted; };
     // The terminal cells of `row` from `col`, `n` wide: in the frame, and in the screen drawn alone (what the float shows).
-    const cells = (lines: string[], row: number, col: number, n: number) => { const c = new Canvas(400, 1); c.text(0, 0, lines[row] ?? ""); return c.grid()[0]!.slice(col, col + n).map(x => x.ch).join(""); };
+    const cells = (lines: string[], row: number, col: number, n: number) => { const c = new Canvas((app as any).term.info.cols, 1); c.text(0, 0, lines[row] ?? ""); return c.grid()[0]!.slice(col, col + n).map(x => x.ch).join(""); };
     const own = () => sc.render(app).lines;
     const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
     try {

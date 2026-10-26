@@ -30,7 +30,7 @@ import { valuesOf } from "@ep0ch/outline-core/block-record";
 import { interpolate } from "@ep0ch/outline-core/interpolation";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { headedTitle, subject, type Msg } from "../board";
-import { BORDER_BOXES, Canvas, DOTTED_BOX, LINE_BOX, NO_BOX, overflows, type BoxGlyphs, type Rect } from "../canvas";
+import { BORDER_BOXES, Canvas, DOTTED_BOX, LINE_BOX, NO_BOX, overflows, shadowRects, type BoxGlyphs, type Rect } from "../canvas";
 import { TONE } from "../callouts";
 import { MOUSE_RIGHT, RowPresses, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
@@ -3459,7 +3459,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (id === this.focus && this.keysHere()) canvas.backdrop(values);
       canvas.shadow(r, values);
       lay(id, r, false, true);
-      this.raised.floats.push({ rect: r, shadow: [{ col: r.col + r.cols, row: r.row + 1, cols: 1, rows: r.rows - 1 }, { col: r.col + 1, row: r.row + r.rows, cols: r.cols, rows: 1 }] });
+      // Drawn where it is: not lifted (paintLift draws it) nor in flight (drawn later, where the motion has it).
+      if (this.layout.lift?.tile !== id && !this.inFlight.has(id)) this.raised.floats.push({ rect: r, shadow: shadowRects(r) });
       canvas.under(r, bgRgb(floatTheme(values).bg));
       canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
     }
@@ -6640,7 +6641,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const out = { floats: this.raised.floats.map(f => ({ rect: at(f.rect), shadow: f.shadow.map(at) })), menus: this.raised.menus.map(at) };
     for (const [id, r] of this.hits) {
       const pane = this.panes.get(id);
-      if (!(pane instanceof ScreenTile) || !pane.inner || this.contentCover(id).fold || this.cover(id) === "spine") continue;
+      if (!(pane instanceof ScreenTile) || !pane.inner || this.layout.lift?.tile === id || this.inFlight.has(id) || this.contentCover(id).fold || this.cover(id) === "spine") continue;
       const origin = this.origin(id, r), kid = pane.inner.raisedFrom({ col: off.col + origin.col, row: off.row + origin.row });
       out.floats.push(...kid.floats); out.menus.push(...kid.menus);
     }

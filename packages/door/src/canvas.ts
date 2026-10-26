@@ -69,6 +69,12 @@ export const NO_BOX: BoxGlyphs = { top: " ", bottom: " ", side: " ", tl: " ", tr
 /** The dotted frame of the ep0ch logos (WoE, 1997): dots along, colons down. */
 export const DOTTED_BOX: BoxGlyphs = { top: ".", bottom: ".", side: ":", tl: ".", tr: ".", bl: ":", br: ":" };
 
+/** The cells `Canvas.shadow` draws for a float at `r`: the column at its right, then the row below it. */
+export const shadowRects = (r: Rect): [Rect, Rect] => [
+  { col: r.col + r.cols, row: r.row + 1, cols: 1, rows: r.rows - 1 },
+  { col: r.col + 1, row: r.row + r.rows, cols: r.cols, rows: 1 },
+];
+
 export class Canvas {
   private cells: Cell[][];
   constructor(readonly cols: number, readonly rows: number) {
@@ -211,9 +217,9 @@ export class Canvas {
   }
 
   shadow(r: Rect, values?: StyleValues): void {
-    const ink = fgRgb(floatTheme(values).shadow);
-    this.text(r.col + 1, r.row + r.rows, ink + "▒".repeat(r.cols) + RESET, r.cols);
-    for (let y = r.row + 1; y < r.row + r.rows; y++) this.text(r.col + r.cols, y, ink + "▒" + RESET, 1);
+    const ink = fgRgb(floatTheme(values).shadow), [side, below] = shadowRects(r);
+    this.text(below.col, below.row, ink + "▒".repeat(below.cols) + RESET, below.cols);
+    for (let y = side.row; y < side.row + side.rows; y++) this.text(side.col, y, ink + "▒" + RESET, 1);
   }
 
   /** A box with a title in the top edge and an optional hint in the bottom edge: single lines, or `g`'s glyphs. */

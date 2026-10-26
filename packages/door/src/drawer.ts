@@ -1492,17 +1492,20 @@ export class AgentDrawer {
    * its floats unless the person is in the drawer. The frame paints the screen's cells there (`paint`, shadows
    * included), and a click there is the screen's (`hit`).
    */
-  covers(shown: Screen | undefined): { paint: Rect[]; hit: Rect[] } {
-    const r = this.shown ? this.rect : null, d = tilesOf(shown);
-    if (!r || !d || d === this.d) return { paint: [], hit: [] };
-    const above = layersAbove(layerOrder({ inDrawer: this.entered }), "drawer"), drawn = d.drawnAbove();
-    const floats = above.includes("floats") ? drawn.floats : [], menus = above.includes("menus") ? drawn.menus : [];
+  covers(shown: Screen | undefined): { paint: { floats: Rect[]; menus: Rect[] }; hit: Rect[] } {
+    const r = this.shown ? this.rect : null, d = tilesOf(shown), paint = { floats: [] as Rect[], menus: [] as Rect[] }, hit: Rect[] = [];
+    if (!r || !d || d === this.d) return { paint, hit };
     const clip = (b: Rect): Rect[] => {
       const col = Math.max(b.col, r.col), row = Math.max(b.row, r.row);
       const cols = Math.min(b.col + b.cols, r.col + r.cols) - col, rows = Math.min(b.row + b.rows, r.row + r.rows) - row;
       return cols > 0 && rows > 0 ? [{ col, row, cols, rows }] : [];
     };
-    return { paint: [...floats.flatMap(f => [f.rect, ...f.shadow]), ...menus].flatMap(clip), hit: [...floats.map(f => f.rect), ...menus].flatMap(clip) };
+    const drawn = d.drawnAbove();
+    for (const layer of layersAbove(layerOrder({ inDrawer: this.entered }), "drawer")) {
+      if (layer === "floats") { paint.floats.push(...drawn.floats.flatMap(f => [f.rect, ...f.shadow]).flatMap(clip)); hit.push(...drawn.floats.flatMap(f => clip(f.rect))); }
+      if (layer === "menus") { paint.menus.push(...drawn.menus.flatMap(clip)); hit.push(...drawn.menus.flatMap(clip)); }
+    }
+    return { paint, hit };
   }
 
   private mouse(k: Extract<Key, { kind: "mouse" }>, shown: Screen | undefined, rows: number, run: DrawerRun): boolean {
@@ -1518,7 +1521,7 @@ export class AgentDrawer {
     const onChip = !!chip && k.y === chip.row && k.x >= chip.from && k.x < chip.to;
     // A cell the screen's float or menu is drawn over (covers) is the screen's, its edge and chips too; so is a float
     // being moved or sized, until the button comes up.
-    const covered = (!!screen && screen !== this.d && screen.floatGesture()) || this.covers(shown).hit.some(c => k.x >= c.col && k.x < c.col + c.cols && k.y >= c.row && k.y < c.row + c.rows);
+    const covered = (k.action !== "down" && !!screen && screen !== this.d && screen.floatGesture()) || this.covers(shown).hit.some(c => k.x >= c.col && k.x < c.col + c.cols && k.y >= c.row && k.y < c.row + c.rows);
     const inDrawer = !!r && k.y >= r.row && k.y < r.row + r.rows && !covered;
     // alt+l waiting for a tile (PIE-700): a click on the other desk picks it, the drawer's list linking to a reader of the
     // screen above or a screen tile to one in the drawer; the keys stay where they are.
