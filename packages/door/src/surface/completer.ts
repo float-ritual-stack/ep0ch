@@ -1218,7 +1218,7 @@ function completionHint(s: CompletionState, selected: CompletionItem | undefined
     selected.componentSchema ? "→ variations" : "", s.target.kind === "component" ? "← returns · y/[copy] source" : "",
     selected.definition ? "g/[g] definition" : "", s.target.kind === "block" && !parseFragmentCompletionQuery(s.target.query) ? "^/# narrow" : "",
   ].filter(Boolean).map(x => ` · ${x}`).join("");
-  return `${caps(COMPLETION_MOVE.keys, 2).replace(" ", "")} move · ${insert}${docs}${extra} · ${caps(COMPLETION_DISMISS.keys, 1)}`;
+  return `${caps(COMPLETION_MOVE.keys, 2).replace(" ", "")} move · ${insert}${docs}${extra} · ${caps(COMPLETION_DISMISS.keys, 1)} dismiss`;
 }
 
 const pickers = new WeakMap<CompletionState, ListPicker<CompletionItem, void>>();
