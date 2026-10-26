@@ -118,6 +118,13 @@ export const mediaWork = { scaled: 0, grids: 0, lights: 0 };
 export function onMediaChange(fn: () => void) { onChange = fn; }
 /** A new frame is being drawn: what the last one drew stays in memory (never evicted while it's on screen). */
 export function nextFrame() { frame++; }
+/**
+ * The PNGs the terminal has (src/kitty.ts uploads them), by key. Drawn by `sized` isn't enough: a placement can be cut
+ * away before it's sent (an image scrolled under a header, below a tile), and a resize draws only what the terminal has.
+ */
+const sent = new Set<string>();
+/** The terminal has PNG `key` (or, `has` false, has lost it). */
+export function onTerminal(key: string, has = true) { if (has) sent.add(key); else sent.delete(key); }
 
 /** `~`, backslash-escaped spaces, and macOS screenshot names (a narrow no-break space before AM/PM). */
 export function resolveMediaPath(raw: string): { path: string; exists: boolean } {
@@ -380,7 +387,7 @@ export function sized(m: ReadyMedia, pxW: number, pxH: number, look: Look = {}):
   // for where it ends is made then. Nothing is scaled, and nothing the terminal hasn't got is drawn, until it ends.
   const resizing = inResize();
   const exact = scaled.get(job);
-  if (exact && (!resizing || scaled.drawnIn(job) >= frame - 1)) { scaled.use(job, frame); return exact; }
+  if (exact && (!resizing || (scaled.drawnIn(job) >= frame - 1 && sent.has(exact.key)))) { scaled.use(job, frame); return exact; }
   if (!exact && !resizing && !making.has(job)) {
     making.add(job);
     sourceOf(m.path, m.key, m.kind).then(s => scale(s, edge, look)).then(ref => {
@@ -394,13 +401,13 @@ export function sized(m: ReadyMedia, pxW: number, pxH: number, look: Look = {}):
   }
   // Meanwhile: the smallest one ready with this look that covers the box, else the biggest. A resize (going on, or just
   // ended) moved the crop: the one with this look drawn last, for another crop, stands in; while it goes on, whichever
-  // was drawn last. Never one not drawn yet (the terminal hasn't got it). One for another crop is dimmed for that crop,
-  // so its placement shows that crop (PngRef.crop): never a part brighter than its dimming allowed for. Otherwise (an
-  // image's first look) its rows stay dark until the one for its crop is ready.
+  // was drawn last that the terminal has (PIE-1354: one cut away before it was sent would be uploaded mid-drag). One
+  // for another crop is dimmed for that crop, so its placement shows that crop (PngRef.crop): never a part brighter
+  // than its dimming allowed for. Otherwise (an image's first look) its rows stay dark until the one for its crop is ready.
   const tail = `\0${lookKey(look)}`, loose = looseKey(look), settling = resizedWithin(SETTLE_MS);
   const mine = [...scaled.entries()].filter(([k]) => k.startsWith(`${m.key}\0`) && (settling ? looseOf(k) === loose : k.endsWith(tail)));
   const same = mine.filter(([k]) => k.endsWith(tail)).map(([k, v]) => [Number(k.split("\0")[1]), k, v] as const).sort((a, b) => a[0] - b[0]);
-  const last = () => mine.map(([k, v]) => [scaled.drawnIn(k), k, v] as const).filter(([at]) => at >= 0).sort((a, b) => b[0] - a[0])[0];
+  const last = () => mine.map(([k, v]) => [scaled.drawnIn(k), k, v] as const).filter(([at, , v]) => at >= 0 && (!resizing || sent.has(v.key))).sort((a, b) => b[0] - a[0])[0];
   const pick = same.length && !resizing ? same.find(([e]) => e >= edge) ?? same.at(-1)! : last();
   if (pick) scaled.use(pick[1], frame);
   return pick?.[2] ?? null;

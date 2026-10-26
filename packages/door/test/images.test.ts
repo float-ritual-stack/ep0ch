@@ -1,14 +1,15 @@
 // Images (PIE-532, PIE-494): the media line's grammar and its rewrite, the layout of a sized, placed or header
 // image, the scaling that turns PNG, JPEG, WebP and GIF into PNGs no bigger than the box they're drawn in (with no
 // system tool), and the dimming that keeps a bright image dark-first. Fictional images, drawn here; no outline is written.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { heroBox, imageBox, coverCrop, mediaLines, renderDoc, type DocEnv } from "../src/doc";
-import { inWindow } from "../src/kitty";
-import { brightness, cellColours, MAX_MEAN, media, mediaCache, parseFocus, parseMediaLine, rewriteMediaLine, sized, type ReadyMedia } from "../src/media";
+import { inWindow, KittyLayer } from "../src/kitty";
+import { brightness, cellColours, MAX_MEAN, media, mediaCache, nextFrame, parseFocus, parseMediaLine, rewriteMediaLine, sized, type ReadyMedia } from "../src/media";
+import { resizeEnded, resizing } from "../src/resize";
 import { backgroundAfter, HERO_MEAN, HERO_PEAK, heroStep, overColours, useHeroHeader } from "../src/surface/hero-header";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { until } from "./scratch";
@@ -187,6 +188,25 @@ describe("scaling, with no system tool (PIE-494)", () => {
     const veil = await ready("veil.png");
     expect(veil.mean).toBeCloseTo(0.3, 1);
     expect(brightness(veil.mean)).toBeGreaterThan(0.95);
+  });
+
+  test("a resize stands in only a PNG the terminal has: one drawn but cut away before it was sent isn't uploaded mid-drag (PIE-1354)", async () => {
+    await sharp(drawn).png().toFile(file("stand.png"));
+    const m = await ready("stand.png");
+    // A header's crop, sent to the terminal; then the same picture plain (a body image scrolled out of its tile), never sent.
+    const header = { x: 0, y: 0.1, w: 1, h: 0.8 };
+    await until(() => !!sized(m, 400, 100, { crop: header }), "the header's crop", 10_000);
+    const sent = sized(m, 400, 100, { crop: header })!;
+    new KittyLayer(() => {}).sync([{ key: "header", image: sent, col: 0, row: 0, cols: 40, rows: 5 }]);
+    nextFrame();
+    await until(() => !!sized(m, 400, 200), "the plain one", 10_000);
+    nextFrame();
+    // The drag moves the header's crop: what stands in is the one on screen, not the plain one drawn later. Its clock is
+    // set back, so the settling after it has passed for the tests that follow.
+    setSystemTime(new Date(Date.now() - 60_000));
+    resizing(1000);
+    try { expect(sized(m, 380, 100, { crop: { x: 0, y: 0.12, w: 1, h: 0.76 } })?.key).toBe(sent.key); }
+    finally { resizeEnded(); setSystemTime(); }
   });
 
   test("a file changed on disk is read again", async () => {
