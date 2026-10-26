@@ -14,7 +14,7 @@
 /** The wire protocol both sides of this checkout speak. */
 export const PROTOCOL = 266;
 /** Parse/draw rules, independent of whether a write can land correctly. */
-export const GRAMMAR = 4;
+export const GRAMMAR = 5;
 
 /** A stale renderer can keep working; surface this once in the client's own message channel. */
 export function grammarWarning(grammar: number): string | undefined {
