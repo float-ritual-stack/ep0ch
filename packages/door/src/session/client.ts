@@ -318,6 +318,9 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
   });
   sock.on("close", () => leave(said ? 0 : 1, said ? "" : "the session went away"));
   sock.on("error", e => leave(1, `session socket error ${(e as NodeJS.ErrnoException).code ?? "unknown"}: ${e.message}`));
+  // The terminal is asked whether it answers `CSI 5 n`: the session counts the frames in flight on it, so a stalled link
+  // is sent the latest frame and not a queue of old ones (PIE-1163). Its answer goes in the hello (term.info.acks).
+  term.probeAcks = true;
   await term.start();
   const hello: Hello = {
     proto: PROTOCOL, ...term.info, pid: process.pid, remote: !!(process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY),

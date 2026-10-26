@@ -36,6 +36,8 @@ import { external } from "../src/open";
 import { DEFAULT_THEME, setTheme } from "../src/theme";
 import { outliner, Scratch } from "./scratch";
 import { watchHosts } from "./settle";
+import { cacheReads } from "./board-reads";
+import { ScenarioBudget } from "./parity-budget";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
@@ -59,7 +61,7 @@ export const PROBE_KEYS: Key[] = [
  */
 const ageless = (l: string) => l.replace(/(\x1b\[[\d;?]*[A-Za-z])|(?<![\d.:])\d+[smhd](?![A-Za-z0-9])/g, (m, esc) => esc ?? "#age");
 
-interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; drawer: string }
+interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; drawer: string; /** The hint row as drawn (checkHint), when the screen was drawn for this look. */ hint?: string }
 interface Finding { screen: string; keys: string; problem: string }
 
 /**
@@ -71,12 +73,37 @@ export type ParityPart = "screens" | "readers" | "board" | "desk" | "desk-tiles"
 export function parity(part: ParityPart) {
 describe.skipIf(!outliner)(`agent parity: every key a screen handles is an action (PIE-506), ${part}`, () => {
   const scratch = new Scratch();
-  let board: SocketBoard, app: App;
+  let board: SocketBoard, app: App, reads: ReturnType<typeof cacheReads>;
   let press: (k: Key) => void = () => {};
+  /** Keys read as one chunk of input (Term's onBatch): handled together, the screen painted once after them. */
+  let batch: (run: () => void) => void = run => run();
   // Settled means no answer from the host is awaited, whichever way the screen asked (test/settle.ts).
   // The power bar (ctrl+k) still asking its sources is not settled either: its rows land after.
   const hosts = watchHosts(() => { const bar = (app as any)?.bar; return !!bar && (bar.asking.size > 0 || !!bar.timer); });
-  const settle = hosts.settle;
+  // The door paints at most every 16 ms (App.redraw): a paint asked for too soon waits on a timer and fires whenever the event
+  // loop next turns, between two probes at random. Settled means that paint was made, now: the screen the probe looks at is the
+  // one the door drew (snap), not one drawn again beside it.
+  const flushPaint = () => {
+    const a = A();
+    if (!a?.paintTimer) return false;
+    a.flush();   // the door's own "paint now": the timer cleared, the frame made
+    return true;
+  };
+  const settle = async () => {
+    for (let i = 0; ; i++) {
+      await hosts.settle();
+      if (!flushPaint()) return;
+      // A paint that asked for more (a chain of loads: a list, then its rows, then their notes) is followed; one that never ends
+      // (a spinner) is left, counted for the log.
+      if (i === 7) { stats.unsettled++; return; }
+    }
+  };
+  /** The screen as the last paint drew it, while nothing has asked for another (snap reads it instead of drawing the screen again). */
+  let painted: { top: Screen; lines: string[]; at: number; refused: boolean } | null = null;
+  /** What a paint the door made threw (the timer's, or a key's own), kept for the next look: it is the probe's finding, not an error from outside any test. */
+  let paintFailed: unknown = null;
+  /** Frames the door has painted: a key's own paint draws the screen as the person sees it, so a build looks again only when none came. */
+  const frames = () => (A().speed?.frames ?? 0) as number;
   /** A terminal tile drew since this was last cleared: its program may still be printing. */
   let ptyDrew = false;
   let notes: Msg[] = [];
@@ -113,10 +140,28 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     const ptyRender = PtyPane.prototype.render;
     PtyPane.prototype.render = function (this: PtyPane, ...a: Parameters<typeof ptyRender>) { ptyDrew = true; return ptyRender.apply(this, a); };
     restore.push(() => { PtyPane.prototype.render = ptyRender; });
+    // A paint the timer makes (App.redraw) of a screen whose render throws, as a probe can leave one (a section whose tile it
+    // closed), would end the run from outside any test: snap() draws the screen too and says "render threw" about it.
+    // The rows it draws the screen with are kept for snap(), which would draw the same screen again.
+    const paint = (App.prototype as any).paint;
+    (App.prototype as any).paint = function (this: App, ...a: unknown[]) {
+      const top = A().stack.at(-1) as Screen | undefined, own = !!top && Object.hasOwn(top, "render"), render = top?.render;
+      painted = null;
+      if (top) top.render = function (this: Screen, ...r: Parameters<Screen["render"]>) {
+        const frame = render!.apply(this, r);
+        painted = { top, lines: frame.lines, at: frames(), refused: !!A().refusedNow };
+        return frame;
+      };
+      const t0 = performance.now();
+      try { return paint.apply(this, a); } catch (e) { paintFailed = e; /* the probe says it (snap) */ }
+      finally { stats.paints++; stats.paintMs += performance.now() - t0; if (top) { if (own) top.render = render!; else delete (top as { render?: unknown }).render; } }
+    };
+    restore.push(() => { (App.prototype as any).paint = paint; });
     const run = external.run;
     external.run = () => {};
     restore.push(() => { external.run = run; });
     board = new SocketBoard(await scratch.start());
+    reads = cacheReads(board);
     await board.info();
     await scratch.seedShowcase();
     notes = await board.changedSince(0, 20);
@@ -127,13 +172,13 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     Date.now = () => now() + 2 * 86_400_000;
     restore.push(() => { Date.now = now; });
     newApp();
-    board.subscribe(e => app.event(e));
+    board.subscribe(e => { reads.forget(); app.event(e); });
   }, 60_000);
 
   /** A door of its own for each screen: nothing one screen's probes left (a dock, a timer) reaches the next. */
   function newApp() {
     if (app) { for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s); try { app.quit(); } catch { /* gone */ } }
-    const term = { info: { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { press = f; }, onResize() {}, stop() {}, resume() {} };
+    const term = { info: { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { press = f; }, onBatch(f: any) { batch = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     A().cycleVideo = function () { this.video = this.video === "cells" ? "kitty" : "cells"; };
   }
@@ -146,20 +191,29 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   });
 
   /**
-   * What the door shows: the screen's rows, and the status bar under them (its `+N ext` and the agent chip
+   * What the door shows (`glance`: only the rows drawn): the screen's rows, and the status bar under them (its `+N ext` and the agent chip
    * take clicks). Of the bar, not what changes by itself: the clock, the uptime, how many changes came in, the
    * agent chip's words (its agent working or not), and the message a key flashes (it runs out on a timer), with its copy
    * on the focused tile's frame when it was a refusal (PIE-727: Ctx.refuse).
    */
-  const snap = (mask: Set<number>): Snap => {
+  const snap = (mask: Set<number>, glance = false): Snap => {
     const top = A().stack.at(-1) as Screen | undefined;
-    let lines: string[] = [];
+    let lines: string[] = [], hint: string | undefined;
     try {
       if (top) {
         const { cols, rows } = A().term.info;
         const refused = A().refusedNow;
         A().refusedNow = null;
-        try { lines = top.render(app).lines.slice(0, rows - 1).map(ageless); } finally { A().refusedNow = refused; }
+        // The last paint drew this screen, nothing has changed or asked for a paint since, and no refusal copy is on its frame
+        // (a probe leaves that out): its rows are the screen's.
+        const current = painted && painted.top === top && painted.at === frames() && !painted.refused && !A().changed && !A().paintTimer;
+        try {
+          const l0 = performance.now();
+          const drawn = current ? painted!.lines : top.render(app).lines;
+          if (!current) { stats.looks++; stats.lookMs += performance.now() - l0; }
+          hint = plain(drawn.at(top instanceof MainMenu ? -2 : -1) ?? "");
+          lines = drawn.slice(0, rows - 1).map(ageless);
+        } finally { A().refusedNow = refused; }
         while (lines.length < rows - 1) lines.push("");
         const drawer = A().drawer;
         drawer.active = !top.noDrawer;
@@ -171,9 +225,12 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         lines = lines.map((l, i) => (mask.has(i) ? "" : l));
       }
     } catch (e) { lines = [`render threw ${e}`]; }
+    if (paintFailed) { lines = [`render threw ${paintFailed}`]; paintFailed = null; }
+    // A glance is the screen drawn and nothing to compare: what a build does between its keys (no description, no whereabouts).
+    if (glance) return { top, depth: A().stack.length, lines, about: "", holds: false, video: app.video, drawer: dock() };
     let about = "";
     try { about = JSON.stringify(top?.describe?.() ?? null); } catch { about = "?"; }
-    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: app.person().busy, video: app.video, drawer: dock() };
+    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: app.person().busy, video: app.video, drawer: dock(), hint };
   };
   /**
    * The drawer over the screen: up or put away, the person in it or not, its height. Its rows are the
@@ -191,12 +248,49 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   };
   const masks = new Map<string, Set<number>>();
   /** A fresh screen on the stack (over the menu), settled; and the rows that change by themselves (a clock, a meter). */
-  const stats = { fresh: 0, freshMs: 0, second: 0 };
-  const fresh = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
-    stats.fresh++; const f0 = Date.now();
-    try { return await freshIn(label, make, setup); } finally { stats.freshMs += Date.now() - f0; }
+  const stats = { fresh: 0, freshMs: 0, second: 0, unsettled: 0, paints: 0, paintMs: 0, looks: 0, lookMs: 0, pressMs: 0, settleMs: 0 };
+  /**
+   * A scenario is held to a budget (PARITY_BUDGET_MS, 60 s): past it the scenario fails by name, with the slowest key and the
+   * slowest build, rather than running on to the test's own timeout (PIE-1307: one ran 570 s against a 600 s limit and took the
+   * next scenario with it). Checked between probes and builds, so a hung settle (3 s at most) is the longest it overshoots.
+   */
+  const budget = new ScenarioBudget(Number(process.env.PARITY_BUDGET_MS) > 0 ? Number(process.env.PARITY_BUDGET_MS) : 60_000);
+  const keysLog = process.env.PARITY_KEYS;   // every probe's key and its milliseconds, one line each: what a scenario spends its time on
+  let scenario = "";
+  const timed = (key: string, since: number) => {
+    const ms = performance.now() - since;
+    budget.key(key, ms);
+    if (keysLog) require("node:fs").appendFileSync(keysLog, `${scenario}\t${key}\t${ms.toFixed(1)}\n`);
   };
-  const freshIn = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
+  const overBudget = (label: string, doing: string) => budget.check(label, doing, { builds: stats.fresh, buildMs: stats.freshMs, seconds: stats.second });
+  const fresh = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
+    overBudget(label, "a build");
+    stats.fresh++; const f0 = performance.now();
+    try { return await freshWith(label, make, setup); } finally { const ms = performance.now() - f0; stats.freshMs += ms; budget.build(ms); }
+  };
+  /**
+   * A setup's keys are a way to a state, not what is probed. Pressed one by one each paints the screen (a person's keys do),
+   * and a scenario is built a few hundred times; pressed as one chunk of input, as a fast typist's or a paste arrives, the
+   * screen is painted once after them. The first build of a setup is made both ways and the two screens compared: when
+   * they match the setup is pressed as a chunk from then on, else it keeps painting between keys (a key that waits on
+   * what the last one's paint asked for, a list's rows, is one only the slow way reaches).
+   */
+  const pacing = new Map<string, boolean>();
+  const freshWith = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[]): Promise<Set<number>> => {
+    if (setup.length < 2 || process.env.PARITY_PACED === "1") return freshIn(label, make, setup, false);
+    const id = `${label}\0${setup.map(named).join(" ")}`, known = pacing.get(id);
+    if (known !== undefined) return freshIn(label, make, setup, known);
+    const mask = await freshIn(label, make, setup, false);
+    const paced = snap(mask);
+    await freshIn(label, make, setup, true);
+    const chunk = snap(mask), ids = (t: string) => t.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "#id");
+    const alikeChunk = paced.top?.constructor === chunk.top?.constructor && paced.depth === chunk.depth && paced.holds === chunk.holds && paced.drawer === chunk.drawer && ids(paced.about) === ids(chunk.about) && paced.lines.length === chunk.lines.length && paced.lines.slice(0, -1).every((l, i) => l === chunk.lines[i]);   // the status bar's clock is another minute's
+    pacing.set(id, alikeChunk);
+    if (log) require("node:fs").appendFileSync(log, `# ${label}: setup ${setup.map(named).join(" ")} ${alikeChunk ? "as a chunk of input reaches the same screen" : "painted between keys: as a chunk it reaches another screen"}\n`);
+    return alikeChunk ? mask : freshIn(label, make, setup, false);
+  };
+  const freshIn = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = [], chunked = false): Promise<Set<number>> => {
+    paintFailed = null;
     for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s);
     // The power bar is the App's, over every screen: put away.
     A().bar?.close(); A().bar = null;
@@ -214,19 +308,23 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // A probe's alt+t (theme.cycle) changes every screen's colours: each screen starts in the default theme.
     setTheme(DEFAULT_THEME);
     A().stack.push(new MainMenu());
+    ptyDrew = false;
     const s = await make();
+    let pressed = frames();
     if (!(s instanceof MainMenu)) app.push(s); else A().stack.splice(0, 1, s);
     A().lastInput = 0;
     await settle();
     // Drawn before each key as the person would see it (a key can depend on the last layout, as the river's
     // ⏎ does), and settled after: a paint asks for what it draws (a reply count, a title).
-    for (const k of setup) { snap(new Set()); await settle(); press(k); await settle(); }
+    if (chunked) { batch(() => { for (const k of setup) press(k); }); await settle(); }
+    else for (const k of setup) { if (frames() === pressed) snap(new Set(), true); await settle(); pressed = frames(); press(k); await settle(); }
     // A second look only when the first asked the service for something (what it draws once that comes).
-    for (let i = 0; i < 2; i++) { const n = hosts.asked(); snap(new Set()); await settle(); if (hosts.asked() === n) break; }
+    for (let i = 0; i < 2; i++) { const n = hosts.asked(); if (i > 0 || frames() === pressed) snap(new Set(), true); await settle(); if (hosts.asked() === n) break; }
     // Until it holds still (a terminal's prompt arriving), at most a second. Only a terminal draws by itself
-    // (in a tile, or the drawer's): without one, a settle and one more look is enough.
-    ptyDrew = false;
-    for (let i = 0, was = snap(new Set()); i < 50; i++) { if (ptyDrew || drawer.p || i > 0) await Bun.sleep(5); await settle(); const now = snap(new Set()); if (alike(was, now)) break; was = now; }
+    // (in a tile, or the drawer's): without one, the looks above (settled, nothing more asked of the host) were enough.
+    if (ptyDrew || drawer.p) {
+      for (let i = 0, was = snap(new Set()); i < 50; i++) { if (ptyDrew || drawer.p || i > 0) await Bun.sleep(5); await settle(); const now = snap(new Set()); if (alike(was, now)) break; was = now; }
+    }
     const id = `${label}\0${setup.map(named).join(" ")}`;
     let mask = masks.get(id);
     if (!mask) {
@@ -267,9 +365,17 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     press(k);
     if (k.kind === "mouse" && k.action === "down") press({ ...k, action: "up" });
   };
+  /** A probe's key: pressed, then waited out. Where the time goes (the door handling it, then painting and settling) is counted for the log. */
+  const go = async (k: Key) => {
+    const t0 = performance.now();
+    push(k);
+    const t1 = performance.now();
+    await settle();
+    stats.pressMs += t1 - t0; stats.settleMs += performance.now() - t1;
+  };
 
   // Hints: every key the hint row names is declared by an action the screen (or the shell, or the drawer) takes.
-  const checkHint = (label: string) => {
+  const checkHint = (label: string, looked?: Snap) => {
     const top = A().stack.at(-1) as Screen | undefined;
     if (!top) return;
     const acts = [...(top.dispatch?.list().actions ?? []), ...SHELL_ACTIONS.list(), ...DRAWER_ACTIONS.list(), ...EXT_ACTIONS.list(), ...NEW_NOTE_ACTIONS.list()];
@@ -278,7 +384,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     const tiles: { hint?(): string }[] = [...((top as any).panes?.values?.() ?? [])];
     // A row cut on a narrow screen ("? more", PIE-509) is checked whole, and so is a float's frame hint.
     // The menu ends in newscan metadata, so its last key hint row is immediately above it.
-    const row = plain(top.render(app).lines.at(top instanceof MainMenu ? -2 : -1) ?? ""), full = (top as any).hintFull as string | null | undefined;
+    const row = looked?.top === top && looked.hint !== undefined ? looked.hint : plain(top.render(app).lines.at(top instanceof MainMenu ? -2 : -1) ?? ""), full = (top as any).hintFull as string | null | undefined;
     for (const hint of [full ? plain(full) : row, plain((top as any).floatHint?.() ?? ""), ...tiles.map(t => plain(t.hint?.() ?? ""))])
     for (const k of hintKeys(hint)) if (!declared.has(k) && k !== "click" && k !== "drag" && k !== "wheel") hintFindings.push({ screen: `${label} (${top.title})`, keys: k, problem: `the hint names ${k}, which no action here declares: ${hint.trim().slice(0, 140)}` });
   };
@@ -299,7 +405,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     const base = snap(mask);
     const runs: ActionRun[] = [];
     const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
-    try { push(k); await settle(); } finally { stop(); }
+    try { await go(k); } finally { stop(); }
     const after = snap(mask);
     if (same(base, after) || runs.length || (after.holds && after.top === base.top)) return null;
     return changes(base, after) || "the screen";
@@ -349,17 +455,31 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       sharedStates.add(id);
       return false;
     };
+    // The states this scenario has opened: a state is the action that opened it and the screen it left, so a second key that opens
+    // the same one (showcase.section.try by enter, l, right and tab) is the same state, probed once. The same only when everything
+    // seen is: the rows under the status bar, the description (without the tiles' ids, new each build), the stack and the drawer.
+    // Two keys that open different modes of one action (note.props: i inline, I full) draw differently, and both are probed.
+    const reachedStates = new Set<string>();
+    const reached = (k: Key, runs: ActionRun[], after: Snap) => {
+      const ids = (t: string) => t.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "#id");
+      const id = `${runs[0]?.scope}.${runs[0]?.name}\0${after.top?.constructor.name}\0${after.depth}\0${after.drawer}\0${ids(after.about)}\0${after.lines.slice(0, -1).join("\n")}`;
+      if (!reachedStates.has(id)) { reachedStates.add(id); return false; }
+      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} reaches the state ${runs[0]?.name} did, probed already\n`);
+      return true;
+    };
     /** The targeted actions a key or click ran alone, once each: replayed below as the act string would address the tile (PIE-1286). */
     const pointed = new Map<string, { key: Key; req: RunRequest }>();
     for (const k of [...PROBE_KEYS, ...await clicks()]) {
       if (dirty) { mask = await fresh(label, make, setup); dirty = false; last = null; }
       const base = last ?? snap(mask);
-      const runs: ActionRun[] = [];
+      const runs: ActionRun[] = [], every: ActionRun[] = [];
       const reqs: RunRequest[] = [];
-      const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
+      const stop = traceActions(r => { every.push(r); if (keyed(r)) runs.push(r); });
       const stopReqs = traceRequests(r => { if (r.actor.kind === "user") reqs.push(r); });
       if (process.env.PARITY_TRACE) require("node:fs").appendFileSync(process.env.PARITY_TRACE, `${label} ${named(k)}\n`);
-      try { push(k); await settle(); } finally { stop(); stopReqs(); }
+      overBudget(label, `key ${named(k)}`);
+      const pressed = performance.now(), asked = A().redrawsAsked();
+      try { await go(k); } finally { stop(); stopReqs(); timed(named(k), pressed); }
       const after = snap(mask);
       const req = reqs[0];
       // Pointed at a tile: it was named (`tile=`), or the action is a tile's own (its default is the focused one, so an id says the same).
@@ -368,17 +488,19 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         if (!pointed.has(id)) pointed.set(id, { key: k, req });
       }
       last = after;
+      // A screen an action changed was repainted (PIE-1301): the action redrew it, or said it changed what's shown (`repaints`).
+      if (every.length && !same(base, after) && A().redrawsAsked() === asked) findings.push({ screen: label, keys: named(k), problem: `ran ${every.map(r => r.name).join(", ")}, which changed the screen and asked for no repaint (declare repaints: true)` });
       if (same(base, after) && !runs.length) continue;
       dirty = true;
       if (same(base, after)) continue;          // ran an action that changed nothing (refused): fine
-      checkHint(label);
+      checkHint(label, after);
       // A key that leaves the screen holding the keys starts an input state (a prefix, a palette, an edit,
       // a comment, the property panel), whether or not an action opened it: its keys are probed next.
       const opened = after.holds && !base.holds && after.top === base.top && k.kind !== "mouse";
       if (runs.length) {
         if (!declares(tokens(runs), k)) findings.push({ screen: label, keys: named(k), problem: `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it` });
         if (log && opened) require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} opened by ${runs.map(r => `${r.scope}.${r.name}`).join(",")}\n`);
-        if (opened && !shared(k, runs)) states.push(k);
+        if (opened && !shared(k, runs) && !reached(k, runs, after)) states.push(k);
         continue;
       }
       if (after.holds && after.top === base.top) { if (log && k.kind !== "mouse") require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} holds, no action\n`); if (k.kind !== "mouse") states.push(k); continue; }
@@ -399,29 +521,38 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     for (const k1 of states) {
       dirty = true;
       let rest: Snap | null = null, entered: Snap | null = null;
+      // What the last second key left, when it changed nothing: the next one starts from it (as the first keys do).
+      let cur: Snap | null = null;
       for (const k2 of seconds) {
         if (dirty) {
           mask = await fresh(label, make, setup);
           rest = snap(mask);
-          press(k1); await settle(); snap(mask); await settle();
-          entered = snap(mask); dirty = false;
+          press(k1); await settle(); snap(mask, true); await settle();
+          entered = cur = snap(mask); dirty = false;
         }
-        const mid = snap(mask);
+        const mid = cur ?? snap(mask);
+        cur = null;
         const runs: ActionRun[] = [];
         const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
-        try { push(k2); await settle(); } finally { stop(); }
+        overBudget(label, `keys ${named(k1)} ${named(k2)}`);
+        const pressed = performance.now();
+        try { await go(k2); } finally { stop(); timed(`${named(k1)} ${named(k2)}`, pressed); }
         const after = snap(mask);
-        if (same(mid, after)) continue;
+        if (same(mid, after)) { cur = after; continue; }
         // Typing that keeps the state goes on from where it is (most second keys are text).
-        if (!runs.length && after.holds && after.top === mid.top) continue;
+        if (!runs.length && after.holds && after.top === mid.top) { cur = after; continue; }
         // A cancel (the screen as it was before k1): k1 again enters the state, no rebuild needed.
         if (!runs.length && rest && alike(rest, after)) {
           press(k1); await settle();
-          if (!entered || !alike(entered, snap(mask))) dirty = true;
+          const again = snap(mask);
+          if (!entered || !alike(entered, again)) dirty = true; else cur = again;
           continue;
         }
         dirty = true;
-        // A finding is made only from the state built again: the keys before this one may have moved it on.
+        // What the key ran names it, and the keys before it left the state as it was entered: nothing to confirm. A finding is made only
+        // from the state built again (the keys before this one may have moved it on), so a suspect is built again, as the first keys'
+        // findings are made from the first look. A state typing has moved on is built again whatever ran.
+        if (runs.length && declares(tokens(runs), k2, k1) && entered && alike(entered, mid)) continue;
         const problem = await second(label, make, setup, k1, k2);
         if (problem) findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem });
       }
@@ -491,7 +622,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     const mid = snap(mask);
     const runs: ActionRun[] = [];
     const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
-    try { push(k2); await settle(); } finally { stop(); }
+    const pressed = performance.now();
+    try { await go(k2); } finally { stop(); timed(`${named(k1)} ${named(k2)}`, pressed); }
     const after = snap(mask);
     if (same(mid, after)) return null;
     if (runs.length) return declares(tokens(runs), k2, k1) ? null : `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it`;
@@ -631,12 +763,14 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     if (only && !only.includes(label)) continue;
     test(`${label}: every key and click it handles runs an action that names it`, async () => {
       const before = found.length + hintFound.length, t0 = Date.now();
+      for (const k of Object.keys(stats) as (keyof typeof stats)[]) stats[k] = 0;
+      scenario = label; budget.start();
       await audit(label, make, setup ?? []);
-      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks)\n`);
-      stats.fresh = stats.freshMs = stats.second = 0;
+      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks; slowest key ${budget.worst().key} ${budget.worst().keyMs.toFixed(0)} ms, slowest build ${budget.worst().buildMs.toFixed(0)} ms; keys: ${stats.pressMs.toFixed(0)} ms handling, ${stats.settleMs.toFixed(0)} ms settling; ${stats.unsettled} unsettled; ${stats.paints} paints ${stats.paintMs.toFixed(0)} ms, ${stats.looks} looks ${stats.lookMs.toFixed(0)} ms)\n`);
+      for (const k of Object.keys(stats) as (keyof typeof stats)[]) stats[k] = 0;
       const mine = [...found, ...hintFound].slice(before).map(f => `${f.screen}\t${f.keys}\t${f.problem}`);
       expect(mine).toEqual([]);
-    }, 600_000);
+    }, budget.limitMs + 60_000);
   }
   // The other parts leave the shell's states to this one: a desk that stopped opening one would leave it unprobed.
   if (part === "desk" && !only) test("the shell's input states were probed here, as no other part probes them", () => {

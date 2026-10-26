@@ -26,6 +26,45 @@ are its record. The outliner's entries from then are kept below, under
 - **Saved layouts.** A tile's slot (`slot`, the place a screen's spec gave it) is no longer the leaf's `role`, which now says
   what the tile is for. An older saved layout moves to the new words with one command, with the sessions ended first (a running session writes its old layout back over it): `ep0ch session end --all --yes`, then `bun packages/door/scripts/migrations/tile-roles.ts <state dir> --write` (without `--write` it says what it would change), then start the door. It also gives the drawer's own program its role in a drawer-tiles.json an older door saved under another name, where `drawer.agent` would otherwise answer "closed".
 
+### The door's key-by-key tests wait on nothing, and one that runs long fails by name (PIE-1307)
+
+The door's parity tests press every key and click every cell of each screen; together they added up to about 7,500 s, with
+`desk: facets tile` at 150 to 330 s and showcase `X` at 570 s against a 600 s limit, on a machine that was idle. Rebuilding the
+screen after each probe took 143 ms a build, about 60% of the facets scenario, in sleeps and settle loops.
+
+- **Measured:** `desk: facets tile` 92 to 127 s, now about 21 s; showcase `X` 208 s, now about 27 s; the six `parity-*` files 861 s
+  whole on float-2 (a scenario at most about 40 s).
+- **The door is settled when its paint has been made and no host answer is awaited,** not after a sleep. The outline host is asked
+  each read once while nothing changes. A scenario's setup keys are pressed as one chunk of input after the first build has reached
+  the same screen both ways. A state two keys open the same way is probed once, and a second key whose action names it is not built
+  again to confirm (the docs name these narrowings in `packages/door/docs/AGENT-INTERFACE.md`).
+- **A scenario over `PARITY_BUDGET_MS` (60 s) fails by its own name** with its slowest key and build, instead of running on to the
+  test's timeout and taking the next scenario with it. `PARITY_KEYS=<file>` writes every probe's milliseconds.
+- **The door itself got cheaper where the tests found waste:** the power bar's action list weighs each action with one answer to
+  where you are and which tile an address names, not one each (it was 19% of showcase `X`'s time); the policy panel
+  (`^W P`) no longer builds every action's menu rows to find the one it shows; the drawer chip reads its tabs once; a note's readable
+  source, titles and the facets tile's rows are kept while their text and answers are the same; the logo is drawn from its cells once.
+- **The hover test's frame bound follows its duration** (the door paints once per 16 ms, so a slow machine paints more for the same
+  burst), where `frames <= 10` flaked at 12 or 13 under load.
+
+### A slow or stalled ssh link is sent the latest frame, never a queue of old ones (PIE-1163)
+
+Evan, Oct 21, tethered over ssh: after a wifi drop mid-drag he watched a replay of every intermediate frame. The daemon
+can't see the link (its socket to the client is local; sshd's window holds about 2 MB, 60 to 250 frames), and nothing dropped them.
+
+- **A frames-in-flight window per client.** A client's terminal is asked to answer `CSI 5 n` after each frame; with two unanswered the
+  client isn't painted, and its next answer paints the latest. The rows it missed are remembered by the diff (`Rows.paint`), so no
+  stale frame is ever sent. Measured on a pty stand-in for a 100 KB/s ssh link with a 2 MB window, 100 resize steps at 20 Hz: the
+  screen stopped changing about 0.4 s after the last step, from 8 to 10 s before, and 40 KB were still queued after it, from 0.8 to 1 MB.
+- **Off where it can't work.** Asked at the probe (`Hello.acks`): a terminal that doesn't answer, or a client behind Herdr, tmux or screen
+  (which answer for themselves), is sent every frame as before. A frame unanswered for 5 s is given up on; a program handed the terminal
+  (`$EDITOR`, the drop shell) waits for the answers first, so none is typed into it.
+- **A drag held still isn't over.** The resize's 0.5 s hold now lasts while the button is down (30 s for a release that never comes), so a
+  link that stalls mid-drag doesn't trigger the full relayout and image uploads onto the link that just stalled.
+- **Catching up after a stall draws every row again and frees no image** (it disposed every Kitty image and uploaded them all again).
+- **`peek` shows it:** `speed.clients` has each terminal's `unacked` frames, `skipped` paints, `ackMs` and `ackTimeouts`.
+  No protocol bump: `Hello.acks` is optional.
+
 ### Jev's figure suggestions are recorded, and whether each was followed is worked out (PIE-1251)
 
 - **Every suggestion a write's answer carries leaves a record** (`type::suggestion` under Records): the note and revision,
@@ -70,6 +109,20 @@ are its record. The outliner's entries from then are kept below, under
 - **Door tests: a scratch host Bun ended at a test's timeout is started again for the next test.** Bun ends every process a file
   started when one of its tests times out, so one slow test used to fail every test after it with `connect ENOENT …/host.sock`;
   now only the slow one fails (`test/scratch.ts` `revive`, asked by `test/preload.ts` before each test).
+
+### An action that changed nothing doesn't repaint, and none paints twice (PIE-1301)
+
+Part of the door-speed audit (a hover that moved nothing painted a whole frame; over ssh every key painted twice).
+
+- **The dispatcher's blanket redraw after every press is gone.** An action says whether it changed what's shown
+  (`ActionDef.repaints`: `true`, `false`, or from its answer). Left out, an action that touches `nothing` of the
+  person's changed nothing shown, and every other did. An action that already asked for its paint (a `redraw()` of
+  its own) gets no second one behind it; one that answers later is painted when it does.
+- **Whose redraw it was is known:** a redraw counts for the press whose action asked for it (not for another press running at
+  the same time), and a frame an inner press painted doesn't stand for what its outer action changed after it. A screen
+  host's `beforeAction` says when it changed what's shown (the desk dropping a hint card), and the press repaints for it.
+- **Parity checks it:** a key or click that changes the screen through an action must have asked for a repaint.
+- No protocol change.
 
 ### A mounted screen acts and looks like one screen (PIE-1283, PIE-1305)
 

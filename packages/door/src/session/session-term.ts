@@ -19,7 +19,7 @@ import type { Placement } from "../kitty";
 import { Mirror } from "../mirror";
 import { C, bg, fg, pad, RESET, visible, headOf } from "../style";
 import { paintable } from "../text";
-import { GROUND_RESET, KeyDecoder, Rows, type Key, type TermInfo } from "../term";
+import { GROUND_RESET, KeyDecoder, Rows, STATUS_OK, STATUS_QUERY, type Key, type TermInfo } from "../term";
 import type { ClientInfo, DaemonMsg, Hello } from "./protocol";
 import type { StatusInput } from "@ep0ch/outline-core/program-status";
 
@@ -37,6 +37,23 @@ export interface Link {
 /** A client that has this much unread output is skipped until it catches up, then painted whole. */
 export const BACKLOG_LIMIT = 4 << 20;
 
+/**
+ * How many frames a client may have been sent that its terminal hasn't answered (`CSI 5 n` after each, PIE-1163). The daemon
+ * can't see the link: its socket to the client is local, and the slow hop is sshd to the terminal, whose buffers hold
+ * megabytes (60 to 250 frames) that then play back at link speed. At this many unanswered a client isn't painted; the
+ * rows it missed are remembered by `Rows.paint` (it diffs against what it last wrote), and its next answer is painted
+ * with the latest. Two: one on the wire while the next is made, never a queue.
+ */
+export const FRAMES_IN_FLIGHT = 2;
+/** A frame unanswered this long is given up on (a terminal that swallowed the answer): the window opens, and it's counted. */
+export const ACK_STALE_MS = 5000;
+/**
+ * A program given the terminal waits this long for the frames in flight to be answered: an answer arriving after would be
+ * typed into it. On a link stalled for longer than this the program still gets a stray `ESC [ 0 n` (the program's own output
+ * can't cross that link either, so nobody is looking at it yet).
+ */
+export const HANDOVER_SETTLE_MS = 2000;
+
 /** One attached client: its terminal, its rows and images, its keys. */
 /** How long the client with the keys may go untouched before a terminal attaching takes the session from it. */
 export const TAKE_AFTER_IDLE_MS = 30_000;
@@ -52,17 +69,36 @@ export class SessionClient {
   away: string | null = null;
   /** It stopped reading: frames are skipped until it drains, then it is painted whole. */
   behind = false;
+  /** Its terminal answers `CSI 5 n` (Hello.acks): each frame sent is followed by one, and `inflight` holds when the unanswered ones were sent. */
+  readonly acks: boolean;
+  inflight: number[] = [];
+  /** A frame was skipped because its window was full: the next answer paints the latest. */
+  waiting = false;
+  /** What the window did, for `peek`: frames skipped, answers given up on, the smoothed round trip of an answer (ms). */
+  skipped = 0; ackTimeouts = 0; ackMs: number | null = null;
+  staleTimer: Timer | null = null;
+  /** Frames given up on whose answers may still come: the next that many answers are theirs, not newer frames'. */
+  lost = 0;
+  /** Called when `inflight` has emptied (a program waiting to be given the terminal). */
+  settled: (() => void)[] = [];
   /** It just took the session at another size: its clicks were aimed at the old frame until it's painted again. */
   fresh = false;
   constructor(readonly id: number, readonly hello: Hello, readonly link: Link) {
     this.info = { cols: clamp(hello.cols, 80), rows: clamp(hello.rows, 25), cellW: clamp(hello.cellW, 9), cellH: clamp(hello.cellH, 18), kitty: !!hello.kitty, pst: !!hello.pst, tree: !!hello.tree, sized: !!hello.sized };
-    this.rows = new ClientRows(s => { if (!this.away && !this.behind) this.link.send({ t: "output", text: s }); }, this.info);
+    this.acks = !!hello.acks;
+    this.rows = new ClientRows(s => { if (this.sending) this.link.send({ t: "output", text: s }); }, this.info);
+    // A frame that goes out is followed by the query its terminal answers once it has taken the frame (never one that doesn't go out).
+    if (this.acks) this.rows.afterFrame = () => { if (!this.sending) return ""; this.inflight.push(performance.now()); return STATUS_QUERY; };
     this.painter = new Painter(this.rows);
     this.decoder = new KeyDecoder(this.info);
     // An image its terminal lost (Tern restarted, the client came back): uploaded and placed again (PIE-795).
     this.decoder.kittyError = id => this.painter.imageLost(id);
   }
   get watch() { return !!this.hello.watch; }
+  /** Frames reach its terminal: no program has it, and it isn't behind. */
+  private get sending() { return !this.away && !this.behind; }
+  /** The window is full: its terminal hasn't answered the last FRAMES_IN_FLIGHT frames. */
+  get full() { return this.acks && this.inflight.length >= FRAMES_IN_FLIGHT; }
 }
 
 const clamp = (n: unknown, d: number) => (Number.isInteger(n) && (n as number) > 0 && (n as number) < 10_000 ? n as number : d);
@@ -174,7 +210,7 @@ export class SessionTerm implements Display {
     this.last.lines = [...this.last.lines];
     this.last.lines[r] = line;
     for (const c of this.clients) {
-      if (this.sameSize(c) && !c.watch) { if (!c.away && !c.behind) this.drawing(c, () => c.painter.showRow(r, line)); }
+      if (this.sameSize(c) && !c.watch) { if (!c.away && !c.behind && !this.windowFull(c)) this.drawing(c, () => c.painter.showRow(r, line)); }
       else this.paintClient(c);
     }
     this.mirrorPainter.showRow(r, line);
@@ -200,7 +236,11 @@ export class SessionTerm implements Display {
     const id = ++this.runs;
     c.painter.dispose();                 // its images go before the program has the screen; it's painted whole after
     c.away = argv[0] ?? "program";
-    c.link.send({ t: "run", id, argv, ...(o.cwd ? { cwd: o.cwd } : {}), ...(o.env ? { env: o.env } : {}), ...(o.banner ? { banner: o.banner } : {}) });
+    const run = () => c.link.send({ t: "run", id, argv, ...(o.cwd ? { cwd: o.cwd } : {}), ...(o.env ? { env: o.env } : {}), ...(o.banner ? { banner: o.banner } : {}) });
+    // The frames in flight are answered before the program has the terminal, else the answers are typed into it (an
+    // editor would see `ESC [ 0 n`): none are sent from now on, so this is the round trip of the last ones.
+    if (c.inflight.length) this.untilAnswered(c, HANDOVER_SETTLE_MS).then(() => { if (this.running.has(id)) run(); });
+    else run();
     this.onClients();
     return new Promise(done => this.running.set(id, { c, done }));
   }
@@ -226,7 +266,11 @@ export class SessionTerm implements Display {
     // A watcher's keys are decoded too (a Kitty keyboard terminal sends ctrl+c as a report), only to leave by.
     c.decoder.keyHandler = c.watch ? k => this.watcherKey(c, k) : k => this.key(c, k);
     if (!c.watch) c.decoder.rawSink = () => this.rawSink?.() ?? null;
-    link.onDrain(() => { if (!c.behind) return; c.behind = false; c.painter.dispose(); c.rows.invalidate(); this.paintClient(c); this.tellStatus(c); });
+    // It caught up: every row is drawn again. Its images stay: the frames skipped meanwhile were never sent, so the terminal
+    // still has what it was last sent (one it lost is asked for again, imageLost), and uploading each again over the link
+    // that just recovered is what a stall costs most (PIE-1163).
+    link.onDrain(() => { if (!c.behind) return; c.behind = false; c.rows.invalidate(); this.paintClient(c); this.tellStatus(c); });
+    c.decoder.onStatus = () => this.answered(c);
     const first = !this.clients.length;
     this.clients.push(c);
     this.sendGround(c);
@@ -248,6 +292,7 @@ export class SessionTerm implements Display {
   /** A client went (detached, its terminal closed, the connection dropped). Its program, if it ran one, is let go. */
   detach(c: SessionClient): void {
     this.clients = this.clients.filter(x => x !== c);
+    if (c.staleTimer) { clearTimeout(c.staleTimer); c.staleTimer = null; }
     for (const [id, r] of this.running) if (r.c === c) { this.running.delete(id); r.done(null); }
     if (this.active === c) {
       this.active = null;
@@ -260,6 +305,9 @@ export class SessionTerm implements Display {
 
   /** What a client's terminal typed. */
   input(c: SessionClient, text: string): void {
+    // A terminal's answers to the status queries (`CSI 0 n`) are counted by the decoder and are not the person: they
+    // don't make this the client with the keys, nor reset its idle time (a quiet terminal answers every frame it is sent).
+    if (text.length && text.replaceAll(STATUS_OK, "") === "") { c.decoder.feed(text); return; }
     c.lastInput = Date.now();
     if (c.watch) { c.decoder.feed(text); return; }
     this.activate(c);
@@ -281,6 +329,7 @@ export class SessionTerm implements Display {
     if (!r || r.c !== c) return;
     this.running.delete(id);
     c.away = null;
+    this.forgetWindow(c);                 // what it was sent before the program had its terminal went to the program, or was answered before
     c.painter.dispose();
     c.rows.invalidate();
     c.decoder.reset();
@@ -352,6 +401,66 @@ export class SessionTerm implements Display {
     }
   }
 
+  // ── the frames in flight (PIE-1163) ─────────────────────────────────────────
+
+  /** Whether `c` isn't painted now because its terminal hasn't answered the last frames; the next answer paints it (the latest). */
+  private windowFull(c: SessionClient): boolean {
+    if (!c.full) return false;
+    c.waiting = true; c.skipped++;
+    this.watchStale(c);
+    return true;
+  }
+
+  /** `c`'s terminal answered a status query: the oldest frame in flight has been taken. */
+  private answered(c: SessionClient): void {
+    if (c.lost) { c.lost--; return; }         // the answer to a frame given up on
+    const sent = c.inflight.shift();
+    if (sent === undefined) return;           // none was asked (an old answer after a handoff, or one given up on)
+    const ms = performance.now() - sent;
+    c.ackMs = c.ackMs === null ? ms : c.ackMs * 0.7 + ms * 0.3;
+    if (!c.inflight.length) { const w = c.settled; c.settled = []; for (const f of w) f(); }
+    if (c.waiting && !c.full) { c.waiting = false; this.paintClient(c); }
+  }
+
+  /** The unanswered frames of `c` are forgotten: it starts again with an open window (a program had its terminal; an answer never came). */
+  private forgetWindow(c: SessionClient): void {
+    c.inflight = []; c.waiting = false;
+    const w = c.settled; c.settled = []; for (const f of w) f();
+  }
+
+  /** Resolves when `c` has answered everything it was sent, or after `ms`: what is then unanswered is forgotten. */
+  private untilAnswered(c: SessionClient, ms: number): Promise<void> {
+    return new Promise(res => {
+      const timer = setTimeout(() => { c.settled = c.settled.filter(f => f !== done); this.forgetWindow(c); res(); }, ms);
+      const done = () => { clearTimeout(timer); res(); };
+      c.settled.push(done);
+    });
+  }
+
+  /** Ack time (ms) after which a frame unanswered is given up on: settable for a test. */
+  ackStaleMs = ACK_STALE_MS;
+  /** A client waiting on an answer that never comes is painted again after ACK_STALE_MS, once, and it is counted. */
+  private watchStale(c: SessionClient): void {
+    if (c.staleTimer || !c.inflight.length) return;
+    const wait = Math.max(1, this.ackStaleMs - (performance.now() - c.inflight[0]!));
+    c.staleTimer = setTimeout(() => {
+      c.staleTimer = null;
+      if (!this.clients.includes(c) || !c.inflight.length) return;
+      if (performance.now() - c.inflight[0]! < this.ackStaleMs) return this.watchStale(c);
+      c.ackTimeouts++;
+      const skipped = c.waiting;
+      c.lost += c.inflight.length;
+      this.forgetWindow(c);
+      if (skipped) this.paintClient(c);
+    }, wait);
+    c.staleTimer.unref?.();
+  }
+
+  /** How each client's window stands, for `peek`'s `speed` (the daemon sees its socket; the terminal's answers say the link): frames unanswered, skipped, the round trip. */
+  speed(): { id: number; acks: boolean; unacked: number; skipped: number; ackMs: number | null; ackTimeouts: number }[] {
+    return this.clients.map(c => ({ id: c.id, acks: c.acks, unacked: c.inflight.length, skipped: c.skipped, ackMs: c.ackMs === null ? null : Math.round(c.ackMs * 10) / 10, ackTimeouts: c.ackTimeouts }));
+  }
+
   private paintClient(c: SessionClient): void {
     this.drawing(c, () => this.drawClient(c));
   }
@@ -359,6 +468,7 @@ export class SessionTerm implements Display {
   /** The last frame, as `c` can show it: cut or padded to its size, and its bottom row saying why when it isn't the session's. */
   private drawClient(c: SessionClient): void {
     if (!this.last || c.away) return;
+    if (this.windowFull(c)) return;
     if (c.link.backlog() > BACKLOG_LIMIT) { c.behind = true; return; }
     if (c.behind) return;
     c.rows.wide = this.info.cols;

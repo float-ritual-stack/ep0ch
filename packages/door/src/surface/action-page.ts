@@ -93,6 +93,6 @@ export function actionPage(info: ActionInfo, extras: PageExtras = {}): string {
   // The rest of what it says, a fact a line, last: what a short preview cuts first.
   const rest = facts(info.summary).filter((f, i) => !(i === 0 && f.replace(/[.;]$/, "") === lead));
   if (rest.length) out.push("", ...rest.map(f => `- ${inert(f)}`));
-  out.push("", `*touches ${info.touches}${info.varies ? " at most" : ""} · ${info.replay === "safe" ? "a restarted door may run it again" : "a restarted door asks before running it again"}*`);
+  out.push("", `*touches ${info.touches}${info.varies ? " at most" : ""}${info.repaints === undefined ? "" : info.repaints === "answer" ? " · repaints when its answer says so" : info.repaints ? " · always repaints" : " · never repaints"} · ${info.replay === "safe" ? "a restarted door may run it again" : "a restarted door asks before running it again"}*`);
   return out.join("\n");
 }

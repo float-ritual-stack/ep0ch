@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { parseTileAddress, type ResolveOpts } from "../desk/tile-address";
 import { fromPress } from "../session/session-term";
 import { modeActionKeys } from "./modes";
@@ -174,7 +175,8 @@ export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req:
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
-  beforeAction?(name: string): void;
+  /** Runs before each action; true when it changed what's shown (the desk dropping a hint card), which the press then repaints for (PIE-1301). */
+  beforeAction?(name: string): boolean | void;
   hint?(hint: Hint, tile: string | undefined, actor: Actor): void;
   /** Dispatchers for a screen's kinds share that screen's pointer identity. */
   pointerScope?: object;
@@ -272,8 +274,30 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
 }
 
 const BLOCK = /^[0-9a-f-]{8,}$/;
+/** What the person's press has done so far, for the repaint after it (asPerson): the actions run, and whether any changed what's shown. */
+interface PressShown { ran: number; /** Something changed that no repaint has covered yet. */ changed: boolean; /** Repaints this press's own actions asked for (App.redraw says so through notePressRedraw). */ asked: number }
+const pressShown = new AsyncLocalStorage<PressShown>();
+/** Where no press is running, so a redraw made there counts for none. */
+const NO_PRESS: PressShown = { ran: 0, changed: false, asked: 0 };
+/** A repaint was asked for (App.redraw): the press whose action asked, and whatever it awaited, owes no second one for it. */
+export function notePressRedraw(): void { const p = pressShown.getStore(); if (p) p.asked++; }
+const isThenable = (x: unknown): x is PromiseLike<unknown> => typeof (x as { then?: unknown } | null)?.then === "function";
+/** Whether a run changed what's shown (ActionDef.repaints): declared, or by what it touches of the person's (`nothing`: no). */
+function changesShown(def: ActionDef<any, any>, touches: Touches, out: unknown, args: Record<string, unknown>): boolean {
+  const r = def.repaints;
+  return r === undefined ? touches !== "nothing" : typeof r === "function" ? r(out, args) : r;
+}
+
 /** `#3` or `3`: a tile's number on screen (a name never starts with a digit). */
 const NUMBER = /^#?([1-9][0-9]{0,2})$/;
+
+/**
+ * What each dispatcher answered while a listing runs (`Dispatcher.list`): null outside one. A listing asks, for each action it
+ * weighs, who claims it, and a claim asks where the person is and which tile an address names: the same answers each time, since
+ * nothing moves while it runs. Asked once for each dispatcher.
+ */
+type Found = { tile: TileRef; dispatch: Dispatcher } | null;
+let listing: Map<Dispatcher, { where?: Whereabouts; tiles?: TileRef[]; resolved: Map<string, Found>; hosted: Map<string, Found> }> | null = null;
 
 export class Dispatcher {
   private nextConfirmation = 0;
@@ -347,8 +371,22 @@ export class Dispatcher {
   /** Add sets after those already here (a screen built on another adds its own first: `first`). */
   register(regs: (Registration | Delegation)[], first = false) { this.regs = first ? [...regs, ...this.regs] : [...this.regs, ...regs]; }
 
-  /** The person's whereabouts, as the shell answers it (or the screen alone, with no shell to ask). */
+  /**
+   * The person's whereabouts, as the shell answers it (or the screen alone, with no shell to ask). While a listing is being made
+   * (`list`) it is asked once for each dispatcher, not once for each action the listing weighs: nothing moves while it runs.
+   */
   where(): Whereabouts {
+    const asked = this.asked();
+    return asked ? (asked.where ??= this.whereNow()) : this.whereNow();
+  }
+  /** This dispatcher's answers so far, while a listing runs. */
+  private asked() {
+    if (!listing) return null;
+    let a = listing.get(this);
+    if (!a) listing.set(this, a = { resolved: new Map(), hosted: new Map() });
+    return a;
+  }
+  private whereNow(): Whereabouts {
     if (this.host.where) return this.host.where();
     const ctx = this.host.ctx();
     if (ctx?.person) return ctx.person();
@@ -372,6 +410,12 @@ export class Dispatcher {
 
   /** Every action here once, in the order a name is looked up; the tiles `tile=` names. */
   list(): { actions: ActionInfo[]; tiles: string[] } {
+    // A listing asks each registration whether it claims each action, and a claim asks where the person is (`owner`): once, not for each.
+    const outermost = !listing;
+    if (outermost) listing = new Map();
+    try { return this.listIn(); } finally { if (outermost) listing = null; }
+  }
+  private listIn(): { actions: ActionInfo[]; tiles: string[] } {
     const seen = new Set<string>(), out: ActionInfo[] = [];
     const bindings = this.host.bindings?.() ?? [];
     // The layout host can also be the screen delegate; describe it once per listing.
@@ -414,6 +458,19 @@ export class Dispatcher {
   private resolve(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher } | null {
     // `^` is relative to the tile the request acts from: the one with the keys, never a guess when nothing has them.
     if (parseTileAddress(sel).kind === "relative" && o?.from === undefined) o = { ...o, from: this.where().address ?? undefined };
+    const asked = o ? null : this.asked();
+    if (!asked) return this.resolveNow(sel, o);
+    if (!asked.resolved.has(sel)) asked.resolved.set(sel, this.resolveNow(sel));
+    return asked.resolved.get(sel)!;
+  }
+  /** The tile the host itself names by `address` (its own layer only). */
+  private hostTile(address: string): Found {
+    const asked = this.asked();
+    if (!asked) return this.host.resolveTile?.(address) ?? null;
+    if (!asked.hosted.has(address)) asked.hosted.set(address, this.host.resolveTile?.(address) ?? null);
+    return asked.hosted.get(address)!;
+  }
+  private resolveNow(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher } | null {
     if (this.host.resolveTile) return this.host.resolveTile(sel, o) ?? this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
     // A host that reads no tiles across layers keeps its own names: the host layer answers only what they don't.
     return this.named(sel, this.tilesNow()) ? null : this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
@@ -455,7 +512,7 @@ export class Dispatcher {
     if (own) return own;
     req = this.mountedRequest(req);
     const defaultAddress = req.tile === undefined ? this.where().address : null;
-    const defaultTarget = defaultAddress ? this.host.resolveTile?.(defaultAddress) : null;
+    const defaultTarget = defaultAddress ? this.hostTile(defaultAddress) : null;
     if (defaultTarget && defaultTarget.dispatch.host.pointerScope !== this.host.pointerScope) {
       const reg = this.regs.find(r => "set" in r && r.set.has(req.action));
       const def = reg && "set" in reg ? reg.set.def(req.action) : undefined;
@@ -532,16 +589,42 @@ export class Dispatcher {
     const ctx = this.host.ctx();
     // The key or click this answers: a refusal that lands after the person moved on is said on the status bar alone.
     const at = ctx?.pressNow?.();
+    // The repaint this press owes (PIE-1301): the actions it ran say whether they changed what's shown (runIn); the tail
+    // repaints for those that did, unless an action's own redraw already asked for the paint, and never for a press that
+    // ran actions that all changed nothing.
+    // A press made from inside another's action keeps its own account: what it painted covers what it changed, and none of what
+    // its outer action changes after it.
+    const shown: PressShown = { ran: 0, changed: false, asked: 0 };
+    // The tail's own repaint: no press's action asked for it, so it covers nothing the outer action does after it.
+    const paint = () => pressShown.run(NO_PRESS, () => ctx?.redraw?.());
+    let sameTurn = true;
     const tell = (e: unknown) => {
       const failed = !(e instanceof ActionRefused || e instanceof Offline);
       const action = messageContext.getStore()?.action ?? "the action";
       const why = failed ? actionFailure(action, e) : e.message, said = failed ? why : say === true ? null : say === false ? why : say(why);
+      const before = shown.asked;
       // Said where the person is looking (the focused tile's frame) as well as on the status bar (Ctx.refuse, PIE-727).
-      if (said) messageContext.run({ ...messageContext.getStore(), kind: failed ? "error" : "refusal", ...(failed && e instanceof Error ? { stack: e.stack } : {}) }, () => (ctx?.refuse ? ctx.refuse(said, at) : ctx?.flash?.(said)));
-      ctx?.redraw?.();
+      if (said) pressShown.run(shown, () => messageContext.run({ ...messageContext.getStore(), kind: failed ? "error" : "refusal", ...(failed && e instanceof Error ? { stack: e.stack } : {}) }, () => (ctx?.refuse ? ctx.refuse(said, at) : ctx?.flash?.(said))));
+      // Saying it painted; a refusal that said nothing still shows what the action did before it was refused.
+      if (shown.asked === before) paint();
       return undefined;
     };
-    try { return Promise.resolve(fromPress(f)).then(r => { ctx?.redraw?.(); return r; }, tell); } catch (e) { return Promise.resolve(tell(e)); }
+    try {
+      const out = pressShown.run(shown, () => fromPress(f));
+      // Only an answer that waits needs to know whether it came within this turn.
+      if (isThenable(out)) setImmediate(() => { sameTurn = false; });
+      // An action that answered within this turn (at once, or through promises that waited on nothing but each other: the
+      // reader's actions all answer as promises) and asked for its paint (any `redraw()` it made) needs no second one behind
+      // it. One that waited for something may have changed more by then, and is painted for.
+      const moved = () => shown.asked > 0;
+      const early = !isThenable(out) && moved();
+      return Promise.resolve(out).then(r => {
+        const own = isThenable(out) ? sameTurn && moved() : early;
+        if (!own && (shown.ran === 0 || shown.changed)) paint();
+        shown.changed = false;
+        return r;
+      }, tell);
+    } catch (e) { return Promise.resolve(tell(e)); }
   }
 
   /**
@@ -598,10 +681,12 @@ export class Dispatcher {
     const no = this.refusal(reg, def, req.action, at, args, seen, actor);
     if (no) throw new ActionRefused(no);
     for (const t of requestTracers) t({ action: req.action, args: seen, ...(at.tile ? { tile: { id: at.tile.id, name: at.tile.name, ...(at.tile.role ? { role: at.tile.role } : {}) } } : {}), named: req.tile !== undefined, takes: reg.takes, replay: def.replay, scope: reg.set.scope, actor, typed });
-    this.host.beforeAction?.(req.action);
+    const hooked = this.host.beforeAction?.(req.action);
+    if (hooked) { const shown = pressShown.getStore(); if (shown) shown.changed = true; }
     const confirmation = ++this.nextConfirmation;
     const ctx = this.host.ctx();
-    const on = reg.on(at, { actor, standing: this.standing(actor, reg.touchesAt?.(req.action, at) ?? def.touchesWith?.(seen as never, at.name) ?? def.touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
+    const touches = reg.touchesAt?.(req.action, at) ?? def.touchesWith?.(seen as never, at.name) ?? def.touches;
+    const on = reg.on(at, { actor, standing: this.standing(actor, touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
     // A key's arguments are typed already (the compiler checked them); the wire's are checked and coerced.
     const run = () => messageContext.run({ ...messageContext.getStore(), action: req.action, ...(at.tile ? { tile: at.tile.id ?? at.tile.name, note: at.tile.shows ?? undefined } : {}) }, () => reg.run ? reg.run(req.action, args, on, actor, typed) : typed ? reg.set.call(req.action as never, args as never, on, actor) : reg.set.callUntyped(req.action, args, on, actor));
     const recordedArgs = { ...seen };
@@ -625,6 +710,8 @@ export class Dispatcher {
           ctx?.flash?.(actor.kind === "agent" ? `${agentLabel(actor)} ${said}` : said.replace(/^· /, ""), ms);
         }
       }
+      const shown = pressShown.getStore();
+      if (shown) { shown.ran++; shown.changed ||= changesShown(def, touches, out, seen); }
       return reg.answer ? reg.answer(out, at) : out;
     };
     return ran instanceof Promise ? ran.then(done) : done(ran);
@@ -644,11 +731,12 @@ export class Dispatcher {
    * Tile `sel`'s menu (PIE-492, `tile.menu`): every row its actions declare (ActionDef.menu) in the sets that would run
    * them there, in the order a name is looked up (the screen's own sets, the tile actions, its kind's, a reader's note
    * actions), each as it would run for `actor` now: hidden where it isn't this tile's now, and with the reason where it
-   * would be refused. Nothing runs; nothing is drawn.
+   * would be refused. Nothing runs; nothing is drawn. `only` names the one action whose rows are wanted (a caller after a single
+   * action's entries doesn't weigh every action's claim on the tile).
    */
-  menu(sel: string, actor: Actor): MenuRow[] {
+  menu(sel: string, actor: Actor, only?: string): MenuRow[] {
     const resolved = this.resolve(sel);
-    if (resolved && resolved.dispatch.host.pointerScope !== this.host.pointerScope) return resolved.dispatch.menu(resolved.tile.id!, actor);
+    if (resolved && resolved.dispatch.host.pointerScope !== this.host.pointerScope) return resolved.dispatch.menu(resolved.tile.id!, actor, only);
     const tiles = this.tilesNow(), tile = this.tile(sel);
     if (!tile) throw this.noTile(sel, tiles);
     const out: MenuRow[] = [], where = this.where(), ctx = this.host.ctx();
@@ -657,11 +745,11 @@ export class Dispatcher {
     for (const r of this.regs) {
       if (!("set" in r)) {
         if (r.listed === false) continue;
-        try { out.push(...(r.delegate()?.menu(tile.id ?? tile.name, actor) ?? []).filter(row => owns(r, row.action))); } catch { /* the tile isn't one it reaches */ }
+        try { out.push(...(r.delegate()?.menu(tile.id ?? tile.name, actor, only) ?? []).filter(row => owns(r, row.action))); } catch { /* the tile isn't one it reaches */ }
         continue;
       }
       if (r.takes === "none" || (r.menuIn && !r.menuIn(tile))) continue;
-      for (const name of r.set.names()) {
+      for (const name of only === undefined ? r.set.names() : r.set.has(only) ? [only] : []) {
         const def = r.set.def(name)!, entries = def.menu === undefined ? [] : Array.isArray(def.menu) ? def.menu : [def.menu as MenuEntry<unknown, unknown>];
         if (!entries.length || !owns(r, name)) continue;
         let at: Target;
@@ -726,7 +814,10 @@ export class Dispatcher {
     return standsAsPerson(actor, this.where(), touch === "shape" || touch === "screen" ? touch : "tile");
   }
 
-  private tilesNow(): TileRef[] { return this.host.tiles?.() ?? []; }
+  private tilesNow(): TileRef[] {
+    const asked = this.asked();
+    return asked ? (asked.tiles ??= this.host.tiles?.() ?? []) : this.host.tiles?.() ?? [];
+  }
 
   /** What the draft rule says for a `draft` action, about the draft it would write. */
   private draftAnswer(def: ActionDef<unknown, unknown>, actor: Actor, d: DraftAt | null, invitation?: string): string | null {

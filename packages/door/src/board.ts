@@ -84,6 +84,29 @@ export interface Board {
  * its own words (outline-core's `markTitleLine`).
  */
 export function titleLine(text: string): { line: number; text: string } {
+  // A function of the text alone, asked for every row of every list each frame (a showcase load asks it ~10⁴ times): answered once per text.
+  const known = TITLES.get(text);
+  if (known) return { ...known };
+  const found = titleLineOf(text);
+  if (kept.room(text)) TITLES.clear();
+  TITLES.set(text, found);
+  return { ...found };
+}
+const TITLES = new Map<string, { line: number; text: string }>();
+/**
+ * What the two title caches may hold: a few thousand notes' texts, at most about 2 MB of them together (a text is the key, so a long
+ * one held for each edit of it would add up). Past either, the caches start again: a list is a screenful of rows, asked each frame.
+ */
+const kept = {
+  entries: 0, chars: 0, generation: 0,
+  /** `text` is about to be kept: true when the caches are full and should start again first. */
+  room(text: string): boolean {
+    if (this.entries >= 5000 || this.chars + text.length > 2_000_000) { this.entries = 0; this.chars = 0; this.generation++; return true; }
+    this.entries++; this.chars += text.length;
+    return false;
+  },
+};
+function titleLineOf(text: string): { line: number; text: string } {
   const mark = markTitleLine(text);
   if (mark) return mark;
   const lines = text.split("\n");
@@ -109,7 +132,17 @@ export function bodyLinesOf(text: string): { text: string; literal: boolean }[] 
   return text.split("\n").flatMap((l, i) => (i < from || lit?.markers.has(i) ? [] : [{ text: l, literal: !!lit?.inside.has(i) }]));
 }
 /** A note's title as drawn: its first line, nothing in it a terminal acts on (an extension's write can store an escape). */
-export const subject = (m: Msg) => { const t = titleLine(m.text); return printable(stripMarks(presentLinks(t.text, false, null)), " ").trim() || (t.line < 0 ? "(empty)" : "(untitled)"); };
+export const subject = (m: Msg) => {
+  // A function of the text alone (links read with no source), drawn for every row of every list each frame: answered once per text.
+  const known = SUBJECTS.get(m.text);
+  if (known !== undefined) return known;
+  const t = titleLine(m.text), title = printable(stripMarks(presentLinks(t.text, false, null)), " ").trim() || (t.line < 0 ? "(empty)" : "(untitled)");
+  if (subjectsAt !== kept.generation) { SUBJECTS.clear(); subjectsAt = kept.generation; }   // the titles started again: so do their subjects
+  SUBJECTS.set(m.text, title);
+  return title;
+};
+const SUBJECTS = new Map<string, string>();
+let subjectsAt = 0;
 /** A title with its work id before it, unless the title already starts with it: "HUB-007 End-of-day update", as /notes rows read. */
 export const withWorkId = (workId: string | undefined, title: string) => (workId && !title.startsWith(workId) ? `${workId} ` : "") + title;
 /** A note as a list row reads it: its work id, then its title. */

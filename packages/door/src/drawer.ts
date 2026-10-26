@@ -763,8 +763,10 @@ export class AgentDrawer {
   /** The tab the drawer shows now. */
   private shownTabOf(): { name: string; kind: string } | null { const name = this.shownTab(), t = this.tabs().find(x => x.name === name); return t ? { name: t.name, kind: t.kind } : null; }
   /** The tile the drawer shows now (^W A brings it to the screen, its own tab too), else the last put in. */
-  shownTab(): string | null { const t = this.tabs(); return (t.find(x => x.shown && x.focused) ?? t.find(x => x.shown) ?? t.at(-1))?.name ?? null; }
-  private shownPane(): Pane | null { return this.d ? this.d.pane(this.shownTab() ?? "") ?? null : this.p; }
+  shownTab(): string | null { return this.shownAmong(this.tabs()); }
+  /** The tab shown among `t` (the tabs, which the caller asks for once: each asking walks the drawer's whole desk). */
+  private shownAmong(t: ReturnType<AgentDrawer["tabs"]>): string | null { return (t.find(x => x.shown && x.focused) ?? t.find(x => x.shown) ?? t.at(-1))?.name ?? null; }
+  private shownPane(tabs?: ReturnType<AgentDrawer["tabs"]>): Pane | null { return this.d ? this.d.pane(this.shownAmong(tabs ?? this.tabs()) ?? "") ?? null : this.p; }
 
   // ── the host layer, on the layout engine ──
 
@@ -901,16 +903,18 @@ export class AgentDrawer {
   private chipParts(now: number): { head: string; knows: string } {
     // A drag that ended by a key (esc, f, p, a) leaves no mouse event here: the light goes out with it.
     if (this.dropHover && !tilesOf(this.host.screen?.())?.draggedTile()) { this.dropHover = null; this.dropSays = DRAWER_DROP; this.d?.cancelDrag(); }
-    const shown = this.d ? this.shownTab() : null, pane = this.shownPane(), p = pane instanceof PtyPane ? pane : null;
-    const s = this.state(now);
+    // The tabs once for the chip: the shown one, the pane, its state, the restart offer and how many more there are all read them (each asking walks the drawer's desk).
+    const tabs = this.d ? this.tabs() : null;
+    const shown = tabs ? this.shownAmong(tabs) : null, pane = this.shownPane(tabs ?? undefined), p = pane instanceof PtyPane ? pane : null;
+    const s = this.paneState(pane, now);
     if (p && s !== "off" && s !== "exited" && s !== "empty") this.pollKnows(now, p);
     // What it reported says it in its own words (needs you, asks you, working 40%); else the state's.
     const said = p?.status.urgent();
     const what = this.restarting && p === this.p ? "restarting" : s === "off" ? "" : said && s !== "exited" && s !== "watching" ? statusMark(said).word : s === "blocked" ? "needs you" : s === "exited" ? (p?.exited === null && p?.agentExit !== null ? `exited ${p.agentExit} · shell` : `exited ${p?.exited ?? ""}`.trim()) : s;
     let knows = this.restarting || s === "off" || s === "exited" || s === "empty" || !p ? "" : knowsLabel(this.knowledge.get(p)?.knows ?? null);
-    if (!this.offersRestart) knows = knows.replace(RESTART_GLYPH, "").trimEnd();
+    if (!this.offersRestartAt(pane)) knows = knows.replace(RESTART_GLYPH, "").trimEnd();
     const own = !shown || shown === DRAWER_TILE_ID;
-    const more = this.d ? Math.max(0, this.tabs().length - 1) : 0;
+    const more = tabs ? Math.max(0, tabs.length - 1) : 0;
     const out = { head: `${this.open ? "▼" : "▲"} ${own ? this.name : shown}${own && this.prog.from === "env" ? " (from EP0CH_DAILY_AGENT)" : ""}${more > 0 ? ` +${more}` : ""}${what ? ` · ${what}` : ""}`, knows: knows ? ` · ${knows}` : "" };
     // A drag over it says it goes in there, in the chip's own width: the chip doesn't move under the pointer.
     // (The status bar's right part is right-aligned: a longer chip grows leftwards, a shorter one is padded.)
@@ -919,7 +923,8 @@ export class AgentDrawer {
   }
 
   /** The chip ends in ⟳: a click on it restarts the agent. */
-  get offersRestart(): boolean { return this.shownPane() === this.p && !this.restarting && (this.knows?.state === "stale" || this.knows?.state === "no-door"); }
+  get offersRestart(): boolean { return this.offersRestartAt(this.shownPane()); }
+  private offersRestartAt(shown: Pane | null): boolean { return shown === this.p && !this.restarting && (this.knows?.state === "stale" || this.knows?.state === "no-door"); }
 
   /**
    * The agent's process: in Herdr, the process in the agent's pane (`pane process-info`); else the tile's own

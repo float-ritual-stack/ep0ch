@@ -120,6 +120,14 @@ export interface ActionDef<A, H> {
   /** Whether a restarted door may run it again by itself (Replay). */
   replay: Replay;
   /**
+   * Whether a run changed what's shown, so the dispatcher repaints after the person's press (PIE-1301): `true`, `false`,
+   * or from its answer and arguments (`out => out.changed`). Left out: an action touching `nothing` of the person's
+   * changed nothing shown (a read, a hover over bare cells), every other does. It adds no second paint to an action that
+   * already redrew itself; it is for one that touches nothing of the person's but changes what's drawn (an agent's tint,
+   * a form field), which says `true`, or one that touches the screen and often moves nothing, which says when.
+   */
+  repaints?: boolean | ((out: any, args: A) => boolean);
+  /**
    * `false`: a macro never records it. For a read that follows the pointer (text.hover fires on every mouse move), which
    * would fill a recording with thousands of steps and slow the door while it records.
    */
@@ -217,7 +225,7 @@ export const actionSet = <H>() => <M extends { [K in keyof M]: object }>(scope: 
  * An action as `ep0ch-door actions` lists it: `touches`, `replay` and `person` are its declarations (what it touches
  * of the person's, whether a restarted door may run it again, the person's only).
  */
-export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; person?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[] }
+export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; person?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** What it says about repainting (`repaints`): whether a run changed what's shown, or `answer` when its answer says; left out, by what it touches. */ repaints?: boolean | "answer"; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[] }
 
 /**
  * A set of actions over one kind of host. `M` maps each action name to its argument object (derived from each
@@ -256,7 +264,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
   list(): ActionInfo[] {
     return (Object.keys(this.defs) as (keyof M & string)[]).map(name => {
       const d = this.defs[name];
-      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.examples?.length ? { examples: d.examples } : {}) };
+      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.repaints === undefined ? {} : { repaints: typeof d.repaints === "function" ? "answer" as const : d.repaints }), ...(d.examples?.length ? { examples: d.examples } : {}) };
     });
   }
 

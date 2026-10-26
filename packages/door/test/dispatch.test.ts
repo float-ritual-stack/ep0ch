@@ -256,7 +256,7 @@ describe("the dispatcher, on a fake screen", () => {
     // An argument that names a tile is read the same way.
     await d.act({ action: "go.nothing", args: { to: "#1" } }, USER);
     expect(ran.at(-1)!.name).toBe("nothing→tree");
-    await expect(d.act({ action: "go.nothing", args: { to: "t9" } }, USER)).rejects.toThrow("no tile t9 here");
+    await expect(d.act({ action: "go.nothing", args: { to: "t9" } }, USER)).rejects.toThrow("no tile t9 on the fake");
   });
 
   test("an action in one kind of tile: the focused one, else the first; another kind is refused saying what it is", async () => {
