@@ -394,8 +394,8 @@
       "built": "tile-address.ts parses an address and resolves it over the tiles a desk lists (AddressCandidate); Desk.resolveTile answers it for the whole family (screen, mounts, drawer) and the host layer asks it for every screen host. The tile registry (tile-registry.ts) is the one place a tile's id, role, opener and copy lineage live, saved on its leaf, so a restart, a handover or a restore keeps them; a pane the host gives fills its slot. Keys, clicks and menu rows address by t-<uuid> through the path an act string takes, and the parity walk replays each targeted action by id and by role.",
       "refs": [
         { "r": "door", "p": "src/desk/tile-address.ts", "l": 43, "m": "export function parseTileAddress" },
-        { "r": "door", "p": "src/desk/tile-registry.ts", "l": 34, "m": "export const tileRegistry" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1236, "m": "  addressable(" },
+        { "r": "door", "p": "src/desk/tile-registry.ts", "l": 36, "m": "export const tileRegistry" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1242, "m": "  addressable(" },
         { "r": "door", "p": "src/drawer.ts", "l": 1268, "m": "private findAgent(" }
       ]
     },
