@@ -102,8 +102,8 @@ export function answer(p: Props, note?: string, site?: LiveSite): Entry | null {
  * Once every answer asked for so far has come (and any those answers asked for in turn), or `ms` has passed: an
  * outline that never answers leaves those figures asking, it never hangs the caller.
  */
-export async function liveSettled(ms = 10_000): Promise<void> {
-  if (board) await watchedOn(board).settled(ms);
+export async function liveSettled(ms = 10_000, on: SocketBoard | null = board): Promise<void> {
+  if (on) await watchedOn(on).settled(ms);
 }
 
 /**
@@ -125,7 +125,8 @@ export function childRows(note: string, site?: LiveSite): { rows: Row[]; waiting
 /** A result as outline-core's live figures read it. */
 const itemOf = (m: Msg): FigureItem => ({ id: m.id, title: subject(m), properties: recordProperties(propertyListOf(m)), createdAt: m.createdAt, updatedAt: m.updatedAt, author: m.author });
 
-export interface Resolved { props: Props; status: string | null; waiting: boolean; error?: string }
+/** `found`: how many results the question came back with, and whether it was cut (a figure's copied results say so). */
+export interface Resolved { props: Props; status: string | null; waiting: boolean; error?: string; found?: { n: number; truncated: boolean } }
 
 /**
  * Turn a live block's props into the static props the drawing code already understands. A row that stands
@@ -152,5 +153,5 @@ export function resolveLive(kind: string, p: Props, note?: string, site?: LiveSi
   const drawn = liveProps(kind, p, { ...a, items: a.items.map(itemOf) });
   // A key nobody has written: the service's hint (with the nearest keys that exist) is said under the figure.
   const error = drawn.error ?? a.hint;
-  return { props: drawn.props, status, waiting: false, ...(error ? { error } : {}) };
+  return { props: drawn.props, status, waiting: false, found: { n: a.items.length, truncated: a.truncated }, ...(error ? { error } : {}) };
 }

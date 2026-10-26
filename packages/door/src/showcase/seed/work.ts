@@ -156,6 +156,23 @@ export const PLOT_JOBS_NOTE = [
 ].join("\n").trimEnd();
 
 /**
+ * A live page to copy (PIE-1355): Y (or the tile menu's "copy note") copies its text with each figure's results under it
+ * as Markdown. A check over its three crates, a table over the sixty parcels cut at fifty, and the crates in tabs by bay.
+ */
+export const COPY_PAGE = [
+  `${SEED.copyPage} [page::${SEED.copyPage}]`,
+  "",
+  "Press Y: the copy holds this text and, under each figure, its rows as Markdown, for an agent with no outline tools.",
+  "",
+  ...fig("check", ["title: Crates", 'query: "type=showcase-crate"', 'done: "packed=yes"', "sort: title", "direction: asc"]),
+  ...fig("table", ["title: Parcels", 'query: "type=showcase-parcel"', "columns: [title]", "sort: title", "direction: asc"]),
+  ...fig("tabs", ["title: Crates by bay", 'query: "type=showcase-crate"', "group: bay", "columns: [title]", "sort: title", "direction: asc"]),
+].join("\n").trimEnd();
+
+/** The page's crates, its children. */
+export const COPY_CRATES = ["Apples crate [packed::yes] [bay::north]", "Beets crate [bay::north]", "Chard crate [packed::yes] [bay::south]"];
+
+/**
  * The daily brief (PIE-435): two mornings of a made-up household, as an agent drafts them
  * (skills/daily-brief/SKILL.md). The newer one has every section: a headline, what needs you, yesterday as a
  * story, today, live figures (a stat over the board's lanes by `view: ((…))`, a saved view's checklist),

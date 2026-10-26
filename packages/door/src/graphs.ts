@@ -6,7 +6,8 @@ import { clipText } from "./overflow";
 import { BOLD, C, drawEllipsized, fg, pad, RESET, SPARK_STEPS, UNBOLD, visible, width as vwidth } from "./style";
 import { rowLines, withRowLimit, wrap } from "./text";
 import { childRows, resolveLive, setLiveSource, liveSource, type LiveSite } from "./live";
-import { liveProps } from "@ep0ch/outline-core/figure-live";
+import { asksPerItem, liveProps } from "@ep0ch/outline-core/figure-live";
+import { figureResultsMarkdown, resultsHead, type FigureResults, type ResultsContext } from "@ep0ch/outline-core/figure-results";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
 import { FIGURES } from "./figures/index";
 import { ACCENT, DIM, HI, INK, inlineRows, rowLink, rowLinks, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
@@ -420,6 +421,31 @@ export function figureAscii(kind: string, source: string | FigureSource, W = 60)
   const status = bottom.replace(/^\+[·]*|[·]*\+$/g, "").trim();
   if (status) body.splice(body.length - 1, 0, "| " + rep(" ", Math.max(0, w - 4 - vwidth(status))) + status + " |");
   return [top, ...body, "+" + rep("-", Math.max(0, w - 2)) + "+"];
+}
+
+/**
+ * A live figure's results as Markdown (PIE-1355: what a page copy writes under it), from the rows the reader draws it
+ * with (resolveLive, asked in the same Site renderGraph asks in, so a drawn figure's answer is the one copied). Null for
+ * a figure that asks the outline nothing; `waiting` while its answer hasn't come, unless `final` (the copy has waited):
+ * then it says it wasn't answered in time (`unanswered`). A kind with no Markdown form is its ASCII twin in a fence.
+ */
+export function figureResults(kind: string, source: FigureSource, ctx: ResultsContext, final = false): (FigureResults & { waiting?: false; unanswered?: true }) | { waiting: true } | null {
+  const read = figureProps(kind, source);
+  if ("error" in read) return null;
+  const props = read.props;
+  if (!(props.query || props.view || asksPerItem(kind, props))) return null;
+  const live = resolveLive(kind, props, source.note, liveSiteOf(source, read.args));
+  if (!live) return null;
+  if (live.waiting) {
+    if (!final) return { waiting: true };
+    return { ...figureResultsMarkdown(kind, props, null, ctx, `the outline didn't answer in time${source.note ? `: ep0ch show ${source.note} --markdown asks again` : ""}`)!, unanswered: true };
+  }
+  // No status: the question wasn't answered (its error says why); else its error is the service's word on the answer.
+  const found = live.status ? live.found ?? { n: 0, truncated: false } : null;
+  const md = figureResultsMarkdown(kind, live.props, found, ctx, live.error);
+  if (md) return md;
+  // Its drawing, not its rows: it takes none of the copy's row budget.
+  return { lines: [...resultsHead(kind, live.props, "as drawn", ctx.at), "```", ...figureAscii(kind, source), "```"], shown: 0, total: live.found?.n ?? 0, cut: false };
 }
 
 /** A table's or tabs figure's density as a control on its footer, where a reader can change it (a click, ⏎ on it, =). */

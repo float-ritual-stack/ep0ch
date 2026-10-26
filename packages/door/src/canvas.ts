@@ -32,9 +32,16 @@ const FG = /^\x1b\[(?:3[0-79]|9[0-7]|38;5;\d+|38;2;\d+;\d+;\d+)m$/, BG = /^\x1b\
 export function withSgr(sgr: string, code: string): string {
   const fg = FG.test(code);
   if (!fg && !BG.test(code)) return sgr + code;
-  const same = fg ? FG : BG;
-  return sgr ? sgr.split(SGR).filter(p => p && !same.test(p)).join("") + code : code;
+  if (!sgr) return code;
+  // A screen sets the same few colours over and over (a logo's, cell by cell, every frame): each change is worked out once.
+  const key = sgr + "\0" + code, hit = sgrs.get(key);
+  if (hit !== undefined) return hit;
+  if (sgrs.size >= 4096) sgrs.clear();
+  const same = fg ? FG : BG, out = sgr.split(SGR).filter(p => p && !same.test(p)).join("") + code;
+  sgrs.set(key, out);
+  return out;
 }
+const sgrs = new Map<string, string>();
 
 /**
  * Whether a line has a background of its own after SGR sequence `sgr`, given whether it had one before: its

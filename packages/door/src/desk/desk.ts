@@ -28,7 +28,6 @@ import type { Ctx, Frame, Refusal, Screen, ViewState } from "../app";
 import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
 import { valuesOf } from "@ep0ch/outline-core/block-record";
 import { interpolate } from "@ep0ch/outline-core/interpolation";
-import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { headedTitle, subject, type Msg } from "../board";
 import { BORDER_BOXES, Canvas, DOTTED_BOX, LINE_BOX, NO_BOX, overflows, shadowRects, type BoxGlyphs, type Rect } from "../canvas";
 import { TONE } from "../callouts";
@@ -49,7 +48,7 @@ import { INVITES } from "../surface/invite";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
-import { armsEdit, headerOmits, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
+import { armsEdit, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRows, pickRow } from "../surface/picker";
@@ -234,7 +233,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * is, and what a release there does: into another reader's note after a line (reference or copy, asked), or detached
    * into a tile of its own where the drop zones say.
    */
-  private elementDrag: { src: number; line: number; x: number; y: number; target: { kind: "into"; tile: number; note: string; line: number; label: string } | { kind: "detach"; drop: Drop<number>; label: string } | null } | null = null;
+  private elementDrag: { src: number; line: number; x: number; y: number; target: { kind: "into"; tile: number; note: string; line: number; label: string; bar: Rect | null; draft: boolean } | { kind: "detach"; drop: Drop<number>; label: string } | null } | null = null;
   /** Where a drag or a release lands in the pressed reader: padding held to the nearest content cell, the gutter kept separate, its row free (past an edge scrolls). */
   private pressedAt(p: { frame?: Rect; gutter?: Rect; col: number; row: number; cols: number }, k: { x: number; y: number }) {
     if (p.frame) return { x: k.x - p.col, y: k.y - p.row };
@@ -704,6 +703,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * drawer, in a shell the door waits under). Their focus here is this screen's own state.
    */
   private layoutCtx(actor: Actor): LayoutCtx<number> {
+    // While a frame is drawn, the person's context is made once: each tile's corner controls (× fold float) and its wires ask
+    // the layout about it, and making it again for each was most of a desk's frame (PIE-1347). Nothing it holds changes mid-frame.
+    if (actor === USER && this.drawing) {
+      const f = this.drawing;
+      if (f.ctx && f.layout === this.layout && f.focus === this.focus) return f.ctx;
+      return Object.assign(f, { layout: this.layout, focus: this.focus, ctx: this.makeLayoutCtx(actor) }).ctx!;
+    }
+    return this.makeLayoutCtx(actor);
+  }
+  /** Set while a frame is drawn: the person's layout context for it (layoutCtx). */
+  private drawing: { layout?: LayoutState<number>; focus?: number; ctx?: LayoutCtx<number> } | null = null;
+  private makeLayoutCtx(actor: Actor): LayoutCtx<number> {
     const w = this.dispatch.where();
     const typing = w.typingIn !== null ? this.idNamed(w.typingIn) ?? null : null;
     // Each tile's facts once for this answer (the layout module asks them again for every tile it weighs): nothing changes while it runs.
@@ -3376,6 +3387,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   // ── drawing ────────────────────────────────────────────────────────────────
 
   render(ctx: Ctx): Frame {
+    // A frame drawn inside another (a measure, a host layer's redraw) keeps the outer frame's context when it ends.
+    const outer = this.drawing;
+    this.drawing = outer ?? {};
+    try { return this.draw(ctx); } finally { this.drawing = outer; }
+  }
+  private draw(ctx: Ctx): Frame {
     if (!this.ctx) this.enter(ctx);
     const { cols, rows } = ctx.t;
     this.noteFocus();
@@ -3504,6 +3521,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const m of this.models.values()) if (m.drawOver?.(canvas, area)) placements = [];
     if (this.dragging) this.drawGhost(canvas, this.dragging.drawer ? null : this.dragging.drop, this.nameOf(this.dragging.src), this.dragging.x, this.dragging.y, this.dragging.drawer ?? undefined);
     else if (this.elementDrag?.target?.kind === "detach") this.drawGhost(canvas, this.elementDrag.target.drop, "detached part", this.elementDrag.x, this.elementDrag.y);
+    else if (this.elementDrag?.target?.kind === "into" && this.elementDrag.target.bar) {
+      // The drop line (PIE-1357): where the part lands, between the blocks, in the drop zones' accent.
+      const b = this.elementDrag.target.bar;
+      canvas.text(b.col, b.row, `${fg(C.yellow)}${"═".repeat(Math.max(0, b.cols - 2))} ▼${RESET}`, b.cols);
+    }
     else if (this.foreign) this.drawGhost(canvas, this.foreign.drop, this.foreign.name, this.foreign.x, this.foreign.y);
     else if (this.floatDrag?.drop) this.drawGhost(canvas, this.floatDrag.drop, this.nameOf(this.floatDrag.id), this.floatDrag.x ?? 0, this.floatDrag.y ?? 0);
     if (this.layout.lift) return { lines: canvas.lines(), placements };
@@ -4038,11 +4060,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(id)!, m = this.noteOf(id);
     if ((p.writtenTitle && !p.systemTitle) || !m || (tabsOf(this.root, id)?.ids.length ?? 0) > 1) return this.displayTitle(id);
     if (rows !== undefined && p instanceof ReaderPane && !p.surface.titleShown(rows - 2)) {
-      // A note that leaves its title out (PIE-1319) is named here alone, so its Work ID is said here too.
-      const named = workIdTitle(subject(m), prop(m, "work-id"));
-      return [p.surface.state(), headerOmits(m).title && named.workId ? `${named.workId} · ${named.title}` : named.title].filter(Boolean).join(" · ");
+      // A note that leaves its title out (PIE-1319) is named here alone, its Work ID first as everywhere (PIE-1356).
+      return [p.surface.state(), headedTitle(m)].filter(Boolean).join(" · ");
     }
-    const name = this.nameOf(id), own = visibleText(p.title()), sub = subject(m);
+    const name = this.nameOf(id), own = visibleText(p.title()), sub = headedTitle(m);
     const rest = own.startsWith(sub) ? own.slice(sub.length).replace(/^\s*·\s*/, "") : null;
     const kindWord = kindOf(p)?.word ?? p.kind;
     const word = rest === null ? own : !rest ? kindWord : /^\d/.test(rest) ? `${kindWord} ${rest}` : rest;
@@ -4054,7 +4075,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(id)!;
     const shownNote = this.noteOf(id);
     const note = p.titleNote ?? shownNote ?? this.showing(p);
-    const system = p.headName?.() ?? (shownNote ? subject(shownNote) : p.title());
+    // A note's own name, its Work ID first (PIE-1356): the tile bar, its tabs and a spine say it as the header does.
+    const system = p.headName?.() ?? (shownNote ? headedTitle(shownNote) : p.title());
     if (!p.writtenTitle || p.systemTitle) return system;
     return interpolate(p.writtenTitle, span => {
       const missing = () => span.default === undefined ? [`⚠ {{${span.expression}}}`] : undefined;
@@ -7343,9 +7365,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pane = hit ? this.panes.get(hit[0]) : undefined;
     const from = (this.panes.get(src) as ReaderPane | undefined)?.msg?.id;
     if (hit && hit[0] !== src && pane instanceof ReaderPane && pane.msg && isOutlineNote(pane.msg) && pane.msg.id !== from && this.inBody(hit[0], hit[1], x, y)) {
-      const at = this.local(hit[0], hit[1], x, y);
-      const line = pane.surface.elementLine(at.x, at.y) ?? pane.msg.text.split("\n").length - 1;
-      return { kind: "into", tile: hit[0], note: pane.msg.id, line, label: `→ into ${subject(pane.msg)}, after line ${line + 1}: let go to embed or copy it` };
+      // Where it lands (PIE-1357): after the block under the pointer, in the person's own edit when one is open there;
+      // its drop line, under that block across the tile, shows the place before the release.
+      const at = this.local(hit[0], hit[1], x, y), land = pane.surface.dropAt(at.x, at.y);
+      const line = land?.line ?? (pane.surface.draft ?? pane.msg).text.split("\n").length - 1;
+      const r = hit[1], row = land && land.row >= 0 ? y + (land.row - at.y) : null;
+      const bar = row !== null && row > r.row && row < r.row + r.rows - 1 ? { row, col: r.col + 1, cols: r.cols - 2, rows: 1 } : null;
+      return { kind: "into", tile: hit[0], note: pane.msg.id, line, bar, draft: !!land?.draft, label: `→ drop: embed or copy here, in ${subject(pane.msg)}${land?.draft ? " (your edit)" : ""} after line ${line + 1}` };
     }
     const drop = dropAt(this.dropTiles(), this.area, x, y, src, true);
     return drop ? { kind: "detach", drop, label: `⧉ detach it: ${drop.label}` } : null;
@@ -7363,7 +7389,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return void this.run("element.detach", { line: e.line + 1, ...(place.to ? { to: place.to } : {}), where: place.where }, src);
     }
     // The line as the person saw it: lines written above it while the choice is open don't move where it lands.
-    const after = (this.panes.get(t.tile) as ReaderPane).msg?.text.split("\n")[t.line];
+    const tp = this.panes.get(t.tile) as ReaderPane;
+    const after = (t.draft ? tp.surface.draft?.lines : tp.msg?.text.split("\n"))?.[t.line];
     const quote = (as: "reference" | "copy") => this.run("element.quote", { line: e.line + 1, into: t.note, at: t.line + 1, ...(as === "copy" ? { copy: true } : {}), ...(after !== undefined ? { after } : {}) }, src);
     this.overlays.push(dropAsPicker(subject((this.panes.get(t.tile) as ReaderPane).msg!), quote));
     this.redraw();

@@ -19,6 +19,54 @@ are its record. The outliner's entries from then are kept below, under
   prints draws as it comes (the drawer put away no longer held its repaints back). An agent's
   lift still never takes your keys.
 
+### A dropped part lands in your edit, shows where it will land, and has room around it (PIE-1357)
+
+- **Your own edit takes it.** Dropping a part on a note you're writing (a new note not saved yet, an edit) puts it in
+  your draft at once, one step `ctrl+z` takes back. It used to arrive as proposals to approve; those stay for an
+  agent's drop.
+- **A drop line** shows where it will land while you drag: under the block the pointer is over, across the tile, with
+  "drop: embed or copy here" on the hint row.
+- **A blank line before and after** a landed part, unless one is there already or it ends the note; the same in the
+  saved note and in your edit.
+### A note's Work ID comes first wherever its title is drawn (PIE-1356)
+
+- **One name, ID first.** A note with `[work-id::HUB-062]` titled "PC-582 acceptance summary…" reads
+  `HUB-062 · PC-582 acceptance summary…` in the tile bar and its tabs, spines, the drawer's tabs, river columns and
+  their rows, the outline tile's rows, `((` completion, the power bar, backlinks, `ep0ch find` and the publisher's
+  page and index titles, as the reader's header already did. Another ticket key in the title no longer reads as the ID.
+- **Said once.** A title that already starts with its ID (pie's `PIE-n — …`) reads `PIE-n · …`, never doubled.
+- **The title is cut, never the ID.** A short room cuts the title from its end.
+- One rule for all of them, outline-core's `headedTitle` (`work-id-title.ts`); the per-place versions are gone. The
+  outline tile's row no longer repeats the ID as its right-hand tag (it shows the status or type).
+- GRAMMAR 6 → 7 (a draw rule). No PROTOCOL or schema change; `ep0ch install --apply` as usual.
+
+### Copying a page carries its live figures' results (PIE-1355)
+
+- **`Y` copies what a live page says now.** With nothing selected, `Y` (the tile menu's "copy note", `act note.copy`)
+  copies the note's text and, under each live figure (`query:` or `view:`), its rows as plain Markdown: a check as
+  `- [ ]`/`- [x]` steps, a table as a Markdown table, tabs as a list per group, every row a `((id|title))` link. Each
+  is headed with the figure's title, its row count, the time and its query. An agent without the outline's MCP can
+  read a pasted page.
+- **Cut, and said so.** At most 50 rows a figure (400 in one copy): a cut figure ends with
+  `showing 50 of 60 · the rest: ep0ch find --ws <outline> --query …` and the `outline_query` arguments. Rows are never
+  dropped silently. The status line says `copied the page with 3 figures' results (1 cut)`.
+- **The text alone is still there:** the tile menu's "copy source only", or `act note.copy source=true`.
+- **`ep0ch show <id> --markdown`** prints the same at a shell. The rows are the ones the reader draws: no second query.
+- No wire change, no PROTOCOL bump, no schema change.
+
+### Desk screens draw each frame for less (PIE-1347, PIE-1335)
+
+- **EchoNet, Welcome and the home base no longer rebuild their logo every frame:** its cells, its densest rows and
+  its drawn lines are worked out once. The nodelist works out its day in words once a day, not every frame.
+- **Every desk frame asks the layout about each tile's ×, fold and float on one context,** made once per frame, and
+  those dry runs no longer seal the state they throw away. On the EchoNet reader a frame costs about a third less
+  CPU, and its parity walk alone went from 55 s to 44 s on the same load.
+- **Tests:** the session's mouse-burst check waits for what the burst's last report shows, not a quiet spell, and
+  bounds its frames by the time the door spent on it (it failed 5 runs in 5 beside another test run; now passes 5 of 5).
+  The parity walk probes the power bar once a part and then puts it away, rather than typing every key into it from
+  each input state (the EchoNet walk's host waits 16 s → 5 s, and those keys now reach the states themselves). Its log
+  line says how many host round trips a scenario made and how long it waited on them.
+
 ### Take a part out of a note: detach it into a tile, or drop it into another note (PIE-1247)
 
 - **alt+drag a part** (a figure, a callout, a list item, a paragraph) out of a reader. Drop it on another reader's note

@@ -24,7 +24,7 @@ import { outlineBoards, readNote } from "./outline-boards";
 import { BASE_STYLE } from "@ep0ch/outline-core/style-cascade";
 import { isOutlineNote, type AuthoredLinksSnapshot } from "../authored";
 import { ALL_LINK_GROUPS, describeLinkRow, isLinkEntry, isLinkGroup, LINK_GROUPS, linkAcross, linkBlock, linkListRow, linkNote, linkTargetOf, linkRows, readChildren, type ChildLink, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
-import { subject, type Msg } from "../board";
+import { headedTitle, subject, type Msg } from "../board";
 import {
   backlinkOptionsFrom, backlinkStatusParts, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS,
   describeBacklinkView, nextBacklinkKindFilter, nextBacklinkSort, nextBacklinkStageFilter,
@@ -185,9 +185,9 @@ export class BacklinksPane implements Pane {
     if (!this.target) return `${word} · of ${this.sourceLabel()}`;
     if (this.childrenOnly) {
       const c = this.children;
-      return `${word} · ${subject(this.target)} · ${c.kind === "ready" ? `${c.value.length} repl${c.value.length === 1 ? "y" : "ies"}` : "…"}`;
+      return `${word} · ${headedTitle(this.target)} · ${c.kind === "ready" ? `${c.value.length} repl${c.value.length === 1 ? "y" : "ies"}` : "…"}`;
     }
-    return `${word} · ${subject(this.target)}`;
+    return `${word} · ${headedTitle(this.target)}`;
   }
   headControls(_room: number, desk: DeskApi) {
     if (!this.target || this.childrenOnly) return null;
