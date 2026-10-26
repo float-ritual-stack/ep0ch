@@ -3916,7 +3916,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     };
     const pane = this.panes.get(id)!;
     if (this.linking && pane !== this.linkingFrom() && this.linkAccepts(pane)) {
-      put(`${this.numLabel(id)}⌖ click to link here`, fg(C.lmagenta));
+      // A pick's click chooses a value for what asked, and wires nothing.
+      put(`${this.numLabel(id)}⌖ ${this.linking.pick ? "click to choose" : "click to link here"}`, fg(C.lmagenta));
       return this.headOut;
     }
     const ctl = pane.headControls?.(Math.max(1, Math.min(22, Math.floor((max - x) / 3))), this) ?? [];

@@ -4682,7 +4682,7 @@ export class NoteSurface {
     if (a.value === undefined) return this.askSlots(m.id, button, [key], host, actor);
     const given = await this.slotValue(button, key, a.value, host, actor);
     const line = button.line, before = m.text.split("\n")[line] ?? "", after = withButtonSlot(before, key, given);
-    if (after === null) throw new ActionRefused(`that value can't be written on line ${line + 1}: a button line holds it on one line`);
+    if (after === null) throw new ActionRefused(`that value can't be written on line ${line + 1}: a button line can't hold a newline, { or } in a value`);
     const wrote = after !== before;
     const r = await this.inTurn(() => this.rewriteLines(m.id, wrote ? [{ line, before, after }] : [], this.sourceHistory, host, actor, SOURCE_STALE));
     const said = `${button.label}: ${key}=${given}`;
@@ -4690,8 +4690,11 @@ export class NoteSurface {
     host.redraw();
     const out = { block: m.id, line: line + 1, wrote: { [key]: given }, changed: wrote, revision: r.revision ?? null, recordedAs: mutationFor(actor) };
     // More slots empty on the same press: the next is asked (the person's pick leaves the rest to this).
-    const left = actor.kind !== "user" ? [] : a.next !== undefined ? a.next.split(",").filter(Boolean) : a.ask ? (buttonCallAt((await host.ctx.board.get(m.id))!.text.split("\n"), line)?.empty ?? []) : [];
-    if (left.length) { const again = buttonCallAt((await host.ctx.board.get(m.id))!.text.split("\n"), line)!; void this.askSlots(m.id, again, left, host, actor); }
+    if (actor.kind === "user" && (a.next !== undefined || a.ask)) {
+      const now = await host.ctx.board.get(m.id), again = now ? buttonCallAt(now.text.split("\n"), line) : null;
+      const left = a.next !== undefined ? a.next.split(",").filter(Boolean) : again?.empty ?? [];
+      if (again && left.length) void this.askSlots(m.id, again, left, host, actor).catch(e => host.ctx.flash(e instanceof Error ? e.message : String(e)));
+    }
     return out;
   }
 

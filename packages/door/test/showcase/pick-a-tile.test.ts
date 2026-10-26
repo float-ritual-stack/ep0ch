@@ -41,6 +41,9 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     const asked = await act("button.press", { label: "pop it" });
     expect(asked.picking).toBe("tile");
     await until(() => screen().includes("pop it: choose a tile for target"), "the picker's card");
+    // A tile's frame says what a click does here: it chooses, it doesn't wire.
+    expect(screen()).toContain("click to choose");
+    expect(screen()).not.toContain("click to link here");
     const links = (await act("tile.info", {}, "links")).tile as string;
     expect(links).toMatch(/^t-[0-9a-f-]{36}$/);
     // The card's rows choose by number; `to` is the same choice through act. The links tile fills a slot of this screen, so the

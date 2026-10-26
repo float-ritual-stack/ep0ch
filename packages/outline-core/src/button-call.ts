@@ -81,7 +81,7 @@ function balanced(text: string): boolean {
 }
 
 /** An attribute written back: `key="value"`, in the quote the value allows. */
-const written = (key: string, value: string) => (/^[^\s"'{}\\]+$/.test(value) ? `${key}=${value}` : !value.includes('"') ? `${key}="${value}"` : !value.includes("'") ? `${key}='${value}'` : `${key}="${value.replace(/(["\\])/g, "\\$1")}"`);
+const written = (key: string, value: string) => (/^[^\s"'{}\\]+$/.test(value) ? `${key}=${value}` : !/["\\]/.test(value) ? `${key}="${value}"` : !value.includes("'") ? `${key}='${value}'` : `${key}="${value.replace(/(["\\])/g, "\\$1")}"`);
 
 /**
  * What the line says that no button reads (PIE-1298, Evan, Oct 25: `act="tile.zoom reach="column" tile="t-a6125371"` ended
@@ -222,11 +222,11 @@ export function slotArgs(call: ButtonCall, key: string): { step: number; action:
 /**
  * The button on `line` with slot `key` written: the word of that name takes `value` (quoted when it needs it), else `key=value`
  * is added before the closing brace; the rest of the line is as written. Null when the line is no `::button{…}`, or the value
- * can't be written on one line.
+ * can't be written on one line (a newline, or a `{` or `}`: the braces end at the first, quoted or not).
  */
 export function withButtonSlot(line: string, key: string, value: string): string | null {
   const open = COMPONENT_OPEN.exec(line.replace(/\r$/, ""));
-  if (!open || open[1] !== BUTTON_NAME || !open[3] || value.includes("\n")) return null;
+  if (!open || open[1] !== BUTTON_NAME || !open[3] || /[\n{}]/.test(value)) return null;
   const inner = open[3].slice(1, -1), at = line.indexOf(open[3]) + 1;
   const say = written(key, value);
   let cursor = 0;

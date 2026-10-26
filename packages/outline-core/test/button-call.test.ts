@@ -120,6 +120,15 @@ test("withButtonSlot writes one slot onto the line and leaves the rest as writte
   expect(withButtonSlot('::button{act="go {t}"}', "t", "a\nb")).toBeNull();
 });
 
+test("withButtonSlot writes a backslash so it reads back, and refuses a value that would end the braces", () => {
+  for (const value of ["C:\\dir\\", "a\\\\b", "it's C:\\x"]) {
+    const line = withButtonSlot('::button{act="go {t}" t=}', "t", value)!;
+    expect(buttonCallAt([line], 0)!.slots).toEqual([{ key: "t", value }]);
+  }
+  expect(withButtonSlot('::button{act="go {t}" t=}', "t", "a } b")).toBeNull();
+  expect(withButtonSlot('::button{act="go {t}" t=}', "t", "a { b")).toBeNull();
+});
+
 test("a button that misreads says what it read and the corrected line, and runs nothing", () => {
   // Evan, Oct 25: nested double quotes ended act= at reach=, and tile= ran on the focused tile.
   const nested = buttonCallAt(['::button{label="zoom" act="tile.zoom reach="column" tile="t-a6125371"}'], 0)!;

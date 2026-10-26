@@ -65,7 +65,7 @@ The kitchen sink's **One button, two tiles** demonstrates both forms. Disk/netwo
 **Buttons that ask.** A `{key}` in `act=` (or in an `of=` script's values) is filled from the word `key=` on the same line:
 `::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}`. Left empty, a person's press asks for it in the
 kind the action's own argument takes (a tile: click one in the door), writes the answer on the line (`target=t-…`, an identity
-address of the tile grammar, never a name or a number) and runs; alt+click asks again. An agent is never asked: it writes the
+address of the tile grammar, never a name or a number) and runs nothing: the next press runs it. alt+click asks again. An agent is never asked: it writes the
 value with `button.slot label="pop it" key=target value=<tile>`. A button whose line reads differently than it was written
 (nested quotes that end `act=` early, stray words) runs nothing and says the line to write, in the editor as you type and on save.
 
