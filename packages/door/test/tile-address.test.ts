@@ -75,6 +75,8 @@ describe("whyNone", () => {
     expect(whyNone(parseTileAddress("x@nowhere"), TILES)).toContain("no screen nowhere is on show or mounted here; screens: desk, library");
     expect(whyNone(parseTileAddress("t-deadbeef"), TILES)).toContain("no tile has the id t-deadbeef");
     expect(whyNone(parseTileAddress("t-3a4f0000"), TILES)).toContain("did you mean t-3a4f9c21-0000-4000-8000-000000000001");
+    const copied = [...TILES, tile("t-5e5e5e5e-0000-4000-8000-000000000005", "tree2", "tree", { copiedFrom: "t-9d9d9d9d-0000-4000-8000-000000000004" })];
+    expect(whyNone(parseTileAddress("t-9d9d9d9d"), copied)).toContain("it was copied to @desk/tree2 (t-5e5e5e5e-0000-4000-8000-000000000005)");
     expect(whyNone(parseTileAddress("tree"), TILES)).toBeNull();
   });
 });

@@ -239,7 +239,7 @@ export class AgentDrawer {
     this.strip = open && s?.folded === true;
     const share = s && typeof s.share === "number" && Number.isFinite(s.share) ? clamp(s.share) : 0.5;
     this.gen = s && typeof s.gen === "number" && Number.isInteger(s.gen) && s.gen > 0 ? s.gen : 0;
-    this.out = !!s && s.out === true;
+    this.out = !!s && !!s.out;
     this.layer = hostLayer({ tabs: [HOST_TILES], names: new Map([[HOST_TILES, HOST_TILES]]), share, open });
     this.prog = this.program();
     registerDrawerKind();

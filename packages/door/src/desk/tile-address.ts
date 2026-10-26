@@ -65,6 +65,8 @@ export interface AddressCandidate<T> {
   slots: readonly string[];
   /** The tile that opened it (`t-<uuid>`), when one did and it was recorded with it: what `^` follows. */
   from?: string;
+  /** The tile it was copied from (`t-<uuid>`): a saved arrangement loaded again made it, and an address of the old tile can say so. */
+  copiedFrom?: string;
   /** Its screen's name (`drawer` for the drawer's own desk). */
   screen: string;
   /** Where to find it, for a refusal that lists several. */
@@ -112,6 +114,8 @@ export function resolveRelative<T>(a: Extract<TileAddress, { kind: "relative" }>
 export function whyNone<T>(a: TileAddress, cs: readonly AddressCandidate<T>[]): string | null {
   const roles = [...new Set(cs.map(c => c.role))].sort();
   if (a.kind === "id") {
+    const copy = cs.find(c => c.copiedFrom !== undefined && (c.copiedFrom === a.id || c.copiedFrom.startsWith(a.id)));
+    if (copy) return `no tile has the id ${a.text}: it was copied to ${copy.where} (${copy.id}); tile.list shows the ids`;
     const near = cs.filter(c => c.id.startsWith(a.id.slice(0, 6)));
     return `no tile has the id ${a.text}${near.length ? `; did you mean ${near.slice(0, 3).map(c => c.id).join(", ")}?` : `; tile.list shows the ids`}`;
   }
