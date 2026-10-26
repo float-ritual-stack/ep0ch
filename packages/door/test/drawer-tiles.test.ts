@@ -724,6 +724,27 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       } finally { d.app.quit(); }
     });
 
+    // PIE-1342: Evan's agent tab sat behind another tab of the drawer (what-changed shown) with the drawer put away. A lift
+    // brings its tab to the front, so it is drawn lifted and stays lifted until the next lift drops it.
+    test("with the drawer put away, agent.lift lifts an agent tab behind another tab, and the next drops it", async () => {
+      const d = await door();
+      try {
+        d.key({ kind: "alt", ch: "a" }); d.paint();
+        await until(() => d.app.drawer.tile?.running === true, "the agent tab runs");
+        const drawer = d.app.drawer.desk!, own = d.app.drawer.tile!;
+        await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+        expect(drawer.tileInfo(drawer.nameOfPane(own)!).shown).toBe(false);
+        await d.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
+        expect(await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER)).toMatchObject({ zoomed: true });
+        d.paint();
+        expect(drawer.liftsPane(own)).toBe(true);
+        expect(d.app.drawer.open).toBe(false);
+        expect(await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER)).toMatchObject({ zoomed: false });
+        d.paint();
+        expect(drawer.lifted).toBeNull();
+      } finally { d.app.quit(); }
+    });
+
     // Evan, Oct 26: "when lifting a tile/agent, if the drawer isn't already expanded, it shouldn't expand the drawer to float
     // the agent". `tile.zoom tile=role:agent reach=column` already left it alone; agent.lift pulled it up. drawer=true asks.
     for (const how of ["folded", "put away"] as const) {

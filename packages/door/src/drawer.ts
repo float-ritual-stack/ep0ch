@@ -48,6 +48,7 @@ import { spawn as spawnDetached } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { Desk, type MovedTile } from "./desk/desk";
+import { ptyBackend } from "./desk/pty-backend";
 import type { Pane } from "./desk/panes";
 import type { ScreenSpec } from "./desk/screen-spec";
 import type { TileDone, Where } from "./desk/tile-actions";
@@ -282,7 +283,7 @@ export class AgentDrawer {
     const first = made ? this.firstTab : null;
     const done = first && (d.pane(String(first.name)) as PtyPane | undefined)?.run.cmd.join(" ") === prog.cmd.join(" ") ? first : this.agentTab(d, actor, prog);
     if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
-    else (d.pane(done.tile) as PtyPane).startNow(this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3));
+    else (d.pane(done.tile) as PtyPane).startNow(...this.termSize());
     this.host.redraw();
     return done;
   }
@@ -571,7 +572,7 @@ export class AgentDrawer {
     // The session's own command and mark, before its program starts (it starts now: an agent's tab isn't drawn yet).
     p.run.cmd = cmd;
     p.run.session = { program, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}) };
-    p.startNow(this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3));
+    p.startNow(...this.termSize());
     if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
     this.host.redraw();
     return { attached: false, started: true, program, folder, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}), cmd, resumed, tile: done.tile, name: done.name };
@@ -677,9 +678,10 @@ export class AgentDrawer {
   get runs(): DrawerProgram { return this.prog; }
 
   /**
-   * The drawer's desk, made the first time it's needed (with the App to enter it): what was in it when the door last
-   * ran (drawer-tiles.json), each tile adopting its program as it's first drawn. A drawer never saved before gets one
-   * agent tab running the last agent picked.
+   * The drawer's desk, made the first time it's needed (with the App to enter it; a saved one the first time a tile is
+   * asked for, `known`): what was in it when the door last ran (drawer-tiles.json), each terminal adopting the program
+   * the terminal host kept for it as the desk is made, the rest starting as first drawn. A drawer never saved before
+   * gets one agent tab running the last agent picked.
    */
   get desk(): Desk | null {
     if (this.d) return this.d;
@@ -693,8 +695,16 @@ export class AgentDrawer {
     d.shownAs(this.shown);
     // As the spec's own tile would be: the drawer's focus, which is no one's keys until the person goes in.
     if (fresh && !d.tileCount()) this.firstTab = this.agentTab(d, USER);
+    // Not when first drawn (PIE-1342): asked before the drawer is up, the agent tab names its running program, and a lift lifts that one.
+    if (!fresh) for (const c of d.addressable([d])) { const p = c.value.pane; if (p instanceof PtyPane && !p.running && p.keptAs && ptyBackend().holds(p.keptAs)) p.startNow(...this.termSize()); }
     return d;
   }
+  /**
+   * The drawer's desk for a tile asked of the host layer (`resolveTile`, `unnamed`, the agent tabs): once made, or when it
+   * has saved tabs (drawer-tiles.json) it is restored now, so they are known from the first ask, not the first draw
+   * (PIE-1342). A drawer never saved isn't made by asking, nor by a screen's links and followers reading `desks()`.
+   */
+  private get known(): Desk | null { return this.d ?? (this.persist && readState<unknown>("drawer-tiles.json", outlineState()) !== null ? this.desk : null); }
   /** The agent tab a drawer never saved opened as it was made (`newAgentTab` right after takes it as its own). */
   private firstTab: TileDone | null = null;
   /** Where the person is, as the drawer's desk sees it: in it while they're in the drawer, else nowhere on it. */
@@ -725,8 +735,8 @@ export class AgentDrawer {
     const hit = asking.resolveTile(sel, o) ?? null;
     return hit && (parseTileAddress(sel).kind !== "name" || o?.program || sel.includes("/") || hit.tile.id === sel || this.isDrawer(hit.desk)) ? hit : null;
   }
-  /** A desk to ask the resolver from: the drawer's, else the screen shown's (asking never makes the drawer). */
-  private asking(): Desk | null { return this.d ?? this.desks()[0] ?? null; }
+  /** A desk to ask the resolver from: the drawer's (a saved one restored to be asked), else the screen shown's. */
+  private asking(): Desk | null { return this.known ?? this.desks()[0] ?? null; }
   /** Why `sel` names no tile in the host layer, in words and with what to run, or null when it says nothing (HostLayer.unnamed). */
   unnamed(sel: string): string | null {
     const address = parseTileAddress(sel), asking = this.asking();
@@ -807,6 +817,8 @@ export class AgentDrawer {
     if (moved) for (const d of this.desks()) d.liftedDesk?.dropLiftElsewhere();
     return r;
   }
+  /** A drawer terminal's size, cols and rows, from the room last drawn: what a program started or adopted off screen gets. */
+  private termSize(): [number, number] { return [this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3)]; }
   /** The terminal's size as last drawn (the host layer's room). */
   private rows = 30;
   private cols = 100;
@@ -1170,7 +1182,8 @@ export class AgentDrawer {
   private allDesks(): Desk[] {
     const ctx = this.host.ctx?.();
     const stack = [...(ctx?.screens?.() ?? []), ...(ctx?.kept?.() ?? [])].map(tilesOf).filter((d): d is Desk => !!d);
-    return [...(this.d ? [this.d] : []), ...stack, ...[tilesOf(this.host.screen?.())].filter((d): d is Desk => !!d)];
+    const d = this.known;
+    return [...(d ? [d] : []), ...stack, ...[tilesOf(this.host.screen?.())].filter((x): x is Desk => !!x)];
   }
   /**
    * The agent tab agent.lift lifts, the one the person is using: the one lifted now (so again drops it), else the one
@@ -1203,9 +1216,11 @@ export class AgentDrawer {
   }
   /**
    * The agent tab used last and the desk it is on, as the tile grammar's `drawer.agent` reads it (the one finder:
-   * resolveTile and the lift ask it): in the drawer or on the screen shown. Null when none is open. Never made by asking.
+   * resolveTile and the lift ask it): in the drawer or on the screen shown. Null when none is open. A saved drawer is restored to answer; a new tab is never
+   * made by asking.
    */
   agentPane(): { pane: PtyPane; desk: Desk } | null {
+    this.asking();
     const hit = this.findAgent(this.desks());
     return hit ? { pane: hit.pane, desk: hit.desk } : null;
   }

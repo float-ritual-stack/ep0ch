@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### After an update, the lift finds your agent before the drawer comes up (PIE-1342)
+
+- **The kept agent answers first.** After a session handover with the drawer put away, `role:agent` (and
+  `drawer.agent`, `tile.info`) named nothing until alt+a drew the drawer, so ✦a would have started a second claude. The
+  drawer's saved tabs are restored the first time a tile is asked for, and their programs reattached then: ✦a lifts the
+  same claude, and the drawer stays put away.
+- **A tab behind another lifts.** A lift of a tab that sat behind another (your agent behind what-changed) was dropped
+  as soon as it was drawn; the lift now brings its tab to the front, and the next ✦a drops it.
+
 ### Completion says what each row is, and its docs wrap beside the list (PIE-1339, PIE-1245)
 
 - **Kind and detail on every row.** Each row of the `[[`, `((`, `::`, `@` and `[key::` list ends in what it is
