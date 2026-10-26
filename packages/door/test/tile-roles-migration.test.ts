@@ -37,6 +37,13 @@ describe("tile-roles", () => {
     expect(v.root.inner.root).toEqual({ t: "leaf", kind: "reader", name: "r", slot: "reader" });
     expect(v.root.inner.records).toBe(1);
   });
+  test("a door that started on the new code before this ran saved the old leaf with its old role and the mark: the own program still becomes the agent (Evan's pie door, Oct 25)", () => {
+    const saved = layout(leaf({ kind: "pty", name: "shell", role: "shell", slot: "shell", kept: "drawer.json:drawer.agent" }), { records: 1 });
+    const { value, changed } = migrateLayout(saved, true);
+    expect(changed).toBe(1);
+    expect((value as any).root).toMatchObject({ role: "agent", kind: "drawer.own", name: "drawer.agent" });
+    expect(migrateLayout(value, true).changed).toBe(0);
+  });
   test("a file with no layout in it is left alone", () => {
     expect(migrateLayout({ open: true, share: 0.5, out: true }, false)).toEqual({ value: { open: true, share: 0.5, out: true }, changed: 0 });
   });
