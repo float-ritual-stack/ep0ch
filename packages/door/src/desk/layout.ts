@@ -52,7 +52,7 @@ export interface Policy {
   overlay?: boolean;
   /** An open dock stays open when the keys leave it (the board's backlinks: read a source, the list stays); it shuts by its key. */
   stays?: boolean;
-  /** Task mode: the shape is fixed, the contents stay live. Unlocking is one key (alt+k), a click or `layout.lock`. */
+  /** Task mode: the shape is fixed, the contents stay live. Unlocking is a click on its ▣ chip, the power bar's row or `layout.lock` (no key: PIE-1346). */
   locked?: boolean;
   /**
    * Where opens from its tiles land when a tile has no link of its own: a tile's name, or a container's key (the

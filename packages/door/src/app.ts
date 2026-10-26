@@ -1403,9 +1403,9 @@ export class App implements Ctx {
     if (k.kind === "alt" && k.ch === "w" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("host.waiting"); return; }
     // alt+o: what changed since you looked, the list in your drawer (changes.open), on the same screens.
     if (k.kind === "alt" && k.ch === "o" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("changes.open"); return; }
-    // ctrl+k (cmd+k where the terminal sends super): the power bar, on every screen, never while typing or in a terminal tile.
+    // ctrl+k (cmd+k where the terminal sends super; alt+k too, a modifier away, PIE-1346): the power bar, on every screen, never while typing or in a terminal tile.
     const kTop = this.stack.at(-1);
-    if (((k.kind === "char" && k.ctrl && k.ch === "k") || (k.kind === "super" && k.ch === "k")) && !kTop?.rawKeys?.() && !kTop?.holdsKeys?.() && !kTop?.noDrawer) { void this.dispatch.press("bar.open"); return; }
+    if (((k.kind === "char" && k.ctrl && k.ch === "k") || ((k.kind === "super" || k.kind === "alt") && k.ch === "k")) && !kTop?.rawKeys?.() && !kTop?.holdsKeys?.() && !kTop?.noDrawer) { void this.dispatch.press("bar.open"); return; }
     // ctrl+n: a new note (PIE-544), on every screen, in an edit too (PIE-591), but never in a filter, a picker or a terminal tile.
     const nTop = this.stack.at(-1);
     if (k.kind === "char" && k.ctrl && k.ch === "n" && !nTop?.rawKeys?.() && (!nTop?.holdsKeys?.() || nTop.newNoteWhileTyping?.()) && !nTop?.noDrawer) { void this.dispatch.press("note.new"); return; }

@@ -181,7 +181,13 @@ export interface Ctx<I = number> {
   beside?: ReadonlyMap<I, I>;
   outward?: string;
   opened?: ReadonlyMap<string, { ids: I[]; active: I | null }>;
+  /** What this layout is called to the person (PIE-1346): its lock's refusals and answers name it. Left out, the screen. */
+  self?: LayoutSelf;
 }
+
+/** A layout as the person reads about it: `name` in a sentence ("your drawer is locked"), `chip` on its ▣ chip ("▣ drawer locked"). */
+export interface LayoutSelf { name: string; chip: string }
+export const SCREEN_SELF: LayoutSelf = { name: "the screen", chip: "screen" };
 
 /** Where a new or moved tile goes. A drag's places, plus: into a named line (`in`), the next column of a flow, a float. */
 export type At<I = number> = Place<I>
@@ -245,8 +251,8 @@ export type Result<I = number> =
   | { ok: true; state: LayoutState<I>; focus: I; changed: boolean; answer: Record<string, unknown>; base: LayoutState<I> }
   | { ok: false; refused: string };
 
-/** How a locked screen is unlocked, said with every refusal it causes. */
-export const UNLOCK = "alt+k or a click on ▣ locked unlocks it";
+/** How a locked layout is unlocked, said with every refusal it causes (no key: the lock is rare, PIE-1346). */
+export const unlockHow = (self: LayoutSelf = SCREEN_SELF): string => `a click on ▣ ${self.chip} locked (or ^W P) unlocks it`;
 
 /** A refusal inside an operation: caught by `apply`, which answers it with nothing changed. */
 class Refused extends Error {}
@@ -757,6 +763,8 @@ class Step<I> {
   /** An agent in yolo: the person handed it the door, so their locks don't hold it either. */
   private get yolo() { return this.ctx.actor.kind === "agent" && !!this.ctx.person.yolo; }
   private name(id: I) { return this.d.names.get(id) ?? String(id); }
+  /** This layout as the person reads about it: the screen, or your drawer. */
+  private get self(): LayoutSelf { return this.ctx.self ?? SCREEN_SELF; }
   private facts(id: I): TileFacts { return this.ctx.tile(id); }
   private isFloat(id: I) { return this.d.floats.some(f => f.id === id); }
   private all() { return [...leaves(this.d.tree), ...this.d.floats.map(f => f.id)]; }
@@ -766,7 +774,7 @@ class Step<I> {
   // ── the rules, each in one place ──
 
   private lockedWhy(e: Effective, what: string): string {
-    return e.by.locked === "screen" ? `the screen is locked: ${what} is refused · ${UNLOCK}` : `${e.by.locked} is locked: ${what} is refused · ^W P (or layout.policy node=${e.by.locked} locked=false) unlocks it`;
+    return e.by.locked === "screen" ? `${this.self.name} is locked: ${what} is refused · ${unlockHow(this.self)}` : `${e.by.locked} is locked: ${what} is refused · ^W P (or layout.policy node=${e.by.locked} locked=false) unlocks it`;
   }
   /** The container a policy came from, as a person reads it: its key (the lanes), else its id. */
   /** The refusal for tile `id` kept by layer `by`: its kind's own words when its kind's policy is what keeps it, else `said`. */
@@ -775,7 +783,7 @@ class Step<I> {
     return f.stays && by === `${f.kind} tiles` ? f.stays : said;
   }
   private whose(by: string | undefined) {
-    if (by === "screen") return "the screen";
+    if (by === "screen") return this.self.name;
     const key = by === undefined ? undefined : (nodeById(this.d.tree, by) as { key?: string } | null)?.key;
     return key ? `the ${key} container` : by;
   }
@@ -1777,23 +1785,23 @@ class Step<I> {
   }
 
   private even() {
-    if (this.d.policy.locked && !this.yolo) refuse(`the screen is locked: evening it out is refused · ${UNLOCK}`);
+    if (this.d.policy.locked && !this.yolo) refuse(`${this.self.name} is locked: evening it out is refused · ${unlockHow(this.self)}`);
     // A split that keeps its sizes (locked, resizable off) keeps them.
     even(this.d.tree, n => !!this.resizeWhy(n));
   }
 
   /** Who set or took away lock `key`: an agent undoes only a lock it set. */
   private lockedBy(key: string, lock: boolean) {
-    if (this.agent && !lock && !this.d.locks.has(key)) refuse(`${key === "screen" ? "the screen" : key} was locked by the person; an agent doesn't unlock it (block.mark gets their attention)`);
+    if (this.agent && !lock && !this.d.locks.has(key)) refuse(`${key === "screen" ? this.self.name : key} was locked by the person; an agent doesn't unlock it (block.mark gets their attention)`);
     if (lock && this.agent) this.d.locks.add(key); else this.d.locks.delete(key);
   }
   private lock(on: boolean | undefined) {
     const locked = !!this.d.policy.locked, want = on ?? !locked;
-    if (want === locked) { this.d.changed = false; this.d.answer = { locked: want, changed: false }; return; }
+    if (want === locked) { this.d.changed = false; this.d.answer = { locked: want, changed: false, layout: this.self.name }; return; }
     this.lockedBy("screen", want);
     const { locked: _l, ...rest } = this.d.policy;
     this.d.policy = want ? { ...rest, locked: true } : rest;
-    this.d.answer = { locked: want, changed: true };
+    this.d.answer = { locked: want, changed: true, layout: this.self.name, unlock: unlockHow(this.self) };
   }
 
   private setPolicy(op: Extract<Op<I>, { op: "policy" }>) {
@@ -1944,7 +1952,7 @@ class Step<I> {
 
   /** Permission to lay the screen out again (the new layout comes in through `init`). */
   private load(name: string) {
-    if (this.d.policy.locked) refuse(`the screen is locked: loading ${name} would change its shape · ${UNLOCK}`);
+    if (this.d.policy.locked) refuse(`${this.self.name} is locked: loading ${name} would change its shape · ${unlockHow(this.self)}`);
     // A layout loaded drops every container's lock with it: an agent doesn't, over a lock the person set.
     if (this.agent) {
       const locks = (n: LNode<I>): string[] => (n.t === "leaf" ? [] : [...(n.policy?.locked ? [n.id ?? n.t] : []), ...kidsOf(n).flatMap(locks)]);

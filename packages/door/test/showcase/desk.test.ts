@@ -413,6 +413,30 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await drawer.dispatch.act({ action: "tile.drawer", tile: "kettle", args: { on: false } }, user);
   });
 
+  test("the drawer section: the drawer's lock is its own, and it says so, by act (PIE-1346)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
+    await until(() => marks.drawer!.every(m => screen().includes(m)), "the drawer section");
+    await app.act({ action: "tile.drawer", tile: "reader", as: "test-agent" });
+    await app.act({ action: "host.toggle", args: { open: true }, as: "test-agent" });
+    const drawer = app.drawer.desk!, stage = S().stages.get(S().sel).top as Desk;
+    const r = await app.act({ action: "layout.lock", tile: "@drawer/reader", args: { on: true }, as: "test-agent" }) as any;
+    try {
+      expect(r).toMatchObject({ locked: true, changed: true, layout: "your drawer" });
+      expect(drawer.layoutGet().locked).toBe(true);
+      expect(stage.layoutGet().locked).toBeFalsy();
+      await until(() => screen().includes("▣ drawer locked"), "the drawer's frame says it is locked");
+      // Closing a tile in it is refused in the drawer's name, with its own way out; the screen's tiles close as ever.
+      await expect(app.act({ action: "tile.close", tile: "@drawer/reader", as: "test-agent" })).rejects.toThrow("your drawer is locked: closing reader is refused · a click on ▣ drawer locked (or ^W P) unlocks it");
+    } finally {
+      await app.act({ action: "layout.lock", tile: "@drawer/reader", args: { on: false }, as: "test-agent" });
+    }
+    expect(drawer.layoutGet().locked).toBeFalsy();
+    await until(() => !screen().includes("▣ drawer locked"), "the chip goes with the lock");
+    await drawer.dispatch.act({ action: "tile.drawer", tile: "reader", args: { on: false } }, { kind: "user" });
+    await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" }).catch(() => {});
+  });
+
   test("the drawer section: a pick from the chip's picker opens a new agent tab, and the agent already running keeps its process (PIE-1331)", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });

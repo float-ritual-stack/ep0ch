@@ -217,6 +217,13 @@ function wKeyRows(desk: Desk, q: string, host: BarHost): BarRow[] {
   return typed ? hits.map(({ group: _g, ...r }) => r) : hits;
 }
 
+/**
+ * The dispatcher of the tiles the person's keys are in (PIE-1346): its focused tile's menu is the actions scope's first
+ * rows, and a row runs there, so "unlock your drawer" is the drawer's when the keys are in it. The desks' own answer
+ * (focusedDesk), else the screen shown's.
+ */
+const keysDispatch = (host: BarHost) => host.ctx.hostLayer?.desks()[0]?.focusedDesk()?.dispatch ?? host.screens().at(-1)?.dispatch;
+
 const ACTIONS: BarSource = {
   id: "actions", title: "actions", prefix: ">", by: "door",
   about: "what you can do here: the focused tile's menu (its ⋯), then every action of this screen and the door's, each with its key, found by its name or what it does; ⏎ runs one that takes nothing as its key would, and opens the form of one that takes arguments (alt+⏎ runs it as it is when it needs none)",
@@ -225,7 +232,7 @@ const ACTIONS: BarSource = {
     const top = host.screens().at(-1);
     const w = W_QUERY.exec(q);
     if (w) { const desk = tilesOf(top); return desk ? wKeyRows(desk, w[1]!, host) : []; }
-    const menu = (() => { try { return top?.dispatch?.menu("focused", USER) ?? []; } catch { return []; } })();
+    const menu = (() => { try { return keysDispatch(host)?.menu("focused", USER) ?? []; } catch { return []; } })();
     // While the hyper layer is on (PIE-699) each action that has a chord shows it, as ✦-, beside its other keys.
     const hy = (action: string) => (hyperOn() ? hyperKeysOf(action) : []);
     const rows: BarRow[] = menu.map(m => ({ key: `menu:${m.action}:${JSON.stringify(m.args)}`, label: m.label, fill: m.action, detail: `${m.group} · ${m.action}${hy(m.action).length ? ` · ${hy(m.action).join(" ")}` : ""}`, ...(m.key ? { keycap: m.key } : {}), ...(m.refused ? { refused: m.refused } : {}), data: { action: m.action, args: m.args, tile: m.tile, summary: "" } }));
@@ -261,8 +268,9 @@ const ACTIONS: BarSource = {
         if (d.missing?.length || !d.bare) throw new ActionRefused(`${d.action} needs ${(d.missing?.length ? d.missing : Object.entries(actionArgs(host, d.action)).filter(([, s]) => !s.optional).map(([k]) => k)).map(k => `${k}=`).join(" ")}: an agent runs it with them (ep0ch act ${d.action} …; bar.form op=open action=${d.action} answers its fields)`);
       } else return openActionForm(host, { action: d.action, args: d.args, ...(d.tile !== undefined ? { tile: d.tile } : {}) }, how.actor);
     }
-    // A menu row runs in its tile on the screen's dispatcher, as its ⋯ menu runs it; the rest on the door's.
-    const on = d.tile !== undefined && top?.dispatch ? top.dispatch : host.dispatch;
+    // A menu row runs in its tile on the dispatcher of the tiles the keys are in, as its ⋯ menu runs it; the rest on the door's.
+    const keys = keysDispatch(host);
+    const on = d.tile !== undefined && keys ? keys : host.dispatch;
     if (row.key.startsWith("line:") || row.key === d.action || how.actor.kind === "agent") return on.act({ action: d.action, args: d.args, ...(d.tile !== undefined ? { tile: d.tile } : {}) }, how.actor);
     return on.press(d.action, d.args, d.tile);
   },

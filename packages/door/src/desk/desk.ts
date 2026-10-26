@@ -64,7 +64,7 @@ import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop"
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
-  shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, UNLOCK, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
+  shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, SCREEN_SELF, type LayoutSelf, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   foldsBeside, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
@@ -268,6 +268,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private slid: PlacedDock<number>[] = [];
   /** The lock chip at the end of the hint row, as last drawn. */
   private lockChip: { from: number; to: number } | null = null;
+  /** The drawer's own ▣ chip on this hint row while your drawer is locked (PIE-1346): a click unlocks the drawer. */
+  private drawerLockChip: { from: number; to: number; desk: Desk } | null = null;
   private hyperChip: { from: number; to: number } | null = null;
   /** The hint row as composed, when it was too long for the row and was cut ("? more"); where "? more" is on it. */
   private hintFull: string | null = null;
@@ -698,7 +700,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Each tile's facts once for this answer (the layout module asks them again for every tile it weighs): nothing changes while it runs.
     const facts = new Map<number, TileFacts>();
     return {
-      ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : {}),
+      ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : {}), self: this.layoutSelf(),
       beside: this.besides, opened: this.opened, outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
       actor, standing: this.dispatch.standing(actor, "shape"), protectTyping: actor.kind === "agent" && !w.yolo && !INVITES.covers(actor.invitation, "shape", actor.run), area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
       person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, { action: "layout.change" }), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}) },
@@ -3533,7 +3535,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // is painted over the whole screen (paintLift), and that is the screen's one row.
     if (this.holder && !this.layout.lift) {
       this.hintRow = -1;
-      this.hintFull = null; this.moreChip = null; this.keySpots = []; this.handles = []; this.lockChip = null; this.hyperChip = null;
+      this.hintFull = null; this.moreChip = null; this.keySpots = []; this.handles = []; this.lockChip = null; this.drawerLockChip = null; this.hyperChip = null;
       this.hintPanel = null;
       this.hintText();
       if (this.hintPanel && this.drawKeyPanel(canvas, cols, rows)) placements = [];
@@ -4323,20 +4325,25 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private hints(cols: number): string {
     // The docks slid shut, as handles at the end of the row (its edge, what it holds): a click opens one, and a
-    // tile dropped on one goes into it. Then the lock chip: a click locks or unlocks the screen (layout.lock).
+    // tile dropped on one goes into it. Then the lock chip: a click locks or unlocks the screen (layout.lock); then, while your
+    // drawer is locked, its own chip (PIE-1346): each names its layout, so a refusal's "▣ drawer locked" is the one to click.
     // A dock holding a named container reads by its name (the board's outline); else by its tiles'.
     const handles = this.shutDocks().map(d => ({ id: leaves(d.kid)[0]!, dock: d, text: ` ${EDGE_GLYPH[d.edge]} ${isLine(d.kid) && d.kid.key ? d.kid.key : shown(d.kid).map(i => this.nameOf(i)).join("+")} ` }));
     const locked = this.screenLocked();
-    const chip = this.spec.layouts || locked ? (locked ? " ▣ locked " : " □ lock ") : "";
+    const chip = this.spec.layouts || locked ? (locked ? ` ▣ ${this.layoutSelf().chip} locked ` : " □ lock ") : "";
+    const host = this.ctx?.hostLayer, drawer = host?.desks().find(d => host.isDrawer(d) && d !== this);
+    const drawerChip = drawer?.screenLocked() ? ` ▣ ${drawer.layoutSelf().chip} locked ` : "";
     // The hyper layer is on (PIE-699): its chip, a click on it probes what a chord arrives as (keys.probe).
     const hyper = hyperOn() ? HYPER_CHIP : "";
-    const hw = handles.reduce((a, h) => a + width(h.text) + 1, 0) + (chip ? width(chip) + 1 : 0) + (hyper ? width(hyper) + 1 : 0);
+    const hw = handles.reduce((a, h) => a + width(h.text) + 1, 0) + (chip ? width(chip) + 1 : 0) + (drawerChip ? width(drawerChip) + 1 : 0) + (hyper ? width(hyper) + 1 : 0);
     this.handles = [];
     let x = cols - hw;
     let tail = "";
     for (const h of handles) { const hw = width(h.text); this.handles.push({ id: h.id, dock: h.dock, from: x, to: x + hw }); tail += `${chipStyle(C.brown)}${h.text}${RESET} `; x += hw + 1; }
     this.lockChip = chip ? { from: x, to: x + width(chip) } : null;
     if (chip) { tail += `${locked ? chipStyle(C.yellow, C.black) : fg(C.dark)}${chip}${RESET} `; x += width(chip) + 1; }
+    this.drawerLockChip = drawerChip && drawer ? { from: x, to: x + width(drawerChip), desk: drawer } : null;
+    if (drawerChip) { tail += `${chipStyle(C.yellow, C.black)}${drawerChip}${RESET} `; x += width(drawerChip) + 1; }
     this.hyperChip = hyper ? { from: x, to: x + width(hyper) } : null;
     if (hyper) tail += `${fg(C.magenta)}${hyper}${RESET} `;
     const room = Math.max(0, cols - hw);
@@ -4409,7 +4416,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
-        : this.specHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.spec.layouts ? `|15${keyCaption(DAILY_LAYOUT_KEYS[0]!.key)}|08 ${DAILY_LAYOUT_KEYS[0]!.label} · ` : ""}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15^N|08 new · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.currentNow()!)}` : ""}`;
+        : this.specHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.spec.layouts ? `|15${keyCaption(DAILY_LAYOUT_KEYS[0]!.key)}|08 ${DAILY_LAYOUT_KEYS[0]!.label} · ` : ""}|15^N|08 new · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.currentNow()!)}` : ""}`;
     return line(paint(s));
   }
 
@@ -4727,7 +4734,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (k.ch === "n" || k.ch === "p") return this.run("tab.select", { by: k.ch === "n" ? 1 : -1 }, this.nameOf(this.focus));
       if (k.ch === "m") return this.run("marks.next");
       if (k.ch === "x") return this.run("block.unmark", {}, this.nameOf(this.focus));
-      if (k.ch === "k") return this.run("layout.lock");
       // alt+h folds the focused tile to a spine (alt+H a horizontal one), or opens it: a screen's key map rebinds them.
       if (k.ch === "h" || k.ch === "H") return this.run("tile.collapse", k.ch === "H" ? { dir: "h" } : {}, this.nameOf(this.focus));
     }
@@ -5833,12 +5839,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...r.answer, ...this.tileAnswer(t.id) };
   }
 
-  /** `layout.lock`: lock or unlock the whole screen (its own policy); default toggles. An agent undoes only its own. */
-  lockScreen(on: boolean | undefined, actor: Actor): { locked: boolean; changed: boolean } {
+  /** `layout.lock`: lock or unlock this whole layout (its own policy); default toggles. An agent undoes only its own. Says which layout. */
+  lockScreen(on: boolean | undefined, actor: Actor): { locked: boolean; changed: boolean; layout: string; unlock?: string } {
     const r = this.apply({ op: "lock", ...(on !== undefined ? { on } : {}) }, actor);
     if (r.changed) { this.save(); this.redraw(); }
-    return { locked: !!r.answer.locked, changed: r.changed };
+    return { locked: !!r.answer.locked, changed: r.changed, layout: String(r.answer.layout), ...(r.answer.unlock ? { unlock: String(r.answer.unlock) } : {}) };
   }
+  /** A click on this layout's ▣ chip (the hint row's, the drawer's frame): its own layout.lock, wherever the keys are. */
+  pressLock(): void { this.run("layout.lock", {}, this.nameOf(this.focus)); }
+  /** What this layout is called to the person (PIE-1346): your drawer, or the screen (a mount's is its screen's). */
+  layoutSelf(): LayoutSelf { return this.top().ctx?.hostLayer?.isDrawer(this.top()) ? { name: "your drawer", chip: "drawer" } : SCREEN_SELF; }
 
   /**
    * `tile.agent` (PIE-639): what an agent may do to tile `sel`: `free`, `edit` or `off` for the tile itself, `inherit` to take
@@ -7480,7 +7490,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (k.y === this.hintRow) {
         const h = this.handles.find(h => k.x >= h.from && k.x < h.to);
         if (h) this.run("tile.slide", { open: true, container: h.dock.id }, this.nameOf(h.id));
-        else if (this.lockChip && k.x >= this.lockChip.from && k.x < this.lockChip.to) this.run("layout.lock");
+        else if (this.lockChip && k.x >= this.lockChip.from && k.x < this.lockChip.to) this.pressLock();
+        else if (this.drawerLockChip && k.x >= this.drawerLockChip.from && k.x < this.drawerLockChip.to) this.drawerLockChip.desk.pressLock();
         else if (this.hyperChip && k.x >= this.hyperChip.from && k.x < this.hyperChip.to) void this.ctx.press?.("keys.probe");
         else if (this.moreChip && k.x >= this.moreChip.from && k.x < this.moreChip.to) this.run("keys.more");
         return;
