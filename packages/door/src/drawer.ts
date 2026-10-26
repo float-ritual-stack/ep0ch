@@ -102,22 +102,23 @@ export function oldOwnLeaves(saved: unknown, drawer: { gen?: unknown; out?: unkn
   let changed = 0;
   const old = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && (x as { t?: unknown }).t === "leaf" && (x as { kind?: unknown }).kind === "drawer.own";
   const walk = (x: unknown): unknown => {
-    if (Array.isArray(x)) {
-      const kept = out ? x.filter(y => !old(y)) : x;
-      changed += x.length - kept.length;
-      return kept.map(walk);
-    }
+    if (Array.isArray(x)) return x.map(walk);
     if (!x || typeof x !== "object") return x;
+    // While its program was out, the leaf only held its place: it leaves its tab set, the tab shown staying the one shown.
+    const t = x as { t?: unknown; tabs?: unknown; active?: unknown };
+    if (out && t.t === "tabs" && Array.isArray(t.tabs) && t.tabs.some(old)) {
+      const tabs = t.tabs as unknown[], gone = tabs.filter(old).length, at = typeof t.active === "number" ? t.active : 0;
+      changed += gone;
+      const before = tabs.slice(0, at).filter(old).length, active = Math.max(0, Math.min(at - before, tabs.length - gone - 1));
+      return walk({ ...t, tabs: tabs.filter(y => !old(y)), active });
+    }
     if (old(x)) {
       changed++;
       const { slot: _slot, ...rest } = x;
       const cmd = Array.isArray(x.cmd) ? x.cmd as string[] : [];
       return { ...rest, kind: "pty", role: ROLE_AGENT, name: x.name === DRAWER_TILE_ID ? programName(cmd) || "agent" : x.name, kept: typeof x.kept === "string" && x.kept ? x.kept : key };
     }
-    const o = Object.fromEntries(Object.entries(x).map(([k, y]) => [k, walk(y)]));
-    // A tab set that lost the holder: its shown tab stays in range.
-    if (o.t === "tabs" && Array.isArray(o.tabs) && typeof o.active === "number") o.active = Math.max(0, Math.min(o.active as number, (o.tabs as unknown[]).length - 1));
-    return o;
+    return Object.fromEntries(Object.entries(x).map(([k, y]) => [k, walk(y)]));
   };
   return { value: walk(saved), changed };
 }
@@ -264,11 +265,13 @@ export class AgentDrawer {
    * person's comes up with their keys in it; an agent's opens behind the tab shown, and its program starts now.
    */
   newAgentTab(actor: Actor): TileDone {
-    const d = this.desk;
+    const made = !this.d, d = this.desk;
     if (!d) throw new ActionRefused("the drawer isn't ready (no screen is shown yet)");
     const person = this.ctx(actor).standing;
     if (person && !this.open) { this.offered = true; this.set(true, actor); }
-    const done = this.agentTab(d, actor);
+    // A drawer never saved opens its first agent tab as it is made: that one is the new tab.
+    const first = made ? this.agentTabs([d])[0] : undefined;
+    const done = first ? d.tileInfo(first.name) as TileDone : this.agentTab(d, actor);
     if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
     else (d.pane(done.tile) as PtyPane).startNow(this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3));
     this.host.redraw();
@@ -1180,6 +1183,8 @@ export class AgentDrawer {
    * shown, pulled into the drawer, else a new agent tab.
    */
   liftTile(actor: Actor, on?: boolean): string {
+    // The drawer made first (a drawer never saved opens its first agent tab as it is): the pick sees it.
+    if (on !== false) void this.desk;
     const pick = this.liftPick();
     if (pick) return pick.tile;
     if (on === false || !this.desk) return `role:${ROLE_AGENT}`;

@@ -740,6 +740,17 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       } finally { d.app.quit(); }
     });
 
+    test("a new agent tab or a lift on a drawer never made opens one agent tab, not two", async () => {
+      for (const how of ["new", "lift"] as const) {
+        const d = await door();
+        try {
+          if (how === "new") d.app.drawer.newAgentTab({ kind: "agent", id: AS });
+          else await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER);
+          expect([how, d.app.drawer.tabs().length]).toEqual([how, 1]);
+        } finally { d.app.quit(); }
+      }
+    });
+
     test("a drop (on=false) with every agent tab closed opens nothing", async () => {
       const d = await door();
       try {
@@ -1482,6 +1493,9 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     const out = oldOwnLeaves({ root: { t: "tabs", tabs: [old.root.tabs[1], old.root.tabs[0]], active: 1 } }, { gen: 2, out: true });
     expect(out.changed).toBe(1);
     expect((out.value as any).root).toEqual({ t: "tabs", tabs: [{ t: "leaf", kind: "reader", name: "notes" }], active: 0 });
+    // The tab shown stays the one shown when the holder before it goes.
+    const shown = oldOwnLeaves({ root: { t: "tabs", tabs: [old.root.tabs[0], { t: "leaf", kind: "reader", name: "a" }, { t: "leaf", kind: "reader", name: "b" }], active: 1 } }, { out: true }).value as any;
+    expect([shown.root.tabs.map((t: any) => t.name), shown.root.active]).toEqual([["a", "b"], 0]);
     // A drawer the new door saved: nothing changes.
     expect(oldOwnLeaves(got, { gen: 2 }).changed).toBe(0);
   });
