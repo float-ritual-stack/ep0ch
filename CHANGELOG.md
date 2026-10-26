@@ -10,6 +10,26 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The door's key-by-key tests wait on nothing, and one that runs long fails by name (PIE-1307)
+
+The door's parity tests press every key and click every cell of each screen; together they added up to about 7,500 s, with
+`desk: facets tile` at 150 to 330 s and showcase `X` at 570 s against a 600 s limit, on a machine that was idle. Rebuilding the
+screen after each probe took 143 ms a build, about 60% of the facets scenario, in sleeps and settle loops.
+
+- **Measured:** `desk: facets tile` 92 to 127 s, now about 21 s; showcase `X` 208 s, now about 27 s; the six `parity-*` files 861 s
+  whole on float-2 (a scenario at most about 40 s).
+- **The door is settled when its paint has been made and no host answer is awaited,** not after a sleep. The outline host is asked
+  each read once while nothing changes. A scenario's setup keys are pressed as one chunk of input after the first build has reached
+  the same screen both ways. A state two keys open the same way is probed once.
+- **A scenario over `PARITY_BUDGET_MS` (60 s) fails by its own name** with its slowest key and build, instead of running on to the
+  test's timeout and taking the next scenario with it. `PARITY_KEYS=<file>` writes every probe's milliseconds.
+- **The door itself got cheaper where the tests found waste:** the power bar's action list weighs each action with one answer to
+  where you are and which tile an address names, not one each (it was 19% of showcase `X`'s time); the policy panel
+  (`^W P`) no longer builds every action's menu rows to find the one it shows; the drawer chip reads its tabs once; a note's readable
+  source, titles and the facets tile's rows are kept while their text and answers are the same; the logo is drawn from its cells once.
+- **The hover test's frame bound follows its duration** (the door paints once per 16 ms, so a slow machine paints more for the same
+  burst), where `frames <= 10` flaked at 12 or 13 under load.
+
 ### A slow or stalled ssh link is sent the latest frame, never a queue of old ones (PIE-1163)
 
 Evan, Oct 21, tethered over ssh: after a wifi drop mid-drag he watched a replay of every intermediate frame. The daemon
