@@ -1,3 +1,4 @@
+import { commandLine } from "@ep0ch/outline-core/component-block";
 import { extensionKeyLines, keyLineWords } from "./secret-keys";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
@@ -178,16 +179,12 @@ export function whatItAdds(manifest: ExtensionManifest, directory?: string): str
   }
   const settings = (manifest.configSchema as { properties?: Record<string, { description?: string; default?: unknown }> } | undefined)?.properties;
   if (settings && Object.keys(settings).length) {
-    const fallback = (value: unknown) => Array.isArray(value) && value.every((word) => typeof word === "string") ? shownWords(value) : JSON.stringify(value);
+    const fallback = (value: unknown) => Array.isArray(value) && value.every((word) => typeof word === "string") ? commandLine(value) : JSON.stringify(value);
     out.push(`- Settings (\`${directory ? join(directory, "config.json") : "config.json"}\`, in the door: ctrl+k then \`& settings ${manifest.id}\`; \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`): ${Object.entries(settings).map(([key, spec]) => `\`${key}\`${spec?.description ? ` (${words(spec.description)}${spec.default !== undefined ? `; default \`${fallback(spec.default).replaceAll("`", "'")}\`` : ""})` : spec?.default !== undefined ? ` (default \`${fallback(spec.default).replaceAll("`", "'")}\`)` : ""}`).join("; ")}`);
   }
   return out;
 }
 
-/** A command's words as a shell would take them back: a word with a space or a quote quoted, an empty one `""`. */
-function shownWords(argv: readonly string[]): string {
-  return argv.map((word) => (word === "" || /[\s"'$\\]/.test(word) ? JSON.stringify(word) : word)).join(" ");
-}
 
 /**
  * Each action's arguments as a properties table (`::graph-props`, PIE-1032), the one drawing an action's page and the

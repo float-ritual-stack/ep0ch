@@ -655,6 +655,8 @@ export interface ExtensionSettings {
   readonly secrets: readonly ExtensionSettingSecret[];
   /** The schema isn't an object of named fields: its config is edited whole, as JSON. */
   readonly whole?: true;
+  /** config.json's `config` as it is: a client changes what it names and sends the rest back unchanged. */
+  readonly config: Readonly<Record<string, unknown>>;
   /** Why it's failing: config.json's problem, or the last call's error. */
   readonly error?: string;
 }
@@ -667,13 +669,18 @@ export type ExtensionSecretReference =
   | { keychainService: string; account?: string };
 
 /**
- * `extensions.configure` (PIE-1343): `config` replaces config.json's `config` (checked against the manifest's
- * configSchema first), and each of `secrets` sets that secret's reference (null takes it out); the file's `enabled` and
- * `sources` stay. Written on the machine that hosts the outline; the registry reloads before it answers.
+ * `extensions.configure` (PIE-1343): `set` and `unset` change the named fields of config.json's `config` as it is on
+ * disk (or `config` replaces it whole), checked against the manifest's configSchema first; each of `secrets` sets that
+ * secret's reference (null takes it out); the file's `enabled` and `sources` stay. Written on the machine that hosts the outline; the registry reloads before it answers.
  */
 export interface ExtensionsConfigureRequest {
   extension: string;
+  /** The whole of config.json's `config`, replacing it (a schema that isn't an object of named fields). */
   config?: Record<string, unknown>;
+  /** These fields set, merged into what config.json has now (the rest stay). */
+  set?: Record<string, unknown>;
+  /** These fields taken out (back to their defaults). */
+  unset?: string[];
   secrets?: Record<string, ExtensionSecretReference | null>;
 }
 

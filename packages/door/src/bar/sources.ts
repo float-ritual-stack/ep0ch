@@ -442,14 +442,15 @@ const EXTENSIONS: BarSource = {
       return { message };
     }
     if (d.kind === "settings") {
-      // The form, its fields filled with what config.json has now; an agent's pick names no values, so it reads them.
+      // The form, its fields filled with what config.json has now (a secret's reference is shown, sent only when typed);
+      // an agent's pick names no values, so it reads them.
       const e = extensionList()?.extensions.find(x => x.id === d.id && x.state !== "shadowed");
       if (!e?.settings) throw new ActionRefused(`${d.id} has no settings now`);
       const action = `ext.${d.id}.settings`;
       if (how.actor.kind === "agent") return host.dispatch.act({ action, args: {} }, how.actor);
       const now = Object.fromEntries([
         ...e.settings.fields.filter(f => f.value !== undefined).map(f => [f.name, shownValue(f, f.value)]),
-        ...e.settings.secrets.filter(x => x.reference).map(x => [`secret-${x.name}`, x.reference!]),
+        ...(e.settings.whole ? [["config", JSON.stringify(e.settings.config)]] : []),
       ]);
       return openActionForm(host, { action, args: now }, how.actor);
     }

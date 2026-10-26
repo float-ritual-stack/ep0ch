@@ -338,10 +338,10 @@ value, never the value), and one state:
 - **In the door:** the power bar's extensions (ctrl+k then `&`) puts the state on the extension's row, and a
   `settings <name>` row beside it previews every field and the file; ⏎ opens the form of `ext.<id>.settings`, an action
   whose arguments are the schema's fields (a command field as its words, `secret-<name>` as `env:NAME`, `file:~/path` or
-  `group:GROUP/KEY`), filled with what's set. An agent: `ep0ch act ext.tidy.settings answer='claude -p --model sonnet'`;
-  an empty value takes a field out (back to its default); the fields not named stay.
-- **The request:** `extensions.configure` (`extension`, `config` replacing the file's `config`, `secrets` setting or,
-  with `null`, taking out a reference) is checked against the schema first (the same words a load uses) and refused
+  `group:GROUP/KEY`, sent only when typed), filled with what's set. An agent: `ep0ch act ext.tidy.settings
+  answer='claude -p --model sonnet'`; `unset=answer` takes a field out (back to its default); the fields not named stay.
+- **The request:** `extensions.configure` (`extension`; `set` and `unset` for named fields, merged into the file as it
+  is on disk, or `config` replacing it whole; `secrets` setting or, with `null`, taking out a reference) is checked against the schema first (the same words a load uses) and refused
   whole with the reason; the file's `enabled` and `sources` stay; a secret's value is refused (only references pass).
   It writes `config.json` in the folder the host serves the extension from, reloads, and answers the new `settings`.
   It works on a folder whose `config.json` doesn't load, which is when it's needed.

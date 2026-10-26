@@ -736,14 +736,17 @@ export class OutlinerServer {
    * (the outline's own or the user folder), checked against its schema first; then the registry reads it again, so the
    * next call uses it, and its page is written again.
    */
-  private async configureExtension(id: string, config: unknown, secrets: unknown): Promise<ExtensionsConfigured> {
+  private async configureExtension(id: string, fields: { config?: unknown; set?: unknown; unset?: unknown }, secrets: unknown): Promise<ExtensionsConfigured> {
+    const { config } = fields;
     const entry = this.extensionRegistry.list().extensions.find((candidate) => candidate.id === id && candidate.state !== "shadowed" && !candidate.script);
     if (!entry) throw new Error(`No extension ${id} is installed here${this.extensionPages.availableNow().some((a) => a.id === id) ? `: install it first (ep0ch act extensions.install id=${id})` : ""}`);
     if (config !== undefined && (!config || typeof config !== "object" || Array.isArray(config))) throw new Error("config must be an object: the settings by name, as the extension's configSchema names them");
     if (secrets !== undefined && (!secrets || typeof secrets !== "object" || Array.isArray(secrets))) throw new Error("secrets must map a secret's name to a reference ({\"env\": NAME}, {\"file\": path}, {\"group\": G, \"key\": K}) or null");
-    if (config === undefined && secrets === undefined) throw new Error("extensions.configure needs config (the settings by name) or secrets (references by name)");
+    if (config === undefined && fields.set === undefined && fields.unset === undefined && secrets === undefined) throw new Error("extensions.configure needs set (fields by name), unset (field names), config (the whole of it) or secrets (references by name)");
     await writeExtensionSettings(entry.directory, entry.origin, {
       ...(config !== undefined ? { config: config as Record<string, unknown> } : {}),
+      ...(fields.set !== undefined ? { set: fields.set as Record<string, unknown> } : {}),
+      ...(fields.unset !== undefined ? { unset: fields.unset as string[] } : {}),
       ...(secrets !== undefined ? { secrets: secrets as Record<string, ExtensionSecretReference | null> } : {}),
     });
     await this.extensionRegistry.reload();
@@ -2314,7 +2317,7 @@ export class OutlinerServer {
           result = await this.installExtension(request.extension, request.where);
         } else if (request.action === "extensions.configure") {
           if (typeof request.extension !== "string") throw new Error("extensions.configure needs extension: an installed extension's name");
-          result = await this.configureExtension(request.extension, request.config, request.secrets);
+          result = await this.configureExtension(request.extension, { config: request.config, set: request.set, unset: request.unset }, request.secrets);
         } else if (request.action === "extensions.uninstall") {
           if (typeof request.extension !== "string") throw new Error("extensions.uninstall needs extension: an installed extension's name");
           result = await this.uninstallExtension(request.extension, request.demo as "keep" | "remove", declaredRequester(request, "extensions.uninstall"));

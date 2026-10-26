@@ -579,10 +579,13 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     // Installed by act, used once, uninstalled: its settings go with its folder.
     await app.act({ action: "extensions.install", args: { id: "intake" }, as: "test-agent" });
     await until(() => !!extensionNamed("intake")?.settings, "intake's settings bound", 5000);
-    await expect(app.act({ action: "ext.intake.settings", args: { limit: 40 }, as: "test-agent" })).rejects.toThrow(/limit/);
+    await expect(app.act({ action: "ext.intake.settings", args: { limit: 40 }, as: "test-agent" })).rejects.toThrow(/schema .* refuses it: limit/);
     const set = await app.act({ action: "ext.intake.settings", args: { limit: 4 }, as: "test-agent" }) as { settings: { file: string; fields: { name: string; state: string }[] } };
     expect(set.settings.fields.find(f => f.name === "limit")).toMatchObject({ state: "set" });
     expect(existsSync(set.settings.file)).toBe(true);
+    // unset= puts a number back to its default (an empty number is no number).
+    const unset = await app.act({ action: "ext.intake.settings", args: { unset: "limit" }, as: "test-agent" }) as { settings: { fields: { name: string; state: string }[] } };
+    expect(unset.settings.fields.find(f => f.name === "limit")).toMatchObject({ state: "default" });
     await app.act({ action: "extensions.uninstall", args: { id: "intake", demo: "remove" }, as: "test-agent" });
     expect(existsSync(set.settings.file)).toBe(false);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });

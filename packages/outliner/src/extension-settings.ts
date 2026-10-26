@@ -35,7 +35,7 @@ export function referenceWords(ref: ExtensionSecretReference): string {
   if ("env" in ref) return `env ${ref.env}`;
   if ("file" in ref) return `file ${ref.file}`;
   if ("group" in ref) return `group ${ref.group} ${ref.key}`;
-  return `keychain ${ref.keychainService}${ref.account ? ` ${ref.account}` : ""}`;
+  return `keychain ${ref.keychainService}${ref.account ? ` account ${ref.account}` : ""}`;
 }
 
 /** Whether a reference finds something on this host (whether there's a value, never what it is). */
@@ -89,7 +89,7 @@ export function settingsOf(input: {
     : fields.some((f) => f.state === "missing") || secrets.some((s) => s.state === "missing") ? "missing"
     : (named ? fields.some((f) => f.state === "set") : Object.keys(config).length > 0) ? "set"
     : "default";
-  return { file, exists, state, fields, secrets, ...(named ? {} : { whole: true as const }), ...(error ? { error } : {}) };
+  return { file, exists, state, fields, secrets, config, ...(named ? {} : { whole: true as const }), ...(error ? { error } : {}) };
 }
 
 /**
@@ -100,6 +100,8 @@ export function settingsOf(input: {
  */
 export async function writeExtensionSettings(directory: string, origin: ExtensionOrigin, change: {
   config?: Record<string, unknown>;
+  set?: Record<string, unknown>;
+  unset?: readonly string[];
   secrets?: Record<string, ExtensionSecretReference | null>;
 }): Promise<void> {
   const manifestPath = join(directory, "extension.json");
@@ -114,9 +116,19 @@ export async function writeExtensionSettings(directory: string, origin: Extensio
     } catch { /* a config.json that isn't JSON is replaced whole by what's written now */ }
   }
   const manifest = loadExtensionManifest({ manifestRaw, configRaw: "{}", origin, directory, expectedId: directory.split("/").pop()!, idFrom: "the folder's name" }, { checkConfig: false }).manifest;
+  if (manifest.configSchema === undefined && !manifest.secrets) throw new Error(`${manifest.name} declares no settings (its extension.json has no configSchema or secrets)`);
   if (change.config !== undefined && (!change.config || typeof change.config !== "object" || Array.isArray(change.config))) throw new Error("config must be an object: the settings by name");
   const next: Record<string, unknown> = { ...current };
   if (change.config !== undefined) next.config = change.config;
+  if (change.set !== undefined || change.unset !== undefined) {
+    if (change.config !== undefined) throw new Error("give config (the whole of it) or set and unset (named fields), not both");
+    if (change.set !== undefined && (!change.set || typeof change.set !== "object" || Array.isArray(change.set))) throw new Error("set must be an object: the fields to set by name");
+    if (change.unset !== undefined && (!Array.isArray(change.unset) || change.unset.some((name) => typeof name !== "string"))) throw new Error("unset must be a list of field names");
+    // Merged into the file as it is now, so a save never puts back what another one changed since it was read.
+    const merged: Record<string, unknown> = { ...(current.config && typeof current.config === "object" && !Array.isArray(current.config) ? current.config as Record<string, unknown> : {}), ...change.set };
+    for (const name of change.unset ?? []) delete merged[name];
+    next.config = merged;
+  }
   if (change.secrets) {
     const secrets = { ...(current.secrets as Record<string, unknown> | undefined ?? {}) };
     for (const [name, ref] of Object.entries(change.secrets)) {
@@ -133,7 +145,7 @@ export async function writeExtensionSettings(directory: string, origin: Extensio
     const problem = schemaProblem(manifest.configSchema as TSchema, (next.config as Record<string, unknown> | undefined) ?? {});
     if (problem) throw new Error(`the config schema in its extension.json refuses it: ${problem.replace(/^the file /, "config ")}`);
   }
-  const temp = `${file}.${process.pid}.tmp`;
+  const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
   await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
   await rename(temp, file);
 }

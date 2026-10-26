@@ -142,6 +142,14 @@ test("settings name a missing value and secret, keep enabled and sources, take s
     secrets: { token: { env: "ALMANACK_TEST_TOKEN_UNSET" } },
   });
 
+  // Named fields merge into the file as it is: set one, the others stay; unset takes one back to its default.
+  await configure("almanack", { set: { days: 5 } });
+  expect(JSON.parse(readFileSync(join(folder, "config.json"), "utf8")).config).toEqual({ email: "frost@example.com", days: 5 });
+  const back = await configure("almanack", { unset: ["days"] });
+  expect(back.settings.fields.find((f) => f.name === "days")).toMatchObject({ state: "default", default: 3 });
+  expect(back.settings.config).toEqual({ email: "frost@example.com" });
+  await expect(configure("almanack", { config: {}, set: { days: 2 } })).rejects.toThrow(/not both/);
+
   // Taking the reference out leaves the rest.
   const unset = await configure("almanack", { secrets: { token: null } });
   expect(unset.settings.secrets[0]).toMatchObject({ state: "missing" });
