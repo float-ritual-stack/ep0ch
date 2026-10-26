@@ -10,6 +10,20 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Completion says what each row is, and its docs wrap beside the list (PIE-1339, PIE-1245)
+
+- **Kind and detail on every row.** Each row of the `[[`, `((`, `::`, `@` and `[key::` list ends in what it is
+  (block, anchor, page, property, component, agent, value) with a dim detail after its title (where it sits, why it's
+  offered, a property's type).
+- **Docs beside the list.** The lit row's description wraps beside the list when 30 columns are free, else under it,
+  sized to what it holds and never cut at its start; shift+↑↓, PgUp/PgDn or the wheel over it scroll it.
+- **⏎ and tab both insert.** ⏎ inserts the lit row as tab does, except before anything is typed for a property, a
+  heading's `::` or a figure's YAML (and where the row would change nothing): there the footer says `⏎ new line`. In a
+  filter or a property's value, ⏎ still applies what's typed. ctrl+n and ctrl+p stay a new note and the edit preview.
+- **The list's keys are actions.** `complete.ask`, `complete.move by=`, `complete.accept n=`, `complete.dismiss` and
+  `complete.preview` are what the keys, wheel and clicks run, so `act` drives the list the same way. The kitchen sink's
+  `completion` section shows it. `complete`'s rows carry `detail` and `docs` in place of `context`.
+
 ### Every drawer agent is a tab; the arrow opens a new one and never ends yours (PIE-1331, PIE-1330)
 
 - **The arrow starts, it never replaces.** Picking an agent from the drawer chip's picker (alt+click or a right-click,
