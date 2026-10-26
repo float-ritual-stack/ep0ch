@@ -1580,9 +1580,9 @@ export function nextStep(share: number): number {
   return HEIGHT_STEPS.find(s => s > share + 0.01) ?? HEIGHT_STEPS[0];
 }
 
-/** How the drawer's keys and clicks run its actions: as the person, a refusal said on the status bar. */
 /** The drawer is up: drawn, not put away or folded to its strip (agent.lift only goes into it then, PIE-1336). */
 const drawerUp = (d: AgentDrawer) => d.shown && !d.folded;
+/** How the drawer's keys and clicks run its actions: as the person, a refusal said on the status bar. */
 export type DrawerRun = (name: "host.toggle" | "host.size" | "agent.restart" | "host.enter" | "host.leave" | "host.shell" | "host.agent" | "agents.open", args: Record<string, unknown>) => void;
 
 /** What `agent.restart` answers once the agent runs again. */
