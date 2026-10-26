@@ -909,7 +909,13 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     await until(() => a.screen().includes("agent-42"), "the agent's command to run", 10_000);
     await until(() => a.screen().includes("click in it, then copy again"), "the toast saying it wasn't copied", 5000);
     expect(clip(a)).toEqual([]);
-    // The person clicks in the tile (they type there) and runs it themselves.
+    // The person clicks in the tile (they type there) and runs it themselves. First their terminal takes the session (a
+    // pointer move): a click that changes the session's size only takes it (SessionTerm.key), and the tile's rect is the
+    // one drawn at that size.
+    a.type("\x1b[<35;1;1M");
+    const holds = async () => !!(await infoOn(sessionSocket(dir)))!.clients.find(c => c.active && !c.watch && c.cols === 120 && c.rows === 40);
+    for (let i = 0; i < 50 && !(await holds()); i++) await Bun.sleep(100);
+    expect(await holds()).toBe(true);
     const t = (await control({ cmd: "act", action: "layout.get", as: "test-agent" })).tiles.find((x: any) => x.tile === opened.tile);
     const x = t.rect.col + 4, y = t.rect.row + 3;
     a.type(`\x1b[<0;${x};${y}M\x1b[<0;${x};${y}m`);

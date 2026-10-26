@@ -158,9 +158,10 @@ describe("terminal cells, not code points", () => {
 
   test("the reference popup draws a title with escapes as its words, cut by cells", () => {
     const items = [{ label: `Omen${OSC52} list 会議メモ：来週の発表の準備`, kind: "note", context: "", insertion: "[[x]]" }];
-    const lines = renderCompletion({ items, index: 0, loading: false, message: "", truncated: 0, target: { kind: "block", start: 0, end: 2, query: "" }, at: { row: 0, col: 2, line: "((" } }, 20, 4);
-    for (const l of lines) { expect(cells(l)).toBe(20); expect(acts(l.replace(/\x1b\[[\d;]*m/g, ""))).toBeNull(); }
-    expect(visible(lines.join("\n"))).toContain("Omen list");
+    const popup = (w: number) => renderCompletion({ items, index: 0, loading: false, message: "", truncated: 0, target: { kind: "block", start: 0, end: 2, query: "" }, at: { row: 0, col: 2, line: "((" } }, w, 4);
+    // At 20 cells the row's kind (PIE-1339) leaves the title a few: cut by cells, no escape acts. At 28 its words show.
+    for (const w of [20, 28]) for (const l of popup(w)) { expect(cells(l)).toBe(w); expect(acts(l.replace(/\x1b\[[\d;]*m/g, ""))).toBeNull(); }
+    expect(visible(popup(28).join("\n"))).toContain("Omen list");
   });
 
   test("a hint is cut between its parts, else at a space, never mid-word; a frame's bottom edge too", () => {

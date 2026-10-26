@@ -385,12 +385,19 @@ describe("a hint row's clickable keys (hintSpots)", () => {
   });
 
   test("a ^W chord's keys box takes clicks too: m there is ^W m", () => {
-    const s = on(new MainMenu(), door(80, 30));
-    const desk = openScreen("who") as Desk;
-    s.stack.push(desk); desk.enter(s.ctx);
-    s.key({ kind: "char", ch: "w", ctrl: true });
-    s.click("m move");
-    expect(s.lines().some(l => l.includes("move beside"))).toBe(true);
+    // Its keys are the panel's after the pause (PIE-1304): none here.
+    const was = process.env.EP0CH_KEY_PANEL_MS;
+    process.env.EP0CH_KEY_PANEL_MS = "0";
+    try {
+      const s = on(new MainMenu(), door(120, 40));
+      const desk = openScreen("who") as Desk;
+      s.stack.push(desk); desk.enter(s.ctx);
+      s.key({ kind: "char", ch: "w", ctrl: true });
+      const rows = s.lines(), y = rows.findIndex(l => /\bm +move beside/.test(l));
+      expect(y).toBeGreaterThan(0);
+      s.mouse("down", rows[y]!.search(/\bm +move beside/) + 1, y);
+      expect(s.lines().some(l => l.includes("moving"))).toBe(true);
+    } finally { if (was === undefined) delete process.env.EP0CH_KEY_PANEL_MS; else process.env.EP0CH_KEY_PANEL_MS = was; }
   });
 });
 
