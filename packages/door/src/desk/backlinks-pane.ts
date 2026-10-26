@@ -265,6 +265,7 @@ export class BacklinksPane implements Pane {
   }
   /** The person is typing a filter: their keys are its. */
   typing() { return this.draft !== null; }
+  lineField() { return this.draft; }
   /** The view as shown now: a filter being typed applies as it's typed. */
   private opts(): BacklinkViewOptions { return this.draft === null ? this.options : { ...this.options, filter: this.draft.text.trim() }; }
 

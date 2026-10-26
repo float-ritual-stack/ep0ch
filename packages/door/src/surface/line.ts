@@ -12,6 +12,7 @@ import { USER } from "../socket";
 import { editorLineKey } from "./editor";
 import { Gesture, isCopyKey, rowsOf, wordAt } from "./selection";
 import { lineCompletionHooks, type LineCompletion } from "./line-hooks";
+import { clampToGraphemeStart } from "@ep0ch/outline-core/graphemes";
 
 export { lineCompletionHooks, type LineCompletion };
 
@@ -103,7 +104,8 @@ export class LineField extends Draft {
     const x = k.x - at.x, inside = k.y === at.y && x >= 0 && x < at.w;
     if (k.action === "down" && k.button !== 2 && inside) {
       this.fresh = false;
-      const n = this.gesture.press(k.x, k.y), col = this.posAt(x, 0).col;
+      // Snapped to a grapheme's start: a click on an accent or an emoji's joiner never lands inside the character.
+      const n = this.gesture.press(k.x, k.y), col = clampToGraphemeStart(this.text, this.posAt(x, 0).col);
       this.place(0, col);
       if (n > 1) {
         const cs = [...this.text], cp = [...this.text.slice(0, this.col)].length;
@@ -114,7 +116,7 @@ export class LineField extends Draft {
       return true;
     }
     if (!this.gesture.pressed) return false;
-    if (k.action === "drag") { if (this.gesture.drag(k.x, k.y)) this.place(0, this.posAt(x, 0).col, true); return true; }
+    if (k.action === "drag") { if (this.gesture.drag(k.x, k.y)) this.place(0, clampToGraphemeStart(this.text, this.posAt(x, 0).col), true); return true; }
     if (k.action === "up") { if (this.gesture.release(k.x, k.y).copy) { const t = this.selectedText(); if (t) this.copy(t); } return true; }
     return false;
   }

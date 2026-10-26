@@ -109,6 +109,7 @@ export class FacetsPane implements Pane {
   headLabel() { return fg(C.dark) + (this.error ? "failed" : this.answer ? String(this.answer.facets.length) : "…") + RESET; }
   spine() { return { title: this.title() }; }
   typing() { return this.draft !== null; }
+  lineField() { return this.draft; }
   blur() { this.draft = null; }
   spec() {
     const q = this.query();

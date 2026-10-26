@@ -858,8 +858,8 @@ export class NoteSurface {
   private linkPresses = new RowPresses();
   /** The person is typing a filter into an inline list: p, e and the rest are letters then, not the screen's keys (a pane's `typing`). */
   get typingFilter(): boolean { return !!this.listIn && !!this.listViews.get(this.listIn)?.typing; }
-  /** A one-line field has the keys (a list's filter, a property's value): ctrl+w erases its word, not the window chord (PIE-1290). */
-  get typingLine(): boolean { return this.typingFilter || !!this.panel?.field; }
+  /** The one-line field with the keys (a list's filter, a property's value): ctrl+w erases its word, not the window chord (PIE-1290). */
+  get lineField(): LineField | null { return (this.listIn ? this.listViews.get(this.listIn)?.typing : null) ?? this.panel?.field?.input ?? null; }
   /** The key of the list the person went into (`list.enter`), or null. */
   get listIn(): string | null { return (this.modes.get("list") as ListMode | null)?.list ?? null; }
   /** The thread a Reply control asked to answer: the thread list opening next starts the reply there. */

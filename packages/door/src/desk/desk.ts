@@ -278,8 +278,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private tileSpots: { y: number; from: number; to: number; key: Key; tile?: number }[] = [];
   /** The whole hint row shown above it (keys.more: ?, or a click on "? more"), until the next key or click elsewhere. */
   private hintMoreOpen = false;
-  /** A ^W chord's keys box (PIE-704): the hint row wrapped above it when it was cut. */
-  private hintBox: string[] | null = null;
   /**
    * The panel a prefix opens after a pause (PIE-1304): every key that can follow it, grouped, clickable, from the key
    * table and the actions' own words (key-panel.ts). `panelSince`: the prefix it waits on and since when.
@@ -1705,6 +1703,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.linking?.desk === this) this.linking = null;
     this.onScreen = false;
     this.leaveResize();
+    this.stopPanelTimer();
     if (this.spec.stays && this.running().length) { Desk.kept = this; return "keep"; }
     // Gone for good: kinds that come later never make tiles (nor start programs) here.
     this.disposed = true;
@@ -3526,17 +3525,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.holder && !this.layout.lift) {
       this.hintRow = -1;
       this.hintFull = null; this.moreChip = null; this.keySpots = []; this.handles = []; this.lockChip = null; this.hyperChip = null;
-      this.hintBox = null; this.hintPanel = null;
+      this.hintPanel = null;
       this.hintText();
       if (this.hintPanel && this.drawKeyPanel(canvas, cols, rows)) placements = [];
-      else if (this.hintBox) { this.drawHintMore(canvas, cols, rows); placements = []; }
       return { lines: canvas.lines(), placements };
     }
     this.hintRow = rows - 2;
     const hint = this.hints(cols);
     if (!this.hintFull) this.hintMoreOpen = false;            // the row fits again: nothing is left to show
     if (this.hintPanel && this.drawKeyPanel(canvas, cols, rows)) placements = [];
-    else if (this.hintBox || (this.hintFull && (this.hintMoreOpen || (this.prefix && this.panelOpen())))) { this.drawHintMore(canvas, cols, rows); placements = []; }
+    // A chord's cut row shows the rest above it at once (its ? is the chord's next key), but ^W's and ^W o's wait for their pause, then for their panel (PIE-1304).
+    else if (this.hintFull && (this.hintMoreOpen || (this.prefix && (!this.hasPanel() || this.panelOpen())))) { this.drawHintMore(canvas, cols, rows); placements = []; }
     canvas.text(0, rows - 2, hint, cols);
     this.overlayHits.push({ col: 0, row: this.hintRow, cols, rows: 1 });
     return { lines: canvas.lines(), placements };
@@ -4190,7 +4189,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * row, which shows it at once). Each line keeps the colour its first part was written in.
    */
   private drawHintMore(canvas: Canvas, cols: number, rows: number) {
-    const lines = this.hintBox ? this.hintBox.flatMap(l => wrapHint(paint(l), Math.max(10, cols - 4))) : wrapHint(this.hintFull!, Math.max(10, cols - 4));
+    const lines = wrapHint(this.hintFull!, Math.max(10, cols - 4));
     const h = Math.min(lines.length + 2, Math.max(3, rows - 4));
     const r: Rect = { col: 0, row: rows - 3 - h, cols: cols - 1, rows: h };
     this.overlayHits.push(r);
@@ -4226,11 +4225,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private prefixPanel(): { title: string; foot: string; groups: PanelGroup[] } | null {
     const p = this.prefix;
-    if (p !== "wm" && p !== "add" && p !== "addtab") { this.panelSince = null; return null; }
+    if (p !== "wm" && p !== "add" && p !== "addtab") { this.panelSince = null; this.stopPanelTimer(); return null; }
     if (this.panelSince?.prefix !== p) {
       this.panelSince = { prefix: p, at: Date.now() };
       const ms = panelPauseMs();
-      if (this.panelTimer) clearTimeout(this.panelTimer);
+      this.stopPanelTimer();
       this.panelTimer = ms ? setTimeout(() => { this.panelTimer = null; if (this.prefix === p) this.redraw(); }, ms + 5) : null;
     }
     if (!this.panelOpen()) return null;
@@ -4238,6 +4237,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const kinds = tileKinds().flatMap(k => (k.keys ?? []).map(x => ({ key: x.key, cap: x.key, label: x.label })));
     return { title: p === "add" ? "^W o  open beside" : "^W O  open as a tab", foot: "esc closes · a click opens it", groups: [{ title: "kinds", keys: kinds }] };
   }
+
+  /** Whether the pending prefix is one with a panel (^W, ^W o, ^W O). */
+  private hasPanel(): boolean { return this.prefix === "wm" || this.prefix === "add" || this.prefix === "addtab"; }
+  private stopPanelTimer() { if (this.panelTimer) clearTimeout(this.panelTimer); this.panelTimer = null; }
 
   /** Whether the pending prefix has waited long enough for its panel. */
   private panelOpen(): boolean { return !!this.panelSince && Date.now() - this.panelSince.at >= panelPauseMs(); }
@@ -4328,7 +4331,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const room = Math.max(0, cols - hw);
     // Too long for the row (dock handles take its end): cut between its parts, never inside a key's, and say
     // "? more": ? (or a click on it) shows the whole row above it (keys.more). A ^W chord's row shows it at once.
-    this.hintFull = null; this.moreChip = null; this.hintBox = null; this.hintPanel = null;
+    this.hintFull = null; this.moreChip = null; this.hintPanel = null;
     const fit = (s: string) => {
       const f = fitHint(s, room, MORE);
       if (!f.cut) return s;
@@ -4674,7 +4677,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
             return this.command(k);
           }
           // ^W leaves an edit; in a one-line field (a property's value) ctrl+w erases the word before the cursor, as every line does (PIE-1290).
-          if (k.kind === "char" && k.ctrl && k.ch === "w" && !focused.surface.leaveRefusal() && !focused.typing()) { this.prefix = "wm"; return this.redraw(); }
+          if (k.kind === "char" && k.ctrl && k.ch === "w" && !focused.surface.leaveRefusal() && !focused.lineField()) { this.prefix = "wm"; return this.redraw(); }
           focused.key(k, this); return;
         }
         // The drag and release of a press the desk took before the keys came back into this edit (a float's title, a
@@ -4703,7 +4706,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (mount instanceof ScreenTile && mount.inner && !this.contentCover(this.focus).fold &&
       (k.kind === "alt" || k.kind === "char" && k.ctrl && k.ch === "w")) { mount.key(k); return; }
     // A tile typing a line (a filter, a query) keeps ctrl+w: it erases a word there; esc, then ^W (PIE-1290).
-    if (k.kind === "char" && k.ctrl && k.ch === "w" && !this.panes.get(this.focus)?.typing?.()) { this.prefix = "wm"; return this.redraw(); }
+    if (k.kind === "char" && k.ctrl && k.ch === "w" && !this.panes.get(this.focus)?.lineField?.()) { this.prefix = "wm"; return this.redraw(); }
     if (k.kind === "alt") {
       if (k.ch === "l") return this.run("tile.link", { ask: true }, this.nameOf(this.focus));
       // alt+r shows the focused reader's note in the outline (PIE-794), as the Tree's r does.
@@ -7856,8 +7859,9 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   "keys.panel": def({
     summary: "open the panel of the keys that follow a prefix (PIE-1304): every key, grouped, each a click away, with the words of the action it runs; a prefix opens it by itself after a short pause. An agent gets the groups as data; nothing moves",
     keys: "^W, then a pause; ^W o, ^W O",
-    // An agent's moves nothing (it gets the groups); the person's opens their own view, as the pause would.
-    touches: "nothing", replay: "safe",
+    // An agent's moves nothing (it gets the groups); the person's opens their own view and arms ^W (or ^W o): their
+    // next key is the chord's, so a replay asks.
+    touches: "nothing", replay: "ask",
     args: { prefix: { type: "string", optional: true, about: "^W (the default), \"^W o\" or \"^W O\"" } },
     examples: [
       { act: "keys.panel", does: "opens the ^W panel: every tile key, grouped" },

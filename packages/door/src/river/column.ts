@@ -245,6 +245,7 @@ export class RiverColumn extends ReaderPane {
   override select() {}
   /** Typing a filter, choosing a property, or selecting text by keys: its keys are its own. */
   typing() { return this.mode !== "" || !!this.text?.keys; }
+  lineField() { return this.mode === "filter" ? this.input : null; }
   /** The filter's completion popup is open: tab chooses a candidate, as ⏎ does. */
   completing() { return this.mode === "filter" && !!completionOf(this.input); }
   blur() { if (this.mode) { this.mode = ""; this.input = filterInput(); } }
@@ -357,8 +358,6 @@ export class RiverColumn extends ReaderPane {
     if (this.filter.length && this.mode !== "filter") head.push(fg(C.yellow) + pad(`≡ ${filterText(this.filter)}`, w) + RESET);
     const popup = this.mode === "filter" ? this.popupRows(w, h, desk?.lookOf?.(this)?.values) : null;
     const foot = this.mode === "filter" ? [...(popup?.lines ?? []), paint("|14/ ") + this.input.show(w - 2)] : this.mode === "tags" ? this.tagLines(w) : [];
-    // The filter's line is the column's last row: a click or drag there is the line's (PIE-1290).
-    this.filterAt = this.mode === "filter" ? { x: 2, y: h - 1, w: w - 2 } : null;
     // A block column keeps its note's header above the scroll, as a reader does: the reader's own (the surface's
     // stickyHeader), with the backdrop of a picture that has scrolled under it (PIE-598).
     const root = this.source.kind === "block" && desk ? this.rootOf() : undefined;
@@ -373,6 +372,8 @@ export class RiverColumn extends ReaderPane {
     if (pc && popup) pc.drawn = { row: this.headRows + view.length, items: popup.rows };
     // The note's images, as a reader tile hands its own to the desk: cut to the rows the column shows.
     const placements = [...(sticky?.placements ?? []).map(p => ({ ...p, row: p.row + head.length })), ...this.images.flatMap(p => inWindow(p, this.top, room, this.headRows) ?? [])];
+    // The filter's line is the last of the foot, under however many rows the cards took: a click or drag there is the line's (PIE-1290).
+    this.filterAt = this.mode === "filter" ? { x: 2, y: head.length + (sticky?.lines.length ?? 0) + view.length + foot.length - 1, w: w - 2 } : null;
     return { lines: [...head, ...(sticky?.lines ?? []), ...view, ...foot].slice(0, h).map(l => pad(l, w)), placements };
   }
 
