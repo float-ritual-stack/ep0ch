@@ -225,7 +225,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     await until(() => !!completionOf(d) && !completionOf(d)!.loading, "the agents offered");
     const p = completionOf(d)!;
     expect(p.items.map(i => i.label)).toEqual([expect.stringMatching(/^@tidy · /)]);
-    expect(p.items[0]!.context).toContain("once the line is quiet");
+    expect(p.items[0]!.docs).toContain("once the line is quiet");
     s.key({ kind: "enter" }, h);
     await until(() => !completionOf(d), "the insertion");
     expect(d.lines.at(-1)).toBe("@tidy ");

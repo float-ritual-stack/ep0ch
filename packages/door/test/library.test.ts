@@ -182,7 +182,7 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
     for (const ch of "Today [mood::st") completionKey(d, char(ch), c);
     await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the extension's values");
     expect(c.state!.items.map(i => i.insertion)).toEqual(["stormy]"]);
-    expect(c.state!.items[0]!.context).toBe("something is");
+    expect(c.state!.items[0]!.docs).toBe("something is");
   });
 
   test("ep0ch library: the schemas as JSON, the outline's own values in them; --out writes a page each with drawings", async () => {

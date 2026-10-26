@@ -39,7 +39,7 @@ import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import type { TileSpec } from "../desk/tiles";
 import { LineField } from "../surface/line";
-import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, lookupCompletion, renderCompletion, type CompletionBoard } from "../surface/completer";
+import { popupHint, COMPLETION_ROWS, completerOf, completionOf, lookupCompletion, renderCompletion, type CompletionBoard } from "../surface/completer";
 import { filterTargetAtCursor } from "../completion";
 import { Fold } from "../fold";
 import { matchesSearchText, prepareSearchQuery, type SearchQuery } from "@ep0ch/outline-core/search-match";
@@ -232,7 +232,7 @@ export class RiverColumn extends ReaderPane {
   headLabel() { const st = this.surface.state(); return `${fg(C.dark)}${this.items ? this.listed() : ""}${st ? `${fg(C.yellow)} · ${st}` : ""}${RESET}`; }
   override hint() {
     // Typing a filter or choosing a property: the hint row is its prompt (the screen's row shows a typing tile's own).
-    if (this.mode === "filter") return completionOf(this.input)?.items.length ? paint(`|08${COMPLETION_HINT}`) : paint(`|14/ filter this column: |15${this.input.plain()}|08 · type:hub -status:done author:codex word · |15⏎|08 apply · |15esc|08 cancel`);
+    if (this.mode === "filter") return completionOf(this.input)?.items.length ? paint(`|08${popupHint(completionOf(this.input)!)}`) : paint(`|14/ filter this column: |15${this.input.plain()}|08 · type:hub -status:done author:codex word · |15⏎|08 apply · |15esc|08 cancel`);
     if (this.mode === "tags") return paint(this.tagChoices.length ? `|14same property|08 · ${this.tagChoices.map(([k, v], i) => `|15${i + 1}|08 ${k}:: |11${v}`).join("|08 · ")}|08 · |15esc|08 cancel` : "|14same property|08 · this note has no properties to follow · |15esc|08 back");
     if (this.surface.editing || this.linked()) return this.surface.hint();
     return modeHint(FLOW_KEYS.filter(row => row.action !== "tile.close" || this.desk?.canClose?.(this)), () => undefined) + " · " + modeHint(COLUMN_MOVE_KEYS, action => COLUMN_ACTIONS.def(action)) + " · j k notes · ⏎ open · space replies · / filter · v select";
@@ -936,7 +936,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
       const t = filterTargetAtCursor(text, text.length);
       if (!t) throw new ActionRefused(`nothing to complete: the text should end in a property key or a key: with its value begun (it ends ${JSON.stringify(text.slice(-20))})`);
       const r = await lookupCompletion(desk.ctx.board as unknown as CompletionBoard, { ...t, words: true }, null);
-      return { tile, kind: t.kind, query: t.query, ...(t.key ? { key: t.key } : {}), items: r.items.map((it, i) => ({ n: i + 1, label: it.label, insertion: it.insertion, kind: it.kind, context: it.context })) };
+      return { tile, kind: t.kind, query: t.query, ...(t.key ? { key: t.key } : {}), items: r.items.map((it, i) => ({ n: i + 1, label: it.label, insertion: it.insertion, kind: it.kind, detail: it.detail, docs: it.docs })) };
     },
   }),
   "column.scroll": def({

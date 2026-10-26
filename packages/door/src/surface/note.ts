@@ -132,7 +132,7 @@ import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTar
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
-import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
+import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -9388,6 +9388,14 @@ const FLOAT_MOVE_ARGS = {
       reset: { type: "boolean", optional: true, about: "back to its usual place and size" },
     } as const;
 
+/** The completion list open in this reader's edit or the comment being written, or why there's none. */
+function openCompleter(surface: NoteSurface): Completer {
+  const d = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
+  const c = d && completerOf(d);
+  if (!c?.shown?.items.length) throw new ActionRefused("no completion list is open; type [[, ((, :: or a [key:: in an edit or comment first");
+  return c;
+}
+
 export const NOTE_ACTIONS = actionSet<On>()("note", {
   "form.focus": def({
     summary: "fill a field in the note's form", touches: "tile", replay: "safe", person: "the person's form focus",
@@ -9581,6 +9589,26 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return COMPLETION_ACTIONS.run("complete.preview", args, c, actor);
     },
   }),
+  // The open list's own keys (PIE-1339), on this reader's edit or the comment being written: the code the popup's keys,
+  // wheel and clicks run. An agent's are its own draft's, or one it was invited into (draftRule's `type`).
+  "complete.move": def({
+    ...COMPLETION_MOVE,
+    run(args, { surface }, actor) { return COMPLETION_ACTIONS.run("complete.move", args, openCompleter(surface), actor); },
+  }),
+  "complete.accept": def({
+    ...COMPLETION_ACCEPT,
+    args: { ...COMPLETION_ACCEPT.args, invitation: { type: "string", optional: true, about: "in the person's draft: the invitation their @name line gave this agent (used up only when it lands)" } },
+    async run({ n, invitation }, on, actor): Promise<unknown> {
+      const c = openCompleter(on.surface), s = c.shown!;
+      // An agent's insert is `complete insert=`'s: the same checks, the same invitation spent, said on screen.
+      if (actor.kind === "agent") return NOTE_ACTIONS.run("complete", { insert: n ?? s.index + 1, expect: s.items[(n ?? s.index + 1) - 1]?.insertion, invitation }, on, actor);
+      return COMPLETION_ACTIONS.run("complete.accept", { n }, c, actor);
+    },
+  }),
+  "complete.dismiss": def({
+    ...COMPLETION_DISMISS,
+    run(args, { surface }, actor) { return COMPLETION_ACTIONS.run("complete.dismiss", args, openCompleter(surface), actor); },
+  }),
   "complete.step": def({
     ...COMPLETION_STEP,
     run(args, { surface, host }, actor) {
@@ -9651,7 +9679,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       }
       const out = {
         kind: target.kind, query: target.query, message: r.message || undefined, truncated: r.truncated ?? undefined,
-        items: r.items.map((it, i) => ({ n: i + 1, label: it.label, insertion: it.insertion, kind: it.kind, blockId: it.blockId, address: it.address, fragmentId: it.fragmentId, context: it.context || undefined })),
+        items: r.items.map((it, i) => ({ n: i + 1, label: it.label, insertion: it.insertion, kind: it.kind, blockId: it.blockId, address: it.address, fragmentId: it.fragmentId, detail: it.detail, docs: it.docs || undefined })),
       };
       if (insert === undefined) return out;
       const item = r.items[insert - 1];

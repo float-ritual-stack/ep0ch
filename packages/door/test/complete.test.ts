@@ -19,7 +19,7 @@ import { BUILTIN_HEADING_STYLES } from "@ep0ch/outline-core/heading-styles";
 import { Draft } from "../src/edit";
 import { Refused, SocketBoard, USER, type Actor } from "../src/socket";
 import { visible } from "../src/style";
-import { COMPLETION_HINT, completerFor, completionKey, completionOf, renderCompletion } from "../src/surface/completer";
+import { popupHint, completerFor, completionKey, completionOf, renderCompletion } from "../src/surface/completer";
 import { editHint } from "../src/surface/editor";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
@@ -203,7 +203,7 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     const { d, c } = typing("## Calls [heading::pl");
     await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the styles");
     expect(c.state!.items.map(i => i.insertion)).toEqual(["plot]"]);
-    expect(c.state!.items[0]!.context).toContain("this outline's");
+    expect(c.state!.items[0]!.docs).toContain("this outline's");
     completionKey(d, K("down"), c); completionKey(d, K("up"), c);
     completionKey(d, K("enter"), c);
     await until(() => d.lines[1] === "## Calls [heading::plot]", "the outline's own style");
@@ -781,7 +781,8 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     let p = await e.settled();
     expect(p.items.some(i => i.kind === "page")).toBe(true);
     expect(e.screen()).toContain("references 1/");
-    expect(editHint(e.d, { save: "save" })).toBe(`${COMPLETION_HINT} · ctrl+s save`);
+    expect(editHint(e.d, { save: "save" })).toBe(`${popupHint(p)} · ctrl+s save`);
+    expect(popupHint(p)).toStartWith("↑↓ move · ⏎/tab inserts");
     e.type("HOME");
     await until(() => !e.pop()!.loading && e.pop()!.items.every(i => i.kind === "work-id"), "filtered to Work IDs");
     p = e.pop()!;
@@ -866,7 +867,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("enter")); e.type("((compost");
     let p = await e.settled();
     expect(p.items[0]).toMatchObject({ blockId: ids.compost, kind: "block", insertion: `((${ids.compost}))`, label: "Turn the compost" });
-    await until(() => !!e.pop()?.items[0]?.context, "the selected candidate's context");
+    await until(() => !!e.pop()?.items[0]?.docs, "the selected candidate's context");
     e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
     await until(() => !e.pop(), "the insertion");
@@ -1328,7 +1329,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       const y = lines.findIndex(l => l.includes(label));
       expect(y).toBeGreaterThan(0);
       expect(lines[y]).toContain(" │ ");
-      expect(lines.some(l => l.includes(COMPLETION_HINT))).toBe(true);
+      expect(lines.some(l => l.includes("↑↓ move · ⏎/tab inserts"))).toBe(true);
       const previewX = lines[y]!.indexOf(" │ ") + 4;
       for (let n = 0; n < 2; n++) {
         key({ kind: "mouse", action: "down", button: 0, x: previewX, y });
