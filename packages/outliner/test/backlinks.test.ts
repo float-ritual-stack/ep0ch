@@ -23,6 +23,21 @@ function store(): OutlinerStore {
 }
 
 describe("semantic backlink relation", () => {
+  test("backlinks group by the anchor aimed at (PIE-1247): ((id^a)), [[page^a]] and ![[page^a]] say which part of the note", () => {
+    const workspace = store();
+    const plan = workspace.create("Spring plan [page::Spring plan]\n\n::graph-timeline ^sowing\n::\n\n> [!tip] Water early ^water");
+    const pad = workspace.create(`Sticky pad\n![[Spring plan^sowing]]\n[[Spring plan^water]] and [[spring plan^water]]\n((${plan.id}^sowing)) and [[Spring plan]]`);
+    const [source] = workspace.queryBacklinks({ targetBlockId: plan.id, limit: 10 }).sources;
+    expect(source?.blockId).toBe(pad.id);
+    expect(source!.referenceGroups).toEqual([
+      { kind: "page", fragmentId: "sowing", count: 1 },
+      { kind: "page", fragmentId: "water", count: 2 },
+      { kind: "block", fragmentId: "sowing", count: 1 },
+      { kind: "page", count: 1 },
+    ]);
+    expect(source!.occurrences[0]).toMatchObject({ kind: "page", fragmentId: "sowing" });
+  });
+
   test("value-built links that read backlinks report a cycle instead of crashing", () => {
     const workspace = store();
     const source = workspace.create("Loop\n[[{{this.children | links:this .count}}]]");

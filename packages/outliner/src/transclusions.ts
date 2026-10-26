@@ -4,8 +4,7 @@
 // re-deriving; Detail's own embed projection (detail-embeds.ts) takes its limits and wording from here.
 import { checklistItems } from "./checklist-items";
 import { codeLineSet, fragmentPresentationText, isFragmentId, resolveFragmentSlice, type FragmentKind } from "./fragments";
-import { embedPattern, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
-import { codeHides, codeSpanRanges, type SourceRange } from "@ep0ch/outline-core/code-ranges";
+import { embedOccurrences, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle } from "./references";
 import type { Block, ChecklistItem } from "./types";
 import { isVirtualBranchDefinition } from "./virtual-branches";
@@ -26,31 +25,31 @@ export const TRANSCLUSION_MAX_NODES = 64;
 export const TRANSCLUSION_MAX_BYTES = 512 * 1024;
 
 
+/** An embed as a reader finds it: `index` where its `!` is, `[0]` what was written, `[1]` its target, `[2]` its fragment. */
+export interface EmbedMatch { index: number; 0: string; 1: string; 2?: string }
+
 /**
- * The embeds a reader expands in `text`, in order. Fenced and indented code and code spans show `!((…))` as written,
- * so it never embeds. `text` is line for line with `note` from `firstLine` (a fragment's slice), and code
- * is judged in the note, where the slice is read.
+ * The embeds a reader expands in `text`, in order: `!((id^fragment))` and (PIE-1247) `![[page^fragment]]`, whose
+ * target is `[[page]]` (outline-core's `pageEmbedTarget`). Fenced and indented code and code spans show them as
+ * written, so they never embed. `text` is line for line with `note` from `firstLine` (a fragment's slice), and code is
+ * judged in the note, where the slice is read.
  */
-export function embedMatches(text: string, note = text, firstLine = 0, max = Infinity) {
-  if (!text.includes("!((")) return [];
+export function embedMatches(text: string, note = text, firstLine = 0, max = Infinity): EmbedMatch[] {
+  if (!text.includes("!((") && !text.includes("![[")) return [];
   const code = codeLineSet(note);
-  const starts = lineStarts(text);
-  const out: RegExpExecArray[] = [];
-  const pattern = embedPattern();
-  let line = 0;
-  // Only as many as the caller can use: a note with thousands of embeds isn't scanned past them.
-  // A code span shows `!((…))` as written too (PIE-764): the spans of each line are its own.
-  const spans = new Map<number, SourceRange[]>();
-  const spansOf = (i: number) => {
-    let found = spans.get(i);
-    if (!found) spans.set(i, (found = codeSpanRanges(text.slice(starts[i]!, starts[i + 1] ?? text.length))));
-    return found;
-  };
-  for (let m = pattern.exec(text); m && out.length < max; m = pattern.exec(text)) {
-    while (line + 1 < starts.length && starts[line + 1]! <= m.index) line++;
-    if (code.has(firstLine + line)) continue;
-    const at = m.index - starts[line]!;
-    if (!codeHides({ start: at, end: at + m[0].length }, spansOf(line))) out.push(m);
+  const out: EmbedMatch[] = [];
+  let start = 0;
+  for (const [line, raw] of text.split("\n").entries()) {
+    const from = start;
+    start += raw.length + 1;
+    if (out.length >= max) break;
+    // Only as many as the caller can use: a note with thousands of embeds isn't scanned past them.
+    if (code.has(firstLine + line) || (!raw.includes("!((") && !raw.includes("![["))) continue;
+    // A code span shows an embed as written too (PIE-764): the spans of each line are its own.
+    for (const e of embedOccurrences(raw, "inline")) {
+      if (out.length >= max) break;
+      out.push({ index: from + e.start, 0: raw.slice(e.start, e.end), 1: e.target, ...(e.fragmentId ? { 2: e.fragmentId } : {}) });
+    }
   }
   return out;
 }
@@ -280,6 +279,9 @@ function* projectTransclusions(targets: readonly TransclusionTarget[], options: 
       bytes += withSteps;
       sent[block.id] = block;
     }
+    // A page embed (`[[page]]`, PIE-1247) is its note: embedding a note above it again is a cycle whichever way it's named.
+    const resolvedKey = refKey({ blockId: block.id, ...(t.fragmentId ? { fragmentId: t.fragmentId } : {}) });
+    if (block.id !== t.blockId && path.includes(resolvedKey)) return { ...base, status: "cycle", message: TRANSCLUSION_WORDING.cycle };
     const facts = factsOf(block);
     const title = facts.title;
     dependencies.add(block.id);
@@ -298,7 +300,7 @@ function* projectTransclusions(targets: readonly TransclusionTarget[], options: 
     }
     checklists[block.id] ??= facts.steps;
     const inner = embedMatches(shown.text, block.text, shown.startLine, MAX_EMBEDS_PER_DOCUMENT + 1).map(m => ({ blockId: m[1]!, ...(m[2] ? { fragmentId: m[2] } : {}) }));
-    const here = [...path, refKey(t)];
+    const here = [...path, refKey(t), ...(resolvedKey !== refKey(t) ? [resolvedKey] : [])];
     const embeds: TransclusionNode[] = [];
     for (const [index, child] of inner.entries()) {
       const at = { blockId: child.blockId, ...(child.fragmentId ? { fragmentId: child.fragmentId } : {}), depth: depth + 1 };

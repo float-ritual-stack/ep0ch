@@ -570,7 +570,7 @@ const linkOf = (l: LinkOccurrence): Link => {
  * null for one that has no such words (a resource token, a picture).
  */
 export const refOfLink = (l: Link): string | null =>
-  l.block ? `((${l.block}${l.fragment ? `^${l.fragment}` : ""}))` : l.page !== undefined ? `[[${l.page}]]` : l.url !== undefined ? l.url : l.tag !== undefined ? `#${l.tag}` : null;
+  l.block ? `((${l.block}${l.fragment ? `^${l.fragment}` : ""}))` : l.page !== undefined ? `[[${l.page}${l.fragment ? `^${l.fragment}` : ""}]]` : l.url !== undefined ? l.url : l.tag !== undefined ? `#${l.tag}` : null;
 /** `edit.follow`'s `ref=` back to the link it names: what `refOfLink` writes, or one link written whole. */
 function linkOfRef(ref: string): Link | null {
   const text = ref.trim();

@@ -199,3 +199,44 @@ test("fragments.read and transclusions.read round-trip through the service", asy
   expect(again.results[0]).toMatchObject({ revision: changed.block.revision, fragment: { text: expect.stringContaining("[x] Sow the beans") } });
   expect(stepsIn(again, again.results[0]!)[0]!.status).toBe("done");
 });
+
+test("a page embed (PIE-1247): ![[page^anchor]] projects the page's anchored figure only, nested too; a missing page or a page of the host is said", () => {
+  const directory = mkdtempSync(join(tmpdir(), "pi-outliner-page-embeds-"));
+  const store = new OutlinerStore(join(directory, "outliner.sqlite"));
+  try {
+    const plan = store.create([
+      "Spring plan [page::Spring plan]",
+      "What goes in when.",
+      "",
+      "::graph-timeline ^sowing",
+      "---",
+      "title: Sowing dates",
+      "---",
+      "- Mar 3: peas",
+      "::",
+      "",
+      "> [!tip] Water early ^water",
+      "",
+      "- stake the peas ^stake",
+    ].join("\n"), null, "user");
+    const pad = store.create("Sticky pad\n![[Spring plan^sowing]]\n![[spring plan^water]]\n![[Nowhere^x]]", null, "user");
+    const read = store.readTransclusions([{ blockId: "[[Spring plan]]", fragmentId: "sowing" }], { hostBlockId: pad.id });
+    expect(read.results[0]).toMatchObject({ blockId: "[[Spring plan]]", resolvedBlockId: plan.id, status: "ready", kind: "fragment", fragment: { kind: "component", label: "Sowing dates" } });
+    expect(read.results[0]!.fragment!.text).toBe("::graph-timeline\n---\ntitle: Sowing dates\n---\n- Mar 3: peas\n::");
+    expect(read.dependencies).toContain(plan.id);
+    // Nested: the pad's own embeds, found by the service's one embed scan, each resolved by its page.
+    const whole = store.readTransclusions([{ blockId: pad.id }], {});
+    expect(whole.results[0]!.embeds!.map(e => [e.blockId, e.fragmentId, e.status, e.fragment?.kind])).toEqual([
+      ["[[Spring plan]]", "sowing", "ready", "component"],
+      ["[[spring plan]]", "water", "ready", "callout"],
+      ["[[Nowhere]]", "x", "missing", undefined],
+    ]);
+    // Named by its page, the host is still the host: a cycle.
+    const self = store.create("Loop [page::Loop]\n## Here ^here\n![[Loop^here]]", null, "user");
+    const loop = store.readTransclusions([{ blockId: "[[Loop]]", fragmentId: "here" }], { hostBlockId: self.id });
+    expect(loop.results[0]!.embeds?.[0]?.status ?? loop.results[0]!.status).toBe("cycle");
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

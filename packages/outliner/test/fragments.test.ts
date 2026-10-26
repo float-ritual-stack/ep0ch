@@ -217,6 +217,73 @@ describe("component anchors (PIE-580)", () => {
   });
 });
 
+describe("any element's line takes an anchor (PIE-1247)", () => {
+  // A long planning note: a figure with no heading over it, a callout, a list and prose.
+  const note = [
+    "Spring plan",
+    "What goes in when.",
+    "",
+    "::graph-timeline",
+    "---",
+    "title: Sowing dates",
+    "---",
+    "- Mar 3: peas",
+    "- Mar 20: beans",
+    "::",
+    "",
+    "> [!tip] Water early",
+    "> Before nine, so the leaves dry.",
+    "",
+    "- stake the peas",
+    "- net the brassicas",
+    "",
+    "::graph-stat",
+    "---",
+    "query: type=seed",
+    "---",
+    "::",
+  ].join("\n");
+  test("a figure with no anchor is offered on its opening line, by its title; choosing it anchors that line and the slice is the whole figure", () => {
+    const offered = fragmentCandidates(note, "", "passage").map(c => [c.kind, c.label, c.lineIndex]);
+    expect(offered).toContainEqual(["component", "Sowing dates", 3]);
+    expect(offered).toContainEqual(["component", "::graph-stat", 17]);
+    expect(offered).toContainEqual(["callout", "Water early", 12]);
+    expect(offered).toContainEqual(["list-item", "stake the peas", 14]);
+    // The figure's own lines are never offered one by one.
+    expect(offered.filter(([, , line]) => (line as number) > 3 && (line as number) <= 9)).toEqual([]);
+    const at = ensureFragmentAnchor(note, 3);
+    expect(at).toMatchObject({ fragmentId: "sowing-dates", created: true });
+    expect(at.text.split("\n")[3]).toBe("::graph-timeline ^sowing-dates");
+    expect(fragmentAnchors(at.text).map(a => [a.id, a.kind, a.label])).toEqual([["sowing-dates", "component", "Sowing dates"]]);
+    const r = resolveFragmentSlice(at.text, "sowing-dates");
+    expect(r.status === "resolved" && [r.slice.startLine, r.slice.endLine, r.slice.text]).toEqual([3, 9, note.split("\n").slice(3, 10).join("\n")]);
+    // Anchored, it's offered as the anchor it has, not again as a passage to add one to.
+    expect(fragmentCandidates(at.text, "", "passage").filter(c => c.lineIndex === 3).map(c => c.fragmentId)).toEqual(["sowing-dates"]);
+    // A figure with no title takes its kind's name.
+    expect(ensureFragmentAnchor(note, 17).fragmentId).toBe("graph-stat");
+  });
+  test("a callout anchored on its head line is the whole callout's, as one on its last line is", () => {
+    const tip = "Tips\n\n> [!tip] Water early ^water\n> Before nine, so the leaves dry.\n\n> Plain quote ^first-line\n> second line";
+    expect(fragmentAnchors(tip).map(a => [a.id, a.kind, a.label])).toEqual([["water", "callout", "Water early"], ["first-line", "paragraph", "> Plain quote"]]);
+    const r = resolveFragmentSlice(tip, "water");
+    expect(r.status === "resolved" && r.slice.text).toBe("> [!tip] Water early\n> Before nine, so the leaves dry.");
+    expect(fragmentCandidates(tip, "", "passage").filter(c => c.kind === "callout").map(c => c.fragmentId)).toEqual(["water"]);
+  });
+  test("a one-line component with arguments takes one too, and the old form after the :: still names its figure", () => {
+    const links = "Index\n\n::links ((00000000-0000-4000-8000-000000000000)) ^more";
+    expect(fragmentAnchors(links).map(a => [a.id, a.kind])).toEqual([["more", "component"]]);
+    const r = resolveFragmentSlice(links, "more");
+    expect(r.status === "resolved" && r.slice.text).toBe("::links ((00000000-0000-4000-8000-000000000000))");
+    const old = "Beds\n\n::graph-rank\n- a: 1\n::\n^rank";
+    expect(fragmentAnchors(old).map(a => a.kind)).toEqual(["component"]);
+    expect(fragmentCandidates(old, "", "passage").filter(c => !c.fragmentId && c.kind === "component")).toEqual([]);
+  });
+  test("a component inside another is part of it: only the outer one is offered", () => {
+    const boxed = "Box\n\n::box{pad=1}\n::graph-stat\n---\nquery: type=seed\n---\n::\n::";
+    expect(fragmentCandidates(boxed, "", "passage").filter(c => c.kind === "component").map(c => c.lineIndex)).toEqual([2]);
+  });
+});
+
 describe("quotes and callouts (PIE-592): one passage each, embedded whole", () => {
   const note = [
     "Bike shed",

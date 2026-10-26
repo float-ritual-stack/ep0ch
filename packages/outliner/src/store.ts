@@ -6,7 +6,7 @@ import { subtitleOf, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/protocol";
 import { isSqliteBusy } from "./sqlite-busy";
 import { replaceReferenceIndex } from "./reference-index";
-import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
+import { embeddedPageAddress, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { propertyValueHolds, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import {handOrderRefusal, isVirtualBranchDefinition, VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
@@ -1996,7 +1996,22 @@ export class OutlinerStore {
 
   /** Transclusions as readers show them, nested and cycle-safe, from one consistent read. */
   readTransclusions(targets: readonly TransclusionTarget[], options: TransclusionOptions): TransclusionRead {
-    return this.database.transaction(() => readTransclusions(id => this.getFromCurrentRead(id), targets, options)).deferred();
+    return this.database.transaction(() => readTransclusions(id => this.embedTargetFromCurrentRead(id), targets, options)).deferred();
+  }
+
+  /**
+   * The note an embed's target names (trashed ones too), or null: a block id, or a page embed's `[[page]]` (PIE-1247),
+   * the note that page address resolves to as `pages.resolve` answers it.
+   */
+  embedTarget(target: string): Block | null {
+    return this.database.transaction(() => this.embedTargetFromCurrentRead(target)).deferred();
+  }
+
+  private embedTargetFromCurrentRead(target: string): Block | null {
+    const page = embeddedPageAddress(target);
+    if (page === null) return this.getFromCurrentRead(target);
+    const resolved = this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(page));
+    return resolved.status === "missing" ? null : resolved.block ?? null;
   }
 
   updateChecklist(id: string, input: ChecklistUpdateInput, mutation: MutationProvenance): ChecklistUpdateReceipt {

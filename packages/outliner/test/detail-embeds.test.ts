@@ -81,6 +81,12 @@ class FakeRequester implements DetailEmbedRequester {
       if (!result) throw new Error(`Block not found: ${input.blockId}`);
       return result as T;
     }
+    if (input.action === "pages.resolve") {
+      // Stands in for the page registry: a block whose `[page::…]` is the address, compared caseless.
+      const found = [...this.blocks.values()].find(b => b.properties.some(p => p.key === "page" && p.value.toLowerCase() === input.address.toLowerCase()));
+      return (found ? { address: input.address, normalizedAddress: input.address.toLowerCase(), status: "resolved", block: found }
+        : { address: input.address, normalizedAddress: input.address.toLowerCase(), status: "missing" }) as T;
+    }
     if (input.action === "views.read") {
       // Stands in for the service: the fixture collection is the view's query result.
       const result = this.collections.get(input.viewId);
@@ -275,6 +281,25 @@ test("renders ordinary block Markdown without loading a workspace snapshot or ne
   });
   expect(requester.calls).not.toContainEqual({ action: "workspace.snapshot" });
   expect(requester.calls).not.toContainEqual({ action: "get", blockId: "nested-target" });
+});
+
+test("![[page^anchor]] (PIE-1247): Detail embeds the page's anchored figure only, as the door does; a page nobody has says so", async () => {
+  const planText = "Spring plan [page::Spring plan]\nWhat goes in when.\n\n::graph-timeline ^sowing\n- Mar 3: peas\n::\n\nClosing words.";
+  const plan = block("plan-block", planText, [{ key: "page", value: "Spring plan" }]);
+  const requester = new FakeRequester(new Map([[plan.id, plan]]), new Map(), new Map(), new Error("snapshot must not be loaded"));
+  const projection = await projectDetailRead(requester, "Sticky pad\n![[Spring plan^sowing]]\n![[Nowhere^x]]");
+  expect(projection.text).toBe([
+    "Sticky pad",
+    "Embedded fragment: ((plan-block^sowing))",
+    "::graph-timeline",
+    "- Mar 3: peas",
+    "::",
+    "![[Nowhere^x]] · MISSING TARGET",
+  ].join("\n"));
+  expect(projection.embeds).toEqual([
+    { blockId: plan.id, fragmentId: "sowing", status: "ready", count: 1 },
+    { blockId: "[[Nowhere]]", fragmentId: "x", status: "missing", count: 0 },
+  ]);
 });
 
 test("a figure written without its --- lines gets a notice line after it; its authored lines stay as they were (PIE-941)", async () => {

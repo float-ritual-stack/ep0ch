@@ -33,6 +33,8 @@ export type OutlinerReferenceOccurrence = { propertyKey?: string; outline?: stri
       kind: "page";
       address: string;
       normalizedAddress: string;
+      /** `[[page^anchor]]` (PIE-1247): the anchor aimed at. */
+      fragmentId?: string;
       label?: string;
       start: number;
       end: number;
@@ -131,6 +133,7 @@ export function outlinerReferenceOccurrences(
       address: reference.displayAddress,
       ...(reference.outline ? { outline: reference.outline } : {}),
       normalizedAddress: reference.normalizedAddress,
+      ...(reference.fragmentId ? { fragmentId: reference.fragmentId } : {}),
       ...(reference.label ? { label: reference.label } : {}),
       start: reference.start,
       end: reference.end,

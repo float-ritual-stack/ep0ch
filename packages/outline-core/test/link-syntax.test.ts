@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { propertyValueLinks } from "../src/property-grammar";
 import {
   blockReferenceOccurrences,
+  embedOccurrences,
+  embeddedPageAddress,
   fragmentAnchorMatch,
   linkOccurrences,
   pageAddressReferences,
@@ -89,4 +91,22 @@ test("links inside property values: references and page links anywhere in a valu
   const words = "[waiting-on::review of PIE-012 and ((c0ffee00-1111-4222-8333-444444444444|PIE-013))] [jira::PIE-014]";
   expect(propertyValueLinks(words, undefined, { prefixes: "PIE", skip: k => k === "jira" }).map(l => l.kind === "ticket" ? l.workId : l.kind)).toEqual(["PIE-012", "block"]);
   expect(propertyValueLinks("next:: see [[Beds]]", [{ key: "next", start: 0, raw: "next:: see [[Beds]]" }]).map(l => l.kind)).toEqual(["page"]);
+});
+
+test("a page link points into its page with ^anchor, and ![[…]] embeds it, as ((id^anchor)) and !((…)) do (PIE-1247)", () => {
+  const [plain, anchored, labelled] = pageAddressReferences("[[Spring plan]] [[Spring plan^sowing]] [[Spring plan ^water|the tip]]");
+  expect(plain).toMatchObject({ displayAddress: "Spring plan", normalizedAddress: "spring plan" });
+  expect(plain!.fragmentId).toBeUndefined();
+  expect(anchored).toMatchObject({ displayAddress: "Spring plan", normalizedAddress: "spring plan", fragmentId: "sowing" });
+  expect(labelled).toMatchObject({ displayAddress: "Spring plan", fragmentId: "water", label: "the tip" });
+  // A `^` that isn't an anchor at the address's end is the address's own; a link that is only `^anchor` names that page.
+  expect(pageAddressReferences("[[2^10 grains]] [[^lonely]]").map(r => [r.displayAddress, r.fragmentId])).toEqual([["2^10 grains", undefined], ["^lonely", undefined]]);
+  const line = "See ![[Spring plan^sowing]] and !((a1b2c3d4-0000-4000-8000-000000000000^water)), not `![[Code^x]]` or ![[Labelled|no]].";
+  const embeds = embedOccurrences(line, "inline");
+  expect(embeds.map(e => [line.slice(e.start, e.end), e.target, e.fragmentId])).toEqual([
+    ["![[Spring plan^sowing]]", "[[Spring plan]]", "sowing"],
+    ["!((a1b2c3d4-0000-4000-8000-000000000000^water))", "a1b2c3d4-0000-4000-8000-000000000000", "water"],
+  ]);
+  expect(embeds.map(e => embeddedPageAddress(e.target))).toEqual(["Spring plan", null]);
+  expect(linkOccurrences(line, "inline").filter(l => l.kind === "page").map(l => [l.kind === "page" && l.embed, line[l.start]])).toEqual([[true, "!"], [false, "["]]);
 });

@@ -10,6 +10,19 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Any element takes an anchor: embed or link one figure, callout or list item (PIE-1247)
+
+- **No heading needed to aim at a figure.** A component's opening line takes an `^anchor` (`::graph-timeline ^sowing`),
+  and `!((note^sowing))` embeds just that figure; a callout's head line names the whole callout, as its last line does.
+  The figure's `query:` (`this`, `parent:this`) still answers for the note it lives in.
+- **Written for you.** `((words` and `!((words` list a note's figures, callouts and list items beside its headings, each
+  saying the anchor it adds; choosing one writes it on that line (attributed). Same in Detail.
+- **By page.** `[[Spring plan^sowing]]` links into a page and `![[Spring plan^sowing]]` embeds that part; typing
+  `[[Spring plan^` lists the page's parts.
+- **Which part is linked.** Backlinks group by the anchor aimed at (`page link ^sowing ×1`), in the door's links tile
+  and Detail.
+- The kitchen sink's `sticky-pad` section shows it. Parsing rules changed (GRAMMAR 6); the `transclusions.read` and
+  `references.backlinks` answers gained fields (see the PR for the PROTOCOL note).
 ### An extension's settings show and edit in the door (PIE-1343)
 
 - **See them where you find the extension.** ctrl+k then `&`: each extension's row says its settings (default, set,

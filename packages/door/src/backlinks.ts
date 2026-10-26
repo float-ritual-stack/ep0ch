@@ -27,11 +27,11 @@ export interface BacklinkSourceFacets {
 }
 
 export type BacklinkReferenceGroup =
-  | { kind: "block" | "page" | "work-id"; count: number }
+  | { kind: "block" | "page" | "work-id"; fragmentId?: string; count: number }
   | { kind: "property"; propertyKey: string; count: number };
 
 export type BacklinkOccurrence =
-  | { kind: "block" | "page" | "work-id"; label: string; snippet: string; start: number; end: number }
+  | { kind: "block" | "page" | "work-id"; fragmentId?: string; label: string; snippet: string; start: number; end: number }
   | { kind: "property"; propertyKey: string; label: string; snippet: string; start: number; end: number };
 
 /** One source as `references.backlinks` sends it (timestamps are ISO strings, compared as Detail compares them). */
@@ -180,7 +180,7 @@ function matchesText(source: BacklinkSource, query: SearchQuery | null): boolean
     source.parentContext,
     source.facets?.kindLabel ?? "",
     source.facets?.stage?.value ?? "",
-    ...source.referenceGroups.map(group => group.kind === "property" ? group.propertyKey : group.kind),
+    ...source.referenceGroups.map(group => group.kind === "property" ? group.propertyKey : `${group.kind}${group.fragmentId ? ` ^${group.fragmentId}` : ""}`),
     ...source.occurrences.map(occurrence => occurrence.snippet),
   ]);
 }
@@ -348,7 +348,8 @@ export function backlinkReferenceLabel(group: BacklinkReferenceGroup): string {
   let label = "Work ID";
   if (group.kind === "block") label = "block reference";
   else if (group.kind === "page") label = "page link";
-  return `${label} ×${group.count}`;
+  // The anchor it aims at (PIE-1247): which part of this note is linked or embedded.
+  return `${label}${group.fragmentId ? ` ^${group.fragmentId}` : ""} ×${group.count}`;
 }
 
 /**

@@ -42,7 +42,8 @@ import {
 } from "./detail-callouts";
 import type { DetailCalloutTheme } from "./detail-callout-theme";
 import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
-import { detailEmbedIds, relativeAge } from "./detail-embeds";
+import { relativeAge } from "./detail-embeds";
+import { embedMatches } from "./transclusions";
 import { linkOutlinerDocument, linkOutlinerMarkdown, outlinerLinkUri, resourceOccurrenceLink, resourceOccurrenceLinks } from "./outliner-links";
 import {
   backlinkGroupRegionId,
@@ -107,15 +108,7 @@ export interface DetailReadPreviewDocument {
 
 function embedSourceLines(text: string): number[] {
   const starts = sourceLineStarts(text);
-  const lines: number[] = [];
-  let cursor = 0;
-  for (const id of detailEmbedIds(text)) {
-    const start = text.indexOf(`!((${id}`, cursor);
-    if (start < 0) continue;
-    lines.push(sourceLineAt(starts, start));
-    cursor = start + id.length + 3;
-  }
-  return lines;
+  return embedMatches(text).map(match => sourceLineAt(starts, match.index));
 }
 
 function projectionAge(range: DetailState["embedRanges"][number], now: number): string {
@@ -616,7 +609,8 @@ function backlinkGroupLabel(group: BacklinkReferenceGroup): string {
   let label = "Work ID";
   if (group.kind === "block") label = "block reference";
   else if (group.kind === "page") label = "page link";
-  return `${label} ×${group.count}`;
+  // The anchor it aims at (PIE-1247): which part of this note is linked or embedded.
+  return `${label}${group.fragmentId ? ` ^${group.fragmentId}` : ""} ×${group.count}`;
 }
 
 export type DetailPreviewAction = PreviewRegionAction;

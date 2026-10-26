@@ -129,6 +129,8 @@ export const SEED = {
   frost: "Before the first frost",
   race: "Seed sowing guide",
   deepLinks: "Deep links, by hand",
+  stickyPlan: "Raised beds plan",
+  stickyPad: "Sticky pad",
   sources: "Completion from an extension",
   swapDay: "Seed swap day",
   meeting: "Greenhouse meeting, October",

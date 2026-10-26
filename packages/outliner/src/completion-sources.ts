@@ -53,9 +53,30 @@ function newPageRow(query: string, have: readonly { address: string }[], prefix:
   return { label: `new page · ${named}`, filter: named, insert: label ? `[[${named}|${label}]]` : `[[${named}]]`, kind: "new", newPage: named, fallback: true, docs: "made where new notes go when you choose it · ctrl+l then opens it beside" };
 }
 
+/**
+ * `[[Spring plan^` (PIE-1247): the parts of the page the address names, as `((note^` lists a note's, each written
+ * `[[Spring plan^anchor]]` (an anchor added where it has none). Null when the address before `^` names no page, so a
+ * page whose name holds a `^` is still found by its name.
+ */
+async function pageFragmentRows(ask: Asked, svc: CompletionService): Promise<Answer | null> {
+  const caret = ask.query.lastIndexOf("^");
+  if (caret <= 0 || ask.query.includes("|")) return null;
+  const address = ask.query.slice(0, caret).trim(), part = ask.query.slice(caret + 1);
+  if (!/^[A-Za-z0-9_-]*$/.test(part) || !tryNormalizePageAddress(address)) return null;
+  const page = await svc.request<{ status: string; block?: { id: string } }>("pages.resolve", { address }).catch(() => null);
+  if (page?.status !== "resolved" || !page.block) return null;
+  const r = await svc.request<Fragments>("fragments.candidates", { query: { blockIds: [page.block.id], fragmentQuery: part, mode: "passage", limit: ask.limit || COMPLETION_LIMIT, ...(ask.draft ? { draft: ask.draft } : {}) } });
+  return {
+    rows: r.items.map(c => ({ ...fragmentRow(c, true), insert: `[[${address}^${c.fragmentId ?? c.anchor!.fragmentId}]]` })),
+    heading: `in ${address}`, empty: `nothing in ${address} matches ${JSON.stringify(part)}`,
+  };
+}
+
 const pages: ServiceSource = {
   decl: { id: "pages", title: "pages", triggers: ["[["], priority: 10, ranked: true, by: "service" },
   async rows(ask, svc) {
+    const parts = await pageFragmentRows(ask, svc);
+    if (parts) return parts;
     const r = await svc.request<Pages>("pages.complete", {
       ...(pageCompletionLookupQuery(ask.query, ask.prefix) ? { query: pageCompletionLookupQuery(ask.query, ask.prefix) } : {}), limit: COMPLETION_LIMIT,
       ...(ask.semantic ? { semantic: true } : {}), ...(ask.near ? { contextBlockId: ask.near } : {}),
@@ -78,8 +99,11 @@ const pages: ServiceSource = {
 
 /** How many of the top notes a `((words` list shows the anchors of, and how many each. */
 const ANCHORED_NOTES = 4, ANCHORS_PER_NOTE = 3;
-/** The parts of the first note `((words` lists under it with no anchor yet (PIE-592), and how many. */
-const EMBEDDABLE = new Set(["heading", "quote", "callout"]), PARTS_OF_TOP = 4, PASSAGES_ASKED = 100;
+/**
+ * The parts of the first note `((words` lists under it with no anchor yet (PIE-592; components and list items,
+ * PIE-1247), and how many: chosen in this order, so a long note's figures and callouts come before its many list items.
+ */
+const EMBEDDABLE = ["component", "callout", "heading", "quote", "list-item"], PARTS_OF_TOP = 6, PASSAGES_ASKED = 100;
 /** How many notes `((words^` and `((words#` search inside: the first ones `((words` listed. */
 const NOTES_SEARCHED = 3;
 
@@ -89,7 +113,8 @@ const NOTES_SEARCHED = 3;
  */
 function fragmentRow(c: Fragment, oneNote: boolean, under = false): SourceRow {
   const id = c.fragmentId ?? c.anchor!.fragmentId;
-  const what = c.kind === "heading" ? `# ${c.label}` : c.kind === "quote" ? `> ${c.label}` : c.kind === "callout" ? `[!] ${c.label}` : c.label;
+  const what = c.kind === "heading" ? `# ${c.label}` : c.kind === "quote" ? `> ${c.label}` : c.kind === "callout" ? `[!] ${c.label}`
+    : c.kind === "component" ? (c.label.startsWith("::") ? c.label : `:: ${c.label}`) : c.kind === "list-item" ? `- ${c.label}` : c.label;
   const where = oneNote || under ? "" : `${c.title} » `;
   return {
     label: c.fragmentId ? `${under ? "  " : ""}^${id}  ${where}${what}` : `${under ? "  " : ""}${where}${what} · adds ^${id}`, ...(under ? { under: true } : {}),
@@ -150,7 +175,10 @@ const blocks: ServiceSource = {
     for (const n of notes) {
       add(n);
       for (const c of (theirs?.items ?? []).filter(c => c.blockId === n.blockId && c.fragmentId).slice(0, ANCHORS_PER_NOTE)) add({ ...fragmentRow(c, false, true), filter: n.label });
-      for (const c of (parts?.items ?? []).filter(c => c.blockId === n.blockId && !c.fragmentId && EMBEDDABLE.has(c.kind)).slice(0, PARTS_OF_TOP)) add({ ...fragmentRow(c, false, true), filter: n.label });
+      // Chosen by kind (figures and callouts first), listed in reading order.
+      const offered = (parts?.items ?? []).filter(c => c.blockId === n.blockId && !c.fragmentId && EMBEDDABLE.includes(c.kind))
+        .sort((a, b) => EMBEDDABLE.indexOf(a.kind) - EMBEDDABLE.indexOf(b.kind) || a.lineIndex - b.lineIndex).slice(0, PARTS_OF_TOP);
+      for (const c of offered.sort((a, b) => a.lineIndex - b.lineIndex)) add({ ...fragmentRow(c, false, true), filter: n.label });
     }
     return {
       rows, truncated: r.completeness.kind === "truncated" ? r.completeness.limit ?? r.matches.length : null, empty: "no matching blocks",

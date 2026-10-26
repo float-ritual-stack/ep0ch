@@ -35,7 +35,7 @@ import type { WebDoor } from "./publish-door";
 import { ShareTunnels } from "./publish-tunnels";
 import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
-import { pageAddressReferences, pageAddressText, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
+import { embeddedPageAddress, pageAddressReferences, pageAddressText, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { getProperty } from "./properties";
 import { parseProperties, parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
@@ -2281,6 +2281,8 @@ export class Publisher {
     });
     const ids = new Set<string>();
     const visit = (node: TransclusionNode) => {
+      // A page embed (`![[page]]`, PIE-1247) is the note its page resolved to: shares, locks and values are that note's.
+      if (embeddedPageAddress(node.blockId) !== null && node.resolvedBlockId) node.blockId = node.resolvedBlockId;
       if (node.status === "ready") ids.add(node.blockId);
       for (const inner of node.embeds ?? []) visit(inner);
     };
@@ -2890,8 +2892,10 @@ function publishedText(text: string, context: TextContext, options: { keepProper
   for (const reference of pageAddressReferences(body).filter((page) => !page.nested).reverse()) {
     if (inCode(reference.start)) continue;
     const blockId = pages.get(reference.normalizedAddress);
-    const replacement = link(reference.label ?? pageAddressText(reference.displayAddress), blockId ? byId.get(blockId) : undefined);
-    body = body.slice(0, reference.start) + replacement + body.slice(reference.end);
+    const replacement = link(reference.label ?? pageAddressText(reference.displayAddress), blockId ? byId.get(blockId) : undefined, reference.fragmentId);
+    // `![[page]]` (PIE-1247) without a projection is a link too, never `![…](…)`.
+    const start = embedStarts.has(reference.start - 1) ? reference.start - 1 : reference.start;
+    body = body.slice(0, start) + replacement + body.slice(reference.end);
   }
   body = body.replace(/\u0003(\d+)\u0003/g, (_, at: string) => fileChip(files[Number(at)] ?? "", index, basePath));
   // An embedded view is drawn as its lane, not quoted.

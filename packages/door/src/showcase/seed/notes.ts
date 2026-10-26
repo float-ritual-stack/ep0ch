@@ -350,6 +350,42 @@ export const SOURCES = [
   "- **Take it away:** remove Issues in the power bar (`&issues`): the issue rows go, the pages stay. Install it again from the same row.",
 ].join("\n");
 
+/**
+ * The sticky pad section (PIE-1247): a long plan whose figure has no heading over it, a callout and a list, and a pad
+ * that embeds one part of it by its page. The figure asks `parent:this`: in the pad it still reads the plan's children.
+ */
+export const STICKY_PLAN = [
+  `${SEED.stickyPlan} [page::${SEED.stickyPlan}]`,
+  "A long plan for the season. Nothing over its figure is a heading: the figure has an anchor of its own.",
+  "",
+  "::graph-table ^bed-jobs",
+  "---",
+  "title: Bed jobs",
+  'query: "parent:this"',
+  "---",
+  "::",
+  "",
+  "> [!tip] Water early",
+  "> Before nine, so the leaves dry by noon.",
+  "",
+  "- stake the peas",
+  "- net the brassicas",
+  "",
+  "The rest of the plan: rotations, seed orders, who has the van.",
+].join("\n");
+export const STICKY_JOBS = ["Turn the compost", "Mend the north bed"];
+export const STICKY_PAD = [
+  SEED.stickyPad,
+  `One part of the [[${SEED.stickyPlan}]], kept beside the long note:`,
+  "",
+  `![[${SEED.stickyPlan}^bed-jobs]]`,
+  "",
+  "- **Any element:** a figure, a callout, a list item or a paragraph takes an `^anchor` at the end of its line; the figure's is on its `::graph-table` line.",
+  "- **Written for you:** in an edit, type `!((Raised` and the plan's figure, callout and list items are listed with the anchor each would get; choose one and it's added to the plan's line.",
+  `- **By page:** \`![[${SEED.stickyPlan}^\` lists the same parts; \`[[${SEED.stickyPlan}^bed-jobs]]\` links straight to the figure.`,
+  "- **Who aims where:** the links tile on the right groups the plan's backlinks by the anchor each one aims at.",
+].join("\n");
+
 export const DEEP_LINKS = [
   SEED.deepLinks,
   "",

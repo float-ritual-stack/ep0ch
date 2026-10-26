@@ -23,8 +23,7 @@ import { buttonCallAt, buttonCallsOf, type ButtonCall } from "@ep0ch/outline-cor
 import type { LiveSite } from "./live";
 import { stripMarks, type LinkTarget } from "./refs";
 import { codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
-import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
-import { linkOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
+import { embedOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
 import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
@@ -320,7 +319,7 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
     inside.forEach((start, n) => { if (start >= 0 && block[off + n] === -1) block[off + n] = off + start; });
   }
   // A line declaring a heading style draws as what it declares, never a heading (`# Plot style [heading-style::plot]`).
-  const foldable = (i: number) => block[i] === -1 && !images.has(i) && !linkOccurrences(src[i]!, "inline").some(l => l.kind === "block" && l.embed) && !headingStyleDeclaration(src[i]!);
+  const foldable = (i: number) => block[i] === -1 && !images.has(i) && !embedOccurrences(src[i]!, "inline").length && !headingStyleDeclaration(src[i]!);
   const trim = (from: number, to: number) => { while (to > from && !src[to - 1]!.trim()) to--; return to; };
   const out: FoldPoint[] = [];
   const seen = new Map<string, number>();
@@ -893,16 +892,15 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       continue;
     }
 
-    // Transclusions: each `!((…))` becomes its shaded region; the text around it stays where it was.
+    // Transclusions: each `!((…))` and `![[…]]` becomes its shaded region; the text around it stays where it was. A
+    // page embed's id is its `[[page]]` target (outline-core's pageEmbedTarget): the service resolves it (PIE-1247).
     // Inline code keeps its text (fences are consumed above): an embed in a code span is its text.
-    if (expandsEmbeds(!!env.embed) && line.includes("!((")) {
+    if (expandsEmbeds(!!env.embed) && (line.includes("!((") || line.includes("![["))) {
       const pieces: (string | { id: string; fragment?: string })[] = [];
-      const code = codeSpanRanges(line);
       let at = 0;
-      for (const l of linkOccurrences(line, code)) {
-        if (l.kind !== "block" || !l.embed) continue;
-        pieces.push(line.slice(at, l.start), { id: l.blockId, fragment: l.fragmentId });
-        at = l.end;
+      for (const e of embedOccurrences(line, "inline")) {
+        pieces.push(line.slice(at, e.start), { id: e.blockId ?? e.target, fragment: e.fragmentId });
+        at = e.end;
       }
       if (pieces.length) {
         pieces.push(line.slice(at));

@@ -480,7 +480,13 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
           spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: unresolved }, { url, label: l.text }, !unresolved && isExternalUrl(url)) });
         }
       } else if (l.kind === "page") {
-        spans.push({ ...l, draw: () => mark(pageView(l.displayAddress, l.label, pageOf(l.displayAddress, src)), { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) }) + sourceMark(l) });
+        // `![[page^anchor]]` (PIE-1247) is left as written where embeds are drawn: the reader expands it (doc.ts).
+        if (l.embed && embeds) continue;
+        const to: LinkTarget = { page: l.displayAddress, ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
+        const v = pageView(l.displayAddress, l.label, pageOf(l.displayAddress, src));
+        // `[[page^anchor]]` reads as the page and the anchor it opens at, as `((id^anchor))` does.
+        const shown = l.fragmentId && l.label === undefined ? { ...v, text: `${v.text}^${l.fragmentId}` } : v;
+        spans.push({ ...l, draw: () => (l.embed ? `!${mark(shown, to)} · embed not expanded here` : mark(shown, to)) + sourceMark(l) });
       } else if (l.embed && embeds && built.some(b => b.link === l)) {
         spans.push({ ...l, draw: () => built.find(b => b.link === l)!.text! + sourceMark(l) });
       } else if (!l.embed || !embeds) {

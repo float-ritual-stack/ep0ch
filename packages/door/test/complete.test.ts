@@ -948,6 +948,32 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(JSON.stringify(await board.readTransclusions([{ blockId: id, fragmentId: "glass" }]))).toContain("> [!warning] Glass\\n> The cold frame lid is glass.\\n> Lift it with two hands.");
   });
 
+  test("embedding a figure without a heading over it (PIE-1247): !((words lists the note's components and list items too; choosing the figure anchors its opening line and embeds only it", async () => {
+    const id = await create("Sowing plan [page::Sowing plan]\nWhat goes in when.\n\n::graph-timeline\n---\ntitle: Sowing dates\n---\n- Mar 3: peas\n::\n\n> [!tip] Water early\n> Before nine.\n\n- stake the peas");
+    const e = await editing(ids.compost!);
+    e.press(K("enter")); e.type("!((Sowing pla");
+    await until(() => !!e.pop() && !e.pop()!.loading && e.pop()!.items.some(i => i.blockId === id && i.fragmentId), "the plan's parts");
+    const rows = e.pop()!.items.filter(i => i.blockId === id).map(i => i.label.trim());
+    expect(rows).toEqual(["Sowing plan", ":: Sowing dates · adds ^sowing-dates", "[!] Water early · adds ^water-early", "- stake the peas · adds ^stake-the-peas"]);
+    const i = e.pop()!.items.findIndex(x => x.fragmentId === "sowing-dates");
+    while (e.pop()!.index < i) e.press(K("down"));
+    e.press(K("enter"));
+    await until(() => !e.pop(), "the insertion");
+    expect(e.d.lines.at(-1)).toBe(`!((${id}^sowing-dates))`);
+    expect((await board.get(id))!.text.split("\n")[3]).toBe("::graph-timeline ^sowing-dates");
+    const read = await board.readTransclusions([{ blockId: id, fragmentId: "sowing-dates" }]);
+    expect(read.results[0]!.fragment).toMatchObject({ kind: "component", text: "::graph-timeline\n---\ntitle: Sowing dates\n---\n- Mar 3: peas\n::" });
+    // By page too: `[[Sowing plan^` lists the page's parts, and choosing one writes `[[Sowing plan^anchor]]`.
+    e.press(K("enter")); e.type("![[Sowing plan^wat");
+    await until(() => !!e.pop() && !e.pop()!.loading && e.pop()!.items.some(i => i.fragmentId === "water-early"), "the page's parts");
+    const water = e.pop()!.items.findIndex(x => x.fragmentId === "water-early");
+    while (e.pop()!.index < water) e.press(K("down"));
+    e.press(K("enter"));
+    await until(() => !e.pop(), "the page link");
+    expect(e.d.lines.at(-1)).toBe("![[Sowing plan^water-early]]");
+    expect((await board.get(id))!.text).toContain("> Before nine. ^water-early");
+  });
+
   test("(( is the one search: punctuation, word order and a typo don't hide a note, and the draft's note is near", async () => {
     const hats = await create("HOME-333 Fat cats in party hats");
     const now = await create("Claude - now\nWhat the agent is doing.");
