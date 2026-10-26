@@ -131,7 +131,7 @@ export async function writeExtensionSettings(directory: string, origin: Extensio
   if (folderProblem) throw new Error(`config.json: ${folderProblem}${/secrets/.test(folderProblem) ? " (a secret is a reference: {\"env\": NAME}, {\"file\": path} or {\"group\": G, \"key\": K}, never its value)" : ""}`);
   if (manifest.configSchema !== undefined) {
     const problem = schemaProblem(manifest.configSchema as TSchema, (next.config as Record<string, unknown> | undefined) ?? {});
-    if (problem) throw new Error(`${manifest.name}'s settings don't match its config schema: ${problem.replace(/^the file /, "config ")}`);
+    if (problem) throw new Error(`the config schema in its extension.json refuses it: ${problem.replace(/^the file /, "config ")}`);
   }
   const temp = `${file}.${process.pid}.tmp`;
   await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });

@@ -64,7 +64,7 @@ test("tidy's settings say its default, and an answer set in them is what the nex
   expect(before!.fields).toEqual([expect.objectContaining({ name: "answer", type: "command", state: "default", default: ["claude", "-p", "--model", "haiku", "--tools", ""] })]);
 
   // A value the schema refuses is refused with its words, and nothing is written.
-  await expect(configure("tidy", { config: { answer: "claude -p" } })).rejects.toThrow(/Tidy's settings don't match its config schema: .*answer/);
+  await expect(configure("tidy", { config: { answer: "claude -p" } })).rejects.toThrow(/config schema in its extension.json refuses it: .*answer/);
   await expect(configure("tidy", { config: { model: "sonnet" } })).rejects.toThrow(/field it doesn't know: model/);
   expect(existsSync(file)).toBe(false);
 

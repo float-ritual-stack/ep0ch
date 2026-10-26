@@ -95,7 +95,9 @@ export function settingsChip(s: ExtensionSettings): string {
   if (s.state === "missing") return "needs setup";
   if (s.state === "set") return "settings set";
   const defaults = s.fields.filter(f => f.default !== undefined);
-  return defaults.length === 1 ? `default: ${shownValue(defaults[0]!, defaults[0]!.default)}` : "default settings";
+  // One default says what it does: a command as its words (tidy's `default: claude -p …`), anything else by its name.
+  const one = defaults.length === 1 ? defaults[0]! : undefined;
+  return !one ? "default settings" : `default: ${one.type === "command" ? "" : `${one.name} `}${shownValue(one, one.default)}`;
 }
 
 /** The settings as the settings row's preview reads them: each field and secret, where they live, and why it's failing. */
