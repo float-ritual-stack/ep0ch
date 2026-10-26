@@ -14,7 +14,8 @@ are its record. The outliner's entries from then are kept below, under
 
 - **A view says `[property-scope::all]`** and its query reads every chip in the note: a `- [ ] … [needs::sysop: …]`
   on line 30 puts the note in the view. Without it a view reads the header only, as before. The scope applies to the
-  whole query.
+  query's positive clauses; a `NOT` clause still asks the note's own header, so a body line's `[work-stage::done]`
+  never hides a note.
 - **A ticked step settles its chips.** A chip on an `[x]`, `[✓]` or `[✗]` step no longer matches, so an ask drops
   out of the view when its box is ticked. Facets and groups count line chips at the same scope.
 - **Each row says where it matched,** with the step's state: the door's view rows read `line 12 to do`, and opening

@@ -258,7 +258,8 @@ one.
   `[sort::]`, `[limit::]`, `[machinery::show|only]`, `[property-scope::all]`, `[summary-properties::]`, `[create::key=value]` and `[create-parent::<id>]`.
   `[property-scope::all]` reads the chips on every line, not only the note's header: a `- [ ] … [needs::sysop: …]` on
   line 30 puts the note in the view, the row says `line 30 to do`, opens there lit, and drops out once the box is
-  ticked. The scope applies to the whole query. `outline_find` and `outline_query` take `propertyScope: "all"`, and
+  ticked. The scope widens what puts a note in; a `NOT` clause still asks the note's own header, so a body line's
+  `[work-stage::done]` never hides it. A comparison (`cost < 10`) names the chip that holds. `outline_find` and `outline_query` take `propertyScope: "all"`, and
   `ep0ch find --query … --property-scope all`; each row then names its matched lines.
   A view, a find and an agent's feed leave out the notes tools stamped `[machine::<producer>]` (file touches, EchoNet's
   logs, deliveries, backup runs) unless `machinery` says `show` or `only`; `by:user` or `by:agent` and `revision >= 2`
