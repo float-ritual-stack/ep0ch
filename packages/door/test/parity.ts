@@ -89,9 +89,19 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     a.paint();
     return true;
   };
-  const settle = async () => { for (let i = 0; i < 4; i++) { await hosts.settle(); if (!flushPaint()) break; } };
+  const settle = async () => {
+    for (let i = 0; ; i++) {
+      await hosts.settle();
+      if (!flushPaint()) return;
+      // A paint that asked for more (a chain of loads: a list, then its rows, then their notes) is followed; one that never ends
+      // (a spinner) is left, counted for the log.
+      if (i === 7) { stats.unsettled++; return; }
+    }
+  };
   /** The screen as the last paint drew it, while nothing has asked for another (snap reads it instead of drawing the screen again). */
   let painted: { top: Screen; lines: string[]; at: number; refused: boolean } | null = null;
+  /** What a paint the door made threw (the timer's, or a key's own), kept for the next look: it is the probe's finding, not an error from outside any test. */
+  let paintFailed: unknown = null;
   /** Frames the door has painted: a key's own paint draws the screen as the person sees it, so a build looks again only when none came. */
   const frames = () => (A().speed?.frames ?? 0) as number;
   /** A terminal tile drew since this was last cleared: its program may still be printing. */
@@ -143,7 +153,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         return frame;
       };
       const t0 = performance.now();
-      try { return paint.apply(this, a); } catch { /* snap says it */ }
+      try { return paint.apply(this, a); } catch (e) { paintFailed = e; /* the probe says it (snap) */ }
       finally { stats.paints++; stats.paintMs += performance.now() - t0; if (top) { if (own) top.render = render!; else delete (top as { render?: unknown }).render; } }
     };
     restore.push(() => { (App.prototype as any).paint = paint; });
@@ -215,6 +225,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         lines = lines.map((l, i) => (mask.has(i) ? "" : l));
       }
     } catch (e) { lines = [`render threw ${e}`]; }
+    if (paintFailed) { lines = [`render threw ${paintFailed}`]; paintFailed = null; }
     // A glance is the screen drawn and nothing to compare: what a build does between its keys (no description, no whereabouts).
     if (glance) return { top, depth: A().stack.length, lines, about: "", holds: false, video: app.video, drawer: dock() };
     let about = "";
@@ -237,7 +248,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   };
   const masks = new Map<string, Set<number>>();
   /** A fresh screen on the stack (over the menu), settled; and the rows that change by themselves (a clock, a meter). */
-  const stats = { fresh: 0, freshMs: 0, second: 0, paints: 0, paintMs: 0, looks: 0, lookMs: 0, pressMs: 0, settleMs: 0 };
+  const stats = { fresh: 0, freshMs: 0, second: 0, unsettled: 0, paints: 0, paintMs: 0, looks: 0, lookMs: 0, pressMs: 0, settleMs: 0 };
   /**
    * A scenario is held to a budget (PARITY_BUDGET_MS, 60 s): past it the scenario fails by name, with the slowest key and the
    * slowest build, rather than running on to the test's own timeout (PIE-1307: one ran 570 s against a 600 s limit and took the
@@ -279,6 +290,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     return alikeChunk ? mask : freshIn(label, make, setup, false);
   };
   const freshIn = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = [], chunked = false): Promise<Set<number>> => {
+    paintFailed = null;
     for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s);
     // The power bar is the App's, over every screen: put away.
     A().bar?.close(); A().bar = null;
@@ -443,13 +455,15 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       sharedStates.add(id);
       return false;
     };
-    // The states this scenario has opened: a state is the action that opened it and the keys it then offers (the hint row), so a
-    // second key that opens the same one (showcase.section.try by enter, l, right and tab; note.props by i and I) is the same state,
-    // probed once. The rows are not compared: art and counts on a screen move between two builds, and its description is read as it settles.
+    // The states this scenario has opened: a state is the action that opened it and the screen it left, so a second key that opens
+    // the same one (showcase.section.try by enter, l, right and tab) is the same state, probed once. The same only when everything
+    // seen is: the rows under the status bar, the description (without the tiles' ids, new each build), the stack and the drawer.
+    // Two keys that open different modes of one action (note.props: i inline, I full) draw differently, and both are probed.
     const reachedStates = new Set<string>();
     const reached = (k: Key, runs: ActionRun[], after: Snap) => {
-      const id = `${runs[0]?.scope}.${runs[0]?.name}\0${after.top?.constructor.name}\0${after.depth}\0${after.drawer}\0${after.hint ?? "?"}`;
-      if (after.hint === undefined || !reachedStates.has(id)) { reachedStates.add(id); return false; }
+      const ids = (t: string) => t.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "#id");
+      const id = `${runs[0]?.scope}.${runs[0]?.name}\0${after.top?.constructor.name}\0${after.depth}\0${after.drawer}\0${ids(after.about)}\0${after.lines.slice(0, -1).join("\n")}`;
+      if (!reachedStates.has(id)) { reachedStates.add(id); return false; }
       if (log) require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} reaches the state ${runs[0]?.name} did, probed already\n`);
       return true;
     };
@@ -524,9 +538,10 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
           continue;
         }
         dirty = true;
-        // What the key ran names it: nothing to confirm. A finding is made only from the state built again (the keys before this one
-        // may have moved it on), so it is a suspect that is built again, as the first keys' findings are made from the first look.
-        if (runs.length && declares(tokens(runs), k2, k1)) continue;
+        // What the key ran names it, and the keys before it left the state as it was entered: nothing to confirm. A finding is made only
+        // from the state built again (the keys before this one may have moved it on), so a suspect is built again, as the first keys'
+        // findings are made from the first look. A state typing has moved on is built again whatever ran.
+        if (runs.length && declares(tokens(runs), k2, k1) && entered && alike(entered, mid)) continue;
         const problem = await second(label, make, setup, k1, k2);
         if (problem) findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem });
       }
@@ -684,7 +699,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       for (const k of Object.keys(stats) as (keyof typeof stats)[]) stats[k] = 0;
       scenario = label; budget.start();
       await audit(label, make, setup ?? []);
-      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks; slowest key ${budget.worst().key} ${budget.worst().keyMs.toFixed(0)} ms, slowest build ${budget.worst().buildMs.toFixed(0)} ms; keys: ${stats.pressMs.toFixed(0)} ms handling, ${stats.settleMs.toFixed(0)} ms settling; ${stats.paints} paints ${stats.paintMs.toFixed(0)} ms, ${stats.looks} looks ${stats.lookMs.toFixed(0)} ms)\n`);
+      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks; slowest key ${budget.worst().key} ${budget.worst().keyMs.toFixed(0)} ms, slowest build ${budget.worst().buildMs.toFixed(0)} ms; keys: ${stats.pressMs.toFixed(0)} ms handling, ${stats.settleMs.toFixed(0)} ms settling; ${stats.unsettled} unsettled; ${stats.paints} paints ${stats.paintMs.toFixed(0)} ms, ${stats.looks} looks ${stats.lookMs.toFixed(0)} ms)\n`);
       for (const k of Object.keys(stats) as (keyof typeof stats)[]) stats[k] = 0;
       const mine = [...found, ...hintFound].slice(before).map(f => `${f.screen}\t${f.keys}\t${f.problem}`);
       expect(mine).toEqual([]);
