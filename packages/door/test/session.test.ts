@@ -811,8 +811,10 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     const look = (c: { x: number; y: number }) => JSON.stringify(a.mirror.cells[c.y]![c.x]);
     const plain = cuts.map(look);
     const motion = (c: { x: number; y: number }): ClientMsg => ({ t: "input", text: `\x1b[<35;${c.x + 1};${c.y + 1}M` });
-    // 200 reports, one input frame each, sweeping the cuts; the last is on the second one.
-    const sweep = Array.from({ length: 200 }, (_, i) => motion(cuts[i === 199 ? 1 : i % cuts.length]!));
+    // 200 reports, one input frame each, sweeping the cuts but the second; the last is on the second one, so the pointer
+    // there says the last report was handled.
+    const others = cuts.filter((_, i) => i !== 1);
+    const sweep = Array.from({ length: 200 }, (_, i) => motion(i === 199 ? cuts[1]! : others[i % others.length]!));
     const click: ClientMsg = { t: "input", text: "\x1b[<0;40;10M\x1b[<0;40;10m" };
     const nextTurn = () => new Promise<void>(res => setImmediate(res));
     // The door paints at most once a frame period (App.redraw's 16 ms), so what a burst may paint is what its time holds, not a number
@@ -882,7 +884,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     const wheel: ClientMsg = { t: "input", text: "\x1b[<65;40;10M" };
     const before = (await control({ cmd: "peek" })).screen.speed;
     a.sendAll(Array.from({ length: 60 }, () => wheel));
-    for (let i = 0; (await control({ cmd: "peek" })).screen.speed.reports - before.reports < 1; i++) { expect(i).toBeLessThan(400); await Bun.sleep(25); }
+    for (let i = 0; (await control({ cmd: "peek" })).screen.speed.reports - before.reports < 60; i++) { expect(i).toBeLessThan(400); await Bun.sleep(25); }
     await quiet();
     expect((await control({ cmd: "peek" })).screen.speed.frames - before.frames).toBeLessThanOrEqual(5);
 
