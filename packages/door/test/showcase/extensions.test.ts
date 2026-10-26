@@ -5,6 +5,7 @@
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { openScreen } from "../../src/desk/screen-specs";
 import { Desk } from "../../src/desk/desk";
 import { ReaderPane } from "../../src/desk/panes";
@@ -545,5 +546,45 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await expect(app.act({ action: "settings.clear", tile: "reader2", args: { key: "query" }, as: "test-agent" })).rejects.toThrow("what makes this note");
     await expect(app.act({ action: "settings.clear", tile: "reader2", args: { key: "echo" }, as: "test-agent" })).rejects.toThrow("what makes this note");
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 60_000);
+
+  test("extension settings (PIE-1343): tidy's row says its default; ext.tidy.settings writes config.json and the row says set; ⏎ on the settings row opens the form filled in; intake installed, a value its schema refuses is refused, set, and uninstalled with its config", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "ext-settings" }, as: "test-agent" })).toMatchObject({ key: "ext-settings" });
+    await until(() => screen().includes("Bare @tidy"), "tidy's page", 10_000)
+      .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    const rowOf = async (query: string) => (await app.act({ action: "bar.open", args: { scope: "&", query }, as: "test-agent" }) as { rows: { label: string; detail: string }[] }).rows;
+    // Its default is said from its schema; the file is the one on the host.
+    await app.act({ action: "ext.tidy.settings", args: { answer: "" }, as: "test-agent" });
+    const before = (await rowOf("settings tidy")).find(r => r.label === "settings Tidy")!;
+    expect(before.detail).toContain('default: claude -p --model haiku --tools ""');
+    const file = before.detail.split(" · ")[1]!;
+    expect(file).toEndWith("/tidy/config.json");
+    // An agent sets it by name; the file says so and the row moves to set.
+    await app.act({ action: "ext.tidy.settings", args: { answer: "claude -p --model sonnet" }, as: "test-agent" });
+    expect(JSON.parse(readFileSync(file, "utf8")).config.answer).toEqual(["claude", "-p", "--model", "sonnet"]);
+    await until(() => extensionNamed("tidy")?.settings?.state === "set", "the door read tidy's settings again", 5000);
+    expect((await rowOf("settings tidy")).find(r => r.label === "settings Tidy")!.detail).toStartWith("settings set");
+    // The person's ⏎ on the settings row opens the action form, its field filled with what's set.
+    const asked = () => { const b = app.bar; return b && !b.ended() && b.scope === "ask" ? b.items.map(i => `${i.row.group} = ${i.row.label}`).join("\n") : ""; };
+    await app.dispatch.press("bar.open", { scope: "&", query: "settings tidy" });
+    await until(() => app.bar?.items[0]?.row.key === "settings:tidy", "the settings row, lit first", 5000)
+      .catch(e => { throw new Error(`${e.message}\n${JSON.stringify(app.bar?.items.map(i => i.row.key))}`); });
+    press({ kind: "enter" });
+    await until(() => asked().includes("answer") && asked().includes("--model sonnet"), "tidy's settings form, filled in", 8000)
+      .catch(e => { throw new Error(`${e.message}\n${asked()}`); });
+    for (let i = 0; i < 3 && app.bar && !app.bar.ended(); i++) press({ kind: "esc" });
+    await app.act({ action: "ext.tidy.settings", args: { answer: "" }, as: "test-agent" });
+    expect(JSON.parse(readFileSync(file, "utf8")).config).toEqual({});
+    // Installed by act, used once, uninstalled: its settings go with its folder.
+    await app.act({ action: "extensions.install", args: { id: "intake" }, as: "test-agent" });
+    await until(() => !!extensionNamed("intake")?.settings, "intake's settings bound", 5000);
+    await expect(app.act({ action: "ext.intake.settings", args: { limit: 40 }, as: "test-agent" })).rejects.toThrow(/limit/);
+    const set = await app.act({ action: "ext.intake.settings", args: { limit: 4 }, as: "test-agent" }) as { settings: { file: string; fields: { name: string; state: string }[] } };
+    expect(set.settings.fields.find(f => f.name === "limit")).toMatchObject({ state: "set" });
+    expect(existsSync(set.settings.file)).toBe(true);
+    await app.act({ action: "extensions.uninstall", args: { id: "intake", demo: "remove" }, as: "test-agent" });
+    expect(existsSync(set.settings.file)).toBe(false);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 60_000);
 });
