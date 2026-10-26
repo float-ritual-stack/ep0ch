@@ -198,21 +198,24 @@ export interface Again { again(action: string, args: Record<string, unknown>, ti
  * rules, its tile grammar and the attribution hold and nothing is decided twice; what it adds is its own name and
  * summary (a row in `actions` and the power bar), the arguments it lets a caller change (they override the bound ones,
  * an unset one leaves them) and the steps it composes first, each an action run before it when `when` says so
- * (`agent.lift` starts the drawer's program before zooming it).
+ * (`agent.lift` starts the drawer's program before zooming it). A step's tile is an address, or read from the host when
+ * the step runs (`agent.lift` asks the drawer which agent tab is the person's).
  */
+type PresetTile<S, H> = string | ((args: ArgsOf<S>, host: H, actor: Actor) => string);
 export function preset<const S extends Record<string, ArgSpec>, H extends Again>(d: {
   summary: string; keys?: string; touches: Touches; host?: true; replay: Replay; args: S;
   says?: ActionDef<ArgsOf<S>, H>["says"]; examples?: readonly ActionExample[];
-  to: { action: string; tile?: string; args?: Record<string, unknown> };
-  first?: readonly { action: string; args?: Record<string, unknown>; tile?: string; when?(args: ArgsOf<S>, host: H, actor: Actor): boolean }[];
+  to: { action: string; tile?: PresetTile<S, H>; args?: Record<string, unknown> };
+  first?: readonly { action: string; args?: Record<string, unknown>; tile?: PresetTile<S, H>; when?(args: ArgsOf<S>, host: H, actor: Actor): boolean }[];
 }): ActionDef<ArgsOf<S>, H> {
   const { to, first = [], ...rest } = d;
+  const tileOf = (t: PresetTile<S, H> | undefined, args: ArgsOf<S>, host: H, actor: Actor) => (typeof t === "function" ? t(args, host, actor) : t);
   return def({
     ...rest,
     async run(args: ArgsOf<S>, host: H, actor: Actor) {
-      for (const step of first) if (step.when?.(args, host, actor) ?? true) await host.again(step.action, step.args ?? {}, step.tile);
+      for (const step of first) if (step.when?.(args, host, actor) ?? true) await host.again(step.action, step.args ?? {}, tileOf(step.tile, args, host, actor));
       const given = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
-      return host.again(to.action, { ...to.args, ...given }, to.tile);
+      return host.again(to.action, { ...to.args, ...given }, tileOf(to.tile, args, host, actor));
     },
   } as never) as ActionDef<ArgsOf<S>, H>;
 }

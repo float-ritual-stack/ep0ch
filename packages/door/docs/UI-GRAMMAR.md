@@ -1186,7 +1186,7 @@ The keymap is one file, `src/hyper.ts` (`HYPER_KEYS`); this table is checked aga
 | `✦-` `✦=` | `tile.collapse on=true/false` | bare `-` `+` `=`, `alt+h`, `^W c`, the frame card's fold row, a click on a spine |
 | `✦z` | `tile.zoom` | `^W z` |
 | `✦u` | `tile.zoom reach=column`, lift or drop the focused tile's column | `^W Z` |
-| `✦a` | `agent.lift`, `tile.zoom` on `tile=role:agent` (alias `drawer.agent`) as a column (a preset: the drawer's own program wherever the tile grammar finds it; one out on a screen not shown comes home first, and one not running is started first); again drops it | a status-bar button (`::button{label="▲ lift" act="agent.lift"}`), `act` |
+| `✦a` | `agent.lift`, `tile.zoom` as a column on the agent tab you're using (a preset: the one you last typed in or clicked, an agent from `alt+g` too, else the drawer's own program, `tile=role:agent`, alias `drawer.agent`, wherever the tile grammar finds it; one out on a screen not shown comes home first, one not running is started first, and a closed one opens again); again drops it | a status-bar button (`::button{label="▲ lift" act="agent.lift"}`), `act` |
 | `✦n` | `note.new` | `ctrl+n` |
 
 **What passes through what.** Checked in a real pane with injected bytes (a physical keyboard, macOS and ssh from a

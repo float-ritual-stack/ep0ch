@@ -707,7 +707,9 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
   // named claude shown in the drawer and `/bin/zsh` as the drawer's program. The own tab had been closed, so the drawer's
   // program was nowhere, and the refusal listed the screen's tiles. The drawer says which tile is its program; when it has
   // none, the refusal says so and what to run.
-  test("agent.lift with the drawer's own tab closed and another tab shown: the refusal says the program is closed and what to run, not the screen's tiles", async () => {
+  // Evan, Oct 25: that refusal pointed at alt+g, the agent panel, whose agents are tabs of their own; agent.lift now lifts
+  // what's there (below), and tile.zoom on drawer.agent still refuses, naming what reopens it.
+  test("tile.zoom tile=drawer.agent with the drawer's own tab closed and another tab shown: the refusal says the program is closed and how to reopen it, not the screen's tiles", async () => {
     const d = await door();
     try {
       d.key({ kind: "alt", ch: "a" }); d.paint();
@@ -718,16 +720,85 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await drawer.dispatch.act({ action: "tile.close", tile: "drawer.agent" }, USER);
       await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
       expect(d.app.describe().drawer.tile).toMatchObject({ name: "kettle" });
-      for (const sel of [{ action: "agent.lift" }, { action: "tile.zoom", tile: DRAWER_TILE_ID, args: { reach: "column" } }]) {
-        const why = await d.app.dispatch.act({ args: {}, ...sel }, USER).then(() => "", (e: Error) => e.message);
-        expect(why).toContain("the drawer's own program is closed");
-        expect(why).toContain("host.agent");
-        expect(why).not.toContain("tiles:");
-      }
+      const why = await d.app.dispatch.act({ action: "tile.zoom", tile: DRAWER_TILE_ID, args: { reach: "column" } }, USER).then(() => "", (e: Error) => e.message);
+      expect(why).toContain("the drawer's own program is closed");
+      expect(why).toContain("agent.lift");
+      expect(why).toContain("right-click");
+      expect(why).not.toContain("alt+g");
+      expect(why).not.toContain("tiles:");
       // The tab that is there is still reached by its own name.
       await d.app.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: "kettle" }, USER);
       expect(d.app.drawer.desks().some(x => x.liftedDesk?.lifted)).toBe(true);
     } finally { d.app.quit(); }
+  });
+
+  // Evan, Oct 25: the drawer's own tab closed, then agents started from alt+g, and agent.lift refused ("no tile role:agent")
+  // with a claude tab right there. Lift lifts the agent tab you're using: the one lifted (so again drops it), else the one
+  // the person last typed in or clicked, else the drawer's own program; with no agent tab left, it opens the own program.
+  describe("agent.lift lifts the agent tab you're using", () => {
+    /** Kettle reports itself as claude (OSC 7501's app), so it reads as an agent session, as a real claude tab does. */
+    async function asAgent(d: Awaited<ReturnType<typeof door>>, where: Desk) {
+      await where.dispatch.act({ action: "tile.type", tile: "kettle", args: { text: "\x1b]7501;state=idle:app=claude-code\x07\n" } }, USER);
+      await until(() => (d.pane("kettle") as PtyPane).status.app === "claude-code", "kettle says it is claude");
+      await until(() => d.app.drawer.sessions().some(s => s.pane === (d.pane("kettle") as PtyPane)), "kettle reads as an agent");
+    }
+    async function closeOwn(d: Awaited<ReturnType<typeof door>>) {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      const own = d.app.drawer.tile!;
+      own.kill();
+      await until(() => own.running === false, "the program exited");
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.close", tile: "drawer.agent" }, USER);
+    }
+
+    test("with the own tab closed, the agent tab in the drawer is lifted, and again drops it", async () => {
+      const d = await door();
+      try {
+        await closeOwn(d);
+        await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+        const drawer = d.app.drawer.desk!;
+        await asAgent(d, drawer);
+        expect(await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER)).toMatchObject({ zoomed: true });
+        expect(drawer.liftsPane((d.pane("kettle") as PtyPane))).toBe(true);
+        await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER);
+        expect(drawer.lifted).toBeNull();
+      } finally { d.app.quit(); }
+    });
+
+    test("with no agent tab left, lift opens the drawer's own program again and lifts it", async () => {
+      const d = await door();
+      try {
+        await closeOwn(d);
+        const drawer = d.app.drawer.desk!;
+        expect(drawer.pane(DRAWER_TILE_ID)).toBeUndefined();
+        expect(await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER)).toMatchObject({ zoomed: true });
+        const own = drawer.pane(DRAWER_TILE_ID) as PtyPane;
+        expect(own).toBeDefined();
+        expect(drawer.liftsPane(own)).toBe(true);
+        d.paint();
+        await until(() => own.running === true, "the reopened program runs");
+      } finally { d.app.quit(); }
+    });
+
+    test("the own program and an agent tab both there: the one the person typed in last is lifted", async () => {
+      const d = await door();
+      try {
+        d.key({ kind: "alt", ch: "a" }); d.paint();
+        await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+        await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+        const drawer = d.app.drawer.desk!;
+        await asAgent(d, drawer);
+        // Nobody typed in either: the drawer's own program, as before.
+        expect(await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER)).toMatchObject({ zoomed: true });
+        expect(drawer.liftsPane(d.app.drawer.tile!)).toBe(true);
+        await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER);
+        expect(drawer.lifted).toBeNull();
+        // The person types in kettle: it's the agent they're using.
+        expect((d.pane("kettle") as PtyPane).typed(char("x"))).toBe(true);
+        expect(await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER)).toMatchObject({ zoomed: true });
+        expect(drawer.liftsPane((d.pane("kettle") as PtyPane))).toBe(true);
+      } finally { d.app.quit(); }
+    });
   });
 
   // PIE-1286: what the drawer's program was once told (EP0CH_TILE_ID) is the program's word for where it ran; it names no tile
