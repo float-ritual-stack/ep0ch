@@ -15,7 +15,7 @@ import { clipText } from "../overflow";
 import { ActionRefused, shownLine, type ActionExample } from "../surface/actions";
 import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import type { Actor } from "../socket";
-import { noteLabel } from "../board";
+import { headedTitle } from "../board";
 import { C, fg, pad, RESET, width } from "../style";
 import { argKind } from "./arg-kinds";
 import { registerBarSource, unregisterBarSource, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
@@ -252,7 +252,7 @@ async function formRows(w: NonNullable<typeof waiting>, typed: string, host: Bar
 /** A note's parents (nearest first, three) and the notes changed lately (the `/` scope's own list), then the choices: where a note can go before anything is typed. */
 async function places(of: string, host: Parameters<NonNullable<BarSource["rows"]>>[1], head: string, choices: BarRow[]): Promise<BarRow[]> {
   const chain = await host.ctx.board.ancestors(of).catch(() => []);
-  const parents: BarRow[] = [...chain].reverse().slice(0, 3).map((a, i) => ({ key: `answer:${a.id}`, label: noteLabel(a), detail: i === 0 ? "its parent" : "above it", group: `${head} · parents`, data: a.id }));
+  const parents: BarRow[] = [...chain].reverse().slice(0, 3).map((a, i) => ({ key: `answer:${a.id}`, label: headedTitle(a), detail: i === 0 ? "its parent" : "above it", group: `${head} · parents`, data: a.id }));
   const seen = new Set(parents.map(p => p.data));
   // Loaded when asked: sources.ts reaches the desk, which reaches the actions that ask (a static import is a cycle).
   const { recentNotes } = await import("./sources");
@@ -306,7 +306,7 @@ const ASK_SOURCE: BarSource = {
     if (q.type === "note" && q.parentsOf && typed.length < 2) return places(q.parentsOf, host, head, rows);
     if (q.type !== "note" || typed.length < 2) return rows;
     return host.ctx.board.search(typed, 20, { near: host.near() ?? undefined }).then(found => [
-      ...rows, ...found.map(m => ({ key: `answer:${m.id}`, label: noteLabel(m), detail: q.found ?? "under this note", group: `${head} · notes`, data: m.id })),
+      ...rows, ...found.map(m => ({ key: `answer:${m.id}`, label: headedTitle(m), detail: q.found ?? "under this note", group: `${head} · notes`, data: m.id })),
     ]);
   },
   preview(row) {

@@ -47,7 +47,7 @@ import { componentRowFields, listFieldsTuned, listTarget, lookFor, pageOf as loo
 import { fencedLines, LIST_ITEM, listLayers, listStart, type StyleLayer } from "@ep0ch/outline-core/style-cascade";
 import { onlyScrolled, overscrollRows, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
-import { subject, titleLine, type Msg } from "../board";
+import { headedTitle, subject, titleLine, type Msg } from "../board";
 import { editArmMs } from "../arm";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
@@ -1642,8 +1642,8 @@ export class NoteSurface {
     const omit = this.printed ? { crumbs: false, title: false, byline: false } : headerOmits(m);
     // The rows above the title: the crumbs, unless the note leaves them out.
     const above = omit.crumbs ? 0 : 1;
-    const named = workIdTitle(subject(m), prop(m, "work-id")), focused = host?.focused !== false;
-    const title = named.workId ? `${named.workId} · ${named.title}` : named.title;
+    // The one name (board's headedTitle); its two parts colour it, the ID in the accent.
+    const named = workIdTitle(subject(m), prop(m, "work-id")), focused = host?.focused !== false, title = headedTitle(m);
     // In the theme's heading colour (PIE-809): the theme caps white near the body text's grey, so a white title read as
     // body; the note's top heading is drawn as its headings are.
     const ink = (focused ? fg(C.yellow) : fgRgb(theme().palette[C.yellow]!.map(c => Math.round(c * TITLE_UNFOCUSED)) as unknown as Rgb)) + BOLD;

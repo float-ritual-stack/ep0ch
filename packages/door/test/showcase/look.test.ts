@@ -782,9 +782,10 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     // Where the terminal does not scale text (this one, like Herdr or tmux), the title is one bold row and the byline is the very next: no blank row.
     expect(rows[at + 1]).toMatch(/i \d+ properties/);
     expect(readers().map((p: any) => p.showing?.title ?? p.title)).toContain("A title you can find");
-    // The calm frame names the note too, so a card identifies its tile.
-    const frames = rows.flatMap(l => [...l.matchAll(/[╔┌][─═] \d+ A title you can find[^─═]*/g)].map(x => x[0]));
+    // The calm frame names the note too, so a card identifies its tile: its Work ID first, as the header (PIE-1356).
+    const frames = rows.flatMap(l => [...l.matchAll(/[╔┌][─═] \d+ HOME-042 · A title you can find[^─═]*/g)].map(x => x[0]));
     expect(frames.length).toBe(2);
+    expect(rows.join("\n")).not.toMatch(/[╔┌][─═] \d+ A title you can find/);
     // The tile with the keys has the brighter title: the same title, the same row, two shades.
     // The note's own header row carries both copies, one in each reader.
     const row = raw().find(l => (plain(l).match(/A title you can find/g) ?? []).length === 2 && !/[┌╔]/.test(plain(l)))!;
@@ -833,6 +834,26 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(S().focus).toBe("index");
   }, 20_000);
 
+  test("title section, folded (PIE-1356): a spine says the note's Work ID first, as its frame and header do", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "title" }, as: "test-agent" })).toMatchObject({ key: "title" });
+    const raw = () => sc.render(app).lines as string[];
+    // Folded to a spine by an agent (through act): the reader without the person's keys says the same name down its
+    // spine, the ID first. It is on the title note again first (the last test followed a link in the narrow one).
+    const desk = S().stages.get(S().sel).top as any;
+    const tile = desk.layoutGet().focus === "reader" ? "reader2" : "reader";
+    await app.act({ action: "open", args: { id: seeded.notes.title.id }, tile, as: "test-agent" });
+    await until(() => raw().map(plain).filter(l => l.includes("HOME-042 · A title you can find")).length >= 2, "both readers on the title note", 8000);
+    await app.act({ action: "tile.collapse", args: { dir: "v" }, tile, as: "test-agent" });
+    await desk.dispatch.press("hint.dismiss"); // the fold's hint card, over the spine's top
+    try {
+      const lines = raw().map(plain);
+      const [, r] = (desk.spines as [number, any][])[0]!;
+      const rect = (S() as any).stageRect, col = rect.col + r.col;
+      const down = lines.slice(rect.row + r.row, rect.row + r.row + r.rows).map(l => [...l][col] ?? " ").join("").replace(/[\s·─│║═×]/g, "");
+      expect(down).toContain("HOME-042Atitle");
+    } finally { await app.act({ action: "tile.expand", args: {}, tile, as: "test-agent" }); }
+  });
 
   test("images (PIE-532): sized, placed and the header, by act, by keys and by a click on a caption control; ctrl+z undoes", async () => {
     const id = seeded.notes.images.id, text = async () => (await board.get(id))!.text;

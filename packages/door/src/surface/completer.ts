@@ -28,7 +28,7 @@ import { ActionRefused, actionSet, declaredKeys, def, keyCaption } from "./actio
 import { listPreview } from "../bar/list-preview";
 import { litCells } from "../bar/filter";
 import { rankTextSearchMatches, matchesSearchText } from "@ep0ch/outline-core/search-match";
-import { subject, type Msg } from "../board";
+import { headedTitle, subject, type Msg } from "../board";
 import { completionTargetAtCursor, filterTargetAtCursor, parseFragmentCompletionQuery, type CompletionKind, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
 import { insertSelection, insertText, mergeSourceAnswers, pickKey, triggerOf, type SourceAnswer, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
 import type { CompletionRowsResult, CompletionSourceAnswer } from "@ep0ch/outline-core/protocol";
@@ -634,7 +634,7 @@ export class Completer {
         // The docs panel reads the note, not its conversation: no margin cards in a panel 30 columns wide.
         surface.setMargin("off");
         const host: SurfaceHost = { ctx: { board: this.board, t: { cols: 80, rows: 20, cellW: 9, cellH: 18, kitty: false }, graphics: false, flash: (s: string) => { this.d.note = s; }, redraw: this.redraw } as unknown as Ctx, redraw: this.redraw, navigate() {},
-          header: (m, w) => [fg(C.grey) + pad([subject(m), ...ctx.ancestors.map(title), m.author].filter(Boolean).join(" · "), w) + RESET],
+          header: (m, w) => [fg(C.grey) + pad([headedTitle(m), ...ctx.ancestors.map(title), m.author].filter(Boolean).join(" · "), w) + RESET],
         };
         const own = this.own();
         const note = own?.blockId === item.blockId ? { ...ctx.selected, text: own.text } : ctx.selected;

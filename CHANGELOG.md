@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A note's Work ID comes first wherever its title is drawn (PIE-1356)
+
+- **One name, ID first.** A note with `[work-id::HUB-062]` titled "PC-582 acceptance summary…" reads
+  `HUB-062 · PC-582 acceptance summary…` in the tile bar and its tabs, spines, the drawer's tabs, river columns and
+  their rows, the outline tile's rows, `((` completion, the power bar, backlinks, `ep0ch find` and the publisher's
+  page and index titles, as the reader's header already did. Another ticket key in the title no longer reads as the ID.
+- **Said once.** A title that already starts with its ID (pie's `PIE-n — …`) reads `PIE-n · …`, never doubled.
+- **The title is cut, never the ID.** A short room cuts the title from its end.
+- One rule for all of them, outline-core's `headedTitle` (`work-id-title.ts`); the per-place versions are gone. The
+  outline tile's row no longer repeats the ID as its right-hand tag (it shows the status or type).
+- GRAMMAR 6 → 7 (a draw rule). No PROTOCOL or schema change; `ep0ch install --apply` as usual.
+
 ### Copying a page carries its live figures' results (PIE-1355)
 
 - **`Y` copies what a live page says now.** With nothing selected, `Y` (the tile menu's "copy note", `act note.copy`)

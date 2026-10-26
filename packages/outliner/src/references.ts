@@ -1,5 +1,6 @@
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { headedTitle, workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { resolveFragment, stripFragmentAnchors } from "./fragments";
 import { textMemo } from "./text-memo";
 import type {
@@ -27,6 +28,11 @@ const displayTitleOfText = textMemo((text: string): string | undefined =>
 
 export function blockDisplayTitle(block: Block): string {
   return displayTitleOfText(block.text) ?? block.id;
+}
+
+/** A block's name where a list draws it (search, backlinks): its Work ID first, said once (outline-core's headedTitle, PIE-1356). */
+export function blockHeadedTitle(block: Block): string {
+  return headedTitle(blockDisplayTitle(block), workIdOf(block));
 }
 
 export function resolveBlockReferencesWithStatus(

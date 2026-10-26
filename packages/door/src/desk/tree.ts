@@ -20,7 +20,7 @@ import { currentRowLimit, rowLines } from "../text";
 //
 // Disclosure is read-only: listing links registers nothing and writes nothing. The rows are the service's
 // answer laid out; the words are the Tree's (src/authored.ts).
-import { subject, type Msg } from "../board";
+import { headedTitle, subject, type Msg } from "../board";
 import { DEFAULT_BACKLINK_VIEW_OPTIONS, backlinkView, type BacklinkCollection } from "../backlinks";
 import type { AuthoredLinksSnapshot } from "../authored";
 import { linkBlock, linkNote, linkRowLines, linkRows, linkWords, SEP, type LinkGroupName, type LinkRow, type Load } from "../links";
@@ -85,7 +85,7 @@ export function rowBlock(r: TreeRow | undefined): string | null {
 
 /** A row as words: its mark, its text and its dim context (`peek`, agents, and the drawing). */
 export function rowWords(r: TreeRow, panelOpen: boolean): { mark: string; text: string; context: string; problem?: boolean } {
-  return r.kind === "block" ? { mark: "", text: subject(r.m), context: r.via ? "matched" : "" } : r.kind === "branch-note" ? { mark: "", text: r.text, context: "" } : linkWords(r, panelOpen);
+  return r.kind === "block" ? { mark: "", text: headedTitle(r.m), context: r.via ? "matched" : "" } : r.kind === "branch-note" ? { mark: "", text: r.text, context: "" } : linkWords(r, panelOpen);
 }
 
 export class TreePane implements Pane {
@@ -612,11 +612,12 @@ export class TreePane implements Pane {
         const mark = k === "loading" ? "…" : leaf ? (r.via !== undefined && r.rel === 0 ? "◇" : "·") : this.fold.open.has(r.foldId) || this.panels.has(r.key) ? "▾" : "▸";
         const branch = !r.via && isBranch(r.m) ? this.branches.get(r.m.id) : undefined;
         const found = branch && branch.read !== "loading" && branch.read.status === "ready" ? `V:${branch.read.total ?? branch.items.length}` : "";
-        const tag = (found || (prop(r.m, "work-id") ?? prop(r.m, "status") ?? prop(r.m, "type") ?? ""));
+        // A Work ID leads the row's title (PIE-1356), so the tag beside it says the note's status or type.
+        const tag = (found || (prop(r.m, "work-id") ? "" : prop(r.m, "status") ?? prop(r.m, "type") ?? ""));
         const shownTag = drawEllipsized(tag, Math.min(14, Math.floor(w / 3)));
         const room = Math.max(4, w - (shownTag ? width(shownTag) + 1 : 0) - (on && !indent ? 1 : 0));
         const here = desk.current?.id === r.m.id;
-        return rowLines(`${indent}${mark} ${subject(r.m)}`, room - 1, undefined, { hang: indent.length + 2 }).map((line, j) => {
+        return rowLines(`${indent}${mark} ${headedTitle(r.m)}`, room - 1, undefined, { hang: indent.length + 2 }).map((line, j) => {
           const tail = !j && shownTag ? " " + (on ? "" : fg(C.brown)) + shownTag : "";
           return on ? selectedRow(pad(line, room) + tail, w, focused) : pad(fg(here ? C.yellow : C.grey) + line, room) + tail + RESET;
         });

@@ -35,10 +35,16 @@ interface ServiceSource { decl: SourceDecl; rows(ask: Asked, svc: CompletionServ
 const notConfigured = (s?: { status: string; message?: string }) => s?.status === "unavailable" && /not configured/i.test(s.message ?? "");
 const REASON = { linked: "linked from here", near: "near here", yours: "you edited" } as const;
 const clean = (lines: string[]) => lines.map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim();
-/** The service's snippet of a hit, its first line left out when it's the title the row already shows. */
+/**
+ * The service's snippet of a hit, its first line left out when it's the title the row already shows: the title as
+ * written, or (a Work ID put first, `HUB-062 · …`) what follows the ID in each.
+ */
 const hitSnippet = (title: string, text: string) => {
-  const lines = text.split(/\r?\n/);
-  return clean(withoutPropertyTokens(lines[0] ?? "").trim().startsWith(title.slice(0, 24)) ? lines.slice(1) : lines);
+  const lines = text.split(/\r?\n/), first = withoutPropertyTokens(lines[0] ?? "").trim();
+  const after = (s: string, at: RegExp) => { const m = at.exec(s); return m ? s.slice(m.index + m[0].length) : s; };
+  const shown = [title, after(title, / · /)].map(t => t.slice(0, 24)).filter(Boolean);
+  const same = shown.some(t => first.startsWith(t) || after(first, /^\S+\s*[—–:·-]\s*/).startsWith(t));
+  return clean(same ? lines.slice(1) : lines);
 };
 
 /**
