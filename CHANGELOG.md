@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Floats draw above the drawer, and menus above everything (PIE-1221)
+
+- **A float over the open drawer is drawn whole:** its frame, its text and its pictures sit above the drawer's rows,
+  and a click on it there goes to the float, never the drawer.
+- **The last one you touched is on top:** click in the drawer (or go in with `ctrl+]`) and the drawer comes above
+  the float; click the float, or step out of the drawer, and the float is back above. No dragging it out of the way.
+- **Menus are never cut off:** a tile's menu, a hint card or a completion list opened low on a float runs down over
+  the drawer. A lifted tile (PIE-1189) still draws above both.
+
 ### ^W's panel shows the focused tile's own keys first (PIE-1338)
 
 - **Pause after `^W` and the panel starts with "this tile: <its name>":** the keys the focused tile takes by itself,

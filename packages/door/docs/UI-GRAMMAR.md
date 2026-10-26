@@ -909,6 +909,17 @@ Esc closes the tile's own temporary modes first, then drops the lift before the 
 Agents may lift another tile, with attribution, but never replace the person's lift.
 The showcase's `lift` section exercises this path.
 
+### Layers: floats, the drawer, the lift, menus (PIE-1221)
+
+One order, bottom first, in `layerOrder` (`src/desk/screen-layout.ts`): the screen's tiles, then your drawer and the
+screen's floats in the order last touched, then the lift, then menus (a picker such as a tile's menu, a hint card, a
+completion list). The drawer is above the floats while the person is in it (a click there, `ctrl+]`); a click on a
+float, or leaving the drawer, puts the floats back above. The host layer's `covers` reads that order and the
+screen's `drawnAbove` (what its last frame drew as floats and menus): the frame paints the screen's own cells there
+over the drawer, and the drawer's mouse hands a click there to the screen, whose hit map already has its floats on
+top. Keys go where focus is, as before; the drawer's rows under a float are covered, never moved; a float dragged by
+its title keeps moving over the drawer. The showcase's `lift` section floats a tile over the drawer.
+
 Key-clash pass: Z and F were unused after ^W in the shared table used by the desk,
 brief, welcome, river, board and showcase. BBS screens have no tile chord; terminal
 programs keep their keys while entered. Ctrl+wheel was unused on tile frames;
