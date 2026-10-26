@@ -987,7 +987,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const was = oldNames.get(id) ?? p.kind;
         names.set(id, [...names.values()].includes(was) ? auto(was) : was);
         kept.push(id);
-      } else { p.dispose?.(); this.panes.delete(id); if (this.ptyIn === p) this.ptyIn = null; }
+      } else { p.dispose?.(); tileRegistry.release(p); this.panes.delete(id); if (this.ptyIn === p) this.ptyIn = null; }
     }
     if (kept.length) {
       const kid: LNode = kept.length > 1 ? { t: "tabs", ids: kept, active: 0 } : leaf(kept[0]!);
@@ -1051,7 +1051,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const saved = this.unregistered.get(id);
       if (saved && isTileKind(saved.kind)) {
         p.dispose?.();
-        this.panes.set(id, makeTile(saved));
+        const made = makeTile(saved);
+        tileRegistry.replace(p, made);                           // the same tile: its id, role and opener
+        this.panes.set(id, made);
         this.unregistered.delete(id);
         if (this.ctx) this.startTile(id);
         changed = true;
@@ -1063,7 +1065,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const spec = this.specOf(id);
         p.dispose?.();
         if (this.ptyIn === p) this.ptyIn = null;
-        this.panes.set(id, makeTile(spec));
+        const made = makeTile(spec);
+        tileRegistry.replace(p, made);
+        this.panes.set(id, made);
         this.unregistered.set(id, spec);
         changed = true;
       }
@@ -1691,7 +1695,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const [id, p] of keep) if (kept.includes(p)) this.forgetTile(id, p);
     }
     for (const m of this.models.values()) m.dispose?.();
-    for (const p of this.panes.values()) p.dispose?.();
+    for (const p of this.panes.values()) { p.dispose?.(); tileRegistry.release(p); }
   }
   private disposed = false;
   /** The desk kept alive with its programs, to come back to (the menu's D). */
@@ -6252,7 +6256,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }
     }
     p?.dispose?.();
-    if (p) this.forgetTile(id, p);
+    if (p) { tileRegistry.release(p); this.forgetTile(id, p); }
   }
   /** Everything this desk keeps about tile `id` that leaves it (closed, or moved whole to the drawer or another screen). */
   private forgetTile(id: number, p: Pane) {

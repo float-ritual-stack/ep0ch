@@ -26,6 +26,8 @@ export interface TileRecord {
 const records = new WeakMap<Pane, TileRecord>();
 /** Each door's index from id to pane, so a layout loaded twice finds an id already held. */
 const doors = new WeakMap<object, Map<string, WeakRef<Pane>>>();
+/** The door a pane was claimed in, so a pane that is gone can leave its index. */
+const homes = new WeakMap<Pane, object>();
 
 const record = (pane: Pane): TileRecord => {
   let r = records.get(pane);
@@ -75,8 +77,23 @@ export const tileRegistry = {
         remapped.set(before, r.id);
       }
       used.set(tileRegistry.idOf(pane), new WeakRef(pane));
+      homes.set(pane, door);
     }
     return remapped;
+  },
+  /** The pane is gone for good (closed, or its desk disposed): its id no longer names a pane in its door. */
+  release(pane: Pane) {
+    const door = homes.get(pane), id = records.get(pane)?.id;
+    if (door && id && doors.get(door)?.get(id)?.deref() === pane) doors.get(door)!.delete(id);
+    homes.delete(pane);
+  },
+  /** A pane is made again in the same tile (its kind came or went): the new pane is that tile, same id, role and opener. */
+  replace(from: Pane, to: Pane) {
+    const r = records.get(from);
+    if (!r) return;
+    records.set(to, r); records.delete(from);
+    const door = homes.get(from);
+    if (door && r.id) { doors.get(door)?.set(r.id, new WeakRef(to)); homes.set(to, door); homes.delete(from); }
   },
   /** The pane with id `id` in `door`, if it is still there. */
   paneIn: (door: object | undefined, id: string): Pane | undefined => (door ? doors.get(door)?.get(id)?.deref() : undefined),

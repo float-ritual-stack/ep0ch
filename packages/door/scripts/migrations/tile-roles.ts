@@ -14,7 +14,7 @@
  * In the door's state dir (EP0CH_STATE, else $XDG_STATE_HOME/ep0ch-door), every folder's drawer-tiles.json and every other
  * saved layout (*.json) that holds such a leaf. Run once on each machine that matters (float-2 for pie), then delete this file.
  */
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { stateDir } from "../../src/state";
 
@@ -74,7 +74,8 @@ function main() {
     if (!changed) continue;
     total += changed;
     console.log(`${write ? "changed" : "would change"} ${changed} leaf in ${file}`);
-    if (write) writeFileSync(file, JSON.stringify(value));
+    // Whole or not at all: a file cut short would read as no layout and be skipped by the next run.
+    if (write) { writeFileSync(`${file}.tile-roles`, JSON.stringify(value)); renameSync(`${file}.tile-roles`, file); }
   }
   console.log(total ? (write ? `done: ${total} leaf` : `${total} leaf: run again with --write`) : "nothing to change");
 }

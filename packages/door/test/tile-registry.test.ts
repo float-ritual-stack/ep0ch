@@ -53,4 +53,22 @@ describe("the tile registry", () => {
     expect(tileRegistry.openerOf(b2)).toBe(tileRegistry.idOf(a2));
     expect(tileRegistry.paneIn(door, tileRegistry.idOf(a2))).toBe(a2);
   });
+  test("a pane that is gone leaves its door's index: the same saved arrangement loaded again keeps its ids; a replaced pane is the same tile", () => {
+    const door = {}, a = pane();
+    tileRegistry.restore(a, { id: "t-03030303-2222-4333-8444-555555555555", role: "stage" });
+    tileRegistry.claim(door, [a]);
+    expect(tileRegistry.paneIn(door, "t-03030303-2222-4333-8444-555555555555")).toBe(a);
+    tileRegistry.release(a);
+    expect(tileRegistry.paneIn(door, "t-03030303-2222-4333-8444-555555555555")).toBeUndefined();
+    const again = pane();
+    tileRegistry.restore(again, { id: "t-03030303-2222-4333-8444-555555555555" });
+    expect([...tileRegistry.claim(door, [again])]).toEqual([]);                          // nobody holds the id: no copy
+    expect(tileRegistry.copiedFrom(again)).toBeUndefined();
+    const made = pane();
+    tileRegistry.setRole(again, "stage");
+    tileRegistry.replace(again, made);
+    expect([tileRegistry.idOf(made), tileRegistry.roleOf(made)]).toEqual(["t-03030303-2222-4333-8444-555555555555", "stage"]);
+    expect(tileRegistry.paneIn(door, "t-03030303-2222-4333-8444-555555555555")).toBe(made);
+    expect(tileRegistry.knownId(again)).toBeUndefined();
+  });
 });

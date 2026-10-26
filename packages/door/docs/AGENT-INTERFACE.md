@@ -166,8 +166,9 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 
 ## Reads
 
-Tile addresses are door-wide ids (`t-<uuid>`). `tile=` and tile arguments resolve an
-id first, then an unambiguous name, then a path: `<mount>/<tile>`, `../<tile>`,
+Tile addresses are door-wide ids (`t-<uuid>`). `tile=` and tile arguments resolve by the
+grammar under "Naming tiles and splits": an id (or 8+ characters of it), then `role:<role>`,
+`<slot>@<screen>` and `^`, then an unambiguous name, then a path: `<mount>/<tile>`, `../<tile>`,
 `@drawer/<tile>` or `@<screen>/<tile>`. Ambiguous names report candidates and ids.
 Names and paths are input and display; saved wires and tile sources keep ids, so
 renaming or moving a tile between groups and the drawer keeps its connections.
