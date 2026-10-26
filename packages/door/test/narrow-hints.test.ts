@@ -61,7 +61,15 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
   }, 30_000);
 
   afterAll(async () => {
-    for (const s of (app as any).stack) s.dispose?.();
+    // End the programs these tests started (the daily desk's tail -f): a desk left with one running is kept for D
+    // (Desk.resume), and the next file's desk in this process would be this one. So the kept one is taken back and ended too.
+    const end = async (s: any) => {
+      for (const p of s.panes?.values?.() ?? []) p.kill?.();
+      if (s instanceof Desk) await until(() => !s.holdsPrograms(), "its programs ended");
+      s.dispose?.();
+    };
+    for (const s of (app as any).stack) await end(s);
+    await end(Desk.resume());
     board?.close();
     await scratch.dispose();
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR"]) delete process.env[k];
