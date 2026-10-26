@@ -26,12 +26,16 @@ const DEFAULT_ANSWER: string[] = (await Bun.file(join(import.meta.dir, "extensio
 const CONFIG = join(import.meta.dir, "config.json");
 const answerCommand = () => request.config?.answer ?? DEFAULT_ANSWER;
 const shown = (argv: string[]) => argv.map(a => (a === "" || /[\s"'$]/.test(a) ? JSON.stringify(a) : a)).join(" ");
-const firstLines = (text: string) => text.trim().split("\n").filter(Boolean).slice(0, 2).join(" / ").slice(0, 240);
+const firstLines = (text: string) => text.trim().split("\n").filter(Boolean).slice(0, 2).join(" / ").slice(0, 160);
 
-/** A failed call says what ran, which config it came from (or that there is none) and what to write there. */
+/**
+ * A failed call says what ran, whether it came from tidy's settings or its default, and where to fix it: the settings
+ * action (its form in the door's power bar, or `act`), which writes config.json on the host. Kept short: the service
+ * shows the last 600 characters of what a failed call wrote to stderr.
+ */
 function failure(command: string[], why: string): Error {
-  const from = request.config?.answer ? `from ${CONFIG}` : `tidy's default; no config.answer in ${existsSync(CONFIG) ? CONFIG : `${CONFIG} (not there yet)`}`;
-  const fix = `set answer in tidy's settings (in the door: ctrl+k, then & settings tidy; or ep0ch act extensions.configure id=tidy answer='/full/path/to/claude ${DEFAULT_ANSWER.slice(1).map(a => a || '""').join(" ")}'), which writes {"config": {"answer": [...]}} in ${CONFIG} (\`which claude\` gives the path), or sign in with \`claude\``;
+  const from = request.config?.answer ? "from tidy's settings" : "tidy's default";
+  const fix = `in the door ctrl+k then & settings tidy, or ep0ch act ext.tidy.settings answer='/full/path/to/claude ${DEFAULT_ANSWER.slice(1).map(a => a || '""').join(" ")}' (\`which claude\` gives the path; it writes ${CONFIG}), or sign in with \`claude\``;
   return new Error(`${why}: ${shown(command)} (${from}). To fix: ${fix}`);
 }
 
@@ -126,6 +130,9 @@ else {
   try { ok(await respond()); }
   catch (error) {
     const message = `couldn't rewrite: ${error instanceof Error ? error.message : String(error)}`;
-    ok(request.input.resolution ? {ambiguous: message} : {message});
+    // A resolution that can't be made is an answer (ambiguous); a rewrite that can't is a failed call, so tidy's
+    // settings say "failing" with this message (PIE-1343), and the ask says it under its line.
+    if (request.input.resolution) ok({ ambiguous: message });
+    else { process.stderr.write(message); process.exitCode = 1; }
   }
 }
