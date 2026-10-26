@@ -176,6 +176,8 @@ export interface Ctx<I = number> {
   screenHost?: HostMode;
   /** Names held by tiles in the other layer. */
   otherNames?: readonly string[];
+  /** It may be left with no tile (the drawer: its last tab may leave for a screen, as it may close). */
+  empties?: boolean;
   beside?: ReadonlyMap<I, I>;
   outward?: string;
   opened?: ReadonlyMap<string, { ids: I[]; active: I | null }>;
@@ -1227,7 +1229,7 @@ class Step<I> {
     const e = this.policyAt(id), f = this.facts(id);
     if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
     if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
-    if (!heir && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
+    if (!heir && !this.ctx.empties && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
     if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't take it away`);
     if (heir) {
       if (this.all().includes(heir.id)) refuse(`${this.name(heir.id)} is in the layout already`);

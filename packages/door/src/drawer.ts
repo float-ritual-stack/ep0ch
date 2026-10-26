@@ -491,7 +491,7 @@ export class AgentDrawer {
   /** Where terminal `p` is shown now: your drawer, the screen shown, a screen under it or kept, or nowhere. */
   shownOf(p: Pane): Shown {
     const inDrawer = this.d?.nameOfPane(p);
-    if (inDrawer) return { in: "drawer", tile: this.d!.tileInfo(inDrawer).tile, name: inDrawer, own: tileRegistry.roleOf(p) === ROLE_AGENT, ...((p as PtyPane).herdr ? { herdr: (p as PtyPane).herdr!.pane } : {}) };
+    if (inDrawer) return { in: "drawer", tile: this.d!.tileInfo(inDrawer).tile, name: inDrawer, ...((p as PtyPane).herdr ? { herdr: (p as PtyPane).herdr!.pane } : {}) };
     const top = this.host.screen?.(), ctx = this.host.ctx?.();
     const screens = [top, ...[...(ctx?.screens?.() ?? [])].reverse(), ...(ctx?.kept?.() ?? [])].filter((x, i, all): x is Screen => !!x && all.indexOf(x) === i);
     for (const sc of screens) {
@@ -806,6 +806,16 @@ export class AgentDrawer {
   get tile(): PtyPane | null { return this.agentPane()?.pane ?? null; }
   /** The agent tab used last's tile name (`claude`), else what a new one is called: what an action answers. */
   agentName(): string { const a = this.agentPane(); return (a && a.desk.nameOfPane(a.pane)) || this.name; }
+  /**
+   * The agent tab used last as the actor rule sees the drawer's actions' tile (agent.type, agent.restart): by the name the
+   * person's whereabouts give the tile they type in (`drawer:<name>` in the drawer, its name on the screen shown).
+   */
+  agentRef(): TileRef {
+    const a = this.agentPane(), name = a ? a.desk.nameOfPane(a.pane) : "";
+    if (!a || !name) return { ...HOST_AGENT_TILE, label: `${this.name} in the drawer` };
+    const inDrawer = this.agentTabs(this.desks()).find(t => t.pane === a.pane)?.screen === "drawer";
+    return { name: inDrawer ? `drawer:${name}` : name, kind: "pty", label: `${name}${inDrawer ? " in the drawer" : ""}` };
+  }
   /** The agent tab used last's id (`t-…`), or null when none is open. */
   agentId(): string | null { const a = this.agentPane(); return a ? tileRegistry.idOf(a.pane) : null; }
   /** The drawer is drawn now: pulled up, on a screen that lets the host layer appear. */
@@ -1173,12 +1183,17 @@ export class AgentDrawer {
   }
   /** One of the agent tabs is lifted now: agent.lift drops it. */
   liftsAgent(): boolean { const p = this.liftPick(); return !!p && this.desks().some(d => d.liftsPane(p.pane)); }
-  /** agent.lift's tile: its pick, else a new agent tab (opened on a lift, not a drop: there's nothing to drop). */
+  /**
+   * agent.lift's tile: its pick, else (a lift, not a drop: there's nothing to drop) the agent tab used last on a screen not
+   * shown, pulled into the drawer, else a new agent tab.
+   */
   liftTile(actor: Actor, on?: boolean): string {
     const pick = this.liftPick();
     if (pick) return pick.tile;
-    if (on !== false && this.desk) return this.agentTab(this.desk, actor).tile;
-    return `role:${ROLE_AGENT}`;
+    if (on === false || !this.desk) return `role:${ROLE_AGENT}`;
+    const away = this.findAgent(this.allDesks());
+    if (away && !this.putRefusal(away.desk, away.name, actor)) return this.put(away.desk, away.name, actor).tile;
+    return this.agentTab(this.desk, actor).tile;
   }
   /**
    * The agent tab used last and the desk it is on, as the tile grammar's `drawer.agent` reads it (the one finder:

@@ -44,7 +44,7 @@ export interface AgentProcess { pid: number; program: string; argv: string[]; cw
 
 /** Where a session is shown now. */
 export type Shown =
-  | { in: "drawer"; tile: string; name: string; own: boolean; herdr?: string }
+  | { in: "drawer"; tile: string; name: string; herdr?: string }
   | { in: "screen"; screen: string; tile: string; name: string; here: boolean }
   | { in: "nowhere" };
 
@@ -210,7 +210,7 @@ export function pickSession<T extends AgentSession>(rows: readonly T[], sel: str
 
 /** Where it's shown, in words. */
 export function shownWords(s: Shown): string {
-  if (s.in === "drawer") return `in your drawer${s.own ? " (its own tab)" : ` (${s.name})`}${s.herdr ? ` · Herdr pane ${s.herdr}` : ""}`;
+  if (s.in === "drawer") return `in your drawer (${s.name})${s.herdr ? ` · Herdr pane ${s.herdr}` : ""}`;
   if (s.in === "screen") return s.here ? `here (${s.name})` : `on the ${s.screen} (${s.name})`;
   return "not shown";
 }
