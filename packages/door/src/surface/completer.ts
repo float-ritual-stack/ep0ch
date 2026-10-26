@@ -1007,6 +1007,11 @@ export const COMPLETION_ACCEPT = {
   args: { n: { type: "number", optional: true, about: "the row to insert (from 1); default the lit one" } },
   examples: [{ act: "complete.accept", does: "inserts the lit row" }, { act: "complete.accept n=3", does: "inserts the third row" }],
 } as const;
+export const COMPLETION_ASK = {
+  summary: "open (or ask again) the completion list for the token at the cursor, as a deliberate choice: ⏎ then inserts its lit row",
+  keys: "tab, ctrl+space in a [[, ((, ::, > [! or [key:: token", touches: "draft", draft: "type", replay: "safe", args: {},
+  examples: [{ act: "complete.ask", does: "lists the candidates for the token at the draft's cursor, in the popup" }],
+} as const;
 export const COMPLETION_DISMISS = {
   summary: "close the open completion list, leaving what's typed as it is",
   keys: "esc, a click outside", touches: "draft", draft: "type", replay: "safe", args: {},
@@ -1026,6 +1031,12 @@ export const COMPLETION_ACTIONS = actionSet<Completer>()("completion", {
     if (!item) throw new ActionRefused(`there is no row ${n}; there are ${s.items.length}`);
     if (!await c.accept(i)) throw new ActionRefused(`not inserted${s.message ? `: ${s.message}` : ""}`);
     return { inserted: item.insertion };
+  } }),
+  "complete.ask": def({ ...COMPLETION_ASK, async run(_, c) {
+    if (!c.target()) throw new ActionRefused("the cursor isn't in a [[, ((, [file::, > [!, ::component, a [key:: property or a figure's YAML");
+    await c.refresh(true);
+    const s = c.shown;
+    return { kind: s?.target.kind, rows: s?.items.length ?? 0, ...(s?.message ? { message: s.message } : {}) };
   } }),
   "complete.dismiss": def({ ...COMPLETION_DISMISS, run(_, c) { const open = !!c.state; c.dismiss(); return { closed: open }; } }),
   "complete.copy": def({ ...COMPLETION_COPY, run(_, c, actor) { return c.copySource(actor); } }),
@@ -1102,7 +1113,7 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
     }
   }
   if (k.kind === "tab" || isCtrlSpace(k)) {
-    if (c.target()) { void c.refresh(true); return true; }
+    if (c.target()) { void COMPLETION_ACTIONS.run("complete.ask", {}, c, USER); return true; }
     if (k.kind !== "tab") { d.note = "completion works inside [[, ((, [file::, a callout's > [!, ::component, a [key:: property or a figure's YAML"; return true; }
   }
   return false;
@@ -1242,8 +1253,10 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   const hint = completionHint(s, selected);
   const enter = enterKeeps(s);
   const keys = enter ? `↑↓ tab ⏎ ${enter} esc` : "↑↓ ⏎/tab esc";
-  const fitted = cells(` ${jev}${hint}`) <= w ? hint : keys;
-  if (footer) rows.push(null), out.push(line(` ${jev}${s.message || fitted}`, fg(s.message ? C.yellow : C.grey)));
+  // The keys stay said under a note about the list (the first 20, a refusal): the note first, the keys after it.
+  const said = s.message ? `${s.message} · ` : "";
+  const fitted = cells(` ${jev}${said}${hint}`) <= w ? hint : cells(` ${jev}${said}${keys}`) <= w ? keys : "";
+  if (footer) rows.push(null), out.push(line(` ${jev}${said}${fitted}`.replace(/ · $/, ""), fg(s.message ? C.yellow : C.grey)));
   rows.length = Math.min(rows.length, h);
   return out.slice(0, h);
 }
@@ -1251,7 +1264,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
 /** The columns a row wants: marker, label, its detail (up to a cap), its kind and a component's arrow. */
 const DETAIL_COLS = 28;
 /** The list is never wider than this, so a wide pane has room for its docs beside it (a long title is cut with …). */
-const LIST_MAX_COLS = 60;
+const LIST_MAX_COLS = 48;
 function rowWidth(it: CompletionItem): number {
   const label = cells(printable(it.label, " "));
   const detail = it.detail ? 2 + Math.min(DETAIL_COLS, cells(printable(it.detail, " "))) : 0;

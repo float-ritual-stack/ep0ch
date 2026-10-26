@@ -132,7 +132,7 @@ import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTar
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
-import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
+import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -9603,6 +9603,16 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       // An agent's insert is `complete insert=`'s: the same checks, the same invitation spent, said on screen.
       if (actor.kind === "agent") return NOTE_ACTIONS.run("complete", { insert: n ?? s.index + 1, expect: s.items[(n ?? s.index + 1) - 1]?.insertion, invitation }, on, actor);
       return COMPLETION_ACTIONS.run("complete.accept", { n }, c, actor);
+    },
+  }),
+  "complete.ask": def({
+    ...COMPLETION_ASK,
+    run(args, { surface, host }, actor) {
+      const d = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
+      // Made on first use, as a key typed there would (the edit's own completer, with its note as the search's context).
+      const c = d && (completerOf(d) ?? surface.completer(d, host));
+      if (!c) throw new ActionRefused("nothing is being written here; open an edit or a comment first");
+      return COMPLETION_ACTIONS.run("complete.ask", args, c, actor);
     },
   }),
   "complete.dismiss": def({

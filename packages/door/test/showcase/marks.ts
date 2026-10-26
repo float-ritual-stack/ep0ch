@@ -14,6 +14,7 @@ export const marks: Record<string, string[]> = {
   search: ["Finding things in the house notes", "Press / (on the river, g) and type"],
   // The meeting on the left, a comment being written on the guide on the right (PIE-762).
   "deep-links": ["Greenhouse meeting, October", "We agreed to water the seedlings", "» comment"],
+  completion: ["Ask about the beds, see ((Gree", "block"],
   // Four readers on one note, each writing a comment in another place (PIE-770).
   composer: ["Writing in the margin", "[inline ▸]", "[floating ▸]", "[split ▸]", "[popup ▸]"],
   // A comment on the whole note in its own tile beside the reader (PIE-846); the note's whole-note thread in the margin.
