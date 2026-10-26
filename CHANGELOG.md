@@ -13,7 +13,7 @@ are its record. The outliner's entries from then are kept below, under
 ### A note can leave out its reader header: `[header::none]` (PIE-1319)
 
 - **A dashboard draws only its body.** `[header::none]` on a note's first line leaves out the crumbs, the title and the
-  byline in every reader, a river column and the drawer: its figures start on the first row, and the tile's border
+  byline in the readers, a river column and the drawer (the BBS message reader keeps its own header): its figures start on the first row, and the tile's border
   still names it. `[header::crumbs]` or `[header::title]` leave out only those rows; `[header::crumbs, title]` both.
   Take it off and the header comes back at once.
 - **Still reachable:** the tile menu (⋯) has comment on the whole note, comments, properties and sources, the byline's

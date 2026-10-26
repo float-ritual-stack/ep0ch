@@ -211,7 +211,11 @@ describe("the note surface selects and copies, without a service", () => {
     expect(lines.join("\n")).not.toContain("Seed tray dashboard");
     // The tile's border names it: the reader says its title isn't shown.
     expect(s.titleShown(20)).toBe(false);
-    s.press(lines[0]!.indexOf("Water"), 0, h); s.drag(lines[0]!.indexOf("Water") + 4, 0, h); s.release(lines[0]!.indexOf("Water") + 4, 0, h);
+    const x = lines[0]!.indexOf("Water");
+    s.press(x, 0, h); s.drag(x + 4, 0, h);
+    // Nothing moves under the mouse while the button is down.
+    expect(plain(draw()[0]!)).toContain("Water the seedlings");
+    s.release(x + 4, 0, h);
     const after = draw().map(plain);
     expect(after.join("\n")).toContain("── 5 chars [y copy] [Y source]");
     expect(s.describe().selection?.text).toBe("Water");

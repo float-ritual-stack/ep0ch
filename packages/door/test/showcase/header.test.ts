@@ -40,9 +40,11 @@ describe.skipIf(!outliner)("the showcase screen: a note with no header (PIE-1319
     expect(reader[0]).toContain(FIGURE);
     expect(reader.join("\n")).not.toContain(SEED.dashboard);
     expect(column.slice(0, 3).join("\n")).not.toContain(SEED.dashboard);
-    // The byline's ways in are still in the tile menu, an agent's answer drawing nothing.
-    const menu = (await app.act({ action: "tile.menu", tile: "1", as: "test-agent" }) as any).rows.map((r: any) => r.label);
-    expect(menu).toEqual(expect.arrayContaining(["comment on the whole note", "comments", "properties", "where this comes from (sources)"]));
+    // The byline's ways in are still in each tile's menu (the reader's and the column's), an agent's answer drawing nothing.
+    for (const tile of ["1", "2"]) {
+      const menu = (await app.act({ action: "tile.menu", tile, as: "test-agent" }) as any).rows.map((r: any) => r.label);
+      expect(menu).toEqual(expect.arrayContaining(["comment on the whole note", "comments", "properties", "where this comes from (sources)"]));
+    }
 
     // Only the crumbs left out, through the property panel's own edit (attributed): the title is the first row.
     await app.act({ action: "props.edit", args: { key: "header", value: "crumbs" }, tile: "1", as: "test-agent" });

@@ -112,7 +112,7 @@ export const HEADER_VALUES = { none: "no header: the body starts on the first ro
 const HEADER: ComponentSchema = {
   id: "header", group: "layout",
   title: "Reader header (header)",
-  intro: "The rows a reader draws above a note: the crumbs, the title and the byline (author, date, properties, `[sources]`, `[comment]`). A note that is a composition (a dashboard, a contents page, a brief) can leave them out with `[header::none]` on its first line, in every reader, a river column and the drawer; `crumbs` or `title` leave out only those rows, and `crumbs, title` both. The tile's border still names the note, and the tile menu (⋯) still has the comment, comments, properties and sources rows.",
+  intro: "The rows a reader draws above a note: the crumbs, the title and the byline (author, date, properties, `[sources]`, `[comment]`). A note that is a composition (a dashboard, a contents page, a brief) can leave them out with `[header::none]` on its first line, in the readers, a river column and the drawer (a host's own header, the BBS message reader's, stays); `crumbs` or `title` leave out only those rows, and `crumbs, title` both. The tile's border still names the note, and the tile menu (⋯) still has the comment, comments, properties and sources rows.",
   where: "the note's first line: `[header::none]`",
   props: [
     { key: "header", where: "line", type: "enum", meaning: "which of the reader's header rows the note leaves out, on its first line (`crumbs, title` leaves out both)", values: enumOf(HEADER_VALUES) },

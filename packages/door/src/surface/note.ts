@@ -18,7 +18,8 @@ import { CONFIRM_HINT, hintStatus } from "./hint-card";
 import { heroLook } from "./hero-look";
 import { withFigureBoard } from "../graphs";
 import { outlineBoards, readNote, type NoteAddress } from "../desk/outline-boards";
-import { subtitleOf, valuesOf } from "@ep0ch/outline-core/block-record";
+import { subtitleOf } from "@ep0ch/outline-core/block-record";
+import { HEADER_VALUES } from "@ep0ch/outline-core/component-schemas-blocks";
 import { InlineList, inlineRowKey } from "./inline-list";
 import { LISTVIEW_ACTIONS, listNamed, type ListHost } from "./list-actions";
 import { ListView, listRowLines, listRowsOf, PERSON, selectable, type ListHandle, type ListViewRow } from "./list-view";
@@ -67,7 +68,7 @@ import { decorationsOf, drawingPending, drawnPresses, extensionRegion, mayHavePr
 import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
-import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop } from "../props";
+import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop, propValues } from "../props";
 import { type CalloutRef, type ImageRef, type SiteCall, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, commentSubject, resourceTokensOf, refKey, referencesIn, refView, siteAnswerOf, siteAnswerWaiting, workIdPrefix, shortId, type LinkTarget } from "../refs";
 import { EMPTY_VALUE, MAX_NOTE_VALUES, hasWords, pairValues, problemWords, readerWords, valueWords } from "@ep0ch/outline-core/site-values";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
@@ -401,17 +402,19 @@ const TITLE_UNFOCUSED = 0.7;
  * describes them (`none`, `crumbs`, `title`, or several). The note decides, so it follows the note into every reader.
  */
 export function headerOmits(m: Pick<Msg, "properties">): { crumbs: boolean; title: boolean; byline: boolean } {
-  const said = new Set(valuesOf(m, "header").map(v => v.trim().toLowerCase()));
-  const none = said.has("none");
-  return { crumbs: none || said.has("crumbs"), title: none || said.has("title"), byline: none };
+  const said = new Set(propValues(m, "header").map(v => v.trim().toLowerCase()));
+  const is = (v: keyof typeof HEADER_VALUES) => said.has(v) || said.has("none");
+  return { crumbs: is("crumbs"), title: is("title"), byline: is("none") };
 }
 
 /** The reader's header rows (NoteSurface.headerBlock): where its summary line is and its links, and its title's row. */
 interface HeaderBlock {
   rows: string[]; summary: string; summaryRow: number;
   summaryLinks: { from: number; to: number; link: Link; key: string }[];
-  /** The title's rows (null: a host's own header stands in for it). */
+  /** The title's rows (null: a host's own header stands in for it, or the note leaves it out). */
   title: { row: number; rows: number } | null;
+  /** A host's own header (the BBS message header) stands in for the title, byline and crumbs. */
+  own?: boolean;
   /** The crumbs' row (the path above the title), where a click shows the note in the outline; null: a host's own header. */
   crumbsRow?: number;
   /** The byline's [comment] (PIE-846): a click writes a comment on the whole note, as C with nothing selected does. */
@@ -1622,7 +1625,7 @@ export class NoteSurface {
     const props = !this.panel && count ? `${fg(C.dark)} · i ${count} propert${count === 1 ? "y" : "ies"}` : "";
     if (own) {
       const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : [];
-      return { rows: [...own, ...summaryRows].map(l => " ".repeat(gx) + l), summary, summaryRow: own.length, summaryLinks: summary ? summaryLinks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) : [], title: null };
+      return { rows: [...own, ...summaryRows].map(l => " ".repeat(gx) + l), summary, summaryRow: own.length, summaryLinks: summary ? summaryLinks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) : [], title: null, own: true };
     }
     // The note's title leads the header (PIE-657): the crumbs are an eyebrow above it, dim; the title is the one bright
     // bold line (brighter in the focused tile, a step down in the others), then one dim line holding everything else.
@@ -1705,8 +1708,7 @@ export class NoteSurface {
     // menu (⋯) has the same rows: comment on the whole note, comments, properties, sources.
     const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped && commentOn && !omit.byline ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
     const sourcesChip = chipped && sourcesOn && !omit.byline ? { row: first, from: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) - width(SOURCES_CHIP), to: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) } : undefined;
-    if (omit.byline) return { rows: rows.map(l => " ".repeat(gx) + l), titleControls, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary: "", summaryRow: first, summaryLinks: [], title: omit.title ? null : { row: above, rows: lines.length }, ...(omit.crumbs ? {} : { crumbsRow: 0 }) };
-    return { rows: rows.map(l => " ".repeat(gx) + l), titleControls, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary, summaryRow: apart ? first + 1 : first, summaryLinks: links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: omit.title ? null : { row: this.printed ? 0 : above, rows: lines.length }, ...(this.printed ? { crumbsRow: rows.length - 1 } : omit.crumbs ? {} : { crumbsRow: 0 }), ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(sourcesChip ? { sourcesChip: { ...sourcesChip, from: sourcesChip.from + gx, to: sourcesChip.to + gx } } : {}), ...(marginChip ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
+    return { rows: rows.map(l => " ".repeat(gx) + l), titleControls, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary: omit.byline ? "" : summary, summaryRow: apart ? first + 1 : first, summaryLinks: omit.byline ? [] : links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: omit.title ? null : { row: this.printed ? 0 : above, rows: lines.length }, ...(this.printed ? { crumbsRow: rows.length - 1 } : omit.crumbs ? {} : { crumbsRow: 0 }), ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(sourcesChip ? { sourcesChip: { ...sourcesChip, from: sourcesChip.from + gx, to: sourcesChip.to + gx } } : {}), ...(marginChip && !omit.byline ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
   }
 
   /**
@@ -1862,7 +1864,7 @@ export class NoteSurface {
     if (foot) h -= 1;
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
     const open = openConstructs(m.text);
-    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip, sourcesChip, marginChip, wholeMarks, titleControls } = this.headerBlock(m, w, host, src);
+    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, own, crumbsRow, commentChip, sourcesChip, marginChip, wholeMarks, titleControls } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
     const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (" · " + this.proposalKeys(m.id).replace(/ · $/, "") + (proposalApplies(m) ? "" : " · it can't be applied: its passage was already gone")), w) + RESET]) } : null;
@@ -1906,8 +1908,9 @@ export class NoteSurface {
     const headed = head.length > 0;
     for (let r = 0; r < this.my; r++) head.push("");
     // A note with no header rows at all (PIE-1319: `[header::none]`) starts its body on the first row: no blank, no rule,
-    // except while the person has words selected: the row above the body holds the selection's count and toolbar.
-    if (this.panel || (headed ? !host?.header || head.length + 1 < h : !!this.selection)) head.push(this.panel ? rule(w) : "");
+    // except once the person has selected words: the row above the body holds the selection's count and toolbar. It
+    // comes when the drag ends, so nothing moves under the mouse while it's down (the selection moves with the body).
+    if (this.panel || (headed ? !host?.header || head.length + 1 < h : !!this.selection && !this.dragging)) head.push(this.panel ? rule(w) : "");
     const headerRule = headerBlock.length ? this.headerRule(w) : "";
     if (headerRule) head.push(headerRule);
     const top = head.length;
@@ -1923,7 +1926,7 @@ export class NoteSurface {
     this.positionRows.settle();
     const whole = new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id));
     // A whole-note thread's mark is on the title's row; a note that leaves its title out (PIE-1319) has it on the body's first.
-    const wholeRow = title?.row ?? (host?.header ? 1 : top);
+    const wholeRow = title?.row ?? (own ? 1 : top);
     const gutterRow = (k: Mark) => whole.has(k.thread) ? wholeRow : top + k.row - this.scroll;
     this.elems = laid.elems.map(e => e.kind === "comment" && whole.has(e.thread!)
       ? { ...e, row: wholeRow, ruler: [wholeRow, wholeRow + 1] as [number, number] } : e);
@@ -2002,7 +2005,7 @@ export class NoteSurface {
     room = roomAt(this.scroll);
     const heroRows = pinned ? full : Math.max(0, full - this.scroll);
     h -= heroRows;
-    this.drawn = { w, h, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + title.rows] : host?.header ? [0, 1] : [0, 0] };
+    this.drawn = { w, h, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + title.rows] : own ? [0, 1] : [0, 0] };
     // The inline box's text and controls, where the scroll put them (a click or a drag there is the draft's).
     if (comp?.inline && writingIn) placeBox(writingIn, comp.inline.box, top + comp.inline.at - this.scroll, this.bx);
     if (sm?.place === "inline" && inline) {
