@@ -229,7 +229,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.zoom": def({
-    summary: "zoom a tile to fill the screen, or lift it above the drawer with reach=column|full; on=false drops it. An agent may lift another tile, never replace the person's lift",
+    summary: "zoom a tile to fill the screen, or lift it above the drawer with reach=column|full (a spine opens first); on=false drops it. An agent may lift another tile, never replace the person's lift",
     keys: [...W_KEYS.filter(k => k.action === "tile.zoom").map(k => wCaption(k.key)), ...HYPER_KEYS.filter(k => k.action === "tile.zoom").map(k => `✦${k.key}`), ZOOM_WHEEL.key].join(", "),
     touches: "shape", touchesWith: a => a.reach && a.reach !== "screen" ? "tile" : "shape", replay: "safe", says: (r, a) => `${r.zoomed ? a.reach && a.reach !== "screen" ? `lifted (${a.reach})` : "zoomed" : "dropped"} ${r.name ?? r.tile}`,
     menu: { label: "zoom", group: TILE, key: "ctrl+w z", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.zoomed ? { label: "unzoom" } : { refused: n.refused("zoom") }; } },
