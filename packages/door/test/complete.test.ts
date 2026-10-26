@@ -19,7 +19,7 @@ import { BUILTIN_HEADING_STYLES } from "@ep0ch/outline-core/heading-styles";
 import { Draft } from "../src/edit";
 import { Refused, SocketBoard, USER, type Actor } from "../src/socket";
 import { visible } from "../src/style";
-import { enterKeeps, popupHint, completerFor, completionKey, completionOf, renderCompletion, type CompletionState } from "../src/surface/completer";
+import { Completer, enterKeeps, popupHint, completerFor, completionKey, completionOf, renderCompletion, type CompletionState } from "../src/surface/completer";
 import { editHint } from "../src/surface/editor";
 import { declaredKeys, keyName, traceActions, type ActionRun } from "../src/surface/actions";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -94,6 +94,31 @@ describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, th
     const text = lines.slice(s.previewRect!.row).map(l => l.replace(/│/g, "")).join(" ").replace(/\s+/g, " ");
     expect(text).toContain("Watering notes for the greenhouse");
     expect(text).toContain("once they flower.");
+  });
+
+  test("docs under the list scroll to their last line (Codex review)", () => {
+    const s = state();
+    s.items[0]!.docs = Array.from({ length: 20 }, (_, i) => `line ${i + 1} of the watering notes.`).join(" ");
+    const c = new Completer(new Draft("made-up", 0, s.at.line), {} as never, () => {});
+    c.state = s;
+    for (let i = 0; i < 40; i++) { draw(s, 60); c.previewBy(1, USER); }
+    expect(draw(s, 60).join(" ")).toContain("line 20 of the watering notes.");
+  });
+
+  test("an insert the service refuses is said in the footer and never escapes as a rejection (Codex review)", async () => {
+    const d = new Draft("made-up", 0, "((garden");
+    d.place(0, 8);
+    const c = new Completer(d, { blockContext: async () => ({ selected: null, ancestors: [] }) } as never, () => {});
+    c.state = { target: { kind: "block", start: 0, end: 8, query: "garden" }, at: { row: 0, col: 8, line: d.text }, index: 0, loading: false, truncated: null, message: "", items: [{ label: "Garden", kind: "block", blockId: "gone", insertion: "((gone))" }] };
+    let escaped: unknown = null;
+    const on = (e: unknown) => { escaped = e; };
+    process.on("unhandledRejection", on);
+    completionKey(d, K("enter"), c);
+    await Bun.sleep(30);
+    process.off("unhandledRejection", on);
+    expect(escaped).toBeNull();
+    expect(d.text).toBe("((garden");
+    expect(c.state!.message).toContain("no longer there");
   });
 
   test("Enter inserts as Tab does; the footer says when it's a new line instead (nothing typed yet, or the row changes nothing)", () => {

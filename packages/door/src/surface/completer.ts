@@ -847,7 +847,7 @@ export class Completer {
       }
       const press = completionPicker(s).view.press(i, { mods: 0, button: 0 });
       this.redraw(); void this.enrich();
-      if (press === "open") void COMPLETION_ACTIONS.run("complete.accept", { n: i + 1 }, this, USER);
+      if (press === "open") personRuns("complete.accept", { n: i + 1 }, this);
     }
     return true;
   }
@@ -910,7 +910,7 @@ export class Completer {
   }
 
   /** The wheel's or a key's move through the rows: the `complete.move` action, as `act` runs it. */
-  move(delta: number): void { void COMPLETION_ACTIONS.run("complete.move", { by: delta }, this, USER); }
+  move(delta: number): void { personRuns("complete.move", { by: delta }, this); }
 
   /** Light the row `delta` rows on (complete.move). */
   moveBy(delta: number): boolean {
@@ -1054,6 +1054,15 @@ export const COMPLETION_ACTIONS = actionSet<Completer>()("completion", {
   }),
 });
 
+/**
+ * The person's key, wheel or click running one of the list's actions: a refusal (an insert the service turned down, a
+ * second ⏎ while the first is checked) is already said in the popup's footer, so it ends there rather than as an
+ * unhandled rejection. `act` callers await the action and get the refusal.
+ */
+function personRuns<K extends "complete.move" | "complete.accept" | "complete.ask" | "complete.dismiss">(name: K, args: Parameters<typeof COMPLETION_ACTIONS.run<K>>[1], c: Completer): void {
+  COMPLETION_ACTIONS.run(name, args, c, USER).catch(() => {});
+}
+
 const byDraft = new WeakMap<CompletionField, Completer>();
 
 /** The draft's (or line's) completer, made on first use; null when the board can't look anything up (a test double). */
@@ -1093,7 +1102,7 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
     if (k.kind === "char" && k.ctrl && k.ch === "c" && s.previewSelection) {
       ambient?.host?.().ctx.copy?.(s.previewSelection.text(rowsOf(s.previewLines ?? [])), "component preview"); return true;
     }
-    if (k.kind === "esc") { void COMPLETION_ACTIONS.run("complete.dismiss", {}, c, USER); return !line || !!s.items.length; }
+    if (k.kind === "esc") { personRuns("complete.dismiss", {}, c); return !line || !!s.items.length; }
     if (s.items.length && !s.loading) {
       const item = s.items[s.index];
       if (k.kind === "char" && !k.ctrl && k.ch === "y" && s.picked && item?.source) { void COMPLETION_ACTIONS.run("complete.copy", {}, c, USER); return true; }
@@ -1109,11 +1118,11 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
       // A new page alone on the list (PIE-592) is chosen only on purpose (↓ or a click): Enter and Tab stay the draft's.
       const lone = s.items.length === 1 && !!s.items[0]!.newPage && !s.picked;
       // Tab and Enter both insert the lit row; where Enter is the field's, the footer says so (enterKeeps).
-      if ((k.kind === "tab" || (k.kind === "enter" && !enterKeeps(s))) && !lone) { void COMPLETION_ACTIONS.run("complete.accept", {}, c, USER); return true; }
+      if ((k.kind === "tab" || (k.kind === "enter" && !enterKeeps(s))) && !lone) { personRuns("complete.accept", {}, c); return true; }
     }
   }
   if (k.kind === "tab" || isCtrlSpace(k)) {
-    if (c.target()) { void COMPLETION_ACTIONS.run("complete.ask", {}, c, USER); return true; }
+    if (c.target()) { personRuns("complete.ask", {}, c); return true; }
     if (k.kind !== "tab") { d.note = "completion works inside [[, ((, [file::, a callout's > [!, ::component, a [key:: property or a figure's YAML"; return true; }
   }
   return false;
@@ -1235,9 +1244,10 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
     const docs = selected.docs ?? (selected.preview ? "" : selected.insertion);
     const lines = [...(docs ? rowLines(printable(docs, " "), pw, Infinity).map(l => fg(C.lcyan) + l + RESET) : []), ...(selected.preview?.(pw, 10000) ?? [])];
     s.previewLines = lines;
-    s.previewTop = Math.max(0, Math.min(s.previewTop ?? 0, lines.length - ph));
-    return lines.slice(s.previewTop, s.previewTop + ph).map((line, i) => {
-      const span = s.previewSelection?.span(s.previewTop! + i);
+    // Not clamped here: the room rule asks once to measure, at a height other than the panel's (previewBy clamps).
+    const top = s.previewTop ?? 0;
+    return lines.slice(top, top + ph).map((line, i) => {
+      const span = s.previewSelection?.span(top + i);
       return span ? paintRange(line, span[0], span[1], SELECT_BG) : line;
     });
   };
