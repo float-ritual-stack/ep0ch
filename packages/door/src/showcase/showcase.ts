@@ -247,6 +247,21 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "sources", need: "complete from an extension's own list (a tracker's issues) where a reference is typed, ranked with the outline's pages, without a sigil of its own (PIE-1340)",
+    part: "completion sources (ADR 0004 §4, PIE-1340): every source answers outline-core's one row contract (completion-source.ts: SourceDecl, SourceRow with kind, detail, docs, insert, preselect, an abort signal), triggers from outline-core's one detector (completion-triggers.ts), merged by one matcher with the host's picks (mergeSourceAnswers, completion.picked); the service's sources (pages, blocks, files, agents) and an extension's sources[] answer completion.rows, the door's own (components, properties, callouts, a button's steps) are DOOR_SOURCES; Detail asks the same completion.rows",
+    files: "outline-core/src/completion-source.ts, outline-core/src/completion-triggers.ts, outliner src/completion-sources.ts, outliner src/extension-calls.ts (complete), outliner extensions/issues, src/surface/completer.ts (DOOR_SOURCES, lookupCompletion), outliner src/reference-completion.ts (Detail)",
+    aside: "Go in (⏎): a comment ending in [[seed has its list open: the pages and the Issues extension's rows, each with its kind at the right · ↑↓ and ⏎ or tab insert; an issue writes [issue::#15] · choose one twice and it rises among equals, in Detail too · [issue:: lists the issues alone · &issues in the power bar removes or reinstalls it: its rows go and come back, the pages stay · act: complete.ask, complete.accept n=",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · sources", panes: [r], names: ["guide"] }, show, [[r, n.sources]], d => {
+        // The person's own keys would do this: a comment on the guide ending in [[seed, then tab asks for its list.
+        void d.press(r, NOTE_ACTIONS, "passage.select")
+          .then(() => d.press(r, NOTE_ACTIONS, "comment.write", { body: "Which issue is the swap, see [[seed" }))
+          .then(() => d.press(r, NOTE_ACTIONS, "complete.ask"));
+      });
+    },
+  },
+  {
     key: "composer", need: "write a comment, question or reply where the person is reading: at the passage, floating beside it, split beside the note or in a popup",
     part: "the composer's placements (PIE-770, src/surface/composer.ts): the comment session's draft (CommentSession, one DraftSession, the one edit control: renderEditor) drawn in the reader's own note, a box of rows under the passage (inline), laid over it (floating, popup) or sharing the reader's rect (split); composer.place is the setting, comment.place (ctrl+o, the box's chip) moves the one being written; PIE-785: the comment stays open when the keys go to another tile (Desk.leaveSession, keepsOnFocusAway) and is the person's again when they come back, a floating box drags and sizes (comment.move: its top edge, its ◢ corner, ctrl+g's comment.grip mode) for this sitting only (CommentSession.float), and following a link with it unsent asks in the power bar (askInBar, src/bar/ask.ts; comment.leaving answers: save and continue keeps it unsent through its DraftSession, discard lets it go); a posted thread and the preview draw references and embeds through the reader's renderer (NoteSurface.snippet)",
     files: "src/surface/composer.ts, src/comment.ts (composerFrame), src/surface/note.ts (layOut, overComposer, renderSplit, comment.place, comment.move, comment.grip, comment.leaving, askLeave), src/surface/editor.ts, src/screens.ts (composer.place), src/desk/desk.ts (leaveSession, reenter)",

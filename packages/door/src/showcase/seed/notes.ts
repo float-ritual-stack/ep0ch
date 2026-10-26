@@ -338,6 +338,18 @@ export const MEETING = [
   "> They mind the draught from the door.",
 ].join("\n");
 
+/** The completion sources section (PIE-1340): an extension's rows under [[, ranked with the pages. */
+export const SOURCES = [
+  SEED.sources,
+  "",
+  "A comment is open on this note, ending in `[[seed`. The list holds this outline's pages and the open issues the **Issues** extension offers under the same `[[` (it adds no sigil of its own), ranked together by one matcher: a title that starts with the word first, one that only holds it after.",
+  "",
+  "- **What a row is:** its kind at the right (`page`, `issue`), a dim detail, and its docs beside the list.",
+  "- **Picks come first:** choose an issue twice and it rises among equals, here, in Detail and in every door on this outline (the host keeps the picks).",
+  "- **Its own key:** `[issue::` lists the open issues too; `[issue::21` finds #21 by its number.",
+  "- **Take it away:** remove Issues in the power bar (`&issues`): the issue rows go, the pages stay. Install it again from the same row.",
+].join("\n");
+
 export const DEEP_LINKS = [
   SEED.deepLinks,
   "",
