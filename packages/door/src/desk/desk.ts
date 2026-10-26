@@ -7855,7 +7855,8 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   "keys.panel": def({
     summary: "open the panel of the keys that follow a prefix (PIE-1304): every key, grouped, each a click away, with the words of the action it runs; a prefix opens it by itself after a short pause. An agent gets the groups as data; nothing moves",
     keys: "^W, then a pause; ^W o, ^W O",
-    touches: "screen", replay: "safe",
+    // An agent's moves nothing (it gets the groups); the person's opens their own view, as the pause would.
+    touches: "nothing", replay: "safe",
     args: { prefix: { type: "string", optional: true, about: "^W (the default), \"^W o\" or \"^W O\"" } },
     examples: [
       { act: "keys.panel", does: "opens the ^W panel: every tile key, grouped" },

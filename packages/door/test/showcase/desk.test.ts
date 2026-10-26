@@ -816,6 +816,61 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
   }, 30_000);
 
 
+  test("the ^W panel (PIE-1304): keys.panel opens every key grouped; a click on a row runs it; an agent's answers the groups and nothing moves", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "wkeys" }, as: "test-agent" });
+    await until(() => marks.wkeys!.every(m => screen().includes(m)), "the ^W keys section");
+    const stage = () => S().stages.get(S().sel).top as Desk;
+    if (S().focus !== "stage") press({ kind: "enter" });
+    // An agent: the groups, in the actions' own words; nothing on screen.
+    const seen = await app.act({ action: "keys.panel", tile: undefined, as: "test-agent" }) as any;
+    expect(seen.groups.map((g: any) => g.title)).toContain("mounts & groups");
+    expect(seen.groups.flatMap((g: any) => g.keys).find((k: any) => k.key === "a").label).toBe("put in your drawer, or take out");
+    expect(screen()).not.toContain("tile keys");
+    // The person: open at once, every group shown.
+    await stage().dispatch.act({ action: "keys.panel" }, { kind: "user" });
+    await until(() => screen().includes("tile keys"), "the panel");
+    for (const g of ["focus & move", "size & shape", "mounts & groups", "layouts & more"]) expect(screen()).toContain(g);
+    // A click on the float row is ^W f.
+    const rows = screen().split("\n"), y = rows.findIndex(l => /\bf +float\b/.test(l));
+    expect(y).toBeGreaterThan(0);
+    press({ kind: "mouse", action: "down", button: 0, x: rows[y]!.search(/\bf +float\b/) + 1, y });
+    await until(() => stage().layoutGet().floats.length === 1, "floated by a click on its row");
+    expect(screen()).not.toContain("tile keys");
+    press({ kind: "char", ch: "w", ctrl: true });
+    press({ kind: "char", ch: "f" });
+    await until(() => stage().layoutGet().floats.length === 0, "put back by its key");
+    if (S().focus === "stage") press({ kind: "esc" });
+  }, 30_000);
+
+  test("the one line field section (PIE-1290): the rename prompt types, selects with the mouse, deletes, undoes and erases a word, and enter keeps it", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "line-field" }, as: "test-agent" });
+    await until(() => marks["line-field"]!.every(m => screen().includes(m)), "the line field section");
+    const stage = () => S().stages.get(S().sel).top as Desk;
+    if (S().focus !== "stage") press({ kind: "enter" });
+    await stage().dispatch.act({ action: "tile.title", tile: "reader" }, { kind: "user" });
+    await until(() => screen().includes("keeps it, typing replaces it"), "the rename prompt, prefilled");
+    for (const c of "Seed trays for spring") press({ kind: "char", ch: c });
+    await until(() => screen().includes("Seed trays for spring"), "typed");
+    const rows = screen().split("\n"), y = rows.findIndex(l => l.includes("Seed trays for spring")), x = rows[y]!.indexOf("trays ");
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "drag", button: 0, x: x + 6, y });
+    press({ kind: "mouse", action: "up", button: 0, x: x + 6, y });
+    press({ kind: "backspace" });
+    await until(() => screen().includes("Seed for spring"), "the phrase deleted");
+    press({ kind: "char", ch: "z", ctrl: true });
+    await until(() => screen().includes("Seed trays for spring"), "undone");
+    // Undo puts the cursor where the change was, as the note editor's does: end, then ctrl+w.
+    press({ kind: "end" });
+    press({ kind: "char", ch: "w", ctrl: true });
+    await until(() => screen().includes("Seed trays for ") && !screen().includes("for spring"), "a word erased, not the ^W chord");
+    expect((stage() as any).prefix).toBe("");
+    press({ kind: "enter" });
+    await until(() => stage().layoutGet().tiles.some(t => (t.title ?? "").includes("Seed trays for")), "renamed");
+    if (S().focus === "stage") press({ kind: "esc" });
+  }, 30_000);
+
   test("the agent policy section (PIE-639): free, edit only and hands off tiles; an agent's open is refused or lands, its edit of the middle note goes through, peek says the limits, the person's keys are never limited", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "agents" }, as: "test-agent" });
