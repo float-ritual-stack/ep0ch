@@ -10,6 +10,26 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Completion asks one set of sources, ranks them with one matcher, and extensions add their own (PIE-1340)
+
+- **Extensions add rows where you type.** An extension's `sources[]` entry with `triggers` (`[[`, `key::` with its
+  `keys`, `@`, `::`…) answers the `source` operation with rows, and they join the list beside the outline's own pages,
+  notes, properties and components; there's no new sigil. The `issues` example offers made-up open issues under `[[`
+  and `[issue::`; the kitchen sink's `sources` section installs, uses and uninstalls it.
+- **One order for every list.** Every source's rows are ranked together by the search matcher (a title that starts
+  with what you typed, then one that holds it, then typos and letters in order), and among equals what you picked more
+  often and more lately comes first. The outline host keeps those picks, so the door, Detail, Tree and Quick Capture
+  agree. The matched letters are lit the same way everywhere.
+- **Detail shows what the door shows.** Detail, Tree's quick edit and Quick Capture ask the same sources as the door
+  (`completion.rows`), so the same token lists the same rows; Detail draws each row's kind at its right, its detail
+  dim and the lit row's docs under the list, and offers a new page for a `[[name` nobody has written (↓ then ⏎).
+- **For developers.** outline-core has the one trigger detector (`completion-triggers.ts`, replacing the door's
+  `src/completion.ts` and most of the outliner's) and the source contract and merge (`completion-source.ts`). The
+  completer's per-kind if-chain is gone. `bar[]` in a manifest is read as the old name of `sources[]`; write
+  `sources[]`, answered by the `source` operation (glyphs moved).
+- **Run:** `ep0ch install --apply` (a wire change: `completion.rows`, `completion.picked`, `sources[]`; PROTOCOL bumps
+  at merge).
+
 ### After an update, the lift finds your agent before the drawer comes up (PIE-1342)
 
 - **The kept agent answers first.** After a session handover with the drawer put away, `role:agent` (and

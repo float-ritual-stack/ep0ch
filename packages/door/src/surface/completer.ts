@@ -3,7 +3,6 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import type { Ctx } from "../app";
 import type { NoteSurface, SurfaceHost } from "./note";
 import { Canvas, type Rect } from "../canvas";
-import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 // Reference completion in the edit control (PIE-416): typing `[[`, `((` or `[file::` in a draft offers
 // pages and Work IDs, blocks and fragments, or workspace paths, from the service's lookups (`pages.complete`,
 // `tree.search`: the one search, Goto's ranker, forgiving punctuation, order and typos; `fragments.candidates`,
@@ -17,28 +16,31 @@ import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 // right under it; `^` or `#` typed in (or just after) a finished `((id))` opens it again as `((id^`, and the popup
 // searches inside that one note: its anchors first, then its headings, paragraphs, list items, quotes and callouts, each without an
 // anchor offered with the one it would get. Choosing one of those adds the anchor (`fragments.ensure`, attributed)
-// and links it, as one choice. `((Meeting^` searches inside the notes `((Meeting` listed, in the same order. The
-// triggers stay here until ADR 0004's source contract (slice 6, PIE-750) moves them into outline-core.
+// and links it, as one choice. `((Meeting^` searches inside the notes `((Meeting` listed, in the same order.
+//
+// Sources (PIE-1340, ADR 0004 §4): the triggers are outline-core's (completion-triggers.ts, the one detector Detail
+// asks too); pages, blocks and fragments, files, agents and the extensions' sources answer through the service
+// (`completion.rows`, outliner completion-sources.ts); the door's own (components, properties, callouts, filters, a
+// fence's settings, a button's steps) are DOOR_SOURCES below; outline-core's mergeSourceAnswers ranks them all with
+// the one matcher, recent and frequent picks first among equals.
 import { ListPicker, pickRow } from "./picker";
 import { ActionRefused, actionSet, declaredKeys, def, keyCaption } from "./actions";
 import { listPreview } from "../bar/list-preview";
 import { litCells } from "../bar/filter";
 import { rankTextSearchMatches, matchesSearchText } from "@ep0ch/outline-core/search-match";
 import { subject, type Msg } from "../board";
-import {
-  completionTargetAtCursor, filterTargetAtCursor, pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery,
-  type CompletionKind, type CompletionTarget,
-} from "../completion";
+import { completionTargetAtCursor, filterTargetAtCursor, parseFragmentCompletionQuery, type CompletionKind, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
+import { insertSelection, insertText, mergeSourceAnswers, pickKey, triggerOf, type SourceAnswer, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
+import type { CompletionRowsResult, CompletionSourceAnswer } from "@ep0ch/outline-core/protocol";
 import type { Draft, DraftAction } from "../edit";
-import { USER, type Actor, type FragmentCandidate, type SocketBoard } from "../socket";
+import { USER, type Actor, type SocketBoard } from "../socket";
 import { lineCompletionHooks, type LineCompletion } from "./line-hooks";
 import type { LineField } from "./line";
-import { bg, C, chip, fg, pad, RESET, TAGS, MARKS } from "../style";
+import { C, chip, fg, pad, RESET, TAGS, MARKS } from "../style";
 import type { Key } from "../term";
 import { rowLines, printable } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
-import { blockReferenceOccurrences, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
-import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
+import { blockReferenceOccurrences, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
 import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { calloutsReady, TONE } from "../callouts";
@@ -65,7 +67,7 @@ export const jevOff = new WeakSet<object>();
 export const COMPLETION_ROWS = 14;
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage" | "componentUsage" | "listExtensions" | "templateProps">;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage" | "componentUsage" | "listExtensions" | "templateProps"> & Partial<Pick<SocketBoard, "completionRows" | "completionPicked">>;
 
 /**
  * Anything outline text is written in (PIE-626): a `Draft`, or a `LineField` (a property's value, a filter). The completer
@@ -85,44 +87,23 @@ export interface CompletionField {
 }
 
 /**
- * One row of the popup, as its source answers it (PIE-1339): the row draws from these fields alone, never from a switch
- * on the kind's name, so a source added later (ADR 0004's contract, PIE-1340) only fills them in.
+ * One row of the popup, as its source answers it (PIE-1339, PIE-1340): outline-core's `SourceRow` (label, kind, detail,
+ * docs, the reference fields) with its insert as the text it writes and the span it selects, plus what only the door
+ * draws (a component's variations, a drawn preview). The row draws from these fields alone, never from a switch on
+ * the kind's name.
  */
-export interface CompletionItem {
-  label: string;
+export interface CompletionItem extends Omit<SourceRow, "insert"> {
   children?: CompletionItem[];
   componentSchema?: ComponentSchema;
   source?: string;
-  definition?: string;
-  /** One dim line after the label: where it is, a signature, why it's offered. */
-  detail?: string;
-  group?: string;
   preview?: (w: number, h: number) => string[];
   selection?: { start: number; end: number };
   /** Exactly what choosing it writes in place of the token. */
   insertion: string;
   /** One short word for the row's right-hand column: block, anchor, page, property, component, agent, action, value. */
-  kind: "page" | "work-id" | "alias" | "block" | "anchor" | "file" | "folder" | "callout" | string;
+  kind: string;
   /** A callout type's icon, drawn in its tone (PIE-538). */
   icon?: { glyph: string; colour: number };
-  blockId?: string;
-  address?: string;
-  fragmentId?: string;
-  passageLine?: number;
-  addition?: string;
-  /**
-   * What the docs panel beside the list wraps for the lit row: what it means, where it sits (ancestors) and how its body
-   * starts; read again for the selected candidate.
-   */
-  docs?: string;
-  /**
-   * A heading without an anchor that gets one when chosen: in the draft's own note, that line's new text
-   * (the draft saves it); in another note, the service writes it (`fragments.ensure`), if that note is
-   * still at `revision`.
-   */
-  anchor?: { lineIndex: number; line: string; revision: number };
-  /** A page nobody has written yet (PIE-592): choosing it makes it (`pages.follow`, attributed) and links it. */
-  newPage?: string;
 }
 
 export interface CompletionLookup {
@@ -137,60 +118,69 @@ export interface CompletionLookup {
   jevOff?: boolean;
   /** What the list is, when it isn't the kind's own word: `in Greenhouse meeting` for a reference being refined. */
   heading?: string;
+  /** The key a pick of this list is counted under (`completion.picked`). */
+  pickKey?: string;
 }
 
 /** The note a draft's search asks from: its own note, else the note it's about (a comment's, a new card's view). */
 export const nearOf = (d: CompletionField | null | undefined, own?: OwnNote): string | undefined => own?.blockId ?? d?.near;
 
 /** How the lookup is asked: `semantic` has Jev re-order it; `near` is the note the draft writes in. */
-export interface LookupOptions { semantic?: boolean; near?: string; limit?: number; offset?: number; host?: BarHost; componentUsage?: Promise<Record<string, number>> }
+export interface LookupOptions { semantic?: boolean; near?: string; limit?: number; offset?: number; host?: BarHost; componentUsage?: Promise<Record<string, number>>; signal?: AbortSignal }
 
 /** The note a note draft is writing, for `((#heading` in itself; comments and replies have none. */
 export interface OwnNote { blockId: string; text: string }
 
 const title = (m: Msg) => subject({ ...m, text: m.text.replace(/ \^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/m, "") }).replace(/\s{2,}/g, " ");
-const REASON = { linked: "linked from here", near: "near here", yours: "you edited" } as const;
-/** The service's snippet of a hit, its first line left out when it's the title the row already shows. */
-const hitSnippet = (title: string, text: string) => {
-  const lines = text.split(/\r?\n/);
-  return (withoutPropertyTokens(lines[0] ?? "").trim().startsWith(title.slice(0, 24)) ? lines.slice(1) : lines)
-    .map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim();
-};
 const snippet = (text: string) => text.split(/\r?\n/).slice(1).map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim();
 
 export const notConfigured = (semantic: { status: string; message?: string }) => semantic.status === "unavailable" && /not configured/i.test(semantic.message ?? "");
 
-/** The candidates for one token: the same lookups and insertions the outliner's editors use. */
-export async function lookupCompletion(board: CompletionBoard, target: CompletionTarget, prefix: string | null, own?: OwnNote, opts: LookupOptions = {}): Promise<CompletionLookup> {
-  let items: CompletionItem[] = [], truncated: number | null = null, empty = "", partial = "", ranked = false, off = false, heading: string | undefined;
-  if (target.kind === "button-step") {
-    const script = target.query.trimStart().startsWith("((");
-    if (script) {
+/** What a door source is asked: the token, the draft's note, and how (ADR 0004 §4's ask, with the door's own reach). */
+interface DoorAsk { board: CompletionBoard; target: CompletionTarget; own?: OwnNote; opts: LookupOptions; signal?: AbortSignal }
+/** A door source's answer: its rows, and what to say when it has none. */
+interface DoorAnswer { rows: CompletionItem[]; empty?: string }
+/**
+ * A completion source the door answers itself (PIE-1340): the declarative ones (component schemas, the outline's
+ * callout types and property catalog) and the door's own (its actions for a button's steps, a fence's settings, a
+ * filter's words). Each answers on outline-core's contract (`SourceDecl`, rows a `SourceRow` and more); the pages,
+ * blocks, files, agents and the extensions' sources are the service's (`completion.rows`). `lookupCompletion` asks
+ * every source for the token and merges them with outline-core's one matcher: nothing below switches on a kind.
+ */
+interface DoorSource { decl: SourceDecl; kinds: readonly CompletionKind[]; rows(ask: DoorAsk): Promise<DoorAnswer> }
+
+const hostOf = (board: CompletionBoard, opts: LookupOptions) => opts.host ?? (ambient?.board === board ? ambient.host?.() : undefined);
+const door = (id: string, title: string, ranked = false): SourceDecl => ({ id, title, triggers: [], priority: 10, ranked, by: "door" });
+
+const DOOR_SOURCES: readonly DoorSource[] = [
+  // A button's step (PIE-1298): a script note's name after `((`, else the door's actions and their arguments.
+  { decl: door("steps", "steps", true), kinds: ["button-step"], async rows({ board, target, own, opts }) {
+    if (target.query.trimStart().startsWith("((")) {
       const q = target.query.trimStart().slice(2);
       const listed = await board.listExtensions(false, own ? { blockId: own.blockId, draft: { text: own.text } } : {});
-      items = listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed") && e.name?.startsWith(q))
-        .map(e => ({ label: e.name!, insertion: `((${e.name}))`, docs: e.description, kind: "value" }));
-    } else {
-      const host = opts.host ?? (ambient?.board === board ? ambient.host?.() : undefined);
-      if (host) {
-        const rows = await barSource("actions")!.rows(target.query, host, "actions");
-        items = rows.map(r => ({ label: r.label, insertion: r.fill ?? r.label, docs: r.detail, kind: "value" }));
-        const args = await commandCandidates(target.query, host);
-        items.unshift(...args.map(value => ({ label: value, insertion: value, kind: "value" as const })));
-      }
+      return { rows: listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed") && e.name?.startsWith(q))
+        .map(e => ({ label: e.name!, insertion: `((${e.name}))`, docs: e.description, kind: "script" })) };
     }
-  } else if (target.kind === "fence-setting") {
-    items = SCRIPT_FENCE.settings.filter(s => s.key.startsWith(target.query)).map(s => ({ label: `${s.key}=`, insertion: `${s.key}=`, docs: s.meaning, kind: "value" }));
-  } else if (target.kind === "filter-key" || target.kind === "filter-value") {
-    items = await filterCandidates(board, target);
-    empty = target.kind === "filter-key" ? "" : `no ${target.key} value starts ${JSON.stringify(target.query)}`;
-  } else if (target.kind === "key" || target.kind === "value" || target.kind === "yaml-key") {
-    // The component schemas (PIE-618): the same answer the library draws its pages from, no list of the completer's own.
+    const host = hostOf(board, opts);
+    if (!host) return { rows: [] };
+    const rows = await barSource("actions")!.rows(target.query, host, "actions");
+    const args = await commandCandidates(target.query, host);
+    return { rows: [...args.map(value => ({ label: value, insertion: value, kind: "value" })), ...rows.map(r => ({ label: r.label, insertion: r.fill ?? r.label, docs: r.detail, kind: "action" }))] };
+  } },
+  { decl: door("fence", "settings"), kinds: ["fence-setting"], async rows() {
+    return { rows: SCRIPT_FENCE.settings.map(s => ({ label: `${s.key}=`, insertion: `${s.key}=`, docs: s.meaning, kind: "setting" })) };
+  } },
+  { decl: door("filters", "properties", true), kinds: ["filter-key", "filter-value"], async rows({ board, target }) {
+    return { rows: await filterCandidates(board, target), empty: target.kind === "filter-key" ? "" : `no ${target.key} value starts ${JSON.stringify(target.query)}` };
+  } },
+  // The component schemas (PIE-618): the same answer the library draws its pages from, no list of the completer's own.
+  { decl: door("properties", "properties"), kinds: ["key", "value", "yaml-key"], async rows({ board, target }) {
     const src = { board, redraw: () => {} };
     const [schemas] = await Promise.all([componentsReady(src), headingStylesReady(src), calloutsReady(src)]);
-    items = propertyCandidates(schemas, target, src);
-    empty = "";
-  } else if (target.kind === "component") {
+    return { rows: propertyCandidates(schemas, target, src) };
+  } },
+  // Grouped, used ones first: it orders its own rows (the matcher still ranks what's typed).
+  { decl: door("components", "components", true), kinds: ["component"], async rows({ board, target, own, opts }) {
     const src = { board, redraw: () => {} };
     const schemas = await componentsReady(src);
     const keys = await scopedKeys(board, target, own, opts.near);
@@ -204,11 +194,12 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
     const ordered = target.query.trim() ? found : found.sort((a, b) => (recent[b.id] ?? 0) - (recent[a.id] ?? 0));
     const groupOf = (c: typeof components[number]) => `${c.schema.group}${recent[c.id] !== undefined ? " · used" : ""}`;
     const groups = [...new Set(ordered.map(groupOf))];
-    items = groups.flatMap(group => ordered.filter(c => groupOf(c) === group).map(({ schema: original }) => {
+    return { rows: groups.flatMap(group => ordered.filter(c => groupOf(c) === group).map(({ id, schema: original }) => {
       const schema = contextualSchema(original, keys);
       const item = componentItem(schema, variation(schema, {}), src);
       const seen = new Set<string>();
       item.group = group;
+      item.filter = id;
       item.componentSchema = schema;
       item.children = schema.sweep.flatMap(axis => sweep(schema, axis).flatMap(v => {
         if (seen.has(v.use)) return [];
@@ -216,166 +207,65 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
         return [componentItem(schema, v, src, v.use.replace(/\n/g, " "))];
       }));
       return item;
-    }));
-  } else if (target.kind === "attribute" || target.kind === "attribute-value" || target.kind === "yaml-value") {
-    const src = { board, redraw: () => {} };
-    const schemas = await componentsReady(src);
+    })) };
+  } },
+  { decl: door("attributes", "attributes", true), kinds: ["attribute", "attribute-value", "yaml-value"], async rows({ board, target, own, opts }) {
+    const schemas = await componentsReady({ board, redraw: () => {} });
     const schema = schemas.find(s => COMPONENT_OPEN.exec(s.source.use.split("\n")[0]!)?.[1] === target.component);
-    if (schema) items = await attributeCandidates(board, schema, target, own, { ...opts, host: opts.host ?? (ambient?.board === board ? ambient.host?.() : undefined) });
-  } else if (target.kind === "callout") {
-    // The outline's callout types (PIE-538): the one list the reader draws and the type choice offers.
-    items = calloutCandidates(await calloutsReady({ board, redraw: () => {} }), target.query, { board, redraw: () => {} });
-    empty = `no callout type starts ${JSON.stringify(target.query)}; [!${target.query}] still draws, in neutral (declare it with [callout-type::${target.query || "name"}])`;
-  } else if (target.kind === "agent") {
-    const listed = await board.listExtensions();
-    const all = listed.extensions.filter(e => e.state === "active" || e.state === "failed")
-      .flatMap(extension => (extension.agents ?? []).map(agent => ({ ...agent, extension })));
-    const q = target.query.toLowerCase();
-    items = await Promise.all(all.filter(a => a.name.toLowerCase().startsWith(q)).map(async a => {
-      const script = a.extension.script;
-      const note = script?.blockId ? (await board.blockContext(script.blockId)).selected : undefined;
-      const definition = script ? note ? [`[g] ${subject(note)} ((${note.id}))`, ...note.text.split("\n").slice(1)]
-        : [script.file ?? "", ...script.code.split("\n")]
-        : [a.extension.directory ?? "", `handler @${a.name}`, ...a.extension.handlers.map(h => `${h.key}:: ${h.description ?? h.kind}`)];
-      const context = a.threads ? "in a note, or a comment on a passage: its answer lands in that thread" : "runs on the text above this line once the line is quiet (1.5 s), as an attributed edit · r on the line asks again";
-      return {
-        label: `@${a.name}`, ...(a.description ? { detail: a.description } : {}), insertion: `@${a.name} `, kind: "agent", docs: context,
-        ...(note ? { definition: note.id } : {}),
-        preview: (w: number, h: number) => definition.flatMap(line => rowLines(printable(line), w)).slice(0, h),
-      };
-    }));
-    empty = all.length ? `no agent is called @${target.query}: ${all.map(a => `@${a.name}`).join(", ")} answer here` : "";
-  } else if (target.kind === "file") {
-    const files = await board.completeFiles(target.query);
-    items = files.slice(0, COMPLETION_LIMIT).map(f => ({ label: f.sourcePath, kind: f.isDirectory ? "folder" : "file", insertion: `[file::${f.sourcePath}${f.isDirectory ? "" : "]"}` }));
-    if (files.length > COMPLETION_LIMIT) truncated = COMPLETION_LIMIT;
-    empty = "no matching files";
-  } else if (target.kind === "page") {
-    const r = await board.completePages(pageCompletionLookupQuery(target.query, prefix) || undefined, COMPLETION_LIMIT, opts);
-    items = r.addresses.map(a => ({ ...pageAddressCompletion(a, target.query, prefix), detail: a.subtitle, blockId: a.blockId, address: a.address, kind: a.kind }));
-    items.unshift(...(r.outlines ?? []).map(name => ({ label: `${name}:`, insertion: `[[${name}:`, kind: "outline" })));
-    const made = qualifiedReference(target.query).outline ? null : newPageItem(target.query, r.addresses, prefix);
-    if (made) items.push(made);
-    if (made && items.length === 1) partial = `no page is named ${made.newPage} yet · ↓ then ⏎ makes it`;
-    if (r.completeness.kind === "truncated") truncated = r.completeness.limit ?? COMPLETION_LIMIT;
-    ranked = r.semantic?.status === "ranked";
-    off = !!r.semantic && notConfigured(r.semantic);
-    empty = "no matching named addresses; [[target|label]] labels a target, ((...)) searches blocks";
-  } else {
-    const fragment = parseFragmentCompletionQuery(target.query);
-    if (!fragment) {
-      ({ items, truncated, ranked, off } = await blockCandidates(board, target.query, own, opts));
-      empty = "no matching blocks";
-    } else {
-      const r = await fragmentLookup(board, fragment, own, opts);
-      items = r.items; heading = r.heading; empty = r.empty;
-      if (r.truncated) { truncated = r.truncated; partial = `showing the first ${truncated} fragments`; }
-    }
-  }
-  const message = items.length ? partial || (truncated ? `showing the first ${truncated} matches` : "") : [partial && `partial search: ${partial}`, empty].filter(Boolean).join(" · ");
-  return { items, truncated, message, ...(ranked ? { jev: "ranked" as const } : {}), ...(off ? { jevOff: true } : {}), ...(heading ? { heading } : {}) };
+    return { rows: schema ? await attributeCandidates(board, schema, target, own, { ...opts, host: hostOf(board, opts) }) : [] };
+  } },
+  // The outline's callout types (PIE-538): the one list the reader draws and the type choice offers.
+  { decl: door("callouts", "callout types"), kinds: ["callout"], async rows({ board, target }) {
+    return { rows: calloutCandidates(await calloutsReady({ board, redraw: () => {} }), { board, redraw: () => {} }),
+      empty: `no callout type is ${JSON.stringify(target.query)}; [!${target.query}] still draws, in neutral (declare it with [callout-type::${target.query || "name"}])` };
+  } },
+];
+
+/** A row the service answered, as the popup holds it: what it writes, and the span a snippet selects. */
+const itemOf = (row: SourceRow): CompletionItem => {
+  const { insert, ...rest } = row;
+  const selection = insertSelection(insert);
+  return { ...rest, kind: rest.kind ?? "", insertion: insertText(insert), ...(selection ? { selection } : {}) };
+};
+/** A door row on the contract: its insertion as the insert (a selection makes it a snippet). */
+const rowOf = (item: CompletionItem): CompletionItem & SourceRow => ({ ...item, insert: item.selection ? { snippet: item.insertion, select: item.selection } : item.insertion });
+
+/** The service's answer to `completion.rows`, or none (a test double, a service without it): its sources answer nothing. */
+async function serviceRows(board: CompletionBoard, target: CompletionTarget, own: OwnNote | undefined, opts: LookupOptions): Promise<CompletionRowsResult & { failed?: string }> {
+  // A token no service or extension source can answer (a filter's word, a fence's settings, a button's step) asks nothing.
+  if (typeof board.completionRows !== "function" || !triggerOf(target.kind)) return { answers: [], picks: {} };
+  return board.completionRows({
+    target: { kind: target.kind, query: target.query, ...(target.key ? { key: target.key } : {}), ...(target.component ? { component: target.component } : {}) },
+    ...(opts.near ? { near: opts.near } : {}), ...(own ? { draft: own } : {}), ...(opts.limit ? { limit: opts.limit } : {}),
+    ...(opts.offset ? { offset: opts.offset } : {}), ...(opts.semantic ? { semantic: true } : {}),
+  }).catch((e: Error) => ({ answers: [], picks: {}, failed: `lookup failed: ${e.message}` }));
 }
 
 /**
- * `[[Seed swap` naming no page yet (PIE-592): the last row offers it new, `[[Seed swap]]` written and the page made in
- * one choice (where new notes go). Not for an address a page already has, one no page can have, or a Work ID's shape or
- * the outline's Work ID prefix (those are the workboard's to give).
+ * The candidates for one token (ADR 0004 §4, PIE-1340): every source for its trigger, the door's and the service's
+ * (with the extensions'), asked at once and merged by outline-core's one matcher, recent and frequent picks first among
+ * equals. What it says when there are none, or the list is cut, is the sources' own words.
  */
-function newPageItem(query: string, have: readonly { address: string }[], prefix: string | null): CompletionItem | null {
-  const bar = query.indexOf("|"), named = (bar < 0 ? query : query.slice(0, bar)).trim(), label = bar < 0 ? "" : query.slice(bar + 1).trim();
-  const wanted = tryNormalizePageAddress(named);
-  if (!wanted || /^[A-Z][A-Z0-9]*-\d+$/.test(named) || (prefix && named.toUpperCase().startsWith(prefix.toUpperCase()))) return null;
-  if (have.some(a => tryNormalizePageAddress(a.address)?.normalizedAddress === wanted.normalizedAddress)) return null;
-  return { label: `new page · ${named}`, insertion: label ? `[[${named}|${label}]]` : `[[${named}]]`, kind: "new", newPage: named, docs: "made where new notes go when you choose it · ctrl+l then opens it beside" };
-}
-
-/** How many of the top notes a `((words` list shows the anchors of, and how many each. */
-const ANCHORED_NOTES = 4, ANCHORS_PER_NOTE = 3;
-/** The parts of the first note `((words` lists under it with no anchor yet (PIE-592), and how many. */
-const EMBEDDABLE = new Set(["heading", "quote", "callout"]), PARTS_OF_TOP = 4, PASSAGES_ASKED = 100;
-/** How many notes `((words^` and `((words#` search inside: the first ones `((words` listed. */
-const NOTES_SEARCHED = 3;
-
-/**
- * `((words`: the one search (`tree.search`, from the draft's note: what Goto, the desk's `/` and Jev rank), and
- * (PIE-762) the anchors that are already valid targets: an anchor whose id starts with what's typed (`((a10`) first,
- * then each of the top notes followed by its own anchors, then the other notes.
- */
-async function blockCandidates(board: CompletionBoard, query: string, own: OwnNote | undefined, opts: LookupOptions): Promise<{ items: CompletionItem[]; truncated: number | null; ranked: boolean; off: boolean }> {
-  const q = query.trim(), anchored = q.length >= 2, draft = own ? { draft: own } : {};
-  // The anchors are extra: a lookup of them that fails leaves the notes as the one search answered them.
-  const anchors = (query: Parameters<CompletionBoard["fragmentCandidates"]>[0]) => Promise.resolve().then(() => board.fragmentCandidates(query)).catch(() => null);
-  const [r, named] = await Promise.all([
-    board.searchBlocks(query, opts),
-    anchored && /^[A-Za-z0-9_-]+$/.test(q) ? anchors({ fragmentQuery: q, mode: "id", limit: COMPLETION_LIMIT, ...draft }) : null,
+export async function lookupCompletion(board: CompletionBoard, target: CompletionTarget, own?: OwnNote, opts: LookupOptions = {}): Promise<CompletionLookup> {
+  const mine = DOOR_SOURCES.filter(s => s.kinds.includes(target.kind));
+  const [service, ...answers] = await Promise.all([
+    serviceRows(board, target, own, opts),
+    ...mine.map(s => s.rows({ board, target, own, opts, ...(opts.signal ? { signal: opts.signal } : {}) }).then(a => ({ source: s.decl, rows: a.rows.map(rowOf), empty: a.empty }))),
   ]);
-  const notes: CompletionItem[] = r.matches.map(m => ({
-    label: m.title, detail: m.subtitle, blockId: m.block.id, kind: "block", ...(m.reason ? { detail: [m.subtitle, REASON[m.reason]].filter(Boolean).join(" · ") } : {}), insertion: `((${m.block.id}))`,
-    docs: [m.path, hitSnippet(m.title, m.snippet)].filter(Boolean).join(" » "),
-  }));
-  const top = notes.slice(0, ANCHORED_NOTES).map(n => n.blockId!);
-  // The first note's headings, quotes and callouts with no anchor yet (PIE-592): a part to embed, without visiting it
-  // first; choosing one adds its anchor, as a passage refined with ^ does.
-  const [theirs, parts] = anchored && top.length ? await Promise.all([
-    anchors({ blockIds: top, fragmentQuery: "", mode: "id", limit: COMPLETION_LIMIT, ...draft }),
-    // Its anchors and paragraphs come first in that list: asked for the most the service gives, so they don't hide them.
-    anchors({ blockIds: top.slice(0, 1), fragmentQuery: "", mode: "passage", limit: PASSAGES_ASKED, ...draft }),
-  ]) : [null, null];
-  const items: CompletionItem[] = [], seen = new Set<string>();
-  const add = (it: CompletionItem) => { if (!seen.has(it.insertion)) { seen.add(it.insertion); items.push(it); } };
-  const lower = q.toLowerCase();
-  for (const c of named?.items ?? []) if (c.fragmentId?.toLowerCase().startsWith(lower) && items.length < 3) add(fragmentItem(c, false));
-  for (const n of notes) {
-    add(n);
-    for (const c of (theirs?.items ?? []).filter(c => c.blockId === n.blockId && c.fragmentId).slice(0, ANCHORS_PER_NOTE)) add(fragmentItem(c, false, true));
-    for (const c of (parts?.items ?? []).filter(c => c.blockId === n.blockId && !c.fragmentId && EMBEDDABLE.has(c.kind)).slice(0, PARTS_OF_TOP)) add(fragmentItem(c, false, true));
-  }
+  const all: (SourceAnswer<CompletionItem & SourceRow> & Partial<CompletionSourceAnswer>)[] = [...answers, ...service.answers.map(a => ({ ...a, rows: a.rows.map(r => rowOf(itemOf(r))) }))];
+  const merged = mergeSourceAnswers(all, target.query, { picks: service.picks });
+  const items = merged.map(({ insert: _i, from: _f, tier: _t, ...item }) => item as CompletionItem);
+  const truncated = all.find(a => a.truncated)?.truncated ?? null;
+  const partial = all.map(a => a.partial).find(Boolean) ?? "";
+  const problems = [service.failed, ...all.map(a => a.problem)].filter(Boolean).join(" · ");
+  const empty = all.map(a => a.empty).filter(Boolean).join(" · ");
+  const message = items.length ? [partial || (truncated ? `showing the first ${truncated} matches` : ""), problems].filter(Boolean).join(" · ")
+    : [partial && `partial search: ${partial}`, empty, problems].filter(Boolean).join(" · ");
+  const heading = all.map(a => a.heading).find(Boolean);
   return {
-    items, truncated: r.completeness.kind === "truncated" ? r.completeness.limit ?? r.matches.length : null,
-    ranked: r.semantic.status === "ranked", off: notConfigured(r.semantic),
-  };
-}
-
-/**
- * `((note#…` / `((note^…`: the service's fragment rules (PIE-424) answer it. The note part says where: a block id
- * (a reference being refined, PIE-762) is that one note; words are the notes `((words` listed, in its order; nothing
- * is every note, the draft's own first. Inside named notes `^` is every passage (anchors first, then headings,
- * paragraphs and list items with the anchor each would get) and `#` is headings; across every note, `^` is anchors.
- */
-async function fragmentLookup(board: CompletionBoard, fragment: { blockQuery: string; fragmentQuery: string; mode: "heading" | "id" }, own: OwnNote | undefined, opts: LookupOptions): Promise<{ items: CompletionItem[]; truncated: number | null; empty: string; heading?: string }> {
-  const note = fragment.blockQuery, draft = own ? { draft: own } : {};
-  let blockIds: string[] | undefined;
-  if (BLOCK_ID_PATTERN.test(note)) blockIds = [note];
-  else if (note) {
-    blockIds = (await board.searchBlocks(note, { ...opts, semantic: false })).matches.slice(0, NOTES_SEARCHED).map(m => m.block.id);
-    if (!blockIds.length) return { items: [], truncated: null, empty: `no note matches ${JSON.stringify(note)}` };
-  }
-  const mode = blockIds ? (fragment.mode === "id" ? "passage" : "heading") : fragment.mode;
-  const r = await board.fragmentCandidates({ ...(blockIds ? { blockIds } : {}), fragmentQuery: fragment.fragmentQuery, mode, limit: opts.limit ?? COMPLETION_LIMIT, offset: opts.offset, ...draft });
-  const one = blockIds?.length === 1;
-  const title = one ? r.items[0]?.title : undefined;
-  return {
-    items: r.items.map(c => fragmentItem(c, one)),
-    truncated: r.completeness.kind === "truncated" ? r.completeness.limit ?? COMPLETION_LIMIT : null,
-    empty: one ? `nothing in that note matches ${JSON.stringify(fragment.fragmentQuery)}${mode === "heading" ? "; ^ searches its passages too" : ""}` : "no matching fragments",
-    ...(one ? { heading: title ? `in ${title}` : "in that note" } : {}),
-  };
-}
-
-/**
- * A fragment as a row: an anchor it has already leads the row (`^a10  Greenhouse meeting » We agreed…`); one without
- * says the anchor choosing it adds. `under`: listed under its note's own row, so the note's title isn't repeated.
- */
-function fragmentItem(c: FragmentCandidate, oneNote: boolean, under = false): CompletionItem {
-  const id = c.fragmentId ?? c.anchor!.fragmentId;
-  const what = c.kind === "heading" ? `# ${c.label}` : c.kind === "quote" ? `> ${c.label}` : c.kind === "callout" ? `[!] ${c.label}` : c.label;
-  const where = oneNote || under ? "" : `${c.title} » `;
-  return {
-    label: c.fragmentId ? `${under ? "  " : ""}^${id}  ${where}${what}` : `${under ? "  " : ""}${where}${what} · adds ^${id}`,
-    blockId: c.blockId, fragmentId: id, passageLine: c.lineIndex,
-    ...(!c.fragmentId ? { addition: ` · adds ^${id}` } : {}), kind: c.fragmentId ? "anchor" : c.kind, insertion: `((${c.blockId}^${id}))`,
-    docs: `${c.kind} in ${c.title}${c.fragmentId ? "" : `: choosing it adds ^${id} to that line`}`,
-    ...(c.anchor ? { anchor: { lineIndex: c.lineIndex, line: c.anchor.line, revision: c.revision } } : {}),
+    items, truncated, message, ...(all.some(a => a.jev === "ranked") ? { jev: "ranked" as const } : {}), ...(all.some(a => a.jevOff) ? { jevOff: true } : {}),
+    // Only a token the service answers has picks kept for it (a filter's word, a fence's settings don't: nothing reads them).
+    ...(heading ? { heading } : {}), ...(triggerOf(target.kind) ? { pickKey: pickKey({ trigger: triggerOf(target.kind), kind: target.kind, key: target.key }) } : {}),
   };
 }
 
@@ -462,7 +352,7 @@ async function attributeCandidates(board: CompletionBoard, schema: ComponentSche
     values = listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed") && e.name?.startsWith(q))
       .map(e => ({ label: e.name!, value: e.name!, detail: e.description }));
   } else if (prop.type === "ref") {
-    const refs = await lookupCompletion(board, { kind: "block", start: 0, end: q.length, query: q }, null, own, opts);
+    const refs = await lookupCompletion(board, { kind: "block", start: 0, end: q.length, query: q }, own, opts);
     values = refs.items.map(i => ({ label: i.label, value: i.insertion, detail: i.docs }));
   } else if (prop.type === "action" && opts.host) {
     const completed = await commandCandidates(q, opts.host);
@@ -533,20 +423,12 @@ function valuePreview(schemas: readonly ComponentSchema[], c: PropertyCandidate,
 }
 
 /**
- * The callout types for `> [!query`: the names and aliases that start with what's typed first (a name before its
- * aliases), then those that contain it; each written as `[!name]`, with its icon in its tone.
+ * The outline's callout types for `> [!`, each written as `[!name]` with its icon in its tone: every one, the matcher
+ * ranks them by what's typed (a name, an alias, or its title).
  */
-export function calloutCandidates(types: CalloutRegistry, query: string, src: ListSource | null = null): CompletionItem[] {
-  const q = query.trim().toLowerCase();
-  const score = (t: CalloutRegistry["types"][number]) => {
-    if (!q) return 0;
-    if (t.name.startsWith(q)) return 0;
-    if (t.aliases.some(a => a.startsWith(q))) return 1;
-    if (t.name.includes(q) || t.aliases.some(a => a.includes(q)) || t.title.toLowerCase().includes(q)) return 2;
-    return -1;
-  };
-  return types.types.map(t => ({ t, s: score(t) })).filter(x => x.s >= 0).sort((a, b) => a.s - b.s).map(({ t }) => ({
-    label: `${t.icon} ${t.name}${t.aliases.length ? ` (${t.aliases.join(", ")})` : ""}`,
+export function calloutCandidates(types: CalloutRegistry, src: ListSource | null = null): CompletionItem[] {
+  return types.types.map(t => ({
+    label: `${t.icon} ${t.name}${t.aliases.length ? ` (${t.aliases.join(", ")})` : ""}`, filter: t.title,
     insertion: `[!${t.name}]`, kind: "callout", ...(t.block ? { detail: "this outline's" } : {}), icon: { glyph: t.icon, colour: TONE[t.tone] },
     preview: (w: number, h: number) => drawVariation({ values: {}, use: `> [!${t.name}] ${t.title}\n> An example callout.` }, w, src).slice(0, h),
     docs: `${t.title}${t.aliases.length ? ` · also ${t.aliases.map(a => `[!${a}]`).join(" ")}` : ""}`,
@@ -627,7 +509,8 @@ export class Completer {
   private accepting = false;
   private loadingMore = false;
   private limit = COMPLETION_LIMIT;
-  private prefix: string | null | undefined;
+  /** The ask in flight: aborted when the person types on or the list closes, so a slow source stops. */
+  private asking: AbortController | null = null;
   private componentUsage?: Promise<Record<string, number>>;
   constructor(private readonly d: CompletionField, private readonly board: CompletionBoard, private readonly redraw: () => void, private readonly own: () => OwnNote | undefined = () => undefined) {}
 
@@ -654,6 +537,8 @@ export class Completer {
 
   dismiss(): void {
     this.generation++;
+    this.asking?.abort();
+    this.asking = null;
     this.stopJev();
     this.previewGesture.cancel();
     if (!this.state) return;
@@ -686,7 +571,7 @@ export class Completer {
       s.jev = "asking";
       this.redraw();
       try {
-        const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { semantic: true, near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined });
+        const r = await lookupCompletion(this.board, target, this.own(), { semantic: true, near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined });
         if (r.jevOff) jevOff.add(this.board);
         const now = this.state;
         if (now !== s) return;
@@ -718,9 +603,10 @@ export class Completer {
     this.redraw();
     try {
       // Only an answer is kept for the draft: a failed lookup is asked again next time, as the outliner does.
-      if (this.prefix === undefined) this.prefix = await this.board.workIdPrefix().catch(() => undefined);
       if (target.kind === "component") this.componentUsage ??= this.board.componentUsage();
-      const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { componentUsage: this.componentUsage, near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined });
+      this.asking?.abort();
+      const asking = this.asking = new AbortController();
+      const r = await lookupCompletion(this.board, target, this.own(), { componentUsage: this.componentUsage, near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined, signal: asking.signal });
       if (r.jevOff) jevOff.add(this.board);
       if (!this.current(generation)) return;
       // A `[` that starts no property the schemas know (a Markdown link's text, say) opens nothing.
@@ -934,7 +820,7 @@ export class Completer {
     const offset = fragment ? this.limit : undefined;
     const limit = this.limit + COMPLETION_LIMIT;
     try {
-      const r = await lookupCompletion(this.board, s.target, this.prefix ?? null, this.own(), { near: this.near(), limit: fragment ? COMPLETION_LIMIT : limit, offset });
+      const r = await lookupCompletion(this.board, s.target, this.own(), { near: this.near(), limit: fragment ? COMPLETION_LIMIT : limit, offset });
       if (!this.current(generation) || this.state !== s) return;
       this.limit = limit;
       const seen = new Set(s.items.map(i => i.insertion));
@@ -955,6 +841,8 @@ export class Completer {
     this.accepting = true;
     try {
       if (!await insertCompletion(this.board, this.d, s.target, item, this.own(), () => this.current(generation))) return false;
+      // Counted by the outline host (PIE-1340), so this pick ranks higher next time, here and in every other client.
+      if (s.pickKey) void this.board.completionPicked?.(s.pickKey, item.insertion).catch(() => {});
       this.dismiss();
       // A folder leaves `[file::notes/` open: its entries are offered next; a filter's key `stage:` its values. A chosen value ends it
       // (the cursor is still in its word, which would offer the same value again).
@@ -1244,7 +1132,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   const preview = (pw: number, ph: number) => {
     if (selected.blockId && selected.preview) { s.previewLines = undefined; return selected.preview(pw, ph); }
     const docs = selected.docs ?? (selected.preview ? "" : selected.insertion);
-    const lines = [...(docs ? rowLines(printable(docs, " "), pw, Infinity).map(l => fg(C.lcyan) + l + RESET) : []), ...(selected.preview?.(pw, 10000) ?? [])];
+    const lines = [...(docs ? docs.split("\n").flatMap(d => rowLines(printable(d, " "), pw, Infinity)).map(l => fg(C.lcyan) + l + RESET) : []), ...(selected.preview?.(pw, 10000) ?? [])];
     s.previewLines = lines;
     // Not clamped here: the room rule asks once to measure, at a height other than the panel's (previewBy clamps).
     const top = s.previewTop ?? 0;

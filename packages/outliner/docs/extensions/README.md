@@ -297,7 +297,8 @@ extensions/horoscope/
 | `tiles[]` | Tile kinds (kind 4). |
 | `agents[]` | Agents a person addresses while they write (`@tidy …`); see [Agents in the note](#agents-in-the-note). |
 | `rules[]` | "When a block matches this": `match`, then `decorate` and `on`; see [Rules](#rules-when-a-block-matches). A rule with only built-in decorations needs no `run`. |
-| `bar[]` | Sources of rows for a client's command palette (the door's power bar, at most 4; `&` is the door's own extensions scope, so a prefix is one of `! # $ * : ; = ^ \| ~`); see [Bar sources](#bar-sources-a-command-palettes-rows). Needs `run`. |
+| `sources[]` | Sources of rows (at most 8): with a `prefix` (or `main`) the door's power bar's, with `triggers` completion's, under the triggers that exist (`[[`, `((`, `@`, `::`, `[key`, `key::`, `yaml-key`, `yaml-value`, `[file::`, `> [!`; never a sigil of its own); see [Bar sources](#bar-sources-a-command-palettes-rows) and [Completion sources](#completion-sources-rows-where-a-person-types). Needs `run`. |
+| `bar[]` | The old name of `sources[]` for a palette source (at most 4), still read and answered by the `bar` operation; write `sources[]`. |
 | `components[]` | What the properties your lines or notes take are, as component schemas (at most 8); see [Component schemas](#component-schemas-docs-and-completion). Needs no `run`. |
 | `demo` | A folder of demo notes (usually `"demo"`), written under the extension's page when it's installed, once; see [An extension's page and its demo notes](#an-extensions-page-and-its-demo-notes). |
 
@@ -403,7 +404,8 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
 | `respond` | an `@name` request | `{ agent, request, mark, note: { id, revision, text }, context }` | `{ message?, reply?, patches?: [{ observed, replacement, before?, after? }] }` |
 | `decorate` | a rule's hit (no `use`) | `{ rule, hit, context }` | `{ view, title? }` |
 | `act` | an action | `{ action, args?, requestedBy?, target?: { blockId, revision, line?, argument?, options? }, context, output?, scheduled? }` (no block: `context` is `{ now }`) | `{ message?, writes?: [...], copy?, open? }` |
-| `bar` | a bar source, as the person types | `{ source, query, limit, context? }` (`context`: the note in front of the person) | `{ rows: [{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }] }` |
+| `source` | a source in `sources[]`, as the person types: in the power bar, or under a completion trigger | `{ source, query, limit, context?, trigger? }` (`context`: the note in front of the person; `trigger`: `{ kind, key?, component? }` for completion) | the bar: `{ rows: [{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }] }`; completion: `{ rows: [{ label, insert, kind?, detail?, docs?, id?, filter?, group?, preselect? }] }` |
+| `bar` | a source in the old `bar[]` | as `source`, without `trigger` | the bar's rows |
 | `resolve`, `read`, `changed` | a provider of Resources (a `kind: "resource"` handler: Jira's, or any) | see [resource-process.md](resource-process.md) | |
 
 `context` is what the call sees of the outline, bounded and read-only:
@@ -1190,14 +1192,14 @@ own. It isn't a fifth kind: it only answers, and what a row does when picked goe
 already has.
 
 ```json
-"bar": [{ "id": "glyphs", "title": "glyphs", "prefix": "~", "description": "CP437 shades, blocks and box lines", "main": false }]
+"sources": [{ "id": "glyphs", "title": "glyphs", "prefix": "~", "description": "CP437 shades, blocks and box lines", "main": false }]
 ```
 
 - `prefix`: one character (`! # $ & * : ; = ^ | ~`) that scopes the bar to this source when typed first; one the bar
   already uses (its own `% / > + @`, another extension's) is left off, and tab still reaches the source.
 - `main`: its rows join the bar's main list (before a scope is chosen) as well as its own scope. Each pause in typing
   calls it, so only a quick source should.
-- **The `bar` operation** gets `{ source, query, limit, context? }`: what was typed after the prefix, and the note in
+- **The `source` operation** (`bar` for a source still written in the old `bar[]`) gets `{ source, query, limit, context? }`: what was typed after the prefix, and the note in
   front of the person as `context` (bounded and read-only, as an action's). It returns `{ rows }`, at most 50:
   `{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }` (`resource`: a
   [Resource ref](#opening-a-resource), opened in place of a block).
@@ -1214,6 +1216,40 @@ already has.
 
 The example is [glyphs](../../extensions/glyphs): code page 437's shades and box lines by name, a row copying one,
 and on a note a row that rules it with one (its `rule` action).
+
+## Completion sources: rows where a person types
+
+A **completion source** (PIE-1340, ADR 0004 §4) adds rows to the list that opens where a person types a reference or
+a property: the door's editor, every line field, and the outliner's Detail, Tree and Quick Capture. It joins the
+triggers that exist, beside the built-in sources (the outline's pages, notes and their anchors, files, agents,
+components, properties, callout types), and one matcher ranks every row together: a label that starts with what's
+typed first, one that holds it after, then letters in order; among equals, what was picked more often and more lately
+(the outline host keeps the picks, so every client agrees), then the built-ins.
+
+```json
+"sources": [{ "id": "issues", "title": "issues", "triggers": ["[[", "key::"], "keys": ["issue"],
+  "description": "open issues by number or title: [[ or [issue:: then a word" }]
+```
+
+- `triggers`: which of the existing ones it answers. `key::` is a property's value; `keys` narrows it to those keys
+  (`[issue::` and nothing else). There is no way to declare a new sigil.
+- **The `source` operation** gets `{ source, query, limit, trigger: { kind, key?, component? }, context? }` and returns
+  `{ rows }`, at most 20: `{ label, insert, kind?, detail?, docs?, id?, filter?, group?, preselect? }`.
+  - `insert` is what choosing it writes in place of the token (the whole `[[…` under `[[`, only the value under
+    `key::`): one line, at most 500 characters, or `{ snippet, select: { start, end } }` to leave a span selected.
+  - `kind` is the short word at the row's right (`issue`), `detail` one dim line after the label, `docs` Blockdown
+    the docs panel beside the list wraps, `filter` words the matcher reads besides the label.
+  - Return every row that could fit, filtered as cheaply as you like: the person's completer ranks them. A slow source
+    is given 1.5 s; past that the list goes on without it and its footer says so.
+- **It only answers.** An insert goes into the person's own draft, never the note; an agent completing (`act complete
+  text=…`) reads the same rows.
+- **`completion.rows`** asks the service's sources and the extensions' for a token: `{ "action": "completion.rows",
+  "target": { "kind": "page", "query": "seed" }, "near": "<block id>" }` → `{ answers: [{ source, rows, problem? }],
+  picks }`; a client merges the answers with outline-core's `mergeSourceAnswers`. `completion.picked` `{ key, insert }`
+  counts a pick. `extensions.list` lists every serving extension's completion sources as `completionSources`.
+
+The example is [issues](../../extensions/issues): a tracker's open issues (made up, in `issues.json`), read once a
+call and offered under `[[` and `[issue::`, as pi's `github-issue-autocomplete.ts` preloads `gh issue list`.
 
 ## Agents in the note
 
@@ -1971,7 +2007,7 @@ Answers `RenderedNote`.
 | `deletedDescendantCount?` | `number` |  |
 | `hasChildren` | `boolean` |  |
 | `displayText` | `string` |  |
-| `propertyMatches?` | `PropertyMatchContext[]` |  |
+| `propertyMatches?` | `PropertyMatch[]` |  |
 | `id` | `string` |  |
 | `parentId` | `string \| null` |  |
 | `position` | `number` |  |
@@ -2244,6 +2280,7 @@ Both built with no core change, working around these. Wave 2 closed them:
     "actions": [{ "id": "keep", "name": "ext.horoscope.keep", "builtIn": true, … }],
     "tiles": [],
     "bar": [],
+    "completion": [],
     "schedules": [{ "entry": "handler:horoscope", "every": "1h", "next": "…", "last": { "at": "…", "ok": true, "message": "ran 2 horoscope:: lines", "ms": 210 } }],
     "lastRun": { "at": "…", "call": "ext.horoscope.horoscope", "ok": false, "error": "command exited with code 1: no sign given" }
   }, {
@@ -2252,6 +2289,7 @@ Both built with no core change, working around these. Wave 2 closed them:
   "resourceProviders": [{ "provider": "ext:jira", "key": "jira", "label": "Jira", "keyPattern": "^[A-Z][A-Z0-9_]*-[1-9][0-9]*$", "fields": ["status", "assignee", "type", "priority", "labels"], "link": "browse/{{key}}" }],
   "tileKinds": [ … ],
   "barSources": [{ "id": "glyphs", "extension": "glyphs", "name": "ext.glyphs.glyphs", "title": "glyphs", "prefix": "~", "main": false }],
+  "completionSources": [{ "id": "issues", "extension": "issues", "name": "ext.issues.issues", "title": "issues", "triggers": ["[[", "key::"], "keys": ["issue"] }],
   "primitives": ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image", "button", "list"],
   "rules": [{ "key": "ext:done-stamp/stamp", "name": "done-stamp/stamp", "source": { "kind": "extension", … }, "match": { "query": "status=done" }, "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" }, "matching": 3 }],
   "ruleProblems": [],

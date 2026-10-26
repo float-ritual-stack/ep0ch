@@ -1,6 +1,7 @@
 // Reference completion in the door's editor (PIE-416): [[, (( and [file:: offer what the service's
 // lookups find, the way Tree, Detail and Quick Capture do, and insert the same syntax. The popup never
 // keeps a key it doesn't use. Everything here runs on a scratch service with fictional notes.
+import { serviced } from "./serviced";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,7 +14,7 @@ import type { ReaderPane } from "../src/desk/panes";
 import { openScreen } from "../src/desk/screen-specs";
 import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";
-import { completionTargetAtCursor, pageAddressCompletion } from "../src/completion";
+import { completionTargetAtCursor, pageAddressCompletion } from "@ep0ch/outline-core/completion-triggers";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import { BUILTIN_HEADING_STYLES } from "@ep0ch/outline-core/heading-styles";
 import { Draft } from "../src/edit";
@@ -148,13 +149,13 @@ describe("the popup opens on typing, never on moving the cursor (a fake service)
   const tick = () => new Promise(r => setTimeout(r, 15));
   function fake(prefix: () => Promise<string | null> = async () => "HOME") {
     const calls = { prefix: 0 };
-    const board = {
+    const board = serviced({
       completePages: async () => ({ addresses: [{ address: "gardening", blockId: "b1", kind: "page", title: "Gardening" }], completeness: { kind: "complete" } }),
       completeFiles: async () => [],
       searchBlocks: async () => ({ matches: [{ block: { id: "b2", revision: 1 }, title: "Xylophone lessons", path: "", snippet: "Xylophone lessons", exact: false }], completeness: { kind: "complete" }, semantic: { status: "lexical" } }),
       blockContext: async (id: string) => ({ selected: { id, text: "Gardening" }, ancestors: [] }),
       workIdPrefix: () => { calls.prefix++; return prefix(); },
-    };
+    });
     return { board, calls };
   }
 
@@ -197,31 +198,17 @@ describe("the popup opens on typing, never on moving the cursor (a fake service)
     await until(() => !!completionOf(d) && !completionOf(d)!.loading, "the asked lookup");
     expect(completionOf(d)!.items[0]!.insertion).toBe("[[gardening]]");
   });
-
-  test("a failed Work ID prefix lookup is asked again; an answer is kept for the draft", async () => {
-    let fail = true;
-    const { board, calls } = fake(async () => { if (fail) { fail = false; throw new Error("socket closed"); } return "HOME"; });
-    const d = new Draft("x", 1, "");
-    const c = completerFor(d, board, () => {})!;
-    completionKey(d, char("["), c);
-    for (const ch of "[g") { completionKey(d, char(ch), c); await until(() => !!c.state && !c.state.loading, "the lookup"); }
-    // "[[" asks and fails, "[[g" asks again and gets it; nothing asks after that.
-    expect(calls.prefix).toBe(2);
-    completionKey(d, char("a"), c);
-    await until(() => !!c.state && !c.state.loading, "the lookup");
-    expect(calls.prefix).toBe(2);
-  });
 });
 
 describe("callout types after > [! (PIE-538): the outline's one list, in the same popup", () => {
-  const board = {
+  const board = serviced({
     completePages: async () => ({ addresses: [], completeness: { kind: "complete" } }),
     completeFiles: async () => [],
     searchBlocks: async () => ({ matches: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } }),
     blockContext: async () => ({ selected: null, ancestors: [] }),
     workIdPrefix: async () => null,
     calloutTypes: async () => ({ types: [{ name: "recipe", title: "Recipe", icon: "♨", tone: "green", aliases: ["dish"], block: "decl-1" }], problems: [] }),
-  };
+  });
 
   test("typing > [! offers every type with its icon; what's typed narrows it, an alias too; Enter writes [!name]", async () => {
     const d = new Draft("b1", 1, "Pantry\n");
@@ -251,7 +238,7 @@ describe("callout types after > [! (PIE-538): the outline's one list, in the sam
 
 describe("property keys and values from the component schemas (PIE-618): the same popup, no list of its own", () => {
   const plot = { value: "plot", meaning: "this outline's: dots, 3 rows, left, plain", declared: "decl-plot" };
-  const board = {
+  const board = serviced({
     completePages: async () => ({ addresses: [], completeness: { kind: "complete" } }),
     completeFiles: async () => [],
     searchBlocks: async () => ({ matches: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } }),
@@ -259,7 +246,7 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     workIdPrefix: async () => null,
     // The service's merged answer: the built-ins with the outline's own style among [heading::]'s values.
     componentSchemas: async () => mergeComponentSchemas({ headingStyles: [{ ...BUILTIN_HEADING_STYLES[4]!, name: "plot", block: "decl-plot" }] }),
-  };
+  });
   const typing = (text: string) => {
     const d = new Draft("b1", 1, "Pantry\n");
     d.row = 1; d.col = 0;
@@ -345,7 +332,7 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
   const lexical = [hit("b1", "Party hats"), hit("b2", "Party lights"), hit("b3", "Fat cats in party hats")];
   function fake(answer: (semantic: boolean) => Promise<void> = async () => {}) {
     const asked: { query: string; semantic: boolean; near?: string }[] = [];
-    const board = {
+    const board = serviced({
       completePages: async () => ({ addresses: [], completeness: { kind: "complete" } }),
       completeFiles: async () => [],
       searchBlocks: async (query: string, opts: { semantic?: boolean; near?: string } = {}) => {
@@ -357,7 +344,7 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
       },
       blockContext: async (id: string) => ({ selected: { id, text: "x" }, ancestors: [] }),
       workIdPrefix: async () => "HOME",
-    };
+    });
     return { board, asked };
   }
 
@@ -430,7 +417,7 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
     const asked: { query?: string; semantic: boolean; near?: string }[] = [];
     const page = (address: string, blockId: string) => ({ address, blockId, kind: "page", title: address });
     const pages = [page("party-hats", "p1"), page("party-lights", "p2"), page("fat-cats", "p3")];
-    const board = {
+    const board = serviced({
       completePages: async (query: string | undefined, _limit: number, opts: { semantic?: boolean; near?: string } = {}) => {
         asked.push({ query, semantic: !!opts.semantic, near: opts.near });
         return opts.semantic
@@ -441,7 +428,7 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
       searchBlocks: async () => ({ matches: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } }),
       blockContext: async (id: string) => ({ selected: { id, text: "x" }, ancestors: [] }),
       workIdPrefix: async () => "HOME",
-    };
+    });
     const d = new Draft("comment:note-7", 1, "");
     d.near = "note-7";
     const c = completerFor(d, board, () => {})!;
@@ -472,7 +459,7 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
 
   test("a service without Jev configured is not asked again", async () => {
     let semanticAsks = 0;
-    const board = {
+    const board = serviced({
       completePages: async () => ({ addresses: [], completeness: { kind: "complete" } }),
       completeFiles: async () => [],
       searchBlocks: async (_q: string, opts: { semantic?: boolean } = {}) => {
@@ -481,7 +468,7 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
       },
       blockContext: async (id: string) => ({ selected: { id, text: "x" }, ancestors: [] }),
       workIdPrefix: async () => "HOME",
-    };
+    });
     const d = new Draft("note-1", 1, "");
     const c = completerFor(d, board, () => {})!;
     for (const ch of "((party") completionKey(d, char(ch), c);
@@ -1215,7 +1202,8 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(p.items.map(i => i.insertion)).toEqual(r.items.map((i: any) => i.insertion));
     e.press(K("esc"));
     const f: any = await e.s.act("complete", { text: "[file::notes/" }, e.h, AGENT);
-    expect(f.items.map((i: any) => i.insertion)).toEqual(["[file::notes/beds/", "[file::notes/plan.md]"]);
+    // Both, in whichever order this service's picks put them (plan.md was chosen above, so it may lead).
+    expect(f.items.map((i: any) => i.insertion).sort()).toEqual(["[file::notes/beds/", "[file::notes/plan.md]"]);
     // The person's draft is theirs: a candidate isn't put in at their cursor (round 3, deferred), their text and cursor as they were.
     const before = [e.d.text, e.d.row, e.d.col];
     await expect(e.s.act("complete", { insert: 1 }, e.h, AGENT)).rejects.toThrow("this draft is the person's; an agent doesn't type in it");
@@ -1254,7 +1242,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     // The person types at the start of the line while the (invited) agent's lookup is in flight.
     const slow = new Proxy(board, {
       get(t, p) {
-        if (p === "workIdPrefix") return async () => { e.press({ kind: "home" }); e.type("so "); e.press(K("end")); e.press(K("esc")); return t.workIdPrefix(); };
+        if (p === "completionRows") return async (r: never) => { e.press({ kind: "home" }); e.type("so "); e.press(K("end")); e.press(K("esc")); return t.completionRows(r); };
         const v = (t as any)[p];
         return typeof v === "function" ? v.bind(t) : v;
       },

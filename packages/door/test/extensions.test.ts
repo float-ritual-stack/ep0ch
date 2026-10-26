@@ -224,7 +224,8 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     for (const c of "@ti") s.key({ kind: "char", ch: c }, h);
     await until(() => !!completionOf(d) && !completionOf(d)!.loading, "the agents offered");
     const p = completionOf(d)!;
-    expect(p.items.map(i => i.label)).toEqual(["@tidy"]);
+    // The one matcher ranks them: the name that starts with what's typed first, one that only holds it after.
+    expect(p.items[0]!.label).toBe("@tidy");
     expect(p.items[0]!.detail).toBeTruthy();
     expect(p.items[0]!.docs).toContain("once the line is quiet");
     s.key({ kind: "enter" }, h);

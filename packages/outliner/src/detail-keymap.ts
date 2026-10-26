@@ -605,7 +605,9 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
 
     const resolved = actionKeymap.resolve("detail", activeScopes(), str, key);
     if (resolved.suppressed) return;
-    if (resolved.actionId) {
+    // A lone new page (PIE-592) isn't taken by ⏎ until it's chosen: the key is the editor's, a new line.
+    const loneEnter = resolved.actionId === "detail.completion.accept" && key.name === "return" && !!controller.state.completion?.lone;
+    if (resolved.actionId && !loneEnter) {
       await invokeAction(resolved.actionId);
       return;
     }

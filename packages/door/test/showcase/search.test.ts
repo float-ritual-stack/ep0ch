@@ -121,7 +121,9 @@ describe.skipIf(!outliner)("the showcase screen: search", () => {
     (app as any).lastInput = 0;
     const finding = seeded.notes.finding.id;
     const asked: { query: string; semantic: boolean; near?: string }[] = [];
-    const real = board.searchBlocks.bind(board);
+    const real = board.searchBlocks.bind(board), rows = board.completionRows.bind(board);
+    // The popup's (( is the service's blocks source (PIE-1340): asked with the note it's asked from.
+    board.completionRows = async (r) => { asked.push({ query: r.target.query, semantic: !!r.semantic, near: r.near }); return rows(r); };
     // Jev, as a host with a key would answer: the same hits, reversed, said "ranked".
     board.searchBlocks = async (text, opts = {}) => {
       asked.push({ query: text, semantic: !!opts.semantic, near: opts.near });
@@ -164,6 +166,7 @@ describe.skipIf(!outliner)("the showcase screen: search", () => {
       expect(S().focus).toBe("index");
     } finally {
       board.searchBlocks = real;
+      board.completionRows = rows;
       // Whatever failed above, the next test starts at the index with no bar open.
       if ((app as any).bar?.query) press({ kind: "esc" });
       if ((app as any).bar) press({ kind: "esc" });

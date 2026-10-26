@@ -4,7 +4,7 @@ import type { ExtensionRunStatus } from "./resource-extensions";
 import type { ResourceProviderEntry } from "./resource-references";
 import { extensionProvider } from "./resources";
 import type { ScheduleListEntry } from "./extension-schedule";
-import type { ExtensionBarSource } from "@ep0ch/outline-core/protocol";
+import type { ExtensionBarSource, ExtensionCompletionSource } from "@ep0ch/outline-core/protocol";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { existsSync, readdirSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
 import { hostname } from "node:os";
@@ -23,6 +23,7 @@ import {
   type ExtensionOrigin,
   type ExtensionTile,
   type LoadedExtension,
+  manifestSources,
 } from "./extension-manifest";
 import { userExtensionsDirectory, userExtensionsFolderInUse } from "./resource-extensions";
 
@@ -154,6 +155,8 @@ export interface ExtensionEntry {
   readonly agents: readonly ExtensionAgentEntry[];
   /** Its command-palette sources (PIE-656). */
   readonly bar: readonly ExtensionBarEntry[];
+  /** Its completion sources (PIE-1340): rows under the existing triggers. */
+  readonly completion: readonly ExtensionCompletionSource[];
   /** Its schedules (PIE-754): when each runs next and what its last run did. Added by the service; absent when none. */
   readonly schedules?: readonly ScheduleListEntry[];
   /** Its last call of any kind since the service started (wave 2): when, which, and why it failed. Added by the service. */
@@ -178,6 +181,8 @@ export interface ExtensionsListResult {
   readonly tileKinds: readonly ExtensionTileKind[];
   /** Every serving extension's command-palette sources (PIE-656), for the door's power bar. */
   readonly barSources: readonly ExtensionBarEntry[];
+  /** Every serving extension's completion sources (PIE-1340), which `completion.rows` asks with the built-ins. */
+  readonly completionSources: readonly ExtensionCompletionSource[];
   /** The shared component primitives every client draws (src/component-primitives.ts). */
   readonly primitives: readonly string[];
   /** The render targets a component can be asked for. */
@@ -494,12 +499,21 @@ export class ExtensionRegistry {
 
   /** An extension's command-palette sources (PIE-656), as clients bind them. */
   barOf(extension: LoadedExtension): ExtensionBarEntry[] {
-    return (extension.manifest.bar ?? []).map((source) => ({
+    return manifestSources(extension.manifest).filter((source) => source.operation === "bar" || source.prefix || source.main).map((source) => ({
       id: source.id, extension: extension.id, name: `ext.${extension.id}.${source.id}`, title: source.title,
       ...(source.prefix ? { prefix: source.prefix } : {}),
       ...(source.description ? { description: source.description } : {}),
       main: source.main ?? false,
     }));
+  }
+
+  /** An extension's completion sources (PIE-1340): those with triggers. */
+  completionOf(extension: LoadedExtension): ExtensionCompletionSource[] {
+    return manifestSources(extension.manifest).flatMap((source) => source.triggers ? [{
+      id: source.id, extension: extension.id, name: `ext.${extension.id}.${source.id}`, title: source.title,
+      ...(source.description ? { description: source.description } : {}),
+      triggers: source.triggers, ...(source.keys ? { keys: source.keys } : {}),
+    }] : []);
   }
 
   /** The component schemas each serving extension ships (PIE-618), for `components.schemas`. */
@@ -548,6 +562,7 @@ export class ExtensionRegistry {
           .filter((agent) => this.boundAgents.get(agent.name)?.extension === extension)
           .map((agent) => ({ name: agent.name, ...(agent.description ? { description: agent.description } : {}), effects: agent.effects ?? "read", ...(agent.threads ? { threads: true } : {}) })) : [],
         bar: serving ? this.barOf(extension) : [],
+        completion: serving ? this.completionOf(extension) : [],
       };
     });
     return {
@@ -558,6 +573,7 @@ export class ExtensionRegistry {
         (extension.manifest.handlers ?? []).some((handler) => handler.kind === "resource" && this.bound.get(handler.key)?.extension === extension))),
       tileKinds: extensions.flatMap((entry) => entry.tiles),
       barSources: extensions.flatMap((entry) => entry.bar),
+      completionSources: extensions.flatMap((entry) => entry.completion),
       primitives: PRIMITIVE_TYPES,
       targets: RENDER_TARGETS,
       trust: TRUST,

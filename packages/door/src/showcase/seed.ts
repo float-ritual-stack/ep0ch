@@ -20,14 +20,14 @@ import { USER, hostRequest, type Actor, SocketBoard } from "../socket";
 import { prop } from "../props";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
-import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, PROGRAM_EXAMPLES, RULE_EXAMPLES, VIEW_EXAMPLES } from "./tickets/install";
+import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, PROGRAM_EXAMPLES, RULE_EXAMPLES, SOURCE_EXAMPLES, VIEW_EXAMPLES } from "./tickets/install";
 
 import { SEED, SEED_AGENT, SHOWCASE_MARK, type SeedName, WORK_PREFIX } from "./seed/names";
 import { ECHO_COPIES, ECHO_NODELIST, ECHO_POSTS, ECHO_SEEN_BY, ECHO_TOSSER, ECHO_TOSSES } from "./seed/echonet";
 import { PROJECT_FIGURE, PROJECT_TICKETS, VENT_RAIL } from "./seed/self";
 import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, laneQuery, societyText } from "./seed/work";
 import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, KEYS_TEXT, dashboardText, figuresText, markdownFiguresText } from "./seed/figures";
-import { DEEP_LINKS, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
+import { DEEP_LINKS, SOURCES, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
 import { LIST_FOLDS } from "./seed/list-folds";
 import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
@@ -449,6 +449,8 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.finding = await make(notes.root.id, FINDING);
   notes.meeting = await make(notes.root.id, MEETING);
   notes.deepLinks = await make(notes.root.id, DEEP_LINKS);
+  notes.sources = await make(notes.root.id, SOURCES);
+  notes.swapDay = await make(notes.root.id, `${SEED.swapDay} [page::${SEED.swapDay}]\nBring seeds in paper envelopes, labelled with what and when.`);
   notes.margin = await make(notes.root.id, MARGIN);
   notes.wholeNote = await make(notes.root.id, WHOLE_NOTE);
   notes.errand = await make(notes.root.id, ERRAND);
@@ -584,11 +586,11 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.brief = await make(notes.root.id, briefText({ lanes, cards, hub: notes.hub, gardenView: notes.gardenView }), SEED_AGENT);
   // The example rules, last: a trigger starts from what matches when it's installed, so nothing seeded before is stamped.
   const rulesFrom = opts.outliner ?? opts.rulesFrom;
-  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, [...RULE_EXAMPLES, ...PROGRAM_EXAMPLES, ...CARD_EXAMPLES, ...FORM_EXAMPLES, ...VIEW_EXAMPLES]).length) {
+  if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, [...RULE_EXAMPLES, ...PROGRAM_EXAMPLES, ...CARD_EXAMPLES, ...FORM_EXAMPLES, ...VIEW_EXAMPLES, ...SOURCE_EXAMPLES]).length) {
     const end = Date.now() + 10_000;
     while (Date.now() < end) {
       const listed = await board.listExtensions(true).catch(() => null);
-      if (listed?.rules?.some(r => r.key === "ext:done-stamp/stamp") && listed.extensions.some(e => e.id === "gallery" && e.state === "active")) break;
+      if (listed?.rules?.some(r => r.key === "ext:done-stamp/stamp") && listed.extensions.some(e => e.id === "gallery" && e.state === "active") && listed.extensions.some(e => e.id === "issues" && e.state === "active")) break;
       await Bun.sleep(100);
     }
   }

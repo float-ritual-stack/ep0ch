@@ -11,8 +11,10 @@
 // uses component source bounds. Component presentation, figures, property display, heading display, styles,
 // search and dates are GRAMMAR-owned. Never use a GRAMMAR-only parse to choose a write range.
 // A newer host's grammar warns once and never refuses capture; the host's parsing owns saved content.
+import type { CompletionKind } from "./completion-triggers";
+import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 268;
+export const PROTOCOL = 269;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 5;
 
@@ -590,6 +592,62 @@ export interface ExtensionBarResult {
   readonly source: string;
   readonly rows: readonly ExtensionBarRow[];
 }
+
+/**
+ * An extension's completion source (PIE-1340, ADR 0004 §4), as `extensions.list` lists it (`completionSources`): rows
+ * it answers under one of the existing triggers (`[[`, `key::`…; never a sigil of its own), asked with
+ * `completion.rows` alongside the built-ins, through the extension's `source` operation.
+ */
+export interface ExtensionCompletionSource {
+  readonly id: string;
+  readonly extension: string;
+  /** `ext.<extension>.<id>`: unique across extensions. */
+  readonly name: string;
+  readonly title: string;
+  readonly description?: string;
+  readonly triggers: readonly SourceTrigger[];
+  /** For `key::`: only these property keys. */
+  readonly keys?: readonly string[];
+}
+
+/**
+ * `completion.rows` (PIE-1340): every service-side source for the token at the cursor (pages, blocks and their
+ * fragments, files, agents, and the extensions' completion sources), each answering on the one row contract
+ * (outline-core completion-source.ts), with the picks remembered for the trigger. The client merges these with its
+ * own sources' answers (`mergeSourceAnswers`): the door and Detail merge the same way, so they show the same rows.
+ */
+export interface CompletionRowsRequest {
+  target: { kind: CompletionKind; query: string; key?: string; component?: string };
+  /** The note the draft writes in, or is about: nearer notes first, and its own text for `((#heading`. */
+  near?: string;
+  draft?: { blockId: string; text: string };
+  limit?: number;
+  offset?: number;
+  /** Ask Jev to re-order the notes' and pages' candidates. */
+  semantic?: boolean;
+}
+
+/** One source's answer to `completion.rows`, with what its list says when it's empty or cut. */
+export interface CompletionSourceAnswer extends SourceAnswer {
+  /** The source cut its list at this many. */
+  truncated?: number | null;
+  /** What to say when it found nothing; `partial` when it found some and says so. */
+  empty?: string;
+  partial?: string;
+  /** What the list is, when not the trigger's own word (`in Greenhouse meeting`). */
+  heading?: string;
+  jev?: "ranked";
+  jevOff?: boolean;
+}
+
+export interface CompletionRowsResult {
+  answers: CompletionSourceAnswer[];
+  /** This trigger's picks (`pickKey`): how often and how lately each insert was chosen, on any client. */
+  picks: Record<string, PickRecord>;
+}
+
+/** `completion.picked`: a row was chosen. `key` is `pickKey`'s, `insert` the text it wrote. */
+export interface CompletionPickedRequest { key: string; insert: string }
 
 /** Progress for an ask in a held draft; the line stays authored text. */
 export interface AskProgress { line: string; state: string; blocks?: number; beside?: boolean; warning?: string }

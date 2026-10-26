@@ -14,7 +14,7 @@ import { pageAddressReferences, pageAddressText } from "@ep0ch/outline-core/link
 import { searchTextTerms } from "@ep0ch/outline-core/search-match";
 import { HASHTAG_VALUE_PATTERN, isHexColour } from "@ep0ch/outline-core/property-grammar";
 import { tagMatches } from "@ep0ch/outline-core/query-atoms";
-import { completionTargetAtCursor, hashtagAtCursor, pageAddressCompletion, pageCompletionLookupQuery } from "./completion";
+import { referenceTargetAtCursor, hashtagAtCursor, pageAddressCompletion, pageCompletionLookupQuery } from "@ep0ch/outline-core/completion-triggers";
 import { stripFragmentAnchors } from "./fragments";
 import { parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { plainBody } from "./publish-marginalia";
@@ -261,7 +261,7 @@ export async function completeAt(host: SearchHost, text: string, at: number, nea
 
 async function completeLine(host: SearchHost, lines: readonly string[], row: number, column: number, near: string | undefined, tags: boolean): Promise<CompletionAnswer> {
   const line = lines[row] ?? "";
-  const target = completionTargetAtCursor(line, column, lines, row);
+  const target = referenceTargetAtCursor(line, column, lines, row);
   const context = near ? { contextBlockId: near } : {};
   if (target?.kind === "page") {
     const prefix = (await host.request<{ workIdPrefix?: string }>({ action: "references.resolve", text: "" })).workIdPrefix ?? null;

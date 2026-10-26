@@ -9,7 +9,7 @@ import { readAuthoredLinks } from "../src/authored-links";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { embedMatches } from "../src/transclusions";
 import { extractMentionReferences } from "../src/mentions";
-import { completionTargetAtCursor } from "../src/completion";
+import { referenceTargetAtCursor as completionTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
 import { ReferenceCompletionSession, type ReferenceCompletionProvider } from "../src/reference-completion";
 import { TextBuffer } from "../src/text-buffer";
 import { FENCED_LINKS_NOTE, KITTY_REQUEST_NOTE, STRAY_BACKTICK_NOTE } from "../../outline-core/test/fixtures/code-notes";
@@ -68,14 +68,13 @@ test("Detail's completer opens no popup inside backticks, a span being typed or 
   expect(completionTargetAtCursor("See `x` [[Gar", 13, ["See `x` [[Gar"], 0)).toMatchObject({ kind: "page", query: "Gar" });
   let asked = 0;
   const provider: ReferenceCompletionProvider = {
-    queryBlocks: async () => ({ blocks: [], completeness: { kind: "complete" } }),
-    queryPageAddresses: async q => { asked++; return { addresses: [{ address: q || "home", normalizedAddress: q || "home", blockId: "home", kind: "page", title: "home" }], completeness: { kind: "complete" } }; },
-    completeFiles: async () => [], readContext: async () => null as never, updateBlock: async () => null as never,
+    completionRows: async r => { asked++; return { answers: [{ source: { id: "pages", title: "pages", ranked: true, by: "service" }, rows: [{ label: "home", insert: `[[${r.target.query || "home"}]]`, kind: "page" }] }], picks: {} }; },
+    queryPageAddresses: async () => ({ addresses: [], completeness: { kind: "complete" } }), readContext: async () => null as never, updateBlock: async () => null as never,
   };
   for (const [text, opens] of [["Title\n```\n[[Gar", false], ["Title\nquote `((ab", false], ["Title\n`code` [[Gar", true]] as const) {
     const buffer = new TextBuffer(text), lines = text.split("\n");
     buffer.placeCursor(lines.length - 1, lines.at(-1)!.length);
-    const session = new ReferenceCompletionSession(provider, () => buffer, () => null, () => {}, () => true);
+    const session = new ReferenceCompletionSession(provider, () => buffer, () => {}, () => true);
     await session.refresh();
     expect(session.state !== null).toBe(opens);
   }

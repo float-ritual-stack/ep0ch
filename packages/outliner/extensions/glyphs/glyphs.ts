@@ -1,4 +1,4 @@
-// A bar source (PIE-656): the `bar` operation answers what the person typed after `~` with rows. A row copies its
+// A bar source (PIE-656): the `source` operation answers what the person typed after `~` with rows. A row copies its
 // glyph; with a note in front of the person (the call's `context`), one more row runs `rule`, which writes a line of
 // the glyph under that note, attributed to ext:glyphs. Nothing here reads the network or anything private.
 
@@ -31,7 +31,7 @@ const say = (value: unknown) => process.stdout.write(JSON.stringify({ ok: true, 
 const request = (await Bun.stdin.json()) as Request;
 const input = request.input;
 
-if (request.operation === "bar") {
+if (request.operation === "source") {
   const words = (input.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
   const found = GLYPHS.filter(g => words.every(w => g.name.includes(w) || g.words.includes(w) || g.ch === w || String(g.cp) === w));
   const near = input.context?.block;

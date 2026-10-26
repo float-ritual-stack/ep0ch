@@ -308,9 +308,11 @@ export interface ExtensionCallFor {
   readonly trigger?: string;
   /** Filled with what its process writes over its connection (the grant's `wrote`), for the caller to redraw. */
   readonly wrote?: { blockId?: string; parentId?: string | null; previousParentId?: string | null }[];
+  /** Stops the call (a completion ask the person typed past): its process is ended and its answer dropped. */
+  readonly signal?: AbortSignal;
 }
 
-type ExtensionOperation = "resolve" | "read" | "changed" | "run" | "act" | "respond" | "decorate" | "bar";
+type ExtensionOperation = "resolve" | "read" | "changed" | "run" | "act" | "respond" | "decorate" | "bar" | "source";
 /** What one call runs: the install, its manifest's part a call needs, its folder and stamp. */
 interface InstalledCall {
   install: { manifest: string; enabled: boolean; config: Record<string, unknown>; credentials: Record<string, import("typebox").Static<typeof Credential> | { file: string } | { group: string; key: string }> };
@@ -478,7 +480,7 @@ export class ResourceExtensionRuntime {
    */
   async invokeLoaded(
     extension: LoadedExtension,
-    operation: "read" | "run" | "act" | "respond" | "decorate" | "bar",
+    operation: "read" | "run" | "act" | "respond" | "decorate" | "bar" | "source",
     input: unknown,
     deadlineMs?: number,
     callFor: ExtensionCallFor = {},
@@ -492,7 +494,7 @@ export class ResourceExtensionRuntime {
         env: extension.manifest.env ?? [], secretGroups: extension.manifest.secretGroups ?? [] },
       directory: extension.directory,
       stamp: extension.stamp,
-    }, operation, input, undefined, deadlineMs, callFor, async () => {
+    }, operation, input, callFor.signal, deadlineMs, callFor, async () => {
       const after = await folderStamp(extension.directory);
       // Removed, or edited while it ran.
       if (after === null || after !== before) return false;

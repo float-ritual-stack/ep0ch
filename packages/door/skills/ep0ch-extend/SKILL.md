@@ -1,6 +1,6 @@
 ---
 name: ep0ch-extend
-description: Use when someone wants an ep0ch outline or door to do something new by itself - a button that arranges tiles, a script that computes a line, a rule that draws or files matching notes, a component, a palette (power bar) source, a schedule that syncs an outside API, an agent that answers @name, or a kit others install - and before proposing a change to ep0ch's own code for a behaviour a script or extension could provide. Covers picking the smallest tier (rule note, script note, extension folder, built-in), mapping the ask to the mechanism and its doc section, writing it plainly as a probe whose failures become tickets, testing on a scratch outline, and what done means (found where the person is, describes itself, installs and uninstalls cleanly).
+description: Use when someone wants an ep0ch outline or door to do something new by itself - a button that arranges tiles, a script that computes a line, a rule that draws or files matching notes, a component, a palette (power bar) or completion source, a schedule that syncs an outside API, an agent that answers @name, or a kit others install - and before proposing a change to ep0ch's own code for a behaviour a script or extension could provide. Covers picking the smallest tier (rule note, script note, extension folder, built-in), mapping the ask to the mechanism and its doc section, writing it plainly as a probe whose failures become tickets, testing on a scratch outline, and what done means (found where the person is, describes itself, installs and uninstalls cleanly).
 ---
 
 # ep0ch-extend: make the outline do a new thing
@@ -55,7 +55,8 @@ Start local and blunt. Promote on the second real use, as a rewrite if needed. A
 | something that reacts when a note changes | a rule's `on` trigger | extensions: *`on`: change triggers* |
 | `key:: value` lines that fetch or draw | a handler (data, output, component) | extensions: *Handler lines*, *Kind 1–3* |
 | a new figure or widget in notes | a component (kind 3) with a schema | extensions: *Kind 3*, *Component schemas* |
-| rows in the power bar | a bar source | extensions: *Bar sources* |
+| rows in the power bar | a bar source (`sources[]` with a `prefix`) | extensions: *Bar sources* |
+| rows where a person types (`[[`, `[issue::`, `@`…): a tracker's issues, a glossary | a completion source (`sources[]` with `triggers`; no new sigils) | extensions: *Completion sources*; example `extensions/issues` |
 | `@name` in a note gets an answer | an agent | extensions: *Agents in the note* |
 | a whole tile | kind 4, the door's tile registry | extensions: *Kind 4* |
 | every hour, sync an outside API | a program with a schedule, a connection, writes, a secret | extensions: *Extensions as programs*, *Worked example: sync…* |

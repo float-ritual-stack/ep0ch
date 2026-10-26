@@ -1,12 +1,13 @@
 // Autocomplete everywhere you write (PIE-626): the one completer, on every door text input that takes outline text.
 // A Draft (a comment, the board's composer, a new note's float) and a LineField (a property's value, a river column's
 // filter) complete by default; a line that holds a name or plain words opts out. Fictional notes, a scratch service.
+import { serviced } from "./serviced";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import { App } from "../src/app";
 import { CommentSession } from "../src/comment";
-import { filterTargetAtCursor } from "../src/completion";
+import { filterTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
 import { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import { Draft } from "../src/edit";
@@ -44,7 +45,7 @@ describe("a filter's word at the cursor", () => {
 describe("every line completes by default, with an opt-out (a fake service)", () => {
   const tick = () => new Promise(r => setTimeout(r, 25));
   const asked: string[] = [];
-  const board = {
+  const board = serviced({
     completePages: async () => ({ addresses: [{ address: "gardening", blockId: "b1", kind: "page", title: "Gardening" }], completeness: { kind: "complete" } }),
     completeFiles: async () => [],
     searchBlocks: async (q: string) => { asked.push(q); return { matches: [{ block: { id: "b2", revision: 1 }, title: "Xylophone lessons", path: "", snippet: "Xylophone lessons", exact: false }], completeness: { kind: "complete" }, semantic: { status: "lexical" } }; },
@@ -54,7 +55,7 @@ describe("every line completes by default, with an opt-out (a fake service)", ()
     propertyCatalog: async (key: string | undefined, prefix: string) => (key
       ? [{ key, value: "queued", count: 4 }, { key, value: "done", count: 2 }].filter(c => c.value.startsWith(prefix))
       : [{ key: "stage", value: "queued", count: 4 }, { key: "stage", value: "done", count: 2 }, { key: "status", value: "open", count: 1 }, { key: "type", value: "note", count: 9 }].filter(c => c.key.startsWith(prefix))),
-  };
+  });
   const type = (i: LineField, s: string) => { for (const c of s) i.take(char(c)); };
 
   test("a line made while the door runs completes `((` and a `[key` as a draft does; opted out, or with no door, it never does", async () => {
@@ -120,7 +121,7 @@ describe("every line completes by default, with an opt-out (a fake service)", ()
       expect(f.take(K("enter"))).toBe(false);
       expect(f.cursor).toBe("type:note stage:done".length);
       // The same candidates an agent gets, without typing.
-      const r = await lookupCompletion(board as unknown as CompletionBoard, { kind: "filter-value", start: 0, end: 0, query: "", key: "stage", words: true }, null);
+      const r = await lookupCompletion(board as unknown as CompletionBoard, { kind: "filter-value", start: 0, end: 0, query: "", key: "stage", words: true });
       expect(r.items.map(i => i.insertion)).toEqual(["queued", "done"]);
     } finally { stopCompletion(board as unknown as SocketBoard); }
   });

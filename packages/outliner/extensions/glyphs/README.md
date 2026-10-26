@@ -1,7 +1,7 @@
 # Glyphs (a bar source)
 
 The example for a **bar source** (PIE-656): rows for a client's command palette, the door's power bar (`ctrl+k`).
-Typing `~` then a word (`~shade`, `~double`, `~177`) asks this extension's `bar` operation, and its rows join the
+Typing `~` then a word (`~shade`, `~double`, `~177`) asks this extension's `source` operation, and its rows join the
 bar's list. The glyphs are code page 437's shades, blocks and box lines, named as an ANSI artist names them.
 
 ```text
@@ -11,7 +11,7 @@ bar's list. The glyphs are code page 437's shades, blocks and box lines, named a
   rule “Bike shed” with ▒   writes a line of it under the note
 ```
 
-- **The rows** come from `glyphs.ts`'s `bar` operation: `{ rows: [{ id, label, detail?, preview?, block?, action?,
+- **The rows** come from `glyphs.ts`'s `source` operation (its `sources[]` entry has a `prefix`, so they're the bar's): `{ rows: [{ id, label, detail?, preview?, block?, action?,
   args?, copy? }] }`. The service checks them (at most 50; text cleaned; a `block` must exist; an `action` must be one
   of the extension's own, acting on `bar` or on the row's `block`) and answers them through `extensions.bar`.
 - **Picking a row** is the client's: `copy` goes to the clipboard, `block` opens where opens land, `action` runs

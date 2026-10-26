@@ -1,0 +1,7 @@
+[
+  { "number": 12, "title": "Login page times out on slow networks", "state": "open", "labels": ["bug"], "body": "Signing in over a slow connection gives up after five seconds.\nSeen on the train wifi." },
+  { "number": 15, "title": "Seed swap sign-up sheet", "state": "open", "labels": ["feature"], "body": "A sheet for the spring seed swap: name, seeds offered, seeds wanted." },
+  { "number": 21, "title": "Greenhouse heater schedule", "state": "open", "labels": ["chore"], "body": "The heater should come on at 5 and go off at 9 from October to March." },
+  { "number": 27, "title": "Export the bed plan as a picture", "state": "open", "labels": ["feature"], "body": "A picture of the bed plan to print for the shed door." },
+  { "number": 30, "title": "Typo in the welcome note", "state": "open", "labels": ["docs"], "body": "\"Wellcome\" in the first line." }
+]

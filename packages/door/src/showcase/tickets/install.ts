@@ -78,6 +78,9 @@ export const FORM_EXAMPLES = ["form"] as const;
 /** The outliner's example of pictures in a view (PIE-827): gallery:: cards with covers, pic:: one picture. Installed with the rules. */
 export const VIEW_EXAMPLES = ["gallery"] as const;
 
+/** The outliner's example completion source (PIE-1340): open issues under [[ and [issue::. Installed with the rules. */
+export const SOURCE_EXAMPLES = ["issues"] as const;
+
 /**
  * Copy the outliner's example extensions (its checkout's `extensions/`) into the scratch service's user
  * extensions folder, as `outliner ext add` would. Only ever a scratch or showcase config dir. The examples'

@@ -40,7 +40,7 @@ import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import type { TileSpec } from "../desk/tiles";
 import { LineField } from "../surface/line";
 import { popupHint, COMPLETION_ROWS, completerOf, completionOf, lookupCompletion, renderCompletion, type CompletionBoard } from "../surface/completer";
-import { filterTargetAtCursor } from "../completion";
+import { filterTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
 import { Fold } from "../fold";
 import { matchesSearchText, prepareSearchQuery, type SearchQuery } from "@ep0ch/outline-core/search-match";
 import { prop } from "../props";
@@ -935,7 +935,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     async run({ text }, { desk, tile }) {
       const t = filterTargetAtCursor(text, text.length);
       if (!t) throw new ActionRefused(`nothing to complete: the text should end in a property key or a key: with its value begun (it ends ${JSON.stringify(text.slice(-20))})`);
-      const r = await lookupCompletion(desk.ctx.board as unknown as CompletionBoard, { ...t, words: true }, null);
+      const r = await lookupCompletion(desk.ctx.board as unknown as CompletionBoard, { ...t, words: true });
       return { tile, kind: t.kind, query: t.query, ...(t.key ? { key: t.key } : {}), items: r.items.map((it, i) => ({ n: i + 1, label: it.label, insertion: it.insertion, kind: it.kind, detail: it.detail, docs: it.docs })) };
     },
   }),

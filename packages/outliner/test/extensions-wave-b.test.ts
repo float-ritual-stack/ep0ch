@@ -416,7 +416,7 @@ test("ext add, ls and remove: a built-in or a folder in, the service told; a bro
 
     writeExtension(join(root, "my-ext"), "broken", { handlers: [{ key: "broken", kind: "output", effects: "read" }] });
     expect(await runExtCommand(["add", join(root, "my-ext", "broken")], connect)).toBe(1);
-    expect(errors.join("\n")).toContain("handlers, actions, agents, bar sources and rules that decorate with code need run");
+    expect(errors.join("\n")).toContain("handlers, actions, agents, sources and rules that decorate with code need run");
 
     logs.length = 0;
     expect(await runExtCommand(["ls", "--long"], connect)).toBe(0);
@@ -511,7 +511,7 @@ const rows = q === "idle" ? [{ id: "a", label: "does nothing" }]
 process.stdout.write(JSON.stringify({ ok: true, value: { rows } }));`);
   writeExtension(extensionsFolder, "runless", { bar: [{ id: "x", title: "x" }] });
   const listed = await list(true);
-  expect(listed.extensions.find((e) => e.id === "runless")?.error).toContain("bar sources");
+  expect(listed.extensions.find((e) => e.id === "runless")?.error).toContain("agents, sources and rules");
   const ask = (query: string, source = "odd") => client.request<{ rows: { id: string; label: string; action?: string; args?: Record<string, string> }[] }>({ action: "extensions.bar", extension: "loose", source, query });
   await expect(ask("x", "nope")).rejects.toThrow("has no bar source nope");
   await expect(ask("idle")).rejects.toThrow("does nothing when picked");

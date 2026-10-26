@@ -4,6 +4,7 @@ import { parseProposal } from "./draft-patch";
 import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
 import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { ExtensionBarResult, ExtensionBarRow } from "@ep0ch/outline-core/protocol";
+import type { SourceRow, SourceTrigger } from "@ep0ch/outline-core/completion-source";
 import { isResourceRef, parseResourceRef } from "@ep0ch/outline-core/resource-ref";
 import {
   ComponentError,
@@ -17,7 +18,7 @@ import {
   type RenderedComponent,
 } from "./component-primitives";
 import { handlerCalls, mayHaveHandlerLines, pipelineCalls, PIPELINE, type HandlerCall } from "./extension-handlers";
-import { DEFAULT_DEADLINE_MS, durationMs, loadExtensionManifest, type ExtensionActionArg, type LoadedExtension, type ScriptSource } from "./extension-manifest";
+import { DEFAULT_DEADLINE_MS, durationMs, loadExtensionManifest, manifestSources, type ExtensionActionArg, type LoadedExtension, type ScriptSource } from "./extension-manifest";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
 import type { DraftGroupInput } from "./draft-patch-router";
 import { ExtensionWrites, MAX_WRITE_TEXT, MAX_WRITES, parseBlockWrite, type BlockWrite, type ExtensionWrite, type GroupOutcome, type TriggerWrite } from "./extension-writes";
@@ -212,7 +213,19 @@ export interface ExtensionBarRequest {
 
 export type { ExtensionBarResult, ExtensionBarRow };
 
+/** `completion.rows`'s ask of one extension's completion source (PIE-1340). */
+export interface ExtensionCompleteRequest {
+  readonly extension: string;
+  readonly source: string;
+  readonly query: string;
+  readonly trigger: { readonly kind: SourceTrigger; readonly key?: string; readonly component?: string };
+  readonly near?: string;
+  readonly limit?: number;
+}
+
 const MAX_BAR_ROWS = 50;
+/** An extension's completion source answers at most this many rows an ask. */
+const MAX_COMPLETION_ROWS = 20;
 const MAX_BAR_PREVIEW = 8 * 1024;
 
 export interface ExtensionRenderResult {
@@ -427,6 +440,46 @@ function validateBar(value: unknown, actionOk: (id: string) => boolean, blockOk:
       id, label, ...(detail ? { detail } : {}), ...(preview ? { preview } : {}), ...(block ? { block } : {}), ...(resource ? { resource } : {}), ...(action ? { action } : {}),
       ...(action && isObject(row.args) ? { args: Object.fromEntries(Object.entries(row.args as Record<string, string>).map(([k, v]) => [cleanExtensionText(k), cleanExtensionText(v)])) } : {}),
       ...(copy !== undefined ? { copy } : {}),
+    };
+  });
+}
+
+/**
+ * A completion source's rows (PIE-1340), checked: a label, an insert of one line (at most 500 characters, no control
+ * characters; a snippet's `select` inside it), a short kind, a detail, Blockdown docs; ids unique. Text is cleaned.
+ */
+export function validateCompletionRows(value: unknown): SourceRow[] {
+  const rows = isObject(value) ? value.rows : undefined;
+  if (!Array.isArray(rows) || rows.length > MAX_BAR_ROWS) throw new Error(`a completion source returns { rows: [...] }, at most ${MAX_BAR_ROWS}`);
+  const text = (row: Record<string, unknown>, key: string, index: number, max: number, lines = false): string | undefined => {
+    const v = row[key];
+    if (v === undefined) return undefined;
+    if (typeof v !== "string" || v.length > max) throw new Error(`rows[${index}].${key} must be text up to ${max} characters`);
+    return cleanExtensionText(v, lines);
+  };
+  const ids = new Set<string>();
+  return rows.map((row, index): SourceRow => {
+    if (!isObject(row)) throw new Error(`rows[${index}] must be an object`);
+    const label = text(row, "label", index, 200);
+    if (!label?.trim()) throw new Error(`rows[${index}] needs a label`);
+    const raw = row.insert;
+    const snippet = isObject(raw) ? raw.snippet : raw;
+    if (typeof snippet !== "string" || !snippet || snippet.length > 500 || /[\u0000-\u001f\u007f]/.test(snippet)) throw new Error(`rows[${index}].insert must be one line of text up to 500 characters (or { snippet, select })`);
+    let insert: SourceRow["insert"] = snippet;
+    if (isObject(raw) && raw.select !== undefined) {
+      const sel = raw.select as Record<string, unknown>;
+      if (!isObject(sel) || !Number.isSafeInteger(sel.start) || !Number.isSafeInteger(sel.end) || (sel.start as number) < 0 || (sel.end as number) < (sel.start as number) || (sel.end as number) > snippet.length) throw new Error(`rows[${index}].insert.select must be { start, end } inside the snippet`);
+      insert = { snippet, select: { start: sel.start as number, end: sel.end as number } };
+    }
+    const id = text(row, "id", index, 200) ?? snippet;
+    if (ids.has(id)) throw new Error(`rows[${index}].id ${id} is another row's too: each row's id is its own`);
+    ids.add(id);
+    const kind = text(row, "kind", index, 20), detail = text(row, "detail", index, 200), docs = text(row, "docs", index, MAX_BAR_PREVIEW, true);
+    const group = text(row, "group", index, 40), filter = text(row, "filter", index, 200);
+    if (row.preselect !== undefined && typeof row.preselect !== "boolean") throw new Error(`rows[${index}].preselect must be true or false`);
+    return {
+      id, label, insert, ...(kind ? { kind } : {}), ...(detail ? { detail } : {}), ...(docs ? { docs } : {}),
+      ...(group ? { group } : {}), ...(filter ? { filter } : {}), ...(row.preselect ? { preselect: true } : {}),
     };
   });
 }
@@ -1294,11 +1347,11 @@ export class ExtensionCalls {
   async bar(request: ExtensionBarRequest): Promise<ExtensionBarResult> {
     const extension = this.registry.extension(request.extension);
     if (!extension) throw new Error(this.notActive(request.extension));
-    const source = (extension.manifest.bar ?? []).find((candidate) => candidate.id === request.source);
+    const source = manifestSources(extension.manifest).find((candidate) => candidate.id === request.source && (candidate.operation === "bar" || candidate.prefix || candidate.main));
     if (!source) throw new Error(`${extension.name} has no bar source ${request.source}`);
     const near = request.near ? this.store.get(request.near) : null;
     const limit = Math.max(1, Math.min(MAX_BAR_ROWS, request.limit ?? MAX_BAR_ROWS));
-    const answer = await this.runtime.invokeLoaded(extension, "bar", {
+    const answer = await this.runtime.invokeLoaded(extension, source.operation, {
       source: source.id, query: request.query, limit,
       ...(near && !near.effectiveDeletedRootId ? { context: this.context(near, undefined) } : {}),
     }, durationMs(source.deadline) ?? this.deadline(extension));
@@ -1317,6 +1370,28 @@ export class ExtensionCalls {
       }
     }
     return { extension: extension.id, source: source.id, rows: rows.slice(0, limit) };
+  }
+
+  /**
+   * One of an extension's completion sources (PIE-1340) answers what's typed under a trigger: rows the person's
+   * completer merges with the built-ins'. It only answers; an insert goes into the person's draft, never the note.
+   */
+  async complete(request: ExtensionCompleteRequest, signal?: AbortSignal): Promise<SourceRow[]> {
+    const extension = this.registry.extension(request.extension);
+    if (!extension) throw new Error(this.notActive(request.extension));
+    const source = manifestSources(extension.manifest).find((candidate) => candidate.id === request.source && candidate.triggers);
+    if (!source) throw new Error(`${extension.name} has no completion source ${request.source}`);
+    const near = request.near ? this.store.get(request.near) : null;
+    const limit = Math.max(1, Math.min(MAX_COMPLETION_ROWS, request.limit ?? MAX_COMPLETION_ROWS));
+    const answer = await this.runtime.invokeLoaded(extension, source.operation, {
+      source: source.id, query: request.query, limit, trigger: request.trigger,
+      ...(near && !near.effectiveDeletedRootId ? { context: this.context(near, undefined) } : {}),
+    }, durationMs(source.deadline) ?? this.deadline(extension), signal ? { signal } : {});
+    try {
+      return validateCompletionRows(answer.value).slice(0, limit);
+    } catch (error) {
+      throw new Error(`${extension.name}'s completion source ${source.id} answered what the service can't show: ${message(error)}`);
+    }
   }
 
   /**

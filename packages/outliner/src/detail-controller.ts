@@ -3,7 +3,7 @@ import { restoredStatus, type RestoredBlock } from "@ep0ch/outline-core/protocol
 import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { ticketScope } from "./work-ids";
 import { findPassage, isMiss } from "@ep0ch/outline-core/passage";
-import type { FragmentCandidateCollection, FragmentCandidateQuery } from "./fragment-search";
+import type { CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import {captureAnnotationPassage,renderedDocumentAnnotationTarget} from './document-annotation';
 import type {DocumentSelection} from './document-frame';
 import { blockCommentTarget } from "./block-comments";
@@ -145,7 +145,6 @@ import type {
   BrowsingContextState,
   InternResourceReceipt,
   PageAddressCollection,
-  GotoSearchCollection,
   OutlinerEvent,
   PropertyPatchOperation,
   RenderedPassageObservation,
@@ -693,13 +692,15 @@ export interface DetailEffects {
   resolveReference(target: OutlinerLinkTarget): Promise<ResolvedOutlinerLinkTarget>;
   followResourceOccurrence(target: OutlinerLinkTarget): Promise<FollowResourceOccurrenceReceipt>;
   queryBlocks(query: BlockSearchQuery): Promise<VisibleBlockCollection>;
-  /** Fragment completion over every note (`fragments.candidates`); absent, completion searches blocks itself. */
-  fragmentCandidates?(query: FragmentCandidateQuery): Promise<FragmentCandidateCollection>;
+  /** The service's completion sources for the token at the cursor (`completion.rows`, PIE-1340). */
+  completionRows(request: CompletionRowsRequest): Promise<CompletionRowsResult>;
+  /** A completion row was chosen: the host counts the pick (`completion.picked`). */
+  completionPicked(key: string, insert: string): Promise<unknown>;
+  /** Make a page nobody has written yet (`pages.follow`), as a new page row does before it links it. */
+  followPage(address: string): Promise<{ created: boolean; status: string; block?: Block }>;
   /** Write a heading's anchor through the service (`fragments.ensure`). */
   ensureFragment?(input: { blockId: string; lineIndex: number; expectedRevision: number }): Promise<{ fragmentId: string; created: boolean }>;
   queryPageAddresses(query: string | undefined, limit: number): Promise<PageAddressCollection>;
-  /** The one search (`tree.search`) for `((`, from the note being edited. */
-  searchBlocks?(query: string, contextBlockId?: string): Promise<GotoSearchCollection>;
   readFile(block: Block): Promise<ReferencedFile>;
   completeFiles(query: string): Promise<ReferencedPathCandidate[]>;
   focusOutliner(): Promise<void>;
@@ -3143,24 +3144,23 @@ export function createDetailController(
 
   let completionViewport:DetailViewport={width:80,height:24};
   const completions = new ReferenceCompletionSession({
-    queryBlocks: query => effects.queryBlocks(query),
-    ...(effects.fragmentCandidates ? { fragmentCandidates: (query: FragmentCandidateQuery) => effects.fragmentCandidates!(query) } : {}),
+    completionRows: request => effects.completionRows(request),
+    completionPicked: (key, insert) => effects.completionPicked(key, insert),
+    followPage: address => effects.followPage(address),
     ...(effects.ensureFragment ? { ensureFragment: (input: { blockId: string; lineIndex: number; expectedRevision: number }) => effects.ensureFragment!(input) } : {}),
     queryPageAddresses: (query, limit) => effects.queryPageAddresses(query, limit),
-    ...(effects.searchBlocks ? { searchBlocks: (query: string, contextBlockId?: string) => effects.searchBlocks!(query, contextBlockId) } : {}),
-    completeFiles: query => effects.completeFiles(query),
     readContext: async blockId => {
       const document = await effects.loadTarget({kind:"block",blockId});
       if(document.kind!=="block")throw Error("Expected a block completion target");
       return document.context;
     },
     updateBlock: input => effects.updateBlock(input),
-  }, () => state.buffer, () => state.workIdPrefix, () => {state.completion=completions.state;if(completions.state)state.status=completions.state.message??"";ensureEditorCursorVisible(completionViewport);emit();},
+  }, () => state.buffer, () => {state.completion=completions.state;if(completions.state)state.status=completions.state.message??"";ensureEditorCursorVisible(completionViewport);emit();},
   () => state.mode === "edit", () => state.context.selected ? {blockId:state.context.selected.id,text:state.buffer.text}:undefined);
   const openCompletion = () => completions.refresh();
   const applyCompletion = async () => {
     const item=completions.state?.items[completions.state.index];
-    if(await completions.accept())state.status=item?.anchor?`Created fragment · ^${item.anchor.fragmentId}`:"";
+    if(await completions.accept())state.status=item?.anchor?`Created fragment · ^${item.fragmentId}`:"";
   };
 
   const navigatePreview = (

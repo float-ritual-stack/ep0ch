@@ -1,4 +1,6 @@
 import type { ExtensionActRequest } from "./extension-calls";
+import { completionRows, PICKS_METADATA_KEY, readPicks } from "./completion-sources";
+import { recordPick } from "@ep0ch/outline-core/completion-source";
 import { replaceSectionText, refuseDroppedStructure } from "./work-tools";
 import { waitingAsks } from "./waiting-you";
 import { deployArtifact, artifactDns, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
@@ -2168,6 +2170,42 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
+    if (request.action === "completion.rows" || request.action === "completion.picked") {
+      // Completion (PIE-1340): the service's sources and the extensions' answer on one contract; picks are kept here so
+      // every client ranks the same way.
+      try {
+        const picks = readPicks(this.store.readMetadata(PICKS_METADATA_KEY));
+        let result: unknown;
+        if (request.action === "completion.picked") {
+          if (typeof request.key !== "string" || !request.key || request.key.length > 80) throw new Error("completion.picked needs key: the trigger's pick key");
+          if (typeof request.insert !== "string" || !request.insert || request.insert.length > 2000) throw new Error("completion.picked needs insert: the text the row wrote");
+          if (this.readOnly) throw new Error("This outline is read-only.");
+          const next = recordPick(picks, request.key, request.insert, new Date());
+          this.store.writeMetadata(PICKS_METADATA_KEY, JSON.stringify(next));
+          result = { picks: next[request.key] };
+        } else {
+          const t = request.target as Record<string, unknown> | undefined;
+          if (!t || typeof t !== "object" || typeof t.kind !== "string" || typeof t.query !== "string" || t.query.length > 500) throw new Error("completion.rows needs target: { kind, query } (query up to 500 characters)");
+          if (request.near !== undefined && typeof request.near !== "string") throw new Error("near must be a block id");
+          if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1)) throw new Error("limit must be a positive whole number");
+          const own = { request: async <T>(action: string, input: Record<string, unknown>): Promise<T> => {
+            const response = await this.handleAsync({ id: crypto.randomUUID(), action, ...input } as OutlinerRequest);
+            if (!response.ok) throw new Error(response.error);
+            return response.result as T;
+          } };
+          const listed = this.extensionRegistry.list().completionSources;
+          result = await completionRows(own, request, listed, (source, ask, signal) => this.extensionCalls.complete({
+            extension: source.extension, source: source.id, query: ask.query,
+            trigger: { kind: ask.trigger!, ...(ask.key ? { key: ask.key } : {}), ...(ask.component ? { component: ask.component } : {}) },
+            ...(request.near ? { near: request.near } : {}),
+          }, signal), picks);
+        }
+        return { id: request.id, ok: true, result, sequence: this.store.sequence };
+      } catch (error) {
+        if (isSqliteBusy(error)) throw error;
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
+    }
     if (request.action === "suggestions.keep") {
       // PIE-1251: the records of what Jev said are made here, in this process, so a writer that exits after one request
       // (the Claude mod's CLI) leaves them as complete as one that waits. The records are Jev's own writes.
@@ -3611,6 +3649,9 @@ export class OutlinerServer {
           throw new Error("Artifact requests require asynchronous dispatch.");
         case "suggestions.keep":
           throw new Error("suggestions.keep requires asynchronous dispatch.");
+        case "completion.rows":
+        case "completion.picked":
+          throw new Error(`${action} requires asynchronous dispatch.`);
         default: {
           const unsupportedAction: never = action;
           throw new Error(`Unsupported action: ${String(unsupportedAction)}`);

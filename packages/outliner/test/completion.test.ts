@@ -1,10 +1,6 @@
 import { expect, test } from "bun:test";
-import {
-  completionTargetAtCursor,
-  completionWindow,
-  pageAddressCompletion,
-  pageCompletionLookupQuery,
-} from "../src/completion";
+import { completionWindow } from "../src/completion";
+import { referenceTargetAtCursor as completionTargetAtCursor, pageAddressCompletion, pageCompletionLookupQuery } from "@ep0ch/outline-core/completion-triggers";
 
 test("keeps the selected completion inside a fixed-size visible window", () => {
   expect(completionWindow(20, 0, 6)).toEqual({ start: 0, end: 6 });

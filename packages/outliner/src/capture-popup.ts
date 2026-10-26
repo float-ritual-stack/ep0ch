@@ -99,7 +99,7 @@ export class CapturePopupController {
       this.buffer.placeCursor(draft.cursorRow, draft.cursorColumn, !!draft.selectionAnchor);
     }
     this.status = draft ? "Resumed retained draft" : "";
-    this.completions=effects.completionProvider?new ReferenceCompletionSession(effects.completionProvider,()=>this.buffer,()=>options.workIdPrefix??null,()=>effects.invalidate(),()=>!this.closed&&!this.saving):null;
+    this.completions=effects.completionProvider?new ReferenceCompletionSession(effects.completionProvider,()=>this.buffer,()=>effects.invalidate(),()=>!this.closed&&!this.saving):null;
   }
 
   handlePaste(text: string): void {
@@ -141,7 +141,8 @@ export class CapturePopupController {
     this.discardArmed = false;
     if(this.completions?.state&&!key.ctrl&&!key.meta&&!key.shift){
       if(key.name==='up'||key.name==='down'){this.completions.move(key.name==='up'?-1:1);return;}
-      if((key.name==='return'||key.name==='tab')&&this.completions.state.items.length){await this.chooseCompletion();return;}
+      // ⏎ leaves a lone new page alone until it's chosen; tab is a deliberate choice and takes it.
+      if((key.name==='return'&&this.completions.chooses)||(key.name==='tab'&&this.completions.state.items.length)){await this.chooseCompletion();return;}
       if(key.name==='escape'){this.completions.dismiss();return;}
     }
     if(this.completions&&(key.name==='tab'||(key.ctrl&&key.name==='space'))){void this.completions.refresh();return;}

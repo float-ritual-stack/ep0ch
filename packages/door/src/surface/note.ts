@@ -133,7 +133,7 @@ import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outli
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
 import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
-import { completionTargetAtCursor, type CompletionTarget } from "../completion";
+import { completionTargetAtCursor, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
 import { filterLine, LineField } from "./line";
@@ -9676,12 +9676,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const at = d && { text: d.text, row: d.row, col: d.col };
       const still = () => !!d && !!at && d.text === at.text && d.row === at.row && d.col === at.col;
       const own = surface.draft ? { blockId: surface.draft.blockId, text: surface.draft.text } : undefined;
-      const prefix = await board.workIdPrefix().catch(() => null);
       // What the person's popup shows, when it is open on this token (Jev's order included), so insert=n is
       // the nth they see; else the same lookup it makes, from the same note (with no draft, the note read here).
       const shown = d ? completionOf(d) : null;
       const r = text === undefined && shown && !shown.loading && shown.target.kind === target.kind && shown.target.start === target.start && shown.target.query === target.query
-        ? shown : await lookupCompletion(board, target, prefix, own, { near: nearOf(d, own) ?? surface.msg?.id });
+        ? shown : await lookupCompletion(board, target, own, { near: nearOf(d, own) ?? surface.msg?.id });
       if (step !== undefined) {
         const item = r.items[step - 1];
         if (!item?.componentSchema) throw new ActionRefused("step names a component row; complete text=:: lists them");

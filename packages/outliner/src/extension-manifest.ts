@@ -5,6 +5,7 @@ import { Compile } from "typebox/compile";
 import { cleanExtensionText } from "./extension-records";
 import { ALIGNS, BAND_PATTERNS, BUILT_IN_DECORATIONS, compileRulePattern, parseKindSpec, PLACES, RULE_TONES } from "@ep0ch/outline-core/rules";
 import { componentSchemaProblem } from "@ep0ch/outline-core/component-schema";
+import { SOURCE_TRIGGERS, type SourceTrigger } from "@ep0ch/outline-core/completion-source";
 import { FORM_FIELD_LIMITS, FORM_FIELD_NAME, FORM_FIELD_TYPES, RESERVED_ARG_NAMES, type FormFieldType } from "@ep0ch/outline-core/form-fields";
 import { cronProblem } from "./extension-schedule";
 import { SECRET_GROUP_PATTERN, SECRET_KEY_PATTERN } from "./extension-secrets";
@@ -263,28 +264,47 @@ const Agent = Type.Object(
 );
 export type ExtensionAgent = Static<typeof Agent>;
 
+/** The fields every source of rows has: the palette's (`bar[]`, the old name) and `sources[]`'s. */
+const sourceFields = {
+  id: ID,
+  title: Type.String({ minLength: 1, maxLength: 30 }),
+  /** The character that scopes the bar to this source when typed first (`~`). */
+  prefix: Type.Optional(Type.String({ pattern: "^[!#$*:;=^|~]$" })),
+  description: Type.Optional(Type.String({ maxLength: 300 })),
+  /**
+   * Its rows join the bar's main list (before a scope is chosen, typed or not), not only its own scope after its
+   * prefix. Each keystroke calls it, so only a quick source should.
+   */
+  main: Type.Optional(Type.Boolean()),
+  deadline: Type.Optional(Duration),
+};
+
 /**
- * A source of rows for a client's command palette (the door's power bar, PIE-656): the `bar` operation answers a
- * query with rows, each opening a block, running one of the extension's actions or copying text; its preview is
- * Markdown the client draws with its own renderer.
+ * `bar[]`, the old name of `sources[]` for a palette source (PIE-656): still read, answered by the `bar` operation.
+ * A new extension writes `sources[]`.
  */
-const BarSourceSchema = Type.Object(
-  {
-    id: ID,
-    title: Type.String({ minLength: 1, maxLength: 30 }),
-    /** The character that scopes the bar to this source when typed first (`~`). */
-    prefix: Type.Optional(Type.String({ pattern: "^[!#$*:;=^|~]$" })),
-    description: Type.Optional(Type.String({ maxLength: 300 })),
-    /**
-     * Its rows join the bar's main list (before a scope is chosen, typed or not), not only its own scope after its
-     * prefix. Each keystroke calls it, so only a quick source should.
-     */
-    main: Type.Optional(Type.Boolean()),
-    deadline: Type.Optional(Duration),
-  },
-  { additionalProperties: false },
-);
+const BarSourceSchema = Type.Object(sourceFields, { additionalProperties: false });
 export type ExtensionBarSource = Static<typeof BarSourceSchema>;
+
+/**
+ * A source of rows (ADR 0004 §4, PIE-1340): the `source` operation answers what's typed with rows. With a `prefix` (or
+ * `main`) its rows are the door's power bar's; with `triggers` they join completion under those triggers, beside the
+ * built-ins, ranked by one matcher. Its rows open a block, run one of its actions, copy text, or (completion) insert
+ * text in the person's draft.
+ */
+const SourceSchema = Type.Object({
+  ...sourceFields,
+  /** The completion triggers it answers: only these, never a sigil of its own (outline-core SOURCE_TRIGGERS). */
+  triggers: Type.Optional(Type.Array(Type.Union(SOURCE_TRIGGERS.map((t) => Type.Literal(t as SourceTrigger))), { minItems: 1, maxItems: 10, uniqueItems: true })),
+  /** For `key::`: the property keys whose values it offers (`issue`). */
+  keys: Type.Optional(Type.Array(Type.String({ pattern: "^[a-z][a-z0-9_.-]{0,63}$" }), { minItems: 1, maxItems: 8, uniqueItems: true })),
+}, { additionalProperties: false });
+export type ExtensionSource = Static<typeof SourceSchema>;
+
+/** Every source an extension declares, `sources[]` and the old `bar[]`, with the operation that answers each. */
+export function manifestSources(manifest: Pick<ExtensionManifest, "sources" | "bar">): (ExtensionSource & { operation: "source" | "bar" })[] {
+  return [...(manifest.sources ?? []).map((s) => ({ ...s, operation: "source" as const })), ...(manifest.bar ?? []).map((s) => ({ ...s, operation: "bar" as const }))];
+}
 
 const literals = <T extends string>(values: readonly T[]) => Type.Union(values.map((value) => Type.Literal(value)));
 
@@ -397,7 +417,9 @@ const ManifestV2 = Type.Object(
     tiles: Type.Optional(Type.Array(Tile, { maxItems: 8 })),
     agents: Type.Optional(Type.Array(Agent, { maxItems: 8 })),
     rules: Type.Optional(Type.Array(RuleSchema, { maxItems: 16 })),
-    /** Sources of rows for a client's command palette (PIE-656): `bar` answers a query with rows. */
+    /** Sources of rows (PIE-1340): for the power bar (a `prefix`), completion (`triggers`), or both; `source` answers. */
+    sources: Type.Optional(Type.Array(SourceSchema, { maxItems: 8 })),
+    /** The old name of `sources` for a palette source (PIE-656), answered by the `bar` operation. */
     bar: Type.Optional(Type.Array(BarSourceSchema, { maxItems: 4 })),
     /** Component schemas (`@ep0ch/outline-core/component-schema`), checked by its `componentSchemaProblem`. */
     components: Type.Optional(Type.Array(Type.Unknown(), { maxItems: 8 })),
@@ -678,11 +700,14 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
     }
   }
   const barIds = new Set<string>();
-  for (const [index, source] of (manifest.bar ?? []).entries()) {
-    if (barIds.has(source.id)) throw new ExtensionLoadError(`extension.json: bar/${index}/id ${source.id} is declared twice`);
+  for (const [index, source] of manifestSources(manifest).entries()) {
+    const where = source.operation === "bar" ? `bar/${index - (manifest.sources ?? []).length}` : `sources/${index}`;
+    if (barIds.has(source.id)) throw new ExtensionLoadError(`extension.json: ${where}/id ${source.id} is declared twice`);
     barIds.add(source.id);
     const barDeadline = durationMs(source.deadline);
-    if (barDeadline !== undefined && barDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: bar/${index}/deadline is longer than 5m`);
+    if (barDeadline !== undefined && barDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: ${where}/deadline is longer than 5m`);
+    if (source.operation === "source" && !source.prefix && !source.main && !source.triggers) throw new ExtensionLoadError(`extension.json: ${where} is in no list: give it a prefix (the power bar), triggers (completion), or both`);
+    if (source.keys && !(source.triggers as readonly string[] | undefined)?.includes("key::")) throw new ExtensionLoadError(`extension.json: ${where}/keys narrows key:: (a property's value): add "key::" to its triggers, or leave keys out`);
   }
   const componentIds = new Set<string>();
   for (const [index, component] of (manifest.components ?? []).entries()) {
@@ -693,8 +718,8 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
     componentIds.add(id);
   }
   const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0 || codeRules > 0 || barIds.size > 0;
-  if (needsRun && !manifest.run && !script) throw new ExtensionLoadError("extension.json: handlers, actions, agents, bar sources and rules that decorate with code need run (the program each call starts)");
-  if (!needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size && !manifest.scripts?.length) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, bar sources, rules, tiles, components or scripts");
+  if (needsRun && !manifest.run && !script) throw new ExtensionLoadError("extension.json: handlers, actions, agents, sources and rules that decorate with code need run (the program each call starts)");
+  if (!needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size && !manifest.scripts?.length) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, sources, rules, tiles, components or scripts");
   const scripts = new Set<string>();
   const scriptFiles = new Map<string, string>();
   for (const script of manifest.scripts ?? []) {

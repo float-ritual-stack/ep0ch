@@ -19,6 +19,7 @@ import { connect, type Socket } from "node:net";
 import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 import type { PropertyMatch } from "@ep0ch/outline-core/protocol";
+import type { CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionArgChoice, ExtensionBarResult, ExtensionInstalled, ExtensionList, ExtensionUninstalled } from "./extensions";
@@ -1599,6 +1600,20 @@ export class SocketBoard implements Board {
     return this.request<{ outlines?: string[]; addresses: { address: string; blockId: string; kind: string; title: string; subtitle?: string }[]; completeness: { kind: string; limit?: number }; semantic?: SearchHits["semantic"] }>("pages.complete", {
       ...(query ? { query } : {}), limit, ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}),
     });
+  }
+
+  /**
+   * The service's completion sources for a token (`completion.rows`, PIE-1340): pages, blocks, files, agents and the
+   * extensions' sources, each on outline-core's row contract, with the trigger's picks; the completer merges them with
+   * its own sources' rows.
+   */
+  completionRows(input: CompletionRowsRequest): Promise<CompletionRowsResult> {
+    return this.request<CompletionRowsResult>("completion.rows", { ...input });
+  }
+
+  /** A completion row was chosen: the host counts the pick, so it ranks higher next time on every client. */
+  completionPicked(key: string, insert: string): Promise<unknown> {
+    return this.request("completion.picked", { key, insert });
   }
 
   /** Workspace paths starting with `prefix`. */
