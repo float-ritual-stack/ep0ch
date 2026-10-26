@@ -1,4 +1,5 @@
 // Actions share the service's atomic move; the door keeps its receipt for local undo.
+import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { NoteRouteResult, NoteRouteRun } from "@ep0ch/outline-core/protocol";
 import { mutationFor, recordedActorId, type Actor, type SocketBoard } from "./socket";
 import { ActionRefused } from "./surface/actions";
@@ -45,7 +46,8 @@ function inputOf(intent: MoveIntent) {
 }
 
 /** moveBlock's words name notes as ((id|title)); said to a person they read as the title (a bare ((id)) as "that note"). */
-const plainly = (said: string) => said.replace(/\(\([0-9a-f-]{36}(?:\|([^)]*))?\)\)/gi, (_m, label: string | undefined) => (label ? JSON.stringify(label) : "that note"));
+const plainly = (said: string) => blockReferenceOccurrences(said, []).reverse()
+  .reduce((out, ref) => out.slice(0, ref.start) + (ref.label ? JSON.stringify(ref.label) : "that note") + out.slice(ref.end), said);
 
 /**
  * Move note `id` as `actor` by `moveBlock`; `revision`: the note as it was read (one changed since is refused). A done move is

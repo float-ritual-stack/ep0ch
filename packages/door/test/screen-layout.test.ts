@@ -69,6 +69,17 @@ test("a lift keeps the layout and keys, and an agent cannot replace the person's
   no(s, { op: "zoom", tile: 2, reach: "column" }, /person.*keys/, AGENT);
 });
 
+test("a spine lifted or zoomed opens first, and stays open when dropped", () => {
+  const folded = ok(fresh(), { op: "collapse", tile: 1, on: true }).state;
+  for (const [op, actor] of [[{ op: "zoom", tile: 1, reach: "column" }, PERSON], [{ op: "zoom", tile: 1, reach: "full" }, AGENT], [{ op: "zoom", tile: 1 }, PERSON]] as [Op, Actor][]) {
+    const s = ok(folded, op, actor).state;
+    expect(s.collapsed.has(1)).toBe(false);
+    expect(place(s, AREA).rects.get(1)!.cols).toBeGreaterThan(3);
+    expect(ok(s, { ...op, on: false } as Op, actor).state.collapsed.has(1)).toBe(false);
+  }
+  expect(ok(folded, { op: "zoom", tile: 1, reach: "column", on: false }).state.collapsed.has(1)).toBe(true);
+});
+
 test("focus leaving a lifted tile drops it through apply", () => {
   const s = ok(fresh(), { op: "zoom", tile: 2, reach: "full" }).state;
   expect(ok(s, { op: "focus", tile: 2 }).state.lift).toEqual(s.lift);

@@ -43,7 +43,9 @@ Recon: flaky cron on larder [type::recon]  ── bulletin ─▶     └─ Rec
     `[query::]`, so a posting gets none).
 - **A copy** is the original's text with `[from::<outline>@<machine>/<id>] [echo::<area>] [from-rev::<n>]
   [from-author::user|agent:<id>] [tossed::<time>]` on its first line, and the notes under it (copies too). A reference into the origin (`((id))`,
-  `[[page]]`) becomes an `ep0ch://` link into it; a `[page::…]`, `[work-id::…]` or `[publish::…]` the original owns
+  `[[page]]`) becomes an `ep0ch://` link into it, its label kept whole (`((id|Rough edges (x)))` reads
+  `[Rough edges (x)](ep0ch://…)`, `[[PIE-12|the plan]]` links PIE-12 as "the plan"); links are read by outline-core's
+  grammar, bundled beside the tosser as `link-grammar.js` (`bun scripts/link-grammar.ts` writes it); a `[page::…]`, `[work-id::…]` or `[publish::…]` the original owns
   becomes `[from-page::…]` and so on, and a key EchoNet writes becomes `source-<key>`. A rule note's keys become
   `[from-rule-name::…]` and so on: a copy never runs as a rule here. An original kept off the web
   (`[publish::never]`) makes a copy kept off it too, and one kept off after it was copied makes the copy kept off at

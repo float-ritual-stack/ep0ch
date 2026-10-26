@@ -26,6 +26,7 @@
 // has for it waits.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { BLOCK_ID_PATTERN, codeRangesOf, linkOccurrences, pageAddressReferences, pageAddressText } from "./link-grammar.js";
 import { lockFile } from "./lock";
 import { outline, type OutlineRequest, type Route } from "./outline";
 import {
@@ -377,16 +378,17 @@ const OWNED = /\[(page|work-id|welcome|publish|rule(?:-[a-z-]+)?)::([^\]]*)\]/gi
 const MARK_KEYS = /\[(type|annotation-source|annotation-status|parent-annotation|promoted-block)::([^\]]*)\]/g;
 /** The keys EchoNet writes on a copy: an original that already has one keeps it as `source-<key>`. */
 const TRANSPORT = /\[(from|echo|from-rev|tossed|upstream-newer|upstream-gone|echo-source|subscribe)::([^\]]*)\]/g;
-/** Code fences and code spans: their words are literal, so a copy keeps them as written. */
-const CODE = /```[\s\S]*?(?:```|$)|`[^`\n]*`/g;
 
-/** The original's text as a local copy reads it: references into the origin become ep0ch:// links into it. */
+/**
+ * The original's text as a local copy reads it: references into the origin become ep0ch:// links into it. Code (fences,
+ * indented code, code spans, a component's YAML) is literal, as outline-core reads it, so a copy keeps it as written.
+ */
 function localText(origin: Origin, text: string): string {
   const parts: string[] = [];
   let at = 0;
-  for (const match of text.matchAll(CODE)) {
-    parts.push(localProse(origin, text.slice(at, match.index)), match[0]);
-    at = match.index! + match[0].length;
+  for (const code of codeRangesOf(text, "note")) {
+    parts.push(localProse(origin, text.slice(at, code.start)), text.slice(code.start, code.end));
+    at = code.end;
   }
   parts.push(localProse(origin, text.slice(at)));
   return parts.join("");
@@ -396,10 +398,21 @@ function localProse(origin: Origin, text: string): string {
   const uri = (id: string) => `ep0ch://${origin.node.id}/b/${id}`;
   let out = text.replace(OWNED, (_all, key: string, value: string) => (key === "welcome" ? "" : `[from-${key}::${value}]`))
     .replace(TRANSPORT, (_all, key: string, value: string) => `[source-${key}::${value}]`);
-  out = out.replace(/!?\(\(([0-9a-f-]{36})(?:\|([^)]*))?\)\)/g, (_all, id: string, label?: string) => `[${label?.trim() || `a note in ${origin.node.outline}`}](${uri(id)})`);
-  for (const page of new Set([...out.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1]!))) {
-    const id = origin.page(page);
-    out = out.split(`[[${page}]]`).join(id ? `[${page}](${uri(id)})` : `${page} (in ${origin.node.outline})`);
+  // The links as outline-core reads them (labels with parentheses, `[[page|label]]`, a page whose address holds one), each
+  // replaced whole, last first so the offsets hold. A reference by a short id, or a page in another outline, stays as written.
+  for (const link of linkOccurrences(out, []).reverse()) {
+    let local: string | undefined;
+    if (link.kind === "block" && BLOCK_ID_PATTERN.test(link.blockId)) {
+      // `((attic:id))` names the attic on the origin's machine.
+      const where = link.outline ? `${link.outline}@${origin.node.machine}` : origin.node.id;
+      const label = link.label === undefined ? `a note in ${link.outline ?? origin.node.outline}` : pageAddressText(link.label.trim());
+      local = `[${label}](ep0ch://${where}/b/${link.blockId}${link.fragmentId ? `#${link.fragmentId}` : ""})`;
+    } else if (link.kind === "page" && !link.outline) {
+      const id = origin.page(link.displayAddress);
+      const label = pageAddressText(link.label ?? link.displayAddress);
+      local = id ? `[${label}](${uri(id)})` : `${label} (in ${origin.node.outline})`;
+    }
+    if (local !== undefined) out = out.slice(0, link.start) + local + out.slice(link.end);
   }
   return out;
 }
@@ -937,7 +950,7 @@ async function importItem(from: Node, item: Item, offered: (id: string) => boole
   if (!offered(item.original)) return drop(`((${item.original})) isn't a note this node publishes`);
   const original = await mine<Block>({ action: "get", blockId: item.original }).catch(() => undefined);
   if (!original || trashed(original)) return drop(`((${item.original})) is gone here`);
-  const title = firstLine(original.text).replace(/[|)]/g, "") || "a note";
+  const title = firstLine(original.text).replace(/[|()]/g, " ").replace(/\s+/g, " ").trim() || "a note";
   const said = (what: string) => { log.push(`- ${what} from ${from.id} on ((${original.id}|${title}))`); };
   if (item.kind === "seen-by") {
     const marks = await threadsOn(original.id);
@@ -1040,8 +1053,9 @@ async function buildBulletin(lastToss: string | undefined): Promise<Bulletin> {
     }
   }
   const pages: Record<string, string | null> = {};
-  for (const id of messages) for (const match of (blocks[id]?.text ?? "").matchAll(/\[\[([^\]]+)\]\]/g)) {
-    const name = match[1]!;
+  for (const id of messages) for (const link of pageAddressReferences(blocks[id]?.text ?? "")) {
+    const name = link.displayAddress;
+    if (link.nested || link.outline) continue;
     if (name in pages) continue;
     const resolved = await mine<{ status: string; block?: { id: string } }>({ action: "pages.resolve", address: name }).catch(() => undefined);
     pages[name] = resolved?.status === "resolved" && resolved.block ? resolved.block.id : null;
