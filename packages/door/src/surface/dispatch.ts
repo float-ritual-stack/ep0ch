@@ -97,7 +97,11 @@ const rewritten = (req: ActRequest, actor: Actor) => { for (const f of requestRe
  * One row of a tile's menu, as the dispatcher would run it: the action, its arguments and the tile (its stable id), the
  * row's words and group, the key its keycap shows, and why it would be refused now (the row is dimmed with it).
  */
-export interface MenuRow { action: string; args: Record<string, unknown>; tile: string; label: string; group: string; key?: string; refused?: string }
+export interface MenuRow {
+  action: string; args: Record<string, unknown>; tile: string; label: string; group: string; key?: string; refused?: string;
+  /** The tile's own row: its set runs in the tile itself (its kind's, a reader's note and list actions), not the screen's every-tile rows. */
+  own?: true;
+}
 /** Keys a menu row's keycap doesn't take from a def's `keys` (mouse gestures, the ^W prefix alone). */
 const MENU_NOT_KEYS = new Set(["click", "drag", "wheel", "ctrl+w"]);
 
@@ -781,7 +785,7 @@ export class Dispatcher {
           const args = { ...(e.args ?? {}), ...(now?.args ?? {}) } as Record<string, unknown>;
           const why = this.refusal(r, def, name, at, args, args, actor, where) ?? now?.refused ?? null;
           const key = e.key ?? [...declaredKeys(def.keys)].find(k => !MENU_NOT_KEYS.has(k) && !k.includes(" "));
-          out.push({ action: name, args, tile: at.tile.id ?? at.tile.name, label: now?.label ?? e.label, group: e.group, ...(key ? { key } : {}), ...(why ? { refused: why } : {}) });
+          out.push({ action: name, args, tile: at.tile.id ?? at.tile.name, label: now?.label ?? e.label, group: e.group, ...(key ? { key } : {}), ...(why ? { refused: why } : {}), ...(r.takes === "tile" ? { own: true as const } : {}) });
         }
       }
     }
