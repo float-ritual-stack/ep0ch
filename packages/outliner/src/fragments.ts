@@ -394,12 +394,13 @@ function passages(text: string, lines: readonly string[]): FragmentCandidate[] {
   }
   const itemAnchored = new Set<number>();
   for (const [l, owner] of ownerOf) if (fragmentAnchorMatch(lines[l] ?? "")) itemAnchored.add(owner);
-  const component = new Set<number>();
+  const component = new Set<number>(), inside: { start: number; end: number }[] = [];
   const out: FragmentCandidate[] = [];
   for (const c of componentBlocks(lines)) {
     // A component is one passage (PIE-1247), offered on its opening line, where its anchor goes; one inside another
     // component is part of that one, and one anchored already (on its opener, or after its `::`) is an anchor.
-    const nested = component.has(c.start);
+    const nested = inside.some(o => o.start < c.start && c.start <= o.end);
+    inside.push(c);
     for (let l = c.start; l <= c.end + 1; l++) component.add(l);
     if (nested || fragmentAnchorMatch(lines[c.start] ?? "")) continue;
     const after = lines[c.end + 1];

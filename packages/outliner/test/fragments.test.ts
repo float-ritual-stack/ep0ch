@@ -278,6 +278,10 @@ describe("any element's line takes an anchor (PIE-1247)", () => {
     expect(fragmentAnchors(old).map(a => a.kind)).toEqual(["component"]);
     expect(fragmentCandidates(old, "", "passage").filter(c => !c.fragmentId && c.kind === "component")).toEqual([]);
   });
+  test("two figures with no blank line between are two passages, neither inside the other", () => {
+    const two = "Plan\n\n::graph-stat\n::\n::graph-table\n::";
+    expect(fragmentCandidates(two, "", "passage").filter(c => c.kind === "component").map(c => c.lineIndex)).toEqual([2, 4]);
+  });
   test("a component inside another is part of it: only the outer one is offered", () => {
     const boxed = "Box\n\n::box{pad=1}\n::graph-stat\n---\nquery: type=seed\n---\n::\n::";
     expect(fragmentCandidates(boxed, "", "passage").filter(c => c.kind === "component").map(c => c.lineIndex)).toEqual([2]);

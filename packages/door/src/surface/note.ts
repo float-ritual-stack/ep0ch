@@ -562,7 +562,7 @@ const linksOf = (m: Msg): Link[] => linkOccurrences(m.text).map(linkOf);
 /** One link of outline-core's scan as the reader follows it. */
 const linkOf = (l: LinkOccurrence): Link => {
   if (l.kind === "block") return { block: l.blockId, ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
-  if (l.kind === "page") return { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) };
+  if (l.kind === "page") return { page: l.displayAddress, ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
   return { url: l.url, label: l.text };
 };
 /**

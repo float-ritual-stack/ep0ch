@@ -116,7 +116,8 @@ async function flush(b: SocketBoard) {
 function depsOf(n: TransclusionNode, out: { ids: Set<string>; volatile: boolean } = { ids: new Set(), volatile: false }) {
   out.ids.add(n.blockId);
   if (n.resolvedBlockId) out.ids.add(n.resolvedBlockId);
-  if (n.kind === "view") out.volatile = true;
+  // A page embed whose page isn't there yet (PIE-1247) is asked again on any change: the note that takes the name is new.
+  if (n.kind === "view" || (n.status !== "ready" && embeddedPageAddress(n.blockId) !== null)) out.volatile = true;
   for (const e of n.embeds ?? []) depsOf(e, out);
   return out;
 }

@@ -107,7 +107,10 @@ describe("outliner link URIs", () => {
       value: blockId,
       fragmentId: "durable-decision",
     });
-    expect(() => outlinerLinkUri("page", "Roadmap", { fragmentId: "decision" })).toThrow(
+    // A page link points into its page too (PIE-1247): Detail's `[[Roadmap^decision]]` opens at the anchor.
+    expect(parseOutlinerLinkUri(outlinerLinkUri("page", "Roadmap", { fragmentId: "decision" }))).toEqual({ kind: "page", value: "Roadmap", fragmentId: "decision" });
+    expect(linkOutlinerMarkdown("[[Roadmap^decision]]", "[[Roadmap^decision]]")).toBe("[Roadmap](pi-outliner://page/Roadmap?fragment=decision)");
+    expect(() => outlinerLinkUri("work", "PIE-1", { fragmentId: "decision" })).toThrow(
       "Invalid outliner fragment target",
     );
     expect(() => parseOutlinerLinkUri(
