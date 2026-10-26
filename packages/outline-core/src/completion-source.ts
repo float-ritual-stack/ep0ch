@@ -46,6 +46,8 @@ export interface SourceRow {
   preselect?: boolean;
   /** Offered after every match, from any source (a new page to make from what's typed). */
   fallback?: boolean;
+  /** Listed under the row before it (a note's anchor under the note): it moves with that row, never on its own. */
+  under?: boolean;
   /** Rows are grouped under headings by this, when it changes. */
   group?: string;
   blockId?: string;
@@ -184,7 +186,11 @@ export function mergeSourceAnswers<R extends SourceRow>(answers: readonly Source
       if (e.pre === 2) continue;   // a fallback row (a new page) lends nothing: it is offered last whatever it matches
       best = e.tier = Math.min(e.tier, best);
     }
-    entries.sort((x, y) => x.pre - y.pre || x.tier - y.tier || y.f - x.f || x.i - y.i);
+    // Rows listed under another move with it, so a note picked before rises with its anchors.
+    const groups: Entry[][] = [];
+    for (const e of entries) if (e.row.under && groups.length) groups.at(-1)!.push(e); else groups.push([e]);
+    groups.sort(([x], [y]) => x!.pre - y!.pre || x!.tier - y!.tier || y!.f - x!.f || x!.i - y!.i);
+    entries.splice(0, entries.length, ...groups.flat());
     for (const e of entries) e.row.tier = e.tier;
     return entries;
   });

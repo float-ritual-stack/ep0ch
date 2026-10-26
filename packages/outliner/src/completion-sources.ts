@@ -92,7 +92,7 @@ function fragmentRow(c: Fragment, oneNote: boolean, under = false): SourceRow {
   const what = c.kind === "heading" ? `# ${c.label}` : c.kind === "quote" ? `> ${c.label}` : c.kind === "callout" ? `[!] ${c.label}` : c.label;
   const where = oneNote || under ? "" : `${c.title} » `;
   return {
-    label: c.fragmentId ? `${under ? "  " : ""}^${id}  ${where}${what}` : `${under ? "  " : ""}${where}${what} · adds ^${id}`,
+    label: c.fragmentId ? `${under ? "  " : ""}^${id}  ${where}${what}` : `${under ? "  " : ""}${where}${what} · adds ^${id}`, ...(under ? { under: true } : {}),
     blockId: c.blockId, fragmentId: id, passageLine: c.lineIndex,
     ...(!c.fragmentId ? { addition: ` · adds ^${id}` } : {}), kind: c.fragmentId ? "anchor" : c.kind, insert: `((${c.blockId}^${id}))`,
     docs: `${c.kind} in ${c.title}${c.fragmentId ? "" : `: choosing it adds ^${id} to that line`}`,
