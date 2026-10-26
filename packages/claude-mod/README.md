@@ -126,8 +126,9 @@ A click, `show` and `door_open` share one open (`openNote` in
   Emphasis spanning a reference and other text stays bold or italic, and a table with a reference in a cell is drawn
   whole by the mod, its references pressable (PIE-1043). A press opens in the door `ep0ch where` finds (the one the
   door tools use), read at each press: a stale or missing `EP0CH_CONTROL` no longer sends it to the mentions pane. With no `EP0CH_TILE` (a Claude that came in over ssh, or runs
-  in a tmux or a background session attached from a tile) the press writes a marker to Claude's terminal
-  (`OSC 7501 ; ?mark=<token>`, which crosses every ssh, tmux and Herdr in between; PIE-1306) and asks the door which
+  in a background session or a tmux attached from a tile) the press writes a marker to Claude's terminal
+  (`OSC 7501 ; ?mark=<token>`, carried over ssh in the pty stream; in tmux wrapped in its passthrough, which needs
+  `tmux set -g allow-passthrough on`; PIE-1306) and asks the door which
   terminal tile drew it (`host.tileOf mark=<token> port=<client port in SSH_CONNECTION>`, the port tried when no tile
   saw the marker), then opens from that tile, so the Claude tile's wire is followed; no tile found, it opens where the
   screen's opens land. The marker is write-only: Claude owns its terminal's input, so nothing is read back.

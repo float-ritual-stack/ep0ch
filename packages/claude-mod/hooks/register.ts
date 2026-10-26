@@ -37,7 +37,7 @@ import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, dropp
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
 import { baselineOf, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
-import { type StatusInput, tileMark } from './program-status'
+import { type StatusInput, tileMark, tmuxPassthrough } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { fileTouchesOff, fileTouchGlobsOf, projectOf, touchAllowed, touchInputOf, touchOf } from './file-touches'
 import { fileRefOf, threadedPathOf, threadsHeldNote } from './file-threads'
@@ -1493,19 +1493,22 @@ function openNote($: EngineInterface, workspace: Workspace | null, uri: string, 
 
 /**
  * The tile of the door at `control` this Claude is drawn in, when it has no tile variables (it came in over ssh, or runs
- * in a tmux or a background session attached from a tile). The terminal says (PIE-1306): the mod writes a marker to its
- * terminal (`OSC 7501 ; ?mark=<token>`, through every ssh, tmux and Herdr between; Claude owns the terminal's input, so
- * nothing is read back), and the door names the tile that drew it (`host.tileOf mark=`). Asked with the ssh connection's
+ * in a background session attached from a tile). The terminal says (PIE-1306): the mod writes a marker to its terminal
+ * (`OSC 7501 ; ?mark=<token>`, which the pty stream carries over ssh; Claude owns the terminal's input, so nothing is read
+ * back), and the door names the tile that drew it (`host.tileOf mark=`). In tmux it goes through tmux's passthrough,
+ * which tmux allows only with `allow-passthrough on`. Asked with the ssh connection's
  * client port too (`port=`, PIE-1043), which the door tries when no tile saw the marker. Null when neither finds one, the
  * door is older, or there is no terminal; never an error.
  */
 async function tileOfTerminal($: EngineInterface, control: string, actor: string): Promise<string | null> {
-  const port = Number((await $.env.get('SSH_CONNECTION'))?.trim().split(/\s+/)[1])
+  const [connection, tmux] = await Promise.all([$.env.get('SSH_CONNECTION'), $.env.get('TMUX')])
+  const port = Number(connection?.trim().split(/\s+/)[1])
   const token = crypto.randomUUID().replaceAll('-', '')
-  const marked = await $.process.run(ttyArgv(tileMark(token)), { timeoutMs: 3000 }).then(r => r.exitCode === 0, () => false)
+  const mark = tmux?.trim() ? tmuxPassthrough(tileMark(token)) : tileMark(token)
+  const marked = await $.process.run(ttyArgv(mark), { timeoutMs: 3000 }).then(r => r.exitCode === 0, () => false)
   const args = [...(marked ? [`mark=${token}`] : []), ...(Number.isInteger(port) && port > 0 ? [`port=${port}`] : [])]
   if (!args.length) return null
-  // The marker is on the ssh link before `ep0ch act` has started (a bun start-up, then the control socket): asked once.
+  // The door waits a moment for the marker to arrive (MARK_WAIT_MS) before the port answers.
   try {
     const ran = await $.process.run(['ep0ch', 'act', 'host.tileOf', ...args, '--as', actor], { cwd: await startFolderOf($), env: { EP0CH_CONTROL: control }, timeoutMs: 5000 })
     if (ran.exitCode !== 0) return null

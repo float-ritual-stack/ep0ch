@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   encodeProgramStatus, isStatusQueryReply, mostUrgent, parseProgramStatus, PROGRAM_STATUS_LIMITS, PROGRAM_STATUS_QUERY,
-  statusDisplayText, StatusRecords, statusSegment, TILE_QUERY, tileMark, tileOfReply, tileReply, type StatusReport,
+  statusDisplayText, StatusRecords, statusSegment, TILE_QUERY, tileMark, tileOfReply, tileReply, tmuxPassthrough, type StatusReport,
 } from "../src/program-status";
 
 const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
@@ -102,6 +102,8 @@ describe("syntax", () => {
     expect(parseProgramStatus("?mark=short").t).toBe("ignored");
     expect(parseProgramStatus("?mark=has:colon").t).toBe("ignored");
     expect(() => tileMark("no spaces here")).toThrow(/not a tile marker token/);
+    // Through tmux's passthrough: each ESC inside doubled, framed by ESC P tmux; … ESC \\.
+    expect(tmuxPassthrough(tileMark("k7f3a1c09e2b44d1"))).toBe("\x1bPtmux;\x1b\x1b]7501;?mark=k7f3a1c09e2b44d1\x1b\x1b\\\x1b\\");
     // A door's answer read back as a report is nothing to apply: no state.
     expect(parseProgramStatus(body(tileReply(id))).t).toBe("ignored");
   });

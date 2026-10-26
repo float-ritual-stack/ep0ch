@@ -69,14 +69,14 @@ export class TileStatus {
 
   /**
    * One OSC 7501 body the program wrote. The feature query is answered through `reply` (null while a kept program's
-   * output is replayed: it was answered then); a report is applied whole or not at all.
+   * output is replayed: it was answered then, and a marker in it was asked about then); a report is applied whole or not at all.
    */
   feed(body: string, reply: ((bytes: string) => void) | null, tile?: () => string): void {
     const p = parseProgramStatus(body);
     if (p.t === "query") { reply?.(PROGRAM_STATUS_QUERY); return; }
     // Which tile (PIE-1306): asked on the program's input when it can read it, else kept as a marker for `host.tileOf mark=`.
     if (p.t === "tile") { if (tile) reply?.(tileReply(tile())); return; }
-    if (p.t === "mark") { this.marked(p.token); return; }
+    if (p.t === "mark") { if (reply) this.marked(p.token); return; }
     if (p.t !== "report") return;
     this.report(p.report);
   }

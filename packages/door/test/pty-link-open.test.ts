@@ -15,7 +15,7 @@ import { PtyPane } from "../src/desk/pty";
 import { Mirror } from "../src/mirror";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch, until } from "./scratch";
-import { tileMark } from "@ep0ch/outline-core/program-status";
+import { tileMark, tmuxPassthrough } from "@ep0ch/outline-core/program-status";
 
 const OUTLINER_CLI = join(import.meta.dir, "../../outliner/src/cli.ts");
 const mod = (file: string) => import(join(import.meta.dir, "../../claude-mod/hooks", file));
@@ -259,21 +259,53 @@ describe.skipIf(!outliner)("a link pressed in a terminal tile opens where the ti
     } finally { d.close(); }
   }, 30_000);
 
-  test("a program that can't read its terminal (Claude Code) writes a marker, and host.tileOf mark= names its tile (PIE-1306)", async () => {
-    const token = "k7f3a1c09e2b44d1";
+  /** A far program running `script` (it writes a marker), in a tile grouped with a detail: the door, the program, the tile's id and pane. */
+  async function marking(script: string) {
     const d = await door(null);
+    const prog = farProgram("kettle", script);
+    await d.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: prog.cmd.join(" "), name: "kettle" }, tile: "reader" }, USER);
+    (d.app as any).paint();
+    await until(() => (d.desk.pane("kettle") as PtyPane | undefined)?.running === true, "kettle runs");
+    const id = (d.desk.layoutGet().tiles.find((t: any) => t.name === "kettle") as any).tile;
+    await d.desk.dispatch.act({ action: "tile.open", args: { kind: "detail", name: "det" }, tile: "reader" }, USER);
+    await d.desk.dispatch.act({ action: "tile.group", args: { with: "det", name: "bundle" }, tile: "kettle" }, USER);
+    const inner = (d.desk.pane("bundle") as any).inner as Desk;
+    return { d, prog, id, pane: inner.pane("kettle") as PtyPane };
+  }
+
+  test("a program that can't read its terminal (Claude Code) writes a marker, and host.tileOf mark= names its tile in a group (PIE-1306)", async () => {
+    const token = "k7f3a1c09e2b44d1";
+    const { d, prog, id, pane } = await marking(`printf '%s' '${tileMark(token)}'`);
     try {
-      const prog = farProgram("kettle", `printf '%s' '${tileMark(token)}'`);
-      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: prog.cmd.join(" "), name: "kettle" }, tile: "reader" }, USER);
-      (d.app as any).paint();
-      await until(() => (d.desk.pane("kettle") as PtyPane | undefined)?.running === true, "kettle runs");
+      expect(id).toMatch(/^t-[0-9a-f-]{36}$/);
       expect(await d.app.act({ action: "host.tileOf", args: { mark: token }, as: AS })).toEqual({ tile: null, name: null, by: null });
       prog.go();
-      const id = (d.desk.layoutGet().tiles.find((t: any) => t.name === "kettle") as any).tile;
-      expect(id).toMatch(/^t-[0-9a-f-]{36}$/);
-      await until(() => (d.desk.pane("kettle") as PtyPane).status.saw(token), "the marker reached the door", 20_000);
+      // Asked as the mod asks, right after writing: the door waits a moment for the marker to cross.
       expect(await d.app.act({ action: "host.tileOf", args: { mark: token }, as: AS })).toEqual({ tile: id, name: "kettle", by: "mark" });
+      expect(pane.status.saw(token)).toBe(true);
     } finally { d.close(); }
+  }, 30_000);
+
+  test.skipIf(!Bun.which("tmux"))("a marker from inside tmux on the far machine crosses through tmux's passthrough (PIE-1306)", async () => {
+    const token = "t9b2e4c71a0d55f8";
+    const conf = join(state, "tmux.conf"), sock = join(state, "tmux");
+    mkdirSync(sock, { recursive: true });
+    writeFileSync(conf, "set -g allow-passthrough on\nset -g status off\n");
+    // tmux passes a sequence on only to a client attached to it: the pane's program waits for new-session's client to
+    // attach (a person's press comes long after that).
+    const marked = join(state, "marked.sh");
+    writeFileSync(marked, `#!/bin/sh\nsleep 0.5\nprintf '%s' '${tmuxPassthrough(tileMark(token))}'\nexec sleep 30\n`);
+    chmodSync(marked, 0o755);
+    const tmux = `tmux -S ${join(sock, "s")} -f ${conf}`;
+    const { d, prog, id, pane } = await marking(`${tmux} new-session ${marked}`);
+    try {
+      prog.go();
+      await until(() => pane.status.saw(token), "the marker came through tmux", 20_000);
+      expect(await d.app.act({ action: "host.tileOf", args: { mark: token }, as: AS })).toEqual({ tile: id, name: "kettle", by: "mark" });
+    } finally {
+      d.close();
+      Bun.spawnSync(["tmux", "-S", join(sock, "s"), "kill-server"]);   // this test's own server, on its own socket
+    }
   }, 30_000);
 
   test("a terminal grouped in the drawer with no wire and no reader opens the note on the screen", async () => {

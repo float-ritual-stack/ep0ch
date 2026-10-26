@@ -50,7 +50,7 @@ export async function askTerminal(write: (s: string) => unknown, ms = 300, stdin
 
 /**
  * Which tile this program is drawn in, asked of the terminal on stdin (PIE-1306: `OSC 7501 ; ?tile`, which a door answers
- * with the tile's `t-<uuid>`, through any ssh, tmux or Herdr between); null from a terminal that isn't a door's tile, or
+ * with the tile's `t-<uuid>`, over ssh; not through tmux); null from a terminal that isn't a door's tile, or
  * when stdin isn't a terminal this program may read.
  */
 export function tileFromTerminal(write: (s: string) => unknown, ms = 500, stdin: NodeJS.ReadStream = process.stdin): Promise<string | null> {
@@ -71,14 +71,14 @@ async function askTerminalFor<T>(query: string, read: (body: string) => T | null
   try {
     stdin.setRawMode(true);
     return await new Promise<T | null>(done => {
-      const timer = setTimeout(() => done(null), ms);
+      // The answer, once read; it is handed back when the device attributes come too (or the time is up), so they
+      // never reach whoever reads stdin next.
+      let got: T | null = null;
+      const timer = setTimeout(() => done(got), ms);
       onData = (d: Buffer) => {
         seen += d.toString("latin1");
-        for (const q of seen.matchAll(/\x1b\]7501;([^\x07\x1b]*)(?:\x07|\x1b\\)/g)) {
-          const got = read(q[1]!);
-          if (got !== null) { clearTimeout(timer); done(got); return; }
-        }
-        if (/\x1b\[\?[\d;]*c/.test(seen)) { clearTimeout(timer); done(null); }
+        if (got === null) for (const q of seen.matchAll(/\x1b\]7501;([^\x07\x1b]*)(?:\x07|\x1b\\)/g)) if ((got = read(q[1]!)) !== null) break;
+        if (/\x1b\[\?[\d;]*c/.test(seen)) { clearTimeout(timer); done(got); }
       };
       stdin.on("data", onData);
       stdin.resume();

@@ -4,12 +4,14 @@
 // Read-only; the process table and /proc/net/tcp are read here, on the door's machine, never by the asker. Neither reaches
 // a program whose ssh client isn't in the tile (a Claude in a tmux or a background session on the far machine, attached
 // from the tile): that program writes a marker to its terminal (`OSC 7501 ; ?mark=<token>`, PIE-1306), the tile that drew
-// it keeps it, and `mark=` finds that tile. The pty stream carries it through every ssh, tmux and Herdr between.
+// it keeps it, and `mark=` finds that tile. The pty stream carries it over ssh (and through tmux's passthrough, when allowed).
 import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { procAncestors } from "./where";
 
 export interface TileProc {
-  id: string; name: string; pid: number;
+  id: string; name: string;
+  /** Its program's pid; 0 while none runs (a marker it saw is still found). */
+  pid: number;
   /** Whether its program wrote the marker `token` (the tile's TileStatus). */
   saw?(token: string): boolean;
 }
@@ -30,7 +32,7 @@ export function tileOf(tiles: readonly TileProc[], q: { mark?: string; pid?: num
     const t = tiles.find(t => t.saw?.(q.mark!));
     if (t) return { tile: t.id, name: t.name, by: "mark" };
   }
-  const find = (pid: number) => tiles.find(t => t.pid === pid || deps.ancestors(pid).includes(t.pid));
+  const find = (pid: number) => tiles.find(t => t.pid > 0 && (t.pid === pid || deps.ancestors(pid).includes(t.pid)));
   if (q.pid !== undefined) {
     const t = find(q.pid);
     if (t) return { tile: t.id, name: t.name, by: "pid" };

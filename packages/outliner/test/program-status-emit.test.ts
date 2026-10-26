@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { emitterTo, programStatusEmitter, reportWhile, statusSetting } from "../src/program-status-emit";
+import { EventEmitter } from "node:events";
+import { emitterTo, programStatusEmitter, reportWhile, statusSetting, tileFromTerminal } from "../src/program-status-emit";
 
 const b64 = (s: string) => Buffer.from(s).toString("base64");
 const tty = () => { const out: string[] = []; return { out, stream: { isTTY: true, write: (s: string) => out.push(s) } }; };
@@ -53,4 +54,34 @@ test("the shell scripts' reporter: a report from a script reaches a terminal tha
   expect(run(["--probe"], { EP0CH_PROGRAM_STATUS: "1" }).exitCode).toBe(1);
   expect(run(["paused"], {}).exitCode).toBe(2);
   expect(run(["working", "--progress", "140"], {}).exitCode).toBe(2);
+});
+
+describe("asking the terminal which tile this is (PIE-1306)", () => {
+  test("which tile (PIE-1306): the door's answer is read, and the device attributes after it are drained, not left for the next reader", async () => {
+    const stdin = Object.assign(new EventEmitter(), {
+      isTTY: true, isRaw: false, paused: true, back: [] as string[],
+      setRawMode(on: boolean) { this.isRaw = on; }, isPaused() { return this.paused; }, resume() { this.paused = false; }, pause() { this.paused = true; },
+      unshift(b: Buffer) { this.back.push(b.toString("latin1")); },
+    });
+    const asked: string[] = [];
+    const id = "t-0e6c7a52-3f1d-4b8e-9c2a-5d7f1e3b9a40";
+    const answer = tileFromTerminal(q => {
+      asked.push(q);
+      // The answer and the device attributes arrive in separate reads, a key typed between them.
+      queueMicrotask(() => stdin.emit("data", Buffer.from(`\x1b]7501;?tile=${id}\x1b\\`, "latin1")));
+      setTimeout(() => { stdin.emit("data", Buffer.from("x")); stdin.emit("data", Buffer.from("\x1b[?62;22c", "latin1")); }, 20);
+    }, 2000, stdin as never);
+    expect(await answer).toBe(id);
+    expect(asked).toEqual(["\x1b]7501;?tile\x1b\\\x1b[c"]);
+    expect(stdin.back).toEqual(["x"]);                         // the key goes back; neither answer does
+    expect(stdin.listenerCount("data")).toBe(0);
+    expect({ raw: stdin.isRaw, paused: stdin.paused }).toEqual({ raw: false, paused: true });
+  });
+
+  test("a terminal that isn't a door's tile answers only the device attributes: no tile, at once", async () => {
+    const stdin = Object.assign(new EventEmitter(), { isTTY: true, isRaw: false, setRawMode() {}, isPaused: () => true, resume() {}, pause() {}, unshift() {} });
+    const started = Date.now();
+    expect(await tileFromTerminal(() => queueMicrotask(() => stdin.emit("data", Buffer.from("\x1b[?62;22c", "latin1"))), 2000, stdin as never)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
 });

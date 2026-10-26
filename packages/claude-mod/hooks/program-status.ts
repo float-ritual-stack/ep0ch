@@ -62,11 +62,16 @@ export function tileMark(token: string): string {
   if (!MARK.test(token)) throw new Error(`not a tile marker token: ${token}`);
   return `\x1b]7501;?mark=${token}\x1b\\`;
 }
+/**
+ * `seq` wrapped for tmux's passthrough (`ESC P tmux; … ESC \`, each ESC inside doubled), so it reaches the terminal tmux
+ * runs in instead of being read and dropped by tmux. tmux passes it only with `allow-passthrough on` (off by default).
+ */
+export const tmuxPassthrough = (seq: string): string => `\x1bPtmux;${seq.replaceAll("\x1b", "\x1b\x1b")}\x1b\\`;
 /** A door's answer to TILE_QUERY for the tile `id`. */
 export const tileReply = (id: string): string => `\x1b]7501;?tile=${id}\x1b\\`;
 /** The tile a reply body (between `7501;` and ST) names, or null when it isn't a tile reply. */
 export function tileOfReply(body: string): string | null {
-  const m = /^\?tile=(t-[0-9a-f-]{36})$/.exec(body.trim());
+  const m = /^\?tile=(t-[0-9a-f-]{36})$/.exec(body);
   return m ? m[1]! : null;
 }
 
@@ -97,7 +102,7 @@ export function parseProgramStatus(body: string): ParsedStatus {
   const asked = body.trim();
   if (asked === "?") return { t: "query" };
   if (asked === "?tile") return { t: "tile" };
-  if (asked.startsWith("?mark=")) return MARK.test(asked.slice(6)) ? { t: "mark", token: asked.slice(6) } : { t: "ignored", why: "marker token outside the grammar" };
+  if (body.startsWith("?mark=")) return MARK.test(body.slice(6)) ? { t: "mark", token: body.slice(6) } : { t: "ignored", why: "marker token outside the grammar" };
   const pairs = new Map<string, string>();
   /** msg and title as text, decoded and checked pair by pair. */
   const texts = new Map<string, string>();
