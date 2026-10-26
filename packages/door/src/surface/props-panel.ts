@@ -15,7 +15,7 @@ import { selectedRow, drawEllipsized, bg, C, fg, pad, RESET, width } from "../st
 import { ch, isUp, isDown, type Key } from "../term";
 import { rowLines, rule } from "../text";
 import { RowView } from "../scroll";
-import { LineInput } from "./line";
+import { LineField } from "./line";
 import type { SettingsCard } from "./settings-card";
 
 /** One property token as the panel lists it. `ordinal` is what properties.patch replaces (null: unknown here). */
@@ -89,7 +89,7 @@ export function checkValue(r: PropRow, value: string): string | null {
 }
 
 /** A one-line value being edited. */
-export interface Field { row: PropRow; input: LineInput; revision: number; saving: boolean; note: string; changedElsewhere: boolean }
+export interface Field { row: PropRow; input: LineField; revision: number; saving: boolean; note: string; changedElsewhere: boolean }
 
 export type PanelIntent = "copy" | "follow" | "edit" | "save" | "cancel" | "close" | "summary" | "full" | null;
 
@@ -102,7 +102,9 @@ export class PropertyPanel {
   /** What the last copy, follow or save said, until the selection moves. */
   note = "";
   /** Where the last render drew each row (`y` in its lines) and where its value starts, for clicks. */
-  at: { y: number; n: number; from: number; target: boolean }[] = [];
+  at: { y: number; n: number; from: number; target: boolean; w: number }[] = [];
+  /** The surface row the panel was last drawn from: clicks come in the surface's rows. */
+  origin = 0;
   /** The settings card (PIE-786), when the panel shows a configurable note's fields instead of its tokens (`,`). */
   card: SettingsCard | null = null;
 
@@ -113,7 +115,7 @@ export class PropertyPanel {
     if (f) {
       if (f.saving) return null;
       // An open completion popup takes ⏎, esc and the arrows first (the line's own keys, PIE-626); what it leaves is the panel's.
-      if (f.input.key(k)) { f.note = ""; return null; }
+      if (f.input.take(k)) { f.note = ""; return null; }
       if (k.kind === "enter") return "save";
       if (k.kind === "esc") return "cancel";
       return null;
@@ -128,6 +130,12 @@ export class PropertyPanel {
     else if (c === "I") return "full";
     else if (k.kind === "esc" || c === "i" || c === "q") return "close";
     return null;
+  }
+
+  /** A press at `x`, `y` (the panel's own cells) on the value being typed: the field's (its cursor, a word on a double click). */
+  clickField(x: number, y: number): boolean {
+    const f = this.field, at = f && this.at.find(a => a.n === f.row.n);
+    return !!f && !!at && f.input.mouse({ kind: "mouse", action: "down", button: 0, x, y }, { x: at.from, y: this.origin + at.y, w: at.w });
   }
 
   hint(): string {
@@ -161,7 +169,7 @@ export class PropertyPanel {
       const valW = Math.max(1, w - keyW - 5 - scope.length);
       const reads = valueView(r, info.src, info.text), block = r.target && "block" in r.target ? r.target.block : undefined;
       const shown = block ? reads.replace(shortId(block), () => drawShortId(block)) : reads;
-      const value = f ? f.input.show(valW, "block") : (r.target ? fg(C.lcyan) : fg(C.yellow)) + shown;
+      const value = f ? f.input.show(valW) : (r.target ? fg(C.lcyan) : fg(C.yellow)) + shown;
       const line = " " + mark + " " + fg(C.brown) + pad(printable(r.key), keyW) + "  " + value + RESET + fg(C.dark) + scope + RESET;
       return rowLines(line, w, f ? 1 : undefined, { hang: keyW + 5 }).map(text => ({ text, row: r }));
     });
@@ -172,7 +180,7 @@ export class PropertyPanel {
       const r = entry.row;
       if (!r) { out.push(entry.text); continue; }
       const on = r.n - 1 === this.sel, f = this.field?.row.n === r.n ? this.field : null;
-      if (out.length < h) this.at.push({ y: out.length, n: r.n, from: keyW + 5, target: !!r.target });
+      if (out.length < h) this.at.push({ y: out.length, n: r.n, from: keyW + 5, target: !!r.target, w: Math.max(1, w - keyW - 5 - (r.scope === "block" ? 0 : r.scope.length + 3)) });
       out.push(on ? selectedRow(entry.text, w) : pad(entry.text, w));
       // The value being typed completes as a draft does: the popup opens under it, and a click on a candidate chooses it.
       if (f) {

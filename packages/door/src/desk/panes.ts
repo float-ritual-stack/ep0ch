@@ -370,8 +370,8 @@ export class ReaderPane implements Pane {
   get editing() { return this.surface.editing; }
   /** Every key goes to the surface first (an edit, or the property panel); hosts route to it before their own. */
   get holdsKeys() { return this.surface.holdsKeys; }
-  /** The person is typing a filter into an inline `::links` list: the desk's own keys (e, p, i, C) wait (Pane.typing). */
-  typing() { return this.surface.typingFilter; }
+  /** The person is typing a line (an inline `::links` list's filter, a property's value): the desk's own keys (e, p, i, C, ^W) wait (Pane.typing). */
+  typing() { return this.surface.typingLine; }
   /** Hold `m` (alt+⏎ on a link, a note opened into it): it keeps its note as the current one changes. A pinned reader shown another note is held, no longer pinned. */
   hold(m: Msg, desk: DeskApi) {
     this.modeGen++;

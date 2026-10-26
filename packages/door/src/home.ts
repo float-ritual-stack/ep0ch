@@ -27,7 +27,7 @@ import { hostRequest, type Actor } from "./socket";
 import { C, fg, pad, paint, RESET, selectedRow, visible } from "./style";
 import { ch, isDown, isUp, type Key } from "./term";
 import { ActionRefused, actionSet, def } from "./surface/actions";
-import { LineInput } from "./surface/line";
+import { LineField } from "./surface/line";
 import { centred, linePrompt, ListPicker, pickRows, pickRow } from "./surface/picker";
 import { RowView } from "./scroll";
 import type { DeskApi, Pane, PaneView } from "./desk/panes";
@@ -426,7 +426,7 @@ async function connect(pane: HomePane, desk: DeskApi, machine: string) {
 /** `a`: the machines in ssh config not listed yet, filtered as it's typed; a name typed that isn't there is offered too. */
 function addPicker(pane: HomePane, desk: DeskApi) {
   const names = sshConfigNames().filter(n => !pane.machines.has(n));
-  const input = new LineInput("", false, { complete: false });   // an ssh config name: not outline text
+  const input = new LineField("", false, { complete: false });   // an ssh config name: not outline text
   desk.overlay?.(new ListPicker<string, unknown>({
     name: "home-add", input, filters: true,
     items: () => {
@@ -435,7 +435,7 @@ function addPicker(pane: HomePane, desk: DeskApi) {
     },
     row: (n, _i, lit, w) => [...pickRows(` ${n}${names.includes(n) ? "" : "  (not in ~/.ssh/config)"}`, lit, w)],
     choose: n => void desk.press?.(pane, HOME_ACTIONS, "home.add", { machine: n }),
-    frame: (a, n) => { const r = centred(a, Math.min(70, a.cols - 4), Math.min(a.rows - 4, n + 4)); return { rect: r, title: "add a machine", head: [" " + input.show(r.cols - 4)] }; },
+    frame: (a, n) => { const r = centred(a, Math.min(70, a.cols - 4), Math.min(a.rows - 4, n + 4)); return { rect: r, title: "add a machine", head: [" " + input.show(r.cols - 4)], field: { line: 0 } }; },
   }));
 }
 

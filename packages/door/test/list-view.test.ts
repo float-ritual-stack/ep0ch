@@ -1,5 +1,6 @@
 // The door's one ListView (PIE-747): each actor's own pick and filter, the person's typed filter, the rows an agent's
 // say-so line leaves in a tile, and a `list` view drawn without a reader. Made-up rows; no service, no App.
+import { filterLine } from "../src/surface/line";
 import { describe, expect, test } from "bun:test";
 import { primitiveLines } from "../src/components";
 import { ListView, listRowLines, listRowsOf, PERSON, type ListViewRow } from "../src/surface/list-view";
@@ -58,12 +59,12 @@ describe("ListView", () => {
   test("a view that narrows its own rows keeps a header while a row of its group matches; ⏎ keeps what was typed, esc goes back", () => {
     const v = new ListView("#1");
     v.set(rows());
-    v.startTyping();
+    v.startTyping(filterLine);
     for (const k of "spad") v.typing!.key({ kind: "char", ch: k });
     expect(v.visible().map(r => r.id)).toEqual(["h", "spade"]);
     v.stopTyping(true);
     expect(v.filter()).toBe("spad");
-    v.startTyping();
+    v.startTyping(filterLine);
     for (const k of " zzqq") v.typing!.key({ kind: "char", ch: k });
     expect(v.visible()).toHaveLength(0);
     v.stopTyping(false);

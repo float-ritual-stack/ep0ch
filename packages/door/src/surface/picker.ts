@@ -6,17 +6,22 @@ import { rowLines } from "../text";
 // nothing is typed), Tab, Home End, PgUp PgDn and the wheel move the cursor (a RowView); ⏎ or a double click on a row
 // chooses (a click moves the cursor there, RowView.press; in a menu, `clickChooses`, it chooses), and puts it away unless it
 // `stays`; esc, a closing letter or a click outside puts it away. A heading row (a menu's group) chooses nothing. Put away, it has
-// `ended` (its mode stack lets it go). A line typed above the list is a LineInput.
+// `ended` (its mode stack lets it go). A line typed above the list is a LineField (PIE-1290: its keys, and the mouse
+// in it: a click places the cursor, a drag selects).
 import { listPreview, type PickerPreview } from "../bar/list-preview";
 import type { Canvas, Rect } from "../canvas";
 import { RowView, wheelRows } from "../scroll";
 import { bg, C, fg, pad, RESET, floatSelectedRow } from "../style";
 import { type Key } from "../term";
-import { LineInput } from "./line";
+import { LineField } from "./line";
 import { modeBinding, modeHint, type Mode, type ModeKey } from "./modes";
 
 /** Its box, title and foot, lines above and below the list, and a preview drawn beside or below the list. */
-export interface PickerFrame { rect: Rect; title: string; foot?: string; head?: string[]; tail?: string[]; preview?: PickerPreview; previewPlaced?(rect: Rect | null): void }
+export interface PickerFrame {
+  rect: Rect; title: string; foot?: string; head?: string[]; tail?: string[]; preview?: PickerPreview; previewPlaced?(rect: Rect | null): void;
+  /** Which head line holds the typed line (`input.show`), and how many cells in it starts: a click or drag there is the line's. */
+  field?: { line: number; col?: number };
+}
 
 /** How a picker was put away: esc, one of its closing letters (q), or a click outside it. */
 export type PickerClose = "esc" | "letter" | "click";
@@ -47,7 +52,7 @@ export interface PickerSpec<T, H> {
   closers?: string;
   wraps?: boolean;
   /** A line typed above the list (its keys go there; the list moves on ↑ ↓ only), and what runs when it changed. */
-  input?: LineInput;
+  input?: LineField;
   /** Esc clears what's typed first, and puts the picker away only with nothing typed (a filter, not a name). */
   escClears?: boolean;
   /** Typing narrows the choices, including when Esc closes without clearing. */
@@ -125,20 +130,21 @@ export class ListPicker<T, H> implements Mode<H> {
 
   key(k: Key, host: H): boolean {
     if (k.kind === "mouse") {
+      if (this.spec.input?.take(k)) return true;
       if (k.action === "wheel-up" || k.action === "wheel-down") { if (this.spec.scrolls) this.view.scroll(wheelRows(k.action === "wheel-down" ? 1 : -1)); else this.move(k.action === "wheel-down" ? 1 : -1); }
       else if (k.action === "down") this.clickAt(k, host);
       return true;
     }
     const input = this.spec.input, binding = modeBinding(this.bindings, k);
     if (binding?.action === "picker.close") {
-      if (!binding.args?.letter && this.spec.escClears && input?.text) { input.text = ""; input.cursor = 0; this.sel = 0; this.spec.typed?.(host); }
+      if (!binding.args?.letter && this.spec.escClears && input?.text) { input.set(""); this.sel = 0; this.spec.typed?.(host); }
       else this.close(host, binding.args?.letter ? "letter" : "esc");
       return true;
     }
     if (binding && this.spec.bindings?.includes(binding)) { this.spec.dispatch!(binding, host); return true; }
     if (this.spec.keys?.(k, host)) return true;
     const was = input?.text;
-    if (input?.key(k)) { if (input.text !== was) this.spec.typed?.(host); return true; }
+    if (input?.take(k)) { if (input.text !== was) this.spec.typed?.(host); return true; }
     const page = Math.max(1, Math.floor((this.view.room - 1) / this.per));
     switch (binding?.action) {
       case "picker.move": this.move(binding.args!.by as number); break;
@@ -209,6 +215,7 @@ export class ListPicker<T, H> implements Mode<H> {
     values = this.spec.look?.(r.cols) ?? values;
     canvas.float(r, f.title, fg(C.dark) + (f.foot ? f.foot + " · " : "") + this.hint(), () => {
     head.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
+    if (f.field && this.spec.input) { const c = f.field.col ?? 1; this.spec.input.drawnAt(r.col + 1 + c, r.row + 1 + f.field.line, w - c); }
     const room = Math.max(0, r.rows - 2 - head.length - tail.length), y0 = r.row + 1 + head.length;
     const drawn = listPreview(this, w, room, f.preview, y0, r.cols);
     f.previewPlaced?.(drawn.preview ? { ...drawn.preview, col: r.col + 1 + drawn.preview.col, row: y0 + drawn.preview.row } : null);
@@ -228,7 +235,7 @@ export const centred = (a: Rect, w: number, h: number): Rect => ({ col: Math.flo
  * row that does it once something is typed (`doing` says what), so ⏎ or a click on that row runs `done`.
  */
 export function linePrompt<H>(o: { name: string; title: string; text: string; prefilled?: boolean; verbatim?: boolean; doing: (t: string) => string; hint?: (t: string) => { text: string; warn?: boolean }; done: (t: string, host: H) => void; head?: string[]; w?: number }): ListPicker<string, H> {
-  const input = new LineInput(o.text, o.prefilled ?? true, { complete: false });   // a name or a path, never outline text
+  const input = new LineField(o.text, o.prefilled ?? true, { complete: false });   // a name or a path, never outline text
   return new ListPicker<string, H>({
     name: o.name, input, items: () => { const t = o.verbatim ? input.text : input.text.trim(); return (o.verbatim || t) && !o.hint?.(t).warn ? [o.doing(t)] : []; },
     row: (it, _i, on, w) => [...pickRows(` ${it}`, on, w)],
@@ -236,7 +243,7 @@ export function linePrompt<H>(o: { name: string; title: string; text: string; pr
     frame: a => { const w = Math.min(o.w ?? 70, a.cols - 4), head = o.head ?? [], h = o.hint?.(input.text.trim());
       // The hint under the input: dim, or in the warning colour when what's typed can't be used (⏎ then does nothing, so the prompt stays).
       const hintLine = h ? [fg(h.warn ? C.yellow : C.dark) + " " + h.text + RESET] : [];
-      return { rect: centred(a, w, 4 + head.length + hintLine.length), title: o.title, head: [" " + input.show(w - 4), ...hintLine, ...head] }; },
+      return { rect: centred(a, w, 4 + head.length + hintLine.length), title: o.title, head: [" " + input.show(w - 4), ...hintLine, ...head], field: { line: 0 } }; },
   });
 }
 

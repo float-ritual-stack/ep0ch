@@ -1,5 +1,5 @@
 // Autocomplete everywhere you write (PIE-626): the one completer, on every door text input that takes outline text.
-// A Draft (a comment, the board's composer, a new note's float) and a LineInput (a property's value, a river column's
+// A Draft (a comment, the board's composer, a new note's float) and a LineField (a property's value, a river column's
 // filter) complete by default; a line that holds a name or plain words opts out. Fictional notes, a scratch service.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -14,7 +14,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { visible } from "../src/style";
 import { completerOf, completionOf, lookupCompletion, stopCompletion, useCompletion, type CompletionBoard } from "../src/surface/completer";
-import { LineInput } from "../src/surface/line";
+import { LineField } from "../src/surface/line";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import { boardScreen } from "./board-view";
@@ -55,42 +55,42 @@ describe("every line completes by default, with an opt-out (a fake service)", ()
       ? [{ key, value: "queued", count: 4 }, { key, value: "done", count: 2 }].filter(c => c.value.startsWith(prefix))
       : [{ key: "stage", value: "queued", count: 4 }, { key: "stage", value: "done", count: 2 }, { key: "status", value: "open", count: 1 }, { key: "type", value: "note", count: 9 }].filter(c => c.key.startsWith(prefix))),
   };
-  const type = (i: LineInput, s: string) => { for (const c of s) i.key(char(c)); };
+  const type = (i: LineField, s: string) => { for (const c of s) i.take(char(c)); };
 
   test("a line made while the door runs completes `((` and a `[key` as a draft does; opted out, or with no door, it never does", async () => {
     useCompletion(board as unknown as SocketBoard);
     try {
-      const line = new LineInput("");
+      const line = new LineField("");
       type(line, "see ((xylo");
       await until(() => !!completionOf(line) && !completionOf(line)!.loading, "the popup");
       expect(completionOf(line)!.items.map(i => i.insertion)).toEqual(["((b2))"]);
       // ↓ and ⏎ are the popup's while it has candidates; the line's text is spliced in.
-      line.key(K("down"));
-      expect(line.key(K("enter"))).toBe(true);
+      line.take(K("down"));
+      expect(line.take(K("enter"))).toBe(true);
       await until(() => line.text === "see ((b2))", "the insertion");
       expect(completionOf(line)).toBeNull();
       // With nothing to choose, ⏎ and esc are the caller's again.
-      expect(line.key(K("enter"))).toBe(false);
-      expect(line.key(K("esc"))).toBe(false);
+      expect(line.take(K("enter"))).toBe(false);
+      expect(line.take(K("esc"))).toBe(false);
       // A property key, from the component schemas' one list.
-      const key = new LineInput("");
+      const key = new LineField("");
       type(key, "[heading-p");
       await until(() => !!completionOf(key) && !completionOf(key)!.loading && completionOf(key)!.items.length > 0, "the keys");
       expect(completionOf(key)!.items.map(i => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);
       // A paste opens nothing, even one ending in a token; ⏎ stays the caller's.
-      const pasted = new LineInput("");
-      pasted.key({ kind: "char", ch: "see ((xylo", pasted: true } as Key);
+      const pasted = new LineField("");
+      pasted.take({ kind: "char", ch: "see ((xylo", pasted: true } as Key);
       await tick();
       expect(completionOf(pasted)).toBeNull();
-      expect(pasted.key(K("enter"))).toBe(false);
+      expect(pasted.take(K("enter"))).toBe(false);
       // Opted out: a name, a path, plain words.
-      const name = new LineInput("", false, { complete: false });
+      const name = new LineField("", false, { complete: false });
       type(name, "((xylo");
       await tick();
       expect(completerOf(name)).toBeNull();
       expect(name.text).toBe("((xylo");
     } finally { stopCompletion(board as unknown as SocketBoard); }
-    const none = new LineInput("");
+    const none = new LineField("");
     type(none, "((xylo");
     await tick();
     expect(completerOf(none)).toBeNull();
@@ -100,24 +100,24 @@ describe("every line completes by default, with an opt-out (a fake service)", ()
   test("a filter's line offers the outline's property keys, then the values of the key before its colon", async () => {
     useCompletion(board as unknown as SocketBoard);
     try {
-      const f = new LineInput("", false, { complete: { grammar: "filter" } });
+      const f = new LineField("", false, { complete: { grammar: "filter" } });
       type(f, "type:note st");
       await until(() => !!completionOf(f) && !completionOf(f)!.loading, "the keys");
       expect(completionOf(f)!.target).toMatchObject({ kind: "filter-key", query: "st" });
       expect(completionOf(f)!.items.map(i => i.insertion).slice(0, 2)).toEqual(["stage:", "status:"]);
       expect(completionOf(f)!.items[0]!.label).toBe("stage (6)");
-      f.key(K("down")); f.key(K("up"));
-      expect(f.key(K("enter"))).toBe(true);
+      f.take(K("down")); f.take(K("up"));
+      expect(f.take(K("enter"))).toBe(true);
       await until(() => f.text === "type:note stage:" && !!completionOf(f) && !completionOf(f)!.loading && completionOf(f)!.target.kind === "filter-value", "the values");
       expect(completionOf(f)!.items.map(i => i.insertion)).toEqual(["queued", "done"]);
       type(f, "do");
       await until(() => completionOf(f)?.target.query === "do" && !completionOf(f)!.loading, "the narrowed values");
-      f.key(K("tab"));
+      f.take(K("tab"));
       await until(() => f.text === "type:note stage:done", "the choice");
       expect(completionOf(f)).toBeNull();                                  // a chosen value ends it: ⏎ is the caller's again
       await tick();
       expect(completionOf(f)).toBeNull();
-      expect(f.key(K("enter"))).toBe(false);
+      expect(f.take(K("enter"))).toBe(false);
       expect(f.cursor).toBe("type:note stage:done".length);
       // The same candidates an agent gets, without typing.
       const r = await lookupCompletion(board as unknown as CompletionBoard, { kind: "filter-value", start: 0, end: 0, query: "", key: "stage", words: true }, null);
@@ -134,7 +134,7 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
   const screen = () => (top().render(app).lines as string[]).map(visible);
   const type = (s: string) => { for (const c of s) key(char(c)); };
   const host = (): SurfaceHost => ({ ctx: { board, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
-  const ready = (d: Draft | LineInput) => until(() => !!completionOf(d) && !completionOf(d)!.loading && completionOf(d)!.items.length > 0, "the popup");
+  const ready = (d: Draft | LineField) => until(() => !!completionOf(d) && !completionOf(d)!.loading && completionOf(d)!.items.length > 0, "the popup");
 
   beforeAll(async () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");

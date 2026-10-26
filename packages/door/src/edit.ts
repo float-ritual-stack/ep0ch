@@ -21,6 +21,7 @@ import { lastTop, scrolled, scrollOff } from "./scroll";
 import type { Key } from "./term";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { STEP_BOX } from "@ep0ch/outline-core/checklist-marks";
+import { nextGraphemeEnd, previousGraphemeStart } from "@ep0ch/outline-core/graphemes";
 import { foldPoints, type FoldPoint } from "./doc";
 
 /** How long an agent's patch stays lit in the draft, with who made it (ms). */
@@ -1394,8 +1395,9 @@ export function changeOf(a: string, b: string): { at: number; removed: number; a
 }
 
 const isLow = (s: string, i: number) => { const c = s.charCodeAt(i); return c >= 0xdc00 && c <= 0xdfff; };
-const stepBack = (s: string, i: number) => (i >= 2 && isLow(s, i - 1) ? i - 2 : i - 1);
-const stepForward = (s: string, i: number) => (isLow(s, i + 1) ? i + 2 : i + 1);
+// A cursor steps by what a person sees as one character (outline-core/graphemes.ts, PIE-1290).
+const stepBack = previousGraphemeStart;
+const stepForward = nextGraphemeEnd;
 
 /**
  * Keep `text` in `state/drafts/` as `<label>-<time>.md` (0600, the folder 0700) and prune old copies: the one

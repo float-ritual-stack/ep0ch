@@ -20,7 +20,7 @@ import { Canvas, type Rect } from "../canvas";
 import type { Ctx } from "../app";
 import type { Msg } from "../board";
 import { ListPicker, pickRow } from "../surface/picker";
-import { Draft } from "../edit";
+import { LineField } from "../surface/line";
 import { editorLineKey } from "../surface/editor";
 import { Gesture, rowsOf, wordAt, Selection, paintRange, SELECT_BG, isCopyKey, modeKey } from "../surface/selection";
 import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note";
@@ -51,10 +51,13 @@ export function barRect(cols: number, rows: number): Rect {
   return { col: Math.floor((cols - w) / 2), row: Math.max(0, Math.floor((rows - h) / 4)), cols: w, rows: h };
 }
 
+/** The bar's line: plain words for every source (the service's search, a filter over rows), so no outline-text completion. */
+const powerLine = (text: string) => new LineField(text, false, { complete: false, id: "power-bar" });
+
 export class PowerBar {
   /** The source it's scoped to, or null: the main list. */
   scope: string | null;
-  input: Draft;
+  input: LineField;
   private readonly gesture = new Gesture();
   private readonly picker: ListPicker<BarItem, PowerBar>;
   items: BarItem[] = [];
@@ -103,7 +106,7 @@ export class PowerBar {
     this.quick = !!o.quick;
     this.scope = o.scope ? barSource(o.scope)?.id ?? null : null;
     // The query is plain words for every source (the service's search, a filter over rows): no outline-text completion.
-    this.input = new Draft("power-bar", 0, o.query ?? "");
+    this.input = powerLine(o.query ?? "");
     this.picker = new ListPicker<BarItem, PowerBar>({
       stays: true,
       name: "power bar", items: () => this.items,
@@ -123,7 +126,7 @@ export class PowerBar {
   private compact() { return this.scope === "ask" ? compactQuestion() : null; }
 
   /** Put away: nothing it asked for is waited on. */
-  close() { this.input = new Draft("power-bar", 0, ""); this.done = true; this.seq++; if (this.timer) clearTimeout(this.timer); this.timer = null; this.surface.dispose(); }
+  close() { this.input = powerLine(""); this.done = true; this.seq++; if (this.timer) clearTimeout(this.timer); this.timer = null; this.surface.dispose(); }
   ended(): boolean { return this.done || this.picker.ended(); }
   get query(): string { return this.input.text; }
   get selected(): number { return this.picker.sel; }
@@ -140,7 +143,7 @@ export class PowerBar {
 
   /** Change to scope `s` (null: the main list). */
   setScope(s: string | null) {
-    if (this.scope === "ask" && maskedQuestion() && s !== "ask") { this.input = new Draft("power-bar", 0, ""); clearPrivateForm(); }
+    if (this.scope === "ask" && maskedQuestion() && s !== "ask") { this.input = powerLine(""); clearPrivateForm(); }
     this.scope = s ? barSource(s)?.id ?? null : null;
     this.picker.sel = 0; this.litKey = null;
     this.refresh();
@@ -236,7 +239,7 @@ export class PowerBar {
     this.refresh();
   }
 
-  clear() { if (this.scope === "ask" && maskedQuestion()) this.input = new Draft("power-bar", 0, ""); else this.input.splice(0, this.query.length, ""); this.refresh(); }
+  clear() { if (this.scope === "ask" && maskedQuestion()) this.input = powerLine(""); else this.input.splice(0, this.query.length, ""); this.refresh(); }
 
   /** A key or a click while it's open: everything is the bar's. Mouse reports are made relative to where it was drawn. */
   key(k: Key, ctx: Ctx) {

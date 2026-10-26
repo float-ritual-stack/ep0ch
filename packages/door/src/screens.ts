@@ -3,7 +3,7 @@ import { modeBinding, modeHint, modeActionKeys } from "./surface/modes";
 import { clipText } from "./overflow";
 import { errorDetails } from "./status-log";
 import { matchesSearchText } from "@ep0ch/outline-core/search-match";
-import { LineInput } from "./surface/line";
+import { LineField } from "./surface/line";
 import type { StatusLog, StatusMessage } from "./status-log";
 import { readNote } from "./desk/outline-boards";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
@@ -1262,7 +1262,7 @@ const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("sta
     args: { text: { type: "string", optional: true, about: "the search words" }, editing: { type: "boolean", optional: true, about: "show the search cursor" } },
     examples: [{ act: 'status.filter text="layout load"', does: "finds messages about loading a layout" }],
     run({ text, editing }, { list, ctx }) {
-      if (text !== undefined) { list.query = new LineInput(text, false, { complete: false }); list.resetScroll(); }
+      if (text !== undefined) { list.query = new LineField(text, false, { complete: false }); list.resetScroll(); }
       if (editing !== undefined) list.searching = editing;
       ctx.redraw();
       return { query: list.query.text, rows: list.listRows().length };
@@ -1287,7 +1287,7 @@ const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("sta
 export class StatusMessages extends BbsList {
   readonly title = "message log";
   hostMode() { return "none" as const; }
-  query = new LineInput("", false, { complete: false });
+  query = new LineField("", false, { complete: false });
   searching = false;
   holdsKeys() { return this.searching; }
   private view = new RowView();
@@ -1315,9 +1315,10 @@ export class StatusMessages extends BbsList {
   scroll(by: number) { this.view.scroll(by); }
   override key(k: Key, ctx: Ctx) {
     this.ctx = ctx;
+    if (this.searching && k.kind === "mouse" && this.query.mouse(k)) { ctx.redraw(); return; }
     if (this.searching && k.kind !== "mouse") {
       if (k.kind === "enter" || k.kind === "esc") void this.dispatch.press("status.filter", { editing: false });
-      else if (this.query.key(k)) { this.resetScroll(); ctx.redraw(); }
+      else if (this.query.take(k)) { this.resetScroll(); ctx.redraw(); }
       return;
     }
     // Esc leaves the log as q does (Evan, Oct 21: "my instinct was to hit escape to dismiss"), through screen.back.
@@ -1336,6 +1337,7 @@ export class StatusMessages extends BbsList {
     this.ptr.frame();
     const rows = this.rows();
     const lines = [pad(fg(C.white) + "Message log" + RESET, w), this.searching ? "/ " + this.query.show(w - 2) : `Search: ${this.query.text || "all messages"} (${rows.length})`];
+    this.query.drawnAt(2, 1, w - 2);
     const drawn = rows.flatMap((r, i) => `${new Date(r.time).toTimeString().slice(0, 8)} ${r.kind}${r.action ? " | " + r.action : ""}${r.tile ? " | " + r.tile : ""}\n${r.message}`.split("\n").flatMap(line => rowLines(line, w, Infinity)).map(text => ({ text, i })));
     const first = drawn.findIndex(r => r.i === this.sel), last = drawn.findLastIndex(r => r.i === this.sel);
     const top = this.view.place(this.sel, drawn.length, Math.max(1, h - lines.length - 1), [first, last]);

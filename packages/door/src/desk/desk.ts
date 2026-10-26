@@ -4611,7 +4611,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
             if (focused.editing && !this.leaveSession(focused)) { this.prefix = ""; return this.redraw(); }
             return this.command(k);
           }
-          if (k.kind === "char" && k.ctrl && k.ch === "w" && !focused.surface.leaveRefusal()) { this.prefix = "wm"; return this.redraw(); }
+          // ^W leaves an edit; in a one-line field (a property's value) ctrl+w erases the word before the cursor, as every line does (PIE-1290).
+          if (k.kind === "char" && k.ctrl && k.ch === "w" && !focused.surface.leaveRefusal() && !focused.typing()) { this.prefix = "wm"; return this.redraw(); }
           focused.key(k, this); return;
         }
         // The drag and release of a press the desk took before the keys came back into this edit (a float's title, a
@@ -4639,7 +4640,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const mount = this.panes.get(this.focus);
     if (mount instanceof ScreenTile && mount.inner && !this.contentCover(this.focus).fold &&
       (k.kind === "alt" || k.kind === "char" && k.ctrl && k.ch === "w")) { mount.key(k); return; }
-    if (k.kind === "char" && k.ctrl && k.ch === "w") { this.prefix = "wm"; return this.redraw(); }
+    // A tile typing a line (a filter, a query) keeps ctrl+w: it erases a word there; esc, then ^W (PIE-1290).
+    if (k.kind === "char" && k.ctrl && k.ch === "w" && !this.panes.get(this.focus)?.typing?.()) { this.prefix = "wm"; return this.redraw(); }
     if (k.kind === "alt") {
       if (k.ch === "l") return this.run("tile.link", { ask: true }, this.nameOf(this.focus));
       // alt+r shows the focused reader's note in the outline (PIE-794), as the Tree's r does.

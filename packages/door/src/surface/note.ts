@@ -135,7 +135,7 @@ import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COP
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
-import { LineInput } from "./line";
+import { filterLine, LineField } from "./line";
 import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, SEP, linkRowLines, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlocksEnv } from "../links";
 import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { MOUSE_ALT, RowPresses } from "../scroll";
@@ -858,6 +858,8 @@ export class NoteSurface {
   private linkPresses = new RowPresses();
   /** The person is typing a filter into an inline list: p, e and the rest are letters then, not the screen's keys (a pane's `typing`). */
   get typingFilter(): boolean { return !!this.listIn && !!this.listViews.get(this.listIn)?.typing; }
+  /** A one-line field has the keys (a list's filter, a property's value): ctrl+w erases its word, not the window chord (PIE-1290). */
+  get typingLine(): boolean { return this.typingFilter || !!this.panel?.field; }
   /** The key of the list the person went into (`list.enter`), or null. */
   get listIn(): string | null { return (this.modes.get("list") as ListMode | null)?.list ?? null; }
   /** The thread a Reply control asked to answer: the thread list opening next starts the reply there. */
@@ -1876,6 +1878,7 @@ export class NoteSurface {
       const tokens = tokensOf(m.text, src);
       const info = { origin: head.length, revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text, look: this.lastLook?.values, values: this.valueRows(m, src) };
       const at = head.length;
+      this.panel.origin = at;
       const panelHits = () => { for (const r of this.panel!.at) this.hits.push({ row: at + r.y, from: 0, to: w, prop: r.n, follow: false }, ...(r.target ? [{ row: at + r.y, from: r.from, to: w, prop: r.n, follow: true }] : [])); };
       if (this.panel.full) { const lines = [...head, ...this.panel.render(rows, w, Math.max(2, h - head.length), info)]; panelHits(); return { lines }; }
       const popup = this.panel.field && completionOf(this.panel.field.input) ? COMPLETION_ROWS : 0;
@@ -2890,7 +2893,7 @@ export class NoteSurface {
   editValue(r: PropRow): void {
     const m = this.msg!;
     if (!this.panel || m.revision === undefined) throw new ActionRefused("the note's revision is unknown, so a value edit couldn't be checked; open it again");
-    this.panel.field = { row: r, input: Object.assign(new LineInput(r.value, false, { complete: { valueKey: r.key } }), { near: m.id }), revision: m.revision, saving: false, note: "", changedElsewhere: false };
+    this.panel.field = { row: r, input: Object.assign(new LineField(r.value, false, { complete: { valueKey: r.key } }), { near: m.id }), revision: m.revision, saving: false, note: "", changedElsewhere: false };
   }
 
   /**
@@ -3802,7 +3805,7 @@ export class NoteSurface {
       key: (k, host) => this.panelKey(k, host),
       click: (x, y, host) => {
         // A value being typed keeps the reader's clicks, but for a candidate of its completion popup (PIE-626); a click on a row selects it (on its value, follows it).
-        if (P.field) return completerOf(P.field.input)?.click(y, x) ?? false;
+        if (P.field) return completerOf(P.field.input)?.click(y, x) || P.clickField(x, y);
         const h = this.hitAt(x, y);
         if (!h || !("prop" in h)) return undefined;
         if (P.card) {
@@ -3991,7 +3994,7 @@ export class NoteSurface {
       // Typing a filter: letters go into it and the list follows; ⏎ keeps it, esc goes back to what it was.
       if (k.kind === "enter") view.stopTyping(true);
       else if (k.kind === "esc") view.stopTyping(false);
-      else if (!T.key(k)) return true;
+      else if (!T.take(k)) return true;
       host.redraw();
       return true;
     }
@@ -4027,7 +4030,7 @@ export class NoteSurface {
       picked: (l, row) => { this.selectListRow(l, row.id); this.previewRow(here()); },
       open: (l, row, where, actor, standing) => this.openListRow(l, row, where, actor, here(), standing),
       enter: (l, on) => { if (on || this.listIn === l.key) this.enterList(l, on); },
-      type: l => { if (this.listIn !== l.key) this.enterList(l, true); l.view.startTyping(); },
+      type: l => { if (this.listIn !== l.key) this.enterList(l, true); l.view.startTyping(filterLine); },
       redraw: () => host?.redraw(),
     };
   }

@@ -41,7 +41,7 @@ import { sessionSlug } from "./desk/herdr-agent";
 import type { ZoomReach } from "./desk/screen-layout";
 import { readPlace } from "./session/place";
 import { outlineState, stateDir } from "./state";
-import { LineInput } from "./surface/line";
+import { LineField } from "./surface/line";
 import { centred, ListPicker, pickRows, pickRow } from "./surface/picker";
 import { spawn as spawnDetached } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -313,7 +313,7 @@ export class AgentDrawer {
     const now = this.prog;
     let everywhere = false;
     let scopeAt: { row: number; from: number; to: number } | null = null;
-    const folder = new LineInput(now.cwd, false, { complete: false });
+    const folder = new LineField(now.cwd, false, { complete: false });
     type Choice = { agent: DrawerAgent } | { close: string; program: string };
     d.overlay(new ListPicker<Choice, Desk>({
       name: "drawer agent", input: folder, clickChooses: true, scrolls: true,
@@ -344,6 +344,7 @@ export class AgentDrawer {
         return {
           rect, title: "the drawer's agent",
           head: [...override, `Save for ${everywhere ? "every outline" : "this outline"}`, "Folder:", folder.show(rect.cols - 2)],
+          field: { line: override.length + 2, col: 0 },
         };
       },
     }));

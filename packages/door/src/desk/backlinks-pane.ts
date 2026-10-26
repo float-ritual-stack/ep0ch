@@ -1,3 +1,4 @@
+import { filterLine } from "../surface/line";
 import { standsAsPerson } from "../surface/dispatch";
 import { NOBODY } from "../whereabouts";
 import { outlineBoards, readNote } from "./outline-boards";
@@ -491,7 +492,7 @@ export class BacklinksPane implements Pane {
       } else if (c === "stage") { o.stage = nextBacklinkStageFilter(o.stage, this.across({ ...o, stage: "all" }).stages); said = o.stage === "all" ? "links: every stage" : `links: only ${o.stage}`; }
       else if (c === "resolved") { o.showResolved = !o.showResolved; said = o.showResolved ? "showing resolved comments" : "hiding resolved comments"; }
       else if (c === "related") { o.showRelated = !o.showRelated; said = o.showRelated ? "showing this note and its descendants" : "hiding this note and its descendants"; }
-      else if (c === "filter") { if (!this.draft) { this.list.setFilter(PERSON, o.filter); this.list.startTyping(); } said = ""; }   // plain words over rows already listed
+      else if (c === "filter") { if (!this.draft) { this.list.setFilter(PERSON, o.filter); this.list.startTyping(filterLine); } said = ""; }   // plain words over rows already listed
       else if (c === "groups") said = "";   // the groups' list is backlinks.groups's (it needs the screen)
     });
     return said;
@@ -563,7 +564,7 @@ export class BacklinksPane implements Pane {
   private filterKey(k: Key, desk: DeskApi): boolean {
     if (k.kind === "enter") { const f = this.draft?.text.trim() ?? ""; this.list.stopTyping(false); this.run(desk, "backlinks.view", { filter: f }); return true; }
     if (k.kind === "esc") this.list.stopTyping(false);
-    else if (!this.draft?.key(k)) return k.kind !== "tab" && k.kind !== "backtab";
+    else if (!this.draft?.take(k)) return k.kind !== "tab" && k.kind !== "backtab";
     this.keepSel(() => {});
     desk.redraw();
     return true;

@@ -9,7 +9,7 @@ import { COMMENT_KEYS, EDIT_PREVIEW_KEYS } from "../../src/surface/attached-keys
 import { Canvas } from "../../src/canvas";
 import { BacklinksPane } from "../../src/desk/backlinks-pane";
 import { ListPicker } from "../../src/surface/picker";
-import { LineInput } from "../../src/surface/line";
+import { LineField } from "../../src/surface/line";
 import { modeHint } from "../../src/surface/modes";
 import { screenSpec, specData, readSpec, savedNodes } from "../../src/desk/screen-spec";
 import { boardSpec } from "../../src/desk/delivery";
@@ -221,7 +221,7 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
       expect(source.match(/(?:hint:|hint\(\).*return|const \w*HINT =).*?(?:⏎|\|15|j k|alt\+↑)/g) ?? [], path).toEqual([]);
     }
     // Every migrated picker uses ListPicker; cover its independent hint states, including custom rows.
-    for (const input of [undefined, new LineInput(), new LineInput("garden")]) {
+    for (const input of [undefined, new LineField(), new LineField("garden")]) {
       for (const stays of [false, true]) for (const clickChooses of [undefined, false, true]) for (const escClears of [false, true]) {
         const picker = new ListPicker({ name: "guard", input, stays, clickChooses, escClears, closers: "qs",
           items: () => ["Garden"], row: it => [it], choose() {},

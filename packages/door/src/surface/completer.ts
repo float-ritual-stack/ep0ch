@@ -31,7 +31,8 @@ import {
 } from "../completion";
 import type { Draft, DraftAction } from "../edit";
 import { USER, type Actor, type FragmentCandidate, type SocketBoard } from "../socket";
-import { lineCompletionHooks, type LineCompletion, type LineInput } from "./line";
+import { lineCompletionHooks, type LineCompletion } from "./line-hooks";
+import type { LineField } from "./line";
 import { bg, C, chip, fg, pad, RESET, TAGS, MARKS } from "../style";
 import type { Key } from "../term";
 import { rowLines, printable } from "../text";
@@ -70,7 +71,7 @@ export const REFERENCE_HINT = "up/down choose · enter/double click inserts · s
 export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage" | "componentUsage" | "listExtensions" | "templateProps">;
 
 /**
- * Anything outline text is written in (PIE-626): a `Draft`, or a `LineInput` (a property's value, a filter). The completer
+ * Anything outline text is written in (PIE-626): a `Draft`, or a `LineField` (a property's value, a filter). The completer
  * reads its text and cursor, and a choice is spliced in. One completer for both, never one per surface.
  */
 export interface CompletionField {
@@ -1097,14 +1098,14 @@ export function defaultCompleter(d: CompletionField, board?: unknown, redraw?: (
   return completerFor(d, board ?? ambient?.board, redraw ?? ambient?.redraw ?? (() => {}));
 }
 
-const openAt = new WeakMap<LineInput, CompletionTarget | undefined>();
+const openAt = new WeakMap<LineField, CompletionTarget | undefined>();
 /** A line's completer, made on first use, from the connection the line was made under. */
-export function lineCompleter(i: LineInput): Completer | null {
+export function lineCompleter(i: LineField): Completer | null {
   const host = i.completionHost as { board: SocketBoard; redraw: () => void } | null;
   return host ? completerFor(i, host.board, host.redraw) : null;
 }
 
-// What every `LineInput.key` does around its own: the popup first, then it follows the typing.
+// What every `LineField.key` does around its own: the popup first, then it follows the typing.
 lineCompletionHooks.ambient = () => ambient;
 lineCompletionHooks.before = (i, k) => {
   const c = lineCompleter(i);

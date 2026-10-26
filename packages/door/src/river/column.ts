@@ -38,7 +38,7 @@ import { ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import type { TileSpec } from "../desk/tiles";
-import { LineInput } from "../surface/line";
+import { LineField } from "../surface/line";
 import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, lookupCompletion, renderCompletion, type CompletionBoard } from "../surface/completer";
 import { filterTargetAtCursor } from "../completion";
 import { Fold } from "../fold";
@@ -140,7 +140,7 @@ function indexOf(board: SocketBoard): OutlineIndex {
 }
 
 /** A column's filter line: its words are `key:value` (the property index and schemas complete them) or text. */
-const filterInput = (text = "") => new LineInput(text, false, { complete: { grammar: "filter" } });
+const filterInput = (text = "") => new LineField(text, false, { complete: { grammar: "filter" } });
 
 // ── a column ─────────────────────────────────────────────────────────────────
 
@@ -357,6 +357,8 @@ export class RiverColumn extends ReaderPane {
     if (this.filter.length && this.mode !== "filter") head.push(fg(C.yellow) + pad(`≡ ${filterText(this.filter)}`, w) + RESET);
     const popup = this.mode === "filter" ? this.popupRows(w, h, desk?.lookOf?.(this)?.values) : null;
     const foot = this.mode === "filter" ? [...(popup?.lines ?? []), paint("|14/ ") + this.input.show(w - 2)] : this.mode === "tags" ? this.tagLines(w) : [];
+    // The filter's line is the column's last row: a click or drag there is the line's (PIE-1290).
+    this.filterAt = this.mode === "filter" ? { x: 2, y: h - 1, w: w - 2 } : null;
     // A block column keeps its note's header above the scroll, as a reader does: the reader's own (the surface's
     // stickyHeader), with the backdrop of a picture that has scrolled under it (PIE-598).
     const root = this.source.kind === "block" && desk ? this.rootOf() : undefined;
@@ -604,7 +606,7 @@ export class RiverColumn extends ReaderPane {
   /** The filter being typed, or a property being chosen: ⏎ (or a digit) ends it in an action, esc cancels. */
   private modal(k: Key, desk: DeskApi): boolean {
     // An open completion popup takes ⏎, tab, esc and the arrows first (the line's own keys); what it leaves goes on below.
-    if (this.mode === "filter" && completionOf(this.input) && this.input.key(k)) { desk.redraw(); return true; }
+    if (this.mode === "filter" && completionOf(this.input) && this.input.take(k)) { desk.redraw(); return true; }
     if (k.kind === "esc") { this.mode = ""; desk.redraw(); return true; }
     if (this.mode === "tags") {
       const t = this.tagChoices[k.kind === "char" && !k.ctrl ? Number(k.ch) - 1 : -1];
@@ -614,7 +616,7 @@ export class RiverColumn extends ReaderPane {
       return true;
     }
     if (k.kind === "enter" || k.kind === "alt-enter") { this.mode = ""; this.run(desk, "column.filter", { query: this.input.text }); return true; }
-    if (!this.input.key(k) && (k.kind === "tab" || k.kind === "backtab")) return false;
+    if (!this.input.take(k) && (k.kind === "tab" || k.kind === "backtab")) return false;
     desk.redraw();
     return true;
   }
@@ -663,9 +665,12 @@ export class RiverColumn extends ReaderPane {
     return (!this.typing() && !this.surface.holdsKeys && ["I", "O"].includes(ch(k))) || super.claims(k);
   }
 
+  /** Where the filter's line was drawn, in the column's own cells. */
+  private filterAt: { x: number; y: number; w: number } | null = null;
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
     this.desk = desk;
     if (sideways(k)) return false;                                              // the flow's: its kind steps to the column beside
+    if (this.mode === "filter" && this.input.mouse({ ...k, x, y }, this.filterAt)) { desk.redraw(); return true; }
     if (this.surface.editing && this.surface.msg) {
       // In an edit: the surface's own press, drag and release, as on the desk (the cursor placed, a completion picked,
       // a drag selecting in the draft and copied when the button comes up, a double click's word).

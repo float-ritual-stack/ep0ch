@@ -1,5 +1,8 @@
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-const wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+import {
+  clampToGraphemeStart, firstWordStart, isSingleGrapheme, lastWordStart, nextGraphemeEnd, previousGraphemeStart,
+  wordStartAfter, wordStartBefore,
+} from "@ep0ch/outline-core/graphemes";
+
 const MAX_HISTORY_ENTRIES = 100;
 
 type HistoryGroup = "typing" | "backspace" | "delete" | null;
@@ -23,64 +26,6 @@ interface TextBufferSnapshot {
 
 function comparePoints(left: TextBufferPoint, right: TextBufferPoint): number {
   return left.row === right.row ? left.column - right.column : left.row - right.row;
-}
-
-function previousGraphemeStart(line: string, column: number): number {
-  if (column <= 0) return 0;
-  return graphemeSegmenter.segment(line).containing(Math.min(column - 1, line.length - 1))?.index ?? 0;
-}
-
-function nextGraphemeEnd(line: string, column: number): number {
-  if (column >= line.length) return line.length;
-  const grapheme = graphemeSegmenter.segment(line).containing(Math.max(0, column));
-  return grapheme ? grapheme.index + grapheme.segment.length : line.length;
-}
-
-function clampToGraphemeStart(line: string, column: number): number {
-  const clamped = Math.max(0, Math.min(column, line.length));
-  if (clamped === line.length) return clamped;
-  return graphemeSegmenter.segment(line).containing(clamped)?.index ?? clamped;
-}
-
-function isSingleGrapheme(value: string): boolean {
-  if (!value) return false;
-  const segments = graphemeSegmenter.segment(value)[Symbol.iterator]();
-  const first = segments.next();
-  return !first.done && segments.next().done === true;
-}
-
-function firstWordStart(line: string): number | null {
-  for (const word of wordSegmenter.segment(line)) {
-    if (word.isWordLike) return word.index;
-  }
-  return null;
-}
-
-function lastWordStart(line: string): number | null {
-  let start: number | null = null;
-  for (const word of wordSegmenter.segment(line)) {
-    if (word.isWordLike) start = word.index;
-  }
-  return start;
-}
-
-function wordStartBefore(line: string, column: number): number | null {
-  let previous: number | null = null;
-  for (const word of wordSegmenter.segment(line)) {
-    if (!word.isWordLike) continue;
-    const end = word.index + word.segment.length;
-    if (word.index < column && end >= column) return word.index;
-    if (word.index >= column) break;
-    previous = word.index;
-  }
-  return previous;
-}
-
-function wordStartAfter(line: string, column: number): number | null {
-  for (const word of wordSegmenter.segment(line)) {
-    if (word.isWordLike && word.index > column) return word.index;
-  }
-  return null;
 }
 
 export class TextBuffer {
