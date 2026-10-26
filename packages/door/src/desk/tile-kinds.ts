@@ -66,6 +66,11 @@ export interface TileKind {
   readonly policy?: Policy;
   /** Why its policy keeps a tile of it (closable or draggable off), in a person's words with what to do instead: said whole in place of the policy's own refusal. */
   readonly stays?: string;
+  /**
+   * Why a tile of it isn't gathered into a group, nor moved into one, with what to do instead (the drawer's own tab,
+   * PIE-1330: a group's tiles are rebuilt from their kinds, and its program would come back as nothing).
+   */
+  readonly ungathered?: string;
   /** What it takes: notes opened into it (a link's target), and the tile kinds that may join it as tabs (any when left out). */
   readonly accepts?: { notes?: boolean; tiles?: readonly TileKindName[] };
   /** What it needs to be built again, beyond its kind, name and link (default: the tile's own `spec()`). */

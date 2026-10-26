@@ -144,6 +144,9 @@ function registerDrawerKind() {
     ...pty,
     kind: DRAWER_KIND, about: "the drawer's own program (EP0CH_DAILY_AGENT, else a shell): the drawer's first tab, the host layer's", noun: "a terminal tile",
     make: () => new UnavailableTile(DRAWER_KIND, "the drawer's own tab is the drawer's (alt+a pulls it up)"),
+    // A group's tiles are built again from their kinds after a handover, and this one's program is the drawer's: in a
+    // group it came back as nothing and the next own program ended it (PIE-1330). Out on a screen it's a terminal tile.
+    ungathered: "it is your drawer's own tab, which isn't gathered into a group · ^W a puts it on the screen as a terminal tile, which gathers like any other",
     press: (p, k) => {
       const t = p as DrawerTile;
       if (k.kind === "enter" && t.exited !== null) return { action: "tile.restart" };

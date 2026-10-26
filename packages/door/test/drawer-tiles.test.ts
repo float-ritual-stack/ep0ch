@@ -1564,6 +1564,36 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { two.quit(); }
   });
 
+  // PIE-1330 (Evan's pie door, Oct 26): the drawer's own tile gathered into a group, then a handover: its program was
+  // never reattached, the group's tab drew "drawer.own isn't available here", and the next own program ended it.
+  test("the drawer's own tab isn't gathered into a group: refused with the way to do it, and its program comes back in its tab in the next door", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      const own = d.app.drawer.tile!;
+      const drawer = d.app.drawer.desk!;
+      await drawer.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "teapot" }, tile: "drawer.agent" }, USER);
+      for (const act of [{ action: "tile.group", args: {} }, { action: "tile.group", args: { with: "teapot" } }]) {
+        const r = drawer.dispatch.act({ ...act, tile: "drawer.agent" }, USER);
+        await expect(r).rejects.toThrow(/drawer\.agent stays: it is your drawer's own tab.*\^W a/);
+      }
+      // Gathering the tile beside it still works; the own tab stays out of the group.
+      await drawer.dispatch.act({ action: "tile.group", args: {}, tile: "teapot" }, USER);
+      expect(drawer.pane("drawer.agent")).toBe(own);
+      await expect(drawer.dispatch.act({ action: "tile.into", args: {}, tile: "drawer.agent" }, USER)).rejects.toThrow(/drawer\.agent stays: it is your drawer's own tab/);
+      expect(drawer.pane("drawer.agent")).toBe(own);
+      d.app.quit();
+      const e = await door();
+      try {
+        e.key({ kind: "alt", ch: "a" }); e.paint();
+        await until(() => e.app.drawer.tile?.running === true, "the drawer's own program runs in the next door");
+        expect(e.app.drawer.agentPane()?.pane).toBe(e.app.drawer.tile!);
+        expect(e.paint().join("\n")).not.toContain("isn't available here");
+      } finally { e.app.quit(); }
+    } finally { d.app.quit(); }
+  });
+
   test("saved under another name: the drawer's own tile comes back as its own, so drawer.agent still names it (Evan's door, Oct 25)", async () => {
     const d = await door();
     d.paint();

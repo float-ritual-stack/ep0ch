@@ -1659,6 +1659,50 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     at.close();
   }, 120_000);
 
+  // PIE-1330 (Evan's pie door, Oct 26): the drawer's own program gathered into a group, then a handover: the group's tab
+  // drew a placeholder, the program was never reattached, and the next own program ended it. Out on a screen it is a
+  // terminal tile and gathers like any other, coming back in its group; the drawer's own tab refuses, saying the way.
+  test("the drawer's own program in a group through a handover: out on the desk it comes back running in its group; its drawer tab isn't gathered (PIE-1330)", async () => {
+    const info = (tile: string) => control({ cmd: "act", action: "tile.info", tile, as: "test-agent" });
+    const running = async (tile: string) => {
+      for (let i = 0; i < 100; i++) {
+        try { const r = await info(tile); if (r.terminal?.running) return r; } catch { /* not there yet */ }
+        await Bun.sleep(100);
+      }
+      return info(tile);
+    };
+    const hand = async (c: HandoffClient) => {
+      expect(await request({ t: "upgrade" })).toMatchObject({ t: "ask", message: "handed over" });
+      await until(() => c.closed, "the old daemon to let the terminal go", 5000);
+      const n = await HandoffClient.attach(sessionSocket(dir), 140, 40);
+      await until(() => n.screen().includes("handed over to a new"), "the handover said", 10_000);
+      return n;
+    };
+    let at = await HandoffClient.attach(sessionSocket(dir), 140, 40);
+    await until(() => at.screen().includes("outline"), "the desk", 10_000);
+    // The test before left the drawer's program out on the desk, a terminal tile with role agent.
+    const before = await running("role:agent");
+    expect(before.terminal.running).toBe(true);
+    const group = await control({ cmd: "act", action: "tile.group", tile: "role:agent", args: { name: "bench" }, as: "test-agent" });
+    expect(group.grouped).toEqual([before.name]);
+    at = await hand(at);
+    const back = await running("role:agent");
+    expect([back.terminal.running, back.terminal.pid]).toEqual([true, before.terminal.pid]);   // the same program, reattached in its group
+    expect(at.screen()).not.toContain("isn't available here");
+    expect((await infoOn(sessionSocket(dir)))!.kept ?? []).toEqual([]);
+    // Spilled and back in the drawer's own tab: gathering it there is refused, with the way to do it.
+    await control({ cmd: "act", action: "tile.group", tile: "bench", args: { on: false }, as: "test-agent" });
+    await control({ cmd: "act", action: "tile.drawer", tile: "role:agent", args: {}, as: "test-agent" });
+    const home = await running("drawer.agent");
+    expect([home.terminal.pid, (await info("role:agent")).tile]).toEqual([before.terminal.pid, home.tile]);
+    await expect(control({ cmd: "act", action: "tile.group", tile: "drawer.agent", args: {}, as: "test-agent" })).rejects.toThrow(/drawer\.agent stays: it is your drawer's own tab, which isn't gathered into a group · \^W a puts it on the screen/);
+    at = await hand(at);
+    const after = await running("drawer.agent");
+    expect([after.terminal.running, after.terminal.pid, after.tile]).toEqual([true, before.terminal.pid, home.tile]);
+    expect(at.screen()).not.toContain("isn't available here");
+    at.close();
+  }, 120_000);
+
   test("ending the session ends its terminal host and the programs in it; nothing is left to restore", async () => {
     const info = (await infoOn(sessionSocket(dir)))!;
     const shell = await shellPid();

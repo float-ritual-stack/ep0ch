@@ -677,7 +677,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return {
       deliberate: p?.deliberate, clearsOnClose: p?.clearsOnClose?.(), history: p instanceof ReaderPane,
       ...this.kindFacts(id),
-      ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), following: p instanceof ReaderPane && p.follows && !p.holding, pinned: p instanceof ReaderPane && p.followMode === "pinned", available: !actor || !p || !this.keptFrom(p, actor), lists: !!p && (k?.lists?.(p) ?? (!!k?.previews && !(p instanceof ReaderPane))), notes: !!k?.accepts?.notes, showing: this.showing(p)?.id, held: p instanceof ReaderPane && p.holding && !this.layout.altReaders.has(id),
+      ...(k?.stays ? { stays: k.stays } : {}), ...(k?.ungathered ? { ungathered: k.ungathered } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), following: p instanceof ReaderPane && p.follows && !p.holding, pinned: p instanceof ReaderPane && p.followMode === "pinned", available: !actor || !p || !this.keptFrom(p, actor), lists: !!p && (k?.lists?.(p) ?? (!!k?.previews && !(p instanceof ReaderPane))), notes: !!k?.accepts?.notes, showing: this.showing(p)?.id, held: p instanceof ReaderPane && p.holding && !this.layout.altReaders.has(id),
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
       ...(k?.placeholder ? { placeholder: true } : {}),
       ...(k?.follower ? { follower: true } : {}),
@@ -956,6 +956,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // whatever it is called now, never a program key.
         const given = !(own || restore) ? undefined : this.given.get(l.slot ?? l.name ?? "");
         const pane = given ?? makeTile({ ...l, kind });
+        // A given terminal (the drawer's own tab) runs the program its saved leaf was kept under, as a made one does: one
+        // that went out to a screen and came back keeps the key it started with (PIE-1330), else a handover starts another.
+        if (given instanceof PtyPane && typeof l.kept === "string" && l.kept && !given.running && !given.keptKey) given.keptKey = l.kept;
         // A layout loaded again (not this door's own tile coming back) makes new tiles: a role it recorded was the old tile's, and
         // the drawer's program may be the only one with role agent.
         if (!given && !restore) tileRegistry.setRole(pane, undefined);
@@ -7048,6 +7051,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const t = this.tile(sel);
     const g = this.groupOf(into);
     if (this.panes.get(t.id) === g.pane) throw new ActionRefused(`${t.name} is the group: a group doesn't go into itself`);
+    const ungathered = this.facts(t.id).ungathered;
+    if (ungathered) throw new ActionRefused(`${t.name} stays: ${ungathered}`);
     const out = this.takeRefusal(t.name, actor);
     if (out) throw new ActionRefused(out);
     const kind = (this.panes.get(t.id) as { kind?: string } | undefined)?.kind ?? "tile";
