@@ -426,18 +426,23 @@ export function figureAscii(kind: string, source: string | FigureSource, W = 60)
 /**
  * A live figure's results as Markdown (PIE-1355: what a page copy writes under it), from the rows the reader draws it
  * with (resolveLive, asked in the same Site renderGraph asks in, so a drawn figure's answer is the one copied). Null for
- * a figure that asks the outline nothing; `waiting` while its answer hasn't come. A kind with no Markdown form is its
- * ASCII twin in a fence.
+ * a figure that asks the outline nothing; `waiting` while its answer hasn't come, unless `final` (the copy has waited):
+ * then it says it wasn't answered in time (`unanswered`). A kind with no Markdown form is its ASCII twin in a fence.
  */
-export function figureResults(kind: string, source: FigureSource, ctx: ResultsContext): (FigureResults & { waiting?: false }) | { waiting: true } | null {
+export function figureResults(kind: string, source: FigureSource, ctx: ResultsContext, final = false): (FigureResults & { waiting?: false; unanswered?: true }) | { waiting: true } | null {
   const read = figureProps(kind, source);
   if ("error" in read) return null;
   const props = read.props;
   if (!(props.query || props.view || asksPerItem(kind, props))) return null;
   const live = resolveLive(kind, props, source.note, liveSiteOf(source, read.args));
   if (!live) return null;
-  if (live.waiting) return { waiting: true };
-  const md = figureResultsMarkdown(kind, live.props, live.found ?? null, ctx, live.error && !live.status ? live.error : undefined);
+  if (live.waiting) {
+    if (!final) return { waiting: true };
+    return { ...figureResultsMarkdown(kind, props, null, ctx, `the outline didn't answer in time${source.note ? `: ep0ch show ${source.note} --markdown asks again` : ""}`)!, unanswered: true };
+  }
+  // No status: the question wasn't answered (its error says why); else its error is the service's word on the answer.
+  const found = live.status ? live.found ?? { n: 0, truncated: false } : null;
+  const md = figureResultsMarkdown(kind, live.props, found, ctx, live.error);
   if (md) return md;
   const n = live.found?.n ?? 0;
   return { lines: [...resultsHead(kind, live.props, "as drawn", ctx.at), "```", ...figureAscii(kind, source), "```"], shown: n, total: n, cut: false };

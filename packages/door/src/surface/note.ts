@@ -5969,16 +5969,18 @@ export class NoteSurface {
    * `source` copies the text alone. The person's goes to their clipboard (OSC 52) and is said as "copied the page with N
    * figures' results"; an agent's is only returned. Works whatever the reader draws.
    */
-  async copyNote(host: SurfaceHost, actor: Actor, source = false): Promise<{ id: string; text: string; lines: number; clipboard: boolean; figures: number; cut: number }> {
+  async copyNote(host: SurfaceHost, actor: Actor, source = false): Promise<{ id: string; text: string; lines: number; clipboard: boolean; figures: number; cut: number; unanswered: number }> {
     const m = await this.whole();
     if (!m.text.trim()) throw new ActionRefused("the note has nothing in it to copy");
     const outline = m.address?.outline ?? host.ctx.board.outline ?? host.ctx.outline;
-    const page = source ? { text: m.text, figures: 0, cut: 0 } : await pageWithResults(host.ctx.board, m.text, m.id, { ...(outline ? { outline } : {}), at: Date.now() }, 5_000);
+    const page = source ? { text: m.text, figures: 0, cut: 0, unanswered: 0 } : await pageWithResults(host.ctx.board, m.text, m.id, { ...(outline ? { outline } : {}), at: Date.now() }, 5_000);
     const text = page.text, lines = text.split("\n").length;
+    // A figure the outline didn't answer in time says so in the copy, and here.
+    const late = page.unanswered ? ` · ${page.unanswered} figure${page.unanswered === 1 ? "" : "s"} not answered in time` : "";
     const said = page.figures
-      ? `copied the page with ${page.figures} figure${page.figures === 1 ? "'s" : "s'"} results${page.cut ? ` (${page.cut} cut)` : ""}, ${lines} lines`
-      : `copied the note${source ? "'s source" : ""}, ${lines} line${lines === 1 ? "" : "s"}`;
-    const r = { id: m.id, text, lines, figures: page.figures, cut: page.cut };
+      ? `copied the page with ${page.figures} figure${page.figures === 1 ? "'s" : "s'"} results${page.cut ? ` (${page.cut} cut)` : ""}, ${lines} lines${late}`
+      : `copied the note${source ? "'s source" : ""}, ${lines} line${lines === 1 ? "" : "s"}${late}`;
+    const r = { id: m.id, text, lines, figures: page.figures, cut: page.cut, unanswered: page.unanswered };
     if (actor.kind === "user") {
       if (host.ctx.copy?.(text) === false) throw new ActionRefused(`not copied: ${[...text].length} chars is more than the clipboard takes${page.figures ? " · the source alone: note.copy source=true" : ""}`);
       host.ctx.flash(said);

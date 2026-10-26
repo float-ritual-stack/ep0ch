@@ -19,34 +19,38 @@ export function noteFigures(text: string, note: string): { kind: string; from: n
   const blockLine = lines.findIndex((l, i) => i >= start && !meta.has(i) && l.trim());
   return componentBlocks(lines).flatMap(c => {
     const kind = graphKind(c);
-    return kind ? [{ kind, from: c.start, to: c.end, source: figureSource(lines.slice(c.start + 1, c.end), note, c.start === blockLine) }] : [];
+    return kind ? [{ kind, from: c.start, to: c.end, source: figureSource(lines.slice(c.start + 1, c.end), note, c.start === blockLine, c.attrs) }] : [];
   });
 }
 
-/** A page with its live figures' results (withFigureResults): the text, how many figures carry results and how many of those were cut. */
-export interface PageResults { text: string; figures: number; cut: number; waiting: boolean }
+/**
+ * A page with its live figures' results (withFigureResults): the text, how many figures carry results, how many of those
+ * were cut and how many the outline didn't answer in time (said in their place).
+ */
+export interface PageResults { text: string; figures: number; cut: number; unanswered: number; waiting: boolean }
 
 /**
  * `text` as written, with each live figure's results under it as Markdown (PIE-1355: a page copy, `ep0ch show
  * --markdown`): graphs.ts figureResults, from the rows the reader draws. Each figure carries at most RESULTS_CAP rows and
  * the page RESULTS_BUDGET together; a cut figure says so with the command that reads the rest. `waiting`: some answer
- * hasn't come yet (ask again once liveSettled has waited). Figures that ask nothing are left as written.
+ * hasn't come yet (ask again once liveSettled has waited), unless `final`: then each one says it wasn't answered in time.
+ * Figures that ask nothing are left as written.
  */
-export function withFigureResults(text: string, note: string, ctx: Omit<ResultsContext, "cap">): PageResults {
+export function withFigureResults(text: string, note: string, ctx: Omit<ResultsContext, "cap">, final = false): PageResults {
   const lines = text.split("\n"), placed: { at: number; lines: string[] }[] = [];
-  let budget = RESULTS_BUDGET, figures = 0, cut = 0, waiting = false;
+  let budget = RESULTS_BUDGET, figures = 0, cut = 0, unanswered = 0, waiting = false;
   for (const f of noteFigures(text, note)) {
-    const r = figureResults(f.kind, f.source, { ...ctx, cap: Math.min(RESULTS_CAP, budget) });
+    const r = figureResults(f.kind, f.source, { ...ctx, cap: Math.min(RESULTS_CAP, budget) }, final);
     if (!r) continue;
     if (r.waiting) { waiting = true; continue; }
     budget = Math.max(0, budget - r.shown);
-    figures++;
+    if (r.unanswered) unanswered++; else figures++;
     if (r.cut) cut++;
     // A blank line either side, unless the note has one there already.
     placed.push({ at: f.to + 1, lines: ["", ...r.lines, ...(lines[f.to + 1]?.trim() === "" ? [] : [""])] });
   }
   for (const p of placed.reverse()) lines.splice(p.at, 0, ...p.lines);
-  return { text: lines.join("\n"), figures, cut, waiting };
+  return { text: lines.join("\n"), figures, cut, unanswered, waiting };
 }
 
 /**
@@ -54,9 +58,9 @@ export function withFigureResults(text: string, note: string, ctx: Omit<ResultsC
  * The caller connects `board` for figures (the door has; `ep0ch show` and export do it with connectFigures).
  */
 export async function pageWithResults(board: SocketBoard, text: string, note: string, ctx: Omit<ResultsContext, "cap">, ms = 10_000): Promise<PageResults> {
-  const read = () => withFigureBoard(board, () => {}, () => withFigureResults(text, note, { ...ctx, at: Date.now() }));
-  const first = read();
+  const read = (final: boolean) => withFigureBoard(board, () => {}, () => withFigureResults(text, note, { ...ctx, at: Date.now() }, final));
+  const first = read(false);
   if (!first.waiting) return first;
   await liveSettled(ms, board);
-  return read();
+  return read(true);
 }

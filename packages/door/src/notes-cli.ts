@@ -577,7 +577,10 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
       // --source: the note's text as written; else the drawing (a JSON object a line with --cells).
       const written = source ? (await board.get(noteId))?.text : undefined;
       // --markdown: the text as written with each live figure's results under it, as a page copy (Y) gives it.
-      const text = markdown && written !== undefined ? (await pageWithResults(board, written, noteId, { outline: board.address.outline, at: Date.now() })).text : written;
+      const page = markdown && written !== undefined ? await pageWithResults(board, written, noteId, { outline: board.address.outline, at: Date.now() }) : null;
+      // A figure the outline didn't answer in time is said in its place; the exit code says the copy isn't whole.
+      if (page?.unanswered) { io.err(`ep0ch: ${page.unanswered} figure${page.unanswered === 1 ? "" : "s"} in ${id} not answered in time: ask again with ep0ch show ${id} --markdown`); code = 1; }
+      const text = page ? page.text : written;
       const lines = source ? (text === undefined ? null : text.replace(/\n+$/, "").split("\n")) : await drawNote(board, noteId, width);
       if (!lines) { io.err(`ep0ch: no note ${id} in this outline`); code = 1; continue; }
       // A preview asks for its first rows: a long note's whole drawing is never encoded or sent.

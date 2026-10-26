@@ -6,11 +6,11 @@
 //
 //   **Results · Open beds** · 3 rows · as of 2026-10-26 17:50 · query: `type=bed`
 //
-//   - [x] ((id|Dig the bed))           check: a step per row, its box as the row's status
+//   - [x] ((id|Dig the bed))           check: a step per row ([x] done or approved, else [ ]; any other status said after it)
 //   | Title | Updated |                table: the figure's columns, its title cell a reference
 //   **doing** · 2                      tabs: a list per group, its other columns after the title
 //   _showing 50 of 60 · the rest: ep0ch find --ws pie --query 'type=bed' --sort updated --direction desc · MCP: outline_query {…}_
-import { CHECKLIST_MARKS, isChecklistStatus } from "./checklist-marks";
+import { isChecklistStatus, statusWord, stepDone, type ChecklistStatus } from "./checklist-marks";
 import { NONE } from "./figure-live";
 import type { Props } from "./figure-props";
 import { blockRefText } from "./link-syntax";
@@ -107,15 +107,28 @@ export function resultsHead(kind: string, props: Props, count: string, at: numbe
   return [`**Results · ${String(props.title ?? `graph-${kind}`)}** · ${[count, `as of ${resultsTime(at)}`, ...(question ? [question] : [])].join(" · ")}`, ""];
 }
 
+/** A check row's box as Markdown has it (`[x]` done or approved, else `[ ]`), its status said after it when the box can't. */
+function stepBox(status: unknown, done: unknown): { box: string; said: string } {
+  const s: ChecklistStatus = isChecklistStatus(status) ? status : done ? "done" : "todo";
+  return { box: stepDone(s) ? "[x]" : "[ ]", said: s === "done" || s === "todo" ? "" : ` · ${statusWord(s)}` };
+}
+
 /**
  * A live figure's results as Markdown lines, from the props the reader draws it with (`liveProps`' output) and what its
  * question found; null for a kind that has no Markdown form here (a quadrant, a matrix, a calendar: the caller writes its
- * drawing instead). `error`: why it has no answer, said in place of rows.
+ * drawing instead). `found` null: it wasn't answered (`error` says why). `error` with an answer: the service's word on it
+ * (a key nobody has written, with the nearest), said under the rows.
  */
 export function figureResultsMarkdown(kind: string, props: Props, found: ResultsFound | null, ctx: ResultsContext, error?: string): FigureResults | null {
   const cap = Math.max(0, ctx.cap ?? RESULTS_CAP);
   const head = (count: string) => resultsHead(kind, props, count, ctx.at);
-  if (error && !found?.n) return { lines: [...head("not answered"), `_${error}_`], shown: 0, total: 0, cut: false };
+  if (!found && error) return { lines: [...head("not answered"), `_${error}_`], shown: 0, total: 0, cut: false };
+  const r = written(kind, props, found, ctx, cap, head);
+  if (r && error) r.lines.push("", `_${error}_`);
+  return r;
+}
+
+function written(kind: string, props: Props, found: ResultsFound | null, ctx: ResultsContext, cap: number, head: (count: string) => string[]): FigureResults | null {
   const n = found?.n ?? 0, truncated = !!found?.truncated;
   const flat = (all: string[], total: number) => {
     // A question that came back cut (more results than it asks for) is cut here too, whatever the cap.
@@ -127,7 +140,7 @@ export function figureResultsMarkdown(kind: string, props: Props, found: Results
   switch (kind) {
     case "check": {
       const items: Props[] = props.items ?? [];
-      return flat(items.map(i => `- ${CHECKLIST_MARKS[isChecklistStatus(i.status) ? i.status : i.done ? "done" : "todo"]} ${ref(i.block, String(i.label ?? ""))}${i.note ? ` — ${i.note}` : ""}`), items.length);
+      return flat(items.map(i => { const b = stepBox(i.status, i.done); return `- ${b.box} ${ref(i.block, String(i.label ?? ""))}${b.said}${i.note ? ` — ${i.note}` : ""}`; }), items.length);
     }
     case "timeline": {
       const events: Props[] = props.events ?? [];
@@ -144,14 +157,15 @@ export function figureResultsMarkdown(kind: string, props: Props, found: Results
       return { lines, shown, total, cut };
     }
     case "tabs": {
+      // The cap is the figure's, shared by its groups in order: a group past it says how many it holds and how to read them.
       const tabs: Props[] = props.tabs ?? [];
       const lines = head(`${tabs.length} group${tabs.length === 1 ? "" : "s"}, ${rows(tabs.reduce((s, t) => s + (Number(t.count) || 0), 0), truncated)}`);
       let shown = 0, total = 0, cut = truncated;
       tabs.forEach((t, i) => {
-        const count = Number(t.count) || 0, have: number = (t.rows ?? []).length, k = Math.min(cap, have);
+        const count = Number(t.count) || 0, have: number = (t.rows ?? []).length, k = Math.min(cap - shown, have);
         shown += k; total += count;
-        lines.push(...(i ? [""] : []), `**${t.value}** · ${count}`, "", ...(k ? list(t, k) : [`_nothing in ${t.value}_`]));
-        if (k < count) { cut = true; lines.push("", cutLine(k, count, false, props.query ? restCommand(props, ctx.outline, k, tabWhere(props, String(t.value))) : null)); }
+        lines.push(...(i ? [""] : []), `**${t.value}** · ${count}`, "", ...(k ? list(t, k) : count ? [] : [`_nothing in ${t.value}_`]));
+        if (k < count) { cut = true; lines.push(...(k ? [""] : []), cutLine(k, count, false, props.query ? restCommand(props, ctx.outline, k, tabWhere(props, String(t.value))) : null)); }
       });
       return { lines, shown, total, cut };
     }

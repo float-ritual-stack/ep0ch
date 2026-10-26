@@ -71,9 +71,38 @@ describe("a figure's results, as Markdown", () => {
   });
 });
 
+describe("what a figure's results say beyond its rows", () => {
+  const at = Date.UTC(2026, 9, 26, 12);
+  test("a check's box is Markdown's: [x] done or approved, [ ] else, any other status said after it", () => {
+    const items = ["done", "approved", "waiting", "rejected", "todo"].map((status, i) => ({ label: `Step ${i}`, status, block: `id-${i}` }));
+    const md = figureResultsMarkdown("check", { title: "Steps", query: "type=step", items }, { n: 5, truncated: false }, { at })!.lines.join("\n");
+    const list = first<Tokens.List>(lex(md), "list");
+    expect(list.items.map(i => [i.checked, i.text])).toEqual([
+      [true, "((id-0|Step 0))"], [true, "((id-1|Step 1)) · approved"], [false, "((id-2|Step 2)) · waiting"], [false, "((id-3|Step 3)) · rejected"], [false, "((id-4|Step 4))"],
+    ]);
+  });
+
+  test("tabs share the figure's cap in order: a group past it says how many it holds and how to read them", () => {
+    const tab = (value: string, n: number) => ({ value, count: n, headers: ["title"], titleColumn: 0, rows: Array.from({ length: n }, (_, i) => [`${value} ${i}`]), blocks: Array.from({ length: n }, (_, i) => `${value}-${i}`) });
+    const r = figureResultsMarkdown("tabs", { title: "Jobs", query: "type=job", group: "stage", tabs: [tab("doing", 40), tab("done", 40)] }, { n: 80, truncated: false }, { at, cap: 50 })!;
+    expect(r).toMatchObject({ shown: 50, total: 80, cut: true });
+    const lists = lex(r.lines.join("\n")).filter(t => t.type === "list") as Tokens.List[];
+    expect(lists.map(l => l.items.length)).toEqual([40, 10]);
+    expect(r.lines.join("\n")).toContain('_showing 10 of 40 · the rest: `ep0ch find --query \'(type=job) AND stage="done"\'');
+  });
+
+  test("the service's word on an answer is said under it; a question not answered says so", () => {
+    const hinted = figureResultsMarkdown("table", { title: "Typo", query: "staeg=doing", headers: ["title"], rows: [], blocks: [] }, { n: 0, truncated: false }, { at }, "no notes have staeg; nearest: stage")!;
+    expect(paragraphs(lex(hinted.lines.join("\n")))).toEqual([expect.stringContaining("0 rows"), "_no results_", "_no notes have staeg; nearest: stage_"]);
+    const late = figureResultsMarkdown("table", { title: "Slow", query: "type=x" }, null, { at }, "the outline didn't answer in time")!;
+    expect(late.lines[0]).toContain("not answered");
+    expect(late.lines.at(-1)).toBe("_the outline didn't answer in time_");
+  });
+});
+
 describe.skipIf(!outliner)("ep0ch show --markdown against a scratch host", () => {
   const scratch = new Scratch();
-  let env: Record<string, string> = {}, page = "";
+  let env: Record<string, string> = {}, page = "", argued = "";
   const crates: Record<string, string> = {};
   beforeAll(async () => {
     const sock = await scratch.start();
@@ -85,6 +114,8 @@ describe.skipIf(!outliner)("ep0ch show --markdown against a scratch host", () =>
     crates.chard = await make("Chard crate [type::crate] [packed::yes] [bay::south]");
     await Promise.all(Array.from({ length: 60 }, (_, i) => make(`Seedling ${String(i + 1).padStart(2, "0")} [type::seedling] [bed::b${i % 4}]`)));
     page = await make(PAGE);
+    // A figure whose question is its call-site arguments (`::graph-check{…}`), as the reader reads it.
+    argued = await make('Bay north\n\n::graph-check{title=North query="type=crate bay=north"}\n---\nsort: title\ndirection: asc\n---\n::');
     board.close();
   });
   afterAll(() => scratch.dispose());
@@ -127,6 +158,13 @@ describe.skipIf(!outliner)("ep0ch show --markdown against a scratch host", () =>
     // The figures' order in the copy is the note's: check, table, tabs.
     expect(r.out.indexOf("**Results · Crates**")).toBeLessThan(r.out.indexOf("**Results · Seedlings**"));
     expect(r.out.indexOf("**Results · Seedlings**")).toBeLessThan(r.out.indexOf("**Results · By bay**"));
+  }, 30_000);
+
+  test("a figure asking through its call-site arguments copies its rows too", async () => {
+    const r = await run(["show", argued, "--markdown"], env);
+    expect(r.code).toBe(0);
+    const steps = first<Tokens.List>(resultsOf(lex(r.out), "North")!, "list");
+    expect(steps.items.map(i => i.text)).toEqual([`((${crates.apples}|Apples crate))`, `((${crates.beets}|Beets crate))`]);
   }, 30_000);
 
   test("--source stays the text alone; --markdown with --source is refused", async () => {
