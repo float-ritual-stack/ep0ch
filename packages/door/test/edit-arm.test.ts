@@ -151,8 +151,10 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
     const press = (x: number, y: number, button = 0) => { key({ kind: "mouse", action: "down", button, x, y }); key({ kind: "mouse", action: "up", button, x, y }); };
     press(r.col + 5, r.row + 6, 2);
     await until(() => desk.overlays.top()?.name === "tile menu", "a right-click opens the tile menu");
-    const lines = desk.render(desk.ctx).lines.map(visible) as string[];
-    const at = lines.findIndex((l: string, i: number) => i > r.row + 6 && /│ ?edit\b/.test(l));
+    // The menu is longer than this tile is tall (PIE-1346 added its lock row): the wheel over it brings the edit row up, as a person would.
+    const editRow = () => { const lines = desk.render(desk.ctx).lines.map(visible) as string[]; return { lines, at: lines.findIndex((l: string, i: number) => i > r.row + 6 && /│ ?edit\b/.test(l)) }; };
+    for (let i = 0; i < 20 && editRow().at < 0; i++) key({ kind: "mouse", action: "wheel-down", button: 0, x: r.col + 10, y: r.row + 12 });
+    const { lines, at } = editRow();
     expect(at).toBeGreaterThan(0);
     press(lines[at]!.indexOf("edit"), at);
     await until(() => !!rd.surface.draft, "the menu's edit row opened the edit at once");

@@ -470,7 +470,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = this.idNamed(asked);
     if (at === undefined) throw new ActionRefused(`no tile ${asked} on this screen`);
     // A tune pane follows its tile by name (it hears renames); a person's press hands the tile's id.
-    const target = this.nameOf(at);
+    const target = this.names.has(at) ? this.nameOf(at) : this.tileId(at);
     let id = tunes[0]?.[0];
     if (id !== undefined) { (this.panes.get(id) as Pane & { source: string }).source = target; }
     else {

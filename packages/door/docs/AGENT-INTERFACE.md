@@ -924,7 +924,7 @@ changes. A finding that goes missing after a change to the probe starts there. T
 host is awaited and its pending paint has been made (`test/settle.ts` and `flushPaint` in `test/parity.ts`), never after a sleep. The
 outline host is asked each read once while nothing changes (`test/board-reads.ts`). A scenario's setup keys are pressed as one chunk of
 input, as a paste arrives, after the first build has reached the same screen both ways (else they paint between keys; `PARITY_PACED=1` always does). A scenario is held
-to `PARITY_BUDGET_MS` (60 s): past it, it fails by its own name with its slowest key and build (`test/parity-budget.ts`), rather than
+to `PARITY_BUDGET_MS` (60 s; `scripts/box-test`, running files at once, gives 180 s): past it, it fails by its own name with its slowest key and build (`test/parity-budget.ts`), rather than
 running on to the test's timeout and taking the next scenario with it. `PARITY_KEYS=<file>` writes every probe's key and milliseconds;
 `PARITY_LOG=<file>` ends each scenario with its totals: builds, keys handled and settled, paints and what they took.
 
