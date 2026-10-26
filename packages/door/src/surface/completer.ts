@@ -241,7 +241,7 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
       return {
         label: `@${a.name}`, ...(a.description ? { detail: a.description } : {}), insertion: `@${a.name} `, kind: "agent", docs: context,
         ...(note ? { definition: note.id } : {}),
-        preview: (w: number, h: number) => [...definition.flatMap(line => rowLines(printable(line), w)), ...rowLines(a.description ?? context, w)].slice(0, h),
+        preview: (w: number, h: number) => definition.flatMap(line => rowLines(printable(line), w)).slice(0, h),
       };
     }));
     empty = all.length ? `no agent is called @${target.query}: ${all.map(a => `@${a.name}`).join(", ")} answer here` : "";
@@ -405,10 +405,9 @@ function componentItem(schema: ComponentSchema, v: ReturnType<typeof variation>,
   const first = yaml >= 0 ? /^([^:\n]+:[ \t]*)([^\n]+)$/m.exec(v.use.slice(yaml + 5)) : null;
   const at = first ? yaml + 5 + first.index + first[1]!.length : -1;
   return { label: label ?? schema.title.replace(/ \(::.*\)$/, ""), insertion: v.use, kind: "component", group: schema.group,
-    docs: schema.intro.split(/\n|,|(?<=\.) /)[0]!.replace(/[`*_]/g, ""),
+    docs: `${schema.title.replace(/ \(::.*\)$/, "")}: ${schema.intro.split(/\n|,|(?<=\.) /)[0]!.replace(/[`*_]/g, "")}`,
     source: v.use,
     preview: (w, h) => [
-      ...rowLines(`${schema.title.replace(/ \(::.*\)$/, "")}: ${schema.intro.split(/\n|,|(?<=\.) /)[0]!.replace(/[`*_]/g, "")}`, w),
       ...`[copy] ${v.use}`.split("\n").flatMap(line => rowLines(line, w)),
       ...drawVariation(v, w, src),
       ...drawComponentProps(schema, w),
@@ -1223,7 +1222,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   const preview = (pw: number, ph: number) => {
     if (selected.blockId && selected.preview) { s.previewLines = undefined; return selected.preview(pw, ph); }
     const docs = selected.docs ?? (selected.preview ? "" : selected.insertion);
-    const lines = [...(docs ? rowLines(printable(docs, " "), pw).map(l => fg(C.lcyan) + l + RESET) : []), ...(selected.preview?.(pw, 10000) ?? [])];
+    const lines = [...(docs ? rowLines(printable(docs, " "), pw, Infinity).map(l => fg(C.lcyan) + l + RESET) : []), ...(selected.preview?.(pw, 10000) ?? [])];
     s.previewLines = lines;
     s.previewTop = Math.max(0, Math.min(s.previewTop ?? 0, lines.length - ph));
     return lines.slice(s.previewTop, s.previewTop + ph).map((line, i) => {
@@ -1231,7 +1230,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
       return span ? paintRange(line, span[0], span[1], SELECT_BG) : line;
     });
   };
-  const labelWidth = Math.min(w, Math.max(...s.items.map(rowWidth)));
+  const labelWidth = Math.min(w, LIST_MAX_COLS, Math.max(...s.items.map(rowWidth)));
   const anchorCol = s.target.kind === "agent" || s.target.kind === "component" || s.target.kind === "attribute" || s.target.kind === "attribute-value" ? 0 : anchor;
   const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, w, { col: anchorCol, width: labelWidth }, { list: labelWidth });
   if (drawn.preview) s.previewRect = { ...drawn.preview, row: drawn.preview.row + Number(header) };
@@ -1251,6 +1250,8 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
 
 /** The columns a row wants: marker, label, its detail (up to a cap), its kind and a component's arrow. */
 const DETAIL_COLS = 28;
+/** The list is never wider than this, so a wide pane has room for its docs beside it (a long title is cut with …). */
+const LIST_MAX_COLS = 60;
 function rowWidth(it: CompletionItem): number {
   const label = cells(printable(it.label, " "));
   const detail = it.detail ? 2 + Math.min(DETAIL_COLS, cells(printable(it.detail, " "))) : 0;

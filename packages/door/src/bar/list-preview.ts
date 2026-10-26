@@ -5,7 +5,7 @@ export const PREVIEW_COLS = 90;
 /** Helix's rule (completion.rs): a docs panel goes beside the list when this many columns are free, else below. */
 export const DOCS_BESIDE_COLS = 30;
 /** A docs panel beside the list is never wider than this: it wraps to read, not to fill a wide pane. */
-export const DOCS_MAX_COLS = 72;
+export const DOCS_MAX_COLS = 100;
 export type PickerPreview = (w: number, h: number) => string[];
 
 /**
