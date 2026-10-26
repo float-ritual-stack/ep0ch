@@ -22,9 +22,11 @@ describe("figures at 40 columns", () => {
     expect(out.replace(/[┊\s]+/g, " ")).toContain(step);
     // A component's checklist is the same drawing: the same box, gap and hang, the same rows.
     const component = primitiveLines({ type: "checklist", items: [{ label: step, done: false }] }, 36).map(plain);
-    const inFigure = out.split("\n").filter(l => /\[ \]|^┊ {7}\S/.test(l)).map(l => l.slice(2, -1).trimEnd());
+    const inFigure = out.split("\n").filter(l => /\[ \]|^┊ {6}\S/.test(l)).map(l => l.slice(2, -1).trimEnd());
     expect(component).toEqual(inFigure);
     expect(component[0]).toMatch(/^\[ \]  Order/);
+    // The words hang under themselves: the next row starts where "Order" did.
+    expect(component[1]!.search(/\S/)).toBe(component[0]!.indexOf("Order"));
   });
 
   test("a table cell's next row starts at the cell's edge, not under a Work ID's indent", () => {
@@ -57,6 +59,12 @@ describe("a plain heading at 40 columns (PIE-1348)", () => {
     // Without folds (an embed, ep0ch show's first pass) the same, past the #s alone.
     const flat = renderDoc(body, ENV).lines.map(plain);
     expect(flat.slice(0, 2)).toEqual(["## Order the seed trays for the raised", "   beds before the frost"]);
+    // Beside an inline embed too: its rows join, its hang is drawing.
+    const id = "aaaaaaaa-1111-4222-8333-444444444444";
+    const embedded = renderDoc(`## Order the seed trays for the raised beds before the frost !((${id}))`, { ...ENV, embed: () => ["[the embed]"] });
+    expect(embedded.lines.map(plain).slice(0, 3)).toEqual(["## Order the seed trays for the raised", "   beds before the frost", "[the embed]"]);
+    expect(embedded.wraps?.get(1)).toBe(" ");
+    expect(embedded.trims.get(1)?.cuts).toContainEqual([0, 3]);
   });
 });
 

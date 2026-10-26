@@ -915,7 +915,12 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         pieces.forEach((p, k) => {
           if (typeof p !== "string") { out.push(...env.embed!(p.id, p.fragment, embeds++, W)); return; }
           const t = k === 0 ? p.trimEnd() : p.trim();
-          if (t.trim() && !/^\s*([-*]|\d+[.)])\s*$/.test(t)) out.push(...prose(t, W, undefined, lit(i)));
+          if (!t.trim() || /^\s*([-*]|\d+[.)])\s*$/.test(t)) return;
+          // Each piece copies as the prose it is: its drawing cut, its wrapped rows joined (PIE-1348).
+          const joins: (string | undefined)[] = [], rows = prose(t, W, undefined, lit(i), undefined, joins);
+          proseCuts(t, W).forEach((c, r) => { if (c.length && r < rows.length) cut(out.length + r, ...c); });
+          wrapped(out.length, joins);
+          out.push(...rows);
         });
         continue;
       }

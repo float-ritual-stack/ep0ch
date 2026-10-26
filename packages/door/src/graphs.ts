@@ -109,7 +109,7 @@ export interface FiguresEnv {
 interface FigureUI { lines: number; key: string; density: Density; tab?: string; tag?: (c: FigureControl, text: string) => string; all?: boolean; rows?: RowInline }
 
 const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI) => string[]> = {
-  // The kinds in src/figures/ (decision, chat, keys, uptime, activity, calendar, annotate).
+  // The kinds in src/figures/ (check, decision, chat, keys, uptime, activity, calendar, annotate, …).
   ...FIGURES,
 
   timeline: (p, w, link, ui) => {

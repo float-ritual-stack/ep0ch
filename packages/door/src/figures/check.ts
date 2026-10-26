@@ -16,8 +16,9 @@ export const drawCheck: Draw = (p, w, link, ui) => (p.items ?? []).flatMap((it: 
   const mark = STEP_BOXES[status], shown = ui?.rows?.box?.(it, mark);
   const box = shown ? colourInline(shown, ACCENT) : fg(stepDone(status) ? ACCENT : DIM) + mark + RESET;
   const ink = stepDone(status) ? HI : stepClosed(status) ? DIM : INK;
-  const lines = inlineRows(String(it.label ?? ""), w - 6, ink, ui?.rows, typeof it.block === "string", Infinity);
+  // The words hang under themselves, past the box and its two spaces; a side note sits one further in.
+  const lines = inlineRows(String(it.label ?? ""), w - 5, ink, ui?.rows, typeof it.block === "string", Infinity);
   const note = it.note ? inlineRows(String(it.note), w - 6, DIM, ui?.rows, false, Infinity) : [];
-  return rowLinks(link, it.block, lines).map((l, i) => (i ? "      " : box + "  ") + l)
+  return rowLinks(link, it.block, lines).map((l, i) => (i ? "     " : box + "  ") + l)
     .concat(note.map(l => "      " + l));
 });
