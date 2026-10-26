@@ -869,11 +869,13 @@ export async function projectDetailRead(
 
   // A page embed (`![[page^anchor]]`, PIE-1247) is the note its page resolves to, by the service's page registry; one
   // whose page isn't there keeps its `[[page]]` target and says MISSING TARGET.
-  const targetIds = await Promise.all(matches.map(async match => {
+  const pages = new Map<string, Promise<string>>();
+  const targetIds = await Promise.all(matches.map((match, index) => {
     const page = embeddedPageAddress(match[1]);
-    if (page === null) return match[1];
-    const resolved = await requester.request<PageAddressResolution>({ action: "pages.resolve", address: page }).catch(() => null);
-    return resolved && resolved.status !== "missing" && resolved.block ? resolved.block.id : match[1];
+    if (page === null || index >= MAX_DETAIL_EMBEDS) return match[1];
+    if (!pages.has(page)) pages.set(page, requester.request<PageAddressResolution>({ action: "pages.resolve", address: page })
+      .then(r => (r.status !== "missing" && r.block ? r.block.id : match[1]), () => match[1]));
+    return pages.get(page)!;
   }));
   const cache = new Map<string, Promise<ProjectedEmbed>>();
   for (const [index, match] of matches.slice(0, MAX_DETAIL_EMBEDS).entries()) {

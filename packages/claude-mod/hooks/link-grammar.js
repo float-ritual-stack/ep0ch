@@ -981,7 +981,6 @@ function blockReferenceEnvelopeRanges(text) {
   }
   return ranges;
 }
-var EMBED_PATTERN_SOURCE = String.raw`!\(\(((?:[a-z0-9][a-z0-9-]{0,31}:)?[A-Za-z0-9_-]{8,})(?:\^(${FRAGMENT_ID_SOURCE}))?\)\)`;
 var CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 function pageLinkSpans(text, code = []) {
   const spans = [];

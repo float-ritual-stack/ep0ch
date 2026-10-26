@@ -474,7 +474,7 @@ legend. Write for the content, not the pane: the figure fits itself.
 (`::graph-quadrant ^quadrant`), a callout's head line or last line, a list item, a paragraph, a heading. Never add a
 heading just to aim at a figure. `((id^quadrant|the quadrant))` lands on it, lit, and the service's fragment slice
 is the whole block, so `!((id^quadrant))` embeds just the figure, and its `query:` with `this` or `parent:this` still
-reads the note it lives in. By page: `[[Spring plan^quadrant]]` links, `![[Spring plan^quadrant]]` embeds.
+reads the note it lives in. By page: `[[Spring plan^quadrant]]` links, `![[Spring plan^quadrant]]` embeds. (So a page name can't end in `^word`: that reads as an anchor.)
 Choosing a part in `((` / `!((` / `[[page^` completion writes its anchor for you; write one by hand only for a
 durable reference, never to mark or comment on a line. (An anchor alone on the line after a figure's closing `::`
 still names it.) Backlinks group by the anchor each one aims at.

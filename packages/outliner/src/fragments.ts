@@ -402,7 +402,7 @@ function passages(text: string, lines: readonly string[]): FragmentCandidate[] {
     const nested = inside.some(o => o.start < c.start && c.start <= o.end);
     inside.push(c);
     for (let l = c.start; l <= c.end + 1; l++) component.add(l);
-    if (nested || fragmentAnchorMatch(lines[c.start] ?? "")) continue;
+    if (nested || c.id) continue;
     const after = lines[c.end + 1];
     if (c.end > c.start && after !== undefined && fragmentAnchorMatch(after) && !contentBeforeAnchor(after, fragmentAnchorMatch(after))) continue;
     out.push({ kind: "component", label: componentLabel(lines, c), lineIndex: c.start });

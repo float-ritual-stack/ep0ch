@@ -147,12 +147,6 @@ export function blockReferenceEnvelopeRanges(text: string): BlockReferenceEnvelo
   return ranges;
 }
 
-// ── embeds ───────────────────────────────────────────────────────────────────────────────────────────────────
-
-/** `!((id))` and `!((id^fragment))`: a transclusion (no label). */
-export const EMBED_PATTERN_SOURCE = String.raw`!\(\(((?:[a-z0-9][a-z0-9-]{0,31}:)?[A-Za-z0-9_-]{8,})(?:\^(${FRAGMENT_ID_SOURCE}))?\)\)`;
-export const embedPattern = () => new RegExp(EMBED_PATTERN_SOURCE, "g");
-
 // ── page links ───────────────────────────────────────────────────────────────────────────────────────────────
 
 const CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;

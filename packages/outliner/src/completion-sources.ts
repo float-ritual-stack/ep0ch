@@ -7,7 +7,7 @@
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery, type PageAddressMatch } from "@ep0ch/outline-core/completion-triggers";
 import { pickKey, sourceAnswers, triggerOf, type Picks, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
-import { qualifiedReference, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
+import { FRAGMENT_ID_SOURCE, qualifiedReference, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import type { CompletionRowsRequest, CompletionRowsResult, CompletionSourceAnswer, ExtensionCompletionSource } from "@ep0ch/outline-core/protocol";
 
@@ -62,7 +62,7 @@ async function pageFragmentRows(ask: Asked, svc: CompletionService): Promise<Ans
   const caret = ask.query.lastIndexOf("^");
   if (caret <= 0 || ask.query.includes("|")) return null;
   const address = ask.query.slice(0, caret).trim(), part = ask.query.slice(caret + 1);
-  if (!/^[A-Za-z0-9_-]*$/.test(part) || !tryNormalizePageAddress(address)) return null;
+  if ((part && !new RegExp(`^${FRAGMENT_ID_SOURCE}$`).test(part)) || !tryNormalizePageAddress(address)) return null;
   const page = await svc.request<{ status: string; block?: { id: string } }>("pages.resolve", { address }).catch(() => null);
   if (page?.status !== "resolved" || !page.block) return null;
   const r = await svc.request<Fragments>("fragments.candidates", { query: { blockIds: [page.block.id], fragmentQuery: part, mode: "passage", limit: ask.limit || COMPLETION_LIMIT, ...(ask.draft ? { draft: ask.draft } : {}) } });

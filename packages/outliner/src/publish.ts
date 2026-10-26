@@ -2888,13 +2888,15 @@ function publishedText(text: string, context: TextContext, options: { keepProper
     const start = embedStarts.has(occurrence.start - 1) ? occurrence.start - 1 : occurrence.start;
     body = body.slice(0, start) + replacement + body.slice(occurrence.end);
   }
-  // A page link another holds (PIE-592) is part of that one's text.
+  // A page link another holds (PIE-592) is part of that one's text. The page embeds are found again in the body as the
+  // block references left it.
+  const pageEmbedStarts = new Set(embeds ? [] : embedMatches(body).map((match) => match.index));
   for (const reference of pageAddressReferences(body).filter((page) => !page.nested).reverse()) {
     if (inCode(reference.start)) continue;
     const blockId = pages.get(reference.normalizedAddress);
     const replacement = link(reference.label ?? pageAddressText(reference.displayAddress), blockId ? byId.get(blockId) : undefined, reference.fragmentId);
     // `![[page]]` (PIE-1247) without a projection is a link too, never `![…](…)`.
-    const start = embedStarts.has(reference.start - 1) ? reference.start - 1 : reference.start;
+    const start = pageEmbedStarts.has(reference.start - 1) ? reference.start - 1 : reference.start;
     body = body.slice(0, start) + replacement + body.slice(reference.end);
   }
   body = body.replace(/\u0003(\d+)\u0003/g, (_, at: string) => fileChip(files[Number(at)] ?? "", index, basePath));

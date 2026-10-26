@@ -118,7 +118,7 @@ export function linkifyReferences(text: string, prefixes: readonly string[], tit
       const address = ref.kind === 'block' ? `${authoredOutline ? authoredOutline + ':' : ''}${ref.blockId.toLowerCase()}` : '';
       const outline = authoredOutline ?? (ref.kind === 'block' ? outlineOf(address) : undefined);
       const value = ref.kind === 'block' ? `${authoredOutline ? authoredOutline + ':' : ''}${ref.blockId.toLowerCase()}${ref.fragmentId ? '^' + ref.fragmentId : ''}`
-        : ref.kind === 'page' ? ref.displayAddress : ref.value;
+        : ref.kind === 'page' ? `${ref.displayAddress}${ref.fragmentId ? '^' + ref.fragmentId : ''}` : ref.value;
       const label = (outline ? `${outline} · ` : '') + (ref.kind === 'block' ? ref.label ?? blockLabel(ref.blockId, ref.fragmentId, () => titleOf(address))
         : ref.kind === 'page' ? ref.label ?? qualifiedReference(ref.displayAddress).target : ref.value);
       const href = `${STAND_IN}${kind}/${encodeURIComponent(value)}`;
@@ -153,6 +153,9 @@ export function outlinerUriOf(href: string): string | null {
     const [id, fragment] = decodeURIComponent(value).split('^');
     return `pi-outliner://block/${encodeURIComponent(id!)}${fragment ? '?fragment=' + encodeURIComponent(fragment) : ''}`;
   }
+  // `[[page^anchor]]` (PIE-1247): the page, opened at its anchor.
+  const anchored = kind === 'page' ? /^(.+?)\^([A-Za-z0-9][\w-]{0,63})$/.exec(decodeURIComponent(value)) : null
+  if (anchored) return `pi-outliner://page/${encodeURIComponent(anchored[1]!)}?fragment=${encodeURIComponent(anchored[2]!)}`
   return `pi-outliner://${kind}/${value}`
 }
 
