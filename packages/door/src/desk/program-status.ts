@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ATTENTION, encodeProgramStatus, parseProgramStatus, PROGRAM_STATUS_QUERY, PROGRAM_STATUS_TERMINFO, statusDisplayText,
-  StatusRecords, statusSegment, type ProgramState, type StatusInput, type StatusRecord, type StatusReport,
+  StatusRecords, statusSegment, tileReply, type ProgramState, type StatusInput, type StatusRecord, type StatusReport,
 } from "@ep0ch/outline-core/program-status";
 import { C, ellipsize, fg } from "../style";
 
@@ -69,14 +69,25 @@ export class TileStatus {
 
   /**
    * One OSC 7501 body the program wrote. The feature query is answered through `reply` (null while a kept program's
-   * output is replayed: it was answered then); a report is applied whole or not at all.
+   * output is replayed: it was answered then, and a marker in it was asked about then); a report is applied whole or not at all.
    */
-  feed(body: string, reply: ((bytes: string) => void) | null): void {
+  feed(body: string, reply: ((bytes: string) => void) | null, tile?: () => string): void {
     const p = parseProgramStatus(body);
     if (p.t === "query") { reply?.(PROGRAM_STATUS_QUERY); return; }
+    // Which tile (PIE-1306): asked on the program's input when it can read it, else kept as a marker for `host.tileOf mark=`.
+    if (p.t === "tile") { if (tile) reply?.(tileReply(tile())); return; }
+    if (p.t === "mark") { if (reply) this.marked(p.token); return; }
     if (p.t !== "report") return;
     this.report(p.report);
   }
+  /** The markers its program wrote, newest last (a few: a program asks right after it writes one). */
+  private readonly marks: string[] = [];
+  private marked(token: string) {
+    if (!this.marks.includes(token)) this.marks.push(token);
+    if (this.marks.length > 8) this.marks.shift();
+  }
+  /** Whether its program wrote the marker `token` (`host.tileOf mark=`). */
+  saw(token: string): boolean { return this.marks.includes(token); }
   /** One report as read, whoever wrote it: the escape sequence above, or a test. */
   report(r: StatusReport): void {
     const applied = this.records.apply(r);

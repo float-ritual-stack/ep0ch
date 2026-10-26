@@ -37,7 +37,7 @@ import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, dropp
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
 import { baselineOf, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
-import { type StatusInput } from './program-status'
+import { type StatusInput, tileMark, tmuxPassthrough } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { fileTouchesOff, fileTouchGlobsOf, projectOf, touchAllowed, touchInputOf, touchOf } from './file-touches'
 import { fileRefOf, threadedPathOf, threadsHeldNote } from './file-threads'
@@ -1492,15 +1492,25 @@ function openNote($: EngineInterface, workspace: Workspace | null, uri: string, 
 }
 
 /**
- * The tile of the door at `control` that this session's ssh connection runs through: sshd's SSH_CONNECTION names the
- * client's port, and the door (on the machine the ssh client runs on) knows which terminal tile holds that connection
- * (`host.tileOf`). Null with no such connection, an older door, or no tile; never an error.
+ * The tile of the door at `control` this Claude is drawn in, when it has no tile variables (it came in over ssh, or runs
+ * in a background session attached from a tile). The terminal says (PIE-1306): the mod writes a marker to its terminal
+ * (`OSC 7501 ; ?mark=<token>`, which the pty stream carries over ssh; Claude owns the terminal's input, so nothing is read
+ * back), and the door names the tile that drew it (`host.tileOf mark=`). In tmux it goes through tmux's passthrough,
+ * which tmux allows only with `allow-passthrough on`. Asked with the ssh connection's
+ * client port too (`port=`, PIE-1043), which the door tries when no tile saw the marker. Null when neither finds one, the
+ * door is older, or there is no terminal; never an error.
  */
-async function tileOfConnection($: EngineInterface, control: string, actor: string): Promise<string | null> {
-  const port = Number((await $.env.get('SSH_CONNECTION'))?.trim().split(/\s+/)[1])
-  if (!Number.isInteger(port) || port <= 0) return null
+async function tileOfTerminal($: EngineInterface, control: string, actor: string): Promise<string | null> {
+  const [connection, tmux] = await Promise.all([$.env.get('SSH_CONNECTION'), $.env.get('TMUX')])
+  const port = Number(connection?.trim().split(/\s+/)[1])
+  const token = crypto.randomUUID().replaceAll('-', '')
+  const mark = tmux?.trim() ? tmuxPassthrough(tileMark(token)) : tileMark(token)
+  const marked = await $.process.run(ttyArgv(mark), { timeoutMs: 3000 }).then(r => r.exitCode === 0, () => false)
+  const args = [...(marked ? [`mark=${token}`] : []), ...(Number.isInteger(port) && port > 0 ? [`port=${port}`] : [])]
+  if (!args.length) return null
+  // The door waits a moment for the marker to arrive (MARK_WAIT_MS) before the port answers.
   try {
-    const ran = await $.process.run(['ep0ch', 'act', 'host.tileOf', `port=${port}`, '--as', actor], { cwd: await startFolderOf($), env: { EP0CH_CONTROL: control }, timeoutMs: 5000 })
+    const ran = await $.process.run(['ep0ch', 'act', 'host.tileOf', ...args, '--as', actor], { cwd: await startFolderOf($), env: { EP0CH_CONTROL: control }, timeoutMs: 5000 })
     if (ran.exitCode !== 0) return null
     const tile: unknown = JSON.parse(ran.stdout)?.tile
     return typeof tile === 'string' && tile ? tile : null
@@ -1547,8 +1557,9 @@ async function openNow($: EngineInterface, workspace: Workspace | null, uri: str
   if (control) {
     const { id, title, outline, machine, fragmentId } = await resolve()
     // The tile this Claude is drawn in: its own variables, else (a Claude that came in over ssh has none) the door's
-    // answer for the ssh connection it arrived on (`host.tileOf`, PIE-1043). None found: where the screen's opens land.
-    const from = doorTileOf({ ...(tile ? { EP0CH_TILE: tile } : {}), ...(tileId ? { EP0CH_TILE_ID: tileId } : {}) }) ?? await tileOfConnection($, control, actor)
+    // answer for the marker it wrote to its terminal, or its ssh connection (`host.tileOf`, PIE-1306, PIE-1043). None
+    // found: where the screen's opens land.
+    const from = doorTileOf({ ...(tile ? { EP0CH_TILE: tile } : {}), ...(tileId ? { EP0CH_TILE_ID: tileId } : {}) }) ?? await tileOfTerminal($, control, actor)
     // From this tile, its opens' link; a door that doesn't know the tile (or is older than `from=`) is asked again
     // naming none, and lands it where its opens land. Never a reader by name: an agent naming the reader the person
     // reads is refused (ep0ch-door round 3), and where opens land never takes their keys.

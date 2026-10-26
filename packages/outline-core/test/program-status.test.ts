@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   encodeProgramStatus, isStatusQueryReply, mostUrgent, parseProgramStatus, PROGRAM_STATUS_LIMITS, PROGRAM_STATUS_QUERY,
-  statusDisplayText, StatusRecords, statusSegment, type StatusReport,
+  statusDisplayText, StatusRecords, statusSegment, TILE_QUERY, tileMark, tileOfReply, tileReply, tmuxPassthrough, type StatusReport,
 } from "../src/program-status";
 
 const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");
@@ -90,6 +90,22 @@ describe("syntax", () => {
     expect(isStatusQueryReply("?")).toBe(true);
     expect(isStatusQueryReply("?:v=2")).toBe(true);
     expect(isStatusQueryReply("state=idle")).toBe(false);
+  });
+
+  test("which tile (PIE-1306): `?tile` asks, a door answers with the tile's t-<uuid>; `?mark=` is kept, never answered", () => {
+    const id = "t-0e6c7a52-3f1d-4b8e-9c2a-5d7f1e3b9a40";
+    expect(parseProgramStatus(body(TILE_QUERY))).toEqual({ t: "tile" });
+    expect(tileOfReply(body(tileReply(id)))).toBe(id);
+    expect(tileOfReply("?")).toBeNull();                       // the feature query's reply names no tile
+    expect(tileOfReply("?tile=t3")).toBeNull();                // only the registry's id names a tile
+    expect(parseProgramStatus(body(tileMark("k7f3a1c09e2b44d1")))).toEqual({ t: "mark", token: "k7f3a1c09e2b44d1" });
+    expect(parseProgramStatus("?mark=short").t).toBe("ignored");
+    expect(parseProgramStatus("?mark=has:colon").t).toBe("ignored");
+    expect(() => tileMark("no spaces here")).toThrow(/not a tile marker token/);
+    // Through tmux's passthrough: each ESC inside doubled, framed by ESC P tmux; … ESC \\.
+    expect(tmuxPassthrough(tileMark("k7f3a1c09e2b44d1"))).toBe("\x1bPtmux;\x1b\x1b]7501;?mark=k7f3a1c09e2b44d1\x1b\x1b\\\x1b\\");
+    // A door's answer read back as a report is nothing to apply: no state.
+    expect(parseProgramStatus(body(tileReply(id))).t).toBe("ignored");
   });
 });
 

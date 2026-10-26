@@ -711,7 +711,7 @@ describe('register', () => {
       test(`a Claude that came in over ssh (no tile variables) ${name}`, async ($, on) => {
         const asked: string[][] = []
         const session = sessionIn(on, WORKSPACE, run => {
-          if (run.argv[1] === 'act') { asked.push(run.argv); return result(0, json, '') }
+          if (run.argv[1] === 'act') { asked.push([...run.argv]); return result(0, json, '') }
           return answers(FOUND)(run)
         }, '', { ...NOT_IN_HERDR, EP0CH_CONTROL: '', SSH_CONNECTION: '10.0.0.2 51234 10.0.0.3 22' })
         on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
@@ -719,12 +719,34 @@ describe('register', () => {
         const drawn = await mountReply($, 'See [[Daily notes]].')
         await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
         await session.clock.settle()
-        expect(asked[0]!.slice(0, 4)).toEqual(['ep0ch', 'act', 'host.tileOf', 'port=51234'])
+        expect(asked[0]!.slice(0, 3)).toEqual(['ep0ch', 'act', 'host.tileOf'])
+        expect(asked[0]).toContain('port=51234')
         const opened = session.runs.find(run => run.argv.includes('door-open'))!
         expect(opened.argv.slice(opened.argv.indexOf('--actor') + 2)).toEqual(expected)
         expect(session.toasts).toEqual([])
       })
     }
+
+    test('a Claude with no tile variables and no ssh connection of its own (a tmux, a background session) opens from the tile its terminal marker names (PIE-1306)', async ($, on) => {
+      const asked: string[][] = []
+      const session = sessionIn(on, WORKSPACE, run => {
+        if (run.argv[1] === 'act') { asked.push([...run.argv]); return result(0, '{"tile":"t-0e6c7a52-3f1d-4b8e-9c2a-5d7f1e3b9a40","name":"loki","by":"mark"}', '') }
+        return answers(FOUND)(run)
+      }, '', { ...NOT_IN_HERDR, EP0CH_CONTROL: '' })
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
+      await session.begin(() => $.session.start(START))
+      const drawn = await mountReply($, 'See [[Daily notes]].')
+      await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+      await session.clock.settle()
+      // The marker went to Claude's terminal, and the door was asked which tile drew that same token.
+      const written = session.runs.find(run => run.argv[0] === 'sh' && String(run.argv.at(-1)).includes('?mark='))!
+      const token = /\?mark=([A-Za-z0-9_-]+)/.exec(String(written.argv.at(-1)))![1]!
+      expect(written.argv.slice(0, 3)).toEqual(['sh', '-c', 'printf "%s" "$1" > /dev/tty'])
+      expect(asked[0]!.slice(0, 4)).toEqual(['ep0ch', 'act', 'host.tileOf', `mark=${token}`])
+      const opened = session.runs.find(run => run.argv.includes('door-open'))!
+      expect(opened.argv.slice(opened.argv.indexOf('--actor') + 2)).toEqual(['--from', 't-0e6c7a52-3f1d-4b8e-9c2a-5d7f1e3b9a40'])
+      expect(session.toasts).toEqual([])
+    })
 
     test('with no door answering the toast says so, with the command that starts one', async ($, on) => {
       const session = sessionIn(on, WORKSPACE, answers(MISSING), '', { ...NOT_IN_HERDR, EP0CH_CONTROL: STALE_SOCK })

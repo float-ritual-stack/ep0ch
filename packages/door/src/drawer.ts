@@ -76,6 +76,8 @@ import { bg, C, chip as chipStyle, fg, pad, RESET, width } from "./style";
 import type { Key } from "./term";
 import type { Placement } from "./kitty";
 
+/** How long `host.tileOf mark=` waits for the marker to reach the door (it travels the pty stream, beside the request). */
+export const MARK_WAIT_MS = 400;
 /** The drawer's own tile's id and name (`drawer.agent`): what `EP0CH_TILE_ID` tells its program (never a desk id, `t<n>`). */
 export { DRAWER_TILE_ID };
 /** The host layer's drawer holds the drawer's desk: one leaf, its tiles the drawer's tabs. */
@@ -739,13 +741,12 @@ export class AgentDrawer {
     return OWN_CLOSED;
   }
   /** The terminal tile a process is drawn in, on the drawer or the screen shown (`host.tileOf`, PIE-1043). */
-  tileOf(q: { pid?: number; port?: number }): TileOfAnswer {
+  tileOf(q: { mark?: string; pid?: number; port?: number }): TileOfAnswer {
+    // Every terminal of the family (the drawer's, the screen's, and those in their groups and mounts), as the resolver reads them.
     const tiles: TileProc[] = [];
-    for (const desk of this.desks()) {
-      for (const t of desk.layoutGet().tiles) {
-        const p = desk.pane(t.name);
-        if (p instanceof PtyPane && p.pid) tiles.push({ id: t.tile, name: t.name, pid: p.pid });
-      }
+    for (const t of this.asking()?.addressable() ?? []) {
+      const p = t.value.pane;
+      if (p instanceof PtyPane) tiles.push({ id: t.id, name: t.name, pid: p.pid ?? 0, saw: token => p.status.saw(token) });
     }
     return tileOf(tiles, q, realTileDeps());
   }
@@ -1827,17 +1828,28 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     run(_, { drawer, ctx }) { return { waiting: waitingOnYou(drawer).map((r, i) => rowFacts(r, i + 1)), messages: ctx.messages?.rows ?? [] }; },
   }),
   "host.tileOf": def({
-    summary: "which terminal tile (the drawer's or the screen's) a process is drawn in, read: pid=<pid> finds the tile whose program is that process or its ancestor; port=<n> the tile whose program, or a descendant of it, holds a TCP connection with that local port (the ssh client in a tile, for the sshd on the far end: its client port is the second field of SSH_CONNECTION). Answers {tile, id, by} with tile null when none matches. Changes nothing and says nothing on the screen: the Claude mod asks it to open a pressed reference where the tile's opens go",
-    keys: "ep0ch act host.tileOf port=<n>",
+    summary: "which terminal tile (the drawer's or the screen's) a process is drawn in, read: mark=<token> finds the tile whose program wrote the marker OSC 7501 ; ?mark=<token> to its terminal (over ssh, or through tmux's passthrough: a program that can't read its own input, PIE-1306; waited for up to 400ms); pid=<pid> finds the tile whose program is that process or its ancestor; port=<n> the tile whose program, or a descendant of it, holds a TCP connection with that local port (the ssh client in a tile, for the sshd on the far end: its client port is the second field of SSH_CONNECTION). Answers {tile, id, by} with tile null when none matches. Changes nothing and says nothing on the screen: the Claude mod asks it to open a pressed reference where the tile's opens go",
+    keys: "ep0ch act host.tileOf mark=<token>|pid=<pid>|port=<n>",
     touches: "nothing", replay: "safe",
     args: {
+      mark: { type: "string", optional: true, about: "the token a program wrote to its terminal as OSC 7501 ; ?mark=<token>" },
       pid: { type: "number", optional: true, about: "a process on this machine" },
       port: { type: "number", optional: true, about: "a local TCP port held by a process in a terminal tile" },
     },
-    examples: [{ act: "host.tileOf port=51234", does: "names the terminal tile whose ssh client uses local port 51234" }],
-    run({ pid, port }, { drawer }) {
-      if (pid === undefined && port === undefined) throw new ActionRefused("host.tileOf: give pid=<pid> or port=<local tcp port>");
-      return drawer.tileOf({ ...(pid !== undefined ? { pid } : {}), ...(port !== undefined ? { port } : {}) });
+    examples: [
+      { act: "host.tileOf mark=k7f3a1c09e2b", does: "names the terminal tile whose program wrote OSC 7501 ; ?mark=k7f3a1c09e2b" },
+      { act: "host.tileOf port=51234", does: "names the terminal tile whose ssh client uses local port 51234" },
+    ],
+    async run({ mark, pid, port }, { drawer }) {
+      if (mark === undefined && pid === undefined && port === undefined) throw new ActionRefused("host.tileOf: give mark=<token>, pid=<pid> or port=<local tcp port>");
+      // A marker crosses the ssh link on its own time, beside this request: it is waited for a moment before pid and port answer.
+      if (mark !== undefined) {
+        for (const until = Date.now() + MARK_WAIT_MS; Date.now() < until; await Bun.sleep(25)) {
+          const found = drawer.tileOf({ mark });
+          if (found.tile) return found;
+        }
+      }
+      return drawer.tileOf({ ...(mark !== undefined ? { mark } : {}), ...(pid !== undefined ? { pid } : {}), ...(port !== undefined ? { port } : {}) });
     },
   }),
   "host.agent": def({

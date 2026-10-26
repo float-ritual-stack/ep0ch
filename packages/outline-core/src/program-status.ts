@@ -43,8 +43,45 @@ export interface StatusReport {
 /** A record the terminal holds: a report's fields (never `clear`). */
 export type StatusRecord = Omit<StatusReport, "state"> & { state: ProgramState };
 
-/** What a body (the text between `7501;` and ST) is: the feature query, a report, or nothing to apply and why. */
-export type ParsedStatus = { t: "query" } | { t: "report"; report: StatusReport } | { t: "ignored"; why: string };
+/**
+ * Which tile (PIE-1306, ep0ch's own, beside the feature query): a program asks the terminal it is drawn in which tile
+ * that is, and an ep0ch door answers on the program's input, `OSC 7501 ; ?tile=<t-uuid> ST` (the tile registry's id:
+ * the one name of a tile, the one `open from=` takes). It travels over ssh because it is in the pty stream (not through
+ * tmux, which keeps a query's answer for itself); a terminal that isn't a door answers nothing (send primary device
+ * attributes after it to hear that at once).
+ */
+export const TILE_QUERY = "\x1b]7501;?tile\x1b\\";
+/** A marker's token: what `host.tileOf mark=` is asked with. */
+const MARK = /^[A-Za-z0-9_-]{8,64}$/;
+/**
+ * A marker (PIE-1306): a program that can't read its own input (Claude Code owns it) writes `OSC 7501 ; ?mark=<token> ST`
+ * to its terminal, and the door keeps which tile saw it; the program then asks the door over its control socket
+ * (`host.tileOf mark=<token>`). Nothing is answered on the program's input. A token outside the grammar throws.
+ */
+export function tileMark(token: string): string {
+  if (!MARK.test(token)) throw new Error(`not a tile marker token: ${token}`);
+  return `\x1b]7501;?mark=${token}\x1b\\`;
+}
+/**
+ * `seq` wrapped for tmux's passthrough (`ESC P tmux; … ESC \`, each ESC inside doubled), so it reaches the terminal tmux
+ * runs in instead of being read and dropped by tmux. tmux passes it only with `allow-passthrough on` (off by default).
+ */
+export const tmuxPassthrough = (seq: string): string => `\x1bPtmux;${seq.replaceAll("\x1b", "\x1b\x1b")}\x1b\\`;
+/** A door's answer to TILE_QUERY for the tile `id`. */
+export const tileReply = (id: string): string => `\x1b]7501;?tile=${id}\x1b\\`;
+/** The tile a reply body (between `7501;` and ST) names, or null when it isn't a tile reply. */
+export function tileOfReply(body: string): string | null {
+  const m = /^\?tile=(t-[0-9a-f-]{36})$/.exec(body);
+  return m ? m[1]! : null;
+}
+
+/**
+ * What a body (the text between `7501;` and ST) is: the feature query, the tile query, a marker, a report, or nothing
+ * to apply and why.
+ */
+export type ParsedStatus =
+  | { t: "query" } | { t: "tile" } | { t: "mark"; token: string }
+  | { t: "report"; report: StatusReport } | { t: "ignored"; why: string };
 
 const KEY = /^[a-z]+$/;
 const VALUE = /^[A-Za-z0-9_.,+/=-]*$/;
@@ -62,7 +99,10 @@ const FRAME_BYTES = "\x1b]7501;".length + 2;
  */
 export function parseProgramStatus(body: string): ParsedStatus {
   if (utf8Length(body) + FRAME_BYTES > PROGRAM_STATUS_LIMITS.sequence) return { t: "ignored", why: "longer than 4096 bytes" };
-  if (body.trim() === "?") return { t: "query" };
+  const asked = body.trim();
+  if (asked === "?") return { t: "query" };
+  if (asked === "?tile") return { t: "tile" };
+  if (body.startsWith("?mark=")) return MARK.test(body.slice(6)) ? { t: "mark", token: body.slice(6) } : { t: "ignored", why: "marker token outside the grammar" };
   const pairs = new Map<string, string>();
   /** msg and title as text, decoded and checked pair by pair. */
   const texts = new Map<string, string>();

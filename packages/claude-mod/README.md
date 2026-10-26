@@ -125,9 +125,13 @@ A click, `show` and `door_open` share one open (`openNote` in
   (a bare one drawn as its PIE-n, page name or the note's title). An unaliased `((id))` or `((id^anchor))` is drawn as its note's title (cut to 48 characters, then `› anchor`), looked up once through the same cache as a tool row's titles and redrawn when it lands; until then, and when the block is not found, as its first eight characters and `…`; a press still opens it. Any other http(s) link, bare or `[label](url)`, is drawn in the terminal as the engine's `Link` (an OSC 8 hyperlink the terminal opens) in the dim `inactive` colour with a trailing `↗`, apart from the underlined references that open in the door; a bare address keeps its text.
   Emphasis spanning a reference and other text stays bold or italic, and a table with a reference in a cell is drawn
   whole by the mod, its references pressable (PIE-1043). A press opens in the door `ep0ch where` finds (the one the
-  door tools use), read at each press: a stale or missing `EP0CH_CONTROL` no longer sends it to the mentions pane. With no `EP0CH_TILE` (a Claude that came in over ssh) the press asks the
-  door which terminal tile holds its ssh connection (`host.tileOf port=<client port in SSH_CONNECTION>`) and opens from
-  that tile, so Alt+L from the Claude tile's wire is followed; no tile found, it opens where the screen's opens land.
+  door tools use), read at each press: a stale or missing `EP0CH_CONTROL` no longer sends it to the mentions pane. With no `EP0CH_TILE` (a Claude that came in over ssh, or runs
+  in a background session or a tmux attached from a tile) the press writes a marker to Claude's terminal
+  (`OSC 7501 ; ?mark=<token>`, carried over ssh in the pty stream; in tmux wrapped in its passthrough, which needs
+  `tmux set -g allow-passthrough on`; PIE-1306) and asks the door which
+  terminal tile drew it (`host.tileOf mark=<token> port=<client port in SSH_CONNECTION>`, the port tried when no tile
+  saw the marker), then opens from that tile, so the Claude tile's wire is followed; no tile found, it opens where the
+  screen's opens land. The marker is write-only: Claude owns its terminal's input, so nothing is read back.
 - A target the Outliner cannot resolve is a toast, never a new page.
 
 Composer prompts with references use the same labels and presses as replies, with the prompt marker and theme

@@ -193,6 +193,11 @@ export class PtyPane implements Pane {
   get herdr(): { pane: string; name?: string } | null { return this.herdrPane; }
   set herdr(h: { pane: string; name?: string } | null) { this.herdrPane = h; this.remember(); }
   private herdrPane: { pane: string; name?: string } | null = null;
+  /**
+   * Which tile this is, by the tile registry's id (`t-<uuid>`), for its program's tile query (`OSC 7501 ; ?tile`, PIE-1306):
+   * given by the desk it starts on (the registry can't be imported here: it reaches this module through the tile kinds).
+   */
+  identity: (() => string) | null = null;
   /** The tile's id on the desk (`t<n>`): the program gets it as EP0CH_TILE_ID. */
   tileId: string | null = null;
   /** The tile's name on the desk, for a tile opened without one (`^W o s`: the desk names it): EP0CH_TILE. */
@@ -344,7 +349,7 @@ export class PtyPane implements Pane {
     // Program status (OSC 7501): its reports become the tile's records, its feature query is answered (not in a replay:
     // answered then). A new prompt (OSC 133 A) drops working and blocked, a full reset (RIS) every record; the emulator
     // still does its own after each (false: not handled here alone).
-    term.parser.registerOscHandler(7501, body => { this.status.feed(body, this.running && !replaying ? s => this.proc?.write(s) : null); this.watchForeground(); this.soon(); return true; });
+    term.parser.registerOscHandler(7501, body => { this.status.feed(body, this.running && !replaying ? s => this.proc?.write(s) : null, this.identity ?? undefined); this.watchForeground(); this.soon(); return true; });
     term.parser.registerOscHandler(133, body => { if (body === "A" || body.startsWith("A;")) { this.status.prompt(); this.soon(); } return false; });
     term.parser.registerEscHandler({ final: "c" }, () => { this.status.reset(); this.soon(); return false; });
     /** The modes a program asks of its terminal, followed; `answer`: its queries answered (not in a replay). */

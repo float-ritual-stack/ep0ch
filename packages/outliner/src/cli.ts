@@ -5,7 +5,7 @@ import { createBlockComment } from "./block-comments";
 import { readSavedView } from "./saved-view-read";
 import {inspectWorkspaceConnection} from './workspace-diagnostics';
 import { resolve } from "node:path";
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { tooBroadToName } from "@ep0ch/outline-core/outline-location";
 import { actorLabel } from "@ep0ch/outline-core/attribution";
@@ -220,7 +220,9 @@ if(process.argv[2]==='doctor'){
  * `door-open <block-id> [--control <socket>] [--actor <id>] [--from <tile>]`:
  * shows a block in ep0ch-door as an agent's `open` (see src/door-control.ts).
  * `--from` is the tile the caller runs in (EP0CH_TILE): the door puts it where
- * that tile's opens land.
+ * that tile's opens land. Without it, a terminal on stdin is asked which tile it
+ * is (`OSC 7501 ; ?tile`, PIE-1306): a program ssh'd in from a tile has no
+ * EP0CH_TILE, and its terminal still knows.
  * The socket defaults to EP0CH_CONTROL, which a door gives the programs in its
  * tiles. Exit 3 when no door answers there, so a caller can show it elsewhere.
  */
@@ -249,7 +251,10 @@ if (process.argv[2] === "door-open") {
     process.exit(2);
   }
   try {
-    const opened = await openInDoor(control, blockId, { actor: values.actor ?? "agent", ...(values.from ? { from: values.from } : {}) });
+    // No --from: the terminal says which tile this runs in (PIE-1306), when stdin is one this program may ask.
+    // Asked of the controlling terminal (/dev/tty): stdout is often a pipe or a file, and the answer comes on stdin.
+    const from = values.from ?? (await import("./program-status-emit").then(m => m.tileFromTerminal(q => { const fd = openSync("/dev/tty", "w"); try { writeSync(fd, q); } finally { closeSync(fd); } })));
+    const opened = await openInDoor(control, blockId, { actor: values.actor ?? "agent", ...(from ? { from } : {}) });
     console.log(JSON.stringify(opened));
     if (opened.tileNotFound) console.error(`door-open: no tile ${opened.tileNotFound} in the door; opened by the screen's open rule. \`ep0ch act layout.get\` lists the tiles.`);
     process.exit(0);

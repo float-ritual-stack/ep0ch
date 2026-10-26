@@ -96,7 +96,9 @@ only when the person asked for it.
   you run in. Run `ep0ch where` first: it checks each layer and says whether the person is typing in your
   tile. Open notes with `ep0ch open <block> from=$EP0CH_TILE_ID` (the same as `ep0ch act open id=<block>
   from=$EP0CH_TILE_ID`: there is one open; `$EP0CH_TILE` names the same tile when the id is empty), so they land where your tile's opens go, on the desk and the board
-  alike; never name a reader you guessed.
+  alike; never name a reader you guessed. Ssh'd into another machine from a tile (no `EP0CH_TILE_ID` there), ask the
+  terminal: `OSC 7501 ; ?tile` is answered with the tile's `t-<uuid>` on your input; if you can't read your input,
+  write `OSC 7501 ; ?mark=<token>` and `ep0ch act host.tileOf mark=<token>` names the tile (PIE-1306).
 - Otherwise the control commands talk to the door on `EP0CH_CONTROL`, else the one on the outline the folder
   names (its `door.sock` in `~/.local/state/ep0ch-door/sessions/<local or machine>/<name>/`), else the only door
   running — **usually the person's own door.** With several running and none named, the command prints the

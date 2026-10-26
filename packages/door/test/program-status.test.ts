@@ -25,6 +25,21 @@ function tile(script: string, label = "prog"): PtyPane {
 afterEach(() => { for (const p of tiles.splice(0)) p.dispose(); });
 const states = (p: PtyPane) => p.status.records.list().map(r => `${r.id || "root"}:${r.state}`).join(" ");
 
+describe("which tile (PIE-1306)", () => {
+  test("the tile query is answered with the tile's id; a marker is kept for host.tileOf and answers nothing", () => {
+    const s = new TileStatus(), said: string[] = [];
+    s.feed("?tile", b => said.push(b), () => "t-0e6c7a52-3f1d-4b8e-9c2a-5d7f1e3b9a40");
+    expect(said).toEqual(["\x1b]7501;?tile=t-0e6c7a52-3f1d-4b8e-9c2a-5d7f1e3b9a40\x1b\\"]);
+    s.feed("?tile", null, () => "t-0e6c7a52-3f1d-4b8e-9c2a-5d7f1e3b9a40");   // a replay: answered then
+    expect(said).toHaveLength(1);
+    expect(s.saw("k7f3a1c09e2b44d1")).toBe(false);
+    s.feed("?mark=k7f3a1c09e2b44d1", b => said.push(b));
+    expect(s.saw("k7f3a1c09e2b44d1")).toBe(true);
+    expect(said).toHaveLength(1);
+    expect(s.records.size).toBe(0);                           // neither is a record
+  });
+});
+
 describe("who runs in a tile (TileStatus.app)", () => {
   test("the root report's app: a nested door's child records name its tiles' agents, not this tile's", () => {
     const s = new TileStatus();

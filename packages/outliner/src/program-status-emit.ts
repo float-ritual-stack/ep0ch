@@ -9,7 +9,7 @@
 // says it outright: 1 reports to the terminal without asking, 0 never reports. Every report carries the program's `app`
 // (a report replaces its record whole); one the same as the last isn't sent again.
 import { spawnSync } from "node:child_process";
-import { encodeProgramStatus, isStatusQueryReply, PROGRAM_STATUS_QUERY, type StatusInput } from "@ep0ch/outline-core/program-status";
+import { encodeProgramStatus, isStatusQueryReply, PROGRAM_STATUS_QUERY, TILE_QUERY, tileOfReply, type StatusInput } from "@ep0ch/outline-core/program-status";
 
 type Env = Record<string, string | undefined>;
 /** Where reports go: a terminal's stream (process.stderr, process.stdout), or a test's. */
@@ -42,30 +42,49 @@ export function hasPst(env: Env = process.env): boolean {
 
 /**
  * Ask the terminal on stdin (the feature query, then CSI c): true when it answers the query before the device
- * attributes, false when only those come, or nothing within `ms`. Stdin is raw only while asking, and left as it was
- * (raw or not, flowing or paused); whatever else was typed meanwhile is put back for its reader. Never asked while
- * another reader has stdin (a full-screen program's own).
+ * attributes, false when only those come, or nothing within `ms`.
  */
 export async function askTerminal(write: (s: string) => unknown, ms = 300, stdin: NodeJS.ReadStream = process.stdin): Promise<boolean> {
-  if (!stdin.isTTY || typeof stdin.setRawMode !== "function" || stdin.listenerCount("data") > 0) return false;
+  return (await askTerminalFor(PROGRAM_STATUS_QUERY, body => (isStatusQueryReply(body) ? true : null), write, ms, stdin)) ?? false;
+}
+
+/**
+ * Which tile this program is drawn in, asked of the terminal on stdin (PIE-1306: `OSC 7501 ; ?tile`, which a door answers
+ * with the tile's `t-<uuid>`, over ssh; not through tmux); null from a terminal that isn't a door's tile, or
+ * when stdin isn't a terminal this program may read.
+ */
+export function tileFromTerminal(write: (s: string) => unknown, ms = 500, stdin: NodeJS.ReadStream = process.stdin): Promise<string | null> {
+  return askTerminalFor(TILE_QUERY, tileOfReply, write, ms, stdin);
+}
+
+/**
+ * Send `query` then CSI c to the terminal and read its OSC 7501 answers on stdin: the first body `read` takes, or null
+ * when only the device attributes come (a terminal that doesn't know the query), or nothing within `ms`. Stdin is raw
+ * only while asking, and left as it was (raw or not, flowing or paused); whatever else was typed meanwhile is put back
+ * for its reader. Never asked while another reader has stdin (a full-screen program's own).
+ */
+async function askTerminalFor<T>(query: string, read: (body: string) => T | null, write: (s: string) => unknown, ms: number, stdin: NodeJS.ReadStream): Promise<T | null> {
+  if (!stdin.isTTY || typeof stdin.setRawMode !== "function" || stdin.listenerCount("data") > 0) return null;
   const wasRaw = stdin.isRaw, wasPaused = stdin.isPaused();
   let seen = "";
   let onData: ((d: Buffer) => void) | null = null;
   try {
     stdin.setRawMode(true);
-    return await new Promise<boolean>(done => {
-      const timer = setTimeout(() => done(false), ms);
+    return await new Promise<T | null>(done => {
+      // The answer, once read; it is handed back when the device attributes come too (or the time is up), so they
+      // never reach whoever reads stdin next.
+      let got: T | null = null;
+      const timer = setTimeout(() => done(got), ms);
       onData = (d: Buffer) => {
         seen += d.toString("latin1");
-        const q = /\x1b\]7501;([^\x07\x1b]*)(?:\x07|\x1b\\)/.exec(seen);
-        if (q && isStatusQueryReply(q[1]!)) { clearTimeout(timer); done(true); }
-        else if (/\x1b\[\?[\d;]*c/.test(seen)) { clearTimeout(timer); done(false); }
+        if (got === null) for (const q of seen.matchAll(/\x1b\]7501;([^\x07\x1b]*)(?:\x07|\x1b\\)/g)) if ((got = read(q[1]!)) !== null) break;
+        if (/\x1b\[\?[\d;]*c/.test(seen)) { clearTimeout(timer); done(got); }
       };
       stdin.on("data", onData);
       stdin.resume();
-      write(`${PROGRAM_STATUS_QUERY}\x1b[c`);
+      write(`${query}\x1b[c`);
     });
-  } catch { return false; }
+  } catch { return null; }
   finally {
     if (onData) stdin.off("data", onData);
     if (wasPaused) stdin.pause();
