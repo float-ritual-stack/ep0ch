@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { readNoteFile } from "@ep0ch/outline-core/header-line";
 import { blockRecord, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import { exportFiles, fileName, resolveLinks } from "../src/export";
-import { selectionOf, selectionQuery } from "../src/notes-cli";
+import { selectionOf, selectionQuery, type BoardAddress } from "../src/notes-cli";
+import { queryPage } from "../src/mcp-query";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch } from "./scratch";
 
@@ -174,6 +175,10 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
       const [record] = JSON.parse((await run(["find", "--query", "asks", "--property-scope", "all", "--json"], env)).out) as (BlockRecord & { matches: unknown })[];
       expect([record!.id, record!.matches]).toEqual([shed.id, [{ key: "asks", value: "neighbour: pick the colour", line: 9, scope: "inline", task: "todo" }]]);
       expect(plain((await run(["find", "--view", view.id], env)).out)).toContain("line 9 to do asks");
+      // outline_query's page (the MCP tool's) asks the same selection: each row says where it matched.
+      const page = await queryPage(board as SocketBoard & { address: BoardAddress }, { query: "asks", propertyScope: "all", limit: 5, offset: 0 });
+      if ("error" in page) throw new Error(page.error);
+      expect(page.rows.map(r => [r.record.id, r.matched?.map(m => [m.line, m.task])])).toEqual([[shed.id, [[8, "todo"]]]]);
       expect(plain((await run(["find", "--view", view.id, "--property-scope", "all"], env)).err)).toContain("[property-scope::]");
       expect(plain((await run(["find", "--property-scope", "everywhere", "--query", "asks"], env)).err)).toContain("--property-scope is block, line, inline, all");
       await board.request("update", { blockId: shed.id, expectedRevision: shed.revision, text: shed.text.replace("- [ ] Which", "- [x] Which"), mutation: { author: "user" } });
