@@ -87,6 +87,8 @@ export const marks: Record<string, string[]> = {
   "page-figure": ["Lego night", "Garden club", "TICKETS FOR THIS PROJECT", "Sort the bricks", "Water the beans"],
   // The plot calendar's dates, written four ways, asked as any property (PIE-769); the lanes are saved views.
   dates: ["Plot calendar", "DUE IN THREE DAYS", "DONE WAITING", "IN ITS WINDOW TODAY", "Due in th"],
+  // A live page to copy (PIE-1355): its three figures drawn.
+  "copy-page": ["Crate day, copied with its results", "Apples crate", "Parcel 01", "CRATES BY BAY"],
   tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ cozy"],
   // The build log: its two open calls under Needs you, the decided ones drawn as their marks.
   steps: ["Shed roof build log", "Needs you", "felt from the merchant", "screws, not nails"],

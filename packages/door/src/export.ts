@@ -18,11 +18,9 @@ import { join } from "node:path";
 import { recordJson, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import { noteFile, type NoteIdentity } from "@ep0ch/outline-core/header-line";
 import { boardFor, selectionOf, selectNotes, selects, type Out } from "./notes-cli";
-import { componentBlocks } from "@ep0ch/outline-core/component-block";
-import { connectFigures, figureAscii, figureSource, graphKind } from "./graphs";
+import { connectFigures, figureAscii } from "./graphs";
+import { noteFigures } from "./page-results";
 import { liveSettled } from "./live";
-import { titleLine } from "./board";
-import { metadataLines } from "./props";
 import type { SocketBoard } from "./socket";
 import { printable } from "./text";
 
@@ -96,23 +94,12 @@ export const FIGURE_WIDTH = 60;
  * held), as the reader's is.
  */
 export function figuresAsAscii(text: string, note: string, drawn = text): string {
-  const blocks = (t: string) => {
-    const lines = t.split("\n");
-    const out = componentBlocks(lines).flatMap(c => { const kind = graphKind(c); return kind ? [{ kind, from: c.start, to: c.end }] : []; });
-    return { lines, out };
-  };
-  const target = blocks(text), source = blocks(drawn);
-  if (!target.out.length || target.out.length !== source.out.length) return text;
-  const lines = target.lines.slice();
-  // The note's figure block, as the reader finds it (surface/note.ts readableSource): the first line with text below
-  // the title and its property lines.
-  const start = Math.max(0, titleLine(drawn).line) + 1, meta = metadataLines(drawn, null);
-  const blockLine = source.lines.findIndex((l, i) => i >= start && !meta.has(i) && l.trim());
-  for (let k = target.out.length - 1; k >= 0; k--) {
-    const t = target.out[k]!, s = source.out[k]!;
-    const first = s.from === blockLine;
-    const ascii = figureAscii(s.kind, figureSource(source.lines.slice(s.from + 1, s.to), note, first), FIGURE_WIDTH);
-    lines.splice(t.from, t.to - t.from + 1, "```", ...ascii, "```");
+  const target = noteFigures(text, note), source = noteFigures(drawn, note);
+  if (!target.length || target.length !== source.length) return text;
+  const lines = text.split("\n");
+  for (let k = target.length - 1; k >= 0; k--) {
+    const t = target[k]!, s = source[k]!;
+    lines.splice(t.from, t.to - t.from + 1, "```", ...figureAscii(s.kind, s.source, FIGURE_WIDTH), "```");
   }
   return lines.join("\n");
 }

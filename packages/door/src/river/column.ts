@@ -845,10 +845,10 @@ export class RiverColumn extends ReaderPane {
   }
 
   /** `column.note`: the whole note the column shows, copied as the reader copies it (note.copy). */
-  copyNote(actor: Actor, desk: DeskApi) {
+  copyNote(actor: Actor, desk: DeskApi, source = false) {
     const m = this.noteOf();
     if (!m || this.surface.msg?.id !== m.id) throw new ActionRefused(`${this.titleOf()} shows no note's text`);
-    return this.surface.copyNote(this.host(desk), actor);
+    return this.surface.copyNote(this.host(desk), actor, source);
   }
 
   /** `column.block`: a code block, quote or callout of the note the column shows, copied as the reader copies one (block.copy). */
@@ -1039,11 +1039,12 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     run: ({ n }, { pane, desk }, actor) => columnOf(pane).copyBlock(n, actor, desk),
   }),
   "column.note": def({
-    summary: "copy the whole note a river column shows, source text as stored, as the reader's note.copy: the person's goes to their clipboard (\"copied the note, N lines\"), an agent's is given back",
+    summary: "copy the whole note a river column shows as the reader's note.copy does: its text as stored with each live figure's results under it (source=true: the text alone); the person's goes to their clipboard (\"copied the page with N figures' results\", or \"copied the note, N lines\"), an agent's is given back",
     keys: "Y with nothing selected",
     touches: "nothing", replay: "safe",
-    args: {},
-    run: (_, { pane, desk }, actor) => columnOf(pane).copyNote(actor, desk),
+    args: { source: { type: "boolean", optional: true, about: "the note's text alone, without its figures' results" } },
+    examples: [{ act: "column.note", does: "answers the column's note with its live figures' results" }, { act: "column.note source=true", does: "answers the note's text as stored" }],
+    run: ({ source }, { pane, desk }, actor) => columnOf(pane).copyNote(actor, desk, source === true),
   }),
   "column.copy": def({
     summary: "copy the text selected in a river column (its drawn rows: drag, or v and move): the person's goes to their clipboard (a drag's when the button comes up); an agent's is given back, the clipboard left alone",

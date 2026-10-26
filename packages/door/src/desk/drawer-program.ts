@@ -84,7 +84,8 @@ export function isAgentCmd(cmd: readonly string[]): boolean {
 }
 
 /** A word as the shell reads it back. */
-export const shellQuote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
+export { shellQuote } from "@ep0ch/outline-core/shell-word";
+import { shellQuote } from "@ep0ch/outline-core/shell-word";
 
 /**
  * `cmd` started inside the person's login shell (no dead panes): when it exits, or crashes, the shell says so (and
