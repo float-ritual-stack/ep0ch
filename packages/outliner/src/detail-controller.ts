@@ -1,3 +1,4 @@
+import { eraseBack } from "@ep0ch/outline-core/graphemes";
 import { restoredStatus, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { ticketScope } from "./work-ids";
@@ -3928,9 +3929,10 @@ export function createDetailController(
         state.propertyInspector.viewportOffset = 0;
         break;
       case "property-inspector.filter.backspace":
-        state.propertyInspector.filterDraft = (
-          state.propertyInspector.filterDraft ?? ""
-        ).slice(0, -1);
+        state.propertyInspector.filterDraft = eraseBack(
+          state.propertyInspector.filterDraft ?? "",
+          (state.propertyInspector.filterDraft ?? "").length,
+        ).text;
         state.propertyInspector.viewportOffset = 0;
         break;
       case "property-inspector.filter.commit":
@@ -3995,7 +3997,7 @@ export function createDetailController(
         state.backlinks.filterDraft = `${state.backlinks.filterDraft ?? ""}${intent.text}`;
         break;
       case "backlinks.filter.backspace":
-        state.backlinks.filterDraft = (state.backlinks.filterDraft ?? "").slice(0, -1);
+        state.backlinks.filterDraft = eraseBack(state.backlinks.filterDraft ?? "", (state.backlinks.filterDraft ?? "").length).text;
         break;
       case "backlinks.filter.commit":
         state.backlinks.filter = (state.backlinks.filterDraft ?? "").trim();

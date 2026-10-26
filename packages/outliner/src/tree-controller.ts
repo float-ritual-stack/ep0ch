@@ -1,3 +1,4 @@
+import { eraseBack, wordEraseStart } from "@ep0ch/outline-core/graphemes";
 import { restoredStatus, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { ticketScope } from "./work-ids";
 import {TreeComments} from "./tree-comments";
@@ -2902,7 +2903,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
           return;
         }
       } else if (key.name === "backspace") {
-        updateActionMenuQuery([...actionMenuQuery].slice(0, -1).join(""));
+        // A whole character at a time, as every line does (outline-core/graphemes.ts, PIE-1290); ctrl+w a word.
+        updateActionMenuQuery(eraseBack(actionMenuQuery, actionMenuQuery.length).text);
+      } else if (key.ctrl && key.name === "w") {
+        updateActionMenuQuery(actionMenuQuery.slice(0, wordEraseStart(actionMenuQuery, actionMenuQuery.length)));
       } else if (isPrintableInput(str, key)) {
         updateActionMenuQuery(actionMenuQuery + str);
       }

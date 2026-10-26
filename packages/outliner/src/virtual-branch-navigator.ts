@@ -1,3 +1,4 @@
+import { eraseBack } from "@ep0ch/outline-core/graphemes";
 import {
   Markdown,
   stripTerminalSequences,
@@ -431,7 +432,7 @@ export class VirtualBranchNavigatorController {
       this.startPreview();
       this.status = this.filter ? `Filtered by “${this.filter}”` : "Filter cleared";
     } else if (key.name === "backspace") {
-      this.filterDraft = [...(this.filterDraft ?? "")].slice(0, -1).join("");
+      this.filterDraft = eraseBack(this.filterDraft ?? "", (this.filterDraft ?? "").length).text;
       this.applyFilter(previousRowId, 0, this.filterDraft);
       this.startPreview();
     } else if (str && !key.ctrl && !key.meta) {

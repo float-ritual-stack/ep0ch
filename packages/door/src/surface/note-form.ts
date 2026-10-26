@@ -1,13 +1,12 @@
 import { formFields, FORM_FIELD_KEY, type FormField } from "@ep0ch/outline-core/form-fields";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { chipRows } from "./chip-rows";
-import { Draft } from "../edit";
+import { LineField } from "./line";
 import { partyOf } from "../steps";
 import { USER, type Actor } from "../socket";
 import { fg, C, pad, RESET, visible, width } from "../style";
 import { ActionRefused, asBoundKey, keyName, shownLine } from "./actions";
 import { printable, wrap } from "../text";
-import { editorLineKey } from "./editor";
 import { modeBinding, modeHint, type ModeKey } from "./modes";
 import type { Key } from "../term";
 
@@ -27,7 +26,7 @@ export const FORM_CHOICE_KEYS: readonly ModeKey[] = [
 export class NoteForm {
   fields: FormField[] = [];
   chips: ReturnType<typeof parsePropertyRecords> = [];
-  private answers = new Map<string, Map<string, Draft>>();
+  private answers = new Map<string, Map<string, LineField>>();
   private warnings = new Map<string, string>();
   focus = 0;
   busy = false;
@@ -45,8 +44,8 @@ export class NoteForm {
   draft(field: string, actor = USER) {
     const key = partyOf(actor);
     let drafts = this.answers.get(key);
-    if (!drafts) { drafts = new Map(this.fields.map(f => [f.name, new Draft(this.block, 0, f.default ?? "")])); this.answers.set(key, drafts); }
-    if (!drafts.has(field)) drafts.set(field, new Draft(this.block, 0, this.fields.find(f => f.name === field)!.default ?? ""));
+    if (!drafts) { drafts = new Map(this.fields.map(f => [f.name, new LineField(f.default ?? "", false, { complete: false, id: this.block })])); this.answers.set(key, drafts); }
+    if (!drafts.has(field)) drafts.set(field, new LineField(this.fields.find(f => f.name === field)!.default ?? "", false, { complete: false, id: this.block }));
     return drafts.get(field)!;
   }
   values(actor: Actor) { return Object.fromEntries(this.fields.map(f => [f.name, this.draft(f.name, actor).text])); }
@@ -83,7 +82,8 @@ export class NoteForm {
     const field = this.fields[this.focus];
     if (field && field.type !== "choice") {
       const draft = this.draft(field.name), before = draft.text;
-      editorLineKey(draft, key, copy);
+      draft.copy = copy;
+      draft.take(key);
       if (draft.text !== before) this.clearWarning(USER);
     }
   }

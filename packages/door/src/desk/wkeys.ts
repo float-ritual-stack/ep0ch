@@ -1,13 +1,14 @@
 // The desk's ^W keys (PIE-704), one table. Every key that follows ^W is a row here: the desk's chord handler reads its
-// binding from it (Desk.command), the keys box and the hint row are generated from it, and the ^W popup (`^W ?`: the
+// binding from it (Desk.command), the panel ^W opens (PIE-1304) and the hint row are generated from it, and the ^W popup (`^W ?`: the
 // power bar's `>actions` scope on the `^W` prefix) lists it. A key's label and summary are the action's own, joined
 // from its ActionSet (the tile menu's row for the same `ctrl+w <key>`, else the summary's first clause), so the tile
 // menu, the power bar and the hint can't name different things. A key bound anywhere else in the desk is a bug the
 // tests find (test/wkeys.test.ts): add it here, with the action it runs.
 import type { ActionDef } from "../surface/actions";
 import { keyCaption } from "../surface/actions";
+import type { PanelGroup } from "./key-panel";
 
-/** The groups the keys box and the popup show them under, in order. */
+/** The groups the panel and the popup show them under, in order. */
 export const W_GROUPS = ["focus & move", "size & shape", "tabs", "open", "mounts & groups", "drawer", "layouts & more"] as const;
 export type WGroup = (typeof W_GROUPS)[number];
 
@@ -35,8 +36,6 @@ export interface WKey {
   how: WHow;
   /** A label where the action alone says too little (several keys run `tile.resize`). */
   label?: string;
-  /** In the short keys box, under this word (keys with the same word share one entry). Absent: only in the popup. */
-  short?: string;
   /** Stays in resize mode after it (the desk's sticky mode): the next resize keys need no ^W. */
   sticky?: true;
 }
@@ -45,12 +44,12 @@ const run = (action: string, args?: Record<string, unknown>, tile?: "n" | "-"): 
 
 /** Every key after ^W, in the order the popup lists them under each group. */
 export const W_KEYS = [
-  { key: "h", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile to the left", short: "focus" },
-  { key: "j", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile below", short: "focus" },
-  { key: "k", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile above", short: "focus" },
-  { key: "l", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile to the right", short: "focus" },
-  { key: "m", group: "focus & move", action: "layout.move", how: { k: "prefix", mode: "move" }, label: "move beside a tile (then h j k l)", short: "move" },
-  { key: "t", group: "focus & move", action: "layout.move", how: { k: "prefix", mode: "tab" }, label: "move into a tile's tabs (then h j k l)", short: "into tabs" },
+  { key: "h", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile to the left" },
+  { key: "j", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile below" },
+  { key: "k", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile above" },
+  { key: "l", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile to the right" },
+  { key: "m", group: "focus & move", action: "layout.move", how: { k: "prefix", mode: "move" }, label: "move beside a tile (then h j k l)" },
+  { key: "t", group: "focus & move", action: "layout.move", how: { k: "prefix", mode: "tab" }, label: "move into a tile's tabs (then h j k l)" },
   { key: "T", group: "focus & move", action: "layout.move", how: { k: "special" }, label: "take this tab out of its tab set" },
   { key: "H", group: "focus & move", action: "layout.move", how: { k: "edge" }, label: "to the left edge" },
   { key: "J", group: "focus & move", action: "layout.move", how: { k: "edge" }, label: "to the bottom edge" },
@@ -58,34 +57,34 @@ export const W_KEYS = [
   { key: "L", group: "focus & move", action: "layout.move", how: { k: "edge" }, label: "to the right edge" },
   { key: "s", group: "focus & move", action: "layout.swap", how: { k: "special" }, label: "swap with the next tile" },
 
-  { key: "<", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "row" }, "n"), label: "narrower", short: "size", sticky: true },
-  { key: ">", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "row" }, "n"), label: "wider", short: "size", sticky: true },
-  { key: "-", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "col" }, "n"), label: "shorter", short: "size", sticky: true },
-  { key: "+", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "col" }, "n"), label: "taller", short: "size", sticky: true },
+  { key: "<", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "row" }, "n"), label: "narrower", sticky: true },
+  { key: ">", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "row" }, "n"), label: "wider", sticky: true },
+  { key: "-", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "col" }, "n"), label: "shorter", sticky: true },
+  { key: "+", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "col" }, "n"), label: "taller", sticky: true },
   { key: "=", group: "size & shape", action: "layout.even", how: run("layout.even", {}, "-"), label: "even out every split", sticky: true },
-  { key: "{", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "right" }), short: "align" },
-  { key: "}", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "left" }), short: "align" },
-  { key: "|", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "centre" }), short: "align" },
-  { key: "z", group: "size & shape", action: "tile.zoom", how: run("tile.zoom", {}, "n"), short: "zoom" },
-  { key: "Z", group: "size & shape", action: "tile.zoom", how: run("tile.zoom", { reach: "column" }, "n"), label: "lift or drop this column", short: "lift" },
+  { key: "{", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "right" }) },
+  { key: "}", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "left" }) },
+  { key: "|", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "centre" }) },
+  { key: "z", group: "size & shape", action: "tile.zoom", how: run("tile.zoom", {}, "n") },
+  { key: "Z", group: "size & shape", action: "tile.zoom", how: run("tile.zoom", { reach: "column" }, "n"), label: "lift or drop this column" },
   { key: "F", group: "size & shape", action: "tile.zoom", how: run("tile.zoom", { reach: "full" }, "n"), label: "lift or drop across the terminal" },
-  { key: "c", group: "size & shape", action: "tile.collapse", how: run("tile.collapse"), short: "spine" },
+  { key: "c", group: "size & shape", action: "tile.collapse", how: run("tile.collapse") },
   { key: "W", group: "size & shape", action: "tile.widen", how: run("tile.widen") },
-  { key: "f", group: "size & shape", action: "tile.float", how: run("tile.float"), short: "float" },
+  { key: "f", group: "size & shape", action: "tile.float", how: run("tile.float") },
   { key: "p", group: "size & shape", action: "tile.dock", how: run("tile.dock"), label: "dock to an edge, or undock" },
   { key: "d", group: "size & shape", action: "tile.slide", how: { k: "special" }, label: "slide the dock open or shut" },
 
-  { key: "[", group: "tabs", action: "tab.select", how: run("tab.select", { by: -1 }), label: "previous tab", short: "tabs" },
-  { key: "]", group: "tabs", action: "tab.select", how: run("tab.select", { by: 1 }), label: "next tab", short: "tabs" },
+  { key: "[", group: "tabs", action: "tab.select", how: run("tab.select", { by: -1 }), label: "previous tab" },
+  { key: "]", group: "tabs", action: "tab.select", how: run("tab.select", { by: 1 }), label: "next tab" },
 
-  { key: "o", group: "open", action: "tile.open", how: { k: "prefix", mode: "add" }, label: "open a tile beside (then its kind's key)", short: "open" },
-  { key: "O", group: "open", action: "tile.open", how: { k: "prefix", mode: "addtab" }, label: "open a tile as a tab (then its kind's key)", short: "open" },
-  { key: "v", group: "open", action: "tile.preview", how: run("tile.preview", { where: "right" }), label: "preview beside", short: "preview" },
+  { key: "o", group: "open", action: "tile.open", how: { k: "prefix", mode: "add" }, label: "open a tile beside (then its kind's key)" },
+  { key: "O", group: "open", action: "tile.open", how: { k: "prefix", mode: "addtab" }, label: "open a tile as a tab (then its kind's key)" },
+  { key: "v", group: "open", action: "tile.preview", how: run("tile.preview", { where: "right" }), label: "preview beside" },
   { key: "V", group: "open", action: "tile.preview", how: run("tile.preview", { where: "down" }), label: "preview below" },
-  { key: "x", group: "open", action: "tile.close", how: run("tile.close"), short: "close" },
-  { key: "n", group: "open", action: "tile.title", how: run("tile.title"), short: "rename" },
-  { key: "N", group: "open", action: "tile.title.mode", how: run("tile.title.mode"), short: "title mode" },
-  { key: ".", group: "open", action: "tile.menu", how: run("tile.menu"), label: "this tile's menu", short: "menu" },
+  { key: "x", group: "open", action: "tile.close", how: run("tile.close") },
+  { key: "n", group: "open", action: "tile.title", how: run("tile.title") },
+  { key: "N", group: "open", action: "tile.title.mode", how: run("tile.title.mode") },
+  { key: ".", group: "open", action: "tile.menu", how: run("tile.menu"), label: "this tile's menu" },
 
   { key: " ", group: "mounts & groups", action: "tile.select", how: run("tile.select"), label: "pick this tile to gather, or let it go" },
   { key: "G", group: "mounts & groups", action: "tile.group", how: run("tile.group", { ask: true }), label: "gather the picked tiles into a group, or spill one" },
@@ -103,7 +102,7 @@ export const W_KEYS = [
   { key: "r", group: "layouts & more", action: "layout.load", how: run("layout.load"), label: "lay the screen out from a saved one" },
   { key: "w", group: "layouts & more", action: "screen.save", how: run("screen.save"), label: "save this screen" },
   { key: "!", group: "layouts & more", action: "screen.shell", how: { k: "special" }, label: "drop to your shell" },
-  { key: "?", group: "layouts & more", action: "bar.open", how: { k: "special" }, label: "all the ^W keys: a list you can filter", short: "all keys" },
+  { key: "?", group: "layouts & more", action: "bar.open", how: { k: "special" }, label: "all the ^W keys: a list you can filter" },
 ] as const satisfies readonly WKey[];
 
 type Entry = (typeof W_KEYS)[number];
@@ -119,7 +118,7 @@ export const wCaption = (key: string): string => `^W ${key === " " ? "space" : k
 /** A summary's first clause: what the popup says under a label. */
 export const clause = (summary: string): string => summary.split(/[.:;(]/)[0]!.trim();
 
-/** One key as the popup and the keys box list it: the entry with the words joined from its action. */
+/** One key as the popup and the panel list it: the entry with the words joined from its action. */
 export interface WRow {
   key: string;
   group: WGroup;
@@ -129,7 +128,6 @@ export interface WRow {
   summary: string;
   /** The same key as the tile menu names it (`ctrl+w z`). */
   chord: string;
-  short?: string;
   how: WHow["k"];
   args: Record<string, unknown>;
 }
@@ -150,7 +148,6 @@ export function wRows(defOf: (action: string) => ActionDef<any, any> | undefined
       label: e.label ?? menu?.label ?? (def ? clause(def.summary) : e.action),
       // Where the table words the key itself, the action's summary is about the action, not this key: left out.
       summary: def && !e.label ? clause(def.summary) : "",
-      ...(e.short ? { short: e.short } : {}),
     };
   });
 }
@@ -158,22 +155,9 @@ export function wRows(defOf: (action: string) => ActionDef<any, any> | undefined
 /** What the tile menu and the popup show as the keycap of a row. */
 export const wKeycap = (chord: string): string => keyCaption(chord);
 
-/**
- * The keys box: the most-used keys, one line per group (`focus & move · hjkl focus · m move`), in the hint row's own
- * markup (|07 a key, |08 its word), keys with the same word sharing one entry. A group with none of its own is left out.
- */
-export function wBoxLines(rows: readonly WRow[]): string[] {
-  const lines: string[] = [];
-  for (const g of W_GROUPS) {
-    const words: { word: string; keys: string[] }[] = [];
-    for (const r of rows) if (r.group === g && r.short) {
-      const w = words.find(x => x.word === r.short);
-      if (w) w.keys.push(r.key); else words.push({ word: r.short, keys: [r.key] });
-    }
-    if (!words.length) continue;
-    lines.push(`|14${g} |08· ` + words.map(w => `|07${w.keys.join(w.keys.every(k => "hjkl".includes(k)) ? "" : " ")} |08${w.word}`).join(" · "));
-  }
-  return lines;
+/** The ^W panel's groups (PIE-1304): every key, under its group, as the table orders them, with the words joined from its action. */
+export function wPanel(rows: readonly WRow[]): PanelGroup[] {
+  return W_GROUPS.map(g => ({ title: g, keys: rows.filter(r => r.group === g).map(r => ({ key: r.key, cap: r.key === " " ? "space" : r.key, label: r.label })) }));
 }
 
 export const ZOOM_WHEEL = { mods: 16, key: "ctrl+wheel on the frame", action: "tile.zoom" } as const;

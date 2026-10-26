@@ -140,6 +140,7 @@ export const marks: Record<string, string[]> = {
   // A reader and a terminal whose program asked for the mouse, each with its ⋯.
   menu: ["Allotment notebook", "this program asked for the mouse", "\u2261"],
   wkeys: ["Allotment notebook", "Bike shed"],
+  "line-field": ["Allotment notebook", "Bike shed"],
   // A blank screen: its rows, each a first step.
   made: ["A blank screen. Start it with a tile here:", "t  the outline", "o  open a screen…"],
   // Two readers to zoom one of, a link to light and a menu to open: the Esc rule's three nested things.

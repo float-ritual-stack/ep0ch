@@ -12,7 +12,7 @@ import { RowView, type RowGesture, type RowPress } from "../scroll";
 import type { Actor } from "../socket";
 import { C, fg, pad, RESET, selectedRow, tint, width } from "../style";
 import { rowLines } from "../text";
-import { LineInput } from "./line";
+import type { LineField } from "./line";
 import { paintRange } from "./selection";
 
 /** The person's key in a list's picks and filters (an agent's is its actor id). */
@@ -135,7 +135,7 @@ export class ListView<S = unknown> {
   private picks = new Map<string, string>();
   private filters = new Map<string, string>();
   /** The person's filter while they type it (`/`): applied as it's typed, ⏎ keeps it, esc goes back to what it was. */
-  typing: LineInput | null = null;
+  typing: LineField | null = null;
   private was = "";
 
   /**
@@ -163,10 +163,13 @@ export class ListView<S = unknown> {
     const w = words.trim();
     if (w) this.filters.set(who, w); else this.filters.delete(who);
   }
-  /** The person starts typing a filter, from the one kept. */
-  startTyping(): LineInput {
+  /**
+   * The person starts typing a filter, from the one kept, in the line `field` makes from it (a LineField with no
+   * completion: the caller makes it, since this file sits under the draft's own imports).
+   */
+  startTyping(field: (was: string) => LineField): LineField {
     this.was = this.filters.get(PERSON) ?? "";
-    return this.typing = new LineInput(this.was, false, { complete: false });
+    return this.typing = field(this.was);
   }
   /** ⏎ keeps what was typed; esc goes back to what it was. */
   stopTyping(keep: boolean) {

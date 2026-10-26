@@ -24,6 +24,7 @@ import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEven
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
 import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type TileRef } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
+import { lineCompletionHooks } from "./surface/line-hooks";
 import { AgentPointers, screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
 import { NEW_NOTE_ACTIONS } from "./new-note";
@@ -624,8 +625,10 @@ export class App implements Ctx {
       } : null;
     };
     connectFigures(board, () => this.redraw());
-    // Every line typed in completes outline text from this connection by default (PIE-626: LineInput, src/surface/line.ts).
+    // Every line typed in completes outline text from this connection by default (PIE-626: LineField, src/surface/line.ts).
     useCompletion(board, () => this.redraw(), () => this.barHost());
+    // A cut or copy in any line field goes to the door's clipboard (PIE-1290).
+    lineCompletionHooks.copy = text => { this.copy(text); };
     // A terminal tile's program said what it's doing (OSC 7501): its header, the chip and the status bar's count.
     // It goes to the terminal the door runs in too, when that terminal speaks the protocol (the door as a program).
     this.offStatus = onStatusChange(() => { this.redraw(); this.reportStatus(); }, this.drawer);

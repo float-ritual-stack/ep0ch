@@ -1,3 +1,4 @@
+import { wordEraseStart } from "@ep0ch/outline-core/graphemes";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { PositionRows } from "../reader-position";
 // The one edit control: a Draft (src/edit.ts) drawn in the same frame, with the same keys and the same
@@ -319,7 +320,7 @@ export function editorLineKey(d: Draft, k: Key, copy: (text: string) => void): b
     if (k.ch === "w") {
       const selection = d.selection();
       const end = selection?.[1].col ?? d.col;
-      const start = selection?.[0].col ?? d.text.slice(0, end).replace(/\S+\s*$/, "").length;
+      const start = selection?.[0].col ?? wordEraseStart(d.text, end);
       d.splice(start, end, ""); return true;
     }
     if (k.ch === "x") {

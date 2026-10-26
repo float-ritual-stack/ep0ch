@@ -17,7 +17,7 @@ import { C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { ago, rowLines } from "../text";
 import { RowView, wheelRows, clamp, type RowPress } from "../scroll";
-import { LineInput } from "../surface/line";
+import { LineField } from "../surface/line";
 import { findBoards } from "./query";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
@@ -94,7 +94,7 @@ export class FacetsPane implements Pane {
   private asked = 0;
   private reload: Timer | null = null;
   /** The query being typed (`e`): applied on ⏎, dropped on esc. */
-  draft: LineInput | null = null;
+  draft: LineField | null = null;
 
   constructor(public readonly kind: "facets" | "tags" = "facets", o: { query?: string; open?: readonly string[]; sort?: FacetSort; zero?: boolean; share?: number } = {}) {
     this.share = o.share ?? 0.4;
@@ -109,6 +109,7 @@ export class FacetsPane implements Pane {
   headLabel() { return fg(C.dark) + (this.error ? "failed" : this.answer ? String(this.answer.facets.length) : "…") + RESET; }
   spine() { return { title: this.title() }; }
   typing() { return this.draft !== null; }
+  lineField() { return this.draft; }
   blur() { this.draft = null; }
   spec() {
     const q = this.query();
@@ -309,7 +310,7 @@ export class FacetsPane implements Pane {
   private draftKey(k: Key, desk: DeskApi): boolean {
     if (k.kind === "enter") { const text = this.draft?.text.trim() ?? ""; this.draft = null; this.act(desk, "facets.query", { text }); return true; }
     if (k.kind === "esc") this.draft = null;
-    else if (!this.draft?.key(k)) return k.kind !== "tab" && k.kind !== "backtab";
+    else if (!this.draft?.take(k)) return k.kind !== "tab" && k.kind !== "backtab";
     desk.redraw();
     return true;
   }
@@ -330,7 +331,7 @@ export class FacetsPane implements Pane {
     if (c === "+" || c === "=") { this.act(desk, "facets.set", { mode: "include" }); return true; }
     if (c === "-") { this.act(desk, "facets.set", { mode: "exclude" }); return true; }
     if (c === "0" || k.kind === "backspace") { this.act(desk, "facets.set", { mode: "off" }); return true; }
-    if (c === "e") { this.draft = new LineInput(this.query(), false, { complete: false }); desk.redraw(); return true; }
+    if (c === "e") { this.draft = new LineField(this.query(), false, { complete: false }); desk.redraw(); return true; }
     if (c === "[" || c === "]") { this.act(desk, "facets.resize", { by: c === "[" ? -0.1 : 0.1 }); return true; }
     if (c === "v") { this.act(desk, "facets.save"); return true; }
     if (c === "s") { this.act(desk, "facets.sort"); return true; }

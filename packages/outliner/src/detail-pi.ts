@@ -1,3 +1,4 @@
+import { eraseBack } from "@ep0ch/outline-core/graphemes";
 import { clientReload, reexecClient } from "./client-code";
 import type { RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { installCrashLog } from "./crash-log";
@@ -1208,7 +1209,7 @@ class FuzzyActionMenu implements Component {
       this.changeMenu(matchesKey(data, Key.right) ? 1 : -1); return;
     }
     if (matchesKey(data, Key.backspace)) {
-      this.updateQuery([...this.query].slice(0, -1).join(""));
+      this.updateQuery(eraseBack(this.query, this.query.length).text);
       return;
     }
     const printable = decodeKittyPrintable(data) ??

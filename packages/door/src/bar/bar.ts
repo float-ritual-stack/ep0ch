@@ -20,7 +20,7 @@ import { Canvas, type Rect } from "../canvas";
 import type { Ctx } from "../app";
 import type { Msg } from "../board";
 import { ListPicker, pickRow } from "../surface/picker";
-import { Draft } from "../edit";
+import { LineField } from "../surface/line";
 import { editorLineKey } from "../surface/editor";
 import { Gesture, rowsOf, wordAt, Selection, paintRange, SELECT_BG, isCopyKey, modeKey } from "../surface/selection";
 import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note";
@@ -51,11 +51,12 @@ export function barRect(cols: number, rows: number): Rect {
   return { col: Math.floor((cols - w) / 2), row: Math.max(0, Math.floor((rows - h) / 4)), cols: w, rows: h };
 }
 
+/** The bar's line: plain words for every source (the service's search, a filter over rows), so no outline-text completion. */
+
 export class PowerBar {
   /** The source it's scoped to, or null: the main list. */
   scope: string | null;
-  input: Draft;
-  private readonly gesture = new Gesture();
+  input: LineField;
   private readonly picker: ListPicker<BarItem, PowerBar>;
   items: BarItem[] = [];
   /** Each source's rows for the last query asked, and the sources still answering. */
@@ -103,7 +104,7 @@ export class PowerBar {
     this.quick = !!o.quick;
     this.scope = o.scope ? barSource(o.scope)?.id ?? null : null;
     // The query is plain words for every source (the service's search, a filter over rows): no outline-text completion.
-    this.input = new Draft("power-bar", 0, o.query ?? "");
+    this.input = this.line(o.query ?? "");
     this.picker = new ListPicker<BarItem, PowerBar>({
       stays: true,
       name: "power bar", items: () => this.items,
@@ -123,7 +124,14 @@ export class PowerBar {
   private compact() { return this.scope === "ask" ? compactQuestion() : null; }
 
   /** Put away: nothing it asked for is waited on. */
-  close() { this.input = new Draft("power-bar", 0, ""); this.done = true; this.seq++; if (this.timer) clearTimeout(this.timer); this.timer = null; this.surface.dispose(); }
+  /** The bar's line: plain words for every source, so no outline-text completion; a masked answer is never copied. */
+  private line(text: string): LineField {
+    const l = new LineField(text, false, { complete: false, id: "power-bar" });
+    l.copy = t => { if (!(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(t); };
+    return l;
+  }
+
+  close() { this.input = this.line(""); this.done = true; this.seq++; if (this.timer) clearTimeout(this.timer); this.timer = null; this.surface.dispose(); }
   ended(): boolean { return this.done || this.picker.ended(); }
   get query(): string { return this.input.text; }
   get selected(): number { return this.picker.sel; }
@@ -140,7 +148,7 @@ export class PowerBar {
 
   /** Change to scope `s` (null: the main list). */
   setScope(s: string | null) {
-    if (this.scope === "ask" && maskedQuestion() && s !== "ask") { this.input = new Draft("power-bar", 0, ""); clearPrivateForm(); }
+    if (this.scope === "ask" && maskedQuestion() && s !== "ask") { this.input = this.line(""); clearPrivateForm(); }
     this.scope = s ? barSource(s)?.id ?? null : null;
     this.picker.sel = 0; this.litKey = null;
     this.refresh();
@@ -187,7 +195,7 @@ export class PowerBar {
     }
     if (k.kind === "paste") { void this.host.dispatch.press("bar.edit", { op: "paste", text: k.text }); return true; }
     const before = this.query;
-    const took = editorLineKey(this.input, k, text => { if (!(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(text); });
+    const took = this.input.take(k);
     if (this.scope === "ask" && maskedQuestion()) { this.input.undos = []; this.input.redos = []; }
     if (this.query !== before) this.refresh();
     return took;
@@ -236,7 +244,7 @@ export class PowerBar {
     this.refresh();
   }
 
-  clear() { if (this.scope === "ask" && maskedQuestion()) this.input = new Draft("power-bar", 0, ""); else this.input.splice(0, this.query.length, ""); this.refresh(); }
+  clear() { if (this.scope === "ask" && maskedQuestion()) this.input = this.line(""); else this.input.splice(0, this.query.length, ""); this.refresh(); }
 
   /** A key or a click while it's open: everything is the bar's. Mouse reports are made relative to where it was drawn. */
   key(k: Key, ctx: Ctx) {
@@ -264,26 +272,8 @@ export class PowerBar {
       }
       const compact = this.compact();
       const inputX = compact ? 2 + width(compact.title) : 3;
-      const x = k.x - r.col - inputX, y = k.y - r.row - (compact ? 1 : 2);
-      if ((k.action === "down" && y === 0 && x >= 0 && x < Math.max(10, r.cols - 32)) || this.gesture.pressed) {
-        const d = this.input;
-        const select = (from: number, to = from) => { void this.host.dispatch.press("bar.edit", { op: "select", from, to }); };
-        if (k.action === "down") {
-          const n = this.gesture.press(k.x, k.y), p = d.posAt(x, 0);
-          select(p.col);
-          if (n > 1) {
-            const cs = [...d.text], col = [...d.text.slice(0, d.col)].length;
-            const selection = wordAt(rowsOf([d.text]), { row: 0, col });
-            select(n === 3 ? 0 : cs.slice(0, selection.start.col).join("").length,
-              n === 3 ? d.text.length : cs.slice(0, selection.end.col + 1).join("").length);
-          }
-        } else if (k.action === "drag" && this.gesture.drag(k.x, k.y)) {
-          const p = d.posAt(x, 0); select(d.anchor?.col ?? d.col, p.col);
-        } else if (k.action === "up" && this.gesture.release(k.x, k.y).copy) {
-          const text = d.selectedText(); if (text && !(this.scope === "ask" && maskedQuestion())) ctx.copy?.(text);
-        }
-        ctx.redraw(); return;
-      }
+            // The line is the one line field's: a click places the cursor, a drag selects, a double click a word (PIE-1290).
+      if (this.input.mouse(k, { x: r.col + inputX, y: r.row + (compact ? 1 : 2), w: Math.max(10, r.cols - 32) })) { ctx.redraw(); return; }
       if (k.action === "up" || k.action === "drag") return;
       this.alt = !!((k.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL)) || k.button === MOUSE_MIDDLE;
       const at = { ...k, x: k.x - r.col, y: k.y - r.row };

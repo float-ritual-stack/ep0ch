@@ -10,7 +10,7 @@ the logon (`SHY-LOGI.ANS`), the main menu (`SHY-EMNU.ANS`, whose twelve "Menu Cm
 slots now hold live commands), and the bulletin (`SHY-EPO!.ANS`).
 
 **Getting around.** The menu's letters (or a click on an item) open its screens over it. `q` is back on every
-screen. `Esc` closes what popped up, the innermost first (a picker or the tile menu, the keys box, a `^W` chord, link
+screen. `Esc` closes what popped up, the innermost first (a picker or the tile menu, the ^W panel, a `^W` chord, link
 mode, a filter, an empty edit, the drawer, a selection, a zoom, a dock, a float's keys), and never leaves a
 screen: with nothing left it stays and says `nothing to close · q leaves`. The menu is the top, with nothing under
 it: there `q` is the Quay, as it always was, and `Esc` says `G` logs off.

@@ -173,10 +173,10 @@ describe("the reader's four modes, with no service", () => {
     expect(s.editing).toBe(false);
     s.openPanel(false);
     s.editValue(s.rows(s.msg!)[0]!);
-    s.panel!.field!.input.text = "doing";
+    s.panel!.field!.input.set("doing");
     expect(s.leaveRefusal()).toBe("finish the property value first · ⏎ saves · esc cancels");
     await expect(s.leave(h)).rejects.toThrow("finish the property value first");
-    s.panel!.field!.input.text = s.panel!.field!.row.value;
+    s.panel!.field!.input.set(s.panel!.field!.row.value);
     expect(await s.leave(h)).toEqual({ left: "nothing" });
     expect([s.panel!.field, !!s.panel]).toEqual([null, true]);
   });

@@ -1,3 +1,4 @@
+import type { LineField } from "../surface/line";
 import type { ModeKey } from "../surface/modes";
 import { outlineBoards, type NoteAddress } from "./outline-boards";
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
@@ -272,6 +273,8 @@ export interface Pane {
   spine?(): { title: string; marks?: string[] };
   /** The person is typing in it (a filter): it holds their keys, as an edit does. */
   typing?(): boolean;
+  /** The one-line field that has the person's keys here, if any (PIE-1290): ctrl+w is its word, not the ^W chord. */
+  lineField?(): LineField | null;
   /** A completion popup is open in what it types: tab chooses a candidate there (PIE-626), never the desk's next tile. */
   completing?(): boolean;
   /** The keys went elsewhere while it was typing: it keeps what was typed (a filter) and stops. */
@@ -372,6 +375,7 @@ export class ReaderPane implements Pane {
   get holdsKeys() { return this.surface.holdsKeys; }
   /** The person is typing a filter into an inline `::links` list: the desk's own keys (e, p, i, C) wait (Pane.typing). */
   typing() { return this.surface.typingFilter; }
+  lineField() { return this.surface.lineField; }
   /** Hold `m` (alt+⏎ on a link, a note opened into it): it keeps its note as the current one changes. A pinned reader shown another note is held, no longer pinned. */
   hold(m: Msg, desk: DeskApi) {
     this.modeGen++;

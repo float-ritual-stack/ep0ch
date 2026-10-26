@@ -2,7 +2,7 @@
 // lets someone pick from a list or type a line, by keys and by mouse. No service needed.
 import { describe, expect, test } from "bun:test";
 import { Canvas } from "../src/canvas";
-import { LineInput } from "../src/surface/line";
+import { LineField } from "../src/surface/line";
 import { Modes } from "../src/surface/modes";
 import { ListPicker, pickRows, pickRow } from "../src/surface/picker";
 import { visible, width } from "../src/style";
@@ -35,12 +35,12 @@ describe("a list picker", () => {
   });
 
   test("a filtering input says so even when Esc closes it immediately", () => {
-    const { p } = picker(3, { input: new LineInput(), filters: true });
+    const { p } = picker(3, { input: new LineField(), filters: true });
     expect(p.hint()).toContain("type to filter");
   });
 
   test("its drawn foot follows the input and Esc clears before closing", () => {
-    const input = new LineInput("garden");
+    const input = new LineField("garden");
     const { p, draw } = picker(3, { input, escClears: true });
     expect(p.hint()).toContain("esc clear filter");
     p.key({ kind: "esc" }, null);
@@ -110,7 +110,7 @@ describe("a list picker", () => {
   });
 
   test("with a line typed above it, letters are the line's and the list moves on ↑ ↓", () => {
-    const input = new LineInput();
+    const input = new LineField();
     let typed = 0;
     const { p, said } = picker(4, { input, typed: () => typed++ });
     for (const c of "jq") p.key(char(c), null);
@@ -131,35 +131,35 @@ describe("a list picker", () => {
 
 describe("a line input", () => {
   test("types, moves, erases and clears; ⏎ and esc stay the caller's", () => {
-    const l = new LineInput("plan");
-    for (const k of [{ kind: "left" }, { kind: "left" }, char("x"), { kind: "backspace" }, { kind: "delete" }] as Key[]) l.key(k);
+    const l = new LineField("plan");
+    for (const k of [{ kind: "left" }, { kind: "left" }, char("x"), { kind: "backspace" }, { kind: "delete" }] as Key[]) l.take(k);
     expect([l.text, l.cursor]).toEqual(["pln", 2]);
-    l.key({ kind: "char", ch: "a", ctrl: true }); l.key(char(">"));
+    l.take({ kind: "char", ch: "a", ctrl: true }); l.take(char(">"));
     expect(l.text).toBe(">pln");
-    l.key({ kind: "char", ch: "e", ctrl: true }); l.key(char("!"));
+    l.take({ kind: "char", ch: "e", ctrl: true }); l.take(char("!"));
     expect(l.text).toBe(">pln!");
-    expect([l.key({ kind: "enter" }), l.key({ kind: "esc" })]).toEqual([false, false]);
-    l.key({ kind: "char", ch: "u", ctrl: true });
+    expect([l.take({ kind: "enter" }), l.take({ kind: "esc" })]).toEqual([false, false]);
+    l.take({ kind: "char", ch: "u", ctrl: true });
     expect(l.text).toBe("");
   });
 
   test("a prefilled line: the first key replaces it, backspace empties it", () => {
-    const a = new LineInput("desk", true);
+    const a = new LineField("desk", true);
     expect(visible(a.show(30))).toContain("⏎ keeps it");
-    a.key(char("m"));
+    a.take(char("m"));
     expect(a.text).toBe("m");
-    const b = new LineInput("desk", true);
-    b.key({ kind: "backspace" });
+    const b = new LineField("desk", true);
+    b.take({ kind: "backspace" });
     expect(b.text).toBe("");
   });
 
   test("shown with its cursor, scrolled to it, in the width it's given, wide glyphs whole", () => {
-    const l = new LineInput("会議メモ");
-    expect(visible(l.show(20))).toBe("会議メモ▌");
+    const l = new LineField("会議メモ");
+    expect(visible(l.show(20)).trimEnd()).toBe("会議メモ");   // the cursor is the lit cell after it
     expect(l.plain()).toBe("会議メモ▌");
-    l.key({ kind: "home" });
-    expect(visible(l.show(20, "block"))).toBe("会議メモ");
-    const long = new LineInput("x".repeat(50));
+    l.take({ kind: "home" });
+    expect(visible(l.show(20))).toBe("会議メモ");
+    const long = new LineField("x".repeat(50));
     expect(width(long.show(10))).toBeLessThanOrEqual(10);
   });
 });

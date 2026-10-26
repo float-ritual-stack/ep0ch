@@ -38,7 +38,7 @@ import { ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import type { TileSpec } from "../desk/tiles";
-import { LineInput } from "../surface/line";
+import { LineField } from "../surface/line";
 import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, lookupCompletion, renderCompletion, type CompletionBoard } from "../surface/completer";
 import { filterTargetAtCursor } from "../completion";
 import { Fold } from "../fold";
@@ -140,7 +140,7 @@ function indexOf(board: SocketBoard): OutlineIndex {
 }
 
 /** A column's filter line: its words are `key:value` (the property index and schemas complete them) or text. */
-const filterInput = (text = "") => new LineInput(text, false, { complete: { grammar: "filter" } });
+const filterInput = (text = "") => new LineField(text, false, { complete: { grammar: "filter" } });
 
 // ── a column ─────────────────────────────────────────────────────────────────
 
@@ -245,6 +245,7 @@ export class RiverColumn extends ReaderPane {
   override select() {}
   /** Typing a filter, choosing a property, or selecting text by keys: its keys are its own. */
   typing() { return this.mode !== "" || !!this.text?.keys; }
+  lineField() { return this.mode === "filter" ? this.input : null; }
   /** The filter's completion popup is open: tab chooses a candidate, as ⏎ does. */
   completing() { return this.mode === "filter" && !!completionOf(this.input); }
   blur() { if (this.mode) { this.mode = ""; this.input = filterInput(); } }
@@ -371,6 +372,8 @@ export class RiverColumn extends ReaderPane {
     if (pc && popup) pc.drawn = { row: this.headRows + view.length, items: popup.rows };
     // The note's images, as a reader tile hands its own to the desk: cut to the rows the column shows.
     const placements = [...(sticky?.placements ?? []).map(p => ({ ...p, row: p.row + head.length })), ...this.images.flatMap(p => inWindow(p, this.top, room, this.headRows) ?? [])];
+    // The filter's line is the last of the foot, under however many rows the cards took: a click or drag there is the line's (PIE-1290).
+    this.filterAt = this.mode === "filter" ? { x: 2, y: head.length + (sticky?.lines.length ?? 0) + view.length + foot.length - 1, w: w - 2 } : null;
     return { lines: [...head, ...(sticky?.lines ?? []), ...view, ...foot].slice(0, h).map(l => pad(l, w)), placements };
   }
 
@@ -604,7 +607,7 @@ export class RiverColumn extends ReaderPane {
   /** The filter being typed, or a property being chosen: ⏎ (or a digit) ends it in an action, esc cancels. */
   private modal(k: Key, desk: DeskApi): boolean {
     // An open completion popup takes ⏎, tab, esc and the arrows first (the line's own keys); what it leaves goes on below.
-    if (this.mode === "filter" && completionOf(this.input) && this.input.key(k)) { desk.redraw(); return true; }
+    if (this.mode === "filter" && completionOf(this.input) && this.input.take(k)) { desk.redraw(); return true; }
     if (k.kind === "esc") { this.mode = ""; desk.redraw(); return true; }
     if (this.mode === "tags") {
       const t = this.tagChoices[k.kind === "char" && !k.ctrl ? Number(k.ch) - 1 : -1];
@@ -614,7 +617,7 @@ export class RiverColumn extends ReaderPane {
       return true;
     }
     if (k.kind === "enter" || k.kind === "alt-enter") { this.mode = ""; this.run(desk, "column.filter", { query: this.input.text }); return true; }
-    if (!this.input.key(k) && (k.kind === "tab" || k.kind === "backtab")) return false;
+    if (!this.input.take(k) && (k.kind === "tab" || k.kind === "backtab")) return false;
     desk.redraw();
     return true;
   }
@@ -663,9 +666,12 @@ export class RiverColumn extends ReaderPane {
     return (!this.typing() && !this.surface.holdsKeys && ["I", "O"].includes(ch(k))) || super.claims(k);
   }
 
+  /** Where the filter's line was drawn, in the column's own cells. */
+  private filterAt: { x: number; y: number; w: number } | null = null;
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
     this.desk = desk;
     if (sideways(k)) return false;                                              // the flow's: its kind steps to the column beside
+    if (this.mode === "filter" && this.input.mouse({ ...k, x, y }, this.filterAt)) { desk.redraw(); return true; }
     if (this.surface.editing && this.surface.msg) {
       // In an edit: the surface's own press, drag and release, as on the desk (the cursor placed, a completion picked,
       // a drag selecting in the draft and copied when the button comes up, a double click's word).

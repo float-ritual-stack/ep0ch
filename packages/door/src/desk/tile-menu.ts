@@ -8,7 +8,7 @@ import type { Rect } from "../canvas";
 import { keyCaption, keyName } from "../surface/actions";
 import type { MenuRow } from "../surface/dispatch";
 import { ListPicker } from "../surface/picker";
-import { LineInput } from "../surface/line";
+import { LineField } from "../surface/line";
 import { filtered, litCells } from "../bar/filter";
 import { refused } from "../shell-keys";
 import { C, chip, fg, pad, RESET, floatSelectedRow, selectedRow, width } from "../style";
@@ -58,7 +58,7 @@ export function menuRow(r: { label: string; key?: string; refused?: string }, on
  */
 export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]; at: { col: number; row: number; right?: boolean }; q?: string; look?: (width: number) => StyleValues }): ListPicker<MenuRow, H> {
   const all = o.rows;
-  const input = new LineInput(o.q ?? "", false, { complete: false });
+  const input = new LineField(o.q ?? "", false, { complete: false });
   const shown = () => filtered(all, input.text, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]);
   // Re-read only when the query changed: the picker asks for its items many times a frame.
   let seen = input.text, rows = shown();
@@ -104,7 +104,7 @@ export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]
       // Below the anchor, else above it; on the screen either way (a terminal made smaller since).
       const row = Math.max(0, Math.min(o.at.row + h <= a.rows ? o.at.row : o.at.row - h + 1, a.rows - h));
       const rect: Rect = { col, row, cols: w, rows: h };
-      return { rect, title: o.title, foot: !all.length ? "nothing to do here" : !rows.length ? "no row matches" : undefined, head: [" " + input.show(w - 4)], tail: why };
+      return { rect, title: o.title, foot: !all.length ? "nothing to do here" : !rows.length ? "no row matches" : undefined, head: [" " + input.show(w - 4)], field: { line: 0 }, tail: why };
     },
   });
   return p;

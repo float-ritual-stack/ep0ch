@@ -136,7 +136,7 @@ import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COP
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
-import { LineInput } from "./line";
+import { filterLine, LineField } from "./line";
 import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, SEP, linkRowLines, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlocksEnv } from "../links";
 import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { MOUSE_ALT, RowPresses } from "../scroll";
@@ -871,6 +871,8 @@ export class NoteSurface {
   private linkPresses = new RowPresses();
   /** The person is typing a filter into an inline list: p, e and the rest are letters then, not the screen's keys (a pane's `typing`). */
   get typingFilter(): boolean { return !!this.listIn && !!this.listViews.get(this.listIn)?.typing; }
+  /** The one-line field with the keys (a list's filter, a property's value): ctrl+w erases its word, not the window chord (PIE-1290). */
+  get lineField(): LineField | null { return (this.listIn ? this.listViews.get(this.listIn)?.typing : null) ?? this.panel?.field?.input ?? null; }
   /** The key of the list the person went into (`list.enter`), or null. */
   get listIn(): string | null { return (this.modes.get("list") as ListMode | null)?.list ?? null; }
   /** The thread a Reply control asked to answer: the thread list opening next starts the reply there. */
@@ -1896,6 +1898,7 @@ export class NoteSurface {
       const tokens = tokensOf(m.text, src);
       const info = { origin: head.length, revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text, look: this.lastLook?.values, values: this.valueRows(m, src) };
       const at = head.length;
+      this.panel.origin = at;
       const panelHits = () => { for (const r of this.panel!.at) this.hits.push({ row: at + r.y, from: 0, to: w, prop: r.n, follow: false }, ...(r.target ? [{ row: at + r.y, from: r.from, to: w, prop: r.n, follow: true }] : [])); };
       if (this.panel.full) { const lines = [...head, ...this.panel.render(rows, w, Math.max(2, h - head.length), info)]; panelHits(); return { lines }; }
       const popup = this.panel.field && completionOf(this.panel.field.input) ? COMPLETION_ROWS : 0;
@@ -2917,7 +2920,7 @@ export class NoteSurface {
   editValue(r: PropRow): void {
     const m = this.msg!;
     if (!this.panel || m.revision === undefined) throw new ActionRefused("the note's revision is unknown, so a value edit couldn't be checked; open it again");
-    this.panel.field = { row: r, input: Object.assign(new LineInput(r.value, false, { complete: { valueKey: r.key } }), { near: m.id }), revision: m.revision, saving: false, note: "", changedElsewhere: false };
+    this.panel.field = { row: r, input: Object.assign(new LineField(r.value, false, { complete: { valueKey: r.key } }), { near: m.id }), revision: m.revision, saving: false, note: "", changedElsewhere: false };
   }
 
   /**
@@ -4018,7 +4021,7 @@ export class NoteSurface {
       // Typing a filter: letters go into it and the list follows; ⏎ keeps it, esc goes back to what it was.
       if (k.kind === "enter") view.stopTyping(true);
       else if (k.kind === "esc") view.stopTyping(false);
-      else if (!T.key(k)) return true;
+      else if (!T.take(k)) return true;
       host.redraw();
       return true;
     }
@@ -4054,7 +4057,7 @@ export class NoteSurface {
       picked: (l, row) => { this.selectListRow(l, row.id); this.previewRow(here()); },
       open: (l, row, where, actor, standing) => this.openListRow(l, row, where, actor, here(), standing),
       enter: (l, on) => { if (on || this.listIn === l.key) this.enterList(l, on); },
-      type: l => { if (this.listIn !== l.key) this.enterList(l, true); l.view.startTyping(); },
+      type: l => { if (this.listIn !== l.key) this.enterList(l, true); l.view.startTyping(filterLine); },
       redraw: () => host?.redraw(),
     };
   }
@@ -7890,6 +7893,8 @@ export class NoteSurface {
       return;
     }
     if (float === "sources") { this.gesture.press(x, y); return; }
+    // On a property value being typed: the line field's own press (its cursor, a word on a double click), PIE-1290.
+    if (this.panel?.fieldMouse("down", x, y)) { host.redraw(); return; }
     const n = this.gesture.press(x, y);
     // In a draft a press puts the cursor there (shift+click: selects from where it was), a drag from it selects, a
     // double click selects the word and a triple click the line (Draft's own selection, through draft.place).
@@ -7924,6 +7929,7 @@ export class NoteSurface {
 
   /** The pointer moved with the button down: once off the pressed cell, it selects from there. */
   drag(x: number, y: number, host: SurfaceHost): void {
+    if (this.panel?.fieldMouse("drag", x, y)) { host.redraw(); return; }
     if (this.modes.get("form")) {
       const hit = this.formHit(x, y);
       if (hit && "link" in hit && hit.link.form?.field === this.form?.fields[this.form.focus]?.name) {
@@ -7974,6 +7980,7 @@ export class NoteSurface {
   }
 
   private releaseNow(x: number, y: number, host: SurfaceHost): boolean {
+    if (this.panel?.fieldMouse("up", x, y)) { host.redraw(); return true; }
     if (this.placementMenu) return this.modes.click(x, y, host) ?? false;
     if (this.splitDrag) { this.splitDrag = null; host.redraw(); return true; }
     if (this.frameDrag?.target === "sources" || this.frameDrag?.target === "edit-preview") { this.frameDrag = null; host.redraw(); return true; }

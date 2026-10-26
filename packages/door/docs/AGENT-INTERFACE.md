@@ -267,7 +267,7 @@ These change what the person looks at, so an agent's is a visible, attributed mo
   `Esc` there only says "nothing to close · G logs off"; their `q` there is the Quay, as it always was).
 
 **Esc closes; it never leaves.** The person's `Esc` closes the innermost temporary thing, one per press: first what
-holds their keys (a picker or menu: the tile menu `⋯`, a search, a layout or board picker; the keys box, `? more`; a
+holds their keys (a picker or menu: the tile menu `⋯`, a search, a layout or board picker; the ^W panel, `? more`; a
 pending chord, `^W`; link mode, `alt+l`; a filter being typed; an edit, at once with nothing typed, with a second `Esc`
 when unsaved, PIE-475), then the drawer when it's up and they're out of it (`host.toggle`), then what's lit in their tile
 (a link, a selection), then the screen's own (a zoom, a dock, the keys back home, a float's keys back to the tile
