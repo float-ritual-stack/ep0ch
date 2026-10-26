@@ -12,7 +12,7 @@ import type { Msg } from "../src/board";
 import { openScreen } from "../src/desk/screen-specs";
 import { SocketBoard } from "../src/socket";
 import type { MenuRow } from "../src/surface/dispatch";
-import { paint, visible } from "../src/style";
+import { paint, visible, width } from "../src/style";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -42,6 +42,9 @@ describe("the ^W key table", () => {
     expect(drawn.width).toBeLessThanOrEqual(200);
     expect(panelLines(groups, 200, 6)).toBeNull();
     expect(panelLines(groups, 12, 40)).toBeNull();
+    // A column narrower than the room is never drawn past it.
+    const narrow = panelLines(groups, 24, 400);
+    expect(narrow && Math.max(...narrow.lines.map(l => width(l)))).toBeLessThanOrEqual(24);
   });
 });
 

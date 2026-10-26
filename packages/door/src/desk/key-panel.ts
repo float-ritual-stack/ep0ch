@@ -30,7 +30,7 @@ export function panelLines(groups: readonly PanelGroup[], cols: number, rows: nu
   if (!shown.length) return null;
   const capW = Math.max(...shown.flatMap(g => g.keys.map(k => width(k.cap))));
   const want = Math.max(...shown.map(g => width(g.title)), ...shown.flatMap(g => g.keys.map(k => capW + 2 + width(k.label))));
-  const colW = Math.min(MAX_COL, want);
+  const colW = Math.min(MAX_COL, want, cols);
   const n = Math.max(1, Math.min(shown.length, Math.floor((cols + GAP) / (colW + GAP))));
   if (colW < capW + 8) return null;
   const columns: { text: string; key?: string }[][] = Array.from({ length: n }, () => []);
