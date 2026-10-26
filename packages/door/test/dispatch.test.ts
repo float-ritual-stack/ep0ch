@@ -141,8 +141,9 @@ describe("the actor rule, for every action (PIE-514)", () => {
     }
     // A lookup reads; complete insert= types at the cursor (round 3, deferred).
     expect([of("complete").touchesWith!({}), of("complete").touchesWith!({ text: "[[HOME" }), of("complete").touchesWith!({ insert: 1 })]).toEqual(["nothing", "nothing", "draft"]);
-    // Only these take an invitation (and spend it): anywhere else invitation= opens nothing.
-    expect(allActionSets().flatMap(s => s.names().filter(n => s.argsOf(n)?.invitation)).sort()).toEqual(["comment.write", "complete"]);
+    // Only these take an invitation (and spend it): anywhere else invitation= opens nothing. complete.accept's agent
+    // insert is complete insert='s (PIE-1339), so it spends the same one.
+    expect(allActionSets().flatMap(s => s.names().filter(n => s.argsOf(n)?.invitation)).sort()).toEqual(["comment.write", "complete", "complete.accept"]);
   });
 });
 

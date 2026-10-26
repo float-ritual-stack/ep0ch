@@ -23,6 +23,18 @@ are its record. The outliner's entries from then are kept below, under
   and Detail.
 - The kitchen sink's `sticky-pad` section shows it. Parsing rules changed (GRAMMAR 6); the `transclusions.read` and
   `references.backlinks` answers gained fields (see the PR for the PROTOCOL note).
+### ^W's panel shows the focused tile's own keys first (PIE-1338)
+
+- **Pause after `^W` and the panel starts with "this tile: <its name>":** the keys the focused tile takes by itself,
+  drawn in the accent, before `^W`'s own groups. They're its ⋯ menu's rows that have a key (What changed's `d the
+  change` and `x all seen`, a reader's `e edit`, `R reply`, `u` up…), in the same words.
+- **A click on one runs it in the tile,** as the ⋯ menu does. Typed, they work once the panel is closed: after `^W` the
+  next key is still `^W`'s (`^W d` slides a dock, `^W x` closes), and the panel's foot says so. The hint row is as it was.
+- **In your drawer too:** the panel opens over the screen, since the drawer is too short for it (`^W` there showed no
+  panel before). `act keys.panel` gives an agent the same group, each key with the action it runs.
+- **The panel fits more screens:** too tall at its widest, it lays out in more, narrower columns before giving up.
+- **What changed's ⋯ menu** now lists "open its note", "the change" and "all seen".
+
 ### An extension's settings show and edit in the door (PIE-1343)
 
 - **See them where you find the extension.** ctrl+k then `&`: each extension's row says its settings (default, set,

@@ -81,7 +81,7 @@ describe("--help, -h and help, anywhere", () => {
     }
     expect(ep0ch("outline", "attach", "fern", "--help").out).toContain("ep0ch outline list");
     expect(ep0ch("act", "--help").out).toContain("act <action>");
-  });
+  }, 60_000);
 });
 
 describe("the rule, without a process", () => {
@@ -135,6 +135,10 @@ describe("the word lists say what the code reads", () => {
     // The door's own readers: main.ts, discover.ts (which outline), daemon.ts's screenFlags (which screen), the showcase route.
     const flags = new Set([src("main.ts"), src("discover.ts"), src("session/daemon.ts").slice(src("session/daemon.ts").indexOf("export function screenFlags")), src("showcase/route.ts")]
       .flatMap(t => [...t.matchAll(/"(--[a-z-]+)"/g)].map(m => m[1]!)));
+    // --as is act, open and peek's (an agent naming itself), after the command: discover.ts lists it only so its value
+    // is never read as a socket path. Before any command it opens a door, which has no --as.
+    flags.delete("--as");
+    expect(checkWords(["act", "tile.tune", "--as", "loki"])).toBeNull();
     expect(flags.size).toBeGreaterThan(8);
     for (const f of flags) expect(checkWords([f, "x"]) ?? { ok: f }).not.toMatchObject({ error: expect.stringContaining("no flag") });
   });

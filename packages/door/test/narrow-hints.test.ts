@@ -61,7 +61,15 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
   }, 30_000);
 
   afterAll(async () => {
-    for (const s of (app as any).stack) s.dispose?.();
+    // End the programs these tests started (the daily desk's tail -f): a desk left with one running is kept for D
+    // (Desk.resume), and the next file's desk in this process would be this one. So the kept one is taken back and ended too.
+    const end = async (s: any) => {
+      for (const p of s.panes?.values?.() ?? []) p.kill?.();
+      if (s instanceof Desk) await until(() => !s.holdsPrograms(), "its programs ended");
+      s.dispose?.();
+    };
+    for (const s of (app as any).stack) await end(s);
+    await end(Desk.resume());
     board?.close();
     await scratch.dispose();
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR"]) delete process.env[k];
@@ -108,19 +116,24 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
   });
 
   test("^W and ^W o show every part at once, above their row: every tile kind, with its key", () => {
-    key(ctrl("w"));
-    let all = lines();
-    // The row says only the way out (PIE-704); the box above it is the table's most-used keys, a line per group.
-    expect(hintRow()).toMatch(/\^W … · \? all keys · esc/);
-    let box = all.slice(all.findIndex(l => l.includes("─ keys ")), ROWS - 2).join("\n");
-    expect(box).toContain("hjkl focus");
-    expect(box).toContain("x close");
-    key(char("o"));
-    all = lines();
-    box = all.slice(all.findIndex(l => l.includes("─ keys ")), ROWS - 2).join("\n");
-    for (const kind of ["t outline", "s shell", "f brief", "q query", "l backlinks"]) expect(box).toContain(kind);
-    key({ kind: "esc" });
-    expect(lines().some(l => l.includes("─ keys "))).toBe(false);
+    // Their panel opens after a pause (PIE-1304): none here, so it is there in the first frame.
+    const was = process.env.EP0CH_KEY_PANEL_MS;
+    process.env.EP0CH_KEY_PANEL_MS = "0";
+    try {
+      key(ctrl("w"));
+      let all = lines();
+      // The row says only the way out (PIE-704); the panel above it is the key table, a column per group.
+      expect(hintRow()).toMatch(/\^W … · \? all keys · esc/);
+      let box = all.slice(all.findIndex(l => l.includes("─ ^W  tile keys")), ROWS - 2).join("\n");
+      expect(box).toMatch(/h +focus the tile to the left/);
+      expect(box).toMatch(/x +close/);
+      key(char("o"));
+      all = lines();
+      box = all.slice(all.findIndex(l => l.includes("─ ^W o  open beside")), ROWS - 2).join("\n");
+      for (const [k, kind] of [["t", "outline"], ["s", "shell"], ["f", "brief"], ["q", "query"], ["l", "backlinks"]]) expect(box).toMatch(new RegExp(`${k} +${kind}`));
+      key({ kind: "esc" });
+      expect(lines().some(l => l.includes("tile keys") || l.includes("open beside"))).toBe(false);
+    } finally { if (was === undefined) delete process.env.EP0CH_KEY_PANEL_MS; else process.env.EP0CH_KEY_PANEL_MS = was; }
   });
 
   test("a float on the desk names the desk's keys for putting it back, and they put it back", () => {

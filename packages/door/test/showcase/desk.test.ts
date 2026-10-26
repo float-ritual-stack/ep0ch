@@ -9,6 +9,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../../src/app";
 import { Desk } from "../../src/desk/desk";
+import { WhatChangedPane } from "../../src/desk/what-changed";
 import { seedRace, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, type Seeded } from "../../src/showcase/seed";
 import { gardenRound, Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
@@ -768,6 +769,44 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     press({ kind: "esc" });
   }, 30_000);
 
+
+  test("the ^W panel's own group (PIE-1338): with what changed focused, the panel lists its keys first, in the accent; a click on d shows the change, never ^W d", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "changes" }, as: "test-agent" });
+    await until(() => marks.changes!.every(m => screen().includes(m)), "the what-changed section");
+    const stage = () => S().stages.get(S().sel).top as Desk;
+    const list = () => stage().pane("changes") as WhatChangedPane;
+    await until(() => { screen(); return list().rows().length > 0; }, "a change listed");
+    if (S().focus !== "stage") press({ kind: "enter" });
+    await stage().dispatch.act({ action: "tile.focus", tile: "changes" }, { kind: "user" });
+    // An agent: the tile's group first, its keys from the kind's actions with what each runs; nothing on screen.
+    const seen = await app.act({ action: "keys.panel", tile: undefined, as: "test-agent" }) as any;
+    expect(seen.groups[0]).toMatchObject({ title: "this tile: changes", accent: true });
+    expect(seen.groups[0].keys).toContainEqual({ key: "d", cap: "d", label: "the change", action: "changes.diff" });
+    expect(seen.groups[1].title).toBe("focus & move");
+    expect(screen()).not.toContain("this tile: changes");
+    // The person: the panel, the tile's group at the top of its first column.
+    await stage().dispatch.act({ action: "keys.panel" }, { kind: "user" });
+    await until(() => screen().includes("this tile: changes"), "the panel with the tile's group");
+    const rows = screen().split("\n"), title = rows.findIndex(l => l.includes("this tile: changes"));
+    expect(rows[title]!.indexOf("this tile: changes")).toBeLessThan(rows[title]!.indexOf("focus & move"));
+    // A click on d the change: the change under the selected row, as d in the tile does; ^W d (the dock) never runs.
+    const y = rows.findIndex(l => /\bd  the change\b/.test(l));
+    expect(y).toBeGreaterThan(title);
+    const row = list().rows()[list().at]!;
+    expect(list().showing(row)).toBe(false);
+    const ran: string[] = [], stop = traceActions(r => ran.push(r.name));
+    try {
+      press({ kind: "mouse", action: "down", button: 0, x: rows[y]!.search(/\bd  the change\b/) + 1, y });
+      await until(() => list().showing(row), "the change shown by a click on its row");
+    } finally { stop(); }
+    expect(ran).toContain("changes.diff");
+    expect(ran).not.toContain("tile.slide");
+    expect(screen()).not.toContain("this tile: changes");
+    await stage().dispatch.press("changes.diff", {}, "changes");
+    await until(() => !list().showing(row), "folded again");
+    if (S().focus === "stage") press({ kind: "esc" });
+  }, 30_000);
 
   test("the power bar section (PIE-656): the stage's tiles listed as their tree, the folded one a spine; ctrl+k then %pears and ⏎ opens it from its spine and gives it the keys; a pasted action line is the first row; an agent's bar.open answers and opens nothing; layout.move runs through its form (PIE-1031)", async () => {
     (app as any).lastInput = 0;

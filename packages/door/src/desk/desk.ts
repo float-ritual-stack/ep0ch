@@ -89,7 +89,7 @@ import { tileRegistry } from "./tile-registry";
 import { AGENT_ALIAS, matches, parseTileAddress, resolveAddress, resolveRelative, ROLE_AGENT, shortTileId, type AddressCandidate, type ResolveOpts } from "./tile-address";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { W_KEYS, wKey, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
-import { panelFoot, panelLines, panelPauseMs, type PanelGroup } from "./key-panel";
+import { panelFoot, panelLines, panelPauseMs, tileKeys, type PanelGroup } from "./key-panel";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 import { prop } from "../props";
 
@@ -275,7 +275,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private hintFull: string | null = null;
   private moreChip: { from: number; to: number } | null = null;
   /** The hint row's parts that start with a key, and the open keys box's: a click on one presses it (`hintSpots`). */
-  private keySpots: { y: number; from: number; to: number; key: Key }[] = [];
+  private keySpots: { y: number; from: number; to: number; key: Key; run?: () => void }[] = [];
   /** The tiles' own (PaneView.spots, an empty place's `+ New note`), on the screen; a tile laid over one takes it away. */
   private tileSpots: { y: number; from: number; to: number; key: Key; tile?: number }[] = [];
   /** The whole hint row shown above it (keys.more: ?, or a click on "? more"), until the next key or click elsewhere. */
@@ -466,8 +466,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   async openTune(actor: Actor, tile?: string): Promise<Record<string, unknown>> {
     const focused = this.panes.get(this.focus);
     const tunes = [...this.panes.entries()].filter(([, p]) => p.kind === "tune") as [number, Pane & { source: string }][];
-    const target = tile ?? (focused?.kind === "tune" ? (focused as Pane & { source: string }).source : this.nameOf(this.focus));
-    if (this.idNamed(target) === undefined) throw new ActionRefused(`no tile ${target} on this screen`);
+    const asked = tile ?? (focused?.kind === "tune" ? (focused as Pane & { source: string }).source : this.nameOf(this.focus));
+    const at = this.idNamed(asked);
+    if (at === undefined) throw new ActionRefused(`no tile ${asked} on this screen`);
+    // A tune pane follows its tile by name (it hears renames); a person's press hands the tile's id.
+    const target = this.names.has(at) ? this.nameOf(at) : this.tileId(at);
     let id = tunes[0]?.[0];
     if (id !== undefined) { (this.panes.get(id) as Pane & { source: string }).source = target; }
     else {
@@ -4215,7 +4218,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** The hint part pressed, if `k` is a press on one: its key is pressed as typed. */
-  private spotAt(k: Key): { key: Key; tile?: number } | undefined { return k.kind === "mouse" && k.action === "down" ? [...this.keySpots, ...this.tileSpots].find(s => s.y === k.y && k.x >= s.from && k.x < s.to) : undefined; }
+  private spotAt(k: Key): { key: Key; tile?: number; run?: () => void } | undefined { return k.kind === "mouse" && k.action === "down" ? [...this.keySpots, ...this.tileSpots].find(s => s.y === k.y && k.x >= s.from && k.x < s.to) : undefined; }
 
   /** Every ^W key with its label and summary, joined from the actions it runs (wkeys.ts): what the keys box and the power bar's ^W list show. */
   wRows(): WRow[] { return wRows(name => this.dispatch.defOf(name)); }
@@ -4246,9 +4249,35 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.panelTimer = ms ? setTimeout(() => { this.panelTimer = null; if (this.prefix === p) this.redraw(); }, ms + 5) : null;
     }
     if (!this.panelOpen()) return null;
-    if (p === "wm") { const all = this.wRows().find(r => r.key === "?"); return { title: "^W  tile keys", foot: panelFoot(all ? [{ key: "?", action: all.action, label: all.label }] : []), groups: wPanel(this.wRows()) }; }
+    if (p === "wm") {
+      const all = this.wRows().find(r => r.key === "?"), tile = this.keysTile();
+      // The focused tile's own keys first (PIE-1338), its ⋯ menu's rows with a key: typed without ^W, a click runs the row there.
+      const rows = tile ? (() => { try { return tile.desk.dispatch.menu(tile.desk.tileId(tile.id), USER); } catch { return []; } })() : [];
+      this.panelRows = tile ? { desk: tile.desk, rows } : null;
+      const own = tile ? tileKeys(tile.desk.nameOf(tile.id), rows) : null, shows = !!own?.keys.length;
+      return { title: "^W  tile keys", foot: panelFoot(all ? [{ key: "?", action: all.action, label: all.label }] : [], shows), groups: [...(shows ? [own!] : []), ...wPanel(this.wRows())] };
+    }
     const kinds = tileKinds().flatMap(k => (k.keys ?? []).map(x => ({ key: x.key, cap: x.key, label: x.label })));
     return { title: p === "add" ? "^W o  open beside" : "^W O  open as a tab", foot: panelFoot(), groups: [{ title: "kinds", keys: kinds }] };
+  }
+
+  /**
+   * The tile the person's keys are on, for the ^W panel's own group (PIE-1338): the desk the App's keysScreen names
+   * (focusedDesk, PIE-1346) when it is this one or down in its groups, else this desk's focused tile.
+   */
+  private keysTile(): { desk: Desk; id: number } | null {
+    const at = this.focusedDesk(), desk = at && this.descend().includes(at) ? at : this;
+    return desk.panes.has(desk.focus) ? { desk, id: desk.focus } : null;
+  }
+  /** The focused tile's menu rows the ^W panel's own group was drawn from (PIE-1338), and the desk the tile is on. */
+  private panelRows: { desk: Desk; rows: MenuRow[] } | null = null;
+
+  /** A click on a row of the ^W panel's own group: ^W is let go, and the drawn tile's menu row for that key runs, as its ⋯ menu runs it. */
+  private runTileKey(key: string): void {
+    const at = this.panelRows, row = at?.rows.find(r => r.key === key);
+    this.prefix = ""; this.panelSince = null; this.stopPanelTimer();
+    this.redraw();
+    if (at && row) void at.desk.dispatch.press(row.action, row.args, row.tile);
   }
 
   /** Whether the pending prefix is one with a panel (^W, ^W o, ^W O). */
@@ -4258,18 +4287,57 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Whether the pending prefix has waited long enough for its panel. */
   private panelOpen(): boolean { return !!this.panelSince && Date.now() - this.panelSince.at >= panelPauseMs(); }
 
-  /** The prefix's panel over the screen, above the hint row; false when the screen is too small for it (the strip stays). */
+  /** The prefix's panel over the screen, above the hint row; false when the screen is too small for it (the strip stays). Your drawer's is the App's to draw (paintKeyPanel). */
   private drawKeyPanel(canvas: Canvas, cols: number, rows: number): boolean {
-    const p = this.hintPanel!, body = panelLines(p.groups, cols - 6, rows - 6);
-    if (!body) return false;
+    if (this.inDrawer()) return true;
+    const at = this.keyPanelAt(canvas, cols, rows);
+    if (!at) return false;
+    this.overlayHits.push(at.rect);
+    this.keySpots.push(...at.spots);
+    return true;
+  }
+
+  /** Drawn: the panel's rectangle and its rows' spots, in the canvas's rows. */
+  private keyPanelAt(canvas: Canvas, cols: number, rows: number): { rect: Rect; spots: Desk["keySpots"] } | null {
+    // Too small for the tile's own group too, the panel is ^W's alone (as before PIE-1338) rather than none.
+    const p = this.hintPanel!, body = panelLines(p.groups, cols - 6, rows - 6) ?? panelLines(p.groups.filter(g => !g.accent), cols - 6, rows - 6);
+    if (!body) return null;
     // Wide enough for its title and foot too (one group, ^W o's kinds, is narrower than either).
     const w = Math.min(cols, Math.max(body.width + 4, width(p.title) + 6, width(p.foot) + 6)), h = body.lines.length + 2;
     const r: Rect = { col: Math.max(0, Math.floor((cols - w) / 2)), row: Math.max(0, rows - 3 - h), cols: w, rows: h };
-    this.overlayHits.push(r);
+    const spots: Desk["keySpots"] = [];
     canvas.float(r, p.title, fg(C.dark) + p.foot, () => {
       body.lines.forEach((l, i) => canvas.text(r.col + 2, r.row + 1 + i, l, r.cols - 4));
-      for (const s of body.spots) this.keySpots.push({ y: r.row + 1 + s.line, from: r.col + 2 + s.from, to: r.col + 2 + s.to, key: { kind: "char", ch: s.key } });
+      for (const s of body.spots) spots.push({ y: r.row + 1 + s.line, from: r.col + 2 + s.from, to: r.col + 2 + s.to, key: { kind: "char", ch: s.key }, ...(s.action ? { run: () => this.runTileKey(s.key) } : {}) });
     }, true, this.focusedPane() ? this.lookAt(this.focusedPane()!, cols).values : lookFor(this.lookSrc, { screen: this.name }, cols).values);
+    return { rect: r, spots };
+  }
+
+  /** This desk is your drawer's, or a group's in it: its ^W panel is drawn over the whole screen by the App. */
+  private inDrawer(): boolean { return !!this.ctx?.hostLayer?.isDrawer(this.top()); }
+  /** Your drawer's ^W panel over the whole screen (the drawer is too short for it): where it is, in the screen's rows, and whose it is. */
+  private screenPanel: { rect: Rect; spots: Desk["keySpots"]; desk: Desk } | null = null;
+  /** A ^W panel is open in your drawer (this desk's or a group's in it): the App draws it over the screen (paintKeyPanel). */
+  keyPanelOpen(): boolean { return this.descend().some(d => d.hintPanel !== null); }
+  /**
+   * The App's frame, with your drawer's ^W panel over it (PIE-1338): the drawer's own rows are too few for it, so it
+   * opens over the screen as a screen's does, whichever desk in the drawer holds the ^W. Null with no panel open.
+   */
+  paintKeyPanel(canvas: Canvas, cols: number, rows: number): Rect | null {
+    this.screenPanel = null;
+    const desk = this.ctx?.hostLayer?.isDrawer(this) ? this.descend().find(d => d.hintPanel !== null) : undefined;
+    const at = desk?.keyPanelAt(canvas, cols, rows);
+    if (desk && at) this.screenPanel = { ...at, desk };
+    return at?.rect ?? null;
+  }
+  /** A click on your drawer's panel over the screen: its row runs as the panel's rows do, the rest of it takes the click. */
+  keyPanelInput(k: Key): boolean {
+    const p = this.keyPanelOpen() ? this.screenPanel : null;
+    if (!p || k.kind !== "mouse" || k.y < p.rect.row || k.y >= p.rect.row + p.rect.rows || k.x < p.rect.col || k.x >= p.rect.col + p.rect.cols) return false;
+    if (k.action !== "down") return true;
+    const spot = p.spots.find(s => s.y === k.y && k.x >= s.from && k.x < s.to);
+    if (spot?.run) spot.run();
+    else if (spot && p.desk.ctx) { p.desk.redraw(); asBoundKey("click", () => p.desk.key(spot.key, p.desk.ctx)); }
     return true;
   }
 
@@ -4595,6 +4663,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const spot = this.overlayOpen() || this.linking ? undefined : this.spotAt(k);
     if (spot) {
       this.hintMoreOpen = false;
+      if (spot.run) return spot.run();
       // A tile's own (its empty state's + New note): pressed in that tile, as a click there focuses it first.
       if (spot.tile !== undefined && spot.tile !== this.focus && !this.holdsKeys()) this.focusTile(this.nameOf(spot.tile), USER);
       this.redraw();
@@ -7883,7 +7952,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     run(_, { d }) { return { spec: specData(d.spec) }; },
   }),
   "keys.panel": def({
-    summary: "open the panel of the keys that follow a prefix (PIE-1304): every key, grouped, each a click away, with the words of the action it runs; a prefix opens it by itself after a short pause. An agent gets the groups as data; nothing moves",
+    summary: "open the panel of the keys that follow a prefix (PIE-1304): every key, grouped, each a click away, with the words of the action it runs; ^W's first group is the focused tile's own keys (PIE-1338: this tile: <name>, its ⋯ menu's rows with a key, each with its action; typed once the panel is closed, a click runs the row there). A prefix opens it by itself after a short pause. An agent gets the groups as data; nothing moves",
     keys: "^W, then a pause; ^W o, ^W O",
     // An agent's moves nothing (it gets the groups); the person's opens their own view and arms ^W (or ^W o): their
     // next key is the chord's, so a replay asks.

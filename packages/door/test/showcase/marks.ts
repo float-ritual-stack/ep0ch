@@ -130,6 +130,8 @@ export const marks: Record<string, string[]> = {
   images: ["Pictures of the plot", "▀ header allotment-dusk.jpg", "▣ seed-packet.webp · no Kitty graphics in this terminal", "[−][+] [◂][▸] [▀]", "▣ allotment-notice.png"],
   // A note whose first block is a picture: scrolled, the header takes it as its background (PIE-598).
   hero: ["An evening on the plot", "▀ header evening-beds.jpg", "hero-focus"],
+  // A dashboard with [header::none] (PIE-1319): the border names it, its first figure starts on the first row.
+  header: ["Plot at a glance", "THE HOUSE THIS WEEK"],
   // Two artifacts as cards (PIE-793): the React one titled by its line, the HTML one by its own <title>.
   artifacts: ["Toys on the desk", "◇ artifact", "[open ↗]", "Orbit lamp", "Orbit lamp pinned"],
   // The reader's header (PIE-657): the title in it, the dim line, the old header written out to compare.

@@ -121,7 +121,8 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     h.screen();
     expect(d.hintGet().cards[0]?.id).toBe("confirm");
     await h.app.dispatch.press("section.try");
-    await Bun.sleep(40);
+    // An action puts the card away; the next frame draws it again, and that is the card alt+N answers.
+    await until(() => { h.screen(); return d.hintGet().cards[0]?.id === "confirm"; }, "the confirm card drawn again");
     h.press({ kind: "alt", ch: "N" });
     expect(d.hintsList().hints.find(r => r.id === "confirm")?.own).toBe("status");
     h.press({ kind: "esc" });

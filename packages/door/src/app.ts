@@ -38,7 +38,7 @@ import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
-import { EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, scriptInstallWords, connectScriptActions, scriptPressMessage } from "./extensions";
+import { unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, scriptInstallWords, connectScriptActions, scriptPressMessage } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
@@ -1262,6 +1262,8 @@ export class App implements Ctx {
     this.display.programStatus?.(null);
     this.disarm();
     this.waitingAsks.stop();
+    // The extensions it bound (their actions, tile kinds, passage choices) go with the door that read them.
+    unbindExtensions(this.board);
     outlineBoards(this).close();
     this.display.dispose();
     this.done();
@@ -1389,6 +1391,8 @@ export class App implements Ctx {
         if (this.drawer.entered) this.drawerRun("host.leave", { quiet: true });
       }
     })) return;
+    // Your drawer's ^W panel, over the screen (PIE-1338): a click on it is its.
+    if (this.drawer.shown && this.drawer.desk?.keyPanelInput(k)) return;
     // The drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
     if (k.kind === "mouse" && k.y === this.term.info.rows - 1) {
@@ -1606,6 +1610,14 @@ export class App implements Ctx {
       // Images under the drawer would show through it; the drawer's tiles' own are drawn in it.
       // One running down under it is cut short at its edge (a spine's long title, PIE-794), not dropped whole.
       placements = [...uncover(placements, { col: 0, row: d.rect.row, cols, rows: rows - d.rect.row }), ...(this.graphics ? d.placements : [])];
+      // Your drawer's ^W panel (PIE-1338), over the whole screen: the drawer's rows are too few for it.
+      const keysDesk = this.drawer.desk;
+      if (keysDesk?.keyPanelOpen()) {
+        const canvas = new Canvas(cols, rows - 1);
+        lines.forEach((line, row) => canvas.text(0, row, line, cols));
+        const at = keysDesk.paintKeyPanel(canvas, cols, rows - 1);
+        if (at) { lines = canvas.lines(); placements = uncover(placements, at); }
+      }
     } else { this.drawer.rect = null; this.drawer.made?.shownAs(false); }
     const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
     if (lifted) {

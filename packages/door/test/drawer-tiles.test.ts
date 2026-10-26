@@ -1304,6 +1304,38 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
+  test("^W in the drawer: its panel's first group is the drawer tile's own keys, and a click on one runs it there, not ^W's (PIE-1338)", async () => {
+    const was = process.env.EP0CH_KEY_PANEL_MS;
+    process.env.EP0CH_KEY_PANEL_MS = "0";
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "what-changed", name: "what-changed" }, tile: "reader" }, USER);
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "what-changed" }, USER);
+      if (!d.app.drawer.entered) { d.key({ kind: "alt", ch: "a" }); d.paint(); }
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.focus", tile: "what-changed" }, USER);
+      d.paint();
+      d.key(ctrl("w"));
+      const lines = d.paint();
+      const title = lines.findIndex(l => l.includes("this tile: what-changed"));
+      expect(title).toBeGreaterThan(-1);
+      // Before the ^W groups, and its keys are the kind's own (the actions' keys and words).
+      // The first column's top, before the ^W groups.
+      expect(lines[title]!.indexOf("this tile: what-changed")).toBeLessThan(lines[title]!.indexOf("focus & move"));
+      const y = lines.findIndex(l => /\bx +all seen\b/.test(l) && l.includes("│ x"));
+      expect(y).toBeGreaterThan(-1);
+      // A click on x all seen marks the list seen; it isn't ^W x, which would close the tile.
+      const runs: ActionRun[] = [];
+      const stop = traceActions(r => runs.push(r));
+      try {
+        d.key(mouse("down", lines[y]!.search(/\bx +all seen\b/) + 1, y));
+        await until(() => runs.some(r => r.name === "changes.seen"), "x seen ran from its row");
+      } finally { stop(); }
+      expect(d.inDrawer("what-changed")).toBe(true);
+      expect(runs.some(r => r.name === "tile.close")).toBe(false);
+      expect(d.paint().some(l => l.includes("this tile: what-changed"))).toBe(false);
+    } finally { d.app.quit(); if (was === undefined) delete process.env.EP0CH_KEY_PANEL_MS; else process.env.EP0CH_KEY_PANEL_MS = was; }
+  });
+
   test("a group in the drawer has its own lock and names it; ctrl+k and alt+k open the bar from a folded drawer (PIE-1346)", async () => {
     const d = await door();
     try {

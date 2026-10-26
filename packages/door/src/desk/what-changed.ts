@@ -347,6 +347,9 @@ const which = {
   id: { type: "string", optional: true, about: "the note's id (or its start), instead of n" },
 } as const;
 
+/** Its rows' group in the tile menu and the ^W panel's own group (PIE-1338). */
+const GROUP = "What changed";
+
 /** The list's actions: the keys, a click and `act` call the same code. */
 export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
   "changes.pick": def({
@@ -369,6 +372,7 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
   "changes.go": def({
     summary: "open the note a row of the what-changed list is about (n from 1, or id=), where opens land; fresh=true uses its alt wire, as alt+⏎ does. An agent's open never takes the person's focus or keys",
     keys: "⏎, a double click · alt+⏎, an alt-click",
+    menu: { label: "open its note", group: GROUP },
     touches: "nothing", replay: "safe", says: r => `opened ${r.title ?? r.id}`,
     args: { ...which, fresh: { type: "boolean", optional: true, about: "use its alt wire, as alt+⏎ does" } },
     examples: [
@@ -388,6 +392,7 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
   "changes.diff": def({
     summary: "show or fold the change itself under a row (n from 1, or id=): the note's earlier text against what it became, from the revisions the service keeps (block.revisions). An agent's reads the lines without changing what the person has open",
     keys: "d",
+    menu: { label: "the change", group: GROUP },
     touches: "tile", while: "typing", replay: "safe", way: "an agent reads the diff from the answer; the person's rows stay as they are",
     args: which,
     examples: [
@@ -403,6 +408,7 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
   "changes.seen": def({
     summary: "mark everything in the what-changed list seen: the status bar's count goes to 0, and the position is kept for this outline. The person's only: an agent reading, opening or acting on notes never clears what they haven't looked at",
     keys: "x",
+    menu: { label: "all seen", group: GROUP },
     touches: "screen", replay: "ask", says: () => "marked what changed seen",
     person: "seen is the person's: an agent reads the rows (changes.list, peek) and never clears them",
     args: {},
