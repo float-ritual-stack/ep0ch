@@ -1220,9 +1220,10 @@ export class AgentDrawer {
     h.away = { says: `${shows} is on ${where}`, back: () => void this.run?.("agent.back", {}) };
     return h;
   }
-  /** Every desk the door holds: the drawer's, and each screen on the stack (one a pushed screen covers too). */
+  /** Every desk the door holds: the drawer's, each screen on the stack (one a pushed screen covers too) and each kept in the background. */
   private allDesks(): Desk[] {
-    const stack = (this.host.ctx?.()?.screens?.() ?? []).map(tilesOf).filter((d): d is Desk => !!d);
+    const ctx = this.host.ctx?.();
+    const stack = [...(ctx?.screens?.() ?? []), ...(ctx?.kept?.() ?? [])].map(tilesOf).filter((d): d is Desk => !!d);
     return [...(this.d ? [this.d] : []), ...stack, ...[tilesOf(this.host.screen?.())].filter((d): d is Desk => !!d)];
   }
   /** ⏎ or a click on the own tab while its program is out: that tile back from wherever it is now (any screen it was put on). */
@@ -1273,11 +1274,8 @@ export class AgentDrawer {
   /** Whether `actor` acts as the person here (their press, or an agent on it): only then do the keys move with a lift. */
   standsFor(actor: Actor): boolean { return this.ctx(actor).standing; }
 
-  /** Whether the drawer's program that's out still runs somewhere (on a screen not shown now): the tile with role agent on any screen, else a running program with that role. */
-  private outAlive(): boolean {
-    const there = this.findAgent(this.allDesks());
-    return there ? there.pane.running : livePrograms().some(p => tileRegistry.roleOf(p) === ROLE_AGENT);
-  }
+  /** Whether the drawer's program that's out still runs somewhere (on a screen not shown now): the tile with role agent, on any desk the door holds. */
+  private outAlive(): boolean { return !!this.findAgent(this.allDesks())?.pane.running; }
   /** The own tab no longer holding a place: its program starts as any own tab's does (when it's drawn). */
   private free() {
     const h = this.p;
