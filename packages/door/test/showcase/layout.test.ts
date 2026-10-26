@@ -283,7 +283,10 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
       const menu = d.drawnAbove().menus.at(-1)!;
       expect(menu.row + menu.rows).toBeGreaterThan(dr.row + 1);
       lines = frame(); alone = own();
-      for (let y = Math.max(menu.row, dr.row); y < menu.row + menu.rows - 1; y++) expect(cells(lines, y, menu.col, menu.cols - 1)).toBe(cells(alone, y, menu.col, menu.cols - 1));
+      for (let y = Math.max(menu.row, dr.row); y < menu.row + menu.rows; y++) expect(cells(lines, y, menu.col, menu.cols)).toBe(cells(alone, y, menu.col, menu.cols));
+      // Nothing of the screen past the menu's box comes over the drawer (a menu has no shadow).
+      const past = menu.row + menu.rows;
+      if (past < dr.row + dr.rows) expect(cells(lines, past, menu.col, menu.cols)).not.toBe(cells(alone, past, menu.col, menu.cols));
       press({ kind: "esc" });
       frame();
       // Its ◢ corner, over the drawer, dragged out past the float's edge: the drag stays the float's until the release.

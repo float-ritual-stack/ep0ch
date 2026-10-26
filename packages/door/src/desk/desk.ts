@@ -3459,7 +3459,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (id === this.focus && this.keysHere()) canvas.backdrop(values);
       canvas.shadow(r, values);
       lay(id, r, false, true);
-      this.raised.floats.push({ rect: r, shade });
+      this.raised.floats.push({ rect: r, shadow: [{ col: r.col + r.cols, row: r.row + 1, cols: 1, rows: r.rows - 1 }, { col: r.col + 1, row: r.row + r.rows, cols: r.cols, rows: 1 }] });
       canvas.under(r, bgRgb(floatTheme(values).bg));
       canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
     }
@@ -3537,7 +3537,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       withRowLimit(values["rows.lines"], () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 }, values));
       placements = [];
       const box = o.drawn();
-      if (box) this.raised.menus.push({ ...box, cols: box.cols + 1, rows: box.rows + 1 });
+      if (box) this.raised.menus.push(box);
     }
     // A screen mounted in a tile has no hint row of its own: the outermost screen's says the focused tile's keys (PIE-1305).
     // It still works its own chord box out (the person is in it), which draws in its rectangle. A tile lifted out of it
@@ -4215,7 +4215,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const h = Math.min(lines.length + 2, Math.max(3, rows - 4));
     const r: Rect = { col: 0, row: rows - 3 - h, cols: cols - 1, rows: h };
     this.overlayHits.push(r);
-    this.raised.menus.push({ ...r, cols: r.cols + 1, rows: r.rows + 1 });
+    this.raised.menus.push(r);
     canvas.float(r, "keys", this.prefix ? "" : fg(C.dark) + "any key closes", () => {
       lines.slice(0, h - 2).forEach((l, i) => {
         canvas.text(r.col + 2, r.row + 1 + i, l, r.cols - 4);
@@ -4300,7 +4300,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = this.keyPanelAt(canvas, cols, rows);
     if (!at) return false;
     this.overlayHits.push(at.rect);
-    this.raised.menus.push({ ...at.rect, cols: at.rect.cols + 1, rows: at.rect.rows + 1 });
+    this.raised.menus.push(at.rect);
     this.keySpots.push(...at.spots);
     return true;
   }
@@ -6626,18 +6626,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** What the last frame drew that may sit above your drawer (`drawnAbove`). */
-  private raised: { floats: { rect: Rect; shade: Rect }[]; menus: Rect[] } = { floats: [], menus: [] };
+  private raised: { floats: { rect: Rect; shadow: Rect[] }[]; menus: Rect[] } = { floats: [], menus: [] };
   /**
    * What this desk drew that may sit above your drawer (PIE-1221; the order is `layerOrder`'s, read by the host layer's
-   * `covers`), in the screen's cells: its floats, each with its shadow (`shade`; one dragged by its title stays the
-   * screen's over the drawer, so the drag keeps moving it), and its menus (a picker, a hint card, a completion list),
-   * shadows included.
+   * `covers`), in the screen's cells: its floats, each with the cells of its shadow (`shadow`, as `Canvas.shadow` draws it; one dragged by its title stays the
+   * screen's over the drawer, so the drag keeps moving it), and its menus (a picker, a hint card, a completion list,
+   * the ^W panel): the boxes they drew, which have no shadow.
    */
-  drawnAbove(): { floats: { rect: Rect; shade: Rect }[]; menus: Rect[] } { return this.raisedFrom(this.screenOrigin); }
+  drawnAbove(): { floats: { rect: Rect; shadow: Rect[] }[]; menus: Rect[] } { return this.raisedFrom(this.screenOrigin); }
   /** `drawnAbove` from `off`: this desk's, then each mounted screen's (a group's tile menu), in the screen's cells. */
-  private raisedFrom(off: { col: number; row: number }): { floats: { rect: Rect; shade: Rect }[]; menus: Rect[] } {
+  private raisedFrom(off: { col: number; row: number }): { floats: { rect: Rect; shadow: Rect[] }[]; menus: Rect[] } {
     const at = (r: Rect): Rect => ({ ...r, col: r.col + off.col, row: r.row + off.row });
-    const out = { floats: this.raised.floats.map(f => ({ rect: at(f.rect), shade: at(f.shade) })), menus: this.raised.menus.map(at) };
+    const out = { floats: this.raised.floats.map(f => ({ rect: at(f.rect), shadow: f.shadow.map(at) })), menus: this.raised.menus.map(at) };
     for (const [id, r] of this.hits) {
       const pane = this.panes.get(id);
       if (!(pane instanceof ScreenTile) || !pane.inner || this.contentCover(id).fold || this.cover(id) === "spine") continue;

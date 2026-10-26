@@ -1502,7 +1502,7 @@ export class AgentDrawer {
       const cols = Math.min(b.col + b.cols, r.col + r.cols) - col, rows = Math.min(b.row + b.rows, r.row + r.rows) - row;
       return cols > 0 && rows > 0 ? [{ col, row, cols, rows }] : [];
     };
-    return { paint: [...floats.map(f => f.shade), ...menus].flatMap(clip), hit: [...floats.map(f => f.rect), ...menus].flatMap(clip) };
+    return { paint: [...floats.flatMap(f => [f.rect, ...f.shadow]), ...menus].flatMap(clip), hit: [...floats.map(f => f.rect), ...menus].flatMap(clip) };
   }
 
   private mouse(k: Extract<Key, { kind: "mouse" }>, shown: Screen | undefined, rows: number, run: DrawerRun): boolean {
