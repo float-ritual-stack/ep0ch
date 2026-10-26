@@ -242,9 +242,12 @@ test("a copy keeps labelled references and labelled page links whole: label and 
     "Recon: labels survive [type::recon]",
     "",
     `See ((${rough}|Rough edges (x))) and ((${rough}^beds|the beds)).`,
-    "The plan: [[bed-plan|the plan]], or [[bed-plan]].",
+    "The plan: [[bed-plan|the plan]], or [[bed-plan]], or [[bed-plan|[[garden]] plan]].",
     "Yesterday: [[[[2026-10-06]] - notes]].",
     "Elsewhere: ((attic:00000000-0000-4000-8000-000000000012|the attic's)) and [web](https://example.com/a_(b)).",
+    "~~~",
+    `literal: ((${rough}|Rough edges (x))) [[bed-plan]]`,
+    "~~~",
   ].join("\n"));
   const sub = await create("cafe", `Recon from the shack [subscribe::shack@${machine}] [echo::recon] [since::all]`);
   await toss("shack");
@@ -254,9 +257,12 @@ test("a copy keeps labelled references and labelled page links whole: label and 
   expect(copies.map((copy) => copy.text.split("\n").slice(1).join("\n"))).toEqual([[
     "",
     `See [Rough edges (x)](${uri(rough)}) and [the beds](${uri(rough)}#beds).`,
-    `The plan: [the plan](${uri(plan.id)}), or [bed-plan](${uri(plan.id)}).`,
+    `The plan: [the plan](${uri(plan.id)}), or [bed-plan](${uri(plan.id)}), or [garden plan](${uri(plan.id)}).`,
     "Yesterday: 2026-10-06 - notes (in shack).",
-    "Elsewhere: ((attic:00000000-0000-4000-8000-000000000012|the attic's)) and [web](https://example.com/a_(b)).",
+    `Elsewhere: [the attic's](ep0ch://attic@${machine}/b/00000000-0000-4000-8000-000000000012) and [web](https://example.com/a_(b)).`,
+    "~~~",
+    `literal: ((${rough}|Rough edges (x))) [[bed-plan]]`,
+    "~~~",
   ].join("\n")]);
 }, 60_000);
 

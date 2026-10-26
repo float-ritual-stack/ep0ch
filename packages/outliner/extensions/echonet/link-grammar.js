@@ -1106,6 +1106,7 @@ function linkOccurrences(text, code) {
 }
 export {
   BLOCK_ID_PATTERN,
+  codeRangesOf,
   linkOccurrences,
   pageAddressReferences,
   pageAddressText

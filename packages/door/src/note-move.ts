@@ -46,7 +46,7 @@ function inputOf(intent: MoveIntent) {
 }
 
 /** moveBlock's words name notes as ((id|title)); said to a person they read as the title (a bare ((id)) as "that note"). */
-export const plainly = (said: string) => blockReferenceOccurrences(said, []).reverse()
+const plainly = (said: string) => blockReferenceOccurrences(said, []).reverse()
   .reduce((out, ref) => out.slice(0, ref.start) + (ref.label ? JSON.stringify(ref.label) : "that note") + out.slice(ref.end), said);
 
 /**
