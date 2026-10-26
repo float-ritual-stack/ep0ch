@@ -69,6 +69,19 @@ test("a lift keeps the layout and keys, and an agent cannot replace the person's
   no(s, { op: "zoom", tile: 2, reach: "column" }, /person.*keys/, AGENT);
 });
 
+// PIE-1342: a tab behind another is drawn lifted only from the front of its tabs, so a lift brings it there; an agent's
+// never switches away the tab the person is in (Codex review), only where their keys aren't (a drawer put away).
+test("a lift brings a tab behind another to the front; an agent's never hides the person's tab", () => {
+  const tabbed = fresh(splitOf("col", [leaf(1), { t: "tabs", ids: [2, 3], active: 0 }]));
+  for (const reach of ["column", "full"] as const) {
+    const lifted = ok(tabbed, { op: "zoom", tile: 3, reach }).state;
+    expect([visible(lifted.tree).includes(3), lifted.lift?.tile]).toEqual([true, 3]);
+    no(tabbed, { op: "zoom", tile: 3, reach }, /person.*keys/, AGENT);
+    no(tabbed, { op: "zoom", tile: 3, reach }, /person.*keys/, AGENT, { focus: 1, typingIn: 2 });
+    const away = ok(tabbed, { op: "zoom", tile: 3, reach }, AGENT, { here: false }).state;
+    expect([visible(away.tree).includes(3), away.lift?.tile]).toEqual([true, 3]);
+  }
+});
 test("a spine lifted or zoomed opens first, and stays open when dropped", () => {
   const folded = ok(fresh(), { op: "collapse", tile: 1, on: true }).state;
   for (const [op, actor] of [[{ op: "zoom", tile: 1, reach: "column" }, PERSON], [{ op: "zoom", tile: 1, reach: "full" }, AGENT], [{ op: "zoom", tile: 1 }, PERSON]] as [Op, Actor][]) {

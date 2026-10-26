@@ -1711,6 +1711,39 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     at.close();
   }, 120_000);
 
+  // PIE-1342 (Evan's pie door, Oct 26 ~7:45): after a handover with the drawer put away, `tile.info tile=role:agent` said
+  // "no agent tab is open" while drawer-tiles.json held the agent tab and its program waited in the terminal host, so a
+  // lift before alt+a would have started a second agent. The drawer's saved tabs are known from the first ask.
+  test("the drawer put away through a handover: role:agent names the kept agent before the drawer is drawn, and agent.lift lifts that program; no second starts (PIE-1342)", async () => {
+    const info = (tile: string) => control({ cmd: "act", action: "tile.info", tile, as: "test-agent" });
+    const pids = async () => { const s = (await infoOn(sessionSocket(dir)))!; return [...(s.kept ?? []), ...s.terminals].map(t => t.pid).sort(); };
+    let at = await HandoffClient.attach(sessionSocket(dir), 140, 40);
+    await until(() => at.screen().includes("outline"), "the desk", 10_000);
+    // The tests before left two agent tabs in the drawer: one in group3, and the one PIE-1330's last step opened, used last,
+    // which role:agent names. It is a tab behind group3, as Evan's claude was behind what-changed.
+    const before = await info("role:agent");
+    expect([before.shown, before.tabShown]).toEqual([false, "group3"]);
+    expect(before.terminal.running).toBe(true);
+    await control({ cmd: "act", action: "host.toggle", args: { open: false }, as: "test-agent" });
+    expect((await control({ cmd: "peek" })).screen.drawer?.shown ?? false).toBe(false);
+    expect(await request({ t: "upgrade" })).toMatchObject({ t: "ask", message: "handed over" });
+    await until(() => at.closed, "the old daemon to let the terminal go", 5000);
+    at = await HandoffClient.attach(sessionSocket(dir), 140, 40);
+    await until(() => at.screen().includes("handed over to a new"), "the handover said", 10_000);
+    const programs = await pids();
+    expect(programs).toContain(before.terminal.pid);
+    // Asked before anything draws the drawer: the same tile, its program reattached.
+    const named = await info("role:agent");
+    expect([named.tile, named.terminal?.pid]).toEqual([before.tile, before.terminal.pid]);
+    const up = await control({ cmd: "act", action: "agent.lift", as: "test-agent" });
+    expect([up.zoomed, up.tile]).toEqual([true, before.tile]);
+    expect((await info("role:agent")).terminal).toMatchObject({ running: true, pid: before.terminal.pid });
+    expect((await control({ cmd: "peek" })).screen.drawer?.shown ?? false).toBe(false);        // the drawer stays put away (PIE-1336)
+    expect(await pids()).toEqual(programs);                                                     // no second agent started
+    expect((await control({ cmd: "act", action: "agent.lift", as: "test-agent" })).zoomed).toBe(false);
+    at.close();
+  }, 60_000);
+
   test("ending the session ends its terminal host and the programs in it; nothing is left to restore", async () => {
     const info = (await infoOn(sessionSocket(dir)))!;
     const shell = await shellPid();
