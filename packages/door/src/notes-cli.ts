@@ -22,6 +22,7 @@ import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { linesToCells } from "./cells";
 import { bindExtensions, extensionList, loadExtensions } from "./extensions";
 import { connectFigures } from "./graphs";
+import { pageWithResults } from "./page-results";
 import { listenLive, liveBoard, liveSettled, liveSource, setLiveSource } from "./live";
 import { linksSource, listenLinks, setLinksSource } from "./links";
 import { resolveTarget } from "./discover";
@@ -76,12 +77,15 @@ export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root 
                                    --json each note as a block record (outline-core's block-record.ts: title,
                                    header, properties as lists, children, tasks, links, backlinks, resources,
                                    created, updated, author) plus its canonical ep0ch:// URI, keys sorted; with --tree, the rows
-  ep0ch show <id>… [--source | --ansi | --cells | --site] [--width <n>] [--rows <n>] [--ws <name>] [--machine <ssh-name>]
+  ep0ch show <id>… [--source | --markdown | --ansi | --cells | --site] [--width <n>] [--rows <n>] [--ws <name>] [--machine <ssh-name>]
                                    each note drawn as a reader draws it, at that width (default the terminal's,
                                    else 80), live figures, ::links and a view's results answered by the
                                    outline, folded callouts open, a blank line between notes; --source prints each note's text exactly as written
                                    (properties, links and :: blocks verbatim, no header, no wrapping), a ---
-                                   line between notes; --ansi keeps the drawing's colours; --cells prints each
+                                   line between notes; --markdown is --source with each live figure's results
+                                   under it as Markdown, as the door's page copy (Y) gives them (a checklist as
+                                   steps, a table as a table, tabs a list per group; at most 50 rows a figure,
+                                   a cut said with the ep0ch find command that reads the rest); --ansi keeps the drawing's colours; --cells prints each
                                    as a line of JSON {id, columns, rows, cells, replaced}: cells row-major,
                                    base64 of u32 LE [codePoint, fg, bg] (0x00RRGGBB, 0x01000000 the
                                    terminal's own), one width-1 BMP glyph a cell, U+FFFD for a wider one
@@ -533,12 +537,12 @@ export async function revisionsCommand(argsIn: string[], io: Out = { out: consol
 export async function showCommand(argsIn: string[], io: Out = { out: console.log, err: console.error, columns: process.stdout.columns, tty: !!process.stdout.isTTY }): Promise<number> {
   const args = argsIn.slice(1);
   for (const f of ["--ws", "--machine", "--width", "--rows"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
-  const ansi = args.includes("--ansi"), cells = args.includes("--cells"), source = args.includes("--source"), site = args.includes("--site");
-  if (Number(ansi) + Number(cells) + Number(source) + Number(site) > 1) { io.err("ep0ch: show prints the drawing, --ansi, --cells, --source or --site: one of them"); return 2; }
+  const ansi = args.includes("--ansi"), cells = args.includes("--cells"), markdown = args.includes("--markdown"), source = args.includes("--source") || markdown, site = args.includes("--site");
+  if (Number(ansi) + Number(cells) + Number(args.includes("--source")) + Number(markdown) + Number(site) > 1) { io.err("ep0ch: show prints the drawing, --ansi, --cells, --source, --markdown or --site: one of them"); return 2; }
   const rowsArg = flag(args, "--rows") as string | undefined;
   const rows = rowsArg === undefined ? Infinity : Number(rowsArg);
   if (rowsArg !== undefined && (!Number.isInteger(rows) || rows < 1)) { io.err("ep0ch: --rows takes a number of rows, 1 or more"); return 2; }
-  const ids = without(args, ["--ws", "--machine", "--width", "--rows"], ["--ansi", "--cells", "--source", "--site", "--here"]);
+  const ids = without(args, ["--ws", "--machine", "--width", "--rows"], ["--ansi", "--cells", "--source", "--markdown", "--site", "--here"]);
   if (!ids.length || ids.some(id => id.startsWith("--"))) { io.err(`ep0ch: show takes notes' ids (${ids.find(id => id.startsWith("--")) ?? "none given"})\n${NOTES_USAGE}`); return 2; }
   const wArg = flag(args, "--width") as string | undefined;
   const width = wArg !== undefined ? Number(wArg) : io.columns || 80;
@@ -552,6 +556,8 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
       if (e.domain === "resource-catalog") resourceChanged(e.resourceId ?? null, e.resourceId ? undefined : e.blockId);
     });
     let code = 0, shown = 0;
+    // --markdown: live figures ask this outline as a reader's do (the door's own connection, when this runs inside one).
+    if (markdown && liveBoard() !== board) connectFigures(board, () => {});
     const named = await resolveNotes(board, ids);
     for (const [at, id] of ids.entries()) {
       const found = named[at]!;
@@ -569,7 +575,9 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
         continue;
       }
       // --source: the note's text as written; else the drawing (a JSON object a line with --cells).
-      const text = source ? (await board.get(noteId))?.text : undefined;
+      const written = source ? (await board.get(noteId))?.text : undefined;
+      // --markdown: the text as written with each live figure's results under it, as a page copy (Y) gives it.
+      const text = markdown && written !== undefined ? (await pageWithResults(board, written, noteId, { outline: board.address.outline, at: Date.now() })).text : written;
       const lines = source ? (text === undefined ? null : text.replace(/\n+$/, "").split("\n")) : await drawNote(board, noteId, width);
       if (!lines) { io.err(`ep0ch: no note ${id} in this outline`); code = 1; continue; }
       // A preview asks for its first rows: a long note's whole drawing is never encoded or sent.
