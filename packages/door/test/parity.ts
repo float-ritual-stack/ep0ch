@@ -273,7 +273,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     const paced = snap(mask);
     await freshIn(label, make, setup, true);
     const chunk = snap(mask), ids = (t: string) => t.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "#id");
-    const alikeChunk = paced.top?.constructor === chunk.top?.constructor && paced.depth === chunk.depth && paced.holds === chunk.holds && paced.drawer === chunk.drawer && ids(paced.about) === ids(chunk.about) && paced.lines.length === chunk.lines.length && paced.lines.every((l, i) => l === chunk.lines[i]);
+    const alikeChunk = paced.top?.constructor === chunk.top?.constructor && paced.depth === chunk.depth && paced.holds === chunk.holds && paced.drawer === chunk.drawer && ids(paced.about) === ids(chunk.about) && paced.lines.length === chunk.lines.length && paced.lines.slice(0, -1).every((l, i) => l === chunk.lines[i]);   // the status bar's clock is another minute's
     pacing.set(id, alikeChunk);
     if (log) require("node:fs").appendFileSync(log, `# ${label}: setup ${setup.map(named).join(" ")} ${alikeChunk ? "as a chunk of input reaches the same screen" : "painted between keys: as a chunk it reaches another screen"}\n`);
     return alikeChunk ? mask : freshIn(label, make, setup, false);
