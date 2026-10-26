@@ -10,6 +10,20 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Copying a page carries its live figures' results (PIE-1355)
+
+- **`Y` copies what a live page says now.** With nothing selected, `Y` (the tile menu's "copy note", `act note.copy`)
+  copies the note's text and, under each live figure (`query:` or `view:`), its rows as plain Markdown: a check as
+  `- [ ]`/`- [x]` steps, a table as a Markdown table, tabs as a list per group, every row a `((id|title))` link. Each
+  is headed with the figure's title, its row count, the time and its query. An agent without the outline's MCP can
+  read a pasted page.
+- **Cut, and said so.** At most 50 rows a figure (400 in one copy): a cut figure ends with
+  `showing 50 of 60 · the rest: ep0ch find --ws <outline> --query …` and the `outline_query` arguments. Rows are never
+  dropped silently. The status line says `copied the page with 3 figures' results (1 cut)`.
+- **The text alone is still there:** the tile menu's "copy source only", or `act note.copy source=true`.
+- **`ep0ch show <id> --markdown`** prints the same at a shell. The rows are the ones the reader draws: no second query.
+- No wire change, no PROTOCOL bump, no schema change.
+
 ### Take a part out of a note: detach it into a tile, or drop it into another note (PIE-1247)
 
 - **alt+drag a part** (a figure, a callout, a list item, a paragraph) out of a reader. Drop it on another reader's note

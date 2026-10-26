@@ -4,7 +4,7 @@
 // per group, and every row links its note as ((id|title)). Scratch host; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { marked, type Tokens } from "marked";
+import { first, lex, paragraphs, resultsOf, type Tokens } from "./results-markdown";
 import { figureResultsMarkdown, RESULTS_CAP } from "@ep0ch/outline-core/figure-results";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch } from "./scratch";
@@ -17,7 +17,7 @@ const run = async (args: string[], env: Record<string, string>) => {
 };
 
 /** The page the kitchen sink's "copy a page" section also holds: a 3-row check, a 60-row table and tabs. */
-export const PAGE = [
+const PAGE = [
   "Crate day [type::page]",
   "",
   "::graph-check",
@@ -52,10 +52,10 @@ export const PAGE = [
   "::",
 ].join("\n");
 
-const results = (tokens: marked.TokensList | Tokens.Generic[], title: string) => {
-  const at = tokens.findIndex(t => t.type === "paragraph" && t.text.startsWith(`**Results · ${title}**`));
-  expect(at).toBeGreaterThan(-1);
-  return tokens.slice(at);
+const results = (tokens: ReturnType<typeof lex>, title: string) => {
+  const r = resultsOf(tokens, title);
+  expect(r).not.toBeNull();
+  return r!;
 };
 
 describe("a figure's results, as Markdown", () => {
@@ -64,7 +64,7 @@ describe("a figure's results, as Markdown", () => {
     const r = figureResultsMarkdown("table", { title: "Rows", query: "type=row", headers: ["Title", "Bed"], rows, blocks: rows.map((_, i) => `id-${i}`), titleColumn: 0 }, { n: 60, truncated: false }, { outline: "plot", at: Date.UTC(2026, 9, 26, 12) });
     expect(r).toMatchObject({ shown: RESULTS_CAP, total: 60, cut: true });
     const md = r!.lines.join("\n");
-    const table = marked.lexer(md).find(t => t.type === "table") as Tokens.Table;
+    const table = first<Tokens.Table>(lex(md), "table");
     expect(table.rows).toHaveLength(RESULTS_CAP);
     expect(table.rows[0]!.map(c => c.text)).toEqual(["((id-0|Row 0))", "a|b"]);
     expect(md).toContain('_showing 50 of 60 · the rest: `ep0ch find --ws plot --query type=row --sort updated --direction desc` · MCP: `outline_query {"outline":"plot","query":"type=row","sort":"updated desc","offset":50}`_');
@@ -94,17 +94,17 @@ describe.skipIf(!outliner)("ep0ch show --markdown against a scratch host", () =>
     expect(r.code).toBe(0);
     // The source stays: every figure's block as written.
     for (const line of PAGE.split("\n")) expect(r.out).toContain(line);
-    const tokens = marked.lexer(r.out);
+    const tokens = lex(r.out);
 
     const check = results(tokens, "Crates");
-    expect(check[0]!.text).toMatch(/^\*\*Results · Crates\*\* · 3 rows · as of \d{4}-\d\d-\d\d \d\d:\d\d · query: `type=crate`$/);
-    const steps = check.find(t => t.type === "list") as Tokens.List;
+    expect(paragraphs(check)[0]).toMatch(/^\*\*Results · Crates\*\* · 3 rows · as of \d{4}-\d\d-\d\d \d\d:\d\d · query: `type=crate`$/);
+    const steps = first<Tokens.List>(check, "list");
     expect(steps.items.map(i => [i.checked, i.text])).toEqual([
       [true, `((${crates.apples}|Apples crate))`], [false, `((${crates.beets}|Beets crate))`], [true, `((${crates.chard}|Chard crate))`],
     ]);
 
     const seedlings = results(tokens, "Seedlings");
-    const table = seedlings.find(t => t.type === "table") as Tokens.Table;
+    const table = first<Tokens.Table>(seedlings, "table");
     expect(table.header.map(c => c.text)).toEqual(["title", "bed"]);
     expect(table.rows).toHaveLength(RESULTS_CAP);
     expect(table.rows[0]![0]!.text).toMatch(/^\(\([0-9a-f-]{36}\|Seedling 01\)\)$/);
@@ -117,7 +117,7 @@ describe.skipIf(!outliner)("ep0ch show --markdown against a scratch host", () =>
 
     // Tabs: a list per group, headed with its value and count.
     const tabs = results(tokens, "By bay");
-    const heads = tabs.filter(t => t.type === "paragraph" && /^\*\*(north|south)\*\* · \d$/.test(t.text)).map(t => t.text);
+    const heads = paragraphs(tabs).filter(t => /^\*\*(north|south)\*\* · \d$/.test(t));
     expect(heads).toEqual(["**north** · 2", "**south** · 1"]);
     const lists = tabs.filter(t => t.type === "list") as Tokens.List[];
     expect(lists.slice(0, 2).map(l => l.items.map(i => i.text))).toEqual([
