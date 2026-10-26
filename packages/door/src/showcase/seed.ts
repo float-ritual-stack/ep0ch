@@ -600,6 +600,14 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   const MACHINERY_QUERY = "[query::type=chore OR type=toss OR type=backup-run OR type=file-touch]";
   notes.machineryPeople = await make(notes.root.id, `${SEED.machineryPeople} [type::virtual-branch] ${MACHINERY_QUERY}`);
   notes.machineryTools = await make(notes.root.id, `${SEED.machineryTools} [type::virtual-branch] ${MACHINERY_QUERY} [machinery::only]`);
+  // Line chips (PIE-1277): an ask buried on a step of long minutes, one ticked already; one query, asked of the header and of every line.
+  notes.lineAsksMinutes = await make(notes.root.id, [`${SEED.lineAsksMinutes} [club-ask::chair: approve the minutes]`, "",
+    ...["Apologies from plot 4 and plot 9.", "The water butts are full again.", "Compost bays: bay two is ready to turn.", "Seed swap moves to the first Saturday.",
+      "Rats seen near the shed; traps set.", "Path edging: the brick pile is free to take.", "Treasurer: subs are due by the end of the month."],
+    "", "- [x] Order a new padlock [club-ask::treasurer: paid from petty cash]", "- [ ] Which day for the work party? [club-ask::members: Saturday or Sunday]",
+    "", "Next meeting in the shed, weather allowing."].join("\n"));
+  notes.lineAsksHeader = await make(notes.root.id, `${SEED.lineAsksHeader} [type::virtual-branch] [query::club-ask]`);
+  notes.lineAsksAll = await make(notes.root.id, `${SEED.lineAsksAll} [type::virtual-branch] [query::club-ask] [property-scope::all]`);
   notes.gallery = await make(notes.root.id, galleryText());
   for (const card of galleryCards()) await make(notes.gallery.id, card);
   // Marginalia (PIE-753): its kit installed as the rules are; the plan, the notebook, a highlight and an answered question.

@@ -143,7 +143,9 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     description:
       "Find blocks (no `ref` needed) by text, a property (`key=value`, or `key`), a property key (hasKey), a query in the saved-view " +
       "grammar (`type=roadmap-item AND work-stage=doing`), or a saved view. text, property, hasKey, query and under " +
-      "combine; view stands alone. Returns rows (id, title, revision, parentId, created, updated); read one with outline_read.",
+      "combine; view stands alone. propertyScope says which chips property, hasKey and query read: the note's own (block, the default), or `all` for a " +
+      "`[needs::…]` on any line, each row then naming its `matches` (key, value, line, and task: an open `- [ ]` is todo, a ticked one no longer matches). " +
+      "Returns rows (id, title, revision, parentId, created, updated); read one with outline_read.",
     properties: {
       text: { type: "string" },
       property: { type: "string", description: "key=value, or key for any value" },
@@ -152,6 +154,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       view: { type: "string", description: "A saved view (virtual branch): its id or ((id))" },
       under: { type: "string", description: "Only blocks under this one (a ref)" },
       limit: { type: "integer", minimum: 1, maximum: 200 },
+      propertyScope: { type: "string", enum: ["block", "line", "inline", "all"], description: "Which chips property, hasKey and query read: block (the note's own, the default) or all (any line too)" },
       machinery: { type: "string", enum: ["hide", "only", "show"], description: "Notes tools wrote for their own bookkeeping (file touches, tosses, deliveries): left out unless this is show or only" },
     },
     required: [],
@@ -159,7 +162,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       if (!["text", "property", "hasKey", "query", "view"].some(key => nonEmpty(input[key]))) {
         return "Give text, property, hasKey, query or view to find blocks by.";
       }
-      return { operation: "find", input: inputOf(input, ["text", "property", "hasKey", "query", "view", "under", "limit", "machinery"]) };
+      return { operation: "find", input: inputOf(input, ["text", "property", "hasKey", "query", "view", "under", "limit", "machinery", "propertyScope"]) };
     },
   },
   {

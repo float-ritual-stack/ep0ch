@@ -103,6 +103,8 @@ export const marks: Record<string, string[]> = {
   gallery: ["Seed packet gallery", "Beetroot, Boltardy", "▣ seed-packet.webp", "▣ evening-beds.jpg · no Kitty graphics in this terminal"],
   // Machinery (PIE-867): one query asked twice, the people's view and the tools'.
   machinery: ["Written by people", "Written by tools"],
+  // Line chips (PIE-1277): the header-only view and the one that reads every line, which says the line.
+  "line-asks": ["Club asks, header only", "Club asks, any line", "line 12 to do"],
   runbook: ["Try a terminal runbook", "[run]"],
   // The Extensions hub beside the notifications hub's page: its README, and its demo boards under it.
   "ext-pages": ["Extensions", "## Installed", "Notifications hub", "A deterministic fetcher"],

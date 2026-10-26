@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Views, finds and agents read a line's properties, not only the note's header (PIE-1277)
+
+- **A view says `[property-scope::all]`** and its query reads every chip in the note: a `- [ ] … [needs::sysop: …]`
+  on line 30 puts the note in the view. Without it a view reads the header only, as before. The scope applies to the
+  query's positive clauses; a `NOT` clause still asks the note's own header, so a body line's `[work-stage::done]`
+  never hides a note.
+- **A ticked step settles its chips.** A chip on an `[x]`, `[✓]` or `[✗]` step no longer matches, so an ask drops
+  out of the view when its box is ticked. Facets and groups count line chips at the same scope.
+- **Each row says where it matched,** with the step's state: the door's view rows read `line 12 to do`, and opening
+  one lands on that line, lit, as a `::fields` row does.
+- **`ep0ch find --query … --property-scope all`**, the mod's `outline_find` and MCP `outline_query` take the same
+  scope (`propertyScope`) and return each note's matched lines. The door's waiting-on-you list finds buried
+  `[needs::sysop: …]` asks too, each opening at its line.
+- **To use it on Waiting on Evan,** add `[property-scope::all]` to the view note once the host runs this.
+- Kitchen sink: the **line-asks** section.
+
 ### EchoNet copies keep labelled links whole (PIE-1289)
 
 - **A labelled reference survives the trip.** `((id|Rough edges (x)))` in an echoed note reads `[Rough edges (x)](ep0ch://…)` in

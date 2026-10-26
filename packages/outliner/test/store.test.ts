@@ -1250,8 +1250,9 @@ Second paragraph`;
         blocks: [canonical.blocks[1], canonical.blocks[0], canonical.blocks[2]],
         completeness: { kind: "complete" },
       });
+      // A line-scope question is answered over the loaded graph (a ticked step's chips settle there), which counts every match.
       expect(store.queryBlocks({ ...query, rankViewId: view.id, limit: 2 })).toEqual({
-        blocks: ranked.blocks.slice(0, 2), completeness: { kind: "truncated", limit: 2 },
+        blocks: ranked.blocks.slice(0, 2), completeness: { kind: "truncated", limit: 2, ...(propertyScope === "block" ? {} : { matched: 3 }) },
       });
       expect(store.queryBlocks({ ...query, rankViewId: view.id, text: "no-such-text" })).toEqual({
         blocks: [], completeness: { kind: "complete" },

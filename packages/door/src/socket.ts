@@ -18,6 +18,7 @@ import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { connect, type Socket } from "node:net";
 import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
+import type { PropertyMatch } from "@ep0ch/outline-core/protocol";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionArgChoice, ExtensionBarResult, ExtensionInstalled, ExtensionList, ExtensionUninstalled } from "./extensions";
@@ -79,6 +80,8 @@ interface WireBlock {
   author?: string; actorId?: string;
   createdAt?: string; updatedAt?: string; deletedAt?: string | null; effectiveDeletedRootId?: string | null;
   properties?: { key: string; value: string }[];
+  /** A line-scope question's matches (PIE-1277). */
+  propertyMatches?: PropertyMatch[];
 }
 /** What `roadmap.items.create` takes (pi-herdr-outliner src/types.ts RoadmapItemCreateInput). */
 export interface RoadmapItemInput {
@@ -236,6 +239,7 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
   properties: (b.properties ?? []).map(p => ({ key: p.key, value: p.value })),
   ...(b.text === undefined ? { partial: true } : {}),
   ...(b.deletedAt || b.effectiveDeletedRootId ? { deleted: true } : {}),
+  ...(b.propertyMatches?.length ? { propertyMatches: b.propertyMatches } : {}),
 });
 
 /** A writer that is an extension (`ext:jira`): the service attributes every extension write that way. */
@@ -1066,13 +1070,16 @@ export class SocketBoard implements Board {
    * and `text` (every word, any order) as the service evaluates them, under `subtreeRootId` (itself included). At most
    * 1000; `truncated` when there were more.
    */
-  async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string; sort?: { field: string; direction: string } }, limit = 1000): Promise<{ ids: string[]; truncated: boolean; hint?: string }> {
-    const r = await this.request<{ blocks: { id: string }[]; completeness: { kind: string }; hint?: string }>("blocks.query", {
-      query: { limit: Math.min(1000, limit), ...(q.expression ? { where: q.expression } : {}), ...(q.text ? { text: q.text } : {}), ...(q.subtreeRootId ? { subtreeRootId: q.subtreeRootId } : {}), ...(q.sort ? { sort: q.sort } : {}) },
+  async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string; sort?: { field: string; direction: string }; propertyScope?: string }, limit = 1000): Promise<{ ids: string[]; truncated: boolean; hint?: string; matches?: Map<string, PropertyMatch[]> }> {
+    const r = await this.request<{ blocks: { id: string; propertyMatches?: PropertyMatch[] }[]; completeness: { kind: string }; hint?: string }>("blocks.query", {
+      query: { limit: Math.min(1000, limit), ...(q.expression ? { where: q.expression } : {}), ...(q.text ? { text: q.text } : {}), ...(q.subtreeRootId ? { subtreeRootId: q.subtreeRootId } : {}), ...(q.sort ? { sort: q.sort } : {}), ...(q.propertyScope ? { propertyScope: q.propertyScope } : {}) },
       fields: ["id"],
     });
+    // With a scope past the note's own header (PIE-1277), where each note matched: `ep0ch find` says the line.
+    const matched = r.blocks.filter(b => b.propertyMatches?.length);
     // `hint`: a key no note has, or values a date or number comparison couldn't read (PIE-769).
-    return { ids: r.blocks.map(b => b.id), truncated: r.completeness.kind !== "complete", ...(r.hint ? { hint: r.hint } : {}) };
+    return { ids: r.blocks.map(b => b.id), truncated: r.completeness.kind !== "complete", ...(r.hint ? { hint: r.hint } : {}),
+      ...(matched.length ? { matches: new Map(matched.map(b => [b.id, b.propertyMatches!])) } : {}) };
   }
 
   /** Blocks as records (`blocks.records`, outline-core's block-record.ts), in the order asked, 200 a request (the service's most; each request is one backlink pass over the outline). */

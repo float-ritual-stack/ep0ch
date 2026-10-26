@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { readNoteFile } from "@ep0ch/outline-core/header-line";
 import { blockRecord, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import { exportFiles, fileName, resolveLinks } from "../src/export";
-import { selectionOf, selectionQuery } from "../src/notes-cli";
+import { selectionOf, selectionQuery, type BoardAddress } from "../src/notes-cli";
+import { queryPage } from "../src/mcp-query";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch } from "./scratch";
 
@@ -159,6 +160,34 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
   test("find --view: the view's members, in its order; with --under, only those under it", async () => {
     expect((await run(["find", "--view", ids.view!, "--ids"], env)).out.trim().split("\n")).toEqual([`((${ids.order}))`, `((${ids.compost}))`]);
     expect((await run(["find", "--view", ids.view!, "--under", ids.plot!, "--ids"], env)).out.trim()).toBe(`((${ids.order}))`);
+  }, 30_000);
+
+  // PIE-1277: a [key::value] on line 9 of a long note, found by --property-scope all and by a view that says so.
+  test("find --property-scope all: a buried ask, its line and its step's state; a ticked step drops out", async () => {
+    const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
+    const make = (text: string) => board.request<{ id: string; revision: number; text: string }>("create", { parentId: null, text, author: "agent" });
+    const shed = await make(["Shed repairs", "", ...Array.from({ length: 6 }, (_, i) => `Board ${i + 1} is soft.`), "- [ ] Which stain? [asks::neighbour: pick the colour]"].join("\n"));
+    const view = await make("Open asks [type::virtual-branch] [query::asks] [property-scope::all]");
+    try {
+      expect((await run(["find", "--query", "asks", "--ids"], env)).out.trim()).toBe("");
+      const found = await run(["find", "--query", "asks", "--property-scope", "all"], env);
+      expect(plain(found.out)).toContain("line 9 to do asks: neighbour: pick the colour");
+      const [record] = JSON.parse((await run(["find", "--query", "asks", "--property-scope", "all", "--json"], env)).out) as (BlockRecord & { matches: unknown })[];
+      expect([record!.id, record!.matches]).toEqual([shed.id, [{ key: "asks", value: "neighbour: pick the colour", line: 9, scope: "inline", task: "todo" }]]);
+      expect(plain((await run(["find", "--view", view.id], env)).out)).toContain("line 9 to do asks");
+      // outline_query's page (the MCP tool's) asks the same selection: each row says where it matched.
+      const page = await queryPage(board as SocketBoard & { address: BoardAddress }, { query: "asks", propertyScope: "all", limit: 5, offset: 0 });
+      if ("error" in page) throw new Error(page.error);
+      expect(page.rows.map(r => [r.record.id, r.matched?.map(m => [m.line, m.task])])).toEqual([[shed.id, [[8, "todo"]]]]);
+      expect(plain((await run(["find", "--view", view.id, "--property-scope", "all"], env)).err)).toContain("[property-scope::]");
+      expect(plain((await run(["find", "--property-scope", "everywhere", "--query", "asks"], env)).err)).toContain("--property-scope is block, line, inline, all");
+      await board.request("update", { blockId: shed.id, expectedRevision: shed.revision, text: shed.text.replace("- [ ] Which", "- [x] Which"), mutation: { author: "user" } });
+      expect((await run(["find", "--query", "asks", "--property-scope", "all", "--ids"], env)).out.trim()).toBe("");
+    } finally {
+      await board.request("delete", { blockId: shed.id }).catch(() => {});
+      await board.request("delete", { blockId: view.id }).catch(() => {});
+      board.close();
+    }
   }, 30_000);
 
   test("find --json: block records, built by the service", async () => {

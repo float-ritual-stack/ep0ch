@@ -173,14 +173,8 @@ export interface PropertyParsePreview {
   tokens: PropertyRecord[];
 }
 
-export interface PropertyMatchContext extends BlockProperty {
-  ordinal: number;
-  start: number;
-  end: number;
-  line: number;
-  column: number;
-  scope: PropertyScope;
-}
+/** A chip a question matched a row on: outline-core's wire type (PIE-1277). */
+export type PropertyMatchContext = import("@ep0ch/outline-core/protocol").PropertyMatch;
 
 export type PropertyPatchOperation =
   | { op: "replace"; ordinal: number; key?: string; value: string }
@@ -1628,7 +1622,7 @@ export interface BlockReadCollection {
   fields: BlockReadField[];
 }
 
-export interface TreeIndexBlock extends Omit<VisibleBlock, "text" | "displayText" | "propertyMatches"> {
+export interface TreeIndexBlock extends Omit<VisibleBlock, "text" | "displayText"> {
   preview: string;
   previewReferences: TreePreviewReference[];
   textDigest: string;
