@@ -10,8 +10,9 @@ import { clientReload, reexecClient } from "@ep0ch/outliner/client-code";
 // no anonymous mode and no switch that turns the check off. Past the token, each outline's own `ep0ch mcp access`
 // setting decides, as it does for stdio: `propose` and `full` add the write tools (src/mcp-writes.ts), attributed to the
 // token's subject and client. `/<name>/mcp` beside the resource path is a connection that writes as persona <name>, its
-// own OAuth resource, capped at `propose` (PIE-804; EP0CH_MCP_PATH_ACCESS). A mirror is never written: a write to its outline queues in the netmail store beside the
-// mirrors (src/mcp-netmail.ts) until its home machine pulls it.
+// own OAuth resource, capped at `propose` (PIE-804; EP0CH_MCP_PATH_ACCESS). A mirror is never written: a write to its outline goes to its
+// machine's own host over the link (src/mcp-live.ts), and only while that doesn't answer queues in the netmail store beside the
+// mirrors (src/mcp-netmail.ts), which this gateway drains over the link once it answers again (or the machine pulls).
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { existsSync, readdirSync } from "node:fs";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
@@ -21,7 +22,7 @@ import { outlinesDir } from "./discover";
 import { aboutListing, answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
 import { liveFromEnv, type LiveMachines } from "./mcp-live";
 import { mirrorsConfig, OutlineMirror } from "./mcp-mirror";
-import { Netmail, netmailFile, readSummaries } from "./mcp-netmail";
+import { countsOf, drainNetmail, Netmail, netmailFile, readSummaries } from "./mcp-netmail";
 import { CALL_PATTERN, mintCallId } from "@ep0ch/outline-core/attribution";
 import { levelFor, mcpSetting, pathCap, writesAt } from "./mcp-writes";
 import { PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
@@ -140,6 +141,12 @@ export function gatewayConfig(env: Record<string, string | undefined>): { issuer
   return { issuer: trimSlash(issuer.href), resource, resources, allowedSubjects: allowedSubjects(env), allowedClients: listOf(env.EP0CH_MCP_ALLOWED_CLIENTS) };
 }
 
+/** How often the gateway tries a machine it holds queued writes for (PIE-1351). */
+export const DRAIN_EVERY_MS = 15_000;
+/** How long a write waits for a machine that doesn't answer before it queues, trying every WRITE_RETRY_MS (PIE-1351). */
+export const WRITE_WAIT_MS = 20_000;
+const WRITE_RETRY_MS = 3000;
+
 /**
  * This machine's outlines, for `list_outlines`: every `<name>.sqlite` in the outlines folder, the rule the host lists
  * by (outline-core's `outlineOfFile`). Read from the folder, not asked of the host: a host slow to answer once made the
@@ -155,7 +162,7 @@ const localNames = async () => {
  * given (another machine's outline, read from its copy here, never from that machine). A bare name a mirror has is
  * the mirror; `<name>@<this machine>` is still this machine's. Any other machine's outline is refused, and an outline that doesn't exist is never made.
  */
-export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames, netmailAt?: string, live?: LiveMachines | null, admin?: McpOutlineAdmin): McpOutlines & { close(): void } {
+export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames, netmailAt?: string, live?: LiveMachines | null, admin?: McpOutlineAdmin, o: { drainEveryMs?: number; writeWaitMs?: number } = {}): McpOutlines & { close(): void } {
   const machine = canonicalLocalMachineName();
   const boards = new Map<string, Promise<NotesBoard | { error: string }>>();
   const usedBoards = new Set<NotesBoard>();
@@ -177,15 +184,19 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
    * A mirrored outline, from its machine's own host when that answers (through the shared ssh forward: reads, finds and
    * threads are the live outline's, and a write is applied or proposed there at once, revision-checked, never queued),
    * else the mirror, saying why. Writes still queued for the machine overlay a live read, so a caller sees its own.
+   * Writes queued while it was away are drained first (PIE-1351), so what was written before lands before what comes now.
+   * `fresh`: a write's, tried even inside the backoff.
    */
-  const routed = async (mirror: OutlineMirror): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
+  const routed = async (mirror: OutlineMirror, how: { fresh?: boolean } = {}): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
     const named = <T extends McpBoard>(b: T): T => { b.board.address = { outline: mirror.outline, machine: nameOf(mirror) }; usedBoards.add(b.board); return b; };
     if (!live) { const r = await mirrorRead(mirror); return "error" in r ? r : named(r); }
-    const a = await live.board(mirror.machine, mirror.outline);
+    const a = await live.board(mirror.machine, mirror.outline, how);
     if ("board" in a) {
       // The outline's own machine names itself: that is its name in answers from now on (the ssh name still reaches it).
       const home = canonicalLocalMachineName(a.host);
       if (home !== machine) mirror.rememberHome(home);
+      a.board.address = { outline: mirror.outline, machine: nameOf(mirror) };
+      if (waitingFor(mirror)) await drain(mirror, a.board);
       return named({ board: a.board, served: { source: "live", asOf: new Date().toISOString(), machine: nameOf(mirror), note: `${mirror.outline} lives on ${nameOf(mirror)}; read from its own outline host over ssh, now` }, queuedFor: mirror.machine });
     }
     const { why, checkedAt, command } = a.away;
@@ -197,6 +208,61 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       ? { at: wrote.at, revision: wrote.revision, uri: wrote.uri, said: `a write made live through this server at ${wrote.at}${wrote.revision ? ` (revision ${wrote.revision})` : ""} is newer than this copy` } : null;
     return named({ ...copy, served: { ...copy.served, note: `${why}; ${copy.served.note ?? ""}`.trim(), liveTried: { at: checkedAt, why, ...(command ? { command } : {}) }, ...(staleSince ? { staleSince } : {}) } });
   };
+  /** Whether writes wait for this mirror's outline (the store opened only when there is one). */
+  const waitingFor = (mirror: OutlineMirror): boolean => {
+    if (!netmailAt) return false;
+    store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null;
+    return !!store?.summaries().find(s => s.machine === mirror.machine)?.byOutline[mirror.outline];
+  };
+  /**
+   * The gateway's drain (PIE-1351): the writes queued for an outline while its machine was away, applied over the link
+   * now that its host answers, one drain per outline at a time (a second caller waits for the first's).
+   */
+  const draining = new Map<string, Promise<void>>();
+  const drain = (mirror: OutlineMirror, board: NotesBoard): Promise<void> => {
+    const key = `${mirror.machine}/${mirror.outline}`;
+    let running = draining.get(key);
+    if (!running) {
+      running = (async () => {
+        store ??= new Netmail(netmailAt!);
+        const r = await drainNetmail(store, board, mirror.machine, mirror.outline);
+        if (r.settled.length || r.waiting || r.stuck) log(`mcp drain: ${mirror.outline}@${mirror.machine}: ${countsOf(r.settled) || "none landed"}${r.waiting ? `; the rest wait (${r.waiting})` : ""}${r.stuck ? `; ${r.stuck.length} couldn't be applied and wait (${r.stuck.join("; ")})` : ""}${r.held ? `; ${r.held}` : ""}`);
+        if (r.waiting) live?.lost(mirror.machine, mirror.outline, `no answer while draining its queued writes: ${r.waiting}`);
+      })().catch(e => log(`mcp drain: ${mirror.outline}@${mirror.machine}: ${(e as Error).message}`)).finally(() => draining.delete(key));
+      draining.set(key, running);
+    }
+    return running;
+  };
+  /**
+   * While writes wait for a machine, the gateway tries it itself every `drainEveryMs` (default 15 s), so they land within
+   * seconds of its link coming back, whether or not a call comes in and whether or not that machine ever pulls.
+   */
+  const drainEvery = o.drainEveryMs ?? DRAIN_EVERY_MS;
+  let ticking = false;
+  const tick = async () => {
+    if (ticking) return;
+    ticking = true;
+    // Only the machine's host is tried (no mirror read); a machine that answers is drained through the one route.
+    try { await Promise.all(mirrors.filter(waitingFor).map(async m => { if ("board" in await live!.board(m.machine, m.outline, { fresh: true })) await routed(m); })); }
+    catch (e) { log(`mcp drain: ${(e as Error).message}`); }
+    finally { ticking = false; }
+  };
+  const timer = live && netmailAt && drainEvery > 0 ? setInterval(() => void tick(), drainEvery) : null;
+  (timer as { unref?: () => void } | null)?.unref?.();
+  /**
+   * A write's route: while the machine doesn't answer, tried again every few seconds for up to `writeWaitMs` (default
+   * 20 s) before it queues, so a link restarting under a deploy carries the write live. Longer would risk the client's
+   * own timeout on the call; what still misses it is queued and drained within seconds of the link coming back.
+   */
+  const writeWait = o.writeWaitMs ?? WRITE_WAIT_MS;
+  const routedForWrite = async (mirror: OutlineMirror): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
+    const until = Date.now() + writeWait;
+    for (;;) {
+      const r = await routed(mirror, { fresh: true });
+      if ("error" in r || r.served.source === "live" || !live || Date.now() + WRITE_RETRY_MS > until) return r;
+      await Bun.sleep(WRITE_RETRY_MS);
+    }
+  };
   /** The newest write made live to this mirror's outline through this server, if any. */
   const lastLiveWrite = (mirror: OutlineMirror) => {
     store ??= existsSync(netmailAt!) ? new Netmail(netmailAt!) : null;
@@ -205,6 +271,11 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
   };
   // The queue opens with the first write; a summary reads whatever is there (another process may have written it).
   let store: Netmail | null = null;
+  // Claims left by a drain a restart cut off go back to waiting: this gateway is the only one that claims.
+  if (live && netmailAt && existsSync(netmailAt)) {
+    try { store = new Netmail(netmailAt); const n = store.releaseAll(); if (n) log(`mcp drain: ${n} write(s) a restart cut off mid-drain are waiting again`); }
+    catch (e) { log(`mcp drain: ${(e as Error).message}`); }
+  }
   const summaries = () => netmailAt ? readSummaries(netmailAt) : [];
   const local = async (name: string): Promise<McpBoard | { error: string }> => {
     let pending = boards.get(name);
@@ -233,18 +304,18 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     ...(admin ? { admin } : {}),
     ...(defaultOutline ? { defaultOutline } : {}),
     internalError(e: Error) { log(`mcp gateway: internal error: ${e.message}`); return "internal error (the gateway's log has it)"; },
-    async board(named?: NamedOutline) {
+    async board(named?: NamedOutline, how?: { write?: boolean }) {
       const name = named?.outline ?? defaultOutline;
       if (!name) return { error: `Name the outline: an outline on ${machine}${mirrors.length ? ` or a mirror (${mirrored()})` : ""}.` };
       if (!OUTLINE_NAME.test(name)) return { error: `${JSON.stringify(name)} isn't an outline name.` };
       const mirror = mirrors.find(m => m.outline === name && (!named?.machine || named.machine === m.machine || named.machine === m.homeName()));
-      if (mirror) return routed(mirror);
+      if (mirror) return how?.write ? routedForWrite(mirror) : routed(mirror);
       if (named?.machine && named.machine !== machine) return { error: `${name}@${named.machine} is on another machine; this gateway reads outlines on ${machine}${mirrors.length ? ` and mirrors of ${mirrored()}` : ""}.` };
       return local(name);
     },
     ...(netmailAt ? {
       netmail: {
-        queue(entry) { store ??= new Netmail(netmailAt); return store.enqueue(entry); },
+        queue(entry, id) { store ??= new Netmail(netmailAt); return store.enqueue(entry, Date.now(), id); },
         summary(m) { return summaries().find(s => s.machine === m) ?? null; },
         // Reads open the store only if there is one; the home machine's `queue settle` is another process, and SQLite shows its commits.
         receipt(id) { return (store ??= existsSync(netmailAt) ? new Netmail(netmailAt) : null)?.receipt(id) ?? null; },
@@ -275,7 +346,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
         const q = queues.find(s => s.machine === m.machine);
         const queue = {
           waiting: q?.byOutline[m.outline] ?? 0, oldest: q?.oldest ?? null, lastPull: q?.lastPull ?? null,
-          ...(q?.lastPull ? {} : { said: `${m.machine} hasn't pulled its queued writes from ${machine} yet: on ${m.machine}, \`ep0ch mcp pull --from ${machine}\` pulls now, and EP0CH_MCP_HUB=${machine} in its ~/.config/ep0ch/backup.env has its backup job pull every run (\`ep0ch install --apply\` writes it on a Mac; \`ep0ch doctor\` there shows the last pull)` }),
+          ...(q?.lastPull ? {} : { said: `this server drains them over the link when ${m.machine} answers again (it tries every few seconds); ${m.machine} hasn't pulled any itself: on ${m.machine}, \`ep0ch mcp pull --from ${machine}\` pulls now, and EP0CH_MCP_HUB=${machine} in its ~/.config/ep0ch/backup.env has its backup job pull every run (\`ep0ch install --apply\` writes it on a Mac; \`ep0ch doctor\` there shows the last pull)` }),
         };
         if ("error" in target) {
           // The access setting is the outline's, read from the copy's metadata even when the copy can't be opened: writes
@@ -291,7 +362,9 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       }
       return rows;
     },
+    lost(machine, outline, why) { live?.lost(machine, outline, why); },
     close() {
+      if (timer) clearInterval(timer);
       store?.close(); store = null;
       for (const p of boards.values()) void p.then(b => { if (!("error" in b)) b.close(); });
       boards.clear();
@@ -507,8 +580,8 @@ function cappedOutlines(outlines: McpOutlines, cap: (where?: { outline: string; 
   const order: McpAccessLevel[] = ["none", "read", "propose", "full"];
   return {
     ...outlines,
-    async board(named) {
-      const found = await outlines.board(named);
+    async board(named, how) {
+      const found = await outlines.board(named, how);
       if ("error" in found) return found;
       const inner = found.board;
       const board = new Proxy(inner, {
@@ -565,7 +638,10 @@ export async function mcpServeCommand(args: string[], io: ServeIo = {}): Promise
   if ("error" in mirrorConfig) { err(`ep0ch: ${mirrorConfig.error}`); return 2; }
   const mirrors = mirrorConfig.mirrors.map(m => new OutlineMirror(m.outline, m.machine, mirrorConfig.folder, err));
   const live = mirrors.length ? liveFromEnv(io.env ?? process.env, err) : null;
-  const outlines = machineOutlines(parsed.ws, err, undefined, mirrors, undefined, mirrors.length ? netmailFile(io.env ?? process.env) : undefined, live, localAdmin(io.env ?? process.env));
+  const ms = (v: string | undefined) => { const n = Number(v); return v?.trim() && Number.isFinite(n) && n >= 0 ? n : undefined; };
+  const env = io.env ?? process.env;
+  const timing = { ...(ms(env.EP0CH_MCP_DRAIN_MS) !== undefined ? { drainEveryMs: ms(env.EP0CH_MCP_DRAIN_MS) } : {}), ...(ms(env.EP0CH_MCP_WRITE_WAIT_MS) !== undefined ? { writeWaitMs: ms(env.EP0CH_MCP_WRITE_WAIT_MS) } : {}) };
+  const outlines = machineOutlines(parsed.ws, err, undefined, mirrors, undefined, mirrors.length ? netmailFile(env) : undefined, live, localAdmin(env), timing);
   let gateway: Gateway;
   try { gateway = startGateway({ config, outlines, port: parsed.port, bind: parsed.bind, ...(io.keys ? { keys: io.keys } : {}), log: err }); }
   catch (e) { outlines.close(); err(`ep0ch: can't listen on ${parsed.bind}:${parsed.port}: ${(e as Error).message}`); return 1; }

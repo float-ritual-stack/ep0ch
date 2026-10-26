@@ -5,6 +5,7 @@
 // `responseFor` with an `McpOutlines` saying which outlines they read; each outline's own access setting gates every
 // read and write, and every answer says where it came from (`source`: live or mirror, and `asOf`). A write to a mirror's
 // outline never touches the mirror: it queues for the outline's home machine (src/mcp-netmail.ts).
+import { randomUUID } from "node:crypto";
 import { boardFor, canonicalLocalMachineName, everyNote, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource } from "./socket";
 import { matchFacts, MCP_ACCESS_LEVELS, PROPERTY_QUERY_SCOPES, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type OutlineSnapshot } from "@ep0ch/outline-core/protocol";
@@ -18,7 +19,7 @@ import { briefFor } from "./library/brief";
 import { docResource, docResources } from "./docs";
 import { gatewayInstructions, gatewaySkills, skillPrompt, skillPrompts, skillResource, skillResources, withLoadHint, writeReading } from "./mcp-guide";
 import { inboxThreads, notesWithThreads, threadRows, threadSummary } from "./mcp-threads";
-import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
+import { noAnswer, QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
 import { listShares, readerLine, readerView, revokeShares, shareLine, startShare } from "./share-cli";
 import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeStatusDefinition, type ProposalSeen } from "./mcp-receipts";
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
@@ -110,7 +111,8 @@ export interface McpOutlineListing {
 
 /** Where a remote server queues writes for other machines' outlines (src/mcp-netmail.ts). */
 export interface McpQueue {
-  queue(entry: Omit<NetmailEntry, "id" | "queuedAt">): NetmailEntry;
+  /** `id`: the one a write tried live first carried (its request id), so the queued retry is the same write. */
+  queue(entry: Omit<NetmailEntry, "id" | "queuedAt">, id?: string): NetmailEntry;
   summary(machine: string): NetmailSummary | null;
   /** A queued write and what it became so far, or none. */
   receipt(id: string): NetmailReceipt | null;
@@ -133,7 +135,10 @@ export interface McpQueue {
 export interface McpOutlines {
   kind: "local" | "remote";
   machine: string;
-  board(named?: NamedOutline): Promise<McpBoard | { error: string }>;
+  /** `write`: for a write, which tries another machine's host again even inside the backoff of a failed try. */
+  board(named?: NamedOutline, how?: { write?: boolean }): Promise<McpBoard | { error: string }>;
+  /** A request to another machine's host got no answer: it is served from its mirror until it answers again. */
+  lost?(machine: string, outline: string, why: string): void;
   list(caller?: McpCaller): Promise<McpOutlineListing[]>;
   /** What outline_new and outline_archive use: this machine's outline host. Absent, they aren't offered. */
   admin?: McpOutlineAdmin;
@@ -242,7 +247,7 @@ function namedOutline(input: unknown): NamedOutline | { error: string } | undefi
  * naming another is refused); a ref is in `outline`'s, resolved there by the Claude mod's resolver (an id, ((id)),
  * [[page]] or Work ID), once the outline's access lets this caller read it. `refs: false`: a URI only (resources/read).
  */
-async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInput?: unknown, refs = true): Promise<McpBoard & { id: string; uri: string } | { error: string }> {
+async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInput?: unknown, refs = true, how?: { write?: boolean }): Promise<McpBoard & { id: string; uri: string } | { error: string }> {
   if (typeof input !== "string" || !input.trim()) return { error: refs ? "Give ref (a block id, ((id)), [[page]] or Work ID) or uri (an ep0ch:// block URI)." : "Give uri: an ep0ch:// block URI." };
   const text = input.trim();
   const which = namedOutline(outlineInput);
@@ -254,12 +259,12 @@ async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInpu
     if (which && !namesOutline({ outline: which.outline, machine: which.machine ?? parsed.machine }, parsed)) {
       return { error: `uri names ${parsed.outline}@${parsed.machine} and outline names ${which.outline}${which.machine ? `@${which.machine}` : ""}: give one, or make them agree.` };
     }
-    const served = await outlines.board({ outline: parsed.outline, machine: parsed.machine });
+    const served = await outlines.board({ outline: parsed.outline, machine: parsed.machine }, how);
     if ("error" in served) return served;
     return { ...served, id: parsed.blockId, uri: blockUri(served.board, parsed.blockId) };
   }
   if (!which && !outlines.defaultOutline) return { error: `Name the outline: pass outline (an outline on ${outlines.machine}), or give an ep0ch:// URI.` };
-  const served = await outlines.board(which);
+  const served = await outlines.board(which, how);
   if ("error" in served) return served;
   // Nothing is looked up in an outline this caller may not read, not even whether a page or Work ID exists.
   const status = await requireReadAccess(outlines, served);
@@ -1124,7 +1129,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
       return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), outline: target.board.address.outline, machine: target.board.address.machine, said: done.said, ...(done.deduped ? { deduped: true } : {}), detail: done.detail });
     } catch (e) { return toolError((e as Error).message); }
   }
-  const target = await addressedBlock(outlines, refArg(args), args.outline);
+  const target = await addressedBlock(outlines, refArg(args), args.outline, true, { write: true });
   if ("error" in target) return toolError(target.error);
   const { board } = target;
   const status = withLevel(await target.board.mcpAccessStatus(), caller, target.board.address);
@@ -1143,34 +1148,56 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   const ageMin = Math.max(0, Math.round((Date.now() - Date.parse(target.served.asOf)) / 60_000));
   const base = { source: target.served.source, asOf: target.served.asOf, ageMinutes: target.served.source === "mirror" ? ageMin : 0 };
   const where = { outline: board.address.outline, machine: board.address.machine };
+  // A write to another machine's outline has its queue id from the start: a comment carries it as its request id, so if
+  // the live try's answer is lost and the write is queued, the far host takes the retry as the comment it already made.
+  const liveId = randomUUID();
+  const input = (target.home || target.queuedFor) && (tool === "outline_comment" || tool === "outline_reply" || tool === "outline_resolve_thread") && !shape.input.requestId
+    ? { ...shape.input, requestId: `netmail:${liveId}` } : shape.input;
   try {
+    /**
+     * Queued for its home machine: the gateway drains it over the link as soon as that machine answers again (tried
+     * every few seconds while it waits), or the machine pulls it. `id`: minted before a live try, so the retry is that write.
+     */
+    const queue = (machine: string, instanceId: string | null, why: string | undefined, b: { source: McpServed["source"]; asOf: string; ageMinutes: number }, id: string): ToolResult => {
+      const entry = outlines.netmail!.queue({
+        machine, outline: where.outline, uri: target.uri, blockId: target.id, tool, input,
+        revision: shape.revision ?? null, mirrorRevision: record.revision ?? null, textHash: textHash(record.text), instanceId,
+        level: status.level, actorId: actor.actorId, subject: sessionIdOf(caller), clientId: caller.clientId ?? null,
+      }, id);
+      const q = outlines.netmail!.summary(machine);
+      const seen = q?.lastPull ? `${machine} last pulled ${q.lastPull}` : `${machine} hasn't pulled yet`;
+      outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: queued ${entry.id}${why ? ` (${why})` : ""}`);
+      return toolText({
+        outcome: "queued", by: actorLabel(actor.actorId), id: entry.id, queueId: entry.id, uri: target.uri, ...where, queuedFor: `${where.outline}@${machine}`, queuedAt: entry.queuedAt,
+        waiting: q?.waiting ?? 1, lastPull: q?.lastPull ?? null, base: b, ...(why ? { why } : {}),
+        said: `${why ? `${why}: ` : ""}queued for ${where.outline}@${machine} (${seen}); it lands when this server reaches ${machine} again (it tries every few seconds while writes wait) or ${machine} pulls it (outline_write_status ${entry.id} follows it), ${status.level === "full" ? "applied, or proposed if the note changed meanwhile" : "as a proposal"}; don't write it again by hand, or it lands twice. ${b.source === "mirror" ? `The base you wrote against is the mirror as of ${b.asOf} (~${b.ageMinutes} min old).` : `The base you wrote against was read live.`}`,
+      });
+    };
     if (target.home) {
       if (!outlines.netmail) return toolError(`${where.outline} lives on ${target.home.machine}, and this server has nowhere to queue writes for it.`);
-      const entry = outlines.netmail.queue({
-        machine: target.home.machine, outline: where.outline, uri: target.uri, blockId: target.id, tool, input: shape.input,
-        revision: shape.revision ?? null, mirrorRevision: record.revision ?? null, textHash: textHash(record.text), instanceId: target.home.instanceId,
-        level: status.level, actorId: actor.actorId, subject: sessionIdOf(caller), clientId: caller.clientId ?? null,
-      });
-      const q = outlines.netmail.summary(target.home.machine);
-      const seen = q?.lastPull ? `${target.home.machine} last pulled ${q.lastPull}` : `${target.home.machine} hasn't pulled yet`;
-      outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: queued ${entry.id}`);
-      return toolText({
-        outcome: "queued", by: actorLabel(actor.actorId), id: entry.id, queueId: entry.id, uri: target.uri, ...where, queuedFor: `${where.outline}@${target.home.machine}`, queuedAt: entry.queuedAt,
-        waiting: q?.waiting ?? 1, lastPull: q?.lastPull ?? null, base,
-        said: `queued for ${where.outline}@${target.home.machine} (${seen}); it lands when ${target.home.machine} pulls it (outline_write_status ${entry.id} follows it), ${status.level === "full" ? "applied, or proposed if the note changed meanwhile" : "as a proposal"}, and the mirror shows it after that; the base you wrote against is the mirror as of ${base.asOf} (~${base.ageMinutes} min old)`,
-      });
+      return queue(target.home.machine, target.home.instanceId, target.served.liveTried?.why, base, liveId);
     }
-    // Served live from a machine this server also queues for: writes made while it was away wait for its pull, and the
-    // service checks each one's revision then, so a write made now and one made before never apply twice.
+    // Served live from a machine this server also queues for: writes made while it was away were drained before this
+    // board was handed over; any still waiting (one the drain couldn't land) are checked against the note's revision when
+    // they do, so a write made now and one made before never apply twice.
     const earlier = target.queuedFor && outlines.netmail ? outlines.netmail.pending(target.queuedFor, where.outline, target.id, { actorId: actor.actorId, subject: caller.sub }).filter(w => w.state === "queued") : [];
-    const done = await applyWrite(board, { ...shape, blockId: target.id }, { level: status.level, actor, uri: id => blockUri(board, id) });
+    let done: Awaited<ReturnType<typeof applyWrite>>;
+    try { done = await applyWrite(board, { ...shape, input, blockId: target.id }, { level: status.level, actor, uri: id => blockUri(board, id) }); }
+    catch (e) {
+      // Nothing answered (the link dropped mid-write): whether it landed is unknown, so it is queued as that same write
+      // (a comment by its request id, a new block found made, a patch by its revision) and lands once, never twice.
+      if (!target.queuedFor || !outlines.netmail || !noAnswer(e)) throw e;
+      const why = `${target.served.machine ?? target.queuedFor} didn't answer the write (${(e as Error).message})`;
+      outlines.lost?.(target.queuedFor, where.outline, why);
+      return queue(target.queuedFor, board.outlineInstanceId ?? null, why, { source: "live", asOf: target.served.asOf, ageMinutes: 0 }, liveId);
+    }
     // Kept with the queued writes: a read that falls back to the mirror lays it over the note until the copy catches up.
     if (target.queuedFor && outlines.netmail) {
       const d = done.detail as { edits?: { blockId: string; revision?: number }[]; revision?: number } | undefined;
       const revision = d?.edits?.find(e => e.blockId === target.id)?.revision ?? (tool === "outline_create" ? d?.revision : undefined);
       try {
         outlines.netmail.live({
-          machine: target.queuedFor, outline: where.outline, uri: target.uri, blockId: target.id, tool, input: shape.input, revision: shape.revision ?? null,
+          machine: target.queuedFor, outline: where.outline, uri: target.uri, blockId: target.id, tool, input, revision: shape.revision ?? null,
           mirrorRevision: record.revision ?? null, textHash: textHash(record.text), instanceId: board.outlineInstanceId, level: status.level, actorId: actor.actorId, subject: sessionIdOf(caller), clientId: caller.clientId ?? null,
         }, { state: done.outcome, said: done.said, uri: done.uri, ...(done.outcome === "applied" && revision !== undefined ? { revision } : {}) });
       } catch (e) { outlines.log?.(`mcp write: couldn't record the live write for the mirror's overlay: ${(e as Error).message}`); }
@@ -1262,9 +1289,9 @@ async function responseFor(outlines: McpOutlines, req: ParsedMessage, caller?: M
   if (tool === "list_outlines") outline = null;
   if ((tool === "outline_new" || tool === "outline_archive") && typeof args.name === "string") outline = args.name;
   // Take the address from the same resolution the tool uses, including URI refs and aliases.
-  const measuredOutlines: McpOutlines = measuring ? { ...outlines, async board(named) {
+  const measuredOutlines: McpOutlines = measuring ? { ...outlines, async board(named, how) {
     if (named) outline = named.outline;
-    const target = await outlines.board(named);
+    const target = await outlines.board(named, how);
     if (!("error" in target)) outline = target.board.address.outline;
     return target;
   } } : outlines;
