@@ -303,9 +303,6 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     drawer.openedBy = null;
     try { drawer.p?.dispose?.(); } catch { /* gone */ }
     drawer.p = null;
-    // Its desk too, made again when next needed: a tile a probe moved into the drawer stayed there for every later build, and the
-    // screen's own tile of that name was named again beside it (tree2: PIE-1317), so those builds weren't the screen the label names.
-    if (drawer.made) { end(drawer.made); drawer.d = null; }
     // What a screen saved (the board's lanes, the desk's layout) would carry one probe's change into the next.
     const dir = process.env.EP0CH_STATE!;
     for (const f of readdirSync(dir)) if (f.endsWith(".json")) rmSync(join(dir, f), { force: true });
@@ -602,15 +599,14 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       return { ran, swapped, said, id: to?.id, screen: await calm(mask) };
     };
     /** What's wrong, "skip" (logged with why) when the key can't be replayed `way` on a screen built now, or null. */
-    const trial = async (key: Key, req: RunRequest, way: "id" | "role"): Promise<string | null> => {
-      // A list's rows are numbered as the list stands when it is asked, and it fills as it draws: two builds can number it differently.
-      if (req.action.startsWith("list.")) return skip(key, req, way, "a list's rows");
-      const keyed = await press(key, req.action);
+    type Pressed = Awaited<ReturnType<typeof press>>;
+    /** `keyed`: the key pressed plainly on a build of its own, the run the addressed one is compared with. */
+    const trial = async (key: Key, req: RunRequest, way: "id" | "role", keyed: Pressed): Promise<string | null> => {
       if (typeof keyed === "string") return skip(key, req, way, keyed);
       if (!keyed.ran?.tile) return skip(key, req, way, `on a screen built now the key runs no ${req.action} on a tile${keyed.said ? ` (it said ${JSON.stringify(keyed.said.slice(0, 120))})` : ""}: an earlier probe changed what the screen is built from`);
       const name = keyed.ran.tile.name;
       const named_ = await press(key, req.action, () => {
-        const at = (A().stack.at(-1) as Screen | undefined)?.dispatch?.tile(name) ?? A().drawer.desk?.dispatch.tile(name);
+        const at = (A().stack.at(-1) as Screen | undefined)?.dispatch?.tile(name) ?? A().drawer.made?.dispatch.tile(name);
         if (!at?.id) return `no tile ${name} on a screen built now`;
         const address = way === "id" ? at.id : at.role ? `role:${at.role}` : "";
         return address ? { address, id: at.id } : `${name} has no role`;
@@ -623,14 +619,18 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       const by = way === "id" ? "id" : `role:${keyed.ran.tile.role}`;
       if (named_.ran?.tile?.id !== named_.id) return `${req.action} by ${by} reached ${named_.ran?.tile ? `${named_.ran.tile.name} (${named_.ran.tile.id})` : "no tile"} where the key reached ${name} (${named_.id})`;
       if (named_.said !== keyed.said) return `${req.action} by ${by} said ${JSON.stringify(named_.said.slice(0, 160))} where the key said ${JSON.stringify(keyed.said.slice(0, 160))}`;
-      if (process.env.PARITY_DIFF && !alike(keyed.screen, named_.screen, false)) require("node:fs").appendFileSync(process.env.PARITY_DIFF, `${label} ${named(key)} ${req.action} by ${by}:\n  key: ${keyed.screen.lines.map(plain).join("\n  key: ")}\n  by:  ${named_.screen.lines.map(plain).join("\n  by:  ")}\n`);
-      return alike(keyed.screen, named_.screen, false) ? null : `${req.action} ${JSON.stringify(keyed.ran.args)} by ${by} left the screen different from the key (${changes(keyed.screen, named_.screen, false)})`;
+      if (alike(keyed.screen, named_.screen, false)) return null;
+      if (process.env.PARITY_DIFF) require("node:fs").appendFileSync(process.env.PARITY_DIFF, `${label} ${named(key)} ${req.action} by ${by}:\n  key: ${keyed.screen.lines.map(plain).join("\n  key: ")}\n  by:  ${named_.screen.lines.map(plain).join("\n  by:  ")}\n`);
+      return `${req.action} ${JSON.stringify(keyed.ran.args)} by ${by} left the screen different from the key (${changes(keyed.screen, named_.screen, false)})`;
     };
     for (const { key, req } of pointed.values()) {
+      // A list's rows are numbered as the list stands when it is asked, and it fills as it draws: two builds can number it differently.
+      if (req.action.startsWith("list.")) { skip(key, req, "id or role", "a list's rows"); continue; }
+      const keyed = await press(key, req.action);
       for (const way of ["id", "role"] as const) {
-        let problem = await trial(key, req, way);
-        // A list that loads as it is drawn can end differently twice running: a difference is a finding when it comes again.
-        if (problem && problem !== "skip") problem = await trial(key, req, way);
+        let problem = await trial(key, req, way, keyed);
+        // A list that loads as it is drawn can end differently twice running: a difference is a finding when it comes again (both pressed again).
+        if (problem && problem !== "skip") problem = await trial(key, req, way, await press(key, req.action));
         if (problem && problem !== "skip") findings.push({ screen: label, keys: named(key), problem });
       }
     }

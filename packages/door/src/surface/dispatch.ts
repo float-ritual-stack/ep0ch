@@ -85,8 +85,9 @@ const requestTracers = new Set<(r: RunRequest) => void>();
 export function traceRequests(f: (r: RunRequest) => void): () => void { requestTracers.add(f); return () => { requestTracers.delete(f); }; }
 const requestRewriters = new Set<(req: ActRequest, actor: Actor) => ActRequest>();
 /**
- * Change a request before it is resolved: the parity walk presses the same key again with only its `tile=` said another way
- * (by id, by role), so the key's own gesture (where the pointer is, the row it lit) is the same both times. Returns how to stop.
+ * Change a person's request before it is resolved, once where it enters (runPlain, pressIn): the parity walk presses the same
+ * key again with only its `tile=` said another way (by id, by role), so the key's own gesture (where the pointer is, the row it
+ * lit) is the same both times. Returns how to stop.
  */
 export function rewriteRequests(f: (req: ActRequest, actor: Actor) => ActRequest): () => void { requestRewriters.add(f); return () => { requestRewriters.delete(f); }; }
 const rewritten = (req: ActRequest, actor: Actor) => { for (const f of requestRewriters) req = f(req, actor); return req; };
@@ -578,7 +579,16 @@ export class Dispatcher {
   pressIn(set: ActionSet<any, any>, name: string, args: Record<string, unknown> = {}, tile?: string, say: boolean | ((why: string) => string | null) = false, given?: unknown): Promise<unknown> {
     const at = this.registered(set);
     if (!at) return this.asPerson(() => { throw new Error(`${set.scope} actions aren't registered on the ${this.host.title}`); });
-    return messageContext.run({ ...messageContext.getStore(), action: name, ...(tile ? { tile } : {}) }, () => this.asPerson(() => at.d.runIn(at.reg, { action: name, args, ...(tile !== undefined ? { tile } : {}) }, USER, true, given), say));
+    return messageContext.run({ ...messageContext.getStore(), action: name, ...(tile ? { tile } : {}) }, () => this.asPerson(() => at.d.runIn(at.reg, at.d.rewrittenIn(at.reg, { action: name, args, ...(tile !== undefined ? { tile } : {}) }), USER, true, given), say));
+  }
+
+  /** A press addressed another way (rewriteRequests): resolved as an act's is, and refused when an act wouldn't reach this set. */
+  private rewrittenIn(reg: Registration, req: ActRequest): ActRequest {
+    const asked = rewritten(req, USER);
+    if (asked === req) return req;
+    const resolved = this.mountedRequest(asked);
+    if (this.owner(resolved, USER) !== reg) throw new ActionRefused(`${req.action} tile=${asked.tile} is run by another action set than the key's`);
+    return resolved;
   }
 
   /** Where a set is registered: here, or on a dispatcher this one hands to (a desk's tile kinds). */
@@ -676,9 +686,6 @@ export class Dispatcher {
 
   /** Run a request with the set that owns it: the tile read, the actor rule checked, the action run, its answer said. */
   private runIn(reg: Registration, req: ActRequest, actor: Actor, typed: boolean, given?: unknown): unknown {
-    // A tile kind's own key comes here straight (pressIn): an address rewritten onto it is resolved as an act's is (runPlain).
-    const asked = rewritten(req, actor);
-    if (asked !== req) req = this.mountedRequest(asked);
     const def = reg.set.def(req.action);
     if (!def) throw new ActionRefused(`no action ${req.action} here; try: ${reg.set.names().join(", ")}`);
     // The person's own: refused to an agent before anything is read.
