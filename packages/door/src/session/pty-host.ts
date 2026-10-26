@@ -213,6 +213,8 @@ export class HostPtys implements PtyBackend {
   private nextId = 1;
   /** Said when the connection to the host is lost (it was killed): every program in it has gone. */
   onLost: (() => void) | null = null;
+  /** Said when what `unadopted()` lists changes (a kept program exited, or a tile adopted it): `session.json`'s kept list follows. */
+  onKept: (() => void) | null = null;
   private constructor(private readonly sock: Socket, readonly hostPid: number) {}
 
   /** Connect to the host on `path` and read what it keeps. Rejects when it doesn't answer, or speaks another protocol. */
@@ -270,7 +272,7 @@ export class HostPtys implements PtyBackend {
         break;
       case "p": e.pid = f.json.pid; break;
       case "e": e.live?.(Buffer.from(`\r\ncan't start ${e.argv.join(" ")}: ${f.json.message}\r\n`)); e.exited = 127; e.done(127); break;
-      case "x": e.exited = f.json.code; e.done(f.json.code); break;
+      case "x": e.exited = f.json.code; e.done(f.json.code); if (!e.adopted) this.onKept?.(); break;
     }
   }
 
@@ -297,7 +299,7 @@ export class HostPtys implements PtyBackend {
 
   spawn(s: PtyStart, onData: (d: Uint8Array) => void): PtyProc {
     // A tile starting its program again under a key the host still keeps: the old one goes first.
-    for (const e of this.entries.values()) if (s.key && e.key === s.key) this.procOf(e).close();
+    for (const e of this.entries.values()) if (s.key && e.key === s.key) { this.procOf(e).close(); if (!e.adopted) this.onKept?.(); }
     const e = this.add({ id: this.nextId++, key: s.key, argv: s.argv, cols: s.cols, rows: s.rows, meta: s.meta ?? {}, exited: null });
     e.live = onData; e.adopted = true;
     if (!this.sock.destroyed) this.sock.write(frame("s", e.id, s));
@@ -309,8 +311,9 @@ export class HostPtys implements PtyBackend {
     const e = [...this.entries.values()].find(x => x.key === key && !x.adopted);
     if (!e) return null;
     // The tile runs something else now (its layout changed while no daemon ran): the kept one goes.
-    if (e.meta.cmd && JSON.stringify(e.meta.cmd) !== JSON.stringify(cmd)) { this.procOf(e).close(); return null; }
+    if (e.meta.cmd && JSON.stringify(e.meta.cmd) !== JSON.stringify(cmd)) { this.procOf(e).close(); this.onKept?.(); return null; }
     e.adopted = true;
+    this.onKept?.();
     const replay = Buffer.concat(e.pending);
     e.pending = [];
     e.live = onData;

@@ -36,7 +36,7 @@ import { alive } from "./state";
 import { controlPath } from "./control";
 import { ESCAPE_CHORD, isEscapeChord, livePrograms, PtyPane, type PtySpec } from "./desk/pty";
 import { rawKey } from "./kbd";
-import { choiceFile, detectAgents, drawerProgram, HERDR_LAUNCHER, sessionLabel, shellQuote, type DrawerAgent, type DrawerProgram } from "./desk/drawer-program";
+import { choiceFile, detectAgents, drawerProgram, HERDR_LAUNCHER, programName, sessionLabel, shellQuote, type DrawerAgent, type DrawerProgram } from "./desk/drawer-program";
 import { sessionSlug } from "./desk/herdr-agent";
 import type { ZoomReach } from "./desk/screen-layout";
 import { readPlace } from "./session/place";
@@ -78,82 +78,50 @@ import type { Placement } from "./kitty";
 
 /** How long `host.tileOf mark=` waits for the marker to reach the door (it travels the pty stream, beside the request). */
 export const MARK_WAIT_MS = 400;
-/** The drawer's own tile's id and name (`drawer.agent`): what `EP0CH_TILE_ID` tells its program (never a desk id, `t<n>`). */
+/** `drawer.agent`: the alias of `role:agent`, the agent tab used last (src/desk/tile-address.ts). */
 export { DRAWER_TILE_ID };
 /** The host layer's drawer holds the drawer's desk: one leaf, its tiles the drawer's tabs. */
 export const HOST_TILES = "drawer.tiles";
 /**
- * The drawer's own tile's kind: a terminal the drawer owns (EP0CH_DAILY_AGENT, else a shell), its first tab. It
- * can close like any terminal. It may leave (^W a, a drag out), onto the screen as an ordinary terminal tile, its tab holding the place
- * until it comes back (PIE-892).
+ * The drawer's desk as a screen spec: one tab set. Every agent in it is an ordinary terminal tab with role `agent`
+ * (PIE-1331); the first pull of a drawer that has never been saved opens one running the last agent picked.
  */
-export const DRAWER_KIND = "drawer.own";
-/** The drawer's desk as a screen spec: one tab set, the drawer's own tile first; what's put in joins it as tabs. */
 export function hostSpec(persist = true): ScreenSpec {
   return {
     name: "drawer", title: "drawer", digits: false, layouts: true, ...(persist ? { saves: "drawer-tiles.json" } : {}),
-    layout: { focus: DRAWER_TILE_ID, root: { t: "tabs", tabs: [{ t: "leaf", kind: DRAWER_KIND, name: DRAWER_TILE_ID }], active: 0 } as never },
+    layout: { root: { t: "tabs", tabs: [], active: 0 } as never },
   };
 }
-/** The drawer's own tile: a terminal whose header says what runs in it (claude, shell), its tile name staying `drawer.agent`. */
-class DrawerTile extends PtyPane {
-  override kind: string = DRAWER_KIND;
-  /** The drawer's own program is the tile with role `agent`, wherever it is (`role:agent`, `drawer.agent`); a holder of its place is none. */
-  constructor(spec: PtySpec, public shows: string) { super(spec); tileRegistry.setRole(this, ROLE_AGENT); }
-  headName() { return this.shows; }
-  override hint() { return this.programTitle === WATCH_TITLE ? "⏎ takes it over from the other door · q stops watching" : super.hint(); }
-  /** It leaves the drawer for a screen: from now on an ordinary terminal tile there (its program running on), never the drawer's. */
-  release() { this.kind = "pty"; this.closesBy = " · ^W x closes"; this.next = null; }
-  /** Back in the drawer as its own tile again (PIE-892), the same program running on. */
-  reown() { this.kind = DRAWER_KIND; tileRegistry.setRole(this, ROLE_AGENT); this.closesBy = " · ^W x closes"; this.tileId = DRAWER_TILE_ID; this.place = "drawer"; this.away = null; }
-  /**
-   * While the drawer's own program is out on a screen (PIE-892): this tab holds its place and starts nothing (a second
-   * client of the same agent, a Herdr session's, was an untypeable mirror that couldn't close). It says where the agent
-   * went; ⏎ or a click brings that tile back, the same program, no restart.
-   */
-  away: { says: string; back: () => void } | null = null;
-  override render(w: number, h: number, focused: boolean, desk: DeskApi, cursor = focused): PaneView {
-    if (this.kind !== DRAWER_KIND || !this.away) return super.render(w, h, focused, desk, cursor);
-    const lines = Array.from({ length: Math.max(0, h) }, () => "");
-    if (h > 0) lines[0] = fg(C.lcyan) + pad(`${this.away.says} · ⏎ or a click brings it back`, w) + RESET;
-    return { lines };
-  }
-  override typed(k: Key): boolean { if (!this.away) return super.typed(k); if (k.kind === "enter") this.away.back(); return true; }
-  override mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number): boolean {
-    if (!this.away) return super.mouse(k, x, y); if (k.action === "down" && k.button === 0) this.away.back(); return true; }
-  override text(): string[] { return this.away ? [`${this.away.says} · ⏎ or a click brings it back`] : super.text(); }
-  /**
-   * The agent chosen now runs at its next start (agent.restart, or the next door): never in place of one running. Kept
-   * aside until then: what runs now is still read as what it was started as (its exit line, its header).
-   */
-  retarget(p: DrawerProgram) {
-    this.next = { cmd: p.cmd, cwd: p.cwd, label: p.name, inShell: p.name !== "shell" && !p.herdr, shows: p.name };
-    if (!this.running) this.takeNext();
-  }
-  private next: { cmd: string[]; cwd: string; label: string; inShell: boolean; shows: string } | null = null;
-  private takeNext() { if (!this.next) return; const { shows, ...run } = this.next; Object.assign(this.run, run); this.shows = shows; this.next = null; }
-  protected override start(cols: number, rows: number) { if (this.away) return; this.takeNext(); super.start(cols, rows); }
-}
-/** The drawer's own kind, registered once: the terminal's actions and close behavior, with its own program and identity. */
-function registerDrawerKind() {
-  if (tileKind(DRAWER_KIND)) return;
-  // The terminal kind's own hooks (its keys, its views, what it holds), all but how one is made, its ^W o keys and its
-  // start (the drawer gives its own tile its id and home), so the two never drift apart.
-  const { kind: _k, keys: _keys, make: _m, start: _s, actions: _a, about: _ab, noun: _n, ...pty } = tileKind("pty")!;
-  registerTileKind({
-    ...pty,
-    kind: DRAWER_KIND, about: "the drawer's own program (EP0CH_DAILY_AGENT, else a shell): the drawer's first tab, the host layer's", noun: "a terminal tile",
-    make: () => new UnavailableTile(DRAWER_KIND, "the drawer's own tab is the drawer's (alt+a pulls it up)"),
-    // A group's tiles are built again from their kinds after a handover, and this one's program is the drawer's: in a
-    // group it came back as nothing and the next own program ended it (PIE-1330). Out on a screen it's a terminal tile.
-    ungathered: "it is your drawer's own tab, which isn't gathered into a group · ^W a puts it on the screen as a terminal tile, which gathers like any other",
-    press: (p, k) => {
-      const t = p as DrawerTile;
-      if (k.kind === "enter" && t.exited !== null) return { action: "tile.restart" };
-      return pty.press?.(p, k) ?? null;
-    },
-    inherits: [PTY_ACTIONS], policy: pty.policy,
-  });
+/**
+ * A drawer saved by an older door (before PIE-1331) holds its own program as a `drawer.own` leaf, known only by the key it
+ * runs under (`drawer.json#<gen>:drawer.agent`): read once as an ordinary agent tab adopting that key, so a handover onto
+ * this code keeps the program. While that program was out on a screen the leaf only held its place: it goes. Delete this
+ * once pie and float-hub have handed over (PIE-1332).
+ */
+export function oldOwnLeaves(saved: unknown, drawer: { gen?: unknown; out?: unknown } | null): { value: unknown; changed: number } {
+  const gen = typeof drawer?.gen === "number" && Number.isInteger(drawer.gen) && drawer.gen > 0 ? drawer.gen : 0;
+  const key = `drawer.json${gen ? `#${gen}` : ""}:${DRAWER_TILE_ID}`, out = !!drawer?.out;
+  let changed = 0;
+  const old = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && (x as { t?: unknown }).t === "leaf" && (x as { kind?: unknown }).kind === "drawer.own";
+  const walk = (x: unknown): unknown => {
+    if (Array.isArray(x)) {
+      const kept = out ? x.filter(y => !old(y)) : x;
+      changed += x.length - kept.length;
+      return kept.map(walk);
+    }
+    if (!x || typeof x !== "object") return x;
+    if (old(x)) {
+      changed++;
+      const { slot: _slot, ...rest } = x;
+      const cmd = Array.isArray(x.cmd) ? x.cmd as string[] : [];
+      return { ...rest, kind: "pty", role: ROLE_AGENT, name: x.name === DRAWER_TILE_ID ? programName(cmd) || "agent" : x.name, kept: typeof x.kept === "string" && x.kept ? x.kept : key };
+    }
+    const o = Object.fromEntries(Object.entries(x).map(([k, y]) => [k, walk(y)]));
+    // A tab set that lost the holder: its shown tab stays in range.
+    if (o.t === "tabs" && Array.isArray(o.tabs) && typeof o.active === "number") o.active = Math.max(0, Math.min(o.active as number, (o.tabs as unknown[]).length - 1));
+    return o;
+  };
+  return { value: walk(saved), changed };
 }
 /** What a drop on the chip or the open drawer says while dragging: the tile goes into your drawer, and travels with you. */
 export const DRAWER_DROP = "into your drawer: travels with you";
@@ -162,8 +130,8 @@ export const MIN_SHARE = 0.2, MAX_SHARE = 0.9;
 /** alt+A steps through these. */
 export const HEIGHT_STEPS = [0.4, 0.5, 0.6, 0.75] as const;
 /** A second ctrl+] within this long is the chord's second press (the terminal tile's window too). */
-/** Why `drawer.agent` names nothing when its tab was closed, and what brings it back (alt+g's agents are tabs of their own). */
-const OWN_CLOSED = "the drawer's own program is closed · agent.lift (✦a) opens it again and lifts it; a right-click on the ▲ chip picks another program";
+/** Why `drawer.agent` names nothing, and what opens one. */
+const NO_AGENT = "no agent tab is open · agent.lift (✦a) opens one running the last agent picked; a right-click on the ▲ chip picks another";
 const CHORD_MS = 1500;
 /** How long after the program's last output the chip still says `working` (no Herdr status to ask). */
 const WORKING_MS = 1500;
@@ -174,8 +142,8 @@ const KNOWS_POLL_MS = 15_000;
 /** An agent's `agent.restart` waits this long after the person last typed into the agent. */
 const RESTART_IDLE_MS = 10_000;
 
-/** What drawer.json keeps: whether it's up (folded to a strip or not), its height, and how many own programs have left it (`gen`, its key's). */
-export interface DrawerSaved { open: boolean; share: number; folded?: boolean; gen?: number; out?: boolean }
+/** What drawer.json keeps: whether it's up (folded to a strip or not), and its height. */
+export interface DrawerSaved { open: boolean; share: number; folded?: boolean }
 /**
  * What the chip says: not started, working, idle, waiting on the person, done (a result the person hasn't seen),
  * failed, exited, or `watching`: the Herdr launcher found another door attached to the agent's pane and only watches it
@@ -217,10 +185,9 @@ export class AgentDrawer {
   /** Where the drawer was last drawn (full width, above the status bar), and the chip on the status bar. */
   rect: Rect | null = null;
   get chipAt(): { from: number; to: number; row: number } | null { return this.host.statusChip?.() ?? null; }
-  private p: DrawerTile | null = null;
   /** The drawer's tiles, on a desk of their own (made the first time it's needed, with the App as its ctx). */
   private d: Desk | null = null;
-  /** What the drawer's own tile runs, read when it's made. */
+  /** What a new agent tab runs: the last agent picked (or EP0CH_DAILY_AGENT, else a shell), in its folder. */
   private prog: DrawerProgram;
   /**
    * ctrl+]: when the person last left the drawer with it (a second one within CHORD_MS goes back in and sends
@@ -233,9 +200,9 @@ export class AgentDrawer {
   private capture: Rect | null = null;
   private herdrPolls = new WeakMap<PtyPane, { state: AgentState | null; at: number; lastPoll: number; polling: boolean }>();
   private knowledge = new WeakMap<PtyPane, { knows: AgentKnows | null; pid: number | null; at: number; polling: boolean }>();
-  /** The built-in agent's knowledge, also returned by agent.knows and restart. */
-  get knows(): AgentKnows | null { return this.p ? this.knowledge.get(this.p)?.knows ?? null : null; }
-  get knowsPid(): number | null { return this.p ? this.knowledge.get(this.p)?.pid ?? null : null; }
+  /** What the agent tab used last knows, also returned by agent.knows and restart. */
+  get knows(): AgentKnows | null { const p = this.tile; return p ? this.knowledge.get(p)?.knows ?? null : null; }
+  get knowsPid(): number | null { const p = this.tile; return p ? this.knowledge.get(p)?.pid ?? null : null; }
   /** A restart under way: the chip says so, and a second one waits for it. */
   restarting: Promise<RestartDone> | null = null;
 
@@ -245,11 +212,13 @@ export class AgentDrawer {
     const open = !!s && typeof s === "object" && s.open === true;
     this.strip = open && s?.folded === true;
     const share = s && typeof s.share === "number" && Number.isFinite(s.share) ? clamp(s.share) : 0.5;
-    this.gen = s && typeof s.gen === "number" && Number.isInteger(s.gen) && s.gen > 0 ? s.gen : 0;
-    this.out = !!s && !!s.out;
     this.layer = hostLayer({ tabs: [HOST_TILES], names: new Map([[HOST_TILES, HOST_TILES]]), share, open });
     this.prog = this.program();
-    registerDrawerKind();
+    // An older door's drawer (its own program a drawer.own leaf): read once as an agent tab (PIE-1332 deletes this).
+    if (persist) {
+      const tiles = readState<unknown>("drawer-tiles.json"), was = oldOwnLeaves(tiles, s as { gen?: unknown; out?: unknown } | null);
+      if (tiles && was.changed) writeState("drawer-tiles.json", was.value);
+    }
   }
 
   /** The drawer's own program and folder, for the outline the door is on. */
@@ -265,24 +234,14 @@ export class AgentDrawer {
   agents(): DrawerAgent[] { return detectAgents({ session: this.session() }); }
 
   /**
-   * The person's (or an agent's) choice of the drawer's own agent: saved for this outline's session (or, `dflt`, as
-   * the default for every outline). Replacing a busy program asks first.
+   * The person's (or an agent's) pick of an agent (PIE-1331): saved for this outline's session (or, `dflt`, as the default
+   * for every outline) as what a new agent tab starts, and started now in a new tab. Nothing that runs is ended: closing
+   * an agent is ^W x on its tab.
    */
-  async choose(name: string, herdr: boolean, dflt: boolean, actor: Actor, folder?: string, confirm = false): Promise<Record<string, unknown>> {
+  async choose(name: string, herdr: boolean, dflt: boolean, actor: Actor, folder?: string): Promise<Record<string, unknown>> {
     const all = this.agents(), hit = all.find(a => a.name === name && !!a.herdr === herdr);
     if (!hit) throw new ActionRefused(`no agent ${name}${herdr ? " in Herdr" : ""} here; installed: ${all.map(a => `${a.name}${a.herdr ? " (herdr=true)" : ""}`).join(", ")}`);
     if (!this.persist) throw new ActionRefused("this drawer saves nothing (a test's)");
-    if (this.builtInState() === "working" && !confirm) {
-      if (actor.kind === "agent") throw new ActionRefused("the drawer agent is busy; host.agent name=" + name + " confirm=true replaces it after confirming with the person");
-      this.desk?.overlay(new ListPicker<boolean, Desk>({
-        name: "replace busy agent", items: () => [false, true],
-        row: (yes, _i, on, w) => pickRows(yes ? "Replace the busy agent" : "Keep it running", on, w),
-        choose: yes => { if (yes) void this.run?.("host.agent", { name, herdr, default: dflt, ...(folder ? { in: folder } : {}), confirm: true }); },
-        frame: (r, n) => ({ rect: centred(r, Math.min(60, r.cols - 2), n + 2), title: "The agent is busy. Replace it?" }),
-      }));
-      this.host.redraw();
-      return { confirming: true };
-    }
     const file = choiceFile(dflt ? stateDir() : outlineState());
     const choice = JSON.stringify({ agent: name, ...(herdr ? { herdr: true } : {}), ...(folder ? { folder: resolvePath(untilde(folder)) } : {}) });
     try {
@@ -295,19 +254,37 @@ export class AgentDrawer {
     }
     catch (e) { throw new ActionRefused(`couldn't save the choice in ${file}: ${(e as Error).message}`); }
     this.prog = this.program();
-    const d = this.desk!;
-    if (!d.pane(DRAWER_TILE_ID)) this.reopenOwn(actor);
-    if (this.p instanceof DrawerTile) this.p.retarget(this.prog);
-    await this.restart();
-    if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(DRAWER_TILE_ID, actor); }
-    const duplicates = this.sessions().filter(s => s.shown.in === "drawer" && s.pane !== this.p).map(s => s.pane.tileId);
+    const done = this.newAgentTab(actor);
     const env = this.prog.from === "env" ? ` · EP0CH_DAILY_AGENT (${process.env.EP0CH_DAILY_AGENT}) still overrides it in this door` : "";
-    this.host.flash(`${this.prog.name} started in the drawer${env}${duplicates.length ? ` · other agent tabs: ${duplicates.join(", ")} · close unwanted ones with ^W x` : ""}`, 8000);
+    this.host.flash(`${this.prog.name} started in a new tab (${done.name})${env} · ^W x closes one`, 8000);
     this.host.redraw();
-    return { agent: name, herdr, saved: dflt ? "default" : this.session() ?? "session", runs: this.prog.cmd, startsNow: true, duplicates };
+    return { agent: name, herdr, saved: dflt ? "default" : this.session() ?? "session", runs: this.prog.cmd, tile: done.tile, name: done.name };
   }
 
-  /** The picker over the drawer: the agents installed here; ⏎ chooses one (host.agent), esc leaves it as it is. */
+  /**
+   * A new agent tab in the drawer running the last agent picked (`prog`), with role agent: beside the tab shown. The
+   * person's comes up with their keys in it; an agent's opens behind the tab shown, and its program starts now.
+   */
+  newAgentTab(actor: Actor): TileDone {
+    const d = this.desk;
+    if (!d) throw new ActionRefused("the drawer isn't ready (no screen is shown yet)");
+    const person = this.ctx(actor).standing;
+    if (person && !this.open) { this.offered = true; this.set(true, actor); }
+    const done = this.agentTab(d, actor);
+    if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
+    else (d.pane(done.tile) as PtyPane).startNow(this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3));
+    this.host.redraw();
+    return done;
+  }
+  /** An agent tab on desk `d` (the drawer's), not started: it starts when drawn. */
+  private agentTab(d: Desk, actor: Actor): TileDone {
+    const a = this.prog;
+    const p = new PtyPane({ cmd: a.cmd, cwd: a.cwd, label: a.name, agent: true, inShell: a.name !== "shell" && !a.herdr });
+    tileRegistry.setRole(p, ROLE_AGENT);
+    return d.bringIn({ pane: p, name: freeName(d, a.name), spec: { t: "leaf", kind: "pty" }, from: "drawer", typing: false }, this.tabBase(d), "tabs", actor);
+  }
+
+  /** The picker over the drawer: the agents installed here; ⏎ starts one in a new agent tab (host.agent), esc leaves it as it is. */
   pick(): { picking: boolean } {
     const d = this.desk;
     if (!d) throw new ActionRefused("the drawer isn't ready");
@@ -319,13 +296,9 @@ export class AgentDrawer {
     let everywhere = false;
     let scopeAt: { row: number; from: number; to: number } | null = null;
     const folder = new LineField(now.cwd, false, { complete: false });
-    type Choice = { agent: DrawerAgent } | { close: string; program: string };
-    d.overlay(new ListPicker<Choice, Desk>({
+    d.overlay(new ListPicker<{ agent: DrawerAgent }, Desk>({
       name: "drawer agent", input: folder, clickChooses: true, scrolls: true,
-      items: () => [
-        ...this.agents().map(agent => ({ agent })),
-        ...this.sessions().flatMap(s => s.shown.in === "drawer" && s.pane !== this.p ? [{ close: s.shown.tile, program: s.program }] : []),
-      ],
+      items: () => this.agents().map(agent => ({ agent })),
       bindings: [{ key: "tab", action: "agent.scope", label: "scope" }],
       dispatch: () => { everywhere = !everywhere; this.host.redraw(); },
       clicked: (x, y) => {
@@ -333,12 +306,10 @@ export class AgentDrawer {
         everywhere = !everywhere; this.host.redraw(); return true;
       },
       row: (item, _i, on, w) => {
-        if ("close" in item) return pickRows(` Close extra agent tab: ${item.program} (${item.close})`, on, w);
         const a = item.agent;
-        return pickRows(` ${a.name}${a.herdr ? " · in Herdr (outlives the door)" : ""}${a.name === now.name && a.herdr === now.herdr ? " · now" : ""}  ${a.cmd.at(-1) === a.name ? "" : a.cmd.join(" ")}`, on, w);
+        return pickRows(` ${a.name}${a.herdr ? " · in Herdr (outlives the door)" : ""}${a.name === now.name && a.herdr === now.herdr ? " · last picked" : ""}  ${a.cmd.at(-1) === a.name ? "" : a.cmd.join(" ")}`, on, w);
       },
       choose: item => {
-        if ("close" in item) { d.run("tile.close", {}, item.close); return; }
         const a = item.agent;
         void this.run?.("host.agent", { name: a.name, ...(a.herdr ? { herdr: true } : {}), default: everywhere, in: folder.text });
       },
@@ -347,7 +318,7 @@ export class AgentDrawer {
         const override = now.from === "env" ? ["EP0CH_DAILY_AGENT overrides your choice.", "Check ~/.zshrc, ~/.zprofile, ~/.profile or the launcher.", `Remove: export EP0CH_DAILY_AGENT=${shellQuote(process.env.EP0CH_DAILY_AGENT ?? "")}`] : [];
         scopeAt = { row: rect.row + 1 + override.length, from: rect.col + 1, to: rect.col + rect.cols - 1 };
         return {
-          rect, title: "the drawer's agent",
+          rect, title: "a new agent tab · ^W x closes one",
           head: [...override, `Save for ${everywhere ? "every outline" : "this outline"}`, "Folder:", folder.show(rect.cols - 2)],
           field: { line: override.length + 2, col: 0 },
         };
@@ -359,9 +330,10 @@ export class AgentDrawer {
   /** How the drawer runs its own actions as the person (the App's dispatcher), for the picker's choice. */
   run: ((name: string, args: Record<string, unknown>) => Promise<unknown>) | null = null;
 
-  private tabBase(): string | undefined { return this.d?.pane(DRAWER_TILE_ID) ? DRAWER_TILE_ID : undefined; }
+  /** Where a new tab of the drawer opens: beside the tab shown. */
+  private tabBase(d: Desk | null = this.d): string | undefined { const t = d?.focusedName(); return t && d?.pane(t) ? t : undefined; }
 
-  /** A shell stays one key away, even after the drawer's own tab closed. */
+  /** A shell stays one key away, even with no tab open. */
   async newShell(actor: Actor): Promise<TileDone> {
     const d = this.desk;
     if (!d) throw new ActionRefused("the drawer isn't ready");
@@ -477,7 +449,8 @@ export class AgentDrawer {
     const what = (p as { statusName?(): string }).statusName?.() ?? "that tile";
     if (!screen || !name) {
       const ctx = this.host.ctx?.(), under = ctx ? [...(ctx.screens?.() ?? []), ...(ctx.kept?.() ?? [])].find(s => s !== this.host.screen?.() && !!tilesOf(s)?.nameOfPane(p)) : undefined;
-      if (!under || !ctx?.raise) throw new ActionRefused(`${what} isn't on this screen or in your drawer: it's on a screen under this one (q goes back to it)`);
+      if (!under) throw new ActionRefused(`${what} isn't on any screen this door shows, nor in your drawer · agents.list says where each agent is`);
+      if (!ctx?.raise) throw new ActionRefused(`${what} isn't on this screen or in your drawer: it's on the ${under.title}, under this one (q goes back to it)`);
       if (!this.ctx(actor).standing) throw new ActionRefused(`${what} is on the ${under.title}, under this screen: an agent doesn't move the person's screen to it (screen.open names a screen, as the person's idle allows)`);
       const held = actorRule({ touches: "screen", host: true }, actor, this.host.person?.() ?? NOBODY, {});
       if (held) throw new ActionRefused(held);
@@ -502,13 +475,12 @@ export class AgentDrawer {
    * kept in the background) running an agent or started as one. Read now, from the terminals themselves.
    */
   sessions(now = Date.now()): AgentSession[] {
-    const own = this.p;
-    const panes = livePrograms().filter(p => p.door === this || p === own);
-    if (own?.running && !panes.includes(own)) panes.unshift(own);
+    const panes = livePrograms().filter(p => p.door === this);
     const rows = panes.flatMap(p => {
-      const s = asSession(p, { own: p === own, now });
+      const own = tileRegistry.roleOf(p) === ROLE_AGENT;
+      const s = asSession(p, { own, now });
       if (!s) return [];
-      const st = p === own && p.herdr ? ((x: AgentState) => ({ state: x === "blocked" ? "waiting" as const : x === "failed" ? "failed" as const : x === "working" ? "working" as const : x === "done" ? "done" as const : "idle" as const, word: x === "blocked" ? "needs you" : x }))(this.builtInState(now)) : stateOf(p, now);
+      const st = own && p.herdr ? ((x: AgentState) => ({ state: x === "blocked" ? "waiting" as const : x === "failed" ? "failed" as const : x === "working" ? "working" as const : x === "done" ? "done" as const : "idle" as const, word: x === "blocked" ? "needs you" : x }))(this.paneState(p, now)) : stateOf(p, now);
       return [{ ...s, ...st, shown: this.shownOf(p) }];
     });
     // Your drawer's first, then the screen shown, then the rest; each in the order its tiles were made.
@@ -519,7 +491,7 @@ export class AgentDrawer {
   /** Where terminal `p` is shown now: your drawer, the screen shown, a screen under it or kept, or nowhere. */
   shownOf(p: Pane): Shown {
     const inDrawer = this.d?.nameOfPane(p);
-    if (inDrawer) return { in: "drawer", tile: this.d!.tileInfo(inDrawer).tile, name: inDrawer, own: p === this.p, ...((p as PtyPane).herdr ? { herdr: (p as PtyPane).herdr!.pane } : {}) };
+    if (inDrawer) return { in: "drawer", tile: this.d!.tileInfo(inDrawer).tile, name: inDrawer, own: tileRegistry.roleOf(p) === ROLE_AGENT, ...((p as PtyPane).herdr ? { herdr: (p as PtyPane).herdr!.pane } : {}) };
     const top = this.host.screen?.(), ctx = this.host.ctx?.();
     const screens = [top, ...[...(ctx?.screens?.() ?? [])].reverse(), ...(ctx?.kept?.() ?? [])].filter((x, i, all): x is Screen => !!x && all.indexOf(x) === i);
     for (const sc of screens) {
@@ -585,6 +557,8 @@ export class AgentDrawer {
     if (person && !this.open) { this.offered = true; this.set(true, actor); }
     const done = await d.openTile({ kind: "pty", cmd: shellQuote(hit.program), cwd: folder, name: freeName(d, program.replace(/[^\w-]/g, "-") || "agent") }, this.tabBase(), "tabs", actor);
     const p = d.pane(done.tile) as PtyPane;
+    // An agent tab like any other (PIE-1331): the role is what the lift, the chip and `drawer.agent` read.
+    tileRegistry.setRole(p, ROLE_AGENT);
     // The session's own command and mark, before its program starts (it starts now: an agent's tab isn't drawn yet).
     p.run.cmd = cmd;
     p.run.session = { program, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}) };
@@ -677,32 +651,39 @@ export class AgentDrawer {
     return { tile: answer.tile, name: answer.name, sessions: this.sessions().length };
   }
 
-  /** The session ended: its own Herdr pane closes (never another session's: the pane is named for this one). */
+  /** The session ended: its agent tabs' own Herdr panes close (never another session's: a pane is named for this one). */
   closeOwnPane(): boolean {
-    const label = this.p?.herdr?.pane, session = this.session();
+    const session = this.session();
     // This session's pane exactly (a test door's carries its scope, 8 hex digits, after it): never one whose name only starts so.
     const slug = session ? sessionSlug(session) : "";
-    if (!label || !slug || !(label === slug || (label.startsWith(`${slug}-`) && /^[0-9a-f]{8}$/.test(label.slice(slug.length + 1))))) return false;
-    try { spawnDetached(process.execPath, [HERDR_LAUNCHER, "--close", label], { detached: true, stdio: "ignore" }).unref(); return true; } catch { return false; }
+    const mine = (label: string) => !!slug && (label === slug || (label.startsWith(`${slug}-`) && /^[0-9a-f]{8}$/.test(label.slice(slug.length + 1))));
+    const labels = [...new Set(this.agentTabs().flatMap(t => (t.pane.herdr?.pane && mine(t.pane.herdr.pane) ? [t.pane.herdr.pane] : [])))];
+    let closed = false;
+    for (const label of labels) { try { spawnDetached(process.execPath, [HERDR_LAUNCHER, "--close", label], { detached: true, stdio: "ignore" }).unref(); closed = true; } catch { /* the next */ } }
+    return closed;
   }
-  /** What the drawer's own tab is called (claude, shell): the chip's name. */
+  /** What a new agent tab runs (claude, shell): the last agent picked. */
   get name(): string { return this.prog.name; }
   /** What it runs and where, and why (`ep0ch doctor`, peek). */
   get runs(): DrawerProgram { return this.prog; }
 
   /**
-   * The drawer's desk, made the first time it's needed (with the App to enter it): its own tile first, then what was
-   * in it when the door last ran (drawer-tiles.json), each tile adopting its program as it's first drawn.
+   * The drawer's desk, made the first time it's needed (with the App to enter it): what was in it when the door last
+   * ran (drawer-tiles.json), each tile adopting its program as it's first drawn. A drawer never saved before gets one
+   * agent tab running the last agent picked.
    */
   get desk(): Desk | null {
     if (this.d) return this.d;
     const ctx = this.host.ctx?.();
     if (!ctx) return null;
+    const fresh = !this.persist || readState<unknown>("drawer-tiles.json") === null;
     // Its tiles' ids are `k<n>`: a tile in the drawer's id is never a screen tile's (tile= reaches either by id).
-    const d = new Desk(hostSpec(this.persist), { given: new Map([[DRAWER_TILE_ID, this.pane()]]), where: () => this.whereIn(), idPrefix: "k" });
+    const d = new Desk(hostSpec(this.persist), { where: () => this.whereIn(), idPrefix: "k" });
     this.d = d;
     d.enter(ctx);
     d.shownAs(this.shown);
+    // As the spec's own tile would be: the drawer's focus, which is no one's keys until the person goes in.
+    if (fresh && !d.tileCount()) this.agentTab(d, USER);
     return d;
   }
   /** Where the person is, as the drawer's desk sees it: in it while they're in the drawer, else nowhere on it. */
@@ -715,8 +696,8 @@ export class AgentDrawer {
   }
   /** The drawer's desk when it has been made (reading this never makes it). */
   get made(): Desk | null { return this.d; }
-  /** The tile the person types in, in the drawer (its tile name; the drawer's own is `drawer.agent`), or null. */
-  typingTile(): string | null { if (!this.entered) return null; const k = this.d?.keys(); return k?.typingIn ?? k?.focus ?? DRAWER_TILE_ID; }
+  /** The tile the person types in, in the drawer (its tile name), or null. */
+  typingTile(): string | null { if (!this.entered) return null; const k = this.d?.keys(); return k?.typingIn ?? k?.focus ?? null; }
   /** `d` is the drawer's desk. */
   isDrawer(d: unknown): boolean { return !!d && d === this.d; }
   /** The drawer's desk (once made) and the screen shown's tiles (a desk, or a desk inside it: the showcase's section). */
@@ -740,8 +721,7 @@ export class AgentDrawer {
     const address = parseTileAddress(sel), asking = this.asking();
     if (!asking || address.kind === "name") return null;
     if (address.kind !== "role" || address.role !== ROLE_AGENT || (address.scope !== undefined && address.scope !== "drawer")) return whyNone(address, asking.addressable());
-    if (this.out && this.d) return `${this.p instanceof DrawerTile && this.p.away ? this.p.away.says : "the drawer's own program is out on a screen"} · agent.back brings it into its tab, or go to that screen`;
-    return OWN_CLOSED;
+    return NO_AGENT;
   }
   /** The terminal tile a process is drawn in, on the drawer or the screen shown (`host.tileOf`, PIE-1043). */
   tileOf(q: { mark?: string; pid?: number; port?: number }): TileOfAnswer {
@@ -753,10 +733,10 @@ export class AgentDrawer {
     }
     return tileOf(tiles, q, realTileDeps());
   }
-  /** The drawer's tiles, as tabs: the drawer's own first. */
+  /** The drawer's tiles, as tabs. */
   tabs(): { name: string; id: string; kind: string; title: string; shown: boolean; focused: boolean; pid?: number }[] {
     const d = this.desk;
-    if (!d) return [{ name: DRAWER_TILE_ID, id: DRAWER_TILE_ID, kind: DRAWER_KIND, title: this.name, shown: true, focused: this.entered }];
+    if (!d) return [];
     // Chip reads must not materialize every tile's inspection and terminal scrollback.
     const tiles = d.tileOutline();
     // A terminal's pid: `ep0ch where` from its program finds it here, though it started on another screen (its EP0CH_TILE_ID was that one's).
@@ -768,7 +748,7 @@ export class AgentDrawer {
   shownTab(): string | null { return this.shownAmong(this.tabs()); }
   /** The tab shown among `t` (the tabs, which the caller asks for once: each asking walks the drawer's whole desk). */
   private shownAmong(t: ReturnType<AgentDrawer["tabs"]>): string | null { return (t.find(x => x.shown && x.focused) ?? t.find(x => x.shown) ?? t.at(-1))?.name ?? null; }
-  private shownPane(tabs?: ReturnType<AgentDrawer["tabs"]>): Pane | null { return this.d ? this.d.pane(this.shownAmong(tabs ?? this.tabs()) ?? "") ?? null : this.p; }
+  private shownPane(tabs?: ReturnType<AgentDrawer["tabs"]>): Pane | null { return this.d ? this.d.pane(this.shownAmong(tabs ?? this.tabs()) ?? "") ?? null : null; }
 
   // ── the host layer, on the layout engine ──
 
@@ -793,10 +773,11 @@ export class AgentDrawer {
   get entered(): boolean { return this.keys !== HOST_SCREEN && this.open && this.mode !== "none"; }
   /** Where the screen shown lets the host layer appear: its policy's `host` (a screen without a drawer: none). */
   get mode(): HostMode { const s = this.host.screen?.(); return s?.noDrawer ? "none" : s?.hostMode?.() ?? "over"; }
-  /** What the host layer's tiles are: the screen slot (it never closes or moves), the agent's terminal. */
+  /** What the host layer's tiles are: the screen slot (it never closes or moves), the drawer with what runs in it. */
   private facts(id: string): TileFacts {
     if (id === HOST_SCREEN) return { kind: "screen", policy: { closable: false, draggable: false } };
-    return { kind: "drawer", ...(this.p?.running ? { running: this.p.run.cmd[0] ?? "the agent" } : {}) };
+    const running = this.d ? this.tabs().map(t => this.d!.pane(t.name)).find((p): p is PtyPane => p instanceof PtyPane && p.running) : undefined;
+    return { kind: "drawer", ...(running ? { running: running.run.cmd[0] ?? "a program" } : {}) };
   }
   /** Who acts, and where the person is (the shell's one answer): in the agent, or busy on the screen. */
   private ctx(actor: Actor, rows = 30, cols = 100): LayoutCtx<string> {
@@ -819,30 +800,14 @@ export class AgentDrawer {
   private rows = 30;
   private cols = 100;
 
-  // ── the one agent tile (the host layer's first tab) ──
+  // ── the agent tabs ──
 
-  /**
-   * The drawer's own tile, made the first time it's asked for; its program starts when it's first drawn. It runs what
-   * `drawerProgram()` says when it's made (the drawer's desk is given it, so it's made once).
-   */
-  pane(): PtyPane {
-    if (this.p) return this.p;
-    this.prog = this.program();
-    const a = this.prog;
-    // Its program is out on a screen (a handover since, PIE-892): its tab holds the place, starting nothing.
-    if (this.out) return this.p = this.holder(a.name, "a screen");
-    // An agent starts inside the person's login shell (PtyPane: no dead tile when it exits); a shell is just the shell.
-    const p = new DrawerTile({ cmd: a.cmd, cwd: a.cwd, label: a.name, agent: true, inShell: a.name !== "shell" && !a.herdr }, a.name);
-    p.tileId = DRAWER_TILE_ID;
-    p.place = "drawer";
-    // The drawer's own program is the drawer's (drawer.json): a session's next daemon adopts it by that. One that left
-    // for a screen keeps the key it started with, so each own program after it has a key of its own (`#<gen>`).
-    if (this.persist) p.home = this.gen ? `drawer.json#${this.gen}` : "drawer.json";
-    this.p = p;
-    return p;
-  }
-  /** The drawer's own tile when it has been made (nothing is started by asking). */
-  get tile(): PtyPane | null { return this.p; }
+  /** The agent tab used last (`drawer.agent`, `role:agent`): on the drawer or the screen shown, the one the person typed in or clicked last. Null when none is open. */
+  get tile(): PtyPane | null { return this.agentPane()?.pane ?? null; }
+  /** The agent tab used last's tile name (`claude`), else what a new one is called: what an action answers. */
+  agentName(): string { const a = this.agentPane(); return (a && a.desk.nameOfPane(a.pane)) || this.name; }
+  /** The agent tab used last's id (`t-…`), or null when none is open. */
+  agentId(): string | null { const a = this.agentPane(); return a ? tileRegistry.idOf(a.pane) : null; }
   /** The drawer is drawn now: pulled up, on a screen that lets the host layer appear. */
   get shown(): boolean { return this.open && this.active && this.mode !== "none"; }
   /** Drawn beside the screen (the screen shorter), not over it: the rows it takes from the screen, else 0. */
@@ -858,7 +823,6 @@ export class AgentDrawer {
 
   state(now = Date.now()): AgentState { return this.paneState(this.shownPane(), now); }
 
-  private builtInState(now = Date.now()): AgentState { return this.paneState(this.p, now); }
 
   private paneState(p: Pane | null, now: number): AgentState {
     if (this.d && !p) return "empty";
@@ -912,12 +876,13 @@ export class AgentDrawer {
     if (p && s !== "off" && s !== "exited" && s !== "empty") this.pollKnows(now, p);
     // What it reported says it in its own words (needs you, asks you, working 40%); else the state's.
     const said = p?.status.urgent();
-    const what = this.restarting && p === this.p ? "restarting" : s === "off" ? "" : said && s !== "exited" && s !== "watching" ? statusMark(said).word : s === "blocked" ? "needs you" : s === "exited" ? (p?.exited === null && p?.agentExit !== null ? `exited ${p.agentExit} · shell` : `exited ${p?.exited ?? ""}`.trim()) : s;
+    const what = this.restarting && p === this.tile ? "restarting" : s === "off" ? "" : said && s !== "exited" && s !== "watching" ? statusMark(said).word : s === "blocked" ? "needs you" : s === "exited" ? (p?.exited === null && p?.agentExit !== null ? `exited ${p.agentExit} · shell` : `exited ${p?.exited ?? ""}`.trim()) : s;
     let knows = this.restarting || s === "off" || s === "exited" || s === "empty" || !p ? "" : knowsLabel(this.knowledge.get(p)?.knows ?? null);
     if (!this.offersRestartAt(pane)) knows = knows.replace(RESTART_GLYPH, "").trimEnd();
-    const own = !shown || shown === DRAWER_TILE_ID;
+    const own = !shown;
     const more = tabs ? Math.max(0, tabs.length - 1) : 0;
-    const out = { head: `${this.open ? "▼" : "▲"} ${own ? this.name : shown}${own && this.prog.from === "env" ? " (from EP0CH_DAILY_AGENT)" : ""}${more > 0 ? ` +${more}` : ""}${what ? ` · ${what}` : ""}`, knows: knows ? ` · ${knows}` : "" };
+    const env = this.prog.from === "env" && (own || (!!p && tileRegistry.roleOf(p) === ROLE_AGENT && shown === this.prog.name));
+    const out = { head: `${this.open ? "▼" : "▲"} ${own ? this.name : shown}${env ? " (from EP0CH_DAILY_AGENT)" : ""}${more > 0 ? ` +${more}` : ""}${what ? ` · ${what}` : ""}`, knows: knows ? ` · ${knows}` : "" };
     // A drag over it says it goes in there, in the chip's own width: the chip doesn't move under the pointer.
     // (The status bar's right part is right-aligned: a longer chip grows leftwards, a shorter one is padded.)
     if (this.dropHover) { const say = `⤓ ${this.dropHover} ${this.dropSays}`, w = width(out.head + out.knows); return { head: width(say) >= w ? say : pad(say, w), knows: "" }; }
@@ -926,13 +891,13 @@ export class AgentDrawer {
 
   /** The chip ends in ⟳: a click on it restarts the agent. */
   get offersRestart(): boolean { return this.offersRestartAt(this.shownPane()); }
-  private offersRestartAt(shown: Pane | null): boolean { return shown === this.p && !this.restarting && (this.knows?.state === "stale" || this.knows?.state === "no-door"); }
+  private offersRestartAt(shown: Pane | null): boolean { return !!shown && shown === this.tile && !this.restarting && (this.knows?.state === "stale" || this.knows?.state === "no-door"); }
 
   /**
    * The agent's process: in Herdr, the process in the agent's pane (`pane process-info`); else the tile's own
    * program. Null when it isn't running or Herdr doesn't say.
    */
-  async agentPid(p: PtyPane | null = this.p): Promise<number | null> {
+  async agentPid(p: PtyPane | null = this.tile): Promise<number | null> {
     if (!p?.running) return null;
     if (!p.herdr) return p.pid ?? null;
     if (!this.herdr) return null;
@@ -965,7 +930,7 @@ export class AgentDrawer {
   }
 
   /** What the agent knows now: its own environment and start against the installed mod. Says a change on the chip. */
-  async readKnows(p: PtyPane | null = this.p): Promise<AgentKnows | null> {
+  async readKnows(p: PtyPane | null = this.tile): Promise<AgentKnows | null> {
     if (!p) return null;
     const poll = this.knowledgeOf(p);
     const pid = await this.agentPid(p).catch(() => null);
@@ -988,16 +953,14 @@ export class AgentDrawer {
    */
   restart(): Promise<RestartDone> {
     if (this.restarting) return this.restarting;
-    if (this.d && !this.d.pane(DRAWER_TILE_ID)) return Promise.reject(new ActionRefused("the drawer agent is closed; click its chip or run host.agent to choose one"));
-    // Its program is out on a screen (PIE-892): restarting here would start a second one; it's restarted where it is.
-    if (this.p instanceof DrawerTile && this.p.away) return Promise.reject(new ActionRefused(`${this.p.away.says}: bring it back first (agent.back), or restart it there`));
-    const p = this.pane();
+    const p = this.tile;
+    if (!p) return Promise.reject(new ActionRefused(NO_AGENT));
     const run = async (): Promise<RestartDone> => {
       const was = this.knows?.state ?? null;
       const herdr = p.herdr?.pane ?? null;
       if (herdr && p.running) {
         // Restarting only the attach would leave the old agent in its pane: without its pid, nothing is done.
-        const pid = await this.agentPid();
+        const pid = await this.agentPid(p);
         if (!pid) throw new ActionRefused(`couldn't find the agent's process in Herdr pane ${herdr}; restart it there (/exit, then ⏎ in the tile)`);
         try { process.kill(pid, "SIGTERM"); } catch { /* gone */ }
         const until = Date.now() + 8000;
@@ -1038,7 +1001,7 @@ export class AgentDrawer {
     // An agent's pull of a drawer that's up already changes nothing; the person's goes into it.
     if (open && this.open && !this.ctx(actor).standing) return;
     this.strip = false;
-    if (open) this.pane();
+    if (open) void this.desk;
     this.do({ op: "slide", tile: HOST_TILES, open }, actor);
     if (open && this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
     if (open) this.openedBy = actor.kind === "agent" ? (this.entered ? null : actor) : null;
@@ -1075,11 +1038,7 @@ export class AgentDrawer {
     this.host.redraw();
   }
 
-  private save() { if (this.persist) writeState("drawer.json", { open: this.open, share: this.share, ...(this.folded ? { folded: true } : {}), ...(this.gen ? { gen: this.gen } : {}), ...(this.out ? { out: true } : {}) } satisfies DrawerSaved); }
-  /** Whether the drawer's own program is out on a screen (PIE-892), its tab holding the place; kept across a handover. Which tile it is, is its role's to say. */
-  private out = false;
-  /** How many own programs have left the drawer for a screen: the next one's key (`home`) says it. */
-  private gen = 0;
+  private save() { if (this.persist) writeState("drawer.json", { open: this.open, share: this.share, ...(this.folded ? { folded: true } : {}) } satisfies DrawerSaved); }
 
   // ── the drawer: tiles in and out, whole (tile.drawer) ──
 
@@ -1098,10 +1057,6 @@ export class AgentDrawer {
     const d = this.desk;
     if (!d) return "the drawer isn't ready (no screen is shown yet)";
     if (from === d) return `${name} is in the drawer already`;
-    if (this.isOwnOut(from.pane(name))) {
-      if (to !== undefined || where !== undefined) return `${name} is the drawer's own program: it goes back into its own tab, in place (tile.drawer without to= and where=)`;
-      return from.takeRefusal(name, actor);
-    }
     const out = from.takeRefusal(name, actor);
     if (out) return out;
     const kind = (from.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
@@ -1115,8 +1070,6 @@ export class AgentDrawer {
     const no = this.putRefusal(from, name, actor, to, where);
     if (no || !d) throw new ActionRefused(no ?? "the drawer isn't ready (no screen is shown yet)");
     this.dropHover = null;
-    // The drawer's own program coming back (PIE-892): into its own tab again, in place of the one holding it.
-    if (this.isOwnOut(from.pane(name))) return this.reclaim(from, name, actor, keys);
     const moved = from.takeOut(name, actor);
     const done = this.bring(d, moved, to, where ?? "tabs", actor, a => from.bringIn(moved, undefined, undefined, a));
     if (this.ctx(actor).standing) {
@@ -1179,99 +1132,40 @@ export class AgentDrawer {
     if (!d) throw new ActionRefused("the drawer isn't ready");
     const screen = tilesOf(shown);
     if (!screen || screen === d) throw new ActionRefused(`the ${shown?.title ?? "screen"} has no tiles to put ${name} among · open one with tiles (D the desk, K the board, R the river), then tile.drawer on=false tile=${name}`);
-    // The drawer's own tab leaves as an ordinary terminal tile named for what runs in it; a holder keeps its tab.
-    // The tab holding the place while its program is out isn't a program to take: that one comes back first.
-    if (this.p instanceof DrawerTile && this.p.away && d.pane(name) === this.p) throw new ActionRefused(`${this.p.away.says}: ⏎ or a click brings it back`);
-    const old = this.p instanceof DrawerTile && d.pane(name) === this.p ? this.p : null;
-    const as = old ? freeName(screen, old.shows) : name;
-    const out = d.takeRefusal(name, actor, !!old);
+    const out = d.takeRefusal(name, actor);
     if (out) throw new ActionRefused(out);
-    const kind = old ? "pty" : (d.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
-    const into = screen.bringRefusal({ name: as, spec: { t: "leaf", kind } }, to, where, actor);
-    if (into) throw new ActionRefused(`the ${screen.title} doesn't take ${as} there: ${into}`);
+    const kind = (d.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
+    const into = screen.bringRefusal({ name, spec: { t: "leaf", kind } }, to, where, actor);
+    if (into) throw new ActionRefused(`the ${screen.title} doesn't take ${name} there: ${into}`);
     const wasIn = this.entered;
-    let moved: MovedTile;
-    let undo: ((a: Actor) => unknown) | null = null;
-    if (old) {
-      // The drawer's own program goes whole (PIE-892): its tab stays, starting nothing, saying where it went, until it
-      // comes back (put: the same tile in its place again). A second client of the same agent was a mirror nobody could use.
-      const heir = this.holder(old.shows, `the ${screen.title}`);
-      const was = { out: this.out, gen: this.gen };
-      // Refused after all (a race): its own tab again, as it was.
-      undo = a => { old.reown(); d.takeOut(DRAWER_TILE_ID, a, old, false).pane.dispose?.(); this.p = old; this.out = was.out; this.gen = was.gen; this.save(); };
-      this.p = heir;
-      // After a handover the drawer still knows its program is out; the tile with role agent is which one.
-      this.out = true; this.gen++;
-      this.save();
-      const out = d.takeOut(name, actor, heir);
-      old.release();
-      moved = { ...out, name: as, spec: { ...out.spec, kind: "pty", name: as } };
-    } else moved = d.takeOut(name, actor);
-    const done = this.bring(screen, moved, to, where, actor, undo ?? (a => d.bringIn(moved, undefined, "tabs", a)));
+    const moved = d.takeOut(name, actor);
+    const done = this.bring(screen, moved, to, where, actor, a => d.bringIn(moved, undefined, "tabs", a));
     // The person's keys were in it in the drawer: they go with it, back on the screen.
     if (wasIn && this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_SCREEN }, actor); screen.focusTile(done.tile, actor); }
-    // The person took the drawer's own program out: the drawer goes away, and its new one starts when it comes up again.
-    if (old && this.ctx(actor).standing && this.open) this.set(false, actor);
     this.host.redraw();
-    return { ...done, inDrawer: false, into: screen.title, ...(old ? { fresh: true } : {}) };
+    return { ...done, inDrawer: false, into: screen.title };
   }
 
-  /** The own tab's stand-in while its program is out: starts nothing, says where it went, ⏎ or a click brings it back. */
-  private holder(shows: string, where: string): DrawerTile {
-    const a = this.prog;
-    const h = new DrawerTile({ cmd: a.cmd, cwd: a.cwd, label: a.name, agent: true }, shows);
-    h.tileId = DRAWER_TILE_ID; h.place = "drawer";
-    // It holds the place and runs nothing: no role, so `role:agent` never names it.
-    tileRegistry.setRole(h, undefined);
-    // ⏎ or a click on it is the person's agent.back (the action an agent and the keys reach too).
-    h.away = { says: `${shows} is on ${where}`, back: () => void this.run?.("agent.back", {}) };
-    return h;
-  }
   /** Every desk the door holds: the drawer's, each screen on the stack (one a pushed screen covers too) and each kept in the background. */
   private allDesks(): Desk[] {
     const ctx = this.host.ctx?.();
     const stack = [...(ctx?.screens?.() ?? []), ...(ctx?.kept?.() ?? [])].map(tilesOf).filter((d): d is Desk => !!d);
     return [...(this.d ? [this.d] : []), ...stack, ...[tilesOf(this.host.screen?.())].filter((d): d is Desk => !!d)];
   }
-  /** ⏎ or a click on the own tab while its program is out: that tile back from wherever it is now (any screen it was put on). */
-  bringBack(actor: Actor): TileDone | null {
-    if (!this.out) return null;
-    const out = this.findAgent(this.allDesks());
-    if (out) return this.put(out.desk, out.name, actor, true);
-    // Its program is gone (closed on its screen, or ended with a door before a handover could adopt it): the tab is
-    // the drawer's own again, and runs its program as any own tab does.
-    if (!this.outAlive()) { this.free(); return null; }
-    this.host.flash(`${this.p instanceof DrawerTile ? this.p.shows : "your drawer's program"} isn't on the screen shown · go to its screen, then ^W a on it brings it back`);
-    return null;
-  }
-  /** Whether the drawer's own program is out on a screen, its tab holding the place. */
-  isAway(): boolean { return !!this.out; }
-  /**
-   * Out on a screen the tile grammar can't see from here (not the one shown), or closed there: `drawer.agent` names no
-   * running program, only the tab holding its place. agent.lift brings it back first (agent.back, which also frees the tab
-   * of a program that is gone).
-   */
-  awayUnseen(): boolean {
-    return !!this.out && !this.agentPane()?.pane.running;
-  }
-  /** The drawer's own program is the tile lifted now (the tile grammar's `drawer.agent`, wherever it is). */
+  /** The drawer's agent tab used last is the tile lifted now (the tile grammar's `drawer.agent`, wherever it is). */
   liftsOwn(): boolean {
     const a = this.agentPane();
     return !!a && a.desk.liftsPane(a.pane);
   }
   /**
    * The agent tab agent.lift lifts, the one the person is using: the one lifted now (so again drops it), else the one
-   * they last typed in or clicked, else the drawer's own program, else the first agent tab here. Agent tabs are the
-   * drawer's own program and the agent sessions in the drawer and on the screen shown (an agent started from alt+g is
-   * one). Null when there is none: the own tab was closed and no agent runs in a tab here.
+   * they last typed in or clicked. Agent tabs are the terminals with role agent and the agent sessions, in the drawer and
+   * on the screen shown. Null when there is none.
    */
   liftPick(): { pane: PtyPane; tile: string; own: boolean; inDrawer: boolean } | null {
-    const own = this.agentPane();
-    const tabs = this.sessions().filter(s => s.pane !== own?.pane && (s.shown.in === "drawer" || (s.shown.in === "screen" && s.shown.here)));
-    const all = [
-      ...(own ? [{ pane: own.pane, tile: `role:${ROLE_AGENT}`, own: true, inDrawer: !this.out }] : []),
-      ...tabs.map(s => ({ pane: s.pane, tile: (s.shown as { tile: string }).tile, own: false, inDrawer: s.shown.in === "drawer" })),
-    ];
+    const roles = this.agentTabs(this.desks()).map(t => ({ pane: t.pane, tile: t.id, own: true, inDrawer: t.screen === "drawer" }));
+    const tabs = this.sessions().filter(s => !roles.some(r => r.pane === s.pane) && (s.shown.in === "drawer" || (s.shown.in === "screen" && s.shown.here)));
+    const all = [...roles, ...tabs.map(s => ({ pane: s.pane, tile: (s.shown as { tile: string }).tile, own: false, inDrawer: s.shown.in === "drawer" }))];
     const lifted = all.find(a => this.desks().some(d => d.liftsPane(a.pane)));
     if (lifted) return lifted;
     const used = (p: PtyPane) => Math.max(p.personKeyAt, p.personClickAt);
@@ -1279,84 +1173,36 @@ export class AgentDrawer {
   }
   /** One of the agent tabs is lifted now: agent.lift drops it. */
   liftsAgent(): boolean { const p = this.liftPick(); return !!p && this.desks().some(d => d.liftsPane(p.pane)); }
-  /** agent.lift's tile: its pick, else the drawer's own program, opened again first on a lift when its tab was closed (as choosing it does). */
+  /** agent.lift's tile: its pick, else a new agent tab (opened on a lift, not a drop: there's nothing to drop). */
   liftTile(actor: Actor, on?: boolean): string {
     const pick = this.liftPick();
     if (pick) return pick.tile;
-    // A drop (on=false) never opens it: there's nothing to drop.
-    if (on !== false && this.d && !this.out && !this.d.pane(DRAWER_TILE_ID)) this.reopenOwn(actor);
+    if (on !== false && this.desk) return this.agentTab(this.desk, actor).tile;
     return `role:${ROLE_AGENT}`;
   }
-  /** The drawer's own tab again after it was closed: a new one running the drawer's program (its program starts when drawn). */
-  private reopenOwn(actor: Actor) {
-    this.p = null;
-    this.desk!.bringIn({ pane: this.pane(), name: DRAWER_TILE_ID, spec: { t: "leaf", kind: DRAWER_KIND }, from: "drawer", typing: false }, undefined, undefined, actor);
-  }
   /**
-   * The drawer's own program and the desk it is on, as the tile grammar's `drawer.agent` reads it (the one finder:
-   * resolveTile, the lift and agent.back ask it): its tab while it is in the drawer, else the tile that left, on the drawer
-   * or the screen shown. Null when it is closed, or out on a screen the grammar can't see from here. Never made by asking.
+   * The agent tab used last and the desk it is on, as the tile grammar's `drawer.agent` reads it (the one finder:
+   * resolveTile and the lift ask it): in the drawer or on the screen shown. Null when none is open. Never made by asking.
    */
   agentPane(): { pane: PtyPane; desk: Desk } | null {
     const hit = this.findAgent(this.desks());
     return hit ? { pane: hit.pane, desk: hit.desk } : null;
   }
-  /**
-   * The tile with role `agent` among `desks` (and the screens mounted in them), by the address resolver: the drawer's own
-   * program, in its tab or out on a screen. The role is on the tile, so no name, id or program key is asked.
-   */
+  /** The tile `role:agent` names among `desks` (and the screens mounted in them), by the address resolver: the one used last. */
   private findAgent(desks: (Desk | null | undefined)[]): { pane: PtyPane; desk: Desk; name: string } | null {
     const roots = desks.filter((d): d is Desk => !!d), asking = this.asking();
     if (!asking || !roots.length) return null;
     const hit = resolveAddress(parseTileAddress(`role:${ROLE_AGENT}`), asking.addressable(roots));
     return hit && hit.value.pane instanceof PtyPane ? { pane: hit.value.pane, desk: hit.value.desk, name: hit.name } : null;
   }
+  /** Every agent tab (role agent) among `desks` (every desk the door holds, by default), with its id. */
+  private agentTabs(desks: Desk[] = this.allDesks()): { pane: PtyPane; desk: Desk; name: string; id: string; screen: string }[] {
+    const asking = this.asking();
+    if (!asking || !desks.length) return [];
+    return asking.addressable(desks).flatMap(c => (c.role === ROLE_AGENT && c.value.pane instanceof PtyPane ? [{ pane: c.value.pane, desk: c.value.desk, name: c.name, id: c.id, screen: c.screen }] : []));
+  }
   /** Whether `actor` acts as the person here (their press, or an agent on it): only then do the keys move with a lift. */
   standsFor(actor: Actor): boolean { return this.ctx(actor).standing; }
-
-  /** Whether the drawer's program that's out still runs somewhere (on a screen not shown now): the tile with role agent, on any desk the door holds. */
-  private outAlive(): boolean { return !!this.findAgent(this.allDesks())?.pane.running; }
-  /** The own tab no longer holding a place: its program starts as any own tab's does (when it's drawn). */
-  private free() {
-    const h = this.p;
-    this.out = false; this.save();
-    if (h instanceof DrawerTile && h.away) {
-      h.away = null;
-      tileRegistry.setRole(h, ROLE_AGENT);          // the tab holding the place is the drawer's own program again
-      if (this.persist) h.home = this.gen ? `drawer.json#${this.gen}` : "drawer.json";
-      this.host.flash(`${h.shows} isn't running any more · your drawer's own program starts here again`);
-      this.host.redraw();
-    }
-  }
-  /** Whether `p` is the drawer's own program, out on a screen: while one is out, the tile with role agent (it keeps the role through a handover). */
-  private isOwnOut(p: Pane | undefined): p is PtyPane {
-    return !!p && !!this.out && p instanceof PtyPane && tileRegistry.roleOf(p) === ROLE_AGENT;
-  }
-  /** Tile `name` of `from` (the drawer's own program, out) into its own tab again, in place of the one holding it. */
-  private reclaim(from: Desk, name: string, actor: Actor, keys: boolean): TileDone {
-    const d = this.desk!;
-    const out = from.takeRefusal(name, actor);
-    if (out) throw new ActionRefused(out);
-    const moved = from.takeOut(name, actor);
-    // Its own again: the drawer's kind, id and place, closing as the drawer's own doesn't. One adopted after a handover
-    // came back as a plain terminal tile (its program found by its key): it becomes the drawer's tile, program and all.
-    if (!(moved.pane instanceof DrawerTile)) Object.assign(Object.setPrototypeOf(moved.pane, DrawerTile.prototype), { shows: this.prog.name, next: null, away: null });
-    const own = moved.pane as DrawerTile;
-    own.reown();
-    // The swap in its own tab is the drawer's, whoever asked: what leaves is the holder, which nobody types in.
-    const holder = d.takeOut(DRAWER_TILE_ID, USER, own, false);
-    holder.pane.dispose?.();
-    this.p = own; this.out = false;
-    this.save();
-    if (this.ctx(actor).standing) {
-      d.focusTile(DRAWER_TILE_ID, actor);
-      if (!this.open && this.mode !== "none") this.do({ op: "slide", tile: HOST_TILES, open: true }, actor);
-      if ((moved.typing || keys) && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
-    }
-    this.d?.shownAs(this.shown);
-    this.host.redraw();
-    return { tile: DRAWER_TILE_ID, name: DRAWER_TILE_ID, inDrawer: true, from: moved.from, back: true };
-  }
 
   /** `bringIn`, and if it's refused after all (a race), the tile goes back where it came from, for the same actor: never lost. */
   private bring(to: Desk, moved: MovedTile, at: string | undefined, where: Where | undefined, actor: Actor, back: (actor: Actor) => unknown): TileDone {
@@ -1396,7 +1242,7 @@ export class AgentDrawer {
     const known = p ? this.knowledge.get(p) : null;
     return {
       open: this.open, shown: this.shown, entered: this.entered, share: Math.round(this.share * 100) / 100, host: this.mode,
-      rect: this.drawnRect(), state: this.state(), tile: shown ? { tile: shown.id, name: shown.name === DRAWER_TILE_ID ? this.name : shown.name } : null,
+      rect: this.drawnRect(), state: this.state(), tile: shown ? { tile: shown.id, name: shown.name } : null,
       runs: { cmd: this.prog.cmd, cwd: this.prog.cwd, why: { program: this.prog.programWhy, folder: this.prog.folderWhy } },
       tiles: this.tabs().map(({ id, ...tab }) => ({ tile: id, ...tab })),
       sessions: this.sessions().map(s => sessionFacts(s)),
@@ -1409,9 +1255,7 @@ export class AgentDrawer {
 
   /** Quitting the door would end what runs in the drawer (not in Herdr): said, and asked twice. */
   leaveWarning(): string | null {
-    const p = this.p;
-    if (p?.running && !p.herdr) return `${p.title()} is running in the drawer · quitting ends it · again within 3s quits`;
-    const inDrawer = this.d ? this.tabs().filter(t => t.name !== DRAWER_TILE_ID).map(t => this.d!.pane(t.name)).filter((x): x is PtyPane => x instanceof PtyPane && x.running) : [];
+    const inDrawer = this.d ? this.tabs().map(t => this.d!.pane(t.name)).filter((x): x is PtyPane => x instanceof PtyPane && x.running && !x.herdr) : [];
     return inDrawer.length ? `${inDrawer.map(x => x.title()).join(", ")} ${inDrawer.length === 1 ? "runs" : "run"} in the drawer · quitting ends ${inDrawer.length === 1 ? "it" : "them"} · again within 3s quits` : null;
   }
 
@@ -1509,8 +1353,6 @@ export class AgentDrawer {
       if (isAlt(k, "M") && !this.desk?.rawInput()) { void this.host.ctx?.()?.press?.("status.log"); return true; }
       const d = this.desk;
       if (!d) return true;
-      // The holder has no terminal to enter; its Enter returns the program through the same action as a click.
-      if (k.kind === "enter" && d.focusedName() === DRAWER_TILE_ID && this.p instanceof DrawerTile && this.p.away && !d.overlaid()) { run("agent.back", {}); return true; }
       // Esc and q step back out of the drawer (to the screen) where its tab isn't using them; never the screen's back.
       // A terminal there that exited isn't using them either.
       if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && (!d.holdsKeys() || d.waitsOnExit()) && !d.draggedTile() && !d.linkingFrom()) { run("host.leave", { quiet: true }); return true; }
@@ -1536,7 +1378,7 @@ export class AgentDrawer {
    * alt+h, ^W c), as `tile.collapse` on=false; the rest are nothing's (a tile out of sight takes no key).
    */
   private stripKey(k: Key, d: Desk): boolean {
-    const open = () => { d.run("tile.collapse", { on: false }, this.shownTab() ?? DRAWER_TILE_ID); };
+    const open = () => { d.run("tile.collapse", { on: false }, this.shownTab() ?? undefined); };
     const after = this.foldPrefix;
     this.foldPrefix = false;
     if (after) { if (k.kind === "char" && !k.ctrl && k.ch === "c") open(); return true; }
@@ -1569,13 +1411,13 @@ export class AgentDrawer {
     const d = this.desk, t = this.shownTabOf(), q = t && d ? d.pane(t.name) : undefined;
     if (q instanceof PtyPane && !q.running && q.exited !== null) {
       if (restart) { d!.run("tile.restart", {}, t!.name); this.host.redraw(); return { entered: true, restarted: true }; }
-      this.host.flash(`${t!.name === DRAWER_TILE_ID ? this.name : t!.name} exited`);
+      this.host.flash(`${t!.name} exited`);
       d!.run("tile.focus", {}, t!.name);
       this.host.redraw();
       return { entered: true };
     }
     this.intoShown(send);
-    if (send && q instanceof PtyPane && q.running) this.host.flash(`sent ${ESCAPE_CHORD} to ${t!.name === DRAWER_TILE_ID ? this.name : t!.name}`);
+    if (send && q instanceof PtyPane && q.running) this.host.flash(`sent ${ESCAPE_CHORD} to ${t!.name}`);
     this.host.redraw();
     return { entered: true };
   }
@@ -1630,7 +1472,7 @@ export class AgentDrawer {
       // Over the drawer's body it lands where the drawer desk's own drop zones say (an edge of a tile, its tab strip: the
       // ghost it draws), as a tile dragged onto a group does; over the chip, or where no zone is, it goes in as a tab.
       const kind = (screen!.pane(dragged) as { kind?: string } | undefined)?.kind ?? "tile";
-      const zone = inDrawer && !onChip && this.d && r!.rows >= 4 && !this.isOwnOut(screen!.pane(dragged)) ? this.d.foreignAt(k.x, k.y - this.deskRow(), { name: dragged, kind }) : null;
+      const zone = inDrawer && !onChip && this.d && r!.rows >= 4 ? this.d.foreignAt(k.x, k.y - this.deskRow(), { name: dragged, kind }) : null;
       if (!zone) this.d?.cancelDrag();
       // What the release will do is what `tile.drawer` will do: the screen keeping its last tile, the drawer's layout refusing the place, the zone's own refusal.
       const why = over ? this.putRefusal(screen!, dragged, USER, zone?.to, zone?.where ?? undefined) ?? zone?.refused ?? null : null;
@@ -1679,7 +1521,7 @@ export class AgentDrawer {
     }
     // Folded: a click on the strip opens it, with the person's keys on it (it has no edge to drag).
     if (this.folded) {
-      if (k.action === "down" && this.desk) { this.do({ op: "focus", tile: HOST_TILES }, USER); this.leftAt = 0; this.openedBy = null; this.desk.run("tile.collapse", { on: false }, this.shownTab() ?? DRAWER_TILE_ID); }
+      if (k.action === "down" && this.desk) { this.do({ op: "focus", tile: HOST_TILES }, USER); this.leftAt = 0; this.openedBy = null; this.desk.run("tile.collapse", { on: false }, this.shownTab() ?? undefined); }
       return true;
     }
     if (k.action === "down" && k.y === r.row) { this.dragging = true; return true; }
@@ -1718,7 +1560,7 @@ export function nextStep(share: number): number {
 }
 
 /** How the drawer's keys and clicks run its actions: as the person, a refusal said on the status bar. */
-export type DrawerRun = (name: "host.toggle" | "host.size" | "agent.back" | "agent.restart" | "host.enter" | "host.leave" | "host.shell" | "host.agent" | "agents.open", args: Record<string, unknown>) => void;
+export type DrawerRun = (name: "host.toggle" | "host.size" | "agent.restart" | "host.enter" | "host.leave" | "host.shell" | "host.agent" | "agents.open", args: Record<string, unknown>) => void;
 
 /** What `agent.restart` answers once the agent runs again. */
 export interface RestartDone { restarted: boolean; herdr?: string; was: AgentKnows["state"] | null }
@@ -1856,21 +1698,21 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     },
   }),
   "host.agent": def({
-    summary: "the drawer's own agent (its first tab): name=<agent> chooses one installed here (claude, codex, pi, … or shell; herdr=true runs it in Herdr, where it outlives the door), saved for this outline's session (default=true: for every outline). Choosing restarts the same tab inside the person's login shell; a busy agent asks first. No name: the person's picker of the agents installed here. EP0CH_DAILY_AGENT, when set, still overrides it",
+    summary: "a new agent tab in the drawer: name=<agent> picks one installed here (claude, codex, pi, … or shell; herdr=true runs it in Herdr, where it outlives the door) and starts it in a new tab, inside the person's login shell; the pick is saved as what the next new agent tab starts, for this outline's session (default=true: for every outline). Nothing running is ended: ^W x on a tab closes it. No name: the person's picker of the agents installed here. EP0CH_DAILY_AGENT, when set, still overrides it",
     keys: "alt+click or a right click on the agent chip opens the picker (a plain click opens and closes the drawer); the power bar finds agent or claude",
     touches: "screen", replay: "ask",
-    says: (out: { agent?: string }) => (out.agent ? `· chose ${out.agent} for the drawer` : null),
-    args: { confirm: { type: "boolean", optional: true, about: "replace a busy agent after confirming" }, name: { type: "string", optional: true, about: "the agent: claude, codex, pi, … or shell (host.agent with no name lists them on screen)" }, herdr: { type: "boolean", optional: true, about: "run it in this session's own Herdr pane (it outlives the door)" }, default: { type: "boolean", optional: true, about: "the default for every outline's session, not only this one" }, in: { type: "string", optional: true, about: "the folder it starts in (~ is your home); left out: the project's .ep0ch folder, else the outline's own" } },
+    says: (out: { agent?: string; name?: string }) => (out.agent ? `· started ${out.agent} in a new agent tab (${out.name})` : null),
+    args: { name: { type: "string", optional: true, about: "the agent: claude, codex, pi, … or shell (host.agent with no name lists them on screen)" }, herdr: { type: "boolean", optional: true, about: "run it in this session's own Herdr pane (it outlives the door)" }, default: { type: "boolean", optional: true, about: "the default for every outline's session, not only this one" }, in: { type: "string", optional: true, about: "the folder it starts in (~ is your home); left out: the project's .ep0ch folder, else the outline's own" } },
     examples: [
-      { act: "host.agent name=codex", does: "chooses codex as the drawer's agent for this outline's session" },
+      { act: "host.agent name=codex", does: "starts codex in a new agent tab, and saves it as what the next one starts in this outline's session" },
       { act: "host.agent name=claude herdr=true in=~/sheds", does: "runs claude in Herdr, in ~/sheds, where it outlives the door" },
     ],
-    run({ name, herdr, default: dflt, in: folder, confirm }, { drawer }, actor) {
+    run({ name, herdr, default: dflt, in: folder }, { drawer }, actor) {
       if (!name) {
         if (actor.kind === "agent") return { agents: drawer.agents().map(a => ({ name: a.name, cmd: a.cmd, ...(a.herdr ? { herdr: true } : {}) })), now: drawer.runs.name, from: drawer.runs.from };
         return drawer.pick();
       }
-      return drawer.choose(name, !!herdr, !!dflt, actor, folder, confirm);
+      return drawer.choose(name, !!herdr, !!dflt, actor, folder);
     },
   }),
   "agents.open": def({
@@ -1969,27 +1811,14 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       return { share: drawer.share, open: drawer.open };
     },
   }),
-  "agent.back": def({
-    summary: "bring the drawer's own program back into its tab while it's out on a screen (PIE-892: it left whole, by ^W a or a drag; its tab holds the place, starting nothing): the same tile, its program running on, nothing restarted. Once that program is gone (closed), the tab runs the drawer's own program again",
-    keys: "⏎ or a click on the drawer's own tab while it says where its program went; ^W a on the program's tile, or tile.drawer from its screen",
-    // Like tile.drawer, the layout move checks the source program; the holder has no input to protect.
-    touches: "shape", replay: "ask",
-    says: (out: { tile?: string } | null) => (out?.tile ? { text: "· brought the drawer's program back into its tab", ms: 5000 } : null),
-    args: {},
-    run(_, { drawer }, actor) {
-      if (!drawer.isAway()) throw new ActionRefused(`${drawer.name} is in its tab already`);
-      return drawer.bringBack(actor) ?? { tile: null };
-    },
-  }),
   // A preset (PIE-1279): tile.zoom on the agent tab the person is using (Drawer.liftPick: the one lifted, else the one
-  // typed in last, else the drawer's own program), so its toggle is tile.zoom's own. Its own steps first: a program out
-  // on a screen not shown (or closed there) comes back first (agent.back), a drawer that never ran its program comes up and
-  // starts it (alt+a), and one whose agent tabs are all closed opens its own program again (Evan, Oct 25).
+  // typed in or clicked last), so its toggle is tile.zoom's own. Its own steps first: a drawer put away comes up (alt+a),
+  // and with no agent tab open one opens running the last agent picked (Evan, Oct 25; PIE-1331).
   "agent.lift": preset({
-    summary: "lift the agent tab you're using above everything as a column (reach=full: across the terminal), wherever it is: the one you last typed in or clicked (an agent from alt+g too), else the drawer's own program (▲ claude, its first tab), which starts first when it isn't running, as alt+a does, and opens again when its tab was closed. Again, or on=false, drops it. The person's keys go to it; an agent's lift never replaces the person's",
+    summary: "lift the agent tab you're using above everything as a column (reach=full: across the terminal), wherever it is: the one you last typed in or clicked (an agent from alt+g too); with none open, a new agent tab running the last agent picked opens first. Again, or on=false, drops it. The person's keys go to it; an agent's lift never replaces the person's",
     keys: "✦a; a status-bar button (::button{label=\"▲ lift\" act=\"agent.lift\"} in your bar note); ^W Z on its tile does the same where it is",
     touches: "screen", host: true, replay: "safe",
-    says: (out: { zoomed?: boolean }) => ({ text: out?.zoomed ? "· lifted the drawer's program" : "· dropped the drawer's program", ms: 4000 }),
+    says: (out: { zoomed?: boolean }) => ({ text: out?.zoomed ? "· lifted the agent tab" : "· dropped the agent tab", ms: 4000 }),
     args: {
       on: { type: "boolean", optional: true, about: "true lifts, false drops; left out, it toggles" },
       reach: { type: "string", optional: true, choices: ["column", "full"], about: "column (default) or full" },
@@ -2002,45 +1831,45 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     // A lift of it (not a drop) comes with the person's keys, as alt+a gives them: the program in the drawer pulls it up and
     // goes into it (host.enter is the person's own), one on a screen takes the focus there.
     first: [
-      { action: "agent.back", when: ({ on }, { drawer }) => on !== false && !drawer.liftsAgent() && drawer.awayUnseen() && !drawer.liftPick() },
-      { action: "host.toggle", args: { open: true }, when: ({ on }, { drawer }) => on !== false && !drawer.liftsAgent() && !drawer.shown && (drawer.liftPick()?.inDrawer ?? !drawer.isAway()) },
+      { action: "host.toggle", args: { open: true }, when: ({ on }, { drawer }) => on !== false && !drawer.liftsAgent() && !drawer.shown && (drawer.liftPick()?.inDrawer ?? true) },
       { action: "tile.focus", tile: ({ on }, { drawer }, actor) => drawer.liftTile(actor, on), when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsAgent() && drawer.standsFor(actor) },
       { action: "host.enter", when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsAgent() && actor.kind === "user" && (drawer.liftPick()?.inDrawer ?? false) && !drawer.entered },
     ],
   }),
   "agent.restart": def({
-    summary: "restart the drawer's own program (▲ claude, its first tab) so it starts with the door's environment (EP0CH_CONTROL, EP0CH_NEST …) and the installed Claude mod: that agent alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (a bare claude gets --continue on this restart). In Herdr it comes back in the session's own pane. An agent's restart is refused while the person types in it, and is said on screen",
+    summary: "restart the agent tab used last (▲ claude) so it starts with the door's environment (EP0CH_CONTROL, EP0CH_NEST …) and the installed Claude mod: that agent alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (a bare claude gets --continue on this restart). In Herdr it comes back in the session's own pane. An agent's restart is refused while the person types in it, and is said on screen",
     keys: `a click on ${RESTART_GLYPH} at the end of the ▲ claude chip (shown when it started without the door's variables, or without door tools); alt+R`,
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them",
-    says: (out: { name?: string }) => ({ text: `· restarted ${out?.name ?? "the drawer's program"}`, ms: 6000 }),
+    says: (out: { name?: string }) => ({ text: `· restarted ${out?.name ?? "the agent tab"}`, ms: 6000 }),
     args: {},
     async run(_, { drawer, ctx }, actor) {
       const p = drawer.tile;
       // The agent's own window: the person who typed into it lately may be about to again.
       const idle = Date.now() - (p?.personKeyAt ?? 0);
       if (actor.kind === "agent" && p && idle < RESTART_IDLE_MS && !ctx.agentsYolo) throw new ActionRefused(`the person typed into the agent ${(idle / 1000).toFixed(1)}s ago; try again once they've left it ${RESTART_IDLE_MS / 1000}s`);
-      ctx.flash(`restarting ${drawer.name}${p?.herdr ? ` in Herdr (${p.herdr.pane})` : ""} · the conversation is kept`, 6000);
-      return drawer.restart().then(r => ({ ...r, name: drawer.name }));
+      const name = p ? drawer.agentName() : drawer.name;
+      ctx.flash(`restarting ${name}${p?.herdr ? ` in Herdr (${p.herdr.pane})` : ""} · the conversation is kept`, 6000);
+      return drawer.restart().then(r => ({ ...r, name }));
     },
   }),
   "agent.type": def({
-    summary: "send the drawer's own program (▲ claude, its first tab) text as typed: \\n is ⏎, \\e Esc. It lives in the host layer, never as a tile on a screen, so this is how another agent types to it (tile.type types into a screen's terminal tile). Refused while the person is typing in it, and while it isn't running",
+    summary: "send the agent tab used last (▲ claude) text as typed: \\n is ⏎, \\e Esc (tile.type tile=<its id> types into any one). Refused while the person is typing in it, and while it isn't running",
     keys: "the person types in the drawer (ctrl+], a click in it)",
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there",
     says: (out: { name?: string }) => `· typed to ${out?.name ?? "the drawer"}`,
     args: { text: { type: "string", about: "what to type (\\n ⏎, \\e Esc)" } },
     examples: [
-      { act: "agent.type text=\"check the seed-swap note\\n\"", does: "types that line into the drawer's own program and presses ⏎" },
+      { act: "agent.type text=\"check the seed-swap note\\n\"", does: "types that line into the agent tab used last and presses ⏎" },
     ],
     run({ text }, { drawer }) {
       const p = drawer.tile;
-      if (!p?.running) throw new ActionRefused(`${drawer.name} isn't running · alt+a pulls it up and starts it`);
+      if (!p?.running) throw new ActionRefused(p ? `${drawer.agentName()} isn't running · ⏎ on its tab runs it again` : NO_AGENT);
       p.input(text.replace(/\\n/g, "\r").replace(/\\e/g, "\x1b"));
-      return { tile: DRAWER_TILE_ID, name: drawer.name, chars: text.length };
+      return { tile: drawer.agentId(), name: drawer.agentName(), chars: text.length };
     },
   }),
   "agent.knows": def({
-    summary: "what the drawer's own agent (▲ claude) knows: read now from its own process (its environment and start time) against the installed Outliner Claude mod. state current (door tools; a changed mod reloads into it live), stale (started before the mod manifest changed, or by an older door without its variables), no-door (no EP0CH_CONTROL) or unknown",
+    summary: "what the agent tab used last (▲ claude) knows: read now from its own process (its environment and start time) against the installed Outliner Claude mod. state current (door tools; a changed mod reloads into it live), stale (started before the mod manifest changed, or by an older door without its variables), no-door (no EP0CH_CONTROL) or unknown",
     keys: "the ▲ claude chip says it: · door tools, · started before update ⟳",
     touches: "nothing", replay: "safe",
     args: {},
@@ -2049,7 +1878,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
 });
 
 /** The host layer's agent as the actor rule sees it: the tile an agent's typing, resizing or restarting would be under. */
-export const HOST_AGENT_TILE: TileRef = { name: HOST_AGENT, kind: "pty", label: "the drawer's own terminal" };
+export const HOST_AGENT_TILE: TileRef = { name: HOST_AGENT, kind: "pty", label: "the drawer's agent tab" };
 
 /**
  * `tile.herdr` for the host layer's agent (`tile=drawer.agent`): the same rule as a desk terminal's (PTY_ACTIONS), said by
@@ -2057,7 +1886,7 @@ export const HOST_AGENT_TILE: TileRef = { name: HOST_AGENT, kind: "pty", label: 
  */
 export const HOST_TILE_ACTIONS = actionSet<{ drawer: AgentDrawer }>()("host", {
   "tile.herdr": def({
-    summary: "the drawer's own program (tile=drawer.agent) lives in Herdr pane pane=<label> (on=false: it no longer does): quitting the door then ends only the attach",
+    summary: "the agent tab used last (tile=drawer.agent) lives in Herdr pane pane=<label> (on=false: it no longer does): quitting the door then ends only the attach",
     touches: "nothing", replay: "ask",
     args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-<outline>)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: it no longer shows a Herdr agent" } },
     examples: [
@@ -2065,14 +1894,14 @@ export const HOST_TILE_ACTIONS = actionSet<{ drawer: AgentDrawer }>()("host", {
       { act: "tile.herdr tile=drawer.agent on=false", does: "records that the drawer's program no longer lives in Herdr" },
     ],
     run({ pane, name, on }, { drawer }) {
-      // The tile with role agent, wherever it is (in its tab, or out on a screen), never the tab holding its place.
-      const p = drawer.agentPane()?.pane;
-      if (!p) throw new ActionRefused("your drawer's own program hasn't started");
-      if (on === false) { p.herdr = null; return { tile: DRAWER_TILE_ID, name: drawer.name, herdr: null }; }
+      // The agent tab used last (role agent), wherever it is.
+      const p = drawer.tile;
+      if (!p) throw new ActionRefused(NO_AGENT);
+      if (on === false) { p.herdr = null; return { tile: drawer.agentId(), name: drawer.agentName(), herdr: null }; }
       if (!pane) throw new ActionRefused("tile.herdr needs pane=<the Herdr pane's label>");
-      if (!p.running) throw new ActionRefused("your drawer's own program isn't running");
+      if (!p.running) throw new ActionRefused(`${drawer.agentName()} isn't running`);
       p.herdr = { pane, ...(name ? { name } : {}) };
-      return { tile: DRAWER_TILE_ID, name: drawer.name, herdr: p.herdr };
+      return { tile: drawer.agentId(), name: drawer.agentName(), herdr: p.herdr };
     },
   }),
 });

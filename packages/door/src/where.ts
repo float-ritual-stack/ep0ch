@@ -11,7 +11,7 @@ import { ask } from "./jsonl";
 import { alive } from "./state";
 import { herdrBin, herdrRunner, type HerdrRun } from "./desk/herdr-agent";
 import { appendNest, ELIDED, nestLayers, outerLayers, parseLayer, type Layer } from "./nest";
-import { type AgentPointer, HOST_AGENT } from "./whereabouts";
+import { type AgentPointer } from "./whereabouts";
 import { reachControl } from "./control";
 import type { AgentLevel } from "./surface/agent-level";
 import type { DoorReach } from "@ep0ch/outline-core/door-reach";
@@ -192,12 +192,10 @@ export async function where(d: WhereDeps): Promise<Where> {
   // A terminal moved into the drawer (PIE-498) keeps the EP0CH_TILE_ID of the screen it started on: found by its program.
   if (!tile && !agentPane && Array.isArray(dv?.tiles)) {
     const t = dv.tiles.find((x: any) => typeof x?.pid === "number" && (ancestors.includes(x.pid) || d.pid === x.pid));
-    // The drawer's own tab is the drawer's tile as peek names it (drawer.agent), whatever its desk id.
-    if (t) tile = t.name === HOST_AGENT && drawerTile ? drawerTile : { id: t.tile, name: t.name, shown: !!dv.shown && !!t.shown, focused: !!t.focused, terminal: { pid: t.pid }, drawer: true };
+    if (t) tile = t.tile === drawerTile?.id ? drawerTile : { id: t.tile, name: t.name, shown: !!dv.shown && !!t.shown, focused: !!t.focused, terminal: { pid: t.pid }, drawer: true };
   }
-  // Only then by its id (else its name): a moved terminal's stale EP0CH_TILE_ID never wins over its pid (the drawer's
-  // own program, taken out onto a screen, still says drawer.agent).
-  if (!tile && !agentPane && drawerTile && (myTileId === drawerTile.id || myTileId === HOST_AGENT && dv.tiles?.some((t: any) => t.name === HOST_AGENT && t.tile === drawerTile.id))) tile = drawerTile;
+  // Only then by its id (else its name): a moved terminal's stale EP0CH_TILE_ID never wins over its pid.
+  if (!tile && !agentPane && drawerTile && myTileId === drawerTile.id) tile = drawerTile;
   if (!tile && !agentPane) tile = tilePanes.find(p => myTileId && p?.id === myTileId) ?? (tilePanes.some(p => p?.id) ? undefined : tilePanes.find(p => p?.name === myTileName));
   const answeringPid = typeof peek?.screen?.pid === "number" ? peek.screen.pid : null;
   const inDoor = !!(inner || (control && !folderDoor));
@@ -299,9 +297,9 @@ function keysOf(peek: any, desk: any, door: Where["door"], agentPane: string | n
     const screen = peek.screen?.screen ?? "?";
     // The person typing in the drawer (PIE-498): over any screen, the desk's focus doesn't matter then.
     if (peek.screen?.drawer?.entered) {
-      // Which of the drawer's tabs: its own (the agent), or a tile in the drawer.
+      // Which of the drawer's tabs: the one focused, else the one it shows.
       const dv = peek.screen.drawer, typed = Array.isArray(dv.tiles) ? dv.tiles.find((x: any) => x?.focused) : null;
-      const own = !typed || typed.name === HOST_AGENT;
+      const own = !typed;
       const mine = own ? (!!door.tile?.drawer && door.tile.id === dv.tile?.tile) || (!!agentPane && dv.herdr?.pane === agentPane) : !!door.tile?.drawer && door.tile.id === typed.tile;
       return { mine, typing: true, tile: own ? dv.tile?.tile ?? null : typed.tile, text: mine ? "the person is typing in this tile (the drawer)" : `the person is typing in the drawer over the ${screen}, not this tile` };
     }

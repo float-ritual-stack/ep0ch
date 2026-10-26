@@ -126,8 +126,6 @@ export interface TileFacts {
   keeps?: string;
   /** Its kind's own words for why its kind's policy keeps it (closable or draggable off), said whole in place of the policy's. */
   stays?: string;
-  /** Its kind's words for why it isn't gathered into a group (the drawer's own tab). */
-  ungathered?: string;
   /** The edit or comment it holds: it isn't closed under it. */
   editing?: string;
   /** The program running in it: an agent doesn't end it. */
@@ -1264,7 +1262,6 @@ class Step<I> {
       const e = this.policyAt(t), f = this.facts(t);
       if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
       if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
-      if (f.ungathered) refuse(`${name} stays: ${f.ungathered}`);
       if (this.agent && this.ctx.person.here !== false && t === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't gather it into a group`);
     }
     // A container that keeps its tiles from data (a board's lanes: their source fills them) isn't gathered: its tiles would leave their source.

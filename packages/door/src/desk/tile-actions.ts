@@ -725,7 +725,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "move tile=<tile> into a group on this screen whole (group=<its tile>; with several groups and none named, the person picks one), or, on a tile of a group's screen, back out onto the screen holding it. A shorthand for layout.move into=<group> / out=true, which also place it (beside=, where=)",
     keys: "^W i; the tile menu",
     touches: "shape", replay: "safe", confirms: true,
-    says: r => `moved ${r.name ?? r.tile} ${r.out ? `out of ${r.from ?? "its group"}` : `into ${r.into}`}`,
+    says: r => (r.asked ? `${r.name ?? r.tile}: into which group?` : `moved ${r.name ?? r.tile} ${r.out ? `out of ${r.from ?? "its group"}` : `into ${r.into}`}`),
     menu: { label: "move into a group…", group: TILE, key: "ctrl+w i", now: ({ d, reader }) => { const n = d.groupsFor(reader); return d.inGroup() ? { label: "move out of its group" } : n.length ? null : { hide: true }; } },
     args: { group: { type: "string", optional: true, kind: "tile", about: "the group tile to move it into" } },
     examples: [

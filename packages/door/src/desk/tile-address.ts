@@ -2,9 +2,10 @@
 // address, matched in this order, and nothing else decides which tile a request means:
 //
 //   t-<uuid>            this exact tile: a unique prefix of 8+ characters after `t-` works, as a block id's does
-//   role:<role>[@scope] a tile of this kind, wherever it is: `role:agent` is the drawer's own program, `role:reader` a
-//                       reader. The role lives on the tile (set when it is made, saved with its id), so a restart, a
-//                       handover or a restore keeps it. `@scope` narrows it to the drawer or to one screen
+//   role:<role>[@scope] a tile of this kind, wherever it is: `role:agent` an agent tab (of several, the one the person
+//                       used last), `role:reader` a reader. The role lives on the tile (set when it is made, saved with
+//                       its id), so a restart, a handover or a restore keeps it. `@scope` narrows it to the drawer or to
+//                       one screen
 //   <slot>@<screen>     the place, whatever fills it now: a slot the screen declares (its spec's tile names, where
 //                       opens land: `detail`, a docked tile) on that screen
 //   ^, ^^               relative: the tile that opened this one (the acting tile's), or the one before it in the chain
@@ -24,11 +25,11 @@ export type TileAddress =
   | { kind: "relative"; up: number; text: string }
   | { kind: "name"; name: string; text: string };
 
-/** The drawer's own program, by its name from before roles: an alias for `role:agent`. */
+/** The agent tab used last, by its name from before roles: an alias for `role:agent`. */
 export const AGENT_ALIAS = "drawer.agent";
-/** The role of the drawer's own program. */
+/** The role of an agent tab (PIE-1331: every agent in the drawer is a terminal tab with it). */
 export const ROLE_AGENT = "agent";
-/** Whether `sel` names the drawer's own program (`drawer.agent`, `role:agent`, `role:agent@drawer`); another scope names none. */
+/** Whether `sel` names the agent tab used last (`drawer.agent`, `role:agent`, `role:agent@drawer`); another scope names none. */
 export const namesAgent = (sel: string | undefined): boolean => {
   if (sel === undefined) return false;
   const a = parseTileAddress(sel);
@@ -71,6 +72,8 @@ export interface AddressCandidate<T> {
   copiedFrom?: string;
   /** Its screen's name (`drawer` for the drawer's own desk). */
   screen: string;
+  /** When the person last typed in it or clicked it (a terminal's): of several agent tabs, `role:agent` is the one used last. */
+  usedAt?: number;
   /** Where to find it, for a refusal that lists several (worked out only when a refusal needs it). */
   where: () => string;
 }
@@ -92,6 +95,8 @@ export function matches<T>(a: TileAddress, cs: readonly AddressCandidate<T>[]): 
  */
 export function resolveAddress<T>(a: TileAddress, cs: readonly AddressCandidate<T>[]): AddressCandidate<T> | null {
   const hits = matches(a, cs);
+  // Several agent tabs: the one the person used last (PIE-1331), as the lift picks it.
+  if (hits.length > 1 && a.kind === "role" && a.role === ROLE_AGENT && hits.every(h => h.usedAt !== undefined)) return hits.reduce((best, h) => (h.usedAt! > best.usedAt! ? h : best));
   if (hits.length > 1) throw new ActionRefused(`${a.text} names ${hits.length} tiles: ${list(hits)}; use tile=<id>${a.kind === "role" && a.scope === undefined ? ` or ${a.text}@<screen>` : ""}`);
   return hits[0] ?? null;
 }
