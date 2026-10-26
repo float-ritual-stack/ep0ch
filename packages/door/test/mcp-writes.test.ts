@@ -648,7 +648,8 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(det.json.detail.block.text).toBe(`graph-stat [header::none]\n[from::((${plan.id}^beds))]\n!((${plan.id}^beds))`);
     const into = await tool("outline_quote", { uri: planUri, elements: ["beds"], into: ids.seeds!, at: 1 });
     expect(into.json).toMatchObject({ outcome: "applied" });
-    expect((await garden.get(ids.seeds!))!.text.split("\n")[1]).toBe(`!((${plan.id}^beds))`);
+    // After the block at line 1, a blank line before it (PIE-1357).
+    expect((await garden.get(ids.seeds!))!.text).toContain(`\n\n!((${plan.id}^beds))`);
     // A thread that isn't on the note is refused; a bad shape is too.
     expect((await tool("outline_reply", { uri: seeds, thread: "no-such-thread", body: "hello" })).text).toContain("No thread no-such-thread");
     expect((await tool("outline_resolve_thread", { uri: seeds, thread: id })).isError).toBe(true);

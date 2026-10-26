@@ -959,7 +959,8 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
       const named = String(into).trim(), page = /^\[\[(.+)\]\]$/.exec(named)?.[1];
       const blockId = page ? (await desk.ctx.board.resolvePage(page)).block?.id : referencedBlock(named)?.blockId ?? named;
       if (!blockId) throw new ActionRefused(`no page is named ${page}: name the note by its id, ((id)) or [[page]]`);
-      const r = await pane.surface.materialize({ kind: "into", blockId, line: Math.max(0, Number(at) - 1), ...(after !== undefined ? { observed: String(after) } : {}) }, pane.host(desk), actor, { ...(anchor ? { anchor } : {}), ...(line !== undefined ? { line: line - 1 } : {}), ...(copy ? { as: "copy" as const } : {}) });
+      const part = { ...(anchor ? { anchor } : {}), ...(line !== undefined ? { line: line - 1 } : {}), ...(copy ? { as: "copy" as const } : {}) };
+      const r = await pane.surface.materialize({ kind: "into", blockId, line: Math.max(0, Number(at) - 1), ...(after !== undefined ? { observed: String(after) } : {}) }, pane.host(desk), actor, part);
       if (!("into" in r)) throw new ActionRefused("the service made a block, not an edit of that note");
       return { into: r.into, part: r.subjects[0]!.ref, ...(r.subjects[0]!.anchored ? { anchored: true } : {}), said: r.said };
     },

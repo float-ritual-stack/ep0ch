@@ -1,3 +1,4 @@
+import { landingLine } from "@ep0ch/outline-core/block-insert";
 import { ReaderPosition, PositionRows } from "./reader-position";
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
@@ -733,7 +734,10 @@ export class Draft {
       const mark = markStart(text, p.mark);
       if (mark >= 0 && located.spans.some(sp => sp.end > mark)) return no("it reaches the mark or below it; a patch changes only text above the mark");
     }
-    if (!p.force && !p.output) {
+    // The person's own write into the draft they're typing in (a part they dropped there, PIE-1357) is theirs to place:
+    // no cursor or typing guard, as their own keys have none. An agent's patch keeps them; proposals are for it.
+    const own = by.kind === "user";
+    if (!p.force && !p.output && !own) {
       const c = this.offsetOf(this.row, this.col), a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : c;
       if (p.replyTo && located.spans.some(sp => sp.start <= c && c <= sp.end)) return no("the cursor is on the ask being answered");
       if (located.spans.some(sp => (sp.start < c && c < sp.end) || (sp.start < a && a < sp.end))) return no("the cursor is in that passage");
@@ -1094,6 +1098,24 @@ export class Draft {
   posAt(x: number, y: number): { row: number; col: number } {
     return this.posIn(this.shown.rows, this.top + Math.max(0, y), Math.max(0, x));
   }
+  /**
+   * Where a part dropped at host cell `x`, `y` lands (PIE-1357): after the block of lines under it (down to the line
+   * before a blank one), and the host row its drop line is drawn on, under that block. Null off the text.
+   */
+  dropAt(x: number, y: number): { line: number; row: number } | null {
+    const f = this.frame, rows = this.shown.rows;
+    // Rich edit draws no source rows (PIE-1357): the part lands after the block the cursor is in, with no line drawn.
+    if (!f || !rows.length) return { line: landingLine(this.lines, this.row), row: -1 };
+    if (y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols) return null;
+    const line = landingLine(this.lines, rows[Math.min(rows.length - 1, this.top + (y - f.row))]!.line);
+    // Its drop line: under the last row the landing line is drawn on, when that row is in view.
+    let k = rows.length - 1;
+    while (k > 0 && rows[k]!.line > line) k--;
+    const row = f.row + (k - this.top) + 1;
+    return { line, row: row > f.row && row < f.row + f.rows ? row : -1 };
+  }
+
+
 
   /** The draft as terminal lines, soft-wrapped at `w`, with the cursor and selection drawn; the cursor kept on screen unless scrolled away. */
   render(w: number, h: number): string[] {

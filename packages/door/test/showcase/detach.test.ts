@@ -17,7 +17,49 @@ describe.skipIf(!outliner)("showcase: detach (PIE-1247)", () => {
   };
   const mouse = (action: "down" | "drag" | "up", x: number, y: number) => h.press({ kind: "mouse", action, button: 0, x, y, mods: 8 } as never);
 
+  test("the person's own edit takes a dropped part as one undoable edit, no proposal; a drop line shows where before release; a blank line around each (PIE-1357)", async () => {
+    await h.app.act({ action: "section", args: { name: "detach" }, as });
+    await until(() => h.screen().includes("Shed rebuild plan"), "the detach section", 15_000);
+    const stage = () => h.S().stages.get(h.S().sel).top;
+    const pad = h.seeded.notes.shedPad.id, padBefore = (await h.board.get(pad))!;
+    await stage().dispatch.act({ action: "edit", tile: "pad" }, USER);
+    const draft = () => stage().pane("pad").surface.draft;
+    await until(() => !!draft(), "the person's edit of the pad", 8000);
+    let last = "";
+    await until(() => { const now = h.screen(); const still = now === last; last = now; return still; }, "the screen settled", 10_000);
+    const drop = async (part: string) => {
+      const rows = h.screen().split("\n");
+      const [y, x] = rows.flatMap((l, i) => (l.includes(part) ? [[i, l.indexOf(part) + 2] as const] : [])).sort((a, b) => a[1] - b[1])[0]!;
+      const y2 = rows.findIndex(l => l.includes("Drop a part of the plan here.")), x2 = rows[y2]!.indexOf("Drop a part of the plan here.") + 3;
+      mouse("down", x, y); mouse("drag", x + 3, y); mouse("drag", x2, y2);
+      const held = h.screen().split("\n");
+      expect(held.join("\n")).toContain("drop: embed or copy here, in Shed sticky pad (your edit) after line 2");
+      // The drop line, under the block the pointer is over, before the release.
+      expect(held[y2 + 1]).toContain("═══");
+      mouse("up", x2, y2);
+      await until(() => h.screen().includes("embed it: a reference"), "the embed-or-copy choice", 8000);
+      h.press({ kind: "enter" } as never);
+    };
+    await drop("order the felt");
+    await until(() => draft()!.text.includes("^order-the-felt))"), "the part in the edit", 10_000);
+    await drop("borrow a ladder");
+    await until(() => draft()!.text.includes("^borrow-a-ladder))"), "the second part in the edit", 10_000);
+    const plan = h.seeded.notes.shedPlan.id;
+    // Each a block of its own: a blank line around it.
+    expect(draft()!.text.split("\n").slice(1, 7)).toEqual(["Drop a part of the plan here.", "", `((${plan}^borrow-a-ladder))`, "", `((${plan}^order-the-felt))`, ""]);
+    // One undo step each: the person's ctrl+z takes the last drop back.
+    await stage().dispatch.act({ action: "draft.undo", tile: "pad" }, USER);
+    expect(draft()!.text).not.toContain("borrow-a-ladder))");
+    expect(draft()!.text).toContain(`((${plan}^order-the-felt))`);
+    // Left as it was for the next test: the edit let go of, the section left for the index.
+    await stage().dispatch.act({ action: "edit.close", args: { discard: true }, tile: "pad" }, USER);
+    for (let i = 0; i < 4 && h.S().focus === "stage"; i++) h.press({ kind: "esc" } as never);
+    // Nothing went to the saved note, and nothing waits as a proposal.
+    expect((await h.board.get(pad))!.revision).toBe(padBefore.revision);
+  }, 90_000);
+
   test("alt+drag a list item onto the pad embeds it; act detaches the figure into a tile of its own and copies the callout with its words", async () => {
+    (h.app as unknown as { lastInput: number }).lastInput = 0;
     await h.app.act({ action: "section", args: { name: "detach" }, as });
     await until(() => marks.detach!.every(m => h.screen().includes(m)), `the detach section: ${marks.detach!.filter(m => !h.screen().includes(m)).join(" | ")}`, 15_000);
     const plan = h.seeded.notes.shedPlan.id, pad = h.seeded.notes.shedPad.id;
@@ -31,11 +73,12 @@ describe.skipIf(!outliner)("showcase: detach (PIE-1247)", () => {
     mouse("down", x, y);
     mouse("drag", x + 2, y);
     mouse("drag", x2, y2);
-    expect(h.screen()).toContain("→ into Shed sticky pad, after line 2");
+    expect(h.screen()).toContain("→ drop: embed or copy here, in Shed sticky pad after line 2");
     mouse("up", x2, y2);
     await until(() => h.screen().includes("embed it: a reference"), "the embed-or-copy choice", 8000);
     h.press({ kind: "enter" } as never);
-    await untilAsync(async () => (await h.board.get(pad))!.text.split("\n")[2] === `((${plan}^order-the-felt))`, "the reference put into the pad", 10_000)
+    // A block of its own (PIE-1357): a blank line before it, and the blank line that was there after it.
+    await untilAsync(async () => (await h.board.get(pad))!.text.split("\n").slice(1, 5).join("\n") === `Drop a part of the plan here.\n\n((${plan}^order-the-felt))\n`, "the reference put into the pad", 10_000)
       .catch(async e => { console.log(h.screen(), (await h.board.get(pad))!.text); throw e; });
     expect((await h.board.get(plan))!.text).toContain("- order the felt ^order-the-felt");
 
@@ -52,7 +95,7 @@ describe.skipIf(!outliner)("showcase: detach (PIE-1247)", () => {
     // And the callout copied into the pad, its words with it.
     const q = await h.app.act({ action: "element.quote", tile: "plan", args: { line: 11, into: pad, at: 2, copy: true }, as }) as { into: { outcome: string } };
     expect(q.into.outcome).toBe("applied");
-    expect((await h.board.get(pad))!.text.split("\n").slice(1, 4)).toEqual(["Drop a part of the plan here.", "> [!warning] Paint the door last", "> The primer needs two dry days."]);
+    expect((await h.board.get(pad))!.text.split("\n").slice(1, 5)).toEqual(["Drop a part of the plan here.", "", "> [!warning] Paint the door last", "> The primer needs two dry days."]);
 
     // By mouse again: the callout dragged onto the screen's right edge detaches into a full-height column.
     const tiles = () => h.S().stages.get(h.S().sel).top.layoutGet().tiles.length;
@@ -81,4 +124,5 @@ describe.skipIf(!outliner)("showcase: detach (PIE-1247)", () => {
     h.press({ kind: "alt", ch: "D" } as never);
     await until(() => tiles() === before + 1, "alt+D's tile", 15_000);
   }, 90_000);
+
 });
