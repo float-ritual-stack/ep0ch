@@ -4246,7 +4246,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private drawKeyPanel(canvas: Canvas, cols: number, rows: number): boolean {
     const p = this.hintPanel!, body = panelLines(p.groups, cols - 6, rows - 6);
     if (!body) return false;
-    const w = body.width + 4, h = body.lines.length + 2;
+    // Wide enough for its title and foot too (one group, ^W o's kinds, is narrower than either).
+    const w = Math.min(cols, Math.max(body.width + 4, width(p.title) + 6, width(p.foot) + 6)), h = body.lines.length + 2;
     const r: Rect = { col: Math.max(0, Math.floor((cols - w) / 2)), row: Math.max(0, rows - 3 - h), cols: w, rows: h };
     this.overlayHits.push(r);
     canvas.float(r, p.title, fg(C.dark) + p.foot, () => {

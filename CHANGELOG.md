@@ -10,6 +10,23 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One line field everywhere you type one line (PIE-1290), and ^W shows its keys (PIE-1304)
+
+- **Every one-line input is the same field.** The power bar, a rename, a picker's line, the tile menu's search, a river
+  column's `/` filter, a `::links` list's filter, the facets and backlinks queries, the message log's `/`, the drawer's
+  folder, the home base's machine name, a form's field and a property's value now share one editor: undo and redo
+  (ctrl+z, ctrl+y), ctrl+w and alt+backspace (the word before), ctrl+k, ctrl+x cut, shift+arrows select, and the mouse
+  (a click places the cursor, a drag selects, a double click a word, a triple the line).
+- **ctrl+w erases a word while a line has the keys.** In a filter, a property's value or a picker's line, ctrl+w is the
+  word before the cursor, as in the power bar; `^W` comes back after esc (or a click elsewhere). The tile menu keeps
+  `^W` as its chord (^W x closes); alt+backspace erases a word there.
+- **Backspace takes a whole character.** A family emoji, a flag or an accented letter goes in one press, in the door's
+  edits and lines and in the outliner's filters (Tree's action menu, Detail's filters, the outline chooser, Pi's query):
+  one set of steps in outline-core (`graphemes.ts`).
+- **Pause after ^W and a panel shows every key it takes,** grouped (focus & move, size & shape, tabs, open, mounts &
+  groups, drawer, layouts & more), each in its action's own words; a click on a row runs it, esc closes it. A fast typist
+  never sees it. `^W o` and `^W O` show the kinds they open the same way. `act keys.panel` opens it at once; an agent's
+  answers the groups and moves nothing. The short keys box it replaces is gone.
 ### A button asks for what it's missing; copy any tile's or note's address; a `::button` line is read as you type (PIE-1298, PIE-1297, PIE-1312)
 
 - **An empty slot asks.** `::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}`: pressed with `target=`

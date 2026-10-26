@@ -313,7 +313,7 @@ Activation = { open: string } | { run: { action: string, args?: Record<string, s
     where its opens land. None touches the person's.
   - `list.enter` gives a list the keyboard, so it is the person's; an agent's is refused with what to do instead
     (`list.pick`, then `list.open`), as `ActionDef.person` already says for others.
-- **Renderers.** The door: one `ListView` over `RowView` (`scroll.ts:155`) with the filter's `LineInput` and the
+- **Renderers.** The door: one `ListView` over `RowView` (`scroll.ts:155`) with the filter's `LineField` and the
   preview slot. Detail: rows as text, ⏎ opens. The publisher: `<ul>`, the first row's preview after it. Markdown: a
   bulleted list. JSON: the rows. CSV: label and detail.
 
