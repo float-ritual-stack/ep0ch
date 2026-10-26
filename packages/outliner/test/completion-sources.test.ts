@@ -9,6 +9,7 @@ import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { mergeSourceAnswers, insertText } from "@ep0ch/outline-core/completion-source";
+import { completionRows } from "../src/completion-sources";
 import type { CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import type { CompletionKind } from "@ep0ch/outline-core/completion-triggers";
 import type { ExtensionsListResult } from "../src/extension-registry";
@@ -96,6 +97,17 @@ test("a source that fails says so, and the built-ins still answer", async () => 
   const r = await rows("page", "comp");
   expect(r.answers.find(a => a.source.id === "ext.broken.odd")!.problem).toContain("insert");
   expect(merged(r, "comp").map(row => row.label)).toEqual(["Compost · Compost", "new page · comp"]);
+});
+
+test("a built-in source that fails says so, and the extensions' rows still come", async () => {
+  const svc = { request: async <T>(action: string): Promise<T> => {
+    if (action === "references.resolve") return {} as T;
+    throw new Error("the page index is busy");
+  } };
+  const issues = { id: "issues", extension: "issues", name: "ext.issues.issues", title: "issues", triggers: ["[["] as const };
+  const r = await completionRows(svc, { target: { kind: "page", query: "seed" } }, [issues], async () => [{ label: "#15 Seed swap", insert: "#15" }], {});
+  expect(r.answers.find(a => a.source.id === "pages")!.problem).toContain("the page index is busy");
+  expect(r.answers.find(a => a.source.id === "ext.issues.issues")!.rows).toHaveLength(1);
 });
 
 test("a source in no list, or keys without key::, is refused with what to write", async () => {

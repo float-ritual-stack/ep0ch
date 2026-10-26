@@ -1202,7 +1202,8 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(p.items.map(i => i.insertion)).toEqual(r.items.map((i: any) => i.insertion));
     e.press(K("esc"));
     const f: any = await e.s.act("complete", { text: "[file::notes/" }, e.h, AGENT);
-    expect(f.items.map((i: any) => i.insertion)).toEqual(["[file::notes/beds/", "[file::notes/plan.md]"]);
+    // Both, in whichever order this service's picks put them (plan.md was chosen above, so it may lead).
+    expect(f.items.map((i: any) => i.insertion).sort()).toEqual(["[file::notes/beds/", "[file::notes/plan.md]"]);
     // The person's draft is theirs: a candidate isn't put in at their cursor (round 3, deferred), their text and cursor as they were.
     const before = [e.d.text, e.d.row, e.d.col];
     await expect(e.s.act("complete", { insert: 1 }, e.h, AGENT)).rejects.toThrow("this draft is the person's; an agent doesn't type in it");

@@ -24,6 +24,18 @@ test("a ranked source keeps its order; an equal match goes to the higher priorit
   expect(labels(mergeSourceAnswers([other, ranked], "plum"))).toEqual(["Plum log", "Plum tree", "Plum jam", "new page · plum"]);
 });
 
+test("in a ranked source an incidental row never sinks the strong ones after it, and a pick rises among equals", () => {
+  const blocks: SourceAnswer = { source: src("blocks", { ranked: true, priority: 10 }), rows: [
+    { label: "Seed swap", insert: "((a))" }, { label: "  ^p1  # Prices", insert: "((a^p1))", filter: "Seed swap" },
+    { label: "Seed library", insert: "((b))" }, { label: "Seed list", insert: "((c))" },
+  ] };
+  const ext: SourceAnswer = { source: src("ext"), rows: [{ label: "Old seed packets", insert: "#9" }] };
+  expect(labels(mergeSourceAnswers([blocks, ext], "seed"))).toEqual(["Seed swap", "  ^p1  # Prices", "Seed library", "Seed list", "Old seed packets"]);
+  const now = new Date("2026-10-26T12:00:00Z");
+  const picks = recordPick({}, "((", "((c))", now)["(("];
+  expect(labels(mergeSourceAnswers([blocks], "seed", { picks, now })).slice(0, 2)).toEqual(["Seed list", "Seed swap"]);
+});
+
 test("picked more often and more lately comes first among equals, a preselected row before everything", () => {
   const now = new Date("2026-10-26T12:00:00Z");
   const a: SourceAnswer = { source: src("a"), rows: [{ label: "alpha", insert: "a" }, { label: "beta", insert: "b" }, { label: "gamma", insert: "g", preselect: true }] };

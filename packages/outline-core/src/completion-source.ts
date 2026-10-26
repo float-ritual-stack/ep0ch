@@ -164,17 +164,28 @@ export function mergeSourceAnswers<R extends SourceRow>(answers: readonly Source
   type Entry = { row: MergedRow<R>; pre: number; tier: number; f: number; p: number; score: number; i: number };
   const lists: Entry[][] = answers.map(a => {
     const entries: Entry[] = [];
-    let floor = 0;
     a.rows.forEach((row, i) => {
       const text = insertText(row.insert);
       const m = q ? scoreSearchDocument({ id: text, title: row.label, text: row.filter ?? "" }, q) : null;
       if (q && !m && !a.source.ranked) return;
-      let tier = !q ? 0 : m ? TIER[m.kind] : UNPLACED;
-      // A ranked source's order stands: a row never rises above one its source put before it.
-      if (a.source.ranked) { tier = Math.max(tier, floor); floor = tier; }
+      const tier = !q ? 0 : m ? TIER[m.kind] : UNPLACED;
       entries.push({ row: { ...row, from: a.source.id, tier } as MergedRow<R>, pre: row.preselect ? 0 : row.fallback ? 2 : 1, tier, f: frecency(picks[text], now), p: a.source.priority ?? 0, score: m?.score ?? 0, i });
     });
-    if (!a.source.ranked) entries.sort((x, y) => x.pre - y.pre || x.tier - y.tier || y.f - x.f || y.score - x.score || x.i - y.i);
+    if (!a.source.ranked) {
+      entries.sort((x, y) => x.pre - y.pre || x.tier - y.tier || y.f - x.f || y.score - x.score || x.i - y.i);
+      return entries;
+    }
+    // A ranked source's order stands: each row takes the best tier of any row it put after it, so an incidental row
+    // (an anchor listed under its note) never sinks the strong ones after it, and the source compares with the others
+    // as its best remaining row does. Among rows of one tier, what was picked before rises.
+    let best = Infinity;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i]!;
+      if (e.pre === 2) continue;   // a fallback row (a new page) lends nothing: it is offered last whatever it matches
+      best = e.tier = Math.min(e.tier, best);
+    }
+    entries.sort((x, y) => x.pre - y.pre || x.tier - y.tier || y.f - x.f || x.i - y.i);
+    for (const e of entries) e.row.tier = e.tier;
     return entries;
   });
   const better = (x: Entry, y: Entry) => x.pre - y.pre || x.tier - y.tier || y.f - x.f || y.p - x.p;

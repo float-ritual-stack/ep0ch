@@ -56,7 +56,6 @@ const LIMIT=20;
 function snippet(text:string):string {
   return propertyInspectorAuthoredText(text).split(/\r?\n/).slice(1).join(' ').replace(/\s+/g,' ').trim().slice(0,240);
 }
-const HEADINGS:Partial<Record<string,string>>={page:'references',block:'references',file:'files',agent:'agents',value:'values',key:'properties',callout:'callout types',component:'components'};
 
 export async function lookupReferenceCompletion(provider:ReferenceCompletionProvider,target:CompletionTarget,draft?:CompletionDraft):Promise<ReferenceCompletionState> {
   const r=await provider.completionRows({target:{kind:target.kind,query:target.query,...(target.key?{key:target.key}:{}),...(target.component?{component:target.component}:{})},limit:LIMIT,...(draft?{near:draft.blockId,draft}:{})});
@@ -68,9 +67,10 @@ export async function lookupReferenceCompletion(provider:ReferenceCompletionProv
   const partial=r.answers.map(a=>a.partial).find(Boolean)??'';
   const problems=r.answers.map(a=>a.problem).filter(Boolean).join(' · ');
   const empty=r.answers.map(a=>a.empty).filter(Boolean).join(' · ')||'No matches';
-  const heading=r.answers.map(a=>a.heading).find(Boolean)??HEADINGS[target.kind]??'completions';
+  // What the list is: a source's own words for it (`in Greenhouse meeting`), else the title of the source that answered first.
+  const heading=r.answers.map(a=>a.heading).find(Boolean)??r.answers.find(a=>a.rows.length)?.source.title??'completions';
   const message=items.length?[partial||(truncatedLimit?`Showing first ${truncatedLimit} matches`:''),problems].filter(Boolean).join(' · '):[partial&&`Partial search: ${partial}`,empty,problems].filter(Boolean).join(' · ');
-  return {start:target.start,end:target.end,index:0,items,truncatedLimit,incompleteness:partial,message,heading,query:target.query,pickKey:pickKey({trigger:triggerOf(target.kind),kind:target.kind,key:target.key})};
+  return {start:target.start,end:target.end,index:0,items,truncatedLimit,incompleteness:partial,message,heading,query:target.query,...(triggerOf(target.kind)?{pickKey:pickKey({trigger:triggerOf(target.kind),kind:target.kind,key:target.key})}:{})};
 }
 
 /** Whether a token with nothing to offer still shows its words: a reference does; a property or a component doesn't open. */
@@ -158,6 +158,8 @@ export class ReferenceCompletionSession {
       }
       b.replaceCurrentLine(state.start,state.end,item.insertion);
       });
+      // A snippet's span is selected once it's in (its placeholder), so the next keys replace it.
+      if(item.selection){const row=b.row,at=Math.min(state.start,(b.lines[row]??'').length);b.placeCursor(row,at+item.selection.start);b.placeCursor(row,at+item.selection.end,true);}
       if(state.pickKey)void this.provider.completionPicked?.(state.pickKey,item.insertion).catch(()=>{});
       this.dismiss();return true;
     }catch(error){if(this.current(generation)){state.message=error instanceof Error?error.message:String(error);this.changed();}return false;}finally{this.accepting=false;}

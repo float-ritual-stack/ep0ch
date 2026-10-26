@@ -4,7 +4,7 @@ import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { namesDemoIds, readDemo, rewriteDemoReferences, type Demo } from "./extension-demo";
-import { loadExtensionManifest, type ExtensionManifest, type LoadedExtension } from "./extension-manifest";
+import { loadExtensionManifest, manifestSources, type ExtensionManifest, type LoadedExtension } from "./extension-manifest";
 import { cleanExtensionText, extensionActorId } from "./extension-records";
 import type { ExtensionEntry, ExtensionRegistry } from "./extension-registry";
 import type { OutlinerStore } from "./store";
@@ -163,7 +163,11 @@ export function whatItAdds(manifest: ExtensionManifest): string[] {
     out.push(`- Rule \`${rule.id}\`: when a note matches ${match}, ${does || "nothing yet"}${rule.description ? `. ${words(rule.description)}` : ""}`);
   }
   for (const agent of manifest.agents ?? []) out.push(`- Agent \`@${agent.name}\`${agent.threads ? " (answers in comment threads)" : ""}${agent.description ? `: ${words(agent.description)}` : ""}`);
-  for (const source of manifest.bar ?? []) out.push(`- Power bar rows: **${words(source.title)}**${source.prefix ? ` (prefix \`${source.prefix}\`)` : ""}${source.description ? `: ${words(source.description)}` : ""}`);
+  for (const source of manifestSources(manifest)) {
+    const about = source.description ? `: ${words(source.description)}` : "";
+    if (source.operation === "bar" || source.prefix || source.main) out.push(`- Power bar rows: **${words(source.title)}**${source.prefix ? ` (prefix \`${source.prefix}\`)` : ""}${about}`);
+    if (source.triggers) out.push(`- Completion rows: **${words(source.title)}** under ${source.triggers.map(t => t === "key::" && source.keys ? source.keys.map(k => `\`[${k}::\``).join(", ") : `\`${t}\``).join(", ")}${about}`);
+  }
   for (const component of (manifest.components ?? []) as { key?: string; name?: string; title?: string }[]) {
     out.push(`- Component schema \`${component.key ?? component.name ?? "?"}\`${component.title ? `: ${words(component.title)}` : ""}`);
   }

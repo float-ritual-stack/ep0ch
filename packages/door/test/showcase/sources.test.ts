@@ -6,9 +6,8 @@ import { describe, expect, test } from "bun:test";
 import { completionOf } from "../../src/surface/completer";
 import { extensionList } from "../../src/extensions";
 import { USER } from "../../src/socket";
-import { OutlinerClient } from "../../../outliner/src/client";
-import { ReferenceCompletionSession, referenceCompletionProvider } from "../../../outliner/src/reference-completion";
-import { TextBuffer } from "../../../outliner/src/text-buffer";
+// Detail's own modules, loaded as Detail runs them (their own package checks their types, under its own settings).
+const detailModule = (file: string) => import(`../../../outliner/src/${file}`) as Promise<any>;
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
@@ -37,12 +36,14 @@ describe.skipIf(!outliner)("showcase: completion sources (PIE-1340)", () => {
 
     // Detail asks the same service the same way (the outliner's shared completion session), from the same note: the
     // same rows, in order.
+    const [{ ReferenceCompletionSession, referenceCompletionProvider }, { TextBuffer }, { OutlinerClient }] = await Promise.all(
+      ["reference-completion.ts", "text-buffer.ts", "client.ts"].map(detailModule));
     const client = new OutlinerClient(h.scratch.sock);
     const buffer = new TextBuffer("Which issue is the swap, see [[seed"); buffer.moveEnd();
     const detail = new ReferenceCompletionSession(referenceCompletionProvider(client, "detail"), () => buffer, () => {}, () => true, () => ({ blockId: h.seeded.notes.sources.id, text: buffer.text }));
     await detail.refresh();
-    expect(detail.state!.items.map(i => i.insertion)).toEqual(p.items.map(i => i.insertion));
-    expect(detail.state!.items.find(i => i.insertion === "[issue::#15]")).toMatchObject({ kind: "issue", detail: "feature" });
+    expect(detail.state!.items.map((i: { insertion: string }) => i.insertion)).toEqual(p.items.map(i => i.insertion));
+    expect(detail.state!.items.find((i: { insertion: string }) => i.insertion === "[issue::#15]")).toMatchObject({ kind: "issue", detail: "feature" });
 
     // Inserted by act, as tab or ⏎ would: the issue's property, one undo step.
     await stage().dispatch.act({ action: "complete.accept", args: { n: issue + 1 }, tile: "guide" }, USER);

@@ -264,7 +264,8 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   const heading = all.map(a => a.heading).find(Boolean);
   return {
     items, truncated, message, ...(all.some(a => a.jev === "ranked") ? { jev: "ranked" as const } : {}), ...(all.some(a => a.jevOff) ? { jevOff: true } : {}),
-    ...(heading ? { heading } : {}), pickKey: pickKey({ trigger: triggerOf(target.kind), kind: target.kind, key: target.key }),
+    // Only a token the service answers has picks kept for it (a filter's word, a fence's settings don't: nothing reads them).
+    ...(heading ? { heading } : {}), ...(triggerOf(target.kind) ? { pickKey: pickKey({ trigger: triggerOf(target.kind), kind: target.kind, key: target.key }) } : {}),
   };
 }
 

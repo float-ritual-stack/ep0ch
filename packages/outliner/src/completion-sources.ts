@@ -212,7 +212,8 @@ export async function completionRows(svc: CompletionService, request: Completion
   };
   const asks: Promise<CompletionSourceAnswer>[] = [];
   for (const s of SERVICE_SOURCES) if (sourceAnswers(s.decl, ask)) {
-    asks.push(s.rows(ask, svc).then(a => ({ source: s.decl, ...a })));
+    // A source that fails says so in its own answer: the others' rows still come.
+    asks.push(s.rows(ask, svc).then(a => ({ source: s.decl, ...a }), error => ({ source: s.decl, rows: [], problem: `${s.decl.title}: ${error instanceof Error ? error.message : String(error)}` })));
   }
   for (const e of extensions) if (sourceAnswers(e, ask)) {
     const decl = { id: e.name, title: e.title, priority: 0, by: e.extension };
