@@ -1,6 +1,6 @@
 // Raw terminal: alt screen, key decoding, capability replies, line-diffed painting.
 import { KITTY_QUERY, kittyHint } from "./kitty";
-import { SIZED_QUERY, sizedAnswer, sizedHint } from "./text-sizing";
+import { multiplexed, SIZED_QUERY, sizedAnswer, sizedHint } from "./text-sizing";
 import { isHyperReport, KBD_POP, KBD_PUSH, KBD_QUERY, kbdWanted, parseReport, REPORT_AT, reportKey } from "./kbd";
 import { visible } from "./style";
 import { isStatusQueryReply, PROGRAM_STATUS_OSC, PROGRAM_STATUS_QUERY } from "@ep0ch/outline-core/program-status";
@@ -144,7 +144,11 @@ function terminalGuard(): { dismiss(): void } | null {
  * Status Protocol's query (OSC 7501): the door reports its own status to it. `tree`: it shows the records of a report
  * one by one, so the door sends its tiles too (programStatusTree); else only the root.
  */
-export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean; pst?: boolean; tree?: boolean; sized?: boolean }
+export interface TermInfo {
+  cols: number; rows: number; cellW: number; cellH: number; kitty: boolean; pst?: boolean; tree?: boolean; sized?: boolean;
+  /** The terminal answers `CSI 5 n` (status) in order, after taking everything sent before it: the session can count frames in flight on it (PIE-1163). */
+  acks?: boolean;
+}
 
 /** How a program is run in a terminal handed to it: its folder, its environment, a line printed first. */
 export interface HandoverOpts { cwd?: string; env?: Record<string, string>; banner?: string }
@@ -188,6 +192,8 @@ export class Rows {
   private last: string[] = [];
   /** What a frame in progress has written so far (null outside `frame`); sent as one chunk when it ends. */
   private frameOut: string | null = null;
+  /** Bytes that follow every frame that goes out, after its synchronized update (a session client asks to be answered, PIE-1163). */
+  afterFrame: (() => string) | null = null;
   constructor(private readonly out: (s: string) => void, public info: TermInfo) {}
   write = (s: string) => { if (this.frameOut !== null) this.frameOut += s; else this.out(s); };
 
@@ -204,7 +210,7 @@ export class Rows {
     } finally {
       const out = this.frameOut;
       this.frameOut = null;
-      if (out) this.out(`\x1b[?2026h${out}\x1b[?2026l`);
+      if (out) this.out(`\x1b[?2026h${out}\x1b[?2026l${this.afterFrame?.() ?? ""}`);
     }
   }
 
@@ -247,10 +253,28 @@ export class Rows {
  * terminal's replies to the door's own queries (its cell size, Kitty graphics, the keyboard protocol). One per
  * terminal: the door's own (Term), or each client attached to a session, each with its own half-read sequence.
  */
+/** What the terminal answers to `CSI 5 n`: it is in working order, and has handled what came before the query. */
+export const STATUS_OK = "\x1b[0n";
+/** The query: after each frame a session sends a client, and once at the probe. */
+export const STATUS_QUERY = "\x1b[5n";
+
+/**
+ * Whether a terminal's answers to `CSI 5 n` can be counted on. Inside a multiplexer (Herdr, tmux, screen) they can't: it
+ * answers for itself at once, so a stall behind it is never seen and the window would only mislead (it stays off there,
+ * today's behaviour). EP0CH_ACKS=0 turns it off outright, 1 on even there.
+ */
+export const acksUsable = (env: Record<string, string | undefined> = process.env): boolean =>
+  env.EP0CH_ACKS === "0" ? false : env.EP0CH_ACKS === "1" ? true : !multiplexed(env);
+
 export class KeyDecoder {
   private pending = "";
   keyHandler: (k: Key) => void = () => {};
   probing: { kitty: boolean | null; cursor?: number[]; done: () => void } | null = null;
+  /**
+   * The terminal answered a `CSI 5 n` (its status, `CSI 0 n`): it has taken everything sent before the query. A session
+   * asks after each frame (src/session/session-term.ts); an answer is never a key, whatever the mode.
+   */
+  onStatus: (() => void) | null = null;
   /**
    * The terminal answered the Kitty keyboard protocol's query (src/kbd.ts): the door asks it for the protocol at
    * start and on every resume, and TERM_RESET gives it back. False: legacy keys, as before.
@@ -276,6 +300,8 @@ export class KeyDecoder {
 
   /** Forget a half-read sequence (the terminal was handed to another program and back). */
   reset() { this.pending = ""; }
+
+  private status() { if (this.probing) this.info.acks = true; else this.onStatus?.(); }
 
   private mouseKey(m: RegExpMatchArray) {
     const b = Number(m[1]), x = Number(m[2]) - 1, y = Number(m[3]) - 1;
@@ -330,6 +356,9 @@ export class KeyDecoder {
   }
 
   feed(s: string) {
+    // The status reports that answer `CSI 5 n` are taken out first, wherever they fall: in the middle of a paste still
+    // arriving, in raw input to a terminal tile, between keys. At the probe one says the terminal answers it at all.
+    if (s.includes(STATUS_OK)) s = s.replaceAll(STATUS_OK, () => { this.status(); return ""; });
     this.pending += s;
     while (this.pending.length) {
       const sink = this.rawSink?.();
@@ -453,6 +482,8 @@ export class Term extends Rows {
   }
   /** A session this terminal shows set a theme's ground on it (src/session/client.ts): `stop` gives it back too. */
   sessionGround = false;
+  /** Ask at the probe whether the terminal answers `CSI 5 n` (a session client does, so its session can count frames in flight, PIE-1163). */
+  probeAcks = false;
 
   async start(): Promise<void> {
     this.guard = terminalGuard();
@@ -468,8 +499,10 @@ export class Term extends Rows {
       const timer = setTimeout(() => { decoder.probing = null; resolve(); }, 400);
       decoder.probing = { kitty: null, done: () => { clearTimeout(timer); decoder.probing = null; resolve(); } };
       // The Program Status Protocol's query goes before the DA query that ends the probe: its answer, if any, comes first.
-      this.write(`\x1b[16t${kbdWanted() ? KBD_QUERY : ""}${programStatusWanted() ? PROGRAM_STATUS_QUERY : ""}${sized === null ? SIZED_QUERY : ""}${hint === null ? KITTY_QUERY : "\x1b[c"}`);
+      // The status query is the last before the DA one: a terminal answers in order, so its answer comes first or not at all.
+      this.write(`\x1b[16t${kbdWanted() ? KBD_QUERY : ""}${programStatusWanted() ? PROGRAM_STATUS_QUERY : ""}${sized === null ? SIZED_QUERY : ""}${this.probeAcks ? STATUS_QUERY : ""}${hint === null ? KITTY_QUERY : "\x1b[c"}`);
     });
+    if (this.info.acks && !acksUsable()) this.info.acks = false;
     if (hint !== null) this.info.kitty = hint;
     if (sized !== null) this.info.sized = sized;
     if (this.kbd) this.write(KBD_PUSH + KBD_QUERY);

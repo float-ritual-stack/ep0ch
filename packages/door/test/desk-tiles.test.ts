@@ -15,6 +15,7 @@ import { Desk } from "../src/desk/desk";
 import { splitAxis } from "../src/desk/layout";
 import { keyBytes, mouseBytes } from "../src/desk/pty";
 import { MainMenu } from "../src/screens";
+import { inResize, onResizeEnd, RESIZE_HOLD_MS } from "../src/resize";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { terminalDay } from "./terminal-day";
@@ -593,5 +594,31 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     expect(D().describe().dragging).toBeNull();
     expect(rect("now").rows).toBe(n.rows + 4);
     expect(rect("claude").rows).toBe(c.rows - 4);
+  });
+
+  // PIE-1163: over a link that stalls, the reports of a drag stop coming while the button is still down. The door took
+  // that for the drag's end after half a second and did the work that waits for it (every tile laid out, images scaled
+  // and uploaded) onto the link that had just stalled.
+  test("a border held still for longer than the resize's hold is still being dragged: nothing waits for it to end until it's let go", async () => {
+    if (!(app as any).stack.includes(desk)) app.push(desk);
+    await mine("layout.load", { name: "terminal-day" });
+    const n = rect("now");
+    const border = n.col + visible(render().lines[n.row]!).slice(n.col, n.col + n.cols).match(/[─═]{3,}/)!.index! + 1;
+    let ends = 0;
+    const off = onResizeEnd(() => ends++);
+    try {
+      mouse("down", border, n.row); mouse("drag", border, n.row - 2); render();
+      expect(inResize()).toBe(true);
+      await Bun.sleep(RESIZE_HOLD_MS + 150);
+      expect({ ends, inResize: inResize() }).toEqual({ ends: 0, inResize: true });
+      mouse("drag", border, n.row - 4); render();
+      mouse("up", border, n.row - 4); render();
+      expect({ ends, inResize: inResize() }).toEqual({ ends: 1, inResize: false });
+      // A release that never came (the pointer let go outside the window): the next report with no button down ends it.
+      mouse("down", border, n.row - 4); mouse("drag", border, n.row - 3); render();
+      expect(inResize()).toBe(true);
+      key({ kind: "mouse", action: "drag", button: 3, x: border + 2, y: n.row }); render();
+      expect({ ends, inResize: inResize(), dragging: D().drag }).toEqual({ ends: 2, inResize: false, dragging: null });
+    } finally { off(); }
   });
 });

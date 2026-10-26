@@ -22,7 +22,7 @@ import { uncover, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
-import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, type TileRef } from "./surface/dispatch";
+import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type TileRef } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { AgentPointers, screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
@@ -85,6 +85,8 @@ export type AppTerm = Pick<Term, "info" | "write" | "onKey" | "onResize" | "inva
     typingOn?(): unknown;
     /** The session's terminals, for `peek` (a session's). */
     session?(): unknown;
+    /** How each attached terminal's frames-in-flight window stands (a session's): unanswered frames, skipped, the answer's round trip (PIE-1163). */
+    speed?(): unknown;
   };
 
 export type { Video };
@@ -1059,12 +1061,14 @@ export class App implements Ctx {
     const b = this.board;
     const service = { protocol: b.protocol, offline: this.offline, sequence: b.lastSequence };
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
-    return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}), nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
+    return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}),
+      nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
       ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), ...(this.bar ? { bar: this.bar.describe() } : {}),
       messages: this.messages.rows,
       pointers: this.agentPointers.list(),
       // How the door is keeping up (a475084a): frames drawn against reports handled, the hover reports a busier moment folded into the newest, and the settle: the last input of a burst to the frame that shows it.
-      speed: this.speed.describe(),
+      // Per attached terminal (a session's): the frames it hasn't answered (a stalled link holds them) and the answer's round trip (PIE-1163).
+      speed: { ...this.speed.describe(), ...(this.term.speed ? { clients: this.term.speed() } : {}) },
       // Where the pointer rests on a cut-short value, and whether that value is being read in full (the pointer is the person's: this only says).
       hover: this.overflow.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
@@ -1522,6 +1526,7 @@ export class App implements Ctx {
    * renders and no faster.
    */
   redraw() {
+    this.redraws++; notePressRedraw();
     if (this.closed) return;               // the door has ended (a key in this chunk quit): nothing more is painted
     if (this.keying || this.batching) this.speed.asked();
     if (this.batching) { this.wanted = true; return; }
@@ -1531,6 +1536,9 @@ export class App implements Ctx {
     if (since >= FRAME_MS) return this.paint();
     this.paintTimer = setTimeout(() => { this.paintTimer = null; this.paint(); }, FRAME_MS - since);
   }
+  /** Repaints asked for, painted or folded into another (the parity pass counts them). */
+  private redraws = 0;
+  redrawsAsked(): number { return this.redraws; }
   private lastPaint = 0;
   private paintTimer: Timer | null = null;
   private batching = 0;
