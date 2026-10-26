@@ -18,6 +18,7 @@ are its record. The outliner's entries from then are kept below, under
   the float; click the float, or step out of the drawer, and the float is back above. No dragging it out of the way.
 - **Menus are never cut off:** a tile's menu, a hint card or a completion list opened low on a float runs down over
   the drawer. A lifted tile (PIE-1189) still draws above both.
+
 ### One checklist drawing, and plain headings wrap when narrow (PIE-1348)
 
 - **A component's checklist looks like a `::graph-check`:** the same box, two spaces, and the same hang under the
