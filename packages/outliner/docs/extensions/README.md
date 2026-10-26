@@ -2007,7 +2007,7 @@ Answers `RenderedNote`.
 | `deletedDescendantCount?` | `number` |  |
 | `hasChildren` | `boolean` |  |
 | `displayText` | `string` |  |
-| `propertyMatches?` | `PropertyMatchContext[]` |  |
+| `propertyMatches?` | `PropertyMatch[]` |  |
 | `id` | `string` |  |
 | `parentId` | `string \| null` |  |
 | `position` | `number` |  |

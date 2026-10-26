@@ -100,7 +100,7 @@ A script's arguments are `slot=value` words (`week=42`). The power bar offers th
 |---|---|
 | `scriptFence` | `packages/outliner/src/script-sources.ts:37` |
 | `propsUsed` | `packages/outliner/src/script-sources.ts:51` |
-| `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:430` |
+| `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:452` |
 
 **Script IDs:** a note's `[script::name]` is its power-bar and handler name; the action uses `ext.<id>.run`.
 **Find the action:** `ep0ch ext ls --ws <ws>` lists each name and ID; a script ID is `script-` plus the first 24 SHA-256 hex characters of its identity (note ID or file path), not its name.
@@ -332,8 +332,8 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:52` |
-| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:817` |
-| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:431` |
+| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:870` |
+| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:453` |
 
 ## Effects, access and attribution
 
@@ -359,10 +359,10 @@ examples lean on:
 |---|---|
 | `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:253` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:731` |
-| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1625` |
+| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1629` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4445` |
-| `viaYolo` | `packages/outliner/src/server.ts:4475` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4486` |
+| `viaYolo` | `packages/outliner/src/server.ts:4516` |
 | `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:473` |
 
 ## Lifecycle
