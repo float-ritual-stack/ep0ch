@@ -1274,11 +1274,12 @@ export class AgentDrawer {
   }
   /** One of the agent tabs is lifted now: agent.lift drops it. */
   liftsAgent(): boolean { const p = this.liftPick(); return !!p && this.desks().some(d => d.liftsPane(p.pane)); }
-  /** agent.lift's tile: its pick, else the drawer's own program, opened again first when its tab was closed (as choosing it does). */
-  liftTile(actor: Actor): string {
+  /** agent.lift's tile: its pick, else the drawer's own program, opened again first on a lift when its tab was closed (as choosing it does). */
+  liftTile(actor: Actor, on?: boolean): string {
     const pick = this.liftPick();
     if (pick) return pick.tile;
-    if (this.d && !this.out && !this.d.pane(DRAWER_TILE_ID)) this.reopenOwn(actor);
+    // A drop (on=false) never opens it: there's nothing to drop.
+    if (on !== false && this.d && !this.out && !this.d.pane(DRAWER_TILE_ID)) this.reopenOwn(actor);
     return `role:${ROLE_AGENT}`;
   }
   /** The drawer's own tab again after it was closed: a new one running the drawer's program (its program starts when drawn). */
@@ -1981,13 +1982,13 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       { act: "agent.lift", does: "lifts the agent tab you're using as a column wherever it is, or drops it when it's lifted" },
       { act: "agent.lift reach=full", does: "lifts it across the whole terminal" },
     ],
-    to: { action: "tile.zoom", tile: (_, { drawer }, actor) => drawer.liftTile(actor), args: { reach: "column" } },
+    to: { action: "tile.zoom", tile: ({ on }, { drawer }, actor) => drawer.liftTile(actor, on), args: { reach: "column" } },
     // A lift of it (not a drop) comes with the person's keys, as alt+a gives them: the program in the drawer pulls it up and
     // goes into it (host.enter is the person's own), one on a screen takes the focus there.
     first: [
       { action: "agent.back", when: ({ on }, { drawer }) => on !== false && !drawer.liftsAgent() && drawer.awayUnseen() && !drawer.liftPick() },
-      { action: "host.toggle", args: { open: true }, when: ({ on }, { drawer }) => on !== false && !drawer.liftsAgent() && !drawer.isAway() && !drawer.shown && (drawer.liftPick()?.inDrawer ?? true) },
-      { action: "tile.focus", tile: (_, { drawer }, actor) => drawer.liftTile(actor), when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsAgent() && drawer.standsFor(actor) },
+      { action: "host.toggle", args: { open: true }, when: ({ on }, { drawer }) => on !== false && !drawer.liftsAgent() && !drawer.shown && (drawer.liftPick()?.inDrawer ?? !drawer.isAway()) },
+      { action: "tile.focus", tile: ({ on }, { drawer }, actor) => drawer.liftTile(actor, on), when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsAgent() && drawer.standsFor(actor) },
       { action: "host.enter", when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsAgent() && actor.kind === "user" && (drawer.liftPick()?.inDrawer ?? false) && !drawer.entered },
     ],
   }),

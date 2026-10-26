@@ -780,7 +780,16 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       } finally { d.app.quit(); }
     });
 
-    test("the own program and an agent tab both there: the one the person typed in last is lifted", async () => {
+    test("a drop (on=false) with every agent tab closed opens nothing", async () => {
+      const d = await door();
+      try {
+        await closeOwn(d);
+        await d.app.dispatch.act({ action: "agent.lift", args: { on: false } }, USER).catch(() => null);
+        expect(d.app.drawer.desk!.pane(DRAWER_TILE_ID)).toBeUndefined();
+      } finally { d.app.quit(); }
+    });
+
+    test("the own program and an agent tab both there: the one the person typed in or picked last is lifted", async () => {
       const d = await door();
       try {
         d.key({ kind: "alt", ch: "a" }); d.paint();
@@ -793,6 +802,15 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         expect(drawer.liftsPane(d.app.drawer.tile!)).toBe(true);
         await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER);
         expect(drawer.lifted).toBeNull();
+        // The person types in the own program, then picks kettle's tab: kettle is the agent they're using.
+        expect(d.app.drawer.tile!.typed(char("x"))).toBe(true);
+        await Bun.sleep(5); // one after the other, as a person does: never the same millisecond
+        await drawer.dispatch.act({ action: "tab.select", tile: "kettle" }, USER);
+        expect(await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER)).toMatchObject({ zoomed: true });
+        expect(drawer.liftsPane(d.pane("kettle") as PtyPane)).toBe(true);
+        await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER);
+        await drawer.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, USER);
+        await Bun.sleep(5);
         // The person types in kettle: it's the agent they're using.
         expect((d.pane("kettle") as PtyPane).typed(char("x"))).toBe(true);
         expect(await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER)).toMatchObject({ zoomed: true });

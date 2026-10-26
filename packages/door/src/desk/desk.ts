@@ -5566,8 +5566,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   selectTab(sel: string | undefined, by: number | undefined, actor: Actor): TileDone {
     const t = this.tile(sel);
     const r = this.apply({ op: "tab", tile: t.id, ...(by ? { by } : {}) }, actor);
+    const shown = this.tile(String(r.answer.tile)).id, p = this.panes.get(shown);
+    // The person picking a terminal's tab is them using it (agent.lift lifts the agent tab they're using).
+    if (actor.kind === "user" && p instanceof PtyPane) p.personClickAt = Date.now();
     this.save(); this.redraw();
-    return { ...this.tileAnswer(this.tile(String(r.answer.tile)).id), tabs: r.answer.tabs as string[] };
+    return { ...this.tileAnswer(shown), tabs: r.answer.tabs as string[] };
   }
 
   focusTile(sel: string | undefined, actor: Actor, address = false): TileDone {
