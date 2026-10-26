@@ -106,6 +106,21 @@ const HERO: ComponentSchema = {
   source: { use: `${PIC} [layout::hero]` }, example: {}, sweep: ["fit", "hero-focus", "height", "dim"], grids: [], space: ["fit", "hero-focus"],
 };
 
+/** The values `[header::…]` takes, the reader's header rows each leaves out (the door's NoteSurface.headerBlock reads them). */
+export const HEADER_VALUES = { none: "no header: the body starts on the first row", crumbs: "no crumbs above the title", title: "no title (and subtitle): the crumbs and the byline stay" } as const;
+
+const HEADER: ComponentSchema = {
+  id: "header", group: "layout",
+  title: "Reader header (header)",
+  intro: "The rows a reader draws above a note: the crumbs, the title and the byline (author, date, properties, `[sources]`, `[comment]`). A note that is a composition (a dashboard, a contents page, a brief) can leave them out with `[header::none]` on its first line, in every reader, a river column and the drawer; `crumbs` or `title` leave out only those rows, and `crumbs, title` both. The tile's border still names the note, and the tile menu (⋯) still has the comment, comments, properties and sources rows.",
+  where: "the note's first line: `[header::none]`",
+  props: [
+    { key: "header", where: "line", type: "enum", meaning: "which of the reader's header rows the note leaves out, on its first line (`crumbs, title` leaves out both)", values: enumOf(HEADER_VALUES) },
+  ],
+  source: { use: "Plot at a glance [header::{{props.header}}]\n\n::graph-stat\n---\nitems: [{ value: \"12\", label: beds }, { value: \"3\", label: sown this week }]\n---\n::" },
+  example: { header: "none" }, sweep: ["header"], grids: [], space: ["header"],
+};
+
 const ART = "[artifact::artifacts/pulse-pad.jsx]";
 const ARTIFACT: ComponentSchema = {
   id: "artifact", group: "media",
@@ -189,4 +204,4 @@ const IF: ComponentSchema = {
 };
 
 /** The links components, the box, pictures, references, fences and tables, and the two that read their note's Site. */
-export const BLOCK_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [...LINK_GROUPS.map(linksComponent), BOX, IMAGE, HERO, ARTIFACT, EMBED, FENCE, TABLE, FIELDS, IF];
+export const BLOCK_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [...LINK_GROUPS.map(linksComponent), BOX, IMAGE, HERO, HEADER, ARTIFACT, EMBED, FENCE, TABLE, FIELDS, IF];
