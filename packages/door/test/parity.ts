@@ -635,8 +635,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       if (named_.ran?.tile?.id !== named_.id) return `${req.action} by ${by} reached ${named_.ran?.tile ? `${named_.ran.tile.name} (${named_.ran.tile.id})` : `no tile${named_.said ? ` (it said ${JSON.stringify(named_.said.slice(0, 160))})` : ""}`} where the key reached ${name} (${named_.id})`;
       if (named_.said !== keyed.said) return `${req.action} by ${by} said ${JSON.stringify(named_.said.slice(0, 160))} where the key said ${JSON.stringify(keyed.said.slice(0, 160))}`;
       // Two builds: their tiles' ids differ (a tile menu's title shows a short one), and which tile was reached is checked by id
-      // above. An id ending in digits and d, h, m or s reads to `ageless` as an age (t-e95e9d: t-e95e#age).
-      const idless = (x: Snap): Snap => ({ ...x, lines: x.lines.map(l => l.replace(/\bt-[0-9a-f][0-9a-f-]*(?:#age)?/g, "t-#")) });
+      // above. A part of an id ending in digits and d, h, m or s reads to `ageless` as an age (t-e95e9d: t-e95e#age).
+      const idless = (x: Snap): Snap => ({ ...x, lines: x.lines.map(l => l.replace(/\bt-(?:[0-9a-f-]|#age|#)+/g, "t-#")) });
       if (alike(idless(keyed.screen), idless(named_.screen), false)) return null;
       if (process.env.PARITY_DIFF) require("node:fs").appendFileSync(process.env.PARITY_DIFF, `${label} ${named(key)} ${req.action} by ${by}:\n  key: ${keyed.screen.lines.map(plain).join("\n  key: ")}\n  by:  ${named_.screen.lines.map(plain).join("\n  by:  ")}\n`);
       return `${req.action} ${JSON.stringify(keyed.ran.args)} by ${by} left the screen different from the key (${changes(idless(keyed.screen), idless(named_.screen), false)})`;
