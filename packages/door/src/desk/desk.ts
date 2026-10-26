@@ -2645,6 +2645,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   private registrations(): (Registration | Delegation)[] {
+    const tileSel = (at: { tile?: TileRef; name?: string }) => (at.name === undefined ? undefined : at.tile?.id ?? at.name);
     const pane = (t: TileRef | undefined) => (t ? this.pane(t.name) : undefined);
     const reader = (t: TileRef | undefined) => { const p = pane(t); if (!(p instanceof ReaderPane)) throw new ActionRefused(`${t?.name ?? "that tile"} isn't a reader`); return p; };
     const answerIn = (out: unknown, at: { tile?: TileRef }) => {
@@ -2673,10 +2674,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         claims: req => req.tile === undefined && (typeof req.args?.id === "string" || typeof req.args?.block === "string") && PROPOSAL_ACTIONS.has(req.action),
         on: (_at, how) => ({ host: { ctx: how.ctx, redraw: () => this.ctx?.redraw() } }),
       },
-      { set: HINT_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: at.name }) },
-      { set: DESK_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: at.place ?? at.name }) },
-      { set: TILE_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: at.place ?? at.name }) },
-      { set: PANE_ACTIONS, takes: "screen", on: at => ({ h: this, reader: at.name }) },
+      // An action gets the tile the dispatcher resolved, by its id (left out when none was named: the action's own default): the desk reads an id exactly, so a name that two screens share
+      // (or a tile renamed since) can never send it to another tile. A place word (`new`) is not a tile and goes as written.
+      { set: HINT_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: tileSel(at) }) },
+      { set: DESK_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: at.place ?? tileSel(at) }) },
+      { set: TILE_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: at.place ?? tileSel(at) }) },
+      { set: PANE_ACTIONS, takes: "screen", on: at => ({ h: this, reader: tileSel(at) }) },
       // Built from the registry each time: an extension's kind comes and goes while the door runs.
       { claims: (req: ActRequest) => kindSets().some(r => r.set.has(req.action)), delegate: () => this.kindDispatch(kindSets()), listed: true },
       // A columns container's source's actions (the board's lanes: card.*, board.hub), on its model there.
@@ -2973,8 +2976,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const all = this.namedReaders();
     if (!all.length) throw new ActionRefused("the screen has no reader tile; add one (ctrl+w o r)");
     // None named: the focused reader, else the first that isn't pinned to a page (an open leaves a pinned one on its page).
-    if (!sel || sel === "focused") return all.find(r => r.id === this.focus) ?? all.find(r => r.pane.followMode !== "pinned") ?? all[0]!;
-    const named = all.find(r => r.name === sel);
+    if (sel === undefined || sel === "focused") return all.find(r => r.id === this.focus) ?? all.find(r => r.pane.followMode !== "pinned") ?? all[0]!;
+    const named = all.find(r => r.name === sel || this.tileId(r.id) === sel);
     if (named) return named;
     const t = this.tileNamed(sel, false);
     // A tile that isn't a reader, followed by one (the board's tree, its preview): the reader that follows it, while it's on screen.
@@ -5005,7 +5008,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (!refuse) return null;
       throw new ActionRefused("this screen is empty · ctrl+n a note, alt+s a shell, ctrl+k the power bar");
     }
-    if (!sel || sel === "focused") return { name: this.nameOf(this.focus), id: this.focus };
+    if (sel === undefined || sel === "focused") return { name: this.nameOf(this.focus), id: this.focus };
     const byName = this.idNamed(sel);
     if (byName !== undefined) return { name: this.nameOf(byName), id: byName };
     if (!refuse) return null;
@@ -6557,7 +6560,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return { reopened, ...(kept.length ? { kept } : {}) };
     }
     // No tile named while the keys are in columns (the board's lanes): the reader following them, as reader.collapse took it.
-    const via = !sel || sel === "focused" ? this.readerOfFocus() : undefined;
+    const via = sel === undefined || sel === "focused" ? this.readerOfFocus() : undefined;
     const t = via ? { id: this.idOf(via)!, name: this.nameOfPane(via) } : this.tile(sel);
     // A drawer tile with nothing beside it has nothing to fold beside: the drawer folds, to a strip at its edge.
     if (this.foldsDrawer(t.id, on)) return this.ctx.hostLayer!.collapse(t.name, on, actor);
