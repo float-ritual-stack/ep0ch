@@ -1,3 +1,4 @@
+import { commandLine } from "@ep0ch/outline-core/component-block";
 import { extensionKeyLines, keyLineWords } from "./secret-keys";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
@@ -147,7 +148,7 @@ const scheduleWords = (schedule: { every?: string; cron?: string; once?: "host" 
   schedule ? `, ${schedule.every ? `every ${schedule.every}` : `on cron ${schedule.cron}`}${schedule.once === "host" ? " (once per host)" : ""}` : "";
 
 /** What a manifest adds, as list lines (the page's "What it adds"). */
-export function whatItAdds(manifest: ExtensionManifest): string[] {
+export function whatItAdds(manifest: ExtensionManifest, directory?: string): string[] {
   const out: string[] = [];
   for (const script of manifest.scripts ?? []) out.push(`- Script **${words(script.name)}** (\`${script.file}\`): ${words(script.about)}`);
   for (const handler of manifest.handlers ?? []) {
@@ -176,12 +177,14 @@ export function whatItAdds(manifest: ExtensionManifest): string[] {
       ? `- Secret \`${name}\`: ${words(secret)}`
       : `- Secret \`${name}\`: with-secrets group \`${secret.group}\`, key \`${secret.key}\`${secret.description ? ` (${words(secret.description)})` : ""}`);
   }
-  const settings = (manifest.configSchema as { properties?: Record<string, { description?: string }> } | undefined)?.properties;
+  const settings = (manifest.configSchema as { properties?: Record<string, { description?: string; default?: unknown }> } | undefined)?.properties;
   if (settings && Object.keys(settings).length) {
-    out.push(`- Settings (\`config.json\`): ${Object.entries(settings).map(([key, spec]) => `\`${key}\`${spec?.description ? ` (${words(spec.description)})` : ""}`).join("; ")}`);
+    const fallback = (value: unknown) => Array.isArray(value) && value.every((word) => typeof word === "string") ? commandLine(value) : JSON.stringify(value);
+    out.push(`- Settings (\`${directory ? join(directory, "config.json") : "config.json"}\`, in the door: ctrl+k then \`& settings ${manifest.id}\`; \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`): ${Object.entries(settings).map(([key, spec]) => `\`${key}\`${spec?.description ? ` (${words(spec.description)}${spec.default !== undefined ? `; default \`${fallback(spec.default).replaceAll("`", "'")}\`` : ""})` : spec?.default !== undefined ? ` (default \`${fallback(spec.default).replaceAll("`", "'")}\`)` : ""}`).join("; ")}`);
   }
   return out;
 }
+
 
 /**
  * Each action's arguments as a properties table (`::graph-props`, PIE-1032), the one drawing an action's page and the
@@ -489,7 +492,7 @@ export class ExtensionPages {
     const readme = readText(join(directory, "README.md"));
     if (readme?.trim()) lines.push("", readmeBody(readme));
     if (loaded) {
-      const adds = whatItAdds(loaded.manifest);
+      const adds = whatItAdds(loaded.manifest, directory);
       if (adds.length) lines.push("", "## What it adds", "", ...adds);
       for (const table of actionArgTables(loaded.manifest)) lines.push("", table);
     }

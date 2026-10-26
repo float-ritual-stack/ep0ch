@@ -24,7 +24,8 @@
         "items": {
           "type": "string"
         },
-        "description": "Prompt on stdin, JSON replacement and message on stdout; resolution returns a conflict-region replacement, or ambiguous. Default: claude -p --model haiku --tools \"\"."
+        "description": "The command that answers @tidy: the prompt on its stdin, a JSON replacement and message on its stdout (a resolution answers a conflict-region replacement, or ambiguous). Left out, Haiku through claude",
+        "default": ["claude", "-p", "--model", "haiku", "--tools", ""]
       }
     },
     "additionalProperties": false

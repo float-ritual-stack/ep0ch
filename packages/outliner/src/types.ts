@@ -2526,6 +2526,8 @@ export type OutlinerRequestAction =
    * (no default: they never go silently). `{ id, lines, removed, demo: { trashed, kept, left } }`.
    */
   | { id: string; action: "extensions.uninstall"; extension: string; demo: "keep" | "remove"; mutation?: MutationProvenance }
+  /** Capability `extensions.configure` (PIE-1343): config.json's settings and secret references, checked against the schema, written on this host. */
+  | ({ id: string; action: "extensions.configure"; mutation?: MutationProvenance } & import("@ep0ch/outline-core/protocol").ExtensionsConfigureRequest)
   /** Capability `extensions.render`: the results of a block's handler lines (or the one on `line`) in `target`. */
   | { id: string; action: "extensions.render"; blockId: string; line?: number; target: string; fallback?: string }
   /** Capability `extensions.act`: an extension's action on a block (and line), or on a tile with `args`. */

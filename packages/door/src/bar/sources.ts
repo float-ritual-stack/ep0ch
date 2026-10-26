@@ -27,6 +27,7 @@ import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
 import { extensionList, scriptActions } from "../extensions";
 import { openActionForm } from "./form";
+import { settingsChip, settingsMarkdown, shownValue } from "../extension-settings";
 
 /** The arguments action `name` declares, as the door lists it now. */
 const actionArgs = (host: BarHost, name: string) => host.dispatch.list().actions.find(a => a.name === name)?.args ?? {};
@@ -391,7 +392,7 @@ const SCREENS: BarSource = {
   },
 };
 
-interface ExtRow { kind: "hub" | "page" | "install" | "remove" | "make"; id: string; block?: string; demo?: "keep" | "remove"; notes?: number; about?: string; scripts?: { name: string; about: string }[] }
+interface ExtRow { kind: "hub" | "page" | "install" | "remove" | "make" | "settings"; id: string; block?: string; demo?: "keep" | "remove"; notes?: number; about?: string; scripts?: { name: string; about: string }[] }
 
 /**
  * The outline's extensions (the service's `extensions.list`, as the extension binding last read it): the Extensions hub,
@@ -401,7 +402,7 @@ interface ExtRow { kind: "hub" | "page" | "install" | "remove" | "make"; id: str
  */
 const EXTENSIONS: BarSource = {
   id: "extensions", title: "extensions", prefix: "&", by: "door",
-  about: "the outline's extensions: the Extensions hub, each installed one's page (⏎ opens it: its README, what it adds, its demo notes), the ones the repo has that aren't installed (⏎ installs one with its demo notes), and, with its name typed, removing one",
+  about: "the outline's extensions: the Extensions hub, each installed one's page (⏎ opens it: its README, what it adds, its demo notes; its row says its settings: default, set, needs setup, failing), each one's settings (⏎ opens its form, drawn from its configSchema), the ones the repo has that aren't installed (⏎ installs one with its demo notes), and, with its name typed, removing one",
   main: { empty: false, typed: true, most: 4 },
   rows(q, host) {
     const l = extensionList();
@@ -411,8 +412,10 @@ const EXTENSIONS: BarSource = {
     const installed = l.extensions.filter(e => e.state !== "shadowed");
     for (const e of installed) {
       const page = l.pages?.[e.id];
-      rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [`${e.id}${e.version !== undefined ? ` v${e.version}` : ""}`, e.state === "active" ? "" : e.state, e.description ?? ""].filter(Boolean).join(" · "), group: "installed", ...(page ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(page ? { block: page } : {}), about: e.description } satisfies ExtRow });
+      rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [`${e.id}${e.version !== undefined ? ` v${e.version}` : ""}`, e.state === "active" ? "" : e.state, e.settings ? settingsChip(e.settings) : "", e.description ?? ""].filter(Boolean).join(" · "), group: "installed", ...(page ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(page ? { block: page } : {}), about: e.description } satisfies ExtRow });
     }
+    // Its settings (PIE-1343): a row each, its chip first, ⏎ the form its configSchema draws.
+    for (const e of installed) if (e.settings) rows.push({ key: `settings:${e.id}`, label: `settings ${e.name ?? e.id}`, detail: [settingsChip(e.settings), e.settings.file].join(" · "), group: "settings", data: { kind: "settings", id: e.id } satisfies ExtRow });
     for (const a of l.available ?? []) rows.push({ key: `install:${a.id}`, label: `install ${a.name}`, detail: [`${a.id} v${a.version}`, ...(a.scripts ?? []).map(s => `adds the script ${s.name}: ${s.about}`), a.description ?? ""].filter(Boolean).join(" · "), group: "not installed", data: { kind: "install", id: a.id, about: a.description, scripts: a.scripts } satisfies ExtRow });
     // Removing one is offered once its name is typed, both ways, so the demo notes never go by a stray ⏎.
     if (q.trim()) for (const e of installed) {
@@ -427,6 +430,10 @@ const EXTENSIONS: BarSource = {
   preview(row) {
     const d = row.data as ExtRow;
     if (d.kind === "make") return { markdown: "To make the outline do something new (a button, a rule, a script, an extension), use the **ep0ch-extend** skill.\n\nFrom a shell: `ep0ch --skill ep0ch-extend`, then read that file.\n\nThe reference: `ep0ch docs extensions`. Over MCP: `ep0ch://skills/ep0ch-extend` and `ep0ch://docs/extensions`." };
+    if (d.kind === "settings") {
+      const e = extensionList()?.extensions.find(x => x.id === d.id && x.state !== "shadowed");
+      return e?.settings ? { markdown: settingsMarkdown(e, e.settings) } : { lines: [`${d.id} has no settings now`] };
+    }
     if (d.block) return { note: d.block };
     if (d.kind === "install") return { markdown: [`**${row.label.replace(/^install /, "")}** \`${d.id}\``, "", d.about ?? "", "", ...(d.scripts ?? []).map(s => `Adds the script **${s.name}**: ${s.about}`), "", "⏎ installs it for every outline this host serves (`ep0ch ext add " + d.id + "`): its page goes under the outline's Extensions hub, with its README, what it adds and its demo notes."].join("\n") };
     if (d.kind === "remove") return { markdown: [`**${row.label}**`, "", !d.notes ? "Its folder goes, and its lines and actions stop working. Its page goes with it." : d.demo === "keep" ? "Its folder goes, and its lines and actions stop working. Its demo notes stay under its page." : "Its folder goes, and its demo notes go to Trash: the ones nobody changed (the rest are kept, and named). Trash can restore them.", "", `The same from a shell: \`ep0ch ext remove ${d.id}${d.demo === "remove" ? " --demo remove" : ""}\``].join("\n") };
@@ -439,6 +446,19 @@ const EXTENSIONS: BarSource = {
       const message = "Use the ep0ch-extend skill: ep0ch --skill ep0ch-extend; reference: ep0ch docs extensions";
       host.ctx.flash(message);
       return { message };
+    }
+    if (d.kind === "settings") {
+      // The form, its fields filled with what config.json has now (a secret's reference is shown, sent only when typed);
+      // an agent's pick names no values, so it reads them.
+      const e = extensionList()?.extensions.find(x => x.id === d.id && x.state !== "shadowed");
+      if (!e?.settings) throw new ActionRefused(`${d.id} has no settings now`);
+      const action = `ext.${d.id}.settings`;
+      if (how.actor.kind === "agent") return host.dispatch.act({ action, args: {} }, how.actor);
+      const now = Object.fromEntries([
+        ...e.settings.fields.filter(f => f.value !== undefined).map(f => [f.name, shownValue(f, f.value)]),
+        ...(e.settings.whole ? [["config", JSON.stringify(e.settings.config)]] : []),
+      ]);
+      return openActionForm(host, { action, args: now }, how.actor);
     }
     if (d.block) return openNote(d.block, host, how);
     const [action, args] = d.kind === "install" ? ["extensions.install", { id: d.id }] : ["extensions.uninstall", { id: d.id, demo: d.demo! }];

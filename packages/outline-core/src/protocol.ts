@@ -14,7 +14,7 @@
 import type { CompletionKind } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 269;
+export const PROTOCOL = 270;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 5;
 
@@ -608,6 +608,88 @@ export interface ExtensionCompletionSource {
   readonly triggers: readonly SourceTrigger[];
   /** For `key::`: only these property keys. */
   readonly keys?: readonly string[];
+}
+
+/**
+ * One setting an extension's `configSchema` declares (PIE-1343), as `extensions.list`'s `settings` says it: what it is,
+ * what `config.json` has, and what the extension does when it's left out (the schema's `default`).
+ */
+export interface ExtensionSettingField {
+  readonly name: string;
+  /** The schema's type: string, number, integer, boolean, command (an array of strings: a command's words), or json (anything else). */
+  readonly type: "string" | "number" | "integer" | "boolean" | "command" | "json";
+  readonly description?: string;
+  readonly required?: boolean;
+  /** The schema's `enum`. */
+  readonly choices?: readonly (string | number | boolean)[];
+  /** The schema's `default`: what the extension uses when it's left out. */
+  readonly default?: unknown;
+  /** What config.json has; absent when it has none. */
+  readonly value?: unknown;
+  /** set (config.json has it), default (left out, the schema's default applies), unset (left out, no default), missing (required and left out). */
+  readonly state: "set" | "default" | "unset" | "missing";
+}
+
+/** A secret an extension declares (PIE-1343): where its value comes from (a reference, never the value). */
+export interface ExtensionSettingSecret {
+  readonly name: string;
+  readonly description?: string;
+  /** Where config.json (or the manifest's group) points it, in words: `env TOKEN`, `file ~/.config/x/token`, `group readwise READWISE_TOKEN`. */
+  readonly reference?: string;
+  /** set: the reference finds a value on the host; missing: no reference, or nothing where it points. */
+  readonly state: "set" | "missing";
+}
+
+/**
+ * An extension's settings (PIE-1343), from its manifest's `configSchema` and `secrets`, on `extensions.list`'s entry:
+ * the file they live in on the host, each field and secret, and the state a row shows. Only an extension that declares
+ * a configSchema or secrets has one. `extensions.configure` writes them.
+ */
+export interface ExtensionSettings {
+  /** config.json's path on the machine that hosts the outline. */
+  readonly file: string;
+  readonly exists: boolean;
+  /** failing (its last call failed since config.json changed, or config.json doesn't load), missing (a required field or a secret), set, or default (nothing set). */
+  readonly state: "set" | "default" | "missing" | "failing";
+  readonly fields: readonly ExtensionSettingField[];
+  readonly secrets: readonly ExtensionSettingSecret[];
+  /** The schema isn't an object of named fields: its config is edited whole, as JSON. */
+  readonly whole?: true;
+  /** config.json's `config` as it is: a client changes what it names and sends the rest back unchanged. */
+  readonly config: Readonly<Record<string, unknown>>;
+  /** Why it's failing: config.json's problem, or the last call's error. */
+  readonly error?: string;
+}
+
+/** A secret reference `extensions.configure` writes into config.json: where the value is, never the value. */
+export type ExtensionSecretReference =
+  | { env: string }
+  | { file: string }
+  | { group: string; key: string }
+  | { keychainService: string; account?: string };
+
+/**
+ * `extensions.configure` (PIE-1343): `set` and `unset` change the named fields of config.json's `config` as it is on
+ * disk (or `config` replaces it whole), checked against the manifest's configSchema first; each of `secrets` sets that
+ * secret's reference (null takes it out); the file's `enabled` and `sources` stay. Written on the machine that hosts the outline; the registry reloads before it answers.
+ */
+export interface ExtensionsConfigureRequest {
+  extension: string;
+  /** The whole of config.json's `config`, replacing it (a schema that isn't an object of named fields). */
+  config?: Record<string, unknown>;
+  /** These fields set, merged into what config.json has now (the rest stay). */
+  set?: Record<string, unknown>;
+  /** These fields taken out (back to their defaults). */
+  unset?: string[];
+  secrets?: Record<string, ExtensionSecretReference | null>;
+}
+
+/** `extensions.configure`'s answer: the settings as they are now, and the extension's state after the reload. */
+export interface ExtensionsConfigured {
+  readonly id: string;
+  readonly settings: ExtensionSettings;
+  readonly state?: string;
+  readonly error?: string;
 }
 
 /**
