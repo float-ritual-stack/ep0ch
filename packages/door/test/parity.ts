@@ -31,6 +31,8 @@ import type { Screen } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import { PtyPane } from "../src/desk/pty";
+import { tileRegistry } from "../src/desk/tile-registry";
+import { unwatchTileKinds } from "../src/desk/tile-kinds";
 import { SEED } from "../src/showcase/seed";
 import { external } from "../src/open";
 import { DEFAULT_THEME, setTheme } from "../src/theme";
@@ -303,6 +305,16 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     drawer.openedBy = null;
     try { drawer.p?.dispose?.(); } catch { /* gone */ }
     drawer.p = null;
+    // Its desk too, made again when next needed: a tile a probe moved into the drawer stayed there for every later build, so the
+    // screen's own tile of that name was named again (tree2) and a role named two tiles (PIE-1317). Its tiles end where they are:
+    // the desk's own dispose would hand them to the drawer, and without its ctx a save the desk queued as it came in never runs.
+    const kept = drawer.made as any;
+    if (kept) {
+      drawer.d = null;
+      kept.ctx = null;
+      unwatchTileKinds(kept);
+      for (const p of kept.panes.values()) { try { p.dispose?.(); } catch { /* gone */ } tileRegistry.release(p); }
+    }
     // What a screen saved (the board's lanes, the desk's layout) would carry one probe's change into the next.
     const dir = process.env.EP0CH_STATE!;
     for (const f of readdirSync(dir)) if (f.endsWith(".json")) rmSync(join(dir, f), { force: true });
@@ -617,7 +629,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       if (way === "role" && /names \d+ tiles/.test(named_.said)) return skip(key, req, way, "its role names several tiles");
       replayed[way]++;
       const by = way === "id" ? "id" : `role:${keyed.ran.tile.role}`;
-      if (named_.ran?.tile?.id !== named_.id) return `${req.action} by ${by} reached ${named_.ran?.tile ? `${named_.ran.tile.name} (${named_.ran.tile.id})` : "no tile"} where the key reached ${name} (${named_.id})`;
+      if (named_.ran?.tile?.id !== named_.id) return `${req.action} by ${by} reached ${named_.ran?.tile ? `${named_.ran.tile.name} (${named_.ran.tile.id})` : `no tile${named_.said ? ` (it said ${JSON.stringify(named_.said.slice(0, 160))})` : ""}`} where the key reached ${name} (${named_.id})`;
       if (named_.said !== keyed.said) return `${req.action} by ${by} said ${JSON.stringify(named_.said.slice(0, 160))} where the key said ${JSON.stringify(keyed.said.slice(0, 160))}`;
       if (alike(keyed.screen, named_.screen, false)) return null;
       if (process.env.PARITY_DIFF) require("node:fs").appendFileSync(process.env.PARITY_DIFF, `${label} ${named(key)} ${req.action} by ${by}:\n  key: ${keyed.screen.lines.map(plain).join("\n  key: ")}\n  by:  ${named_.screen.lines.map(plain).join("\n  by:  ")}\n`);
