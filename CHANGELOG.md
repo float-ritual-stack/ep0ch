@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### `tile=` has one address grammar, and the drawer's program is a tile with a role (PIE-1286)
+
+- **Five kinds of address, one resolver.** `t-<uuid>` (or 8+ characters of it) is that exact tile; `role:<role>[@<screen>]` is a
+  tile of that kind wherever it is; `<slot>@<screen>` is the place, whatever fills it; `^` is the tile that opened the one with
+  your keys; a name is matched last and is never an identity. No match is refused with why and what to type; it never acts on
+  the focused tile instead.
+- **The drawer's own program is `role:agent`** (`drawer.agent` stays as its alias). The role is a property of the tile, saved
+  with it, so `agent.lift` and `::button{act="tile.zoom tile=role:agent reach=column"}` keep working across a door restart, a
+  session handover and a restore from a `drawer-tiles.json` that saved the own tile under another name (Evan's door, Oct 25).
+  The guesses it replaces are gone: the program's told id, its program key and its saved name no longer decide which tile it is.
+- **Keys, clicks and menu rows address their tile by id**, through the path an `act` string takes (`^W Z`, `✦u`, `agent.lift`),
+  and the parity walk checks it: each targeted action a key ran is run again by `tile=t-<uuid>` and by role.
+- **One tile registry** (`src/desk/tile-registry.ts`) holds a tile's id, role, opener and copy lineage; the pane, the desk and the drawer keep none of them. An action gets the tile's id from the dispatcher, and the drawer remembers only whether its program is out, not which tile it is.
+- **Saved layouts.** A tile's slot (`slot`, the place a screen's spec gave it) is no longer the leaf's `role`, which now says
+  what the tile is for. An older saved layout moves to the new words with one command, with the sessions ended first (a running session writes its old layout back over it): `ep0ch session end --all --yes`, then `bun packages/door/scripts/migrations/tile-roles.ts <state dir> --write` (without `--write` it says what it would change), then start the door. It also gives the drawer's own program its role in a drawer-tiles.json an older door saved under another name, where `drawer.agent` would otherwise answer "closed".
+
 ### The door's key-by-key tests wait on nothing, and one that runs long fails by name (PIE-1307)
 
 The door's parity tests press every key and click every cell of each screen; together they added up to about 7,500 s, with

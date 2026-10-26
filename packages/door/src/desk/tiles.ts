@@ -16,6 +16,7 @@ import { ReaderPane, type Pane } from "./panes";
 import { nowPage } from "../hub/now";
 import { isTileKind, missingKind, tileKind, tileKinds, UnavailableTile, type TileKindName } from "./tile-kinds";
 import { registerBuiltinTiles } from "./builtin-tiles";
+import { tileRegistry } from "./tile-registry";
 
 /** One tile as saved: what it is, its name, and what it needs to be built again. */
 export interface TileSpec {
@@ -24,8 +25,14 @@ export interface TileSpec {
   kind: TileKindName;
   /** The tile's name: what links, previews, `act tile=` and `peek` call it. See `tileNameProblem`. */
   name?: string;
-  /** The spec slot this tile fills, kept when its public name changes. */
+  /** The slot this tile fills on its screen (a spec's tile name), kept when its public name changes: the place, whatever fills it. */
+  slot?: string;
+  /** What the tile is for (`agent`, `reader`), set by what made it and kept with its id; absent, its kind's (`tileRole`). */
   role?: string;
+  /** The tile that opened this one (`t-<uuid>`): `^` names it. */
+  openedFrom?: string;
+  /** The tile this one was copied from (`t-<uuid>`), when a copy of a saved arrangement gave it a fresh id. */
+  copiedFrom?: string;
   writtenTitle?: string;
   systemTitle?: boolean;
   /** Its id (`t<n>`, PIE-491), kept so a restarted door gives the tile the same one. */
@@ -120,7 +127,7 @@ export interface SavedFloat { tile: TileSpec; rect: { col: number; row: number; 
  * never a number (`3` and `#3` are the tile numbered 3 on screen), never an id, and never holds the `:` of a
  * `tile:<name>` source. Null when it's a good name, else what's wrong, in words.
  */
-export const ID_SHAPE = /^(?:[tsgk]\d+|t-[0-9a-f-]{36})$/;
+export const ID_SHAPE = /^(?:[tsgk]\d+|t-[0-9a-f][0-9a-f-]{7,})$/i;
 export function tileNameProblem(name: string): string | null {
   if (/^#?\d+$/.test(name)) return `a tile's name isn't a number (${name} would be read as the tile numbered ${name.replace("#", "")} on screen); start it with a letter`;
   if (ID_SHAPE.test(name)) return `a tile's name isn't shaped like an id (${name}: t, s, g or k and digits are tile, split, tab set and drawer tile ids)`;
@@ -142,6 +149,7 @@ export function makeTile(given: Partial<TileSpec> & { kind: TileKindName }): Pan
   if (!k) return new UnavailableTile(s.kind, missingKind(s.kind), s.state ?? {});
   const p = k.make(s);
   p.deliberate = s.deliberate;
+  tileRegistry.restore(p, { role: s.role, openedFrom: s.openedFrom, copiedFrom: s.copiedFrom });
   p.writtenTitle = s.writtenTitle;
   p.systemTitle = s.systemTitle;
   return p;

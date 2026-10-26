@@ -52,6 +52,8 @@ export interface TileKind {
   readonly word?: string;
   /** How a message names one ("a terminal tile", an extension's "Tarot"); default "a <its first key's label> tile". */
   readonly noun?: string;
+  /** What its tiles are for when nothing says otherwise (`role:<role>` finds them): its kind's name by default. */
+  readonly role?: string;
   /** Its keys under ^W o, in the order the hint row lists them. */
   readonly keys?: readonly KindKey[];
   /** Build a tile from its saved spec (or tile.open's fields). */

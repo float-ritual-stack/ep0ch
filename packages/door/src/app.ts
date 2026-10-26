@@ -47,6 +47,7 @@ import { stateDir, writeState } from "./state";
 import { alertMark, readAlert } from "./backup/alert";
 import type { AgentSession } from "./desk/agent-sessions";
 import { AgentDrawer, DRAWER_ACTIONS, DRAWER_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DrawerRun } from "./drawer";
+import { namesAgent, type ResolveOpts } from "./desk/tile-address";
 import type { HostMode } from "./desk/screen-layout";
 import type { Desk, MovedTile } from "./desk/desk";
 import type { Pane } from "./desk/panes";
@@ -102,7 +103,7 @@ export interface HostLayer {
    * id, `drawer.agent`, an `@screen/tile` path, a program's told id (`program`). Never a screen's own names. The drawer's
    * desk answers (it reads every layer); none made yet, nothing.
    */
-  resolveTile(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null;
+  resolveTile(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null;
   /** Why `sel` names no tile in the host layer, in words and with the command to run (the drawer's own program closed, or out on a screen not shown), or null: the dispatcher's refusal says it. */
   unnamed(sel: string): string | null;
   /** Tile `name` of screen `from` into the drawer, whole, as a tab unless `to`/`where` place it in the drawer's layout; `keys`: the person's go into it there (a new note to write). */
@@ -1162,7 +1163,7 @@ export class App implements Ctx {
   recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown) { return this.board.inScriptRun ? run() : this.recording.run(req, replay, run); }
 
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
-    { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DRAWER_TILE_ID, on: () => ({ drawer: this.drawer }) },
+    { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && namesAgent(req.tile), on: () => ({ drawer: this.drawer }) },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => ({ ...HOST_AGENT_TILE, label: `${this.drawer.name} in the drawer` }), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>, tile?: string) => this.dispatch.act({ action: name, args, ...(tile ? { tile } : {}) }, how.actor) }) },
     { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: how.standing ? this.hostLayer.desks()[0]?.focusedDesk() ?? this.stack.at(-1) : this.stack.at(-1) }) },
     { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: this.stack.at(-1) }) },
@@ -1454,7 +1455,10 @@ export class App implements Ctx {
     if (top?.noDrawer) return;
     if (!b) return void this.refuse(`${hyperLabel(key)} isn't bound · ${HYPER_KEYS.map(x => hyperLabel(x.key)).join(" ")}`);
     if (b.leaves && top?.leaveTyping && !top.leaveTyping()) return;
-    this.dispatch.press(b.action, b.args ?? {}, b.tile).catch(e => this.refuse(e instanceof Error ? e.message : String(e)));
+    // A chord for "this tile" addresses it by its id, as an act string would: pointing and naming are one path (PIE-1286). A screen
+    // that can't name its focus here (the showcase's stage) leaves the action to find it, and the action refuses when there is none.
+    const at = b.tile ?? (b.onFocus ? top?.dispatch?.tile("focused")?.id : undefined);
+    this.dispatch.press(b.action, b.args ?? {}, at).catch(e => this.refuse(e instanceof Error ? e.message : String(e)));
   }
 
   /**
