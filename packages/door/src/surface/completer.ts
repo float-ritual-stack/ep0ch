@@ -745,6 +745,8 @@ export class Completer {
       if (ctx.selected) {
         this.preview?.surface.dispose();
         const surface = new NoteSurface();
+        // The docs panel reads the note, not its conversation: no margin cards in a panel 30 columns wide.
+        surface.setMargin("off");
         const host: SurfaceHost = { ctx: { board: this.board, t: { cols: 80, rows: 20, cellW: 9, cellH: 18, kitty: false }, graphics: false, flash: (s: string) => { this.d.note = s; }, redraw: this.redraw } as unknown as Ctx, redraw: this.redraw, navigate() {},
           header: (m, w) => [fg(C.grey) + pad([subject(m), ...ctx.ancestors.map(title), m.author].filter(Boolean).join(" · "), w) + RESET],
         };

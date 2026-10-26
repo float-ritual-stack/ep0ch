@@ -32,6 +32,13 @@ describe("showcase: completion (PIE-1339)", () => {
     expect(p.previewRect!.col).toBeGreaterThanOrEqual(p.listWidth!);
     expect(lines.find(l => l.includes("^a10  We agreed"))).toMatch(/anchor +│/);
     expect(lines.some(l => /↑↓ (move · )?⏎\/tab/.test(l))).toBe(true);
+    // The lit note's own reader in the docs, without its margin's comment cards.
+    await until(() => !!pop()!.items[pop()!.index]!.preview, "the lit note read", 8000);
+    lines = rows(120);
+    const head = lines.findIndex(l => l.includes("references 1/") || / references \d+\//.test(l));
+    const docs = lines.slice(head + 1, head + 12).map(l => l.split(" │ ")[1] ?? "").join("\n");
+    expect(docs).toContain("Greenhouse");
+    expect(docs).not.toContain("[–]");
     // Narrow: the same list with its docs under it.
     lines = rows(80);
     p = pop()!;
