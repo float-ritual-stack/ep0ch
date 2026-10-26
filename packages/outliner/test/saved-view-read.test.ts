@@ -6,6 +6,7 @@ import { OutlinerClient, type RequestInput } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { readSavedView, type SavedViewReadResult } from "../src/saved-view-read";
+import { waitingAsks } from "../src/waiting-you";
 import { evaluateVirtualBranchMatches, isVirtualBranchDefinition, projectVirtualBranches } from "../src/virtual-branches";
 import type { Block, TreeIndexBlock, VisibleBlockCollection, WorkspaceSnapshot } from "../src/types";
 
@@ -270,4 +271,18 @@ test("a line-scope view finds an ask buried on line 30, and loses it when its bo
     const refused = await readSavedView(client, invalid.id);
     expect(refused.errors.join(" ")).toContain("[property-scope::all]");
   } finally { await server.close(); store.close(); rmSync(root, {recursive: true, force: true}); }
+});
+
+// PIE-1277: the door's waiting-on-you list reads the same asks at every scope, each opening at its line.
+test("waiting asks include a [needs::sysop: …] buried on a step, at its line, until the step is ticked", () => {
+  const root = mkdtempSync(join(tmpdir(), "waiting-lines-"));
+  const store = new OutlinerStore(join(root, "outline.sqlite"));
+  try {
+    const text = "Pond liner\n\nThe old one leaks.\n- [ ] Butyl or EPDM? [needs::sysop: choose the liner]";
+    const note = store.create(text);
+    const asks = waitingAsks(store).filter(a => a.block === note.id);
+    expect(asks.map(a => [a.kind, a.reason, a.line, text.slice(a.at!, a.at! + a.label!.length)])).toEqual([["decision", "choose the liner", 3, "[needs::sysop: choose the liner]"]]);
+    store.update(note.id, text.replace("- [ ]", "- [x]"), note.revision);
+    expect(waitingAsks(store).filter(a => a.block === note.id)).toEqual([]);
+  } finally { store.close(); rmSync(root, {recursive: true, force: true}); }
 });

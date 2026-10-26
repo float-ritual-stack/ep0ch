@@ -215,6 +215,28 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
   }, 30_000);
 
 
+  test("the line-asks section (PIE-1277): a view with [property-scope::all] lists the ask on line 12, not the ticked one, and opens the minutes there", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "line-asks" }, as: "test-agent" })).toMatchObject({ key: "line-asks" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "line-asks")).top; };
+    const tiles = () => stage().layoutGet().tiles as any[];
+    await until(() => tiles().find(t => t.name === "any line")?.showing?.id === seeded.notes.lineAsksAll.id, "the any-line view", 10_000);
+    const minutes = seeded.notes.lineAsksMinutes.id;
+    const header = await board.readSavedView(seeded.notes.lineAsksHeader.id), all = await board.readSavedView(seeded.notes.lineAsksAll.id);
+    expect(header.blocks.map(b => [b.id, b.lineMatches?.length ?? 0])).toEqual([[minutes, 0]]);
+    expect(all.blocks.map(b => b.id)).toEqual([minutes]);
+    expect(all.blocks[0]!.lineMatches?.map(m => [m.scope, m.line, m.task, m.value])).toEqual([["block", 0, undefined, "chair: approve the minutes"], ["inline", 11, "todo", "members: Saturday or Sunday"]]);
+    await until(() => screen().includes("line 12 to do"), "the row saying its line", 5000);
+    // Following the row opens the minutes at line 12, lit, as a ::fields row does.
+    const f = await app.act({ action: "element.open", tile: "any line", args: { n: 2 }, as: "test-agent" }) as any;
+    expect(JSON.stringify(f)).toContain(minutes);
+    await until(() => screen().includes("◆ line 12 · the line its club-ask is written on"), "the minutes lit at line 12", 5000);
+    for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
+    ch("1");
+    screen();
+  }, 30_000);
+
+
   test("the index works by mouse: a click picks a section; a click in the part gives it the keys, esc gives them back", async () => {
     const spine = SECTIONS.findIndex(s => s.key === "spine");
     press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + spine * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + spine * 2 });
