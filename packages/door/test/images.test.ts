@@ -197,7 +197,10 @@ describe("scaling, with no system tool (PIE-494)", () => {
     const header = { x: 0, y: 0.1, w: 1, h: 0.8 };
     await until(() => !!sized(m, 400, 100, { crop: header }), "the header's crop", 10_000);
     const sent = sized(m, 400, 100, { crop: header })!;
-    new KittyLayer(() => {}).sync([{ key: "header", image: sent, col: 0, row: 0, cols: 40, rows: 5 }]);
+    const kept = new KittyLayer(() => {}), mirror = new KittyLayer(() => {});
+    for (const layer of [kept, mirror]) layer.sync([{ key: "header", image: sent, col: 0, row: 0, cols: 40, rows: 5 }]);
+    // A second terminal had it too and let it go (a mirror, a program handed the terminal): the first still has it.
+    mirror.dispose();
     nextFrame();
     await until(() => !!sized(m, 400, 200), "the plain one", 10_000);
     nextFrame();

@@ -119,12 +119,16 @@ export function onMediaChange(fn: () => void) { onChange = fn; }
 /** A new frame is being drawn: what the last one drew stays in memory (never evicted while it's on screen). */
 export function nextFrame() { frame++; }
 /**
- * The PNGs the terminal has (src/kitty.ts uploads them), by key. Drawn by `sized` isn't enough: a placement can be cut
- * away before it's sent (an image scrolled under a header, below a tile), and a resize draws only what the terminal has.
+ * The PNGs a terminal has (src/kitty.ts uploads them), by key, with how many of the door's Kitty layers have each. Drawn
+ * by `sized` isn't enough: a placement can be cut away before it's sent (an image scrolled under a header, below a
+ * tile), and a resize draws only what a terminal has.
  */
-const sent = new Set<string>();
-/** The terminal has PNG `key` (or, `has` false, has lost it). */
-export function onTerminal(key: string, has = true) { if (has) sent.add(key); else sent.delete(key); }
+const sent = new Map<string, number>();
+/** A Kitty layer has PNG `key` (or, `has` false, no longer has it). */
+export function onTerminal(key: string, has = true) {
+  const n = (sent.get(key) ?? 0) + (has ? 1 : -1);
+  if (n > 0) sent.set(key, n); else sent.delete(key);
+}
 
 /** `~`, backslash-escaped spaces, and macOS screenshot names (a narrow no-break space before AM/PM). */
 export function resolveMediaPath(raw: string): { path: string; exists: boolean } {
