@@ -43,7 +43,7 @@ What the tosser writes (never edit these by hand; they're rewritten or read back
 
 - Under each subscription, a **source board** per node: `<node> [echo-source::<node>]`, `[waiting::n]` while more wait.
 - A **copy** under the board: the original's text plus `[from::<node>/<id>] [echo::<area>] [from-rev::<n>]
-  [tossed::<time>]`. References into the origin become `ep0ch://` links; `[page::]`, `[work-id::]`, `[publish::]`
+  [tossed::<time>]`. References into the origin become `ep0ch://` links, labels kept (`[[PIE-12|the plan]]` reads "the plan"); `[page::]`, `[work-id::]`, `[publish::]`
   become `[from-page::]` etc., and a rule note's `[rule-*::]` keys `[from-rule-*::]` (a copy never runs as a rule). An
   original kept off the web (`[publish::never]`), then or later, gives a copy that is too; a copy kept off stays off.
 - On a copy: `[upstream-newer::<n>]` (the original changed), `[upstream-gone::<day>]` (it was trashed or deleted).
