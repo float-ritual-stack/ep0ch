@@ -62,8 +62,9 @@ const GAP = 2, MAX_COL = 34;
 
 /**
  * The groups laid out in `cols` cells and at most `rows` lines: each group a column block (its title, then a row per
- * key), dropped into the shortest column so far. Null when it can't fit (too narrow or too short): the caller keeps its
- * one-line strip.
+ * key), dropped into the shortest column so far. Too tall at its widest columns, it tries more and narrower ones (the
+ * labels cut shorter) before giving up. Null when it can't fit (too narrow or too short): the caller keeps its one-line
+ * strip.
  */
 export function panelLines(groups: readonly PanelGroup[], cols: number, rows: number): { lines: string[]; spots: PanelSpot[]; width: number } | null {
   const shown = groups.filter(g => g.keys.length);
@@ -71,10 +72,21 @@ export function panelLines(groups: readonly PanelGroup[], cols: number, rows: nu
   // Each group's keycaps are as wide as its own widest (a tile's "j k ↑ ↓" doesn't push ^W's labels over).
   const capOf = (g: PanelGroup) => Math.max(...g.keys.map(k => width(k.cap)));
   const want = Math.max(...shown.map(g => width(g.title)), ...shown.flatMap(g => g.keys.map(k => capOf(g) + 2 + width(k.label))));
-  const colW = Math.min(MAX_COL, want, cols);
-  const n = Math.max(1, Math.min(shown.length, Math.floor((cols + GAP) / (colW + GAP))));
-  if (shown.some(g => colW < capOf(g) + 8)) return null;
-  const columns: { text: string; key?: string; action?: string }[][] = Array.from({ length: n }, () => []);
+  const widest = Math.min(MAX_COL, want, cols), least = Math.max(...shown.map(g => capOf(g) + 8));
+  for (let n = Math.max(1, Math.min(shown.length, Math.floor((cols + GAP) / (widest + GAP)))); n <= shown.length; n++) {
+    const colW = Math.min(widest, Math.floor((cols - (n - 1) * GAP) / n));
+    if (colW < least) return null;
+    const drawn = panelColumns(shown, n, colW, capOf);
+    if (drawn.length <= rows) return panelDrawn(drawn, colW);
+  }
+  return null;
+}
+
+type Cell = { text: string; key?: string; action?: string };
+
+/** The groups in `n` columns of `colW` cells, each into the shortest so far: the columns' cells as a grid of rows. */
+function panelColumns(shown: readonly PanelGroup[], n: number, colW: number, capOf: (g: PanelGroup) => number): (Cell | undefined)[][] {
+  const columns: Cell[][] = Array.from({ length: n }, () => []);
   for (const g of shown) {
     const col = columns.reduce((best, c) => (c.length < best.length ? c : best), columns[0]!);
     const capW = capOf(g), [title, cap, label] = g.accent ? [C.lcyan, C.lcyan, C.white] : [C.yellow, C.white, C.grey];
@@ -83,16 +95,20 @@ export function panelLines(groups: readonly PanelGroup[], cols: number, rows: nu
     for (const k of g.keys) col.push({ text: fg(cap) + pad(k.cap, capW) + RESET + "  " + fg(label) + drawEllipsized(k.label, colW - capW - 2) + RESET, key: k.key, ...(k.action ? { action: k.action } : {}) });
   }
   const h = Math.max(...columns.map(c => c.length));
-  if (h > rows) return null;
+  return Array.from({ length: h }, (_, y) => columns.map(c => c[y]));
+}
+
+/** The grid drawn: a line per row and a spot per key. */
+function panelDrawn(grid: (Cell | undefined)[][], colW: number): { lines: string[]; spots: PanelSpot[]; width: number } {
+  const n = grid[0]?.length ?? 1;
   const lines: string[] = [], spots: PanelSpot[] = [];
-  for (let y = 0; y < h; y++) {
+  grid.forEach((row, y) => {
     let line = "";
-    columns.forEach((c, i) => {
-      const cell = c[y];
+    row.forEach((cell, i) => {
       if (cell?.key !== undefined) spots.push({ line: y, from: i * (colW + GAP), to: i * (colW + GAP) + colW, key: cell.key, ...(cell.action ? { action: cell.action } : {}) });
       line += (i ? " ".repeat(GAP) : "") + pad(cell?.text ?? "", colW);
     });
     lines.push(line);
-  }
+  });
   return { lines, spots, width: n * colW + (n - 1) * GAP };
 }

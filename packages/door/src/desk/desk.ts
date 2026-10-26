@@ -7942,7 +7942,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     run(_, { d }) { return { spec: specData(d.spec) }; },
   }),
   "keys.panel": def({
-    summary: "open the panel of the keys that follow a prefix (PIE-1304): every key, grouped, each a click away, with the words of the action it runs; a prefix opens it by itself after a short pause. An agent gets the groups as data; nothing moves",
+    summary: "open the panel of the keys that follow a prefix (PIE-1304): every key, grouped, each a click away, with the words of the action it runs; ^W's first group is the focused tile's own keys (PIE-1338: this tile: <name>, typed without ^W, each with its action; a click runs it there). A prefix opens it by itself after a short pause. An agent gets the groups as data; nothing moves",
     keys: "^W, then a pause; ^W o, ^W O",
     // An agent's moves nothing (it gets the groups); the person's opens their own view and arms ^W (or ^W o): their
     // next key is the chord's, so a replay asks.

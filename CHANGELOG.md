@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### ^W's panel shows the focused tile's own keys first (PIE-1338)
+
+- **Pause after `^W` and the panel starts with "this tile: <its name>":** the keys the focused tile takes by itself
+  (What changed's `d the change` and `x all seen`, a reader's folds, the tree's keys), drawn in the accent, before
+  `^W`'s own groups. They come from the tile's actions, so they're the same words as its ⋯ menu.
+- **A click on one runs it in the tile;** typed, they work without `^W` (after `^W` the next key is still `^W`'s:
+  `^W d` slides a dock, `^W x` closes). The hint row is as it was.
+- **In your drawer too:** the panel opens over the screen, since the drawer is too short for it (`^W` there showed no
+  panel before). `act keys.panel` gives an agent the same group, each key with the action it runs.
+- **What changed's ⋯ menu** now lists "open its note", "the change" and "all seen".
+
 ### A lock says which layout it is; alt+k opens the power bar (PIE-1346)
 
 - **Your drawer's lock names itself.** Locking or unlocking says so on the status bar, naming the layout ("locked your
