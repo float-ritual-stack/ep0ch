@@ -285,6 +285,16 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
       lines = frame(); alone = own();
       for (let y = Math.max(menu.row, dr.row); y < menu.row + menu.rows - 1; y++) expect(cells(lines, y, menu.col, menu.cols - 1)).toBe(cells(alone, y, menu.col, menu.cols - 1));
       press({ kind: "esc" });
+      frame();
+      // Its ◢ corner, over the drawer, dragged out past the float's edge: the drag stays the float's until the release.
+      const g = d.drawnAbove().floats[0]!.rect, cx = g.col + g.cols - 1, cy = g.row + g.rows - 1;
+      press({ kind: "mouse", action: "down", button: 0, x: cx, y: cy });
+      press({ kind: "mouse", action: "drag", button: 0, x: cx + 6, y: cy + 2 });
+      press({ kind: "mouse", action: "up", button: 0, x: cx + 6, y: cy + 2 });
+      frame();
+      const sized = d.drawnAbove().floats[0]!.rect;
+      expect([sized.cols, sized.rows]).toEqual([g.cols + 6, g.rows + 2]);
+      expect(app.drawer.entered).toBe(false);
     } finally {
       for (const overlay of (d as any).overlays.all()) overlay.close(d);
       (d as any).build(original, false);

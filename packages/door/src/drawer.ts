@@ -1516,8 +1516,9 @@ export class AgentDrawer {
     const r = this.shown ? this.rect : null;
     const chip = this.chipAt;
     const onChip = !!chip && k.y === chip.row && k.x >= chip.from && k.x < chip.to;
-    // A cell the screen's float or menu is drawn over (covers) is the screen's, its edge and chips too.
-    const covered = this.covers(shown).hit.some(c => k.x >= c.col && k.x < c.col + c.cols && k.y >= c.row && k.y < c.row + c.rows);
+    // A cell the screen's float or menu is drawn over (covers) is the screen's, its edge and chips too; so is a float
+    // being moved or sized, until the button comes up.
+    const covered = (!!screen && screen !== this.d && screen.floatGesture()) || this.covers(shown).hit.some(c => k.x >= c.col && k.x < c.col + c.cols && k.y >= c.row && k.y < c.row + c.rows);
     const inDrawer = !!r && k.y >= r.row && k.y < r.row + r.rows && !covered;
     // alt+l waiting for a tile (PIE-700): a click on the other desk picks it, the drawer's list linking to a reader of the
     // screen above or a screen tile to one in the drawer; the keys stay where they are.

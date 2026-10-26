@@ -4215,6 +4215,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const h = Math.min(lines.length + 2, Math.max(3, rows - 4));
     const r: Rect = { col: 0, row: rows - 3 - h, cols: cols - 1, rows: h };
     this.overlayHits.push(r);
+    this.raised.menus.push({ ...r, cols: r.cols + 1, rows: r.rows + 1 });
     canvas.float(r, "keys", this.prefix ? "" : fg(C.dark) + "any key closes", () => {
       lines.slice(0, h - 2).forEach((l, i) => {
         canvas.text(r.col + 2, r.row + 1 + i, l, r.cols - 4);
@@ -4299,6 +4300,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = this.keyPanelAt(canvas, cols, rows);
     if (!at) return false;
     this.overlayHits.push(at.rect);
+    this.raised.menus.push({ ...at.rect, cols: at.rect.cols + 1, rows: at.rect.rows + 1 });
     this.keySpots.push(...at.spots);
     return true;
   }
@@ -6631,10 +6633,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * screen's over the drawer, so the drag keeps moving it), and its menus (a picker, a hint card, a completion list),
    * shadows included.
    */
-  drawnAbove(): { floats: { rect: Rect; shade: Rect }[]; menus: Rect[] } {
-    const o = this.screenOrigin, at = (r: Rect): Rect => ({ ...r, col: r.col + o.col, row: r.row + o.row });
-    return { floats: this.raised.floats.map(f => ({ rect: at(f.rect), shade: at(f.shade) })), menus: this.raised.menus.map(at) };
+  drawnAbove(): { floats: { rect: Rect; shade: Rect }[]; menus: Rect[] } { return this.raisedFrom(this.screenOrigin); }
+  /** `drawnAbove` from `off`: this desk's, then each mounted screen's (a group's tile menu), in the screen's cells. */
+  private raisedFrom(off: { col: number; row: number }): { floats: { rect: Rect; shade: Rect }[]; menus: Rect[] } {
+    const at = (r: Rect): Rect => ({ ...r, col: r.col + off.col, row: r.row + off.row });
+    const out = { floats: this.raised.floats.map(f => ({ rect: at(f.rect), shade: at(f.shade) })), menus: this.raised.menus.map(at) };
+    for (const [id, r] of this.hits) {
+      const pane = this.panes.get(id);
+      if (!(pane instanceof ScreenTile) || !pane.inner || this.contentCover(id).fold || this.cover(id) === "spine") continue;
+      const origin = this.origin(id, r), kid = pane.inner.raisedFrom({ col: off.col + origin.col, row: off.row + origin.row });
+      out.floats.push(...kid.floats); out.menus.push(...kid.menus);
+    }
+    return out;
   }
+  /** A float is being moved or sized by the mouse: the drag stays this screen's until the button comes up, over the drawer too. */
+  floatGesture(): boolean { return !!this.floatDrag; }
   get lifted() { return this.layout.lift; }
   /** Pane `p` is the tile lifted on this desk. */
   liftsPane(p: Pane): boolean { const l = this.layout.lift; return !!l && this.panes.get(l.tile) === p; }
