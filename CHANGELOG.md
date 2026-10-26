@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A note can leave out its reader header: `[header::none]` (PIE-1319)
+
+- **A dashboard draws only its body.** `[header::none]` on a note's first line leaves out the crumbs, the title and the
+  byline in the readers, a river column and the drawer (the BBS message reader keeps its own header): its figures start on the first row, and the tile's border
+  still names it. `[header::crumbs]` or `[header::title]` leave out only those rows; `[header::crumbs, title]` both.
+  Take it off and the header comes back at once.
+- **Still reachable:** the tile menu (⋯) has comment on the whole note, comments, properties and sources, the byline's
+  ways in. `ep0ch show` keeps the title first, as scripts read its first line.
+- **It describes itself:** the component library has a `header` page, and `[header::` completes its three values
+  with what each leaves out. The showcase's `header` section is a dashboard in a reader and a river column.
 ### A button asks for what it's missing; copy any tile's or note's address; a `::button` line is read as you type (PIE-1298, PIE-1297, PIE-1312)
 
 - **An empty slot asks.** `::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}`: pressed with `target=`

@@ -41,6 +41,7 @@ export const SEED = {
   calloutType: "Recipe callouts",
   images: "Pictures of the plot",
   hero: "An evening on the plot",
+  dashboard: "Plot at a glance",
   artifacts: "Toys on the desk",
   gallery: "Seed packet gallery",
   machineryPeople: "Written by people",
