@@ -161,6 +161,30 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     expect((await run(["find", "--view", ids.view!, "--under", ids.plot!, "--ids"], env)).out.trim()).toBe(`((${ids.order}))`);
   }, 30_000);
 
+  // PIE-1277: a [key::value] on line 9 of a long note, found by --property-scope all and by a view that says so.
+  test("find --property-scope all: a buried ask, its line and its step's state; a ticked step drops out", async () => {
+    const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
+    const make = (text: string) => board.request<{ id: string; revision: number; text: string }>("create", { parentId: null, text, author: "agent" });
+    const shed = await make(["Shed repairs", "", ...Array.from({ length: 6 }, (_, i) => `Board ${i + 1} is soft.`), "- [ ] Which stain? [asks::neighbour: pick the colour]"].join("\n"));
+    const view = await make("Open asks [type::virtual-branch] [query::asks] [property-scope::all]");
+    try {
+      expect((await run(["find", "--query", "asks", "--ids"], env)).out.trim()).toBe("");
+      const found = await run(["find", "--query", "asks", "--property-scope", "all"], env);
+      expect(plain(found.out)).toContain("line 9 to do asks: neighbour: pick the colour");
+      const [record] = JSON.parse((await run(["find", "--query", "asks", "--property-scope", "all", "--json"], env)).out) as (BlockRecord & { matches: unknown })[];
+      expect([record!.id, record!.matches]).toEqual([shed.id, [{ key: "asks", value: "neighbour: pick the colour", line: 9, scope: "inline", task: "todo" }]]);
+      expect(plain((await run(["find", "--view", view.id], env)).out)).toContain("line 9 to do asks");
+      expect(plain((await run(["find", "--view", view.id, "--property-scope", "all"], env)).err)).toContain("[property-scope::]");
+      expect(plain((await run(["find", "--property-scope", "everywhere", "--query", "asks"], env)).err)).toContain("--property-scope is block, line, inline, all");
+      await board.request("update", { blockId: shed.id, expectedRevision: shed.revision, text: shed.text.replace("- [ ] Which", "- [x] Which"), mutation: { author: "user" } });
+      expect((await run(["find", "--query", "asks", "--property-scope", "all", "--ids"], env)).out.trim()).toBe("");
+    } finally {
+      await board.request("delete", { blockId: shed.id }).catch(() => {});
+      await board.request("delete", { blockId: view.id }).catch(() => {});
+      board.close();
+    }
+  }, 30_000);
+
   test("find --json: block records, built by the service", async () => {
     const [r] = JSON.parse((await run(["find", "--query", "tag=spring", "--json"], env)).out) as BlockRecord[];
     expect(r).toMatchObject({ id: ids.order, title: "Seed order for the plot", parent: ids.plot, children: [ids.ask], properties: [{ key: "type", values: ["errand"] }, { key: "ctx", values: ["2026-03-09 @ 09:27:29 AM"] }, { key: "tag", values: ["seeds", "spring"] }, { key: "when", values: ["before Friday"] }], tasks: [{ status: "todo", text: "order the beans" }] });

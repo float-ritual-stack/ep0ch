@@ -259,7 +259,7 @@ export function selectionOf(args: string[]): { selection: Omit<Selection, "ids" 
     else sel.dates.push(`${DATE_CLAUSES[f]} ${v.trim()}`);
   }
   if (sel.direction && !sel.sort) return { error: `--direction orders a --sort: --sort due --direction ${sel.direction}` };
-  if (sel.propertyScope && !sel.query && !sel.dates.length) return { error: `--property-scope says which chips a --query reads: --query needs --property-scope ${sel.propertyScope}` };
+  if (sel.propertyScope && !sel.query && !sel.dates.length && !sel.view) return { error: `--property-scope says which chips a --query reads; give one: ep0ch find --query needs --property-scope ${sel.propertyScope}` };
   return { selection: sel, rest: without(args, SELECT_FLAGS, []) };
 }
 

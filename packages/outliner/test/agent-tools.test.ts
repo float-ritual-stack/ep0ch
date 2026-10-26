@@ -168,6 +168,17 @@ test("find by text, property, key, query and under", async () => {
   expect((await agent("find", {})).exitCode).toBe(1);
 });
 
+// PIE-1277: outline_find's propertyScope reaches a chip on a body line, says the line and the step's state.
+test("find with propertyScope all: a chip on line 5 of a note, and the line it matched on", async () => {
+  const { store, agent } = await setup();
+  store.create("Bed plan [kind::area]\n\nRows run north.\nPaths are bark.\n- [ ] Lime the soil? [asks::gardener: before March]");
+  expect((await agent("find", { hasKey: "asks" })).json.blocks).toEqual([]);
+  const rows = (await agent("find", { hasKey: "asks", propertyScope: "all" })).json.blocks;
+  expect(rows.map((b: any) => [b.title, b.matches])).toEqual([["Bed plan", [{ key: "asks", value: "gardener: before March", line: 5, scope: "inline", task: "todo" }]]]);
+  const bad = await agent("find", { hasKey: "asks", propertyScope: "everywhere" });
+  expect([bad.exitCode, bad.stderr]).toEqual([1, expect.stringContaining("`propertyScope` must be one of block, line, inline, all")]);
+});
+
 test("find rows carry created, which an edit leaves alone (so a newest-first list doesn't reorder on edit)", async () => {
   const { store, agent } = await setup();
   const first = store.create("First post [kind::post]");
