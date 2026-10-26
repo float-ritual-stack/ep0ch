@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import type { Rgba } from "./vga";
-import type { PngRef } from "./media";
+import { onTerminal, type PngRef } from "./media";
 import type { SizedText } from "./text-sizing";
 
 export interface Placement {
@@ -144,6 +144,7 @@ export class KittyLayer {
     this.bytesSent += out.length;
     this.write(out);
     this.uploaded.set(hash, id);
+    if (png) onTerminal(img.key);
     return id;
   }
 
@@ -187,6 +188,7 @@ export class KittyLayer {
     if (lost.length >= 3) return false;
     this.lost.set(hash, [...lost, now]);
     this.uploaded.delete(hash);
+    if (hash.startsWith("png:")) onTerminal(hash.slice(4), false);
     for (const [key, placed] of this.placed) if (placed.id === id) this.placed.delete(key);
     return true;
   }
@@ -199,7 +201,7 @@ export class KittyLayer {
   /** On exit: free all image data this process uploaded. */
   dispose(): void {
     let out = "";
-    for (const id of this.uploaded.values()) out += APC(`a=d,d=I,i=${id},q=2`);
+    for (const [hash, id] of this.uploaded) { out += APC(`a=d,d=I,i=${id},q=2`); if (hash.startsWith("png:")) onTerminal(hash.slice(4), false); }
     this.uploaded.clear(); this.placed.clear();
     if (out) this.write(out);
   }

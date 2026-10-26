@@ -698,7 +698,7 @@ See [machine-link installation](../outliner/docs/machine-link.md#installing-over
 | `ep0ch mcp access [none\|read\|propose\|full] [--json] [--ws <name>] [--machine <ssh-name>]` | show or set the outline's persisted MCP grant. The default is `none`. `read`, `propose` and `full` all let MCP clients read the outline, through the local stdio server and the [remote gateway](#remote-mcp-gateway-claudeai) alike. `propose` and `full` also let MCP clients write ([Writes](#writes-pie-615)), over stdio and the gateway alike (one security model, one tool path): `propose` as proposals for you to apply, `full` applied against the revision the caller read. This setting is per outline and independent of web publishing; `none` revokes at once, for both. |
 | `ep0ch mcp [--ws <name>] [--machine <ssh-name>]` | a local stdio MCP server for canonical `ep0ch://<outline>@<machine>/b/<uuid>` block URIs. It refuses every outline read unless `ep0ch mcp access read` (or `propose`/`full`) has explicitly granted this outline. At `propose` and `full` it offers the same write tools as the gateway, attributed `mcp:<client>` from the client name in the MCP `initialize` (mapped by `EP0CH_MCP_PERSONAS` like the gateway's), written straight to the outline's host (through the ssh forward with `--machine`; the stdio server has no mirror, so an away machine is an error, not a queue). A granted local reader can read private outline content; `[publish::…]` is not required and published blocks do not bypass `none`. `outline_read`, `outline_find`, `outline_links` and `resources/read` keep the same envelope (`outline_components` returns the component library's brief, and `resources/list` lists each component as `ep0ch://<outline>@<machine>/components/<id>`): canonical URI, outline instance id, revision, reachability and block record; `resources/read` also includes Markdown content. |
 | `ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default>]` | the same MCP server over streamable HTTP, for remote clients such as claude.ai: an OAuth resource server (Clerk issues the tokens) for the outlines on this machine's host and read-only mirrors of other machines' outlines (`EP0CH_MCP_MIRRORS`), each still gated by `ep0ch mcp access`, plus the write tools where that allows them (a mirror's outline queues them). Port 8792 on 127.0.0.1 by default. See [Remote MCP gateway](#remote-mcp-gateway-claudeai) |
-| `ep0ch mcp queue [status\|take\|settle] [--machine <name>] [--json]` | the gateway machine's queue of writes for other machines' outlines ([netmail](#netmail-writes-to-another-machines-outline)): how many wait for each machine, the oldest, its last pull, and what the latest became. `take` and `settle` are what a home machine's pull runs here over ssh |
+| `ep0ch mcp queue [status\|drop\|take\|settle] [--machine <name>] [--json]` | the gateway machine's queue of writes for other machines' outlines ([netmail](#netmail-writes-to-another-machines-outline)): how many wait for each machine, each waiting write's id, the oldest, its last pull, and what the latest became. `drop <id>… [--why <words>]` withdraws waiting writes. `take` and `settle` are what a home machine's pull runs here over ssh |
 | `ep0ch mcp pull [--from <ssh-name>]` | on an outline's home machine: take the writes queued for it on the gateway's machine (`EP0CH_MCP_HUB` in `~/.config/ep0ch/backup.env`), apply each, and say what each became. The backup job runs it every 15 minutes |
 | `ep0ch new "<text>" [--near <id>] [--as <id>] [--json]` | a new note from a shell or an agent with no door open, placed by the service as `ctrl+n` places one (see [New notes and pages](#new-notes-and-pages-pie-544)) |
 | `ep0ch view order <view> [<id>…] [--json] [--as <id>]` | a view's hand-set order: printed, or those members put first in the order given (ids, `((id))` or Work IDs), the same service step as the board's `alt+↑` `alt+↓` |
@@ -793,9 +793,9 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   doesn't, the mirror answers exactly as before and `reachability.reason`, `liveTried` and `list_outlines`' `route` say
   why ("laptop didn't answer over ssh (tried 2s ago): …; this is float-2's read-only copy …"), and writes queue. A host
   on another `PROTOCOL` counts as away, with the command to run on that machine (`ep0ch install --apply`). Nothing
-  writes twice: a write queued while the machine was away applies once when it pulls, checked against the note's
-  revision then (a note changed live since becomes a proposal), a live write after it is an ordinary revision-checked
-  write that says how many of the caller's queued writes to that note still wait, and a live read still lays those over
+  writes twice: a write queued while the machine was away is drained over the link by the first call that finds it live
+  again (or by the gateway's own try every 15 seconds, or the machine's pull), checked against the note's revision then
+  (a note changed live since becomes a proposal), before that call's own write; a live read lays any still waiting over
   the note as `pending`. `list_outlines` gives each mirrored outline's `route` (`via`: `live` or `mirror`, when it was
   last `checkedAt`, `why`). `EP0CH_MCP_LIVE=0` turns the live route off.
   **One identity per outline.** A mirrored copy is its source's instance: the private host that serves it keeps the
@@ -1004,9 +1004,24 @@ still denies everyone). The root note carries `[created-by::loki/claude-code@flo
 A mirror's outline (float-hub@laptop) is never written on the gateway's machine. Its writes wait there in a store of
 their own, `<EP0CH_MCP_MIRROR_DIR>/.netmail.sqlite` (`src/mcp-netmail.ts`), each with the block's URI and what the
 mirror showed of it: its revision, its text's hash and the home database's instance id (read from the copy). The
-answer says `queued for float-hub@laptop (laptop last pulled …)`, and `list_outlines` gives each mirror's `queue`.
+answer says why it queued (`laptop didn't answer over link or ssh …: queued for float-hub@laptop`, also as `why`), and
+`list_outlines` gives each mirror's `queue`.
 
-The home machine dials in: with `EP0CH_MCP_HUB=float-2` in its `~/.config/ep0ch/backup.env` (install writes it on a
+**The gateway drains it itself** (PIE-1351): the first call that finds the machine's host live again applies that
+outline's waiting writes over the link before it is answered, oldest first, and while writes wait the gateway tries the
+machine on its own every 15 seconds, so they land within seconds of the link coming back, whether or not the machine
+ever pulls. Each is claimed (a pull's `take` skips it), applied with the same `applyEntry` a pull uses, under the
+outline's own access level and the writer's attribution, and settled in the store; `outline_write_status` follows it.
+A write tries the machine again even inside the 45-second backoff of a failed try, and keeps trying every 3 seconds
+for up to 20 (`EP0CH_MCP_WRITE_WAIT_MS`) before it queues, so a link restarting under a deploy carries it live; longer
+would risk the client's own timeout on the call (`EP0CH_MCP_DRAIN_MS` sets the drain's 15 seconds; 0 turns it off). A
+live write whose answer is lost (a request over the link waits 10 seconds) is queued as that same write and says so:
+a comment carries its queue id as its request id, a new block already made under its parent is found, not made again,
+and a patch that landed meets the note's new revision and becomes a proposal, never a second change.
+`ep0ch mcp queue status` lists the waiting writes by id, and `ep0ch mcp queue drop <id>… [--why <words>]` withdraws one
+(a write redone by hand): it is settled as refused with that reason, so nothing applies it.
+
+The home machine can also dial in: with `EP0CH_MCP_HUB=float-2` in its `~/.config/ep0ch/backup.env` (install writes it on a
 Mac), its backup job (every 15
 minutes, while it's awake) runs `ep0ch mcp queue take --machine <its EP0CH_BACKUP_MACHINE> --json` on the hub over ssh,
 applies each write to its own outline with the gateway's own `applyWrite`, and tells the hub what each became

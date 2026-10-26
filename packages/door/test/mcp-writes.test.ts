@@ -786,7 +786,11 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     // The far box's host doesn't answer: nothing is settled, the write waits.
     expect((await tool("outline_comment", { uri: lamps, whole: true, body: "Trim the wicks" })).json.outcome).toBe("queued");
     const gone = await pullNetmail({ hub: "hub-box", machine: FAR, state, env, open: async outline => Object.assign(new SocketBoard(join(dir, "no-such.sock"), 2000, outline), { address: { outline, machine: FAR } }) });
-    expect(gone).toMatchObject({ ok: true, settled: [], detail: expect.stringContaining("none applied here yet") });
+    const goneSaid = gone.detail;
+    expect(gone).toMatchObject({ ok: true, settled: [] });
+    // Its own summary says why, so the person running `ep0ch mcp pull` (or reading the job's state) isn't left guessing.
+    expect(goneSaid).toContain("none applied here yet");
+    expect(goneSaid).toContain("no-such.sock");
     // A ledger that can't be read stops the pull before anything is applied.
     writeFileSync(join(state, "netmail-applied.json"), "[not a ledger");
     expect(await pull()).toMatchObject({ ok: false, settled: [] });
@@ -809,6 +813,25 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect((await textOf(far, "attic-notes", FAR, ids.map!)).text).toContain("[work-id::GDN-001]");
     expect((await textOf(far, "attic-notes", FAR, ids.keys!)).text).not.toContain("work-id");
     expect(await editsBy(far, "attic-notes", ids.map!)).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: expect.stringMatching(new RegExp(`^${PERSON}#c-[0-9a-f]{10}$`)) });
+  }, 60_000);
+
+  test("a pull that runs mid-deploy (its CLI on the old protocol) says why in its summary; the next pull, caught up, applies them once", async () => {
+    const lamps = formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids.lamps! });
+    const q = (await tool("outline_create", { uri: lamps, text: "A lamp written during a deploy" })).json;
+    expect(q.outcome).toBe("queued");
+    // The far box's host is already on the new protocol and its CLI isn't yet: the board won't open.
+    const skew = "this door speaks protocol 270 and the outline host protocol 271: update the door (ep0ch install --apply)";
+    const during = await pullNetmail({ hub: "hub-box", machine: FAR, state: join(dir, "far-state"), env, open: async () => ({ error: skew }) });
+    expect(during).toMatchObject({ ok: true, taken: 1, settled: [] });
+    expect(during.detail).toContain("none applied here yet (attic-notes isn't open here: this door speaks protocol 270");
+    const waiting = (await tool("outline_write_status", { queueId: q.queueId })).json;
+    expect(waiting.state).toBe("queued");
+    expect(waiting.said).toContain("hasn't said what it became");
+    // The CLI catches up: the next pull applies it, once.
+    expect((await pull()).settled.map(s => s.state)).toEqual(["applied"]);
+    expect(await pull()).toMatchObject({ taken: 0 });
+    const kids = await boardOn(far, "attic-notes", FAR).request<{ text: string }[]>("children", { parentId: ids.lamps });
+    expect(kids.filter(k => k.text === "A lamp written during a deploy")).toHaveLength(1);
   }, 60_000);
 
   test("remote proposal settlement refuses before queueing at propose, and settles a queued refusal after access narrows", async () => {

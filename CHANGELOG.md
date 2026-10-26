@@ -24,6 +24,21 @@ are its record. The outliner's entries from then are kept below, under
   `element.quote`, and MCP `outline_quote` with `elements`, `where: detached`, `into`/`at`/`as`.
 - The kitchen sink's `detach` section shows it. **Run after updating:** `ep0ch install --apply` (the protocol changed:
   the `quote` action).
+### An agent's write to the laptop's outline lands as soon as the link is back (PIE-1351)
+
+- **Queued writes drain over the link.** A write to an outline on another machine already went live when that machine
+  answered; one made while it didn't (a dropped link, a gateway restart) waited for that machine's own pull, which may
+  never run. Now the MCP gateway applies them itself, over the link, the moment it reaches the machine again: the first
+  call that finds it live, or its own try every 15 seconds while writes wait. Same rules as a pull: the outline's own
+  access level, the writer's attribution, a note changed since becomes a proposal.
+- **A short drop isn't a queue.** A write tries the machine again even inside the 45-second backoff of a failed try,
+  and waits up to 20 seconds for a link restarting under a deploy before it queues.
+- **Says why, lands once.** A queued answer starts with why (`laptop didn't answer over link or ssh …`, also as `why`).
+  A live write whose answer is lost is queued as that same write and lands once.
+- **`ep0ch mcp queue drop <id>… [--why <words>]`** withdraws a waiting write (one redone by hand) and says what it was;
+  `ep0ch mcp queue status` lists the waiting writes by id. A pull that couldn't apply a write now says why in its own
+  summary (a pull run mid-deploy, its CLI a protocol behind its host, waits and applies on the next).
+- No wire change, no PROTOCOL bump, no schema change.
 
 ### Any element takes an anchor: embed or link one figure, callout or list item (PIE-1247)
 
