@@ -578,7 +578,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     closeBar();
   });
 
-  test("an agent-made work item is in +recent, read as `HUB-707 title`, and found by its work id, its page name or its words (PIE-664)", async () => {
+  test("an agent-made work item is in +recent, read as `HUB-707 · title`, and found by its work id, its page name or its words (PIE-664)", async () => {
     // Made by an agent: the work id is a property, not part of the title, so the row has to carry it. Then a property-only write.
     const note = await board.createBlock(null, "End-of-day update for the hutch [work-id::HUB-707]\nplanted out, watered", AGENT);
     const m = await board.get(note.id);
@@ -594,12 +594,12 @@ describe.skipIf(!outliner)("the power bar", () => {
       const r = await app.act({ action: "bar.open", args: { scope, query }, as: "test-agent" }) as any;
       return r.rows.map((x: any) => x.label) as string[];
     };
-    // The label reads as /notes does, and the work id, the page name and the title's words each find it.
-    for (const q of ["HUB-707", "hub-707", "hutch wrap-up", "end-of-day"]) expect(await ask(q, "recent")).toEqual(["HUB-707 End-of-day update for the hutch"]);
+    // The label reads as every list does (PIE-1356: the ID, then the title), and the work id, the page name and the title's words each find it.
+    for (const q of ["HUB-707", "hub-707", "hutch wrap-up", "end-of-day"]) expect(await ask(q, "recent")).toEqual(["HUB-707 · End-of-day update for the hutch"]);
     expect((await ask("hinges", "recent"))[0]).toStartWith(item.workId);
     expect(await ask(item.workId, "recent")).toEqual([expect.stringMatching(new RegExp(`^${item.workId}.*hinges`))]);
     // The notes scope's service search gives the same label for it; a work id nobody has finds nothing.
-    expect((await ask("HUB-707", "notes"))[0]).toBe("HUB-707 End-of-day update for the hutch");
+    expect((await ask("HUB-707", "notes"))[0]).toBe("HUB-707 · End-of-day update for the hutch");
     expect(await ask("HUB-999", "recent")).toEqual([]);
   });
 
@@ -608,7 +608,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     await app.act({ action: "open", args: { id: note.id, fresh: true }, as: "test-agent" });
     await until(() => desk.tileOutline().some(t => t.showing?.id === note.id), "a tile showing it");
     const ask = async (query: string) => ((await app.act({ action: "bar.open", args: { scope: "tiles", query }, as: "test-agent" }) as any).rows.map((x: any) => x.label) as string[]);
-    for (const q of ["HUB-808", "fence plan", "allotment"]) expect(await ask(q)).toEqual(["HUB-808 Fence the allotment"]);
+    for (const q of ["HUB-808", "fence plan", "allotment"]) expect(await ask(q)).toEqual(["HUB-808 · Fence the allotment"]);
   });
 
   test("/ with nothing typed lists the notes changed most recently first, and ⏎ lands on the latest; typing still runs the search (PIE-664)", async () => {
