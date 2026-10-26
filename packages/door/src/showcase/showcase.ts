@@ -1198,6 +1198,16 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "pick-a-tile", need: "choose a tile by clicking it instead of typing its id, and copy any tile's or note's address from where you see it", part: "the wire picker (tile.link's link mode, now tile.pick), a button's {slot} read by outline-core's button-call and written by sources.set's line save (button.slot), the action's own argument kind, and Desk.tileRefs (a tile's id and the role it fills)", files: "outline-core/src/button-call.ts, src/desk/desk.ts, src/surface/note.ts, src/button-check.ts",
+    aside: "Press pop it: nothing is on its line, so the door asks (click the links tile, or press its number); a tile that fills a role asks for this tile or the role · the line becomes target=@showcase/links or a t-… id; press again and it lifts above the drawer · ctrl+z takes the choice back; alt+click chooses again · the misread button runs nothing and prints the line to write · an agent passes the tile itself: button.slot label=\"pop it\" key=target value=links · the ⋯ menu's copy id and copy reference, and the note's menu: copy id, reference or web link",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane();
+      return deskOf({ title: "showcase · pick a tile", panes: [a, b, c], names: ["notes", "links", "preview"],
+        layout: ([x, y, z]) => pair("row", 0.6, leaf(x!), pair("col", 0.5, leaf(y!), leaf(z!))) }, show,
+        [[a, n.pickATile], [b, n.scripts], [c, n.scriptsInPlace]]);
+    },
+  },
+  {
     key: "scripts-in-place", need: "a script that knows its note and draws where it is written, live", part: "the Site's script globals (this, self, caller, props), render mode through ExtensionCalls' one producer path, and `::=` lines", files: "outliner/src/script-runs.ts, src/extension-calls.ts, src/script-runtime.ts",
     aside: "A cold ep0ch show of this note draws the handler output too; --source keeps the authored lines · The Published script lines link demonstrates a visible-only seed count on its public page, embedded and through ::use · beds-table:: week=42 draws the Beds table script's view under its line, and the ::= line draws a one-line script · both read this note's owner: edit [owner::Sam] (e, save) and they redraw · nothing is written for a drawing: no run note, the note's text stays yours · the script is [mode::render] and can't declare [effects::write] · Run seed-report from the other section runs with this note in front as `this` · scripts.stop run=<id> ends one run",
     stage(n, show) {

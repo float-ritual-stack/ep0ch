@@ -120,6 +120,8 @@ export interface SavedFloat { tile: TileSpec; rect: { col: number; row: number; 
  * never a number (`3` and `#3` are the tile numbered 3 on screen), never an id, and never holds the `:` of a
  * `tile:<name>` source. Null when it's a good name, else what's wrong, in words.
  */
+/** A tile's stable id as a few characters on screen (`t-1a2b3c4d`): the header of its menu and its card; the whole id is what copies and what a slot keeps. */
+export const shortTileId = (id: string): string => (id.startsWith("t-") ? id.slice(0, 10) : id);
 export const ID_SHAPE = /^(?:[tsgk]\d+|t-[0-9a-f-]{36})$/;
 export function tileNameProblem(name: string): string | null {
   if (/^#?\d+$/.test(name)) return `a tile's name isn't a number (${name} would be read as the tile numbered ${name.replace("#", "")} on screen); start it with a letter`;

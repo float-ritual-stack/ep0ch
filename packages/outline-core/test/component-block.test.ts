@@ -109,3 +109,9 @@ test("a ^name at the end of the first line is the component's id, in braces, aft
   // Without one nothing changes.
   expect(componentBlocks('::links{query="x"}\n::'.split("\n"))[0]).not.toHaveProperty("id");
 });
+
+test("a {word} inside a component's braces (a button's slot) keeps it one opener", () => {
+  expect(COMPONENT_OPEN.exec('::button{label="a" act="go tile={target}" target=}')?.[1]).toBe("button");
+  expect(COMPONENT_OPEN.exec("::button{of=neat page={page1} page1=}")?.[3]).toBe("{of=neat page={page1} page1=}");
+  expect(COMPONENT_OPEN.exec("::box{pad=1} ^name")?.[4]).toBe("name");
+});

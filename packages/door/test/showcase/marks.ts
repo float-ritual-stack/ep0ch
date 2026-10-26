@@ -162,6 +162,7 @@ export const marks: Record<string, string[]> = {
   wyrm: ["Wyrmhold", "join the realm", "Dozing Gerald"],
   scripts: ["Seed report", "Press alt+S"],
   "button-sequences": ["One button, two tiles", "Fold the bottom", "Sugar"],
+  "pick-a-tile": ["Pick a tile instead of typing its id", "pop it", "misread"],
   "scripts-in-place": ["Scripts in place", "beds-table"],
   press: ["Noughts and crosses", "ttt-board"],
   "status-bar": ["Your buttons on the status bar", "[Collapse]"],
