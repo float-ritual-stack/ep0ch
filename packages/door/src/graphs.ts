@@ -315,8 +315,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const density = ui?.density ?? (isDensity(p.density) ? p.density : "cozy"), most = ui?.lines ?? 2;
     const tc = tcol;
     const drawRow = (r: string[]) => {
-      // A cell has no marker to hang under: its next row starts at the cell's edge (PIE-1302).
-      const cells = r.map((c, k) => rowLines(c, cw[k]!, most, { hang: "none" }));
+      const cells = r.map((c, k) => rowLines(c, cw[k]!, most));
       return Array.from({ length: Math.max(...cells.map(c => c.length)) }, (_, i) => line(cells.map(c => c[i] ?? ""), fg(INK)));
     };
     const blocks: unknown[] = p.blocks ?? [];

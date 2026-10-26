@@ -44,14 +44,15 @@ describe("a styled heading is the heading it was", () => {
     expect(foldPoints(BODY.replace("[heading::waffle]", "[heading::band]"))[0]!.key).toBe(foldPoints(BODY)[0]!.key);
   });
 
-  test("wide, a band of three rows with the heading in it; narrow, the heading as written, without its style", () => {
+  test("wide, a band of three rows with the heading in it; narrow, the heading's words, without its #s or its style (PIE-1302)", () => {
     const wide = rows(BODY, 100);
     const at = wide.findIndex(l => l.includes("▾ Beds") || l.includes(" Beds "));
     expect(wide.slice(at - 1, at + 2).every(l => /[░▒▓]/.test(l))).toBe(true);
     expect(wide.join("\n")).not.toContain("[heading::");
     const narrow = rows(BODY, 40);
-    expect(narrow).toContain("## Beds");
-    expect(narrow).toContain("### Soil");
+    expect(narrow).toContain("Beds");
+    expect(narrow).toContain("Soil");
+    expect(narrow.join("\n")).not.toMatch(/#+ (Beds|Soil)/);
     expect(narrow).toContain("---");
     expect(narrow.join("\n")).not.toMatch(/\[heading::|\[rule::|[░▒▓]/);
   });

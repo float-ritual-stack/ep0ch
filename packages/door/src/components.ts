@@ -186,7 +186,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
         fg(C.grey) + BOLD + line(columns) + UNBOLD + RESET,
         fg(C.dark) + widths.map(x => "─".repeat(x)).join("  ") + RESET,
         ...rows.flatMap((r, k) => {
-          const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!, undefined, { hang: "none" }));
+          const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!));
           return Array.from({ length: Math.max(...cells.map(c => c.length)) }, (_, j) => {
             const text = line(cells.map(c => c[j] ?? ""));
             return fg(C.white) + (links[k] ? tag(links[k], text) : press(acts[k], text)) + RESET;

@@ -1182,9 +1182,9 @@ function styleDeclaration(line: string, W: number): string[] | null {
 
 /**
  * A heading with a style (PIE-599): its band (src/figures/banner.ts) and the row its text is on; or, narrower than the
- * figures' tier rule or too long for the band, its words as the band would letter them plainly, in its ink, wrapped:
- * never the source's `#`s nor the style's property (PIE-1302). Null for a line that isn't a heading, or a heading with
- * no style and no property.
+ * figures' tier rule or too long for the band, its words in its ink, unspaced and wrapped: never the source's `#`s
+ * (PIE-1302). A style nobody declared draws the heading as written. Never the style's property. Null for a line that
+ * isn't a heading, or a heading with no style and no property.
  */
 function styledHeading(line: string, W: number, env: DocEnv, literal: boolean, fold?: Disclosure): { rows: string[]; headRow: number; margin?: { top: number; bottom: number } } | null {
   const st = styleOf(line, env);
@@ -1195,7 +1195,8 @@ function styledHeading(line: string, W: number, env: DocEnv, literal: boolean, f
   const band = st.style && drawBand(st.style, W, st.level, headingLabel(h[2]!, st.level, st.style, fold), stripMarks(h[2]!));
   if (band) return { rows: band.rows, headRow: band.textRow, ...(st.style ? { margin: st.style.margin } : {}) };
   const margin = st.style?.margin;
-  const plain = rowLines(headingLabel(h[2]!, st.level, { tone: st.style?.tone ?? "neutral", letters: "plain" }, fold), W, Infinity);
+  // An unknown style draws the heading as written (its `#`s too); a style too narrow to band draws its words plainly.
+  const plain = st.style ? rowLines(headingLabel(h[2]!, st.level, { tone: st.style.tone, letters: "plain" }, fold), W, Infinity) : prose(st.text, W, fold, literal);
   if (!margin) return { rows: plain, headRow: 0 };
   const m = withMargin(margin, plain, 0);
   return { rows: m.rows, headRow: m.textRow, margin };

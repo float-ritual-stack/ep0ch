@@ -20,7 +20,7 @@ describe("figures at 40 columns", () => {
   });
 
   test("a table cell's next row starts at the cell's edge, not under a Work ID's indent", () => {
-    const out = figure("table", ["---", "columns: [Ticket, Who]", "rows:", "  - [PC-12 / acceptance of the intake flow, Ana]", "---"]);
+    const out = figure("table", ["---", "headers: [Ticket, Who]", "rows:", "  - [PC-12 / acceptance of the intake flow, Ana]", "---"]);
     const at = out.findIndex(l => l.includes("PC-12 /"));
     expect(at).toBeGreaterThan(-1);
     // The row under it: the cell's words go on where "PC-12" starts (it hung six cells in, under "PC-12 ").
@@ -28,9 +28,9 @@ describe("figures at 40 columns", () => {
     expect(out[at + 1]!.slice(col)).toMatch(/^intake flow/);
   });
 
-  test("rowLines hang none: a cell has no marker to hang under; a list row still does", () => {
-    expect(rowLines("PC-12 · the intake flow", 12, Infinity, { hang: "none" })).toEqual(["PC-12 · the", "intake flow"]);
-    expect(rowLines("PC-12 · the intake flow", 12, Infinity)[1]).toMatch(/^ {8}/);
+  test("a Work ID hangs its title only when it leads one (ID, a separator, the title)", () => {
+    expect(rowLines("PC-12 / the intake flow", 12, Infinity)).toEqual(["PC-12 / the", "intake flow"]);
+    expect(rowLines("PC-12 · the intake flow", 16, Infinity)).toEqual(["PC-12 · the", "        intake", "        flow"]);
   });
 });
 

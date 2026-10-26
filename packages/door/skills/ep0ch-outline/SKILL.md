@@ -662,7 +662,7 @@ an empty `##` or an empty figure as a divider:
 
 The line stays Markdown: folds, `( )`, sections, `^anchors`, Detail, the publisher and export all see the heading
 or rule as written. The door draws it inside a band of the figures' glyphs (dim, the heading in colour). Under 48
-columns, or when the heading doesn't fit, it draws the heading or rule as written. Built-in styles: `band` (centred,
+columns, or when the heading doesn't fit, it draws the heading's words plainly (no `#`s) and a rule as written. Built-in styles: `band` (centred,
 spaced capitals), `tab` (left, top row), `waffle`, `uptime`, `dots`, `rule`, and `fade` (one row, for `---`). Put a
 blank line before a styled `---`.
 
