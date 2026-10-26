@@ -15,7 +15,7 @@ import {WorkingSelectionRepository} from "./working-selection";
 import { ChangeFeed, machineryClause, raiseChangeFeedFloor, type SequenceChange } from "./change-feed";
 import { checklistItems, lineChipTasks, queryChecklistItems, updateChecklistText, validateChecklistIdentityChanges } from "./checklist-items";
 import { searchFragmentCandidates, type FragmentCandidateCollection, type FragmentCandidateQuery } from "./fragment-search";
-import { ensureFragmentAnchor } from "./fragments";
+import { elementAt, ensureFragmentAnchor, fragmentPresentationText, resolveFragmentSlice } from "./fragments";
 import { readFragment, readTransclusions, type FragmentRead, type TransclusionOptions, type TransclusionRead, type TransclusionTarget } from "./transclusions";
 import type { ChecklistCollection, ChecklistIdentityChange, ChecklistQuery, ChecklistSearchQuery, ChecklistSearchCollection, ChecklistUpdateInput, ChecklistUpdateReceipt } from "./types";
 import { planCreateInView, planMoveIntoView, writeView } from "./view-writes";
@@ -57,7 +57,7 @@ import { seedDefaultWorkspace } from "./default-workspace";
 import { openSchema } from "./schema";
 import { openOutlineInstance, type OutlineInstance } from "./outline-instance";
 import { placeNewNote, type NewNoteIntent, type Placement } from "./note-placement";
-import { markQuoteText, readMarkQuoteInput } from "./mark-quote";
+import { DETACHED_PAGE, markSnippet, quoteText, titleWords, type QuoteInput, type QuotedSubject, type QuoteSubject } from "./quote";
 import {
   BlockQueryError,
   compileQueryExpression,
@@ -1346,41 +1346,97 @@ export class OutlinerStore {
   }
 
   /**
-   * Quote marks into a new block (`marks.quote`, src/mark-quote.ts): each mark (a highlight, comment or reply) checked,
-   * the block placed by the placement rule (the top of the Inbox, under the first mark's note, or under a block named),
-   * written in one transaction as `mutation`.
+   * The subjects of a `quote` (src/quote.ts), read in the current transaction: each mark checked, each element found
+   * by its anchor or by a line of it, the anchor written (attributed, revision-checked, as `fragments.ensure` does) when
+   * it has none. Also the note the first subject is on (where `place: note` goes).
    */
-  quoteMarks(input: unknown, mutation: MutationProvenance): { block: Block; placement: Placement; marks: string[] } {
-    const { marks, place, text } = readMarkQuoteInput(input);
-    return this.database.transaction(() => {
-      const records = marks.map((id) => {
-        const block = this.getFromCurrentRead(id);
-        if (!block || block.effectiveDeletedRootId) throw new Error(`No mark ${id}: it's gone or in the Trash`);
+  private quotedSubjectsFromCurrentRead(subjects: readonly QuoteSubject[], mutation: MutationProvenance): { quoted: QuotedSubject[]; marks: string[]; on?: string } {
+    const quoted: QuotedSubject[] = [], marks: string[] = [];
+    // The revision each note had when this quote began: an anchor written for one part moves it on, and a second
+    // part of the same note named at that first revision is still the same note (an anchor never moves a line).
+    const began = new Map<string, number>();
+    let on: string | undefined;
+    for (const subject of subjects) {
+      if (subject.kind === "mark") {
+        const block = this.getFromCurrentRead(subject.id);
+        if (!block || block.effectiveDeletedRootId) throw new Error(`No mark ${subject.id}: it's gone or in the Trash`);
         const type = block.properties.find((property) => property.key === "type")?.value;
-        if (type !== "annotation" && type !== "annotation-reply") throw new Error(`${id} isn't a mark (a highlight, comment or reply); quote a block with ((${id})) or !((${id})) in a note instead`);
-        return this.annotations.get(id);
-      });
+        if (type !== "annotation" && type !== "annotation-reply") throw new Error(`${subject.id} isn't a mark (a highlight, comment or reply); quote a part of a note as { kind: "element", blockId, anchor }`);
+        const record = this.annotations.get(subject.id);
+        if (on === undefined) {
+          // A mark on a mark (words of a comment highlighted): up through the marks to the note they're all on.
+          let target = record.originalTarget.representation.subject;
+          for (let hops = 0; target.kind === "block" && hops < 16; hops++) {
+            const at = this.getFromCurrentRead(target.blockId);
+            const kind = at?.properties.find((property) => property.key === "type")?.value;
+            if (kind !== "annotation" && kind !== "annotation-reply") break;
+            target = this.annotations.get(target.blockId).originalTarget.representation.subject;
+          }
+          on = target.kind === "block" ? target.blockId : "";
+        }
+        marks.push(subject.id);
+        quoted.push({ ref: subject.id, label: markSnippet(record) });
+        continue;
+      }
+      let block = this.getFromCurrentRead(subject.blockId);
+      if (!block || block.effectiveDeletedRootId) throw new Error(`No note ${subject.blockId}: it's gone or in the Trash`);
+      if (!began.has(block.id)) began.set(block.id, block.revision);
+      let anchor = subject.anchor, anchored = false;
+      if (anchor === undefined) {
+        if (subject.revision !== began.get(block.id)) throw new Error(`${subject.blockId} changed since revision ${subject.revision} (it's at ${block.revision}): read it again and name the line`);
+        // "Where I am" (`next`): the first part at or after the line.
+        const element = elementAt(block.text, subject.line!, subject.next === true);
+        if (!element) throw new Error(`line ${subject.line! + 1} of ${subject.blockId} is in no part a quote can take (a figure, a callout, a list item, a paragraph, a heading's section)`);
+        const made = ensureFragmentAnchor(block.text, element.lineIndex);
+        if (made.created) block = this.update(block.id, made.text, block.revision, mutation);
+        anchor = made.fragmentId; anchored = made.created;
+      }
+      const slice = resolveFragmentSlice(block.text, anchor);
+      if (slice.status === "missing") throw new Error(`${subject.blockId} has no ^${anchor}`);
+      if (slice.status === "duplicate") throw new Error(`${subject.blockId} has ^${anchor} more than once: name a line instead`);
+      on ??= block.id;
+      quoted.push({ ref: `${block.id}^${anchor}`, label: titleWords(slice.slice.anchor.label), kind: slice.slice.anchor.kind, copy: fragmentPresentationText(slice.slice), ...(anchored ? { anchored } : {}) });
+    }
+    return { quoted, marks, ...(on ? { on } : {}) };
+  }
+
+  /**
+   * Materialize marks or elements into a new block (`quote`, src/quote.ts): the subjects read (an element's anchor
+   * written when it has none), the block placed by the placement rule (the top of the Inbox, under the first subject's
+   * note, under a block named, or under the `.detached` page, made the first time), in one transaction as `mutation`.
+   * `into` a note is the server's (`quoteInto`): it goes through draft.patch.
+   */
+  quote(input: QuoteInput, mutation: MutationProvenance): { block: Block; placement: Placement; marks: string[]; subjects: QuotedSubject[] } {
+    if (input.place.kind === "into") throw new Error("quote into a note goes through draft.patch (the server's quote)");
+    const place = input.place;
+    return this.database.transaction(() => {
+      const { quoted, marks, on } = this.quotedSubjectsFromCurrentRead(input.subjects, mutation);
+      const { author, actorId, sessionId, taskId } = mutation;
+      const provenance = actorId ? { actorId, ...(sessionId ? { sessionId } : {}), ...(taskId ? { taskId } : {}) } : undefined;
       let intent: NewNoteIntent = { kind: "capture" };
       if (place.kind === "under") intent = { kind: "note", near: place.blockId, nearOnly: true };
       else if (place.kind === "note") {
-        // A mark on a mark (words of a comment highlighted): up through the marks to the note they're all on.
-        let subject = records[0]!.originalTarget.representation.subject;
-        for (let hops = 0; subject.kind === "block" && hops < 16; hops++) {
-          const on = this.getFromCurrentRead(subject.blockId);
-          const type = on?.properties.find((property) => property.key === "type")?.value;
-          if (type !== "annotation" && type !== "annotation-reply") break;
-          subject = this.annotations.get(subject.blockId).originalTarget.representation.subject;
-        }
-        if (subject.kind !== "block") throw new Error("that mark is on a Resource, not a note: quote it into the Inbox or under a block you name");
-        intent = { kind: "note", near: subject.blockId, nearOnly: true };
+        if (!on) throw new Error("that mark is on a Resource, not a note: quote it into the Inbox or under a block you name");
+        intent = { kind: "note", near: on, nearOnly: true };
+      } else if (place.kind === "detached") {
+        // One `.detached` page holds what was detached, made the first time (hidden once hidden notes exist, PIE-1011).
+        const page = this.resolvePageAddressFromCurrentRead(normalizePageAddress(DETACHED_PAGE));
+        const holder = page.block && !page.block.effectiveDeletedRootId ? page.block
+          : this.createAt(`${DETACHED_PAGE} [page::${DETACHED_PAGE}]\nWhat was detached into a tile of its own: each block embeds its part, and links back.`, null, author, provenance, this.createdTime());
+        intent = { kind: "note", near: holder.id, nearOnly: true };
       }
       const placement = this.placementFromCurrentRead(intent);
-      const { author, actorId, sessionId, taskId } = mutation;
-      const provenance = actorId ? { actorId, ...(sessionId ? { sessionId } : {}), ...(taskId ? { taskId } : {}) } : undefined;
-      const block = this.createAt(markQuoteText(records, text), placement.parentId, author, provenance, this.createdTime(), placement.at === "top" ? 0 : undefined);
-      return { block, placement, marks };
+      const text = quoteText(quoted, input.as, { ...(input.text ? { text: input.text } : {}), detached: place.kind === "detached" });
+      const block = this.createAt(text, placement.parentId, author, provenance, this.createdTime(), placement.at === "top" ? 0 : undefined);
+      return { block, placement, marks, subjects: quoted };
     })();
   }
+
+  /** The subjects of a `quote` into a note (the drag's drop): read, anchors written, in one transaction; the server inserts them. */
+  quoteSubjects(subjects: readonly QuoteSubject[], mutation: MutationProvenance): QuotedSubject[] {
+    return this.database.transaction(() => this.quotedSubjectsFromCurrentRead(subjects, mutation).quoted)();
+  }
+
   validateRoadmapItem(input:RoadmapItemCreateInput):void {
     this.database.transaction(()=>{this.prepareRoadmapItem(input);}).deferred();
   }

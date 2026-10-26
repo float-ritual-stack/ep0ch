@@ -478,6 +478,9 @@ reads the note it lives in. By page: `[[Spring plan^quadrant]]` links, `![[Sprin
 Choosing a part in `((` / `!((` / `[[page^` completion writes its anchor for you; write one by hand only for a
 durable reference, never to mark or comment on a line. (An anchor alone on the line after a figure's closing `::`
 still names it.) Backlinks group by the anchor each one aims at.
+To pull a part out of a note, `outline_quote` takes `elements` (its `^anchors`) as well as marks: `where: detached`
+makes a block of its own under `.detached` that embeds it with no header, and `into` with `at` puts a reference (or,
+`as: copy`, the part's own lines, a figure with its query) into another note's text. The part stays where it is.
 
 Live blocks also take `limit:`, `sort:` and `direction: desc|asc` (default `updated`, `desc`). `sort:` is
 `updated`, `created` or any property key (`sort: due`; `property:created` for a property so named): numbers compare

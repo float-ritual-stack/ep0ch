@@ -2846,7 +2846,7 @@ function publishedText(text: string, context: TextContext, options: { keepProper
       body = body.slice(0, record.start) + `\u0003${found.length - files.length}\u0003` + body.slice(record.end);
     }
   }
-  // A quote's back-link (`[from::((mark))]`, marks.quote) is where it came from: drawn as `from <link>`, one line.
+  // A quote's back-link (`[from::((mark))]`, quote) is where it came from: drawn as `from <link>`, one line.
   if (!options.keepProperties) {
     const from = parsePropertyRecords(body).filter((record) => record.key === "from" && record.syntax === "bracket" && /^\(\([^()]+\)\)$/.test(record.value.trim())).reverse();
     for (const record of from) {

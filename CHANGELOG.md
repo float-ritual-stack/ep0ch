@@ -10,6 +10,20 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Take a part out of a note: detach it into a tile, or drop it into another note (PIE-1247)
+
+- **alt+drag a part** (a figure, a callout, a list item, a paragraph) out of a reader. Drop it on another reader's note
+  and choose **embed** (a live reference; the part's `^anchor` is written if it had none) or **copy** (its own lines: a
+  figure comes with its query, which then answers for the note it's in). Drop it on a tile's side, its header or the
+  screen's edge and it **detaches** there.
+- **Detached** means a block of its own under a `.detached` page that embeds the part, drawn with no header, in a tile
+  of its own. It's an ordinary note: it outlives the tile, and the part's note lists it among its backlinks by the
+  anchor. `alt+D` (or the tile menu's "detach this part") detaches the part you're on; `ctrl+z` takes it back.
+- **One operation** behind the margin's quote, detach and the drop: the service's `quote` (was `marks.quote`, renamed
+  with no alias) takes marks and parts of a note, into a new block or into a note's text. Agents: `element.detach`,
+  `element.quote`, and MCP `outline_quote` with `elements`, `where: detached`, `into`/`at`/`as`.
+- The kitchen sink's `detach` section shows it. **Run after updating:** `ep0ch install --apply` (the protocol changed:
+  the `quote` action).
 ### An agent's write to the laptop's outline lands as soon as the link is back (PIE-1351)
 
 - **Queued writes drain over the link.** A write to an outline on another machine already went live when that machine

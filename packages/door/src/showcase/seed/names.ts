@@ -131,6 +131,8 @@ export const SEED = {
   deepLinks: "Deep links, by hand",
   stickyPlan: "Raised beds plan",
   stickyPad: "Sticky pad",
+  shedPlan: "Shed rebuild plan",
+  shedPad: "Shed sticky pad",
   sources: "Completion from an extension",
   swapDay: "Seed swap day",
   meeting: "Greenhouse meeting, October",

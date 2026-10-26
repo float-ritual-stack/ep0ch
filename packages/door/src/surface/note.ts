@@ -54,7 +54,7 @@ import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { propertyTokensInLine, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
-import { fragmentAnchorMatch, linkOccurrences, referencedBlock, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
+import { fragmentAnchorMatch, linkOccurrences, referencedBlock, withoutFragmentAnchor, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import type { Step } from "../session/restore";
 import { childEnv, codeSpans, foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
@@ -89,7 +89,7 @@ import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_
 import { TONE_INDEX, surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt } from "../socket";
+import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
@@ -192,6 +192,8 @@ export interface SurfaceHost {
   freshClick?: boolean;
   /** A host's navigation rows (such as earlier briefs) open on the first click. */
   opensOnClick?(link: Link): boolean;
+  /** Detach the part this reader is on into a tile of its own (`element.detach`, alt+D, PIE-1247); absent where the reader isn't a tile. */
+  detach?(): void;
   /** Show this reader's note in the outline (`reader.reveal`, a click on the crumbs, PIE-794); absent where there's no outline to show it in. */
   revealInOutline?(): void;
   /**
@@ -4557,6 +4559,8 @@ export class NoteSurface {
     if (move && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", move.args ?? {}, host); return true; }
     // alt+z: route this note by the outline's routing rules (PIE-1010); alt+Z says what would move, moving nothing.
     if (k.kind === "alt" && (k.ch === "z" || k.ch === "Z") && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.route", k.ch === "Z" ? { dry: true } : {}, host); return true; }
+    // alt+D detaches the part the reader is on into a tile of its own (PIE-1247): the desk's element.detach, which places the tile.
+    if (k.kind === "alt" && k.ch === "D" && this.msg && !this.msg.partial && isOutlineNote(this.msg) && host.detach) { host.detach(); return true; }
     // b: this note's links (Outlinks, Resources, Backlinks) in the screen's links tile.
     if (c === "b" && this.msg && !this.msg.partial) { void this.runKey("links", {}, host, true); return true; }
     // The margin's cards (ADR 0004 contract 6): a row each, whole, or off.
@@ -6636,7 +6640,7 @@ export class NoteSurface {
   }
 
   /**
-   * Quote marks into a new block (`marks.quote`): each transcluded and linked back, where `where` says (`inbox`, `note`,
+   * Quote marks into a new block (`quote`): each transcluded and linked back, where `where` says (`inbox`, `note`,
    * or a block). One write: ctrl+z here (`ext.undo`) takes it back whole. The cards then say "quoted in".
    */
   async quoteMarks(ids: string[], where: string, host: SurfaceHost, actor: Actor, text?: string) {
@@ -6644,8 +6648,8 @@ export class NoteSurface {
     const w = where.trim(), ref = /^!?\(\(([^)|^]+)/.exec(w)?.[1] ?? w;
     const place: QuotePlace = w === "" || w === "inbox" ? { kind: "inbox" } : w === "note" ? { kind: "note" } : { kind: "under", blockId: ref };
     const say = asActor(host.ctx, actor);
-    let r: QuoteReceipt;
-    try { r = await host.ctx.board.quoteMarks(ids, place, actor, text); } catch (err) {
+    let r: Extract<QuoteReceipt, { block: unknown }>;
+    try { r = await host.ctx.board.quote(ids.map(id => ({ kind: "mark" as const, id })), place, actor, text ? { text } : {}) as typeof r; } catch (err) {
       const why = `couldn't quote: ${err instanceof Error ? err.message : String(err)}`;
       say.flash(why, undefined, errorDetails(err)); host.redraw();
       throw new ActionRefused(why);
@@ -6659,6 +6663,65 @@ export class NoteSurface {
     this.noteAgent(actor, `quoted ${ids.length === 1 ? "a mark" : `${ids.length} marks`} ${r.placement.said}`);
     host.redraw();
     return { block: r.block.id, title: r.block.text.split("\n", 1)[0], placed: r.placement.said, parent: r.placement.parentId, marks: r.marks, ...(r.undo ? { undo: r.undo } : {}) };
+  }
+
+  /**
+   * The note line (from 0) of the element at `x`, `y` (cells of the last render), else of the current element, else
+   * of the first row read (PIE-1247: what a drag, `element.detach` or `element.quote` takes). Undefined on the header,
+   * or with nothing drawn.
+   */
+  elementLine(x?: number, y?: number): number | undefined {
+    const d = this.drawn;
+    if (!d) return undefined;
+    const row = x !== undefined && y !== undefined ? this.posAt(x, y)?.row
+      : (() => { const cur = this.elems.find(e => e.key === this.cur); return cur ? cur.row : d.top + (this.readingRows()?.[0] ?? this.scroll); })();
+    if (row === undefined || row < d.top) return undefined;
+    const at = d.doc.source[row - d.top];
+    return at === undefined || at < 0 ? undefined : d.lines[at];
+  }
+
+  /**
+   * Materialize a part of this note (PIE-1247, the service's `quote`): the element at note line `line` (or `anchor`),
+   * its anchor written when it has none, into `place`: `.detached` (a block of its own that embeds it, no header), or
+   * into another note after a line, as a reference or a copy with its query. Attributed; a new block is one undo step.
+   */
+  async materialize(place: QuotePlace, host: SurfaceHost, actor: Actor, opts: { line?: number; anchor?: string; as?: "reference" | "copy" } = {}): Promise<QuoteReceipt> {
+    const m = this.requireNote();
+    if (!isOutlineNote(m)) throw new ActionRefused("only a note of the outline has parts to detach or quote");
+    // No line named: where the reader is (its current element, else the top row read), the first part from there.
+    const here = opts.anchor === undefined && opts.line === undefined;
+    const line = opts.anchor ? undefined : opts.line ?? this.elementLine() ?? -1;
+    if (line !== undefined && line < 0) throw new ActionRefused("no part of the note is there: move to a figure, a callout, a list item or a paragraph (or name line= or anchor=)");
+    // The line was read from the note as drawn. Saved since with only anchors written (the last drop's): the same
+    // note, at the newer revision. Any other change is the service's to refuse ("changed since").
+    let revision = m.revision!;
+    if (line !== undefined) {
+      const now = await host.ctx.board.get(m.id).catch(() => null);
+      const bare = (t: string) => t.split("\n").map(withoutFragmentAnchor).join("\n");
+      if (now && now.revision !== revision && bare(now.text) === bare(m.text)) revision = now.revision!;
+    }
+    const subject: QuoteSubject = opts.anchor ? { kind: "element", blockId: m.id, anchor: opts.anchor.replace(/^\^/, "") }
+      : { kind: "element", blockId: m.id, line: line!, revision, ...(here ? { next: true as const } : {}) };
+    const say = asActor(host.ctx, actor);
+    let r: QuoteReceipt;
+    try { r = await host.ctx.board.quote([subject], place, actor, opts.as ? { as: opts.as } : {}); } catch (err) {
+      const why = `couldn't ${place.kind === "detached" ? "detach" : "quote"} it: ${err instanceof Error ? err.message : String(err)}`;
+      say.flash(why, undefined, errorDetails(err)); host.redraw();
+      throw new ActionRefused(why);
+    }
+    const part = r.subjects[0]!, what = `${part.label || "the part"}${part.anchored ? ` (^${part.ref.split("^")[1]} added)` : ""}`;
+    if ("block" in r) {
+      if (r.undo) EXT_UNDO.push({ undo: r.undo, label: place.kind === "detached" ? "detach" : "quote", by: partyOf(actor), context: m.id });
+      outlineChanged([r.block.id, m.id]);
+      say.flash(`${place.kind === "detached" ? "detached" : "quoted"} ${what}${r.undo ? " · ctrl+z undoes" : ""}`);
+      this.noteAgent(actor, `${place.kind === "detached" ? "detached" : "quoted"} ${what}`);
+    } else {
+      outlineChanged([r.into.blockId, m.id]);
+      say.flash(`${r.said}: ${what}`);
+      this.noteAgent(actor, `${r.said}: ${what}`);
+    }
+    host.redraw();
+    return r;
   }
 
   async undoCallout(host: SurfaceHost, actor: Actor) {
@@ -8821,7 +8884,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   for (const l of body(c.body, inner)) lines.push(edge + "│ " + fg(c.open ? C.white : C.grey) + l + RESET);
   if (c.start === null && c.quote) lines.push(edge + "│ " + fg(C.brown) + "(the quoted words moved; the service couldn't place them)" + RESET);
   const controls: Control[] = [{ thread: c.id, control: "toggle", row: 0, from: W - 3, to: W, label: "Fold thread" }];
-  // Where a mark was quoted (marks.quote): a line each, opening the block that quotes it.
+  // Where a mark was quoted (quote): a line each, opening the block that quotes it.
   const quotedIn = (ids: readonly string[] | undefined, indent: string) => {
     for (const id of ids ?? []) {
       const said = `quoted in ${draw ? (draw(`((${id}))`, Math.max(4, inner - 12), 2, false)[0] ?? "") : id.slice(0, 8)}`;

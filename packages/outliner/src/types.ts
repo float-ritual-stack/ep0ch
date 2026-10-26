@@ -635,7 +635,7 @@ export interface AnnotationRecord {
   readonly parentAnnotationId?: string;
   /** Its own properties (`kind`, `tags`, `color`, any other), the store's bookkeeping keys left out. */
   readonly properties?: Readonly<Record<string, readonly string[]>>;
-  /** The live blocks quoting it (`marks.quote`): each holds `[from::((this mark))]`, in the order they were made. */
+  /** The live blocks quoting it (`quote`): each holds `[from::((this mark))]`, in the order they were made. */
   readonly quotedIn?: readonly string[];
   /** When its words were last edited after it was posted (`annotations.update`, an ISO time); absent when never. Its earlier words are its block's revisions (`block.revisions`). */
   readonly edited?: string;
@@ -773,26 +773,18 @@ export interface AnnotationAgentEvidenceSummary {
 }
 
 /**
- * Where `marks.quote` puts the new block: the top of the Inbox (the default), under the note the first mark is on, or
- * under a block named outright.
+ * `quote` (PIE-1247, src/quote.ts): materialize marks or elements of a note into a new block (the Inbox, under the
+ * first subject's note, under a block, under `.detached`) or into a note's text at a line, as references (each
+ * transcluded, linked back with `[from::]`) or as a copy of an element's own lines.
  */
-export type MarkQuotePlace = { readonly kind: "inbox" } | { readonly kind: "note" } | { readonly kind: "under"; readonly blockId: string };
+export type { QuoteAs, QuoteInput, QuotePlace, QuoteSubject, QuotedSubject } from "./quote";
 
-/** `marks.quote`: one block quoting marks (highlights, comments, replies), each transcluded and linked back. */
-export interface MarkQuoteInput {
-  readonly marks: readonly string[];
-  readonly place?: MarkQuotePlace;
-  /** The quoting block's own words, above the quotes; its first line is its title. Left out, `Quoting “…”`. */
-  readonly text?: string;
-}
-
-/** What `marks.quote` made: the block, where it went, and the undo step that takes it back (`extensions.undo`). */
-export interface MarkQuoteReceipt {
-  readonly block: Block;
-  readonly placement: NotePlacement;
-  readonly marks: readonly string[];
-  readonly undo?: string;
-}
+/**
+ * What `quote` did: the block it made, where it went and the undo step that takes it back (`extensions.undo`); or,
+ * `into` a note, the draft.patch it sent there (applied, or proposed beside the note). Each subject as it was read
+ * (`anchored`: its anchor was written for this quote).
+ */
+export type QuoteReceipt = import("@ep0ch/outline-core/protocol").QuoteReceipt<Block, NotePlacement>;
 
 /** A posted comment's or reply's new words (`annotations.update`, PIE-763), checked against the revision the editor started from. */
 export interface AnnotationUpdateInput {
@@ -2441,13 +2433,14 @@ export type OutlinerRequestAction =
       mutation: MutationProvenance;
     }
   /**
-   * Quote marks into a new block (the margin's "quote-tweet"): each mark transcluded (`!((mark))`) under one
-   * `[from::((mark))]` line, placed by `input.place`; each mark then lists it as `quotedIn`. One write, one undo step.
+   * Materialize marks or elements (src/quote.ts): into a new block, each transcluded under one `[from::]` line, placed
+   * by `input.place` (one write, one undo step), or into a note's text at a line, through draft.patch.
    */
   | {
       id: string;
-      action: "marks.quote";
-      input: MarkQuoteInput;
+      action: "quote";
+      /** As sent: `place` defaults to the Inbox, `as` to reference (src/quote.ts readQuoteInput checks it). */
+      input: import("@ep0ch/outline-core/protocol").QuoteRequest;
       mutation: MutationProvenance;
     }
   | {

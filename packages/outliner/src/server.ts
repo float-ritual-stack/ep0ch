@@ -53,6 +53,7 @@ import { siteBudget, StillCounting } from "./site-budget";
 import { templatePropsOf, templateUse } from "./template-use";
 import { readSources } from "./site-sources";
 import { placeOutput } from "./place";
+import { quoteInto, readQuoteInput } from "./quote-into";
 import { stampTemplateInto, stampTemplate, type TemplateStampResult } from "./template-stamp";
 import { keepSuggestion, readKeep } from "./jev-suggestions";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
@@ -109,7 +110,7 @@ import {
   clientSupportsRole,
   type OutlinerRegion,
   type AnnotationBatchReceipt,
-  type MarkQuoteReceipt,
+  type QuoteReceipt,
   type AnnotationAgentProposalReceipt,
   type AttentionClientState,
   type AttentionMark,
@@ -2267,6 +2268,24 @@ export class OutlinerServer {
         return { id: request.id, ok: true, result: { settled }, sequence: this.store.sequence };
       } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
     }
+    if (request.action === "quote") {
+      try {
+        if (!request.mutation || typeof request.mutation !== "object") throw new Error("quote needs mutation: who quotes (the person, or an agent with its actor id)");
+        const input = readQuoteInput(request.input);
+        let result: QuoteReceipt;
+        if (input.place.kind === "into") result = await quoteInto(this.store, this.draftPatches, input, request.mutation);
+        else {
+          const quoted = this.store.quote(input, request.mutation);
+          // One write group, one undo step: the door's ctrl+z and `extensions.undo` take it back whole.
+          const undo = this.extensionCalls.writes.keepMade("quote", [quoted.block.id]);
+          result = { ...quoted, ...(undo ? { undo } : {}) };
+        }
+        return { id: request.id, ok: true, result, sequence: this.store.sequence };
+      } catch (error) {
+        if (isSqliteBusy(error)) throw error;
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
+    }
     if (request.action === "template.stamp" && request.into !== undefined) {
       try {
         const result = await stampTemplateInto(this.store, request, this.draftPatches);
@@ -3334,14 +3353,6 @@ export class OutlinerServer {
           } else throw new Error("annotations.tldr asking @margin requires asynchronous dispatch");
           break;
         }
-        case "marks.quote": {
-          if (!request.mutation || typeof request.mutation !== "object") throw new Error("marks.quote needs mutation: who quotes (the person, or an agent with its actor id)");
-          const quoted = this.store.quoteMarks(request.input, request.mutation);
-          // One write group, one undo step: the door's ctrl+z and `extensions.undo` take it back whole.
-          const undo = this.extensionCalls.writes.keepMade("marks.quote", [quoted.block.id]);
-          result = { ...quoted, ...(undo ? { undo } : {}) } satisfies MarkQuoteReceipt;
-          break;
-        }
         case "roadmap.items.create":
           result = this.store.createRoadmapItem(
             request.input,
@@ -3701,6 +3712,7 @@ export class OutlinerServer {
           throw new Error("suggestions.keep requires asynchronous dispatch.");
         case "completion.rows":
         case "completion.picked":
+        case "quote":
           throw new Error(`${action} requires asynchronous dispatch.`);
         default: {
           const unsupportedAction: never = action;
@@ -3946,10 +3958,12 @@ export class OutlinerServer {
         domain = "content";
         blockId = request.input.annotationId;
         break;
-      case "marks.quote":
+      case "quote": {
         domain = "content";
-        blockId = (response.result as MarkQuoteReceipt).block.id;
+        const receipt = response.result as QuoteReceipt;
+        blockId = "block" in receipt ? receipt.block.id : receipt.into.blockId;
         break;
+      }
       case "annotations.read":
         // Nothing in a block changed; views that ask `unread:` read again.
         if (!(response.result as { marked: number }).marked) return null;

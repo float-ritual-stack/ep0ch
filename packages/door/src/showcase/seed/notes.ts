@@ -386,6 +386,37 @@ export const STICKY_PAD = [
   "- **Who aims where:** the links tile on the right groups the plan's backlinks by the anchor each one aims at.",
 ].join("\n");
 
+/**
+ * The detach section (PIE-1247 slice 2): a plan whose parts come out by alt+drag, alt+D or act, and a pad to drop
+ * them into. Nothing here has an anchor yet: each is written when a part is detached or dropped.
+ */
+export const SHED_PLAN = [
+  `${SEED.shedPlan} [page::${SEED.shedPlan}]`,
+  "Everything the shed needs before winter, in one long note.",
+  "",
+  "::graph-table",
+  "---",
+  "title: Shed jobs",
+  'query: "parent:this"',
+  "---",
+  "::",
+  "",
+  "> [!warning] Paint the door last",
+  "> The primer needs two dry days.",
+  "",
+  "- order the felt",
+  "- borrow a ladder",
+].join("\n");
+export const SHED_JOBS = ["Clear the gutter", "Fix the latch"];
+export const SHED_PAD = [
+  SEED.shedPad,
+  "Drop a part of the plan here.",
+  "",
+  "- **alt+drag** a part of the plan (its figure, the callout, a list item) onto this note: choose embed or copy.",
+  "- **alt+drag** it onto a tile's side, its header or the screen's edge: it detaches into a tile of its own.",
+  "- **alt+D** on the plan detaches the part you're on; agents: `element.detach`, `element.quote`.",
+].join("\n");
+
 export const DEEP_LINKS = [
   SEED.deepLinks,
   "",

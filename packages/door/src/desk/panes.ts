@@ -18,6 +18,7 @@ import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
 import { authorName, USER, type Activity, type Actor } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
+import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
 import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList } from "../surface/note";
@@ -513,6 +514,8 @@ export class ReaderPane implements Pane {
       ...(desk.openTag ? { tag: (t: string, how?: OpenHow) => desk.openTag!(this, t, how?.by ?? USER, how?.standing) } : {}),
       // A click on the crumbs shows the note in the outline (reader.reveal, PIE-794): readers of a screen with one.
       ...(desk.revealInOutline ? { revealInOutline: () => runOwn(READER_ACTIONS, "reader.reveal", {}, { pane: this, desk }) } : {}),
+      // alt+D (PIE-1247): the desk's element.detach on this reader, which places the new tile.
+      detach: () => runOwn(READER_ACTIONS, "element.detach", {}, { pane: this, desk }),
       // A row picked in a list drawn in the note shows where this reader's selection goes (PIE-794).
       ...(desk.showFrom ? { preview: (m: Msg) => desk.showFrom!(this, m) } : {}),
       // Its look (PIE-673), as the desk resolved it for this tile: margin, list density, heading spacing.
@@ -904,7 +907,63 @@ export const ACTIVITY_ACTIONS = actionSet<{ pane: ActivityPane; desk: DeskApi; s
 });
 
 
+/** Where a detached part opens, beside its reader: tile.open's places. */
+const DETACH_WHERE = ["left", "right", "up", "down", "tabs", "edge-left", "edge-right", "edge-up", "edge-down"] as const;
+
 export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("reader", {
+  "element.detach": def({
+    summary: "detach a part of the reader's note (PIE-1247): the figure, callout, list item or paragraph at line= (from 1; default the current element, else the top row read), or anchor=, becomes a block of its own under the .detached page that embeds it (!((note^anchor)), its anchor written if it had none) and opens in a tile of its own with no header, where= beside this reader (or to=<tile>). From then on it's an ordinary note: it outlives this tile, and the part's note lists it among its backlinks by the anchor",
+    keys: "alt+D in a reader; alt+drag a part out of the reader onto a tile's side, its header or the screen's edge",
+    touches: "screen", replay: "ask",
+    menu: { label: "detach this part", group: "Reader", key: "alt+D", now: ({ pane }) => (!pane.msg ? { refused: "nothing in that reader to detach" } : null) },
+    args: {
+      line: { type: "number", optional: true, about: "the part's line in the note, from 1 (default: the current element, else the top row read)" },
+      anchor: { type: "string", optional: true, conflicts: ["line"], about: "the part's ^anchor, when it has one" },
+      where: { type: "string", optional: true, choices: DETACH_WHERE, about: "where its tile opens: beside to= (default this reader), as a tab in it, or along the screen's edge (default right)" },
+      to: { type: "string", optional: true, kind: "tile", about: "the tile it opens beside (default this reader)" },
+    },
+    examples: [
+      { act: "element.detach tile=reader line=4", does: "detaches the figure on line 4 of the reader's note into a tile of its own, right of it" },
+      { act: "element.detach tile=reader anchor=bed-jobs where=down", does: "detaches the part anchored ^bed-jobs into a tile below the reader" },
+    ],
+    async run({ line, anchor, where, to }, { pane, desk }, actor) {
+      const r = await pane.surface.materialize({ kind: "detached" }, pane.host(desk), actor, { ...(anchor ? { anchor } : {}), ...(line !== undefined ? { line: line - 1 } : {}) });
+      if (!("block" in r)) throw new ActionRefused("the service put it into a note, not a block of its own");
+      let opened: unknown = null;
+      // A tile that can't open there (a locked screen, a tile that isn't one) takes the detached block back: nothing is left behind.
+      try { opened = desk.perform ? await desk.perform("tile.open", { kind: "reader", mode: "held", note: r.block.id, where: where ?? "right", ...(to ? { to } : {}) }, actor, to ?? pane) : null; } catch (err) {
+        if (r.undo) await desk.ctx.board.undoExtension(r.undo, actor).catch(() => undefined);
+        throw err;
+      }
+      return { detached: r.block.id, part: r.subjects[0]!.ref, ...(r.subjects[0]!.anchored ? { anchored: true } : {}), ...(r.undo ? { undo: r.undo } : {}), ...(opened && typeof opened === "object" ? { opened } : {}) };
+    },
+  }),
+  "element.quote": def({
+    summary: "put a part of the reader's note into another note (PIE-1247), as the alt+drag's drop does: the part at line= (from 1; default the current element) or anchor= goes into=<note> (an id, ((id)) or [[page]]) after its line at= (from 1; a part there, a figure or a callout, after the whole of it), as a reference (!((note^anchor)) for a figure or callout, ((note^anchor)) for a list item or paragraph; its anchor written if it had none) or, copy=true, its own lines (a figure with its query, which then answers for the note it's in). Through draft.patch: an edit open there takes it in place",
+    keys: "alt+drag a part onto another reader's note, then choose reference or copy",
+    touches: "draft", draft: "write", replay: "ask",
+    args: {
+      into: { type: "string", optional: false, kind: "note", about: "the note it goes into: an id or ((id))" },
+      after: { type: "string", optional: true, about: "the text of line at= as you read it: moved since, the part goes after it where it is now (or is refused)" },
+      at: { type: "number", optional: false, about: "the line of that note it goes after, from 1" },
+      copy: { type: "boolean", optional: true, about: "copy its own lines instead of a reference (a figure comes with its query)" },
+      line: { type: "number", optional: true, about: "the part's line in this reader's note, from 1 (default: the current element)" },
+      anchor: { type: "string", optional: true, conflicts: ["line"], about: "the part's ^anchor, when it has one" },
+    },
+    examples: [
+      { act: "element.quote tile=reader line=4 into=((5e2b8c14-7a3d-4f19-b6e2-0c9d8a1f3e57)) at=2", does: "embeds the figure on line 4 in the sticky pad, after its second line" },
+      { act: "element.quote tile=reader anchor=bed-jobs into=5e2b8c14-7a3d-4f19-b6e2-0c9d8a1f3e57 at=1 copy=true", does: "copies the figure, query and all, into the pad after its first line" },
+    ],
+    async run({ into, at, copy, line, anchor, after }, { pane, desk }, actor) {
+      // The note it goes into, as a reference names one: an id, ((id)), or a [[page]] the service resolves.
+      const named = String(into).trim(), page = /^\[\[(.+)\]\]$/.exec(named)?.[1];
+      const blockId = page ? (await desk.ctx.board.resolvePage(page)).block?.id : referencedBlock(named)?.blockId ?? named;
+      if (!blockId) throw new ActionRefused(`no page is named ${page}: name the note by its id, ((id)) or [[page]]`);
+      const r = await pane.surface.materialize({ kind: "into", blockId, line: Math.max(0, Number(at) - 1), ...(after !== undefined ? { observed: String(after) } : {}) }, pane.host(desk), actor, { ...(anchor ? { anchor } : {}), ...(line !== undefined ? { line: line - 1 } : {}), ...(copy ? { as: "copy" as const } : {}) });
+      if (!("into" in r)) throw new ActionRefused("the service made a block, not an edit of that note");
+      return { into: r.into, part: r.subjects[0]!.ref, ...(r.subjects[0]!.anchored ? { anchored: true } : {}), said: r.said };
+    },
+  }),
   "reader.reveal": def({
     summary: "show a reader's note in the outline (tile=<a reader>, default the focused one): the outline's cursor moves to its row, unfolding what's over it, and its dock slides open if it's shut, as the outliner's Tree's r does. Nothing else moves: the current note, the reader, its mode and the keys stay. A held reader's own navigation never moves the outline (PIE-794); this finds where it is. The person's: the outline's cursor is theirs",
     keys: "alt+r in a reader, a click on its crumbs (the path above the title)",

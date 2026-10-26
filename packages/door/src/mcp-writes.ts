@@ -1,6 +1,6 @@
 // The remote MCP gateway's writes (PIE-615, PIE-877): eleven tools, one write path. The tools take the Claude mod's shapes
 // (`outline_create`, `outline_patch`, `outline_comment`, `outline_set_property`, `outline_reply`,
-// `outline_resolve_thread`, `outline_assign_id`, `outline_move`, `outline_trash` and `outline_restore`), and `outline_quote` (marks quoted into a new block, `marks.quote`), addressed as the read tools are (a
+// `outline_resolve_thread`, `outline_assign_id`, `outline_move`, `outline_trash` and `outline_restore`), and `outline_quote` (marks quoted into a new block, the service's `quote`), addressed as the read tools are (a
 // uri, or a ref in a named outline), and each runs the outliner's own agent operation (`@ep0ch/outliner/agent-tools`,
 // the code behind the mod's tools and `outliner agent …`) over the outline's socket. No rule is restated here: the
 // service checks revisions, anchors comments, refuses a dropped page or anchor, and refuses a patch that no longer matches
@@ -232,9 +232,13 @@ const ADDRESSED = "(the addressed block)";
  */
 export function writeInput(tool: McpWriteTool, args: Record<string, unknown>): Omit<McpWrite, "blockId"> | { error: string } {
   if (tool === "outline_quote") {
-    if (!Array.isArray(args.marks) || !args.marks.length || !args.marks.every(nonEmpty)) return { error: "Give marks: the ids of highlights, comments or replies on the note (outline_threads lists them)." };
-    if (args.where !== undefined && !nonEmpty(args.where)) return { error: "where is inbox (the default), note (under the note) or a block's ref." };
-    return { tool, input: pick(args, ["marks", "where", "text"]) };
+    const list = (v: unknown) => v === undefined || (Array.isArray(v) && v.every(nonEmpty));
+    const many = (v: unknown) => (Array.isArray(v) ? v.length : 0);
+    if (!list(args.marks) || !list(args.elements) || !(many(args.marks) + many(args.elements))) return { error: "Give marks (the ids of highlights, comments or replies on the note: outline_threads lists them) or elements (the note's ^anchors, as outline_read shows them)." };
+    if (args.where !== undefined && !nonEmpty(args.where)) return { error: "where is inbox (the default), note (under the note), detached or a block's ref." };
+    if (args.into !== undefined && (!nonEmpty(args.into) || !Number.isInteger(args.at) || (args.at as number) < 1)) return { error: "into names a note, with at: the line it goes after, from 1." };
+    if (args.as !== undefined && args.as !== "reference" && args.as !== "copy") return { error: "as is reference (the default) or copy." };
+    return { tool, input: pick(args, ["marks", "elements", "where", "into", "at", "as", "text"]) };
   }
   const definition = SHARED_WRITE_TOOLS.find(d => d.name === tool)!;
   const target = definition.target ?? "ref";
@@ -380,8 +384,8 @@ export function writeToolDefinitions(outline: Record<string, unknown>) {
     ...shared,
     {
       name: "outline_quote",
-      description: `Quote marks into a new block (the margin's quote-tweet): highlights, comments or replies on a note (the uri or ref is the note; marks are ids outline_threads returned), each transcluded as !((mark)) under one [from::((mark))] line, so the new block traces back to where it was said and each mark lists it as quoted in. where: inbox (the top of the Inbox, the default), note (under the note) or a block's ref to put it under. text: the new block's own words above the quotes (its first line is its title). The marks stay where they are. At propose access it becomes a comment on the note proposing it. ${answer}`,
-      inputSchema: addressed({ marks: { type: "array", minItems: 1, maxItems: 20, items: { type: "string" } }, where: { type: "string" }, text: { type: "string" } }, ["marks"]),
+      description: `Quote marks or parts of a note into a new block or into another note (the margin's quote-tweet; detaching a figure): marks are highlights, comments or replies on the note (the uri or ref is the note; ids outline_threads returned); elements are the note's parts by their ^anchor (a figure, a callout, a list item, a paragraph, a heading's section: the anchors outline_read shows). Each is transcluded (!((mark)), !((note^anchor))) under one [from::((…))] line, so the new block traces back and the note lists it among its backlinks. where: inbox (the top of the Inbox, the default), note (under the note), detached (under the .detached page, drawn with no header: the part in a block of its own) or a block's ref to put it under. into: another note's ref, with at (the line it goes after, from 1): the parts go into its text instead, through draft.patch, as reference (!((note^anchor)) for a figure or callout, ((note^anchor)) for prose) or as: copy (an element's own lines, a figure with its query). text: the new block's own words (its first line is its title). The marks and parts stay where they are. At propose access it becomes a comment on the note proposing it. ${answer}`,
+      inputSchema: addressed({ marks: { type: "array", maxItems: 20, items: { type: "string" } }, elements: { type: "array", maxItems: 20, items: { type: "string" } }, where: { type: "string" }, into: { type: "string" }, at: { type: "number" }, as: { type: "string", enum: ["reference", "copy"] }, text: { type: "string" } }, []),
     },
   ];
   const at = (name: string) => (MCP_WRITE_TOOLS as readonly string[]).indexOf(name);

@@ -228,7 +228,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private dragAt: number | null = null;
   /** A reader the mouse went down in (PIE-419): its drag selects text, its release is the click. */
   /** A press in a reader, until it comes up: where the reader's content was drawn (`col`, `row`, `cols`: PIE-673's rect). */
-  private pressed: { frame?: Rect; gutter?: Rect; pane: ReaderPane; col: number; row: number; cols: number; fresh: boolean; focusing?: boolean } | null = null;
+  private pressed: { frame?: Rect; gutter?: Rect; pane: ReaderPane; col: number; row: number; cols: number; fresh: boolean; focusing?: boolean; at?: { x: number; y: number } } | null = null;
+  /**
+   * A part of a reader's note dragged out with alt (or ctrl) held (PIE-1247): its tile and note line, where the pointer
+   * is, and what a release there does: into another reader's note after a line (reference or copy, asked), or detached
+   * into a tile of its own where the drop zones say.
+   */
+  private elementDrag: { src: number; line: number; x: number; y: number; target: { kind: "into"; tile: number; note: string; line: number; label: string } | { kind: "detach"; drop: Drop<number>; label: string } | null } | null = null;
   /** Where a drag or a release lands in the pressed reader: padding held to the nearest content cell, the gutter kept separate, its row free (past an edge scrolls). */
   private pressedAt(p: { frame?: Rect; gutter?: Rect; col: number; row: number; cols: number }, k: { x: number; y: number }) {
     if (p.frame) return { x: k.x - p.col, y: k.y - p.row };
@@ -3496,6 +3502,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.drawEmpty(canvas);
     for (const m of this.models.values()) if (m.drawOver?.(canvas, area)) placements = [];
     if (this.dragging) this.drawGhost(canvas, this.dragging.drawer ? null : this.dragging.drop, this.nameOf(this.dragging.src), this.dragging.x, this.dragging.y, this.dragging.drawer ?? undefined);
+    else if (this.elementDrag?.target?.kind === "detach") this.drawGhost(canvas, this.elementDrag.target.drop, "detached part", this.elementDrag.x, this.elementDrag.y);
     else if (this.foreign) this.drawGhost(canvas, this.foreign.drop, this.foreign.name, this.foreign.x, this.foreign.y);
     else if (this.floatDrag?.drop) this.drawGhost(canvas, this.floatDrag.drop, this.nameOf(this.floatDrag.id), this.floatDrag.x ?? 0, this.floatDrag.y ?? 0);
     if (this.layout.lift) return { lines: canvas.lines(), placements };
@@ -4468,6 +4475,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A view's own mode (the board's composer, a card being dragged) says its keys first.
     const over = [...this.models.values()].map(m => m.hint?.() ?? null).find(h => h !== null) ?? null;
     if (over !== null) return line(over);
+    if (this.elementDrag) {
+      const t = this.elementDrag.target, why = t?.kind === "detach" ? t.drop.refused : undefined;
+      return line(fg(why ? C.lred : C.lmagenta) + (why ? `✕ ${why}` : t ? t.label : "drag it onto another note, a tile's side or header, or the screen's edge") + RESET);
+    }
     if (this.dragging || this.floatDrag) {
       const why = this.dragging?.drop?.refused ?? this.dragging?.into?.refused ?? this.floatDrag?.drop?.refused;
       return line(fg(why ? C.lred : C.lmagenta) + (why ? `✕ ${why}` : "moving") + RESET);
@@ -7293,6 +7304,61 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...(drop.kind !== "edge" ? { to: this.nameOf(drop.target) } : {}), where, label: drop.label, ...(drop.refused ? { refused: drop.refused } : {}) };
   }
   /** A drop as `layout.move`'s arguments (a drag's release, a float docked by its title). */
+  /**
+   * The pointer moved with alt (or ctrl) held since the press in reader `p` (PIE-1247): from two cells away, the part
+   * of its note under the press is being dragged (its line, its target under the pointer). False when it's no part
+   * (the header, a blank): the reader's own drag (a selection) goes on.
+   */
+  private dragElement(p: NonNullable<Desk["pressed"]>, k: { x: number; y: number }): boolean {
+    if (!p.fresh || !p.at) return false;
+    if (!this.elementDrag) {
+      // Three cells, so a held alt-click's jitter stays a click (it opens beside); a blank line between parts is no part.
+      if (Math.abs(k.x - p.at.x) + Math.abs(k.y - p.at.y) < 3 || !p.pane.msg || !isOutlineNote(p.pane.msg)) return false;
+      const from = this.pressedAt(p, p.at), line = p.pane.surface.elementLine(from.x, from.y);
+      if (line !== undefined && !(p.pane.msg.text.split("\n")[line] ?? "").trim()) return false;
+      const src = [...this.panes].find(([, pane]) => pane === p.pane)?.[0];
+      if (line === undefined || src === undefined) return false;
+      p.pane.surface.clearSelections();
+      this.elementDrag = { src, line, x: k.x, y: k.y, target: null };
+    }
+    const e = this.elementDrag;
+    e.x = k.x; e.y = k.y; e.target = this.elementTarget(e.src, k.x, k.y);
+    this.redraw();
+    return true;
+  }
+
+  /** What a dragged part dropped at `x`, `y` does: into the note another reader shows, after the line there; else detached, where the drop zones say. */
+  private elementTarget(src: number, x: number, y: number): NonNullable<NonNullable<Desk["elementDrag"]>["target"]> | null {
+    const hit = this.hits.find(([, r]) => x >= r.col && x < r.col + r.cols && y >= r.row && y < r.row + r.rows);
+    const pane = hit ? this.panes.get(hit[0]) : undefined;
+    const from = (this.panes.get(src) as ReaderPane | undefined)?.msg?.id;
+    if (hit && hit[0] !== src && pane instanceof ReaderPane && pane.msg && isOutlineNote(pane.msg) && pane.msg.id !== from && this.inBody(hit[0], hit[1], x, y)) {
+      const at = this.local(hit[0], hit[1], x, y);
+      const line = pane.surface.elementLine(at.x, at.y) ?? pane.msg.text.split("\n").length - 1;
+      return { kind: "into", tile: hit[0], note: pane.msg.id, line, label: `→ into ${subject(pane.msg)}, after line ${line + 1}: let go to embed or copy it` };
+    }
+    const drop = dropAt(this.dropTiles(), this.area, x, y, src, true);
+    return drop ? { kind: "detach", drop, label: `⧉ detach it: ${drop.label}` } : null;
+  }
+
+  /** A dragged part let go (PIE-1247): into a note (embed or copy, asked), or detached where the zones say; anywhere else it stays. */
+  private dropElement() {
+    const e = this.elementDrag!;
+    this.elementDrag = null;
+    const t = e.target, src = this.nameOf(e.src);
+    if (!t) { this.ctx.flash("not moved: drop a part on another note, a tile's side or header, or the screen's edge"); return this.redraw(); }
+    if (t.kind === "detach") {
+      if (t.drop.refused) { this.ctx.flash(`not detached: ${t.drop.refused}`); return this.redraw(); }
+      const place = this.moveArgs(t.drop);
+      return void this.run("element.detach", { line: e.line + 1, ...(place.to ? { to: place.to } : {}), where: place.where }, src);
+    }
+    // The line as the person saw it: lines written above it while the choice is open don't move where it lands.
+    const after = (this.panes.get(t.tile) as ReaderPane).msg?.text.split("\n")[t.line];
+    const quote = (as: "reference" | "copy") => this.run("element.quote", { line: e.line + 1, into: t.note, at: t.line + 1, ...(as === "copy" ? { copy: true } : {}), ...(after !== undefined ? { after } : {}) }, src);
+    this.overlays.push(dropAsPicker(subject((this.panes.get(t.tile) as ReaderPane).msg!), quote));
+    this.redraw();
+  }
+
   private moveArgs(drop: Drop<number>): Record<string, unknown> {
     return drop.kind === "edge" ? { where: `edge-${drop.dir}` } : drop.kind === "tabs" ? { to: this.nameOf(drop.target), where: "tabs", ...(drop.index !== undefined ? { index: drop.index } : {}) } : { to: this.nameOf(drop.target), where: drop.dir };
   }
@@ -7516,6 +7582,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         else o.inner.run("layout.move", { out: true, ...(o.target.to ? { beside: o.target.to } : {}), where: o.target.where }, o.name);
         return this.redraw();
       }
+      if (this.elementDrag) { this.pressed = null; this.dropElement(); return; }
       const d = this.dragging, h = this.headPress;
       this.dragging = null; this.headPress = null;
       if (d?.drop) {
@@ -7571,6 +7638,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }
       if (this.mouseTile && this.dragOut(k)) return;
       if (this.mouseTile) { const m = this.mouseTile; this.panes.get(m.id)?.mouse?.(k, k.x - m.r.col, k.y - m.r.row, this); return; }
+      // Alt (or ctrl) held and moved: the part under the press comes out of the reader (PIE-1247), not a selection.
+      if (p && this.dragElement(p, k)) return;
       if (p) { const at = this.pressedAt(p, k); return p.pane.drag(at.x, at.y, this); }
       return;
     }
@@ -7710,7 +7779,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           // release is the edit's, as any press in it: clickIn).
           const o = this.origin(id, r);
           if (focusing && pane.editing && this.entered.in(pane)) { this.editPressed = pane; this.editFloat = !!pane.surface.floatAt(k.x - o.col, k.y - o.row); pane.press(x, y, this, false, true); return this.redraw(); }
-          this.pressed = { frame: pane.surface.floatAt(k.x - o.col, k.y - o.row) ? this.views.get(id)?.view.frame : undefined, pane, gutter: this.gutters.get(id), col: o.col, row: o.row, cols: o.cols, fresh: !!((k.mods ?? 0) & 24), focusing };
+          this.pressed = { frame: pane.surface.floatAt(k.x - o.col, k.y - o.row) ? this.views.get(id)?.view.frame : undefined, pane, gutter: this.gutters.get(id), col: o.col, row: o.row, cols: o.cols, fresh: !!((k.mods ?? 0) & 24), focusing, at: { x: k.x, y: k.y } };
           pane.press(x, y, this, !!((k.mods ?? 0) & 4));
           // A click that places the cursor in the person's own edit here (one left open while its tile lost
           // the keys) is in it again, as e would be. An agent's draft still takes e or ⏎ (PIE-411).
@@ -7871,6 +7940,20 @@ function screenPicker(): DeskPicker {
     frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "open a screen" }),
   });
   return p;
+}
+
+/** A part dropped on a note (PIE-1247): embed it there (a reference, live), or copy its own lines (a figure with its query). */
+function dropAsPicker(title: string, then: (as: "reference" | "copy") => void): DeskPicker {
+  const items = [
+    { as: "reference" as const, label: "embed it: a reference that stays live (its anchor written if it has none)" },
+    { as: "copy" as const, label: "copy it: its own lines, a figure with its query, answering for this note" },
+  ];
+  return new ListPicker({
+    name: "drop-as", items: () => items,
+    row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
+    choose: it => then(it.as),
+    frame: (a, n) => ({ rect: centred(a, Math.min(84, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: `into ${title}` }),
+  });
 }
 
 /** A kind's choices for a new tile (a query tile's view): one picked runs `then`. */

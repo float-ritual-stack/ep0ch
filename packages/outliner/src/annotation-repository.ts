@@ -1801,7 +1801,7 @@ export class AnnotationRepository {
     };
   }
 
-  /** The live blocks quoting a mark (`marks.quote`): those holding `[from::((mark))]`, oldest first. */
+  /** The live blocks quoting a mark (`quote`): those holding `[from::((mark))]`, oldest first. */
   quotedIn(markId: string): string[] {
     const rows = this.database.query(`
       SELECT DISTINCT property.block_id AS id FROM block_properties property JOIN blocks block ON block.id = property.block_id

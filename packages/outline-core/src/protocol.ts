@@ -14,7 +14,7 @@
 import type { CompletionKind } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 271;
+export const PROTOCOL = 272;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 6;
 
@@ -803,3 +803,28 @@ export interface WaitingAsk {
   at?: number;
   label?: string;
 }
+
+/**
+ * `quote` (PIE-1247): materialize marks or elements of a note. A subject is a mark, or an element of a note by its
+ * anchor, or by a line of it (from 0) at the note's revision (its anchor written for the quote; `next`: the first part
+ * at or after that line).
+ */
+export type QuoteSubject = { kind: "mark"; id: string } | { kind: "element"; blockId: string; anchor?: string; line?: number; revision?: number; next?: true };
+/**
+ * Where it goes: a new block (the top of the Inbox, under the first subject's note, under a block, under `.detached`),
+ * or into a note's text after line `line` (from 0), `observed` being that line as the dropper saw it.
+ */
+export type QuotePlace = { kind: "inbox" } | { kind: "note" } | { kind: "under"; blockId: string } | { kind: "detached" } | { kind: "into"; blockId: string; line: number; observed?: string };
+/** reference (each transcluded) or copy (an element's own lines). */
+export type QuoteAs = "reference" | "copy";
+/** `quote`'s input as sent: `place` defaults to the Inbox, `as` to reference. */
+export interface QuoteRequest { subjects: QuoteSubject[]; place?: QuotePlace; as?: QuoteAs; text?: string }
+/** A subject as the service read it: `ref` links to it (`note^anchor`); `copy` is what `as: copy` writes; `anchored` when its anchor was just written. */
+export interface QuotedSubject { ref: string; label: string; kind?: FragmentKind; copy?: string; anchored?: true }
+/**
+ * What `quote` did: the block it made, where it went and the undo step that takes it back; or, into a note, the
+ * draft.patch it sent there (applied, or proposed beside the note).
+ */
+export type QuoteReceipt<B = { id: string; text: string }, P = { parentId: string | null; said: string }> =
+  | { block: B; placement: P; marks: string[]; subjects: QuotedSubject[]; undo?: string }
+  | { into: { blockId: string; outcome: "applied" | "proposed"; revision?: number; reason?: string }; subjects: QuotedSubject[]; said: string };

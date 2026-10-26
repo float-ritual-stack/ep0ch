@@ -7,7 +7,7 @@
 // - an extension's passage action (marginalia's highlight, define): `extensions.act` with the passage;
 // - reply: `annotations.reply`; resolve: `annotations.lifecycle`; edit (PIE-763): `annotations.update`, a mark's words from the
 //   revision its Edit started on (below a share link, only a mark written through that link);
-// - quote: `marks.quote`, one or more of the page's marks (a thread, a reply, or a mark on one) quoted into a new block
+// - quote: `quote`, one or more of the page's marks (a thread, a reply, or a mark on one) quoted into a new block
 //   in the Inbox, under this note or under a note found with `/find`; undo: `extensions.undo` with the undo step a
 //   quote from this publisher answered. A mark's card says where it's been quoted (`quotedIn`);
 // - words selected in a card (`in`: the mark's id) are a passage of that mark's own text: highlights, comments and asks
@@ -32,7 +32,7 @@ import { onItsPage, plainBody } from "./publish-marginalia";
 import { firstLineWithoutPropertyTokens, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { findDrawnPassage, type ShownBlock } from "./publish-passage";
 import { extractAnnotationBody } from "./annotations";
-import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, Block, BlockProperty, ChecklistUpdateReceipt, MarkQuoteReceipt, ProjectedBlockCollection } from "./types";
+import type { AnnotationBatchReceipt, AnnotationRecord, AnnotationThread, Block, BlockProperty, ChecklistUpdateReceipt, QuoteReceipt, ProjectedBlockCollection } from "./types";
 import { CHECKLIST_STATUSES, isChecklistStatus, statusWord, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
 import { liveRowMark } from "./publish-live";
@@ -124,7 +124,7 @@ export interface PageThread {
   replies: PageReply[];
   /** The open marks on its own words (threads of threads), drawn in its card. */
   marks: PageThread[];
-  /** The blocks quoting it (`marks.quote`). */
+  /** The blocks quoting it (`quote`). */
   quotedIn: PageQuote[];
   /** When its words were edited after posting (PIE-763), and by whom. */
   edited?: string;
@@ -693,8 +693,8 @@ export class PageMarginalia {
         const again = this.quotes.get(`${where}:${requestId}`);
         if (again) return said(200, again);
         const words = text(input.text).trim();
-        const receipt = await this.host.request<MarkQuoteReceipt>({
-          action: "marks.quote", input: { marks: wanted, place, ...(words ? { text: words } : {}) }, mutation: { author: "user" },
+        const receipt = await this.host.request<Extract<QuoteReceipt, { block: unknown }>>({
+          action: "quote", input: { subjects: wanted.map(id => ({ kind: "mark", id })), place, ...(words ? { text: words } : {}) }, mutation: { author: "user" },
         });
         if (receipt.undo) {
           this.undos.set(receipt.undo, where);

@@ -206,6 +206,13 @@ yourself (path 1): `/exit`, then `claude --continue`.
 
 ## Useful actions beyond notes
 
+- **A part of a note out of it** (PIE-1247): `element.detach tile=<reader> line=<n>` (or `anchor=`) makes the part (a
+  figure, a callout, a list item, a paragraph) a block of its own under `.detached` that embeds it, its `^anchor`
+  written if it had none, and opens it in a held reader with no header (`where=`, `to=` place it; the person's alt+D,
+  the tile menu's "detach this part", or an alt+drag onto a tile's side). `element.quote tile=<reader> line=<n>
+  into=<note> at=<line> [copy=true]` puts it into another note's text through draft.patch (the person's
+  alt+drag onto a reader, then embed or copy). A screen that keeps its layout refuses the tile a detach would open.
+
 - **Layout history and transactions** (PIE-957). Every change to a screen's shape is one entry in a history kept for every
   actor; `layout.undo` takes the newest back (yours only, if you are an agent: it says who changed the layout since and
   refuses to undo over them). Any action takes the dispatcher's own `txn=<id>` (and `motion=<style>`, alone a hint for that one action): its
