@@ -1126,7 +1126,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
       const own = d.app.drawer.tile!, key = own.home;
       await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
-      expect(JSON.parse(readFileSync(join(state, "drawer.json"), "utf8")).out).toBe(key);
+      expect(JSON.parse(readFileSync(join(state, "drawer.json"), "utf8")).out).toBe(true);
       // The program's role goes with its saved tile: that is how the next door knows which tile it is.
       const leaves = (n: any): any[] => !n ? [] : n.t === "leaf" ? [n] : [...(n.kids ?? []), ...(n.tabs ?? []), n.kid, n.a, n.b].flatMap(leaves);
       expect(leaves(d.desk.savedState().root).filter(l => l.role === "agent")).toHaveLength(1);

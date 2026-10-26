@@ -33,6 +33,13 @@ describe("the tile registry", () => {
     tileRegistry.restore(q, { id: "t-99999999-2222-4333-8444-555555555555" });
     expect(tileRegistry.idOf(q)).toBe(kept);
   });
+  test("a role set before the saved id comes back doesn't fix a new id: the saved one still wins (a restart keeps a program's key)", () => {
+    const p = pane();
+    tileRegistry.setRole(p, "agent");
+    expect(tileRegistry.knownId(p)).toBeUndefined();
+    tileRegistry.restore(p, { id: "t-77777777-2222-4333-8444-555555555555" });
+    expect(tileRegistry.idOf(p)).toBe("t-77777777-2222-4333-8444-555555555555");
+  });
   test("a saved arrangement loaded twice in one door: the second copy gets fresh ids, remembers where it came from, and its openers follow", () => {
     const door = {}, a1 = pane(), a2 = pane(), b2 = pane();
     tileRegistry.restore(a1, { id: "t-01010101-2222-4333-8444-555555555555" });

@@ -168,7 +168,7 @@ const KNOWS_POLL_MS = 15_000;
 const RESTART_IDLE_MS = 10_000;
 
 /** What drawer.json keeps: whether it's up (folded to a strip or not), its height, and how many own programs have left it (`gen`, its key's). */
-export interface DrawerSaved { open: boolean; share: number; folded?: boolean; gen?: number; out?: string }
+export interface DrawerSaved { open: boolean; share: number; folded?: boolean; gen?: number; out?: boolean }
 /**
  * What the chip says: not started, working, idle, waiting on the person, done (a result the person hasn't seen),
  * failed, exited, or `watching`: the Herdr launcher found another door attached to the agent's pane and only watches it
@@ -239,7 +239,7 @@ export class AgentDrawer {
     this.strip = open && s?.folded === true;
     const share = s && typeof s.share === "number" && Number.isFinite(s.share) ? clamp(s.share) : 0.5;
     this.gen = s && typeof s.gen === "number" && Number.isInteger(s.gen) && s.gen > 0 ? s.gen : 0;
-    this.out = s && typeof s.out === "string" && s.out ? s.out : null;
+    this.out = !!s && s.out === true;
     this.layer = hostLayer({ tabs: [HOST_TILES], names: new Map([[HOST_TILES, HOST_TILES]]), share, open });
     this.prog = this.program();
     registerDrawerKind();
@@ -1068,9 +1068,9 @@ export class AgentDrawer {
     this.host.redraw();
   }
 
-  private save() { if (this.persist) writeState("drawer.json", { open: this.open, share: this.share, ...(this.folded ? { folded: true } : {}), ...(this.gen ? { gen: this.gen } : {}), ...(this.out ? { out: this.out } : {}) } satisfies DrawerSaved); }
-  /** The key (`home`) of the drawer's own program while it's out on a screen (PIE-892), kept across a handover; else null. */
-  private out: string | null = null;
+  private save() { if (this.persist) writeState("drawer.json", { open: this.open, share: this.share, ...(this.folded ? { folded: true } : {}), ...(this.gen ? { gen: this.gen } : {}), ...(this.out ? { out: true } : {}) } satisfies DrawerSaved); }
+  /** Whether the drawer's own program is out on a screen (PIE-892), its tab holding the place; kept across a handover. Which tile it is, is its role's to say. */
+  private out = false;
   /** How many own programs have left the drawer for a screen: the next one's key (`home`) says it. */
   private gen = 0;
 
@@ -1191,11 +1191,10 @@ export class AgentDrawer {
       const heir = this.holder(old.shows, `the ${screen.title}`);
       const was = { out: this.out, gen: this.gen };
       // Refused after all (a race): its own tab again, as it was.
-      undo = a => { old.reown(); d.takeOut(DRAWER_TILE_ID, a, old, false).pane.dispose?.(); this.p = old; this.left = null; this.out = was.out; this.gen = was.gen; this.save(); };
-      this.left = { pane: old, screen };
+      undo = a => { old.reown(); d.takeOut(DRAWER_TILE_ID, a, old, false).pane.dispose?.(); this.p = old; this.out = was.out; this.gen = was.gen; this.save(); };
       this.p = heir;
-      // Kept by its key: after a handover the drawer still knows its program is out, and which tile it is.
-      this.out = old.home ?? "drawer.json"; this.gen++;
+      // After a handover the drawer still knows its program is out; the tile with role agent is which one.
+      this.out = true; this.gen++;
       this.save();
       const out = d.takeOut(name, actor, heir);
       old.release();
@@ -1221,12 +1220,15 @@ export class AgentDrawer {
     h.away = { says: `${shows} is on ${where}`, back: () => void this.run?.("agent.back", {}) };
     return h;
   }
-  /** The drawer's own program while it's out on a screen (`take`), and that screen. */
-  private left: { pane: DrawerTile; screen: Desk } | null = null;
+  /** Every desk the door holds: the drawer's, and each screen on the stack (one a pushed screen covers too). */
+  private allDesks(): Desk[] {
+    const stack = (this.host.ctx?.()?.screens?.() ?? []).map(tilesOf).filter((d): d is Desk => !!d);
+    return [...(this.d ? [this.d] : []), ...stack, ...[tilesOf(this.host.screen?.())].filter((d): d is Desk => !!d)];
+  }
   /** ⏎ or a click on the own tab while its program is out: that tile back from wherever it is now (any screen it was put on). */
   bringBack(actor: Actor): TileDone | null {
     if (!this.out) return null;
-    const out = this.findAgent([this.left?.screen, tilesOf(this.host.screen?.())]);
+    const out = this.findAgent(this.allDesks());
     if (out) return this.put(out.desk, out.name, actor, true);
     // Its program is gone (closed on its screen, or ended with a door before a handover could adopt it): the tab is
     // the drawer's own again, and runs its program as any own tab does.
@@ -1271,15 +1273,15 @@ export class AgentDrawer {
   /** Whether `actor` acts as the person here (their press, or an agent on it): only then do the keys move with a lift. */
   standsFor(actor: Actor): boolean { return this.ctx(actor).standing; }
 
-  /** Whether the drawer's program that's out still runs somewhere (on a screen not shown now): the tile that left, else a running program with role agent. */
+  /** Whether the drawer's program that's out still runs somewhere (on a screen not shown now): the tile with role agent on any screen, else a running program with that role. */
   private outAlive(): boolean {
-    if (this.left) return this.left.pane.running;
-    return livePrograms().some(p => tileRegistry.roleOf(p) === ROLE_AGENT);
+    const there = this.findAgent(this.allDesks());
+    return there ? there.pane.running : livePrograms().some(p => tileRegistry.roleOf(p) === ROLE_AGENT);
   }
   /** The own tab no longer holding a place: its program starts as any own tab's does (when it's drawn). */
   private free() {
     const h = this.p;
-    this.out = null; this.left = null; this.save();
+    this.out = false; this.save();
     if (h instanceof DrawerTile && h.away) {
       h.away = null;
       tileRegistry.setRole(h, ROLE_AGENT);          // the tab holding the place is the drawer's own program again
@@ -1306,7 +1308,7 @@ export class AgentDrawer {
     // The swap in its own tab is the drawer's, whoever asked: what leaves is the holder, which nobody types in.
     const holder = d.takeOut(DRAWER_TILE_ID, USER, own, false);
     holder.pane.dispose?.();
-    this.p = own; this.left = null; this.out = null;
+    this.p = own; this.out = false;
     this.save();
     if (this.ctx(actor).standing) {
       d.focusTile(DRAWER_TILE_ID, actor);
