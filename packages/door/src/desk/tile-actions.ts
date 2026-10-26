@@ -465,12 +465,16 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "layout.lock": def({
-    summary: "lock the screen (on=true): its shape is fixed (no moves, drops, opens of new tiles, closes, resizes, docks in or out, links or layout loads) and its contents stay live (reading, editing, typing in terminals, docks sliding, tabs shown, zoom); on=false unlocks; default toggles. Saved with the layout",
-    keys: "alt+k; a click on the hint row's □ lock / ▣ locked chip; ^W P then enter or space on locked",
-    touches: "shape", replay: "safe", confirms: true, says: r => (r.changed ? (r.locked ? "locked the screen (alt+k unlocks)" : "unlocked the screen") : null),
+    summary: "lock the layout the keys are in, the screen or your drawer (on=true): its shape is fixed (no moves, drops, opens of new tiles, closes, resizes, docks in or out, links or layout loads) and its contents stay live (reading, editing, typing in terminals, docks sliding, tabs shown, zoom); on=false unlocks; default toggles. Saved with the layout",
+    keys: "a click on the hint row's □ lock / ▣ screen locked / ▣ drawer locked chip; ^W P then enter or space on locked; the power bar's row (its tile menu's)",
+    touches: "shape", replay: "safe", confirms: true,
+    // No key (PIE-1346): alt+k, a modifier away from ctrl+k, locked layouts by accident. The row and what it says name the layout.
+    says: r => (r.changed ? (r.locked ? `locked ${r.layout} · ${r.unlock}` : `unlocked ${r.layout}`) : null),
+    menu: { label: "lock the screen", group: SCREEN, key: "", now: ({ d }) => { const self = d.layoutSelf(); return { label: `${d.screenLocked() ? "unlock" : "lock"} ${self.name}` }; } },
     args: { on: { type: "boolean", optional: true, about: "true locks, false unlocks; default toggles" } },
     examples: [
       { act: "layout.lock on=true", does: "fixes the screen's shape while its contents stay live" },
+      { act: "layout.lock on=false tile=@drawer/details", does: "unlocks your drawer (the layout of the tile named)" },
       { act: "layout.lock on=false", does: "unlocks the screen so tiles can be moved and closed again" },
     ],
     run({ on }, { d }, actor) {
@@ -479,7 +483,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "layout.policy": def({
     summary: "a container's policy, saved with the layout: node=<id> (s<n> a split, g<n> a tab set, d<n> a dock, from layout.get) or node=screen; left out, the innermost container holding tile=<tile>, else the screen. Sets draggable (its tiles move out), droppable (it takes tiles), accepts=<kind,kind> (only those kinds; any clears), resizable, min/max/fixed=<cells> along its parent's axis (-1 clears), collapsible, overlay and stays (a dock), locked, opensInto=<tile> (where its tiles' opens land when they have no link), opens=current|next (the open rule; a flow's is next), readable=<cells> (growth by room: past it, earlier readers in a row fold to spines as new ones open), host=over|beside|none (node=screen: where the host layer may appear over it); clear=<field,field> takes fields away. With nothing to set, it reads: each layer's policy over the tile and what applies. On a locked container only locked changes",
-    keys: "^W P (enter, space or a click on a row changes it; alt+k locks the screen)",
+    keys: "^W P (enter, space or a click on a row changes it; its locked row locks the screen)",
     touches: "shape", replay: "safe", confirms: true,
     says: (r, a) => { if (!r || !("node" in r) || !("policy" in r) || "layers" in r) return null; const { set, gone } = policyChange(a); return `set ${r.node}'s policy: ${[...Object.entries(set).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(",") : v}`), ...gone.map(k => `${k} cleared`)].join(" ") || "unchanged"}`; },
     args: POLICY_ARGS,

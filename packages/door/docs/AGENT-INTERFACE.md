@@ -468,7 +468,7 @@ one shown, docking a split takes all its tiles; evening out the layout or resizi
 or container that limits its tiles is refused with the same command. `tile.agent` is the one action whose own rule decides
 (`ownGate`): the layout module lets an agent tighten a limited tile and refuses it loosening one.
 
-The person's own keys, clicks and actions are never limited. The lock (`alt+k`) is a different rule: it fixes the screen's
+The person's own keys, clicks and actions are never limited. The lock (`layout.lock`: the hint row's chip, the power bar's row) is a different rule: it fixes a layout's (the screen's, your drawer's)
 shape for everyone, the person included, and leaves contents live; an agent policy limits only agents, tile by tile, and
 leaves the shape alone for the person. They combine: a locked screen with an `edit` tile refuses an agent twice, and the
 person's own changes to the shape only by the lock. The limit is the door's: an agent that writes the note through the

@@ -168,6 +168,7 @@ export interface MenuEntry<A, H> {
   label: string;
   /** "Tile", "Note", "Terminal", "Board": rows are grouped by it, in the order the dispatcher finds their sets. */
   group: string;
+  /** Its keycap; left out, the first key the def's `keys` declares; `""`, none (an action with no key: layout.lock). */
   key?: string;
   args?: Partial<A>;
   /**
@@ -490,7 +491,7 @@ export function keyOfName(n: string): Key | null {
 
 /**
  * The parts of a drawn hint row that start with one key drawn as a key (in one of `keyStyles`, its label in another:
- * "q menu", "alt+k lock"), by cell: a click on one presses that key. A part naming several keys ("j k scroll"), none
+ * "q menu", "alt+l link"), by cell: a click on one presses that key. A part naming several keys ("j k scroll"), none
  * ("drag a title moves"), or text that isn't drawn as a key (a subject, a status, an edit's own grey hint) isn't one.
  */
 export function hintSpots(drawn: string, keyStyles: readonly string[]): { from: number; to: number; key: Key }[] {

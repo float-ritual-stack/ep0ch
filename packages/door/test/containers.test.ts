@@ -1,6 +1,6 @@
 // PIE-505: containers with policy on the desk, against a scratch outline. The tree goes in a left-edge dock,
 // claude and a detail are dropped into the same dock (a drag onto its handle, and layout.move), the screen is
-// locked (alt+k, the chip, act) and a locked drag or border drag is refused with the reason; a container's policy
+// locked (the chip, act; no key since PIE-1346) and a locked drag or border drag is refused with the reason; a container's policy
 // (accepts, draggable, opens-into) is set by act and by the ^W P panel; the dock and the lock come back after a
 // restart; and a tile kind registered from outside
 // (one the service draws) opens, saves and comes back like a built-in. Scratch services, fictional notes, `sh` only.
@@ -19,7 +19,6 @@ import { outliner, Scratch, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
-const alt = (ch: string): Key => ({ kind: "alt", ch });
 
 describe.skipIf(!outliner)("containers with policy on the desk", () => {
   const scratch = new Scratch();
@@ -111,13 +110,16 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     for (let i = 0; i < 6; i++) { key({ kind: "tab" }); expect(["tree", "claude", "now"]).not.toContain(get().focus); }
   });
 
-  test("a board-like arrangement locked by alt+k: a drag, a border drag and an agent's move are refused, with the reason", async () => {
+  test("a board-like arrangement locked by the hint row's chip: a drag, a border drag and an agent's move are refused, with the reason", async () => {
     // A board-like shape: middle and side as two columns beside each other.
     await mine("layout.move", { to: "middle", where: "right" }, "side");
-    key(alt("k"));
-    expect(get().locked).toBe(true);
     render();
-    expect(D().render(D().ctx).lines[HINT]!.replace(/\x1b\[[\d;]*m/g, "")).toContain("▣ locked");
+    expect(D().render(D().ctx).lines[HINT]!.replace(/\x1b\[[\d;]*m/g, "")).toContain("□ lock");
+    mouse("down", D().lockChip.from + 1, HINT);
+    await until(() => get().locked === true, "the chip locks the screen");
+    expect(message()).toBe("locked the screen · a click on ▣ screen locked (or ^W P) unlocks it");
+    render();
+    expect(D().render(D().ctx).lines[HINT]!.replace(/\x1b\[[\d;]*m/g, "")).toContain("▣ screen locked");
     const before = shape();
     // A header dragged onto another tile: the ghost says why, and the release does nothing.
     const sd = rect("side"), md = rect("middle");
@@ -125,7 +127,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     expect(D().render(D().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "")).toContain("✕ the screen is locked");
     mouse("up", md.col + 3, md.row + Math.floor(md.rows / 2)); render();
     expect(shape()).toBe(before);
-    expect(message()).toContain("the screen is locked: moving side is refused · alt+k or a click on ▣ locked unlocks it");
+    expect(message()).toContain("the screen is locked: moving side is refused · a click on ▣ screen locked (or ^W P) unlocks it");
     // The border between middle and side: pressed, it doesn't follow the pointer, and says why.
     const at = md.col + md.cols;
     const share = JSON.stringify(get().tree);
@@ -160,7 +162,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     render();
     const chip = D().lockChip;
     mouse("down", chip.from + 1, HINT);
-    expect(get().locked).toBe(false);
+    await until(() => get().locked === false, "the chip unlocks the screen");
     expect(message()).toBe("unlocked the screen");
   });
 
