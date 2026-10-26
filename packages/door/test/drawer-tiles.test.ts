@@ -316,8 +316,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         expect(before.every(([, running]) => running)).toBe(true);
         if (name === "pi") {
           d.key({ kind: "esc" });
-          delete process.env.EP0CH_DAILY_AGENT;
-          // By act: the person's (and an agent's) host.agent.
+          // By act: the person's (and an agent's) host.agent. EP0CH_DAILY_AGENT (cat) is still set: a pick runs what was picked.
           expect(await d.app.dispatch.act({ action: "host.agent", args: { name } }, USER)).toMatchObject({ agent: name });
         } else {
           // By the picker: its row, then ⏎.
@@ -327,6 +326,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         }
         d.paint();
         await until(() => agentTabs().length === before.length + 1 && agentTabs().at(-1)!.text().some(l => l.includes(`scratch ${name} started`)), `${name} runs in a new tab`);
+        if (name === "pi") delete process.env.EP0CH_DAILY_AGENT;
         // Every agent that ran before runs on, the same process: a pick ends nothing.
         expect(agentTabs().slice(0, before.length).map(p => [p.pid, p.running] as const)).toEqual(before);
         expect(d.app.drawer.shownTab()).toBe(d.app.drawer.desk!.nameOfPane(agentTabs().at(-1)!));
@@ -749,6 +749,12 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
           expect([how, d.app.drawer.tabs().length]).toEqual([how, 1]);
         } finally { d.app.quit(); }
       }
+      // A drawer saved before (its agent tab restored as the drawer is made): a new agent tab is a new tab.
+      const e = await door();
+      try {
+        e.app.drawer.newAgentTab({ kind: "agent", id: AS });
+        expect(e.app.drawer.tabs().length).toBe(2);
+      } finally { e.app.quit(); }
     });
 
     test("a drop (on=false) with every agent tab closed opens nothing", async () => {

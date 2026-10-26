@@ -200,7 +200,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.close": def({
     summary: "close tile=<tile>: a program in it is ended. On the board a detail or a float closes, a dock's tile shuts its dock, and the lanes and the preview stay (closable off); the river's library stays (closable off). Refused while it holds an edit or a comment, and to an agent for the tile that has the person's keys",
-    keys: "x on an exited drawer own tile; ^W x, or a click on the × in its top right corner; board x, esc q on a dock",
+    keys: "^W x, or a click on the × in its top right corner; board x, esc q on a dock",
     touches: "shape", replay: "ask", says: r => `closed ${r.name ?? r.tile}`,
     menu: {
       label: "close", group: TILE, key: "ctrl+w x",
@@ -415,7 +415,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     examples: [
       { act: "tile.drawer on=true tile=activity", does: "puts the activity tile in your drawer, keeping its state" },
       { act: "tile.drawer on=false to=reader where=right tile=activity", does: "takes the tile out of the drawer to the right of the reader" },
-      { act: "tile.drawer to=drawer.agent where=right tile=reader", does: "puts the reader in your drawer, to the right of the drawer's own program (where a drag onto that side drops it), not as a tab" },
+      { act: "tile.drawer to=drawer.agent where=right tile=reader", does: "puts the reader in your drawer, to the right of the agent tab used last (where a drag onto that side drops it), not as a tab" },
     ],
     run({ on, to, where }, { d, reader }, actor) {
       return d.drawerTile(reader, on, to, where !== undefined ? whereOf(where, "tile.drawer", "right") : undefined, actor);

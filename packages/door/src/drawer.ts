@@ -221,10 +221,11 @@ export class AgentDrawer {
   }
 
   /** What a new agent tab runs and its folder, for the outline the door is on. */
-  private program(): DrawerProgram {
+  private program(picked = false): DrawerProgram {
     // The door's own machine first: an outline on another machine never starts in a same-named local outline's folder.
     const c = this.host.ctx?.(), pl = this.persist ? readPlace(outlineState()) : null;
-    return drawerProgram({ outline: c?.outline ?? pl?.outline ?? null, machine: c?.machine ?? pl?.machine ?? null, dir: this.persist ? outlineState() : null, state: this.persist ? stateDir() : null });
+    // A pick just made runs what was picked: EP0CH_DAILY_AGENT overrides only what a new tab runs by itself.
+    return drawerProgram({ ...(picked ? { env: { ...process.env, EP0CH_DAILY_AGENT: undefined } } : {}), outline: c?.outline ?? pl?.outline ?? null, machine: c?.machine ?? pl?.machine ?? null, dir: this.persist ? outlineState() : null, state: this.persist ? stateDir() : null });
   }
   /** This outline's session, as its Herdr pane and doctor name it (`pie-hole@float-2`). */
   private session(): string | null { const c = this.host.ctx?.(), pl = this.persist ? readPlace(outlineState()) : null; return sessionLabel({ outline: c?.outline ?? pl?.outline ?? null, machine: c?.machine ?? pl?.machine ?? null }); }
@@ -253,33 +254,40 @@ export class AgentDrawer {
     }
     catch (e) { throw new ActionRefused(`couldn't save the choice in ${file}: ${(e as Error).message}`); }
     this.prog = this.program();
-    const done = this.newAgentTab(actor);
-    const env = this.prog.from === "env" ? ` · EP0CH_DAILY_AGENT (${process.env.EP0CH_DAILY_AGENT}) still overrides it in this door` : "";
-    this.host.flash(`${this.prog.name} started in a new tab (${done.name})${env} · ^W x closes one`, 8000);
+    const picked = this.program(true);
+    // A Herdr pick runs in this session's one Herdr pane: when a tab already shows it, that tab is the agent (a second
+    // would be a mirror of the same pane).
+    const shows = picked.herdr ? this.agentTabs().find(t => t.pane.running && t.pane.run.cmd.join(" ") === picked.cmd.join(" ")) : undefined;
+    if (shows) {
+      const went = this.ctx(actor).standing ? this.goTo(shows.pane, actor) : null;
+      return { agent: name, herdr, saved: dflt ? "default" : this.session() ?? "session", runs: picked.cmd, tile: shows.id, name: shows.name, attached: true, ...(went ? { went: went.in } : {}) };
+    }
+    const done = this.newAgentTab(actor, picked);
+    const env = this.prog.from === "env" ? ` · EP0CH_DAILY_AGENT (${process.env.EP0CH_DAILY_AGENT}) still decides what a new tab runs by itself in this door` : "";
+    this.host.flash(`${picked.name} started in a new tab (${done.name})${env} · ^W x closes one`, 8000);
     this.host.redraw();
-    return { agent: name, herdr, saved: dflt ? "default" : this.session() ?? "session", runs: this.prog.cmd, tile: done.tile, name: done.name };
+    return { agent: name, herdr, saved: dflt ? "default" : this.session() ?? "session", runs: picked.cmd, tile: done.tile, name: done.name };
   }
 
   /**
    * A new agent tab in the drawer running the last agent picked (`prog`), with role agent: beside the tab shown. The
    * person's comes up with their keys in it; an agent's opens behind the tab shown, and its program starts now.
    */
-  newAgentTab(actor: Actor): TileDone {
+  newAgentTab(actor: Actor, prog: DrawerProgram = this.prog): TileDone {
     const made = !this.d, d = this.desk;
     if (!d) throw new ActionRefused("the drawer isn't ready (no screen is shown yet)");
     const person = this.ctx(actor).standing;
     if (person && !this.open) { this.offered = true; this.set(true, actor); }
-    // A drawer never saved opens its first agent tab as it is made: that one is the new tab.
-    const first = made ? this.agentTabs([d])[0] : undefined;
-    const done = first ? d.tileInfo(first.name) as TileDone : this.agentTab(d, actor);
+    // A drawer never saved opens its first agent tab as it is made: when it runs this program, that one is the new tab.
+    const first = made ? this.firstTab : null;
+    const done = first && (d.pane(String(first.name)) as PtyPane | undefined)?.run.cmd.join(" ") === prog.cmd.join(" ") ? first : this.agentTab(d, actor, prog);
     if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
     else (d.pane(done.tile) as PtyPane).startNow(this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3));
     this.host.redraw();
     return done;
   }
   /** An agent tab on desk `d` (the drawer's), not started: it starts when drawn. */
-  private agentTab(d: Desk, actor: Actor): TileDone {
-    const a = this.prog;
+  private agentTab(d: Desk, actor: Actor, a: DrawerProgram = this.prog): TileDone {
     const p = new PtyPane({ cmd: a.cmd, cwd: a.cwd, label: a.name, agent: true, inShell: a.name !== "shell" && !a.herdr });
     tileRegistry.setRole(p, ROLE_AGENT);
     return d.bringIn({ pane: p, name: freeName(d, a.name), spec: { t: "leaf", kind: "pty" }, from: "drawer", typing: false }, this.tabBase(d), "tabs", actor);
@@ -684,9 +692,11 @@ export class AgentDrawer {
     d.enter(ctx);
     d.shownAs(this.shown);
     // As the spec's own tile would be: the drawer's focus, which is no one's keys until the person goes in.
-    if (fresh && !d.tileCount()) this.agentTab(d, USER);
+    if (fresh && !d.tileCount()) this.firstTab = this.agentTab(d, USER);
     return d;
   }
+  /** The agent tab a drawer never saved opened as it was made (`newAgentTab` right after takes it as its own). */
+  private firstTab: TileDone | null = null;
   /** Where the person is, as the drawer's desk sees it: in it while they're in the drawer, else nowhere on it. */
   private whereIn(): Whereabouts {
     const w = this.host.person?.();
@@ -777,7 +787,7 @@ export class AgentDrawer {
   /** What the host layer's tiles are: the screen slot (it never closes or moves), the drawer with what runs in it. */
   private facts(id: string): TileFacts {
     if (id === HOST_SCREEN) return { kind: "screen", policy: { closable: false, draggable: false } };
-    const running = this.d ? this.tabs().map(t => this.d!.pane(t.name)).find((p): p is PtyPane => p instanceof PtyPane && p.running) : undefined;
+    const running = this.d ? livePrograms().find(p => p.door === this && p.running && !!this.d!.nameOfPane(p)) : undefined;
     return { kind: "drawer", ...(running ? { running: running.run.cmd[0] ?? "a program" } : {}) };
   }
   /** Who acts, and where the person is (the shell's one answer): in the agent, or busy on the screen. */
@@ -1173,8 +1183,7 @@ export class AgentDrawer {
     const all = [...roles, ...tabs.map(s => ({ pane: s.pane, tile: (s.shown as { tile: string }).tile, own: false, inDrawer: s.shown.in === "drawer" }))];
     const lifted = all.find(a => this.desks().some(d => d.liftsPane(a.pane)));
     if (lifted) return lifted;
-    const used = (p: PtyPane) => Math.max(p.personKeyAt, p.personClickAt);
-    return all.reduce<(typeof all)[number] | null>((best, a) => (!best || used(a.pane) > used(best.pane) ? a : best), null);
+    return all.reduce<(typeof all)[number] | null>((best, a) => (!best || a.pane.usedAt > best.pane.usedAt ? a : best), null);
   }
   /** One of the agent tabs is lifted now: agent.lift drops it. */
   liftsAgent(): boolean { const p = this.liftPick(); return !!p && this.desks().some(d => d.liftsPane(p.pane)); }

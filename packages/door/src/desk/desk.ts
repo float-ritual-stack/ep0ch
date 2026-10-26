@@ -1270,7 +1270,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const host = this.ctx?.hostLayer;
     return [...new Set(roots ? roots.flatMap(r => r.descend()) : this.relatives())].flatMap(desk => {
       const screen = host?.isDrawer(desk.top()) ? "drawer" : desk.spec.name, slots = desk.slotsFilled();
-      return [...desk.panes].map(([id, pane]) => ({ value: { desk, id, pane }, id: desk.tileId(id), name: desk.nameOf(id), role: tileRegistry.roleOf(pane), ...(pane instanceof PtyPane ? { usedAt: Math.max(pane.personKeyAt, pane.personClickAt) } : {}), ...(tileRegistry.openerOf(pane) ? { from: tileRegistry.openerOf(pane) } : {}), ...(tileRegistry.copiedFrom(pane) ? { copiedFrom: tileRegistry.copiedFrom(pane) } : {}), slots: slots.get(id) ?? [], screen, where: () => this.pathTo(pane) ?? desk.nameOf(id) }));
+      return [...desk.panes].map(([id, pane]) => ({ value: { desk, id, pane }, id: desk.tileId(id), name: desk.nameOf(id), role: tileRegistry.roleOf(pane), ...(pane instanceof PtyPane ? { usedAt: pane.usedAt } : {}), ...(tileRegistry.openerOf(pane) ? { from: tileRegistry.openerOf(pane) } : {}), ...(tileRegistry.copiedFrom(pane) ? { copiedFrom: tileRegistry.copiedFrom(pane) } : {}), slots: slots.get(id) ?? [], screen, where: () => this.pathTo(pane) ?? desk.nameOf(id) }));
     });
   }
 
@@ -1392,7 +1392,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (source) { aimed.source = this.reference(source)!; boundSource.set(p, source); }
     }
     const env: TileEnv = {
-      desk: this, id: this.tileId(id), name: this.nameOf(id), place: this.layoutName ?? (this.ctx?.hostLayer?.isDrawer(this) ? "drawer" : "desk"), home: this.home ?? this.spec.saves ?? null,
+      desk: this, id: this.tileId(id), name: this.nameOf(id), place: this.ctx?.hostLayer?.isDrawer(this) ? "drawer" : this.layoutName ?? "desk", home: this.home ?? this.spec.saves ?? null,
       tile: name => this.pane(name),
       followers: () => (this.panes.has(id) ? this.followers(id) : []),
       ...(moved ? { moved } : {}),
@@ -1449,8 +1449,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const k = kindOf(p), kept = this.unregistered.get(id);
     const slot = [...this.specTiles].find(([, tile]) => tile === id)?.[0];
     const wires = [...this.layout.wires.filter(w => w.from === id && this.panes.has(w.to)).map(w => ({ verb: w.verb, to: this.tileId(w.to), ...(w.rule ? { rule: w.rule } : {}) })), ...(this.extSpec(id).wires ?? [])];
-    // The key its program runs under, when it comes back here under another (PIE-1330): a terminal moved into a group not
-    // drawn since still has the place it left, so only this desk knows the key a restore gives it (`<home>:<id>`).
+    // The key its program runs under, when it comes back here under another: the one place a save decides it (PIE-1330: a
+    // terminal moved into a group not drawn since still has the place it left; only this desk knows the key a restore
+    // gives it, `<home>:<id>`).
     const runs = p instanceof PtyPane && !p.run.temp ? p.keptKey : null, back = `${this.home ?? this.spec.saves ?? ""}:${this.tileId(id)}`;
     return {
       ...(kept ? (({ link: _l, linkRole: _r, ...rest }) => rest)(kept) : {}),
