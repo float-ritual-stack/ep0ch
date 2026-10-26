@@ -6,6 +6,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../../src/app";
+import { Canvas } from "../../src/canvas";
 import { openScreen } from "../../src/desk/screen-specs";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
@@ -241,10 +242,10 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     await sc.dispatch.press("section", { name: "lift" });
     screen();
     const d = sc.tilesHere()!, original = d.layoutSpec();
-    const frame = () => { (app as any).paint(true); return h.painted.map(plain); };
-    // The cells of `row` from `col`, `n` wide: in the frame, and in the screen drawn alone (what the float shows).
-    const cells = (lines: string[], row: number, col: number, n: number) => [...(lines[row] ?? "")].slice(col, col + n).join("");
-    const own = () => screen().split("\n");
+    const frame = () => { (app as any).paint(true); return h.painted; };
+    // The terminal cells of `row` from `col`, `n` wide: in the frame, and in the screen drawn alone (what the float shows).
+    const cells = (lines: string[], row: number, col: number, n: number) => { const c = new Canvas(400, 1); c.text(0, 0, lines[row] ?? ""); return c.grid()[0]!.slice(col, col + n).map(x => x.ch).join(""); };
+    const own = () => sc.render(app).lines;
     const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
     try {
       await app.act({ action: "host.toggle", args: { open: true }, as: "test-agent" });
