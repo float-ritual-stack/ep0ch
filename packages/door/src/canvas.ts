@@ -69,6 +69,12 @@ export const NO_BOX: BoxGlyphs = { top: " ", bottom: " ", side: " ", tl: " ", tr
 /** The dotted frame of the ep0ch logos (WoE, 1997): dots along, colons down. */
 export const DOTTED_BOX: BoxGlyphs = { top: ".", bottom: ".", side: ":", tl: ".", tr: ".", bl: ":", br: ":" };
 
+/** The cells `Canvas.shadow` draws for a float at `r`: the column at its right, then the row below it. */
+export const shadowRects = (r: Rect): [Rect, Rect] => [
+  { col: r.col + r.cols, row: r.row + 1, cols: 1, rows: r.rows - 1 },
+  { col: r.col + 1, row: r.row + r.rows, cols: r.cols, rows: 1 },
+];
+
 export class Canvas {
   private cells: Cell[][];
   constructor(readonly cols: number, readonly rows: number) {
@@ -115,6 +121,22 @@ export class Canvas {
     if (old.ch === "" && line[x - 1] && c.ch !== "") line[x - 1] = { ch: " ", sgr: line[x - 1]!.sgr };
     if (old.ch !== "" && line[x + 1]?.ch === "") line[x + 1] = { ch: " ", sgr: line[x + 1]!.sgr };
     line[x] = c;
+  }
+
+  /**
+   * `from`'s cells in `r` written over these (the screen's floats and menus put back above the drawer, PIE-1221). A
+   * wide glyph cut by the rectangle's edge leaves a space, so the row keeps its width.
+   */
+  copy(from: Canvas, r: Rect): void {
+    const x0 = Math.max(0, r.col), x1 = Math.min(r.col + r.cols, this.cols, from.cols);
+    for (let y = Math.max(0, r.row); y < r.row + r.rows && y < this.rows && y < from.rows; y++) {
+      const src = from.cells[y]!, line = this.cells[y]!;
+      for (let x = x0; x < x1; x++) {
+        const c = src[x]!;
+        const cut = (x === x0 && c.ch === "") || (x === x1 - 1 && src[x + 1]?.ch === "");
+        this.put(line, x, cut ? { ch: " ", sgr: c.sgr } : { ...c });
+      }
+    }
   }
 
   /** Blank a rectangle (used under floating overlays). */
@@ -195,9 +217,9 @@ export class Canvas {
   }
 
   shadow(r: Rect, values?: StyleValues): void {
-    const ink = fgRgb(floatTheme(values).shadow);
-    this.text(r.col + 1, r.row + r.rows, ink + "▒".repeat(r.cols) + RESET, r.cols);
-    for (let y = r.row + 1; y < r.row + r.rows; y++) this.text(r.col + r.cols, y, ink + "▒" + RESET, 1);
+    const ink = fgRgb(floatTheme(values).shadow), [side, below] = shadowRects(r);
+    this.text(below.col, below.row, ink + "▒".repeat(below.cols) + RESET, below.cols);
+    for (let y = side.row; y < side.row + side.rows; y++) this.text(side.col, y, ink + "▒" + RESET, 1);
   }
 
   /** A box with a title in the top edge and an optional hint in the bottom edge: single lines, or `g`'s glyphs. */

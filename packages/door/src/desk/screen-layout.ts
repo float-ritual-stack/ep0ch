@@ -2117,6 +2117,19 @@ export function hostLayer(o: { tabs: string[]; names?: ReadonlyMap<string, strin
   const names = new Map<string, string>([[HOST_SCREEN, HOST_SCREEN], ...o.tabs.map(t => [t, o.names?.get(t) ?? t] as [string, string])]);
   return init({ tree, names }, prev);
 }
+/**
+ * What the door draws, bottom first (PIE-1221, with the lift's PIE-1189): the screen's tiles, then your drawer and
+ * the screen's floats in the order last touched, then a lifted tile, then menus. The drawer is above the floats while
+ * the person is in it (a click or keys there); a click on a float, or leaving the drawer, puts the floats back above.
+ * Menus (a tile's menu, a hint card, a completion list) are always on top, whatever they hang off. One order: the
+ * frame paints it, and a click goes to the topmost layer under it.
+ */
+export type Layer = "tiles" | "drawer" | "floats" | "lift" | "menus";
+export function layerOrder(o: { inDrawer: boolean }): Layer[] {
+  return ["tiles", ...(o.inDrawer ? ["floats", "drawer"] as const : ["drawer", "floats"] as const), "lift", "menus"];
+}
+/** The layers drawn above `layer`. */
+export const layersAbove = (order: readonly Layer[], layer: Layer): Layer[] => order.slice(order.indexOf(layer) + 1);
 /** The host layer's one dock: your drawer, docked to the bottom edge (its tabs over or beside the screen). */
 export function hostDock<I>(s: Pick<LayoutState<I>, "tree">): Dock<I> | null { return docks(s.tree)[0] ?? null; }
 /**

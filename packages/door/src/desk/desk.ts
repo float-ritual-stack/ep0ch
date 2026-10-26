@@ -30,7 +30,7 @@ import { valuesOf } from "@ep0ch/outline-core/block-record";
 import { interpolate } from "@ep0ch/outline-core/interpolation";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { headedTitle, subject, type Msg } from "../board";
-import { BORDER_BOXES, Canvas, DOTTED_BOX, LINE_BOX, NO_BOX, overflows, type BoxGlyphs, type Rect } from "../canvas";
+import { BORDER_BOXES, Canvas, DOTTED_BOX, LINE_BOX, NO_BOX, overflows, shadowRects, type BoxGlyphs, type Rect } from "../canvas";
 import { TONE } from "../callouts";
 import { MOUSE_RIGHT, RowPresses, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
@@ -3432,6 +3432,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.tileSpots = [];
     this.pointerHits = [];
     this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.dockCloses = []; this.floatButtons = []; this.foldButtons = []; this.liftButtons = []; this.holdButtons = []; this.closeButtons = []; this.wireChips = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
+    this.raised = { floats: [], menus: [] };
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
     // A tile drawn over another (a flow's column over a peek's box, a dock, a float) takes away the images under it;
     // drawTile paints every cell of its box.
@@ -3458,6 +3459,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (id === this.focus && this.keysHere()) canvas.backdrop(values);
       canvas.shadow(r, values);
       lay(id, r, false, true);
+      // Drawn where it is: not lifted (paintLift draws it) nor in flight (drawn later, where the motion has it).
+      if (this.layout.lift?.tile !== id && !this.inFlight.has(id)) this.raised.floats.push({ rect: r, shadow: shadowRects(r) });
       canvas.under(r, bgRgb(floatTheme(values).bg));
       canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
     }
@@ -3509,6 +3512,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (hintSetting(card.id, look.hints) !== "card") { card.clearHits(); continue; }
       const rect = card.draw(canvas, anchor, area, look.hints === "brief", this.hintPointer, TONE[look.tone], look);
       this.overlayHits.push(rect);
+      this.raised.menus.push(rect);
       placements = uncover(placements, rect);
     }
     this.completionFloat = null;
@@ -3525,6 +3529,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       lines.forEach((line, i) => canvas.text(rect.col, rect.row + i, line, rect.cols));
       this.completionFloat = { completer: completion, rect, origin };
       this.overlayHits.push(rect);
+      this.raised.menus.push(rect);
       placements = uncover(placements, rect);
     }
     // Images would bleed through an overlay.
@@ -3532,6 +3537,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const p = this.focusedPane(), values = p ? this.lookAt(p, cols).values : lookFor(this.lookSrc, { screen: this.name }, cols).values;
       withRowLimit(values["rows.lines"], () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 }, values));
       placements = [];
+      const box = o.drawn();
+      if (box) this.raised.menus.push(box);
     }
     // A screen mounted in a tile has no hint row of its own: the outermost screen's says the focused tile's keys (PIE-1305).
     // It still works its own chord box out (the person is in it), which draws in its rectangle. A tile lifted out of it
@@ -4209,6 +4216,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const h = Math.min(lines.length + 2, Math.max(3, rows - 4));
     const r: Rect = { col: 0, row: rows - 3 - h, cols: cols - 1, rows: h };
     this.overlayHits.push(r);
+    this.raised.menus.push(r);
     canvas.float(r, "keys", this.prefix ? "" : fg(C.dark) + "any key closes", () => {
       lines.slice(0, h - 2).forEach((l, i) => {
         canvas.text(r.col + 2, r.row + 1 + i, l, r.cols - 4);
@@ -4293,6 +4301,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = this.keyPanelAt(canvas, cols, rows);
     if (!at) return false;
     this.overlayHits.push(at.rect);
+    this.raised.menus.push(at.rect);
     this.keySpots.push(...at.spots);
     return true;
   }
@@ -6617,6 +6626,29 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(p.id), pane: p.n, axis, by };
   }
 
+  /** What the last frame drew that may sit above your drawer (`drawnAbove`). */
+  private raised: { floats: { rect: Rect; shadow: Rect[] }[]; menus: Rect[] } = { floats: [], menus: [] };
+  /**
+   * What this desk drew that may sit above your drawer (PIE-1221; the order is `layerOrder`'s, read by the host layer's
+   * `covers`), in the screen's cells: its floats, each with the cells of its shadow (`shadow`, as `Canvas.shadow` draws it; one dragged by its title stays the
+   * screen's over the drawer, so the drag keeps moving it), and its menus (a picker, a hint card, a completion list,
+   * the ^W panel): the boxes they drew, which have no shadow.
+   */
+  drawnAbove(): { floats: { rect: Rect; shadow: Rect[] }[]; menus: Rect[] } { return this.raisedFrom(this.screenOrigin); }
+  /** `drawnAbove` from `off`: this desk's, then each mounted screen's (a group's tile menu), in the screen's cells. */
+  private raisedFrom(off: { col: number; row: number }): { floats: { rect: Rect; shadow: Rect[] }[]; menus: Rect[] } {
+    const at = (r: Rect): Rect => ({ ...r, col: r.col + off.col, row: r.row + off.row });
+    const out = { floats: this.raised.floats.map(f => ({ rect: at(f.rect), shadow: f.shadow.map(at) })), menus: this.raised.menus.map(at) };
+    for (const [id, r] of this.hits) {
+      const pane = this.panes.get(id);
+      if (!(pane instanceof ScreenTile) || !pane.inner || this.layout.lift?.tile === id || this.inFlight.has(id) || this.contentCover(id).fold || this.cover(id) === "spine") continue;
+      const origin = this.origin(id, r), kid = pane.inner.raisedFrom({ col: off.col + origin.col, row: off.row + origin.row });
+      out.floats.push(...kid.floats); out.menus.push(...kid.menus);
+    }
+    return out;
+  }
+  /** A float is being moved or sized by the mouse: the drag stays this screen's until the button comes up, over the drawer too. */
+  floatGesture(): boolean { return !!this.floatDrag; }
   get lifted() { return this.layout.lift; }
   /** Pane `p` is the tile lifted on this desk. */
   liftsPane(p: Pane): boolean { const l = this.layout.lift; return !!l && this.panes.get(l.tile) === p; }

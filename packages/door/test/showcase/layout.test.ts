@@ -6,6 +6,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../../src/app";
+import { Canvas } from "../../src/canvas";
 import { openScreen } from "../../src/desk/screen-specs";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
@@ -233,6 +234,77 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     press({ kind: "alt", ch: "a" });
     await sc.dispatch.press("section.leave");
     (app as any).lastInput = 0;
+  }, 30_000);
+
+  test("float layers (PIE-1221): a float draws above the drawer and takes its clicks there, the drawer comes above while you're in it, and a float's menu is never cut off", async () => {
+    (app as any).lastInput = 0;
+    await sc.dispatch.press("section.leave");
+    await sc.dispatch.press("section", { name: "lift" });
+    screen();
+    const d = sc.tilesHere()!, original = d.layoutSpec();
+    const frame = () => { (app as any).paint(true); return h.painted; };
+    // The terminal cells of `row` from `col`, `n` wide: in the frame, and in the screen drawn alone (what the float shows).
+    const cells = (lines: string[], row: number, col: number, n: number) => { const c = new Canvas((app as any).term.info.cols, 1); c.text(0, 0, lines[row] ?? ""); return c.grid()[0]!.slice(col, col + n).map(x => x.ch).join(""); };
+    const own = () => sc.render(app).lines;
+    const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
+    try {
+      await app.act({ action: "host.toggle", args: { open: true }, as: "test-agent" });
+      await sc.dispatch.press("section.try");
+      await d.dispatch.act({ action: "tile.float", tile: "other", args: { on: true } }, USER);
+      frame();
+      const dr = app.drawer.drawnRect()!;
+      expect(app.drawer.entered).toBe(false);
+      await d.dispatch.act({ action: "float.place", tile: "other", args: { row: dr.row - 4 - d.screenOrigin.row, rows: 12 } }, USER);
+      frame();
+      const f = d.drawnAbove().floats[0]!.rect, bottom = f.row + f.rows - 1;
+      expect(bottom).toBeGreaterThan(dr.row + 2);
+      // The float's frame is whole over the drawer: its bottom edge and a row inside the drawer are the screen's cells.
+      let lines = frame(), alone = own();
+      expect(cells(lines, bottom, f.col, f.cols)).toBe(cells(alone, bottom, f.col, f.cols));
+      expect(cells(lines, dr.row + 1, f.col, f.cols)).toBe(cells(alone, dr.row + 1, f.col, f.cols));
+      // A click on the float where it covers the drawer is the float's: its keys, and the drawer stays out.
+      await d.dispatch.act({ action: "tile.focus", tile: "brief" }, USER);
+      click(f.col + 3, dr.row + 2);
+      expect(d.keys().focus).toBe("other");
+      expect(app.drawer.entered).toBe(false);
+      // In the drawer, the drawer is above the float.
+      await app.dispatch.press("host.enter");
+      expect(app.drawer.entered).toBe(true);
+      lines = frame(); alone = own();
+      expect(cells(lines, dr.row + 1, f.col, f.cols)).not.toBe(cells(alone, dr.row + 1, f.col, f.cols));
+      // A click on the float (above the drawer's edge) brings it back above.
+      click(f.col + 3, f.row + 1);
+      expect(app.drawer.entered).toBe(false);
+      lines = frame(); alone = own();
+      expect(cells(lines, dr.row + 1, f.col, f.cols)).toBe(cells(alone, dr.row + 1, f.col, f.cols));
+      // The float's menu, opened low on it, runs down over the drawer whole (his Oct 26 screenshot: cut at the drawer's edge).
+      await d.dispatch.act({ action: "tile.menu", tile: "other", args: { at: `${f.col + 2 - d.screenOrigin.col},${dr.row - 1 - d.screenOrigin.row}` } }, USER);
+      frame();
+      const menu = d.drawnAbove().menus.at(-1)!;
+      expect(menu.row + menu.rows).toBeGreaterThan(dr.row + 1);
+      lines = frame(); alone = own();
+      for (let y = Math.max(menu.row, dr.row); y < menu.row + menu.rows; y++) expect(cells(lines, y, menu.col, menu.cols)).toBe(cells(alone, y, menu.col, menu.cols));
+      // Nothing of the screen past the menu's box comes over the drawer (a menu has no shadow).
+      const past = menu.row + menu.rows;
+      if (past < dr.row + dr.rows) expect(cells(lines, past, menu.col, menu.cols)).not.toBe(cells(alone, past, menu.col, menu.cols));
+      press({ kind: "esc" });
+      frame();
+      // Its ◢ corner, over the drawer, dragged out past the float's edge: the drag stays the float's until the release.
+      const g = d.drawnAbove().floats[0]!.rect, cx = g.col + g.cols - 1, cy = g.row + g.rows - 1;
+      press({ kind: "mouse", action: "down", button: 0, x: cx, y: cy });
+      press({ kind: "mouse", action: "drag", button: 0, x: cx + 6, y: cy + 2 });
+      press({ kind: "mouse", action: "up", button: 0, x: cx + 6, y: cy + 2 });
+      frame();
+      const sized = d.drawnAbove().floats[0]!.rect;
+      expect([sized.cols, sized.rows]).toEqual([g.cols + 6, g.rows + 2]);
+      expect(app.drawer.entered).toBe(false);
+    } finally {
+      for (const overlay of (d as any).overlays.all()) overlay.close(d);
+      (d as any).build(original, false);
+      await app.dispatch.press("host.toggle", { open: false });
+      await sc.dispatch.press("section.leave");
+      (app as any).lastInput = 0;
+    }
   }, 30_000);
 
   for (const cover of ["vertical fold", "horizontal fold", "flow"] as const) {

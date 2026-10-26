@@ -18,7 +18,7 @@ import { actorLabel } from "@ep0ch/outline-core/attribution";
 import { lookFor, tuningOf } from "./look";
 import { nextFrame, onMediaChange } from "./media";
 import { onResizeEnd, resizing } from "./resize";
-import { uncover, type Placement } from "./kitty";
+import { uncover, within, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
@@ -50,7 +50,7 @@ import { alertMark, readAlert } from "./backup/alert";
 import type { AgentSession } from "./desk/agent-sessions";
 import { AgentDrawer, DRAWER_ACTIONS, HOST_TILE_ACTIONS, overlay, type DrawerRun } from "./drawer";
 import { namesAgent, type ResolveOpts } from "./desk/tile-address";
-import type { HostMode } from "./desk/screen-layout";
+import { layerOrder, type HostMode } from "./desk/screen-layout";
 import type { Desk, MovedTile } from "./desk/desk";
 import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
@@ -1604,28 +1604,49 @@ export class App implements Ctx {
     let lines = frame.lines.slice(0, rows - 1);
     while (lines.length < rows - 1) lines.push("");
     let placements = this.graphics ? [...(frame.placements ?? [])] : [];
-    if (this.drawer.shown) {
-      const d = this.drawer.render(cols, rows, s.title);
-      lines = overlay(lines, d);
-      // Images under the drawer would show through it; the drawer's tiles' own are drawn in it.
-      // One running down under it is cut short at its edge (a spine's long title, PIE-794), not dropped whole.
-      placements = [...uncover(placements, { col: 0, row: d.rect.row, cols, rows: rows - d.rect.row }), ...(this.graphics ? d.placements : [])];
-      // Your drawer's ^W panel (PIE-1338), over the whole screen: the drawer's rows are too few for it.
-      const keysDesk = this.drawer.desk;
-      if (keysDesk?.keyPanelOpen()) {
+    // The layers over the screen's tiles, bottom first (layerOrder, PIE-1221): the drawer and the screen's floats in the
+    // order last touched, the lift, the screen's menus.
+    const screen = lines, screenPlacements = placements;
+    let covers: { floats: Rect[]; menus: Rect[] } | null = null;
+    // The screen's own cells and pictures in `rects` put back on top: its floats or menus, as it drew them.
+    const raise = (rects: readonly Rect[]) => {
+      if (!rects.length) return;
+      const under = new Canvas(cols, rows - 1), canvas = new Canvas(cols, rows - 1);
+      screen.forEach((line, row) => under.text(0, row, line, cols));
+      lines.forEach((line, row) => canvas.text(0, row, line, cols));
+      for (const r of rects) canvas.copy(under, r);
+      lines = canvas.lines();
+      placements = [...rects.reduce(uncover, placements), ...rects.flatMap(r => screenPlacements.flatMap(p => within(p, r) ?? []))];
+    };
+    for (const layer of layerOrder({ inDrawer: this.drawer.entered })) {
+      if (layer === "drawer") {
+        if (!this.drawer.shown) { this.drawer.rect = null; this.drawer.made?.shownAs(false); continue; }
+        const d = this.drawer.render(cols, rows, s.title);
+        lines = overlay(lines, d);
+        // Images under the drawer would show through it; the drawer's tiles' own are drawn in it.
+        // One running down under it is cut short at its edge (a spine's long title, PIE-794), not dropped whole.
+        placements = [...uncover(placements, { col: 0, row: d.rect.row, cols, rows: rows - d.rect.row }), ...(this.graphics ? d.placements : [])];
+        // Your drawer's ^W panel (PIE-1338), over the whole screen: the drawer's rows are too few for it.
+        const keysDesk = this.drawer.desk;
+        if (keysDesk?.keyPanelOpen()) {
+          const canvas = new Canvas(cols, rows - 1);
+          lines.forEach((line, row) => canvas.text(0, row, line, cols));
+          const at = keysDesk.paintKeyPanel(canvas, cols, rows - 1);
+          if (at) { lines = canvas.lines(); placements = uncover(placements, at); }
+        }
+        // What of the screen's is drawn above the drawer from here on (only what's above it covers anything).
+        covers = this.drawer.covers(s).paint;
+      } else if (layer === "floats" || layer === "menus") {
+        if (covers) raise(covers[layer]);
+      } else if (layer === "lift") {
+        const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
+        if (!lifted) continue;
         const canvas = new Canvas(cols, rows - 1);
         lines.forEach((line, row) => canvas.text(0, row, line, cols));
-        const at = keysDesk.paintKeyPanel(canvas, cols, rows - 1);
-        if (at) { lines = canvas.lines(); placements = uncover(placements, at); }
+        const lift = lifted.paintLift(canvas, { col: 0, row: 0, cols, rows: rows - 1 });
+        lines = lift.lines;
+        placements = [...uncover(placements, lift.covered), ...(lift.placements ?? [])];
       }
-    } else { this.drawer.rect = null; this.drawer.made?.shownAs(false); }
-    const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
-    if (lifted) {
-      const canvas = new Canvas(cols, rows - 1);
-      lines.forEach((line, row) => canvas.text(0, row, line, cols));
-      const lift = lifted.paintLift(canvas, { col: 0, row: 0, cols, rows: rows - 1 });
-      lines = lift.lines;
-      placements = [...uncover(placements, lift.covered), ...(lift.placements ?? [])];
     }
     // The power bar over the screen and the drawer; images under it would show through it.
     if (this.bar) {

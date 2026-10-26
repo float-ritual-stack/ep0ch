@@ -453,8 +453,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "lift", need: "lift a tile above the drawer, then return to work", part: "tile.zoom reach=column|full, the layout's transient lift and the host composition", files: "src/desk/screen-layout.ts, src/desk/desk.ts, src/app.ts",
-    aside: "The frame's lift chip raises the briefing over the drawer. Work in the other tile or drawer to drop it. The tree stays exactly where it was. The power bar lists lift and the tile keys show its two reaches.",
+    key: "lift", need: "lift a tile above the drawer, then return to work; a float and its menu above the drawer", part: "tile.zoom reach=column|full, the layout's transient lift and the host composition; layerOrder: tiles, then the drawer and floats last touched first, then the lift, then menus (the host layer's covers)", files: "src/desk/screen-layout.ts, src/desk/desk.ts, src/drawer.ts, src/app.ts",
+    aside: "The frame's lift chip raises the briefing over the drawer. Work in the other tile or drawer to drop it. The tree stays exactly where it was. The power bar lists lift and the tile keys show its two reaches. Layers (PIE-1221): alt+a opens the drawer, ^W f floats other; drag its title down over the drawer and it stays whole above it. Click in the drawer and the drawer comes above; click the float and it is back on top. Its ⋯ menu opened low runs down over the drawer, never cut off.",
     stage(n, show) {
       const brief = new ReaderPane(true), other = new ReaderPane(true);
       return deskOf({ title: "showcase · lift", panes: [brief, other], names: ["brief", "other"], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });

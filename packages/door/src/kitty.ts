@@ -103,6 +103,18 @@ export function uncovered(p: Placement, r: { col: number; row: number; cols: num
   // One band keeps the placement's own key, so a picture cut only at one edge stays the same placement as it moves.
   return bands.length === 1 ? [{ ...bands[0]!, key: p.key }] : bands;
 }
+/** The part of placement `p` inside `r` (cropped as `uncovered` crops), or null when none is. */
+export function within(p: Placement, r: { col: number; row: number; cols: number; rows: number }): Placement | null {
+  const top = Math.max(0, r.row - p.row), bottom = Math.min(p.rows, r.row + r.rows - p.row);
+  const left = Math.max(0, r.col - p.col), right = Math.min(p.cols, r.col + r.cols - p.col);
+  if (bottom <= top || right <= left) return null;
+  if (top === 0 && left === 0 && bottom === p.rows && right === p.cols) return p;
+  if (p.sized) return null;
+  const from = p.crop ?? { x: 0, y: 0, w: p.image.width, h: p.image.height };
+  const y = (row: number) => from.y + Math.floor((from.h * row) / p.rows), x = (col: number) => from.x + Math.floor((from.w * col) / p.cols);
+  const crop = { x: x(left), y: y(top), w: Math.max(1, x(right) - x(left)), h: Math.max(1, y(bottom) - y(top)) };
+  return { ...p, key: `${p.key}·within`, col: p.col + left, row: p.row + top, cols: right - left, rows: bottom - top, crop };
+}
 /** `ps` with what `r` covers taken away (uncovered). */
 export const uncover = (ps: Placement[], r: { col: number; row: number; cols: number; rows: number }): Placement[] => ps.flatMap(p => uncovered(p, r));
 
