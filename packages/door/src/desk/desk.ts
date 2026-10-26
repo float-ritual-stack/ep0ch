@@ -64,7 +64,7 @@ import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop"
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
-  shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, SCREEN_SELF, type LayoutSelf, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
+  shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, lockChipText, SCREEN_SELF, type LayoutSelf, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
   foldsBeside, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
@@ -4330,9 +4330,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A dock holding a named container reads by its name (the board's outline); else by its tiles'.
     const handles = this.shutDocks().map(d => ({ id: leaves(d.kid)[0]!, dock: d, text: ` ${EDGE_GLYPH[d.edge]} ${isLine(d.kid) && d.kid.key ? d.kid.key : shown(d.kid).map(i => this.nameOf(i)).join("+")} ` }));
     const locked = this.screenLocked();
-    const chip = this.spec.layouts || locked ? (locked ? ` ▣ ${this.layoutSelf().chip} locked ` : " □ lock ") : "";
+    const chip = this.spec.layouts || locked ? (locked ? lockChipText(this.layoutSelf()) : " □ lock ") : "";
     const host = this.ctx?.hostLayer, drawer = host?.desks().find(d => host.isDrawer(d) && d !== this);
-    const drawerChip = drawer?.screenLocked() ? ` ▣ ${drawer.layoutSelf().chip} locked ` : "";
+    const drawerChip = drawer?.screenLocked() ? lockChipText(drawer.layoutSelf()) : "";
     // The hyper layer is on (PIE-699): its chip, a click on it probes what a chord arrives as (keys.probe).
     const hyper = hyperOn() ? HYPER_CHIP : "";
     const hw = handles.reduce((a, h) => a + width(h.text) + 1, 0) + (chip ? width(chip) + 1 : 0) + (drawerChip ? width(drawerChip) + 1 : 0) + (hyper ? width(hyper) + 1 : 0);
@@ -5839,7 +5839,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...r.answer, ...this.tileAnswer(t.id) };
   }
 
-  /** `layout.lock`: lock or unlock this whole layout (its own policy); default toggles. An agent undoes only its own. Says which layout. */
+  /** `layout.lock`: lock or unlock this whole layout (its own policy: a group's is its own); default toggles. An agent undoes only its own. Says which layout. */
   lockScreen(on: boolean | undefined, actor: Actor): { locked: boolean; changed: boolean; layout: string; unlock?: string } {
     const r = this.apply({ op: "lock", ...(on !== undefined ? { on } : {}) }, actor);
     if (r.changed) { this.save(); this.redraw(); }
@@ -5847,8 +5847,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** A click on this layout's ▣ chip (the hint row's, the drawer's frame): its own layout.lock, wherever the keys are. */
   pressLock(): void { this.run("layout.lock", {}, this.nameOf(this.focus)); }
-  /** What this layout is called to the person (PIE-1346): your drawer, or the screen (a mount's is its screen's). */
-  layoutSelf(): LayoutSelf { return this.top().ctx?.hostLayer?.isDrawer(this.top()) ? { name: "your drawer", chip: "drawer" } : SCREEN_SELF; }
+  /** What this layout is called to the person (PIE-1346): your drawer, the screen, or a group (its own lock, with no chip of its own). */
+  layoutSelf(): LayoutSelf {
+    const outer = this.holder?.desk();
+    if (outer) return { name: `group ${outer.nameOfPane(this.holder!.tile) || "?"}` };
+    return this.ctx?.hostLayer?.isDrawer(this) ? { name: "your drawer", chip: "drawer" } : SCREEN_SELF;
+  }
 
   /**
    * `tile.agent` (PIE-639): what an agent may do to tile `sel`: `free`, `edit` or `off` for the tile itself, `inherit` to take

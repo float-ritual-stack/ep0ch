@@ -65,7 +65,8 @@ import { basename, resolve as resolvePath } from "node:path";
 import { words } from "./text";
 import { WHAT_CHANGED_KIND_NAME, type WhatChangedPane } from "./desk/what-changed";
 import { realTileDeps, tileOf, type TileOfAnswer, type TileProc } from "./tile-of";
-import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
+import { isBarKey } from "./shell-keys";
+import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, lockChipText, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
 import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, preset, agentLabel, type ActRequest, type Again } from "./surface/actions";
@@ -1321,7 +1322,7 @@ export class AgentDrawer {
     canvas.clear({ col: 0, row: 0, cols, rows: r.rows }, bg(C.black));
     // Folded: the strip is the drawer's title and how it opens, as a spine says it; its tiles aren't drawn (and don't type).
     // Its layout locked (PIE-1346): the frame says so, as the hint row's chip does, so a refusal from in here isn't a riddle.
-    const lockChip = this.desk?.screenLocked() ? ` ▣ ${this.desk.layoutSelf().chip} locked ` : "";
+    const lockChip = this.desk?.screenLocked() ? lockChipText(this.desk.layoutSelf()) : "";
     const lock = lockChip ? ` ${chipStyle(C.yellow, C.black)}${lockChip}${bg(C.black)}` : "";
     /** Where the lock chip lands on the frame, after `head`: a click there unlocks the drawer (as the hint row's chip does). */
     const lockFrom = (head: string) => { this.lockAt = lockChip ? { from: r.col + width(head) + 1, to: r.col + width(head) + 1 + width(lockChip) } : null; };
@@ -1401,9 +1402,9 @@ export class AgentDrawer {
       // Esc and q step back out of the drawer (to the screen) where its tab isn't using them; never the screen's back.
       // A terminal there that exited isn't using them either.
       if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && (!d.holdsKeys() || d.waitsOnExit()) && !d.draggedTile() && !d.linkingFrom()) { run("host.leave", { quiet: true }); return true; }
+      // ctrl+k, cmd+k or alt+k: the power bar, from the drawer too (PIE-1346), folded or not, as on a screen: never typing or in a terminal tile.
+      if (isBarKey(k) && !this.foldPrefix && !d.rawKeys() && !d.holdsKeys()) { void this.host.ctx?.()?.press?.("bar.open"); return true; }
       if (this.folded) return this.stripKey(k, d);
-      // ctrl+k, cmd+k or alt+k: the power bar, from the drawer too (PIE-1346), as on a screen: never typing or in a terminal tile.
-      if (((k.kind === "char" && k.ctrl && k.ch === "k") || ((k.kind === "super" || k.kind === "alt") && k.ch === "k")) && !d.rawInput() && !d.holdsKeys()) { void this.host.ctx?.()?.press?.("bar.open"); return true; }
       const ctx = this.host.ctx?.();
       if (ctx) d.key(k, ctx);
       return true;

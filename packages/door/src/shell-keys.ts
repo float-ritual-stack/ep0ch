@@ -3,6 +3,7 @@
 // shell's action at once, as the menu's and the lists' do, without importing screens.ts back (a module cycle
 // would meet the menu half-built).
 import type { Ctx, Screen } from "./app";
+import type { Key } from "./term";
 
 type ShellKey = (name: "screen.back" | "video.cycle", args: Record<string, never>, here: Screen, ctx: Ctx) => void;
 let run: ShellKey | null = null;
@@ -34,3 +35,6 @@ export function refused(ctx: Pick<Ctx, "flash" | "refuse">, why: string) {
 }
 /** What Esc says with nothing left to close. */
 export const nothingLeft = (leave: string) => `nothing to close · ${leave}`;
+
+/** The power bar's keys (PIE-1346): ctrl+k, cmd+k where the terminal sends super, and alt+k, a modifier away. The App and the drawer both ask this. */
+export const isBarKey = (k: Key): boolean => (k.kind === "char" && !!k.ctrl && k.ch === "k") || ((k.kind === "super" || k.kind === "alt") && k.ch === "k");

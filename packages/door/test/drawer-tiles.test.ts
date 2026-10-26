@@ -1304,6 +1304,41 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
+  test("a group in the drawer has its own lock and names it; ctrl+k and alt+k open the bar from a folded drawer (PIE-1346)", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "detail", name: "details5" }, tile: "reader" }, USER);
+      const g = (await d.desk.dispatch.act({ action: "tile.group", args: { with: "details5", name: "potting" }, tile: "reader" }, USER) as any).name as string;
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: g }, USER);
+      if (!d.app.drawer.entered) { d.key({ kind: "alt", ch: "a" }); d.paint(); }
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.focus", tile: `${g}/details5` }, USER);
+      d.paint();
+      // The bar's row from inside the group is the group's lock, by its name; the drawer's and the screen's stay as they were.
+      d.key({ kind: "alt", ch: "k" });
+      await d.app.dispatch.press("bar.open", { scope: "actions", query: `lock group ${g}` });
+      expect((d.A.bar.describe().rows as { label: string }[])[0]?.label).toBe(`lock group ${g}`);
+      await d.app.dispatch.press("bar.pick", {});
+      d.paint();
+      expect(d.A.message).toContain(`locked group ${g} · ^W P in it, or the power bar's "unlock group ${g}", unlocks it`);
+      expect(d.app.drawer.desk!.layoutGet().locked).toBeFalsy();
+      expect(d.desk.layoutGet().locked).toBeFalsy();
+      const inner = (d.app.drawer.desk!.pane(g) as any).inner as Desk;
+      expect(inner.layoutGet().locked).toBe(true);
+      await expect(inner.dispatch.act({ action: "tile.close", tile: "details5" }, USER)).rejects.toThrow(`group ${g} is locked: closing details5 is refused`);
+      await inner.dispatch.act({ action: "layout.lock", args: { on: false }, tile: "details5" }, USER);
+      // Folded to its strip, the drawer still opens the bar on ctrl+k and alt+k.
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.collapse", args: { on: true }, tile: g }, USER);
+      d.paint();
+      expect(d.app.drawer.folded).toBe(true);
+      for (const k of [ctrl("k"), { kind: "alt", ch: "k" } as Key]) {
+        d.key(k);
+        expect(d.A.bar).toBeTruthy();
+        await d.app.dispatch.press("bar.close", {});
+        expect(d.A.bar).toBeFalsy();
+      }
+    } finally { d.app.quit(); }
+  });
+
   test("leaving a screen with a program running carries it into your drawer, said", async () => {
     const d = await door();
     try {

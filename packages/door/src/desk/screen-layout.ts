@@ -185,9 +185,11 @@ export interface Ctx<I = number> {
   self?: LayoutSelf;
 }
 
-/** A layout as the person reads about it: `name` in a sentence ("your drawer is locked"), `chip` on its ▣ chip ("▣ drawer locked"). */
-export interface LayoutSelf { name: string; chip: string }
+/** A layout as the person reads about it: `name` in a sentence ("your drawer is locked"), `chip` on its ▣ chip ("▣ drawer locked"); a group has none. */
+export interface LayoutSelf { name: string; chip?: string }
 export const SCREEN_SELF: LayoutSelf = { name: "the screen", chip: "screen" };
+/** A locked layout's ▣ chip, padded as a chip is drawn (the hint row's, the drawer frame's): what its refusals tell the person to click. */
+export const lockChipText = (self: LayoutSelf): string => ` ▣ ${self.chip ?? self.name} locked `;
 
 /** Where a new or moved tile goes. A drag's places, plus: into a named line (`in`), the next column of a flow, a float. */
 export type At<I = number> = Place<I>
@@ -252,7 +254,7 @@ export type Result<I = number> =
   | { ok: false; refused: string };
 
 /** How a locked layout is unlocked, said with every refusal it causes (no key: the lock is rare, PIE-1346). */
-export const unlockHow = (self: LayoutSelf = SCREEN_SELF): string => `a click on ▣ ${self.chip} locked (or ^W P) unlocks it`;
+export const unlockHow = (self: LayoutSelf = SCREEN_SELF): string => (self.chip ? `a click on ${lockChipText(self).trim()} (or ^W P) unlocks it` : `^W P in it, or the power bar's "unlock ${self.name}", unlocks it`);
 
 /** A refusal inside an operation: caught by `apply`, which answers it with nothing changed. */
 class Refused extends Error {}
