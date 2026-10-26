@@ -53,7 +53,7 @@ import { siteBudget, StillCounting } from "./site-budget";
 import { templatePropsOf, templateUse } from "./template-use";
 import { readSources } from "./site-sources";
 import { placeOutput } from "./place";
-import { quoteInto, readQuoteInput } from "./quote-into";
+import { quoteInto, quoteText, readQuoteInput } from "./quote-into";
 import { stampTemplateInto, stampTemplate, type TemplateStampResult } from "./template-stamp";
 import { keepSuggestion, readKeep } from "./jev-suggestions";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
@@ -2274,6 +2274,7 @@ export class OutlinerServer {
         const input = readQuoteInput(request.input);
         let result: QuoteReceipt;
         if (input.place.kind === "into") result = await quoteInto(this.store, this.draftPatches, input, request.mutation);
+        else if (input.place.kind === "text") result = quoteText(this.store, input, request.mutation);
         else {
           const quoted = this.store.quote(input, request.mutation);
           // One write group, one undo step: the door's ctrl+z and `extensions.undo` take it back whole.
@@ -3961,7 +3962,7 @@ export class OutlinerServer {
       case "quote": {
         domain = "content";
         const receipt = response.result as QuoteReceipt;
-        blockId = "block" in receipt ? receipt.block.id : receipt.into.blockId;
+        blockId = "block" in receipt ? receipt.block.id : "into" in receipt ? receipt.into.blockId : receipt.subjects[0]?.ref.split("^")[0] ?? "";
         break;
       }
       case "annotations.read":

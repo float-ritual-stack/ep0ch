@@ -814,7 +814,9 @@ export type QuoteSubject = { kind: "mark"; id: string } | { kind: "element"; blo
  * Where it goes: a new block (the top of the Inbox, under the first subject's note, under a block, under `.detached`),
  * or into a note's text after line `line` (from 0), `observed` being that line as the dropper saw it.
  */
-export type QuotePlace = { kind: "inbox" } | { kind: "note" } | { kind: "under"; blockId: string } | { kind: "detached" } | { kind: "into"; blockId: string; line: number; observed?: string };
+export type QuotePlace = { kind: "inbox" } | { kind: "note" } | { kind: "under"; blockId: string } | { kind: "detached" } | { kind: "into"; blockId: string; line: number; observed?: string }
+  /** Nowhere: the lines `as` writes, answered for a client to put into its own draft (PIE-1357); anchors are written. */
+  | { kind: "text" };
 /** reference (each transcluded) or copy (an element's own lines). */
 export type QuoteAs = "reference" | "copy";
 /** `quote`'s input as sent: `place` defaults to the Inbox, `as` to reference. */
@@ -827,4 +829,5 @@ export interface QuotedSubject { ref: string; label: string; kind?: FragmentKind
  */
 export type QuoteReceipt<B = { id: string; text: string }, P = { parentId: string | null; said: string }> =
   | { block: B; placement: P; marks: string[]; subjects: QuotedSubject[]; undo?: string }
-  | { into: { blockId: string; outcome: "applied" | "proposed"; revision?: number; reason?: string }; subjects: QuotedSubject[]; said: string };
+  | { into: { blockId: string; outcome: "applied" | "proposed"; revision?: number; reason?: string }; subjects: QuotedSubject[]; said: string }
+  | { text: string; subjects: QuotedSubject[] };

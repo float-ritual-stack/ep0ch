@@ -2,6 +2,7 @@
 // after the note's line as one `draft.patch`, the edit every agent and producer sends: a draft held open takes it in
 // place, a line rewritten since makes it a proposal beside the note, never a write over the person's words.
 import type { DraftPatchRouter } from "./draft-patch-router";
+import { blockAfter } from "@ep0ch/outline-core/block-insert";
 import { elementAt } from "./fragments";
 import { markBelow } from "./place";
 import { quoteLine, readQuoteInput, type QuoteInput } from "./quote";
@@ -9,6 +10,12 @@ import type { OutlinerStore } from "./store";
 import type { MutationProvenance, QuoteReceipt } from "./types";
 
 export { readQuoteInput };
+
+/** `quote` with place text (PIE-1357): the subjects read (anchors written) and the lines `as` writes, put nowhere: the client's own draft takes them. */
+export function quoteText(store: Pick<OutlinerStore, "quoteSubjects">, input: QuoteInput, mutation: MutationProvenance): QuoteReceipt {
+  const subjects = store.quoteSubjects(input.subjects, mutation);
+  return { text: subjects.map(s => quoteLine(s, input.as)).join("\n"), subjects };
+}
 
 export async function quoteInto(store: Pick<OutlinerStore, "quoteSubjects">, drafts: Pick<DraftPatchRouter, "read" | "patch">, input: QuoteInput, mutation: MutationProvenance): Promise<QuoteReceipt> {
   if (input.place.kind !== "into") throw new Error("quoteInto needs place into");
@@ -35,7 +42,7 @@ export async function quoteInto(store: Pick<OutlinerStore, "quoteSubjects">, dra
   const mark = markBelow(lines, line);
   const result = await drafts.patch({
     blockId, revision: draft.revision, mutation, current: true, policy: "edit", propose: "on-conflict",
-    patches: [{ observed, range: { start, end: start + observed.length }, replacement: `${observed}\n${inserted}` }],
+    patches: [{ observed, range: { start, end: start + observed.length }, replacement: blockAfter(lines, line, inserted) }],
     ...(mark ? { mark: { text: mark } } : {}),
   });
   const applied = result.outcome === "applied";

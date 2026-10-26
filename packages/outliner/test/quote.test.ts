@@ -65,13 +65,14 @@ test("into a note: a reference (!((…)) for a figure, ((…)) for a list item) 
   const pad = store.create("Sticky pad\nKept beside the plan:\nThe end.", null, "user");
   const figure = await quote({ subjects: [{ kind: "element", blockId: plan.id, line: 3, revision: plan.revision }], place: { kind: "into", blockId: pad.id, line: 1 } });
   expect(figure).toMatchObject({ into: { blockId: pad.id, outcome: "applied" } });
-  expect(store.get(pad.id)!.text).toBe(`Sticky pad\nKept beside the plan:\n!((${plan.id}^bed-jobs))\nThe end.`);
+  // A block of its own (PIE-1357): a blank line before and after it.
+  expect(store.get(pad.id)!.text).toBe(`Sticky pad\nKept beside the plan:\n\n!((${plan.id}^bed-jobs))\n\nThe end.`);
   const plan2 = store.get(plan.id)!;
   await quote({ subjects: [{ kind: "element", blockId: plan.id, line: 13, revision: plan2.revision }], place: { kind: "into", blockId: pad.id, line: 3 } });
-  expect(store.get(pad.id)!.text.split("\n")[4]).toBe(`((${plan.id}^stake-the-peas))`);
+  expect(store.get(pad.id)!.text.split("\n").slice(3, 7)).toEqual([`!((${plan.id}^bed-jobs))`, "", `((${plan.id}^stake-the-peas))`, ""]);
   // A copy: the figure's own lines, its query with them, its anchor left in the plan.
   await quote({ subjects: [{ kind: "element", blockId: plan.id, anchor: "bed-jobs" }], place: { kind: "into", blockId: pad.id, line: 0 }, as: "copy" });
-  expect(store.get(pad.id)!.text.split("\n").slice(1, 7)).toEqual(["::graph-table", "---", "title: Bed jobs", 'query: "parent:this"', "---", "::"]);
+  expect(store.get(pad.id)!.text.split("\n").slice(1, 9)).toEqual(["", "::graph-table", "---", "title: Bed jobs", 'query: "parent:this"', "---", "::", ""]);
 });
 
 test("refused, nothing written: a stale line, a line no part holds, a note into itself, a mark copied", async () => {
@@ -98,7 +99,7 @@ test("two parts of one note named at one revision both get their anchors; a refu
   // Dropped after "Second." (line 2), then a line written above it: it lands after "Second." where it is now.
   store.update(pad.id, "Pad\nNew line.\nFirst.\nSecond.", store.get(pad.id)!.revision, { author: "user" });
   await quote({ subjects: [{ kind: "element", blockId: plan.id, anchor: "bed-jobs" }], place: { kind: "into", blockId: pad.id, line: 2, observed: "Second." } });
-  expect(store.get(pad.id)!.text).toBe(`Pad\nNew line.\nFirst.\nSecond.\n!((${plan.id}^bed-jobs))`);
+  expect(store.get(pad.id)!.text).toBe(`Pad\nNew line.\nFirst.\nSecond.\n\n!((${plan.id}^bed-jobs))`);
 });
 
 test("a note with front-matter properties still has parts; a drop on a figure's opening line lands after the whole figure; a detached block's own words keep [header::none] on their first line", async () => {
@@ -108,5 +109,5 @@ test("a note with front-matter properties still has parts; a drop on a figure's 
   const r = await quote({ subjects: [{ kind: "element", blockId: plan.id, line: 6, revision: plan.revision }], place: { kind: "detached" }, text: "Beds\nfor the winter" }) as Extract<QuoteReceipt, { block: unknown }>;
   expect(r.block.text.split("\n").slice(0, 2)).toEqual(["Beds [header::none]", "for the winter"]);
   await quote({ subjects: [{ kind: "element", blockId: plan.id, anchor: "beds" }], place: { kind: "into", blockId: pad.id, line: 3 } });
-  expect(store.get(pad.id)!.text.split("\n").slice(3, 7)).toEqual(["::graph-rank", "- a: 1", "::", `!((${plan.id}^beds))`]);
+  expect(store.get(pad.id)!.text.split("\n").slice(3, 10)).toEqual(["::graph-rank", "- a: 1", "::", "", `!((${plan.id}^beds))`, "", "The end."]);
 });

@@ -6681,6 +6681,27 @@ export class NoteSurface {
   }
 
   /**
+   * Where a part dropped at `x`, `y` (cells of the last render) lands in this reader's note (PIE-1357): after the block
+   * under it (its last line before a blank one), and the row its drop line is drawn on, just under that block. The
+   * person's own edit open here answers in its own lines (`draft`: the drop lands in it); else the note as drawn.
+   */
+  dropAt(x: number, y: number): { line: number; row: number; draft: boolean } | null {
+    const own = this.drafting?.openedBy.kind === "user" ? this.drafting.draft : null;
+    if (own) { const at = own.dropAt(x, y); return at && { ...at, draft: true }; }
+    const d = this.drawn, m = this.msg;
+    const pos = d && m ? this.posAt(x, y) : null;
+    if (!d || !m || !pos || pos.row < d.top) return null;
+    const text = m.text.split("\n"), lineOf = (row: number) => { const at = d.doc.source[row - d.top]; return at === undefined ? undefined : at < 0 ? -1 : d.lines[at]; };
+    const blank = (row: number) => { const l = lineOf(row); return l === undefined || (l >= 0 && !(text[l] ?? "").trim()); };
+    let row = pos.row, last = lineOf(row);
+    if (last === undefined) return null;
+    // Down the block under the pointer: its rows, drawn edges (-1) included, to the row before a blank line.
+    while (!blank(row) && !blank(row + 1) && row + 1 < d.top + d.body.length) { row++; const l = lineOf(row); if (l !== undefined && l >= 0) last = l; }
+    if (last < 0) return null;
+    return { line: last, row: row - this.scroll + d.heroRows + 1, draft: false };
+  }
+
+  /**
    * Materialize a part of this note (PIE-1247, the service's `quote`): the element at note line `line` (or `anchor`),
    * its anchor written when it has none, into `place`: `.detached` (a block of its own that embeds it, no header), or
    * into another note after a line, as a reference or a copy with its query. Attributed; a new block is one undo step.
@@ -6715,11 +6736,11 @@ export class NoteSurface {
       outlineChanged([r.block.id, m.id]);
       say.flash(`${place.kind === "detached" ? "detached" : "quoted"} ${what}${r.undo ? " · ctrl+z undoes" : ""}`);
       this.noteAgent(actor, `${place.kind === "detached" ? "detached" : "quoted"} ${what}`);
-    } else {
+    } else if ("into" in r) {
       outlineChanged([r.into.blockId, m.id]);
       say.flash(`${r.said}: ${what}`);
       this.noteAgent(actor, `${r.said}: ${what}`);
-    }
+    } else if (part.anchored) outlineChanged([m.id]);
     host.redraw();
     return r;
   }

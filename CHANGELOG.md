@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A dropped part lands in your edit, shows where it will land, and has room around it (PIE-1357)
+
+- **Your own edit takes it.** Dropping a part on a note you're writing (a new note not saved yet, an edit) puts it in
+  your draft at once, one step `ctrl+z` takes back. It used to arrive as proposals to approve; those stay for an
+  agent's drop.
+- **A drop line** shows where it will land while you drag: under the block the pointer is over, across the tile, with
+  "drop: embed or copy here" on the hint row.
+- **A blank line before and after** a landed part, unless one is there already or it ends the note; the same in the
+  saved note and in your edit.
+
 ### Take a part out of a note: detach it into a tile, or drop it into another note (PIE-1247)
 
 - **alt+drag a part** (a figure, a callout, a list item, a paragraph) out of a reader. Drop it on another reader's note

@@ -234,7 +234,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * is, and what a release there does: into another reader's note after a line (reference or copy, asked), or detached
    * into a tile of its own where the drop zones say.
    */
-  private elementDrag: { src: number; line: number; x: number; y: number; target: { kind: "into"; tile: number; note: string; line: number; label: string } | { kind: "detach"; drop: Drop<number>; label: string } | null } | null = null;
+  private elementDrag: { src: number; line: number; x: number; y: number; target: { kind: "into"; tile: number; note: string; line: number; label: string; bar: Rect | null; draft: boolean } | { kind: "detach"; drop: Drop<number>; label: string } | null } | null = null;
   /** Where a drag or a release lands in the pressed reader: padding held to the nearest content cell, the gutter kept separate, its row free (past an edge scrolls). */
   private pressedAt(p: { frame?: Rect; gutter?: Rect; col: number; row: number; cols: number }, k: { x: number; y: number }) {
     if (p.frame) return { x: k.x - p.col, y: k.y - p.row };
@@ -2291,6 +2291,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * the screen beside does when this screen has none. Nothing else moves: not the current note, the reader, its mode or
    * the keys. A held reader's own navigation never moves the outline: this is how to find where it is.
    */
+  /** DeskApi.ownDraftOf (PIE-1357): the person's own open draft of note `id` in a reader here (an edit, a new note not saved yet). */
+  ownDraftOf(id: string): Draft | null {
+    for (const pane of this.panes.values()) {
+      const s = pane instanceof ReaderPane && pane.msg?.id === id ? pane.surface.drafting : null;
+      if (s && s.openedBy.kind === "user") return s.draft;
+    }
+    return null;
+  }
+
   async revealInOutline(p: Pane): Promise<{ revealed: string; outline: string }> {
     const m = p instanceof ReaderPane ? p.msg : null;
     if (!m) throw new ActionRefused("nothing in that reader to find in the outline");
@@ -3503,6 +3512,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const m of this.models.values()) if (m.drawOver?.(canvas, area)) placements = [];
     if (this.dragging) this.drawGhost(canvas, this.dragging.drawer ? null : this.dragging.drop, this.nameOf(this.dragging.src), this.dragging.x, this.dragging.y, this.dragging.drawer ?? undefined);
     else if (this.elementDrag?.target?.kind === "detach") this.drawGhost(canvas, this.elementDrag.target.drop, "detached part", this.elementDrag.x, this.elementDrag.y);
+    else if (this.elementDrag?.target?.kind === "into" && this.elementDrag.target.bar) {
+      // The drop line (PIE-1357): where the part lands, between the blocks, in the drop zones' accent.
+      const b = this.elementDrag.target.bar;
+      canvas.text(b.col, b.row, `${fg(C.yellow)}${"═".repeat(Math.max(0, b.cols - 2))} ▼${RESET}`, b.cols);
+    }
     else if (this.foreign) this.drawGhost(canvas, this.foreign.drop, this.foreign.name, this.foreign.x, this.foreign.y);
     else if (this.floatDrag?.drop) this.drawGhost(canvas, this.floatDrag.drop, this.nameOf(this.floatDrag.id), this.floatDrag.x ?? 0, this.floatDrag.y ?? 0);
     if (this.layout.lift) return { lines: canvas.lines(), placements };
@@ -7333,9 +7347,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pane = hit ? this.panes.get(hit[0]) : undefined;
     const from = (this.panes.get(src) as ReaderPane | undefined)?.msg?.id;
     if (hit && hit[0] !== src && pane instanceof ReaderPane && pane.msg && isOutlineNote(pane.msg) && pane.msg.id !== from && this.inBody(hit[0], hit[1], x, y)) {
-      const at = this.local(hit[0], hit[1], x, y);
-      const line = pane.surface.elementLine(at.x, at.y) ?? pane.msg.text.split("\n").length - 1;
-      return { kind: "into", tile: hit[0], note: pane.msg.id, line, label: `→ into ${subject(pane.msg)}, after line ${line + 1}: let go to embed or copy it` };
+      // Where it lands (PIE-1357): after the block under the pointer, in the person's own edit when one is open there;
+      // its drop line, under that block across the tile, shows the place before the release.
+      const at = this.local(hit[0], hit[1], x, y), land = pane.surface.dropAt(at.x, at.y);
+      const line = land?.line ?? (pane.surface.draft ?? pane.msg).text.split("\n").length - 1;
+      const r = hit[1], row = land ? y + (land.row - at.y) : null;
+      const bar = row !== null && row > r.row && row < r.row + r.rows - 1 ? { row, col: r.col + 1, cols: r.cols - 2, rows: 1 } : null;
+      return { kind: "into", tile: hit[0], note: pane.msg.id, line, bar, draft: !!land?.draft, label: `→ drop: embed or copy here, in ${subject(pane.msg)}${land?.draft ? " (your edit)" : ""} after line ${line + 1}` };
     }
     const drop = dropAt(this.dropTiles(), this.area, x, y, src, true);
     return drop ? { kind: "detach", drop, label: `⧉ detach it: ${drop.label}` } : null;
@@ -7353,7 +7371,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return void this.run("element.detach", { line: e.line + 1, ...(place.to ? { to: place.to } : {}), where: place.where }, src);
     }
     // The line as the person saw it: lines written above it while the choice is open don't move where it lands.
-    const after = (this.panes.get(t.tile) as ReaderPane).msg?.text.split("\n")[t.line];
+    const tp = this.panes.get(t.tile) as ReaderPane;
+    const after = (t.draft ? tp.surface.draft?.lines : tp.msg?.text.split("\n"))?.[t.line];
     const quote = (as: "reference" | "copy") => this.run("element.quote", { line: e.line + 1, into: t.note, at: t.line + 1, ...(as === "copy" ? { copy: true } : {}), ...(after !== undefined ? { after } : {}) }, src);
     this.overlays.push(dropAsPicker(subject((this.panes.get(t.tile) as ReaderPane).msg!), quote));
     this.redraw();

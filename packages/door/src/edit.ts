@@ -1,3 +1,4 @@
+import { blockAfter } from "@ep0ch/outline-core/block-insert";
 import { ReaderPosition, PositionRows } from "./reader-position";
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
@@ -387,6 +388,22 @@ export class Draft {
     this.discardArmed = false;
     this.note = "";
     if (this.text !== before) this.wrote(by, "the insert");
+  }
+
+  /**
+   * A part dropped into this draft (PIE-1357): `block` after line `after` (from 0; past the end, after the last), as
+   * a block of its own (outline-core's blockAfter: a blank line around it). One undo step, by `by`; the cursor and
+   * what the person is typing stay where they are, moved down when it lands above them.
+   */
+  insertBlock(after: number, block: string, by: Actor = USER) {
+    this.settle();
+    this.record(by, "a dropped part");
+    const before = this.text, at = Math.max(0, Math.min(after, this.lines.length - 1));
+    const added = blockAfter(this.lines, at, block).split("\n");
+    this.lines.splice(at, 1, ...added);
+    if (this.row > at) { this.row += added.length - 1; if (this.anchor && this.anchor.row > at) this.anchor = { ...this.anchor, row: this.anchor.row + added.length - 1 }; }
+    this.note = "";
+    if (this.text !== before) this.wrote(by, "the dropped part");
   }
 
   /**
@@ -1091,6 +1108,19 @@ export class Draft {
   }
 
   /** The source place under a cell of the text as last drawn (`x`, `y` from the text's top left). */
+  /**
+   * Where a part dropped at host cell `x`, `y` lands (PIE-1357): after the block of lines under it (down to the line
+   * before a blank one), and the host row its drop line is drawn on, under that block. Null off the text.
+   */
+  dropAt(x: number, y: number): { line: number; row: number } | null {
+    const f = this.frame, rows = this.shown.rows;
+    if (!f || !rows.length || y < f.row || y >= f.row + f.rows || x < f.col - 1 || x > f.col + f.cols) return null;
+    let k = Math.min(rows.length - 1, this.top + (y - f.row));
+    const blank = (i: number) => !(this.lines[rows[i]!.line] ?? "").trim();
+    while (k + 1 < rows.length && !blank(k) && !blank(k + 1)) k++;
+    return { line: rows[k]!.line, row: Math.min(f.row + f.rows - 1, f.row + (k - this.top) + 1) };
+  }
+
   posAt(x: number, y: number): { row: number; col: number } {
     return this.posIn(this.shown.rows, this.top + Math.max(0, y), Math.max(0, x));
   }
