@@ -262,7 +262,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     budget.key(key, ms);
     if (keysLog) require("node:fs").appendFileSync(keysLog, `${scenario}\t${key}\t${ms.toFixed(1)}\n`);
   };
-  const overBudget = (label: string, doing: string) => budget.check(label, doing, { builds: stats.fresh, buildMs: stats.freshMs, seconds: stats.second });
+  let replaying = false;
+  const overBudget = (label: string, doing: string) => replaying || budget.check(label, doing, { builds: stats.fresh, buildMs: stats.freshMs, seconds: stats.second });
   const fresh = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
     overBudget(label, "a build");
     stats.fresh++; const f0 = performance.now();
@@ -509,8 +510,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       findings.push({ screen: label, keys: named(k), problem: `${after.top !== base.top || after.depth !== base.depth ? "moved the screen stack without an action" : "changed the screen without an action"} (${changed})` });
     }
     if (log) require("node:fs").appendFileSync(log, `# ${label}: input states ${states.map(named).join(" ")}\n`);
-    await addressed(label, make, setup, pointed);
-    if (process.env.PARITY_DEPTH === "1") return;
+    if (process.env.PARITY_DEPTH === "1") { await addressed(label, make, setup, pointed); return; }
     // The second key, from each input state: typing that keeps the state is the state's; a key that ends it
     // with a change must run an action (a cancel that puts the screen back as it was is fine).
     // Second keys: every key, as the first key is (PARITY_QUICK=1: only the keys that type text or are named,
@@ -557,6 +557,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         if (problem) findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem });
       }
     }
+    // The address replays last, outside the scenario's budget: they are one more pass over the targeted actions it found, not more keys.
+    await addressed(label, make, setup, pointed);
   }
 
   /**
@@ -574,6 +576,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const REPLAYED = new Set(["desk: tree", "desk: reader on a note", "desk: thread", "desk: activity"]);
   async function addressed(label: string, make: () => Screen | Promise<Screen>, setup: Key[], pointed: Map<string, { key: Key; req: RunRequest }>) {
     const replayed = { id: 0, role: 0 };
+    replaying = true;
     /** The key, then the act by `way` on a screen built the same way: what's wrong, "skip" when the address can't name this tile alone, or null. */
     const trial = async (key: Key, req: RunRequest, way: "id" | "role"): Promise<string | null> => {
       // A list's rows are numbered as the list stands when it is asked, and it fills as it draws: the row is not the address under test.
@@ -610,6 +613,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         if (problem && problem !== "skip") findings.push({ screen: label, keys: named(key), problem });
       }
     }
+    replaying = false;
     // A walk that replays nothing proves nothing: these scenarios have tiles with actions of their own, so none replayed means the trace broke.
     if (REPLAYED.has(label) && replayed.id === 0) findings.push({ screen: label, keys: "-", problem: "no targeted action was replayed by id: the request trace (traceRequests) or the filter found none" });
     if (log) require("node:fs").appendFileSync(log, `# ${label}: ${pointed.size} targeted actions replayed by id (${replayed.id}) and by role (${replayed.role})\n`);
