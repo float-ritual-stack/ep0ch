@@ -89,7 +89,7 @@ import { tileRegistry } from "./tile-registry";
 import { AGENT_ALIAS, matches, parseTileAddress, resolveAddress, resolveRelative, ROLE_AGENT, shortTileId, type AddressCandidate, type ResolveOpts } from "./tile-address";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { W_KEYS, wKey, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
-import { panelLines, panelPauseMs, type PanelGroup } from "./key-panel";
+import { panelFoot, panelLines, panelPauseMs, type PanelGroup } from "./key-panel";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 import { prop } from "../props";
 
@@ -4233,9 +4233,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.panelTimer = ms ? setTimeout(() => { this.panelTimer = null; if (this.prefix === p) this.redraw(); }, ms + 5) : null;
     }
     if (!this.panelOpen()) return null;
-    if (p === "wm") return { title: "^W  tile keys", foot: "esc closes · a click runs it · ? every key", groups: wPanel(this.wRows()) };
+    if (p === "wm") { const all = this.wRows().find(r => r.key === "?"); return { title: "^W  tile keys", foot: panelFoot(all ? [{ key: "?", action: all.action, label: all.label }] : []), groups: wPanel(this.wRows()) }; }
     const kinds = tileKinds().flatMap(k => (k.keys ?? []).map(x => ({ key: x.key, cap: x.key, label: x.label })));
-    return { title: p === "add" ? "^W o  open beside" : "^W O  open as a tab", foot: "esc closes · a click opens it", groups: [{ title: "kinds", keys: kinds }] };
+    return { title: p === "add" ? "^W o  open beside" : "^W O  open as a tab", foot: panelFoot(), groups: [{ title: "kinds", keys: kinds }] };
   }
 
   /** Whether the pending prefix is one with a panel (^W, ^W o, ^W O). */

@@ -4,10 +4,26 @@
 // short pause (which-key's), so a fast typist never sees it; the hint row's one-line strip stays where it can't fit.
 import { C, fg, pad, RESET, width } from "../style";
 import { drawEllipsized } from "../style";
+import { modeHint, type ModeKey } from "../surface/modes";
 
 /** One key in the panel: `key` as typed after the prefix (" " is the space bar), its keycap and what it does. */
 export interface PanelKey { key: string; cap: string; label: string }
 export interface PanelGroup { title: string; keys: PanelKey[] }
+
+/**
+ * The panel's own keys, said in its foot: a click on a row presses that key, esc lets the prefix go; on ^W, `?` opens
+ * the filtered list (W_KEYS' own row). Its foot is drawn from this table, never written as words (PIE-1171).
+ */
+export const PANEL_KEYS: readonly ModeKey[] = [
+  { key: "click", action: "keys.panel", label: "a row runs its key" },
+  { key: "esc", action: "keys.panel", label: "close" },
+];
+
+/** The foot under a panel: its keys, then `more` (the prefix's own, as `?` on ^W). */
+export function panelFoot(more: readonly ModeKey[] = []): string {
+  const keys = [...PANEL_KEYS, ...more];
+  return [modeHint(keys, () => undefined), ...keys.filter(k => k.key === "click").map(k => `${k.key}: ${k.label}`)].filter(Boolean).join(" · ");
+}
 
 /** How long a prefix waits before its panel opens: EP0CH_KEY_PANEL_MS when set (tests set 0), else 400 ms. */
 export function panelPauseMs(env: Record<string, string | undefined> = process.env): number {
