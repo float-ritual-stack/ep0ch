@@ -153,7 +153,9 @@ export const LINK_END = String.fromCodePoint(TAG_END);
 export const stripTags = (s: string) => s.replace(TAGS, "");
 const isTag = (ch: string) => { const c = ch.codePointAt(0)!; return c >= TAG0 && c <= TAG_END; };
 
-export const visible = (s: string) => s.replace(ANSI_RE, "").replace(OSC8_ALL, "").replace(TAGS, "").replace(MARKS, "");
+/** Anything `visible` takes out starts with one of these: an escape, a link tag's high surrogate (U+100000 on), a mark. */
+const HIDDEN = /[\x1b\uDBC0-\uDBFF\uE000-\uE00A]/;
+export const visible = (s: string) => (HIDDEN.test(s) ? s.replace(ANSI_RE, "").replace(OSC8_ALL, "").replace(TAGS, "").replace(MARKS, "") : s);
 
 // ── terminal cells (PIE-510) ──
 // A terminal lays text out in cells, not code points: a CJK character or an emoji takes two, a combining mark

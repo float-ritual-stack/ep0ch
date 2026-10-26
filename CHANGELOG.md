@@ -36,6 +36,19 @@ are its record. The outliner's entries from then are kept below, under
 - **`ep0ch show <id> --markdown`** prints the same at a shell. The rows are the ones the reader draws: no second query.
 - No wire change, no PROTOCOL bump, no schema change.
 
+### Desk screens draw each frame for less (PIE-1347, PIE-1335)
+
+- **EchoNet, Welcome and the home base no longer rebuild their logo every frame:** its cells, its densest rows and
+  its drawn lines are worked out once. The nodelist works out its day in words once a day, not every frame.
+- **Every desk frame asks the layout about each tile's ×, fold and float on one context,** made once per frame, and
+  those dry runs no longer seal the state they throw away. On the EchoNet reader a frame costs about a third less
+  CPU, and its parity walk alone went from 55 s to 44 s on the same load.
+- **Tests:** the session's mouse-burst check waits for what the burst's last report shows, not a quiet spell, and
+  bounds its frames by the time the door spent on it (it failed 5 runs in 5 beside another test run; now passes 5 of 5).
+  The parity walk probes the power bar once a part and then puts it away, rather than typing every key into it from
+  each input state (the EchoNet walk's host waits 16 s → 5 s, and those keys now reach the states themselves). Its log
+  line says how many host round trips a scenario made and how long it waited on them.
+
 ### Take a part out of a note: detach it into a tile, or drop it into another note (PIE-1247)
 
 - **alt+drag a part** (a figure, a callout, a list item, a paragraph) out of a reader. Drop it on another reader's note

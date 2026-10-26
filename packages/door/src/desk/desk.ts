@@ -703,6 +703,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * drawer, in a shell the door waits under). Their focus here is this screen's own state.
    */
   private layoutCtx(actor: Actor): LayoutCtx<number> {
+    // While a frame is drawn, the person's context is made once: each tile's corner controls (× fold float) and its wires ask
+    // the layout about it, and making it again for each was most of a desk's frame (PIE-1347). Nothing it holds changes mid-frame.
+    if (actor === USER && this.drawing) {
+      const f = this.drawing;
+      if (f.ctx && f.layout === this.layout && f.focus === this.focus) return f.ctx;
+      return Object.assign(f, { layout: this.layout, focus: this.focus, ctx: this.makeLayoutCtx(actor) }).ctx!;
+    }
+    return this.makeLayoutCtx(actor);
+  }
+  /** Set while a frame is drawn: the person's layout context for it (layoutCtx). */
+  private drawing: { layout?: LayoutState<number>; focus?: number; ctx?: LayoutCtx<number> } | null = null;
+  private makeLayoutCtx(actor: Actor): LayoutCtx<number> {
     const w = this.dispatch.where();
     const typing = w.typingIn !== null ? this.idNamed(w.typingIn) ?? null : null;
     // Each tile's facts once for this answer (the layout module asks them again for every tile it weighs): nothing changes while it runs.
@@ -3374,6 +3386,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   // ── drawing ────────────────────────────────────────────────────────────────
 
   render(ctx: Ctx): Frame {
+    // A frame drawn inside another (a measure, a host layer's redraw) keeps the outer frame's context when it ends.
+    const outer = this.drawing;
+    this.drawing = outer ?? {};
+    try { return this.draw(ctx); } finally { this.drawing = outer; }
+  }
+  private draw(ctx: Ctx): Frame {
     if (!this.ctx) this.enter(ctx);
     const { cols, rows } = ctx.t;
     this.noteFocus();

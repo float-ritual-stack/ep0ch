@@ -347,15 +347,8 @@ export function revisionRefusal<I>(s: LayoutState<I>, expected: unknown): string
  * caller holds left exactly as it was. Pure: a caller may apply to ask (a drag's ghost asks before the release).
  */
 export function apply<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Result<I> {
-  if (ctx.expected !== undefined) { const why = revisionRefusal(s, ctx.expected); if (why) return { ok: false, refused: why }; }
-  const d = draftOf(s, ctx.person.focus);
-  try {
-    new Step(d, ctx).run(op);
-    if (ctx.protectTyping && ctx.person.typingIn !== null && d.focus !== ctx.person.focus) refuse("the person is typing; their keys stay in that tile");
-  } catch (e) {
-    if (e instanceof Refused) return { ok: false, refused: e.message };
-    throw e;
-  }
+  const d = attempt(s, op, ctx);
+  if (typeof d === "string") return { ok: false, refused: d };
   const taken = new Set(ctx.otherNames ?? []);
   const renamed: { from: string; to: string }[] = [];
   for (const [id, name] of d.names) {
@@ -377,10 +370,27 @@ export function apply<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Result<I> {
   return { ok: true, state: seal(d, s), focus: d.focus, changed: d.changed, answer: d.answer, base: s };
 }
 
-/** Why `op` would be refused, or null (it isn't applied). */
+/**
+ * Why `op` would be refused, or null (it isn't applied). Only the operation's own steps can refuse it, so the answer is
+ * theirs: the state isn't sealed after (a tile's frame asks this of its ×, fold and float every frame; PIE-1347).
+ */
 export function refusal<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): string | null {
-  const r = apply(s, op, ctx);
-  return r.ok ? null : r.refused;
+  const d = attempt(s, op, ctx);
+  return typeof d === "string" ? d : null;
+}
+
+/** `op` run on a draft of `s`: the draft, or why it was refused. Every refusal `apply` gives is one of these. */
+function attempt<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Draft<I> | string {
+  if (ctx.expected !== undefined) { const why = revisionRefusal(s, ctx.expected); if (why) return why; }
+  const d = draftOf(s, ctx.person.focus);
+  try {
+    new Step(d, ctx).run(op);
+    if (ctx.protectTyping && ctx.person.typingIn !== null && d.focus !== ctx.person.focus) refuse("the person is typing; their keys stay in that tile");
+  } catch (e) {
+    if (e instanceof Refused) return e.message;
+    throw e;
+  }
+  return d;
 }
 
 /**
