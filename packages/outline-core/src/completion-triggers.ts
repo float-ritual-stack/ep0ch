@@ -1,15 +1,17 @@
-import { codeBlocks, codeFenceOpen, codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
-import { figureProps } from "@ep0ch/outline-core/figure-props";
-// Reference completion's pure half, ported from pi-herdr-outliner so the door inserts exactly what Tree,
-// Detail and Quick Capture insert: which `[[`, `((` or `[file::` the cursor is in (src/completion.ts),
-// how a page or Work-ID is written (`[[WORK-ID|title]]`, else `[[address]]`), Work-ID recognition
-// (src/work-ids.ts), and how a typed `((note#heading` / `((note^anchor` splits. Fragments themselves are
-// the service's (see below).
-import { COMPONENT_CLOSE, componentAttributeAtCursor, componentBlocks } from "@ep0ch/outline-core/component-block";
-import { calloutTypeAtCursor } from "@ep0ch/outline-core/callouts";
-import { propertyAtCursor, yamlAtCursor } from "@ep0ch/outline-core/component-schema";
-import { codeSpanRanges, cursorInCode } from "@ep0ch/outline-core/code-ranges";
-import { buttonBodyEnd } from "@ep0ch/outline-core/button-call";
+// Which completion trigger the cursor is in (ADR 0004 §4, PIE-1340): the one detector the door's completer and the
+// outliner's Detail ask, so both agree on what `[[`, `((`, `[file::`, `@`, `::`, `> [!`, `[key::` or a figure's YAML the
+// cursor is in, its query, and the range a choice replaces. Also how a page or Work ID is written (`[[WORK-ID|title]]`,
+// else `[[address]]`) and how a typed `((note#heading` / `((note^anchor` splits. Fragments themselves are the service's.
+import { codeBlocks, codeFenceOpen, codeFenceInfo, SCRIPT_FENCE } from "./code-fence";
+import { figureProps } from "./figure-props";
+import { COMPONENT_CLOSE, componentAttributeAtCursor, componentBlocks } from "./component-block";
+import { calloutTypeAtCursor } from "./callouts";
+import { propertyAtCursor, yamlAtCursor } from "./component-schema";
+import { codeSpanRanges, cursorInCode } from "./code-ranges";
+import { buttonBodyEnd } from "./button-call";
+import { referenceEnvelopeEnd } from "./addressable-resource";
+import { HASHTAG_VALUE_PATTERN, isEscapedAt } from "./property-grammar";
+import { workIdReferences as configuredWorkIds } from "./work-ids";
 
 /**
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
@@ -91,7 +93,10 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
     if (start < 0) continue;
     if (!target || start > target.start) {
       // A closing delimiter already after the cursor is replaced too, when only token text lies between.
-      const closing = line.indexOf(syntax.closing, end);
+      // A block title may carry its own parentheses: `((Rough edges (x)))` closes after `(x)`.
+      const closing = syntax.kind === "block"
+        ? Math.max(-1, referenceEnvelopeEnd(line, start + syntax.opening.length, true, end) - syntax.closing.length)
+        : line.indexOf(syntax.closing, end);
       const intervening = closing >= 0 ? line.slice(end, closing) : "";
       const replacementEnd = closing >= 0 && !/[\[\]\r\n]|\(\(|\)\)/.test(intervening) ? closing + syntax.closing.length : end;
       target = { kind: syntax.kind, start, end: replacementEnd, query: beforeCursor.slice(start + syntax.opening.length) };
@@ -141,27 +146,9 @@ export function filterTargetAtCursor(line: string, column: number): CompletionTa
 
 // ── Work IDs ──────────────────────────────────────────────────────────────────
 
-const WORK_ID_PREFIX = /^[A-Z][A-Z0-9]{0,15}$/;
-const WORK_ID = /^([A-Za-z][A-Za-z0-9]{0,15})-(\d+)$/;
-
-function normalizeWorkIdPrefix(input: string): string | null {
-  const p = input.trim().toUpperCase();
-  return WORK_ID_PREFIX.test(p) ? p : null;
-}
-
-function isCanonicalWorkId(input: string): boolean {
-  const m = WORK_ID.exec(input.trim());
-  if (!m) return false;
-  const n = Number(m[2]), p = normalizeWorkIdPrefix(m[1]!);
-  return !!p && Number.isSafeInteger(n) && n >= 1 && `${p}-${String(n).padStart(3, "0")}` === input.trim();
-}
-
-/** The outline's own Work IDs (`PIE-416`) in a text, given its configured prefix. */
+/** The outline's own Work IDs (`PIE-416`) in a text, given its configured prefix (none for a prefix no Work ID can have). */
 export function workIdReferences(text: string, configuredPrefix: string): { workId: string; start: number; end: number }[] {
-  const prefix = normalizeWorkIdPrefix(configuredPrefix);
-  if (!prefix) return [];
-  const pattern = new RegExp(`(?<![A-Za-z0-9-])${prefix}-\\d{3,}(?![A-Za-z0-9-])`, "g");
-  return [...text.matchAll(pattern)].flatMap(m => (isCanonicalWorkId(m[0]) ? [{ workId: m[0], start: m.index!, end: m.index! + m[0].length }] : []));
+  try { return configuredWorkIds(text, configuredPrefix); } catch { return []; }
 }
 
 // ── pages and Work IDs ────────────────────────────────────────────────────────
@@ -208,4 +195,36 @@ export function parseFragmentCompletionQuery(query: string): { blockQuery: strin
   const h = query.lastIndexOf("#"), i = query.lastIndexOf("^"), d = Math.max(h, i);
   if (d < 0) return null;
   return { blockQuery: query.slice(0, d).trim(), fragmentQuery: query.slice(d + 1).trim(), mode: d === h ? "heading" : "id" };
+}
+
+/**
+ * Only a `[[`, `((` or `[file::` reference the cursor is in, or null (the published page's search box, a hashtag's
+ * check): the same scan, without the property, component and agent triggers.
+ */
+export function referenceTargetAtCursor(line: string, column: number, lines?: readonly string[], row?: number): CompletionTarget | null {
+  const t = completionTargetAtCursor(line, column, lines, row);
+  return t && (t.kind === "page" || t.kind === "block" || t.kind === "file") ? t : null;
+}
+
+/** A `#tag` being typed before the cursor (at least one character after the `#`). */
+export interface HashtagTarget { start: number; end: number; query: string }
+
+const HASHTAG_BEFORE_CURSOR = new RegExp(`#(${HASHTAG_VALUE_PATTERN.source})$`, "u");
+
+/**
+ * The `#tag` the cursor is at the end of, or null: written where the property parser takes a hashtag (it starts a word:
+ * the line's start, a space or an opening bracket or quote before it, not escaped), outside code and outside a `[[`/`((`
+ * reference (where `#` is a heading: `((note#heading`). Its letters needn't be there yet: `#20` may become `#2025-plan`.
+ */
+export function hashtagAtCursor(line: string, column: number, lines?: readonly string[], row?: number): HashtagTarget | null {
+  if (cursorInCode(lines ?? [line], row ?? 0, column)) return null;
+  const end = Math.max(0, Math.min(column, line.length));
+  const match = HASHTAG_BEFORE_CURSOR.exec(line.slice(0, end));
+  if (!match) return null;
+  const start = match.index;
+  if (isEscapedAt(line, start) || (start > 0 && !/[\s([{"'“‘]/u.test(line[start - 1]!))) return null;
+  if (referenceTargetAtCursor(line, end, lines, row)) return null;
+  // The rest of the word after the cursor is the tag's too: choosing one replaces it.
+  const after = /^[\p{L}\p{M}\p{N}_\/-]*/u.exec(line.slice(end))?.[0].length ?? 0;
+  return { start, end: end + after, query: match[1]! };
 }

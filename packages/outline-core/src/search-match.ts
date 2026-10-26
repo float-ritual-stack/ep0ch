@@ -308,3 +308,20 @@ export function matchesSearchText(query: string | SearchQuery | null, fields: re
     (options.typos !== false && q.budgets[index]! > 0 && folded.some(f => closest(q, index, f) <= q.budgets[index]!)));
   return termsMatch || folded.some(f => subsequenceScore(q.phrase, f.folded) >= 900);
 }
+
+/**
+ * The positions (code points) of `text` a `query` lights, as every list draws its matched letters (the completion list,
+ * the tile menu): each query word where it sits whole, else its letters in order. Case-folded; nothing for no query.
+ */
+export function searchMatchSpans(text: string, query: string): number[] {
+  const lit = new Set<number>(), low = [...text.toLowerCase()], joined = low.join("");
+  for (const word of query.toLowerCase().split(/\s+/).filter(Boolean)) {
+    const unit = joined.indexOf(word), at = unit < 0 ? -1 : [...joined.slice(0, unit)].length;
+    if (at >= 0) { for (let i = 0; i < [...word].length; i++) lit.add(at + i); continue; }
+    let from = 0;
+    const found: number[] = [];
+    for (const c of word) { const j = low.indexOf(c, from); if (j < 0) { found.length = 0; break; } found.push(j); from = j + 1; }
+    for (const j of found) lit.add(j);
+  }
+  return [...lit].sort((a, b) => a - b);
+}
