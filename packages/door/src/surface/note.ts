@@ -952,8 +952,11 @@ export class NoteSurface {
    * (`focus`). Drawn from `now` while the button is down; one image.size or image.look on release, so the line takes
    * one save. A press that doesn't move is a click on the header.
    */
-  /** The header image as last placed, which stands in while it's dragged. */
-  private heroPlaced: Placement | null = null;
+  /**
+   * The header image as last placed, by its line: it stands in while it's dragged, and while a changed look (a blur, a
+   * tint) is being made, so the header never goes blank under its rows (PIE-1361: the "margin" left behind).
+   */
+  private heroPlaced: { line: number; p: Placement } | null = null;
   private heroDrag: { kind: "height" | "focus"; x: number; y: number; rows: number; cols: number; focus: Focus; line: number; now?: { height?: number; focus?: Focus } } | null = null;
   private besideRect: { x: number; y: number; w: number; h: number } | null = null;
   private readonly forms = new Map<string, NoteForm>();
@@ -1079,7 +1082,7 @@ export class NoteSurface {
   get picker(): Picker | null { return (this.modes.get("picker") as PickerMode | null)?.picker ?? null; }
   set picker(p: Picker | null) { if (p) this.modes.push(this.pickerMode(p)); else this.modes.drop("picker"); }
   /** The header image the last render drew above the note (PIE-532): its rows, and its image's element. */
-  private hero: { line: number; full: number; pinned: boolean; over: boolean; max: number } | null = null;
+  private hero: { line: number; full: number; pinned: boolean; over: boolean; max: number; picture: number } | null = null;
   /** The last digest's layout (its note, doc and note lines), for its host's sticky header (stickyHeader). */
   private digested: { m: Msg; w: number; maxImageRows: number; doc: Doc; lines: number[] } | null = null;
   /** The header's backdrop the last render drew (PIE-598): its image and note line, its step, and how it was drawn. */
@@ -1504,7 +1507,7 @@ export class NoteSurface {
   /** The note as the reader draws it (with its header image), and a floating or popup composer over it (PIE-770). */
   private renderReading(w: number, h: number, host: SurfaceHost | undefined, writing: ReturnType<NoteSurface["composing"]>): SurfaceView {
     const hero = this.heroOf(w, h, host);
-    this.hero = hero && { line: hero.line, full: hero.box.rows, pinned: hero.look.scroll === "pinned", over: hero.look.title === "over", max: Math.floor(h / 2) };
+    this.hero = hero && { line: hero.line, full: hero.box.rows, pinned: hero.look.scroll === "pinned", over: hero.look.title === "over", max: Math.floor(h / 2), picture: hero.box.rows };
     let v = this.renderNote(w, h, host);
     const shown = this.drawn?.heroRows ?? 0;
     if (hero && shown) {
@@ -1514,9 +1517,10 @@ export class NoteSurface {
       const dn = this.heroDrag?.now;
       if (dn) lines[shown - 1] = fg(C.yellow) + pad(`  ${dn.height !== undefined ? `↕ ${dn.height} rows` : `✥ focus ${dn.focus!.x},${dn.focus!.y}`} · let go to write it on the hero line`, w) + RESET;
       const above = hero.placement?.row ?? 0;
-      const held = this.heroDrag?.now && this.heroPlaced;
-      const p = held ? { ...held, rows: Math.max(1, Math.min(h, hero.box.rows) - held.row) } : hero.placement && inWindow(hero.placement, cut + above, Math.min(h, hero.box.rows - cut) - above, above);
-      if (!held) this.heroPlaced = p || null;
+      const was = this.heroPlaced?.line === hero.line ? this.heroPlaced.p : null;
+      const held = (this.heroDrag?.now || (!hero.placement && !hero.loading && !cut)) && was;
+      const p = held ? { ...held, rows: Math.max(1, Math.min(h, hero.box.rows) - cut - held.row) } : hero.placement && inWindow(hero.placement, cut + above, Math.min(h, hero.box.rows - cut) - above, above);
+      if (!held && p && !cut) this.heroPlaced = { line: hero.line, p };
       v = { ...v, headerBand: v.headerBand && { ...v.headerBand, row: shown }, lines: [...lines, ...v.lines], gutter: v.gutter?.map(g => ({ ...g, row: g.row + shown })), placements: [...(p ? [p] : []), ...(v.placements ?? []).map(x => ({ ...x, row: x.row + shown }))] };
     }
     // A split that does not fit shares the popup path.
@@ -7999,10 +8003,11 @@ export class NoteSurface {
     this.dragging = false;
     if (this.placementMenu) { this.gesture.press(x, y); return; }
     // The header image (PIE-1361): its bottom row sizes it, the picture above that moves its focus.
-    const heroRows = host.attachment ? 0 : this.drawn?.heroRows ?? 0;
+    // Its rows as drawn: under a title written over it, the picture runs on under the title's rows.
+    const heroRows = host.attachment || !(this.drawn?.heroRows) || !this.hero ? 0 : this.hero.pinned || !this.scroll ? this.hero.picture : this.drawn.heroRows;
     if (!this.editing && this.hero && heroRows > 0 && y >= 0 && y < heroRows) {
       const spec = this.msg && this.imagesIn(this.msg).find(r => r.line === this.hero!.line)?.spec;
-      this.heroDrag = { kind: y === heroRows - 1 ? "height" : "focus", x, y, rows: this.hero.full, cols: this.drawn?.w ?? 80, focus: spec?.focus ?? { x: 0.5, y: 0.5 }, line: this.hero.line };
+      this.heroDrag = { kind: y === heroRows - 1 ? "height" : "focus", x, y, rows: this.hero.picture, cols: this.drawn?.w ?? 80, focus: spec?.focus ?? { x: 0.5, y: 0.5 }, line: this.hero.line };
       this.gesture.press(x, y);
       return;
     }

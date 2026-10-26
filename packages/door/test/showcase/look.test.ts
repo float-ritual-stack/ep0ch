@@ -13,6 +13,7 @@ import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../../src/app";
 import { REMOTE_CLIENT, type Seeded } from "../../src/showcase/seed";
+import { heroText } from "../../src/showcase/seed/media";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
 import { C, fg, tailFrom } from "../../src/style";
@@ -705,6 +706,48 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     await app.act({ action: "scroll", args: { to: "top" }, as: "test-agent" });
     app.video = "cells";
   });
+
+  test("one header picture (PIE-1361): the hero section's line is edited by the tune's Hero rows through act and a click, and by dragging its edge and its picture", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "hero" }, as: "test-agent" });
+    app.video = "kitty";
+    const hero = () => sc.render(app).placements?.find(p => /(^|:)hero:/.test(p.key));
+    const line = async () => (await board.get(seeded.notes.hero!.id))!.text.split("\n")[1]!;
+    try {
+      await until(() => !!hero(), "the hero", 10_000);
+      await app.act({ action: "tile.tune", as: "test-agent" });
+      await until(() => screen().includes("▾ Hero · this note's · line 2 · evening-beds.jpg"), "the Hero rows", 5000);
+      // act: the fade a step down, written on the line.
+      expect(await app.act({ action: "tune.nudge", args: { row: "hero.fade", by: -1 }, tile: "tune", as: "test-agent" })).toMatchObject({ value: "0.5", at: "the hero line" });
+      expect(await line()).toContain("[fade::0.5]");
+      // A click: the blur row's ×, back to sharp (off the line).
+      const rows = () => screen().split("\n");
+      const y = rows().findIndex(l => / blur +4 /.test(l)), x = rows()[y]!.indexOf("× [−]");
+      press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+      await untilAsync(async () => !(await line()).includes("[blur::"), "blur taken off by ×", 5000);
+      // Drag the header's bottom row down two: its height, in rows, on the line.
+      await until(() => !!hero(), "the hero, redrawn", 10_000);
+      const h = hero()!, edge = h.row + h.rows - 1, mx = h.col + 4;
+      press({ kind: "mouse", action: "down", button: 0, x: mx, y: edge });
+      press({ kind: "mouse", action: "drag", button: 0, x: mx, y: edge + 2 });
+      press({ kind: "mouse", action: "up", button: 0, x: mx, y: edge + 2 });
+      await untilAsync(async () => /\[height::\d+\]/.test(await line()), "the height written", 5000);
+      // Drag the picture up: the crop keeps more of its lower part (focus y up), written as hero-focus.
+      const top = hero()!.row + 1;
+      press({ kind: "mouse", action: "down", button: 0, x: mx, y: top + 2 });
+      press({ kind: "mouse", action: "drag", button: 0, x: mx, y: top });
+      press({ kind: "mouse", action: "up", button: 0, x: mx, y: top });
+      await untilAsync(async () => !(await line()).includes("[hero-focus::0.85,0.6]"), "the focus moved", 5000);
+      expect(Number(/\[hero-focus::[\d.]+,([\d.]+)\]/.exec(await line())![1])).toBeGreaterThan(0.6);
+    } finally {
+      const now = (await board.get(seeded.notes.hero!.id))!;
+      const lines = now.text.split("\n"); lines[1] = heroText().split("\n")[1]!;
+      await board.update(now.id, lines.join("\n"), now.revision!).catch(() => {});
+      await app.act({ action: "tile.close", tile: "tune", as: "test-agent" }).catch(() => {});
+      app.video = "cells";
+      for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    }
+  }, 30_000);
 
   test("hero header (PIE-598): the opening picture, scrolled under the header, becomes its dimmed background; reader.hero on=false keeps it plain", async () => {
     (app as any).lastInput = 0;

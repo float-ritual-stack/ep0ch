@@ -52,7 +52,7 @@ describe.skipIf(!outliner)("one header picture, the note's own (PIE-1361)", () =
     const lines = () => view().lines.map(plain);
     await until(() => lines().some(l => l.includes(drawn)), `the note drawn at ${cols}`, 10_000);
     const heroes = (): any[] => (view().placements ?? []).filter((p: any) => /(^|:)hero:/.test(p.key));
-    const backdrops = () => (view().placements ?? []).filter((p: any) => /(^|:)hero-backdrop:/.test(p.key));
+    const backdrops = (): any[] => (view().placements ?? []).filter((p: any) => /(^|:)hero-backdrop:/.test(p.key));
     const mouse = (action: "down" | "drag" | "up" | "wheel-up" | "wheel-down", x: number, y: number) => key({ kind: "mouse", action, button: 0, x, y } as Key);
     const tune = () => [...(desk as any).panes.values()].find((p: any) => p.kind === "tune");
     const act = (action: string, args: Record<string, unknown> = {}, tile = "tune") => app.act({ action, args, tile, as: "hero-agent" });
@@ -143,6 +143,30 @@ describe.skipIf(!outliner)("one header picture, the note's own (PIE-1361)", () =
       await untilAsync(async () => (await text(n.id)).includes("[fade::0.5]"), "the undo", 5000);
       // A bad value says what it can be; nothing written.
       await expect(d.act("tune.set", { row: "hero.blur", value: "99" })).rejects.toThrow(/blur is soften it, 0 \(sharp\) to 24/);
+    } finally { d.close(); }
+  }, 60_000);
+
+  test("a change never leaves the header empty: the picture drawn stands in until the changed one is made (the margin he saw), and a change while scrolled down shows at once (no scroll needed)", async () => {
+    await ready(pic("shed.png"));
+    const n = await create(null, `Shed at noon\n[img::${pic("shed.png")}] [layout::hero]\n\n${BODY}`);
+    const d = await door(n.id, "Shed at noon");
+    try {
+      await until(() => d.heroes().length === 1, "the hero", 10_000);
+      await d.act("tile.tune", {}, "detail");
+      await until(() => d.heroes().length === 1, "the hero above its inspector", 10_000);
+      const before = d.heroes()[0]!;
+      await d.act("tune.set", { row: "hero.blur", value: "8" });
+      await untilAsync(async () => (await text(n.id)).includes("[blur::8]"), "the line", 5000);
+      // The very next frame: still one picture where it was (the old one), never blank rows.
+      expect(d.heroes()).toHaveLength(1);
+      expect(d.heroes()[0]).toMatchObject({ row: before.row, rows: before.rows });
+      await until(() => d.heroes()[0]?.image.key !== before.image.key, "the blurred picture", 10_000);
+      // Scrolled down, the picture under the header: a change shows there with no scroll.
+      await d.app.dispatch.press("scroll", { by: 40 }, "detail");
+      await until(() => d.backdrops().length > 0, "the backdrop", 10_000);
+      const under = d.backdrops().at(-1)!.image.key;
+      await d.act("tune.set", { row: "hero.tint", value: "1" });
+      await until(() => d.backdrops().length > 0 && d.backdrops().at(-1)!.image.key !== under, "the tinted backdrop, with no scroll", 10_000);
     } finally { d.close(); }
   }, 60_000);
 
