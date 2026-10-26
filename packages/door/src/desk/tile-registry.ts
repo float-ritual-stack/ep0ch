@@ -11,8 +11,8 @@ import type { Pane } from "./panes";
 
 /** What the registry keeps of a tile, and what a save writes of it (the leaf's `id`, `role`, `openedFrom`, `copiedFrom`). */
 export interface TileRecord {
-  /** `t-<uuid>`. */
-  id: string;
+  /** `t-<uuid>`, minted the first time anything asks for it (a role set before that doesn't fix it). */
+  id?: string;
   /** What the tile is for (`agent`, `reader`), set by what makes it; absent: its kind's (`roleOf`). */
   role?: string;
   /** The tile that opened it (its id): what `^` follows, and where the keys go back when a program's tile closes. */
@@ -27,13 +27,13 @@ const doors = new WeakMap<object, Map<string, WeakRef<Pane>>>();
 
 const record = (pane: Pane): TileRecord => {
   let r = records.get(pane);
-  if (!r) { r = { id: `t-${crypto.randomUUID()}` }; records.set(pane, r); }
+  if (!r) { r = {}; records.set(pane, r); }
   return r;
 };
 
 export const tileRegistry = {
   /** The tile's id, minted the first time it is asked for. */
-  idOf: (pane: Pane): string => record(pane).id,
+  idOf: (pane: Pane): string => (record(pane).id ??= `t-${crypto.randomUUID()}`),
   /** The tile's id if it has one yet (asking never mints it). */
   knownId: (pane: Pane): string | undefined => records.get(pane)?.id,
   /** What the tile is for: the role it was made with, else its kind's, else the kind's name. */
@@ -52,8 +52,8 @@ export const tileRegistry = {
   },
   /** A saved arrangement comes back: the tile keeps its saved id (when it has none yet and it is an id), role, opener and lineage. */
   restore(pane: Pane, saved: { id?: string; role?: string; openedFrom?: string; copiedFrom?: string }) {
-    const r = records.get(pane);
-    if (!r && saved.id?.startsWith("t-")) records.set(pane, { id: saved.id });
+    const r = record(pane);
+    if (!r.id && saved.id?.startsWith("t-")) r.id = saved.id;
     if (saved.role) tileRegistry.setRole(pane, saved.role);
     if (saved.openedFrom) tileRegistry.setOpener(pane, saved.openedFrom);
     if (saved.copiedFrom) record(pane).copiedFrom = saved.copiedFrom;
