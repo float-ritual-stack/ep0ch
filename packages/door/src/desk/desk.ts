@@ -2587,7 +2587,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const d = this;
     return {
       pointerScope: d,
-      beforeAction: (name: string) => { if (!name.startsWith("hint.") && !name.startsWith("hints.") && name !== "xray" && !d.hintCard?.pinned) d.hintCard = null; },
+      beforeAction: (name: string) => { if (name.startsWith("hint.") || name.startsWith("hints.") || name === "xray" || d.hintCard?.pinned) return false; const had = !!d.hintCard; d.hintCard = null; return had; },
       hint: (hint: Hint, tile: string | undefined, actor: Actor) => { if (!d.hintCard?.pinned) { d.syncModeHint(hint.id); d.showHint(hint, tile, actor); } },
       get title() { return d.title; },
       ctx: () => d.ctx,
