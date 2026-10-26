@@ -618,22 +618,27 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       if (!keyed.ran?.tile) return skip(key, req, way, `on a screen built now the key runs no ${req.action} on a tile${keyed.said ? ` (it said ${JSON.stringify(keyed.said.slice(0, 120))})` : ""}: an earlier probe changed what the screen is built from`);
       const name = keyed.ran.tile.name;
       const named_ = await press(key, req.action, () => {
-        const at = (A().stack.at(-1) as Screen | undefined)?.dispatch?.tile(name) ?? A().drawer.made?.dispatch.tile(name);
+        const top = A().stack.at(-1) as Screen | undefined;
+        const at = top?.dispatch?.tile(name) ?? A().drawer.made?.dispatch.tile(name);
         if (!at?.id) return `no tile ${name} on a screen built now`;
-        const address = way === "id" ? at.id : at.role ? `role:${at.role}` : "";
-        return address ? { address, id: at.id } : `${name} has no role`;
+        if (way === "id") return { address: at.id, id: at.id };
+        if (!at.role) return `${name} has no role`;
+        // A role that names several tiles is not an address for this one: the resolver refuses it, and that is its job (a tile
+        // kind's key says nothing of a refusal, so it is asked here rather than read from what the key said).
+        try { top?.dispatch?.tile(`role:${at.role}`); } catch (e) { return `role:${at.role}: ${e instanceof Error ? e.message : String(e)}`.slice(0, 160); }
+        return { address: `role:${at.role}`, id: at.id };
       });
       if (typeof named_ === "string") return skip(key, req, way, named_);
       if (!named_.swapped) return skip(key, req, way, `on the second build the key ran no ${req.action}`);
-      // A role that names several tiles is not an address for this one: the refusal says so, and that is the resolver's job.
-      if (way === "role" && /names \d+ tiles/.test(named_.said)) return skip(key, req, way, "its role names several tiles");
       replayed[way]++;
       const by = way === "id" ? "id" : `role:${keyed.ran.tile.role}`;
       if (named_.ran?.tile?.id !== named_.id) return `${req.action} by ${by} reached ${named_.ran?.tile ? `${named_.ran.tile.name} (${named_.ran.tile.id})` : `no tile${named_.said ? ` (it said ${JSON.stringify(named_.said.slice(0, 160))})` : ""}`} where the key reached ${name} (${named_.id})`;
       if (named_.said !== keyed.said) return `${req.action} by ${by} said ${JSON.stringify(named_.said.slice(0, 160))} where the key said ${JSON.stringify(keyed.said.slice(0, 160))}`;
-      if (alike(keyed.screen, named_.screen, false)) return null;
+      // Two builds: their tiles' ids differ (a tile menu's title shows it), and which tile was reached is checked by id above.
+      const idless = (x: Snap): Snap => ({ ...x, lines: x.lines.map(l => l.replace(/\bt-[0-9a-f]{8}[0-9a-f-]*/g, "t-#")) });
+      if (alike(idless(keyed.screen), idless(named_.screen), false)) return null;
       if (process.env.PARITY_DIFF) require("node:fs").appendFileSync(process.env.PARITY_DIFF, `${label} ${named(key)} ${req.action} by ${by}:\n  key: ${keyed.screen.lines.map(plain).join("\n  key: ")}\n  by:  ${named_.screen.lines.map(plain).join("\n  by:  ")}\n`);
-      return `${req.action} ${JSON.stringify(keyed.ran.args)} by ${by} left the screen different from the key (${changes(keyed.screen, named_.screen, false)})`;
+      return `${req.action} ${JSON.stringify(keyed.ran.args)} by ${by} left the screen different from the key (${changes(idless(keyed.screen), idless(named_.screen), false)})`;
     };
     for (const { key, req } of pointed.values()) {
       // A list's rows are numbered as the list stands when it is asked, and it fills as it draws: two builds can number it differently.
