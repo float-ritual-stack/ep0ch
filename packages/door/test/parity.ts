@@ -624,8 +624,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         if (way === "id") return { address: at.id, id: at.id };
         if (!at.role) return `${name} has no role`;
         // A role that names several tiles is not an address for this one: the resolver refuses it, and that is its job (a tile
-        // kind's key says nothing of a refusal, so it is asked here rather than read from what the key said).
-        try { top?.dispatch?.tile(`role:${at.role}`); } catch (e) { return `role:${at.role}: ${e instanceof Error ? e.message : String(e)}`.slice(0, 160); }
+        // kind's key says nothing of a refusal, so it is asked here rather than read from what the key said). Any other refusal,
+        // or the role reaching another tile, is pressed: the key then reaches no tile or another, and that is a finding.
+        try { top?.dispatch?.tile(`role:${at.role}`); } catch (e) { const why = e instanceof Error ? e.message : String(e); if (/names \d+ tiles/.test(why)) return `role:${at.role}: ${why}`.slice(0, 160); }
         return { address: `role:${at.role}`, id: at.id };
       });
       if (typeof named_ === "string") return skip(key, req, way, named_);
