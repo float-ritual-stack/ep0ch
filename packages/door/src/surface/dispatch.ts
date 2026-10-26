@@ -83,6 +83,13 @@ export interface RunRequest { action: string; args: Record<string, unknown>; til
 const requestTracers = new Set<(r: RunRequest) => void>();
 /** Hear every request a dispatcher runs, with the tile it resolved to (the parity walk replays it by id and by role). Returns how to stop. */
 export function traceRequests(f: (r: RunRequest) => void): () => void { requestTracers.add(f); return () => { requestTracers.delete(f); }; }
+const requestRewriters = new Set<(req: ActRequest, actor: Actor) => ActRequest>();
+/**
+ * Change a request before it is resolved: the parity walk presses the same key again with only its `tile=` said another way
+ * (by id, by role), so the key's own gesture (where the pointer is, the row it lit) is the same both times. Returns how to stop.
+ */
+export function rewriteRequests(f: (req: ActRequest, actor: Actor) => ActRequest): () => void { requestRewriters.add(f); return () => { requestRewriters.delete(f); }; }
+const rewritten = (req: ActRequest, actor: Actor) => { for (const f of requestRewriters) req = f(req, actor); return req; };
 
 /**
  * One row of a tile's menu, as the dispatcher would run it: the action, its arguments and the tile (its stable id), the
@@ -643,6 +650,7 @@ export class Dispatcher {
 
   /** One request, for one actor: who owns it, the revision, then that set's run. */
   private runPlain(req: ActRequest, actor: Actor, typed = false): unknown {
+    req = rewritten(req, actor);
     req = this.pointed(req, actor);
     req = this.mountedRequest(req);
     const args = { ...(req.args ?? {}) };
@@ -668,6 +676,9 @@ export class Dispatcher {
 
   /** Run a request with the set that owns it: the tile read, the actor rule checked, the action run, its answer said. */
   private runIn(reg: Registration, req: ActRequest, actor: Actor, typed: boolean, given?: unknown): unknown {
+    // A tile kind's own key comes here straight (pressIn): an address rewritten onto it is resolved as an act's is (runPlain).
+    const asked = rewritten(req, actor);
+    if (asked !== req) req = this.mountedRequest(asked);
     const def = reg.set.def(req.action);
     if (!def) throw new ActionRefused(`no action ${req.action} here; try: ${reg.set.names().join(", ")}`);
     // The person's own: refused to an agent before anything is read.

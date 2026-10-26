@@ -19,7 +19,7 @@ import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { declaredKeys, hintKeys, keyName, traceActions, type ActionRun } from "../src/surface/actions";
-import { traceRequests, type RunRequest } from "../src/surface/dispatch";
+import { rewriteRequests, traceRequests, type RunRequest } from "../src/surface/dispatch";
 import { SHELL_ACTIONS, MENU_SCREENS, MainMenu, MessageReader, StatusMessages } from "../src/screens";
 import { DRAWER_ACTIONS } from "../src/drawer";
 import { EXT_ACTIONS } from "../src/extensions";
@@ -303,6 +303,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     drawer.openedBy = null;
     try { drawer.p?.dispose?.(); } catch { /* gone */ }
     drawer.p = null;
+    // Its desk too, made again when next needed: a tile a probe moved into the drawer stayed there for every later build, and the
+    // screen's own tile of that name was named again beside it (tree2: PIE-1317), so those builds weren't the screen the label names.
+    if (drawer.made) { end(drawer.made); drawer.d = null; }
     // What a screen saved (the board's lanes, the desk's layout) would carry one probe's change into the next.
     const dir = process.env.EP0CH_STATE!;
     for (const f of readdirSync(dir)) if (f.endsWith(".json")) rmSync(join(dir, f), { force: true });
@@ -411,8 +414,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     if (same(base, after) || runs.length || (after.holds && after.top === base.top)) return null;
     return changes(base, after) || "the screen";
   }
-  /** What differs between two looks: the stack, the description, the rows (cut short). */
-  const changes = (a: Snap, b: Snap) => {
+  /** What differs between two looks: the stack, the description, the rows (cut short). Two builds (`sameBuild` false) have their own screens: the stack differs when its kind or depth does. */
+  const changes = (a: Snap, b: Snap, sameBuild = true) => {
     /** Where two strings first differ, and a little of each from just before it. */
     const from = (x: string, y: string) => {
       let i = 0;
@@ -423,7 +426,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // The words that changed; or, the same words drawn differently (a colour, a weight), the escapes that did.
     const row = (l: string, m: string) => (plain(l) !== plain(m) ? from(plain(l), plain(m)) : `same text, drawn differently ${from(l, m)}`);
     const rows = a.lines.flatMap((l, i) => (l === b.lines[i] ? [] : [`row ${i}: ${row(l, b.lines[i] ?? "")}`]));
-    return [a.top !== b.top || a.depth !== b.depth ? "the stack" : "", a.video !== b.video ? `video ${a.video} → ${b.video}` : "", a.drawer !== b.drawer ? `the drawer ${a.drawer} → ${b.drawer}` : "", a.about !== b.about ? "its description" : "", ...rows.slice(0, 3), rows.length > 3 ? `${rows.length - 3} more rows` : ""].filter(Boolean).join("; ");
+    return [(sameBuild ? a.top !== b.top : a.top?.constructor !== b.top?.constructor) || a.depth !== b.depth ? "the stack" : "", a.video !== b.video ? `video ${a.video} → ${b.video}` : "", a.drawer !== b.drawer ? `the drawer ${a.drawer} → ${b.drawer}` : "", a.about !== b.about ? "its description" : "", ...rows.slice(0, 3), rows.length > 3 ? `${rows.length - 3} more rows` : ""].filter(Boolean).join("; ");
   };
 
   /**
@@ -562,10 +565,12 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   }
 
   /**
-   * A key or click that ran one action on a tile ran it for that tile's id (PIE-1286). The same action, said as the act string
-   * says it, once by `tile=t-<uuid>` and once by `tile=role:<role>` (where the tile's role names it alone), must leave the
-   * screen as the key left it: pointing and naming are one path, so they can't drift apart (the sixth lift fix, not the first).
-   * Each way starts from a screen built the same way (the key again, the id, the role), so only the address differs.
+   * A key or click that ran one action on a tile ran it for that tile's id (PIE-1286). The same key pressed again, its request's
+   * `tile=` said once as `t-<uuid>` and once as `role:<role>` (where the tile's role names it alone), must reach the same tile
+   * and leave the screen as the key left it: pointing and naming are one path, so they can't drift apart (the sixth lift fix, not
+   * the first). Only the address changes. The key's own gesture (where the pointer is, the row it lights) and its arguments are
+   * the key's on that build, and its tile is the one the key reaches there: an earlier probe may have changed the outline the
+   * screen is built from (PIE-1317), so nothing the walk saw (its arguments, its tile names) is carried in.
    */
   /** The screen once it holds still: looked at again until two looks are alike (a read the action started has landed). */
   async function calm(mask: Set<number>): Promise<Snap> {
@@ -577,33 +582,49 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   async function addressed(label: string, make: () => Screen | Promise<Screen>, setup: Key[], pointed: Map<string, { key: Key; req: RunRequest }>) {
     const replayed = { id: 0, role: 0 };
     replaying = true;
-    /** The key, then the act by `way` on a screen built the same way: what's wrong, "skip" when the address can't name this tile alone, or null. */
-    const trial = async (key: Key, req: RunRequest, way: "id" | "role"): Promise<string | null> => {
-      // A list's rows are numbered as the list stands when it is asked, and it fills as it draws: the row is not the address under test.
-      if (req.action.startsWith("list.")) return "skip";
-      let mask = await fresh(label, make, setup);
+    const skip = (key: Key, req: RunRequest, way: string, why: string) => { if (log) require("node:fs").appendFileSync(log, `# ${label}: ${named(key)} ${req.action} by ${way} not replayed: ${why}\n`); return "skip" as const; };
+    /**
+     * `key` on a screen built afresh; with `address`, its request for `action` has its `tile=` said that way (`address` reads
+     * the build: ids are new each build). The request as it ran (the tile it resolved to), what was said, and the screen once it
+     * holds still; or why the build has no address.
+     */
+    const press = async (key: Key, action: string, address?: () => { address: string; id: string } | string) => {
+      const mask = await fresh(label, make, setup);
+      const to = address?.();
+      if (typeof to === "string") return to;
       const heard = A().messages.rows.length;
-      push(key); await settle();
-      // What the key said, if it was refused (the action threw after it was traced): the act must refuse the same way.
-      const flashed = [A().refusedNow?.text, ...A().messages.rows.slice(heard).map((r: { message: string }) => r.message)].filter(Boolean).join(" · ");
-      const pressed = await calm(mask);
-      mask = await fresh(label, make, setup);
-      const top = A().stack.at(-1) as Screen | undefined;
-      const at = top?.dispatch?.tile(req.tile!.name) ?? A().drawer.desk?.dispatch.tile(req.tile!.name);
-      if (!top?.dispatch || !at?.id) return "skip";
-      const address = way === "id" ? at.id : at.role ? `role:${at.role}` : "";
-      if (!address) return "skip";
-      let said = "";
-      try { await top.dispatch.act({ action: req.action, args: req.args, tile: address }, { kind: "user" }); await settle(); }
-      catch (e) { said = e instanceof Error ? e.message : String(e); }
+      let ran: RunRequest | undefined, swapped = false;
+      const stopTrace = traceRequests(r => { if (!ran && r.actor.kind === "user" && r.action === action) ran = r; });
+      const stopSwap = to ? rewriteRequests((r, actor) => { if (swapped || actor.kind !== "user" || r.action !== action) return r; swapped = true; return { ...r, tile: to.address }; }) : () => {};
+      try { push(key); await settle(); } finally { stopTrace(); stopSwap(); }
+      // What the key said (a refusal is said, never thrown at a key): said the same whichever way the tile is named.
+      const said = plain([A().refusedNow?.text, ...A().messages.rows.slice(heard).map((r: { message: string }) => r.message)].filter(Boolean).join(" · "));
+      return { ran, swapped, said, id: to?.id, screen: await calm(mask) };
+    };
+    /** What's wrong, "skip" (logged with why) when the key can't be replayed `way` on a screen built now, or null. */
+    const trial = async (key: Key, req: RunRequest, way: "id" | "role"): Promise<string | null> => {
+      // A list's rows are numbered as the list stands when it is asked, and it fills as it draws: two builds can number it differently.
+      if (req.action.startsWith("list.")) return skip(key, req, way, "a list's rows");
+      const keyed = await press(key, req.action);
+      if (typeof keyed === "string") return skip(key, req, way, keyed);
+      if (!keyed.ran?.tile) return skip(key, req, way, `on a screen built now the key runs no ${req.action} on a tile (an earlier probe changed what the screen is built from)`);
+      const name = keyed.ran.tile.name;
+      const named_ = await press(key, req.action, () => {
+        const at = (A().stack.at(-1) as Screen | undefined)?.dispatch?.tile(name) ?? A().drawer.desk?.dispatch.tile(name);
+        if (!at?.id) return `no tile ${name} on a screen built now`;
+        const address = way === "id" ? at.id : at.role ? `role:${at.role}` : "";
+        return address ? { address, id: at.id } : `${name} has no role`;
+      });
+      if (typeof named_ === "string") return skip(key, req, way, named_);
+      if (!named_.swapped) return skip(key, req, way, `on the second build the key ran no ${req.action}`);
       // A role that names several tiles is not an address for this one: the refusal says so, and that is the resolver's job.
-      if (way === "role" && /names \d+ tiles/.test(said)) return "skip";
-      const now = await calm(mask);
+      if (way === "role" && /names \d+ tiles/.test(named_.said)) return skip(key, req, way, "its role names several tiles");
       replayed[way]++;
-      // A note action acts at the cursor inside the reader (`settings` reads the [ ] mark): the act has no cursor, so its refusal is not the tile's address.
-      if (said && req.scope === "note") return "skip";
-      if (said) return plain(flashed).includes(said.slice(0, 40).replace(/\s+/g, " ")) ? null : `${req.action} by ${address} was refused (${said.slice(0, 160)}) where the key said ${JSON.stringify(plain(flashed).slice(0, 80))}`;
-      return alike(pressed, now, false) ? null : `${req.action} ${JSON.stringify(req.args)} by ${way === "id" ? "id" : address} left the screen different from the key (${changes(pressed, now)})`;
+      const by = way === "id" ? "id" : `role:${keyed.ran.tile.role}`;
+      if (named_.ran?.tile?.id !== named_.id) return `${req.action} by ${by} reached ${named_.ran?.tile ? `${named_.ran.tile.name} (${named_.ran.tile.id})` : "no tile"} where the key reached ${name} (${named_.id})`;
+      if (named_.said !== keyed.said) return `${req.action} by ${by} said ${JSON.stringify(named_.said.slice(0, 160))} where the key said ${JSON.stringify(keyed.said.slice(0, 160))}`;
+      if (process.env.PARITY_DIFF && !alike(keyed.screen, named_.screen, false)) require("node:fs").appendFileSync(process.env.PARITY_DIFF, `${label} ${named(key)} ${req.action} by ${by}:\n  key: ${keyed.screen.lines.map(plain).join("\n  key: ")}\n  by:  ${named_.screen.lines.map(plain).join("\n  by:  ")}\n`);
+      return alike(keyed.screen, named_.screen, false) ? null : `${req.action} ${JSON.stringify(keyed.ran.args)} by ${by} left the screen different from the key (${changes(keyed.screen, named_.screen, false)})`;
     };
     for (const { key, req } of pointed.values()) {
       for (const way of ["id", "role"] as const) {
@@ -615,7 +636,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     }
     replaying = false;
     // A walk that replays nothing proves nothing: these scenarios have tiles with actions of their own, so none replayed means the trace broke.
-    if (REPLAYED.has(label) && replayed.id === 0) findings.push({ screen: label, keys: "-", problem: "no targeted action was replayed by id: the request trace (traceRequests) or the filter found none" });
+    if (REPLAYED.has(label) && replayed.id === 0) findings.push({ screen: label, keys: "-", problem: "no targeted action was replayed by id: the request trace (traceRequests), the rewrite (rewriteRequests) or the filter found none" });
     if (log) require("node:fs").appendFileSync(log, `# ${label}: ${pointed.size} targeted actions replayed by id (${replayed.id}) and by role (${replayed.role})\n`);
   }
 
