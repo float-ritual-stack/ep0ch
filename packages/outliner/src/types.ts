@@ -180,6 +180,8 @@ export interface PropertyMatchContext extends BlockProperty {
   line: number;
   column: number;
   scope: PropertyScope;
+  /** The checklist step's status when the chip sits on one (`- [ ] … [key::value]`): an open box is a to-do (PIE-1277). */
+  task?: ChecklistStatus;
 }
 
 export type PropertyPatchOperation =

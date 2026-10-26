@@ -13,7 +13,7 @@ import {handOrderRefusal, isVirtualBranchDefinition, VIRTUAL_BRANCH_MAX_RELATIVE
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
 import { ChangeFeed, machineryClause, raiseChangeFeedFloor, type SequenceChange } from "./change-feed";
-import { checklistItems, queryChecklistItems, updateChecklistText, validateChecklistIdentityChanges } from "./checklist-items";
+import { checklistItems, lineChipTasks, queryChecklistItems, updateChecklistText, validateChecklistIdentityChanges } from "./checklist-items";
 import { searchFragmentCandidates, type FragmentCandidateCollection, type FragmentCandidateQuery } from "./fragment-search";
 import { ensureFragmentAnchor } from "./fragments";
 import { readFragment, readTransclusions, type FragmentRead, type TransclusionOptions, type TransclusionRead, type TransclusionTarget } from "./transclusions";
@@ -21,6 +21,8 @@ import type { ChecklistCollection, ChecklistIdentityChange, ChecklistQuery, Chec
 import { planCreateInView, planMoveIntoView, writeView } from "./view-writes";
 import type {QueryExpression, SavedViewReadOptions, ViewWritePlanRequest, ViewWritePlanResult, SavedViewReadProblem, SavedViewReadResult, VirtualBranchOrder, VirtualBranchPlacementInput} from "./types";
 import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS } from "./types";
+import type { ChecklistStatus } from "./types";
+import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
 import { MCP_ACCESS_LEVELS, type BlockRevisionEntry, type BlockRevisions, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type PageRename, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
@@ -296,7 +298,15 @@ interface BlockEditActivityRow {
 interface LoadedGraph {
   byId: Map<string, Block>;
   byParent: Map<string | null, Block[]>;
+  /**
+   * Each block's property records as questions read them (PIE-1277): a line chip on a ticked step is settled and left
+   * out, so a line-scope question stops holding when its box is ticked. Block-scope records are all here.
+   */
   propertyRecordsByBlock: Map<string, PropertyRecord[]>;
+  /** The step status of each line chip that sits on a checklist step, by block and ordinal. */
+  lineTasksByBlock: Map<string, Map<number, ChecklistStatus>>;
+  /** Every record of the blocks that have settled ones, for the readers of the text itself (the checklist). */
+  settledBlockRecords: Map<string, PropertyRecord[]>;
   deletedDescendantCountByRoot: Map<string, number>;
 }
 function propertyRecordFromRow(row: PropertyRow): PropertyRecord {
@@ -315,7 +325,7 @@ function propertyRecordFromRow(row: PropertyRow): PropertyRecord {
   };
 }
 
-function propertyMatchContexts(records: readonly PropertyRecord[]) {
+function propertyMatchContexts(records: readonly PropertyRecord[], tasks?: ReadonlyMap<number, ChecklistStatus>) {
   return records.map(({ key, value, ordinal, start, end, line, column, scope }) => ({
     key,
     value,
@@ -325,6 +335,7 @@ function propertyMatchContexts(records: readonly PropertyRecord[]) {
     line,
     column,
     scope,
+    ...(tasks?.has(ordinal) ? { task: tasks.get(ordinal)! } : {}),
   }));
 }
 
@@ -1933,7 +1944,7 @@ export class OutlinerStore {
       if(scope.sort)sortQueriedBlocks(plans,scope.sort,scopedValue(graph,scope.propertyScope));
       const matches:ChecklistSearchCollection['matches']=[];
       for(const block of plans){
-        const result=queryChecklistItems(block.text,query.items,graph.propertyRecordsByBlock.get(block.id)??[]);
+        const result=queryChecklistItems(block.text,query.items,graph.settledBlockRecords.get(block.id)??graph.propertyRecordsByBlock.get(block.id)??[]);
         for(const item of result.items){
           if(matches.length===query.items.limit)return {matches,completeness:{kind:'truncated',limit:query.items.limit}};
           matches.push({block,item});
@@ -4114,7 +4125,7 @@ export class OutlinerStore {
     const deletedMode = query.includeDeleted ?? "active";
     // Groups and facets count every match, so they read them all.
     const counted = !!(query.group || query.facets);
-    if (query.rankViewId && deletedMode === "active" && !query.predicate && !counted && !options.overGraph && !options.select) {
+    if (query.rankViewId && deletedMode === "active" && !query.predicate && !counted && !options.overGraph && !options.select && (query.propertyScope ?? "block") === "block") {
       return this.queryRankedBlocksFromCurrentRead(query, query.rankViewId);
     }
     const ranked = query.rankViewId && deletedMode === "active" ? query.rankViewId : null;
@@ -5006,6 +5017,19 @@ export class OutlinerStore {
       for (const property of properties) Object.freeze(property);
       Object.freeze(properties);
     }
+    // A ticked step's line chips are settled (PIE-1277): questions read the rest.
+    const lineTasksByBlock = new Map<string, Map<number, ChecklistStatus>>();
+    const settledBlockRecords = new Map<string, PropertyRecord[]>();
+    for (const row of rows) {
+      const records = propertyRecordsByBlock.get(row.id);
+      if (!records) continue;
+      const tasks = lineChipTasks(row.text, records);
+      if (!tasks.size) continue;
+      lineTasksByBlock.set(row.id, tasks);
+      if (![...tasks.values()].some(stepClosed)) continue;
+      settledBlockRecords.set(row.id, Object.freeze(records) as PropertyRecord[]);
+      propertyRecordsByBlock.set(row.id, records.filter(record => !stepClosed(tasks.get(record.ordinal) ?? "todo")));
+    }
     for (const records of propertyRecordsByBlock.values()) Object.freeze(records);
 
     const blocks = rows.map((row) => Object.freeze(this.hydrate(row, propertiesByBlock.get(row.id) ?? NO_PROPERTIES)));
@@ -5030,7 +5054,7 @@ export class OutlinerStore {
     }
 
     for (const siblings of byParent.values()) Object.freeze(siblings);
-    return { byId, byParent, propertyRecordsByBlock, deletedDescendantCountByRoot };
+    return { byId, byParent, propertyRecordsByBlock, lineTasksByBlock, settledBlockRecords, deletedDescendantCountByRoot };
   }
 
   private traverseLoadedGraph(
@@ -5090,6 +5114,7 @@ export class OutlinerStore {
             ? {
                 propertyMatches: propertyMatchContexts(
                   matchingPropertyRecords(propertyRecords, contextFilters, propertyScope),
+                  graph.lineTasksByBlock.get(block.id),
                 ),
               }
             : {}),
@@ -5975,9 +6000,12 @@ export class OutlinerStore {
       // views list nothing in views.read and are omitted here too.
       const { config } = parseVirtualBranchConfig(branch, []);
       if (!config) continue;
-      if (!matchesFilters(block.properties, config.filters)) continue;
+      // A view that reads line chips ([property-scope::…]) holds the item by them too, as views.read does.
+      const scope = config.propertyScope ?? "block";
+      const records = scope === "block" ? block.properties : this.loadGraph().propertyRecordsByBlock.get(block.id) ?? [];
+      if (!matchesFilters(records, config.filters, scope)) continue;
       if (config.where && !compileQueryExpression(config.where)({ ...block,
-        childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, block.properties)) continue;
+        childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, records, scope)) continue;
       const rank = this.database.query(
         "SELECT rank FROM virtual_occurrence_ranks WHERE view_id = ? AND block_id = ?",
       ).get(branch.id, block.id) as { rank: number } | null;

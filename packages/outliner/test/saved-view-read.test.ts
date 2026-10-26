@@ -229,3 +229,45 @@ test("a view read says how deep its members open: its own child-depth, else the 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// PIE-1277: a view that says [property-scope::all] reads a chip on line 30 of a long note, says which line matched and
+// whether its box is open, and drops the note when the box is ticked. Nothing here knows the key: it is the view's own.
+test("a line-scope view finds an ask buried on line 30, and loses it when its box is ticked", async () => {
+  const root = mkdtempSync(join(tmpdir(), "saved-view-lines-"));
+  const store = new OutlinerStore(join(root, "outline.sqlite"));
+  const socket = join(root, "service.sock");
+  const server = new OutlinerServer(store, socket);
+  await server.start();
+  const client = new OutlinerClient(socket);
+  const create = (text: string) => client.request<Block>({action: "create", text});
+  const update = (block: Block, text: string) => client.request<Block>({action: "update", mutation: {author: "user"}, blockId: block.id, expectedRevision: block.revision, text});
+  try {
+    const filler = Array.from({length: 27}, (_, i) => `Paragraph ${i + 1} about the hedge.`);
+    const long = await create(["Hedge plan [type::roadmap-item] [work-stage::doing]", "", ...filler, "- [ ] Which cutter? [asks::gardener: pick one]"].join("\n"));
+    const settled = await create("Pond notes\n\n- [x] Fish count [asks::gardener: done already]");
+    const header = await create("Fence [asks::gardener: paint colour]");
+    await create("Shed [asks::gardener: finished] [work-stage::done]");
+    const query = "[query::asks NOT work-stage=done NOT work-stage=superseded]";
+    const blockOnly = await create(`Asks [type::virtual-branch] ${query}`);
+    expect((await readSavedView(client, blockOnly.id)).blocks.map(block => block.id)).toEqual([header.id]);
+
+    const view = await create(`Asks everywhere [type::virtual-branch] ${query} [property-scope::all]`);
+    const read = await readSavedView(client, view.id);
+    expect(read.blocks.map(block => block.id).sort()).toEqual([long.id, header.id].sort());
+    const buried = read.blocks.find(block => block.id === long.id)!;
+    expect(buried.propertyMatches?.map(match => [match.key, match.line, match.scope, match.task])).toEqual([["asks", 29, "inline", "todo"]]);
+    expect(read.blocks.find(block => block.id === header.id)!.propertyMatches?.map(match => [match.scope, match.task])).toEqual([["block", undefined]]);
+    expect(read.blocks.some(block => block.id === settled.id)).toBe(false);
+
+    // Facets over line chips: the values `asks` has, at the view's scope (a ticked step's chip is settled).
+    const facets = await client.request<VisibleBlockCollection>({action: "blocks.query", query: {where: "asks", propertyScope: "all", facets: ["asks"]}});
+    expect(facets.facets?.[0]?.values.map(value => value.value).sort()).toEqual(["gardener: finished", "gardener: paint colour", "gardener: pick one"]);
+
+    await update(long, long.text.replace("- [ ] Which", "- [x] Which"));
+    expect((await readSavedView(client, view.id)).blocks.map(block => block.id)).toEqual([header.id]);
+
+    const invalid = await create(`Bad [type::virtual-branch] ${query} [property-scope::everywhere]`);
+    const refused = await readSavedView(client, invalid.id);
+    expect(refused.errors.join(" ")).toContain("[property-scope::all]");
+  } finally { await server.close(); store.close(); rmSync(root, {recursive: true, force: true}); }
+});

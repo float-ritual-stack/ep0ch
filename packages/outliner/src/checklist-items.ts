@@ -44,6 +44,20 @@ function figureChecklistItems(text: string, properties: PropertyRecord[]): Check
   });
 }
 
+/**
+ * The task state of each line chip that sits on a checklist step (PIE-1277): ordinal → the step's status. An open
+ * `- [ ] … [needs::…]` is a to-do; once ticked its chips are settled, and a line-scope question no longer holds for them.
+ */
+export function lineChipTasks(text: string, properties: readonly PropertyRecord[]): Map<number, ChecklistStatus> {
+  const tasks = new Map<number, ChecklistStatus>();
+  if (!properties.some(property => property.scope !== "block") || !STEP_BOX_ANYWHERE.test(text)) return tasks;
+  for (const item of listChecklistItems(text, [...properties])) {
+    for (const property of item.properties) if (property.scope !== "block") tasks.set(property.ordinal, item.status);
+  }
+  return tasks;
+}
+const STEP_BOX_ANYWHERE = new RegExp(`\\[[${STEP_BOX_CHARS}]\\]`);
+
 function listChecklistItems(text: string, properties: PropertyRecord[]): ChecklistItem[] {
   const lists = markdownListItems(text);
   const anchors = fragmentAnchors(text);

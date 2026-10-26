@@ -3,6 +3,7 @@ import {
   BlockQuerySyntaxError,
   compileQueryExpression,
   MAX_BLOCK_QUERY_LIMIT,
+  normalizePropertyQueryScope,
   parsePropertyFilterClause,
   parsePropertyFilterExpression,
   normalizeSortField,
@@ -19,6 +20,7 @@ import type {
   BlockProperty,
   BlockSearchQuery,
   PropertyFilter,
+  PropertyQueryScope,
   QueryExpression,
   VisibleBlock,
   VirtualOccurrenceRank,
@@ -86,6 +88,11 @@ export interface VirtualBranchConfig {
   sortWritten?: string[];
   /** The view's `[machinery::]`: hide (the default), only or show. */
   machinery?: MachineryMode;
+  /**
+   * The view's `[property-scope::]` (PIE-1277): which chips its query reads, `block` (the note's own, the default),
+   * `line`, `inline` or `all`. It applies to the whole query; each row's `propertyMatches` says which line matched.
+   */
+  propertyScope?: PropertyQueryScope;
   limit: number;
   create: BlockProperty | null;
   createParentId: string | null;
@@ -303,6 +310,14 @@ export function parseVirtualBranchConfig(
     try { machinery = parseMachineryMode(machineryProperty.value, "Virtual branch machinery"); } catch (error) { configurationErrors.push(errorMessage(error)); }
   }
 
+  // Line chips (PIE-1277): `[property-scope::all]` reads a `[needs::…]` written on line 30 as well as on the first line.
+  const scopeProperty = singleProperty(definition, "property-scope", false, configurationErrors);
+  let propertyScope: PropertyQueryScope | undefined;
+  if (scopeProperty) {
+    try { propertyScope = normalizePropertyQueryScope(scopeProperty.value.trim().toLowerCase()); }
+    catch { configurationErrors.push(`Virtual branch property-scope must be block, line, inline or all, not ${scopeProperty.value}: write [property-scope::all] to read line chips too`); }
+  }
+
   const depthProperty = singleProperty(definition, "child-depth", false, configurationErrors);
   const childDepth = depthProperty ? Number(depthProperty.value) : undefined;
   if (childDepth !== undefined && (!/^\d+$/.test(depthProperty!.value) || !Number.isInteger(childDepth) || childDepth < 0 || childDepth > 8)) {
@@ -381,6 +396,7 @@ export function parseVirtualBranchConfig(
       sort,
       ...(sortWritten ? { sortWritten } : {}),
       ...(machineryProperty ? { machinery } : {}),
+      ...(propertyScope && propertyScope !== "block" ? { propertyScope } : {}),
       limit,
       ...(expandWhen ? {expandWhen} : {}),
       ...(childDepth === undefined ? {} : {childDepth}),
@@ -680,12 +696,13 @@ interface ProjectedVirtualBranch<T extends ProjectionBlock = VisibleBlock> {
 /** The canonical query whose results a saved view ranks, deduplicates and bounds. */
 export function virtualBranchMembershipQuery(
   viewId: string,
-  config: Pick<VirtualBranchConfig, "filters" | "where" | "sort" | "machinery">,
+  config: Pick<VirtualBranchConfig, "filters" | "where" | "sort" | "machinery" | "propertyScope">,
   limit: number = MAX_BLOCK_QUERY_LIMIT,
 ): BlockSearchQuery {
   return {
     filters: config.filters,
     machinery: config.machinery ?? DEFAULT_MACHINERY,
+    ...(config.propertyScope ? { propertyScope: config.propertyScope } : {}),
     ...(config.where ? { predicate: config.where } : {}),
     ...(config.sort ? { sort: config.sort } : { rankViewId: viewId }),
     limit,
