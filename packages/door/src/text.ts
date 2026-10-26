@@ -156,11 +156,15 @@ export function withRowLimit<T>(lines: number, draw: () => T): T {
   try { return draw(); } finally { rowLimit = previous; measures = previousMeasures; }
 }
 
-/** A display row hangs under its marker; only its last allowed line is shortened. */
+/**
+ * A display row hangs under its marker or its Work ID; only its last allowed line is shortened. A Work ID hangs only
+ * a title it leads (`PLOT-3 — Mend`, `PLOT-3 Mend`): an id followed by other text (`PC-12 / acceptance`) hangs
+ * nothing (PIE-1302: the next row's indent landed inside the words).
+ */
 export function rowLines(text: string, w: number, lines = rowLimit, { hang }: { hang?: number } = {}): string[] {
   if (w <= 0) return [""];
   if (lines <= 1) return [drawEllipsized(text, w)];
-  const prefix = visible(text).match(/^(?:\s*(?:[→←↓♦≡∙•*▸▾-] |[A-Z][A-Z0-9]*-\d+\s*(?:[—–·:|-]\s*)?))+/)?.[0] ?? "";
+  const prefix = visible(text).match(/^(?:\s*(?:[→←↓♦≡∙•*▸▾-] |[A-Z][A-Z0-9]*-\d+(?:\s*[—–·:|-]\s+|\s+(?=[\p{L}\p{N}]))))+/u)?.[0] ?? "";
   const indent = Math.min(Math.max(hang ?? 0, width(prefix)), Math.max(0, w - 1));
   const lead = " ".repeat(indent);
   // Wrap the marker with the first line, then reuse wrap's seams to consume source text, not balanced tags.

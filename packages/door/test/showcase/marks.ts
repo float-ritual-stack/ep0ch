@@ -154,7 +154,7 @@ export const marks: Record<string, string[]> = {
   // The shed note folded to a spine (the keys on it) beside the notebook: a key the spine refuses says why on its frame.
   refusals: ["Allotment notebook", "Bike shed"],
   // One note in two readers: the wide one bands its headings, the narrow one draws them as written.
-  headings: ["Headings and dividers", "▾ ## Beds", "Water butts"],
+  headings: ["Headings and dividers", "▾ Beds", "Water butts"],
   // The Spacing lab page in its look, the tune inspector beside it, the links tile, the Looks lab note that declares it.
   style: ["Spacing lab", "tune · lab", "list.gap", "Looks lab"],
   "style-one-list": ["Style one list of several", "First oats", "Middle beans", "Last sage", "tune · lists"],

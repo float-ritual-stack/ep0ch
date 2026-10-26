@@ -212,10 +212,12 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     await act("facets.clear");
   }, 20_000);
 
-  test("the headings section (PIE-599): the wide reader bands its headings, the narrow one beside it draws them as written; ) stops on a styled heading and f folds its section", async () => {
+  test("the headings section (PIE-599): the wide reader bands its headings, the narrow one beside it draws their words; ) stops on a styled heading and f folds its section", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "headings" }, as: "test-agent" })).toMatchObject({ key: "headings" });
-    await until(() => screen().includes("Water butts") && screen().includes("▾ ## Beds"), "both readers on the headings note", 8000);
+    await until(() => screen().includes("Water butts") && screen().includes("▾ Beds"), "both readers on the headings note", 8000);
+    // Narrow (PIE-1302): a styled heading's words, never its #s.
+    expect(screen()).not.toContain("## Beds");
     expect(screen()).toMatch(/[▓▒░]{3}.*▾ Y O U R   C A L L S.*[▓▒░]/);
     // The person goes in: ( ) in the wide reader stops on the first heading, f folds its section there only.
     press({ kind: "enter" });
@@ -223,7 +225,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     ch(")");
     ch("f");
     await until(() => /▸ Y O U R   C A L L S · \d+ lines? folded/.test(screen()), "the first heading folded", 5000);
-    expect(screen()).toContain("▾ # Your calls");
+    expect(screen()).toContain("▾ Your calls");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");
   }, 20_000);
