@@ -133,6 +133,18 @@ function succeeding(run: Run): ProcessRunResult {
 }
 
 describe('register', () => {
+  // Evan's laptop, Oct 26: tidy's answer command (`claude -p --tools ""`) warned "session.start hook skipped: threw …
+  // $.tool.register: "show" refused: this session has no built-in tools". A tool-less one-shot gets nothing from the mod.
+  test('a non-interactive session with no tools registers no tools and runs no ep0ch', async ($, on) => {
+    const session = sessionIn(on, WORKSPACE, succeeding)
+    const registered: string[] = []
+    on('tool.register', ($, e) => { registered.push(e.name); return { value: { tool: `mcp__ep0ch__${e.name}` } } })
+    await session.begin(() => $.session.start({ surface: null, isInteractive: false, cwd: WORKSPACE }))
+    await session.clock.settle()
+    expect(registered).toEqual([])
+    expect(session.runs).toEqual([])
+  })
+
   test('a bound folder: the answer is ingested into its outline after the turn', async ($, on) => {
     const session = sessionIn(on, WORKSPACE, succeeding)
     await session.begin(() => $.session.start(START))

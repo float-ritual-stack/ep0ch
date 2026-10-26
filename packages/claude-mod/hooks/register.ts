@@ -438,6 +438,11 @@ export function register(on: On, options: PluginOptions): void {
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
+    // A session with no tools (`claude -p --tools ""`: tidy's and marginalia's answer command) is a one-shot text call:
+    // it takes no tools from plugins (registering one throws) and has no use for the binding, the workboard or mentions,
+    // whose `ep0ch` calls would only spend its deadline. Evan's laptop, Oct 26: tidy's call warned "session.start hook
+    // skipped: threw … no built-in tools".
+    if (!e.isInteractive && !(await $.tool.list()).length) return result
     reportStatus($, sessionStarted())
     sessionCwd = typeof e.cwd === 'string' && e.cwd ? e.cwd : null
     rebound = null; touchGlobs = null
