@@ -15,7 +15,7 @@
 // lines by the annotation repository), and an element's note shows the quote among its backlinks, by its anchor.
 // Pure: no I/O.
 import { plainBody } from "./publish-marginalia";
-import type { FragmentKind } from "@ep0ch/outline-core/protocol";
+import type { QuoteAs, QuotePlace, QuoteSubject, QuotedSubject } from "@ep0ch/outline-core/protocol";
 import type { AnnotationRecord } from "./types";
 
 /** At most this many subjects in one quote. */
@@ -23,39 +23,9 @@ export const MAX_QUOTED = 20;
 /** The page a detached element goes under (PIE-1247): one ordinary page until hidden notes exist (PIE-1011). */
 export const DETACHED_PAGE = ".detached";
 
-export type QuoteSubject =
-  | { kind: "mark"; id: string }
-  /**
-   * An element by its anchor, or by a line of it (`line`, from 0) at the note's `revision` when it has none yet;
-   * `next`: the first part at or after that line (a reader's "where I am", which may be a line no part holds).
-   */
-  | { kind: "element"; blockId: string; anchor?: string; line?: number; revision?: number; next?: true };
-
-export type QuotePlace =
-  | { kind: "inbox" } | { kind: "note" } | { kind: "under"; blockId: string } | { kind: "detached" }
-  /**
-   * Into a note's text, after its line `line` (from 0): the drag's drop. `observed`: that line as the dropper saw it;
-   * moved since (lines written above it), the quote goes after it where it is now, found once, or is refused.
-   */
-  | { kind: "into"; blockId: string; line: number; observed?: string };
-
-export type QuoteAs = "reference" | "copy";
-
+export type { QuoteAs, QuotePlace, QuoteSubject, QuotedSubject } from "@ep0ch/outline-core/protocol";
+/** A `quote` input as read: its subjects, where they go (the Inbox by default), as what (reference by default). */
 export interface QuoteInput { subjects: QuoteSubject[]; place: QuotePlace; as: QuoteAs; text?: string }
-
-/** A subject as the service read it: what links to it (`((ref))`), its words for a title, and what `copy` writes. */
-export interface QuotedSubject {
-  /** `mark-id`, or `note-id^anchor`. */
-  ref: string;
-  /** Its words for a title. */
-  label: string;
-  /** An element's kind (a mark has none). */
-  kind?: FragmentKind;
-  /** An element's own lines, anchors left out: what `copy` writes. */
-  copy?: string;
-  /** The anchor was written for this quote. */
-  anchored?: boolean;
-}
 
 /** A mark's words for a title: a comment's or reply's first line, a highlight's quote; references by label, one line. */
 export function markSnippet(record: AnnotationRecord): string {
@@ -92,8 +62,11 @@ export function quoteText(subjects: readonly QuotedSubject[], as: QuoteAs, opts:
   const own = opts.text?.replace(/\r\n?/g, "\n").trim();
   const first = subjects[0]!;
   const title = own || (opts.detached ? first.label || "Detached" : `Quoting “${first.label || "a mark"}”${subjects.length > 1 ? ` and ${subjects.length - 1} more` : ""}`);
+  // The title is the first line: a detached block's `[header::none]` goes there, its own words' other lines after.
+  const [head, ...rest] = title.split("\n");
   return [
-    `${title}${opts.detached ? " [header::none]" : ""}`,
+    `${head}${opts.detached ? " [header::none]" : ""}`,
+    ...rest,
     subjects.map((s) => `[from::((${s.ref}))]`).join(" "),
     ...subjects.map((s) => (opts.detached && as === "reference" ? `!((${s.ref}))` : quoteLine(s, as))),
   ].join("\n");

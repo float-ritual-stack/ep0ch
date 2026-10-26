@@ -18,6 +18,7 @@ import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
 import { authorName, USER, type Activity, type Actor } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
+import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
 import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList } from "../surface/note";
@@ -922,8 +923,8 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
       to: { type: "string", optional: true, kind: "tile", about: "the tile it opens beside (default this reader)" },
     },
     examples: [
-      { act: "element.detach tile=plan line=4", does: "detaches the figure on line 4 of the plan into a tile of its own, right of the plan" },
-      { act: "element.detach tile=plan anchor=bed-jobs where=down", does: "detaches the part anchored ^bed-jobs into a tile below the plan" },
+      { act: "element.detach tile=reader line=4", does: "detaches the figure on line 4 of the reader's note into a tile of its own, right of it" },
+      { act: "element.detach tile=reader anchor=bed-jobs where=down", does: "detaches the part anchored ^bed-jobs into a tile below the reader" },
     ],
     async run({ line, anchor, where, to }, { pane, desk }, actor) {
       const r = await pane.surface.materialize({ kind: "detached" }, pane.host(desk), actor, { ...(anchor ? { anchor } : {}), ...(line !== undefined ? { line: line - 1 } : {}) });
@@ -938,24 +939,27 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
     },
   }),
   "element.quote": def({
-    summary: "put a part of the reader's note into another note (PIE-1247), as the alt+drag's drop does: the part at line= (from 1; default the current element) or anchor= goes into=<note> after its line at= (from 1), as=reference (!((note^anchor)) for a figure or callout, ((note^anchor)) for a list item or paragraph; its anchor written if it had none) or as=copy (its own lines: a figure with its query, which then answers for the note it's in). Through draft.patch: an edit open there takes it in place",
+    summary: "put a part of the reader's note into another note (PIE-1247), as the alt+drag's drop does: the part at line= (from 1; default the current element) or anchor= goes into=<note> (an id, ((id)) or [[page]]) after its line at= (from 1; a part there, a figure or a callout, after the whole of it), as a reference (!((note^anchor)) for a figure or callout, ((note^anchor)) for a list item or paragraph; its anchor written if it had none) or, copy=true, its own lines (a figure with its query, which then answers for the note it's in). Through draft.patch: an edit open there takes it in place",
     keys: "alt+drag a part onto another reader's note, then choose reference or copy",
     touches: "draft", draft: "write", replay: "ask",
     args: {
       into: { type: "string", optional: false, kind: "note", about: "the note it goes into: an id or ((id))" },
       after: { type: "string", optional: true, about: "the text of line at= as you read it: moved since, the part goes after it where it is now (or is refused)" },
       at: { type: "number", optional: false, about: "the line of that note it goes after, from 1" },
-      as: { type: "string", optional: true, choices: ["reference", "copy"], about: "reference (the default) or copy" },
+      copy: { type: "boolean", optional: true, about: "copy its own lines instead of a reference (a figure comes with its query)" },
       line: { type: "number", optional: true, about: "the part's line in this reader's note, from 1 (default: the current element)" },
       anchor: { type: "string", optional: true, conflicts: ["line"], about: "the part's ^anchor, when it has one" },
     },
     examples: [
-      { act: "element.quote tile=plan line=4 into=((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34)) at=2", does: "embeds the plan's figure in the sticky pad after its second line" },
-      { act: "element.quote tile=plan anchor=bed-jobs into=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 at=1 as=copy", does: "copies the figure, query and all, into the pad after its first line" },
+      { act: "element.quote tile=reader line=4 into=((5e2b8c14-7a3d-4f19-b6e2-0c9d8a1f3e57)) at=2", does: "embeds the figure on line 4 in the sticky pad, after its second line" },
+      { act: "element.quote tile=reader anchor=bed-jobs into=5e2b8c14-7a3d-4f19-b6e2-0c9d8a1f3e57 at=1 copy=true", does: "copies the figure, query and all, into the pad after its first line" },
     ],
-    async run({ into, at, as, line, anchor, after }, { pane, desk }, actor) {
-      const blockId = /\(\(([^)|^]+)/.exec(String(into))?.[1] ?? String(into).trim();
-      const r = await pane.surface.materialize({ kind: "into", blockId, line: Math.max(0, Number(at) - 1), ...(after !== undefined ? { observed: String(after) } : {}) }, pane.host(desk), actor, { ...(anchor ? { anchor } : {}), ...(line !== undefined ? { line: line - 1 } : {}), ...(as ? { as: as as "reference" | "copy" } : {}) });
+    async run({ into, at, copy, line, anchor, after }, { pane, desk }, actor) {
+      // The note it goes into, as a reference names one: an id, ((id)), or a [[page]] the service resolves.
+      const named = String(into).trim(), page = /^\[\[(.+)\]\]$/.exec(named)?.[1];
+      const blockId = page ? (await desk.ctx.board.resolvePage(page)).block?.id : referencedBlock(named)?.blockId ?? named;
+      if (!blockId) throw new ActionRefused(`no page is named ${page}: name the note by its id, ((id)) or [[page]]`);
+      const r = await pane.surface.materialize({ kind: "into", blockId, line: Math.max(0, Number(at) - 1), ...(after !== undefined ? { observed: String(after) } : {}) }, pane.host(desk), actor, { ...(anchor ? { anchor } : {}), ...(line !== undefined ? { line: line - 1 } : {}), ...(copy ? { as: "copy" as const } : {}) });
       if (!("into" in r)) throw new ActionRefused("the service made a block, not an edit of that note");
       return { into: r.into, part: r.subjects[0]!.ref, ...(r.subjects[0]!.anchored ? { anchored: true } : {}), said: r.said };
     },

@@ -117,22 +117,9 @@ export interface Comment {
   /** The blocks quoting it (`quote`), oldest first: each holds `[from::((this))]`. */
   quotedIn?: string[];
 }
-/**
- * What `quote` materializes (PIE-1247, outliner src/quote.ts): a mark, or an element of a note by its anchor or by a
- * line of it (the note's revision with it: the service writes the anchor).
- */
-export type QuoteSubject = { kind: "mark"; id: string } | { kind: "element"; blockId: string; anchor?: string; line?: number; revision?: number; next?: true };
-/**
- * Where it goes: a new block at the top of the Inbox, under the first subject's note, under a block, under `.detached`
- * (a tile of its own, no header), or into a note's text after a line (the drag's drop).
- */
-export type QuotePlace = { kind: "inbox" } | { kind: "note" } | { kind: "under"; blockId: string } | { kind: "detached" } | { kind: "into"; blockId: string; line: number; observed?: string };
-/** A subject as the service read it: `ref` is what links to it (`note^anchor`), `anchored` when its anchor was just written. */
-export interface QuotedSubject { ref: string; label: string; kind?: string; anchored?: boolean }
-/** What `quote` made: a block, where it went (in words too) and the undo step that takes it back; or what it put into a note. */
-export type QuoteReceipt =
-  | { block: { id: string; text: string }; placement: { parentId: string; said: string }; marks: string[]; subjects: QuotedSubject[]; undo?: string }
-  | { into: { blockId: string; outcome: "applied" | "proposed"; revision?: number; reason?: string }; subjects: QuotedSubject[]; said: string };
+// `quote`'s wire types (PIE-1247) are outline-core's: both sides import them.
+import type { QuotePlace, QuoteReceipt, QuoteSubject } from "@ep0ch/outline-core/protocol";
+export type { QuotePlace, QuoteReceipt, QuoteSubject, QuotedSubject } from "@ep0ch/outline-core/protocol";
 /**
  * A passage to comment on: exact source text of the note, where it starts (UTF-16 offset), and the text around it
  * (outline-core passage.ts), so a comment on a note that moved on since lands where the words are, once.

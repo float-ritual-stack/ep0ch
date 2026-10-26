@@ -106,7 +106,10 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
     const needsNvim = page.name === "block.mark" && example.act.includes("line=");
     if (needsNvim && !NVIM) console.warn(`Skipping example (nvim is not on PATH): ${example.act}`);
     test.skipIf(needsNvim && !NVIM)(example.act, async () => {
-    const note = await h.board.createBlock(null, `Seed swap [page::garden]${page.name === "tree.depth" ? " [type::virtual-branch] [query::page=garden]" : ""}\nseed swap: bring beans and peas.\n` + "Water the beds.\n".repeat(45));
+    // A part to take out (PIE-1247): element.* examples name the figure on line 4, ^bed-jobs, and a pad to drop it into.
+    const parts = page.name.startsWith("element.") ? "\n::graph-table ^bed-jobs\n---\ntitle: Bed jobs\n---\n- peas: sow\n::\n" : "";
+    const note = await h.board.createBlock(null, `Seed swap [page::garden]${page.name === "tree.depth" ? " [type::virtual-branch] [query::page=garden]" : ""}\nseed swap: bring beans and peas.\n${parts}` + "Water the beds.\n".repeat(45));
+    const pad = page.name.startsWith("element.") ? await h.board.createBlock(null, "Sticky pad\nKept beside the plan.\nThe end.") : null;
     if (page.name === "tree.depth") await h.board.move(note.id, null, USER, 1);
     const file = join(h.scratch.root, "garden-plan.md");
     writeFileSync(file, "# Garden plan\nSow peas by the fence.\n");
@@ -166,7 +169,7 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
       if (page.name === "note.untrash") await act("note.trash", { ref: note.id, confirm: note.id });
       if (page.name === "screen.delete" || page.name === "layout.load") await act("screen.save", { name: "garden planning" });
       let line = example.act.replaceAll("7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", note.id).replaceAll("7d9a1f40", note.id.slice(0, 8))
-        .replaceAll("3b8e6c21-5f4a-4d7b-9c02-a1e8d4f7b650", note.id).replaceAll("4c1e9a73-8d20-4f65-b3a9-6e7d2c0f1b84", note.id).replaceAll("/tmp/garden-plan.md", file);
+        .replaceAll("3b8e6c21-5f4a-4d7b-9c02-a1e8d4f7b650", note.id).replaceAll("5e2b8c14-7a3d-4f19-b6e2-0c9d8a1f3e57", pad?.id ?? note.id).replaceAll("4c1e9a73-8d20-4f65-b3a9-6e7d2c0f1b84", note.id).replaceAll("/tmp/garden-plan.md", file);
       if (line.includes("split=s1")) line = line.replace("split=s1", `split=${d.layoutGet().tree.id}`);
       const answer = await h.app.dispatch.act(actRequestOf(lineWords(line)), USER) as { tile: string; name: string };
       if (answer?.tile && !(page.name === "tile.group" && line.includes("on=false"))) {
@@ -186,6 +189,7 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
       while (h.app.screens().at(-1) !== h.sc) h.app.pop();
       d.dispose();
       if (page.name !== "note.trash") await h.board.trash(note.id);
+      if (pad) await h.board.trash(pad.id);
     }
   });
   }

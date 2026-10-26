@@ -784,9 +784,7 @@ export type { QuoteAs, QuoteInput, QuotePlace, QuoteSubject, QuotedSubject } fro
  * `into` a note, the draft.patch it sent there (applied, or proposed beside the note). Each subject as it was read
  * (`anchored`: its anchor was written for this quote).
  */
-export type QuoteReceipt =
-  | { readonly block: Block; readonly placement: NotePlacement; readonly marks: readonly string[]; readonly subjects: readonly import("./quote").QuotedSubject[]; readonly undo?: string }
-  | { readonly into: { readonly blockId: string; readonly outcome: "applied" | "proposed"; readonly revision?: number; readonly reason?: string }; readonly subjects: readonly import("./quote").QuotedSubject[]; readonly said: string };
+export type QuoteReceipt = import("@ep0ch/outline-core/protocol").QuoteReceipt<Block, NotePlacement>;
 
 /** A posted comment's or reply's new words (`annotations.update`, PIE-763), checked against the revision the editor started from. */
 export interface AnnotationUpdateInput {
@@ -2442,7 +2440,7 @@ export type OutlinerRequestAction =
       id: string;
       action: "quote";
       /** As sent: `place` defaults to the Inbox, `as` to reference (src/quote.ts readQuoteInput checks it). */
-      input: { subjects: import("./quote").QuoteSubject[]; place?: import("./quote").QuotePlace; as?: import("./quote").QuoteAs; text?: string };
+      input: import("@ep0ch/outline-core/protocol").QuoteRequest;
       mutation: MutationProvenance;
     }
   | {

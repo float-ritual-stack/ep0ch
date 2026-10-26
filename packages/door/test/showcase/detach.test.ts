@@ -31,7 +31,7 @@ describe.skipIf(!outliner)("showcase: detach (PIE-1247)", () => {
     mouse("down", x, y);
     mouse("drag", x + 2, y);
     mouse("drag", x2, y2);
-    expect(h.screen()).toContain("⤵ into Shed sticky pad, after line 2");
+    expect(h.screen()).toContain("→ into Shed sticky pad, after line 2");
     mouse("up", x2, y2);
     await until(() => h.screen().includes("embed it: a reference"), "the embed-or-copy choice", 8000);
     h.press({ kind: "enter" } as never);
@@ -50,7 +50,7 @@ describe.skipIf(!outliner)("showcase: detach (PIE-1247)", () => {
     await until(() => h.screen().split("\n").filter(l => l.includes("Fix the latch")).length >= 1 && h.S().stages.get(h.S().sel).top.layoutGet().tiles.length === 3, "the detached tile", 15_000);
 
     // And the callout copied into the pad, its words with it.
-    const q = await h.app.act({ action: "element.quote", tile: "plan", args: { line: 11, into: pad, at: 2, as: "copy" }, as }) as { into: { outcome: string } };
+    const q = await h.app.act({ action: "element.quote", tile: "plan", args: { line: 11, into: pad, at: 2, copy: true }, as }) as { into: { outcome: string } };
     expect(q.into.outcome).toBe("applied");
     expect((await h.board.get(pad))!.text.split("\n").slice(1, 4)).toEqual(["Drop a part of the plan here.", "> [!warning] Paint the door last", "> The primer needs two dry days."]);
 

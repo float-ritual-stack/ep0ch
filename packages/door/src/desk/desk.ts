@@ -7312,8 +7312,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private dragElement(p: NonNullable<Desk["pressed"]>, k: { x: number; y: number }): boolean {
     if (!p.fresh || !p.at) return false;
     if (!this.elementDrag) {
-      if (Math.abs(k.x - p.at.x) + Math.abs(k.y - p.at.y) < 2 || !p.pane.msg || !isOutlineNote(p.pane.msg)) return false;
+      // Three cells, so a held alt-click's jitter stays a click (it opens beside); a blank line between parts is no part.
+      if (Math.abs(k.x - p.at.x) + Math.abs(k.y - p.at.y) < 3 || !p.pane.msg || !isOutlineNote(p.pane.msg)) return false;
       const from = this.pressedAt(p, p.at), line = p.pane.surface.elementLine(from.x, from.y);
+      if (line !== undefined && !(p.pane.msg.text.split("\n")[line] ?? "").trim()) return false;
       const src = [...this.panes].find(([, pane]) => pane === p.pane)?.[0];
       if (line === undefined || src === undefined) return false;
       p.pane.surface.clearSelections();
@@ -7333,7 +7335,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (hit && hit[0] !== src && pane instanceof ReaderPane && pane.msg && isOutlineNote(pane.msg) && pane.msg.id !== from && this.inBody(hit[0], hit[1], x, y)) {
       const at = this.local(hit[0], hit[1], x, y);
       const line = pane.surface.elementLine(at.x, at.y) ?? pane.msg.text.split("\n").length - 1;
-      return { kind: "into", tile: hit[0], note: pane.msg.id, line, label: `⤵ into ${subject(pane.msg)}, after line ${line + 1}: let go to embed or copy it` };
+      return { kind: "into", tile: hit[0], note: pane.msg.id, line, label: `→ into ${subject(pane.msg)}, after line ${line + 1}: let go to embed or copy it` };
     }
     const drop = dropAt(this.dropTiles(), this.area, x, y, src, true);
     return drop ? { kind: "detach", drop, label: `⧉ detach it: ${drop.label}` } : null;
@@ -7352,7 +7354,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     // The line as the person saw it: lines written above it while the choice is open don't move where it lands.
     const after = (this.panes.get(t.tile) as ReaderPane).msg?.text.split("\n")[t.line];
-    const quote = (as: "reference" | "copy") => this.run("element.quote", { line: e.line + 1, into: t.note, at: t.line + 1, as, ...(after !== undefined ? { after } : {}) }, src);
+    const quote = (as: "reference" | "copy") => this.run("element.quote", { line: e.line + 1, into: t.note, at: t.line + 1, ...(as === "copy" ? { copy: true } : {}), ...(after !== undefined ? { after } : {}) }, src);
     this.overlays.push(dropAsPicker(subject((this.panes.get(t.tile) as ReaderPane).msg!), quote));
     this.redraw();
   }

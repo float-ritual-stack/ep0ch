@@ -2,6 +2,7 @@
 // after the note's line as one `draft.patch`, the edit every agent and producer sends: a draft held open takes it in
 // place, a line rewritten since makes it a proposal beside the note, never a write over the person's words.
 import type { DraftPatchRouter } from "./draft-patch-router";
+import { elementAt } from "./fragments";
 import { markBelow } from "./place";
 import { quoteLine, readQuoteInput, type QuoteInput } from "./quote";
 import type { OutlinerStore } from "./store";
@@ -24,6 +25,10 @@ export async function quoteInto(store: Pick<OutlinerStore, "quoteSubjects">, dra
     line = at[0]!;
   }
   if (line >= lines.length) throw new Error(`${blockId} has ${lines.length} lines: line ${line + 1} isn't one of them`);
+  // Dropped on a part of several lines (a figure's opening line, a callout's first): after the whole part, never inside
+  // it. A heading's section is no such part: a drop in it stays on its line.
+  const part = elementAt(draft.text, line);
+  if (part && part.kind !== "heading") line = part.end;
   const subjects = store.quoteSubjects(input.subjects, mutation);
   const inserted = subjects.map(s => quoteLine(s, input.as)).join("\n");
   const start = lines.slice(0, line).reduce((n, l) => n + l.length + 1, 0), observed = lines[line]!;

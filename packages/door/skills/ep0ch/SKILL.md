@@ -210,7 +210,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   figure, a callout, a list item, a paragraph) a block of its own under `.detached` that embeds it, its `^anchor`
   written if it had none, and opens it in a held reader with no header (`where=`, `to=` place it; the person's alt+D,
   the tile menu's "detach this part", or an alt+drag onto a tile's side). `element.quote tile=<reader> line=<n>
-  into=<note> at=<line> as=reference|copy` puts it into another note's text through draft.patch (the person's
+  into=<note> at=<line> [copy=true]` puts it into another note's text through draft.patch (the person's
   alt+drag onto a reader, then embed or copy). A screen that keeps its layout refuses the tile a detach would open.
 
 - **Layout history and transactions** (PIE-957). Every change to a screen's shape is one entry in a history kept for every

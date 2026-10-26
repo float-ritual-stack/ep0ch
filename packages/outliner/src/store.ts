@@ -1384,9 +1384,8 @@ export class OutlinerStore {
       let anchor = subject.anchor, anchored = false;
       if (anchor === undefined) {
         if (subject.revision !== began.get(block.id)) throw new Error(`${subject.blockId} changed since revision ${subject.revision} (it's at ${block.revision}): read it again and name the line`);
-        let element = elementAt(block.text, subject.line!);
         // "Where I am" (`next`): the first part at or after the line.
-        for (let at = subject.line! + 1, n = block.text.split("\n").length; !element && subject.next && at < n; at++) element = elementAt(block.text, at);
+        const element = elementAt(block.text, subject.line!, subject.next === true);
         if (!element) throw new Error(`line ${subject.line! + 1} of ${subject.blockId} is in no part a quote can take (a figure, a callout, a list item, a paragraph, a heading's section)`);
         const made = ensureFragmentAnchor(block.text, element.lineIndex);
         if (made.created) block = this.update(block.id, made.text, block.revision, mutation);

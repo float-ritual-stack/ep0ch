@@ -498,22 +498,30 @@ export function ensureFragmentAnchor(
   };
 }
 
+/** Every part of `text` a reference can take, with the lines it covers: one parse, the parts an anchor can't be written on left out. */
+function partsOf(text: string): { c: FragmentCandidate; start: number; end: number }[] {
+  const out: { c: FragmentCandidate; start: number; end: number }[] = [];
+  for (const c of fragmentCandidates(text, "", "passage")) {
+    let anchored: { text: string; id: string };
+    try { anchored = c.fragmentId ? { text, id: c.fragmentId } : (() => { const a = ensureFragmentAnchor(text, c.lineIndex); return { text: a.text, id: a.fragmentId }; })(); }
+    catch { continue; } // a line an anchor can't go on (a front-matter property): no part to take
+    const r = resolveFragmentSlice(anchored.text, anchored.id);
+    if (r.status === "resolved") out.push({ c, start: r.slice.startLine, end: r.slice.endLine });
+  }
+  return out;
+}
+
 /**
  * The element line `line` belongs to (PIE-1247: what a press, a drag or `element.detach` on that line means): the
  * innermost of the note's figures, callouts, quotes, list items, paragraphs and heading sections that holds it, with
- * its anchor when it has one, else the line its anchor would go on. Null for a line no element holds (the title, a
- * property line, a blank between parts).
+ * its anchor when it has one, else the line its anchor would go on. With `next`, a line no part holds (a blank, the
+ * title) means the first part that starts after it. Null when there is none. `end`: the last line it covers.
  */
-export function elementAt(text: string, line: number): FragmentCandidate | null {
-  let best: { c: FragmentCandidate; span: number } | null = null;
-  for (const c of fragmentCandidates(text, "", "passage")) {
-    const anchored = c.fragmentId ? { text, id: c.fragmentId } : (() => { const a = ensureFragmentAnchor(text, c.lineIndex); return { text: a.text, id: a.fragmentId }; })();
-    const r = resolveFragmentSlice(anchored.text, anchored.id);
-    if (r.status !== "resolved" || line < r.slice.startLine || line > r.slice.endLine) continue;
-    const span = r.slice.endLine - r.slice.startLine;
-    if (!best || span < best.span) best = { c, span };
-  }
-  return best?.c ?? null;
+export function elementAt(text: string, line: number, next = false): (FragmentCandidate & { end: number }) | null {
+  const parts = partsOf(text);
+  const holding = parts.filter(p => line >= p.start && line <= p.end).sort((a, b) => (a.end - a.start) - (b.end - b.start))[0];
+  const found = holding ?? (next ? parts.filter(p => p.start > line).sort((a, b) => a.start - b.start || b.end - a.end)[0] : undefined);
+  return found ? { ...found.c, end: found.end } : null;
 }
 
 /** A passage's anchor: its first three words, short enough to type (`^water-the-seedlings`). */
