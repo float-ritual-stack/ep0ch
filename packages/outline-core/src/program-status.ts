@@ -47,7 +47,8 @@ export type StatusRecord = Omit<StatusReport, "state"> & { state: ProgramState }
  * Which tile (PIE-1306, ep0ch's own, beside the feature query): a program asks the terminal it is drawn in which tile
  * that is, and an ep0ch door answers on the program's input, `OSC 7501 ; ?tile=<t-uuid> ST` (the tile registry's id:
  * the one name of a tile, the one `open from=` takes). It travels over ssh because it is in the pty stream (not through
- * tmux, which keeps a query's answer for itself); a terminal that isn't a door answers nothing (send primary device attributes after it to hear that at once).
+ * tmux, which keeps a query's answer for itself); a terminal that isn't a door answers nothing (send primary device
+ * attributes after it to hear that at once).
  */
 export const TILE_QUERY = "\x1b]7501;?tile\x1b\\";
 /** A marker's token: what `host.tileOf mark=` is asked with. */
