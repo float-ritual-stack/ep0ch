@@ -16,6 +16,8 @@ export type ReplyBlock =
   | { kind: 'markdown'; text: string }
   | { kind: 'line'; parts: LinePart[] }
   | { kind: 'table'; header: LinePart[][]; rows: LinePart[][][] }
+  /** A blank line outside code: one empty row, since a Markdown run drawn on its own has no margins to keep the gap. */
+  | { kind: 'blank' }
 
 /** `[label](stand-in)` as `linkifyReferences` writes it (labels have `[`, `]` and `\` escaped). */
 const LINK = /\[((?:[^\]\\\n]|\\.)*)\]\((https?:\/\/[^)\s]*)\)|`[^`\n]*`|\bhttps?:\/\/[^\s<>()[\]`]+/gi
@@ -154,9 +156,13 @@ export function replyBlocks(linkified: string): ReplyBlock[] {
       i = end - 1
       continue
     }
+    // Each piece draws on its own, so a blank line kept inside a Markdown run vanishes at its edge (Evan, Oct 26: a
+    // reply with one link lost every gap between its parts); outside code it is its own row.
+    if (!code.has(i) && !line.trim()) { blocks.push({ kind: 'blank' }); continue }
     const parts = code.has(i) ? null : lineOf(line)
     if (parts) blocks.push({ kind: 'line', parts })
     else markdown(line)
   }
-  return blocks
+  // All Markdown: the reply stays one run, drawn whole (its links pressable there), blank lines and all.
+  return blocks.every(block => block.kind === 'markdown' || block.kind === 'blank') ? [{ kind: 'markdown', text: linkified }] : blocks
 }

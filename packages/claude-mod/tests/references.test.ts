@@ -126,6 +126,18 @@ describe('references', () => {
     expect(JSON.stringify(blocks)).not.toContain('PIE-3](')
   })
 
+  // Evan, Oct 26: cowboy's reply mentioning PC-1349 lost every blank line between its parts.
+  test('replyBlocks: a blank line between parts is a row of its own, so a reply with a reference keeps its gaps', async () => {
+    const { text } = linkifyReferences('The keys are in.\n\n- PR 1874 (PIE-1349) waits on review\n\nDo you want me to queue it?\n\nI updated the PIE-1349 page.', ['PIE'])
+    const kinds = replyBlocks(text).map(b => b.kind)
+    expect(kinds).toEqual(['markdown', 'blank', 'line', 'blank', 'markdown', 'blank', 'line'])
+  })
+
+  test('replyBlocks: a reply with no line of its own stays one Markdown run, blank lines and all', async () => {
+    const blocks = replyBlocks('One paragraph.\n\nAnother, **bold**.\n\n- a list')
+    expect(blocks).toEqual([{ kind: 'markdown', text: 'One paragraph.\n\nAnother, **bold**.\n\n- a list' }])
+  })
+
   test('replyBlocks: emphasis that spans a reference and other text draws as bold or italic, never the literal markers', async () => {
     const { text } = linkifyReferences('**A bold line with PIE-1030 inside it**\nSome *italic PIE-2 words* and ***both PIE-3***', ['PIE'])
     const blocks = replyBlocks(text)

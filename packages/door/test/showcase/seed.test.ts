@@ -202,7 +202,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     for (const f of RECENT_FILES()) expect(existsSync(f.file)).toBe(true);
   });
 
-  test("heading styles (PIE-599): banded wide, as written narrow, nothing past the edge; the outline's own style changes the look with no door change", async () => {
+  test("heading styles (PIE-599): banded wide, their words narrow, nothing past the edge; the outline's own style changes the look with no door change", async () => {
     const drawn = async (w: number) => (await drawNote(board, seeded.notes.headings.id, w))!.map(plain);
     for (const w of [40, 80, 160]) {
       const lines = await drawn(w), text = lines.join("\n");
@@ -215,7 +215,16 @@ describe.skipIf(!outliner)("the showcase seed", () => {
       const bandTop = gh - (w === 40 ? 0 : 1);
       expect(lines.slice(bandTop - 2, bandTop).map(l => l.trim()), `at ${w}: the margin above`).toEqual(["", ""]);
       if (w === 40) {
-        for (const h of ["# Your calls", "## The plot", "## Beds", "### Water butts", "## Seed order", "## Compost", "## Odd jobs", "## Tool shed", "## Plain"]) expect(lines.map(l => l.trim())).toContain(`▾ ${h}`);
+        // A styled heading's words, without its #s (PIE-1302); the plain one as Markdown writes it.
+        for (const h of ["Your calls", "The plot", "Beds", "Water butts", "Seed order", "Compost", "Odd jobs", "Tool shed", "## Plain"]) expect(lines.map(l => l.trim())).toContain(`▾ ${h}`);
+        // A checklist step wraps whole, and a table cell's next row starts at the cell's edge.
+        expect(text).not.toContain("first fro…");
+        expect(text.replace(/[┊\s]+/g, " ")).toContain("Order the seed trays for the raised beds before the first frost comes in");
+        // A long plain heading wraps whole under its words (PIE-1348).
+        const long = lines.findIndex(l => l.includes("▾ ## A plain heading"));
+        expect(lines.slice(long, long + 3).map(l => l.trim()).join(" ")).toContain("▾ ## A plain heading long enough to wrap in the narrow reader");
+        const job = lines.findIndex(l => l.includes("SHED-4 /")), col = lines[job]!.indexOf("SHED-4");
+        expect(lines[job + 1]!.slice(col), "the cell's next row at its edge").toMatch(/^\S/);
         expect(lines.map(l => l.trim()).filter(l => l === "---").length).toBe(2);
       } else {
         expect(text).toMatch(/[▓▒░]{3}.*Y O U R   C A L L S.*[▓▒░]{3}/);

@@ -2,6 +2,7 @@
 // the first ones: each kind's drawing. What it makes of Markdown rows is outline-core's figure-props.ts. A new kind
 // is a module here and a line in each map.
 import { drawAnnotate } from "./annotate";
+import { drawCheck } from "./check";
 import { drawChat } from "./chat";
 import { drawActivity, drawCalendar, drawUptime } from "./days";
 import { drawCompare } from "./compare";
@@ -15,6 +16,7 @@ import { drawExample } from "./example";
 import type { Draw } from "./palette";
 
 export const FIGURES: Record<string, Draw> = {
+  check: drawCheck,
   decision: drawDecision,
   chat: drawChat,
   keys: (p, w, link) => drawKeys(keysFromRegistry(p), w, link),

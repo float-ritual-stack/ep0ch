@@ -11,9 +11,6 @@ import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props
 import { FIGURES } from "./figures/index";
 import { ACCENT, DIM, HI, INK, inlineRows, rowLink, rowLinks, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
 export type { RowInline, RowLink } from "./figures/palette";
-import { colourInline } from "./text";
-import { STEP_BOXES } from "./steps";
-import { stepClosed, stepDone, type ChecklistStatus } from "@ep0ch/outline-core/checklist-marks";
 import { setLinksSource, linksSource } from "./links";
 import type { SocketBoard } from "./socket";
 
@@ -112,21 +109,8 @@ export interface FiguresEnv {
 interface FigureUI { lines: number; key: string; density: Density; tab?: string; tag?: (c: FigureControl, text: string) => string; all?: boolean; rows?: RowInline }
 
 const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI) => string[]> = {
-  // The kinds in src/figures/ (decision, chat, keys, uptime, activity, calendar, annotate).
+  // The kinds in src/figures/ (check, decision, chat, keys, uptime, activity, calendar, annotate, …).
   ...FIGURES,
-
-  // A row's box is a checklist step's (PIE-864): drawn by its status, and a control where the reader lends one. Its
-  // words and side note go through the reader's inline drawing, so a code span copies and a link follows as in the note.
-  check: (p, w, link, ui) => (p.items ?? []).flatMap((it: Props) => {
-    const status: ChecklistStatus = it.status ?? (it.done ? "done" : "todo");
-    const mark = STEP_BOXES[status], shown = ui?.rows?.box?.(it, mark);
-    const box = shown ? colourInline(shown, ACCENT) : fg(stepDone(status) ? ACCENT : DIM) + mark + RESET;
-    const ink = stepDone(status) ? HI : stepClosed(status) ? DIM : INK;
-    const lines = inlineRows(String(it.label ?? ""), w - 6, ink, ui?.rows, typeof it.block === "string");
-    const note = it.note ? inlineRows(String(it.note), w - 6, DIM, ui?.rows) : [];
-    return rowLinks(link, it.block, lines).map((l, i) => (i ? "      " : box + "  ") + l)
-      .concat(note.map(l => "      " + l));
-  }),
 
   timeline: (p, w, link, ui) => {
     const ev: Props[] = p.events ?? [];

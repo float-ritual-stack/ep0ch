@@ -208,6 +208,8 @@ export class ListPicker<T, H> implements Mode<H> {
   }
 
   itemAt(y: number): number | null { return this.hits.find(hit => hit.y === y)?.i ?? null; }
+  /** The box it was last drawn in (null before its first draw). */
+  drawn(): Rect | null { return this.box; }
 
   /** Drawn in its frame over the screen. */
   draw(canvas: Canvas, area: Rect, values?: StyleValues) {

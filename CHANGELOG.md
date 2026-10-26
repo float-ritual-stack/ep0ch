@@ -23,6 +23,36 @@ are its record. The outliner's entries from then are kept below, under
   and Detail.
 - The kitchen sink's `sticky-pad` section shows it. Parsing rules changed (GRAMMAR 6); the `transclusions.read` and
   `references.backlinks` answers gained fields (see the PR for the PROTOCOL note).
+
+### Floats draw above the drawer, and menus above everything (PIE-1221)
+
+- **A float over the open drawer is drawn whole:** its frame, its text and its pictures sit above the drawer's rows,
+  and a click on it there goes to the float, never the drawer.
+- **The last one you touched is on top:** click in the drawer (or go in with `ctrl+]`) and the drawer comes above
+  the float; click the float, or step out of the drawer, and the float is back above. No dragging it out of the way.
+- **Menus are never cut off:** a tile's menu, a hint card or a completion list opened low on a float runs down over
+  the drawer. A lifted tile (PIE-1189) still draws above both.
+
+### One checklist drawing, and plain headings wrap when narrow (PIE-1348)
+
+- **A component's checklist looks like a `::graph-check`:** the same box, two spaces, and the same hang under the
+  words, which now line up under the first row's. A done step is bright and an open one grey, as in the figure (a
+  component's done steps were dimmed before). One drawing (`src/figures/check.ts`) draws both; a component's steps
+  still aren't links or tickable steps.
+- **A long `##` heading wraps under its words** in a narrow reader, past its `#`s, instead of running off the edge. A
+  copy takes it as one line.
+
+### Narrow readers never cut a checklist step or show a heading's source (PIE-1302)
+
+- **A checklist step wraps whole:** a `::graph-check` row (and a component's checklist) takes as many rows as its
+  words need, at any width. It was cut with `…` after two.
+- **A styled heading too narrow for its band** (under 48 columns, or too long) draws its words in the heading's ink:
+  `▾ Due Monday`, not `▾ ## Due Monday`. A heading with no style, or a style nobody declared, still shows its `#`s.
+- **A table cell's next row starts at the cell's edge:** a cell like `PC-12 / acceptance` no longer hangs its next
+  row six cells in. A Work ID still hangs a title it leads (`PLOT-3 — Mend the netting`, `PLOT-3 Mend the netting`).
+- **The byline's property count moves to the next line whole** (`i 14 properties`) when the date leaves no room,
+  with the summary after it where that fits. It was cut to `i 14 proper…`.
+
 ### ^W's panel shows the focused tile's own keys first (PIE-1338)
 
 - **Pause after `^W` and the panel starts with "this tile: <its name>":** the keys the focused tile takes by itself,

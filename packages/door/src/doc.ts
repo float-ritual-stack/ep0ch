@@ -434,6 +434,12 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const wraps = new Map<number, string>();
   // A prose line's rows after its first carry it on, joined as the wrap said (a quote's don't: each row is a `>` line again).
   const wrapped = (at: number, joins: readonly (string | undefined)[]) => joins.forEach((j, k) => { if (k > 0 && j !== undefined) wraps.set(at + k, j); });
+  // A styled heading drawn plainly (PIE-1302): its disclosure and hang left out of a copy, its rows joined as wrapped.
+  const headingCopy = (at: number, h: { copy?: StyledHeading["copy"] }) => {
+    if (!h.copy) return;
+    h.copy.cuts.forEach((c, k) => { if (c.length) cut(at + h.copy!.at + k, ...c); });
+    wrapped(at + h.copy.at, h.copy.joins);
+  };
   const marginEdges = (at: number, h: { rows: string[]; margin?: { top: number; bottom: number } }) => {
     if (!h.margin) return;
     for (let r = 0; r < h.margin.top; r++) edge(at + r);
@@ -626,7 +632,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const rows = styled?.rows ?? prose(line, W, disclosure, lit(i), env.task && (box => env.task!(i, box)), joins);
       if (!styled || styled.plainAt !== undefined) proseCuts(line, W, disclosure).forEach((c, k) => { if (c.length && k < rows.length) cut(out.length + (styled?.plainAt ?? 0) + k, ...c); });
       heads.push({ key: fp.key, row: out.length + (styled?.headRow ?? 0), cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2 });
-      if (styled) marginEdges(out.length, styled);
+      if (styled) { marginEdges(out.length, styled); headingCopy(out.length, styled); }
       else wrapped(out.length, joins);
       out.push(...rows);
       if (folded) { mark(); insert(i + 1); inserted = fp.end; i = fp.end - 1; }
@@ -907,7 +913,12 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         pieces.forEach((p, k) => {
           if (typeof p !== "string") { out.push(...env.embed!(p.id, p.fragment, embeds++, W)); return; }
           const t = k === 0 ? p.trimEnd() : p.trim();
-          if (t.trim() && !/^\s*([-*]|\d+[.)])\s*$/.test(t)) out.push(...prose(t, W, undefined, lit(i)));
+          if (!t.trim() || /^\s*([-*]|\d+[.)])\s*$/.test(t)) return;
+          // Each piece copies as the prose it is: its drawing cut, its wrapped rows joined (PIE-1348).
+          const joins: (string | undefined)[] = [], rows = prose(t, W, undefined, lit(i), undefined, joins);
+          proseCuts(t, W).forEach((c, r) => { if (c.length && r < rows.length) cut(out.length + r, ...c); });
+          wrapped(out.length, joins);
+          out.push(...rows);
         });
         continue;
       }
@@ -923,6 +934,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const plainAt = "plainAt" in styled ? styled.plainAt as number | undefined : undefined;
       if (plainAt !== undefined) proseCuts(line, W).forEach((c, k) => { if (c.length) cut(out.length + plainAt + k, ...c); });
       marginEdges(out.length, styled);
+      if ("copy" in styled) headingCopy(out.length, styled as StyledHeading);
       out.push(...styled.rows);
       continue;
     }
@@ -1138,13 +1150,14 @@ function cascaded(style: HeadingStyle, base: HeadingStyle, fields: readonly { ke
  * prose starts on, for its cuts), with the margin it took. Null for a line that isn't a heading, or a plain heading
  * with no margin.
  */
-function headingRows(line: string, W: number, env: DocEnv, literal: boolean, fold?: Disclosure): { rows: string[]; headRow: number; margin?: { top: number; bottom: number }; plainAt?: number } | null {
+function headingRows(line: string, W: number, env: DocEnv, literal: boolean, fold?: Disclosure): (StyledHeading & { plainAt?: number }) | null {
   const styled = styledHeading(line, W, env, literal, fold);
   if (styled) return styled;
   const m = env.look?.values["heading.margin"];
   if (!m || (!m.top && !m.bottom) || !HEADING.test(line) || literal) return null;
-  const rows = prose(line, W, fold, literal);
-  return { rows: [...Array(m.top).fill(""), ...rows, ...Array(m.bottom).fill("")], headRow: m.top, margin: m, plainAt: m.top };
+  const joins: (string | undefined)[] = [];
+  const rows = prose(line, W, fold, literal, undefined, joins);
+  return { rows: [...Array(m.top).fill(""), ...rows, ...Array(m.bottom).fill("")], headRow: m.top, margin: m, plainAt: m.top, copy: { at: m.top, cuts: [], joins } };
 }
 
 /** A property token left on a heading in a band (`[who::sam]`): a chip after the heading, never its text. */
@@ -1180,10 +1193,11 @@ function styleDeclaration(line: string, W: number): string[] | null {
 
 /**
  * A heading with a style (PIE-599): its band (src/figures/banner.ts) and the row its text is on; or, narrower than the
- * figures' tier rule or too long for the band, the heading as `#` draws it, without the style's property. Null for a
- * line that isn't a heading, or a heading with no style and no property.
+ * figures' tier rule or too long for the band, its words in its ink, unspaced and wrapped: never the source's `#`s
+ * (PIE-1302). A style nobody declared draws the heading as written. Never the style's property. Null for a line that
+ * isn't a heading, or a heading with no style and no property.
  */
-function styledHeading(line: string, W: number, env: DocEnv, literal: boolean, fold?: Disclosure): { rows: string[]; headRow: number; margin?: { top: number; bottom: number } } | null {
+function styledHeading(line: string, W: number, env: DocEnv, literal: boolean, fold?: Disclosure): StyledHeading | null {
   const st = styleOf(line, env);
   if (!st || st.kind !== "heading" || (st.style === null && st.text === line)) return null;
   // `## [heading::band]` is a heading with no text: drawn as written.
@@ -1192,11 +1206,29 @@ function styledHeading(line: string, W: number, env: DocEnv, literal: boolean, f
   const band = st.style && drawBand(st.style, W, st.level, headingLabel(h[2]!, st.level, st.style, fold), stripMarks(h[2]!));
   if (band) return { rows: band.rows, headRow: band.textRow, ...(st.style ? { margin: st.style.margin } : {}) };
   const margin = st.style?.margin;
-  const plain = prose(st.text, W, fold, literal);
-  if (!margin) return { rows: plain, headRow: 0 };
+  // An unknown style draws the heading as written (its `#`s too); a style too narrow to band draws its words plainly,
+  // wrapped under its disclosure, and a copy takes the words joined as written.
+  let plain: string[], copy: StyledHeading["copy"];
+  if (st.style && !literal) {
+    const glyph = headingGlyph(fold), lead = glyph ? 2 : 0, joins: (string | undefined)[] = [];
+    const words = wrap(headingWords(h[2]!, st.level, { tone: st.style.tone, letters: "plain" }, fold), Math.max(1, W - lead), { joins });
+    plain = words.map((l, k) => (k ? " ".repeat(lead) : glyph) + l);
+    copy = { at: 0, cuts: plain.map(() => (lead ? [[0, lead]] : [])), joins };
+  } else {
+    const joins: (string | undefined)[] = [];
+    plain = prose(st.text, W, fold, literal, undefined, joins);
+    copy = { at: 0, cuts: proseCuts(st.text, W, fold), joins };
+  }
+  if (!margin) return { rows: plain, headRow: 0, ...(copy ? { copy } : {}) };
   const m = withMargin(margin, plain, 0);
-  return { rows: m.rows, headRow: m.textRow, margin };
+  return { rows: m.rows, headRow: m.textRow, margin, ...(copy ? { copy: { ...copy, at: m.textRow } } : {}) };
 }
+
+/**
+ * A styled heading's rows; `copy`: for its plain rows (PIE-1302), from row `at`, the drawing cells a copy leaves out and
+ * how the wrap joined them (renderDoc's cut and wrapped).
+ */
+interface StyledHeading { rows: string[]; headRow: number; margin?: { top: number; bottom: number }; copy?: { at: number; cuts: [number, number, string?][][]; joins: (string | undefined)[] } }
 
 /** A rule (`---`) with a style: its track, or as written when narrow. Null for a line that isn't one, or a plain one. */
 function styledRule(line: string, W: number, env: DocEnv): { rows: string[]; margin?: { top: number; bottom: number } } | null {
@@ -1212,11 +1244,18 @@ function styledRule(line: string, W: number, env: DocEnv): { rows: string[]; mar
  * A styled heading's text as its band draws it: its disclosure, its letters as the style says, in the heading's bold
  * and the style's tone (neutral: the accent for a #, white for ##, grey deeper), and what a fold hides.
  */
-function headingLabel(text: string, level: number, style: HeadingStyle, fold?: Disclosure): string {
-  const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
+function headingLabel(text: string, level: number, style: Pick<HeadingStyle, "tone" | "letters">, fold?: Disclosure): string {
+  return headingGlyph(fold) + headingWords(text, level, style, fold);
+}
+
+/** A styled heading's disclosure and the space after it, or "" when it can't fold. */
+const headingGlyph = (fold?: Disclosure) => (fold ? (fold.selected ? fg(C.yellow) : fg(C.lcyan)) + (fold.folded ? "▸" : "▾") + " " : "");
+
+/** A styled heading's words after its disclosure: lettered, in its ink, its property chips and what a fold hides. */
+function headingWords(text: string, level: number, style: Pick<HeadingStyle, "tone" | "letters">, fold?: Disclosure): string {
   const ink = fold?.selected ? C.yellow : style.tone !== "neutral" ? TONE[style.tone] : level <= 1 ? C.lcyan : level === 2 ? C.white : C.grey;
   const props = liveTokensInLine(text), words = props.length ? withoutTokens(text, props).trim() : text;
-  return (glyph ? (fold!.selected ? fg(C.yellow) : fg(C.lcyan)) + glyph + " " : "") + BOLD + fg(ink) + styleMarks(bandLetters(words, style.letters), { bold: false }) + UNBOLD + RESET
+  return BOLD + fg(ink) + styleMarks(bandLetters(words, style.letters), { bold: false }) + UNBOLD + RESET
     + props.map(t => " " + propertyChip(t)).join("") + (fold?.folded ? foldedNote(fold) : "");
 }
 
@@ -1228,7 +1267,12 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false, task
   const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
   const tint = fold?.selected ? fg(C.yellow) : fg(C.lcyan);
   const h = line.match(HEADING);
-  if (h) return [(glyph ? tint + glyph + " " : "") + fg(C.dark) + h[1] + " " + RESET + BOLD + fg(fold?.selected ? C.yellow : C.white) + styleMarks(h[2]!, { bold: false }) + RESET + (fold?.folded ? foldedNote(fold) : "")];
+  if (h) {
+    // Its words wrap under themselves (PIE-1348), never cut: the next rows hang past the disclosure and the #s.
+    const lead = (glyph ? 2 : 0) + h[1]!.length + 1, words = wrap(h[2]!, Math.max(1, W - lead), { joins });
+    const head = (glyph ? tint + glyph + " " : "") + fg(C.dark) + h[1] + " " + RESET;
+    return words.map((l, k) => (k ? " ".repeat(lead) : head) + BOLD + fg(fold?.selected ? C.yellow : C.white) + styleMarks(l, { bold: false }) + RESET + (fold?.folded && k === words.length - 1 ? foldedNote(fold) : ""));
+  }
   const li = line.match(ITEM);
   if (li) {
     const indent = li[1]!.length, num = /\d/.test(li[2]!);
@@ -1299,7 +1343,11 @@ function proseCuts(line: string, W: number, fold?: Disclosure): [number, number,
     return wrap(body, W - 2, BODY).map((_, k) => (k === 0 && item ? [[0, 2], [2 + item[1]!.length, 4 + item[1]!.length, item[2]! + " "]] : [[0, 2]]));
   }
   const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
-  if (HEADING.test(line)) return [glyph ? [[0, 2]] : []];
+  const h = line.match(HEADING);
+  if (h) {
+    const lead = (glyph ? 2 : 0) + h[1]!.length + 1;
+    return wrap(h[2]!, Math.max(1, W - lead)).map((_, k) => (k ? [[0, lead]] : glyph ? [[0, 2]] : []));
+  }
   const li = line.match(ITEM);
   if (!li) return [];
   const indent = li[1]!.length, num = /\d/.test(li[2]!);
