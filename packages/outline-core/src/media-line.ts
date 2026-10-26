@@ -253,3 +253,71 @@ export function rewriteMediaLine(line: string, set: Partial<Record<MediaAttr, st
   }
   return t.lead + toks.map(x => `[${x.key}::${x.value}]`).join(" ") + t.anchor;
 }
+
+/**
+ * A header image's look (PIE-1361): each a property on its own `[layout::hero]` line, so the note owns it and its source
+ * shows it. The tune's hero rows and the `image.look` action read this one description: what each is, what leaving it
+ * out means, and the values a step goes through (`none` takes it off the line). `focus.x` and `focus.y` are the two
+ * halves of `[hero-focus::x,y]`.
+ */
+export type HeroProp = "height" | "focus.x" | "focus.y" | "fit" | "dim" | "tint" | "fade" | "blur" | "bleed" | "title" | "scroll";
+export interface HeroPropSpec { attr: MediaAttr; what: string; none: string; steps: readonly string[] }
+const tenths = Array.from({ length: 11 }, (_, i) => String(i / 10));
+export const HERO_PROPS: Readonly<Record<HeroProp, HeroPropSpec>> = {
+  height: { attr: "height", what: "the header's rows (a number), or a share of the reader (25%), at most half of it", none: "a third", steps: Array.from({ length: 19 }, (_, i) => String(4 + i * 2)) },
+  "focus.x": { attr: "hero-focus", what: "the point the crop keeps in view, across (0 left … 1 right)", none: "0.5", steps: tenths },
+  "focus.y": { attr: "hero-focus", what: "the point the crop keeps in view, down (0 top … 1 bottom)", none: "0.5", steps: tenths },
+  fit: { attr: "fit", what: "cover crops it to fill; contain shows it whole", none: "cover", steps: ["none", "contain"] },
+  dim: { attr: "dim", what: "darken it, 0 (as it is) to 1 (black)", none: "auto", steps: ["none", "0", "0.2", "0.4", "0.6", "0.8", "1"] },
+  tint: { attr: "tint", what: "duotone toward the tile's tone, 0 (as it is) to 1", none: "0", steps: ["none", "0.25", "0.5", "0.75", "1"] },
+  fade: { attr: "fade", what: "the share of its bottom that fades into the reader, 0 to 1", none: "0", steps: ["none", "0.25", "0.5", "0.75", "1"] },
+  blur: { attr: "blur", what: "soften it, 0 (sharp) to 24", none: "0", steps: ["none", "1", "2", "4", "8", "12", "16", "24"] },
+  bleed: { attr: "bleed", what: "full spans the tile; measure follows the text column", none: "full", steps: ["none", "measure"] },
+  title: { attr: "title", what: "the title below the picture, or over its bottom", none: "below", steps: ["none", "over"] },
+  scroll: { attr: "scroll", what: "scroll away with the note, or stay pinned above it", none: "scroll", steps: ["none", "pinned"] },
+};
+export const HERO_PROP_NAMES = Object.keys(HERO_PROPS) as HeroProp[];
+export const isHeroProp = (s: string): s is HeroProp => Object.hasOwn(HERO_PROPS, s);
+
+/** What `spec`'s line writes for `prop`, as text; undefined when it's left out. */
+export function heroPropText(spec: MediaSpec, prop: HeroProp): string | undefined {
+  const n = (v: number | undefined) => (v === undefined ? undefined : String(Math.round(v * 100) / 100));
+  switch (prop) {
+    case "height": return spec.height !== undefined ? String(spec.height) : spec.heightShare !== undefined ? `${Math.round(spec.heightShare * 100)}%` : undefined;
+    case "focus.x": return n(spec.focus?.x);
+    case "focus.y": return n(spec.focus?.y);
+    case "dim": case "tint": case "fade": case "blur": return n(spec[prop]);
+    default: return spec[prop];
+  }
+}
+
+/**
+ * The line's property for `prop` set to `value` (`none` takes it off): what `rewriteMediaLine` is given, or a problem
+ * saying what the value can be. A focus half keeps the other half as written (0.5 when it isn't).
+ */
+export function heroPropSet(spec: MediaSpec, prop: HeroProp, value: string): { set: Partial<Record<MediaAttr, string | null>> } | { problem: string } {
+  const p = HERO_PROPS[prop], v = value.trim().toLowerCase();
+  if (prop === "focus.x" || prop === "focus.y") {
+    const f = { x: spec.focus?.x ?? 0.5, y: spec.focus?.y ?? 0.5 };
+    if (v !== "none") { const d = parseDim(v); if (d === null) return { problem: `${prop} is a number from 0 to 1, or none` }; f[prop === "focus.x" ? "x" : "y"] = d; }
+    else f[prop === "focus.x" ? "x" : "y"] = 0.5;
+    const r = (x: number) => String(Math.round(x * 100) / 100);
+    return { set: { "hero-focus": f.x === 0.5 && f.y === 0.5 ? null : `${r(f.x)},${r(f.y)}` } };
+  }
+  if (v === "none") return { set: { [p.attr]: null } };
+  const read = parseMediaLine(`[img::x] [${p.attr}::${v}]`);
+  if (!read || read.problems.length) return { problem: `${prop} is ${p.what}; or none (${p.none})` };
+  return { set: { [p.attr]: v } };
+}
+
+/**
+ * The value `by` steps (1 up, -1 down) from `now`: the line's, or (a height left out or written as a share) the rows
+ * drawn. A value between steps (written by hand) goes to the nearest one on the side it moves to.
+ */
+export function heroPropStep(prop: HeroProp, now: string | undefined, by: number): string {
+  const p = HERO_PROPS[prop], steps = p.steps, cur = now ?? (steps.includes("none") ? "none" : p.none);
+  const i = steps.indexOf(cur);
+  if (i >= 0) return steps[Math.max(0, Math.min(steps.length - 1, i + Math.sign(by)))]!;
+  const x = parseFloat(cur), at = (s: string) => parseFloat(s === "none" ? p.none : s);
+  return (by > 0 ? steps.find(s => at(s) > x) : steps.findLast(s => at(s) < x)) ?? cur;
+}

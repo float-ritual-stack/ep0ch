@@ -312,7 +312,8 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     await app.act({ action: "tune.pick", args: { n: TUNE_ROWS.findIndex(r => r.name === "bg") + 1 }, tile: "tune", as: "test-agent" });
     await until(() => /bg +raised .*← style lab/.test(screen()), "the bg row", 5000);
     const tunePane = () => S().stage(SECTIONS.findIndex(s => s.key === "style")).top.pane("tune") as any;
-    expect(tunePane().describe(S().stage(SECTIONS.findIndex(s => s.key === "style")).top).values).toMatchObject({ "header.image": { value: "evening-beds.jpg", from: "style lab" }, "header.image.y": { value: "-15" } });
+    // The page's header picture is its own line (PIE-1361): the Hero rows, not a level's value.
+    expect(tunePane().describe(S().stage(SECTIONS.findIndex(s => s.key === "style")).top).hero).toMatchObject({ image: "evening-beds.jpg", values: { "focus.y": { value: "0.35", from: "the hero line" } } });
     // An agent sets the zebra's surface, then takes the tile's bg back to the level under it: the built-in none.
     expect(await app.act({ action: "tune.set", args: { row: "bg", value: "amber" }, tile: "tune", as: "test-agent" })).toMatchObject({ value: "amber", at: "style lab" });
     await until(() => raw().some(l => l.includes(surfaceBg("amber", 2))), "the amber surface drawn", 5000);
@@ -324,7 +325,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(await app.act({ action: "tune.undo", tile: "tune", as: "test-agent" })).toMatchObject({ undone: "bg", words: "bg taken away → amber at style lab" });
     expect(await app.act({ action: "tune.undo", tile: "tune", as: "test-agent" })).toMatchObject({ undone: "bg", words: "bg amber → the outline's at style lab" });
     await until(() => raw()[lab]!.includes(raised), "the surface back", 5000);
-    // The header's picture: scrolled under the title, the header takes it, its crop moved up by header.image.y.
+    // The header's picture: scrolled under the title, the header takes it, its crop around the line's hero-focus.
     // End twice: the last line on the edge, then in the middle (PIE-622), so the picture's line is above the top.
     await app.act({ action: "scroll", args: { to: "end" }, tile: "lab", as: "test-agent" });
     expect(await app.act({ action: "scroll", args: { to: "end" }, tile: "lab", as: "test-agent" })).toMatchObject({ atEnd: true });
@@ -661,7 +662,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
   }, 30_000);
 
 
-  test("hero look (PIE-1055): tune changes the displayed hero and note properties win", async () => {
+  test("hero look (PIE-1055, PIE-1361): the tune's Hero rows change the displayed hero by writing its line", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "style" }, as: "test-agent" });
     await until(() => screen().includes("Spacing lab"), "the style reader");
@@ -674,19 +675,18 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       return image.png;
     };
     const sharp = pixels();
-    expect(await app.act({ action: "tune.set", args: { row: "header.image.blur", value: "4", level: "page" }, tile: "tune", as: "test-agent" })).toMatchObject({ value: "4" });
+    // The tune's Hero rows write the page's hero line at once (PIE-1361): no level, nothing to save.
+    const lab = async () => (await board.get(seeded.notes.spacingLab.id))!.text;
+    expect(await app.act({ action: "tune.set", args: { row: "hero.blur", value: "4" }, tile: "tune", as: "test-agent" })).toMatchObject({ value: "4", at: "the hero line" });
+    expect(await lab()).toContain("[blur::4]");
     await until(() => !!hero() && !pixels().equals(sharp), "the blurred pixels");
     const fullWidth = hero()!.cols;
-    await app.act({ action: "tune.set", args: { row: "header.image.bleed", value: "measure", level: "page" }, tile: "tune", as: "test-agent" });
+    await app.act({ action: "tune.set", args: { row: "hero.bleed", value: "measure" }, tile: "tune", as: "test-agent" });
     await until(() => !!hero() && hero()!.cols < fullWidth, "the hero inside the text measure");
-    await app.act({ action: "tune.set", args: { row: "header.image.height", value: "6", level: "page" }, tile: "tune", as: "test-agent" });
+    await app.act({ action: "tune.set", args: { row: "hero.height", value: "6" }, tile: "tune", as: "test-agent" });
     await until(() => !!hero() && hero()!.rows <= 6, "the six-row hero");
-    await app.act({ action: "tune.set", args: { row: "header.image.bleed", value: "full", level: "page" }, tile: "tune", as: "test-agent" });
-    await app.act({ action: "tune.set", args: { row: "header.image.height", value: "auto", level: "page" }, tile: "tune", as: "test-agent" });
-    expect(await app.act({ action: "tune.save", tile: "tune", as: "test-agent" })).toMatchObject({ saved: true });
-    expect((await board.get(seeded.notes.spacingLab.id))!.text).toContain("[style.header.image.blur::4]");
-    await app.act({ action: "tune.set", args: { row: "header.image.blur", value: "0", level: "page" }, tile: "tune", as: "test-agent" });
-    await app.act({ action: "tune.save", tile: "tune", as: "test-agent" });
+    for (const row of ["hero.bleed", "hero.height", "hero.blur"]) await app.act({ action: "tune.unset", args: { row }, tile: "tune", as: "test-agent" });
+    expect(await lab()).not.toMatch(/\[(blur|bleed|height)::/);
     await until(() => !!hero() && pixels().equals(sharp), "the sharp cached picture restored");
     await app.act({ action: "section", args: { name: "hero" }, as: "test-agent" });
     await until(() => !!hero(), "the hero showcase");
@@ -697,8 +697,9 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     screen();
     await until(() => !!hero(), "the hero beside its inspector");
     const beside = pixels();
-    await app.act({ action: "tune.set", args: { row: "header.image.blur", value: "0", level: "tile" }, tile: "tune", as: "test-agent" });
-    await until(() => !!hero(), "the line's blur after the tune change");
+    // No level sets a header's look: a tile-level value of the old key is no style token now.
+    await expect(app.act({ action: "tune.set", args: { row: "header.image.blur", value: "0", level: "tile" }, tile: "tune", as: "test-agent" })).rejects.toThrow(/row is one token/);
+    await until(() => !!hero(), "the line's own blur");
     expect(pixels().equals(beside)).toBe(true);
     await app.act({ action: "tile.close", tile: "tune", as: "test-agent" });
     await app.act({ action: "scroll", args: { to: "top" }, as: "test-agent" });

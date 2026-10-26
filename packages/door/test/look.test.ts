@@ -491,8 +491,7 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       for (let y = title - 1; y <= rule; y++) expect(raw[y]).toContain(bgRgb(surfaceMix("raised", 1)!));
       expect(raw[title]).toContain("\x1b[1m");
       expect(raw[rule]).toContain(fg(10));
-      await d.app.act({ action: "tune.pick", args: { n: TUNE_ROWS.findIndex(r => r.name === "header.image") + 1 }, tile: "tune", as: "look-agent" });
-      expect(d.lines().join("\n")).toContain("none (this note has no hero)");
+      expect(d.lines().join("\n")).toContain("this note has no header picture: H on one of its images");
     } finally { d.close(); b.close(); }
   }, 30_000);
 

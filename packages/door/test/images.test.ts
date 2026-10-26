@@ -104,6 +104,9 @@ describe("layout", () => {
     expect(heroBox(m, spec(""), 100, 30, 10, 20)).toEqual({ col: 0, cols: 100, rows: 25 });
     expect(heroBox(m, spec(""), 100, 10, 10, 20)).toEqual({ col: 0, cols: 100, rows: 10, crop: { x: 0, y: 0.3, w: 1, h: 0.4 } });
     expect(heroBox(m, spec("[fit::contain]"), 100, 10, 10, 20)).toEqual({ col: 30, cols: 40, rows: 10 });
+    // A height the line sets is kept even past the picture's own (PIE-1361), cropped across to fill; contain stays whole.
+    expect(heroBox(m, spec("[height::30]"), 100, 30, 10, 20)).toEqual({ col: 0, cols: 100, rows: 30, crop: { x: expect.closeTo(0.083, 2), y: 0, w: expect.closeTo(0.833, 2), h: 1 } });
+    expect(heroBox(m, spec("[height::30] [fit::contain]"), 100, 30, 10, 20)).toEqual({ col: 0, cols: 100, rows: 25 });
   });
 
   test("a cover crop keeps the box's shape, around the middle", () => {

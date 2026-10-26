@@ -1530,8 +1530,9 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   every theme with every word at 4.5:1 or better on them (test/theme-contrast.test.ts), never a colour of a note's own; a
   tile's yields under a header's picture. A list's divider is `line`, `dots`, `dashed`, `double`, `fade` or `glyph`
   (`list.divider.glyph`), at the top, centre or bottom of the gap (`list.divider.align`); the zebra stripe takes
-  `list.zebra.bg` and `list.zebra.strength`. A reader's header takes `header.bg` at `header.bg.opacity`, and
-  `header.image` (one of the note's pictures, or a path) with `header.image.x` and `.y` moving its crop. A list's own look goes on its section's heading or its lead-in line
+  `list.zebra.bg` and `list.zebra.strength`. A reader's header takes `header.bg` at `header.bg.opacity` and a rule under it
+  (`header.rule`, `header.rule.tone`); its picture is never a look value: it's the note's own `[layout::hero]` line
+  (PIE-1361, below). A list's own look goes on its section's heading or its lead-in line
   (`## Seed trays [style.list.gap::1]`), and one tile's own is kept in its tile spec, so a single list or a single
   links tile can be airy while the rest stay tight ("this list" and "this tile" in the inspector). Any field can
   give three widths at once: `[style.pad::0 1 | 1 3 | 1 6]` (narrow, normal, wide). (PIE-675)
@@ -2602,6 +2603,12 @@ Bodies render with `src/doc.ts`:
   page it runs inline, as on claude.ai: React compiled against claude.ai's packages, Tailwind's classes, any script
   from a CDN, in a sandboxed frame with an origin of its own, dark until it draws, with a link to it on a page of
   its own (the outliner's README, "Artifacts").
+- **One header picture, the note's own** (PIE-1361). A note's header picture is its first `[img::…] [layout::hero]`
+  line (a second is drawn in the text and says so), and its look is that line's properties: `height`, `hero-focus`,
+  `fit`, `dim`, `tint`, `fade`, `blur`, `bleed`, `title`, `scroll`. No tile, screen or global level sets a picture.
+  The tune (alt+y) shows them as its Hero rows and writes the line at once (ctrl+z in the reader puts it back); drag
+  the header's bottom row to size it and the picture above it to move what its crop keeps (`image.size height=`,
+  `image.look focus=x,y`).
 - **The header takes the hero image** (PIE-598). When a note's hero image (its `[layout::hero]` header image, or an
   image that is the note's first block) scrolls up under a reader's sticky header, the title, summary, byline and
   crumbs take a crop of it as their background: muted, softened and dark, so they stay readable, coming in by three
@@ -3030,6 +3037,7 @@ Drawings of the book and of align left, centre and right: [UI-GRAMMAR, Spines](d
 | `image.hero` | `n` or `line`; `on=true\|false` (default toggles): `[layout::hero]` on its line, and off any other image's, in one save | `H` with an image the `[ ]` position, the caption's `[▀]` |
 | `image.fit` | `n` or `line`; `to=cover\|contain` (default: the other one): a header too tall for its rows cropped to fill, or shown whole | `=` with the header image the `[ ]` position, its caption's `[whole]` / `[fill]` |
 | `image.dim` | `n` or `line`; `to=0..1\|auto`: how much it's dimmed (`[dim::…]`). No key brightens an image | |
+| `image.look` | `n` or `line` (default: the header); `prop=height\|focus.x\|focus.y\|fit\|dim\|tint\|fade\|blur\|bleed\|title\|scroll` with `to=` (or `none`) or `by=1\|-1`; or `focus=x,y`. The header image's look, written on its own `[layout::hero]` line (PIE-1361) | the tune's Hero rows; a drag inside the header picture (focus) |
 | `image.undo` | none: the asker's own last image change in this reader, while reading this note | `ctrl+z` (when it was the last change here) |
 | `select.mode` | none: keyboard selection starts (`h j k l` extend, `y` copies). The person's only: an agent selects with `select text=` | `v` |
 | `fold.select` | `by=1\|-1`: the next or previous heading, list item or callout to fold. The person's only | `( )` |
