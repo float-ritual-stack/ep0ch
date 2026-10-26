@@ -63,7 +63,7 @@ export const PROBE_KEYS: Key[] = [
  */
 const ageless = (l: string) => l.replace(/(\x1b\[[\d;?]*[A-Za-z])|(?<![\d.:])\d+[smhd](?![A-Za-z0-9])/g, (m, esc) => esc ?? "#age");
 
-interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; drawer: string; /** The hint row as drawn (checkHint), when the screen was drawn for this look. */ hint?: string }
+interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; drawer: string; /** The power bar is open. */ bar?: boolean; /** The hint row as drawn (checkHint), when the screen was drawn for this look. */ hint?: string }
 interface Finding { screen: string; keys: string; problem: string }
 
 /**
@@ -233,10 +233,10 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     } catch (e) { lines = [`render threw ${e}`]; }
     if (paintFailed) { lines = [`render threw ${paintFailed}`]; paintFailed = null; }
     // A glance is the screen drawn and nothing to compare: what a build does between its keys (no description, no whereabouts).
-    if (glance) return { top, depth: A().stack.length, lines, about: "", holds: false, video: app.video, drawer: dock() };
+    if (glance) return { top, depth: A().stack.length, lines, about: "", holds: false, video: app.video, drawer: dock(), bar: !!A().bar };
     let about = "";
     try { about = JSON.stringify(top?.describe?.() ?? null); } catch { about = "?"; }
-    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: app.person().busy, video: app.video, drawer: dock(), hint };
+    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: app.person().busy, video: app.video, drawer: dock(), hint, bar: !!A().bar };
   };
   /**
    * The drawer over the screen: up or put away, the person in it or not, its height. Its rows are the
@@ -517,7 +517,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       if (runs.length) {
         if (!declares(tokens(runs), k)) findings.push({ screen: label, keys: named(k), problem: `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it` });
         if (log && opened) require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} opened by ${runs.map(r => `${r.scope}.${r.name}`).join(",")}\n`);
-        if (opened && !shared(k, runs) && !reached(k, runs, after)) states.push(k);
+        if (opened && !barProbed(!!base.bar) && !shared(k, runs) && !reached(k, runs, after)) states.push(k);
         continue;
       }
       if (after.holds && after.top === base.top) { if (log && k.kind !== "mouse") require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} holds, no action\n`); if (k.kind !== "mouse") states.push(k); continue; }
@@ -554,6 +554,14 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         const pressed = performance.now();
         try { await go(k2); } finally { stop(); timed(`${named(k1)} ${named(k2)}`, pressed); }
         const after = snap(mask);
+        // The bar, probed already in this part: what opened it is checked like any key, then it is put away (a cancel). Before
+        // the screens are compared: the bar is drawn over the screen, not by it, so a key that opens it changes no row of it.
+        if (barProbed(!!mid.bar) && runs.length && declares(tokens(runs), k2, k1)) {
+          putBarAway(); await settle();
+          const again = snap(mask);
+          if (entered && alike(entered, again)) cur = again; else dirty = true;
+            continue;
+        }
         if (same(mid, after)) { cur = after; continue; }
         // Typing that keeps the state goes on from where it is (most second keys are text).
         if (!runs.length && after.holds && after.top === mid.top) { cur = after; continue; }
@@ -700,6 +708,20 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
    */
   const GLOBAL_SCOPES = new Set(["shell", "drawer", "extensions", "new"]);
   const sharedStates = new Set<string>();
+  /**
+   * The power bar (ctrl+k, a screen's `/`) is the App's, the same over every screen: its keys are probed the first time a key
+   * opens it in a part, and after that a key that opens it is checked (it ran an action that names it) and the bar put away,
+   * not typed into again. Each key typed there is a search of its own (EP0CH_BAR_ASK_MS=0): 157 keys from each of a
+   * reader's seven input states were most of the EchoNet walk's host waits (PIE-1347), and those keys never reached the
+   * state itself. Put away, they do: the walk probes more of each state in less time.
+   */
+  const barProbed = (wasOpen: boolean) => {
+    if (wasOpen || !A().bar) return false;
+    if (sharedStates.has("bar")) return true;
+    sharedStates.add("bar");
+    return false;
+  };
+  const putBarAway = () => { A().bar?.close(); A().bar = null; app.redraw(); };
 
   type Scenario = [string, () => Screen | Promise<Screen>, Key[]?];
   const k = (ch: string): Key => ({ kind: "char", ch });
