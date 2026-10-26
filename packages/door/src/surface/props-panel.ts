@@ -132,10 +132,13 @@ export class PropertyPanel {
     return null;
   }
 
-  /** A press at `x`, `y` (the panel's own cells) on the value being typed: the field's (its cursor, a word on a double click). */
-  clickField(x: number, y: number): boolean {
+  /**
+   * The mouse at `x`, `y` (the surface's cells) on the value being typed: the field's (a press places its cursor, a
+   * double click selects a word, a drag selects). False when it isn't on the field and none of its presses is held.
+   */
+  fieldMouse(action: "down" | "drag" | "up", x: number, y: number): boolean {
     const f = this.field, at = f && this.at.find(a => a.n === f.row.n);
-    return !!f && !!at && f.input.mouse({ kind: "mouse", action: "down", button: 0, x, y }, { x: at.from, y: this.origin + at.y, w: at.w });
+    return !!f && !!at && f.input.mouse({ kind: "mouse", action, button: 0, x, y }, { x: at.from, y: this.origin + at.y, w: at.w });
   }
 
   hint(): string {

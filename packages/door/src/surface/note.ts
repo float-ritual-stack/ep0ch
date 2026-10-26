@@ -3805,7 +3805,7 @@ export class NoteSurface {
       key: (k, host) => this.panelKey(k, host),
       click: (x, y, host) => {
         // A value being typed keeps the reader's clicks, but for a candidate of its completion popup (PIE-626); a click on a row selects it (on its value, follows it).
-        if (P.field) return completerOf(P.field.input)?.click(y, x) || P.clickField(x, y);
+        if (P.field) return completerOf(P.field.input)?.click(y, x) ?? false;
         const h = this.hitAt(x, y);
         if (!h || !("prop" in h)) return undefined;
         if (P.card) {
@@ -7866,6 +7866,8 @@ export class NoteSurface {
       return;
     }
     if (float === "sources") { this.gesture.press(x, y); return; }
+    // On a property value being typed: the line field's own press (its cursor, a word on a double click), PIE-1290.
+    if (this.panel?.fieldMouse("down", x, y)) { host.redraw(); return; }
     const n = this.gesture.press(x, y);
     // In a draft a press puts the cursor there (shift+click: selects from where it was), a drag from it selects, a
     // double click selects the word and a triple click the line (Draft's own selection, through draft.place).
@@ -7900,6 +7902,7 @@ export class NoteSurface {
 
   /** The pointer moved with the button down: once off the pressed cell, it selects from there. */
   drag(x: number, y: number, host: SurfaceHost): void {
+    if (this.panel?.fieldMouse("drag", x, y)) { host.redraw(); return; }
     if (this.modes.get("form")) {
       const hit = this.formHit(x, y);
       if (hit && "link" in hit && hit.link.form?.field === this.form?.fields[this.form.focus]?.name) {
@@ -7950,6 +7953,7 @@ export class NoteSurface {
   }
 
   private releaseNow(x: number, y: number, host: SurfaceHost): boolean {
+    if (this.panel?.fieldMouse("up", x, y)) { host.redraw(); return true; }
     if (this.placementMenu) return this.modes.click(x, y, host) ?? false;
     if (this.splitDrag) { this.splitDrag = null; host.redraw(); return true; }
     if (this.frameDrag?.target === "sources" || this.frameDrag?.target === "edit-preview") { this.frameDrag = null; host.redraw(); return true; }

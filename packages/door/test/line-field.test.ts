@@ -6,6 +6,8 @@ import { Canvas } from "../src/canvas";
 import { LineField } from "../src/surface/line";
 import { linePrompt } from "../src/surface/picker";
 import { visible } from "../src/style";
+import { NoteSurface, type SurfaceHost } from "../src/surface/note";
+import type { Msg } from "../src/board";
 import type { Key } from "../src/term";
 
 const ctrl = (ch: string, shift = false): Key => ({ kind: "char", ch, ctrl: true, ...(shift ? { shift } : {}) });
@@ -84,5 +86,31 @@ describe("one line field, as a person types in it", () => {
     const l = new LineField("x");
     for (const k of [{ kind: "enter" }, { kind: "esc" }, { kind: "tab" }, { kind: "up" }, { kind: "down" }, ctrl("n"), ctrl("s"), ctrl("p")] as Key[]) expect([k, l.take(k)]).toEqual([k, false]);
     expect(l.text).toBe("x");
+  });
+});
+
+describe("a property's value is the same field (the reader's panel)", () => {
+  const note = (text: string): Msg => ({ id: "0e1f2a3b-1111-4222-8333-444455556666", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 3, properties: [{ key: "stage", value: "queued for spring" }] } as Msg);
+  const host = (): SurfaceHost => ({ ctx: { board: { ancestors: async () => [], comments: async () => [] }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
+
+  test("click into the value, select a word with a double click, type over it, ctrl+w, undo: nothing typed is lost", () => {
+    const s = new NoteSurface(), h = host();
+    s.show(note("Seed potatoes [stage::queued for spring]\nChit them in the shed."), h);
+    s.openPanel(false);
+    s.editValue(s.rows(s.msg!)[0]!);
+    const f = s.panel!.field!.input;
+    const lines = s.render(70, 20, h).lines.map(visible);
+    const y = lines.findIndex(l => l.includes("queued for spring")), x = lines[y]!.indexOf("spring");
+    expect(y).toBeGreaterThanOrEqual(0);
+    // A double click on "spring" selects it; typing replaces it.
+    s.press(x + 1, y, h); s.release(x + 1, y, h); s.press(x + 1, y, h); s.release(x + 1, y, h);
+    expect(f.selectedText()).toBe("spring");
+    for (const ch of "autumn") s.key({ kind: "char", ch }, h);
+    expect(f.text).toBe("queued for autumn");
+    // ctrl+w erases the word (the desk's ^W waits while a line has the keys), ctrl+z brings it back.
+    s.key(ctrl("w"), h);
+    expect(f.text).toBe("queued for ");
+    s.key(ctrl("z"), h);
+    expect(f.text).toBe("queued for autumn");
   });
 });
