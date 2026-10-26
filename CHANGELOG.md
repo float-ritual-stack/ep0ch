@@ -19,7 +19,9 @@ are its record. The outliner's entries from then are kept below, under
   CPU, and its parity walk alone went from 55 s to 44 s on the same load.
 - **Tests:** the session's mouse-burst check waits for what the burst's last report shows, not a quiet spell, and
   bounds its frames by the time the door spent on it (it failed 5 runs in 5 beside another test run; now passes 5 of 5).
-  The parity log line says how many host round trips a scenario made and how long it waited on them.
+  The parity walk probes the power bar once a part and then puts it away, rather than typing every key into it from
+  each input state (the EchoNet walk's host waits 16 s → 5 s, and those keys now reach the states themselves). Its log
+  line says how many host round trips a scenario made and how long it waited on them.
 
 ### Take a part out of a note: detach it into a tile, or drop it into another note (PIE-1247)
 
