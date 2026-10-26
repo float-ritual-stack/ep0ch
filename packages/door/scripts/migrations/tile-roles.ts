@@ -36,8 +36,11 @@ export function migrateLayout(v: unknown, drawer: boolean): { value: unknown; ch
     const isOld = layout ? o.records === undefined : old;
     const out: Record<string, unknown> = Object.fromEntries(Object.entries(o).map(([k, y]) => [k, walk(y, isOld)]));
     if (layout && o.records === undefined) { out.records = 1; changed++; }
-    if (!isOld || o.t !== "leaf") return out;
+    if (o.t !== "leaf") return out;
     const mine = typeof o.kept === "string" && OWN_KEY.test(o.kept);
+    // The drawer's own program is the agent even in a layout the new door marked: a door that started on the new code
+    // before this ran saved the old leaf with its old role (Evan's pie door, Oct 25: role "shell", records 1).
+    if (!isOld && !(mine && out.role !== "agent")) return out;
     if (mine && out.role !== "agent") {
       changed++;
       out.role = "agent";
@@ -60,7 +63,9 @@ function main() {
   const visit = (dir: string) => {
     for (const name of readdirSync(dir)) {
       const p = join(dir, name);
-      if (statSync(p).isDirectory()) visit(p);
+      let isDir = false;
+      try { isDir = statSync(p).isDirectory(); } catch { continue; } // a dangling link (a gone socket) is skipped
+      if (isDir) visit(p);
       else if (name.endsWith(".json")) files.push(p);
     }
   };
