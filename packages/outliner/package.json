@@ -15,6 +15,7 @@
     "./snapshot-database": "./src/snapshot-database.ts",
     "./outline-binding": "./src/outline-binding.ts",
     "./agent-tools": "./src/agent-tools.ts",
+    "./records": "./src/records.ts",
     "./mcp-write": "./src/mcp-write.ts",
     "./host-api": "./src/host-api.ts",
     "./script-examples": "./src/script-examples.ts",

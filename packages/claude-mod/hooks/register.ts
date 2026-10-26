@@ -36,7 +36,7 @@ import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-pers
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekArgv, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
-import { baselineOf, capabilityArgs, facetCountsOf, firstIdOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
+import { baselineOf, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { fileTouchesOff, fileTouchGlobsOf, projectOf, touchAllowed, touchInputOf, touchOf } from './file-touches'
@@ -1821,7 +1821,7 @@ async function runSettle($: EngineInterface, option: PluginOptions, config: Sett
     }
     await $.store.set(SETTLE_KEY, diff.next)
     await logSettleChanges($, bound, root, diff.changes.map(change => logLine(change, now)))
-    if (diff.wake.length) await wakeSettled($, config, named.outlines, diff.wake, now, cli, diff.next)
+    if (diff.wake.length) await wakeSettled($, config, diff.wake, now, diff.next)
   } catch (error) {
     settleToast($, error instanceof Error ? error.message : String(error))
   } finally {
@@ -1830,24 +1830,12 @@ async function runSettle($: EngineInterface, option: PluginOptions, config: Sett
 }
 
 /**
- * The wake: one prompt naming the newest `wakeMax` settled threads, each with the capability note that carries its
- * `thread`. Only those are marked told, and only once the prompt went (a refusal, `{ drop }`, counts as not going): the
- * others, and a wake that failed, are named at the next check.
+ * The wake: one prompt naming the newest `wakeMax` settled threads. Only those are marked told, and only once the
+ * prompt went (a refusal, `{ drop }`, counts as not going): the others, and a wake that failed, are named at the next check.
  */
-async function wakeSettled(
-  $: EngineInterface, config: SettleConfig, outlines: SettleOutline[], woken: Thread[], now: number,
-  cli: (o: SettleOutline, args: string[]) => Promise<{ exitCode: number; stdout: string }>, store: SettleStore,
-): Promise<void> {
+async function wakeSettled($: EngineInterface, config: SettleConfig, woken: Thread[], now: number, store: SettleStore): Promise<void> {
   const shown = [...woken].sort((a, b) => b.last - a.last).slice(0, config.wakeMax)
-  const lines = await Promise.all(shown.map(async thread => {
-    // The capability note may be in any outline the check reads (the chirps are in one, the notes they shape in another).
-    let link: string | null = null
-    for (const o of outlines) {
-      const found = await cli(o, capabilityArgs(thread.thread)).then(r => (r.exitCode === 0 ? firstIdOf(r.stdout) : null), () => null)
-      if (found) { link = `((${found}))`; break }
-    }
-    return wakeLine(thread, now, link)
-  }))
+  const lines = shown.map(thread => wakeLine(thread, now))
   try {
     // Marked before the call returns: it resolves as the turn starts, which can wait for the session to go idle.
     await $.store.set(SETTLE_KEY, told(store, shown))

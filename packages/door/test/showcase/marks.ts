@@ -36,6 +36,7 @@ export const marks: Record<string, string[]> = {
   echonet: ["MESSAGE AREAS", "PLOT.CHAT", "SEED.SWAP", "society@box-a", ",DOWN", ",DIAL", "last tosses"],
   terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
   lift: ["Allotment notebook", "Our plot at the Elm Row allotments."],
+  addresses: ["Allotment notebook", "first", "second", "third"],
   drawer: ["the kettle: a terminal tile to put in your drawer", "kettle"],
   // A fake deploy reporting its status (OSC 7501) beside the waiting-on-you list that follows it.
   status: ["a fake deploy, saying what it does with OSC 7501", "waiting on you"],
@@ -176,5 +177,6 @@ export const marks: Record<string, string[]> = {
   snapshot: ["A SQLite copy for analysis", "outline.snapshot"],
   upload: ["Hand a file to ep0ch", "artifact.lease"],
   "front-matter": ["Early sowing notes", "A plan for the seed bed"],
+  "nested-mounts": ["calls", "last callers"],
   insert: ["Insert files beside a draft", "Ctrl+T", "Television shows its marks"],
 };

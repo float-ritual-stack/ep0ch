@@ -6,6 +6,11 @@ export const RECORD_FIELDS = {
   deploy: ["sha", "host", "protocol", "grammar", "observed", "previous", "when", "who", "session", "from", "to", "local", "clients", "sessions", "failed", "details"],
   finding: ["ticket", "pr", "source", "failure", "likelihood", "cost"],
   "finding-closed": ["finding", "fixed", "dismissed"],
+  // Jev's figure suggestions (PIE-1251, jev-suggestions.ts): a fact per suggestion, a fact per settled outcome, and the day's
+  // run (`jev-run`, the keys kitty's lab runs share, so one query reads both): asks, agreement, tokens.
+  suggestion: ["day", "note", "revision", "writer", "harness", "component", "gate", "confidence", "callout", "model", "prompt-rev", "source", "thread"],
+  "suggestion-outcome": ["day", "suggestion", "note", "outcome", "component", "writer", "harness", "because"],
+  "jev-run": ["experiment", "run", "model", "prompt-rev", "items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out"],
 } as const;
 export type RecordKind = keyof typeof RECORD_FIELDS;
 interface Note { id: string }
@@ -27,14 +32,14 @@ function recordTemplate(kind: RecordKind): string {
     "[recorded::{{now.iso}}]",
     ...RECORD_FIELDS[kind].map(key => kind === "deploy" && ["when", "who", "session", "from", "to", "local", "clients"].includes(key)
       ? `\n${key === "clients" ? "Client legs" : key[0]!.toUpperCase() + key.slice(1)}: {{props.${key}}}`
-      : ["run", "finding", "previous"].includes(key)
+      : ["run", "finding", "previous"].includes(key) && kind !== "jev-run"
       ? `[${key}::(({{props.${key}}}))]`
       : ["clients", "local", "summary", "report", "failure", "likelihood", "cost", "dismissed", "sessions", "failed", "details"].includes(key)
         ? `\n${key}:\n{{props.${key}}}` : `[${key}::{{props.${key}}}]`),
   ].join("\n");
 }
 
-export async function writeRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho) {
+export async function writeRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, o: { title?: string } = {}) {
   const find = async (where: string) => (await board.request<{ blocks: Note[] }>("blocks.query", { query: { where, machinery: "show" } })).blocks[0];
   const deploy = kind === "deploy";
   let root = await find(deploy ? "system-view=deploys" : "system-records=true");
@@ -46,7 +51,7 @@ export async function writeRecord(board: RecordWriter, kind: RecordKind, props: 
     if (name === kind) template = found;
   }
   const result = await board.request<{ stamped: Note[]; warnings: string[] }>("template.stamp", {
-    of: template!.id, parent: root.id, title: deploy ? `Deploy ${props.when ?? new Date().toISOString()} on ${props.host ?? "unknown"}` : `${kind} ${new Date().toISOString()}`, props, ...who,
+    of: template!.id, parent: root.id, title: o.title ?? (deploy ? `Deploy ${props.when ?? new Date().toISOString()} on ${props.host ?? "unknown"}` : `${kind} ${new Date().toISOString()}`), props, ...who,
   });
   return { id: result.stamped[0]!.id, warnings: result.warnings };
 }

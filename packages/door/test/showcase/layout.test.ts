@@ -54,6 +54,29 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     } finally { d.dropLift(); app.pop(); }
   });
 
+  test("the addresses section (PIE-1286): a role, a slot and an id prefix each name their tile; a rename keeps the role; a miss is refused, never the focused tile", async () => {
+    (app as any).lastInput = 0;
+    await sc.dispatch.press("section.leave");
+    await sc.dispatch.press("section", { name: "addresses" });
+    screen();
+    const d = sc.tilesHere()!;
+    const info = async (tile: string) => (await d.dispatch.act({ action: "tile.info", tile }, USER) as { name: string }).name;
+    const id = (name: string) => (d.layoutGet().tiles as { name: string; tile: string }[]).find(t => t.name === name)!.tile;
+    expect(await info("role:stage")).toBe("second");
+    expect(await info("first@showcase")).toBe("first");
+    expect(await info(id("third").slice(0, 10))).toBe("third");
+    // A rename changes the label, never what the tile is for.
+    await d.dispatch.act({ action: "tile.title", args: { text: "centre" }, tile: "second" }, USER);
+    expect(await info("role:stage")).toBe("centre");
+    const rev = d.layoutGet().rev;
+    await expect(d.dispatch.act({ action: "tile.collapse", args: { on: true }, tile: "role:nothing" }, USER)).rejects.toThrow(/no tile has the role nothing; roles here: .*stage/);
+    expect(d.layoutGet().rev).toBe(rev);
+    expect((d.layoutGet().tiles as { name: string; collapsed?: boolean }[]).some(t => t.collapsed)).toBe(false);
+    await d.dispatch.act({ action: "tile.collapse", args: { on: true }, tile: "role:stage" }, USER);
+    expect((d.layoutGet().tiles as { name: string; collapsed?: boolean }[]).find(t => t.name === "centre")?.collapsed).toBe(true);
+    await sc.dispatch.press("section.leave");
+  });
+
   for (const place of ["screen", "group", "drawer", "drawer group"] as const) {
     const withLift = async (run: (owner: any, mouse: (button: number, x: number, y: number, release?: boolean) => void) => Promise<void>) => {
       await app.dispatch.press("host.toggle", { open: false });
@@ -107,7 +130,9 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
       expect(menu).toBeDefined();
       const divider = owner.dividers.find((d: any) => d.node.dir === "col");
       expect(divider).toBeDefined();
-      const hint = owner.keySpots[0];
+      // The hint row is the outermost screen's (a mounted screen draws none); a full lift covers it.
+      const outermost = (x: any): any => (x.holder?.desk() ? outermost(x.holder.desk()) : x);
+      const hint = outermost(owner).keySpots[0];
       const before = owner.layoutGet().tree;
       await owner.dispatch.act({ action: "tile.zoom", tile: "brief", args: { reach: "full", on: true } }, USER);
       (app as any).paint(true);
@@ -298,7 +323,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
         const owner = grouped ? (root.pane(target) as any).inner : root;
         const home = owner.layoutGet().tiles.find((t: any) => t.name === "brief")!.rect;
         const container = grouped ? root.layoutGet().tiles.find(t => t.name === target)!.rect : null;
-        const col = home.col + (container ? root.screenOrigin.col + container.col + 1 : root.screenOrigin.col);
+        const col = home.col + (container ? root.screenOrigin.col + container.col : root.screenOrigin.col);   // a group has no frame of its own to step in
         if (place !== "spines") {
           await sc.dispatch.press("section.try");
           await app.dispatch.press("host.leave", { quiet: true });
@@ -824,6 +849,26 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     press({ kind: "char", ch: "]", ctrl: true });
     expect(tile("board").title).not.toMatch(/· in$/);
     press({ kind: "esc" });
+  }, 40_000);
+
+
+  test("nested mounts (PIE-1305, PIE-1283): a mount in a mount is a header over the tiles' frames with one hint row for the screen; a tile whose name another layer shares answers to its path and to a click; a rename changes the name, the path and the title", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "nested-mounts" }, as: "test-agent" })).toMatchObject({ key: "nested-mounts" });
+    await until(() => marks["nested-mounts"]!.every(m => screen().includes(m)), "the nested-mounts section");
+    const stage = () => S().stages.get(S().sel).top;
+    await until(() => { sc.render(app); return !!stage().pane("calls")?.layoutOf(true).mount?.layout?.tiles?.some((t: any) => t.name === "who" && t.kind === "screen"); }, "the mount in the mount");
+    sc.render(app);
+    // One hint row for the stage, however deep the focus; no mount draws one of its own.
+    expect(sc.render(app).lines.map(plain).filter(l => l.includes("Tab/1-9 focus")).length).toBeLessThanOrEqual(1);
+    // reader is on the stage and in calls: an agent's name for it is refused with the paths to use, and the path works.
+    await expect(app.act({ action: "tile.info", tile: "reader", args: {}, as: "test-agent" })).rejects.toThrow(/several tiles named reader: .*calls\/reader/);
+    expect(await app.act({ action: "tile.info", tile: "calls/reader", args: {}, as: "test-agent" })).toMatchObject({ name: "reader" });
+    // One rename: calls/reader becomes calls/yo, by name, path and title together; a name taken in its layer is refused.
+    expect(await app.act({ action: "tile.title", tile: "calls/reader", args: { text: "yo" }, as: "test-agent" })).toMatchObject({ name: "yo" });
+    expect(await app.act({ action: "tile.info", tile: "calls/yo", args: {}, as: "test-agent" })).toMatchObject({ name: "yo" });
+    await expect(app.act({ action: "tile.title", tile: "calls/yo", args: { text: "activity" }, as: "test-agent" })).rejects.toThrow(/already a tile named activity/);
+    expect(await app.act({ action: "tile.info", tile: "reader", args: {}, as: "test-agent" })).toMatchObject({ name: "reader" });
   }, 40_000);
 
 

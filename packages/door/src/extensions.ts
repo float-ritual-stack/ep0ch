@@ -249,6 +249,8 @@ export const extensionNamed = (id: string): ExtensionEntry | undefined => curren
 export const extensionRules = (): RuleEntry[] => current?.rules ?? [];
 export const decoratingRules = (): boolean => extensionRules().some(r => !!r.decorate);
 
+/** What `mentionsExtension` reads, as one value: it changes when the extensions the service lists do (a result kept against it is stale when it moves). */
+export const mentionsStamp = (): RegExp | null => mentions;
 /**
  * Whether note text may have a handler line or an `@name` request line an extension answers: a cheap filter
  * over the keys and names the service lists, so a note without one is never asked about. The service parses.

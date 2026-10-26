@@ -2912,6 +2912,28 @@ prose out. The request is made three ways:
 
 All three need Jev's key (`TYPESAFE_API_KEY`, or the `typesafe` with-secrets group). Tests never ask the real Jev.
 
+**Is Jev right, and does anyone listen** (PIE-1251, `src/jev-suggestions.ts`). A suggestion a writer was told is a
+record under Records (`ep0ch record suggestion`'s kind, `src/records.ts`): the note and the revision written, the writer
+(persona and harness, from the actor id), the figure, Jev's gate and confidence, the callout it named, the prompt
+revision (`model`, `prompt-rev`). The sweep's margin thread is the same record with `source: sweep` and the thread. The
+day has one note per outline, `figure-fit <date> [type::jev-run] [experiment::figure-fit-live] [run::<date>]`, with the
+run-level keys the lab's runs share (`model`, `prompt-rev`, `items`, `agreed`, `agreement`, `suggested`, `different`,
+`ignored`, `tokens-in`, `tokens-out`, plus `quiet` and `unavailable`), so one query reads lab and field: an ask where Jev
+stayed quiet is a count on it, never a note each, and its tokens come from Jev's own `usage`. The counts are recomputed
+from the day's suggestion and outcome records; the note is the one record rewritten, as a rate.
+**The service makes them** (`suggestions.keep`, `keepSuggestion`): a writer that asked Jev sends one request and the
+service writes the records in its own process, finishing whether or not the writer waits (the writer's answer waits at
+most three seconds). The Claude mod's CLI exits when its answer is printed and reaches the host over ssh, and once did the
+Records page's templates one create at a time and was cut off after two (pie, Oct 25: the writer was told "this reads as
+a stat" and the outline held no record). The MCP gateway, the CLI and a script's `outline_*` call all end in the same
+`figureSuggestion` (`src/agent-tools.ts`), so all three keep the same way.
+Whether it was followed is derived by `judgeSuggestion`, never typed: **followed** when one of the note's next five
+writes within a day draws that figure (or the margin thread was marked Kept), **different** when the window closes with another figure drawn instead,
+**ignored** when it closes with neither. The verdict is
+written once as a `suggestion-outcome` record when a later write to the note (or the next suggestion, or the sweep)
+settles it; records never change. The "Jev's suggestions" view in pie counts them over their properties, for the last 7
+and 30 days.
+
 The public `createBlockComment` helper in `src/block-comments.ts` accepts request
 identity, a `BlockCommentInput`, author and provenance. Protocol80 adds the
 `block-comment` operation to the existing `annotations.batch` transaction and

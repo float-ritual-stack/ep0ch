@@ -51,6 +51,11 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
   "neat: the button that wouldn't bend"). If it works, it's done. If a step fails, the failures are the tickets: fix the
   door or the service, red first, and never bend the script around a bug (a probe bent to pass hides what it found). A
   script that proves handy, narrow and flexible in daily use becomes a built-in later, not first.
+- **No hardening for theoretical failures.** Before adding code for a speculative race, edge case or attack, name the
+  concrete failure (who does what, and what breaks), how likely it is here (one person and his agents, on his own
+  machines) and what the code costs. If it's theoretical, skip it and say so in one line. Validate an unknown value
+  once, at the boundary that owns it; don't check again what a schema or type already guarantees. (Evan, Oct 23,
+  from opencode's AGENTS.md: gurgle's "no theoretical robustness" note.)
 - **Extend a shared part rather than write a parallel one** (a second *implementation* of a reader, pane model,
   search, editor or presence view; a second place to read notes is fine). If none fits, say in the PR why not.
   A second place that *decides* the same question (who acts, which tile, where an open lands) is a **hydra**: name it
@@ -246,7 +251,9 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
   values.
 - **A second opinion before merging:** pipe the diff to Codex
   (`{ echo "<what to look for>"; git diff origin/main...HEAD; } | codex exec -c model='"gpt-6-astra"' --skip-git-repo-check -`;
-  its sandbox can't read the repo on float-2). CodeRabbit and Greptile review PRs on their own: never tag them or ask
+  its sandbox can't read the repo on float-2). Ask it for each finding's concrete failure, its likelihood here and the
+  fix's cost, and fix only the ones that can happen; a theoretical one gets a line in the PR, not code.
+  CodeRabbit and Greptile review PRs on their own: never tag them or ask
   for a re-review. After a merge, check for a bot review that landed late and follow up in a new PR.
 - **Merge with `gh pr merge <n> --merge`** (a merge commit, not a squash: each commit and its `Claude-Session:` trailer stay in history, so it's clear which session shipped what; Evan, Oct 16; `git log --first-parent main` reads like the squashed history), and check `gh pr view <n> --json state` says `MERGED`. Never
   `-d`/`--delete-branch` (it deletes the local branch and its worktree, which can be another agent's), and never

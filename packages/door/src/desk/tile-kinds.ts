@@ -52,6 +52,8 @@ export interface TileKind {
   readonly word?: string;
   /** How a message names one ("a terminal tile", an extension's "Tarot"); default "a <its first key's label> tile". */
   readonly noun?: string;
+  /** What its tiles are for when nothing says otherwise (`role:<role>` finds them): its kind's name by default. */
+  readonly role?: string;
   /** Its keys under ^W o, in the order the hint row lists them. */
   readonly keys?: readonly KindKey[];
   /** Build a tile from its saved spec (or tile.open's fields). */
@@ -167,6 +169,8 @@ export interface TileKind {
 }
 
 const registry = new Map<TileKindName, TileKind>();
+/** Counts the kinds coming and going: what a list built from the registry is kept against. */
+let registryEdits = 0;
 // The dispatcher's refusals name a tile's kind as the registry does ("an outline tile", "a terminal tile").
 nameKinds(kind => kindNoun(kind));
 /** Kinds that were registered and went away, with why: their tiles say so instead of running something else. */
@@ -188,11 +192,13 @@ export function registerTileKind(k: TileKind): void {
   } });
   gone.delete(k.kind);
   wentAway.delete(k.kind);
+  registryEdits++;
 }
 /** Take a kind out (an extension unloaded; tests). `why` is what its tiles say until it comes back. */
 export function unregisterTileKind(kind: TileKindName, why?: string): boolean {
   const k = registry.get(kind);
   const had = registry.delete(kind);
+  registryEdits++;
   if (had) { gone.set(kind, why ?? "it was taken out of the door's tile kinds"); wentAway.set(kind, k!); }
   return had;
 }
@@ -238,7 +244,12 @@ export const lastKindOf = (p: Pane | undefined): TileKind | undefined => (p ? re
 /** A kind's action sets: its own, then the ones it shares. */
 export const kindActions = (k: TileKind | undefined): ActionSet<any, KindHost>[] => (k ? [...(k.actions ? [k.actions] : []), ...(k.inherits ?? [])] : []);
 /** Every kind's action sets, each once (a shared one is listed once). */
-export const allKindActions = (): ActionSet<any, KindHost>[] => [...new Set(tileKinds().flatMap(kindActions))];
+export const allKindActions = (): ActionSet<any, KindHost>[] => {
+  // Asked by every claim a dispatcher weighs (the power bar's rows ask it for each action line): built once per registry.
+  if (kept?.at !== registryEdits) kept = { at: registryEdits, sets: [...new Set(tileKinds().flatMap(kindActions))] };
+  return kept.sets;
+};
+let kept: { at: number; sets: ActionSet<any, KindHost>[] } | null = null;
 /** The kind under `^W o <key>`, and that key's own start. */
 export function kindForKey(key: string): { kind: TileKind; key: KindKey } | null {
   for (const k of registry.values()) for (const x of k.keys ?? []) if (x.key === key) return { kind: k, key: x };

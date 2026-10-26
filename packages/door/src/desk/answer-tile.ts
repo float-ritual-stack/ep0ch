@@ -17,8 +17,9 @@ export class AnswerTile implements Pane {
   room = 1;
   links: Link[] = [];
   ranges: LinkRange[] = [];
-  constructor(readonly source: string, public ask: string, public fold?: string) {}
+  constructor(public source: string, public ask: string, public fold?: string) {}
   title() { return this.ask; }
+  renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
   hint() { return "↑↓ scroll · 1–9 follow a link · f fold/unfold in the note"; }
   spec() { return { source: `tile:${this.source}`, state: { ask: this.ask, fold: this.fold } }; }
   answer(text: string) {

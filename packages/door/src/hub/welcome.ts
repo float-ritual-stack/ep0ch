@@ -29,7 +29,7 @@ import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
-import { artLines, C, chip, ellipsize, fg, pad, paint, RESET, selectedRow, width } from "../style";
+import { C, chip, ellipsize, fg, pad, paint, RESET, selectedRow, width } from "../style";
 import { ch, isUp, isDown, type Key, type TermInfo } from "../term";
 import { rowLines, bbsDate, wrap } from "../text";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -128,7 +128,8 @@ export function drawLogo(canvas: Canvas, r: Rect, ctx: { t: TermInfo; graphics: 
   const gap = 4, withInfo = info.length > 0 && r.cols >= logo.width + gap + infoW + 4;
   const x0 = Math.max(0, Math.floor((r.cols - logo.width - (withInfo ? gap + infoW : 0)) / 2));
   const b = artBlock(logo.rows, logo.width, ctx.t, { key, at: { col: x0, row: r.row }, maxRows: logo.rows.length, fit: "grid", graphics: ctx.graphics });
-  if (!ctx.graphics) artLines(logo.rows, 0, 0, logo.width, logo.rows.length).forEach((l, i) => canvas.text(x0, r.row + i, l, Math.min(logo.width, r.cols - x0)));
+  // The block's own lines (it made them for cells mode): drawn again from the art they were made from, they were a second pass over every cell of the logo each frame.
+  if (!ctx.graphics) b.lines.forEach((l, i) => canvas.text(x0, r.row + i, l, Math.min(logo.width, r.cols - x0)));
   if (withInfo) {
     const top = r.row + Math.max(0, Math.floor((logo.rows.length - info.length) / 2));
     info.forEach((l, i) => canvas.text(x0 + logo.width + gap, top + i, paint(l), r.cols - x0 - logo.width - gap));

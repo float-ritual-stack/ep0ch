@@ -276,6 +276,8 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     '::button{label="Collapse" act="tile.collapse tile=extra"}',
     'A button can reach past this screen: Lift lifts the drawer\'s agent as a column wherever it is (its tab, or the screen it went out to), starting it first; press it again to drop it. ✦a does the same with the hyper layer on.',
     '::button{label="▲ Lift" act="agent.lift"}',
+    'The same lift, said with an address that does not depend on a name: the drawer\'s program is the tile with role agent (tile=role:agent), kept with the tile through a restart, a handover and a restore. t-<id> names one exact tile, <slot>@<screen> a place and ^ the tile that opened this one.',
+    '::button{label="pop it" act="tile.zoom tile=role:agent reach=column"}',
     'Right-click or alt+click an empty part of the bar, or ^K status bar: edit. The first edit makes a note seeded with today\'s built-ins. Order them with - <id> lines; leave an id out to hide it. A ::button line puts the same button on the bar, and alt="theme.cycle" gives it an alternate click.',
     'At 80 columns, pin eight differently named buttons: later items give way to +N, which opens this bar note. The clock and drawer chip stay whole. A duplicate label is refused when pinned; if written into the note, the first button stays and the later line is warned about once in the message log.',
     'status.bar.items describes the built-ins and their actions. Changes are live; malformed lines stay saved, say why in the message log, and keep the default bar until fixed.',
@@ -720,36 +722,43 @@ export async function findShowcase(board: SocketBoard): Promise<Msg | null> {
 /** The first line without its property tokens: how the seed names a note. */
 export const titleOf = (m: Msg) => titleLine(m.text).text.replace(/\s{2,}/g, " ").trim();
 
+/** A list of notes by title, the first of a title winning: found once per list, not by a scan for each of the ~hundred names. */
+const byTitle = (list: readonly Msg[]) => {
+  const by = new Map<string, Msg>();
+  for (const m of list) { const t = titleOf(m); if (!by.has(t)) by.set(t, m); }
+  return by;
+};
+
 /** The seeded notes on this outline by name, found by title under the root (null: no showcase here). */
 export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; notes: Partial<Record<SeedName, Msg>> } | null> {
   const root = await findShowcase(board);
   if (!root) return null;
-  const kids = await board.children(root.id);
+  const kids = byTitle(await board.children(root.id));
   const notes: Partial<Record<SeedName, Msg>> = { root };
   for (const [name, title] of Object.entries(SEED) as [SeedName, string][]) {
     if (name === "root") continue;
-    const hit = kids.find(k => titleOf(k) === title);
+    const hit = kids.get(title);
     if (hit) notes[name] = (await board.get(hit.id)) ?? hit;
   }
   // The thread's reply the panel opens on sits deeper than the root's children (PIE-944): found down the thread.
   for (let level = notes.thread ? [notes.thread] : []; level.length && !notes.threadHere;) {
     level = (await Promise.all(level.map(m => board.children(m.id)))).flat();
-    const hit = level.find(k => titleOf(k) === SEED.threadHere);
+    const hit = byTitle(level).get(SEED.threadHere);
     if (hit) notes.threadHere = (await board.get(hit.id)) ?? hit;
   }
   // The routing section's shelf, tin and recipe sit under its note (PIE-1010).
   if (notes.routing) {
-    const under = await board.children(notes.routing.id);
+    const under = byTitle(await board.children(notes.routing.id));
     for (const name of ["recipeShelf", "seedTin", "pickled"] as const) {
-      const hit = under.find(k => titleOf(k) === SEED[name]);
+      const hit = under.get(SEED[name]);
       if (hit) notes[name] = (await board.get(hit.id)) ?? hit;
     }
   }
   // The script examples' two notes the section opens on sit beneath the examples' note.
   if (notes.scriptExamples) {
-    const under = await board.children(notes.scriptExamples.id);
+    const under = byTitle(await board.children(notes.scriptExamples.id));
     for (const name of ["exampleOrder", "exampleGame"] as const) {
-      const hit = under.find(k => titleOf(k) === SEED[name]);
+      const hit = under.get(SEED[name]);
       if (hit) notes[name] = (await board.get(hit.id)) ?? hit;
     }
   }
@@ -757,7 +766,7 @@ export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; not
   Object.assign(notes, await demoNotes(board, unfound(notes)));
   // The fixture of "Notes that read themselves" (PIE-533) sits under its project, so its `parent` has a project to read.
   if (notes.ventProject) {
-    const hit = (await board.children(notes.ventProject.id)).find(k => titleOf(k) === SEED.ventRail);
+    const hit = byTitle(await board.children(notes.ventProject.id)).get(SEED.ventRail);
     if (hit) notes.ventRail = (await board.get(hit.id)) ?? hit;
   }
   return { root, notes };

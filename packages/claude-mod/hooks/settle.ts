@@ -5,7 +5,7 @@ import { MACHINE_NAME, OUTLINE_NAME } from './mention-message'
  * The settle check (PIE-1268, "Settle, then shape"): ideas gather while they are warm, and the deployer's session is
  * woken once a thread has gone quiet, so the backlog drains because a thread settled, not because the person said go.
  * Per `[thread::…]` value across the outlines it reads: how many notes, how many of them the person's own, when it was
- * last touched, and whether roadmap items carry it. All of that is counts and a max over what the service already
+ * last touched, and whether a ticket, a capability note or a hub note carries it. All of that is counts and a max over what the service already
  * answers for `list --facets thread` (outline-core's QuestionFacet: `count` over every match, `last` the newest
  * update), so no service code decides it; this file only joins three answers and applies the thresholds.
  *
@@ -23,7 +23,7 @@ export type SettleState =
   | 'warming'
   /** Enough notes, the person's among them, quiet for the window (and not for longer than `within`): wake the deployer. */
   | 'settled'
-  /** Roadmap items carry the thread: stop watching. */
+  /** A ticket, a capability note or a hub note carries the thread: it has a home, so stop watching. */
   | 'shaped'
   /** Quiet, but too thin to shape, or dormant for weeks: nothing to say. */
   | 'quiet'
@@ -43,7 +43,7 @@ export type SettleConfig = {
   base: string
   /** The person's own notes among them: an author, an actor, or the quoted "Evan, …" form. */
   evanQuery: string
-  /** Roadmap items carrying a thread. */
+  /** The notes that shape a thread by carrying it: tickets, capability notes and hubs (`type=thread` is kitty's hub for journals and publications). */
   shapedQuery: string
   /** Threads one wake names, the newest first; the rest wait for the next check, which names the next ones. */
   wakeMax: number
@@ -58,7 +58,7 @@ export const SETTLE_DEFAULTS: SettleConfig = {
   within: 3 * 24 * 60,
   base: `${THREAD_KEY} AND NOT type=roadmap-item`,
   evanQuery: 'by:user OR actor=evan OR text~"Evan, "',
-  shapedQuery: `type=roadmap-item AND ${THREAD_KEY}`,
+  shapedQuery: `(type=roadmap-item OR type=capability OR type=hub OR type=thread) AND ${THREAD_KEY}`,
   wakeMax: 5,
 }
 
@@ -172,21 +172,6 @@ export function settleAsks(config: SettleConfig): SettleAsks {
   }
 }
 
-/** The capability note a thread names itself on: `type=capability` carrying the same `thread`. */
-export function capabilityArgs(thread: string): string[] {
-  return listArgs(`type=capability AND ${THREAD_KEY}=${JSON.stringify(thread)}`, 1, 'id,title')
-}
-
-/** The first note of a `list` answer: its id, or null. */
-export function firstIdOf(stdout: string): string | null {
-  try {
-    const id = (JSON.parse(stdout) as { blocks?: { id?: unknown }[] }).blocks?.[0]?.id
-    return typeof id === 'string' && id ? id : null
-  } catch {
-    return null
-  }
-}
-
 export type ThreadCount = { count: number; last: number }
 
 /** The counts and last update per thread value in `list --facets thread`'s JSON, or null when it isn't an answer with that facet. */
@@ -227,7 +212,7 @@ export type Thread = {
   evan: number
   /** When the thread was last touched (ms). */
   last: number
-  /** Roadmap items carry it. */
+  /** A ticket, a capability note or a hub carries it. */
   shaped: boolean
   state: SettleState
 }
@@ -243,7 +228,7 @@ export function stateOf(t: Omit<Thread, 'state'>, now: number, config: SettleCon
 }
 
 /**
- * Every thread of the base query, with its state. A thread only the shaped query names (tickets and no notes of its
+ * Every thread of the base query, with its state. A thread only the shaped query names (a ticket and no notes of its
  * own) is shaped with no notes: it appears so a shaped thread never vanishes from the view.
  */
 export function threadsOf(all: Map<string, ThreadCount>, evan: Map<string, ThreadCount>, shaped: Map<string, ThreadCount>, now: number, config: SettleConfig): Thread[] {
@@ -314,9 +299,9 @@ export function agoOf(ms: number): string {
   return min < 120 ? `${min} min` : min < 48 * 60 ? `${Math.round(min / 60)} h` : `${Math.round(min / 1440)} d`
 }
 
-/** One thread's wake line: the shape the capability note gives. `capability` is its link text, or null when none names the thread. */
-export function wakeLine(t: Thread, now: number, capability: string | null): string {
-  return `thread ${t.thread} settled: ${t.chirps} chirps, ${t.evan} Evan's, quiet ${agoOf(now - t.last)}, ${capability ? `capability ${capability}` : `no capability note yet (write [thread::${t.thread}] on the one you shape it on)`}`
+/** One thread's wake line. Nothing the shaped query reads carries a settled thread, so it says how to shape it. */
+export function wakeLine(t: Thread, now: number): string {
+  return `thread ${t.thread} settled: ${t.chirps} chirps, ${t.evan} Evan's, quiet ${agoOf(now - t.last)}, nothing shapes it yet (write [thread::${t.thread}] on its capability note, its hub or its tickets)`
 }
 
 /** The prompt that wakes the deployer: one line per thread (cut at `max`), and what to do with them. */
@@ -325,7 +310,7 @@ export function wakeText(lines: readonly string[], more: number): string {
     `Settle check: ${lines.length + more} ${lines.length + more === 1 ? 'thread has' : 'threads have'} gone quiet.`,
     ...lines.map(l => `- ${l}`),
     ...(more ? [`- and ${more} more: the next check names them`] : []),
-    'Shape each on its capability note (the loki skill, "A settled thread"); cut tickets only for primitives, and put [thread::<name>] on them.',
+    'Shape each on a capability note, or point it at its hub, with [thread::<name>] (the loki skill, "A settled thread"); cut tickets only for primitives, and put [thread::<name>] on them.',
   ].join('\n')
 }
 

@@ -226,3 +226,133 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     void t;
   }, 20_000);
 });
+
+// PIE-1283 and PIE-1305: a mounted screen acts and looks like one screen with the one around it. The person's click
+// addresses the tile it landed on by its id (a name two layers share is only an agent's refusal), a mount is named for the
+// screen it mounts, a rename changes the name and the title together, and a mount draws a header with no second box,
+// no hint row of its own and no status line.
+describe.skipIf(!outliner)("a mounted screen is one screen with the one around it", () => {
+  const scratch = new Scratch();
+  let board: SocketBoard, app: App, desk: Desk;
+  const AS = "mount-agent-1305";
+  const D = () => desk as any;
+  const act = (action: string, args: Record<string, unknown> = {}, tile?: string) => app.act({ action, args, tile, as: AS }) as Promise<any>;
+  const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
+  const frame = () => desk.render(D().ctx).lines.map(plain);
+  const settle = async (n = 4) => { for (let i = 0; i < n; i++) { frame(); await new Promise(r => setTimeout(r, 80)); } };
+  const focusId = () => D().layoutGet().tiles.find((x: any) => x.name === D().layoutGet().focus).tile as string;
+  const mountPane = (name: string) => { const id = [...D().names].find(([, n]: [number, string]) => n === name)?.[0]; return { id: id as number, pane: D().panes.get(id) }; };
+
+  beforeAll(async () => {
+    process.env.EP0CH_STATE = join(scratch.root, "door");
+    board = new SocketBoard(await scratch.start());
+    await board.info();
+    await scratch.seedShowcase();
+    const term = { info: { cols: 242, rows: 68, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
+    app = new App(term as any, board, Date.now(), () => {});
+    app.push(new MainMenu());
+    desk = new Desk();
+    app.push(desk);
+    frame();
+  }, 30_000);
+  afterAll(async () => { D().dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
+
+  test("a mount of a screen is named for it, and a second one is numbered", async () => {
+    const a = await act("tile.open", { kind: "screen", screen: "who" }, focusId());
+    expect(a.name).toBe("who");
+    const b = await act("tile.open", { kind: "screen", screen: "who" }, focusId());
+    expect(b.name).toBe("who2");
+    const c = await act("tile.open", { kind: "screen", screen: "lastcall", part: undefined }, focusId());
+    expect(c.name).toBe("lastcall");
+    await act("tile.close", {}, b.tile);
+    await act("tile.close", {}, a.tile);
+    await act("tile.close", {}, c.tile);
+  }, 20_000);
+
+  test("the person's click on a tile whose name another layer shares opens that tile's menu", async () => {
+    // The desk has a reader; the last callers' screen has one too.
+    expect(D().layoutGet().tiles.some((t: any) => t.name === "reader")).toBe(true);
+    const m = await act("tile.open", { kind: "screen", screen: "lastcall" }, focusId());
+    await D().dispatch.press("tile.focus", {}, m.tile);
+    await act("tile.zoom", { on: true }, m.tile);             // wide enough to draw the tile's ⋯
+    await settle();
+    const { id, pane } = mountPane(m.name);
+    const inner = pane.inner as any, box = D().contents.get(id);
+    expect([...inner.names.values()]).toContain("reader");
+    const b = inner.menuButtons.find((x: any) => inner.names.get(x.id) === "reader");
+    expect(b).toBeDefined();
+    D().key({ kind: "mouse", action: "down", button: 0, x: box.col + b.from, y: box.row + b.row }, D().ctx);
+    await settle();
+    expect(D().ctx.refusal?.() ?? null).toBeNull();
+    expect(inner.overlays.top()).toBeTruthy();
+    inner.overlays.top()?.key?.({ kind: "esc" }, inner);
+    await D().dispatch.press("tile.zoom", { on: false }, m.tile);
+    await D().dispatch.press("tile.close", {}, m.tile);
+  }, 20_000);
+
+  test("renaming a tile inside a mount is one rename: its name, its path and the title it shows; a taken name is refused", async () => {
+    const m = await act("tile.open", { kind: "screen", screen: "lastcall" }, focusId());
+    await D().dispatch.press("tile.focus", {}, m.tile);
+    await act("tile.zoom", { on: true }, m.tile);
+    await settle();
+    const inner = mountPane(m.name).pane.inner as any;
+    // The tile by its path through the mount's id: the desk around it has a reader too.
+    const r = await act("tile.title", { text: "yo" }, `${m.tile}/reader`);
+    expect(r).toMatchObject({ name: "yo", title: "yo" });
+    await settle();
+    expect(D().pathTo(inner.paneNamed("yo"))).toBe("lastcall/yo");
+    expect(inner.paneNamed("reader")).toBeUndefined();
+    expect(await act("tile.info", {}, "lastcall/yo")).toMatchObject({ name: "yo" });
+    expect(frame().some(l => /\byo\b/.test(l))).toBe(true);
+    await expect(act("tile.title", { text: "yo" }, "lastcall/activity")).rejects.toThrow(/already a tile named yo/);
+    // The screen's own name for a tile stays that tile's: reader is the role of the tile now called yo.
+    await expect(act("tile.title", { text: "reader" }, "lastcall/activity")).rejects.toThrow(/already a tile named reader here/);
+    // A title with spaces is written on the tile and leaves the name alone.
+    expect(await act("tile.title", { text: "Who called" }, "lastcall/activity")).toMatchObject({ name: "activity", writtenTitle: "Who called" });
+    await D().dispatch.press("tile.zoom", { on: false }, m.tile);
+    await D().dispatch.press("tile.close", {}, m.tile);
+  }, 20_000);
+
+  /** The rectangle of tile `id` of `d` on the screen: its desk's own origin (the mount holding it) added. */
+  const onScreen = (d: any, id: number, origin = { col: 0, row: 0 }) => { const r = d.placed.rects.get(id); return { col: r.col + origin.col, row: r.row + origin.row, cols: r.cols, rows: r.rows }; };
+  const VERTICAL = /[│║┃|]/;
+
+  test("two levels of nested mounts draw one hint row and no mount draws a second box", async () => {
+    const a = await act("tile.open", { kind: "screen", screen: "lastcall" }, focusId());
+    await settle();
+    const outer = mountPane(a.name);
+    const inner = outer.pane.inner as any;
+    const b = await act("tile.open", { kind: "screen", screen: "who" }, `${a.tile}/activity`);
+    await settle(6);
+    const nested = [...inner.panes].find(([, p]: [number, any]) => p.kind === "screen");
+    expect(nested).toBeDefined();
+    const lines = frame();
+    if (process.env.DUMP_FRAME) console.log(lines.join("\n"));
+    // One hint row for the whole door: the outermost screen's.
+    expect(lines.filter(l => l.includes("Tab/1-9 focus"))).toHaveLength(1);
+    expect(lines.at(-1)).toContain("Tab/1-9 focus");
+    // A mount's frame is its header: where it meets the tiles inside it there are never two vertical borders side by side.
+    const rects = [onScreen(D(), outer.id), onScreen(inner, nested![0], D().contents.get(outer.id))];
+    for (const r of rects) {
+      for (let y = r.row + 1; y < r.row + r.rows - 1; y++) {
+        const row = [...lines[y]!];
+        expect(VERTICAL.test(row[r.col]!) && VERTICAL.test(row[r.col + 1]!), `row ${y} left edge of the mount at ${r.col}: ${lines[y]!.slice(r.col, r.col + 4)}`).toBe(false);
+        const right = r.col + r.cols - 1;
+        expect(VERTICAL.test(row[right]!) && VERTICAL.test(row[right - 1]!), `row ${y} right edge of the mount at ${right}`).toBe(false);
+      }
+    }
+    await act("tile.close", {}, b.tile);
+    await act("tile.close", {}, a.tile);
+  }, 30_000);
+
+  test("a tile that keeps another's name as its source follows its rename", async () => {
+    const reader = D().layoutGet().tiles.find((t: any) => t.name === "reader").tile as string;
+    const pv = await act("tile.open", { kind: "tune", name: "follower", source: "tile:reader" }, reader);
+    const pane = D().paneNamed("follower");
+    expect(pane.source).toBe("reader");
+    await act("tile.title", { text: "notes-here" }, reader);
+    expect(pane.source).toBe("notes-here");
+    await act("tile.title", { text: "reader" }, reader);
+    await act("tile.close", {}, pv.tile);
+  }, 20_000);
+});

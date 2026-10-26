@@ -133,10 +133,12 @@ Never write to a real outline or touch the person's door. Their door may be on t
   through `scripts/agent-env <name> --test -- timeout 900 bun test test/<file>.test.ts`: queued for one of two
   test slots, capped, in the foreground. Never `--parallel`, never idle waiting for a background run's notification (poll your own run's output until it exits, or run it
   in the foreground): report the result you saw. Heavy suites only via `scripts/box-test`. Never `pkill` or kill a
-  process you didn't start: a pattern also matches other agents' runs. Each door `parity-*` file takes about four
-  minutes whole, so run it in parts: `PARITY_ONLY="main menu,message reader"` names scenarios by their labels
+  process you didn't start: a pattern also matches other agents' runs. Each door `parity-*` file takes two to four
+  minutes whole, a scenario under a minute (past `PARITY_BUDGET_MS`, 60 s, it fails by name with its slowest key). To work
+  on one, run it in parts: `PARITY_ONLY="main menu,message reader"` names scenarios by their labels
   (`test/parity.ts`), split on commas, so a label with a comma in it ("home base, an outline missing") is picked
-  with `-t "home base, an outline missing"` instead.
+  with `-t "home base, an outline missing"` instead. `PARITY_KEYS=<file>` writes each probe's key and milliseconds,
+  `PARITY_LOG=<file>` each scenario's totals (builds, paints, the slowest key); a scenario that slows down shows there which.
 - **Tests:** the root `CONTRIBUTING.md`, "What a test must earn": it fails when
   something a person would notice breaks; a workflow with real input beats unit tests of the parts; no new file
   for an action a file already drives; a count is not a result. `bun run check` and `bun run test` at the root, or `bun test` in a package. The door's tests start

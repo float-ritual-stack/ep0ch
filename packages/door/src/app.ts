@@ -22,7 +22,7 @@ import { uncover, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
-import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, type TileRef } from "./surface/dispatch";
+import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type TileRef } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { AgentPointers, screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
@@ -47,6 +47,7 @@ import { stateDir, writeState } from "./state";
 import { alertMark, readAlert } from "./backup/alert";
 import type { AgentSession } from "./desk/agent-sessions";
 import { AgentDrawer, DRAWER_ACTIONS, DRAWER_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DrawerRun } from "./drawer";
+import { namesAgent, type ResolveOpts } from "./desk/tile-address";
 import type { HostMode } from "./desk/screen-layout";
 import type { Desk, MovedTile } from "./desk/desk";
 import type { Pane } from "./desk/panes";
@@ -85,6 +86,8 @@ export type AppTerm = Pick<Term, "info" | "write" | "onKey" | "onResize" | "inva
     typingOn?(): unknown;
     /** The session's terminals, for `peek` (a session's). */
     session?(): unknown;
+    /** How each attached terminal's frames-in-flight window stands (a session's): unanswered frames, skipped, the answer's round trip (PIE-1163). */
+    speed?(): unknown;
   };
 
 export type { Video };
@@ -100,7 +103,9 @@ export interface HostLayer {
    * id, `drawer.agent`, an `@screen/tile` path, a program's told id (`program`). Never a screen's own names. The drawer's
    * desk answers (it reads every layer); none made yet, nothing.
    */
-  resolveTile(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null;
+  resolveTile(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null;
+  /** Why `sel` names no tile in the host layer, in words and with the command to run (the drawer's own program closed, or out on a screen not shown), or null: the dispatcher's refusal says it. */
+  unnamed(sel: string): string | null;
   /** Tile `name` of screen `from` into the drawer, whole, as a tab unless `to`/`where` place it in the drawer's layout; `keys`: the person's go into it there (a new note to write). */
   put(from: Desk, name: string, actor: Actor, keys?: boolean, to?: string, where?: Where): TileDone;
   /** Tiles still running on a screen that goes for good, kept in the drawer instead of ended (tabs behind the one shown): the panes it took. */
@@ -1057,12 +1062,14 @@ export class App implements Ctx {
     const b = this.board;
     const service = { protocol: b.protocol, offline: this.offline, sequence: b.lastSequence };
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
-    return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}), nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
+    return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}),
+      nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
       ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), ...(this.bar ? { bar: this.bar.describe() } : {}),
       messages: this.messages.rows,
       pointers: this.agentPointers.list(),
       // How the door is keeping up (a475084a): frames drawn against reports handled, the hover reports a busier moment folded into the newest, and the settle: the last input of a burst to the frame that shows it.
-      speed: this.speed.describe(),
+      // Per attached terminal (a session's): the frames it hasn't answered (a stalled link holds them) and the answer's round trip (PIE-1163).
+      speed: { ...this.speed.describe(), ...(this.term.speed ? { clients: this.term.speed() } : {}) },
       // Where the pointer rests on a cut-short value, and whether that value is being read in full (the pointer is the person's: this only says).
       hover: this.overflow.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
@@ -1156,7 +1163,7 @@ export class App implements Ctx {
   recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown) { return this.board.inScriptRun ? run() : this.recording.run(req, replay, run); }
 
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
-    { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DRAWER_TILE_ID, on: () => ({ drawer: this.drawer }) },
+    { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && namesAgent(req.tile), on: () => ({ drawer: this.drawer }) },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => ({ ...HOST_AGENT_TILE, label: `${this.drawer.name} in the drawer` }), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>, tile?: string) => this.dispatch.act({ action: name, args, ...(tile ? { tile } : {}) }, how.actor) }) },
     { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: how.standing ? this.hostLayer.desks()[0]?.focusedDesk() ?? this.stack.at(-1) : this.stack.at(-1) }) },
     { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: this.stack.at(-1) }) },
@@ -1448,7 +1455,10 @@ export class App implements Ctx {
     if (top?.noDrawer) return;
     if (!b) return void this.refuse(`${hyperLabel(key)} isn't bound · ${HYPER_KEYS.map(x => hyperLabel(x.key)).join(" ")}`);
     if (b.leaves && top?.leaveTyping && !top.leaveTyping()) return;
-    this.dispatch.press(b.action, b.args ?? {}, b.tile).catch(e => this.refuse(e instanceof Error ? e.message : String(e)));
+    // A chord for "this tile" addresses it by its id, as an act string would: pointing and naming are one path (PIE-1286). A screen
+    // that can't name its focus here (the showcase's stage) leaves the action to find it, and the action refuses when there is none.
+    const at = b.tile ?? (b.onFocus ? top?.dispatch?.tile("focused")?.id : undefined);
+    this.dispatch.press(b.action, b.args ?? {}, at).catch(e => this.refuse(e instanceof Error ? e.message : String(e)));
   }
 
   /**
@@ -1520,6 +1530,7 @@ export class App implements Ctx {
    * renders and no faster.
    */
   redraw() {
+    this.redraws++; notePressRedraw();
     if (this.closed) return;               // the door has ended (a key in this chunk quit): nothing more is painted
     if (this.keying || this.batching) this.speed.asked();
     if (this.batching) { this.wanted = true; return; }
@@ -1529,6 +1540,9 @@ export class App implements Ctx {
     if (since >= FRAME_MS) return this.paint();
     this.paintTimer = setTimeout(() => { this.paintTimer = null; this.paint(); }, FRAME_MS - since);
   }
+  /** Repaints asked for, painted or folded into another (the parity pass counts them). */
+  private redraws = 0;
+  redrawsAsked(): number { return this.redraws; }
   private lastPaint = 0;
   private paintTimer: Timer | null = null;
   private batching = 0;

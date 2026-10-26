@@ -10,6 +10,77 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### `tile=` has one address grammar, and the drawer's program is a tile with a role (PIE-1286)
+
+- **Five kinds of address, one resolver.** `t-<uuid>` (or 8+ characters of it) is that exact tile; `role:<role>[@<screen>]` is a
+  tile of that kind wherever it is; `<slot>@<screen>` is the place, whatever fills it; `^` is the tile that opened the one with
+  your keys; a name is matched last and is never an identity. No match is refused with why and what to type; it never acts on
+  the focused tile instead.
+- **The drawer's own program is `role:agent`** (`drawer.agent` stays as its alias). The role is a property of the tile, saved
+  with it, so `agent.lift` and `::button{act="tile.zoom tile=role:agent reach=column"}` keep working across a door restart, a
+  session handover and a restore from a `drawer-tiles.json` that saved the own tile under another name (Evan's door, Oct 25).
+  The guesses it replaces are gone: the program's told id, its program key and its saved name no longer decide which tile it is.
+- **Keys, clicks and menu rows address their tile by id**, through the path an `act` string takes (`^W Z`, `✦u`, `agent.lift`),
+  and the parity walk checks it: each targeted action a key ran is run again by `tile=t-<uuid>` and by role.
+- **One tile registry** (`src/desk/tile-registry.ts`) holds a tile's id, role, opener and copy lineage; the pane, the desk and the drawer keep none of them. An action gets the tile's id from the dispatcher, and the drawer remembers only whether its program is out, not which tile it is.
+- **Saved layouts.** A tile's slot (`slot`, the place a screen's spec gave it) is no longer the leaf's `role`, which now says
+  what the tile is for. An older saved layout moves to the new words with one command, with the sessions ended first (a running session writes its old layout back over it): `ep0ch session end --all --yes`, then `bun packages/door/scripts/migrations/tile-roles.ts <state dir> --write` (without `--write` it says what it would change), then start the door. It also gives the drawer's own program its role in a drawer-tiles.json an older door saved under another name, where `drawer.agent` would otherwise answer "closed".
+
+### The door's key-by-key tests wait on nothing, and one that runs long fails by name (PIE-1307)
+
+The door's parity tests press every key and click every cell of each screen; together they added up to about 7,500 s, with
+`desk: facets tile` at 150 to 330 s and showcase `X` at 570 s against a 600 s limit, on a machine that was idle. Rebuilding the
+screen after each probe took 143 ms a build, about 60% of the facets scenario, in sleeps and settle loops.
+
+- **Measured:** `desk: facets tile` 92 to 127 s, now about 21 s; showcase `X` 208 s, now about 27 s; the six `parity-*` files 861 s
+  whole on float-2 (a scenario at most about 40 s).
+- **The door is settled when its paint has been made and no host answer is awaited,** not after a sleep. The outline host is asked
+  each read once while nothing changes. A scenario's setup keys are pressed as one chunk of input after the first build has reached
+  the same screen both ways. A state two keys open the same way is probed once, and a second key whose action names it is not built
+  again to confirm (the docs name these narrowings in `packages/door/docs/AGENT-INTERFACE.md`).
+- **A scenario over `PARITY_BUDGET_MS` (60 s) fails by its own name** with its slowest key and build, instead of running on to the
+  test's timeout and taking the next scenario with it. `PARITY_KEYS=<file>` writes every probe's milliseconds.
+- **The door itself got cheaper where the tests found waste:** the power bar's action list weighs each action with one answer to
+  where you are and which tile an address names, not one each (it was 19% of showcase `X`'s time); the policy panel
+  (`^W P`) no longer builds every action's menu rows to find the one it shows; the drawer chip reads its tabs once; a note's readable
+  source, titles and the facets tile's rows are kept while their text and answers are the same; the logo is drawn from its cells once.
+- **The hover test's frame bound follows its duration** (the door paints once per 16 ms, so a slow machine paints more for the same
+  burst), where `frames <= 10` flaked at 12 or 13 under load.
+
+### A slow or stalled ssh link is sent the latest frame, never a queue of old ones (PIE-1163)
+
+Evan, Oct 21, tethered over ssh: after a wifi drop mid-drag he watched a replay of every intermediate frame. The daemon
+can't see the link (its socket to the client is local; sshd's window holds about 2 MB, 60 to 250 frames), and nothing dropped them.
+
+- **A frames-in-flight window per client.** A client's terminal is asked to answer `CSI 5 n` after each frame; with two unanswered the
+  client isn't painted, and its next answer paints the latest. The rows it missed are remembered by the diff (`Rows.paint`), so no
+  stale frame is ever sent. Measured on a pty stand-in for a 100 KB/s ssh link with a 2 MB window, 100 resize steps at 20 Hz: the
+  screen stopped changing about 0.4 s after the last step, from 8 to 10 s before, and 40 KB were still queued after it, from 0.8 to 1 MB.
+- **Off where it can't work.** Asked at the probe (`Hello.acks`): a terminal that doesn't answer, or a client behind Herdr, tmux or screen
+  (which answer for themselves), is sent every frame as before. A frame unanswered for 5 s is given up on; a program handed the terminal
+  (`$EDITOR`, the drop shell) waits for the answers first, so none is typed into it.
+- **A drag held still isn't over.** The resize's 0.5 s hold now lasts while the button is down (30 s for a release that never comes), so a
+  link that stalls mid-drag doesn't trigger the full relayout and image uploads onto the link that just stalled.
+- **Catching up after a stall draws every row again and frees no image** (it disposed every Kitty image and uploaded them all again).
+- **`peek` shows it:** `speed.clients` has each terminal's `unacked` frames, `skipped` paints, `ackMs` and `ackTimeouts`.
+  No protocol bump: `Hello.acks` is optional.
+
+### Jev's figure suggestions are recorded, and whether each was followed is worked out (PIE-1251)
+
+- **Every suggestion a write's answer carries leaves a record** (`type::suggestion` under Records): the note and revision,
+  who wrote (persona and harness), the figure, Jev's gate and confidence, the callout it named, the prompt revision. An ask
+  where Jev stayed quiet is a count on that day's `type::jev-run` note (`experiment::figure-fit-live`, the run-level keys the lab's runs share: items, agreed, agreement, tokens), not a note each.
+- **Followed, a different figure or ignored is derived, never typed.** A later write that draws the suggested figure within
+  five writes or a day (or a figure-fit thread marked Kept) is followed; one that draws another is a different figure once that window has closed
+  (the suggested one could still follow); neither is ignored. The verdict is a `suggestion-outcome` record, written once. A "Jev's suggestions" view in pie counts
+  them by figure and writer over 7 and 30 days.
+- **The records land when the write came through the Claude mod's CLI too.** A note written through `outline_create` was told "this reads as a stat" and pie held
+  no record: the CLI exits when its answer is printed, and the first write's bookkeeping (the Records page's templates, a create each, 0.4 to 1 s on pie under load) was cut off after two.
+  The writer now sends one request, `suggestions.keep`, and the service makes the records itself, finishing whether or not the writer waits; the MCP gateway, the CLI and scripts keep the same way.
+  A new request, so `PROTOCOL` moves: `ep0ch install --apply` on each machine.
+- The records writer (`ep0ch record`) moved from the door to the outliner (`@ep0ch/outliner/records`) so the service can write
+  records itself; the door imports it from there.
+
 ### The door tells its terminal only what deserves a nudge, and `peek` and the speed measure get easier to use (PIE-1310, PIE-1308, PIE-1309, PIE-1302)
 
 - **Tern, Ghostty and Rex no longer get an `ep0ch - done` for every Claude turn (PIE-1310).** The door's own program status
@@ -38,6 +109,30 @@ are its record. The outliner's entries from then are kept below, under
 - **Door tests: a scratch host Bun ended at a test's timeout is started again for the next test.** Bun ends every process a file
   started when one of its tests times out, so one slow test used to fail every test after it with `connect ENOENT …/host.sock`;
   now only the slow one fails (`test/scratch.ts` `revive`, asked by `test/preload.ts` before each test).
+
+### An action that changed nothing doesn't repaint, and none paints twice (PIE-1301)
+
+Part of the door-speed audit (a hover that moved nothing painted a whole frame; over ssh every key painted twice).
+
+- **The dispatcher's blanket redraw after every press is gone.** An action says whether it changed what's shown
+  (`ActionDef.repaints`: `true`, `false`, or from its answer). Left out, an action that touches `nothing` of the
+  person's changed nothing shown, and every other did. An action that already asked for its paint (a `redraw()` of
+  its own) gets no second one behind it; one that answers later is painted when it does.
+- **Whose redraw it was is known:** a redraw counts for the press whose action asked for it (not for another press running at
+  the same time), and a frame an inner press painted doesn't stand for what its outer action changed after it. A screen
+  host's `beforeAction` says when it changed what's shown (the desk dropping a hint card), and the press repaints for it.
+- **Parity checks it:** a key or click that changes the screen through an action must have asked for a repaint.
+- No protocol change.
+
+### A mounted screen acts and looks like one screen (PIE-1283, PIE-1305)
+
+Evan, Oct 25: four screens mounted in screens drew four hint rows and a box inside every box, and a click on a tile's menu refused with "several tiles named reader".
+
+- **The tile menu opens on the tile you clicked.** The person's click, key and right-click go to the dispatcher by the tile's id, so two tiles named `reader` in different layers never refuse the person. Only an agent's `tile=reader` is refused, naming the paths (`calls/reader`) or ids to use.
+- **A mount is named for its screen**: `tile.open kind=screen screen=who` is `who` (a part is named for the part, a group is `group`, a second is numbered), so names don't clash in the first place.
+- **One rename.** `^W n` (`tile.title`, "rename this tile…") renames any tile, mounted or not: a name-shaped text becomes its name and its title together, so `tile=yo` and the path `who/yo` resolve it; a title with spaces is written on the tile and the name stays. A name already taken in its layer is refused.
+- **One hint row, one box.** A mounted screen draws no hint row of its own: the outermost screen's one row says the keys of the tile that has focus at any depth. A tile with a screen in it is its header (name, ▲ full, ⏎ in) with no second box around tiles that already have frames. A mounted screen's shut-dock handle and lock chip, which lived on its hint row, are not drawn (use the key or the tile menu).
+- **Kitchen sink:** section `nested-mounts` mounts the last callers' screen with who's online in it.
 
 ### The lift works on every screen (PIE-1285)
 
