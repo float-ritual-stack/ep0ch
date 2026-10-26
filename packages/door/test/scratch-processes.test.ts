@@ -16,13 +16,12 @@ const guard = join(import.meta.dir, "../../../scripts/box-test-guard");
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 // The stand-in test: a scratch folder, a host started with setsid from an environment written whole (passed through
-// wholeEnv, as install-migrate's is), its folder and pid written to `out`, then it hangs. `own` makes it ownScratch's.
+// wholeEnv, as install-migrate's is) in the folder it is given, the host's pid written to `out`, then it hangs. `own` makes it ownScratch's.
 const child = join(root, "stand-in.ts");
-writeFileSync(child, `import { mkdirSync, mkdtempSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+writeFileSync(child, `import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ownScratch, wholeEnv } from ${JSON.stringify(join(import.meta.dir, "scratch.ts"))};
-const [out, base, mode] = process.argv.slice(2);
-const dir = mkdtempSync(join(base, "ep0ch-im-"));
+const [out, dir, mode] = process.argv.slice(2);
 for (const d of ["home", "config", "outlines"]) mkdirSync(join(dir, d));
 if (mode === "own") ownScratch(dir);
 const env = wholeEnv({ HOME: join(dir, "home"), XDG_CONFIG_HOME: join(dir, "config"), EP0CH_OUTLINES: join(dir, "outlines"), PATH: process.env.PATH });
@@ -31,18 +30,19 @@ const r = Bun.spawnSync(["sh", "-c", 'setsid "$0" src/host-main.ts </dev/null >"
 if (r.exitCode !== 0) throw new Error("the host didn't start");
 const sock = join(dir, "outlines/.host/host.sock");
 for (let i = 0; !existsSync(sock); i++) { if (i > 400) throw new Error("no host socket"); await Bun.sleep(50); }
-writeFileSync(out, JSON.stringify({ dir, pid: Number(readFileSync(join(dir, "host.pid"), "utf8")) }));
+writeFileSync(out, String(Number(readFileSync(join(dir, "host.pid"), "utf8"))));
 await new Promise(() => {});
 `);
 
 const started = new Set<string>();
-/** What the stand-in wrote once its host is up. */
-async function standIn(out: string): Promise<{ dir: string; pid: number }> {
+/** A stand-in's scratch folder, made here so afterAll stops what runs from it even when its host never came up. */
+const scratchFor = () => { const dir = mkdtempSync(join(root, "ep0ch-im-")); started.add(dir); return dir; };
+/** The host's pid, once the stand-in has written it. */
+async function hostOf(out: string): Promise<number> {
   await until(() => existsSync(out), "the stand-in's host", 30_000);
-  const s = JSON.parse(readFileSync(out, "utf8")) as { dir: string; pid: number };
-  started.add(s.dir);
-  expect(alive(s.pid)).toBe(true);
-  return s;
+  const pid = Number(readFileSync(out, "utf8"));
+  expect(alive(pid)).toBe(true);
+  return pid;
 }
 
 afterAll(() => {
@@ -53,15 +53,15 @@ afterAll(() => {
 describe.skipIf(!linux)("a scratch folder owns what runs from it (PIE-1360)", () => {
   test("box-test's guard stops a timed-out run's host, though the test wrote its environment whole", async () => {
     // A private prefix of run dirs (`<prefix>-XXXXXXXX`, as box-test's), so the guard's sweep looks only at these.
-    const run = join(root, "run-AAAAAAAA"), locks = join(root, "locks"), out = join(root, "guarded.json");
+    const run = join(root, "run-AAAAAAAA"), locks = join(root, "locks"), out = join(root, "guarded.pid"), dir = scratchFor();
     mkdirSync(run);
-    writeFileSync(join(run, "run.sh"), `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(child)} ${JSON.stringify(out)} ${JSON.stringify(root)} whole\n`);
+    writeFileSync(join(run, "run.sh"), `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(child)} ${JSON.stringify(out)} ${JSON.stringify(dir)} whole\n`);
     const g = Bun.spawn(["bash", guard], {
       env: { ...process.env, BOX_DIR: run, BOX_WT: "scratch-procs", BOX_SLOTS: "1", BOX_LOCKS: locks, BOX_MAX: "8" },
       stdout: "pipe", stderr: "pipe",
     });
     const err = new Response(g.stderr).text();
-    const { dir, pid } = await standIn(out);
+    const pid = await hostOf(out);
     expect(await g.exited, await err).toBe(124);
     expect(await err).not.toContain("LEAK");
     await until(() => !alive(pid), "the host to stop", 10_000);
@@ -69,12 +69,14 @@ describe.skipIf(!linux)("a scratch folder owns what runs from it (PIE-1360)", ()
   }, 90_000);
 
   test("a TERM to the test stops its scratch folder's host before it exits", async () => {
-    const out = join(root, "termed.json");
-    const p = Bun.spawn([process.execPath, child, out, root, "own"], { stdout: "ignore", stderr: "pipe" });
-    const { dir, pid } = await standIn(out);
-    p.kill("SIGTERM");
-    expect(await p.exited).toBe(143);
-    expect(alive(pid)).toBe(false);
-    expect(processesUnder(dir)).toEqual([]);
+    const out = join(root, "termed.pid"), dir = scratchFor();
+    const p = Bun.spawn([process.execPath, child, out, dir, "own"], { stdout: "ignore", stderr: "pipe" });
+    try {
+      const pid = await hostOf(out);
+      p.kill("SIGTERM");
+      expect(await p.exited).toBe(143);
+      expect(alive(pid)).toBe(false);
+      expect(processesUnder(dir)).toEqual([]);
+    } finally { p.kill("SIGKILL"); }
   }, 60_000);
 });
