@@ -443,16 +443,15 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       sharedStates.add(id);
       return false;
     };
-    // The states this scenario has opened: a state is the action that opened it and the screen it left, so a second key that
-    // opens the same one (showcase.section.try by enter, l, right and tab) is the same state, probed once.
+    // The states this scenario has opened: a state is the action that opened it and the keys it then offers (the hint row), so a
+    // second key that opens the same one (showcase.section.try by enter, l, right and tab; note.props by i and I) is the same state,
+    // probed once. The rows are not compared: art and counts on a screen move between two builds, and its description is read as it settles.
     const reachedStates = new Set<string>();
     const reached = (k: Key, runs: ActionRun[], after: Snap) => {
-      // Of the screen, not what a build or the clock changes: the tiles' ids (new each build), and the status bar under the rows.
-      const ids = (t: string) => t.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "#id");
-      const id = `${runs[0]?.scope}.${runs[0]?.name}\0${after.depth}\0${after.drawer}\0${ids(after.about)}\0${after.lines.slice(0, -1).join("\n")}`;
-      if (reachedStates.has(id)) { if (log) require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} reaches the state ${runs[0]?.name} did, probed already\n`); return true; }
-      reachedStates.add(id);
-      return false;
+      const id = `${runs[0]?.scope}.${runs[0]?.name}\0${after.top?.constructor.name}\0${after.depth}\0${after.drawer}\0${after.hint ?? "?"}`;
+      if (after.hint === undefined || !reachedStates.has(id)) { reachedStates.add(id); return false; }
+      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} reaches the state ${runs[0]?.name} did, probed already\n`);
+      return true;
     };
     for (const k of [...PROBE_KEYS, ...await clicks()]) {
       if (dirty) { mask = await fresh(label, make, setup); dirty = false; last = null; }
