@@ -203,6 +203,20 @@ describe("the note surface selects and copies, without a service", () => {
     expect(s.describe().selection?.text).toBe("Water");
   });
 
+  test("a note with no header (PIE-1319): its body starts on the first row, and a selection still gets its copy control", () => {
+    const { s, h, draw } = setup();
+    s.show({ ...note(`Seed tray dashboard [header::none]\n\nWater the seedlings before nine.\nPrick out the leeks.`), properties: [{ key: "header", value: "none" }] }, h);
+    const lines = draw().map(plain);
+    expect(lines[0]).toContain("Water the seedlings");
+    expect(lines.join("\n")).not.toContain("Seed tray dashboard");
+    // The tile's border names it: the reader says its title isn't shown.
+    expect(s.titleShown(20)).toBe(false);
+    s.press(lines[0]!.indexOf("Water"), 0, h); s.drag(lines[0]!.indexOf("Water") + 4, 0, h); s.release(lines[0]!.indexOf("Water") + 4, 0, h);
+    const after = draw().map(plain);
+    expect(after.join("\n")).toContain("── 5 chars [y copy] [Y source]");
+    expect(s.describe().selection?.text).toBe("Water");
+  });
+
   test("the copy control copies, as y does", () => {
     const { s, h, copies, draw, at } = setup();
     const a = at("seedlings");

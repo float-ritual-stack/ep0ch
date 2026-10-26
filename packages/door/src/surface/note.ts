@@ -1905,8 +1905,9 @@ export class NoteSurface {
     // and the body (PIE-657); a rule only under the property panel, which it closes.
     const headed = head.length > 0;
     for (let r = 0; r < this.my; r++) head.push("");
-    // A note with no header rows at all (PIE-1319: `[header::none]`) starts its body on the first row: no blank, no rule.
-    if (this.panel || (headed && (!host?.header || head.length + 1 < h))) head.push(this.panel ? rule(w) : "");
+    // A note with no header rows at all (PIE-1319: `[header::none]`) starts its body on the first row: no blank, no rule,
+    // except while the person has words selected: the row above the body holds the selection's count and toolbar.
+    if (this.panel || (headed ? !host?.header || head.length + 1 < h : !!this.selection)) head.push(this.panel ? rule(w) : "");
     const headerRule = headerBlock.length ? this.headerRule(w) : "";
     if (headerRule) head.push(headerRule);
     const top = head.length;
@@ -2752,9 +2753,10 @@ export class NoteSurface {
 
   /**
    * Whether the reader, drawn in `rows` rows, shows the note's title in its own header: then its tile's frame bar
-   * needn't say it again (a short tile, or a host's own header or an edit in its place, leaves the title to the frame).
+   * needn't say it again (a short tile, a host's own header or an edit in its place, or a note that leaves its title out
+   * with `[header::…]`, PIE-1319, leaves the title to the frame).
    */
-  titleShown(rows: number): boolean { return !!this.msg && rows >= 2 && !this.modes.covers; }
+  titleShown(rows: number): boolean { return !!this.msg && rows >= 2 && !this.modes.covers && !headerOmits(this.msg).title; }
 
   /** What a host's header is told (SurfaceHost.header). */
   private headerInfo(m: Msg, properties: number): HeaderInfo {
