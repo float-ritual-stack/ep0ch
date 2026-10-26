@@ -1624,7 +1624,8 @@ export class NoteSurface {
     // A host's own header (the BBS message header) stands in for the title, byline and crumbs; the
     // summary line comes after it, so its row is counted rather than assumed.
     const own = host?.header?.(m, w, this.headerInfo(m, count));
-    const props = !this.panel && count ? `${fg(C.dark)} · i ${count} propert${count === 1 ? "y" : "ies"}` : "";
+    const propsText = !this.panel && count ? `i ${count} propert${count === 1 ? "y" : "ies"}` : "";
+    const props = propsText ? `${fg(C.dark)} · ${propsText}` : "";
     if (own) {
       const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : [];
       return { rows: [...own, ...summaryRows].map(l => " ".repeat(gx) + l), summary, summaryRow: own.length, summaryLinks: summary ? summaryLinks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) : [], title: null, own: true };
@@ -1650,7 +1651,15 @@ export class NoteSurface {
     // One line while it fits; in a narrow tile the summary (whose values are links) goes to a line of its own rather than
     // being cut off the end of the byline.
     const apart = !!summary && width(`${before}${summary}`) > w;
-    const metaRows = !summary ? [`${lead}${props}${said}`] : apart ? [`${lead}${props}${said}`, fg(C.dark) + summaryLine] : [merged];
+    // Narrower still, the property count leads the next line, whole (PIE-1302: it was cut though that line had room),
+    // with the summary after it while that fits, else on a line of its own.
+    const propsApart = !!propsText && width(`${meta} · ${propsText}`) > w;
+    const shared = propsApart && !!summary && width(`${propsText} · ${summary}`) <= w;
+    const metaRows = propsApart
+      ? [`${lead}${said}`, fg(C.dark) + propsText + (shared ? ` · ${summaryLine}` : ""), ...(summary && !shared ? [fg(C.dark) + summaryLine] : [])]
+      : !summary ? [`${lead}${props}${said}`] : apart ? [`${lead}${props}${said}`, fg(C.dark) + summaryLine] : [merged];
+    // The summary's row among them, and the cells before it on that row.
+    const summaryAt = !apart ? 0 : propsApart && !shared ? 2 : 1, summaryFrom = !apart ? width(before) : shared ? width(`${propsText} · `) : 0;
     // Marks only in a narrow tile: the short form, so its way back (M, or a click) is still on screen whole.
     if (said && width(metaRows[0]!) > w) {
       const short = `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}■ ${n} · ${mode} (M)`;
@@ -1662,7 +1671,7 @@ export class NoteSurface {
     // The [comment] chip ends the first byline row, where it fits whole: never at the cost of the byline itself.
     const chipped = !!chip && width(metaRows[0]! + chip) <= w;
     if (chipped) metaRows[0] += chip;
-    const links = !summary ? [] : apart ? summaryLinks : summaryLinks.map(l => ({ ...l, from: l.from + width(before), to: l.to + width(before) })).filter(l => l.from < w);
+    const links = !summary ? [] : summaryLinks.map(l => ({ ...l, from: l.from + summaryFrom, to: l.to + summaryFrom })).filter(l => l.from < w);
     // The whole title, wrapped onto as many lines as it needs (PIE-815: a question's title is the question; cutting it
     // here was the bug). The Work ID keeps the accent at the start of the first line.
     const lines = width(title) <= w ? [title] : wrap(title, w);
@@ -1710,7 +1719,7 @@ export class NoteSurface {
     // menu (⋯) has the same rows: comment on the whole note, comments, properties, sources.
     const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped && commentOn && !omit.byline ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
     const sourcesChip = chipped && sourcesOn && !omit.byline ? { row: first, from: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) - width(SOURCES_CHIP), to: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) } : undefined;
-    return { rows: rows.map(l => " ".repeat(gx) + l), titleControls, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary: omit.byline ? "" : summary, summaryRow: apart ? first + 1 : first, summaryLinks: omit.byline ? [] : links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: omit.title ? null : { row: this.printed ? 0 : above, rows: lines.length }, ...(this.printed ? { crumbsRow: rows.length - 1 } : omit.crumbs ? {} : { crumbsRow: 0 }), ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(sourcesChip ? { sourcesChip: { ...sourcesChip, from: sourcesChip.from + gx, to: sourcesChip.to + gx } } : {}), ...(marginChip && !omit.byline ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
+    return { rows: rows.map(l => " ".repeat(gx) + l), titleControls, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary: omit.byline ? "" : summary, summaryRow: first + summaryAt, summaryLinks: omit.byline ? [] : links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: omit.title ? null : { row: this.printed ? 0 : above, rows: lines.length }, ...(this.printed ? { crumbsRow: rows.length - 1 } : omit.crumbs ? {} : { crumbsRow: 0 }), ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(sourcesChip ? { sourcesChip: { ...sourcesChip, from: sourcesChip.from + gx, to: sourcesChip.to + gx } } : {}), ...(marginChip && !omit.byline ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
   }
 
   /**

@@ -165,7 +165,8 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       const items = Array.isArray(n.items) ? n.items as Node[] : [];
       return items.flatMap(it => {
         const box = it.done ? fg(C.lcyan) + "[x]" : fg(C.dark) + "[ ]";
-        return rowLines(one(it.label), w - 4).map((l, i) => (i ? "    " : box + RESET + " ") + fg(it.done ? C.dark : C.white) + l + RESET);
+        // Never cut short (PIE-1302): a cut item loses its meaning.
+        return rowLines(one(it.label), w - 4, Infinity).map((l, i) => (i ? "    " : box + RESET + " ") + fg(it.done ? C.dark : C.white) + l + RESET);
       });
     }
     case "table": {
@@ -185,7 +186,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
         fg(C.grey) + BOLD + line(columns) + UNBOLD + RESET,
         fg(C.dark) + widths.map(x => "─".repeat(x)).join("  ") + RESET,
         ...rows.flatMap((r, k) => {
-          const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!));
+          const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!, undefined, { hang: "none" }));
           return Array.from({ length: Math.max(...cells.map(c => c.length)) }, (_, j) => {
             const text = line(cells.map(c => c[j] ?? ""));
             return fg(C.white) + (links[k] ? tag(links[k], text) : press(acts[k], text)) + RESET;

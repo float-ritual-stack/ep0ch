@@ -156,12 +156,15 @@ export function withRowLimit<T>(lines: number, draw: () => T): T {
   try { return draw(); } finally { rowLimit = previous; measures = previousMeasures; }
 }
 
-/** A display row hangs under its marker; only its last allowed line is shortened. */
-export function rowLines(text: string, w: number, lines = rowLimit, { hang }: { hang?: number } = {}): string[] {
+/**
+ * A display row hangs under its marker; only its last allowed line is shortened. `hang: "none"`: the text has no
+ * marker (a table cell), so its next rows start at the edge, whatever it begins with.
+ */
+export function rowLines(text: string, w: number, lines = rowLimit, { hang }: { hang?: number | "none" } = {}): string[] {
   if (w <= 0) return [""];
   if (lines <= 1) return [drawEllipsized(text, w)];
-  const prefix = visible(text).match(/^(?:\s*(?:[→←↓♦≡∙•*▸▾-] |[A-Z][A-Z0-9]*-\d+\s*(?:[—–·:|-]\s*)?))+/)?.[0] ?? "";
-  const indent = Math.min(Math.max(hang ?? 0, width(prefix)), Math.max(0, w - 1));
+  const prefix = hang === "none" ? "" : visible(text).match(/^(?:\s*(?:[→←↓♦≡∙•*▸▾-] |[A-Z][A-Z0-9]*-\d+\s*(?:[—–·:|-]\s*)?))+/)?.[0] ?? "";
+  const indent = hang === "none" ? 0 : Math.min(Math.max(hang ?? 0, width(prefix)), Math.max(0, w - 1));
   const lead = " ".repeat(indent);
   // Wrap the marker with the first line, then reuse wrap's seams to consume source text, not balanced tags.
   let rest = text;
