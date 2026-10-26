@@ -458,6 +458,13 @@ export function declaredKeys(text: string | undefined): Set<string> {
   return out;
 }
 
+const NOT_A_KEYCAP = new Set(["click", "drag", "wheel", "ctrl+w"]);
+/**
+ * The one key an action is shown with (a tile menu's row, the ^W panel's "this tile" group): the first single key its
+ * `keys` declares, not a click, a drag, the wheel or a chord. Undefined when it declares none.
+ */
+export const actionKey = (keys: string | undefined): string | undefined => [...declaredKeys(keys)].find(k => !NOT_A_KEYCAP.has(k) && !k.includes(" "));
+
 /**
  * The keys a hint row names: each " · " part starts with its keys, then says what they do ("j k scroll",
  * "^W window", "drag a title moves"). A part that starts with a word ("type to filter") names none.

@@ -25,7 +25,7 @@ import { Offline, USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
 import { NOBODY, SHELL_IDLE_MS, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
 import { agentRefusal, type AgentLevel } from "./agent-level";
-import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, declaredKeys, isKeyName, type ActionDef, type ActionInfo, type Touches, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
+import { ActionRefused, actionKey, actionSet, def, agentLabel, asActor, asBoundKey, declaredKeys, isKeyName, type ActionDef, type ActionInfo, type Touches, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
 /** A tile as `tile=` reads it: the names it answers to, and what it shows (for a block id). */
 /** `tile=<mount>/<tile>`: a tile of a screen mounted in a tile (PIE-651); names never hold a `/`. */
@@ -98,8 +98,6 @@ const rewritten = (req: ActRequest, actor: Actor) => { for (const f of requestRe
  * row's words and group, the key its keycap shows, and why it would be refused now (the row is dimmed with it).
  */
 export interface MenuRow { action: string; args: Record<string, unknown>; tile: string; label: string; group: string; key?: string; refused?: string }
-/** Keys a menu row's keycap doesn't take from a def's `keys` (mouse gestures, the ^W prefix alone). */
-const MENU_NOT_KEYS = new Set(["click", "drag", "wheel", "ctrl+w"]);
 
 /** How a dispatcher's actions reach where they run: what `tile=` resolved to. */
 export interface Target {
@@ -780,7 +778,7 @@ export class Dispatcher {
           if (now?.hide) continue;
           const args = { ...(e.args ?? {}), ...(now?.args ?? {}) } as Record<string, unknown>;
           const why = this.refusal(r, def, name, at, args, args, actor, where) ?? now?.refused ?? null;
-          const key = e.key ?? [...declaredKeys(def.keys)].find(k => !MENU_NOT_KEYS.has(k) && !k.includes(" "));
+          const key = e.key ?? actionKey(def.keys);
           out.push({ action: name, args, tile: at.tile.id ?? at.tile.name, label: now?.label ?? e.label, group: e.group, ...(key ? { key } : {}), ...(why ? { refused: why } : {}) });
         }
       }

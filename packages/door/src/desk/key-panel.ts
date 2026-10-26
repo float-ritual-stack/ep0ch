@@ -1,14 +1,21 @@
 // The panel a prefix key opens (PIE-1304): every key that can follow it, grouped, each row clickable, laid out in
 // columns over the screen. It draws rows it is given and words none of its own: the ^W rows come from the key table
-// joined to each action's own words (wkeys.ts `wRows`), ^W o's from the tile kinds' own keys. A prefix shows it after a
+// joined to each action's own words (wkeys.ts `wRows`), ^W o's from the tile kinds' own keys, and ^W's first group, the
+// focused tile's own keys (PIE-1338), from its kind's actions (`tileKeys`). A prefix shows it after a
 // short pause (which-key's), so a fast typist never sees it; the hint row's one-line strip stays where it can't fit.
 import { C, fg, pad, RESET, width } from "../style";
 import { drawEllipsized } from "../style";
 import { modeHint, type ModeKey } from "../surface/modes";
+import { actionKey, keyCaption, type ActionSet } from "../surface/actions";
+import { clause } from "./wkeys";
 
-/** One key in the panel: `key` as typed after the prefix (" " is the space bar), its keycap and what it does. */
-export interface PanelKey { key: string; cap: string; label: string }
-export interface PanelGroup { title: string; keys: PanelKey[] }
+/**
+ * One key in the panel: `key` as typed after the prefix (" " is the space bar), its keycap and what it does. With
+ * `action`, the key is the tile's own, typed without the prefix: a click runs that action in the tile instead.
+ */
+export interface PanelKey { key: string; cap: string; label: string; action?: string }
+/** A group of keys under its title; `accent`: drawn in the accent, the focused tile's own (PIE-1338). */
+export interface PanelGroup { title: string; keys: PanelKey[]; accent?: true }
 
 /**
  * The panel's own keys, said in its foot: a click on a row presses that key, esc lets the prefix go; on ^W, `?` opens
@@ -31,8 +38,25 @@ export function panelPauseMs(env: Record<string, string | undefined> = process.e
   return Number.isFinite(v) && v >= 0 && v <= 10_000 ? v : 400;
 }
 
-/** A row of the drawn panel that presses a key: its line, the cells it covers and the key typed after the prefix. */
-export interface PanelSpot { line: number; from: number; to: number; key: string }
+/**
+ * The focused tile's own keys, the ^W panel's first group (PIE-1338): each action of its kind's sets that has a key, as
+ * the action says it. The key is the one its tile menu row shows (`actionKey`); the words are that row's, else the
+ * summary's first clause. A tile whose actions have no keys has no group.
+ */
+export function tileKeys(name: string, sets: readonly ActionSet<any, any>[]): PanelGroup {
+  const keys: PanelKey[] = [];
+  for (const set of sets) for (const action of set.names()) {
+    const def = set.def(action)!, key = actionKey(def.keys);
+    if (!key || keys.some(k => k.key === key)) continue;
+    const menu = def.menu === undefined ? [] : Array.isArray(def.menu) ? def.menu : [def.menu];
+    const row = menu.find(m => (m.key ?? key) === key);
+    keys.push({ key, cap: keyCaption(key), label: row?.label ?? clause(def.summary), action });
+  }
+  return { title: `this tile: ${name}`, keys, accent: true };
+}
+
+/** A row of the drawn panel that presses a key: its line, the cells it covers and the key typed after the prefix (or the tile's action it runs). */
+export interface PanelSpot { line: number; from: number; to: number; key: string; action?: string }
 
 const GAP = 2, MAX_COL = 34;
 
@@ -44,17 +68,19 @@ const GAP = 2, MAX_COL = 34;
 export function panelLines(groups: readonly PanelGroup[], cols: number, rows: number): { lines: string[]; spots: PanelSpot[]; width: number } | null {
   const shown = groups.filter(g => g.keys.length);
   if (!shown.length) return null;
-  const capW = Math.max(...shown.flatMap(g => g.keys.map(k => width(k.cap))));
-  const want = Math.max(...shown.map(g => width(g.title)), ...shown.flatMap(g => g.keys.map(k => capW + 2 + width(k.label))));
+  // Each group's keycaps are as wide as its own widest (a tile's "j k ↑ ↓" doesn't push ^W's labels over).
+  const capOf = (g: PanelGroup) => Math.max(...g.keys.map(k => width(k.cap)));
+  const want = Math.max(...shown.map(g => width(g.title)), ...shown.flatMap(g => g.keys.map(k => capOf(g) + 2 + width(k.label))));
   const colW = Math.min(MAX_COL, want, cols);
   const n = Math.max(1, Math.min(shown.length, Math.floor((cols + GAP) / (colW + GAP))));
-  if (colW < capW + 8) return null;
-  const columns: { text: string; key?: string }[][] = Array.from({ length: n }, () => []);
+  if (shown.some(g => colW < capOf(g) + 8)) return null;
+  const columns: { text: string; key?: string; action?: string }[][] = Array.from({ length: n }, () => []);
   for (const g of shown) {
     const col = columns.reduce((best, c) => (c.length < best.length ? c : best), columns[0]!);
+    const capW = capOf(g), [title, cap, label] = g.accent ? [C.lcyan, C.lcyan, C.white] : [C.yellow, C.white, C.grey];
     if (col.length) col.push({ text: "" });
-    col.push({ text: fg(C.yellow) + drawEllipsized(g.title, colW) + RESET });
-    for (const k of g.keys) col.push({ text: fg(C.white) + pad(k.cap, capW) + RESET + "  " + fg(C.grey) + drawEllipsized(k.label, colW - capW - 2) + RESET, key: k.key });
+    col.push({ text: fg(title) + drawEllipsized(g.title, colW) + RESET });
+    for (const k of g.keys) col.push({ text: fg(cap) + pad(k.cap, capW) + RESET + "  " + fg(label) + drawEllipsized(k.label, colW - capW - 2) + RESET, key: k.key, ...(k.action ? { action: k.action } : {}) });
   }
   const h = Math.max(...columns.map(c => c.length));
   if (h > rows) return null;
@@ -63,7 +89,7 @@ export function panelLines(groups: readonly PanelGroup[], cols: number, rows: nu
     let line = "";
     columns.forEach((c, i) => {
       const cell = c[y];
-      if (cell?.key !== undefined) spots.push({ line: y, from: i * (colW + GAP), to: i * (colW + GAP) + colW, key: cell.key });
+      if (cell?.key !== undefined) spots.push({ line: y, from: i * (colW + GAP), to: i * (colW + GAP) + colW, key: cell.key, ...(cell.action ? { action: cell.action } : {}) });
       line += (i ? " ".repeat(GAP) : "") + pad(cell?.text ?? "", colW);
     });
     lines.push(line);
