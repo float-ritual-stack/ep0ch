@@ -52,7 +52,7 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     expect(joined).not.toContain("…");
     // A long title gives way to controls on the frame.
     expect(all[rect.row]).toContain("\u2261");
-    expect(all[rect.row]).toContain("When the allotment");
+    expect(all[rect.row]).toContain("PLOT-007 · When the allotm");
     // The keys come to the reader: the whole title in the status line.
     await D().dispatch.act({ action: "tile.focus", args: {}, tile: "reader" }, { kind: "user" });
     expect((app as any).message).toBe(`PLOT-007 · ${QUESTION}`);

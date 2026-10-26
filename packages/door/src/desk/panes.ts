@@ -435,7 +435,7 @@ export class ReaderPane implements Pane {
     const st = this.surface.state();
     if (this.label !== null) {
       // A float says what it holds; in the row, which detail it is and whether ⏎ opens here.
-      if (this.floating) return this.msg ? subject(this.titleNote!) || this.label : "float";
+      if (this.floating) return this.msg ? headedTitle(this.titleNote!) || this.label : "float";
       return [this.label, this.msg ? "" : "empty", this.opensHere ? "⏎ opens here" : "", st].filter(Boolean).join(" · ");
     }
     if (!this.holding) return ["reader", st].filter(Boolean).join(" · ");

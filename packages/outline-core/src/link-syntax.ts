@@ -115,6 +115,12 @@ export function referencedBlock(input: string): { blockId: string; fragment?: st
   return { blockId: ref.blockId, ...(ref.outline ? { outline: ref.outline } : {}), ...(ref.fragmentId ? { fragment: ref.fragmentId } : {}) };
 }
 
+/** `((id|label))`: a reference to a note with a label that can't end it early (no `|` or parentheses). */
+export function blockRefText(id: string, label: string): string {
+  const said = label.replace(/[|()]/g, " ").replace(/\s+/g, " ").trim();
+  return `((${id}${said ? `|${said}` : ""}))`;
+}
+
 export function blockReferenceIds(text: string, code?: CodeScope): string[] {
   return blockReferenceOccurrences(text, code).map(reference => reference.blockId);
 }

@@ -54,6 +54,9 @@ export type FigureQuestion =
   | { kind: "page"; address: string }
   | { kind: "query"; where: string; limit: number; sort: string; direction: string; group?: string; machinery?: MachineryMode };
 
+/** One group of a grouped question (a rank's bar, a tab), as a question of its own: `null` is the group with no value. */
+export const groupWhere = (query: string, group: string, value: string | null) => `(${query}) AND ${value === null ? `NOT ${group}` : `${group}=${JSON.stringify(value)}`}`;
+
 /** A result with no value for a figure's `group:` property. */
 export const NONE = "—";
 /** What a tabs figure asks for (the service's most), and its rows per tab unless `limit:` says. */
@@ -160,7 +163,7 @@ export function liveProps(kind: string, p: Props, a: FigureAnswer): { props: Pro
     }
     case "rank":
       // The service's groups, most first; a match without the property is the NONE group.
-      return { props: { ...p, items: [...(a.groups ?? [])].sort((x, y) => y.count - x.count).map(g => ({ label: g.value ?? NONE, value: g.count, query: `(${p.query}) AND ${g.value === null ? `NOT ${p.group ?? "status"}` : `${p.group ?? "status"}=${JSON.stringify(g.value)}`}` })) } };
+      return { props: { ...p, items: [...(a.groups ?? [])].sort((x, y) => y.count - x.count).map(g => ({ label: g.value ?? NONE, value: g.count, query: groupWhere(String(p.query), String(p.group ?? "status"), g.value) })) } };
     case "table":
       return { props: { ...p, ...tableOf(p, items) } };
     case "tabs": {

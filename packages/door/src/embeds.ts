@@ -15,7 +15,7 @@ import type { InlineListDraw } from "./surface/inline-list";
 import { anchorsOfText, nearestAnchor } from "@ep0ch/outline-core/reference-warnings";
 import { embeddedPageAddress } from "@ep0ch/outline-core/link-syntax";
 import type { Msg } from "./board";
-import { bodyMatch, matchWords, subject } from "./board";
+import { bodyMatch, headedTitle, matchWords, subject } from "./board";
 import type { DocEnv } from "./doc";
 import { printable, summarySegments, viewSummaryKeys, type Source, prop } from "./props";
 import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, MISSING_MARK, outlineChanged, drawShortId, type LinkTarget } from "./refs";
@@ -295,7 +295,7 @@ export function viewResults(m: Msg, w: number, src: Source | null | undefined, s
 
 /** A virtual branch's results, as Detail lists them. */
 function viewRegion(target: Msg, v: ViewRead, w: number, sink: LinkTarget[] | undefined): string[] {
-  const S = (line: string) => shade(line, w), title = printable(subject(target));
+  const S = (line: string) => shade(line, w), title = printable(headedTitle(target));
   const head = (text: string, colour?: number) => heading(target.id, undefined, text, w, sink, colour);
   if (v.status === "invalid") return [head(`≡ ${title} · CONFIG ERROR`, C.lred), ...v.errors.map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];
   if (v.status !== "ready") return [head(`≡ ${title} · QUERY FAILED`, C.lred), ...(v.errors.length ? v.errors : [v.status]).map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];
@@ -308,7 +308,7 @@ function viewRegion(target: Msg, v: ViewRead, w: number, sink: LinkTarget[] | un
     const line = bodyMatch(m);
     const to: LinkTarget = { block: m.id, role: "row", ...(line ? { at: line.start, ...(line.raw ? { atLabel: line.raw } : {}), atSays: `the line its ${line.key} is written on` } : {}) };
     const where = line ? fg(C.dark) + ` · ${matchWords(line, false)}` : "";
-    return S(fg(C.lcyan) + "  ∙ " + fg(C.white) + tagged(sink, to, printable(subject(m))) + where + (summary ? fg(C.brown) + " · " + summary : "") + RESET);
+    return S(fg(C.lcyan) + "  ∙ " + fg(C.white) + tagged(sink, to, printable(headedTitle(m))) + where + (summary ? fg(C.brown) + " · " + summary : "") + RESET);
   })];
 }
 
@@ -340,7 +340,7 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
     const v = views.get(node);
     return v ? (list ? list(viewRegion(target, v, w, sink), w) : viewRegion(target, v, w, sink)) : [S(fg(C.dark) + `${ref} · reading…` + RESET)];
   }
-  const title = printable(node.title ?? subject(target));
+  const title = printable(node.title ?? headedTitle(target));
   const out = [heading(id, node.fragmentId, node.fragmentId ? `» ${title} ^${node.fragmentId}` : `» ${title}`, w, sink, C.dark, !node.fragmentId && isOpenProposal(target) ? target : null)];
   // The embeds inside, matched to the service's list by what they name, in order.
   const children = new Map<string, TransclusionNode[]>();

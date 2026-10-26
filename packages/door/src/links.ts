@@ -25,7 +25,7 @@ import {
   backlinkGroupHidden, backlinkRows, backlinkRowSuffix, backlinkStageSummary, orderStageValues, stageMatches, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, isOpenBacklinkStage,
   type BacklinkAcross, type BacklinkCollection, type BacklinkSource, type BacklinkStageBucket, type BacklinkStageFilter, type BacklinkViewGroup, type BacklinkViewOptions,
 } from "./backlinks";
-import { subject, type Msg } from "./board";
+import { headedTitle, subject, type Msg } from "./board";
 import { ago, rowLines, wrap } from "./text";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { authorName, backlinkCollectionOf, LIST_FIELDS, USER, type Actor, type SocketBoard } from "./socket";
@@ -416,8 +416,8 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
     case "child": case "match": {
       const b = r.child.block, f = r.child.facets;
       // A post in the thread tree (PIE-944): the note being read is marked, each post says who wrote it and how long ago.
-      if (r.kind === "child" && r.thread) return { mark: r.thread.here ? "►" : "·", text: subject(b), context: [r.thread.here ? "you are here" : "", authorName(b.author, ""), ago(b.createdAt)].filter(Boolean).join(" · ") };
-      return { mark: nest === null ? (r.kind === "child" ? "↓" : "∙") : nest ? "▾" : "▸", text: subject(b), context: [f?.stage ? f.stage.value : "", authorName(b.author, ""), ago(b.updatedAt)].filter(Boolean).join(" · ") };
+      if (r.kind === "child" && r.thread) return { mark: r.thread.here ? "►" : "·", text: headedTitle(b), context: [r.thread.here ? "you are here" : "", authorName(b.author, ""), ago(b.createdAt)].filter(Boolean).join(" · ") };
+      return { mark: nest === null ? (r.kind === "child" ? "↓" : "∙") : nest ? "▾" : "▸", text: headedTitle(b), context: [f?.stage ? f.stage.value : "", authorName(b.author, ""), ago(b.updatedAt)].filter(Boolean).join(" · ") };
     }
   }
 }

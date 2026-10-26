@@ -37,8 +37,8 @@ import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
 import { embeddedPageAddress, pageAddressReferences, pageAddressText, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { getProperty } from "./properties";
-import { parseProperties, parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
-import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
+import { parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
+import { headedTitle, workIdOf } from "@ep0ch/outline-core/work-id-title";
 import {
   canonicalPublishRoots,
   checkAttachment,
@@ -1032,7 +1032,7 @@ export class Publisher {
     // Without a URL to link to, a link is its label: a path on no host means nothing where the text is going.
     const index = base ? full : { ...full, labelsOnly: true };
     const entry = full.entries.find((candidate) => candidate.blockId === blockId) ?? {
-      blockId, title: publishedTitle(block.title ?? "", new Map()) || blockId, path: `/p/${blockId}`, slug: blockId, type: "block" as const, updatedAt: block.updatedAt ?? "",
+      blockId, title: headedTitle(publishedTitle(block.title ?? "", new Map()), workIdOf(block)) || blockId, path: `/p/${blockId}`, slug: blockId, type: "block" as const, updatedAt: block.updatedAt ?? "",
     };
     const { markdown, subtitle, marks, components, steps } = await this.blockMarkdown(entry, index, audience, format === "html" && options.marks === true, { base: base ?? "", format });
     const text = format === "markdown" ? markdown
@@ -1111,13 +1111,13 @@ export class Publisher {
       const served = check?.ok ? check : undefined;
       return {
         blockId: block.id,
-        title: publishedTitle(block.title ?? "", rawTitles) || block.id,
+        title: headedTitle(publishedTitle(block.title ?? "", rawTitles), workIdOf(block)) || block.id,
         path: `/p/${slug}`,
         slug,
         ...(collision ? { collision } : {}),
         type: served ? served.type : "block",
         updatedAt: served && served.updatedAt > (block.updatedAt ?? "") ? served.updatedAt : block.updatedAt ?? "",
-        ...(publicTitles.has(block.id) ? { public: { title: publishedTitle(block.title ?? "", publicTitles) || block.id } } : {}),
+        ...(publicTitles.has(block.id) ? { public: { title: headedTitle(publishedTitle(block.title ?? "", publicTitles), workIdOf(block)) || block.id } } : {}),
         ...(source === undefined ? {} : { attachment: { source, ...(check && !check.ok ? { refused: check.reason } : {}) } }),
       };
     }).sort((left, right) => left.path.localeCompare(right.path));
@@ -2944,7 +2944,7 @@ function notePath(block: { id: string; properties?: readonly BlockProperty[] }, 
 /** A note that isn't published, as a tailnet page serves it (and links to it). */
 function browseEntry(block: ProjectedBlock, index: PublishedIndex): PublishedEntry {
   const path = notePath(block, index);
-  return { blockId: block.id, title: noteTitle(block.title ?? "") || block.id, path, slug: decodeURIComponent(path.slice(3)), type: "block", updatedAt: block.updatedAt ?? "" };
+  return { blockId: block.id, title: headedTitle(noteTitle(block.title ?? ""), workIdOf(block)) || block.id, path, slug: decodeURIComponent(path.slice(3)), type: "block", updatedAt: block.updatedAt ?? "" };
 }
 
 /** The line a folder row summarises a note by: its first line of text after the title. */
@@ -3187,8 +3187,7 @@ export function renderSubtreeMarkdown(
   const rootText = marked(root, publishedText(decorated(root), context, { title: true }));
   const [first = "", ...rest] = rootText.split("\n");
   // A note with a Work ID heads its title with it (PIE-809: `HOME-011 · <title>`), once; `accentWorkId` colours it.
-  const workId = getProperty(parseProperties(root.text ?? ""), "work-id");
-  const headed = (title: string) => { const named = workIdTitle(title, workId); return named.workId ? `${named.workId} · ${named.title}` : title; };
+  const headed = (title: string) => headedTitle(title, workIdOf({ text: root.text ?? "" }));
   const lines = (/^#{1,6}\s/.test(first) ? [first.replace(/^(#{1,6}\s+)(.*)$/, (_, mark: string, text: string) => `${mark}${headed(text)}`), ...rest]
     // A note that opens with an embed keeps it below the heading.
     : first.startsWith(">") ? [`# ${headed(root.id)}`, "", first, ...rest]

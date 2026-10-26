@@ -7,7 +7,8 @@ import { subtitleOf } from "@ep0ch/outline-core/block-record";
 // a pause); actions are the dispatcher's (the focused tile's menu rows, then every action that needs no argument);
 // recent is the what-changed store behind the status bar's `+N new`; screens are the shell's `screen.list`. A pick goes
 // through the shared paths: the drawer's goTo, the `open` action, the dispatcher's press.
-import { identityFields, noteLabel, subject, withWorkId, type Msg } from "../board";
+import { headedTitle as titleWithWorkId } from "@ep0ch/outline-core/work-id-title";
+import { headedTitle, identityFields, subject, type Msg } from "../board";
 import { Desk } from "../desk/desk";
 import { PtyPane } from "../desk/pty";
 import { tileKinds } from "../desk/tile-kinds";
@@ -54,7 +55,7 @@ function tileRows(desk: Desk, at: string, group: string, screen: Screen | null, 
   return desk.tileOutline().flatMap(t => {
     const path = `${prefix}${t.name}`, p = desk.pane(t.name);
     const row: BarRow = {
-      key: `${at}:${path}`, fill: path, label: t.showing ? withWorkId(t.showing.workId, t.label) : t.label, depth: base + t.depth, group,
+      key: `${at}:${path}`, fill: path, label: t.showing ? titleWithWorkId(t.label, t.showing.workId) : t.label, depth: base + t.depth, group,
       mark: t.focused ? "●" : t.collapsed ? "▸" : t.float ? "⧉" : t.docked ? "⇤" : t.tab && !t.shown ? "⋯" : " ",
       detail: [path, t.kind, t.mode ?? "", t.collapsed ? "a spine" : "", t.float ? "floating" : "", t.docked ? "docked" : "", t.tab && !t.shown ? "a tab behind" : "", mounts.length ? "in a mount" : ""].filter(Boolean).join(" · "),
       data: { desk, name: t.name, screen, drawer, shows: t.showing?.id ?? null, kind: t.kind, path, mounts, find: [path, ...(t.showing ? identityFields(t.showing.workId, t.showing.page, t.showing.title) : [])] } satisfies TileAt,
@@ -129,7 +130,7 @@ const TILES: BarSource = {
 };
 
 /** A hit's row: its work id (when its title doesn't start with it) and its title. */
-const noteRow = (m: Msg): BarRow => ({ key: m.id, label: noteLabel(m), subtitle: subtitleOf(m), fill: subject(m) });
+const noteRow = (m: Msg): BarRow => ({ key: m.id, label: headedTitle(m), subtitle: subtitleOf(m), fill: subject(m) });
 
 /** How many notes `/` lists with nothing typed. */
 const RECENT_NOTES = 30;
@@ -364,7 +365,7 @@ const RECENT: BarSource = {
   rows(q, host) {
     const store = host.ctx.whatChanged;
     if (!store) return [];
-    const rows = store.list().map((r): BarRow => ({ key: r.blockId, label: r.title === undefined ? "…" : withWorkId(r.workId, r.title), data: { find: identityFields(r.workId, r.page, r.title ?? "") }, mark: r.seen ? " " : "+", detail: `${r.kind} by ${authorName(r.who)} · ${ago(r.at)} ago` }));
+    const rows = store.list().map((r): BarRow => ({ key: r.blockId, label: r.title === undefined ? "…" : titleWithWorkId(r.title, r.workId), data: { find: identityFields(r.workId, r.page, r.title ?? "") }, mark: r.seen ? " " : "+", detail: `${r.kind} by ${authorName(r.who)} · ${ago(r.at)} ago` }));
     // Titles not read yet come in a moment (the list's own read); the bar asks again when the store says so.
     if (store.list().some(r => r.title === undefined || r.retitle)) void store.titles(host.ctx.board);
     return filtered(rows, q, r => [r.label, ...((r.data as { find: string[] }).find), r.detail ?? ""]);

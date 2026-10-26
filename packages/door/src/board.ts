@@ -1,5 +1,5 @@
 // What the door needs from the outline, independent of the wire protocol.
-import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
+import { headedTitle as titleWithWorkId } from "@ep0ch/outline-core/work-id-title";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { printable } from "./text";
 import { presentLinks, stripMarks } from "./refs";
@@ -159,15 +159,21 @@ export const subject = (m: Msg) => {
 };
 const SUBJECTS = new Map<string, string>();
 let subjectsAt = 0;
-/** A title with its work id before it, unless the title already starts with it: "HUB-007 End-of-day update", as /notes rows read. */
-export const withWorkId = (workId: string | undefined, title: string) => (workId && !title.startsWith(workId) ? `${workId} ` : "") + title;
-/** A note as a list row reads it: its work id, then its title. */
-export const noteLabel = (m: Msg) => withWorkId(prop(m, "work-id"), subject(m));
 /** What a list filter matches a note by (outline-core's matcher, as every bar scope): its work id, its page name and its title. */
-export const identityFields = (workId: string | undefined, page: string | undefined, title: string): string[] => [withWorkId(workId, title), workId ?? "", page ?? ""].filter(Boolean);
+export const identityFields = (workId: string | undefined, page: string | undefined, title: string): string[] => [titleWithWorkId(title, workId), workId ?? "", page ?? ""].filter(Boolean);
 
-/** A note's title with its Work ID first (PIE-809: `HOME-042 · <title>`), said once: as its tile's border and spine say it. */
-export function headedTitle(m: Msg): string {
-  const named = workIdTitle(subject(m), prop(m, "work-id"));
-  return named.workId ? `${named.workId} · ${named.title}` : named.title;
-}
+/**
+ * A note's name wherever it's drawn (PIE-809, PIE-1356): its title with its Work ID first, `HUB-062 · <title>`, said
+ * once (outline-core's `headedTitle`). The tile bar and its tabs, spines, lists, completion and the power bar read it.
+ */
+export const headedTitle = (m: Msg): string => {
+  // Drawn for every row of every list each frame, as `subject`: answered once per text and Work ID.
+  const id = prop(m, "work-id"), key = id ? `${id}\n${m.text}` : m.text, known = HEADED.get(key);
+  if (known !== undefined && headedAt === kept.generation) return known;
+  if (headedAt !== kept.generation) { HEADED.clear(); headedAt = kept.generation; }
+  const title = titleWithWorkId(subject(m), id);
+  HEADED.set(key, title);
+  return title;
+};
+const HEADED = new Map<string, string>();
+let headedAt = 0;
