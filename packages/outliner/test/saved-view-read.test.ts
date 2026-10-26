@@ -284,5 +284,7 @@ test("waiting asks include a [needs::sysop: …] buried on a step, at its line, 
     expect(asks.map(a => [a.kind, a.reason, a.line, text.slice(a.at!, a.at! + a.label!.length)])).toEqual([["decision", "choose the liner", 3, "[needs::sysop: choose the liner]"]]);
     store.update(note.id, text.replace("- [ ]", "- [x]"), note.revision);
     expect(waitingAsks(store).filter(a => a.block === note.id)).toEqual([]);
+    // Settled, not missing: no "no notes have needs" hint for a key written only on ticked steps.
+    expect(store.queryBlocks({ where: "needs", propertyScope: "all" }).hint).toBeUndefined();
   } finally { store.close(); rmSync(root, {recursive: true, force: true}); }
 });

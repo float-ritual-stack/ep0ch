@@ -4196,7 +4196,8 @@ export class OutlinerStore {
     const keys = new Set<string>();
     for (const [id, records] of graph.propertyRecordsByBlock) {
       if (graph.byId.get(id)?.effectiveDeletedRootId) continue;
-      for (const record of records) keys.add(record.key);
+      // A key written only on ticked steps is still written: settled, not missing.
+      for (const record of graph.settledBlockRecords.get(id) ?? records) keys.add(record.key);
     }
     return keys;
   }
