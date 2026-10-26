@@ -93,7 +93,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   };
   const settle = async () => {
     for (let i = 0; ; i++) {
+      const h0 = performance.now();
       await hosts.settle();
+      stats.hostMs += performance.now() - h0;
       if (!flushPaint()) return;
       // A paint that asked for more (a chain of loads: a list, then its rows, then their notes) is followed; one that never ends
       // (a spinner) is left, counted for the log.
@@ -252,7 +254,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   };
   const masks = new Map<string, Set<number>>();
   /** A fresh screen on the stack (over the menu), settled; and the rows that change by themselves (a clock, a meter). */
-  const stats = { fresh: 0, freshMs: 0, second: 0, unsettled: 0, paints: 0, paintMs: 0, looks: 0, lookMs: 0, pressMs: 0, settleMs: 0 };
+  const stats = { fresh: 0, freshMs: 0, second: 0, unsettled: 0, paints: 0, paintMs: 0, looks: 0, lookMs: 0, pressMs: 0, settleMs: 0, hostMs: 0 };
   /**
    * A scenario is held to a budget (PARITY_BUDGET_MS, 60 s): past it the scenario fails by name, with the slowest key and the
    * slowest build, rather than running on to the test's own timeout (PIE-1307: one ran 570 s against a 600 s limit and took the
@@ -808,11 +810,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   for (const [label, make, setup] of ALL) {
     if (only && !only.includes(label)) continue;
     test(`${label}: every key and click it handles runs an action that names it`, async () => {
-      const before = found.length + hintFound.length, t0 = Date.now();
+      const before = found.length + hintFound.length, t0 = Date.now(), asked0 = hosts.asked();
       for (const k of Object.keys(stats) as (keyof typeof stats)[]) stats[k] = 0;
       scenario = label; budget.start();
       await audit(label, make, setup ?? []);
-      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks; slowest key ${budget.worst().key} ${budget.worst().keyMs.toFixed(0)} ms, slowest build ${budget.worst().buildMs.toFixed(0)} ms; keys: ${stats.pressMs.toFixed(0)} ms handling, ${stats.settleMs.toFixed(0)} ms settling; ${stats.unsettled} unsettled; ${stats.paints} paints ${stats.paintMs.toFixed(0)} ms, ${stats.looks} looks ${stats.lookMs.toFixed(0)} ms)\n`);
+      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks; slowest key ${budget.worst().key} ${budget.worst().keyMs.toFixed(0)} ms, slowest build ${budget.worst().buildMs.toFixed(0)} ms; keys: ${stats.pressMs.toFixed(0)} ms handling, ${stats.settleMs.toFixed(0)} ms settling; ${stats.unsettled} unsettled; ${stats.paints} paints ${stats.paintMs.toFixed(0)} ms, ${stats.looks} looks ${stats.lookMs.toFixed(0)} ms; ${hosts.asked() - asked0} host round trips, ${stats.hostMs.toFixed(0)} ms waiting on hosts)\n`);
       for (const k of Object.keys(stats) as (keyof typeof stats)[]) stats[k] = 0;
       const mine = [...found, ...hintFound].slice(before).map(f => `${f.screen}\t${f.keys}\t${f.problem}`);
       expect(mine).toEqual([]);

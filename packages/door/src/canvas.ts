@@ -30,6 +30,16 @@ const FG = /^\x1b\[(?:3[0-79]|9[0-7]|38;5;\d+|38;2;\d+;\d+;\d+)m$/, BG = /^\x1b\
  * long. Piled up, its row was every colour before it again, cell after cell: 45 KB a row (PIE-623).
  */
 export function withSgr(sgr: string, code: string): string {
+  // A screen sets the same few styles over and over (a logo's colours cell by cell, every frame): each is worked out once.
+  const key = sgr + "\0" + code, hit = sgrs.get(key);
+  if (hit !== undefined) return hit;
+  if (sgrs.size >= 4096) sgrs.clear();
+  const out = nextSgr(sgr, code);
+  sgrs.set(key, out);
+  return out;
+}
+const sgrs = new Map<string, string>();
+function nextSgr(sgr: string, code: string): string {
   const fg = FG.test(code);
   if (!fg && !BG.test(code)) return sgr + code;
   const same = fg ? FG : BG;

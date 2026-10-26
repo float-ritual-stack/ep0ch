@@ -98,8 +98,19 @@ const CONTACT = /\d(?:[\s().\/+-]{0,2}\d){6,}/;
 const rowText = (r: Cell[]) => String.fromCharCode(...r.map(c => c.code));
 const blank = (r: Cell[]) => !rowText(r).replace(/[\x00\s\xff]/g, "");
 
-/** The logo's cells: its rows, without contact lines, blank rows at either end and blank columns either side. */
+/**
+ * The logo's cells: its rows, without contact lines, blank rows at either end and blank columns either side. Worked out
+ * once per art and logo: a band asks for it every frame (its height while laying out, then its drawing; PIE-1347).
+ */
 export function logoCells(art: Art, logo: Logo): { rows: Cell[][]; width: number } {
+  let of = cellsOf.get(art);
+  if (!of) cellsOf.set(art, of = new WeakMap());
+  let cells = of.get(logo);
+  if (!cells) of.set(logo, cells = cutLogo(art, logo));
+  return cells;
+}
+const cellsOf = new WeakMap<Art, WeakMap<Logo, { rows: Cell[][]; width: number }>>();
+function cutLogo(art: Art, logo: Logo): { rows: Cell[][]; width: number } {
   let rows = art.rows.slice(logo.rows?.[0] ?? 0, logo.rows?.[1] ?? art.rows.length).filter(r => !CONTACT.test(rowText(r)));
   while (rows.length && blank(rows[0]!)) rows = rows.slice(1);
   while (rows.length && blank(rows.at(-1)!)) rows = rows.slice(0, -1);
@@ -113,6 +124,15 @@ export function logoCells(art: Art, logo: Logo): { rows: Cell[][]; width: number
 /** The `n` rows of `rows` with the most ink: a short band keeps the letters, not the frame around them. */
 export function densest(rows: Cell[][], n: number): Cell[][] {
   if (rows.length <= n) return rows;
+  // The same rows each frame (logoCells keeps them), so the same answer: kept beside them.
+  let of = densestOf.get(rows);
+  if (!of) densestOf.set(rows, of = new Map());
+  let out = of.get(n);
+  if (!out) of.set(n, out = densestRows(rows, n));
+  return out;
+}
+const densestOf = new WeakMap<Cell[][], Map<number, Cell[][]>>();
+function densestRows(rows: Cell[][], n: number): Cell[][] {
   const ink = rows.map(r => rowText(r).replace(/[\x00\s\xff.:]/g, "").length);
   let best = 0, at = 0;
   for (let i = 0; i + n <= rows.length; i++) { const s = ink.slice(i, i + n).reduce((a, b) => a + b, 0); if (s > best) { best = s; at = i; } }

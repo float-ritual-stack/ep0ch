@@ -275,10 +275,12 @@ export function tossOf(m: Msg): TossLog {
  * The nodelist as FidoNet wrote it: a comment header, a line per node (`,n,node,status,last toss,held,areas`), commas
  * and all; then the last tosses, as a tosser's log. `|NN` colours.
  */
+/** The nodelist's day, as toLocaleDateString says it: one formatter, made once (making it took a frame's worth, every paint; PIE-1347). */
+const NODELIST_DAY = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 export function nodelistLines(title: string, nodes: readonly NodeEntry[], tosses: readonly TossLog[] = [], now = Date.now()): string[] {
   const day = new Date(now), start = new Date(day.getFullYear(), 0, 0);
   const dayNo = Math.floor((day.getTime() - start.getTime()) / 86_400_000);
-  const when = day.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const when = NODELIST_DAY.format(day);
   const nodeW = Math.min(28, Math.max(8, ...nodes.map(n => n.node.length)));
   const self = nodes.find(n => n.self);
   return [
