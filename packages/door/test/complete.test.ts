@@ -21,6 +21,7 @@ import { Refused, SocketBoard, USER, type Actor } from "../src/socket";
 import { visible } from "../src/style";
 import { enterKeeps, popupHint, completerFor, completionKey, completionOf, renderCompletion, type CompletionState } from "../src/surface/completer";
 import { editHint } from "../src/surface/editor";
+import { declaredKeys, keyName, traceActions, type ActionRun } from "../src/surface/actions";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -253,6 +254,25 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     completionKey(d, K("enter"), c);
     await until(() => d.lines[1] === "## Calls [heading-pattern::waffle]", "the value");
     expect(completionOf(d)).toBeNull();
+  });
+
+  test("every key the open list takes runs one of its actions, which names that key (PIE-1339): the parity walk's rule, from an open popup", async () => {
+    const keys: Key[] = [K("down"), K("up"), { kind: "down", shift: true } as Key, { kind: "pgdn" } as Key, K("tab"), K("enter"), K("esc")];
+    for (const k of keys) {
+      const { d, c } = typing("## Calls [heading-p");
+      await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the keys");
+      // Docs longer than they're shown, so shift+↓ and PgDn scroll them.
+      c.state!.items[0]!.docs = "Where a heading's glyph track repeats: ".repeat(20);
+      renderCompletion(c.state!, 40, 12);
+      const runs: ActionRun[] = [];
+      const stop = traceActions(r => runs.push(r));
+      completionKey(d, k, c);
+      stop();
+      const name = ("shift" in k && k.shift ? "shift+" : "") + keyName(k)!;
+      expect(runs.map(r => r.name), name).toHaveLength(1);
+      expect([...declaredKeys(runs[0]!.keys)], `${runs[0]!.name} names ${name}`).toContain(name);
+      c.dismiss();
+    }
   });
 
   test("[heading:: offers the built-in styles and the outline's own; a value typed inside a closed property replaces through its ]", async () => {

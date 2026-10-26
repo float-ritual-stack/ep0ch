@@ -972,7 +972,7 @@ export class Completer {
 
 export const COMPLETION_PREVIEW = {
     summary: "scroll the docs panel beside the completion list (the lit row's docs, a reference's reader, a component's demo), or select text from a component demo; an agent reads that text without changing the person's selection",
-    keys: "shift+up/down, PgUp/PgDn, wheel over the docs",
+    keys: "shift+up, shift+down, PgUp/PgDn, wheel over the docs",
     touches: "tile", replay: "safe",
     touchesWith: ({ text }: { text?: string }): "nothing" | "tile" => text === undefined ? "tile" : "nothing",
     args: { by: { type: "number", optional: true, about: "rows to scroll; negative goes up" }, text: { type: "string", optional: true, about: "component preview text to select; an agent reads it without changing the selection" } },
@@ -1241,7 +1241,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
       return span ? paintRange(line, span[0], span[1], SELECT_BG) : line;
     });
   };
-  const labelWidth = Math.min(w, LIST_MAX_COLS, Math.max(...s.items.map(rowWidth)));
+  const labelWidth = Math.min(w, listMaxCols(w), Math.max(...s.items.map(rowWidth)));
   const anchorCol = s.target.kind === "agent" || s.target.kind === "component" || s.target.kind === "attribute" || s.target.kind === "attribute-value" ? 0 : anchor;
   const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, w, { col: anchorCol, width: labelWidth }, { list: labelWidth });
   if (drawn.preview) s.previewRect = { ...drawn.preview, row: drawn.preview.row + Number(header) };
@@ -1263,8 +1263,11 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
 
 /** The columns a row wants: marker, label, its detail (up to a cap), its kind and a component's arrow. */
 const DETAIL_COLS = 28;
-/** The list is never wider than this, so a wide pane has room for its docs beside it (a long title is cut with …). */
-const LIST_MAX_COLS = 48;
+/**
+ * The list is never wider than this, so a wide pane keeps 30 columns for its docs beside it (a long title is cut with
+ * …): 48 columns, more as the pane widens, up to 60.
+ */
+const listMaxCols = (w: number) => Math.min(60, Math.max(48, w - 36));
 function rowWidth(it: CompletionItem): number {
   const label = cells(printable(it.label, " "));
   const detail = it.detail ? 2 + Math.min(DETAIL_COLS, cells(printable(it.detail, " "))) : 0;
