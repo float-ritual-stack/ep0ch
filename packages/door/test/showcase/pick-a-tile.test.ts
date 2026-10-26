@@ -32,6 +32,9 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
   test("an agent's press of an empty slot never opens the person's picker: it is told the line to run", async () => {
     await expect(act("button.press", { label: "pop it" }, undefined, AGENT)).rejects.toThrow(/button\.slot .*key=target value=/);
     expect(screen()).not.toContain("choose a tile for target");
+    // Nor can it answer the person's picker: a pick's answer runs as the person.
+    await expect(act("tile.pick", { then: `button.slot note=${seeded.notes.pickATile.id} line=3 key=target`, value: "links" }, undefined, AGENT)).rejects.toThrow();
+    expect(await buttonLine()).toContain("target=}");
   });
 
   test("the person's press asks for a tile; the choice is written as the tile's id, and the next press lifts it, the one after drops it", async () => {
@@ -139,6 +142,24 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     expect(drawer.made.liftsPane(drawer.tile)).toBe(true);
     await act("button.press", { note, label: "pop it" });
     await until(() => !drawer.made.lifted, "dropped");
+  });
+
+  // Evan's probe lives in his status bar: pressed there, the pick's answer is written by the door's own button.slot, whichever
+  // tile has the keys (here the drawer's shell, after the drawer came up to pick from).
+  test("the probe on the status bar: pressed with the keys in the drawer's shell, the pick is written on the status-bar note", async () => {
+    const bar = seeded.notes.statusBar.id, probe = '::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}';
+    const m = (await board.get(bar))!;
+    await board.update(bar, m.text.replace(/^::button\{label="pop it".*$/m, probe), m.revision!);
+    const line = async () => (await board.get(bar))!.text.split("\n").findLast(l => l.includes("tile={target}"))!;
+    await untilAsync(() => line().then(l => l === probe), "the probe on the status-bar note");
+    await act("host.toggle", { open: true });
+    await act("tile.focus", {}, "drawer.agent");
+    expect((await act("button.press", { note: bar, label: "pop it" })).picking).toBe("tile");
+    const links = (await act("tile.info", {}, "links")).tile as string;
+    await act("tile.pick", { to: "links" });
+    if (!(await line()).includes(links)) await act("tile.pick", { value: links });
+    await untilAsync(() => line().then(l => l === probe.replace("target=}", `target=${links}}`)), "the id on the status-bar note's line");
+    await act("host.toggle", { open: false });
   });
 
   // PIE-1297: copy a tile's and a note's id and reference from where you see them.
