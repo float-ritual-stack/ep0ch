@@ -15,7 +15,7 @@ import { rowLines } from "../text";
 // view under that hub (HUB_SOURCE, src/desk/lanes.ts). The desk asks the source and keeps each tile by its view, so a lane's
 // cursor and collapse survive a refill; the board never lays its lanes out itself.
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
-import { bodyMatch, matchWords, subject, type Msg } from "../board";
+import { bodyMatch, headedTitle, matchWords, subject, type Msg } from "../board";
 import { markReveal } from "../reveal";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -134,7 +134,7 @@ export class QueryPane implements Pane {
   title() { return `${this.name} ${this.items ? this.items.length : "…"}`; }
   subject() { return this.items?.[this.sel]?.id ?? null; }
   /** Its header names the view as written ("Reading now"), not the tile (`Reading-now`). */
-  headName() { return this.def ? subject(this.def) : this.name; }
+  headName() { return this.def ? headedTitle(this.def) : this.name; }
   hint() {
     if (this.boardHint) return this.boardHint;
     if (!this.home) return "j k pick · ⏎ open · r reload";

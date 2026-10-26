@@ -166,4 +166,14 @@ export const identityFields = (workId: string | undefined, page: string | undefi
  * A note's name wherever it's drawn (PIE-809, PIE-1356): its title with its Work ID first, `HUB-062 · <title>`, said
  * once (outline-core's `headedTitle`). The tile bar and its tabs, spines, lists, completion and the power bar read it.
  */
-export const headedTitle = (m: Msg): string => titleWithWorkId(subject(m), prop(m, "work-id"));
+export const headedTitle = (m: Msg): string => {
+  // Drawn for every row of every list each frame, as `subject`: answered once per text and Work ID.
+  const id = prop(m, "work-id"), key = id ? `${id}\n${m.text}` : m.text, known = HEADED.get(key);
+  if (known !== undefined && headedAt === kept.generation) return known;
+  if (headedAt !== kept.generation) { HEADED.clear(); headedAt = kept.generation; }
+  const title = titleWithWorkId(subject(m), id);
+  HEADED.set(key, title);
+  return title;
+};
+const HEADED = new Map<string, string>();
+let headedAt = 0;

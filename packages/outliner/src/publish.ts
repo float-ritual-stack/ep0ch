@@ -37,7 +37,7 @@ import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
 import { embeddedPageAddress, pageAddressReferences, pageAddressText, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { getProperty } from "./properties";
-import { parseProperties, parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
+import { parsePropertyRecords, stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { headedTitle, workIdOf } from "@ep0ch/outline-core/work-id-title";
 import {
   canonicalPublishRoots,
@@ -3187,8 +3187,7 @@ export function renderSubtreeMarkdown(
   const rootText = marked(root, publishedText(decorated(root), context, { title: true }));
   const [first = "", ...rest] = rootText.split("\n");
   // A note with a Work ID heads its title with it (PIE-809: `HOME-011 · <title>`), once; `accentWorkId` colours it.
-  const workId = getProperty(parseProperties(root.text ?? ""), "work-id");
-  const headed = (title: string) => headedTitle(title, workId);
+  const headed = (title: string) => headedTitle(title, workIdOf({ text: root.text ?? "" }));
   const lines = (/^#{1,6}\s/.test(first) ? [first.replace(/^(#{1,6}\s+)(.*)$/, (_, mark: string, text: string) => `${mark}${headed(text)}`), ...rest]
     // A note that opens with an embed keeps it below the heading.
     : first.startsWith(">") ? [`# ${headed(root.id)}`, "", first, ...rest]

@@ -613,7 +613,7 @@ export class TreePane implements Pane {
         const branch = !r.via && isBranch(r.m) ? this.branches.get(r.m.id) : undefined;
         const found = branch && branch.read !== "loading" && branch.read.status === "ready" ? `V:${branch.read.total ?? branch.items.length}` : "";
         // A Work ID leads the row's title (PIE-1356), so the tag beside it says the note's status or type.
-        const tag = (found || (prop(r.m, "work-id") ? "" : prop(r.m, "status") ?? prop(r.m, "type") ?? ""));
+        const tag = found || prop(r.m, "status") || prop(r.m, "type") || "";
         const shownTag = drawEllipsized(tag, Math.min(14, Math.floor(w / 3)));
         const room = Math.max(4, w - (shownTag ? width(shownTag) + 1 : 0) - (on && !indent ? 1 : 0));
         const here = desk.current?.id === r.m.id;
