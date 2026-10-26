@@ -287,7 +287,8 @@ const NUMBER = /^#?([1-9][0-9]{0,2})$/;
  * weighs, who claims it, and a claim asks where the person is and which tile an address names: the same answers each time, since
  * nothing moves while it runs. Asked once for each dispatcher.
  */
-let listing: Map<Dispatcher, { where?: Whereabouts; tiles?: TileRef[]; resolved: Map<string, { tile: TileRef; dispatch: Dispatcher } | null> }> | null = null;
+type Found = { tile: TileRef; dispatch: Dispatcher } | null;
+let listing: Map<Dispatcher, { where?: Whereabouts; tiles?: TileRef[]; resolved: Map<string, Found>; hosted: Map<string, Found> }> | null = null;
 
 export class Dispatcher {
   private nextConfirmation = 0;
@@ -373,7 +374,7 @@ export class Dispatcher {
   private asked() {
     if (!listing) return null;
     let a = listing.get(this);
-    if (!a) listing.set(this, a = { resolved: new Map() });
+    if (!a) listing.set(this, a = { resolved: new Map(), hosted: new Map() });
     return a;
   }
   private whereNow(): Whereabouts {
@@ -451,6 +452,13 @@ export class Dispatcher {
     if (!asked.resolved.has(sel)) asked.resolved.set(sel, this.resolveNow(sel));
     return asked.resolved.get(sel)!;
   }
+  /** The tile the host itself names by `address` (its own layer only). */
+  private hostTile(address: string): Found {
+    const asked = this.asked();
+    if (!asked) return this.host.resolveTile?.(address) ?? null;
+    if (!asked.hosted.has(address)) asked.hosted.set(address, this.host.resolveTile?.(address) ?? null);
+    return asked.hosted.get(address)!;
+  }
   private resolveNow(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null {
     if (this.host.resolveTile) return this.host.resolveTile(sel, o) ?? this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
     // A host that reads no tiles across layers keeps its own names: the host layer answers only what they don't.
@@ -493,7 +501,7 @@ export class Dispatcher {
     if (own) return own;
     req = this.mountedRequest(req);
     const defaultAddress = req.tile === undefined ? this.where().address : null;
-    const defaultTarget = defaultAddress ? this.host.resolveTile?.(defaultAddress) : null;
+    const defaultTarget = defaultAddress ? this.hostTile(defaultAddress) : null;
     if (defaultTarget && defaultTarget.dispatch.host.pointerScope !== this.host.pointerScope) {
       const reg = this.regs.find(r => "set" in r && r.set.has(req.action));
       const def = reg && "set" in reg ? reg.set.def(req.action) : undefined;
