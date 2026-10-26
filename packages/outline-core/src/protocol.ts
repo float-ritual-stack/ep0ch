@@ -12,9 +12,9 @@
 // search and dates are GRAMMAR-owned. Never use a GRAMMAR-only parse to choose a write range.
 // A newer host's grammar warns once and never refuses capture; the host's parsing owns saved content.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 266;
+export const PROTOCOL = 267;
 /** Parse/draw rules, independent of whether a write can land correctly. */
-export const GRAMMAR = 4;
+export const GRAMMAR = 5;
 
 /** A stale renderer can keep working; surface this once in the client's own message channel. */
 export function grammarWarning(grammar: number): string | undefined {

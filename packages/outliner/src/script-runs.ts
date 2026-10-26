@@ -228,8 +228,8 @@ export class ScriptRuns {
     if (run?.text === text) return run.source;
     return {
       key: String(button.line), kind: "button", name: button.label, line: button.line, endLine: button.endLine, live: false,
-      query: { params: [], text, editable: false },
-      transform: { kind: "script", label: "Sequence: scripts pipe their return; actions tap the value", text: button.steps.map(s => s.kind === "script" ? `((${s.source}))` : s.source).join("\n") },
+      query: { params: button.slots, text, editable: button.slots.length > 0 },
+      transform: { kind: "script", label: button.sequence ? "Sequence: scripts pipe their return; actions tap the value" : "Button: its action, with its slots filled from the line", text: button.steps.map(s => s.kind === "script" ? `((${s.source}))` : s.source).join("\n") },
       result: { rows: 0, columns: ["Step", "Source", "Input", "Output", "Answer", "Effects that remain"], table: [], text: "Not pressed yet" },
       ...(button.problem ? { problem: button.problem } : {}),
     };
@@ -239,6 +239,7 @@ export class ScriptRuns {
     const note = this.store.require(request.blockId!);
     const button = buttonCallAt(note.text.split("\n"), request.line!);
     if (!button || button.problem) throw new Error(button?.problem ?? "No button on that line; read the note and press its current button");
+    if (button.empty.length) throw new Error(`${button.label} has no ${button.empty.join(" or ")} yet: write ${button.empty[0]}= on its line (the door asks for it on a press, button.slot fills it)`);
     return this.start({ id: `button:${note.id}:${button.line}`, name: button.label, script: {
       code: "", effects: "write", keys: [], blockId: note.id, revision: note.revision,
       author: { author: note.author, actorId: note.actorId },

@@ -10,6 +10,24 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A button asks for what it's missing; copy any tile's or note's address; a `::button` line is read as you type (PIE-1298, PIE-1297, PIE-1312)
+
+- **An empty slot asks.** `::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}`: pressed with `target=`
+  empty, the door asks you to click a tile (or press its number; esc cancels). A tile whose place has a name of its own (the
+  drawer's program, `drawer.agent`) asks once more: this tile exactly, or whichever fills its place. The choice is written on the
+  line (`target=t-…`, ctrl+z takes it back) and the next press runs it. Alt+click asks again. An agent passes the value
+  (`button.slot label="pop it" key=target value=<tile>`) and never opens your picker; a name or a number it passes is kept as
+  the tile's id.
+- **A button that misreads runs nothing.** Nested quotes that end `act=` early, a word the button doesn't read, an action that
+  doesn't exist, an argument the action doesn't take, or a `tile=` that names no tile now: the press is refused with the line
+  to write, and the save says it too. It never acts on the focused tile instead.
+- **The editor reads a `::button` line as you type it**: attribute names, values, the action and its arguments in their own
+  colours, what won't run underlined, and one row under the line saying what it runs or why not. Same reader as the save's
+  warning.
+- **Copy id, copy reference** on the tile menu (headed with the tile's name and short id, as its x-ray card is) and on the
+  note's: a tile's `t-<uuid>` or the address of its place; a note's full id or `((id|title))`. `tile.copy-ref`,
+  `note.copy-ref`; an agent's copy comes back to it and never touches your clipboard.
+
 ### `tile=` has one address grammar, and the drawer's program is a tile with a role (PIE-1286)
 
 - **Five kinds of address, one resolver.** `t-<uuid>` (or 8+ characters of it) is that exact tile; `role:<role>[@<screen>]` is a

@@ -286,6 +286,21 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       return d.linkTile(reader, to, actor, (verb ?? (role === "preview" ? "select" : "open")) as WireVerb, remove, rule as AltRule | undefined);
     },
   }),
+  "tile.pick": def({
+    summary: "choose a tile on screen for what asked (a button's empty slot): then=<action line> runs, as the person, with value=<the tile's address> once a tile is chosen. A tile whose place an address names is asked about: this tile exactly (its t-<uuid> id) or whichever tile fills its place (drawer.agent, role:<role>, <slot>@<screen>). to= makes the choice a card row makes; value= is the answer; cancel=true puts the picker away",
+    person: "choosing a tile is the person's click: an agent passes the tile itself (button.slot value=<tile>) and never opens their picker",
+    keys: "a click on a tile, h j k l or 1-9, 1 or 2 for exact or role, esc cancels",
+    touches: "screen", replay: "ask", says: r => (r.picked !== undefined ? `chose ${r.picked}` : null),
+    args: {
+      then: { type: "string", optional: true, about: "the action line that runs with the choice, value=<address> added (`button.slot note=<id> line=3 key=target`); a choice in the pick that is waiting runs that pick's" },
+      prompt: { type: "string", optional: true, about: "what the card says it is for (`pop it: choose a tile`)" },
+      to: { type: "string", optional: true, kind: "tile", about: "the tile chosen, as a row of the card chooses it (a tile that fills a role is asked about next)" },
+      value: { type: "string", optional: true, about: "the answer: the tile's id or its role, as written onto the line" },
+      cancel: { type: "boolean", optional: true, about: "true puts the picker away, nothing chosen" },
+    },
+    examples: [{ act: "tile.pick then=\"button.slot note=7d9a1f40 line=3 key=target\" prompt=\"pop it: choose a tile\"", does: "the person picks a tile; the button's slot is written with its address" }],
+    run({ then, prompt, to, value, cancel }, { d, reader }) { return d.pickTile(reader, { then, prompt, to, value, cancel }); },
+  }),
   "tile.focus": def({
     summary: "give the person's keys to tile=<tile>. Refused to an agent while the person is typing (an edit, a comment, a terminal they're in)",
     keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →), ✦h ✦j ✦k ✦l ✦1-✦9 (hyper, from an edit or a terminal tile too); esc q back home (a screen with a home: the board's lanes)",
@@ -555,6 +570,15 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { d, reader }) { return d.tileInfo(reader); },
+  }),
+  "tile.copy-ref": def({
+    summary: "copy the tile's address (PIE-1297): kind=id its id (t-<uuid>, exactly this tile, kept through moves, saves and restarts), kind=ref the address of its place in the tile grammar (drawer.agent, role:<role>, <slot>@<screen>: whichever tile fills it), or its id when nothing else names it alone. The person's goes to their clipboard; an agent's is returned to it and never touches the clipboard",
+    keys: "the tile menu's \"copy id\" and \"copy reference\"",
+    touches: "nothing", replay: "safe",
+    menu: [{ label: "copy id", group: TILE, args: { kind: "id" } }, { label: "copy reference", group: TILE, args: { kind: "ref" } }],
+    args: { kind: { type: "string", optional: true, choices: ["id", "ref"], about: "id (default): the tile's t-<uuid>; ref: the address of its place, which a restarted tile answers to" } },
+    examples: [{ act: "tile.copy-ref kind=ref tile=drawer.agent", does: "answers drawer.agent and the program's t-<uuid>, for a button's tile= or a script" }],
+    run({ kind }, { d, reader }, actor) { return d.copyTileRef(reader, (kind ?? "id") as "id" | "ref", actor); },
   }),
   "layout.resize": def({
     summary: "move a border: in split split=<id> (layout.get gives each split's id, s<n>; it stays with the split when tiles move around it), or the split at path=<p> (\"\" the root, \"1.0\" its second kid's first kid: where it is now, so pass expected=<rev> too), the border after kid border=<i> is placed so kid i and kid i+1 share their room share=<0-1> to (1-share). The answer names the split, its path and its tiles",

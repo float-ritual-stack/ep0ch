@@ -49,6 +49,7 @@ Start local and blunt. Promote on the second real use, as a rewrite if needed. A
 | a button that does several things, arranges tiles, opens notes | an action script (`::button{of=name k=v}`), steps through `act` | scripts: *Functions*, *Worked examples*, *Bundled layout script: neat* |
 | a value computed from the note or a query, kept up to date | a render script (`mode=render`) under a `name::` line | scripts: *Modes*, *view.\** |
 | arguments to a button | slots: every word on `::button` other than its own is `props.<word>`, repeats are a list (`page=a page=b`) | scripts: *Globals* |
+| a button that asks for a value the first time (click a tile, pick a note) | a `{key}` in `act=` filled from `key=` on the same line, left empty: `::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}`. A press asks in the kind the action's argument takes (a tile: click it), writes `target=t-…` on the line, and the next press runs it; alt+click asks again; an agent writes it with `button.slot` | scripts: *Buttons that ask* |
 | notes that file themselves | a route rule note | extensions: *Routing* |
 | a look or a badge on matching notes | a rule (`match` + `decorate`), no code if it can | extensions: *Rules* |
 | something that reacts when a note changes | a rule's `on` trigger | extensions: *`on`: change triggers* |

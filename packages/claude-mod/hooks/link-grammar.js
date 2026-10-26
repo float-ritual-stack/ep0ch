@@ -596,7 +596,7 @@ var ADDRESS_KEYS = new Set(["page", "work-id"]);
 var QUERY_KEYS = new Set(["query"]);
 
 // packages/outline-core/src/component-block.ts
-var COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(?!\^[A-Za-z0-9][\w-]{0,63}[ \t]*$)(\S[^\n]*?)|(\{(?:[^{}\n]|\{\{[^\n]*?\}\})*\}))?(?:[ \t]+\^([A-Za-z0-9][\w-]{0,63}))?[ \t]*$/;
+var COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(?!\^[A-Za-z0-9][\w-]{0,63}[ \t]*$)(\S[^\n]*?)|(\{(?:[^{}\n]|\{\{[^\n]*?\}\}|\{[A-Za-z][\w.-]*\})*\}))?(?:[ \t]+\^([A-Za-z0-9][\w-]{0,63}))?[ \t]*$/;
 var COMPONENT_CLOSE = /^[ \t]*::[ \t]*$/;
 var HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
 var YAML_FENCE = /^ {0,3}---[ \t]*$/;

@@ -83,8 +83,9 @@ export function sourceCalls(text: string): SourceCall[] {
   for (let i = 0; i < lines.length; i++) {
     if (fenced.has(i) || inRegion.has(i)) continue;
     const button = buttonCallAt(lines, i);
-    if (button?.sequence) {
-      out.push({ kind: "button", line: i, endLine: button.endLine, name: button.label, params: [], text: lines.slice(i, button.endLine + 1).join("\n"), button });
+    // A sequence, or a button with a slot (PIE-1298): its slots are parameters the Sources inspector and `sources.set` write.
+    if (button?.sequence || button?.slots.length) {
+      out.push({ kind: "button", line: i, endLine: button.endLine, name: button.label, params: button.slots, text: lines.slice(i, button.endLine + 1).join("\n"), button });
       i = button.endLine;
       continue;
     }

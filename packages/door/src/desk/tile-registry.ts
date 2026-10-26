@@ -42,6 +42,8 @@ export const tileRegistry = {
   knownId: (pane: Pane): string | undefined => records.get(pane)?.id,
   /** What the tile is for: the role it was made with, else its kind's, else the kind's name. */
   roleOf: (pane: { kind: string }): string => records.get(pane as Pane)?.role ?? tileKind(pane.kind)?.role ?? pane.kind,
+  /** The role the tile was made with, if one was set (not its kind's): a place a restarted tile fills again. */
+  ownRole: (pane: Pane): string | undefined => records.get(pane)?.role,
   setRole(pane: Pane, role: string | undefined) { if (role === undefined) { const r = records.get(pane); if (r) delete r.role; } else record(pane).role = role; },
   /** The tile that opened it (its id), if one is recorded. */
   openerOf: (pane: Pane): string | undefined => records.get(pane)?.openedFrom,

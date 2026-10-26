@@ -110,12 +110,16 @@ import { sourceSpanOf } from "./source-map";
 import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, scriptInstallWords, threadAgents } from "../extensions";
 import { actionLine, actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { INVITES } from "./invite";
-import { buttonCallAt, buttonCallsOf, type ButtonCall } from "@ep0ch/outline-core/button-call";
+import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import { componentsOf, componentsReady } from "../component-schemas";
 import { NODELIST_QUERY, nodesOf } from "../echonet/net";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsSchemas, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { askInBar } from "../bar/ask";
+import { argQuestion } from "../bar/form";
+import type { ActionInfo } from "./actions";
+import { parseTileAddress } from "../desk/tile-address";
+import { buttonLineLook, buttonMarks, describeButtonMarks, type ButtonLookups } from "../button-check";
 import { useRegion, type UseSite } from "../template-use";
 import { propQuestion } from "../template-stamp";
 import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
@@ -3020,7 +3024,9 @@ export class NoteSurface {
 
   private renderDraft(d: Draft, m: Msg, w: number, h: number, away = false, host?: SurfaceHost, attached = true): SurfaceView {
     if (attached && d.preview && host && !elementEdit(d).on) return this.renderEditPreview(d, m, w, h, away, host);
-    d.kept = this.keptDrawings(d, m);
+    const kept = this.keptDrawings(d, m), help = host ? this.buttonEditing(d, host) : null;
+    d.inks = help?.inks ?? null;
+    d.kept = help ? (line, width) => [...(kept?.(line, width) ?? []), ...help.under(line, width)] : kept;
     const by = writtenBy(d, "save");
     if (elementEdit(d).on) return { lines: elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined) };
     return { lines: renderEditor(d, {
@@ -3366,6 +3372,65 @@ export class NoteSurface {
     host.redraw();
   }
 
+  /**
+   * A `::button` line as it is typed (PIE-1312): its parts in colour and what won't run underlined, read by `buttonLineLook`, the
+   * reader the save's warning uses; under the line at the cursor, one row saying what it runs or why it won't. A tile= is asked
+   * about once per value (`tile.info`, the resolver's words) and the draft drawn again when the answer comes.
+   */
+  private buttonEditing(d: Draft, host: SurfaceHost): { inks: NonNullable<Draft["inks"]>; under: (line: number, w: number) => string[] } | null {
+    if (!d.text.includes("::button")) return null;
+    const ask = this.buttonLookups(host, USER);
+    // Asked once per value while this edit lasts: the next edit asks again (a tile closed since).
+    let tiles = BUTTON_TILES.get(d);
+    if (!tiles) BUTTON_TILES.set(d, (tiles = new Map()));
+    // Read once per text: a button with a body is read with its body, so its key is the lines it spans.
+    const looks = new Map<string, ReturnType<typeof buttonLineLook>>();
+    const lookOf = (line: number) => {
+      const text = d.lines[line] ?? "";
+      if (!text.includes("::button")) return null;
+      const key = `${text}\n${d.lines.slice(line + 1, line + 40).join("\n")}`;
+      if (!looks.has(key)) looks.set(key, buttonLineLook(d.lines, line, ask));
+      const look = looks.get(key)!;
+      for (const t of look?.tiles ?? []) if (!tiles.has(t.sel)) {
+        tiles.set(t.sel, undefined);
+        void ask.tile(t.sel).then(why => { tiles!.set(t.sel, why); host.redraw(); });
+      }
+      return look;
+    };
+    const INK = { name: C.lcyan, eq: C.dark, value: C.yellow, action: C.lgreen, arg: C.cyan } as const;
+    return {
+      inks: line => {
+        const look = lookOf(line);
+        if (!look) return null;
+        return [...look.parts.map(p => ({ from: p.from, to: p.to, fg: INK[p.is] })),
+          ...look.marks.map(m => ({ from: m.from, to: m.to, fg: C.lred, under: true })),
+          ...look.tiles.filter(t => tiles!.get(t.sel)).map(t => ({ from: t.from, to: t.to, fg: C.lred, under: true }))];
+      },
+      under: (line, w) => {
+        if (line !== d.row) return [];
+        const look = lookOf(line);
+        if (!look) return [];
+        const why = [...look.marks.map(m => m.message), ...look.tiles.map(t => tiles!.get(t.sel)).filter((x): x is string => !!x)];
+        const say = why.length ? fg(C.lred) + `✗ ${why[0]}${why.length > 1 ? ` · and ${why.length - 1} more` : ""}`
+          : look.runs ? fg(C.dark) + `▸ runs ${look.runs.replace(/\n/g, " · ")}` : fg(C.lred) + `✗ ${look.problem ?? "it runs nothing"}`;
+        return [drawEllipsized(say, w) + RESET];
+      },
+    };
+  }
+
+  /** What the door answers about a button's action line: the arguments an action takes, and why a tile= names no tile now. */
+  buttonLookups(host: SurfaceHost, actor: Actor): ButtonLookups {
+    // The door's actions, listed once for these lookups (an edit reads a line on every frame).
+    let listed: ActionInfo[] | undefined;
+    const all = () => (listed ??= (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch?.list().actions ?? []);
+    return {
+      args: action => { const info = all().find(a => a.name === action); return info ? Object.keys(info.args) : null; },
+      actions: () => all().map(a => a.name),
+      tile: async sel => { const r = await tileNamed(host, sel, actor); return "why" in r ? r.why : null; },
+    };
+  }
+
+
   /** The block adapter saved the edit: show the saved note, and say so (and how it was recorded). */
   private saved(m: Msg, by: Actor, asked: Actor, change: string, host: SurfaceHost) {
     this.msg = { ...this.rereadNote(m), childIds: this.msg?.id === m.id ? this.msg.childIds : m.childIds };
@@ -3376,7 +3441,10 @@ export class NoteSurface {
     const whose = sameParty(by, asked) && !by.with?.length ? "" : ` · recorded as ${recordedAs(by)}`;
     host.ctx.flash(`saved · revision ${m.revision}${change ? ` · properties changed: ${change}` : ""}${whose}`);
     // Saved first; then a reference that leads nowhere is said, with what it may have meant (PIE-761), never refused.
-    void savedReferenceWarning(host.ctx.board, m.text, m.id).then(w => {
+    void savedReferenceWarning(host.ctx.board, m.text, m.id).then(async said => {
+      // A button's arguments and tile= against the door's own actions and tiles (PIE-1298), in the same sentence.
+      const marks = describeButtonMarks(await buttonMarks(m.text, this.buttonLookups(host, by)));
+      const w = marks ? (said ? `${said} · ${marks}` : `saved; ${marks}`) : said;
       if (!w || this.msg?.id !== m.id || this.msg.revision !== m.revision) return;
       this.notice = [this.notice, w].filter(Boolean).join(" · ");
       host.ctx.flash(w, 12000);
@@ -4511,12 +4579,16 @@ export class NoteSurface {
    * as `this`); the words are its arguments. The person's press runs at once (their click is the consent; what it does is
    * attributed and undoable: ext.undo, layout.undo). An agent's is attributed and said, as any `act` is.
    */
-  async runPress(p: NonNullable<Link["press"]>, host: SurfaceHost, actor: Actor): Promise<unknown> {
+  async runPress(p: NonNullable<Link["press"]>, host: SurfaceHost, actor: Actor, repick = false): Promise<unknown> {
     const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
     if (!d) throw new ActionRefused("this screen has no dispatcher to run a press");
     const run = async () => {
       const note = p.block ? await host.ctx.board.get(p.block) : null;
       const button = note ? buttonCallAt(note.text.split("\n"), p.line) : null;
+      // A button that reads differently than it was written runs nothing (it never acts on the focused tile instead); one with an
+      // empty slot asks for it, and alt+click on a button with slots (and no alt= of its own) asks again (PIE-1298).
+      if (button?.problem && button.act === null) throw new ActionRefused(`the ::button on line ${button.line + 1} runs nothing: ${button.problem}`);
+      if (button && note && (button.empty.length || (repick && button.slots.length))) return this.askSlots(note.id, button, repick ? button.slots.map(s => s.key) : button.empty, host, actor);
       if (button?.sequence && p.act === button.act) {
         const invitation = actor.kind === "user" ? INVITES.mint("you") : undefined;
         const r = await host.ctx.board.request<import("../extensions").ExtensionActResult>("scripts.sequence", {
@@ -4561,6 +4633,85 @@ export class NoteSurface {
     };
     return actor.kind === "user" ? d.pressDoing(p.act, { note: p.block || this.msg?.id }, run) : run();
   }
+
+  /**
+   * A press of a button with an empty slot (PIE-1298): the person is asked for it in the kind the action's own argument takes
+   * (the wire picker for a tile: click one, h j k l, 1-9; the power bar's kind completion for a note, a screen, a file), and
+   * the choice is written on the line (`button.slot`, the note's checked save, ctrl+z takes it back). A later press runs bound.
+   * An agent is never asked: it is told the line to run, and the picker stays the person's.
+   */
+  async askSlots(block: string, button: ButtonCall, keys: readonly string[], host: SurfaceHost, actor: Actor): Promise<unknown> {
+    const key = keys[0]!, line = button.line + 1;
+    const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
+    if (!d) throw new ActionRefused("this screen has no dispatcher to ask with");
+    const use = slotArgs(button, key)[0];
+    const q = use ? argQuestion(host.ctx as never, use.action, use.arg) : null;
+    if (actor.kind !== "user") {
+      throw new ActionRefused(`${button.label} has no ${key} yet: it is the person's to choose; give it: button.slot note=${block} line=${line} key=${key} value=<${q?.kind ?? "the value"}>${q?.kind === "tile" ? " (a tile's name, its id or drawer.agent)" : ""}`);
+    }
+    const tile = messageContext.getStore()?.tile;
+    // The keys still to ask go with the answer (a re-pick asks filled slots too, so they can't be read again from `empty`).
+    const later = keys.slice(1), rest = later.length ? ` next=${later.join(",")}` : "";
+    const then = `button.slot note=${block} line=${line} key=${key}${rest}${tile ? ` --tile ${tile}` : ""}`;
+    const what = keys.length > 1 ? `${key} (${button.slots.findIndex(s => s.key === key) + 1} of ${button.slots.length})` : key;
+    if (q?.kind === "tile") {
+      host.ctx.flash(`${button.label}: choose a tile for ${key}`);
+      return d.act({ action: "tile.pick", args: { then, prompt: `${button.label}: choose a tile for ${what}` }, ...(tile ? { tile } : {}) }, actor);
+    }
+    return askInBar(host.ctx as never, `${button.label}: ${what}`, [q ?? { name: "value", type: "text", label: key, free: true, required: true }], {}, actor,
+      answers => d.act({ action: "button.slot", args: { note: block, line, key, value: answers.value ?? "", ...(later.length ? { next: later.join(",") } : {}) }, ...(tile ? { tile } : {}) }, actor));
+  }
+
+  /**
+   * `button.slot` (PIE-1298): write one slot of a `::button` onto its line, through the note's checked save, recorded as whoever
+   * asks; ctrl+z (sources.undo) takes it back. A tile is written as an address that stays true: the id of the tile (`t-<uuid>`) or
+   * the place it fills (`drawer.agent`, `role:<role>`, `<slot>@<screen>`), never the number a layout gives it (`t7`, `3`, `#3`). With no value
+   * the person is asked again (a re-pick); with `ask`, the next empty slot is asked after it.
+   */
+  async setButtonSlot(a: { note?: string; line?: number; label?: string; key?: string; value?: string; ask?: boolean; next?: string }, host: SurfaceHost, actor: Actor): Promise<unknown> {
+    const m = a.note && a.note !== this.msg?.id ? await host.ctx.board.get(a.note) : await this.whole();
+    if (!m) throw new ActionRefused(`no note ${a.note}: button.slot note=<id> takes the note the button is written in`);
+    const buttons = buttonCallsOf(m.text);
+    const hits = a.line !== undefined ? buttons.filter(b => b.line === a.line! - 1) : a.label !== undefined ? buttons.filter(b => b.label === a.label || b.label.toLowerCase().includes(a.label!.toLowerCase())) : buttons.filter(b => b.slots.length);
+    const names = buttons.filter(b => b.slots.length).map(b => `line ${b.line + 1} "${b.label}" (${b.slots.map(s => s.key).join(", ")})`).join("; ");
+    if (!hits.length) throw new ActionRefused(`no ${a.line !== undefined ? `button on line ${a.line}` : a.label !== undefined ? `button called "${a.label}"` : "button with a slot"} in this note; ${names ? `buttons with slots: ${names}` : "none has a slot (a button with act=\"… tile={target}\" target= has one)"}`);
+    if (hits.length > 1) throw new ActionRefused(`${hits.length} buttons match (${names}); say line=<n>`);
+    const button = hits[0]!;
+    const key = a.key ?? (button.empty[0] ?? (button.slots.length === 1 ? button.slots[0]!.key : undefined));
+    if (!key || !button.slots.some(s => s.key === key)) throw new ActionRefused(`${button.label} has ${button.slots.length ? `the slots ${button.slots.map(s => s.key).join(", ")}; say key=<one>` : "no slot"} (write target= on its line and {target} where it goes)`);
+    if (a.value === undefined) return this.askSlots(m.id, button, [key], host, actor);
+    const given = await this.slotValue(button, key, a.value, host, actor);
+    const line = button.line, before = m.text.split("\n")[line] ?? "", after = withButtonSlot(before, key, given);
+    if (after === null) throw new ActionRefused(`that value can't be written on line ${line + 1}: a button line can't hold a newline, { or } in a value`);
+    const wrote = after !== before;
+    const r = await this.inTurn(() => this.rewriteLines(m.id, wrote ? [{ line, before, after }] : [], this.sourceHistory, host, actor, SOURCE_STALE));
+    const said = `${button.label}: ${key}=${given}`;
+    if (wrote) { host.ctx.flash(`${said}${actor.kind === "user" ? " · press it again to use it · ctrl+z takes it back" : ""}`); this.noteAgent(actor, said); }
+    host.redraw();
+    const out = { block: m.id, line: line + 1, wrote: { [key]: given }, changed: wrote, revision: r.revision ?? null, recordedAs: mutationFor(actor) };
+    // More slots empty on the same press: the next is asked (the person's pick leaves the rest to this).
+    if (actor.kind === "user" && (a.next !== undefined || a.ask)) {
+      const now = await host.ctx.board.get(m.id), again = now ? buttonCallAt(now.text.split("\n"), line) : null;
+      const left = a.next !== undefined ? a.next.split(",").filter(Boolean) : again?.empty ?? [];
+      if (again && left.length) void this.askSlots(m.id, again, left, host, actor).catch(e => host.ctx.flash(e instanceof Error ? e.message : String(e)));
+    }
+    return out;
+  }
+
+  /**
+   * A slot's value as it is kept (PIE-1298): a tile is kept by an address the tile grammar reads as identity (its `t-<uuid>`, a
+   * role, a slot of a screen); a name, a number, `t7` or `focused` is resolved now and kept as the tile's id, for none of those
+   * names the same tile after a layout changes. A value that names no tile is refused with the resolver's reason.
+   */
+  private async slotValue(button: ButtonCall, key: string, value: string, host: SurfaceHost, actor: Actor): Promise<string> {
+    const use = slotArgs(button, key)[0];
+    const q = use ? argQuestion(host.ctx as never, use.action, use.arg) : null;
+    if (q?.kind !== "tile" || !value) return value;
+    const found = await tileNamed(host, value, actor);
+    if ("why" in found) throw new ActionRefused(`not kept: ${found.why}`);
+    return parseTileAddress(value).kind === "name" ? found.id : value;
+  }
+
 
   /**
    * The block `r` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note's one
@@ -5785,6 +5936,26 @@ export class NoteSurface {
     return { id: m.id, text, lines, clipboard: false };
   }
 
+  /**
+   * `note.copy-ref` (PIE-1297): the note's full id (a short one doesn't resolve), or a reference to paste into another note,
+   * `((id|title))`. The person's goes to their clipboard; an agent's is returned to it and never touches the clipboard.
+   */
+  async copyNoteRef(kind: "id" | "ref", host: SurfaceHost, actor: Actor): Promise<{ id: string; kind: string; text: string; clipboard: boolean }> {
+    const m = await this.whole();
+    // A label holds no | or parentheses: either would end the reference early.
+    const label = subject(m).replace(/[|()]/g, " ").replace(/\s+/g, " ").trim();
+    const text = kind === "ref" ? `((${m.id}${label ? `|${label}` : ""}))` : m.id;
+    const what = kind === "ref" ? "a reference to the note" : "the note's id";
+    if (actor.kind === "user") {
+      if (host.ctx.copy?.(text) === false) throw new ActionRefused("the clipboard refused it");
+      host.ctx.flash(`copied ${what}: ${text}`);
+      return { id: m.id, kind, text, clipboard: true };
+    }
+    host.ctx.flash(`copied ${what} for itself · your clipboard is untouched`);
+    this.noteAgent(actor, `copied ${what}`);
+    return { id: m.id, kind, text, clipboard: false };
+  }
+
   /** Refused unless the last render drew the note (the elements come from it). */
   requireDrawn() {
     if (!this.drawn && !this.digesting) throw new ActionRefused("this reader doesn't draw the note now (it's editing, commenting, reading the note, or it's a river column's digest; link.select steps a river column's links)");
@@ -5950,7 +6121,8 @@ export class NoteSurface {
     }
     // A step's box: its status choice opens under it, as ⏎ on it does (PIE-472); a link (or a summary-line
     // value) opens where ⏎ on it would. Both are element.open on that element.
-    if (e) { void this.runKey(e.link?.press ? "button.press" : "element.open", { n: this.elems.indexOf(e) + 1, ...(host.freshClick && e.link?.press?.alt ? { alt: true } : {}) }, host); host.redraw(); return true; }
+    // alt+click: a button's alt=, or, on one with slots and no alt= of its own, asking for its slots again (PIE-1298).
+    if (e) { void this.runKey(e.link?.press ? "button.press" : "element.open", { n: this.elems.indexOf(e) + 1, ...(host.freshClick && e.link?.press ? { alt: true } : {}) }, host); host.redraw(); return true; }
     const i = this.links.findIndex(x => sameLink(x, h.link));
     if (i >= 0 && h.value === undefined) { void this.runKey("link.follow", { n: i + 1 }, host); return true; }
     // A link drawn outside the note's elements and links (none today): opened as ⏎ on it would.
@@ -7057,6 +7229,9 @@ export class NoteSurface {
     const key = param ?? (cur?.kind === "param" ? cur.key : undefined);
     const now = s.query.params.find(x => x.key === key);
     if (!key) throw new ActionRefused(`say which parameter: param=<${s.query.params.map(x => x.key).join("|") || "name"}>`);
+    // A button's slot has one writer, button.slot: its checks (a slot of the button), its asking (a tile by the picker) and its
+    // keeping (a tile by identity).
+    if (s.kind === "button") return this.setButtonSlot({ note: block, line: s.line + 1, key, ...(value !== undefined ? { value } : {}) }, host, actor);
     const write = (given: string) => this.inTurn(async () => {
       // The line as the source was read: a line another client changed since is refused, never rewritten as if it were this one.
       const before = s.query.text;
@@ -8850,6 +9025,22 @@ function handToEditor(surface: NoteSurface, host: SurfaceHost) {
   return { comment: surface.session!.blockId, external: true };
 }
 
+/** What each tile= a draft's buttons name answered (`tile.info`'s refusal, or null), per edit (PIE-1312). */
+const BUTTON_TILES = new WeakMap<Draft, Map<string, string | null | undefined>>();
+
+/**
+ * The tile `sel` names, as `tile=` reads it wherever the door runs a tile action (the screen shown, its mounts, the drawer):
+ * its id, or the refusal's words (the resolver's reason and what to type). Asked through `tile.info`, the one owner.
+ */
+async function tileNamed(host: SurfaceHost, sel: string, actor: Actor): Promise<{ id: string } | { why: string }> {
+  const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
+  if (!d) return { why: "this screen has no tiles" };
+  try {
+    const r = await d.act({ action: "tile.info", tile: sel }, actor) as { tile?: string };
+    return r?.tile ? { id: r.tile } : { why: `${sel} names no tile` };
+  } catch (e) { if (e instanceof ActionRefused) return { why: e.message }; throw e; }
+}
+
 const noteRow = (label: string, key: string, o: { busy?: true; now?: (on: On) => MenuNow<any> | null } = {}): MenuEntry<any, On> => ({
   label, group: "Note", key,
   now: on => (!on.surface.msg ? { hide: true } : o.busy && (on.surface.draft || on.surface.session) ? { refused: "this reader is editing or commenting; close that first" } : o.now?.(on) ?? null),
@@ -9934,7 +10125,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const m = await host.ctx.board.get(note);
         if (!m) throw new ActionRefused(`no note ${note}: button.press note=<id> takes a note's id`);
         const found: { label: string; act: string; alt?: string; line: number }[] = [];
-        for (const c of buttonCallsOf(m.text)) if (c.act) found.push({ label: c.label, act: c.act, alt: c.alt, line: c.line });
+        for (const c of buttonCallsOf(m.text)) if (c.act || c.problem) found.push({ label: c.label, act: c.act ?? "", alt: c.alt, line: c.line });
         m.text.split("\n").forEach((l, line) => { if (!l.includes("](act:")) return; for (const o of linkOccurrences(l)) if (o.kind === "markdown") { const act = /^act:\s*(\S.*)$/.exec(o.url.trim())?.[1]?.trim(); if (act) found.push({ label: o.text, act, line }); } });
         const want = label.toLowerCase();
         const matching = (list: typeof found) => {
@@ -9957,7 +10148,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if (!hits.length) throw new ActionRefused(`no button says "${label}" in that note; it has ${found.length ? found.map(f => `"${f.label}"`).join(", ") : "none"}. Example: button.press note=${m.id.slice(0, 8)} label="${found[0]?.label ?? "Review"}"`);
         if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons of that note (${hits.map(f => `"${f.label}"`).join(", ")}); say more of the label`);
         const hit = hits[0]!, act = alt && hit.alt ? hit.alt : hit.act;
-        const r = await surface.runPress({ act, block: m.id, line: hit.line }, host, actor);
+        const r = await surface.runPress({ act, block: m.id, line: hit.line }, host, actor, !!alt && !hit.alt);
         surface.noteAgent(actor, `pressed ${hit.label} (${act})`);
         return { note: m.id, kind: "control", act, ...(r && typeof r === "object" ? r : {}) };
       }
@@ -9976,10 +10167,28 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons (${hits.map(i => `${i}: ${all[i - 1]!.label}`).join(", ")}); say n=`);
       const i = hits[0]!, e = surface.element(i), p = e.link!.press!;
       const act = alt && p.alt ? p.alt : p.act;
-      const r = await surface.runPress({ ...p, act }, host, actor);
+      const r = await surface.runPress({ ...p, act }, host, actor, !!alt && !p.alt);
       surface.noteAgent(actor, `pressed ${e.label} (${act})`);
       return { element: i, kind: e.kind, act, ...(r && typeof r === "object" ? r : {}) };
     },
+  }),
+  "button.slot": def({
+    summary: "write one slot of a ::button onto its line (PIE-1298): `::button{act=\"tile.zoom tile={target}\" target=}` runs once target= says a tile. The note's checked save, recorded as whoever asks; ctrl+z (sources.undo) takes it back. A tile is kept as its id (t-<uuid>, exactly that tile) or the address of its place (drawer.agent, role:<role>, <slot>@<screen>: whichever tile fills it), never a number. The person, with no value=, is asked (the wire picker for a tile: click one); an agent passes value= and never opens the picker",
+    keys: "press a button with an empty slot, then click a tile; alt+click a button with a slot to choose again", touches: "nothing", replay: "ask",
+    args: {
+      note: { type: "string", optional: true, about: "the note the button is written in (a block id; default the one shown)" },
+      line: { type: "number", optional: true, about: "the line of the button, from 1 (the note's text; with note=)" },
+      label: { type: "string", optional: true, about: "or: the button's label (or part of it)" },
+      key: { type: "string", optional: true, about: "the slot (the word on the line a {key} fills); default the first empty one" },
+      value: { type: "string", optional: true, about: "what it holds: a tile's name, id or drawer.agent; a note's id; any text. Left out, the person is asked" },
+      ask: { type: "boolean", optional: true, about: "after this, ask for the next empty slot of the same button (the person's)" },
+      next: { type: "string", optional: true, about: "after this, ask for these slots of the same button, in order (key,key: a re-pick of filled ones)" },
+    },
+    examples: [
+      { act: 'button.slot label="pop it" key=target value=drawer.agent', does: "writes target=drawer.agent on the pop it button, so its next press lifts the drawer's agent" },
+      { act: "button.slot line=3 key=target", does: "asks the person to choose the tile again for the button on line 3" },
+    ],
+    run: (a, { surface, host }, actor) => surface.setButtonSlot(a, host, actor),
   }),
   "element.open": def({
     summary: "do what enter does on an element: a link follows (where is the view's call), a fold toggles, a row or an embed opens its note, a comment mark opens its thread; fresh=true opens a link, row or embed in a new reader. An agent's leaves the person's [ ] position alone, is refused in the reader they have, and never opens the browser (it is given the address)", keys: "enter, alt+enter, a click",
@@ -11446,6 +11655,19 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: {},
     async run(_, { surface, host }, actor) {
       const r = await surface.copyNote(host, actor);
+      host.redraw();
+      return r;
+    },
+  }),
+  "note.copy-ref": def({
+    summary: "copy the note's id (kind=id, the full id: a short one doesn't resolve) or a reference to it (kind=ref, ((id|title)), ready to paste into another note). The person's goes to their clipboard and the status line says what was copied; an agent's is returned to it and never touches the person's clipboard",
+    keys: "the tile menu's \"copy id\" and \"copy reference\" (Note), the power bar",
+    touches: "nothing", replay: "safe",
+    menu: [noteRow("copy id", "", {}), noteRow("copy reference", "", {})].map((r, i) => ({ ...r, args: { kind: i ? "ref" : "id" } })),
+    args: { kind: { type: "string", optional: true, choices: ["id", "ref"], about: "id (default): the note's full id; ref: ((id|title))" } },
+    examples: [{ act: "note.copy-ref kind=ref", does: "answers ((<id>|<title>)) for the note shown" }],
+    async run({ kind }, { surface, host }, actor) {
+      const r = await surface.copyNoteRef((kind ?? "id") as "id" | "ref", host, actor);
       host.redraw();
       return r;
     },

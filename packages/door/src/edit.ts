@@ -981,6 +981,12 @@ export class Draft {
    */
   kept: ((line: number, w: number) => string[]) | null = null;
 
+  /**
+   * A line's ink while it is typed (PIE-1312): spans of code points [from, to) drawn in colour `fg`, `under` underlined (what
+   * won't run). The host sets it (a `::button` line's parts and marks); the cursor, a selection and an agent's glow draw over it.
+   */
+  inks: ((line: number, text: string) => readonly { from: number; to: number; fg: number; under?: boolean }[] | null) | null = null;
+
   /** The rows the draft is drawn in at width `w`: each line wrapped at spaces, continuations hung under its text. */
   private selectAsk() {
     const answer = this.answerFolds().find(p => p.line === this.row + 1);
@@ -1137,8 +1143,16 @@ export class Draft {
         last: f.b.row === r.line && f.b.cp >= r.start && (f.b.cp <= r.end || r.end === chars.length), label: f.label,
       }));
       let line = " ".repeat(r.indent) + fg(C.white), style = "";
+      const inks = this.inks?.(r.line, this.lines[r.line]!) ?? null;
+      const ink = (j: number) => {
+        if (!inks) return "";
+        const at = r.start + j, hit = inks.filter(k => at >= k.from && at < k.to);
+        if (!hit.length) return "";
+        const colour = hit.findLast(k => !k.under) ?? hit.at(-1)!;
+        return fg(colour.fg) + (hit.some(k => k.under) ? "\x1b[4m" : "");
+      };
       cells.forEach((c, j) => {
-        const want = j === cx ? bg(C.lcyan) + fg(C.black) : j >= s0 && j < s1 ? SELECT_BG + fg(C.white) : glow.some(g => j >= g.from && j < g.to) ? chip(C.magenta) : "";
+        const want = j === cx ? bg(C.lcyan) + fg(C.black) : j >= s0 && j < s1 ? SELECT_BG + fg(C.white) : glow.some(g => j >= g.from && j < g.to) ? chip(C.magenta) : ink(j);
         if (want !== style) { line += RESET + fg(C.white) + want; style = want; }
         line += c;
       });

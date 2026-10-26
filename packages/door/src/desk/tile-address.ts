@@ -36,6 +36,8 @@ export const namesAgent = (sel: string | undefined): boolean => {
 };
 /** A tile id's shortest prefix that names it (after `t-`), the rule block ids follow. */
 export const MIN_ID_PREFIX = 8;
+/** A tile's id as few characters as still name it (`t-1a2b3c4d`): the header of its menu and its card; the whole id is what copies and what a slot keeps. */
+export const shortTileId = (id: string): string => (id.startsWith("t-") ? id.slice(0, 2 + MIN_ID_PREFIX) : id);
 
 const ID = new RegExp(`^t-[0-9a-f][0-9a-f-]{${MIN_ID_PREFIX - 1},}$`, "i");   // the same shape tileNameProblem refuses as a name (tiles.ts ID_SHAPE)
 

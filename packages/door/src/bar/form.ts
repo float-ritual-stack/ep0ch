@@ -48,6 +48,19 @@ export function fieldQuestion(f: FormField): BarQuestion {
   };
 }
 
+/**
+ * The question argument `arg` of `action` asks (PIE-1298), from the action's own declaration: what a button's empty slot is asked in
+ * (its kind, choices and meaning), answered as `value`. Null when the door has no such action or argument.
+ */
+export function argQuestion(host: BarHost, action: string, arg: string): BarQuestion | null {
+  let info: ActionInfo;
+  try { info = actionInfo(host, action); } catch { return null; }
+  const f = formFields(info).find(x => x.name === arg);
+  if (!f) return null;
+  const { default: _focused, ...q } = fieldQuestion(f);
+  return { ...q, name: "value", required: true, free: !f.spec.choices || !!f.spec.kind };
+}
+
 /** The arguments a form's answers give the action, and its tile=. */
 function callOf(info: ActionInfo, answers: Record<string, string>): { args: Record<string, unknown>; tile?: string } {
   const { [SELECTOR]: tile, ...rest } = answers;

@@ -65,7 +65,7 @@ import type { Msg } from "./board";
 import { HeldAsks } from "./held-asks";
 import { DoorReporter, onStatusChange, statusHolders, waitingCounts, waitingOnYou } from "./desk/program-status";
 
-const STATUS_BUTTON_ACTIONS = actionSet<{ surface: NoteSurface; host: SurfaceHost; standing: boolean }>()("note", { "button.press": NOTE_ACTIONS.def("button.press")! });
+const STATUS_BUTTON_ACTIONS = actionSet<{ surface: NoteSurface; host: SurfaceHost; standing: boolean }>()("note", { "button.press": NOTE_ACTIONS.def("button.press")!, "button.slot": NOTE_ACTIONS.def("button.slot")! });
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
@@ -1168,7 +1168,7 @@ export class App implements Ctx {
     { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: how.standing ? this.hostLayer.desks()[0]?.focusedDesk() ?? this.stack.at(-1) : this.stack.at(-1) }) },
     { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: this.stack.at(-1) }) },
     { set: MACRO_ACTIONS, takes: "none", on: () => ({ ctx: this, recording: this.recording }) },
-    { set: STATUS_BUTTON_ACTIONS, takes: "none", claims: req => req.action === "button.press" && req.args?.note !== undefined && req.tile === undefined,
+    { set: STATUS_BUTTON_ACTIONS, takes: "none", claims: req => (req.action === "button.press" || req.action === "button.slot") && req.args?.note !== undefined && req.tile === undefined,
       on: (_, how) => ({ surface: this.statusButtons, standing: how.standing, host: { ctx: this, redraw: () => this.redraw(), navigate() {} } }) },
     { set: STATUS_BAR_ACTIONS, takes: "none", on: () => ({
       note: this.statusNote, builtins: () => this.statusItems(), items: () => this.describeStatusItems(),

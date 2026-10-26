@@ -62,6 +62,13 @@ A render script stays read-only as a step and can pass its return to the next st
 Each press has its own run-id undo group. Undo refuses an older group while a later group's layout changes remain, even for the same button.
 The kitchen sink's **One button, two tiles** demonstrates both forms. Disk/network effects remain after undo.
 
+**Buttons that ask.** A `{key}` in `act=` (or in an `of=` script's values) is filled from the word `key=` on the same line:
+`::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}`. Left empty, a person's press asks for it in the
+kind the action's own argument takes (a tile: click one in the door), writes the answer on the line (`target=t-…`, an identity
+address of the tile grammar, never a name or a number) and runs nothing: the next press runs it. alt+click asks again. An agent is never asked: it writes the
+value with `button.slot label="pop it" key=target value=<tile>`. A button whose line reads differently than it was written
+(nested quotes that end `act=` early, stray words) runs nothing and says the line to write, in the editor as you type and on save.
+
 ## The script note
 
 A named fence accepts `script=<name>`, `effects=write` and `mode=render` in its info string, for example

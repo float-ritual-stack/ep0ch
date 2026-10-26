@@ -43,7 +43,7 @@ import { LayoutHistory, type LayoutEntry } from "./layout-history";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
-import { ActionRefused, ActionSet, actionSet, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet, actionSet, actRequestOf, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
 import { INVITES } from "../surface/invite";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
@@ -86,7 +86,7 @@ import { filtered } from "../bar/filter";
 import { ScreenTile } from "./screen-tile";
 import { QueryPane } from "./query";
 import { tileRegistry } from "./tile-registry";
-import { parseTileAddress, resolveAddress, resolveRelative, type AddressCandidate, type ResolveOpts } from "./tile-address";
+import { AGENT_ALIAS, matches, parseTileAddress, resolveAddress, resolveRelative, ROLE_AGENT, shortTileId, type AddressCandidate, type ResolveOpts } from "./tile-address";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { W_KEYS, wBoxLines, wKey, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
@@ -141,6 +141,14 @@ const FOLD_KEYS = new Set(["-", "+", "="]);
 const DAILY_LAYOUT_KEYS: readonly ModeKey[] = [{ key: "alt+d", action: "layout.load", args: { name: "daily" }, label: "daily" }];
 
 type Prefix = "" | "wm" | "add" | "addtab" | "move" | "tab" | "resize";
+
+/**
+ * alt+l waiting for a tile (a wire), or a pick waiting for one (PIE-1298): `pick` says what the choice is for, so the same
+ * picker (click a tile, h j k l, 1-9, esc) serves both. A pick's `then` is the action line that runs, as the person, with
+ * `value=<the tile's address>` once it is chosen; `chosen` is the tile it is asking exact-or-role about.
+ */
+interface LinkMode { desk: Desk; from: number; verb: WireVerb; pick?: LinkPick }
+interface LinkPick { then: string; prompt: string; chosen?: { id: string; role?: string; name: string } }
 /** How many ms of laying tiles out again a frame spends while a resize goes on (Desk.pickReflows). */
 const REFLOW_MS = 4;
 /** While a resize goes on, how old a tile's view gets before it's drawn again though its size didn't change. */
@@ -293,14 +301,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A tile of a group dragged by its title out past the group's content: where it would land on this screen. */
   private outDrag: { inner: Desk; name: string; target: { to?: string; where: Where; label: string; refused?: string } | null } | null = null;
   /** alt+l: the next click (or h j k l, a digit) picks where this tile's opens land. */
-  private linkMode: { desk: Desk; from: number; verb: WireVerb } | null = null;
+  private linkMode: LinkMode | null = null;
   private linkOwner(): Desk {
     const host = this.ctx?.hostLayer;
     const top = this.top();
     return host?.isDrawer(top) ? host.desks().find(d => !host.isDrawer(d))?.top() ?? top : top;
   }
   private get linking() { return this.linkOwner().linkMode; }
-  private set linking(mode: { desk: Desk; from: number; verb: WireVerb } | null) { this.linkOwner().linkMode = mode; }
+  private set linking(mode: LinkMode | null) { this.linkOwner().linkMode = mode; }
   /** The host supplies its drawer offset; mounted desks use their holder's content origin. */
   screenOrigin = { col: 0, row: 0 };
   /** A tile that takes every mouse event while the button is down (a terminal, a screen). */
@@ -2578,11 +2586,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   private controlsHint(id: number): Hint {
     const pane = this.panes.get(id);
-    return { id: "frame", title: `${this.numLabel(id)}${this.displayTitle(id)} controls`, lines: [FRAME_LEGEND, ...(pane instanceof ReaderPane ? pane.surface.buttonHint() : [])] };
+    return { id: "frame", title: `${this.numLabel(id)}${this.displayTitle(id)} · ${shortTileId(this.tileId(id))} controls`, lines: [FRAME_LEGEND, ...(pane instanceof ReaderPane ? pane.surface.buttonHint() : [])] };
   }
   linkingHint(): Hint | null {
     if (!this.linking) return null;
-    const { desk, from, verb } = this.linking, tile = desk.nameOf(from);
+    const { desk, from, verb, pick } = this.linking, tile = desk.nameOf(from);
+    if (pick) return this.pickingHint(desk, from, tile, pick);
     const targets = this.screenTiles();
     // Two lines: where this wire lands now, and what a click does. The rows below carry the rest; no line repeats a row.
     const what = verb === "select" ? "A select in" : verb === "alt" ? "An alt-open from" : "An open from";
@@ -2598,9 +2607,33 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         { label: `unlink ${verb} wire`, act: { action: "tile.link", tile, args: { verb } } }, { label: "cancel", key: "esc", act: { action: "tile.link", tile, args: { ask: false } } } ] };
   }
 
+  /** The picker's card (PIE-1298): what is being chosen and how, or, once a tile is chosen, whether to keep that tile or the role it fills. */
+  private pickingHint(desk: Desk, from: number, tile: string, pick: LinkPick): Hint {
+    const then = { then: pick.then, prompt: pick.prompt };
+    if (pick.chosen) {
+      const { id, role, name } = pick.chosen;
+      return { id: "link", title: pick.prompt, lines: [`${name}: this tile exactly, or whichever tile fills its place?`],
+        choices: [
+          { label: `1 · this tile · ${shortTileId(id)}`, key: "1", act: { action: "tile.pick", tile, args: { ...then, value: id } } },
+          ...(role ? [{ label: `2 · whichever fills its place · ${role}`, key: "2", act: { action: "tile.pick", tile, args: { ...then, value: role } } }] : []),
+          { label: "cancel", key: "esc", act: { action: "tile.pick", tile, args: { ...then, cancel: true } } },
+        ] };
+    }
+    const targets = this.screenTiles();
+    return { id: "link", title: pick.prompt, lines: [`Click a tile to choose it, or press its number.`], keys: [{ keys: "h j k l / 1-9", does: "choose a tile" }],
+      choices: [
+        ...targets.flatMap(({ pane }, i) => {
+          if (!this.linkAccepts(pane)) return [];
+          const owner = desk.relatives().find(d => d.idOf(pane) !== undefined)!;
+          return [{ label: `${i + 1} · ${owner.nameOfPane(pane)}`, key: i < 9 ? String(i + 1) : undefined, act: { action: "tile.pick", tile, args: { ...then, to: owner.tileId(owner.idOf(pane)!) } } }];
+        }),
+        { label: "cancel", key: "esc", act: { action: "tile.pick", tile, args: { ...then, cancel: true } } },
+      ] };
+  }
+
   private syncModeHint(shown?: string) {
     const overlay = this.overlays.top();
-    const mode = this.ctx?.armed?.() ? "confirm" : overlay?.hintCard ? `overlay:${overlay.name}` : this.linking ? `link:${this.linkOwner().pathTo(this.linkingFrom()!)}:${this.linking.verb}` : this.drag ? "resize" : this.dragging || this.floatDrag ? "drag" : this.prefix === "move" || this.prefix === "tab" ? this.prefix : this.prefix === "resize" ? "resize" : this.pickedBy(USER).length ? "gather" : "";
+    const mode = this.ctx?.armed?.() ? "confirm" : overlay?.hintCard ? `overlay:${overlay.name}` : this.linking ? `link:${this.linkOwner().pathTo(this.linkingFrom()!)}:${this.linking.pick ? `pick${this.linking.pick.chosen ? ":chosen" : ""}` : this.linking.verb}` : this.drag ? "resize" : this.dragging || this.floatDrag ? "drag" : this.prefix === "move" || this.prefix === "tab" ? this.prefix : this.prefix === "resize" ? "resize" : this.pickedBy(USER).length ? "gather" : "";
     if (mode === this.modeHintKey) return;
     const previous = this.modeHintKey;
     this.modeHintKey = mode;
@@ -3883,7 +3916,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     };
     const pane = this.panes.get(id)!;
     if (this.linking && pane !== this.linkingFrom() && this.linkAccepts(pane)) {
-      put(`${this.numLabel(id)}⌖ click to link here`, fg(C.lmagenta));
+      // A pick's click chooses a value for what asked, and wires nothing.
+      put(`${this.numLabel(id)}⌖ ${this.linking.pick ? "click to choose" : "click to link here"}`, fg(C.lmagenta));
       return this.headOut;
     }
     const ctl = pane.headControls?.(Math.max(1, Math.min(22, Math.floor((max - x) / 3))), this) ?? [];
@@ -4444,7 +4478,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (k.action === "down" && k.button === 0) {
         const cards = this.hintCards();
         const act = [...cards].reverse().map(c => c.at(k.x, k.y)).find(Boolean);
-        if (act) { void (this.linking && act.action === "tile.link" ? this.linking.desk : this).dispatch.press(act.action, act.args, act.tile); return; }
+        if (act) { void (this.linking && (act.action === "tile.link" || act.action === "tile.pick") ? this.linking.desk : this).dispatch.press(act.action, act.args, act.tile); return; }
       }
       const b = this.menuButtons.find(b => k.y === b.row && k.x >= b.from && k.x < b.to);
       // Only a click opens the menu. A hover over the control opens nothing (Evan, Oct 19 12:30 PM: "the menu is coming
@@ -4720,6 +4754,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   linkingHere(): boolean { return this.linking?.desk.top() === this.top(); }
 
   private linkAccepts(pane: Pane): boolean {
+    // A pick takes any tile (a button may name the very reader it is in), until one is chosen.
+    if (this.linking?.pick) return !this.linking.pick.chosen;
     return pane === this.linkingFrom() || !!kindOf(pane)?.accepts?.notes || (this.linking?.verb === "alt" && !(pane instanceof ScreenTile));
   }
 
@@ -4747,6 +4783,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pending = this.linking;
     if (!pending) return;
     const { desk, from, verb } = pending;
+    if (pending.pick) return this.pickedPane(target);
     this.linking = null;
     const path = desk.pathTo(target);
     if (path === undefined) { this.ctx.flash("not linked: that tile isn't reachable from here"); return this.redraw(); }
@@ -4756,7 +4793,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   linkAt(desk: Desk, x: number, y: number): void {
     if (!this.linking) return;
     const action = [...desk.hintCards()].reverse().map(c => c.at(x, y)).find(Boolean);
-    if (action) { void (action.action === "tile.link" ? this.linking.desk : desk).dispatch.press(action.action, action.args, action.tile); return; }
+    if (action) { void (action.action === "tile.link" || action.action === "tile.pick" ? this.linking.desk : desk).dispatch.press(action.action, action.args, action.tile); return; }
     const hit = desk.hits.find(([, r]) => x >= r.col && x < r.col + r.cols && y >= r.row && y < r.row + r.rows);
     if (hit) {
       const pane = desk.panes.get(hit[0])!;
@@ -4786,9 +4823,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   private linkKey(k: Key) {
-    const { desk, from } = this.linking!;
+    const { desk, from, pick } = this.linking!;
     const c = ch(k);
-    if (c === "s" || c === "a" || c === "o") return desk.run("tile.link", { ask: true, verb: c === "s" ? "select" : c === "a" ? "alt" : "open" }, desk.nameOf(from));
+    if (pick) {
+      const tile = desk.nameOf(from), then = { then: pick.then, prompt: pick.prompt };
+      if (k.kind === "esc") return desk.run("tile.pick", { ...then, cancel: true }, tile);
+      if (pick.chosen) {
+        const value = c === "1" ? pick.chosen.id : c === "2" ? pick.chosen.role : undefined;
+        if (value) desk.run("tile.pick", { ...then, value }, tile);
+        return;
+      }
+    } else if (c === "s" || c === "a" || c === "o") return desk.run("tile.link", { ask: true, verb: c === "s" ? "select" : c === "a" ? "alt" : "open" }, desk.nameOf(from));
     if (k.kind === "esc") return desk.run("tile.link", { ask: false }, desk.nameOf(from));
     const tiles = this.screenTiles();
     const rects = new Map(tiles.filter(t => this.linkAccepts(t.pane)).map(t => [t.pane, t.rect]));
@@ -5537,6 +5582,77 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(src.id), picking: ask ? verb : false };
   }
 
+  /**
+   * `tile.pick` (PIE-1298): the wire picker choosing a tile for `then`, an action line that runs as the person with
+   * `value=<the tile's address>`. A tile that fills a role (the drawer's agent, a named tile of a screen) is asked about:
+   * exactly this tile, or whichever tile fills that role. `to` is a choice made (the card's rows, `act`); `value` the answer.
+   */
+  pickTile(sel: string | undefined, a: { then?: string; prompt?: string; to?: string; value?: string; cancel?: boolean }): TileDone {
+    // A choice in the pick that is waiting (`to`, `value`, `cancel`) runs that pick's `then` unless it says its own.
+    const waiting = this.linking?.pick;
+    const then = a.then ?? (a.to !== undefined || a.value !== undefined || a.cancel ? waiting?.then : undefined);
+    if (then === undefined) {
+      if (a.cancel) return { ...this.tileAnswer(this.linkSource(sel, "open").id), picking: false };
+      throw new ActionRefused(waiting || a.to === undefined && a.value === undefined ? "tile.pick needs then=<the action line the choice runs> (button.slot … key=<slot>)" : "no pick is waiting: press the button that asks for a tile first");
+    }
+    a = { ...a, then, prompt: a.prompt ?? waiting?.prompt };
+    const src = this.linkSource(sel, "open");
+    const req = actRequestOf(lineWords(then));
+    const prompt = a.prompt?.trim() || "choose a tile";
+    if (a.cancel) { if (this.linking?.pick) { this.linking = null; this.ctx.flash(`${prompt}: nothing chosen`); this.redraw(); } return { ...this.tileAnswer(src.id), picking: false }; }
+    if (a.value !== undefined) {
+      this.linking = null; this.redraw();
+      // `then` runs in the reader that asked (whose button it is), wherever the keys went meanwhile (the drawer opened); a button
+      // pressed elsewhere (the status bar's) names its note, and the door's own button.slot writes it.
+      const asked = this.panes.get(src.id) instanceof ReaderPane ? this.tileId(src.id) : undefined;
+      void this.dispatch.press(req.action, { ...req.args, value: a.value }, req.tile ?? asked);
+      return { ...this.tileAnswer(src.id), picked: a.value, picking: false };
+    }
+    if (a.to !== undefined) {
+      if (!this.linking?.pick) throw new ActionRefused("no pick is waiting: press the button that asks for a tile first");
+      const found = this.resolveTile(a.to);
+      const pane = found?.desk.pane(found.tile.id ?? found.tile.name);
+      if (!pane) throw new ActionRefused(`no tile ${a.to} to choose`);
+      this.pickedPane(pane);
+      return { ...this.tileAnswer(src.id), picking: this.linking?.pick ? "which" : false };
+    }
+    this.overlays.drop("policy");
+    this.linking = { desk: this, from: src.id, verb: "open", pick: { then, prompt } };
+    this.redraw();
+    return { ...this.tileAnswer(src.id), picking: "tile" };
+  }
+
+  /** A tile was chosen in a pick: the tile alone when no address names its place, else the question exact-or-place. */
+  private pickedPane(pane: Pane) {
+    const pending = this.linking;
+    if (!pending?.pick) return;
+    const refs = this.tileAddressesOf(pane);
+    if (!refs) { this.ctx.flash("not chosen: that tile isn't reachable from here"); return this.redraw(); }
+    if (!refs.place) { pending.desk.run("tile.pick", { then: pending.pick.then, prompt: pending.pick.prompt, value: refs.id }, pending.desk.nameOf(pending.from)); return; }
+    pending.pick.chosen = { id: refs.id, role: refs.place, name: refs.name };
+    this.redraw();
+  }
+
+  /**
+   * The addresses that name `pane` in the tile grammar (PIE-1297 copy reference, PIE-1298 a button's slot), read from the
+   * registry as the resolver reads it (`addressable`): `id`, exactly this tile (`t-<uuid>`, kept through moves and saves),
+   * and `place`, whichever tile fills its place: the role it was made with (`drawer.agent` for the drawer's own program,
+   * `role:<role>`), else a slot its screen declares (`detail@board`). A place is offered only when it names this tile alone
+   * now, so what is written resolves back to it. Null when no desk of this door holds the tile.
+   */
+  tileAddressesOf(pane: Pane): { id: string; place?: string; name: string } | null {
+    const all = this.addressable(), c = all.find(x => x.value.pane === pane);
+    if (!c) return null;
+    const own = tileRegistry.ownRole(pane);
+    const tries = [
+      ...(own ? [own === ROLE_AGENT ? AGENT_ALIAS : `role:${own}`] : []),
+      ...c.slots.map(slot => `${slot}@${c.screen}`),
+    ];
+    const names = (sel: string) => { const a = parseTileAddress(sel); return a.kind !== "name" && matches(a, all).length === 1 && matches(a, all)[0] === c; };
+    const place = tries.find(names);
+    return { id: c.id, name: c.name, ...(place ? { place } : {}) };
+  }
+
   linkTile(sel: string | undefined, to: string | undefined, actor: Actor, verb: WireVerb = "open", remove = false, rule?: AltRule): TileDone {
     const src = this.linkSource(sel, verb);
     this.linking = null;
@@ -5803,6 +5919,22 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (p.running) throw new ActionRefused(`${name} is still running`);
     p.restart();
     return this.tileAnswer(this.tile(name).id);
+  }
+
+  /** `tile.copy-ref` (PIE-1297): the tile's id, or the address of its place (`tileAddressesOf`), to the person's clipboard or back to an agent. */
+  copyTileRef(sel: string | undefined, kind: "id" | "ref", actor: Actor) {
+    const t = this.tile(sel), refs = this.tileAddressesOf(this.panes.get(t.id)!);
+    if (!refs) throw new ActionRefused(`${this.nameOf(t.id)} isn't reachable from here to name`);
+    const text = kind === "ref" ? refs.place ?? refs.id : refs.id;
+    const answer = { ...this.tileAnswer(t.id), kind, text, id: refs.id, ...(refs.place ? { place: refs.place } : {}) };
+    const what = kind === "ref" && !refs.place ? `${text} (nothing else names ${refs.name} alone, so its id)` : text;
+    if (actor.kind === "user") {
+      if (this.ctx.copy?.(text) === false) throw new ActionRefused("the clipboard refused it");
+      this.ctx.flash(`copied ${what}`);
+      return { ...answer, clipboard: true };
+    }
+    this.ctx.flash(`@${actor.id ?? "agent"} copied ${refs.name}'s ${kind === "ref" ? "reference" : "id"} for itself · your clipboard is untouched`);
+    return { ...answer, clipboard: false };
   }
 
   /** `tile.info`: the tile as `layout.get` lists it, with what it follows and where its opens land in plain words (PIE-855, ^W P's rows). */
@@ -6489,7 +6621,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const b = this.menuButtons.find(x => x.id === t.id), r = this.rectsNow().get(t.id) ?? (this.isFloat(t.id) ? this.floatRect(this.floats.find(f => f.id === t.id)!) : undefined);
       anchor = b ? { col: b.from, row: b.row + 1, right: true } : r ? { col: r.col + r.cols - 1, row: r.row + 1, right: true } : { col: 0, row: 0 };
     }
-    this.overlays.push(tileMenu<Desk>({ title: this.nameOf(t.id), rows: every, at: anchor, look: w => this.lookAt(this.panes.get(t.id)!, w).values, ...(q ? { q } : {}) }));
+    this.overlays.push(tileMenu<Desk>({ title: `${this.nameOf(t.id)} · ${shortTileId(this.tileId(t.id))}`, rows: every, at: anchor, look: w => this.lookAt(this.panes.get(t.id)!, w).values, ...(q ? { q } : {}) }));
     this.redraw();
     return { ...this.tileAnswer(t.id), open: true, rows };
   }
