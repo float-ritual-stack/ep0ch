@@ -226,7 +226,7 @@ export class PtyPane implements Pane {
   lastOutput = 0;
   /** When the person last typed or pasted into it (an agent's `tile.type` doesn't count): `agent.restart` waits for them. */
   personKeyAt = 0;
-  /** When the person last clicked in it or went into it (a click, e or ⏎: tile.enter; the drawer's host.enter). */
+  /** When the person last clicked in it, went into it (a click, e or ⏎: tile.enter; the drawer's host.enter) or picked its tab. */
   personClickAt = 0;
   /** The next start only: a restart that keeps the conversation (`sessionCommand`, and the Herdr launcher told so). */
   private continueNext = false;
