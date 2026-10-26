@@ -241,7 +241,7 @@ async function drawReferences($: EngineInterface, e: RenderInput<'AssistantMessa
   if (prompt && hrefs.length === 0) return null
   // A terminal draws a link out of the outline itself too (a trailing arrow, dim), so a reply with one is not left to the engine.
   const blocks: ReplyBlock[] = e.surface === 'terminal' ? replyBlocks(text) : [{ kind: 'markdown', text }]
-  if ((hrefs.length === 0 && blocks.every(block => block.kind === 'markdown')) || text.length > 10_000) return null
+  if ((hrefs.length === 0 && blocks.every(block => block.kind === 'markdown' || block.kind === 'blank')) || text.length > 10_000) return null
   const { Box, Text, Markdown, Button, Link } = await $.ui.resolve(e)
   const open = (href: string, surface: RenderSurface) => void openReference($, workspace, href, surface)
   // A terminal prints the address beside a link it cannot make a hyperlink of, so there the references are drawn
@@ -281,6 +281,7 @@ async function drawReferences($: EngineInterface, e: RenderInput<'AssistantMessa
         ? { key: 'outliner-references', text, pressableLinks: hrefs.slice(0, 256), onLinkPress: (link, press) => open(link.href, press.surface) }
         : { text: block.text })
     }
+    if (block.kind === 'blank') return Text({ key: `outliner-blank-${n}`, children: ' ' })
     if (block.kind === 'table') {
       // A table drawn whole (PIE-1043): a row per Box, a fixed-width cell per column, pressable references inside.
       const widths = tableWidths(block)
