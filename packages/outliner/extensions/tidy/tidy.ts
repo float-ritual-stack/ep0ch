@@ -26,7 +26,7 @@ const DEFAULT_ANSWER: string[] = (await Bun.file(join(import.meta.dir, "extensio
 const CONFIG = join(import.meta.dir, "config.json");
 const answerCommand = () => request.config?.answer ?? DEFAULT_ANSWER;
 const shown = (argv: string[]) => argv.map(a => (a === "" || /[\s"'$]/.test(a) ? JSON.stringify(a) : a)).join(" ");
-const firstLines = (text: string) => text.trim().split("\n").filter(Boolean).slice(0, 2).join(" / ").slice(0, 160);
+const firstLines = (text: string) => text.trim().split("\n").filter(Boolean).slice(0, 2).join(" / ").slice(0, 120);
 
 /**
  * A failed call says what ran, whether it came from tidy's settings or its default, and where to fix it: the settings
@@ -35,8 +35,9 @@ const firstLines = (text: string) => text.trim().split("\n").filter(Boolean).sli
  */
 function failure(command: string[], why: string): Error {
   const from = request.config?.answer ? "from tidy's settings" : "tidy's default";
-  const fix = `in the door ctrl+k then & settings tidy, or ep0ch act ext.tidy.settings answer='/full/path/to/claude ${DEFAULT_ANSWER.slice(1).map(a => a || '""').join(" ")}' (\`which claude\` gives the path; it writes ${CONFIG}), or sign in with \`claude\``;
-  return new Error(`${why}: ${shown(command)} (${from}). To fix: ${fix}`);
+  const fix = `ctrl+k then & settings tidy in the door, or ep0ch act ext.tidy.settings answer='/full/path/to/claude ${DEFAULT_ANSWER.slice(1).map(a => a || '""').join(" ")}', or sign in with claude`;
+  const ran = shown(command);
+  return new Error(`${why}: ${ran.length > 100 ? `${ran.slice(0, 99)}…` : ran} (${from}). To fix: ${fix}`);
 }
 
 async function modelAnswer(command: string[], prompt: string): Promise<unknown> {

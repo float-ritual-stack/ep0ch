@@ -91,13 +91,14 @@ test("tidy's settings say its default, and an answer set in them is what the nex
 test("a failing call says so with its error until config.json changes", async () => {
   const { extensions, client, store, settings, configure } = await setup();
   cpSync(join(import.meta.dir, "..", "extensions", "tidy"), join(extensions, "tidy"), { recursive: true });
-  writeFileSync(join(extensions, "tidy", "config.json"), JSON.stringify({ config: { answer: ["bun", "-e", "process.exit(3)"] } }));
+  writeFileSync(join(extensions, "tidy", "config.json"), JSON.stringify({ config: { answer: ["bun", "-e", `console.error("${"the model login has lapsed; ".repeat(8)}"); process.exit(3)`] } }));
   await settings("tidy");
   const note = await client.request<Block>({ action: "create", text: "Garden\nwater the beans\n@tidy make it a task" });
   await until("the failed ask", () => store.agentRequests(note.id)[0]?.answeredAt);
   const failing = await settings("tidy");
   expect(failing).toMatchObject({ state: "failing" });
-  expect(failing!.error).toContain("answer command exited 3");
+  // A long stderr from the command still leaves the start and the fix in the 600 characters the service keeps.
+  expect(failing!.error).toContain("couldn't rewrite: answer command exited 3");
   expect(failing!.error).toContain("ext.tidy.settings");
   await Bun.sleep(5); // a later mtime than the failed call
   const fixed = await configure("tidy", { config: { answer: ["bun", "-e", "console.log('{}')"] } });
