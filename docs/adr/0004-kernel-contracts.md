@@ -373,7 +373,8 @@ value = { rows: SourceRow[] }               // ≤ 50, checked: text cleaned, on
 ```
 
 - **One manifest field.** `bar[]` becomes `sources[]`, and the manifest's `contract` becomes 3. A contract-2 manifest
-  is refused with the field to rename. The shipped examples (`glyphs`) move in the same PR. `ExtensionBarRow` and
+  is refused with the field to rename. (As built: PIE-1340 read `bar[]` as an alias under contract 2; PIE-1344 removed
+  it, and a manifest that still says `bar` is refused with the rename.) The shipped examples (`glyphs`) move in the same PR. `ExtensionBarRow` and
   `BarRow` both become `SourceRow`.
 - **Triggers are outline-core's**: `completion-triggers.ts` says which trigger the cursor is in, its token and its
   replacement range, and absorbs both detectors. `key::` carries the key. `::` completes a component name (schemas and

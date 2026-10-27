@@ -1,9 +1,11 @@
 // `completion.rows` (PIE-1340, ADR 0004 §4): the service's completion sources, each answering on outline-core's one row
 // contract (completion-source.ts), and the extensions' completion sources beside them. The service sources are the
-// lookups the door's completer used to branch on (pages, blocks and their fragments, files, agents), moved here so
-// Detail and the door ask the same ones: a client merges these answers with its own sources' (`mergeSourceAnswers`).
-// Each source asks the service's own read actions (`pages.complete`, `tree.search`, `fragments.candidates`,
-// `files.complete`, `blocks.context`, `extensions.list`); none keeps an index or a ranking of its own.
+// lookups the door's completer used to branch on (pages, blocks and their fragments, files, agents; components,
+// properties and callout types, PIE-1344), moved here so Detail, Tree, Quick Capture and the door ask the same ones: a
+// client merges these answers with its own sources' (`mergeSourceAnswers`). Each source asks the service's own read
+// actions (`pages.complete`, `tree.search`, `fragments.candidates`, `files.complete`, `blocks.context`,
+// `extensions.list`, `components.schemas`, `components.usage`, `properties.catalog`, `callouts.types`); none keeps an
+// index or a ranking of its own. What a row draws is the client's: a row says what to draw (`example`).
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery, type PageAddressMatch } from "@ep0ch/outline-core/completion-triggers";
@@ -11,6 +13,11 @@ import { pickKey, sourceAnswers, triggerOf, type Picks, type SourceAsk, type Sou
 import { FRAGMENT_ID_SOURCE, qualifiedReference, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import type { CompletionRowsRequest, CompletionRowsResult, CompletionSourceAnswer, ExtensionCompletionSource } from "@ep0ch/outline-core/protocol";
+import { keyCandidates, sweep, valueCandidates, variation, yamlKeyCandidates, type ComponentSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
+import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
+import { calloutRegistry, type CalloutType } from "@ep0ch/outline-core/callouts";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { matchesSearchText, rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 
 /** At most this many candidates per lookup. */
 export const COMPLETION_LIMIT = 20;
@@ -29,7 +36,7 @@ interface Fragments { items: Fragment[]; completeness: { kind: string; limit?: n
 interface Wire { id: string; text: string; title?: string }
 
 /** What a service source is asked: the ask, plus the draft and the note it writes in. */
-interface Asked extends SourceAsk { near?: string; draft?: { blockId: string; text: string }; offset?: number; semantic?: boolean; prefix: string | null }
+interface Asked extends SourceAsk { near?: string; draft?: { blockId: string; text: string }; offset?: number; semantic?: boolean; prefix: string | null; headingShort?: boolean }
 type Answer = Omit<CompletionSourceAnswer, "source">;
 interface ServiceSource { decl: SourceDecl; rows(ask: Asked, svc: CompletionService): Promise<Answer> }
 
@@ -226,8 +233,131 @@ const agents: ServiceSource = {
   },
 };
 
+/** The component the schema writes (`graph-stat` for `::graph-stat`), or null for one written another way (a heading style). */
+const componentName = (schema: ComponentSchema) => COMPONENT_OPEN.exec(schema.source.use.split("\n")[0]!)?.[1] ?? null;
+const titleOf = (schema: ComponentSchema) => schema.title.replace(/ \(::.*\)$/, "");
+const schemasOf = (svc: CompletionService) => svc.request<{ schemas: ComponentSchema[] }>("components.schemas", {}).then(r => r.schemas);
+
+/** The property keys a component's example names: those the note being written (or the one it's about) carries. */
+async function noteKeys(ask: Asked, svc: CompletionService): Promise<string[]> {
+  const text = ask.draft?.text ?? (ask.near ? (await svc.request<{ selected: Wire | null }>("blocks.context", { blockId: ask.near }).catch(() => ({ selected: null }))).selected?.text : undefined);
+  return [...new Set(parsePropertyRecords(text ?? "").map(p => p.key))];
+}
+
+/** A schema whose property-typed props sample the note's own keys, so its example names one of them. */
+function contextualSchema(schema: ComponentSchema, keys: string[]): ComponentSchema {
+  if (!keys.length) return schema;
+  const props = schema.props.map(p => p.type === "property" ? { ...p, samples: keys } : p);
+  const example = { ...schema.example };
+  for (const p of props) if (p.type === "property" && example[p.key] !== undefined) example[p.key] = keys[0]!;
+  return { ...schema, props, example };
+}
+
+/** A variation as a row: its source written, the first YAML value selected so the next keys replace it. */
+function variationRow(schema: ComponentSchema, v: ReturnType<typeof variation>, label: string): SourceRow {
+  const yaml = v.use.indexOf("\n---\n");
+  const first = yaml >= 0 ? /^([^:\n]+:[ \t]*)([^\n]+)$/m.exec(v.use.slice(yaml + 5)) : null;
+  const at = first ? yaml + 5 + first.index + first[1]!.length : -1;
+  return {
+    label, kind: "component", group: schema.group, component: schema.id,
+    insert: at >= 0 ? { snippet: v.use, select: { start: at, end: at + first![2]!.length } } : v.use,
+    docs: `${titleOf(schema)}: ${schema.intro.split(/\n|,|(?<=\.) /)[0]!.replace(/[`*_]/g, "")}`,
+    example: { use: v.use, ...(v.note ? { note: v.note } : {}) },
+  };
+}
+
+// The component schemas (PIE-618, `components.schemas`): the answer the library draws its pages from, no list of its
+// own. Grouped, used ones first: it orders its own rows (the matcher still ranks what's typed).
+const components: ServiceSource = {
+  decl: { id: "components", title: "components", triggers: ["::"], priority: 10, ranked: true, by: "service" },
+  async rows(ask, svc) {
+    const [schemas, recent, keys] = await Promise.all([schemasOf(svc), svc.request<Record<string, number>>("components.usage", {}), noteKeys(ask, svc)]);
+    const all = schemas.flatMap(schema => { const id = componentName(schema); return id ? [{ id, title: `${id} ${schema.title}`, text: schema.intro, schema }] : []; });
+    const q = ask.query.trim();
+    const ordered = q ? rankTextSearchMatches(all.filter(c => matchesSearchText(q, [c.id, c.title, c.text])), q).map(m => m.document)
+      : all.sort((a, b) => (recent[b.id] ?? 0) - (recent[a.id] ?? 0));
+    const groupOf = (c: typeof all[number]) => `${c.schema.group}${recent[c.id] !== undefined ? " · used" : ""}`;
+    const groups = [...new Set(ordered.map(groupOf))];
+    const rows = groups.flatMap(group => ordered.filter(c => groupOf(c) === group).map(({ id, schema: original }) => {
+      const schema = contextualSchema(original, keys), seen = new Set<string>();
+      const swept = schema.sweep.flatMap(axis => sweep(schema, axis).flatMap(v => {
+        if (seen.has(v.use)) return [];
+        seen.add(v.use);
+        return [variationRow(schema, v, v.use.replace(/\n/g, " "))];
+      }));
+      // Its arguments, each written `::name{key=""}` with the cursor between the quotes.
+      const args = schema.props.map((p): SourceRow => {
+        const text = `::${id}{${p.key}=""}`;
+        return { label: p.key, detail: p.type, docs: p.meaning, kind: "property", insert: { snippet: text, select: { start: text.length - 2, end: text.length - 2 } } };
+      });
+      return { ...variationRow(schema, variation(schema, {}), titleOf(schema)), id, group, filter: id, variations: [...swept, ...args] };
+    }));
+    return { rows };
+  },
+};
+
+/** A schema's key or value as a row: where it goes and what it means; a value draws what it makes. */
+function candidateRow(schemas: readonly ComponentSchema[], c: PropertyCandidate, ask: Asked, kind: string): SourceRow {
+  const schema = c.value === undefined ? undefined : schemas.find(s => s.id === c.component);
+  const v = schema ? variation(schema, { [c.key]: c.value! }, c.key) : null;
+  return {
+    label: c.label, kind, docs: c.detail, insert: ask.headingShort ? `[heading::${c.insertion}` : c.insertion,
+    ...(v ? { example: { use: v.use, ...(v.note ? { note: v.note } : {}), inline: true } } : {}),
+  };
+}
+
+// Properties are open (AGENTS.md): `[key` offers the keys the outline's notes carry (`properties.catalog`, most used
+// first), then the keys the component schemas give a meaning; `[key::` the values that key has, then the schema's.
+const properties: ServiceSource = {
+  decl: { id: "properties", title: "properties", triggers: ["[key", "key::", "yaml-key"], priority: 10, by: "service" },
+  async rows(ask, svc) {
+    const q = ask.query.trim(), schemas = await schemasOf(svc);
+    if (ask.kind === "yaml-key") return { rows: yamlKeyCandidates(schemas, ask.component ?? "", q).map(c => candidateRow(schemas, c, ask, "property")) };
+    const catalog = await svc.request<{ key: string; value: string; count: number }[]>("properties.catalog", { ...(ask.kind === "value" ? { key: ask.key } : {}), prefix: q.toLowerCase(), limit: 100 }).catch(() => []);
+    const rows: SourceRow[] = [], seen = new Set<string>();
+    if (ask.kind === "key") {
+      const known = new Map(keyCandidates(schemas, "").map(c => [c.key, c]));
+      const counts = new Map<string, number>();
+      for (const c of catalog) counts.set(c.key, (counts.get(c.key) ?? 0) + c.count);
+      for (const [key, n] of [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
+        seen.add(key);
+        const meant = known.get(key);
+        rows.push({ label: key, kind: "property", detail: `${n} note${n === 1 ? "" : "s"}`, insert: `[${key}::`, ...(meant ? { docs: meant.detail } : {}) });
+      }
+      for (const c of keyCandidates(schemas, q)) if (!seen.has(c.key)) { seen.add(c.key); rows.push(candidateRow(schemas, c, ask, "property")); }
+    } else {
+      const meant = valueCandidates(schemas, ask.key ?? "", q);
+      for (const c of meant) { seen.add(c.label); rows.push(candidateRow(schemas, c, ask, "value")); }
+      for (const c of catalog) if (!seen.has(c.value) && !/[\]\n]/.test(c.value)) {
+        seen.add(c.value);
+        const v = `${c.value}]`;
+        rows.push({ label: c.value, kind: "value", detail: `${c.count} note${c.count === 1 ? "" : "s"}`, insert: ask.headingShort ? `[heading::${v}` : v });
+      }
+    }
+    return { rows: rows.slice(0, COMPLETION_LIMIT * 2) };
+  },
+};
+
+// The outline's callout types (PIE-538, `callouts.types` over outline-core's built-ins): the one list the reader draws
+// and the type choice offers, each written `[!name]`.
+const callouts: ServiceSource = {
+  decl: { id: "callouts", title: "callout types", triggers: ["> [!"], priority: 10, by: "service" },
+  async rows(ask, svc) {
+    const declared = await svc.request<{ types: CalloutType[] }>("callouts.types", {}).then(r => r.types, () => []);
+    return {
+      rows: calloutRegistry(declared).types.map(t => ({
+        id: t.name, label: `${t.icon} ${t.name}${t.aliases.length ? ` (${t.aliases.join(", ")})` : ""}`, filter: t.title,
+        insert: `[!${t.name}]`, kind: "callout", ...(t.block ? { detail: "this outline's" } : {}),
+        example: { use: `> [!${t.name}] ${t.title}\n> An example callout.` },
+        docs: `${t.title}${t.aliases.length ? ` · also ${t.aliases.map(a => `[!${a}]`).join(" ")}` : ""}`,
+      })),
+      empty: `no callout type is ${JSON.stringify(ask.query)}; [!${ask.query}] still draws, in neutral (declare it with [callout-type::${ask.query || "name"}])`,
+    };
+  },
+};
+
 /** The service's sources, in the order their rows come among equals. */
-export const SERVICE_SOURCES: readonly ServiceSource[] = [pages, blocks, files, agents];
+export const SERVICE_SOURCES: readonly ServiceSource[] = [pages, blocks, files, agents, components, properties, callouts];
 
 /** An extension's completion source answering through its `source` operation (`ExtensionCalls.complete`). */
 export type AskExtension = (source: ExtensionCompletionSource, ask: Asked, signal: AbortSignal) => Promise<SourceRow[]>;
@@ -241,7 +371,7 @@ export async function completionRows(svc: CompletionService, request: Completion
   const prefix = await svc.request<{ workIdPrefix?: string }>("references.resolve", { text: "" }).then(r => r.workIdPrefix ?? null, () => null);
   const ask: Asked = {
     trigger, kind: t.kind, query: t.query, ...(t.key ? { key: t.key } : {}), ...(t.component ? { component: t.component } : {}),
-    limit: request.limit ?? COMPLETION_LIMIT, prefix, ...(request.near ? { near: request.near } : {}), ...(request.draft ? { draft: request.draft } : {}),
+    limit: request.limit ?? COMPLETION_LIMIT, prefix, ...(t.headingShort ? { headingShort: true } : {}), ...(request.near ? { near: request.near } : {}), ...(request.draft ? { draft: request.draft } : {}),
     ...(request.offset ? { offset: request.offset } : {}), ...(request.semantic ? { semantic: true } : {}),
   };
   const asks: Promise<CompletionSourceAnswer>[] = [];

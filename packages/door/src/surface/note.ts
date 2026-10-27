@@ -9844,8 +9844,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         ? shown : await lookupCompletion(board, target, own, { near: nearOf(d, own) ?? surface.msg?.id });
       if (step !== undefined) {
         const item = r.items[step - 1];
-        if (!item?.componentSchema) throw new ActionRefused("step names a component row; complete text=:: lists them");
-        return { variations: item.children?.map((it, i) => ({ n: i + 1, label: it.label, insertion: it.insertion })), props: item.componentSchema.props };
+        if (!item?.children) throw new ActionRefused("step names a component row; complete text=:: lists them");
+        // Its variations, then its arguments (each a `property` row), as the service answered them (PIE-1344).
+        const variations = item.children.filter(it => it.kind !== "property"), args = item.children.filter(it => it.kind === "property");
+        return { variations: variations.map((it, i) => ({ n: i + 1, label: it.label, insertion: it.insertion })), props: args.map(it => ({ key: it.label, type: it.detail, meaning: it.docs })) };
       }
       const out = {
         kind: target.kind, query: target.query, message: r.message || undefined, truncated: r.truncated ?? undefined,

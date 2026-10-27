@@ -70,7 +70,8 @@ test("an extension's source joins [[ beside the pages: its rows rank with them b
 test("key:: asks only a source that names the key, and its insert is the value", async () => {
   const { list, rows } = await setup(["issues"]);
   await list(true);
-  expect((await rows("value", "", { key: "status" })).answers).toEqual([]);
+  // The service's properties source answers every key (PIE-1344); an extension's only the keys it names.
+  expect((await rows("value", "", { key: "status" })).answers.map(a => a.source.id)).toEqual(["properties"]);
   const r = await rows("value", "21", { key: "issue" });
   expect(merged(r, "21").map(row => insertText(row.insert))).toEqual(["#21"]);
 });
