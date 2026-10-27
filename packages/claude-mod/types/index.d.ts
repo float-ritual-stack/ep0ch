@@ -131,6 +131,8 @@ export type BindingFacts = {
   home?: string
   /** The door's control socket is set: the door tools are registered and act there. */
   doorTools: boolean
+  /** What the outline's `[orient::…]` notes for this session say, once read: the card's "orients from" (PIE-1353). */
+  orientsFrom?: string | null
 }
 
 /** The binding card above the prompt: shown at the start and after /clear until hidden; its facts once read. */

@@ -129,6 +129,7 @@ import {
   BOARD_QUERY,
   BUILD_LOG_QUERY,
   LIST_LIMIT,
+  type Listed,
   listArgs,
   listedOf,
   openPrsOf,
@@ -138,6 +139,7 @@ import {
   WORKBOARD_TIMEOUT_MS,
   workboardText,
 } from './workboard-now'
+import { ORIENT_BLOCK, ORIENT_FIELDS, ORIENT_LIMIT, ORIENT_TIMEOUT_MS, orientOrder, orientQuery, orientsFrom, orientText } from './orient-notes'
 import { DRAW_TIMEOUT_MS, drawArgv, drawnNoteOf, GUIDE_ARGV, GUIDE_BLOCK, GUIDE_TIMEOUT_MS, guideText, UPFRONT_TOOLS, withDrawing } from './outline-guide'
 
 type AbovePromptRender = RenderInput<'AbovePrompt'>
@@ -209,6 +211,15 @@ function reportStatus($: EngineInterface, r: StatusInput): void {
 let workboardLoad: Promise<string | null> | undefined
 let workboardGeneration = 0
 let workboardGiven: string | null | undefined
+
+/**
+ * The outline's `[orient::…]` notes (hooks/orient-notes.ts), read like the workboard: the read in flight or done (its
+ * text, null: none or no answer), its generation, what the model's context carried, and what the card says.
+ */
+let orientLoad: Promise<string | null> | undefined
+let orientGeneration = 0
+let orientGiven: string | null | undefined
+let orientsFromNow: string | null = null
 
 /**
  * The outline's guide (hooks/outline-guide.ts): the read for a folder and outline (another binding reads it again), and
@@ -459,6 +470,8 @@ export function register(on: On, options: PluginOptions): void {
     bindingGiven = undefined
     workboardGiven = undefined
     $.clock.after(0, () => void readWorkboard($, option))
+    orientGiven = undefined
+    $.clock.after(0, () => void readOrient($, option))
     guideGiven = undefined
     $.clock.after(0, () => void readGuide($, option))
     // The settle check, in the deployer's session only (hooks/settle.ts).
@@ -494,18 +507,24 @@ export function register(on: On, options: PluginOptions): void {
       const load = (whereLoad ??= runWhere($).catch(() => ({ summary: null, facts: null })))
       const facts = (bindingLoad ?? readBinding($, option, false)).catch(() => null)
       const board = workboardLoad ?? readWorkboard($, option)
-      const [ran, bound, workboard, guide] = await Promise.all([
+      const orienting = orientLoad ?? readOrient($, option)
+      const [ran, bound, workboard, guide, orient] = await Promise.all([
         inDoorEnv(env) ? Promise.race([load, $.clock.sleep(WHERE_WAIT_MS).then(() => null)]) : null,
         Promise.race([facts, $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
         // Not waited for longer than the binding: one that lands later makes the context again (readWorkboard).
         Promise.race([board, $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
         // The same for the guide (readGuide).
         Promise.race([readGuide($, option), $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
+        // And the orientation notes (readOrient).
+        Promise.race([orienting, $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
       ])
-      const blocks = result.blocks.filter(b => b.name !== WHERE_BLOCK && b.name !== BINDING_BLOCK && b.name !== WORKBOARD_BLOCK && b.name !== GUIDE_BLOCK)
+      const blocks = result.blocks.filter(b => b.name !== WHERE_BLOCK && b.name !== BINDING_BLOCK && b.name !== WORKBOARD_BLOCK && b.name !== GUIDE_BLOCK && b.name !== ORIENT_BLOCK)
       if (inDoorEnv(env)) blocks.push({ name: WHERE_BLOCK, text: whereText(ran?.summary ?? envSummaryOf(env)) })
       else if (bound?.where?.reach?.control && bound.where.reach.rule !== 'control') blocks.push({ name: WHERE_BLOCK, text: reachText(bound.where.reach) })
-      bindingGiven = bound ? bindingText(bound) : null
+      bindingGiven = bound ? bindingText({ ...bound, orientsFrom: orientsFromNow }) : null
+      // The outline's own "read this first" leads what the mod adds about it (PIE-1353).
+      orientGiven = orient
+      if (orient) blocks.push({ name: ORIENT_BLOCK, text: orient })
       blocks.push({
         name: BINDING_BLOCK,
         // Still looking: the context is made again when it lands (readBinding).
@@ -520,15 +539,19 @@ export function register(on: On, options: PluginOptions): void {
       // A newer read (a compaction, a /clear) started while this one was awaited: when it lands, the context follows it.
       const newer = workboardLoad
       if (newer && newer !== board) void newer.then(text => { if (newer === workboardLoad && text !== workboardGiven) $.ui.invalidate('prompt.context') })
+      const newerOrient = orientLoad
+      if (newerOrient && newerOrient !== orienting) void newerOrient.then(text => { if (newerOrient === orientLoad && text !== orientGiven) $.ui.invalidate('prompt.context') })
       return { ...result, blocks }
     } catch {
       return result
     }
   })
 
-  // A compaction makes the first prompt's context again: the workboard is read anew for it, while the summary is made.
+  // A compaction makes the first prompt's context again: the workboard and the orientation notes are read anew for it,
+  // while the summary is made.
   on('session.compact', async ($, e, next) => {
     if (e.agentId === undefined) void readWorkboard($, option)
+    if (e.agentId === undefined) void readOrient($, option)
     return next(e)
   })
 
@@ -543,6 +566,8 @@ export function register(on: On, options: PluginOptions): void {
     void readBinding($, option, true).catch(() => {})
     workboardGiven = undefined
     void readWorkboard($, option)
+    orientGiven = undefined
+    void readOrient($, option)
     guideGiven = undefined
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     return result
@@ -960,6 +985,7 @@ function readBinding($: EngineInterface, option: PluginOptions, again: boolean):
       cwd,
       ...(home ? { home } : {}),
       doorTools: !!control?.trim() || !!ran.facts?.reach?.control,
+      orientsFrom: orientsFromNow,
     }
     if (generation !== bindingGeneration) return facts
     await $.state.set(BINDING_STATE, { shown: (await $.state.get(BINDING_STATE)).value?.shown ?? true, facts })
@@ -1011,10 +1037,7 @@ function readWorkboard($: EngineInterface, option: PluginOptions): Promise<strin
     if (!workspace) return null
     const root = await outlinerRootOf($)
     if (!root) return null
-    const list = async (args: string[]) => {
-      const ran = await $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args], { cwd: workspace.root, env: envFor(workspace), timeoutMs: WORKBOARD_TIMEOUT_MS })
-      return ran.exitCode === 0 ? listedOf(ran.stdout) : null
-    }
+    const list = (args: string[]) => runList($, root, workspace, args, WORKBOARD_TIMEOUT_MS)
     const [items, logs] = await Promise.all([list(listArgs(BOARD_QUERY, LIST_LIMIT)), list(listArgs(BUILD_LOG_QUERY, LIST_LIMIT, 'id,title,timestamps'))])
     if (!items || !logs) return null
     const hasItems = items.blocks.length > 0 || !!(await list(listArgs(ANY_ITEM_QUERY, 1, 'id')))?.blocks.length
@@ -1036,6 +1059,49 @@ function readWorkboard($: EngineInterface, option: PluginOptions): Promise<strin
     return text
   })
   workboardLoad = load
+  return load
+}
+
+/** The Outliner CLI's `list` in the session's outline (workboard-now.ts's argv), its rows; null when it didn't answer. */
+async function runList($: EngineInterface, root: string, workspace: Workspace, args: string[], timeoutMs: number): Promise<Listed | null> {
+  const ran = await $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args], { cwd: workspace.root, env: envFor(workspace), timeoutMs })
+  return ran.exitCode === 0 ? listedOf(ran.stdout) : null
+}
+
+/**
+ * Reads the outline's orientation (hooks/orient-notes.ts): the notes carrying `[orient::<agent>]` or `[orient::all]`
+ * for the persona this session writes as, one `list --query` the service answers. Null: no outline, no such note, or
+ * no answer within ORIENT_TIMEOUT_MS. Never throws. The card's "orients from" follows each read, and when one lands
+ * after the context was made without it (or with an older read), the context is made again.
+ */
+function readOrient($: EngineInterface, option: PluginOptions): Promise<string | null> {
+  const generation = ++orientGeneration
+  const read = async (): Promise<{ text: string | null; from: string | null } | null> => {
+    if (!references?.workspace) await loadReferences($, option)
+    const workspace = references?.workspace
+    if (!workspace) return null
+    const root = await outlinerRootOf($)
+    if (!root) return null
+    const agent = await sessionPersona($)
+    const listed = await runList($, root, workspace, listArgs(orientQuery(agent), ORIENT_LIMIT, ORIENT_FIELDS), ORIENT_TIMEOUT_MS)
+    if (!listed) return null
+    const notes = orientOrder(listed.blocks)
+    return { text: orientText({ outline: workspace.outline, machine: workspace.machine, agent, notes }), from: orientsFrom(notes) }
+  }
+  const load = Promise.race([read().catch(() => null), $.clock.sleep(ORIENT_TIMEOUT_MS).then(() => null)]).then(async found => {
+    if (generation !== orientGeneration) return found?.text ?? null
+    // A read that didn't answer keeps what the card said; one that did says what it found.
+    if (found && found.from !== orientsFromNow) {
+      orientsFromNow = found.from
+      const card = (await $.state.get(BINDING_STATE)).value
+      if (card?.facts) await $.state.set(BINDING_STATE, { ...card, facts: { ...card.facts, orientsFrom: orientsFromNow } })
+      if (bindingGiven !== undefined && card?.facts && bindingGiven !== bindingText({ ...card.facts, orientsFrom: orientsFromNow })) $.ui.invalidate('prompt.context')
+    }
+    const text = found?.text ?? null
+    if (orientGiven !== undefined && orientGiven !== text) $.ui.invalidate('prompt.context')
+    return text
+  }).catch(() => null)
+  orientLoad = load
   return load
 }
 
