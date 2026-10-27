@@ -62,6 +62,15 @@ export interface SourceRow {
   newPage?: string;
   /** The note that defines it (an agent's script note): `g` opens it beside. */
   definition?: string;
+  /**
+   * Blockdown that shows what choosing it makes (a component's variation, a value set on its component, a callout of its
+   * type), with the declaring note it needs, for a client to draw beside the list; `inline` draws a glimpse after the label too.
+   */
+  example?: { use: string; note?: string; inline?: boolean };
+  /** The component (its schema id) the row writes: a client that draws its properties table finds it by this. */
+  component?: string;
+  /** What the row opens into (→): its variations and arguments, each a row of its own. */
+  variations?: SourceRow[];
 }
 
 /** What a source is: its id, the triggers it answers, and where its rows sit among equals. */

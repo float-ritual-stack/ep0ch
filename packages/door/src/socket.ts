@@ -765,8 +765,9 @@ export class SocketBoard implements Board {
    * The outline's property index (`properties.catalog`): the keys starting with `prefix` (each value of each, counted), or
    * with `key` the values of that key starting with `prefix`; most used first. What a filter's completion offers.
    */
-  async propertyCatalog(key: string | undefined, prefix: string, limit = 30): Promise<{ key: string; value: string; count: number }[]> {
-    return this.request<{ key: string; value: string; count: number }[]>("properties.catalog", { ...(key ? { key } : {}), prefix, limit });
+  async propertyCatalog(key: string | undefined, prefix: string, limit = 30, keys = false): Promise<{ key: string; value: string; count: number }[]> {
+    // `keys` (with no key): one row per key, its notes counted, so a key with many values never crowds out the others.
+    return this.request<{ key: string; value: string; count: number }[]>("properties.catalog", { ...(key ? { key } : keys ? { keys: true } : {}), prefix, limit });
   }
 
   /** The outline's callout types (PIE-538): the types its notes declare with `[callout-type::name]`, and what's wrong with any. */
@@ -786,10 +787,6 @@ export class SocketBoard implements Board {
     return this.request<{ decorations: Decoration[]; problems: string[] }>("rules.preview", { note, text });
   }
   /** Every component's schema (PIE-618): the built-ins with the outline's own styles and types as values, then the extensions'. */
-  componentUsage(): Promise<Record<string, number>> {
-    return this.request("components.usage", {});
-  }
-
   async componentSchemas(): Promise<{ schemas: ComponentSchema[]; problems: string[]; complete: boolean }> {
     return this.request<{ schemas: ComponentSchema[]; problems: string[]; complete: boolean }>("components.schemas", {});
   }

@@ -3672,6 +3672,7 @@ export class OutlinerServer {
             request.prefix,
             request.limit,
             request.propertyScope,
+            request.keys === true,
           );
           break;
         case "properties.preview":

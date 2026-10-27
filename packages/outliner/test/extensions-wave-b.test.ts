@@ -499,7 +499,7 @@ test("a bar source's refusals: an unknown source, rows that do nothing or run wh
   const { extensionsFolder, client, list } = await setup();
   writeExtension(extensionsFolder, "loose", {
     run: ["bun", "main.ts"],
-    bar: [{ id: "odd", title: "odd" }],
+    sources: [{ id: "odd", title: "odd", prefix: "~" }],
     actions: [{ id: "tidy", label: "Tidy", on: "block" }, { id: "wave", label: "Wave", on: "bar" }],
   }, `const request = await Bun.stdin.json();
 const q = request.input.query;
@@ -509,9 +509,12 @@ const rows = q === "idle" ? [{ id: "a", label: "does nothing" }]
   : q === "twins" ? [{ id: "e", label: "one", copy: "1" }, { id: "e", label: "two", copy: "2" }]
   : [{ id: "d", label: "waves", action: "wave", args: { to: "you" } }];
 process.stdout.write(JSON.stringify({ ok: true, value: { rows } }));`);
-  writeExtension(extensionsFolder, "runless", { bar: [{ id: "x", title: "x" }] });
+  writeExtension(extensionsFolder, "runless", { sources: [{ id: "x", title: "x", prefix: "~" }] });
+  // `bar[]`, the old name (PIE-1344), is refused saying the rename.
+  writeExtension(extensionsFolder, "oldbar", { run: ["bun", "main.ts"], bar: [{ id: "y", title: "y" }] }, "");
   const listed = await list(true);
   expect(listed.extensions.find((e) => e.id === "runless")?.error).toContain("agents, sources and rules");
+  expect(listed.extensions.find((e) => e.id === "oldbar")?.error).toContain("bar[] is now sources[]");
   const ask = (query: string, source = "odd") => client.request<{ rows: { id: string; label: string; action?: string; args?: Record<string, string> }[] }>({ action: "extensions.bar", extension: "loose", source, query });
   await expect(ask("x", "nope")).rejects.toThrow("has no bar source nope");
   await expect(ask("idle")).rejects.toThrow("does nothing when picked");

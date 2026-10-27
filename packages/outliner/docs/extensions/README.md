@@ -298,7 +298,7 @@ extensions/horoscope/
 | `agents[]` | Agents a person addresses while they write (`@tidy …`); see [Agents in the note](#agents-in-the-note). |
 | `rules[]` | "When a block matches this": `match`, then `decorate` and `on`; see [Rules](#rules-when-a-block-matches). A rule with only built-in decorations needs no `run`. |
 | `sources[]` | Sources of rows (at most 8): with a `prefix` (or `main`) the door's power bar's, with `triggers` completion's, under the triggers that exist (`[[`, `((`, `@`, `::`, `[key`, `key::`, `yaml-key`, `yaml-value`, `[file::`, `> [!`; never a sigil of its own); see [Bar sources](#bar-sources-a-command-palettes-rows) and [Completion sources](#completion-sources-rows-where-a-person-types). Needs `run`. |
-| `bar[]` | The old name of `sources[]` for a palette source (at most 4), still read and answered by the `bar` operation; write `sources[]`. |
+| `bar[]` | Gone (PIE-1344): the palette's old name for `sources[]`. A manifest that still says it is refused with the rename; answer the `source` operation. |
 | `components[]` | What the properties your lines or notes take are, as component schemas (at most 8); see [Component schemas](#component-schemas-docs-and-completion). Needs no `run`. |
 | `demo` | A folder of demo notes (usually `"demo"`), written under the extension's page when it's installed, once; see [An extension's page and its demo notes](#an-extensions-page-and-its-demo-notes). |
 
@@ -432,7 +432,6 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
 | `decorate` | a rule's hit (no `use`) | `{ rule, hit, context }` | `{ view, title? }` |
 | `act` | an action | `{ action, args?, requestedBy?, target?: { blockId, revision, line?, argument?, options? }, context, output?, scheduled? }` (no block: `context` is `{ now }`) | `{ message?, writes?: [...], copy?, open? }` |
 | `source` | a source in `sources[]`, as the person types: in the power bar, or under a completion trigger | `{ source, query, limit, context?, trigger? }` (`context`: the note in front of the person; `trigger`: `{ kind, key?, component? }` for completion) | the bar: `{ rows: [{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }] }`; completion: `{ rows: [{ label, insert, kind?, detail?, docs?, id?, filter?, group?, preselect? }] }` |
-| `bar` | a source in the old `bar[]` | as `source`, without `trigger` | the bar's rows |
 | `resolve`, `read`, `changed` | a provider of Resources (a `kind: "resource"` handler: Jira's, or any) | see [resource-process.md](resource-process.md) | |
 
 `context` is what the call sees of the outline, bounded and read-only:
@@ -1226,7 +1225,7 @@ already has.
   already uses (its own `% / > + @`, another extension's) is left off, and tab still reaches the source.
 - `main`: its rows join the bar's main list (before a scope is chosen) as well as its own scope. Each pause in typing
   calls it, so only a quick source should.
-- **The `source` operation** (`bar` for a source still written in the old `bar[]`) gets `{ source, query, limit, context? }`: what was typed after the prefix, and the note in
+- **The `source` operation** gets `{ source, query, limit, context? }`: what was typed after the prefix, and the note in
   front of the person as `context` (bounded and read-only, as an action's). It returns `{ rows }`, at most 50:
   `{ id, label, detail?, preview?, block?, resource?, action?, args?, copy? }` (`resource`: a
   [Resource ref](#opening-a-resource), opened in place of a block).

@@ -131,8 +131,14 @@ export class TextBuffer {
     const safeEnd = Math.max(safeStart, Math.min(end, line.length));
     this.recordEdit(null);
     this.clearSelectionAnchor();
-    this.lines[this.row] = line.slice(0, safeStart) + value + line.slice(safeEnd);
-    this.column = safeStart + value.length;
+    // A value of several lines (a component's YAML, PIE-1344) becomes that many lines, the cursor after its last.
+    const parts = value.replace(/\r\n?/g, "\n").split("\n"), last = parts.length - 1;
+    parts[0] = line.slice(0, safeStart) + parts[0];
+    const column = parts[last]!.length;
+    parts[last] += line.slice(safeEnd);
+    this.lines.splice(this.row, 1, ...parts);
+    this.row += last;
+    this.column = column;
   }
 
   replaceLine(row: number, value: string): void {

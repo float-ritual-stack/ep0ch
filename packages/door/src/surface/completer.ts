@@ -27,7 +27,7 @@ import { ListPicker, pickRow } from "./picker";
 import { ActionRefused, actionSet, declaredKeys, def, keyCaption } from "./actions";
 import { listPreview } from "../bar/list-preview";
 import { litCells } from "../bar/filter";
-import { rankTextSearchMatches, matchesSearchText } from "@ep0ch/outline-core/search-match";
+import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { headedTitle, subject, type Msg } from "../board";
 import { completionTargetAtCursor, filterTargetAtCursor, parseFragmentCompletionQuery, type CompletionKind, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
 import { insertSelection, insertText, mergeSourceAnswers, pickKey, triggerOf, type SourceAnswer, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
@@ -42,10 +42,7 @@ import { rowLines, printable } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { blockReferenceOccurrences, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
-import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
-import { calloutsReady, TONE } from "../callouts";
-import { keyCandidates, valueCandidates, variation, sweep, axisValues, yamlKeyCandidates, yamlScalar, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
-import { headingStylesReady } from "../heading-styles";
+import { keyCandidates, valueCandidates, variation, axisValues, yamlScalar, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
 import { componentsReady } from "../component-schemas";
 import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import type { ListSource } from "../outline-lists";
@@ -67,7 +64,7 @@ export const jevOff = new WeakSet<object>();
 export const COMPLETION_ROWS = 14;
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage" | "componentUsage" | "listExtensions" | "templateProps"> & Partial<Pick<SocketBoard, "completionRows" | "completionPicked">>;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage" | "listExtensions" | "templateProps"> & Partial<Pick<SocketBoard, "completionRows" | "completionPicked">>;
 
 /**
  * Anything outline text is written in (PIE-626): a `Draft`, or a `LineField` (a property's value, a filter). The completer
@@ -94,7 +91,6 @@ export interface CompletionField {
  */
 export interface CompletionItem extends Omit<SourceRow, "insert"> {
   children?: CompletionItem[];
-  componentSchema?: ComponentSchema;
   source?: string;
   preview?: (w: number, h: number) => string[];
   selection?: { start: number; end: number };
@@ -102,8 +98,6 @@ export interface CompletionItem extends Omit<SourceRow, "insert"> {
   insertion: string;
   /** One short word for the row's right-hand column: block, anchor, page, property, component, agent, action, value. */
   kind: string;
-  /** A callout type's icon, drawn in its tone (PIE-538). */
-  icon?: { glyph: string; colour: number };
 }
 
 export interface CompletionLookup {
@@ -126,7 +120,7 @@ export interface CompletionLookup {
 export const nearOf = (d: CompletionField | null | undefined, own?: OwnNote): string | undefined => own?.blockId ?? d?.near;
 
 /** How the lookup is asked: `semantic` has Jev re-order it; `near` is the note the draft writes in. */
-export interface LookupOptions { semantic?: boolean; near?: string; limit?: number; offset?: number; host?: BarHost; componentUsage?: Promise<Record<string, number>>; signal?: AbortSignal }
+export interface LookupOptions { semantic?: boolean; near?: string; limit?: number; offset?: number; host?: BarHost; signal?: AbortSignal }
 
 /** The note a note draft is writing, for `((#heading` in itself; comments and replies have none. */
 export interface OwnNote { blockId: string; text: string }
@@ -173,59 +167,37 @@ const DOOR_SOURCES: readonly DoorSource[] = [
   { decl: door("filters", "properties", true), kinds: ["filter-key", "filter-value"], async rows({ board, target }) {
     return { rows: await filterCandidates(board, target), empty: target.kind === "filter-key" ? "" : `no ${target.key} value starts ${JSON.stringify(target.query)}` };
   } },
-  // The component schemas (PIE-618): the same answer the library draws its pages from, no list of the completer's own.
-  { decl: door("properties", "properties"), kinds: ["key", "value", "yaml-key"], async rows({ board, target }) {
-    const src = { board, redraw: () => {} };
-    const [schemas] = await Promise.all([componentsReady(src), headingStylesReady(src), calloutsReady(src)]);
-    return { rows: propertyCandidates(schemas, target, src) };
-  } },
-  // Grouped, used ones first: it orders its own rows (the matcher still ranks what's typed).
-  { decl: door("components", "components", true), kinds: ["component"], async rows({ board, target, own, opts }) {
-    const src = { board, redraw: () => {} };
-    const schemas = await componentsReady(src);
-    const keys = await scopedKeys(board, target, own, opts.near);
-    const recent = await (opts.componentUsage ?? board.componentUsage());
-    const components = schemas.flatMap(schema => {
-      const name = COMPONENT_OPEN.exec(schema.source.use.split("\n")[0]!)?.[1];
-      if (!name) return [];
-      return [{ id: name, title: `${name} ${schema.title}`, text: schema.intro, schema }];
-    });
-    const found = target.query.trim() ? rankTextSearchMatches(components.filter(c => matchesSearchText(target.query, [c.id, c.title, c.text])), target.query).map(m => m.document) : components;
-    const ordered = target.query.trim() ? found : found.sort((a, b) => (recent[b.id] ?? 0) - (recent[a.id] ?? 0));
-    const groupOf = (c: typeof components[number]) => `${c.schema.group}${recent[c.id] !== undefined ? " · used" : ""}`;
-    const groups = [...new Set(ordered.map(groupOf))];
-    return { rows: groups.flatMap(group => ordered.filter(c => groupOf(c) === group).map(({ id, schema: original }) => {
-      const schema = contextualSchema(original, keys);
-      const item = componentItem(schema, variation(schema, {}), src);
-      const seen = new Set<string>();
-      item.group = group;
-      item.filter = id;
-      item.componentSchema = schema;
-      item.children = schema.sweep.flatMap(axis => sweep(schema, axis).flatMap(v => {
-        if (seen.has(v.use)) return [];
-        seen.add(v.use);
-        return [componentItem(schema, v, src, v.use.replace(/\n/g, " "))];
-      }));
-      return item;
-    })) };
-  } },
   { decl: door("attributes", "attributes", true), kinds: ["attribute", "attribute-value", "yaml-value"], async rows({ board, target, own, opts }) {
     const schemas = await componentsReady({ board, redraw: () => {} });
     const schema = schemas.find(s => COMPONENT_OPEN.exec(s.source.use.split("\n")[0]!)?.[1] === target.component);
     return { rows: schema ? await attributeCandidates(board, schema, target, own, { ...opts, host: hostOf(board, opts) }) : [] };
   } },
-  // The outline's callout types (PIE-538): the one list the reader draws and the type choice offers.
-  { decl: door("callouts", "callout types"), kinds: ["callout"], async rows({ board, target }) {
-    return { rows: calloutCandidates(await calloutsReady({ board, redraw: () => {} }), { board, redraw: () => {} }),
-      empty: `no callout type is ${JSON.stringify(target.query)}; [!${target.query}] still draws, in neutral (declare it with [callout-type::${target.query || "name"}])` };
-  } },
 ];
 
-/** A row the service answered, as the popup holds it: what it writes, and the span a snippet selects. */
-const itemOf = (row: SourceRow): CompletionItem => {
-  const { insert, ...rest } = row;
+/**
+ * A row the service answered, as the popup holds it: what it writes, the span a snippet selects, and what the door draws
+ * of it (PIE-1344): its `example` drawn beside the list (and a glimpse after the label when `inline`), its variations
+ * under →, and the source and properties table of the component it writes. Drawing only: every word and every insert
+ * is the service's.
+ */
+const itemOf = (row: SourceRow, src: ListSource, schemas: readonly ComponentSchema[]): CompletionItem => {
+  const { insert, variations, example, ...rest } = row;
   const selection = insertSelection(insert);
-  return { ...rest, kind: rest.kind ?? "", insertion: insertText(insert), ...(selection ? { selection } : {}) };
+  const schema = row.component ? schemas.find(s => s.id === row.component) : undefined;
+  const glimpse = example?.inline ? exampleGlimpse(example, src) : "";
+  return {
+    ...rest, kind: rest.kind ?? "", insertion: insertText(insert), ...(selection ? { selection } : {}),
+    ...(glimpse ? { label: `${rest.label}  ${glimpse}` } : {}),
+    ...(example ? {
+      source: example.use,
+      preview: (w: number, h: number) => [
+        ...(row.component ? `[copy] ${example.use}`.split("\n").flatMap(line => rowLines(line, w)) : []),
+        ...drawVariation({ values: {}, ...example }, w, src),
+        ...(schema ? drawComponentProps(schema, w) : []),
+      ].slice(0, h),
+    } : {}),
+    ...(variations?.length ? { children: variations.map(v => itemOf(v, src, schemas)) } : {}),
+  };
 };
 /** A door row on the contract: its insertion as the insert (a selection makes it a snippet). */
 const rowOf = (item: CompletionItem): CompletionItem & SourceRow => ({ ...item, insert: item.selection ? { snippet: item.insertion, select: item.selection } : item.insertion });
@@ -235,7 +207,7 @@ async function serviceRows(board: CompletionBoard, target: CompletionTarget, own
   // A token no service or extension source can answer (a filter's word, a fence's settings, a button's step) asks nothing.
   if (typeof board.completionRows !== "function" || !triggerOf(target.kind)) return { answers: [], picks: {} };
   return board.completionRows({
-    target: { kind: target.kind, query: target.query, ...(target.key ? { key: target.key } : {}), ...(target.component ? { component: target.component } : {}) },
+    target: { kind: target.kind, query: target.query, ...(target.key ? { key: target.key } : {}), ...(target.component ? { component: target.component } : {}), ...(target.headingShort ? { headingShort: true } : {}) },
     ...(opts.near ? { near: opts.near } : {}), ...(own ? { draft: own } : {}), ...(opts.limit ? { limit: opts.limit } : {}),
     ...(opts.offset ? { offset: opts.offset } : {}), ...(opts.semantic ? { semantic: true } : {}),
   }).catch((e: Error) => ({ answers: [], picks: {}, failed: `lookup failed: ${e.message}` }));
@@ -252,7 +224,10 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
     serviceRows(board, target, own, opts),
     ...mine.map(s => s.rows({ board, target, own, opts, ...(opts.signal ? { signal: opts.signal } : {}) }).then(a => ({ source: s.decl, rows: a.rows.map(rowOf), empty: a.empty }))),
   ]);
-  const all: (SourceAnswer<CompletionItem & SourceRow> & Partial<CompletionSourceAnswer>)[] = [...answers, ...service.answers.map(a => ({ ...a, rows: a.rows.map(r => rowOf(itemOf(r))) }))];
+  const src = { board, redraw: () => {} };
+  // A row that draws a component's properties finds its schema in the connection's copy (the library's).
+  const schemas = service.answers.some(a => a.rows.some(r => r.component)) ? await componentsReady(src) : [];
+  const all: (SourceAnswer<CompletionItem & SourceRow> & Partial<CompletionSourceAnswer>)[] = [...answers, ...service.answers.map(a => ({ ...a, rows: a.rows.map(r => rowOf(itemOf(r, src, schemas))) }))];
   const merged = mergeSourceAnswers(all, target.query, { picks: service.picks });
   const items = merged.map(({ insert: _i, from: _f, tier: _t, ...item }) => item as CompletionItem);
   const truncated = all.find(a => a.truncated)?.truncated ?? null;
@@ -285,27 +260,6 @@ export function reopenReference(d: CompletionField, ch: string, by: Actor = USER
   return true;
 }
 
-/**
- * A filter's keys or a property's values, from the outline's property index (`properties.catalog`: what its notes carry,
- * most used first) and then the component schemas (what a key can hold, used or not): the same two sources the
- * outliner's filter completion and the editors' `[key::` completion read, never a list of its own.
- */
-function componentItem(schema: ComponentSchema, v: ReturnType<typeof variation>, src: ListSource, label?: string): CompletionItem {
-  const yaml = v.use.indexOf("\n---\n");
-  const first = yaml >= 0 ? /^([^:\n]+:[ \t]*)([^\n]+)$/m.exec(v.use.slice(yaml + 5)) : null;
-  const at = first ? yaml + 5 + first.index + first[1]!.length : -1;
-  return { label: label ?? schema.title.replace(/ \(::.*\)$/, ""), insertion: v.use, kind: "component", group: schema.group,
-    docs: `${schema.title.replace(/ \(::.*\)$/, "")}: ${schema.intro.split(/\n|,|(?<=\.) /)[0]!.replace(/[`*_]/g, "")}`,
-    source: v.use,
-    preview: (w, h) => [
-      ...`[copy] ${v.use}`.split("\n").flatMap(line => rowLines(line, w)),
-      ...drawVariation(v, w, src),
-      ...drawComponentProps(schema, w),
-    ].slice(0, h),
-    ...(at >= 0 ? { selection: { start: at, end: at + first![2]!.length } } : {}),
-  };
-}
-
 async function scopedKeys(board: CompletionBoard, target: CompletionTarget, own?: OwnNote, near?: string): Promise<string[]> {
   const of = target.attrs?.find(a => a.key === "of")?.value;
   let text = own?.text;
@@ -315,14 +269,6 @@ async function scopedKeys(board: CompletionBoard, target: CompletionTarget, own?
     text = own && id === own.blockId ? own.text : id ? (await board.blockContext(id)).selected?.text : undefined;
   } else if (!own && near) text = (await board.blockContext(near)).selected?.text;
   return [...new Set(parsePropertyRecords(text ?? "").map(p => p.key))];
-}
-
-function contextualSchema(schema: ComponentSchema, keys: string[]): ComponentSchema {
-  if (!keys.length) return schema;
-  const props = schema.props.map(p => p.type === "property" ? { ...p, samples: keys } : p);
-  const example = { ...schema.example };
-  for (const p of props) if (p.type === "property" && example[p.key] !== undefined) example[p.key] = keys[0]!;
-  return { ...schema, props, example };
 }
 
 async function attributeCandidates(board: CompletionBoard, schema: ComponentSchema, target: CompletionTarget, own: OwnNote | undefined, opts: LookupOptions): Promise<CompletionItem[]> {
@@ -363,16 +309,21 @@ async function attributeCandidates(board: CompletionBoard, schema: ComponentSche
     values = axisValues(prop).filter(v => v.toLowerCase().startsWith(q.toLowerCase())).map(value => ({ label: value, value, detail: prop.values?.find(v => v.value === value)?.meaning }));
   }
   return values.map(v => target.kind === "yaml-value"
-    ? propertyItem([schema], { component: schema.id, key: prop.key, value: v.value, label: v.label, insertion: yamlScalar(v.value), detail: v.detail ?? prop.meaning }, target, { board, redraw: () => {} })
+    ? propertyItem(schema, { component: schema.id, key: prop.key, value: v.value, label: v.label, insertion: yamlScalar(v.value), detail: v.detail ?? prop.meaning }, { board, redraw: () => {} })
     : { label: v.label, docs: v.detail ?? prop.meaning, kind: "value",
       insertion: target.quote ? v.value.replaceAll("\\", "\\\\").replaceAll(target.quote, `\\${target.quote}`) + target.quote : JSON.stringify(v.value),
     });
 }
 
+/**
+ * A filter's keys or a property's values, from the outline's property index (`properties.catalog`: what its notes carry,
+ * most used first) and then the component schemas (what a key can hold, used or not): the same two sources the
+ * outliner's filter completion and the service's `[key::` source reads (completion-sources.ts), never a list of its own.
+ */
 async function filterCandidates(board: CompletionBoard, target: CompletionTarget): Promise<CompletionItem[]> {
   const value = target.kind === "filter-value", q = target.query.trim().toLowerCase();
   const [catalog, schemas] = await Promise.all([
-    board.propertyCatalog(value ? target.key : undefined, q, 100).catch(() => []),
+    board.propertyCatalog(value ? target.key : undefined, q, 100, !value).catch(() => []),
     componentsReady({ board, redraw: () => {} }).catch(() => []),
   ]);
   const out: CompletionItem[] = [], seen = new Set<string>();
@@ -390,49 +341,22 @@ async function filterCandidates(board: CompletionBoard, target: CompletionTarget
   return out.slice(0, COMPLETION_LIMIT);
 }
 
-/**
- * The schemas' keys or values for a property target: a key with where it goes and what it means, a value with its
- * meaning and a preview, the variation it makes drawn small (one row of it: a style's glyph track, a callout's frame).
- */
-export function propertyCandidates(schemas: readonly ComponentSchema[], target: CompletionTarget, src: ListSource | null = null): CompletionItem[] {
-  const found: PropertyCandidate[] = target.kind === "key" ? keyCandidates(schemas, target.query)
-    : target.kind === "value" ? valueCandidates(schemas, target.key ?? "", target.query)
-    : target.kind === "yaml-key" ? yamlKeyCandidates(schemas, target.component ?? "", target.query)
-    : valueCandidates(schemas, target.key ?? "", target.query, false, target.component);
-  return found.slice(0, COMPLETION_LIMIT).map(c => propertyItem(schemas, c, target, src));
+/** A component's YAML value (`::graph-stat`'s `tone:`) as a row: its meaning, and what it draws beside and after it. */
+function propertyItem(schema: ComponentSchema, c: PropertyCandidate, src: ListSource | null): CompletionItem {
+  const v = variation(schema, { [c.key]: c.value! }, c.key), glimpse = exampleGlimpse(v, src);
+  return { label: glimpse ? `${c.label}  ${glimpse}` : c.label, insertion: c.insertion, kind: "value", docs: c.detail,
+    preview: (w: number, h: number) => drawVariation(v, w, src).slice(0, h) };
 }
 
-function propertyItem(schemas: readonly ComponentSchema[], c: PropertyCandidate, target: CompletionTarget, src: ListSource | null): CompletionItem {
-  const preview = c.value === undefined ? "" : valuePreview(schemas, c, src);
-  const schema = schemas.find(s => s.id === c.component);
-  return { label: preview ? `${c.label}  ${preview}` : c.label, insertion: target.headingShort ? `[heading::${c.insertion}` : c.insertion,
-    ...(schema && c.value !== undefined ? { preview: (w: number, h: number) => drawVariation(variation(schema, { [c.key]: c.value! }, c.key), w, src).slice(0, h) } : {}), kind: target.kind.endsWith("key") ? "property" : "value", docs: c.detail };
-}
-
-/** One row of what a value draws, at most 24 columns: the row with the most shades and blocks, else its first with anything on it. */
-function valuePreview(schemas: readonly ComponentSchema[], c: PropertyCandidate, src: ListSource | null): string {
-  const schema = schemas.find(s => s.id === c.component);
-  if (!schema) return "";
+/** One row of what an example draws, at most 24 columns: the row with the most shades and blocks, else its first with anything on it. */
+function exampleGlimpse(example: { use: string; note?: string }, src: ListSource | null): string {
   let rows: string[];
-  try { rows = drawVariation(variation(schema, { [c.key]: c.value! }, c.key), 64, src).map(r => visible(r).replace(/[┊│]/g, " ").trim()).filter(Boolean); } catch { return ""; }
+  try { rows = drawVariation({ values: {}, ...example }, 64, src).map(r => visible(r).replace(/[┊│]/g, " ").trim()).filter(Boolean); } catch { return ""; }
   const weight = (r: string) => [...r].filter(ch => /[\u2580-\u259f]/.test(ch)).length;
   const best = rows.reduce<string | undefined>((a, r) => (a === undefined || weight(r) > weight(a) ? r : a), undefined) ?? "";
   let out = "";
   for (const ch of best) { if (cells(out + ch) > 24) break; out += ch; }
   return out;
-}
-
-/**
- * The outline's callout types for `> [!`, each written as `[!name]` with its icon in its tone: every one, the matcher
- * ranks them by what's typed (a name, an alias, or its title).
- */
-export function calloutCandidates(types: CalloutRegistry, src: ListSource | null = null): CompletionItem[] {
-  return types.types.map(t => ({
-    label: `${t.icon} ${t.name}${t.aliases.length ? ` (${t.aliases.join(", ")})` : ""}`, filter: t.title,
-    insertion: `[!${t.name}]`, kind: "callout", ...(t.block ? { detail: "this outline's" } : {}), icon: { glyph: t.icon, colour: TONE[t.tone] },
-    preview: (w: number, h: number) => drawVariation({ values: {}, use: `> [!${t.name}] ${t.title}\n> An example callout.` }, w, src).slice(0, h),
-    docs: `${t.title}${t.aliases.length ? ` · also ${t.aliases.map(a => `[!${a}]`).join(" ")}` : ""}`,
-  }));
 }
 
 /**
@@ -511,7 +435,8 @@ export class Completer {
   private limit = COMPLETION_LIMIT;
   /** The ask in flight: aborted when the person types on or the list closes, so a slow source stops. */
   private asking: AbortController | null = null;
-  private componentUsage?: Promise<Record<string, number>>;
+  /** The order `::` first listed the components in, kept for this draft. */
+  private componentOrder?: Map<string, { i: number; group?: string }>;
   constructor(private readonly d: CompletionField, private readonly board: CompletionBoard, private readonly redraw: () => void, private readonly own: () => OwnNote | undefined = () => undefined) {}
 
   /** The token the cursor is in, if any: in a filter's words its key or value; in a property's field its value (a `[[` there first). */
@@ -603,12 +528,20 @@ export class Completer {
     this.redraw();
     try {
       // Only an answer is kept for the draft: a failed lookup is asked again next time, as the outliner does.
-      if (target.kind === "component") this.componentUsage ??= this.board.componentUsage();
       this.asking?.abort();
       const asking = this.asking = new AbortController();
-      const r = await lookupCompletion(this.board, target, this.own(), { componentUsage: this.componentUsage, near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined, signal: asking.signal });
+      const r = await lookupCompletion(this.board, target, this.own(), { near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined, signal: asking.signal });
       if (r.jevOff) jevOff.add(this.board);
       if (!this.current(generation)) return;
+      // `::` with nothing typed lists the components used ones first: the order this draft first saw stays while it's
+      // written (PIE-1127), so a component used meanwhile doesn't move the rows under the person's eye.
+      if (target.kind === "component" && !target.query.trim()) {
+        const key = (i: CompletionItem) => i.id ?? i.insertion;
+        this.componentOrder ??= new Map(r.items.map((item, i) => [key(item), { i, group: item.group }]));
+        const first = (i: CompletionItem) => this.componentOrder!.get(key(i));
+        // Each row keeps its first place and the heading it was under then.
+        r.items = [...r.items].sort((a, b) => (first(a)?.i ?? Infinity) - (first(b)?.i ?? Infinity)).map(i => first(i) ? { ...i, group: first(i)!.group } : i);
+      }
       // A `[` that starts no property the schemas know (a Markdown link's text, say) opens nothing.
       if (!r.items.length && target.kind !== "page" && target.kind !== "block" && target.kind !== "file" && target.kind !== "callout") { this.dismiss(); return; }
       const index = Math.max(0, r.items.findIndex(i => i.insertion === was));
@@ -724,7 +657,7 @@ export class Completer {
     if (i !== null && i !== undefined && s.items[i] && !s.loading) {
       if (s.index !== i) { s.previewTop = 0; s.previewSelection = undefined; this.previewGesture.cancel(); }
       s.index = i; s.picked = true;
-      if (s.items[i]!.componentSchema && at.items[y - at.row - 1] !== i && x === (at.col ?? 0) + (s.listWidth ?? 0) - 1) {
+      if (s.items[i]!.children && at.items[y - at.row - 1] !== i && x === (at.col ?? 0) + (s.listWidth ?? 0) - 1) {
         void COMPLETION_ACTIONS.run("complete.step", { direction: "right" }, this, USER);
         return true;
       }
@@ -775,15 +708,11 @@ export class Completer {
   get hasParent() { return this.parent !== null; }
   private parent: CompletionState | null = null;
   expand(): boolean {
-    const s = this.shown, item = s?.items[s.index], schema = item?.componentSchema;
-    if (!s || !item || !schema) return false;
+    const s = this.shown, item = s?.items[s.index];
+    if (!s || !item?.children) return false;
     this.parent = s;
-    const name = COMPONENT_OPEN.exec(item.insertion.split("\n")[0]!)![1]!;
-    const attrs = schema.props.map(p => {
-      const insertion = `::${name}{${p.key}=""}`;
-      return { label: p.key, detail: p.type, docs: p.meaning, kind: "property", insertion, selection: { start: insertion.length - 2, end: insertion.length - 2 } };
-    });
-    this.state = { ...s, items: [...(item.children ?? []), ...attrs], previewLines: undefined, previewTop: 0, previewSelection: undefined, index: 0, picked: true, heading: `${item.label}: variations and arguments` };
+    // Its variations and arguments, as the service answered them (PIE-1344).
+    this.state = { ...s, items: item.children, previewLines: undefined, previewTop: 0, previewSelection: undefined, index: 0, picked: true, heading: `${item.label}: variations and arguments` };
     this.redraw();
     return true;
   }
@@ -1002,7 +931,7 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
         void c.refresh();
         return true;
       }
-      if (k.kind === "right" && item?.componentSchema) { void COMPLETION_ACTIONS.run("complete.step", { direction: "right" }, c, USER); return true; }
+      if (k.kind === "right" && item?.children) { void COMPLETION_ACTIONS.run("complete.step", { direction: "right" }, c, USER); return true; }
       if (k.kind === "left" && c.hasParent) { void COMPLETION_ACTIONS.run("complete.step", { direction: "left" }, c, USER); return true; }
       if (k.kind === "up" || k.kind === "down") { c.move(k.kind === "up" ? -1 : 1); return true; }
       // A new page alone on the list (PIE-592) is chosen only on purpose (↓ or a click): Enter and Tab stay the draft's.
@@ -1171,7 +1100,7 @@ const listMaxCols = (w: number) => Math.min(60, Math.max(48, w - 36));
 function rowWidth(it: CompletionItem): number {
   const label = cells(printable(it.label, " "));
   const detail = it.detail ? 2 + Math.min(DETAIL_COLS, cells(printable(it.detail, " "))) : 0;
-  return 3 + label + detail + (it.kind ? 2 + cells(it.kind) : 0) + 1 + (it.componentSchema ? 2 : 0);
+  return 3 + label + detail + (it.kind ? 2 + cells(it.kind) : 0) + 1 + (it.children ? 2 : 0);
 }
 
 /**
@@ -1215,7 +1144,7 @@ function completionHint(s: CompletionState, selected: CompletionItem | undefined
   if (!selected) return "esc dismisses";
   const docs = docsScroll(s) ? ` · ${caps(COMPLETION_PREVIEW.keys, 2)} docs` : "";
   const extra = [
-    selected.componentSchema ? "→ variations" : "", s.target.kind === "component" ? "← returns · y/[copy] source" : "",
+    selected.children ? "→ variations" : "", s.target.kind === "component" ? "← returns · y/[copy] source" : "",
     selected.definition ? "g/[g] definition" : "", s.target.kind === "block" && !parseFragmentCompletionQuery(s.target.query) ? "^/# narrow" : "",
   ].filter(Boolean).map(x => ` · ${x}`).join("");
   return `${caps(COMPLETION_MOVE.keys, 2).replace(" ", "")} move · ${insert}${docs}${extra} · ${caps(COMPLETION_DISMISS.keys, 1)} dismiss`;
@@ -1229,7 +1158,7 @@ function completionPicker(s: CompletionState): ListPicker<CompletionItem, void> 
       // A row (PIE-1339): marker, label with the typed letters lit, its detail dim, its kind at the right edge. Every row
       // draws the same way from its own fields; a component's › opens its variations.
       row: (it, _i, on, w) => {
-        const arrow = it.componentSchema ? " ›" : "";
+        const arrow = it.children ? " ›" : "";
         const kind = it.kind ? ` ${it.kind} ` : " ";
         const room = Math.max(1, w - 3 - cells(kind) - cells(arrow));
         const label = ellipsize(printable(it.addition ? it.label.slice(0, -it.addition.length) : it.label, " "), room);

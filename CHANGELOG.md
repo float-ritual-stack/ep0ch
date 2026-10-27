@@ -24,6 +24,17 @@ are its record. The outliner's entries from then are kept below, under
 - The kitchen sink's `zoom` section shows it. **Run after updating:** `ep0ch install --apply` (the protocol changed:
   the `fragments.at` action).
 
+### Components, properties and callout types complete in Detail too (PIE-1344)
+
+- **`::`, `[key::` and `> [!` in Detail, Tree and Quick Capture** offer the rows the door does: the service answers
+  them (`completion.rows`'s `components`, `properties` and `callouts` sources), and the door's own copies are gone.
+- **`[key` offers the keys your notes carry** (most used first, from the outline's property index), then the keys the
+  component schemas give a meaning; `[key::` the values that key has, then the schema's.
+- **A component chosen in Detail writes all its lines** (a figure's YAML too), its first value selected.
+- **`bar[]` in an extension's manifest is refused** with the rename: write `sources[]` and answer the `source` operation.
+- **Run:** `ep0ch install --apply` (PROTOCOL bump: `completion.rows` rows carry `example`, `component` and
+  `variations`; the request's target `headingShort`). An extension still writing `bar[]` must be renamed first.
+
 ### A header picture is set one way: the note's hero line (PIE-1361)
 
 - **The note owns its header.** Its first `[img::…] [layout::hero]` line is the header picture, and its look is that
