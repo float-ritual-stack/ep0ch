@@ -22,6 +22,16 @@ export function lookupFailed(pr: string | null): string {
   return `gh didn't say whether PR ${n} merged, so it isn't on the record yet; once it has, run \`bun packages/outliner/src/cli.ts work deliver --repo <owner/name> --pr ${n}\` from the repository.`
 }
 
+/**
+ * The installed checkout, from where `ep0ch` resolves (`<checkout>/packages/door/src/main.ts`): it speaks the host's
+ * PROTOCOL once deployed, and its `.ep0ch` names the deployer's outline. A worktree's own CLI may be a bump ahead,
+ * and a worktree has no `.ep0ch` of its own. Null when `ep0ch` isn't a checkout's main.ts.
+ */
+export function installedRoot(ep0chMain: string): string | null {
+  const m = /^(.+)\/packages\/door\/src\/main\.ts$/.exec(ep0chMain.trim())
+  return m ? m[1]! : null
+}
+
 /** The outliner CLI call that lands it, from the repository's root, written as `actor`. */
 export function landArgv(root: string, pr: { repo: string; number: number }, actor: string): string[] {
   return ['/bin/sh', `${root}/packages/outliner/scripts/run-bun.sh`, `${root}/packages/outliner/src/cli.ts`, 'work', 'deliver', `--repo=${pr.repo}`, `--pr=${pr.number}`, '--author=agent', `--actor=${actor}`]
@@ -29,10 +39,10 @@ export function landArgv(root: string, pr: { repo: string; number: number }, act
 
 /** What landing said, in one line for the agent that merged: the row, its tickets, or why it failed and the command. */
 export function landedSaid(pr: { repo: string; number: number }, run: { exitCode: number; stdout: string; stderr: string }): string {
-  const by = `bun packages/outliner/src/cli.ts work deliver --repo ${pr.repo} --pr ${pr.number}`
+  const by = `\`bun packages/outliner/src/cli.ts work deliver --repo ${pr.repo} --pr ${pr.number}\` from the installed checkout (where \`readlink -f $(which ep0ch)\` points)`
   if (run.exitCode !== 0) {
     const why = run.stderr.trim().split('\n').at(-1) || `exit ${run.exitCode}`
-    return `${pr.repo}#${pr.number} merged but isn't on the record yet (${why}); land it with \`${by}\` from the repository.`
+    return `${pr.repo}#${pr.number} merged but isn't on the record yet (${why}); land it with ${by}.`
   }
   try {
     const out = JSON.parse(run.stdout) as { landed?: { blockId?: string; tickets?: string[] }; failed?: Array<{ deliveryKey?: string; error?: string }> }
@@ -41,6 +51,6 @@ export function landedSaid(pr: { repo: string; number: number }, run: { exitCode
     return `${pr.repo}#${pr.number} is on the record: merge row ((${out.landed?.blockId ?? '?'}))` +
       (tickets.length ? `, delivering ${tickets.join(', ')}.` : ', with no ticket.') + failed
   } catch {
-    return `${pr.repo}#${pr.number}: \`${by}\` answered something unreadable; check the Merges page.`
+    return `${pr.repo}#${pr.number}: ${by} answered something unreadable; check the Merges page.`
   }
 }

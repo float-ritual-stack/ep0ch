@@ -234,10 +234,13 @@ test("a PR delivered to two tickets lands as one row naming both (PIE-1352)", as
   await h.create();
   await h.create();
   h.pull(50, "MERGED", "wave/records", "ccc5050");
-  await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "50"]);
+  const first = await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "50"]);
+  // Someone adds a line under the row; a later landing rewrites only its generated lines.
+  const row = h.store.require(first.json.landed.blockId);
+  h.store.update(row.id, `${row.text}\n\nReverted in a later change, see the guide.`, row.revision);
   const second = await h.run(["work", "deliver", "PIE-002", "--repo", REPO, "--pr", "50"]);
   expect(second.json.landed).toMatchObject({ created: false, changed: true, tickets: ["PIE-001", "PIE-002"] });
-  expect(h.store.require(second.json.landed.blockId).text).toContain("Delivers [[PIE-001]], [[PIE-002]].");
+  expect(h.store.require(second.json.landed.blockId).text).toContain("Delivers [[PIE-001]], [[PIE-002]].\n\nReverted in a later change, see the guide.");
   expect(landedOn(h.store, "2026-03-04")).toEqual(["ccc5050"]);
 });
 

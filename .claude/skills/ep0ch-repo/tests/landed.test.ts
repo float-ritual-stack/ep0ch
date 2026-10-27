@@ -18,6 +18,8 @@ function sessionIn(on: On, state: string | null, land: ProcessRunResult, bashFai
   on('process.run', async ($, e) => {
     const argv = e.argv
     if (argv[0] === 'hostname') return { value: result(0, 'float-box\n') }
+    if (argv[0] === 'which') return { value: result(0, '/home/example/.local/bin/ep0ch\n') }
+    if (argv[0] === 'readlink') return { value: result(0, '/home/example/live/packages/door/src/main.ts\n') }
     if (argv[0] === 'gh' && argv.includes('number,url,state')) {
       if (state === null) return { value: result(1, '', 'HTTP 502') }
       return { value: result(0, JSON.stringify({ number: 960, url: 'https://github.com/example-org/example-app/pull/960', state })) }
@@ -36,10 +38,10 @@ function sessionIn(on: On, state: string | null, land: ProcessRunResult, bashFai
 const bash = ($: any, command: string) => $.tool.call({ tool: 'Bash', command })
 
 describe('every merge on the record (PIE-1352)', () => {
-  test('a merge that ran lands the PR through work deliver with no item, and says the row', async ($, on) => {
+  test('a merge that ran lands the PR through the installed checkout\'s work deliver with no item, and says the row', async ($, on) => {
     const s = sessionIn(on, 'MERGED', result(0, JSON.stringify({ landed: { blockId: ROW, created: true, tickets: [] }, deliveries: [] })))
     const out = await bash($, 'gh pr merge 960 --merge')
-    expect(s.landed).toEqual([['/bin/sh', '/work/ep0ch/packages/outliner/scripts/run-bun.sh', '/work/ep0ch/packages/outliner/src/cli.ts',
+    expect(s.landed).toEqual([['/bin/sh', '/home/example/live/packages/outliner/scripts/run-bun.sh', '/home/example/live/packages/outliner/src/cli.ts',
       'work', 'deliver', '--repo=example-org/example-app', '--pr=960', '--author=agent', '--actor=loki']])
     expect(out.context.join('\n')).toContain(`example-org/example-app#960 is on the record: merge row ((${ROW})), with no ticket.`)
   })
@@ -67,6 +69,6 @@ describe('every merge on the record (PIE-1352)', () => {
   test('a landing that fails says so with the command to run', async ($, on) => {
     sessionIn(on, 'MERGED', result(1, '', 'No outline: this folder names none'))
     const out = await bash($, 'gh pr merge 960 --merge')
-    expect(out.context.join('\n')).toContain("isn't on the record yet (No outline: this folder names none); land it with `bun packages/outliner/src/cli.ts work deliver --repo example-org/example-app --pr 960`")
+    expect(out.context.join('\n')).toContain("isn't on the record yet (No outline: this folder names none); land it with `bun packages/outliner/src/cli.ts work deliver --repo example-org/example-app --pr 960` from the installed checkout")
   })
 })

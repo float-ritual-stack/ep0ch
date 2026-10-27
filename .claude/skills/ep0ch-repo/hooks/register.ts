@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { pathsIn, type Rule, ruleContext, ruleOf, rulesFor } from './rules'
 import { guardOf, type Merge, mergesIn, protocolOf, protocolRefusal } from './guards'
-import { landArgv, landedSaid, lookupFailed, mergedPr } from './landed'
+import { installedRoot, landArgv, landedSaid, lookupFailed, mergedPr } from './landed'
 import { absolute, contentsOf, scratchRemovals, underScratch } from './scratch'
 import { agentOfEp0ch, type Counts, dueOf, SWEEP_AFTER_CHANGES, SWEEP_AFTER_TURNS, isDeploy, isMerge, isOutlineWrite, reportOf, SWEEP_SYSTEM, SWEEP_TOOLS, sweepBrief, sweepsFor } from './freshness'
 
@@ -73,7 +73,11 @@ async function protocolCheck($: EngineInterface, merge: Merge): Promise<string |
  * per PR, for the agent that merged. A PR not merged yet (auto-merge, a queue) is left to the merge step's next run.
  */
 async function landMerges($: EngineInterface, command: string): Promise<string[]> {
-  const [cwd, root, envAgent] = await Promise.all([$.session.cwd(), $.session.root(), $.env.get('EP0CH_AGENT')])
+  const [cwd, sessionRoot, envAgent] = await Promise.all([$.session.cwd(), $.session.root(), $.env.get('EP0CH_AGENT')])
+  // The installed checkout's CLI, from its own folder: the host's PROTOCOL and the deployer's outline (hooks/landed.ts).
+  const ep0ch = await $.process.run(['which', 'ep0ch'], { timeoutMs: 3000 }).then(r => r.exitCode === 0 ? r.stdout.trim() : '', () => '')
+  const main = ep0ch ? await $.process.run(['readlink', '-f', ep0ch], { timeoutMs: 3000 }).then(r => r.exitCode === 0 ? r.stdout : '', () => '') : ''
+  const root = installedRoot(main) ?? sessionRoot
   const said: string[] = []
   for (const merge of mergesIn(command)) {
     const view = await $.process.run(['gh', 'pr', 'view', ...(merge.pr ? [merge.pr] : []), ...(merge.repo ? ['--repo', merge.repo] : []), '--json', 'number,url,state'], { cwd, timeoutMs: LOOKUP_MS })

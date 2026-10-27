@@ -369,8 +369,8 @@ export interface PullRequestFacts {
 export interface WorkDeliverResult extends WorkItemRef {
   delivery: BlockRef & { deliveryKey: string; stage: string; created: boolean };
   pullRequest: { number: number; url: string; state: string; mergeCommit: string | null; mergedAt: string | null };
-  /** A merged PR's merge row (`landPullRequest`). */
-  landed?: LandedRef;
+  /** A merged PR's merge row (`landPullRequest`), or why it couldn't be written (the delivery is synced either way). */
+  landed?: LandedRef | { error: string };
   changed: boolean;
 }
 
@@ -499,7 +499,9 @@ export async function deliverPullRequest(
     mutation: mutationOf(actor),
   });
   const delivery = parseDeliveryIdentity(synced.delivery);
-  const landed = pr.state === "MERGED" && options.land !== false ? await recordLanded(client, input.repository, pr, actor) : undefined;
+  const landed = pr.state === "MERGED" && options.land !== false
+    ? await recordLanded(client, input.repository, pr, actor).catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }))
+    : undefined;
   return {
     ...workItemRef(synced.task),
     delivery: { ...blockRef(synced.delivery), deliveryKey: delivery.key, stage: delivery.stage, created: ensured.created },
@@ -574,9 +576,15 @@ async function recordLanded(client: WorkToolsClient, repository: string, pr: Pul
   const [existing, ...more] = await queryBlocks(client, `type=merge AND ${exactly("repository", repository)} AND pull-request-number=${pr.number}`);
   if (more.length) throw new WorkToolRefusal(`${repository}#${pr.number} has more than one merge row (${[existing!, ...more].map((b) => b.id).join(", ")}); trash all but one`);
   if (existing) {
-    if (existing.text === text) return { ...blockRef(existing), created: false, changed: false, tickets };
+    // Only the generated lines change: the header and the Delivers line; what someone wrote under it stays.
+    const [header, ...rest] = existing.text.split("\n");
+    const generated = text.split("\n");
+    const at = rest.findIndex((line) => /^(Delivers \[\[|No ticket\.$)/.test(line));
+    const body = at >= 0 ? rest.map((line, i) => i === at ? generated.at(-1)! : line) : [...rest, generated.at(-1)!];
+    const next = [generated[0]!, ...body].join("\n");
+    if (header === generated[0] && next === existing.text) return { ...blockRef(existing), created: false, changed: false, tickets };
     const updated = await client.request<Block>({
-      action: "update", blockId: existing.id, text, expectedRevision: existing.revision, mutation: mutationOf(actor),
+      action: "update", blockId: existing.id, text: next, expectedRevision: existing.revision, mutation: mutationOf(actor),
     });
     return { ...blockRef(updated), created: false, changed: true, tickets };
   }

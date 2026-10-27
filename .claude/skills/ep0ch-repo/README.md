@@ -30,8 +30,9 @@ instead (`hooks/guards.ts`):
 ## Every merge on the record
 
 After a `gh pr merge` that ran (from any loop), the mod asks `gh` whether each PR it names has merged, and for each that
-has runs the outliner's `work deliver --repo R --pr N` with no item, as `EP0CH_AGENT` (else `merge-step`), from the
-repository's root, so the outline its `.ep0ch` names gets it (`hooks/landed.ts`, PIE-1352). That syncs every delivery
+has runs the outliner's `work deliver --repo R --pr N` with no item, as `EP0CH_AGENT` (else `merge-step`). It runs the
+installed checkout's CLI (where `ep0ch` resolves) from that folder: it speaks the deployed host's PROTOCOL, and its
+`.ep0ch` names the deployer's outline, where a worktree has neither (`hooks/landed.ts`, PIE-1352). That syncs every delivery
 recording the PR and writes the PR's one merge row, ticket or not. The Bash result carries one line per PR: the row,
 or why it isn't on the record and the command to run. A PR still waiting (auto-merge) is left to the merge step.
 

@@ -185,12 +185,12 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       const pr = input.pr
       if (!repo || typeof pr !== 'number' || !Number.isSafeInteger(pr) || pr < 1) return 'Give the repo and PR number (and the ref of its item, if it has one).'
       const args = ['work', 'deliver', opt('repo', repo), opt('pr', String(pr))]
-      if (!item) return { args }
       const [key, base, branch] = [text(input, 'key'), text(input, 'base'), text(input, 'branch')]
       if (key) args.push(opt('key', key))
       if (base) args.push(opt('base', base))
       if (branch) args.push(opt('branch', branch))
-      return { args: [...args, '--', item] }
+      // No item: the CLI lands the merged PR, and refuses key/base/branch with why.
+      return { args: item ? [...args, '--', item] : args }
     },
   },
   {
