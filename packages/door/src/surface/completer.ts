@@ -323,7 +323,7 @@ async function attributeCandidates(board: CompletionBoard, schema: ComponentSche
 async function filterCandidates(board: CompletionBoard, target: CompletionTarget): Promise<CompletionItem[]> {
   const value = target.kind === "filter-value", q = target.query.trim().toLowerCase();
   const [catalog, schemas] = await Promise.all([
-    board.propertyCatalog(value ? target.key : undefined, q, 100).catch(() => []),
+    board.propertyCatalog(value ? target.key : undefined, q, 100, !value).catch(() => []),
     componentsReady({ board, redraw: () => {} }).catch(() => []),
   ]);
   const out: CompletionItem[] = [], seen = new Set<string>();
@@ -436,7 +436,7 @@ export class Completer {
   /** The ask in flight: aborted when the person types on or the list closes, so a slow source stops. */
   private asking: AbortController | null = null;
   /** The order `::` first listed the components in, kept for this draft. */
-  private componentOrder?: Map<string, number>;
+  private componentOrder?: Map<string, { i: number; group?: string }>;
   constructor(private readonly d: CompletionField, private readonly board: CompletionBoard, private readonly redraw: () => void, private readonly own: () => OwnNote | undefined = () => undefined) {}
 
   /** The token the cursor is in, if any: in a filter's words its key or value; in a property's field its value (a `[[` there first). */
@@ -536,10 +536,11 @@ export class Completer {
       // `::` with nothing typed lists the components used ones first: the order this draft first saw stays while it's
       // written (PIE-1127), so a component used meanwhile doesn't move the rows under the person's eye.
       if (target.kind === "component" && !target.query.trim()) {
-        const ids = r.items.map(i => i.id ?? i.insertion);
-        this.componentOrder ??= new Map(ids.map((id, i) => [id, i]));
-        const at = (i: CompletionItem) => this.componentOrder!.get(i.id ?? i.insertion) ?? Infinity;
-        r.items = [...r.items].sort((a, b) => at(a) - at(b));
+        const key = (i: CompletionItem) => i.id ?? i.insertion;
+        this.componentOrder ??= new Map(r.items.map((item, i) => [key(item), { i, group: item.group }]));
+        const first = (i: CompletionItem) => this.componentOrder!.get(key(i));
+        // Each row keeps its first place and the heading it was under then.
+        r.items = [...r.items].sort((a, b) => (first(a)?.i ?? Infinity) - (first(b)?.i ?? Infinity)).map(i => first(i) ? { ...i, group: first(i)!.group } : i);
       }
       // A `[` that starts no property the schemas know (a Markdown link's text, say) opens nothing.
       if (!r.items.length && target.kind !== "page" && target.kind !== "block" && target.kind !== "file" && target.kind !== "callout") { this.dismiss(); return; }

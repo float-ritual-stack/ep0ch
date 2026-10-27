@@ -4,17 +4,27 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { completionTargetAtCursor } from "@ep0ch/outline-core/completion-triggers";
-import { lookupReferenceCompletion, referenceCompletionProvider, ReferenceCompletionSession } from "../../outliner/src/reference-completion";
-import { TextBuffer } from "../../outliner/src/text-buffer";
 import { SocketBoard } from "../src/socket";
 import { lookupCompletion } from "../src/surface/completer";
 import { outliner, Scratch } from "./scratch";
+
+// Detail's own completion and editor buffer, loaded by path: the door's type check holds its own sources, not the
+// outliner's (whose compiler settings differ), so these are typed here by what the test calls.
+const DETAIL = "../../outliner/src/reference-completion", BUFFER = "../../outliner/src/text-buffer";
+type Item = { id?: string; insertion: string; selection?: { start: number; end: number } };
+type Buffer = { text: string; lines: string[]; selectedText: string | null; placeCursor(row: number, column: number): void };
+const { lookupReferenceCompletion, referenceCompletionProvider, ReferenceCompletionSession } = await import(DETAIL) as {
+  lookupReferenceCompletion(provider: unknown, target: unknown, draft?: unknown): Promise<{ items: Item[] }>;
+  referenceCompletionProvider(client: unknown, actorId: string): unknown;
+  ReferenceCompletionSession: new (provider: unknown, buffer: () => Buffer, changed: () => void, active: () => boolean, draft: () => unknown) => { state: { items: Item[] } | null; refresh(): Promise<void>; accept(index: number): Promise<boolean> };
+};
+const { TextBuffer } = await import(BUFFER) as { TextBuffer: new (text: string) => Buffer };
 
 describe.skipIf(!outliner)("one set of rows for :: [key [key:: and > [! (PIE-1344)", () => {
   const scratch = new Scratch();
   let board: SocketBoard, draftId = "";
   // Detail's client, over the same host: the outliner's requester shape on the door's socket.
-  const detail = () => referenceCompletionProvider({ request: ({ action, ...input }: { action: string } & Record<string, unknown>) => board.request(action, input) } as never, "user:made-up");
+  const detail = () => referenceCompletionProvider({ request: ({ action, ...input }: { action: string } & Record<string, unknown>) => board.request(action, input) }, "user:made-up");
   const create = async (text: string) => (await board.request("create", { parentId: null, text, author: "agent" })).id as string;
 
   beforeAll(async () => {
@@ -53,6 +63,16 @@ describe.skipIf(!outliner)("one set of rows for :: [key [key:: and > [! (PIE-134
     const stat = (await at("::graph-stat")).items.find(i => i.id === "graph-stat")!;
     expect(stat.children?.some(c => c.kind === "property")).toBe(true);
     expect(stat.preview?.(60, 40).join("\n")).toContain("[copy] ::graph-stat");
+  });
+
+  test("[key lists every key the notes carry, however many values one has; [key:: the notes' values before a schema's", async () => {
+    for (let i = 0; i < 120; i++) await create(`Tray ${i} [sown::day-${i}]`);
+    await create("Spare bed [status::fallow]");
+    await create("Back bed [status::fallow]");
+    const at = (line: string) => lookupCompletion(board, completionTargetAtCursor(line, line.length)!, undefined, {});
+    const keys = (await at("[s")).items.map(i => i.insertion);
+    expect(keys).toEqual(expect.arrayContaining(["[sown::", "[season::", "[status::"]));
+    expect((await at("[status::")).items[0]!.insertion).toBe("fallow]");
   });
 
   test("a component chosen in Detail writes all its lines, its first value selected", async () => {

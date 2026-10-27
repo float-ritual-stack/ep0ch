@@ -313,28 +313,30 @@ const properties: ServiceSource = {
   async rows(ask, svc) {
     const q = ask.query.trim(), schemas = await schemasOf(svc);
     if (ask.kind === "yaml-key") return { rows: yamlKeyCandidates(schemas, ask.component ?? "", q).map(c => candidateRow(schemas, c, ask, "property")) };
-    const catalog = await svc.request<{ key: string; value: string; count: number }[]>("properties.catalog", { ...(ask.kind === "value" ? { key: ask.key } : {}), prefix: q.toLowerCase(), limit: 100 }).catch(() => []);
+    const catalog = await svc.request<{ key: string; value: string; count: number }[]>("properties.catalog", { ...(ask.kind === "value" ? { key: ask.key } : { keys: true }), prefix: q.toLowerCase(), limit: 100 }).catch(() => []);
     const rows: SourceRow[] = [], seen = new Set<string>();
+    const notes = (n: number) => `${n} note${n === 1 ? "" : "s"}`;
     if (ask.kind === "key") {
+      // What the notes carry first, most used first, with a schema's meaning where one has it; then the schemas' others.
       const known = new Map(keyCandidates(schemas, "").map(c => [c.key, c]));
-      const counts = new Map<string, number>();
-      for (const c of catalog) counts.set(c.key, (counts.get(c.key) ?? 0) + c.count);
-      for (const [key, n] of [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
-        seen.add(key);
-        const meant = known.get(key);
-        rows.push({ label: key, kind: "property", detail: `${n} note${n === 1 ? "" : "s"}`, insert: `[${key}::`, ...(meant ? { docs: meant.detail } : {}) });
+      for (const c of catalog) {
+        seen.add(c.key);
+        const meant = known.get(c.key);
+        rows.push({ label: c.key, kind: "property", detail: notes(c.count), insert: `[${c.key}::`, ...(meant ? { docs: meant.detail } : {}) });
       }
       for (const c of keyCandidates(schemas, q)) if (!seen.has(c.key)) { seen.add(c.key); rows.push(candidateRow(schemas, c, ask, "property")); }
     } else {
-      const meant = valueCandidates(schemas, ask.key ?? "", q);
-      for (const c of meant) { seen.add(c.label); rows.push(candidateRow(schemas, c, ask, "value")); }
-      for (const c of catalog) if (!seen.has(c.value) && !/[\]\n]/.test(c.value)) {
+      // The values the notes have first, drawn and explained where a schema knows them; then the schema's others.
+      const meant = new Map(valueCandidates(schemas, ask.key ?? "", q).map(c => [c.label, c]));
+      for (const c of catalog) if (!/[\]\n]/.test(c.value) && !seen.has(c.value)) {
         seen.add(c.value);
-        const v = `${c.value}]`;
-        rows.push({ label: c.value, kind: "value", detail: `${c.count} note${c.count === 1 ? "" : "s"}`, insert: ask.headingShort ? `[heading::${v}` : v });
+        const m = meant.get(c.value);
+        rows.push(m ? { ...candidateRow(schemas, m, ask, "value"), detail: notes(c.count) }
+          : { label: c.value, kind: "value", detail: notes(c.count), insert: ask.headingShort ? `[heading::${c.value}]` : `${c.value}]` });
       }
+      for (const [label, c] of meant) if (!seen.has(label)) { seen.add(label); rows.push(candidateRow(schemas, c, ask, "value")); }
     }
-    return { rows: rows.slice(0, COMPLETION_LIMIT * 2) };
+    return { rows };
   },
 };
 
@@ -375,7 +377,10 @@ export async function completionRows(svc: CompletionService, request: Completion
     ...(request.offset ? { offset: request.offset } : {}), ...(request.semantic ? { semantic: true } : {}),
   };
   const asks: Promise<CompletionSourceAnswer>[] = [];
-  for (const s of SERVICE_SOURCES) if (sourceAnswers(s.decl, ask)) {
+  // A key an extension's source names (`[issue::`) is that source's: the properties source steps aside, so a value
+  // isn't offered twice with two different inserts.
+  const claimed = ask.trigger === "key::" && extensions.some(e => e.keys?.length && sourceAnswers(e, ask));
+  for (const s of SERVICE_SOURCES) if (sourceAnswers(s.decl, ask) && !(claimed && s === properties)) {
     // A source that fails says so in its own answer: the others' rows still come.
     asks.push(s.rows(ask, svc).then(a => ({ source: s.decl, ...a }), error => ({ source: s.decl, rows: [], problem: `${s.decl.title}: ${error instanceof Error ? error.message : String(error)}` })));
   }

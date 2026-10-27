@@ -2971,6 +2971,7 @@ export class OutlinerStore {
     prefix = "",
     requestedLimit = 50,
     requestedScope: PropertyQueryScope = "block",
+    keysOnly = false,
   ): PropertyCatalogItem[] {
     if (!["block", "line", "inline", "all"].includes(requestedScope)) {
       throw new Error(`Invalid property scope: ${requestedScope}`);
@@ -2991,6 +2992,14 @@ export class OutlinerStore {
           ...scopeParameters,
           limit,
         ) as PropertyCatalogItem[];
+    }
+    // The keys alone, each with how many notes carry it: a key with many values is still one row (PIE-1344).
+    if (keysOnly) {
+      return this.database
+        .query(
+          `SELECT property.key, '' AS value, COUNT(DISTINCT property.block_id) AS count FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE block.effective_deleted_root_id IS NULL AND SUBSTR(property.key, 1, LENGTH(?)) = ? ${scopeClause} GROUP BY property.key ORDER BY count DESC, property.key LIMIT ?`,
+        )
+        .all(normalizedPrefix, normalizedPrefix, ...scopeParameters, limit) as PropertyCatalogItem[];
     }
     return this.database
       .query(
