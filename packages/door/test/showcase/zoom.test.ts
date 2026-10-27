@@ -56,6 +56,10 @@ describe.skipIf(!outliner)("showcase: zoom (PIE-780)", () => {
     await open();
     await act("scroll", { to: "top" });
     await until(() => h.screen().includes("Egremont"), "the table on screen", 8000);
+    // The ⤢ shows on the part the reader is in: a click in the table first, as a person would.
+    const before = h.screen().split("\n"), ty = before.findIndex(l => l.includes("Egremont"));
+    click(before[ty]!.indexOf("Egremont") + 2, ty);
+    await until(() => h.screen().split("\n").some((l, i, all) => l.includes("⤢") && (all[i + 1] ?? "").includes("rootstock")), "the table's ⤢", 8000);
     const lines = h.screen().split("\n");
     const y = lines.findIndex((l, i) => l.includes("⤢") && (lines[i + 1] ?? "").includes("rootstock"));
     expect(y).toBeGreaterThan(0);

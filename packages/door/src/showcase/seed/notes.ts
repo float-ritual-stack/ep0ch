@@ -423,7 +423,7 @@ export const SHED_PAD = [
  */
 export const ZOOM_PLAN = [
   SEED.zoomPlan,
-  "Everything the orchard needs this winter. Each part below has a ⤢ at its right edge: click it (or put the [ ] position on it and press W) and it fills the reader. Esc, alt+← or a click on the top row comes back.",
+  "Everything the orchard needs this winter. Click in the figure, the table or a section: a ⤢ shows at its right edge; click it (or press W) and that part fills the reader. Esc, alt+← or a click on the top row comes back.",
   "",
   "::graph-table",
   "---",

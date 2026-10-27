@@ -2233,12 +2233,18 @@ export class NoteSurface {
         this.hits.push({ row, from: col, to: col + 1, ...(list ? { listPreview: n + 1 } : { fold: n + 1 }) });
       }
     }
-    // The zoom control (PIE-780) on a figure, a table and a heading: a dim ⤢ at its right edge, unless the reader is zoomed
+    // The zoom control (PIE-780) on a figure, a table or a heading: a dim ⤢ at its right edge, unless the reader is zoomed
     // into that part; drawn after a folded heading's … so that one stays after its words. A click is element.zoom on its line, as W is; which lines the part covers is the service's to say.
-    if (!this.printed && isOutlineNote(m)) for (const p of doc.parts ?? []) {
+    // Only on the part the `[ ]` position (else the reading line) is in, as the copy control's is bright on its block: the
+    // last part starting at or above that row, read as drawn. W and act reach any part; this is the mouse's way to the one here.
+    const here = current ? current.row - top : this.readingRows()?.[0] ?? this.scroll;
+    const shown = (doc.parts ?? []).filter(p => p.row <= here).at(-1);
+    if (!this.printed && isOutlineNote(m)) for (const p of shown ? [shown] : []) {
       const row = p.row - this.scroll, at = top + row, line = noteLines[p.line];
       if (row < 0 || row >= room || at >= lines.length || line === undefined || p.col + bx >= w) continue;
       if (this.zoom && this.zoom.start === line) continue;
+      // A folded heading's row is its fold's (its …): W still zooms into it.
+      if (p.kind === "heading" && this.foldsIn(m).points.some(f => f.line === p.line && this.effectiveFolded(f))) continue;
       const put = putCell(lines[at]!, p.col + bx, ZOOM_GLYPH, fg(C.dark), p.kind === "figure" ? "·" : "");
       if (put === null) continue;
       lines[at] = put;
