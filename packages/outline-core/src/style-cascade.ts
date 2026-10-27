@@ -43,12 +43,13 @@ const RETIRED_LOOK = /^style\.(?:(?:narrow|wide)\.)?header\.(?:image|title)(?:\.
 export const isRetiredLookKey = (key: string): boolean => RETIRED_LOOK.test(key);
 /**
  * `text` without its retired look keys (PIE-1365's remove): the note's own (`line` undefined) or those on line `line`
- * (from 0, a declaration on a line). Each token goes with the blank before it; a line they alone made is dropped.
+ * (from 0, a declaration on a line). Each token goes with the blank before it; a line they alone made is dropped
+ * (the first line kept, empty: the subject stays line 0).
  */
 export function withoutRetiredLookKeys(text: string, line?: number): string {
   const gone = parsePropertyRecords(text).filter(r => isRetiredLookKey(r.key) && (line === undefined ? r.scope === "block" : r.line === line));
   if (!gone.length) return text;
-  const lines = text.split("\n");
+  const lines = text.split("\n"), subject = lines.findIndex(l => l.trim() !== "");
   let at = 0;
   const out: string[] = [];
   lines.forEach((l, i) => {
@@ -60,7 +61,8 @@ export function withoutRetiredLookKeys(text: string, line?: number): string {
       const lead = /[ \t]*$/.exec(kept.slice(0, t.start))![0].length;
       kept = kept.slice(0, t.start - lead) + kept.slice(t.end);
     }
-    if (kept.trim() || !l.trim()) out.push(kept.replace(/^[ \t]+(?=\S)/, l.match(/^[ \t]*/)![0]));
+    // A line they alone made goes, but never the subject's: the note's title stays where it is.
+    if (kept.trim() || !l.trim() || i === subject) out.push(kept.replace(/^[ \t]+(?=\S)/, l.match(/^[ \t]*/)![0]));
   });
   return out.join("\n");
 }

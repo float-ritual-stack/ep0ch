@@ -228,6 +228,8 @@ async function answerFigure(host: LiveHost, kind: string, p: Props, note: string
   let a: Extract<SiteProduced, { kind: "figure" }>;
   try { a = await produced(host, note, { kind: "figure", figure: kind, props: askProps(p) }, args) as typeof a; }
   catch (e) { return { props: p, status: hostBusy(e) ? "live · still counting" : "live", error: trouble(e) }; }
+  // Its title read in the figure's Site, as the door draws it (PIE-1362).
+  const titled = (props: Props) => (a.title !== undefined ? { ...props, title: a.title } : props);
   if (perItem) {
     // Each item's count is of the results this page may show.
     const items = await Promise.all((p.items as Props[]).map(async (item, k) => {
@@ -238,7 +240,7 @@ async function answerFigure(host: LiveHost, kind: string, p: Props, note: string
       return { ...item, value: `${kept.size}${c.truncated ? "+" : ""}` };
     }));
     const error = a.counts?.find(c => c.error)?.error;
-    return { props: { ...p, items }, status: "live", ...(error ? { error } : {}) };
+    return { props: titled({ ...p, items }), status: "live", ...(error ? { error } : {}) };
   }
   if (a.error && !a.blocks.length) return { props: p, status: "live", error: a.error };
   const items = await itemsOf(host, a.blocks as never);
@@ -251,7 +253,7 @@ async function answerFigure(host: LiveHost, kind: string, p: Props, note: string
   };
   const drawn = liveProps(kind, asking.props, answer);
   const error = drawn.error ?? a.error ?? answer.hint;
-  return { props: drawn.props, status: liveStatus(answer), ...(error ? { error } : {}) };
+  return { props: titled(drawn.props), status: liveStatus(answer), ...(error ? { error } : {}) };
 }
 
 async function itemsOf(host: LiveHost, blocks: readonly { id: string; properties?: BlockProperty[]; createdAt?: string; updatedAt?: string; author?: string }[]): Promise<FigureItem[]> {

@@ -480,8 +480,8 @@ export class TunePane implements Pane {
     if (c === "x") return this.run(desk, "tune.unset", {}), true;
     if (c === "X") return this.run(desk, "tune.resetlevel", {}), true;
     if (c === "R") return this.run(desk, "tune.revert", {}), true;
-    if (c === "D" && this.retiredShown) return this.run(desk, "tune.retired.remove", {}), true;
-    if (c === "M" && this.retiredShown) return this.run(desk, "tune.retired.move", {}), true;
+    if (c === "D") return this.run(desk, "tune.retired.remove", {}), true;
+    if (c === "M") return this.run(desk, "tune.retired.move", {}), true;
     return false;
   }
 
@@ -647,9 +647,8 @@ const retiredOf = (t: TuneTargetInfo, desk: DeskApi) => retiredLooks({ board: de
 /** Why retired keys are listed, said once: under the pointer on their line, and as the fix's hint card. */
 const RETIRED_WHY = "Since PIE-1361 a header picture is the note's own [img::…] [layout::hero] line, its look that line's properties (height, blur, fade, tint, dim, fit, bleed, scroll, title, hero-focus): style.header.image… and style.header.title draw nothing at any level. Remove takes them off the note; move writes the picture they name as this note's hero line with their look on it, then removes them. Either is one step: u in the tune undoes it.";
 
-/** The fixes' hint card: the why, said the first time one runs in this door (after that it's under the pointer on the line). */
-let retiredSaid = false;
-const retiredHint = () => (retiredSaid ? null : (retiredSaid = true, { title: "Retired look keys", lines: [RETIRED_WHY] }));
+/** The fixes' hint card: the why (the hint settings say whether it shows again: card, status or off). */
+const retiredHint = { title: "Retired look keys", lines: [RETIRED_WHY] };
 
 /**
  * Fixes one note's retired look keys (PIE-1365), as one tune step u takes back: `remove` takes them off the note (or its
@@ -659,11 +658,16 @@ const retiredHint = () => (retiredSaid ? null : (retiredSaid = true, { title: "R
 async function fixRetired(op: "remove" | "move", pane: TunePane, desk: DeskApi, actor: Actor, note: string | undefined, line: number | undefined) {
   const t = fresh(pane, desk), all = retiredOf(t, desk);
   if (!all.length) throw new ActionRefused("no note writes retired look keys");
-  const r: RetiredLook | undefined = note === undefined ? all[0] : all.find(x => (x.note === note || x.note.startsWith(note)) && (line === undefined || x.line === line - 1));
+  const r: RetiredLook | undefined = note === undefined ? all[0] : all.find(x => (x.note === note || x.note.startsWith(note)) && (line === undefined ? x.line === undefined : x.line === line - 1));
   if (!r) throw new ActionRefused(`no retired look keys on ${note}${line !== undefined ? ` line ${line}` : ""}: ${all.map(x => `${x.note.slice(0, 8)}${x.line !== undefined ? ` line=${x.line + 1}` : ""}`).join(", ")}`);
   const page = t.look.place.page, mig = heroFromRetired(r.keys);
   if (op === "move" && !mig.path) throw new ActionRefused(`${r.where} names no picture (no style.header.image): remove is its fix`);
   if (op === "move" && !page) throw new ActionRefused(`${pane.source} shows no note to give the picture to`);
+  if (op === "move") {
+    const own = page && desk.ctx.board ? await refuseAsync(async () => (await board(desk).get(page.id))?.text ?? "") : "";
+    const kept = withHeroLine(own, mig.path!, {}).left.find(l => l.startsWith("the picture "));
+    if (kept) throw new ActionRefused(`${kept}: nothing of ${r.where}'s picture would move; remove is its fix`);
+  }
   const tuning = tuningOf(desk.ctx.board), before = tuning.snapshot(), writes: NoteWrite[] = [];
   let hero: { note: string; line: number } | null = null, kept: string[] = [];
   const what = op === "move" ? `move of ${r.where}'s picture to a hero line` : `removal of ${r.where}'s retired keys`;
@@ -673,9 +677,10 @@ async function fixRetired(op: "remove" | "move", pane: TunePane, desk: DeskApi, 
   const together = op === "move" && r.note === page?.id && r.line === undefined;
   try {
     await refuseAsync(async () => {
+      // The hero line first: a refusal part way loses no picture (the keys are still there to try again).
+      if (op === "move" && !together) { const w = await writeText(board(desk), tuning, page!.id, toHero, null, actor); if (w) writes.push(w); }
       const off = await writeText(board(desk), tuning, r.note, text => (together ? toHero : (x: string) => x)(withoutRetiredLookKeys(text, r.line)), null, actor);
       if (off) writes.push(off);
-      if (op === "move" && !together) { const w = await writeText(board(desk), tuning, page!.id, toHero, null, actor); if (w) writes.push(w); }
     });
   } finally {
     if (writes.length) tuning.record({ kind: "write", what, writes, tuningBefore: before, tuningAfter: tuning.snapshot(), by: actor });
