@@ -957,7 +957,7 @@ export class NoteSurface {
    * tint) is being made, so the header never goes blank under its rows (PIE-1361: the "margin" left behind).
    */
   private heroPlaced: { line: number; p: Placement } | null = null;
-  private heroDrag: { kind: "height" | "focus"; x: number; y: number; rows: number; cols: number; focus: Focus; line: number; now?: { height?: number; focus?: Focus } } | null = null;
+  private heroDrag: { kind: "height" | "focus"; x: number; y: number; rows: number; cols: number; focus: Focus; line: number; now?: { height?: number; focus?: Focus }; saving?: boolean } | null = null;
   private besideRect: { x: number; y: number; w: number; h: number } | null = null;
   private readonly forms = new Map<string, NoteForm>();
   get form(): NoteForm | null { return this.msg ? this.formOf(this.msg) : null; }
@@ -1600,7 +1600,7 @@ export class NoteSurface {
     if (!m || m.partial || !host?.ctx.graphics || this.modes.covers || this.panel?.full || h < HERO_MIN_PANE) return null;
     const values = this.lookAt(m, w, host).values;
     // The note's own hero line, the first one (PIE-1361): nothing else names a header picture.
-    const found = this.imagesIn(m).find(x => x.spec.layout === "hero");
+    const found = this.heroRef(m);
     if (!found) return null;
     // A drag going on draws where it is (heroDrag), before its one save.
     const now = this.heroDrag?.line === found.line ? this.heroDrag.now : undefined;
@@ -5799,9 +5799,11 @@ export class NoteSurface {
     }
     return out;
   }
+  /** Which of `m`'s images is its header: the first `[layout::hero]` line (PIE-1361), the one place that decides it. */
+  heroRef(m: Msg) { return this.imagesIn(m).find(x => x.spec.layout === "hero"); }
   /** The note's header image as the tune shows it (PIE-1361): its line, its file, its look as written, its rows drawn; null when it has none. */
   heroInfo(m: Msg): { line: number; name: string; values: Partial<Record<HeroProp, string>>; rows: number | null } | null {
-    const ref = this.imagesIn(m).find(x => x.spec.layout === "hero");
+    const ref = this.heroRef(m);
     if (!ref) return null;
     const values = Object.fromEntries(HERO_PROP_NAMES.flatMap(p => { const v = heroPropText(ref.spec, p); return v === undefined ? [] : [[p, v]]; }));
     return { line: ref.line, name: ref.path.split("/").pop() ?? ref.path, values, rows: this.hero?.line === ref.line ? this.hero.full : null };
@@ -8005,7 +8007,7 @@ export class NoteSurface {
     // The header image (PIE-1361): its bottom row sizes it, the picture above that moves its focus.
     // Its rows as drawn: under a title written over it, the picture runs on under the title's rows.
     const heroRows = host.attachment || !(this.drawn?.heroRows) || !this.hero ? 0 : this.hero.pinned || !this.scroll ? this.hero.picture : this.drawn.heroRows;
-    if (!this.editing && this.hero && heroRows > 0 && y >= 0 && y < heroRows) {
+    if (!this.editing && this.hero && heroRows > 0 && y >= 0 && y < heroRows && !this.floatAt(x, y, host)) {
       const spec = this.msg && this.imagesIn(this.msg).find(r => r.line === this.hero!.line)?.spec;
       this.heroDrag = { kind: y === heroRows - 1 ? "height" : "focus", x, y, rows: this.hero.picture, cols: this.drawn?.w ?? 80, focus: spec?.focus ?? { x: 0.5, y: 0.5 }, line: this.hero.line };
       this.gesture.press(x, y);
@@ -8067,7 +8069,7 @@ export class NoteSurface {
     if (this.panel?.fieldMouse("drag", x, y)) { host.redraw(); return; }
     const hd = this.heroDrag;
     if (hd) {
-      if (x === hd.x && y === hd.y && !hd.now) return;
+      if (hd.saving || (x === hd.x && y === hd.y && !hd.now)) return;
       const clamp = (v: number) => Math.max(0, Math.min(1, Math.round(v * 100) / 100));
       hd.now = hd.kind === "height"
         ? { height: Math.max(3, Math.min(this.hero?.max ?? hd.rows, hd.rows + y - hd.y)) }
@@ -8128,13 +8130,15 @@ export class NoteSurface {
   private releaseNow(x: number, y: number, host: SurfaceHost): boolean {
     if (this.panel?.fieldMouse("up", x, y)) { host.redraw(); return true; }
     const hd = this.heroDrag;
-    if (hd) {
-      this.heroDrag = null;
+    if (hd && !hd.saving) {
       this.gesture.release(x, y);
-      if (!hd.now) return this.click(x, y, host);
+      if (!hd.now) { this.heroDrag = null; return this.click(x, y, host); }
+      // Drawn where it was let go until its save lands, so the header never snaps back first.
+      hd.saving = true;
       const r = (v: number) => String(Math.round(v * 100) / 100);
-      if (hd.now.height !== undefined) void this.runKey("image.size", { line: hd.line + 1, height: String(hd.now.height) }, host);
-      else if (hd.now.focus) void this.runKey("image.look", { line: hd.line + 1, focus: `${r(hd.now.focus.x)},${r(hd.now.focus.y)}` }, host);
+      const saved = hd.now.height !== undefined ? this.runKey("image.size", { line: hd.line + 1, height: String(hd.now.height) }, host)
+        : this.runKey("image.look", { line: hd.line + 1, focus: `${r(hd.now.focus!.x)},${r(hd.now.focus!.y)}` }, host);
+      void saved.finally(() => { if (this.heroDrag === hd) this.heroDrag = null; host.redraw(); });
       host.redraw();
       return true;
     }
@@ -12068,7 +12072,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "image.size": def({
-    summary: "size an image (PIE-532): to= its width (cells, N% of the reader, full, or none for its own), height= its rows (a number, or none), or by=1|-1 one step (a quarter, a third, a half, two thirds, three quarters, full; on the header, its height by 2 rows). Its aspect is kept. Written as [size::…] [height::…] on its line through the note's save, checked against the line as drawn and the revision read now, recorded as whoever asks; ctrl+z (image.undo) puts it back",
+    summary: "size an image (PIE-532): to= its width (cells, N% of the reader, full, or none for its own), height= its rows (a number, or none), or by=1|-1 one step (a quarter, a third, a half, two thirds, three quarters, full; on the header, its height by the steps image.look prop=height takes). Its aspect is kept. Written as [size::…] [height::…] on its line through the note's save, checked against the line as drawn and the revision read now, recorded as whoever asks; ctrl+z (image.undo) puts it back",
     keys: "+ - while an image is the [ ] position, a click on its caption's − or +",
     touches: "draft", draft: "write", replay: "ask",
     args: {
@@ -12089,8 +12093,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const ref = await surface.imageNamed(which, actor), hero = ref.spec.layout === "hero";
         const set: Partial<Record<MediaAttr, string | null>> = {};
         if (by !== undefined && hero) {
-          const now = ref.spec.height ?? surface.heroRowsDrawn() ?? HERO_ROWS;
-          set.height = String(Math.max(3, Math.min(60, now + (by > 0 ? 2 : -2))));
+          // The same steps as the tune's height row (outline-core's HERO_PROPS), a share by shares.
+          set.height = heroPropStep("height", heroPropText(ref.spec, "height") ?? String(surface.heroRowsDrawn() ?? HERO_ROWS), by);
         } else if (by !== undefined) {
           const next = surface.sizeStep(ref, by);
           if (next === null) { const why = by > 0 ? "it's the full width already" : "it's at the smallest step (25%) already: image.size to= any width"; host.ctx.flash(why); throw new ActionRefused(why); }
@@ -12207,8 +12211,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     ],
     async run({ prop, to, by, focus, ...which }, { surface, host }, actor) {
       return surface.inTurn(async () => {
-        const all = surface.imagesIn(await surface.whole());
-        const named = which.n !== undefined || which.line !== undefined ? await surface.imageNamed(which, actor) : all.find(x => x.spec.layout === "hero");
+        const named = which.n !== undefined || which.line !== undefined ? await surface.imageNamed(which, actor) : surface.heroRef(await surface.whole());
         if (!named) throw new ActionRefused("this note has no header image: H on an image (image.hero) makes it one");
         const ref = notArtifact(named);
         if (ref.spec.layout !== "hero") throw new ActionRefused(`the image on line ${ref.line + 1} isn't the header: image.look changes the header's ([layout::hero]); image.hero makes it one`);
@@ -12223,7 +12226,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if ((to === undefined) === (by === undefined)) throw new ActionRefused("say to= (a value, or none) or by=1|-1");
         if (by !== undefined && by !== 1 && by !== -1) throw new ActionRefused(`by is 1 or -1 (a step), not ${by}`);
         const drawnRows = prop === "height" && ref.spec.height === undefined ? surface.heroRowsDrawn() : null;
-        const value = to ?? heroPropStep(prop, heroPropText(ref.spec, prop) ?? (drawnRows !== null ? String(drawnRows) : undefined), by!);
+        // A height left out steps from the rows drawn (or, none drawn, the reader's usual header).
+        const value = to ?? heroPropStep(prop, heroPropText(ref.spec, prop) ?? (prop === "height" ? String(drawnRows ?? HERO_ROWS) : undefined), by!);
         const r = heroPropSet(ref.spec, prop, value);
         if ("problem" in r) throw new ActionRefused(r.problem);
         return { ...(await surface.changeImage(ref, r.set, `${prop} ${value === "none" ? `as built in (${HERO_PROPS[prop].none})` : value}`, host, actor)), prop, value };

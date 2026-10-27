@@ -317,7 +317,9 @@ export function heroPropSet(spec: MediaSpec, prop: HeroProp, value: string): { s
  * drawn. A value between steps (written by hand) goes to the nearest one on the side it moves to.
  */
 export function heroPropStep(prop: HeroProp, now: string | undefined, by: number): string {
-  const p = HERO_PROPS[prop], cur = now ?? (p.steps.includes("none") ? "none" : p.none);
+  const p = HERO_PROPS[prop];
+  // The built-in written out (`[fit::cover]`) steps as if left out.
+  const cur = now === undefined || (now === p.none && p.steps.includes("none")) ? (p.steps.includes("none") ? "none" : p.none) : now;
   // A height written as a share steps by shares, never into rows.
   const steps = prop === "height" && cur.endsWith("%") ? HEIGHT_SHARES : p.steps;
   const i = steps.indexOf(cur);

@@ -70,5 +70,7 @@ describe("a header image's look (PIE-1361): one description, read by the tune an
     expect(heroPropStep("blur", "3", 1)).toBe("4");
     expect(heroPropStep("height", "33%", 1)).toBe("40%");
     expect(heroPropStep("height", "30%", -1)).toBe("25%");
+    expect(heroPropStep("fit", "cover", 1)).toBe("contain");
+    expect(heroPropStep("title", "below", 1)).toBe("over");
   });
 });

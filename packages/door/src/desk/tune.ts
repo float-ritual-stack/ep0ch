@@ -218,6 +218,11 @@ export class TunePane implements Pane {
       ...TUNE_ROWS.flatMap((row, index) => groupOf(row) === group && !this.foldedGroups.has(group) && (!this.onlySet || row.tokens.some(tk => this.ownValue(t, tk) !== null)) ? [{ index }] : []),
     ])];
   }
+  /** The Hero row picked, while the note shown has a header picture (one without lets the pick go). */
+  heroPicked(desk: DeskApi): HeroProp | null {
+    if (this.heroSel && !this.info(desk)?.hero) this.heroSel = null;
+    return this.heroSel;
+  }
   /** Whether `r` is the entry picked. */
   private isPicked(r: { group: StyleGroup } | { index: number } | { hero: HeroProp }) {
     return "hero" in r ? this.heroSel === r.hero : this.heroSel !== null ? false : "group" in r ? r.group === this.group : this.group === null && r.index === this.sel;
@@ -233,7 +238,7 @@ export class TunePane implements Pane {
   async editField(desk: DeskApi) {
     const t = this.info(desk), hp = this.heroSel;
     if (hp && t?.hero) {
-      const choices = HERO_PROPS[hp].steps.filter(x => x !== "none" || HERO_PROPS[hp].steps.length > 2);
+      const choices = [...HERO_PROPS[hp].steps];
       await this.view.edit(HERO_ROW(hp), t.hero.values[hp] ?? "none", choices, false, `tune:hero:${hp}`,
         value => TUNE_ACTIONS.run("tune.set", { row: HERO_ROW(hp), value }, { pane: this, desk, standing: true }, { kind: "user" }), { redraw: () => desk.redraw(), said: text => desk.ctx.flash(text) });
       desk.redraw();
@@ -348,6 +353,7 @@ export class TunePane implements Pane {
       lines.push(fg(C.dark) + pad("", nameW) + pad("in force", valW) + fg(C.lcyan) + " " + pad(drawEllipsized(`${lv}${this.scope === "this" && t.look.breakpoint ? ` ${t.look.breakpoint}` : ""}`, lvlW - 2), lvlW - 1) + fg(C.dark) + "from" + RESET);
     }
     if (this.fresh && t.hero) { this.fresh = false; this.heroSel = HERO_PROP_NAMES[0]!; }
+    if (!t.hero) this.heroSel = null;
     const entries = this.entries(t);
     const cursor = entries.findIndex(r => this.isPicked(r));
     // The note's header image first (PIE-1361): its own line's properties, written there at once.
@@ -604,14 +610,16 @@ function listOnly(target: TuneTarget, field: string, t: TuneTargetInfo, tuning: 
  * A Hero row's change (PIE-1361): the reader's header image's own line, through the reader's image.look, saved at once
  * and attributed (ctrl+z there undoes it). Not a nudge: no level, nothing to save, nothing in the tune's history.
  */
-async function heroLook(pane: TunePane, desk: DeskApi, actor: Actor, prop: HeroProp, change: { by: number } | { to: string }) {
+async function writeHeroRow(pane: TunePane, desk: DeskApi, actor: Actor, prop: HeroProp, change: { by: number } | { to: string }) {
   const t = pane.info(desk);
   if (!t?.hero) throw new ActionRefused(t?.hero === null ? `${pane.source}'s note has no header picture: H on one of its images (image.hero) makes it one` : `${pane.source} isn't a reader showing a note`);
   const args = { prop, ...change };
   const reader = desk.paneNamed?.(pane.source);
   const out = actor.kind === "agent" && desk.within ? await desk.within("image.look", args, actor, reader) : await desk.perform?.("image.look", args, actor, pane.source);
   desk.redraw();
-  return { row: HERO_ROW(prop), ...(out && typeof out === "object" ? out : {}), at: "the hero line" };
+  // A person's refused press has said why already (perform flashes it): nothing more to say.
+  if (!out || typeof out !== "object") return { row: HERO_ROW(prop), refused: true };
+  return { row: HERO_ROW(prop), ...out, at: "the hero line" };
 }
 
 /** What's wrong with the look here: the tile's layers, then the outline's style notes (a key one no longer reads, PIE-1361). */
@@ -698,7 +706,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   "tune.nudge": def({
     summary: "nudge a look value by steps (by=1 or -1): a number by its step (columns by 2, rows by 1: cells are twice as tall as wide; pad and margin move a row and two columns), on/off flipped, a choice to the next. A Hero row (row=hero.tint, …: the reader's header image) is written on the hero's own line at once (image.look). It draws in the next frame, from memory; s saves it. level= and width= (all, or this: the breakpoint the tile is in now) default to the inspector's. Where something nearer wins over the level (or the width) it writes, it asks first: shadow=anyway (nudge it; it shows only where nothing nearer sets it), shadow=instead (nudge what wins), shadow=clear (take what wins away, then nudge)",
     keys: "+ − (= l → and - h ←), a click on [−] [+], the wheel over a value; on a row that asks: a, o, c, or a click on a choice",
-    touches: "nothing", replay: "ask", says: out => (out.offered ? `· ${out.row}: ${out.why}` : `· ${out.row} ${out.value} (${out.at}) · s saves`),
+    touches: "nothing", replay: "ask", says: out => (out.refused ? null : out.offered ? `· ${out.row}: ${out.why}` : out.at === "the hero line" ? `· ${out.row} ${out.value}, written on the hero line` : `· ${out.row} ${out.value} (${out.at}) · s saves`),
     args: {
       by: { type: "number", about: "steps: 1 up, -1 down" },
       row: { type: "string", optional: true, about: "the row (measure, pad, pad.x, margin, list.gap, …); default the picked one" },
@@ -711,8 +719,8 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       { act: "tune.nudge by=-1 row=list.gap level=screen width=this tile=tune", does: "tightens the list gap for this screen's current width only" },
     ],
     async run({ by, row, level, width, shadow }, { pane, desk, standing }, actor) {
-      const hp = row === undefined ? pane.heroSel : heroRowNamed(row);
-      if (hp) return heroLook(pane, desk, actor, hp, { by: Math.sign(by) || 1 });
+      const hp = row === undefined ? pane.heroPicked(desk) : heroRowNamed(row);
+      if (hp) return writeHeroRow(pane, desk, actor, hp, { by: Math.sign(by) || 1 });
       const r = row === undefined ? (pane.group ? undefined : TUNE_ROWS[pane.sel]) : rowNamed(row);
       if (!r) throw new ActionRefused(`row is one of ${TUNE_ROWS.map(x => x.name).join(", ")}`);
       if (level !== undefined && !TUNE_LEVELS.includes(level as TuneLevel)) throw new ActionRefused(`level is ${TUNE_LEVELS.join(", ")}`);
@@ -765,9 +773,9 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     },
   }),
   "tune.set": def({
-    summary: "set a look value outright, as a nudge does (in memory until saved): row= a token, value= as a style note writes it (88, on, dots, \"1 0 1\")",
+    summary: "set a look value outright, as a nudge does (in memory until saved): row= a token, value= as a style note writes it (88, on, dots, \"1 0 1\"). A Hero row (row=hero.tint) is written on the note's hero line at once (image.look)",
     keys: "`ep0ch act tune.set row=measure value=72`",
-    touches: "nothing", replay: "ask", says: out => `· ${out.row} ${out.value} (${out.at}) · s saves`,
+    touches: "nothing", replay: "ask", says: out => (out.refused ? null : out.at === "the hero line" ? `· ${out.row} ${out.value}, written on the hero line` : `· ${out.row} ${out.value} (${out.at}) · s saves`),
     args: {
       row: { type: "string", about: "a token (measure, pad.x, list.gap, …)" },
       value: { type: "string", about: "its value" },
@@ -780,7 +788,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     ],
     run({ row, value, level, width }, { pane, desk, standing }, actor) {
       const hp = heroRowNamed(row);
-      if (hp) return heroLook(pane, desk, actor, hp, { to: value });
+      if (hp) return writeHeroRow(pane, desk, actor, hp, { to: value });
       const r = rowNamed(row);
       if (!r || r.tokens.length !== 1) throw new ActionRefused(`row is one token: ${TUNE_ROWS.filter(x => x.tokens.length === 1).map(x => x.name).join(", ")}`);
       const tk = r.tokens[0]!;
@@ -798,16 +806,16 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     },
   }),
   "tune.unset": def({
-    summary: "reset a row's value to what it inherits: what sets it here is taken away (a width variant first, then its plain value), off the note that wrote it (in memory until s, the save removing the property), or, set only by a nudge, the nudge let go. A built-in, a box's or a heading style's is edited where it's written; one a shorthand or a tier gives is refused, naming the note",
+    summary: "reset a row's value to what it inherits: what sets it here is taken away (a width variant first, then its plain value), off the note that wrote it (in memory until s, the save removing the property), or, set only by a nudge, the nudge let go. A Hero row (row=hero.tint) is taken off the note's hero line at once. A built-in, a box's or a heading style's is edited where it's written; one a shorthand or a tier gives is refused, naming the note",
     keys: "x, a click on a row's × or on [reset value]",
-    touches: "nothing", replay: "ask", says: out => `· ${out.row} ${out.value} (${out.from}) · s saves`,
+    touches: "nothing", replay: "ask", says: out => (out.refused ? null : out.at === "the hero line" ? `· ${out.row} back to the built-in, written on the hero line` : `· ${out.row} ${out.value} (${out.from}) · s saves`),
     args: { row: { type: "string", optional: true, about: "the row (measure, pad, bg, list.divider, …); default the picked one" } },
     examples: [
       { act: "tune.unset row=measure tile=tune", does: "takes away what sets the measure here, so it falls back to what it inherits" },
     ],
     async run({ row }, { pane, desk, standing }, actor) {
-      const hp = row === undefined ? pane.heroSel : heroRowNamed(row);
-      if (hp) return heroLook(pane, desk, actor, hp, { to: "none" });
+      const hp = row === undefined ? pane.heroPicked(desk) : heroRowNamed(row);
+      if (hp) return writeHeroRow(pane, desk, actor, hp, { to: "none" });
       const r = row === undefined ? (pane.group ? undefined : TUNE_ROWS[pane.sel]) : rowNamed(row);
       if (!r) throw new ActionRefused(`row is one of ${TUNE_ROWS.map(x => x.name).join(", ")}`);
       const t = fresh(pane, desk);

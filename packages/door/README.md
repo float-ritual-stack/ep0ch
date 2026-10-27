@@ -3032,7 +3032,7 @@ Drawings of the book and of align left, centre and right: [UI-GRAMMAR, Spines](d
 | `callout.undo` | none: the asker's own last callout change in this reader, while reading this note | `ctrl+z` (when it was the last change here) |
 | `callout.menu` | `n` or `line`: opens the type choice. The person's only | `⏎` or a click on a callout's icon or type |
 | `images` | none: the note's images and videos (`n`, `line`, path, the layout its line writes, what's wrong with it, how it's drawn here) | |
-| `image.size` | `n` (from `images`) or `line`; `to=40\|40%\|full\|none` (its width), `height=N\|none`, or `by=1\|-1` (a step; a header's height by two rows). Its line rewritten through the note's save, revision-checked, attributed | `+` `-` with an image the `[ ]` position, the caption's `[−][+]` |
+| `image.size` | `n` (from `images`) or `line`; `to=40\|40%\|full\|none` (its width), `height=N\|none`, or `by=1\|-1` (a step; a header's height by the tune's height steps). Its line rewritten through the note's save, revision-checked, attributed | `+` `-` with an image the `[ ]` position, the caption's `[−][+]` |
 | `image.align` | `n` or `line`; `to=left\|center\|right` or `by=1\|-1` | `←` `→` with an image the `[ ]` position, the caption's `[◂][▸]` |
 | `image.hero` | `n` or `line`; `on=true\|false` (default toggles): `[layout::hero]` on its line, and off any other image's, in one save | `H` with an image the `[ ]` position, the caption's `[▀]` |
 | `image.fit` | `n` or `line`; `to=cover\|contain` (default: the other one): a header too tall for its rows cropped to fill, or shown whole | `=` with the header image the `[ ]` position, its caption's `[whole]` / `[fill]` |
