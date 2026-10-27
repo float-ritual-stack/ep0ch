@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { pathsIn, type Rule, ruleContext, ruleOf, rulesFor } from './rules'
 import { guardOf, type Merge, mergesIn, protocolOf, protocolRefusal } from './guards'
-import { landArgv, landedSaid, mergedPr } from './landed'
+import { landArgv, landedSaid, lookupFailed, mergedPr } from './landed'
 import { absolute, contentsOf, scratchRemovals, underScratch } from './scratch'
 import { agentOfEp0ch, type Counts, dueOf, SWEEP_AFTER_CHANGES, SWEEP_AFTER_TURNS, isDeploy, isMerge, isOutlineWrite, reportOf, SWEEP_SYSTEM, SWEEP_TOOLS, sweepBrief, sweepsFor } from './freshness'
 
@@ -77,7 +77,11 @@ async function landMerges($: EngineInterface, command: string): Promise<string[]
   const said: string[] = []
   for (const merge of mergesIn(command)) {
     const view = await $.process.run(['gh', 'pr', 'view', ...(merge.pr ? [merge.pr] : []), ...(merge.repo ? ['--repo', merge.repo] : []), '--json', 'number,url,state'], { cwd, timeoutMs: LOOKUP_MS })
-      .then(r => r.exitCode === 0 ? r.stdout : '', () => '')
+      .then(r => r.exitCode === 0 ? r.stdout : null, () => null)
+    if (view === null) {
+      said.push(lookupFailed(merge.pr))
+      continue
+    }
     const pr = mergedPr(view)
     if (!pr) continue
     const run = await $.process.run(landArgv(root, pr, envAgent?.trim() || 'merge-step'), { cwd: root, timeoutMs: LAND_MS })
@@ -203,7 +207,8 @@ export const register: Register = (on) => {
     if (result.deny !== undefined) return result
     if (e.agentId === undefined && !result.isError && (isDeploy(command) || isMerge(command))) counts.changes++
     // Every merge on the record (PIE-1352), from whichever loop merged.
-    const landed = !result.isError && isMerge(command) ? await landMerges($, command).catch(() => []) : []
+    // Even when a later command in the line failed: gh's state says whether each merged.
+    const landed = isMerge(command) ? await landMerges($, command).catch(() => []) : []
     const context = [...landed, ...await rulesToAttach($, command, e.agentId).catch(() => [])]
     return context.length ? { ...result, context: [...(result.context ?? []), ...context] } : result
   }).catch(($, e, next) => {

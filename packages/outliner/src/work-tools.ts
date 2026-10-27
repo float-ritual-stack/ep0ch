@@ -523,6 +523,8 @@ export interface WorkLandResult {
   pullRequest: { number: number; url: string; state: string; mergeCommit: string | null; mergedAt: string | null };
   /** The deliveries that record this PR, synced again so each says it merged and when. */
   deliveries: Array<WorkDeliverResult["delivery"] & { workId: string }>;
+  /** Deliveries that couldn't be synced (a PR retargeted since it was recorded), with why: the row is written anyway. */
+  failed: Array<{ deliveryKey: string; blockId: string; error: string }>;
 }
 
 const MERGES_PAGE = "Merges [page::merges] [machine::merge] [system-merges::true]\n\n" +
@@ -605,19 +607,26 @@ export async function landPullRequest(
         `to record it on its ticket now, work deliver PIE-n --repo ${input.repository} --pr ${pr.number}`,
     );
   }
-  const deliveries: WorkLandResult["deliveries"] = [];
-  for (const recorded of await deliveriesOfPullRequest(client, input.repository, pr.number)) {
-    const synced = await deliverPullRequest(client, {
-      address: recorded.block.parentId!, repository: input.repository, pullRequest: pr,
-      baseBranch: recorded.baseBranch, workBranch: recorded.workBranch, deliveryKey: recorded.key,
-    }, actor, { land: false });
-    deliveries.push({ ...synced.delivery, workId: synced.workId });
-  }
+  // The row first: a delivery that can't be synced never keeps the merge off the record.
   const landed = await recordLanded(client, input.repository, pr, actor);
+  const deliveries: WorkLandResult["deliveries"] = [];
+  const failed: WorkLandResult["failed"] = [];
+  for (const recorded of await deliveriesOfPullRequest(client, input.repository, pr.number)) {
+    try {
+      const synced = await deliverPullRequest(client, {
+        address: recorded.block.parentId!, repository: input.repository, pullRequest: pr,
+        baseBranch: recorded.baseBranch, workBranch: recorded.workBranch, deliveryKey: recorded.key,
+      }, actor, { land: false });
+      deliveries.push({ ...synced.delivery, workId: synced.workId });
+    } catch (error) {
+      failed.push({ deliveryKey: recorded.key, blockId: recorded.block.id, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
   return {
     landed,
     pullRequest: { number: pr.number, url: pr.url, state: pr.state, mergeCommit: pr.mergeCommit, mergedAt: pr.mergedAt },
     deliveries,
+    failed,
   };
 }
 

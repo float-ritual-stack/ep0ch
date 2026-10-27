@@ -217,6 +217,18 @@ test("a merge is landed once, ticket or not; landing a ticketed PR syncs its del
   expect(open.error).toContain("is open: a PR with no item is recorded when it merges");
 });
 
+test("a PR retargeted since its delivery was recorded still gets its merge row, and says the delivery it couldn't sync", async () => {
+  const h = await setup();
+  await h.create();
+  h.pull(55, "OPEN", "feature/pie-001", null, REPO, { base: "wave/records" });
+  await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "55"]);
+  h.pull(55, "MERGED", "feature/pie-001", "eee5555");
+  const landed = await h.run(["work", "deliver", "--repo", REPO, "--pr", "55"]);
+  expect(landed.json).toMatchObject({ landed: { created: true, tickets: ["PIE-001"] }, deliveries: [], failed: [{ deliveryKey: "PIE-001/primary" }] });
+  expect(landed.json.failed[0].error).toContain("not feature/pie-001 into wave/records");
+  expect(landedOn(h.store, "2026-03-04")).toEqual(["eee5555"]);
+});
+
 test("a PR delivered to two tickets lands as one row naming both (PIE-1352)", async () => {
   const h = await setup();
   await h.create();

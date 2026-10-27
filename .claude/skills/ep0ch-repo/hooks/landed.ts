@@ -16,6 +16,12 @@ export function mergedPr(viewJson: string): { repo: string; number: number } | n
   }
 }
 
+/** gh didn't answer whether a merge's PR merged: said, with what to run once it does. */
+export function lookupFailed(pr: string | null): string {
+  const n = pr ?? '<n>'
+  return `gh didn't say whether PR ${n} merged, so it isn't on the record yet; once it has, run \`bun packages/outliner/src/cli.ts work deliver --repo <owner/name> --pr ${n}\` from the repository.`
+}
+
 /** The outliner CLI call that lands it, from the repository's root, written as `actor`. */
 export function landArgv(root: string, pr: { repo: string; number: number }, actor: string): string[] {
   return ['/bin/sh', `${root}/packages/outliner/scripts/run-bun.sh`, `${root}/packages/outliner/src/cli.ts`, 'work', 'deliver', `--repo=${pr.repo}`, `--pr=${pr.number}`, '--author=agent', `--actor=${actor}`]
@@ -29,10 +35,11 @@ export function landedSaid(pr: { repo: string; number: number }, run: { exitCode
     return `${pr.repo}#${pr.number} merged but isn't on the record yet (${why}); land it with \`${by}\` from the repository.`
   }
   try {
-    const out = JSON.parse(run.stdout) as { landed?: { blockId?: string; created?: boolean; tickets?: string[] } }
+    const out = JSON.parse(run.stdout) as { landed?: { blockId?: string; tickets?: string[] }; failed?: Array<{ deliveryKey?: string; error?: string }> }
     const tickets = out.landed?.tickets ?? []
+    const failed = (out.failed ?? []).map(f => ` ${f.deliveryKey} wasn't synced: ${f.error}`).join(';')
     return `${pr.repo}#${pr.number} is on the record: merge row ((${out.landed?.blockId ?? '?'}))` +
-      (tickets.length ? `, delivering ${tickets.join(', ')}.` : ', with no ticket.')
+      (tickets.length ? `, delivering ${tickets.join(', ')}.` : ', with no ticket.') + failed
   } catch {
     return `${pr.repo}#${pr.number}: \`${by}\` answered something unreadable; check the Merges page.`
   }

@@ -9,7 +9,7 @@ const result = (exitCode: number, stdout = '', stderr = ''): ProcessRunResult =>
 const ROW = '11111111-2222-4333-8444-555555555555'
 
 /** A session whose gh says PR `state`, and whose outliner CLI answers `land`; records each landing argv. */
-function sessionIn(on: On, state: string, land: ProcessRunResult) {
+function sessionIn(on: On, state: string | null, land: ProcessRunResult, bashFails = false) {
   const landed: string[][] = []
   mock.clock(on)
   mock.env(on, { EP0CH_FRESHNESS: 'off', EP0CH_AGENT: 'loki' })
@@ -19,6 +19,7 @@ function sessionIn(on: On, state: string, land: ProcessRunResult) {
     const argv = e.argv
     if (argv[0] === 'hostname') return { value: result(0, 'float-box\n') }
     if (argv[0] === 'gh' && argv.includes('number,url,state')) {
+      if (state === null) return { value: result(1, '', 'HTTP 502') }
       return { value: result(0, JSON.stringify({ number: 960, url: 'https://github.com/example-org/example-app/pull/960', state })) }
     }
     // The PROTOCOL check: a PR that leaves it alone.
@@ -28,7 +29,7 @@ function sessionIn(on: On, state: string, land: ProcessRunResult) {
     if (argv[0] === '/bin/sh') { landed.push(argv); return { value: land } }
     return { value: result(1, '', 'unexpected') }
   })
-  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '', interrupted: false } }) as never)
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: bashFails ? 'boom' : '', interrupted: false }, ...(bashFails ? { isError: true } : {}) }) as never)
   return { landed }
 }
 
@@ -41,6 +42,20 @@ describe('every merge on the record (PIE-1352)', () => {
     expect(s.landed).toEqual([['/bin/sh', '/work/ep0ch/packages/outliner/scripts/run-bun.sh', '/work/ep0ch/packages/outliner/src/cli.ts',
       'work', 'deliver', '--repo=example-org/example-app', '--pr=960', '--author=agent', '--actor=loki']])
     expect(out.context.join('\n')).toContain(`example-org/example-app#960 is on the record: merge row ((${ROW})), with no ticket.`)
+  })
+
+  test('a merge followed by a command that failed is still landed', async ($, on) => {
+    const s = sessionIn(on, 'MERGED', result(0, JSON.stringify({ landed: { blockId: ROW, tickets: ['PIE-8'] }, deliveries: [{}], failed: [] })), true)
+    const out = await bash($, 'gh pr merge 960 --merge && false')
+    expect(s.landed).toHaveLength(1)
+    expect(out.context.join('\n')).toContain('delivering PIE-8.')
+  })
+
+  test('gh not answering says the merge is not on the record yet, with the command', async ($, on) => {
+    const s = sessionIn(on, null, result(0, '{}'))
+    const out = await bash($, 'gh pr merge 960 --merge')
+    expect(s.landed).toEqual([])
+    expect(out.context.join('\n')).toContain("gh didn't say whether PR 960 merged")
   })
 
   test('a PR not merged yet (auto-merge) is left alone', async ($, on) => {
