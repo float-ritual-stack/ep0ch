@@ -63,6 +63,8 @@ describe("which door a tile's program reaches (PIE-604)", () => {
     }
     // A link outside the place that leads into it isn't the place's either: what a door gives a tile is inside it.
     expect((await reachDoor("/state/agent-door-pie.sock", PLACE, io([OWN], { "/state/agent-door-pie.sock": OWN }))).path).toBeNull();
+    // Its test door up: its own socket, taken as it is, never the place's door.
+    expect(await reachDoor(mine, PLACE, io([mine, OWN]))).toMatchObject({ path: mine, stale: null, refused: null });
     // The place's own socket, gone stale through a handover, still follows (PIE-604).
     expect(await reachDoor(`${PLACE}/door-4242.sock`, PLACE, io([OWN]))).toMatchObject({ path: OWN, refused: null });
   });

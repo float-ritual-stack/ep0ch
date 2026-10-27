@@ -15,9 +15,9 @@
 // taken as it is.)
 //
 // The place stands in only for a socket of its own (PIE-1363): a dead EP0CH_CONTROL outside the folder (an agent that set
-// its own before its test door was up, with the person's EP0CH_PLACE inherited) is refused, never followed to the
-// person's door.
-import { isAbsolute, join, relative, resolve } from "node:path";
+// its own before its test door was up, with the person's EP0CH_PLACE inherited) is refused, and a live one outside every
+// session folder (that test door, up) is taken as it is: neither is followed to the person's door.
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 /** What the rule asks of the world. */
 export interface DoorReachIO {
@@ -62,6 +62,10 @@ export async function reachDoor(given: string | null | undefined, place: string 
   const target = g ? io.linkTarget(g) ?? g : null;
   if (g && givenLive && inside(p, g) && inside(p, target!)) return { path: g, given: g, place: p, stale: null, refused: null };
   if (g && resolve(g) === resolve(own)) return { path: g, given: g, place: p, stale: null, refused: null };
+  // A live one outside the state's sessions folder (where every outline's session is, `<state>/sessions/<where>/<name>`)
+  // is no outline's door: the program's own (an agent's test door), taken as it is, never swapped for the place's.
+  const sessions = dirname(dirname(resolve(p)));
+  if (g && givenLive && !inside(sessions, g) && !inside(sessions, target!)) return { path: g, given: g, place: p, stale: null, refused: null };
   if (g && !givenLive && !inside(p, g)) {
     return { path: null, given: g, place: p, stale: null, refused: `EP0CH_CONTROL (${g}) answers nothing and isn't this tile's outline's door (${p}), so no door is reached: EP0CH_PLACE never stands in for a socket of your own · to test a door, run it and every command at it under scripts/agent-env <name> -- …` };
   }

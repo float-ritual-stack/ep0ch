@@ -147,7 +147,8 @@ export async function where(d: WhereDeps): Promise<Where> {
   const parsed = nestLayers(nest).map(parseLayer);
   // The door as it is now: by the outline's session (EP0CH_PLACE) when EP0CH_CONTROL went stale.
   const reached = d.reach ? await d.reach(env) : null;
-  let control = reached?.path ?? (env.EP0CH_CONTROL || null);
+  // A refused EP0CH_CONTROL (PIE-1363) is no door at all, not a door that doesn't answer.
+  let control = reached?.refused ? null : reached?.path ?? (env.EP0CH_CONTROL || null);
   const doors = parsed.filter((l): l is Extract<Layer, { kind: "door" }> => l.kind === "door");
   const inner = doors.at(-1) ?? null;
   const herdrs = parsed.filter((l): l is Extract<Layer, { kind: "herdr" }> => l.kind === "herdr");

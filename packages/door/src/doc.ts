@@ -1313,7 +1313,7 @@ type Cuts = [number, number, string?][];
  * Words hung under themselves (PIE-1349): the one wrap for a list item, a plain heading and a styled heading drawn
  * plainly. The first row starts with `head` (`lead` cells: an indent, a mark, a disclosure, #s), the next are indented
  * as far; `tail` (what a fold hides) goes after the last word, else on a row of its own under them, so it stays inside
- * `W`. `joins` and `cuts` get each row's: how a copy joins it to the row before, and the cells it leaves out (`first`:
+ * `W` with room for the reader's fold control after it. `joins` and `cuts` get each row's: how a copy joins it to the row before, and the cells it leaves out (`first`:
  * the first row's drawing; the hang; the tail, which is drawing too).
  */
 function hang(text: string, W: number, o: { head: string; lead: number; paint: (row: string) => string; first?: Cuts; tail?: string; code?: boolean; joins?: (string | undefined)[]; cuts?: Cuts[] }): string[] {
@@ -1323,10 +1323,12 @@ function hang(text: string, W: number, o: { head: string; lead: number; paint: (
   const cuts = words.map((_, k): Cuts => (k ? [[0, o.lead]] : [...(o.first ?? [])]));
   if (o.tail) {
     const tw = vwidth(visible(o.tail)), end = vwidth(visible(rows.at(-1)!));
-    if (end + tw <= W) { rows[rows.length - 1] += o.tail; cuts.at(-1)!.push([end, end + tw]); }
+    // The reader's fold control goes after it (`…`, a cell's gap): room is left for both.
+    const room = W - 4;
+    if (end + tw <= room) { rows[rows.length - 1] += o.tail; cuts.at(-1)!.push([end, end + tw]); }
     else {
-      const at = Math.max(0, Math.min(o.lead, W - tw));
-      rows.push(" ".repeat(at) + drawEllipsized(o.tail, W - at)); joins.push(""); cuts.push([[0, W]]);
+      const at = Math.max(0, Math.min(o.lead, room - tw));
+      rows.push(" ".repeat(at) + drawEllipsized(o.tail, Math.max(1, room - at))); joins.push(""); cuts.push([[0, W]]);
     }
   }
   o.joins?.push(...joins); o.cuts?.push(...cuts);

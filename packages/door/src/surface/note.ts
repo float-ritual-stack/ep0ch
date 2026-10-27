@@ -9049,7 +9049,7 @@ function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly stri
       links: [...doc.links.map(l => ({ ...l, line: mv(l.line) })), ...inserts.flatMap((p, i) => (p.links ?? []).map(l => ({ ...l, line: starts[i]! + l.line })))],
       images: [...doc.images.map(im => ({ ...im, line: mv(im.line) })), ...inserts.flatMap((p, i) => (p.images ?? []).map(im => ({ ...im, line: starts[i]! + im.line })))],
       media: doc.media.map(x => ({ ...x, row: mv(x.row) })),
-      heads: doc.heads.map(h => ({ ...h, row: mv(h.row) })),
+      heads: doc.heads.map(h => ({ ...h, row: mv(h.row), ...(h.rows ? { rows: mv(h.row + h.rows - 1) + 1 - mv(h.row) } : {}) })),
       ...(doc.regions ? { regions: doc.regions.map(r => ({ ...r, row: mv(r.row), rows: mv(r.row + r.rows - 1) + 1 - mv(r.row) })) } : {}),
       trims: new Map([...doc.trims].map(([r, t]) => [mv(r), t])),
       // A block that rows were put inside (a thread under a quote's passage) grows with them.
