@@ -68,5 +68,7 @@ describe("a header image's look (PIE-1361): one description, read by the tune an
     expect(heroPropStep("height", "13", -1)).toBe("12");
     expect(heroPropStep("focus.x", undefined, -1)).toBe("0.4");
     expect(heroPropStep("blur", "3", 1)).toBe("4");
+    expect(heroPropStep("height", "33%", 1)).toBe("40%");
+    expect(heroPropStep("height", "30%", -1)).toBe("25%");
   });
 });

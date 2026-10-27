@@ -27,8 +27,8 @@ are its record. The outliner's entries from then are kept below, under
 - **Fixed:** the picture drawn twice (a page-level `header.image` naming no picture of the note was drawn behind the
   header while the hero showed), the tile-level picture on other notes, "none (this note has no hero)" with a header
   showing, and the wide tune's cut names.
-- GRAMMAR 7 → 8 (the style tokens). No PROTOCOL or schema change; `ep0ch install --apply` as usual. On HUB-060 and any
-  note with old `style.header.image…` keys, move what's wanted onto the hero line (the tune names each one).
+- GRAMMAR 7 → 8 (the style tokens). No PROTOCOL or schema change; `ep0ch install --apply` as usual. A note with old
+  `style.header.image…` keys: move what's wanted onto its hero line (the tune names each one).
 
 ### Every merge to main is on the record (PIE-1352)
 

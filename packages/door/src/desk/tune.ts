@@ -93,6 +93,9 @@ function widthWords(look: Look): string {
   return look.breakpoint === "narrow" ? `narrow (under ${v["bp.narrow"]})` : look.breakpoint === "wide" ? `wide (${v["bp.wide"]} and up)` : `normal (${v["bp.narrow"]}–${v["bp.wide"] - 1})`;
 }
 
+/** The widest a row's source runs: a wide tune keeps its controls beside the values, not at the far edge. */
+const SRC_MAX = 32;
+
 /** The help line under the rows: the door's own selection copies the text; a terminal's own copies the spacing as spaces. */
 export const TUNE_HELP = "copy with the door's own selection (a drag; it copies the text over OSC 52): a terminal's shift-drag or copy-mode copies the spacing as spaces and blank lines";
 
@@ -115,6 +118,8 @@ export class TunePane implements Pane {
   group: StyleGroup | null = null;
   /** The Hero row picked (a reader's header image, PIE-1361), over `sel` and `group`. */
   heroSel: HeroProp | null = null;
+  /** Nothing picked yet: a note with a header picture opens on its first Hero row, the rows a person came for. */
+  fresh = true;
   foldedGroups = new Set(readState<StyleGroup[]>("tune-folds.json") ?? []);
   onlySet = false;
   /**
@@ -342,6 +347,7 @@ export class TunePane implements Pane {
       const lv = this.level === "auto" ? "where set" : this.level;
       lines.push(fg(C.dark) + pad("", nameW) + pad("in force", valW) + fg(C.lcyan) + " " + pad(drawEllipsized(`${lv}${this.scope === "this" && t.look.breakpoint ? ` ${t.look.breakpoint}` : ""}`, lvlW - 2), lvlW - 1) + fg(C.dark) + "from" + RESET);
     }
+    if (this.fresh && t.hero) { this.fresh = false; this.heroSel = HERO_PROP_NAMES[0]!; }
     const entries = this.entries(t);
     const cursor = entries.findIndex(r => this.isPicked(r));
     // The note's header image first (PIE-1361): its own line's properties, written there at once.
@@ -360,7 +366,7 @@ export class TunePane implements Pane {
       if ("hero" in entry) {
         const hp = entry.hero, on = this.heroSel === hp, own = t.hero!.values[hp];
         const shown = own ?? (hp === "height" && t.hero!.rows !== null ? `${t.hero!.rows} rows` : HERO_PROPS[hp].none);
-        const y = lines.length, srcW = Math.max(0, w - nameW - valW - ctl - 1);
+        const y = lines.length, srcW = Math.max(0, Math.min(SRC_MAX, w - nameW - valW - ctl - 1));
         const name = " " + pad(drawEllipsized(hp, nameW - 2), nameW - 1), value = pad(drawEllipsized(shown, valW - 1), valW);
         const whence = own === undefined ? "built in" : `[${HERO_PROPS[hp].attr}::]`;
         const body = (on ? "" : fg(C.grey)) + name + (on ? "" : fg(own === undefined ? C.dark : C.white)) + value + (on ? "" : fg(C.dark)) + pad(whence, srcW) + RESET;
@@ -392,7 +398,7 @@ export class TunePane implements Pane {
       const aimed = picked ? this.aimAt(t, last) : null;
       const own = picked && aimed ? row.tokens.map(tk => this.ownValue(t, tk)) : [];
       const ownText = !picked ? "" : !aimed ? "—" : own.every(v => v === null) ? "—" : own.map(v => (v === UNSET ? "×" : v ?? "·")).join(" ");
-      const srcW = Math.max(0, w - nameW - valW - lvlW - ctl - 1);
+      const srcW = Math.max(0, Math.min(SRC_MAX, w - nameW - valW - lvlW - ctl - 1));
       const y = lines.length;
       const name = " " + pad(drawEllipsized(row.name, nameW - 2), nameW - 1), value = swatch && valW > 6 ? pad(drawEllipsized(shown, valW - 4), valW - 3) + " " + swatch + (on ? selected(focused) : "") : pad(drawEllipsized(shown, valW - 1), valW);
       const lvl = picked ? " " + pad(drawEllipsized(ownText, lvlW - 2), lvlW - 1) : "";
@@ -622,7 +628,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     run({ group }, { pane, desk }) {
       const found = STYLE_GROUPS.find(g => g === group);
       if (!found) throw new ActionRefused(`choose a group: ${STYLE_GROUPS.join(", ")}`);
-      pane.group = found; pane.heroSel = null; desk.redraw(); return { group: found };
+      pane.group = found; pane.heroSel = null; pane.fresh = false; desk.redraw(); return { group: found };
     },
   }),
   "tune.group": def({
@@ -678,11 +684,11 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       if (row !== undefined) {
         const hp = heroRowNamed(row);
         if (!hp) throw new ActionRefused(`row is a Hero row: ${HERO_PROP_NAMES.map(HERO_ROW).join(", ")}`);
-        pane.heroSel = hp; desk.redraw();
+        pane.heroSel = hp; pane.fresh = false; desk.redraw();
         return { row: HERO_ROW(hp) };
       }
       if (n === undefined) throw new ActionRefused("say n= (a row, from 1) or row=hero.<property>");
-      pane.heroSel = null;
+      pane.heroSel = null; pane.fresh = false;
       if (!Number.isInteger(n) || n < 1 || n > TUNE_ROWS.length) throw new ActionRefused(`n is 1-${TUNE_ROWS.length}`);
       pane.sel = n - 1; pane.group = null; pane.foldedGroups.delete(groupOf(TUNE_ROWS[pane.sel]!));
       desk.redraw();

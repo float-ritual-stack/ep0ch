@@ -276,6 +276,8 @@ export const HERO_PROPS: Readonly<Record<HeroProp, HeroPropSpec>> = {
   title: { attr: "title", what: "the title below the picture, or over its bottom", none: "below", steps: ["none", "over"] },
   scroll: { attr: "scroll", what: "scroll away with the note, or stay pinned above it", none: "scroll", steps: ["none", "pinned"] },
 };
+/** The steps of a height written as a share of the reader. */
+const HEIGHT_SHARES: readonly string[] = ["10%", "15%", "20%", "25%", "33%", "40%", "50%"];
 export const HERO_PROP_NAMES = Object.keys(HERO_PROPS) as HeroProp[];
 export const isHeroProp = (s: string): s is HeroProp => Object.hasOwn(HERO_PROPS, s);
 
@@ -315,9 +317,11 @@ export function heroPropSet(spec: MediaSpec, prop: HeroProp, value: string): { s
  * drawn. A value between steps (written by hand) goes to the nearest one on the side it moves to.
  */
 export function heroPropStep(prop: HeroProp, now: string | undefined, by: number): string {
-  const p = HERO_PROPS[prop], steps = p.steps, cur = now ?? (steps.includes("none") ? "none" : p.none);
+  const p = HERO_PROPS[prop], cur = now ?? (p.steps.includes("none") ? "none" : p.none);
+  // A height written as a share steps by shares, never into rows.
+  const steps = prop === "height" && cur.endsWith("%") ? HEIGHT_SHARES : p.steps;
   const i = steps.indexOf(cur);
   if (i >= 0) return steps[Math.max(0, Math.min(steps.length - 1, i + Math.sign(by)))]!;
   const x = parseFloat(cur), at = (s: string) => parseFloat(s === "none" ? p.none : s);
-  return (by > 0 ? steps.find(s => at(s) > x) : steps.findLast(s => at(s) < x)) ?? cur;
+  return (by > 0 ? steps.find(s => at(s) > x) : [...steps].reverse().find(s => at(s) < x)) ?? cur;
 }
