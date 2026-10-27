@@ -20,13 +20,14 @@ import { wrap, rowLines } from "../text";
 // the person's keys.
 import {
   fieldKey, isListField, levelOfSave, nudgeStyleValue, parseFieldKey, parseStyleAttrs, parseStyleValue, resolveStyle, SAVE_LEVELS, STYLE_LEVELS, STYLE_GROUPS, STYLE_TOKEN_NAMES, styleProperty, STYLE_TOKENS, styleValueText,
-  SURFACE_STEPS, type Breakpoint, type StyleGroup, type StyleLayer, type StyleSource, type StyleToken, type StyleValue, type Surface,
+  SURFACE_STEPS, withoutRetiredLookKeys, type Breakpoint, type StyleGroup, type StyleLayer, type StyleSource, type StyleToken, type StyleValue, type Surface,
 } from "@ep0ch/outline-core/style-cascade";
 import { liveTokensInLine } from "@ep0ch/outline-core/heading-styles";
-import { HERO_PROP_NAMES, HERO_PROPS, isHeroProp, type HeroProp } from "@ep0ch/outline-core/media-line";
+import { HERO_PROP_NAMES, HERO_PROPS, heroFromRetired, isHeroProp, withHeroLine, type HeroProp } from "@ep0ch/outline-core/media-line";
+import { fullText } from "../overflow";
 import {
-  clearNotes, levelNotes, styleSheetProblems, listTarget, lookFor, parseListTarget, writeLine, writeTile, revertAll, rewrite, saveTuning, sourceTarget, stepWords, targetWords, tuneTarget, tuningOf, UNSET,
-  type Look, type NoteWrite, type StyleWriteBoard, type TuneTarget,
+  clearNotes, levelNotes, styleSheetProblems, listTarget, lookFor, parseListTarget, retiredLooks, styleSheetsStale, writeLine, writeText, writeTile, revertAll, rewrite, saveTuning, sourceTarget, stepWords, targetWords, tuneTarget, tuningOf, UNSET,
+  type Look, type NoteWrite, type RetiredLook, type StyleWriteBoard, type TuneTarget,
 } from "../look";
 import { readState, writeState } from "../state";
 import { surfaceMix } from "../theme";
@@ -140,6 +141,8 @@ export class TunePane implements Pane {
   private controls: { y: number; x: number; cols: number; action: string; args: Record<string, unknown> }[] = [];
   /** The rows' screen lines as last drawn: the row each is, or the value cell a wheel nudges. */
   private rowAt = new Map<number, { row: number; hero?: HeroProp; valueFrom: number; valueTo: number }>();
+  /** Whether the last frame listed retired look keys (PIE-1365): the hint names D and M while it does. */
+  retiredShown = false;
   /** `source`: the tile it tunes, by name (re-resolved each frame: ADR 0001, a role). */
   constructor(public source: string) {}
 
@@ -149,7 +152,7 @@ export class TunePane implements Pane {
   unsaved() { return this.view.unsaved(); }
   keepDrafts() { return this.view.keep(); }
   dispose() { void this.view.field?.session.leave(); }
-  hint() { if (this.section === "hints") return "H values · j k pick · c card · s status · o off · R reset all"; if (this.view.field) return "editing · Enter save · Esc cancel"; return "Enter fold · f set here · e edit · j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all"; }
+  hint() { if (this.section === "hints") return "H values · j k pick · c card · s status · o off · R reset all"; if (this.view.field) return "editing · Enter save · Esc cancel"; return `Enter fold · f set here · e edit · j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all${this.retiredShown ? " · D drop retired keys · M move them to a hero line" : ""}`; }
   spec() { return { source: `tile:${this.source}` }; }
 
   info(desk: DeskApi): TuneTargetInfo | null { return desk.tileLook?.(this.source) ?? null; }
@@ -335,6 +338,19 @@ export class TunePane implements Pane {
     } else lines.push("");
     const problems = problemsOf(t, desk);
     if (problems.length) words(`!! ${problems.join(" · ")}`, C.yellow);
+    // Retired look keys (PIE-1365): a line per note with its fix; why, once, under the pointer (and the actions' hint card).
+    const retired = retiredOf(t, desk);
+    this.retiredShown = retired.length > 0;
+    for (const r of retired) {
+      const n = r.keys.length, said = drawEllipsized(`!! ${r.where}: ${n} retired header-image key${n === 1 ? "" : "s"}`, w);
+      const args = { note: r.note, ...(r.line !== undefined ? { line: r.line + 1 } : {}) };
+      // Its fixes beside it when they fit, else on the row under it.
+      const fixes = [{ label: "[remove]", action: "tune.retired.remove", args, hint: RETIRED_WHY }, ...(r.picture && t.look.place.page ? [{ label: "[move to a hero line]", action: "tune.retired.move", args, hint: RETIRED_WHY }] : [])];
+      const beside = width(said) + 1 + fixes.reduce((k, f) => k + width(f.label) + 3, 0) <= w;
+      const lead = fg(C.yellow) + fullText(RETIRED_WHY, said) + RESET + " ";
+      if (beside) chips(fixes, lead);
+      else { lines.push(lead); chips(fixes, "  "); }
+    }
     chips([{ label: this.onlySet ? "[set here]" : "[all values]", on: this.onlySet, action: "tune.filter", args: { set: !this.onlySet } }]);
     const help = wrap(TUNE_HELP, w);
     this.head = lines.length;
@@ -464,6 +480,8 @@ export class TunePane implements Pane {
     if (c === "x") return this.run(desk, "tune.unset", {}), true;
     if (c === "X") return this.run(desk, "tune.resetlevel", {}), true;
     if (c === "R") return this.run(desk, "tune.revert", {}), true;
+    if (c === "D") return this.run(desk, "tune.retired.remove", {}), true;
+    if (c === "M") return this.run(desk, "tune.retired.move", {}), true;
     return false;
   }
 
@@ -530,6 +548,7 @@ export class TunePane implements Pane {
         }];
       })),
       unsaved: tuning?.unsaved() ?? [], problems: desk ? problemsOf(t, desk) : t.look.problems,
+      ...(desk ? { retired: retiredOf(t, desk).map(r => ({ note: r.note, ...(r.line !== undefined ? { line: r.line + 1 } : {}), where: r.where, keys: r.keys.map(k => k.key), picture: r.picture, fixes: r.picture && t.look.place.page ? ["tune.retired.remove", "tune.retired.move"] : ["tune.retired.remove"] })) } : {}),
       ...(this.offer ? { offer: { row: this.offer.row, why: this.offer.shadow.why, choices: this.offer.shadow.can } } : {}),
       ...(this.armed ? { armed: this.armed } : {}),
     };
@@ -620,6 +639,58 @@ async function writeHeroRow(pane: TunePane, desk: DeskApi, actor: Actor, prop: H
   // A person's refused press has said why already (perform flashes it): nothing more to say.
   if (!out || typeof out !== "object") return { row: HERO_ROW(prop), refused: true };
   return { row: HERO_ROW(prop), ...out, at: "the hero line" };
+}
+
+/** The retired look keys the outline still writes (PIE-1365): the shown note's own, then each style note's. */
+const retiredOf = (t: TuneTargetInfo, desk: DeskApi) => retiredLooks({ board: desk.ctx.board, redraw: () => desk.redraw() }, t.look.place.page);
+
+/** Why retired keys are listed, said once: under the pointer on their line, and as the fix's hint card. */
+const RETIRED_WHY = "Since PIE-1361 a header picture is the note's own [img::…] [layout::hero] line, its look that line's properties (height, blur, fade, tint, dim, fit, bleed, scroll, title, hero-focus): style.header.image… and style.header.title draw nothing at any level. Remove takes them off the note; move writes the picture they name as this note's hero line with their look on it, then removes them. Either is one step: u in the tune undoes it.";
+
+/** The fixes' hint card: the why (the hint settings say whether it shows again: card, status or off). */
+const retiredHint = { title: "Retired look keys", lines: [RETIRED_WHY] };
+
+/**
+ * Fixes one note's retired look keys (PIE-1365), as one tune step u takes back: `remove` takes them off the note (or its
+ * line), `move` also writes the picture they name as the shown note's hero line, the look moved over (heroFromRetired),
+ * what has no place on the line said. Attributed to `actor` like every tune write.
+ */
+async function fixRetired(op: "remove" | "move", pane: TunePane, desk: DeskApi, actor: Actor, note: string | undefined, line: number | undefined) {
+  const t = fresh(pane, desk), all = retiredOf(t, desk);
+  if (!all.length) throw new ActionRefused("no note writes retired look keys");
+  const r: RetiredLook | undefined = note === undefined ? all[0] : all.find(x => (x.note === note || x.note.startsWith(note)) && (line === undefined ? x.line === undefined : x.line === line - 1));
+  if (!r) throw new ActionRefused(`no retired look keys on ${note}${line !== undefined ? ` line ${line}` : ""}: ${all.map(x => `${x.note.slice(0, 8)}${x.line !== undefined ? ` line=${x.line + 1}` : ""}`).join(", ")}`);
+  const page = t.look.place.page, mig = heroFromRetired(r.keys);
+  if (op === "move" && !mig.path) throw new ActionRefused(`${r.where} names no picture (no style.header.image): remove is its fix`);
+  if (op === "move" && !page) throw new ActionRefused(`${pane.source} shows no note to give the picture to`);
+  if (op === "move") {
+    const own = page && desk.ctx.board ? await refuseAsync(async () => (await board(desk).get(page.id))?.text ?? "") : "";
+    const kept = withHeroLine(own, mig.path!, {}).left.find(l => l.startsWith("the picture "));
+    if (kept) throw new ActionRefused(`${kept}: nothing of ${r.where}'s picture would move; remove is its fix`);
+  }
+  const tuning = tuningOf(desk.ctx.board), before = tuning.snapshot(), writes: NoteWrite[] = [];
+  let hero: { note: string; line: number } | null = null, kept: string[] = [];
+  const what = op === "move" ? `move of ${r.where}'s picture to a hero line` : `removal of ${r.where}'s retired keys`;
+  // writeText runs `change` before it answers: `hero` is set by the time it's read.
+  const toHero = (text: string) => { const h = withHeroLine(text, mig.path!, mig.set); hero = { note: page!.id, line: h.line + 1 }; kept = h.left; return h.text; };
+  // The page's own keys and its hero line are one write; a style note's keys and the page's line are two, one step.
+  const together = op === "move" && r.note === page?.id && r.line === undefined;
+  try {
+    await refuseAsync(async () => {
+      // The hero line first: a refusal part way loses no picture (the keys are still there to try again).
+      if (op === "move" && !together) { const w = await writeText(board(desk), tuning, page!.id, toHero, null, actor); if (w) writes.push(w); }
+      const off = await writeText(board(desk), tuning, r.note, text => (together ? toHero : (x: string) => x)(withoutRetiredLookKeys(text, r.line)), null, actor);
+      if (off) writes.push(off);
+    });
+  } finally {
+    if (writes.length) tuning.record({ kind: "write", what, writes, tuningBefore: before, tuningAfter: tuning.snapshot(), by: actor });
+    styleSheetsStale(desk.ctx.board as object);
+  }
+  desk.redraw();
+  const leftOut = [...mig.left, ...kept], left = op === "move" && leftOut.length ? ` · left out: ${leftOut.join("; ")}` : "";
+  const did = op === "move" ? `${r.where}: ${r.keys.length} retired keys moved to the hero line (line ${hero!.line})` : `${r.where}: ${r.keys.length} retired keys removed`;
+  desk.ctx.flash(says(actor, `${did}${left} · u takes it back`));
+  return { note: r.note, ...(r.line !== undefined ? { line: r.line + 1 } : {}), removed: r.keys.map(k => k.key), ...(hero ? { hero } : {}), ...(op === "move" ? { set: mig.set, left: leftOut } : {}) };
 }
 
 /** What's wrong with the look here: the tile's layers, then the outline's style notes (a key one no longer reads, PIE-1361). */
@@ -1026,6 +1097,28 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       desk.ctx.flash(says(actor, `${words} · u takes it back`));
       return { reverted: true, notes: writes.map(w => w.note) };
     },
+  }),
+  "tune.retired.remove": def({
+    summary: "take a note's retired look keys off it (PIE-1365: style.header.image… and style.header.title, inert since PIE-1361): note= its id (or the start of it; default the first the tune lists), line= for a declaration on a line. One attributed write; u in the tune takes it back",
+    keys: "D (the first listed), a click on [remove] on its line",
+    touches: "nothing", replay: "ask", hintId: "tune.retired", hint: retiredHint,
+    says: out => `· ${out.removed.length} retired keys removed from ${out.note.slice(0, 8)}`,
+    args: { note: { type: "string", optional: true, about: "the note writing them (its id, or the start of it)" }, line: { type: "number", optional: true, about: "the line declaring them, from 1" } },
+    examples: [
+      { act: "tune.retired.remove note=7d9a1f40 tile=tune", does: "takes the retired header-image keys off that note" },
+    ],
+    run: ({ note, line }, { pane, desk }, actor) => fixRetired("remove", pane, desk, actor, note, line),
+  }),
+  "tune.retired.move": def({
+    summary: "move a note's retired look keys to a hero line (PIE-1365): the picture style.header.image names written as the shown note's [img::…] [layout::hero] line (the image line naming it made the hero, else a new line under the subject), the look mapped onto it (height, blur, fade, tint, dim, fit, bleed, scroll, title; x/y as hero-focus), what has no place there said, and the keys removed. note= and line= as tune.retired.remove. One attributed step; u in the tune takes it back",
+    keys: "M (the first listed), a click on [move to a hero line] on its line",
+    touches: "nothing", replay: "ask", hintId: "tune.retired", hint: retiredHint,
+    says: out => `· ${out.removed.length} retired keys moved to the hero line of ${out.hero?.note.slice(0, 8)}`,
+    args: { note: { type: "string", optional: true, about: "the note writing them (its id, or the start of it)" }, line: { type: "number", optional: true, about: "the line declaring them, from 1" } },
+    examples: [
+      { act: "tune.retired.move note=7d9a1f40 tile=tune", does: "writes that note's old header picture as the shown note's hero line, with its look, and removes the keys" },
+    ],
+    run: ({ note, line }, { pane, desk }, actor) => fixRetired("move", pane, desk, actor, note, line),
   }),
   "tune.aim": def({
     summary: "point the tune inspector at another tile on this screen",

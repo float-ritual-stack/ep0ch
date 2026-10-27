@@ -1226,6 +1226,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "retired-looks", need: "fix a note still written with retired look keys", part: "the tune inspector's retired-key line (PIE-1365): style-cascade.ts gathers style.header.image… and style.header.title (retired by PIE-1361) into each sheet's `retired` and the page's, look.ts's retiredLooks lists them a line per note, and tune.retired.remove and tune.retired.move fix one in one attributed tune step (media-line.ts heroFromRetired maps the look onto the hero line, withHeroLine writes it)", files: "outline-core/src/style-cascade.ts, outline-core/src/media-line.ts, src/look.ts, src/desk/tune.ts, src/showcase/seed/looks.ts",
+    aside: "This page still writes its header picture as style.header.image… properties, which draw nothing since the picture became the note's own [layout::hero] line. The tune says it in one line (the why under the pointer): [remove] or D takes the keys off; [move to a hero line] or M writes the picture as this note's hero line, its tint, fade, title and crop moved over (the wide-only blur can't be, and is said), then removes them. u in the tune takes either back · an agent: tune.retired.move note=<id> tile=tune",
+    stage(n, show) {
+      const old = detailPane(), tune = new TunePane("old");
+      return deskOf({ title: "showcase · retired look keys", panes: [old, tune], names: ["old", "tune"], layout: ([a, b]) => row(0.55, a!, b!) }, show, [[old, n.oldLook]]);
+    },
+  },
+  {
     key: "style-one-list", need: "style one list of several", part: "NoteSurface, the tune inspector, the shared list cascade and an authored button running the inspector actions", files: "outline-core/src/style-cascade.ts, src/surface/note.ts, src/desk/tune.ts, src/showcase/seed/looks.ts",
     aside: "Press Style the middle list: its script picks this list, sets gap, divider and zebra through tune, then saves. The first and last lists stay tight. Select any list to inspect its values; reopen the note to see the saved look. The first item's properties own just that list; a heading or lead-in still supplies defaults.",
     stage(n, show) {

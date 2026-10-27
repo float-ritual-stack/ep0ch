@@ -256,5 +256,6 @@ export function keepGroups(groups: readonly QuestionGroup[] | undefined, kept: R
 const ASK_KEYS = ["query", "view", "limit", "sort", "direction", "machinery", "source", "group", "done", "now", "label", "value"] as const;
 export function askProps(p: Props): Props {
   const pick = (from: Props) => Object.fromEntries(ASK_KEYS.flatMap(k => from?.[k] === undefined ? [] : [[k, from[k]]]));
-  return { ...pick(p), ...(Array.isArray(p.items) ? { items: p.items.map(pick) } : {}) };
+  // A title that reads the Site (`{{props.day}}` in a template, PIE-1362) is asked with the question, and answered read.
+  return { ...pick(p), ...(typeof p.title === "string" && p.title.includes("{{") ? { title: p.title } : {}), ...(Array.isArray(p.items) ? { items: p.items.map(pick) } : {}) };
 }

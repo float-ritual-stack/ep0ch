@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Retired look keys: one line a note in the tune, with the fix (PIE-1365, PIE-1362)
+
+- **One line per note, not a sentence per key.** A note (or a line) still writing `style.header.image…` or
+  `style.header.title`, inert since PIE-1361, shows in the tune as "tile reader style 641d8976: 11 retired
+  header-image keys", with `[remove]` and, when they name a picture, `[move to a hero line]`. Why is said once: under
+  the pointer on that line, and as a hint card the first time a fix runs.
+- **The fix is one tune step.** `[remove]` (`D`, `tune.retired.remove note=<id>`) takes the keys off the note;
+  `[move to a hero line]` (`M`, `tune.retired.move`) writes the picture as the shown note's `[img::…] [layout::hero]`
+  line with the look moved over (height, blur, fade, tint, dim, fit, bleed, scroll, title; the old crop offsets as
+  `hero-focus`), says what has no place there (a width's own value), and removes the keys. A hero line the note
+  already has stays the header; its own properties win. Attributed; `u` in the tune undoes it.
+- **A template figure's title reads its props (PIE-1362).** In a `::use` template, `title: merged {{props.day}}` is
+  filled from the call's props, as the figure's `query:` already was.
+- **What to run:** `PROTOCOL` moved (styles.list's sheets carry `retired`; a figure's answer carries its read
+  `title`): `ep0ch install --apply` on each machine.
+
 ### Door fixes: an agent's own socket, the lift's fetch, wrapped headings (PIE-1363, PIE-1337, PIE-1349)
 
 - **An agent's own `EP0CH_CONTROL` never reaches the person's door (PIE-1363).** `EP0CH_PLACE` stands in only for a

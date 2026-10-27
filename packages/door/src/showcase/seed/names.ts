@@ -68,6 +68,7 @@ export const SEED = {
   headings: "Headings and dividers",
   spacingLab: "Spacing lab",
   singleList: "Style one list of several",
+  oldLook: "An old header look",
   looksLab: "Looks lab",
   rules: "Allotment committee, Saturday",
   settings: "Compost bay jobs get a badge",

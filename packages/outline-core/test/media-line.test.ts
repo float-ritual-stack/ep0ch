@@ -1,6 +1,6 @@
 // The media line's grammar is shared (PIE-598): the service's property parser and every client agree on it.
 import { describe, expect, test } from "bun:test";
-import { artifactKind, artifactTitle, HERO_PROP_NAMES, heroPropSet, heroPropStep, heroPropText, imagePrimitiveSpec, imageSource, isMediaLine, parseMediaLine, rewriteMediaLine } from "../src/media-line";
+import { artifactKind, artifactTitle, HERO_PROP_NAMES, heroPropSet, heroPropStep, heroFromRetired, heroPropText, imagePrimitiveSpec, imageSource, isMediaLine, parseMediaLine, rewriteMediaLine, withHeroLine } from "../src/media-line";
 
 test("a media line is an image or video reference and its layout, nothing else", () => {
   expect(isMediaLine("[img::/p/beds.jpg] [hero-focus::0.8,0.6] [alt::the beds]")).toBe(true);
@@ -72,5 +72,40 @@ describe("a header image's look (PIE-1361): one description, read by the tune an
     expect(heroPropStep("height", "30%", -1)).toBe("25%");
     expect(heroPropStep("fit", "cover", 1)).toBe("contain");
     expect(heroPropStep("title", "below", 1)).toBe("over");
+  });
+});
+
+describe("the retired look keys' migration (PIE-1365): what a move writes on the hero line", () => {
+  const kv = (o: Record<string, string>) => Object.entries(o).map(([key, value]) => ({ key, value }));
+  test("each key as the hero property it meant; the crop offsets as the focus point; built-ins and auto left off", () => {
+    expect(heroFromRetired(kv({
+      "style.header.image": "'media/Shed Door.png'", "style.header.image.x": "-15", "style.header.image.height": "25%", "style.header.image.blur": "4",
+      "style.header.image.fit": "cover", "style.header.image.dim": "auto", "style.header.image.tint": "0.5", "style.header.image.fade": "0.25",
+      "style.header.image.bleed": "measure", "style.header.image.scroll": "pinned", "style.header.title": "over",
+    }))).toEqual({
+      path: "media/Shed Door.png",
+      set: { height: "25%", blur: "4", tint: "0.5", fade: "0.25", bleed: "measure", scroll: "pinned", title: "over", "hero-focus": "0.35,0.5" },
+      left: [],
+    });
+  });
+  test("what has no place on the line is said: a width's own value, a value the line can't take; no picture, no path", () => {
+    const r = heroFromRetired(kv({ "style.wide.header.image.blur": "8", "style.header.image.blur": "99", "style.header.image.y": "80" }));
+    expect(r.path).toBeNull();
+    expect(r.set).toEqual({});
+    expect(r.left).toEqual([
+      "style.wide.header.image.blur: a width's own value (a hero line has one look at every width)",
+      expect.stringMatching(/^style\.header\.image\.blur "99": blur is soften it/),
+      'style.header.image.y "80": a crop offset is -50 to 50',
+    ]);
+  });
+  test("the hero line: a new one under the subject and its properties; the image naming the picture made the hero; a hero already there stays, filled in", () => {
+    expect(withHeroLine("Seed shed\n[type::plot]\nThe door sticks.", "media/shed.png", { tint: "0.5" }))
+      .toEqual({ text: "Seed shed\n[type::plot]\n[img::media/shed.png] [layout::hero] [tint::0.5]\n\nThe door sticks.", line: 2, left: [] });
+    expect(withHeroLine("Seed shed\n\nBefore.\n\n[img::media/shed.png] [fade::0.5]", "media/shed.png", { fade: "1", tint: "0.5" }))
+      .toEqual({ text: "Seed shed\n\nBefore.\n\n[img::media/shed.png] [fade::0.5] [layout::hero] [tint::0.5]", line: 4, left: ["fade: the line's own stays"] });
+    expect(withHeroLine("Seed shed\n[img::media/dusk.png] [layout::hero]\n\nAfter.", "media/shed.png", { title: "over" }))
+      .toEqual({ text: "Seed shed\n[img::media/dusk.png] [layout::hero] [title::over]\n\nAfter.", line: 1, left: ["the picture shed.png: the note's own header picture (dusk.png) stays"] });
+    // A picture in a fence is an example, and one of the same name elsewhere is another picture: a new line for both.
+    expect(withHeroLine("Seed shed\n\n```\n[img::media/shed.png]\n```\n\n[img::old/shed.png]", "media/shed.png", {}).line).toBe(1);
   });
 });

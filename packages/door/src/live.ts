@@ -24,7 +24,7 @@ type Props = Record<string, any>;
  * One figure's answer: its results, the service's `groups` when the figure groups, and which results the figure's
  * `done:` and `now:` queries hold for (as the service says).
  */
-interface Entry { state: "loading" | "ready" | "error"; items: Msg[]; truncated: boolean; groups?: QuestionGroup[]; done?: Set<string>; now?: Set<string>; error?: string; hint?: string; counts?: { ids: string[]; truncated: boolean; error?: string }[] }
+interface Entry { state: "loading" | "ready" | "error"; items: Msg[]; truncated: boolean; /** The title read in the figure's Site (PIE-1362). */ title?: string; groups?: QuestionGroup[]; done?: Set<string>; now?: Set<string>; error?: string; hint?: string; counts?: { ids: string[]; truncated: boolean; error?: string }[] }
 type Answer = Omit<Entry, "state" | "error">;
 
 let board: SocketBoard | null = null;
@@ -87,7 +87,7 @@ function ask(kind: string, p: Props, note: string | undefined, site?: LiveSite):
   const items = a.blocks as unknown as Msg[];
   const error = read.state === "error" ? read.error : a.error;
   if (error) return { state: "error", items, truncated: false, error, ...(a.counts ? { counts: a.counts } : {}) };
-  return { state: "ready", items, truncated: a.truncated, ...(a.groups ? { groups: a.groups } : {}), ...(a.done ? { done: new Set(a.done) } : {}), ...(a.now ? { now: new Set(a.now) } : {}), ...(a.hint ? { hint: a.hint } : {}), ...(a.counts ? { counts: a.counts } : {}) };
+  return { state: "ready", items, truncated: a.truncated, ...(a.title !== undefined ? { title: a.title } : {}), ...(a.groups ? { groups: a.groups } : {}), ...(a.done ? { done: new Set(a.done) } : {}), ...(a.now ? { now: new Set(a.now) } : {}), ...(a.hint ? { hint: a.hint } : {}), ...(a.counts ? { counts: a.counts } : {}) };
 }
 
 /**
@@ -140,7 +140,7 @@ export function resolveLive(kind: string, p: Props, note?: string, site?: LiveSi
     if (!a) return null;
     if (a.state === "loading") return { props: { ...p, items: p.items.map((i: Props) => ({ ...i, value: i?.query || i?.view ? "…" : i?.value })) }, status: "live", waiting: true };
     const items = p.items.map((i: Props, k: number) => (a.counts?.[k] && (i?.query || i?.view) ? { ...i, value: a.counts[k]!.error ? "?" : `${a.counts[k]!.ids.length}${a.counts[k]!.truncated ? "+" : ""}` } : i));
-    return { props: { ...p, items }, status: "live", waiting: false, error: a.error };
+    return { props: { ...p, items, ...(a.title !== undefined ? { title: a.title } : {}) }, status: "live", waiting: false, error: a.error };
   }
   const asking = liveAsk(kind, p);
   if (asking.error) return { props: p, status: null, waiting: false, error: asking.error };
@@ -153,5 +153,5 @@ export function resolveLive(kind: string, p: Props, note?: string, site?: LiveSi
   const drawn = liveProps(kind, p, { ...a, items: a.items.map(itemOf) });
   // A key nobody has written: the service's hint (with the nearest keys that exist) is said under the figure.
   const error = drawn.error ?? a.hint;
-  return { props: drawn.props, status, waiting: false, found: { n: a.items.length, truncated: a.truncated }, ...(error ? { error } : {}) };
+  return { props: a.title !== undefined ? { ...drawn.props, title: a.title } : drawn.props, status, waiting: false, found: { n: a.items.length, truncated: a.truncated }, ...(error ? { error } : {}) };
 }

@@ -72,10 +72,14 @@ describe.skipIf(!outliner)("one header picture, the note's own (PIE-1361)", () =
       expect(d.heroes()).toEqual([]);
       expect(d.backdrops()).toEqual([]);
       await d.act("tile.tune", {}, "detail");
-      await until(() => d.tune()?.describe(d.desk).problems?.length > 0, "the style note's problem", 5000);
+      // The old keys are listed with their fix, a row per note (PIE-1365), not a sentence each.
+      await until(() => d.tune()?.describe(d.desk).retired?.length === 2, "the retired keys, the page's and the style note's", 5000);
       const said = d.tune().describe(d.desk);
-      expect(said.problems.join("\n")).toMatch(/style\.header\.image is gone: a header picture's look is written on its own \[layout::hero\] line/);
-      expect(said.problems.join("\n")).toMatch(/page: style\.header\.image\.dim is gone/);
+      expect(said.retired).toEqual([
+        { note: plainNote.id, where: "this page", keys: ["style.header.image.dim"], picture: null, fixes: ["tune.retired.remove"] },
+        { note: style.id, where: `tile detail style ${style.id.slice(0, 8)}`, keys: ["style.header.image", "style.header.image.y"], picture: pic("shed.png"), fixes: ["tune.retired.remove", "tune.retired.move"] },
+      ]);
+      expect(said.problems).toEqual([]);
       expect(said.hero).toBeNull();
       expect(d.lines().join("\n")).toContain("this note has no header picture: H on one of its images");
       expect(said.values["header.image"]).toBeUndefined();

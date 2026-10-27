@@ -288,9 +288,11 @@ test("on a public page a stat counts only the notes the page may show", async ()
 test("a figure's call-site args reach the page's question: ::graph-table{project=…} reads {{props.project}}", async () => {
   const { store, page } = await setup();
   for (const [title, project] of [["Sort the bricks", "lego-night"], ["Water the beans", "garden"]]) store.create(`${title} [type::ticket] [project::${project}]`);
-  const note = store.create("Pick\n\n::graph-table{project=garden}\n---\nquery: type=ticket project={{props.project}}\ncolumns: [title]\n---\n::");
+  const note = store.create("Pick\n\n::graph-table{project=garden}\n---\ntitle: tickets for {{props.project}}\nquery: type=ticket project={{props.project}}\ncolumns: [title]\n---\n::");
   const html = await page(`/p/${note.id}`);
   expect(html).toContain("Water the beans");
+  // Its title reads the same props (PIE-1362).
+  expect(html).toContain("<figcaption>tickets for garden");
   expect(html).not.toContain("Sort the bricks");
 });
 

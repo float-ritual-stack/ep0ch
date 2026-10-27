@@ -125,6 +125,19 @@ export const DISPATCH_SKIN = [
   "```",
 ].join("\n");
 
+/**
+ * Retired look keys (PIE-1365): a page written before PIE-1361, its header picture and look still as `style.header.image…`
+ * properties, which draw nothing now. The tune beside it lists them in one line with the fix: [remove], or [move to a
+ * hero line], which writes the picture as this note's hero line with the look moved over (the wide-only blur has no
+ * place there, and says so).
+ */
+export const OLD_LOOK = [
+  `${SEED.oldLook} [style.header.image::${SHOWCASE_ASSETS}/allotment-dusk.jpg] [style.header.image.y::-15] [style.header.image.tint::0.5] [style.header.image.fade::0.75] [style.header.title::over] [style.wide.header.image.blur::4]`,
+  "Written before a header picture was the note's own line: its picture and look are properties of the page, and draw nothing now.",
+  "",
+  "The tune beside it says so in one line, with the fix: remove takes the keys off; move writes the picture as this note's hero line with the look moved over. u in the tune takes either back.",
+].join("\n");
+
 export const SINGLE_LIST = [
   SEED.singleList + " [style.list.gap::0] [style.list.divider::none] [style.list.zebra::off]",
   "Press the middle list's button to style it and save.",

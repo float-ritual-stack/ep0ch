@@ -5,6 +5,9 @@ import { isArtifactName } from "./artifacts";
 // An artifact (PIE-793) is a file claude.ai would run (`.jsx`/`.tsx`, `.html`, `.svg`, `.mermaid`): the web pages run it
 // inline in a sandboxed frame, the door draws it as a card that opens that page.
 
+import { noteStructure } from "./component-block";
+import { frontMatterLines } from "./header-line";
+import { propertyTokensInLine } from "./property-grammar";
 import { parseResourceRef } from "./resource-ref";
 
 /** What a media line names: an image, a video or an artifact. */
@@ -326,4 +329,79 @@ export function heroPropStep(prop: HeroProp, now: string | undefined, by: number
   if (i >= 0) return steps[Math.max(0, Math.min(steps.length - 1, i + Math.sign(by)))]!;
   const x = parseFloat(cur), at = (s: string) => parseFloat(s === "none" ? p.none : s);
   return (by > 0 ? steps.find(s => at(s) > x) : [...steps].reverse().find(s => at(s) < x)) ?? cur;
+}
+
+/**
+ * The migration of PIE-1361's retired look keys (PIE-1365): a note's `style.header.image…` and `style.header.title`, as
+ * written, read as the hero line they mean. `path` is the picture `style.header.image` named (none: there's no picture to
+ * move); `set` is the line's properties for the rest, each checked as the line reads it and left out at its built-in;
+ * `left` says each key that has no place on the line (a width's variant, a value the line can't take) and why. The old
+ * crop offsets (`x`, `y`: % of the picture, -50 to 50 from its middle) are the focus point's halves (0.5 + offset).
+ */
+export function heroFromRetired(keys: readonly { key: string; value: string }[]): { path: string | null; set: Partial<Record<MediaAttr, string>>; left: string[] } {
+  const set: Partial<Record<MediaAttr, string>> = {}, left: string[] = [];
+  let path: string | null = null, fx: number | null = null, fy: number | null = null;
+  const ATTR: Record<string, MediaAttr> = { height: "height", blur: "blur", bleed: "bleed", fit: "fit", dim: "dim", tint: "tint", fade: "fade", scroll: "scroll" };
+  /** Puts `value` on the line as `attr` when the line reads it, and it isn't the built-in. */
+  const put = (key: string, attr: MediaAttr, value: string) => {
+    const v = value.trim().toLowerCase(), prop = (Object.keys(HERO_PROPS) as HeroProp[]).find(p => HERO_PROPS[p].attr === attr)!;
+    if (v === HERO_PROPS[prop].none || (attr === "height" && v === "auto") || (attr === "dim" && v === "auto")) return;
+    const read = parseMediaLine(`[img::x] [${attr}::${v}]`);
+    if (!read || read.problems.length) { left.push(`${key} "${value}": ${prop} is ${HERO_PROPS[prop].what}`); return; }
+    if (heroPropText(read, prop) === HERO_PROPS[prop].none) return;
+    set[attr] = v;
+  };
+  for (const { key, value } of keys) {
+    const k = key.toLowerCase().replace(/^style\./, "");
+    if (/^(narrow|wide)\./.test(k)) { left.push(`${key}: a width's own value (a hero line has one look at every width)`); continue; }
+    if (k === "header.image") { path = value.trim().replace(/^(['"])(.*)\1$/, "$2") || null; continue; }
+    if (k === "header.title") { const v = value.trim().toLowerCase(); if (v === "over") set.title = "over"; else if (v !== "below") left.push(`${key} "${value}": title is below or over`); continue; }
+    const m = /^header\.image\.(.+)$/.exec(k);
+    if (m && (m[1] === "x" || m[1] === "y")) {
+      const n = Number(value.trim());
+      if (!Number.isFinite(n) || n < -50 || n > 50) { left.push(`${key} "${value}": a crop offset is -50 to 50`); continue; }
+      if (m[1] === "x") fx = n; else fy = n;
+      continue;
+    }
+    if (m && ATTR[m[1]!]) { put(key, ATTR[m[1]!]!, value); continue; }
+    left.push(`${key}: no hero property says it`);
+  }
+  if (fx !== null || fy !== null) {
+    const r = (o: number | null) => String(Math.round((0.5 + (o ?? 0) / 100) * 100) / 100);
+    if ((fx ?? 0) !== 0 || (fy ?? 0) !== 0) set["hero-focus"] = `${r(fx)},${r(fy)}`;
+  }
+  return { path, set, left };
+}
+
+/**
+ * `text` with the retired keys' picture as its header image (PIE-1365, their move), as the old cascade drew it: the line
+ * owned its look and the keys filled in only what it left out. A hero line already there stays the header, given the
+ * properties of `set` it doesn't write (`path` is then said in `left`, not drawn twice); else the image line naming
+ * `path` is made the hero the same way; else a new `[img::path] [layout::hero]` line goes under the note's subject and
+ * its properties. `line` is the hero line's, from 0, in the text returned.
+ */
+export function withHeroLine(text: string, path: string, set: Partial<Record<MediaAttr, string>>): { text: string; line: number; left: string[] } {
+  const lines = text.split("\n"), base = (p: string) => p.split("/").pop()!, left: string[] = [];
+  // Only the lines the reader draws as pictures: one in a fence or a component is an example, not the note's.
+  const drawn = noteStructure(lines), spec = (i: number) => (i >= 0 && drawn[i] === -1 ? parseMediaLine(lines[i]!) : null);
+  let at = lines.findIndex((_, i) => spec(i)?.layout === "hero");
+  if (at >= 0 && spec(at)!.path !== path) left.push(`the picture ${base(path)}: the note's own header picture (${base(spec(at)!.path)}) stays`);
+  // The image naming it: by its path, or, when the key named only a file, by that name (as header.image allowed).
+  if (at < 0) at = lines.findIndex((_, i) => { const m = spec(i); return !!m && m.kind === "img" && (m.path === path || (!path.includes("/") && base(m.path) === path)); });
+  if (at >= 0) {
+    const has = spec(at)!, written = (a: MediaAttr) => a === "hero-focus" ? has.focus !== undefined : a === "height" ? has.height !== undefined || has.heightShare !== undefined : has[a as keyof MediaSpec] !== undefined;
+    const fill = Object.fromEntries(Object.entries(set).filter(([a]) => !written(a as MediaAttr)));
+    for (const a of Object.keys(set)) if (written(a as MediaAttr)) left.push(`${a}: the line's own stays`);
+    lines[at] = rewriteMediaLine(lines[at]!, { layout: "hero", ...fill })!;
+  } else {
+    // Under the subject and the lines of its properties alone (a property line under the title is the note's own).
+    const front = frontMatterLines(text);
+    at = lines.findIndex(l => l.trim() !== "") + 1;
+    const onlyProps = (l: string) => { let rest = l; for (const t of [...propertyTokensInLine(l)].reverse()) rest = rest.slice(0, t.start) + rest.slice(t.end); return !rest.trim(); };
+    while (at > 0 && at < lines.length && front.has(at) && onlyProps(lines[at]!)) at++;
+    if (at <= 0) at = lines.length;
+    lines.splice(at, 0, rewriteMediaLine(`[img::${path}]`, { layout: "hero", ...set })!);
+    if (lines[at + 1] !== undefined && lines[at + 1]!.trim()) lines.splice(at + 1, 0, "");
+  }
+  return { text: lines.join("\n"), line: at, left };
 }

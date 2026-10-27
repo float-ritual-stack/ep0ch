@@ -166,6 +166,8 @@ export type SiteProduced =
     now?: string[];
     hint?: string;
     error?: string;
+    /** The figure's `title:` with its `{{ }}` read in the figure's Site, as its query's are (PIE-1362); only when it has one. */
+    title?: string;
     /** A `stat`/`kpi` whose items ask for themselves: each item's results (a page counts the ones it shows) or its problem, in the items' order. */
     counts?: { ids: string[]; truncated: boolean; error?: string }[];
   }

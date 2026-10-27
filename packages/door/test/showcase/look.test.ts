@@ -67,6 +67,45 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(saved.split("\n")[2]).toBe("## Supplies");
   }, 30_000);
 
+  test("retired look keys (PIE-1365): one line for the note, [remove] and [move to a hero line] through act, each one tune step u takes back", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "retired-looks" }, as: "test-agent" });
+    const id = seeded.notes.oldLook.id, text = async () => (await board.get(id))!.text;
+    const original = await text();
+    try {
+      await until(() => screen().includes("!! this page: 6 retired header-image keys"), "the one line for the note");
+      // One line, not a sentence a key (the wall Evan's tune showed, Oct 26).
+      expect(screen().split("\n").filter(l => l.includes("header-image key") || l.includes("is gone"))).toHaveLength(1);
+      expect(screen()).toContain("[remove]");
+      expect(screen()).toContain("[move to a hero line]");
+      // Remove: the keys off the page, one attributed write; u in the tune puts them back.
+      expect(await app.act({ action: "tune.retired.remove", args: { note: id.slice(0, 8) }, tile: "tune", as: "test-agent" })).toMatchObject({ note: id, removed: expect.arrayContaining(["style.header.image", "style.wide.header.image.blur"]) });
+      await untilAsync(async () => (await text()).split("\n")[0] === "An old header look", "the keys removed, the title tidy");
+      await until(() => !screen().includes("retired header-image keys"), "the tune clean");
+      await app.act({ action: "tune.undo", tile: "tune", as: "test-agent" });
+      await untilAsync(async () => (await text()) === original, "the keys back as written");
+      await until(() => screen().includes("6 retired header-image keys"), "listed again");
+      // Move: the picture as this note's hero line with its look, the keys gone; the wide-only blur said, not written.
+      const moved = await app.act({ action: "tune.retired.move", args: { note: id }, tile: "tune", as: "test-agent" }) as any;
+      expect(moved.hero).toEqual({ note: id, line: 2 });
+      expect(moved.left).toEqual(["style.wide.header.image.blur: a width's own value (a hero line has one look at every width)"]);
+      const now = (await text()).split("\n");
+      expect(now[0]).toBe("An old header look");
+      expect(now[1]).toMatch(/^\[img::.*allotment-dusk\.jpg\] \[layout::hero\] \[tint::0\.5\] \[fade::0\.75\] \[title::over\] \[hero-focus::0\.5,0\.35\]$/);
+      expect(now[2]).toBe("");
+      // The Hero rows read the new line.
+      await until(() => /focus\.y +0\.35 +\[hero-focus::\]/.test(screen()) && /tint +0\.5 +\[tint::\]/.test(screen()), "the Hero rows for the new line");
+      expect(screen()).not.toContain("retired header-image keys");
+      expect((app as any).message).toContain("test-agent");
+      await app.act({ action: "tune.undo", tile: "tune", as: "test-agent" });
+      await untilAsync(async () => (await text()) === original, "the move taken back whole");
+    } finally {
+      const now = (await board.get(id))!;
+      if (now.text !== original) await board.update(id, original, now.revision!).catch(() => {});
+      for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    }
+  }, 30_000);
+
   test("agents: act shows a section, never while the person is in one, and reaches the section's own actions", async () => {
     ch("1"); press({ kind: "enter" });
     expect(S().focus).toBe("stage");
