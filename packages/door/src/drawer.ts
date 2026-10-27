@@ -1114,7 +1114,8 @@ export class AgentDrawer {
     return into ? `the drawer doesn't take ${name}: ${into}` : null;
   }
 
-  put(from: Desk, name: string, actor: Actor, keys = false, to?: string, where?: Where): TileDone {
+  /** `keep`: the drawer stays as shown or put away (agent.lift's fetch, PIE-1337: the lift shows the tab, not the drawer). */
+  put(from: Desk, name: string, actor: Actor, keys = false, to?: string, where?: Where, keep = false): TileDone {
     const d = this.desk;
     const no = this.putRefusal(from, name, actor, to, where);
     if (no || !d) throw new ActionRefused(no ?? "the drawer isn't ready (no screen is shown yet)");
@@ -1124,7 +1125,7 @@ export class AgentDrawer {
     if (this.ctx(actor).standing) {
       // Shown on its tab, the drawer up; the keys come along only when they were in it.
       d.focusTile(done.tile, actor);
-      if (!this.open && this.mode !== "none") this.do({ op: "slide", tile: HOST_TILES, open: true }, actor);
+      if (!this.open && this.mode !== "none" && !keep) this.do({ op: "slide", tile: HOST_TILES, open: true }, actor);
       if ((moved.typing || keys) && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
       this.save();
     }
@@ -1228,7 +1229,7 @@ export class AgentDrawer {
     if (pick) return pick.tile;
     if (on === false || !this.desk) return `role:${ROLE_AGENT}`;
     const away = this.findAgent(this.allDesks());
-    if (away && !this.putRefusal(away.desk, away.name, actor)) return this.put(away.desk, away.name, actor).tile;
+    if (away && !this.putRefusal(away.desk, away.name, actor)) return this.put(away.desk, away.name, actor, false, undefined, undefined, true).tile;
     return this.agentTab(this.desk, actor).tile;
   }
   /**

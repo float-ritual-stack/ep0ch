@@ -16,6 +16,8 @@ are its record. The outliner's entries from then are kept below, under
   socket of that place (its session folder's, gone stale through a handover: PIE-604 holds). A socket elsewhere that
   answers nothing is refused by `ep0ch act|peek|open|where` and the outliner's `door-open`, naming the path and
   `scripts/agent-env`, and nothing falls through to the folder's or the only door after it.
+- **agent.lift leaves a put-away drawer put away (PIE-1337).** Lifting an agent tab that's out on a screen another one
+  covers fetches it into the drawer and lifts it there; the drawer itself stays down.
 
 ### A header picture is set one way: the note's hero line (PIE-1361)
 

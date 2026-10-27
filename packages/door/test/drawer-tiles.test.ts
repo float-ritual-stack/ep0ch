@@ -656,10 +656,13 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await d.app.dispatch.press("agent.lift", {});
       expect(d.desk.lifted).toBeNull();
       // On a screen that a pushed one now covers (q goes back): it comes into the drawer and is lifted there, the same program.
+      // The drawer put away stays put away (PIE-1337): the fetch keeps its visibility, the lift shows the tab.
+      await d.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
       d.app.push(otherScreen()); d.paint();
       const r2 = await d.app.dispatch.press("agent.lift", {}) as any;
       expect(r2).toMatchObject({ zoomed: true });
       expect(d.app.drawer.made!.liftsPane(own)).toBe(true);
+      expect(d.app.drawer.open).toBe(false);
       expect([own.running, own.pid]).toEqual([true, pid]);
       await d.app.dispatch.press("agent.lift", {});
       expect(d.app.drawer.made!.lifted).toBeNull();
