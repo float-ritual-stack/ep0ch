@@ -411,9 +411,9 @@ test("an extension names a Resource to open: a bar row's resource, a view's link
   const note = await create("Shelf");
   await install("shelfie", {
     actions: [{ id: "show", label: "Show", on: "outline" }, { id: "bad", label: "Bad", on: "outline" }, { id: "note", label: "Note", on: "outline" }],
-    bar: [{ id: "files", title: "files" }],
+    sources: [{ id: "files", title: "files", prefix: "~" }],
   }, `${CALL}
-if (operation === "bar") say({ rows: input.query === "bad"
+if (operation === "source") say({ rows: input.query === "bad"
   ? [{ id: "x", label: "x", resource: "file:relative.md" }]
   : [{ id: "a", label: "a.md", resource: "file:/srv/made-up/a.md" }, { id: "b", label: "site", resource: "web:https://example.com/shelf" }] });
 else if (input.action === "show") say({ message: "here", open: "file:/srv/made-up/a.md" });

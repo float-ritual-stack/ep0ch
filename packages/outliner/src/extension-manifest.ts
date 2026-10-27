@@ -264,7 +264,7 @@ const Agent = Type.Object(
 );
 export type ExtensionAgent = Static<typeof Agent>;
 
-/** The fields every source of rows has: the palette's (`bar[]`, the old name) and `sources[]`'s. */
+/** The fields every source of rows has. */
 const sourceFields = {
   id: ID,
   title: Type.String({ minLength: 1, maxLength: 30 }),
@@ -278,13 +278,6 @@ const sourceFields = {
   main: Type.Optional(Type.Boolean()),
   deadline: Type.Optional(Duration),
 };
-
-/**
- * `bar[]`, the old name of `sources[]` for a palette source (PIE-656): still read, answered by the `bar` operation.
- * A new extension writes `sources[]`.
- */
-const BarSourceSchema = Type.Object(sourceFields, { additionalProperties: false });
-export type ExtensionBarSource = Static<typeof BarSourceSchema>;
 
 /**
  * A source of rows (ADR 0004 §4, PIE-1340): the `source` operation answers what's typed with rows. With a `prefix` (or
@@ -301,9 +294,9 @@ const SourceSchema = Type.Object({
 }, { additionalProperties: false });
 export type ExtensionSource = Static<typeof SourceSchema>;
 
-/** Every source an extension declares, `sources[]` and the old `bar[]`, with the operation that answers each. */
-export function manifestSources(manifest: Pick<ExtensionManifest, "sources" | "bar">): (ExtensionSource & { operation: "source" | "bar" })[] {
-  return [...(manifest.sources ?? []).map((s) => ({ ...s, operation: "source" as const })), ...(manifest.bar ?? []).map((s) => ({ ...s, operation: "bar" as const }))];
+/** Every source an extension declares (`sources[]`), each answered by the `source` operation. */
+export function manifestSources(manifest: Pick<ExtensionManifest, "sources">): ExtensionSource[] {
+  return [...(manifest.sources ?? [])];
 }
 
 const literals = <T extends string>(values: readonly T[]) => Type.Union(values.map((value) => Type.Literal(value)));
@@ -419,8 +412,6 @@ const ManifestV2 = Type.Object(
     rules: Type.Optional(Type.Array(RuleSchema, { maxItems: 16 })),
     /** Sources of rows (PIE-1340): for the power bar (a `prefix`), completion (`triggers`), or both; `source` answers. */
     sources: Type.Optional(Type.Array(SourceSchema, { maxItems: 8 })),
-    /** The old name of `sources` for a palette source (PIE-656), answered by the `bar` operation. */
-    bar: Type.Optional(Type.Array(BarSourceSchema, { maxItems: 4 })),
     /** Component schemas (`@ep0ch/outline-core/component-schema`), checked by its `componentSchemaProblem`. */
     components: Type.Optional(Type.Array(Type.Unknown(), { maxItems: 8 })),
     /**
@@ -701,12 +692,12 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
   }
   const barIds = new Set<string>();
   for (const [index, source] of manifestSources(manifest).entries()) {
-    const where = source.operation === "bar" ? `bar/${index - (manifest.sources ?? []).length}` : `sources/${index}`;
+    const where = `sources/${index}`;
     if (barIds.has(source.id)) throw new ExtensionLoadError(`extension.json: ${where}/id ${source.id} is declared twice`);
     barIds.add(source.id);
     const barDeadline = durationMs(source.deadline);
     if (barDeadline !== undefined && barDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: ${where}/deadline is longer than 5m`);
-    if (source.operation === "source" && !source.prefix && !source.main && !source.triggers) throw new ExtensionLoadError(`extension.json: ${where} is in no list: give it a prefix (the power bar), triggers (completion), or both`);
+    if (!source.prefix && !source.main && !source.triggers) throw new ExtensionLoadError(`extension.json: ${where} is in no list: give it a prefix (the power bar), triggers (completion), or both`);
     if (source.keys && !(source.triggers as readonly string[] | undefined)?.includes("key::")) throw new ExtensionLoadError(`extension.json: ${where}/keys narrows key:: (a property's value): add "key::" to its triggers, or leave keys out`);
   }
   const componentIds = new Set<string>();
@@ -803,6 +794,10 @@ export function loadExtensionManifest(source: ManifestSource, options: { checkCo
   const json = parseJson(manifestRaw, "extension.json");
   if (json && typeof json === "object" && (json as { contract?: unknown }).contract === 1) {
     throw new ExtensionLoadError("extension.json is contract 1; contract 2 is a folder like extensions/horoscope (see docs/extensions/README.md)");
+  }
+  // `bar[]` was the palette's old name for `sources[]` (PIE-656), gone since PIE-1344: say the rename, not "unknown key".
+  if (json && typeof json === "object" && "bar" in json) {
+    throw new ExtensionLoadError("extension.json: bar[] is now sources[] (PIE-1344): rename the key, and answer the `source` operation where the extension answered `bar`");
   }
   const problem = schemaProblem(ManifestV2, json);
   if (problem) throw new ExtensionLoadError(`extension.json: ${problem}`);
