@@ -163,6 +163,7 @@ export const marks: Record<string, string[]> = {
   // The Spacing lab page in its look, the tune inspector beside it, the links tile, the Looks lab note that declares it.
   style: ["Spacing lab", "tune · lab", "list.gap", "Looks lab"],
   "style-one-list": ["Style one list of several", "First oats", "Middle beans", "Last sage", "tune · lists"],
+  "retired-looks": ["An old header look", "tune · old", "6 retired header-image keys", "[remove]"],
   // The component library on the heading styles' page: its tabs, its parts, the minimal example.
   library: ["Heading styles", "1 overview", "Minimal example"],
   // The outline beside a reader over two details, the second folded to a spine: the tiles the power bar lists as a tree.
