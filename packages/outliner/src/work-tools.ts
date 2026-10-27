@@ -14,7 +14,8 @@ import { deliveryIdentities, parseDeliveryIdentity, type DeliveryIdentity } from
 import { documentFolds } from "./document-folds";
 import { droppedStructure } from "./draft-patch";
 import { markdownSourceTokens } from "./markdown-structure";
-import { getProperty, matchesFilters, normalizePropertyKey, patchPropertyText, validateProperty } from "./properties";
+import { formatProperty, getProperty, matchesFilters, normalizePropertyKey, patchPropertyText, validateProperty } from "./properties";
+import { recordsRoot } from "./records";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { parseWorkId } from "./work-ids";
@@ -356,13 +357,20 @@ export interface PullRequestFacts {
   url: string;
   state: "OPEN" | "CLOSED" | "MERGED";
   mergeCommit: string | null;
+  /** When it merged (ISO, GitHub's `mergedAt`); null while it is open. */
+  mergedAt: string | null;
   headRefName: string;
   baseRefName: string;
+  title: string;
+  /** The author's GitHub login. */
+  author: string | null;
 }
 
 export interface WorkDeliverResult extends WorkItemRef {
   delivery: BlockRef & { deliveryKey: string; stage: string; created: boolean };
-  pullRequest: { number: number; url: string; state: string; mergeCommit: string | null };
+  pullRequest: { number: number; url: string; state: string; mergeCommit: string | null; mergedAt: string | null };
+  /** A merged PR's landed row (`landPullRequest`). */
+  landed?: LandedRef;
   changed: boolean;
 }
 
@@ -444,6 +452,7 @@ export async function deliverPullRequest(
     deliveryKey?: string;
   },
   actor: WorkActor,
+  options: { land?: boolean } = {},
 ): Promise<WorkDeliverResult> {
   const pr = input.pullRequest;
   const baseBranch = input.baseBranch ?? pr.baseRefName;
@@ -485,20 +494,136 @@ export async function deliverPullRequest(
       deliveryBlockId: ensured.delivery.id,
       expectedDeliveryRevision: ensured.delivery.revision,
       expectedTaskRevision: ensured.task.revision,
-      pullRequest: { number: pr.number, url: pr.url, state: pr.state, mergeCommit: pr.mergeCommit },
+      pullRequest: { number: pr.number, url: pr.url, state: pr.state, mergeCommit: pr.mergeCommit, mergedAt: pr.mergedAt },
     },
     mutation: mutationOf(actor),
   });
   const delivery = parseDeliveryIdentity(synced.delivery);
+  const landed = pr.state === "MERGED" && options.land !== false ? await recordLanded(client, input.repository, pr, actor) : undefined;
   return {
     ...workItemRef(synced.task),
     delivery: { ...blockRef(synced.delivery), deliveryKey: delivery.key, stage: delivery.stage, created: ensured.created },
-    pullRequest: { number: pr.number, url: pr.url, state: pr.state, mergeCommit: pr.mergeCommit },
+    pullRequest: { number: pr.number, url: pr.url, state: pr.state, mergeCommit: pr.mergeCommit, mergedAt: pr.mergedAt },
+    ...(landed ? { landed } : {}),
     changed: synced.changed,
   };
 }
 
-/** Parses `gh pr view --json number,url,state,mergeCommit,headRefName,baseRefName`. */
+// ─── Landed: every merge on the record (PIE-1352) ──────────────────────────
+
+export interface LandedRef extends BlockRef {
+  created: boolean;
+  changed: boolean;
+  /** The Work IDs whose deliveries record this PR. */
+  tickets: string[];
+}
+
+export interface WorkLandResult {
+  landed: LandedRef;
+  pullRequest: { number: number; url: string; state: string; mergeCommit: string | null; mergedAt: string | null };
+  /** The deliveries that record this PR, synced again so each says it merged and when. */
+  deliveries: Array<WorkDeliverResult["delivery"] & { workId: string }>;
+}
+
+const LANDED_PAGE = "Landed [page::landed] [machine::landed] [system-landed::true]\n\n" +
+  "One row per merged pull request, ticket or not, written by `work deliver` when it sees the merge (PIE-1352). " +
+  "A day's merges are `type=landed AND base-branch=main AND merged-at=<day>`.";
+
+/** The query clause naming a value exactly (quoted, since a repository holds a `/`). */
+function exactly(key: string, value: string): string {
+  return `${key}="${value.replace(/[\\"]/g, "\\$&")}"`;
+}
+
+async function queryBlocks(client: WorkToolsClient, where: string): Promise<Block[]> {
+  return (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where, machinery: "show" } })).blocks;
+}
+
+/** The deliveries, under any item, that record `repository`'s PR `number`. */
+async function deliveriesOfPullRequest(client: WorkToolsClient, repository: string, number: number): Promise<DeliveryIdentity[]> {
+  const blocks = await queryBlocks(client, `type=delivery AND ${exactly("repository", repository)} AND pull-request-number=${number}`);
+  return deliveryIdentities(blocks).filter((delivery) => delivery.repository === repository && delivery.pullRequestNumber === number);
+}
+
+/** A landed row's text: the PR's facts as properties, its tickets as links. */
+function landedText(repository: string, pr: PullRequestFacts, tickets: readonly string[]): string {
+  const title = pr.title.replace(/\s+/g, " ").trim() || "(no title)";
+  const facts: Array<[string, string | null]> = [
+    ["type", "landed"], ["machine", "landed"], ["repository", repository], ["pull-request-number", String(pr.number)],
+    ["pull-request-url", pr.url], ["base-branch", pr.baseRefName], ["work-branch", pr.headRefName],
+    ["merge-commit", pr.mergeCommit], ["merged-at", pr.mergedAt], ["pr-author", pr.author],
+  ];
+  const properties = facts.flatMap(([key, value]) => value ? [formatProperty({ key, value })] : []).join(" ");
+  const body = tickets.length ? `Delivers ${tickets.map((id) => `[[${id}]]`).join(", ")}.` : "No ticket.";
+  return `#${pr.number} ${title} ${properties}\n\n${body}`;
+}
+
+/**
+ * The one landed row for a merged PR, under the Landed page (made on first use, under Records): created, or
+ * rewritten when a fact or a ticket changed. Its tickets are the items whose deliveries record this PR.
+ */
+async function recordLanded(client: WorkToolsClient, repository: string, pr: PullRequestFacts, actor: WorkActor): Promise<LandedRef> {
+  if (pr.state !== "MERGED" || !pr.mergeCommit || !pr.mergedAt) {
+    throw new WorkToolRefusal(`${repository}#${pr.number} is ${pr.state.toLowerCase()}${pr.state === "MERGED" ? " with no merge commit or time" : ""}: a PR lands when it merges`);
+  }
+  const tickets = [...new Set((await deliveriesOfPullRequest(client, repository, pr.number))
+    .map((delivery) => delivery.key.slice(0, delivery.key.indexOf("/")).toUpperCase()))].sort();
+  const text = landedText(repository, pr, tickets);
+  const [existing, ...more] = await queryBlocks(client, `type=landed AND ${exactly("repository", repository)} AND pull-request-number=${pr.number}`);
+  if (more.length) throw new WorkToolRefusal(`${repository}#${pr.number} has more than one landed row (${[existing!, ...more].map((b) => b.id).join(", ")}); trash all but one`);
+  if (existing) {
+    if (existing.text === text) return { ...blockRef(existing), created: false, changed: false, tickets };
+    const updated = await client.request<Block>({
+      action: "update", blockId: existing.id, text, expectedRevision: existing.revision, mutation: mutationOf(actor),
+    });
+    return { ...blockRef(updated), created: false, changed: true, tickets };
+  }
+  const who = { author: actor.author, ...(provenanceOf(actor) ? { provenance: provenanceOf(actor) } : {}) };
+  const board = { request: <T>(action: string, params?: Record<string, unknown>) => client.request<T>({ action, ...params } as RequestInput) };
+  const [page] = await queryBlocks(client, "system-landed=true");
+  const parent = page ?? await client.request<Block>({
+    action: "create", text: LANDED_PAGE, parentId: (await recordsRoot(board, who)).id, ...who,
+  });
+  const created = await client.request<Block>({ action: "create", text, parentId: parent.id, ...who });
+  return { ...blockRef(created), created: true, changed: true, tickets };
+}
+
+/**
+ * A merged PR on the record, ticket or not: each delivery that records it is synced again (so it says merged, with
+ * its merge commit and `merged-at`), then its one landed row is written. The merge step runs this for every merge
+ * into main (loki's runbook, the repository mod after `gh pr merge`), so a day's landed rows are its merges.
+ */
+export async function landPullRequest(
+  client: WorkToolsClient,
+  input: { repository: string; pullRequest: PullRequestFacts },
+  actor: WorkActor,
+): Promise<WorkLandResult> {
+  const pr = input.pullRequest;
+  if (pr.state !== "MERGED") {
+    throw new WorkToolRefusal(
+      `${input.repository}#${pr.number} is ${pr.state.toLowerCase()}: a PR with no item is recorded when it merges; ` +
+        `to record it on its ticket now, work deliver PIE-n --repo ${input.repository} --pr ${pr.number}`,
+    );
+  }
+  const deliveries: WorkLandResult["deliveries"] = [];
+  for (const recorded of await deliveriesOfPullRequest(client, input.repository, pr.number)) {
+    const synced = await deliverPullRequest(client, {
+      address: recorded.block.parentId!, repository: input.repository, pullRequest: pr,
+      baseBranch: recorded.baseBranch, workBranch: recorded.workBranch, deliveryKey: recorded.key,
+    }, actor, { land: false });
+    deliveries.push({ ...synced.delivery, workId: synced.workId });
+  }
+  const landed = await recordLanded(client, input.repository, pr, actor);
+  return {
+    landed,
+    pullRequest: { number: pr.number, url: pr.url, state: pr.state, mergeCommit: pr.mergeCommit, mergedAt: pr.mergedAt },
+    deliveries,
+  };
+}
+
+/** The fields `readPullRequestFacts` asks `gh pr view --json` for. */
+export const PULL_REQUEST_FIELDS = "number,url,state,mergeCommit,mergedAt,headRefName,baseRefName,title,author";
+
+/** Parses `gh pr view --json` with PULL_REQUEST_FIELDS. */
 export function parsePullRequestFacts(json: string): PullRequestFacts {
   let raw: Record<string, unknown>;
   try {
@@ -508,6 +633,7 @@ export function parsePullRequestFacts(json: string): PullRequestFacts {
   }
   const state = raw.state;
   const mergeCommit = (raw.mergeCommit as { oid?: unknown } | null | undefined)?.oid;
+  const author = (raw.author as { login?: unknown } | null | undefined)?.login;
   if (
     !Number.isSafeInteger(raw.number) || typeof raw.url !== "string" ||
     (state !== "OPEN" && state !== "CLOSED" && state !== "MERGED") ||
@@ -520,15 +646,18 @@ export function parsePullRequestFacts(json: string): PullRequestFacts {
     url: raw.url,
     state,
     mergeCommit: typeof mergeCommit === "string" && mergeCommit ? mergeCommit : null,
+    mergedAt: typeof raw.mergedAt === "string" && raw.mergedAt ? raw.mergedAt : null,
     headRefName: raw.headRefName,
     baseRefName: raw.baseRefName,
+    title: typeof raw.title === "string" ? raw.title : "",
+    author: typeof author === "string" && author ? author : null,
   };
 }
 
 /** Reads one PR's facts through the GitHub CLI. Read-only. */
 export async function readPullRequestFacts(repository: string, number: number): Promise<PullRequestFacts> {
   const child = Bun.spawn(
-    ["gh", "pr", "view", String(number), "--repo", repository, "--json", "number,url,state,mergeCommit,headRefName,baseRefName"],
+    ["gh", "pr", "view", String(number), "--repo", repository, "--json", PULL_REQUEST_FIELDS],
     { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
   );
   const [stdout, stderr, exitCode] = await Promise.all([

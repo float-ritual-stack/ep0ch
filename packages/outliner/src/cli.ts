@@ -29,6 +29,7 @@ import {
   createWorkItem,
   linkTicket,
   deliverPullRequest,
+  landPullRequest,
   readPullRequestFacts,
   replaceItemBody,
   replaceNoteSection,
@@ -636,7 +637,7 @@ const WORK_USAGE = [
   "  work stage <item> <stage> [--expected N]",
   "  work set <item> <key> <value> [--expected N]",
   "  work set <delivery> delivery-stage complete|validate [--expected N]   (delivery: block UUID or key, e.g. PIE-123/door)",
-  "  work deliver <item> --repo owner/name --pr N [--key name] [--base B] [--branch W]",
+  "  work deliver [<item>] --repo owner/name --pr N [--key name] [--base B] [--branch W]   (no item: a merged PR's landed row, its deliveries synced)",
   "  work complete <item> [--delivery <uuid|key|name>]… [--all-merged] --proof-file F|--stdin|--proof-block UUID",
   "  work body <item> --file F|--stdin [--expected N]",
   "  work link <note> <item> [--expected N]   (the note, a request copy, names its ticket: [ticket::PIE-n])",
@@ -715,11 +716,18 @@ async function runWorkCommand(group: "work" | "note", args: string[]): Promise<u
           repo: { type: "string" }, pr: { type: "string" }, base: { type: "string" },
           branch: { type: "string" }, key: { type: "string" },
         });
-        if (positionals.length !== 1) throw new Error("work deliver requires one item");
+        if (positionals.length > 1) throw new Error("work deliver takes one item, or none for a merged PR with no ticket");
         if (!values.repo || !values.pr) throw new Error("work deliver requires --repo owner/name and --pr N");
         const number = Number(values.pr);
         if (!Number.isSafeInteger(number) || number < 1) throw new Error("--pr must be a pull request number");
         const pullRequest = await readPullRequestFacts(values.repo as string, number);
+        // No item: the merge step's call for every merge, ticket or not (PIE-1352).
+        if (positionals.length === 0) {
+          if (values.base !== undefined || values.branch !== undefined || values.key !== undefined) {
+            throw new Error("--base, --branch and --key name an item's delivery; with no item, give only --repo and --pr");
+          }
+          return await landPullRequest(client, { repository: values.repo as string, pullRequest }, workActor(values));
+        }
         return await deliverPullRequest(client, {
           address: positionals[0]!,
           repository: values.repo as string,

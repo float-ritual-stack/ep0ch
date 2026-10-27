@@ -1102,7 +1102,8 @@ export interface DeliverySyncInput {
   deliveryBlockId: string;
   expectedDeliveryRevision: number;
   expectedTaskRevision: number;
-  pullRequest: { number: number; url: string; state: "OPEN" | "CLOSED" | "MERGED"; mergeCommit: string | null };
+  /** `mergedAt` is GitHub's ISO time of the merge, stamped as `merged-at` on a merged delivery (PIE-1352). */
+  pullRequest: { number: number; url: string; state: "OPEN" | "CLOSED" | "MERGED"; mergeCommit: string | null; mergedAt?: string | null };
 }
 
 export interface DeliverySyncReceipt {
