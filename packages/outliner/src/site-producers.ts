@@ -7,6 +7,7 @@
 // `{{ }}` operand is bound from it, never pasted into the query text: one figure copied onto two pages, or drawn through
 // a template, lists each host's own. Reads only. Which notes a page may show is the publisher's, applied after.
 import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
+import { interpolate } from "@ep0ch/outline-core/interpolation";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { asksPerItem, CHILDREN_QUERY, figureQuestion, liveAsk, sortProblem } from "@ep0ch/outline-core/figure-live";
 import type { FieldRow, SiteProduced, SiteProducer, SiteValue } from "@ep0ch/outline-core/site";
@@ -237,7 +238,10 @@ export function produce(raw: ProducerStore, bound: Bound, producer: SiteProducer
   switch (producer.kind) {
     case "figure": {
       if (!producer.figure || typeof producer.figure !== "string" || !producer.props || typeof producer.props !== "object") throw new Error("produce a figure with { kind: \"figure\", figure: \"table\", props: { query: \"type=ticket\" } }");
-      return { answer: figure(store, tools, thisId, producer.figure, producer.props as Props), anyChange: true };
+      const answer = figure(store, tools, thisId, producer.figure, producer.props as Props), t = (producer.props as Props).title;
+      // Its title's `{{ }}` read in the same Site as its query's (PIE-1362); one with no value stays as written.
+      const title = typeof t === "string" && t.includes("{{") ? interpolate(t, span => { const v = tools.read(span.expression); return v.values && !v.hidden ? v.values : undefined; }) : undefined;
+      return { answer: answer.kind === "figure" && title !== undefined ? { ...answer, title } : answer, anyChange: true };
     }
     case "children": {
       const found = store.queryBlocks({ where: CHILDREN_QUERY, this: thisId!, limit: 1000 } as BlockSearchQuery, tools.binder);

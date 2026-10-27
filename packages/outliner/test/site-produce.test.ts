@@ -76,6 +76,16 @@ describe("a figure over this", () => {
     expect(figure(store, garden.id, props).error).toMatch(/props/);
   });
 
+  test("a figure's title reads its props as its query does (PIE-1362): a template's day in the title, a title without {{ }} not echoed", () => {
+    const store = scratch();
+    const { garden } = projects(store);
+    const asked = { query: "type=ticket project={{props.project}}", title: "tickets for {{props.project}}" };
+    expect(figure(store, garden.id, asked, { props: { project: ["lego-night"] } }).title).toBe("tickets for lego-night");
+    // A prop nobody passed stays as written, where the reader can see it.
+    expect(figure(store, garden.id, { query: "type=ticket", title: "for {{props.day}}" }).title).toBe("for {{props.day}}");
+    expect(figure(store, garden.id, { query: "type=ticket", title: "every ticket" }).title).toBeUndefined();
+  });
+
   test("done: and now: say which rows hold; a stat's items count for themselves; a bad sort says whose line it is", () => {
     const store = scratch();
     const { lego } = projects(store);

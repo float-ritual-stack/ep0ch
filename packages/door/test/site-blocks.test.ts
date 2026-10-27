@@ -105,6 +105,15 @@ describe.skipIf(!outliner)("::fields, ::if and a figure over this, drawn from si
     expect(text).toContain("drawn inside itself too many times");
   }, 20_000);
 
+  test("a template's figure title reads its props as its query does (PIE-1362): each day's log titles its own day", async () => {
+    await make("Sow peas [type::ticket] [sown::2026-03-02]");
+    const tpl = await make("Day card [type::template]\n[form-field::day text]\n\n::graph-table\n---\ntitle: sown on {{props.day}}\nquery: type=ticket AND sown={{props.day}}\ncolumns: [title]\n---\n::");
+    const text = await show(await make(`March 2\n::use{of=((${tpl})) day=2026-03-02}`));
+    expect(text).toContain("SOWN ON 2026-03-02");
+    expect(text).toContain("Sow peas");
+    expect(text).not.toContain("{{props.day}}");
+  }, 20_000);
+
   test("an ::if body reads its note's values like the rest of the note", async () => {
     const id = await make(["Planter [status::active] [owner::Ada]", "", "::if{where=\"status=active\"}", "Kept by {{this.owner}}.", "::"].join("\n"));
     const text = await show(id);

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { componentBlocks } from "../src/component-block";
 import { headingStylesFromBlocks } from "../src/heading-styles";
 import {
+  withoutRetiredLookKeys,
   BASE_STYLE, headingComponentLayer, listLayers, listOwners, listStart, nudgeStyleValue, parseStyleAttrs, parseStyleTarget, resolveStyle, styleDeclarationLine,
   styleLayers, styleProperty, styleSheetsFromBlocks, styleValueText, type StyleLayer,
 } from "../src/style-cascade";
@@ -179,10 +180,16 @@ describe("surfaces, frames and the header (PIE-675)", () => {
     expect(resolveStyle([{ level: "page", label: "page", fields: { "list.divider.glyph": "]" } }], 80).problems).toHaveLength(1);
   });
 
-  test("the header: its surface and opacity; no level sets a picture (PIE-1361: the note's hero line owns it), and an old key says where it went", () => {
+  test("the header: its surface and opacity; no level sets a picture (PIE-1361: the note's hero line owns it), and the old keys are its sheet's retired, not a sentence each (PIE-1365)", () => {
     const sheets = styleSheetsFromBlocks([{ id: "hhhh0001", properties: props({ "style-for": "tile:detail", "style.header.bg": "blue", "style.header.bg.opacity": "40", "style.header.image": "media/Shed Door.png", "style.header.image.x": "-15", "style.header.title": "over" }) }]);
-    expect(sheets.problems).toHaveLength(3);
-    expect(sheets.problems[0]).toMatch(/style\.header\.image is gone: a header picture's look is written on its own \[layout::hero\] line \(\[height::…\] \[hero-focus::…\]/);
+    expect(sheets.problems).toEqual([]);
+    expect(sheets.sheets[0]!.retired).toEqual([{ key: "style.header.image", value: "media/Shed Door.png" }, { key: "style.header.image.x", value: "-15" }, { key: "style.header.title", value: "over" }]);
+    // Where nobody lists them (a box's attributes), one line says them all.
+    expect(parseStyleAttrs("header.image=a.png header.image.blur=2 pad=1").problems).toEqual(["box: 2 retired header-image keys"]);
+    // Their remove: the note's own off, a line's off that line, each with its blank; a line they alone made goes.
+    const text = "Old look [style-for::tile:detail] [style.header.image::a.png] [style.pad::1]\n[style.header.title::over]\n\nBody [style.header.image.blur::2] stays.\n\n[style-for::lab] [style.header.image::b.png]";
+    expect(withoutRetiredLookKeys(text)).toBe("Old look [style-for::tile:detail] [style.pad::1]\n\nBody [style.header.image.blur::2] stays.\n\n[style-for::lab] [style.header.image::b.png]");
+    expect(withoutRetiredLookKeys(text, 5)).toBe(text.replace(" [style.header.image::b.png]", ""));
     const r = resolveStyle(styleLayers(sheets.sheets, { tile: "detail" }), 80);
     expect(r.values).toMatchObject({ "header.bg": "blue", "header.bg.opacity": 40 });
     expect(Object.keys(r.values).filter(k => k.startsWith("header.image") || k === "header.title")).toEqual([]);

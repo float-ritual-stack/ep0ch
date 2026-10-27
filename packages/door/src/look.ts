@@ -14,9 +14,10 @@ import { COMPONENT_OPEN, componentAttrs, splitWords } from "@ep0ch/outline-core/
 // those cells), and a reader's margin and gap rows are its drawing (src/surface/selection.ts's margin and edge rows), so
 // a selection, a copy, `peek` and an export give the note's text.
 import {
-  fieldKey, levelOfSave, levelTarget, parseFieldKey, resolveStyle, styleLayers, styleProperty, type Breakpoint, type FieldKey, type ResolvedStyle,
+  fieldKey, levelOfSave, levelTarget, parseFieldKey, resolveStyle, retiredLookKeys, styleLayers, styleProperty, type Breakpoint, type FieldKey, type ResolvedStyle,
   type SaveLevel, type StyleLayer, type StylePlace, type StyleSheet, type StyleToken,
 } from "@ep0ch/outline-core/style-cascade";
+import { heroFromRetired } from "@ep0ch/outline-core/media-line";
 import { outlineList, type ListSource } from "./outline-lists";
 import { liveTokensInLine, withoutTokens } from "@ep0ch/outline-core/heading-styles";
 import { authorName, USER, type Actor, type PropertyToken, type PropertyPatch } from "./socket";
@@ -35,6 +36,29 @@ export const sheetsOf = (src: ListSource | null | undefined) => SHEETS.of(src).s
 export const sheetsReady = async (src: ListSource) => (await SHEETS.ready(src)).sheets;
 /** What's wrong with the outline's style declarations, as the service last said. */
 export const styleSheetProblems = SHEETS.problems;
+/** Asks the service for the style sheets again (a write to a style note outside a save: PIE-1365's fixes). */
+export const styleSheetsStale = (board: object) => SHEETS.stale(board);
+
+/**
+ * A note (or a line of one) still writing PIE-1361's retired look keys (PIE-1365): where, the keys as written, and the
+ * picture they name (what a move makes the hero; null: nothing to move).
+ */
+export interface RetiredLook { note: string; line?: number; where: string; keys: { key: string; value: string }[]; picture: string | null }
+
+/**
+ * The retired look keys the outline still writes, a row per declaration: the page's own (`page`, the note shown) first,
+ * then each style note's as the service read them (StyleSheet.retired). Drawn nowhere; the tune lists them with the fix.
+ */
+export function retiredLooks(src: ListSource | null | undefined, page?: StylePlace["page"]): RetiredLook[] {
+  const row = (note: string, where: string, keys: { key: string; value: string }[], line?: number): RetiredLook =>
+    ({ note, ...(line !== undefined ? { line } : {}), where, keys, picture: heroFromRetired(keys).path });
+  const own = page ? retiredLookKeys(page.properties) : [];
+  return [
+    ...(page && own.length ? [row(page.id, "this page", own)] : []),
+    ...sheetsOf(src).filter(s => s.retired?.length && !(page && s.block === page.id && s.line === undefined && own.length))
+      .map(s => row(s.block, `${targetWords(s.for)} style ${s.block.slice(0, 8)}${s.line !== undefined ? ` line ${s.line + 1}` : ""}`, s.retired!, s.line)),
+  ];
+}
 
 // ── the tuning layer ──────────────────────────────────────────────────────────
 
@@ -91,6 +115,8 @@ export interface NoteWrite {
   note: string; before: Record<string, string[]>; after: Record<string, string[]>; revision: number;
   /** A list's own line (`this list`): the note's line it was written on, its keys that line's tokens. */
   line?: number;
+  /** A write of the note's text itself (a hero line made, PIE-1365): the whole text before and after. */
+  text?: { before: string; after: string };
 }
 
 /**
@@ -491,9 +517,26 @@ export async function writeLine(board: StyleWriteBoard, tuning: Tuning, note: st
   return { note, line, before, after, revision: left };
 }
 
-/** One write of a step again (an undo or a redo): to a tile's look, a list's line, or a note's properties. */
-async function writeAgain(board: StyleWriteBoard, tuning: Tuning, tiles: TileLooks | undefined, w: NoteWrite, want: Record<string, string[]>, expected: number | null, actor: Actor) {
+/**
+ * Writes note `note`'s whole text as `actor` (a hero line made, PIE-1365): one attributed update at revision `expected`
+ * (refused when the note moved on). Null when nothing changes.
+ */
+export async function writeText(board: StyleWriteBoard, tuning: Tuning, note: string, change: (text: string) => string, expected: number | null, actor: Actor): Promise<NoteWrite | null> {
+  const m = await board.get(note);
+  if (!m || m.revision === undefined) throw new Error(`note ${note.slice(0, 8)} can't be read`);
+  if (expected !== null && m.revision !== expected) throw new Error(`note ${note.slice(0, 8)} changed since (by another door or an agent): refused, nothing written`);
+  const after = change(m.text);
+  if (after === m.text) return null;
+  const done = await board.update(note, after, m.revision, actor);
+  const left = done.revision ?? m.revision + 1;
+  tuning.last.set(note, left);
+  return { note, before: {}, after: {}, revision: left, text: { before: m.text, after } };
+}
+
+/** One write of a step again (an undo or a redo): to a tile's look, a list's line, a note's text or its properties. */
+async function writeAgain(board: StyleWriteBoard, tuning: Tuning, tiles: TileLooks | undefined, w: NoteWrite, want: Record<string, string[]>, expected: number | null, actor: Actor, back: boolean) {
   if (w.note.startsWith("instance:")) return writeTile(tiles, tuning, w.note, want);
+  if (w.text) { const to = back ? w.text.before : w.text.after; return writeText(board, tuning, w.note, () => to, expected, actor); }
   if (w.line !== undefined) return writeLine(board, tuning, w.note, w.line, want, expected, actor);
   return writeNote(board, tuning, w.note, want, expected, actor);
 }
@@ -589,7 +632,7 @@ export async function rewrite(board: StyleWriteBoard, tuning: Tuning, writes: No
     if (m && m.revision !== at(w)) throw new Error(`note ${w.note.slice(0, 8)} changed since (by another door or an agent): refused, nothing written`);
   }
   for (const w of back ? [...writes].reverse() : writes) {
-    const r = await writeAgain(board, tuning, tiles, w, back ? w.before : w.after, w.note.startsWith("instance:") ? null : at(w), actor);
+    const r = await writeAgain(board, tuning, tiles, w, back ? w.before : w.after, w.note.startsWith("instance:") ? null : at(w), actor, back);
     if (r) w.revision = r.revision;
   }
   SHEETS.stale(board);

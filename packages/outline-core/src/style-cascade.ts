@@ -30,11 +30,44 @@
 // export leaves it out. Pure: no I/O. A change to what it matches or computes bumps GRAMMAR (protocol.ts).
 
 import { CALLOUT_TONES, type CalloutTone } from "./callouts";
+import { parsePropertyRecords } from "./property-parse";
 import { componentAttrs, noteCodeFences } from "./component-block";
 import { BUILTIN_HEADING_STYLES, bandMarginText, bandPaddingText, liveTokensInLine, parseBandMargin, parseBandPadding, type BandMargin, type BandRoom } from "./heading-styles";
-import { HERO_PROPS } from "./media-line";
-/** The hero line's look properties, for the problem a retired `style.header.image…` key says. */
-const HERO_WORDS = [...new Set(Object.values(HERO_PROPS).map(p => `[${p.attr}::…]`))].join(" ");
+
+/**
+ * The keys PIE-1361 retired: a header picture and its look (`style.header.image…`, `style.header.title`, a width's too),
+ * written on the note's own `[layout::hero]` line now. Inert where they're still written; the tune lists them a line per
+ * note with the fix (PIE-1365), and media-line.ts's `heroFromRetired` is their migration.
+ */
+const RETIRED_LOOK = /^style\.(?:(?:narrow|wide)\.)?header\.(?:image|title)(?:\.|$)/i;
+export const isRetiredLookKey = (key: string): boolean => RETIRED_LOOK.test(key);
+/**
+ * `text` without its retired look keys (PIE-1365's remove): the note's own (`line` undefined) or those on line `line`
+ * (from 0, a declaration on a line). Each token goes with the blank before it; a line they alone made is dropped.
+ */
+export function withoutRetiredLookKeys(text: string, line?: number): string {
+  const gone = parsePropertyRecords(text).filter(r => isRetiredLookKey(r.key) && (line === undefined ? r.scope === "block" : r.line === line));
+  if (!gone.length) return text;
+  const lines = text.split("\n");
+  let at = 0;
+  const out: string[] = [];
+  lines.forEach((l, i) => {
+    const from = at, mine = gone.filter(r => r.line === i).map(r => ({ start: r.start - from, end: r.end - from }));
+    at += l.length + 1;
+    if (!mine.length) { out.push(l); return; }
+    let kept = l;
+    for (const t of mine.sort((a, b) => b.start - a.start)) {
+      const lead = /[ \t]*$/.exec(kept.slice(0, t.start))![0].length;
+      kept = kept.slice(0, t.start - lead) + kept.slice(t.end);
+    }
+    if (kept.trim() || !l.trim()) out.push(kept.replace(/^[ \t]+(?=\S)/, l.match(/^[ \t]*/)![0]));
+  });
+  return out.join("\n");
+}
+
+/** The retired look keys among `props`, as written. */
+export const retiredLookKeys = (props: readonly { key: string; value: string }[]): { key: string; value: string }[] =>
+  props.filter(p => isRetiredLookKey(p.key)).map(p => ({ key: p.key, value: p.value }));
 
 /** How a token's value is written and kept. */
 export type StyleTokenKind =
@@ -333,6 +366,8 @@ export interface StyleSheet {
   block: string;
   line?: number;
   fields: Record<FieldKey, string>;
+  /** Keys it still writes that PIE-1361 retired (isRetiredLookKey), as written: drawn nowhere, listed by the tune with the fix. */
+  retired?: { key: string; value: string }[];
 }
 
 /** A target's or a named style's name: a slug. */
@@ -371,15 +406,18 @@ function shorthand(key: string, value: string, variant: string): Record<FieldKey
  * written (the first of a key counts); a key that isn't a token is said in `problems`. `aliases`: read the
  * `heading-*` spellings too (a style note does; a heading line's own are its style's, read by heading-styles.ts).
  */
-export function styleFieldsOf(props: readonly { key: string; value: string }[], where: string, problems: string[], aliases = true): Record<FieldKey, string> {
+export function styleFieldsOf(props: readonly { key: string; value: string }[], where: string, problems: string[], aliases = true, retired?: { key: string; value: string }[]): Record<FieldKey, string> {
   // Precedence within a note, highest first: a field written out (`style.wide.pad.x`), a shorthand's (`style.wide.pad`),
   // a tier's written out (`style.pad.x::… | … | …`), a tier's shorthand (`style.pad::… | … | …`); the first of each wins.
   const fields: Record<FieldKey, string> = {}, short: Record<FieldKey, string> = {}, tiered: Record<FieldKey, string> = {}, tieredShort: Record<FieldKey, string> = {};
   const put = (into: Record<FieldKey, string>, k: FieldKey, v: string) => { if (!(k in into)) into[k] = v; };
+  const found = retired ?? [];
   for (const p0 of props) {
     const k = p0.key.toLowerCase();
     if (aliases && HEADING_ALIASES[k]) { put(fields, HEADING_ALIASES[k]!, p0.value); continue; }
     if (!k.startsWith("style.")) continue;
+    // A retired key (PIE-1361) is gathered for the caller that lists them; elsewhere one line says them all.
+    if (isRetiredLookKey(k)) { found.push({ key: p0.key, value: p0.value }); continue; }
     const rest = k.slice(6), vm = /^((?:narrow|wide)\.)?(.*)$/.exec(rest)!;
     // Tier-keyed (daddy's post): `[style.pad::0 1 | 1 3 | 1 6]` is narrow | normal | wide in one field, shorthand for
     // its width variants. A variant written out beats the one a tier gives (it's read first wherever it is).
@@ -390,19 +428,20 @@ export function styleFieldsOf(props: readonly { key: string; value: string }[], 
       const both = shorthand(vm[2]!, value, variant);
       if (both) { for (const [sk, sv] of Object.entries(both)) put(tiers ? tieredShort : short, sk, sv); continue; }
       const f = parseFieldKey(variant + vm[2]!);
-      if (!f && /^header\.(image|title)/.test(vm[2]!)) { problems.push(`${where}: ${k} is gone: a header picture's look is written on its own [layout::hero] line (${HERO_WORDS}), and the tune edits it there`); break; }
       if (!f) { problems.push(`${where}: ${k} isn't a style token (${STYLE_TOKEN_NAMES.join(", ")}, or pad and margin for both axes; narrow. or wide. before one for a width)`); break; }
       put(tiers ? tiered : fields, fieldKey(f.token, f.variant), value);
     }
   }
   for (const from of [short, tiered, tieredShort]) for (const [k, v] of Object.entries(from)) put(fields, k, v);
+  if (!retired && found.length) problems.push(`${where}: ${found.length} retired header-image key${found.length === 1 ? "" : "s"} (a header picture is the note's own [layout::hero] line now)`);
   return fields;
 }
 
 /**
  * The style sheets an outline declares: each `[style-for::target]` with its `[style.<token>::value]` fields, on a note
  * (its own properties) or any line of one (that line's tokens). Every declaration counts, in the order given (a later
- * one for the same target wins field by field); a target that can't be read is said in `problems` and left out.
+ * one for the same target wins field by field); a target that can't be read is said in `problems` and left out, and a
+ * retired key (PIE-1361) goes in its sheet's `retired`.
  */
 export function styleSheetsFromBlocks(blocks: readonly StyleDeclaringBlock[]): { sheets: StyleSheet[]; problems: string[] } {
   const sheets: StyleSheet[] = [], problems: string[] = [];
@@ -412,9 +451,10 @@ export function styleSheetsFromBlocks(blocks: readonly StyleDeclaringBlock[]): {
     const where = `note ${b.id.slice(0, 8)}${b.line === undefined ? "" : ` line ${b.line + 1}`}`;
     const target = parseStyleTarget(raw);
     if (!target) { problems.push(`${where}: style-for ${JSON.stringify(raw)} is global, tile:<kind>, screen:<name> or a style's name`); continue; }
-    const fields = styleFieldsOf(b.properties, where, problems);
+    const retired: { key: string; value: string }[] = [];
+    const fields = styleFieldsOf(b.properties, where, problems, true, retired);
     for (const [k, v] of Object.entries(fields)) { const f = parseFieldKey(k)!; const r = parseStyleValue(f.token, v); if ("problem" in r) problems.push(`${where}: ${r.problem}`); }
-    sheets.push({ for: styleTargetText(target), block: b.id, ...(b.line !== undefined ? { line: b.line } : {}), fields });
+    sheets.push({ for: styleTargetText(target), block: b.id, ...(b.line !== undefined ? { line: b.line } : {}), fields, ...(retired.length ? { retired } : {}) });
   }
   return { sheets, problems };
 }
@@ -485,7 +525,8 @@ export function styleLayers(sheets: readonly StyleSheet[], place: StylePlace, pr
       if (!found.length) problems.push(`page: style ${JSON.stringify(named)} isn't declared ([style-for::${named}] on a note declares it)`);
       for (const s of found) out.push(layer("page", `style ${named}`, s));
     }
-    const fields = styleFieldsOf(page.properties, "page", problems, false);
+    // The page's retired keys are the tune's to list (look.ts's retiredLooks), with their fix.
+    const fields = styleFieldsOf(page.properties, "page", problems, false, []);
     if (Object.keys(fields).length) out.push({ level: "page", label: "page", block: page.id, fields });
   }
   if (place.instance && Object.keys(place.instance.fields).length) out.push({ level: "instance", label: "this tile", fields: place.instance.fields });

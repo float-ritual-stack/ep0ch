@@ -108,7 +108,9 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
     test.skipIf(needsNvim && !NVIM)(example.act, async () => {
     // A part to take out (PIE-1247): element.* examples name the figure on line 4, ^bed-jobs, and a pad to drop it into.
     const parts = page.name.startsWith("element.") ? "\n::graph-table ^bed-jobs\n---\ntitle: Bed jobs\n---\n- peas: sow\n::\n" : "";
-    const note = await h.board.createBlock(null, `Seed swap [page::garden]${page.name === "tree.depth" ? " [type::virtual-branch] [query::page=garden]" : ""}\nseed swap: bring beans and peas.\n${parts}` + "Water the beds.\n".repeat(45));
+    // A note still writing retired look keys (PIE-1365) for tune.retired.*'s examples to fix.
+    const retired = page.name.startsWith("tune.retired.") ? " [style.header.image::media/seed-swap.png] [style.header.image.tint::0.5]" : "";
+    const note = await h.board.createBlock(null, `Seed swap [page::garden]${retired}${page.name === "tree.depth" ? " [type::virtual-branch] [query::page=garden]" : ""}\nseed swap: bring beans and peas.\n${parts}` + "Water the beds.\n".repeat(45));
     const pad = page.name.startsWith("element.") ? await h.board.createBlock(null, "Sticky pad\nKept beside the plan.\nThe end.") : null;
     if (page.name === "tree.depth") await h.board.move(note.id, null, USER, 1);
     const file = join(h.scratch.root, "garden-plan.md");
