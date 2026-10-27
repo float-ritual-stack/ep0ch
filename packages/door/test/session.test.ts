@@ -1525,7 +1525,11 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     // As the agent: where it is, an act, and an act from an environment whose socket went with an old process
     // (door-<pid>.sock: a door that started beside another on its outline).
     const line = `${ep0chCmd} where --json > ${out}/where.json; ${ep0chCmd} act layout.get --as fake-agent > ${out}/act.json; ` +
-      `EP0CH_CONTROL=$EP0CH_PLACE/door-${before}.sock ${ep0chCmd} act layout.get --as fake-agent > ${out}/act-old.json; echo followed-$((6*7))\\n`;
+      `EP0CH_CONTROL=$EP0CH_PLACE/door-${before}.sock ${ep0chCmd} act layout.get --as fake-agent > ${out}/act-old.json; ` +
+      `EP0CH_CONTROL=$EP0CH_PLACE/door-${before}.sock ${ep0chCmd} peek > ${out}/peek-old.txt; ` +
+      // PIE-1363: a socket of the agent's own, its door not up yet, with this tile's EP0CH_PLACE inherited: no door at all.
+      `EP0CH_CONTROL=${out}/mine/control.sock ${ep0chCmd} peek > ${out}/peek-mine.txt 2> ${out}/peek-mine.err; echo $? > ${out}/peek-mine.code; ` +
+      `EP0CH_CONTROL=${out}/mine/control.sock ${ep0chCmd} act tile.tune --as fake-agent 2> ${out}/act-mine.err; echo $? > ${out}/act-mine.code; echo followed-$((6*7))\\n`;
     await control({ cmd: "act", action: "tile.type", tile, args: { text: line }, as: "test-agent" });
     await until(() => b.screen().includes("followed-42"), "the agent's commands", 20_000);
     const w = JSON.parse(readFileSync(join(out, "where.json"), "utf8"));
@@ -1534,6 +1538,14 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     expect(w.door.tile).toMatchObject({ found: true, descends: true });
     expect(JSON.parse(readFileSync(join(out, "act.json"), "utf8"))).toBeTruthy();
     expect(JSON.parse(readFileSync(join(out, "act-old.json"), "utf8"))).toEqual(JSON.parse(readFileSync(join(out, "act.json"), "utf8")));
+    expect(readFileSync(join(out, "peek-old.txt"), "utf8").trim()).not.toBe("");
+    for (const what of ["peek", "act"]) {
+      expect(readFileSync(join(out, `${what}-mine.code`), "utf8").trim()).toBe("1");
+      const why = readFileSync(join(out, `${what}-mine.err`), "utf8");
+      expect(why).toContain(`${out}/mine/control.sock`);
+      expect(why).toContain("scripts/agent-env");
+    }
+    expect(existsSync(join(out, "peek-mine.txt")) ? readFileSync(join(out, "peek-mine.txt"), "utf8") : "").toBe("");
     // The shell's screen as the tests after this one know it.
     await control({ cmd: "act", action: "tile.type", tile, args: { text: "clear; echo chard-$((6*7))\\n" }, as: "test-agent" });
     await until(() => !b.screen().includes("followed-42") && b.screen().includes("chard-42"), "the shell cleared", 10_000);

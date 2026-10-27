@@ -205,10 +205,10 @@ export interface DocMedia { path: string; kind: string; row: number; line: numbe
  * the row that names the image or video (its caption, or the line in its place). `source[r]`: the
  * body line rendered row `r` comes from (the first line of a fence or figure for all of its
  * rows; -1 for decoration without source text). `heads`: each fold point drawn, at its row, with the columns of its disclosure (a heading's whole
- * row, a list item's indent and mark).
+ * row, a list item's indent and mark) and the rows it takes (`rows`, a wrapped heading's: PIE-1349; one when left out).
  */
 export interface Doc {
-  lines: string[]; images: DocImage[]; media: DocMedia[]; links: LinkRange[]; source: number[]; heads: { key: string; row: number; cols: number }[];
+  lines: string[]; images: DocImage[]; media: DocMedia[]; links: LinkRange[]; source: number[]; heads: { key: string; row: number; cols: number; rows?: number }[];
   /**
    * Where a figure, a table or a heading was drawn (PIE-780), in reading order: the row it starts on, the body line it was
    * written on and the cell its zoom control goes in. Where parts start only: which lines a part covers is the service's.
@@ -637,13 +637,14 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const folded = env.folds.folded.has(fp.key), selected = env.folds.selected === fp.key;
       const disclosure = { folded, selected, hidden: fp.hidden, preview: env.folds.preview?.has(fp.key) };
       const styled = fp.kind === "heading" ? headingRows(line, W, env, lit(i), disclosure) : null;
-      const joins: (string | undefined)[] = [];
-      const rows = styled?.rows ?? prose(line, W, disclosure, lit(i), env.task && (box => env.task!(i, box)), joins);
-      if (!styled || styled.plainAt !== undefined) proseCuts(line, W, disclosure).forEach((c, k) => { if (c.length && k < rows.length) cut(out.length + (styled?.plainAt ?? 0) + k, ...c); });
-      heads.push({ key: fp.key, row: out.length + (styled?.headRow ?? 0), cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2 });
+      const joins: (string | undefined)[] = [], cuts: Cuts[] = [];
+      const rows = styled?.rows ?? prose(line, W, disclosure, lit(i), env.task && (box => env.task!(i, box)), joins, cuts);
+      // A heading's disclosure is every row its words take (PIE-1349); a list item's, its mark's.
+      const headRows = fp.kind !== "heading" ? 1 : styled ? styled.copy?.joins.length ?? 1 : rows.length;
+      heads.push({ key: fp.key, row: out.length + (styled?.headRow ?? 0), cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2, rows: headRows });
       if (fp.kind === "heading") parts.push({ kind: "heading", row: out.length + (styled?.headRow ?? 0), line: i, col: W - 1 });
       if (styled) { marginEdges(out.length, styled); headingCopy(out.length, styled); }
-      else wrapped(out.length, joins);
+      else { cuts.forEach((c, k) => { if (c.length) cut(out.length + k, ...c); }); wrapped(out.length, joins); }
       out.push(...rows);
       if (folded) { mark(); insert(i + 1); inserted = fp.end; i = fp.end - 1; }
       continue;
@@ -927,8 +928,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
           const t = k === 0 ? p.trimEnd() : p.trim();
           if (!t.trim() || /^\s*([-*]|\d+[.)])\s*$/.test(t)) return;
           // Each piece copies as the prose it is: its drawing cut, its wrapped rows joined (PIE-1348).
-          const joins: (string | undefined)[] = [], rows = prose(t, W, undefined, lit(i), undefined, joins);
-          proseCuts(t, W).forEach((c, r) => { if (c.length && r < rows.length) cut(out.length + r, ...c); });
+          const joins: (string | undefined)[] = [], cuts: Cuts[] = [], rows = prose(t, W, undefined, lit(i), undefined, joins, cuts);
+          cuts.forEach((c, r) => { if (c.length) cut(out.length + r, ...c); });
           wrapped(out.length, joins);
           out.push(...rows);
         });
@@ -943,16 +944,14 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     if (declared) { out.push(...declared); continue; }
     const styled = headingRows(line, W, env, lit(i)) ?? (rawStructure[i] === -1 && !setext ? styledRule(line, W, env) : null);
     if (styled) {
-      const plainAt = "plainAt" in styled ? styled.plainAt as number | undefined : undefined;
-      if (plainAt !== undefined) proseCuts(line, W).forEach((c, k) => { if (c.length) cut(out.length + plainAt + k, ...c); });
       marginEdges(out.length, styled);
       if ("copy" in styled) headingCopy(out.length, styled as StyledHeading);
       out.push(...styled.rows);
       continue;
     }
-    const joins: (string | undefined)[] = [];
-    const rows = prose(line, W, undefined, lit(i), env.task && (box => env.task!(i, box)), joins);
-    proseCuts(line, W).forEach((c, k) => { if (c.length && k < rows.length) cut(out.length + k, ...c); });
+    const joins: (string | undefined)[] = [], cuts: Cuts[] = [];
+    const rows = prose(line, W, undefined, lit(i), env.task && (box => env.task!(i, box)), joins, cuts);
+    cuts.forEach((c, k) => { if (c.length) cut(out.length + k, ...c); });
     // A run of `>` lines is one quote: its copy control is on the first.
     if (/^\s*>/.test(line)) {
       const text = line.replace(/^\s*> ?/, ""), last = blocks.at(-1);
@@ -1169,9 +1168,9 @@ function headingRows(line: string, W: number, env: DocEnv, literal: boolean, fol
   if (styled) return styled;
   const m = env.look?.values["heading.margin"];
   if (!m || (!m.top && !m.bottom) || !HEADING.test(line) || literal) return null;
-  const joins: (string | undefined)[] = [];
-  const rows = prose(line, W, fold, literal, undefined, joins);
-  return { rows: [...Array(m.top).fill(""), ...rows, ...Array(m.bottom).fill("")], headRow: m.top, margin: m, plainAt: m.top, copy: { at: m.top, cuts: [], joins } };
+  const joins: (string | undefined)[] = [], cuts: Cuts[] = [];
+  const rows = prose(line, W, fold, literal, undefined, joins, cuts);
+  return { rows: [...Array(m.top).fill(""), ...rows, ...Array(m.bottom).fill("")], headRow: m.top, margin: m, plainAt: m.top, copy: { at: m.top, cuts, joins } };
 }
 
 /** A property token left on a heading in a band (`[who::sam]`): a chip after the heading, never its text. */
@@ -1224,14 +1223,15 @@ function styledHeading(line: string, W: number, env: DocEnv, literal: boolean, f
   // wrapped under its disclosure, and a copy takes the words joined as written.
   let plain: string[], copy: StyledHeading["copy"];
   if (st.style && !literal) {
-    const glyph = headingGlyph(fold), lead = glyph ? 2 : 0, joins: (string | undefined)[] = [];
-    const words = wrap(headingWords(h[2]!, st.level, { tone: st.style.tone, letters: "plain" }, fold), Math.max(1, W - lead), { joins });
-    plain = words.map((l, k) => (k ? " ".repeat(lead) : glyph) + l);
-    copy = { at: 0, cuts: plain.map(() => (lead ? [[0, lead]] : [])), joins };
+    const glyph = headingGlyph(fold), lead = glyph ? 2 : 0, joins: (string | undefined)[] = [], cuts: Cuts[] = [];
+    plain = hang(headingWords(h[2]!, st.level, { tone: st.style.tone, letters: "plain" }, fold, false), W, {
+      head: glyph, lead, paint: l => l, first: lead ? [[0, lead]] : [], tail: fold?.folded ? foldedNote(fold) : "", joins, cuts,
+    });
+    copy = { at: 0, cuts, joins };
   } else {
-    const joins: (string | undefined)[] = [];
-    plain = prose(st.text, W, fold, literal, undefined, joins);
-    copy = { at: 0, cuts: proseCuts(st.text, W, fold), joins };
+    const joins: (string | undefined)[] = [], cuts: Cuts[] = [];
+    plain = prose(st.text, W, fold, literal, undefined, joins, cuts);
+    copy = { at: 0, cuts, joins };
   }
   if (!margin) return { rows: plain, headRow: 0, ...(copy ? { copy } : {}) };
   const m = withMargin(margin, plain, 0);
@@ -1265,27 +1265,37 @@ function headingLabel(text: string, level: number, style: Pick<HeadingStyle, "to
 /** A styled heading's disclosure and the space after it, or "" when it can't fold. */
 const headingGlyph = (fold?: Disclosure) => (fold ? (fold.selected ? fg(C.yellow) : fg(C.lcyan)) + (fold.folded ? "▸" : "▾") + " " : "");
 
-/** A styled heading's words after its disclosure: lettered, in its ink, its property chips and what a fold hides. */
-function headingWords(text: string, level: number, style: Pick<HeadingStyle, "tone" | "letters">, fold?: Disclosure): string {
+/** A styled heading's words after its disclosure: lettered, in its ink, its property chips and (`note`) what a fold hides. */
+function headingWords(text: string, level: number, style: Pick<HeadingStyle, "tone" | "letters">, fold?: Disclosure, note = true): string {
   const ink = fold?.selected ? C.yellow : style.tone !== "neutral" ? TONE[style.tone] : level <= 1 ? C.lcyan : level === 2 ? C.white : C.grey;
   const props = liveTokensInLine(text), words = props.length ? withoutTokens(text, props).trim() : text;
   return BOLD + fg(ink) + styleMarks(bandLetters(words, style.letters), { bold: false }) + UNBOLD + RESET
-    + props.map(t => " " + propertyChip(t)).join("") + (fold?.folded ? foldedNote(fold) : "");
+    + props.map(t => " " + propertyChip(t)).join("") + (note && fold?.folded ? foldedNote(fold) : "");
 }
 
-/** Blockquote, heading, list item or paragraph. `task`: what a list item's step box is drawn as (DocEnv.task). */
-function prose(line: string, W: number, fold?: Disclosure, literal = false, task?: (box: string) => string | null, joins?: (string | undefined)[]): string[] {
-  const out: string[] = [];
+/**
+ * Blockquote, heading, list item or paragraph. `task`: what a list item's step box is drawn as (DocEnv.task). `joins`
+ * and `cuts`, when given, get each row's: how a copy joins it to the row before, and the drawing cells it leaves out.
+ */
+function prose(line: string, W: number, fold?: Disclosure, literal = false, task?: (box: string) => string | null, joins?: (string | undefined)[], cuts?: Cuts[]): string[] {
   const inline = (s: string) => inlineOf(s, literal);
-  if (/^\s*>/.test(line)) { for (const l of wrap(line.replace(/^\s*> ?/, ""), W - 2, BODY)) out.push(fg(C.green) + "▌ " + RESET + inline(l)); return out; }
+  if (/^\s*>/.test(line)) {
+    const body = line.replace(/^\s*> ?/, ""), item = /^(\s*)([-*]) /.exec(body);
+    const rows = wrap(body, W - 2, BODY);
+    // colourBody draws a quoted "- " as a bullet glyph: copied as the note's own marker.
+    cuts?.push(...rows.map((_, k): Cuts => (k === 0 && item ? [[0, 2], [2 + item[1]!.length, 4 + item[1]!.length, item[2]! + " "]] : [[0, 2]])));
+    return rows.map(l => fg(C.green) + "▌ " + RESET + inline(l));
+  }
   const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
   const tint = fold?.selected ? fg(C.yellow) : fg(C.lcyan);
+  const tail = fold?.folded ? foldedNote(fold) : "";
   const h = line.match(HEADING);
   if (h) {
     // Its words wrap under themselves (PIE-1348), never cut: the next rows hang past the disclosure and the #s.
-    const lead = (glyph ? 2 : 0) + h[1]!.length + 1, words = wrap(h[2]!, Math.max(1, W - lead), { joins });
-    const head = (glyph ? tint + glyph + " " : "") + fg(C.dark) + h[1] + " " + RESET;
-    return words.map((l, k) => (k ? " ".repeat(lead) : head) + BOLD + fg(fold?.selected ? C.yellow : C.white) + styleMarks(l, { bold: false }) + RESET + (fold?.folded && k === words.length - 1 ? foldedNote(fold) : ""));
+    return hang(h[2]!, W, {
+      head: (glyph ? tint + glyph + " " : "") + fg(C.dark) + h[1] + " " + RESET, lead: (glyph ? 2 : 0) + h[1]!.length + 1,
+      paint: l => BOLD + fg(fold?.selected ? C.yellow : C.white) + styleMarks(l, { bold: false }) + RESET, first: glyph ? [[0, 2]] : [], tail, joins, cuts,
+    });
   }
   const li = line.match(ITEM);
   if (li) {
@@ -1294,17 +1304,47 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false, task
     const mark = num ? li[2]! + glyph : glyph || "∙";
     // Deep indentation in a narrow reader keeps some room for the text: the indent gives way first.
     const room = Math.min(MIN_ITEM_TEXT, W - mark.length - 1);
-    const lead = " ".repeat(Math.max(0, Math.min(indent, W - mark.length - 1 - room))) + mark + " ";
+    const at = Math.max(0, Math.min(indent, W - mark.length - 1 - room)), lead = " ".repeat(at) + mark + " ";
+    // A bullet glyph is the list marker as the note has it ("- ", "* ") when copied; a number is drawn as written.
+    const first: Cuts = !num ? [[at, lead.length, li[2]! + " "]] : glyph ? [[at + li[2]!.length, at + mark.length]] : [];
     const box = task ? li[3]!.match(BOX)?.[0] : undefined;
     const drawn = box ? task!(box) : null;
+    const text = drawn !== null ? drawn + li[3]!.slice(box!.length) : li[3]!;
     // Leave room for the reader's trailing fold control, which never covers text.
-    if (fold?.preview) return [tint + lead + RESET + drawEllipsized(inline(drawn !== null ? drawn + li[3]!.slice(box!.length) : li[3]!) + (fold.folded ? foldedNote(fold) : ""), W - lead.length - 4)];
-    const rows = wrap(drawn !== null ? drawn + li[3]!.slice(box!.length) : li[3]!, W - lead.length, { ...BODY, joins });
-    rows.forEach((l, k) => out.push((k ? " ".repeat(lead.length) : (fold ? tint : fg(C.lcyan)) + lead + RESET) + inline(l) + (fold?.folded && k === rows.length - 1 ? foldedNote(fold) : "")));
-    return out;
+    if (fold?.preview) { cuts?.push(first); return [tint + lead + RESET + drawEllipsized(inline(text) + tail, W - lead.length - 4)]; }
+    return hang(text, W, { head: (fold ? tint : fg(C.lcyan)) + lead + RESET, lead: lead.length, paint: inline, first, tail, code: true, joins, cuts });
   }
-  if (!line.trim()) return [""];
-  return wrap(line, W, { ...BODY, joins }).map(inline);
+  if (!line.trim()) { cuts?.push([]); return [""]; }
+  const rows = wrap(line, W, { ...BODY, joins });
+  cuts?.push(...rows.map((): Cuts => []));
+  return rows.map(inline);
+}
+
+type Cuts = [number, number, string?][];
+/**
+ * Words hung under themselves (PIE-1349): the one wrap for a list item, a plain heading and a styled heading drawn
+ * plainly. The first row starts with `head` (`lead` cells: an indent, a mark, a disclosure, #s), the next are indented
+ * as far; `tail` (what a fold hides) goes after the last word, else on a row of its own under them, so it stays inside
+ * `W` with room for the reader's fold control after it. `joins` and `cuts` get each row's: how a copy joins it to the row before, and the cells it leaves out (`first`:
+ * the first row's drawing; the hang; the tail, which is drawing too).
+ */
+function hang(text: string, W: number, o: { head: string; lead: number; paint: (row: string) => string; first?: Cuts; tail?: string; code?: boolean; joins?: (string | undefined)[]; cuts?: Cuts[] }): string[] {
+  const joins: (string | undefined)[] = [];
+  const words = wrap(text, Math.max(1, W - o.lead), { code: !!o.code, joins });
+  const rows = words.map((l, k) => (k ? " ".repeat(o.lead) : o.head) + o.paint(l));
+  const cuts = words.map((_, k): Cuts => (k ? [[0, o.lead]] : [...(o.first ?? [])]));
+  if (o.tail) {
+    const tw = vwidth(visible(o.tail)), end = vwidth(visible(rows.at(-1)!));
+    // The reader's fold control goes after it (`…`, a cell's gap): room is left for both.
+    const room = W - 4;
+    if (end + tw <= room) { rows[rows.length - 1] += o.tail; cuts.at(-1)!.push([end, end + tw]); }
+    else {
+      const at = Math.max(0, Math.min(o.lead, room - tw));
+      rows.push(" ".repeat(at) + drawEllipsized(o.tail, Math.max(1, room - at))); joins.push(""); cuts.push([[0, W]]);
+    }
+  }
+  o.joins?.push(...joins); o.cuts?.push(...cuts);
+  return rows;
 }
 
 const CODE_ON = fg(C.lmagenta), CODE_OFF = fg(C.grey), TAG_CHAR = /[\u{100000}-\u{10FFFD}]/u;
@@ -1344,35 +1384,6 @@ export function codeSpans(lines: readonly string[], source: readonly number[]): 
     merged.push({ ...b });
   }
   return merged;
-}
-
-/**
- * The cells of `prose(line, W, fold)`'s rows that are drawing, not the note's words (a copy leaves them out): a quote's bar, a
- * bullet glyph or fold arrow with the space after it, and the indent a wrapped item's next rows are drawn with.
- */
-function proseCuts(line: string, W: number, fold?: Disclosure): [number, number, string?][][] {
-  if (/^\s*>/.test(line)) {
-    const body = line.replace(/^\s*> ?/, ""), item = /^(\s*)([-*]) /.exec(body);
-    // colourBody draws a quoted "- " as a bullet glyph: copied as the note's own marker.
-    return wrap(body, W - 2, BODY).map((_, k) => (k === 0 && item ? [[0, 2], [2 + item[1]!.length, 4 + item[1]!.length, item[2]! + " "]] : [[0, 2]]));
-  }
-  const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
-  const h = line.match(HEADING);
-  if (h) {
-    const lead = (glyph ? 2 : 0) + h[1]!.length + 1;
-    return wrap(h[2]!, Math.max(1, W - lead)).map((_, k) => (k ? [[0, lead]] : glyph ? [[0, 2]] : []));
-  }
-  const li = line.match(ITEM);
-  if (!li) return [];
-  const indent = li[1]!.length, num = /\d/.test(li[2]!);
-  const mark = num ? li[2]! + glyph : glyph || "∙";
-  const room = Math.min(MIN_ITEM_TEXT, W - mark.length - 1);
-  const at = Math.max(0, Math.min(indent, W - mark.length - 1 - room)), lead = at + mark.length + 1;
-  // The box of a step is drawn in place of its text: what `wrap` makes of the rest isn't known here, so the rows after
-  // the first are cut by the indent they are drawn with (rows past those the item has are ignored).
-  // A bullet glyph is the list marker as the note has it ("- ", "* ") when copied; a number is drawn as written.
-  const first: [number, number, string?][] = !num ? [[at, lead, li[2]! + " "]] : glyph ? [[at + li[2]!.length, at + mark.length]] : [];
-  return [first, ...Array.from({ length: 64 }, () => [[at, lead]] as [number, number][])];
 }
 
 function chunk(s: string, w: number): string[] {

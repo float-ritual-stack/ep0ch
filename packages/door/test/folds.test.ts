@@ -384,6 +384,27 @@ describe("review fixes (PR #13)", () => {
     } finally { board.close(); await scratch.dispose(); }
   });
 
+  // PIE-1349: a heading that wraps is one heading: its disclosure is every row of it, and what a fold hides is said inside the tile.
+  test("6: at 40 columns a wrapped heading folds from any of its rows, and its count stays inside", () => {
+    const text = "Seeds\n## Order the seed trays for the raised beds before the frost\nunder it\nand more";
+    for (const k of [0, 1]) {
+      const s = new NoteSurface(), h = host();
+      s.show(note(text), h);
+      const lines = s.render(40, 20, h).lines.map(plain);
+      const row = lines.findIndex(l => l.includes("## Order")) + k;
+      expect(lines[row]).toContain(k ? "beds before the frost" : "## Order");
+      expect(s.click(0, row, h)).toBe(true);
+      expect(s.describe().folds!.folded).toEqual(["## Order the seed trays for the raised beds before the frost"]);
+      const folded = s.render(40, 20, h).lines.map(plain);
+      expect(folded.join("\n")).toContain("· 2 lines folded");
+      expect(folded.join("\n")).not.toContain("under it");
+      for (const l of folded) expect(Bun.stringWidth(l)).toBeLessThanOrEqual(40);
+      // A click on any row of it unfolds it again.
+      expect(s.click(0, row, h)).toBe(true);
+      expect(s.describe().folds!.folded).toEqual([]);
+    }
+  });
+
   test("5: a click past the surface's cells (a host's border, its scroll thumb) never folds", () => {
     const s = new NoteSurface(), h = host();
     s.show(note(TEXT), h);

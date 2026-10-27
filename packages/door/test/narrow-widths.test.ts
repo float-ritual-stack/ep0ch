@@ -68,6 +68,43 @@ describe("a plain heading at 40 columns (PIE-1348)", () => {
   });
 });
 
+// PIE-1349: list items, plain headings and styled headings drawn plainly hang their words through one helper: the same
+// rows, the same cuts, the same joins, and what a fold hides stays inside the width.
+describe("one hanging wrap at 40 columns (PIE-1349)", () => {
+  const ENV = { width: 40, cellW: 9, cellH: 16, graphics: false, maxImageRows: 4, unfold: false };
+  const words = "Order the seed trays for the raised beds before the frost";
+  const drawn = (body: string, folded: string[] = []) => {
+    const points = foldPoints(body);
+    return renderDoc(body, { ...ENV, folds: { points, folded: new Set(points.filter(p => folded.includes(p.text)).map(p => p.key)) } });
+  };
+
+  test("a list item, a plain heading and a styled heading hang their words under themselves, cut and joined alike", () => {
+    for (const [line, lead] of [[`- ${words}`, 2], [`## ${words}`, 5], [`## ${words} [heading::band]`, 2]] as const) {
+      const doc = drawn(`${line}\nunder it`), lines = doc.lines.map(plain);
+      const first = lines.findIndex(l => l.includes("Order"));
+      expect(lines[first + 1]!.slice(0, lead).trim()).toBe("");
+      expect(lines[first + 1]!.slice(lead)).toMatch(/^\S/);
+      expect(doc.trims.get(first + 1)?.cuts).toContainEqual([0, lead]);
+      expect(doc.wraps?.get(first + 1)).toBe(" ");
+      for (const l of lines) expect(Bun.stringWidth(l)).toBeLessThanOrEqual(40);
+    }
+  });
+
+  test("folded, what it hides is said inside the width, and a copy leaves it out", () => {
+    for (const line of [`- ${words}`, `## ${words}`, `## ${words} [heading::band]`]) {
+      const text = foldPoints(`${line}\n  - under it\nmore`)[0]!.text;
+      const doc = drawn(`${line}\n  - under it\nmore`, [text]), lines = doc.lines.map(plain);
+      const at = lines.findIndex(l => /· \d lines? folded/.test(l));
+      expect(at).toBeGreaterThan(-1);
+      for (const l of lines) expect(Bun.stringWidth(l)).toBeLessThanOrEqual(40);
+      // The count is drawing: cut from the copy, its row (when it has one) joined with nothing.
+      const cut = doc.trims.get(at)!.cuts.find(([a, b]) => a <= lines[at]!.indexOf("·") && b >= lines[at]!.indexOf("folded") + 6);
+      expect(cut).toBeTruthy();
+      if (!lines[at]!.includes("frost")) expect(doc.wraps?.get(at)).toBe("");
+    }
+  });
+});
+
 describe.skipIf(!outliner)("a note at 40 columns (ep0ch show)", () => {
   const scratch = new Scratch();
   let board: SocketBoard, id = "";

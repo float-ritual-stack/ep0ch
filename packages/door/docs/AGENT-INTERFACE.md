@@ -42,7 +42,7 @@ reaches the door it runs in (for the daily agent in Herdr, the socket of the doo
 README's "The daily agent in Herdr"). It is also told its outline's session folder as `EP0CH_PLACE` (PIE-604), so it
 follows its door through a handover or restart: `ep0ch act|peek|open|where` and the outliner's `door-open` (so the
 Claude mod) take `EP0CH_CONTROL` while it answers from that folder, else the outline's `door.sock` there, never another
-outline's door (outline-core's `door-reach.ts`, the one rule). `ep0ch where` says when the environment is stale and
+outline's door (outline-core's `door-reach.ts`, the one rule). An `EP0CH_CONTROL` outside that folder that answers nothing is refused, naming it and `scripts/agent-env`: no door is reached, never the place's (PIE-1363). `ep0ch where` says when the environment is stale and
 which door it answers for now. A door never serves on an inherited `EP0CH_CONTROL` naming another outline's folder. It speaks newline-delimited JSON:
 one request per line, one answer per line (`{"ok":true,"result":…}` or `{"ok":false,"error":"…"}`).
 

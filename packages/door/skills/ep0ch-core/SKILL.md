@@ -174,8 +174,9 @@ tmux new-session -d -s try -x 160 -y 48 "$E scripts/try-it.sh --showcase"   # it
 d=$(../../scripts/agent-env me --print | sed -n "s/^export EP0CH_STATE=//p")
 C=$d/showcase/door/door.sock                    # the showcase sets its own EP0CH_CONTROL; it prints it
 # any other outline: $E bun src/main.ts --ws garden   (its control socket is the agent-env's EP0CH_CONTROL)
-EP0CH_CONTROL=$C bun src/main.ts peek           # the screen as text, plus state
-EP0CH_CONTROL=$C bun src/main.ts act layout.get --as <your-id>
+# every command at it under $E too: your session's inherited EP0CH_PLACE would take a bare EP0CH_CONTROL=$C to the person's door (PIE-1363)
+$E env EP0CH_CONTROL=$C bun src/main.ts peek     # the screen as text, plus state
+$E env EP0CH_CONTROL=$C bun src/main.ts act layout.get --as <your-id>
 tmux send-keys -t try j                                       # a key
 tmux send-keys -t try -l $'\e[<0;6;7M'; tmux send-keys -t try -l $'\e[<0;6;7m'   # click col 6, row 7
 tmux send-keys -t try -l $'\e[<65;6;7M'                       # wheel down (64 is up)

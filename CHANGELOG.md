@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Door fixes: an agent's own socket, the lift's fetch, wrapped headings (PIE-1363, PIE-1337, PIE-1349)
+
+- **An agent's own `EP0CH_CONTROL` never reaches the person's door (PIE-1363).** `EP0CH_PLACE` stands in only for a
+  socket of that place (its session folder's, gone stale through a handover: PIE-604 holds). A socket elsewhere that
+  answers nothing is refused by `ep0ch act|peek|open|where` and the outliner's `door-open`, naming the path and
+  `scripts/agent-env`, and nothing falls through to the folder's or the only door after it.
+- **agent.lift leaves a put-away drawer put away (PIE-1337).** Lifting an agent tab that's out on a screen another one
+  covers fetches it into the drawer and lifts it there; the drawer itself stays down.
+- **A wrapped heading is one heading (PIE-1349).** A click on any of its rows folds it, and "· N lines folded" stays inside
+  the tile (after the last word, else on a row of its own) and out of a copy. List items, plain headings and styled
+  headings drawn plainly share one hanging wrap: the same rows, cuts and joins.
+
 ### Zoom into part of a note: a figure, a table or a heading's section fills the reader (PIE-780)
 
 - **A ⤢ at the right edge** of a figure, a table or a heading: a click zooms the reader into that part, interactive at
