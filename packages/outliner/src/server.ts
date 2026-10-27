@@ -3484,7 +3484,7 @@ export class OutlinerServer {
           result = this.store.readFragment(request.blockId, request.fragmentId);
           break;
         case "fragments.at":
-          result = this.store.partAt(request.blockId, request.line);
+          result = this.store.partAt(request.blockId, request.line, request.next === true);
           break;
         case "transclusions.read":
           result = this.store.readTransclusions(request.targets, { hostBlockId: request.hostBlockId, maxDepth: request.maxDepth });

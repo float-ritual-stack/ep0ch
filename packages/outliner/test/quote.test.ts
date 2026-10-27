@@ -126,6 +126,8 @@ test("fragments.at (PIE-780): the part a line is in, as detach takes it, with th
   // The title and a blank line are in no part.
   expect((await at(0)).part).toBeNull();
   expect((await at(2)).part).toBeNull();
+  // With next (where a reader is, as detach takes it): the first part after a blank line.
+  expect((await client.request<PartAt>({ action: "fragments.at", blockId: plan.id, line: 2, next: true })).part).toMatchObject({ kind: "component", startLine: 3 });
   expect(store.get(plan.id)!.revision).toBe(plan.revision);
   await expect(at(-1)).rejects.toThrow("needs line");
 });

@@ -1688,9 +1688,9 @@ export class SocketBoard implements Board {
     return this.request("fragments.ensure", { blockId, lineIndex, expectedRevision, mutation: mutationFor(actor) });
   }
 
-  /** The part of a note holding `line` (from 0), as element.detach would take it, nothing written (`fragments.at`, PIE-780). */
-  partAt(blockId: string, line: number): Promise<PartAt> {
-    return this.request<PartAt>("fragments.at", { blockId, line });
+  /** The part of a note holding `line` (from 0), else with `next` the first after it, as element.detach takes it, nothing written (`fragments.at`, PIE-780). */
+  partAt(blockId: string, line: number, next = false): Promise<PartAt> {
+    return this.request<PartAt>("fragments.at", { blockId, line, ...(next ? { next: true } : {}) });
   }
 
   /** `((id^fragment))`'s slice of its note (PIE-424). */

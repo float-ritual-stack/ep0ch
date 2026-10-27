@@ -247,7 +247,7 @@ export type FragmentKind = "heading" | "paragraph" | "list-item" | "component" |
  * The part of a note that holds a line (`fragments.at`, PIE-780): the one `element.detach` and `element.quote` take there
  * (the innermost figure, callout, quote, list item, paragraph or heading's section), read without writing its anchor.
  * `lineIndex` is where its anchor is or would go; `startLine` and `endLine` the note lines it covers (from 0, inclusive).
- * `part` is null on a line no part holds (a blank, the title).
+ * `part` is null on a line no part holds (a blank, the title), unless `next` asks for the first part after it.
  */
 export interface PartAt {
   blockId: string; revision: number;

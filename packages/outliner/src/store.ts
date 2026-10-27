@@ -2036,10 +2036,10 @@ export class OutlinerStore {
    * The part of note `id` holding `line` (PIE-780: a reader zooms into it), as `quote` takes one there (`elementAt`, the one
    * rule), read in one transaction and nothing written: an anchor it has none of is only where it would go.
    */
-  partAt(id: string, line: number): PartAt {
+  partAt(id: string, line: number, next = false): PartAt {
     if (!Number.isInteger(line) || line < 0) throw new Error("fragments.at needs line: a note line from 0");
     return this.database.transaction(() => {
-      const block = this.requireActive(id), e = elementAt(block.text, line);
+      const block = this.requireActive(id), e = elementAt(block.text, line, next);
       return { blockId: block.id, revision: block.revision, part: e ? { kind: e.kind, label: e.label, lineIndex: e.lineIndex, startLine: e.start, endLine: e.end, ...(e.fragmentId ? { fragmentId: e.fragmentId } : {}) } : null };
     }).deferred();
   }
