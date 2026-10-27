@@ -13,7 +13,7 @@ const io = (live: string[], links: Record<string, string> = {}): DoorReachIO => 
 
 describe("which door a tile's program reaches (PIE-604)", () => {
   test("without EP0CH_PLACE, EP0CH_CONTROL as it is (an older door, or a test door's moved socket)", async () => {
-    expect(await reachDoor("/tmp/test/door.sock", undefined, io([]))).toEqual({ path: "/tmp/test/door.sock", given: "/tmp/test/door.sock", place: null, stale: null });
+    expect(await reachDoor("/tmp/test/door.sock", undefined, io([]))).toEqual({ path: "/tmp/test/door.sock", given: "/tmp/test/door.sock", place: null, stale: null, refused: null });
     expect((await reachDoor(undefined, "", io([]))).path).toBeNull();
   });
 
@@ -49,6 +49,22 @@ describe("which door a tile's program reaches (PIE-604)", () => {
     expect(await reachDoor(home, PLACE, io([home, OWN], { [home]: OWN }))).toMatchObject({ path: home, stale: null });
     // Without EP0CH_PLACE (the Herdr agent's pane) the link is taken as it is.
     expect((await reachDoor(link, undefined, io([link], { [link]: OTHER }))).path).toBe(link);
+  });
+
+  // PIE-1363: a builder set its own EP0CH_CONTROL before its test door was up, with the person's EP0CH_PLACE inherited:
+  // its act landed in the person's door. A socket outside the place that answers nothing is refused, never followed.
+  test("a dead EP0CH_CONTROL outside the place is refused, naming it and agent-env, never followed to the place's door", async () => {
+    const mine = "/home/sam/.agent-env/builder/control.sock";
+    for (const live of [[OWN], []]) {
+      const r = await reachDoor(mine, PLACE, io(live));
+      expect(r.path).toBeNull();
+      expect(r.refused).toContain(mine);
+      expect(r.refused).toContain("scripts/agent-env");
+    }
+    // A link outside the place that leads into it isn't the place's either: what a door gives a tile is inside it.
+    expect((await reachDoor("/state/agent-door-pie.sock", PLACE, io([OWN], { "/state/agent-door-pie.sock": OWN }))).path).toBeNull();
+    // The place's own socket, gone stale through a handover, still follows (PIE-604).
+    expect(await reachDoor(`${PLACE}/door-4242.sock`, PLACE, io([OWN]))).toMatchObject({ path: OWN, refused: null });
   });
 
   test("nothing answers anywhere: the outline's own socket, with no excuse", async () => {

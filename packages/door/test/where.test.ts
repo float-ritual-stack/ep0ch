@@ -235,7 +235,7 @@ describe("ep0ch where", () => {
     const reached: string[] = [];
     const d = { ...deps(env, { alive: [77], ttys: ["pts/5"], ancestors: [5000, 77], peek }),
       peek: async (p: string) => { reached.push(p); return peek; },
-      reach: async () => ({ path: "/state/sessions/local/garden/door.sock", given: env.EP0CH_CONTROL, place: env.EP0CH_PLACE, stale: "EP0CH_CONTROL (/state/sessions/local/garden/door-10.sock) has no door now; following the outline's session to /state/sessions/local/garden/door.sock" }) };
+      reach: async () => ({ path: "/state/sessions/local/garden/door.sock", given: env.EP0CH_CONTROL, place: env.EP0CH_PLACE, stale: "EP0CH_CONTROL (/state/sessions/local/garden/door-10.sock) has no door now; following the outline's session to /state/sessions/local/garden/door.sock", refused: null }) };
     const w = await where(d);
     // Asked on the outline's door, not the socket the tile started with.
     expect(reached).toEqual(["/state/sessions/local/garden/door.sock"]);
@@ -254,7 +254,7 @@ describe("ep0ch where", () => {
   test("another pid on EP0CH_CONTROL without the outline's session (no EP0CH_PLACE) is another door, never a handover", async () => {
     const env = { EP0CH_NEST: "door:10/desk/t1:claude", EP0CH_CONTROL: "/c/door.sock", EP0CH_TILE_ID: "t1", EP0CH_TILE: "claude" };
     const peek = deskPeek({ pid: 77, focus: "claude", tiles: [{ id: "t1", name: "claude" }] });
-    const w = await where({ ...deps(env, { alive: [77], peek }), reach: async () => ({ path: env.EP0CH_CONTROL, given: env.EP0CH_CONTROL, place: null, stale: null }) });
+    const w = await where({ ...deps(env, { alive: [77], peek }), reach: async () => ({ path: env.EP0CH_CONTROL, given: env.EP0CH_CONTROL, place: null, stale: null, refused: null }) });
     expect(w.door).toMatchObject({ pid: 77, moved: true, stale: null });
     // The recorded door is gone, and said so: not marked live as if it had been handed over.
     expect(w.layers[0]).toMatchObject({ kind: "door", live: false, why: "not running" });

@@ -323,7 +323,9 @@ yourself (path 1): `/exit`, then `claude --continue`.
   `past`. `reader.overscroll rows=none|half|<n>` is the person's setting.
 - **The door moves under you:** a session handover or restart doesn't strand a Claude in a tile. `EP0CH_PLACE`
   names the outline's session folder, and `ep0ch act|peek|open|where` find the door from it; `ep0ch where` says when
-  your environment is stale.
+  your environment is stale. It stands in only for a socket of its own: an `EP0CH_CONTROL` you set yourself that
+  answers nothing (your test door isn't up yet) is refused, never followed to the person's door (PIE-1363). Test doors
+  and every command aimed at them run under `scripts/agent-env <name> -- …`, which unsets `EP0CH_PLACE`.
 - The full list and the rules for each are in the door's `docs/AGENT-INTERFACE.md`.
 
 For writing or invoking scripts and macros, read [ep0ch-outline: Scripts](../ep0ch-outline/SKILL.md#scripts).

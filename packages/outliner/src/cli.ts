@@ -245,7 +245,10 @@ if (process.argv[2] === "door-open") {
   // The door as it is now: by the tile's outline session (EP0CH_PLACE) when this program's own socket went stale
   // (PIE-604). A --control naming another socket than the environment's is the caller's choice, taken as it is.
   const own = values.control === undefined || values.control === process.env.EP0CH_CONTROL;
-  const control = own ? (await reachControl(process.env.EP0CH_CONTROL, process.env.EP0CH_PLACE)).path : values.control;
+  const reach = own ? await reachControl(process.env.EP0CH_CONTROL, process.env.EP0CH_PLACE) : null;
+  // A socket of this program's own that answers nothing is never followed to its place's door (PIE-1363).
+  if (reach?.refused) { console.error(`error: ${reach.refused}`); process.exit(3); }
+  const control = reach ? reach.path : values.control;
   const [blockId, ...extra] = positionals;
   if (!blockId || extra.length || !control) {
     console.error("error: door-open requires one block id and a door control socket (--control or EP0CH_CONTROL)");

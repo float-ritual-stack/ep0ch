@@ -147,6 +147,12 @@ describe("showing a block in ep0ch-door", () => {
     const other = run({ EP0CH_CONTROL: stale, EP0CH_PLACE: door.dir }, ["--control", join(tmpdir(), "elsewhere-door.sock")]);
     expect(await other.exited).toBe(3);
     expect(door.requests).toHaveLength(1);
+    // PIE-1363: its own socket outside the place, answering nothing, is refused: never followed to the place's door.
+    const mine = join(tmpdir(), `agent-${process.pid}-control.sock`);
+    const refused = run({ EP0CH_CONTROL: mine, EP0CH_PLACE: door.dir });
+    expect(await new Response(refused.stderr).text()).toContain(`EP0CH_CONTROL (${mine}) answers nothing`);
+    expect(await refused.exited).toBe(3);
+    expect(door.requests).toHaveLength(1);
   });
 
   test("a symlink EP0CH_CONTROL pointing at another outline's door is refused with EP0CH_PLACE set: the tile's own outline's door answers (PIE-604)", async () => {

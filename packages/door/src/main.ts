@@ -390,11 +390,13 @@ if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? 
   } else {
     // A program in a door's tile: its door as it is now, by its outline's session, never the socket it started with
     // alone (a handover or restart moves the door to a new process; PIE-604). `ep0ch where` says when that happened.
-    // An EP0CH_CONTROL with no door (a stale one, PIE-715) falls through to the folder's outline's door, then the only one.
+    // An EP0CH_CONTROL with no door (a stale one, PIE-715) falls through to the folder's outline's door, then the only one;
+    // one outside its EP0CH_PLACE reaches none (PIE-1363), for every command.
     const { resolveDoor } = await import("./door-resolve");
     const reached = await resolveDoor(process.env, process.cwd(), args[0] === "peek" ? args : []);
     if (reached.path) process.env.EP0CH_CONTROL = reached.path;
-    else if (args[0] === "peek") {
+    else if (args[0] === "open" && args.includes("--json") && reached.refused) { console.log(JSON.stringify({ opened: false, reason: reached.text })); process.exit(0); }
+    else if (args[0] === "peek" || reached.refused) {
       console.error(`ep0ch: ${reached.text}`);
       process.exit(1);
     }

@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Door fixes: an agent's own socket, the lift's fetch, wrapped headings (PIE-1363, PIE-1337, PIE-1349)
+
+- **An agent's own `EP0CH_CONTROL` never reaches the person's door (PIE-1363).** `EP0CH_PLACE` stands in only for a
+  socket of that place (its session folder's, gone stale through a handover: PIE-604 holds). A socket elsewhere that
+  answers nothing is refused by `ep0ch act|peek|open|where` and the outliner's `door-open`, naming the path and
+  `scripts/agent-env`, and nothing falls through to the folder's or the only door after it.
+
 ### A header picture is set one way: the note's hero line (PIE-1361)
 
 - **The note owns its header.** Its first `[img::…] [layout::hero]` line is the header picture, and its look is that
