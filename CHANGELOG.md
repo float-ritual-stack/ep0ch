@@ -29,6 +29,13 @@ are its record. The outliner's entries from then are kept below, under
   showing, and the wide tune's cut names.
 - GRAMMAR 7 → 8 (the style tokens). No PROTOCOL or schema change; `ep0ch install --apply` as usual. A note with old
   `style.header.image…` keys: move what's wanted onto its hero line (the tune names each one).
+### An outline tells its agents where to start: `[orient::<agent>]` (PIE-1353)
+
+- **A note carrying `[orient::<agent>]` or `[orient::all]`** is read by the Claude mod at session start and again
+  after a compaction or `/clear`, in the session's outline for the agent it writes as, and given to the model as one
+  context block, newest first. A long note is cut with `read the rest: ep0ch show --ws <outline> <id>`.
+- **The binding card says it:** "orients from <note>". The ep0ch-outline skill has a worked example.
+- **Run:** nothing; the mod picks it up on its next session.
 
 ### Every merge to main is on the record (PIE-1352)
 

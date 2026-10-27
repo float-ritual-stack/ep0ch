@@ -208,6 +208,23 @@ read anew each time.
 - **Never delays the session:** the read starts at `session.start` (and when a compaction or `/clear` begins). The
   first prompt waits for it no longer than for the binding (1.5s); one that lands later makes the context again.
 
+### The outline's own orientation, at the start (PIE-1353)
+
+An outline says what a session bound to it should read first: a note carrying `[orient::<agent>]` (or
+`[orient::all]`) is given to the model as one context block, `orientNotes`, ahead of the workboard, in the first
+prompt and again after a compaction and after `/clear`, read anew each time.
+
+- **Whose:** the agent is the persona the session writes as (OUTLINER_ACTOR, EP0CH_AGENT, else the folder's
+  `.ep0ch` `agent`, the "writes as" line). A session naming none gets the `[orient::all]` notes only.
+- **Where it comes from:** the service answers one `list --query` (`orient="<agent>" OR orient="all"`,
+  `hooks/orient-notes.ts`); `orient` is an open property, read by that query and nothing else.
+- **What it says:** each note's text as written, newest updated first; a note past 4,000 characters is cut at a line
+  with `… read the rest: ep0ch show --ws <outline> <id>`, and the block stops near 12,000.
+- **How a person sees it:** the binding card (and its context block) says `orients  from <note> ((id))`, with how
+  many more.
+- **Silent** with no such note, no bound outline, or no answer within 6s; the first prompt waits no longer than for
+  the binding, and one that lands later makes the context again.
+
 ### What the outline can hold, at the start (PIE-721)
 
 A session bound to an outline also starts knowing what a note there can hold, so it reaches for figures, views,

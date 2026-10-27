@@ -129,6 +129,7 @@ import {
   BOARD_QUERY,
   BUILD_LOG_QUERY,
   LIST_LIMIT,
+  type Listed,
   listArgs,
   listedOf,
   openPrsOf,
@@ -138,6 +139,7 @@ import {
   WORKBOARD_TIMEOUT_MS,
   workboardText,
 } from './workboard-now'
+import { ORIENT_BLOCK, ORIENT_FIELDS, ORIENT_LIMIT, ORIENT_TIMEOUT_MS, orientQuery, orientsFrom, orientText } from './orient-notes'
 import { DRAW_TIMEOUT_MS, drawArgv, drawnNoteOf, GUIDE_ARGV, GUIDE_BLOCK, GUIDE_TIMEOUT_MS, guideText, UPFRONT_TOOLS, withDrawing } from './outline-guide'
 
 type AbovePromptRender = RenderInput<'AbovePrompt'>
@@ -209,6 +211,15 @@ function reportStatus($: EngineInterface, r: StatusInput): void {
 let workboardLoad: Promise<string | null> | undefined
 let workboardGeneration = 0
 let workboardGiven: string | null | undefined
+
+/**
+ * The outline's `[orient::…]` notes (hooks/orient-notes.ts), read like the workboard: the read in flight or done (its
+ * text, null: none or no answer), its generation, what the model's context carried, and what the card says.
+ */
+let orientLoad: Promise<string | null> | undefined
+let orientGeneration = 0
+let orientGiven: string | null | undefined
+let orientsFromNow: string | null = null
 
 /**
  * The outline's guide (hooks/outline-guide.ts): the read for a folder and outline (another binding reads it again), and
@@ -350,7 +361,7 @@ export function register(on: On, options: PluginOptions): void {
     const ui = $.ui.resolve(e) as unknown as CardElements
     // Beside Recent mentions, or in a short band, the card says the binding alone, so the mentions' keys stay on screen.
     const compact = below.isMentions || e.props.maxRows < 16
-    const drawn = cardTree(ui, card.facts ?? null, {
+    const drawn = cardTree(ui, card.facts ? withOrient(card.facts) : null, {
       columns: e.props.bodyColumns, compact,
       hide: () => void (async () => $.state.set(BINDING_STATE, { facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null, shown: false }))(),
     })
@@ -459,6 +470,8 @@ export function register(on: On, options: PluginOptions): void {
     bindingGiven = undefined
     workboardGiven = undefined
     $.clock.after(0, () => void readWorkboard($, option))
+    orientGiven = undefined
+    $.clock.after(0, () => void readOrient($, option))
     guideGiven = undefined
     $.clock.after(0, () => void readGuide($, option))
     // The settle check, in the deployer's session only (hooks/settle.ts).
@@ -494,18 +507,24 @@ export function register(on: On, options: PluginOptions): void {
       const load = (whereLoad ??= runWhere($).catch(() => ({ summary: null, facts: null })))
       const facts = (bindingLoad ?? readBinding($, option, false)).catch(() => null)
       const board = workboardLoad ?? readWorkboard($, option)
-      const [ran, bound, workboard, guide] = await Promise.all([
+      const orienting = orientLoad ?? readOrient($, option)
+      const [ran, bound, workboard, guide, orient] = await Promise.all([
         inDoorEnv(env) ? Promise.race([load, $.clock.sleep(WHERE_WAIT_MS).then(() => null)]) : null,
         Promise.race([facts, $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
         // Not waited for longer than the binding: one that lands later makes the context again (readWorkboard).
         Promise.race([board, $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
         // The same for the guide (readGuide).
         Promise.race([readGuide($, option), $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
+        // And the orientation notes (readOrient).
+        Promise.race([orienting, $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
       ])
-      const blocks = result.blocks.filter(b => b.name !== WHERE_BLOCK && b.name !== BINDING_BLOCK && b.name !== WORKBOARD_BLOCK && b.name !== GUIDE_BLOCK)
+      const blocks = result.blocks.filter(b => b.name !== WHERE_BLOCK && b.name !== BINDING_BLOCK && b.name !== WORKBOARD_BLOCK && b.name !== GUIDE_BLOCK && b.name !== ORIENT_BLOCK)
       if (inDoorEnv(env)) blocks.push({ name: WHERE_BLOCK, text: whereText(ran?.summary ?? envSummaryOf(env)) })
       else if (bound?.where?.reach?.control && bound.where.reach.rule !== 'control') blocks.push({ name: WHERE_BLOCK, text: reachText(bound.where.reach) })
-      bindingGiven = bound ? bindingText(bound) : null
+      bindingGiven = bound ? bindingText(withOrient(bound)) : null
+      // The outline's own "read this first" leads what the mod adds about it (PIE-1353).
+      orientGiven = orient
+      if (orient) blocks.push({ name: ORIENT_BLOCK, text: orient })
       blocks.push({
         name: BINDING_BLOCK,
         // Still looking: the context is made again when it lands (readBinding).
@@ -520,15 +539,19 @@ export function register(on: On, options: PluginOptions): void {
       // A newer read (a compaction, a /clear) started while this one was awaited: when it lands, the context follows it.
       const newer = workboardLoad
       if (newer && newer !== board) void newer.then(text => { if (newer === workboardLoad && text !== workboardGiven) $.ui.invalidate('prompt.context') })
+      const newerOrient = orientLoad
+      if (newerOrient && newerOrient !== orienting) void newerOrient.then(text => { if (newerOrient === orientLoad && text !== orientGiven) $.ui.invalidate('prompt.context') })
       return { ...result, blocks }
     } catch {
       return result
     }
   })
 
-  // A compaction makes the first prompt's context again: the workboard is read anew for it, while the summary is made.
+  // A compaction makes the first prompt's context again: the workboard and the orientation notes are read anew for it,
+  // while the summary is made.
   on('session.compact', async ($, e, next) => {
     if (e.agentId === undefined) void readWorkboard($, option)
+    if (e.agentId === undefined) void readOrient($, option)
     return next(e)
   })
 
@@ -543,6 +566,8 @@ export function register(on: On, options: PluginOptions): void {
     void readBinding($, option, true).catch(() => {})
     workboardGiven = undefined
     void readWorkboard($, option)
+    orientGiven = undefined
+    void readOrient($, option)
     guideGiven = undefined
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     return result
@@ -558,7 +583,7 @@ export function register(on: On, options: PluginOptions): void {
     }
     const facts = await readBinding($, option, true)
     await $.state.set(BINDING_STATE, { shown: true, facts })
-    return { text: cardLines(facts).map(l => `${l.label ? `${l.label}: ` : ''}${l.text}`).join('\n') }
+    return { text: cardLines(withOrient(facts)).map(l => `${l.label ? `${l.label}: ` : ''}${l.text}`).join('\n') }
   })
 
   for (const tool of WORK_TOOLS) {
@@ -891,6 +916,9 @@ async function bindSessionNow($: EngineInterface, option: PluginOptions, name: s
   await loadingReferences?.catch(() => {})
   touchGlobs = null
   rebound = { outline: name, ...(machine ? { machine } : {}) }
+  // The old outline's orientation is no longer this session's: the new one's is read (a newer read wins).
+  orientsFromNow = null
+  void readOrient($, option)
   const facts = await readBinding($, option, true)
   await $.state.set(BINDING_STATE, { shown: true, facts })
   await refreshMentions($, option)
@@ -965,7 +993,7 @@ function readBinding($: EngineInterface, option: PluginOptions, again: boolean):
     await $.state.set(BINDING_STATE, { shown: (await $.state.get(BINDING_STATE)).value?.shown ?? true, facts })
     $.ui.status(statusLine(facts))
     // The model was told something else (or that it was still looking): its context is made again.
-    if (bindingGiven !== undefined && bindingGiven !== bindingText(facts)) $.ui.invalidate('prompt.context')
+    if (bindingGiven !== undefined && bindingGiven !== bindingText(withOrient(facts))) $.ui.invalidate('prompt.context')
     return facts
   })()
   bindingLoad = load
@@ -1011,10 +1039,7 @@ function readWorkboard($: EngineInterface, option: PluginOptions): Promise<strin
     if (!workspace) return null
     const root = await outlinerRootOf($)
     if (!root) return null
-    const list = async (args: string[]) => {
-      const ran = await $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args], { cwd: workspace.root, env: envFor(workspace), timeoutMs: WORKBOARD_TIMEOUT_MS })
-      return ran.exitCode === 0 ? listedOf(ran.stdout) : null
-    }
+    const list = (args: string[]) => runList($, root, workspace, args, WORKBOARD_TIMEOUT_MS)
     const [items, logs] = await Promise.all([list(listArgs(BOARD_QUERY, LIST_LIMIT)), list(listArgs(BUILD_LOG_QUERY, LIST_LIMIT, 'id,title,timestamps'))])
     if (!items || !logs) return null
     const hasItems = items.blocks.length > 0 || !!(await list(listArgs(ANY_ITEM_QUERY, 1, 'id')))?.blocks.length
@@ -1037,6 +1062,55 @@ function readWorkboard($: EngineInterface, option: PluginOptions): Promise<strin
   })
   workboardLoad = load
   return load
+}
+
+/** The Outliner CLI's `list` in the session's outline (workboard-now.ts's argv), its rows; null when it didn't answer. */
+async function runList($: EngineInterface, root: string, workspace: Workspace, args: string[], timeoutMs: number): Promise<Listed | null> {
+  const ran = await $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args], { cwd: workspace.root, env: envFor(workspace), timeoutMs })
+  return ran.exitCode === 0 ? listedOf(ran.stdout) : null
+}
+
+/**
+ * Reads the outline's orientation (hooks/orient-notes.ts): the notes carrying `[orient::<agent>]` or `[orient::all]`
+ * for the persona this session writes as, one `list --query` the service answers. Null: no outline, no such note, or
+ * no answer within ORIENT_TIMEOUT_MS. Never throws. The card's "orients from" follows each read, and when one lands
+ * after the context was made without it (or with an older read), the context is made again.
+ */
+function readOrient($: EngineInterface, option: PluginOptions): Promise<string | null> {
+  const generation = ++orientGeneration
+  // Null: no answer (the card keeps what it said); none: no outline or no such note.
+  const read = async (): Promise<{ text: string | null; from: string | null } | null> => {
+    if (!references?.workspace) await loadReferences($, option)
+    const workspace = references?.workspace
+    if (!workspace) return { text: null, from: null }
+    const root = await outlinerRootOf($)
+    if (!root) return { text: null, from: null }
+    const agent = await sessionPersona($)
+    const listed = await runList($, root, workspace, listArgs(orientQuery(agent), ORIENT_LIMIT, ORIENT_FIELDS), ORIENT_TIMEOUT_MS)
+    if (!listed) return null
+    const facts = { outline: workspace.outline, machine: workspace.machine, agent, notes: listed.blocks, complete: listed.complete }
+    return { text: orientText(facts), from: orientsFrom(listed.blocks) }
+  }
+  // No race of its own: each step has its budget (the CLI's ORIENT_TIMEOUT_MS), and prompt.context waits no longer than
+  // for the binding, so an answer that lands late still makes the context again.
+  const load = read().catch(() => null).then(found => {
+    if (generation !== orientGeneration) return found?.text ?? null
+    if (found && found.from !== orientsFromNow) {
+      orientsFromNow = found.from
+      $.ui.invalidate('ui.render')
+    }
+    const text = found?.text ?? null
+    if (orientGiven !== undefined && orientGiven !== text) $.ui.invalidate('prompt.context')
+    else if (found && bindingGiven && bindingLoad) void bindingLoad.then(f => { if (bindingGiven !== bindingText(withOrient(f))) $.ui.invalidate('prompt.context') }, () => {})
+    return text
+  })
+  orientLoad = load
+  return load
+}
+
+/** The binding as the card and the model read it: its facts with what the session orients from now (readOrient). */
+function withOrient(facts: BindingFacts): BindingFacts {
+  return { ...facts, orientsFrom: orientsFromNow }
 }
 
 /** The folder's outline as the tools found it (`references`): bound, none named, opted out, or why it couldn't be found. */

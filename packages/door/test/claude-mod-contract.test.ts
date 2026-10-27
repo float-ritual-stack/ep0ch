@@ -190,6 +190,30 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     expect(text).toContain("- latest build log: Build log, Mar 3");
   });
 
+  test("orientation notes: the mod's query runs on the real CLI and its reader takes each note's text (PIE-1353)", async () => {
+    const { listArgs, listedOf } = await mod("workboard-now.ts");
+    const { ORIENT_FIELDS, ORIENT_LIMIT, orientQuery, orientText } = await mod("orient-notes.ts");
+    const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
+    try {
+      for (const text of [
+        "How sam works here [orient::sam]\n\n- **Water first:** the beds by the shed.",
+        "Rules for everyone [orient::all]\n\n- Close the gate.",
+        "How alex works here [orient::alex]\n\n- Prune the pear.",
+      ]) await board.request("create", { parentId: null, text, author: "agent" });
+    } finally { board.close(); }
+    const p = Bun.spawn(["bun", OUTLINER_CLI, ...listArgs(orientQuery("sam"), ORIENT_LIMIT, ORIENT_FIELDS)], { cwd: scratch.workspace, stdout: "pipe", stderr: "pipe", env: { ...clean, ...env, FORCE_COLOR: "3" } });
+    const [stdout, stderr, exitCode] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    expect(stderr).toBe("");
+    expect(exitCode).toBe(0);
+    const notes = listedOf(stdout).blocks;
+    expect(notes.map((b: { title: string }) => b.title).sort()).toEqual(["How sam works here", "Rules for everyone"]);
+    expect(notes.every((b: { updatedAt?: string }) => typeof b.updatedAt === "string")).toBe(true);
+    const text = orientText({ outline: scratch.name, agent: "sam", notes });
+    expect(text).toContain("- **Water first:** the beds by the shed.");
+    expect(text).toContain("- Close the gate.");
+    expect(text).not.toContain("Prune the pear");
+  });
+
   test("the settle check: the mod's three questions run on the real CLI, and its readers join what list --facets thread prints (PIE-1268)", async () => {
     const { settleAsks, SETTLE_DEFAULTS, facetCountsOf, threadsOf } = await mod("settle.ts");
     const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
