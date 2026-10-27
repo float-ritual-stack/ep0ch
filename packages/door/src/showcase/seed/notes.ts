@@ -417,6 +417,38 @@ export const SHED_PAD = [
   "- **alt+D** on the plan detaches the part you're on; agents: `element.detach`, `element.quote`.",
 ].join("\n");
 
+/**
+ * The zoom section (PIE-780): a long note whose figure, table and heading's section each zoom to fill the reader, by W,
+ * a click on the ⤢ at its right edge, or act; back returns.
+ */
+export const ZOOM_PLAN = [
+  SEED.zoomPlan,
+  "Everything the orchard needs this winter. Click in the figure, the table or a section: a ⤢ shows at its right edge; click it (or press W) and that part fills the reader. Esc, alt+← or a click on the top row comes back.",
+  "",
+  "::graph-table",
+  "---",
+  "title: Winter jobs",
+  'query: "parent:this"',
+  "---",
+  "::",
+  "",
+  "| tree | rootstock | prune |",
+  "| --- | --- | --- |",
+  "| Bramley | MM106 | January |",
+  "| Egremont | M26 | February |",
+  "| Conference | Quince A | late February |",
+  "",
+  "## Pruning",
+  "Cut out the dead, the diseased and the crossing wood first.",
+  "",
+  "- open the centre of each apple",
+  "- leave the plums until summer",
+  "",
+  "## Next spring",
+  "Graft two new Egremonts onto M26.",
+].join("\n");
+export const ZOOM_JOBS = ["Prune the Bramley", "Grease-band the trunks", "Mulch the young trees"];
+
 export const DEEP_LINKS = [
   SEED.deepLinks,
   "",

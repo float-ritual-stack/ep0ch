@@ -9,6 +9,7 @@ import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block, QuoteReceipt } from "../src/types";
+import type { PartAt } from "@ep0ch/outline-core/protocol";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const c of cleanups.splice(0)) await c(); });
@@ -110,4 +111,23 @@ test("a note with front-matter properties still has parts; a drop on a figure's 
   expect(r.block.text.split("\n").slice(0, 2)).toEqual(["Beds [header::none]", "for the winter"]);
   await quote({ subjects: [{ kind: "element", blockId: plan.id, anchor: "beds" }], place: { kind: "into", blockId: pad.id, line: 3 } });
   expect(store.get(pad.id)!.text.split("\n").slice(3, 10)).toEqual(["::graph-rank", "- a: 1", "::", "", `!((${plan.id}^beds))`, "", "The end."]);
+});
+
+test("fragments.at (PIE-780): the part a line is in, as detach takes it, with the lines it covers, and nothing written", async () => {
+  const { store, client } = await service();
+  const text = [...PLAN.split("\n"), "", "## Soil", "Mix in compost.", "", "| bed | soil |", "| --- | --- |", "| north | loam |", "", "## Later", "Cover crops."].join("\n");
+  const plan = store.create(text, null, "user");
+  const at = (line: number) => client.request<PartAt>({ action: "fragments.at", blockId: plan.id, line });
+  // A line inside the figure: the whole figure, from its ::graph-table to its ::.
+  expect((await at(5)).part).toEqual({ kind: "component", label: "Bed jobs", lineIndex: 3, startLine: 3, endLine: 8 });
+  // A table is the paragraph it is; the heading's line is its whole section, to the next heading.
+  expect((await at(19)).part).toMatchObject({ kind: "paragraph", startLine: 18, endLine: 20 });
+  expect((await at(15)).part).toMatchObject({ kind: "heading", label: "Soil", startLine: 15, endLine: 21 });
+  // The title and a blank line are in no part.
+  expect((await at(0)).part).toBeNull();
+  expect((await at(2)).part).toBeNull();
+  // With next (where a reader is, as detach takes it): the first part after a blank line.
+  expect((await client.request<PartAt>({ action: "fragments.at", blockId: plan.id, line: 2, next: true })).part).toMatchObject({ kind: "component", startLine: 3 });
+  expect(store.get(plan.id)!.revision).toBe(plan.revision);
+  await expect(at(-1)).rejects.toThrow("needs line");
 });

@@ -2461,6 +2461,8 @@ export type OutlinerRequestAction =
   | { id: string; action: "checklist.update"; blockId: string; input: ChecklistUpdateInput; mutation: MutationProvenance }
   /** A fragment's slice of its note (PIE-424): kind, label, lines, offsets and the text a reader shows. */
   | { id: string; action: "fragments.read"; blockId: string; fragmentId: string }
+  /** The part of a note holding `line` (from 0), else with `next` the first after it, as element.detach would take it, its anchor not written (PIE-780). */
+  | { id: string; action: "fragments.at"; blockId: string; line: number; next?: boolean }
   /** Transclusions projected as readers show them, nested and cycle-safe (src/transclusions.ts). */
   | { id: string; action: "transclusions.read"; targets: { blockId: string; fragmentId?: string }[]; hostBlockId?: string; maxDepth?: number }
   /** Fragment completion over every active note (src/fragment-search.ts). */

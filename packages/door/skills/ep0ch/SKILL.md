@@ -207,6 +207,11 @@ yourself (path 1): `/exit`, then `claude --continue`.
 
 ## Useful actions beyond notes
 
+- **Zoom into part of a note** (PIE-780): `element.zoom tile=<reader> line=<n>` (or `anchor=`) fills that reader with
+  the figure, table or heading's section on that line, still interactive; `element.zoom tile=<reader> on=false` (or
+  `back`) returns. `peek` says `zoom` with the part's lines. The person's `W`, or a click on a part's `⤢`. Refused on
+  the reader the person has focused: zoom one of your own.
+
 - **A part of a note out of it** (PIE-1247): `element.detach tile=<reader> line=<n>` (or `anchor=`) makes the part (a
   figure, a callout, a list item, a paragraph) a block of its own under `.detached` that embeds it, its `^anchor`
   written if it had none, and opens it in a held reader with no header (`where=`, `to=` place it; the person's alt+D,
