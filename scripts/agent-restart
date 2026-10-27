@@ -80,6 +80,19 @@ def place(pid):
         pid = ppid
     return ""'
 
+# When a session's transcript was last written (ms since the epoch), or None: two processes on one session id both write
+# it, so the door's split chip (PIE-1369) shows which is still talking.
+last_write_py='
+import glob
+def last_write(sid):
+    if not sid or "/" in sid: return None
+    base = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    times = []
+    for f in glob.glob(os.path.join(glob.escape(base), "projects", "*", glob.escape(sid) + ".jsonl")):
+        try: times.append(int(os.stat(f).st_mtime * 1000))
+        except OSError: pass
+    return max(times) if times else None'
+
 # --ls: every session `claude agents --json` gives, as JSON rows, for `ep0ch agent ls`: the background ones (a job id)
 # first, then the interactive ones (a terminal owns each: this script can't restart those).
 if [ "$target" = --ls ]; then
@@ -88,11 +101,14 @@ if [ "$target" = --ls ]; then
   rows=$(agents | python3 -c "
 import json, sys
 $place_py
+$last_write_py
 rows = json.load(sys.stdin)
 rows.sort(key=lambda r: not r.get('id'))
 for r in rows:
     row = {'name': str(r.get('name') or ''), 'id': r.get('id') or r.get('sessionId', '')[:8], 'sessionId': r.get('sessionId', ''), 'kind': 'background' if r.get('id') else (r.get('kind') or 'interactive'),
-           'status': str(r.get('status') or ''), 'cwd': str(r.get('cwd') or ''), 'place': None if r.get('id') else (place(r.get('pid')) or None)}
+           'status': str(r.get('status') or ''), 'cwd': str(r.get('cwd') or ''), 'place': None if r.get('id') else (place(r.get('pid')) or None),
+           'pid': r.get('pid') if isinstance(r.get('pid'), int) else None, 'startedAt': r.get('startedAt') if isinstance(r.get('startedAt'), (int, float)) else None,
+           'lastWrite': last_write(r.get('sessionId', ''))}
     print(str(r.get('pid') or '') + chr(31) + json.dumps(row))") || exit 1
   while IFS=$sep read -r pid row; do
     [ -n "$row" ] || continue

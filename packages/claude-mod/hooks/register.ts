@@ -139,6 +139,7 @@ import {
   WORKBOARD_TIMEOUT_MS,
   workboardText,
 } from './workboard-now'
+import { OWN_PID_ARGV, SPLIT_BLOCK, SPLIT_TIMEOUT_MS, type SessionSplit, splitArgv, splitOf, splitStatus, splitText } from './split-session'
 import { ORIENT_BLOCK, ORIENT_FIELDS, ORIENT_LIMIT, ORIENT_TIMEOUT_MS, orientQuery, orientsFrom, orientText } from './orient-notes'
 import { DRAW_TIMEOUT_MS, drawArgv, drawnNoteOf, GUIDE_ARGV, GUIDE_BLOCK, GUIDE_TIMEOUT_MS, guideText, UPFRONT_TOOLS, withDrawing } from './outline-guide'
 
@@ -220,6 +221,42 @@ let orientLoad: Promise<string | null> | undefined
 let orientGeneration = 0
 let orientGiven: string | null | undefined
 let orientsFromNow: string | null = null
+
+/**
+ * This session running as two processes (hooks/split-session.ts, PIE-1369): the check in flight or done (the block's
+ * text, null: it runs once, or no answer), the split found (the status line's lead), whether this process's first
+ * prompt carried it, and the binding facts the status line last showed (so a split that lands later redraws it).
+ */
+let splitLoad: Promise<string | null> | undefined
+let splitNow: SessionSplit | null = null
+let splitSaid = false
+let statusFacts: BindingFacts | null = null
+
+/** The status line: the split's warning first while there is one, then where this session is bound. */
+function showStatus($: EngineInterface, facts: BindingFacts | null): void {
+  statusFacts = facts
+  $.ui.status(splitStatus(splitNow) + statusLine(facts))
+}
+
+/**
+ * Asks `ep0ch agent splits` once for this session: two or more processes holding its id is a split, said with the first
+ * prompt and on the status line. Never refuses anything, never throws; no answer is no warning.
+ */
+function readSplit($: EngineInterface): Promise<string | null> {
+  const load = (async () => {
+    const id = await $.session.id()
+    const [ran, own] = await Promise.all([
+      $.process.run(splitArgv(id), { cwd: await startFolderOf($), timeoutMs: SPLIT_TIMEOUT_MS }),
+      $.process.run([...OWN_PID_ARGV], { timeoutMs: 3000 }).then(r => Number(r.stdout.trim()) || null, () => null),
+    ])
+    if (ran.exitCode !== 0) return null
+    splitNow = splitOf(ran.stdout, id, own)
+    showStatus($, statusFacts)
+    return splitNow ? splitText(splitNow, await $.clock.now()) : null
+  })().catch(() => null)
+  splitLoad = load
+  return load
+}
 
 /**
  * The outline's guide (hooks/outline-guide.ts): the read for a folder and outline (another binding reads it again), and
@@ -474,11 +511,14 @@ export function register(on: On, options: PluginOptions): void {
     $.clock.after(0, () => void readOrient($, option))
     guideGiven = undefined
     $.clock.after(0, () => void readGuide($, option))
+    // Is this session already running elsewhere (PIE-1369)?
+    splitSaid = false
+    $.clock.after(0, () => void readSplit($))
     // The settle check, in the deployer's session only (hooks/settle.ts).
     settleStarting = undefined
     $.clock.after(0, () => void startSettleOnce($, option))
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
-    $.ui.status(statusLine(null))
+    showStatus($, null)
     $.clock.after(0, () => void readBinding($, option, false).catch(() => {}))
     await $.tool.register({ name: SHOW_TOOL.name, description: SHOW_TOOL.description, inputSchema: SHOW_TOOL.inputSchema })
     // Off the start's dispatch: each registration republishes the tool server (~20ms), and these tools are
@@ -545,6 +585,19 @@ export function register(on: On, options: PluginOptions): void {
     } catch {
       return result
     }
+  })
+
+  // A session running twice (PIE-1369) is said with this process's first prompt, ahead of anything else it carries. Not
+  // in the first prompt's context blocks: a split is a resumed conversation (`claude --continue`), whose first prompt,
+  // and its context, were made by the process that started it.
+  on('prompt.submit', async ($, e, next) => {
+    if (splitSaid) return next(e)
+    const waited = Symbol('waited')
+    const split = await Promise.race([splitLoad ?? readSplit($), $.clock.sleep(BINDING_WAIT_MS).then(() => waited)]).catch(() => null)
+    // Still being read: the next prompt carries it, once it has landed.
+    if (split === waited) return next(e)
+    splitSaid = true
+    return next(split ? { ...e, context: [`<${SPLIT_BLOCK}>\n${split}\n</${SPLIT_BLOCK}>`, ...(e.context ?? [])] } : e)
   })
 
   // A compaction makes the first prompt's context again: the workboard and the orientation notes are read anew for it,
@@ -991,7 +1044,7 @@ function readBinding($: EngineInterface, option: PluginOptions, again: boolean):
     }
     if (generation !== bindingGeneration) return facts
     await $.state.set(BINDING_STATE, { shown: (await $.state.get(BINDING_STATE)).value?.shown ?? true, facts })
-    $.ui.status(statusLine(facts))
+    showStatus($, facts)
     // The model was told something else (or that it was still looking): its context is made again.
     if (bindingGiven !== undefined && bindingGiven !== bindingText(withOrient(facts))) $.ui.invalidate('prompt.context')
     return facts

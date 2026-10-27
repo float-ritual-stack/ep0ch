@@ -20,6 +20,15 @@ export const AGENT_USAGE = `  ep0ch agent ls [--machine <ssh-name>] [--json]
                                    reaches it; --check-env: and check the new process carries <VAR>; --now: don't
                                    wait; --dry-run: say the plan, change nothing. It runs scripts/agent-restart here
                                    or on --machine (only that flag names the machine, never EP0CH_MACHINE or a .ep0ch)
+  ep0ch agent splits [--session <id>] [--machine <ssh-name>] [--json]
+                                   the Claude sessions running twice here (or on that machine): each process with
+                                   its pid, start and state, the command that stops it and, for a background job, the
+                                   one that attaches it (the door's ⚠ ×2 chip and the Claude mod read the same)
+  ep0ch agent stop <pid> --session <session id> [--machine <ssh-name>]
+                                   stop one process of a Claude session that runs twice (two \`claude --continue\`s
+                                   on one session, both writing its transcript; the door's ⚠ ×2 chip): only while
+                                   that pid is still a process of that session and another still holds it, else
+                                   nothing is stopped
   ep0ch agent use <name> [--everywhere]
                                    choose and restart the drawer agent for this outline, or every outline
   ep0ch agent [--program <name>] [--in <folder>] [--persona <name>] [--new] [--json]
@@ -56,9 +65,13 @@ export function agentArgs(argv: readonly string[], cwd = process.cwd()): { args:
 }
 
 export async function agentCommand(argv: readonly string[], env: Record<string, string | undefined> = process.env, cwd = process.cwd()): Promise<number> {
-  if (argv[0] === "ls" || argv[0] === "restart") {
-    const { agentLs, agentRestart, realFleetIO } = await import("./agent-fleet");
-    return (argv[0] === "ls" ? agentLs : agentRestart)(argv.slice(1), env, realFleetIO);
+  if (argv[0] === "splits") {
+    const [{ agentSplits }, { realFleetIO }] = await Promise.all([import("./claude-splits"), import("./agent-fleet")]);
+    return agentSplits(argv.slice(1), env, realFleetIO);
+  }
+  if (argv[0] === "ls" || argv[0] === "restart" || argv[0] === "stop") {
+    const { agentLs, agentRestart, agentStop, realFleetIO } = await import("./agent-fleet");
+    return (argv[0] === "ls" ? agentLs : argv[0] === "stop" ? agentStop : agentRestart)(argv.slice(1), env, realFleetIO);
   }
   if (argv[0] === "use") {
     const name = argv[1];

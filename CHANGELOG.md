@@ -10,6 +10,21 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A Claude session running twice is said, in the session and in the door (PIE-1369)
+
+- **In the session that just started:** when `claude agents` shows another live process on this session's id (a
+  `claude --continue` while it ran elsewhere), the Claude mod's status line leads with `running twice: pid N too ·
+  ep0ch agent stop N --session <id>`, and the first prompt tells the model, which tells you, with both pids and the
+  commands. Nothing is refused.
+- **In the door:** a red `⚠ <name> ×2` chip on the status bar while a split lasts, on this machine or the outline's.
+  A click lists the processes (pid, machine, started, busy or idle; the session's last transcript write); `a`
+  attaches a background job, `s` stops one after asking. Agents: `act claude.splits`, `claude.attach`, `claude.stop pid=<pid> confirm=<pid>`.
+- **`ep0ch agent splits [--session <id>] [--json]`** lists them with the commands; **`ep0ch agent stop <pid> --session
+  <id> [--machine <ssh-name>]`** stops one process, only while it is still that session's and another still holds it.
+  `ep0ch agent ls --json` rows carry `pid`, `startedAt` and `lastWrite`.
+- **What to run:** `ep0ch install --apply` on each machine (no PROTOCOL change); a door reads another machine's
+  sessions only once that machine's `ep0ch` has this change.
+
 ### Retired look keys: one line a note in the tune, with the fix (PIE-1365, PIE-1362)
 
 - **One line per note, not a sentence per key.** A note (or a line) still writing `style.header.image…` or

@@ -83,6 +83,7 @@ export const SEED = {
   scriptsInPlace: "Scripts in place",
   press: "Noughts and crosses",
   statusBar: "Your buttons on the status bar",
+  splitBrain: "A Claude session running twice",
   motion: "Tiles that move",
   fantasia: "Fantasia",
   outputRegions: "Regions in prose",

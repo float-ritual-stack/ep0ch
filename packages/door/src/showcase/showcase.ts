@@ -60,6 +60,7 @@ import { WaitingYouPane } from "../desk/waiting-you";
 import { AccessMatrixPane } from "../desk/access-matrix";
 import { accessDemoEnv, seedAccessFiles } from "./seed/access";
 import { WhatChangedPane } from "../desk/what-changed";
+import type { FleetIO, SessionRow } from "../agent-fleet";
 import type { AgentLevel } from "../surface/agent-level";
 
 type Notes = Partial<Record<SeedName, Msg>>;
@@ -147,6 +148,34 @@ export function demoFolders(): { shed: string; bench: string } {
   for (const f of [shed, bench]) mkdirSync(f, { recursive: true });
   return { shed, bench };
 }
+/**
+ * The split section's made-up machine (PIE-1369): `garden-box`, reached as `ep0ch agent ls --json` and `ep0ch agent stop`
+ * would be over ssh, answering one session (fern-sr) held by two processes. A stop takes its row away, so the chip goes.
+ */
+export function demoSplitFleet(now = Date.now()): FleetIO {
+  const sid = "7c41e2a0-5d3b-4e8f-9a16-2b8f0c4d9e31";
+  let rows: SessionRow[] = [
+    { name: "fern-sr", id: "7c41e2a0", sessionId: sid, kind: "background", status: "idle", cwd: "/home/sam/garden", place: null, running: "2.1.300", installed: "2.1.300", behind: false, pid: 28521, startedAt: now - 5 * 3_600_000, lastWrite: now - 40 * 60_000 },
+    { name: "fern-sr", id: "7c41e2a0", sessionId: sid, kind: "interactive", status: "busy", cwd: "/home/sam/garden", place: "Herdr pane", running: "2.1.300", installed: "2.1.300", behind: false, pid: 92322, startedAt: now - 20 * 60_000, lastWrite: now - 3_000 },
+    { name: "moss", id: "3e9b1f77", sessionId: "3e9b1f77-0a2c-4d6e-8b1f-6c3d2e1a0f98", kind: "background", status: "busy", cwd: "/home/sam/shed", place: null, running: "2.1.300", installed: "2.1.300", behind: false, pid: 41007, startedAt: now - 2 * 3_600_000, lastWrite: now - 9_000 },
+  ];
+  return {
+    script: () => import.meta.path,
+    local: async () => ({ code: 1, out: "", err: "the showcase's sessions are on garden-box" }),
+    async remote(_machine, command) {
+      if (command === "ep0ch agent ls --json") return { code: 0, out: JSON.stringify(rows), err: "" };
+      const stop = /^ep0ch agent stop (\d+) --session /.exec(command);
+      if (stop) {
+        const row = rows.find(r => r.pid === Number(stop[1]));
+        if (!row) return { code: 1, out: "", err: `ep0ch agent stop: pid ${stop[1]} is not a process of that session now: nothing stopped` };
+        rows = rows.filter(r => r !== row);
+        return { code: 0, out: `stopped pid ${row.pid} (${row.name}, session ${row.sessionId.slice(0, 8)}) (made up)`, err: "" };
+      }
+      return { code: 1, out: "", err: `the showcase's garden-box doesn't run ${command}` };
+    },
+  };
+}
+
 /** The section's own actor: what pins fern to your drawer as the section opens, said like any agent's. */
 const SHOWCASE_AGENT: Actor = { kind: "agent", id: "showcase" };
 
@@ -1361,6 +1390,14 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
       return deskOf({ title: "showcase · status bar", panes: [a, b], names: ["notes", "extra"] }, show, [[a, n.statusBar], [b, n.shed]]);
+    },
+  },
+  {
+    key: "split-brain", need: "know when a Claude session is running twice, and keep one", part: "the status bar's ⚠ ×2 chip (App.statusItems) over SplitWatch, which reads each machine's sessions through agent-fleet's readSessions (scripts/agent-restart --ls here, ep0ch agent ls --json over ssh); claude.splits opens them in a ListPicker, claude.attach opens a terminal tile (tile.open kind=pty), claude.stop asks, then runs ep0ch agent stop", files: "src/claude-splits.ts, src/agent-fleet.ts, src/app.ts, scripts/agent-restart",
+    aside: "The rows are made up (garden-box, fern-sr); a real door reads this machine and the outline's machine every 45 s while someone looks · click the chip, or act claude.splits · in the picker a attaches, s stops (asked first), ⏎ asks which · an agent passes confirm=<pid> · the Claude mod says the same in the session that just started: its first context block and its status line",
+    stage(n, show) {
+      const a = new ReaderPane();
+      return deskOf({ title: "showcase · a session running twice", panes: [a], names: ["notes"] }, (after: (ctx: Ctx) => void) => show(ctx => { void ctx.splits?.demo(demoSplitFleet(), ["garden-box"]); after(ctx); }), [[a, n.splitBrain]]);
     },
   },
   {

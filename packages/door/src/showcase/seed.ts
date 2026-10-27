@@ -282,6 +282,13 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     'At 80 columns, pin eight differently named buttons: later items give way to +N, which opens this bar note. The clock and drawer chip stay whole. A duplicate label is refused when pinned; if written into the note, the first button stays and the later line is warned about once in the message log.',
     'status.bar.items describes the built-ins and their actions. Changes are live; malformed lines stay saved, say why in the message log, and keep the default bar until fixed.',
   ].join("\n"));
+  // A Claude session running twice (PIE-1369): the section hands the door's watch made-up processes on garden-box.
+  notes.splitBrain = await make(notes.root.id, [
+    SEED.splitBrain,
+    "The status bar's red ⚠ fern-sr ×2 says one session runs as two processes on garden-box: a `claude --continue` started while it was live elsewhere, both writing one transcript. The rows are made up; nothing here touches a real Claude.",
+    "Click the chip (or claude.splits): a picker lists each process with its pid, machine, when it started and when it last wrote. a attaches (a background job opens `claude attach <job id>` in a terminal tile; here it says so instead), s stops one: it asks first, naming the pid, then the chip goes.",
+    "An agent reads the same with `act claude.splits` and stops one with `claude.stop pid=<pid> confirm=<pid>`. In a terminal: `ep0ch agent ls --json` and `ep0ch agent stop <pid> --session <id>`.",
+  ].join("\n"));
   notes.motion = await make(notes.root.id, [
     `${SEED.motion}`,
     "Press the button: its script floats the two tiles beside this one, moves them, and settles them back. Each change glides from where the tile was to where it is (a script asks for motion=fantasia; the setting caps it: motion.set mode=calm or off). Nothing flashes or changes brightness, and any key or click snaps it. ctrl+z puts the whole run's layout back.",

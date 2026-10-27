@@ -43,7 +43,7 @@ describe('where this session runs', () => {
       () => result(0, JSON.stringify({ inDoor: true, nest: NEST, summary: SUMMARY })))
     await $.session.start(START)
     await s.clock.settle()
-    expect(s.runs.filter(r => r.argv[0] === 'ep0ch').map(r => r.argv)).toEqual([['ep0ch', 'where', '--json']])
+    expect(s.runs.filter(r => r.argv[0] === 'ep0ch' && r.argv[1] !== 'agent').map(r => r.argv)).toEqual([['ep0ch', 'where', '--json']])
     const { blocks } = await $.prompt.context({ blocks: CORE })
     expect(blocks[0]).toEqual(CORE[0]!)
     expect(whereBlock(blocks)?.text).toContain(SUMMARY)
@@ -107,7 +107,7 @@ describe('where this session runs', () => {
     expect(whereBlock(blocks)).toBeUndefined()
     expect(blocks.map(b => b.name)).toEqual(['currentDate', 'outlineBinding'])
     // `where` only reads, as in a door.
-    expect(s.runs.filter(r => r.argv[0] === 'ep0ch').map(r => r.argv)).toEqual([['ep0ch', 'where', '--json']])
+    expect(s.runs.filter(r => r.argv[0] === 'ep0ch' && r.argv[1] !== 'agent').map(r => r.argv)).toEqual([['ep0ch', 'where', '--json']])
   })
 })
 

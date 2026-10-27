@@ -100,6 +100,7 @@ function frameCtx(f: FramedScreen): Ctx {
     get hostLayer() { return o().hostLayer; },
     get video(): Video { return o().video; },
     get graphics() { return o().graphics; },
+    get splits() { return o().splits; },
     get whatChanged() { return o().whatChanged; },
     get waitingAsks() { return o().waitingAsks; },
     get heldAsks() { return o().heldAsks; },

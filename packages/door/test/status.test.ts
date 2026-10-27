@@ -167,6 +167,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       spyOn(app.whatChanged, "machineryCount").mockReturnValue(1),
       spyOn(app.heldAsks, "count").mockReturnValue(1),
       spyOn(app.speed, "slow").mockReturnValue("slow: 300 ms to settle"),
+      spyOn(app.splits, "chip").mockReturnValue("⚠ fern-sr ×2"),
     ];
     const wasDance = screen.dancing;
     screen.dancing = () => true;
