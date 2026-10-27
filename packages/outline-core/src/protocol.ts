@@ -14,7 +14,7 @@
 import type { CompletionKind } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 274;
+export const PROTOCOL = 275;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 8;
 
@@ -242,6 +242,17 @@ export interface OutlinerRequestProblem {
  * a whole blockquote or callout, named by an anchor at the end of its last line.
  */
 export type FragmentKind = "heading" | "paragraph" | "list-item" | "component" | "quote" | "callout";
+
+/**
+ * The part of a note that holds a line (`fragments.at`, PIE-780): the one `element.detach` and `element.quote` take there
+ * (the innermost figure, callout, quote, list item, paragraph or heading's section), read without writing its anchor.
+ * `lineIndex` is where its anchor is or would go; `startLine` and `endLine` the note lines it covers (from 0, inclusive).
+ * `part` is null on a line no part holds (a blank, the title), unless `next` asks for the first part after it.
+ */
+export interface PartAt {
+  blockId: string; revision: number;
+  part: { kind: FragmentKind; label: string; lineIndex: number; startLine: number; endLine: number; fragmentId?: string } | null;
+}
 
 /** One answer line on the socket. */
 export type OutlinerResponse =

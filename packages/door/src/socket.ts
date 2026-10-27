@@ -18,7 +18,7 @@ import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { connect, type Socket } from "node:net";
 import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
-import type { PropertyMatch } from "@ep0ch/outline-core/protocol";
+import type { PartAt, PropertyMatch } from "@ep0ch/outline-core/protocol";
 import type { CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
@@ -1683,6 +1683,11 @@ export class SocketBoard implements Board {
   /** Give the heading, paragraph or list item on `lineIndex` of a note its anchor, if the note is still at `expectedRevision`; recorded as `actor`'s. */
   ensureFragment(blockId: string, lineIndex: number, expectedRevision: number, actor: Actor = USER): Promise<{ fragmentId: string; created: boolean }> {
     return this.request("fragments.ensure", { blockId, lineIndex, expectedRevision, mutation: mutationFor(actor) });
+  }
+
+  /** The part of a note holding `line` (from 0), else with `next` the first after it, as element.detach takes it, nothing written (`fragments.at`, PIE-780). */
+  partAt(blockId: string, line: number, next = false): Promise<PartAt> {
+    return this.request<PartAt>("fragments.at", { blockId, line, ...(next ? { next: true } : {}) });
   }
 
   /** `((id^fragment))`'s slice of its note (PIE-424). */

@@ -133,6 +133,7 @@ export const SEED = {
   stickyPad: "Sticky pad",
   shedPlan: "Shed rebuild plan",
   shedPad: "Shed sticky pad",
+  zoomPlan: "Orchard winter plan",
   sources: "Completion from an extension",
   copyPage: "Crate day, copied with its results",
   swapDay: "Seed swap day",

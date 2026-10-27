@@ -22,6 +22,20 @@ are its record. The outliner's entries from then are kept below, under
   the tile (after the last word, else on a row of its own) and out of a copy. List items, plain headings and styled
   headings drawn plainly share one hanging wrap: the same rows, cuts and joins.
 
+### Zoom into part of a note: a figure, a table or a heading's section fills the reader (PIE-780)
+
+- **A ⤢ at the right edge** of a figure, a table or a heading: a click zooms the reader into that part, interactive at
+  full size (a figure's rows still open notes, its tabs still switch). `W` zooms into the part the `[ ]` position (or
+  the reading line) is in; the tile menu has "zoom into this part".
+- **Back returns.** Esc, `alt+←`, `⌫` or a click on the zoom's top row comes back to the whole note, scrolled as it was;
+  `alt+→` zooms in again; a part zoomed inside another steps back to that one first. A zoom is saved with the layout,
+  like the rest of a reader's history, and follows its part when lines are written above it.
+- **The part is the one `alt+D` detaches**, as the service finds it (the new read `fragments.at`); nothing is written to
+  the note. Agents: `element.zoom tile=<reader> line=<n>` (or `anchor=`), `on=false` to come back; refused on the
+  reader the person has focused.
+- The kitchen sink's `zoom` section shows it. **Run after updating:** `ep0ch install --apply` (the protocol changed:
+  the `fragments.at` action).
+
 ### Components, properties and callout types complete in Detail too (PIE-1344)
 
 - **`::`, `[key::` and `> [!` in Detail, Tree and Quick Capture** offer the rows the door does: the service answers

@@ -209,6 +209,11 @@ export interface DocMedia { path: string; kind: string; row: number; line: numbe
  */
 export interface Doc {
   lines: string[]; images: DocImage[]; media: DocMedia[]; links: LinkRange[]; source: number[]; heads: { key: string; row: number; cols: number; rows?: number }[];
+  /**
+   * Where a figure, a table or a heading was drawn (PIE-780), in reading order: the row it starts on, the body line it was
+   * written on and the cell its zoom control goes in. Where parts start only: which lines a part covers is the service's.
+   */
+  parts?: DocPart[];
   /** The generated regions drawn (`env.after`'s `regions`), by row of `lines`. */
   regions?: DocRegion[];
   /** The drawing a copy leaves out, by row of `lines` (only rows that have some). */
@@ -237,6 +242,9 @@ export interface Doc {
 export interface AfterRows { rows: string[]; regions?: { key: string; at: number; rows: number }[] }
 /** A generated region as drawn: where its rows are in `lines`, and the key the reader knows it by. */
 export interface DocRegion { key: string; row: number; rows: number }
+
+/** A part of a note drawn (Doc.parts): its kind, first row, body line and the cell its control goes in. */
+export interface DocPart { kind: "figure" | "table" | "heading"; row: number; line: number; col: number }
 
 /** A background under rows [from, to) of `lines`, across cells [from, to) (`cols`; the whole row without), in `bg` (an SGR). */
 export interface DocTint { rows: [number, number]; cols?: [number, number]; bg: string }
@@ -426,7 +434,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const raw = body.split("\n"), rawStructure = noteStructure(raw);
   const src = raw.map((l, i) => (rawStructure[i] === -1 ? withoutFragmentAnchor(l) : l));
   const mediaAt = mediaLines(src);
-  const source: number[] = [], heads: Doc["heads"] = [];
+  const source: number[] = [], heads: Doc["heads"] = [], parts: DocPart[] = [];
   const trims = new Map<number, DocTrim>(), blocks: DocBlock[] = [];
   const cut = (row: number, ...cuts: [number, number, string?][]) => { const t = trims.get(row); if (t) t.cuts.push(...cuts); else trims.set(row, { cuts }); };
   const edge = (row: number) => trims.set(row, { cuts: [[0, Infinity]], edge: true });
@@ -592,6 +600,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       if (deco.rows) {
         // In a heading's place the fold point stays, on the row with its words (a band's text row).
         if (fp && env.folds) heads.push({ key: fp.key, row: out.length + Math.min(Math.max(0, deco.rows.length - 1), deco.headRow ?? Math.floor(Math.max(0, deco.rows.length - 1) / 2)), cols: W });
+        if (fp?.kind === "heading" && env.folds) parts.push({ kind: "heading", row: out.length, line: i, col: W - 1 });
         out.push(...deco.rows);
         if (folded && fp) {
           out.push(fg(C.dark) + `▸ ${fp.hidden} line${fp.hidden === 1 ? "" : "s"} folded` + RESET);
@@ -633,6 +642,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       // A heading's disclosure is every row its words take (PIE-1349); a list item's, its mark's.
       const headRows = fp.kind !== "heading" ? 1 : styled ? styled.copy?.joins.length ?? 1 : rows.length;
       heads.push({ key: fp.key, row: out.length + (styled?.headRow ?? 0), cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2, rows: headRows });
+      if (fp.kind === "heading") parts.push({ kind: "heading", row: out.length + (styled?.headRow ?? 0), line: i, col: W - 1 });
       if (styled) { marginEdges(out.length, styled); headingCopy(out.length, styled); }
       else { cuts.forEach((c, k) => { if (c.length) cut(out.length + k, ...c); }); wrapped(out.length, joins); }
       out.push(...rows);
@@ -702,6 +712,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       if (tunedLines !== undefined) source.yaml = source.yaml.replace(/^lines:.*$/m, "") + `\nlines: ${tunedLines}`;
       if (env.figures) env.figures.drawn ??= { n: 0, titles: new Map() };
       const graph = renderGraph(gk, source, W, env.link, { ...env.figures, lines: componentLines(i, figure.attrs) }, rows, env.site);
+      parts.push({ kind: "figure", row: out.length, line: i, col: Math.max(16, W) - 3 });
       out.push(...(env.inlineList ? env.inlineList(graph, W) : graph));
       i = figure.end;
       continue;
@@ -892,6 +903,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const end = tableEnd(src, i), rows = src.slice(i, end);
       const mapped: number[] = [];
       const drawn = table(rows, W, lit(end - 1), box => { mapped[box.y] = i + (box.row ? box.row + 1 : 0); });
+      parts.push({ kind: "table", row: out.length, line: i, col: Math.max(0, ...drawn.map(vwidth)) - 2 });
       for (let y = 0; y < drawn.length; y++) {
         out.push(drawn[y]!); source.push(mapped[y] ?? -1);
       }
@@ -957,9 +969,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   // A glyph the drawing adds after a link (the ↗ of a link to the web) is marked ADORN: its cell is a cut, drawn and never copied.
   out.forEach((row, r) => { for (let at = row.indexOf(ADORN); at >= 0; at = row.indexOf(ADORN, at + 1)) { const col = vwidth(row.slice(0, at)); cut(r, [col, col + 1]); } });
   const z = { ...(tints.length ? { tints } : {}), ...(wraps.size ? { wraps } : {}) };
-  if (env.keepTags) { const lines = out.map(stripMarks); return { lines, images, media: mediaRefs, links: [], source, heads, trims, blocks: finish(lines), ...(regions.length ? { regions } : {}), ...(hero ? { hero } : {}), ...z }; }
+  if (env.keepTags) { const lines = out.map(stripMarks); return { lines, images, media: mediaRefs, links: [], source, heads, trims, blocks: finish(lines), ...(parts.length ? { parts } : {}), ...(regions.length ? { regions } : {}), ...(hero ? { hero } : {}), ...z }; }
   const { lines, ranges } = extractLinks(out.map(stripMarks));
-  return { lines, images, media: mediaRefs, links: ranges, source, heads, trims, blocks: finish(lines), ...(regions.length ? { regions } : {}), ...(hero ? { hero } : {}), ...z };
+  return { lines, images, media: mediaRefs, links: ranges, source, heads, trims, blocks: finish(lines), ...(parts.length ? { parts } : {}), ...(regions.length ? { regions } : {}), ...(hero ? { hero } : {}), ...z };
 }
 
 /** Rows `cols` cells of `m` take, its aspect kept. */

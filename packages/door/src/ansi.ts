@@ -37,7 +37,7 @@ const CP437_CODES = new Map<string, number>([...[...CP437_LOW].slice(1).map((c, 
 /**
  * The glyphs the door draws that a VGA font lacks, each as the nearest one it has. A kitty+crt screen's font is
  * CP437, so these go to the terminal as their lookalike (term bytes, App.paint) and the snapshot mirror draws the
- * same (PIE-509, PIE-510): Enter as ◄, a dash as ─, ✓ as √, a rejected step's ✘ as ▬ (never done's x), the lock chip's □ ▣ as ○ ◙, a float's ⧉ as ◘ and its
+ * same (PIE-509, PIE-510): Enter as ◄, a dash as ─, ✓ as √, a rejected step's ✘ as ▬ (never done's x), the lock chip's □ ▣ as ○ ◙, a float's ⧉ as ◘ (a part's zoom ⤢ as ↕) and its
  * ◢ corner as ┘, a tile menu's ⋯ as ≡ and its ✕ as x, dock handles' arrows, an ellipsis as ·, an old sparkline's steps as _ ▄ █, the river's types.
  */
 export const CP437_NEAREST: ReadonlyMap<string, string> = new Map([
@@ -46,7 +46,7 @@ export const CP437_NEAREST: ReadonlyMap<string, string> = new Map([
   ["◆", "♦"], ["◇", "♦"], ["▸", "►"], ["▶", "►"], ["◂", "◄"], ["▾", "▼"], ["⇤", "←"], ["⇐", "←"], ["⇒", "→"], ["⇓", "↓"], ["⇥", "→"],
   ["⇡", "↑"], ["⇣", "↓"], ["⤒", "↑"], ["⤓", "↓"], ["⇱", "↑"], ["⠿", "■"], ["▭", "■"], ["✉", "■"], ["⌖", "☼"], ["⟳", "☼"], ["✦", "☼"], ["⌃", "^"], ["⌥", "+"], ["⇧", "↑"], ["⌘", "#"], ["⊙", "☼"], ["⏎", "◄"], ["↗", "↑"], ["⤴", "↑"],
   ["—", "─"], ["–", "-"], ["−", "-"], ["✓", "√"], ["✗", "x"], ["✘", "▬"], ["×", "x"], ["□", "○"], ["☐", "○"], ["◌", "○"], ["◎", "○"], ["▣", "◙"],
-  ["⧉", "◘"], ["◢", "┘"], ["⋯", "≡"], ["✕", "x"], ["╭", "┌"], ["╮", "┐"], ["╰", "└"], ["╯", "┘"], ["…", "·"], ["›", ">"], ["“", '"'], ["”", '"'], ["❝", '"'],
+  ["⧉", "◘"], ["⤢", "↕"], ["◢", "┘"], ["⋯", "≡"], ["✕", "x"], ["╭", "┌"], ["╮", "┐"], ["╰", "└"], ["╯", "┘"], ["…", "·"], ["›", ">"], ["“", '"'], ["”", '"'], ["❝", '"'],
   ["✎", "*"], ["⊘", "○"], ["●", "•"], ["⚠", "‼"], ["ℹ", "i"], ["┊", "│"], ["▦", "▒"], ["▤", "≡"], ["◧", "▌"], ["⑂", "¥"],
   // The flow figure's thin line and the budget meter's limit mark (src/figures/flow.ts, src/graphs.ts).
   ["┄", "-"], ["┃", "│"],

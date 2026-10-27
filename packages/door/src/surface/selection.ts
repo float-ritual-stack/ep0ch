@@ -172,10 +172,11 @@ export function lineAt(rows: SelectRows, row: number): Selection {
 }
 
 /**
- * `line` with `glyph` (in `style`) in visible cell `col`, when that cell is blank, a rule `─` or past the line's end (then the line is
+ * `line` with `glyph` (in `style`) in visible cell `col`, when that cell is blank, a rule `─`, one of `also` (a frame's own
+ * edge glyph, where the caller knows the cell is one) or past the line's end (then the line is
  * padded to it); else null: the control doesn't cover text. The line's own colours stay for the cells after it.
  */
-export function putCell(line: string, col: number, glyph: string, style: string): string | null {
+export function putCell(line: string, col: number, glyph: string, style: string, also = ""): string | null {
   let out = "", at = 0, state = "";
   for (const part of line.split(DRAWN_PART)) {
     if (!part) continue;
@@ -185,7 +186,7 @@ export function putCell(line: string, col: number, glyph: string, style: string)
       if (!w) { out += c; continue; }
       // Counted in terminal columns, as the control's place is: a wide character before it moves it, one on it covers text.
       if (col >= at && col < at + w) {
-        if (w !== 1 || (c !== " " && c !== "─")) return null;
+        if (w !== 1 || (c !== " " && c !== "─" && !also.includes(c))) return null;
         out += style + glyph + RESET + state;
       } else out += c;
       at += w;

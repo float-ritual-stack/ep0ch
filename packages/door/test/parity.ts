@@ -813,6 +813,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["reader: notebook", reading(SEED.notebook)],
     ["reader: notebook on an element", reading(SEED.notebook), [k("]")]],
     ["reader: notebook with a fold picked", reading(SEED.notebook), [k(")")]],
+    // PIE-780: a note with a figure, a table and sections, and the reader zoomed into one part of it (W; esc comes back).
+    ["reader: zoom plan", reading(SEED.zoomPlan)],
+    ["reader: zoom plan zoomed", reading(SEED.zoomPlan), [k("]"), k("W")]],
     ["reader: whiteboard", reading(SEED.whiteboard)],
     ["reader: recipe", reading(SEED.recipe)],
     ["reader: shed", reading(SEED.shed)],
