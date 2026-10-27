@@ -176,6 +176,7 @@ test("a merge is landed once, ticket or not; landing a ticketed PR syncs its del
   const opened = await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "40"]);
   h.pull(40, "MERGED", "feature/pie-001", "aaa4040", REPO, { mergedAt: "2026-03-05T14:00:00Z" });
   h.pull(41, "MERGED", "loki/fix-typo", "bbb4141", REPO, { mergedAt: "2026-03-05T16:00:00Z", title: "Fix a typo in the guide [skip review]" });
+  h.pull(43, "MERGED", "loki/header", "ccc4343", REPO, { mergedAt: "2026-03-05T17:00:00Z", title: "A note can hide its header: [header::none]" });
 
   // The merge step's call has no item: it finds the delivery that records the PR.
   const landed = await h.run(["work", "deliver", "--repo", REPO, "--pr", "40", "--author", "agent", "--actor", "loki"]);
@@ -196,10 +197,15 @@ test("a merge is landed once, ticket or not; landing a ticketed PR syncs its del
   for (const [key, value] of [["pull-request-number", "41"], ["merge-commit", "bbb4141"], ["merged-at", "2026-03-05T16:00:00Z"],
     ["pr-author", "example-builder"], ["base-branch", "main"], ["repository", REPO]]) expect(row.properties).toContainEqual({ key: key!, value: value! });
 
+  // A property written in a PR's title stays prose: the row gets no header::none.
+  const quoted = h.store.require((await h.run(["work", "deliver", "--repo", REPO, "--pr", "43"])).json.landed.blockId);
+  expect(quoted.text).toStartWith("#43 A note can hide its header: `[header::none]` [type::merge]");
+  expect(quoted.properties.map((property) => property.key)).not.toContain("header");
+
   // Again, and again by the ticket: nothing new, nothing doubled.
   expect((await h.run(["work", "deliver", "--repo", REPO, "--pr", "41"])).json.landed).toMatchObject({ blockId: row.id, created: false, changed: false });
   expect((await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "40"])).json.landed).toMatchObject({ blockId: landed.json.landed.blockId, created: false });
-  expect(landedOn(h.store, "2026-03-05")).toEqual(["aaa4040", "bbb4141"]);
+  expect(landedOn(h.store, "2026-03-05")).toEqual(["aaa4040", "bbb4141", "ccc4343"]);
   // The rows sit on one Merges page under Records.
   const page = h.store.require(row.parentId!);
   expect(page.properties).toContainEqual({ key: "system-merges", value: "true" });

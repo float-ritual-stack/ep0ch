@@ -546,7 +546,8 @@ async function deliveriesOfPullRequest(client: WorkToolsClient, repository: stri
 
 /** A merge row's text: the PR's facts as properties, its tickets as links. */
 function landedText(repository: string, pr: PullRequestFacts, tickets: readonly string[]): string {
-  const title = pr.title.replace(/\s+/g, " ").trim() || "(no title)";
+  // A `[key::value]` in a PR title is prose here (a code span), never a property of the row.
+  const title = pr.title.replace(/\s+/g, " ").trim().replace(/\[[^\]\n]*::[^\]\n]*\]/g, (token) => `\`${token}\``) || "(no title)";
   const facts: Array<[string, string | null]> = [
     ["type", "merge"], ["machine", "merge"], ["repository", repository], ["pull-request-number", String(pr.number)],
     ["pull-request-url", pr.url], ["base-branch", pr.baseRefName], ["work-branch", pr.headRefName],
