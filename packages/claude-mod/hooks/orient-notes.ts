@@ -40,11 +40,19 @@ export function orientOrder(notes: readonly ListedBlock[]): ListedBlock[] {
   return [...notes].sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
 }
 
-/** A note's text cut at a line within `max` characters, or whole when it fits. */
+/** A note's text cut at its last line break within `max` characters (at a space when one line is longer), or whole. */
 function cut(text: string, max: number): { text: string; cut: boolean } {
   if (text.length <= max) return { text, cut: false }
-  const at = text.lastIndexOf('\n', max)
-  return { text: text.slice(0, at > max / 2 ? at : max).trimEnd(), cut: true }
+  const line = text.lastIndexOf('\n', max)
+  const at = line > 0 ? line : Math.max(text.lastIndexOf(' ', max), 0) || max
+  return { text: text.slice(0, at).trimEnd(), cut: true }
+}
+
+/** The note's body: its text without its first line (the title and its properties), which the block's heading names. */
+function bodyOf(note: ListedBlock): string {
+  const text = (note.text ?? '').trim()
+  const first = text.indexOf('\n')
+  return first < 0 ? '' : text.slice(first + 1).trim()
 }
 
 /** One line: control characters become spaces, and a long title is cut with an ellipsis. */
@@ -53,29 +61,40 @@ function clip(s: string, max: number): string {
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line
 }
 
-export type OrientFacts = { outline?: string; machine?: string; agent?: string; notes: readonly ListedBlock[] }
+export type OrientFacts = {
+  outline?: string
+  machine?: string
+  agent?: string
+  notes: readonly ListedBlock[]
+  /** False: the service had more notes than were read; the block says so and how to list them. */
+  complete?: boolean
+}
 
-/** The block's text, or null when no note orients this session. */
+/** The block's text, or null when no note orients this session. Every line counts toward BLOCK_CHARS. */
 export function orientText(f: OrientFacts): string | null {
   if (!f.notes.length) return null
   const who = f.agent ? `[orient::${f.agent}] or [orient::all]` : '[orient::all] (this session names no agent)'
   const lines = [`Read this first: the ${f.outline ?? 'outline'} outline's own orientation, the notes carrying ${who}, newest first (read when this conversation started; read a note again before acting on it):`]
-  let room = BLOCK_CHARS
+  let room = BLOCK_CHARS - lines[0]!.length
   for (const note of orientOrder(f.notes)) {
     const show = showCommand(note.id, f.outline, f.machine)
     const head = `\n## ${clip(note.title || note.id, 80)} ((${note.id}))`
-    const body = cut((note.text ?? note.title).trim(), Math.min(NOTE_CHARS, room))
-    if (room < 200) { lines.push(`${head}\n(no room left here: ${show})`); continue }
-    lines.push(head, body.text)
-    if (body.cut) lines.push(`… read the rest: ${show}`)
-    room -= body.text.length
+    const more = `… read the rest: ${show}`
+    room -= head.length
+    if (room < 200) { lines.push(head, `(no room left here: ${show})`); room -= show.length + 25; continue }
+    const body = cut(bodyOf(note), Math.min(NOTE_CHARS, room - more.length - 2))
+    lines.push(head)
+    if (body.text) lines.push(body.text)
+    if (body.cut) lines.push(more)
+    room -= body.text.length + (body.cut ? more.length + 1 : 0) + 1
   }
+  if (f.complete === false) lines.push(`\n(more notes carry orient than were read: ep0ch find${f.outline ? ` --ws ${f.outline}` : ''} --query 'orient')`)
   return lines.join('\n')
 }
 
 /** What the binding card says: the note it orients from, and how many more. */
-export function orientsFrom(notes: readonly { id: string; title: string }[]): string | null {
+export function orientsFrom(notes: readonly ListedBlock[]): string | null {
   if (!notes.length) return null
-  const [first, ...rest] = notes
+  const [first, ...rest] = orientOrder(notes)
   return `${clip(first!.title || first!.id, 60)} ((${first!.id}))${rest.length ? ` and ${rest.length} more` : ''}`
 }

@@ -139,7 +139,7 @@ import {
   WORKBOARD_TIMEOUT_MS,
   workboardText,
 } from './workboard-now'
-import { ORIENT_BLOCK, ORIENT_FIELDS, ORIENT_LIMIT, ORIENT_TIMEOUT_MS, orientOrder, orientQuery, orientsFrom, orientText } from './orient-notes'
+import { ORIENT_BLOCK, ORIENT_FIELDS, ORIENT_LIMIT, ORIENT_TIMEOUT_MS, orientQuery, orientsFrom, orientText } from './orient-notes'
 import { DRAW_TIMEOUT_MS, drawArgv, drawnNoteOf, GUIDE_ARGV, GUIDE_BLOCK, GUIDE_TIMEOUT_MS, guideText, UPFRONT_TOOLS, withDrawing } from './outline-guide'
 
 type AbovePromptRender = RenderInput<'AbovePrompt'>
@@ -361,7 +361,7 @@ export function register(on: On, options: PluginOptions): void {
     const ui = $.ui.resolve(e) as unknown as CardElements
     // Beside Recent mentions, or in a short band, the card says the binding alone, so the mentions' keys stay on screen.
     const compact = below.isMentions || e.props.maxRows < 16
-    const drawn = cardTree(ui, card.facts ?? null, {
+    const drawn = cardTree(ui, card.facts ? withOrient(card.facts) : null, {
       columns: e.props.bodyColumns, compact,
       hide: () => void (async () => $.state.set(BINDING_STATE, { facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null, shown: false }))(),
     })
@@ -521,7 +521,7 @@ export function register(on: On, options: PluginOptions): void {
       const blocks = result.blocks.filter(b => b.name !== WHERE_BLOCK && b.name !== BINDING_BLOCK && b.name !== WORKBOARD_BLOCK && b.name !== GUIDE_BLOCK && b.name !== ORIENT_BLOCK)
       if (inDoorEnv(env)) blocks.push({ name: WHERE_BLOCK, text: whereText(ran?.summary ?? envSummaryOf(env)) })
       else if (bound?.where?.reach?.control && bound.where.reach.rule !== 'control') blocks.push({ name: WHERE_BLOCK, text: reachText(bound.where.reach) })
-      bindingGiven = bound ? bindingText({ ...bound, orientsFrom: orientsFromNow }) : null
+      bindingGiven = bound ? bindingText(withOrient(bound)) : null
       // The outline's own "read this first" leads what the mod adds about it (PIE-1353).
       orientGiven = orient
       if (orient) blocks.push({ name: ORIENT_BLOCK, text: orient })
@@ -583,7 +583,7 @@ export function register(on: On, options: PluginOptions): void {
     }
     const facts = await readBinding($, option, true)
     await $.state.set(BINDING_STATE, { shown: true, facts })
-    return { text: cardLines(facts).map(l => `${l.label ? `${l.label}: ` : ''}${l.text}`).join('\n') }
+    return { text: cardLines(withOrient(facts)).map(l => `${l.label ? `${l.label}: ` : ''}${l.text}`).join('\n') }
   })
 
   for (const tool of WORK_TOOLS) {
@@ -916,6 +916,9 @@ async function bindSessionNow($: EngineInterface, option: PluginOptions, name: s
   await loadingReferences?.catch(() => {})
   touchGlobs = null
   rebound = { outline: name, ...(machine ? { machine } : {}) }
+  // The old outline's orientation is no longer this session's: the new one's is read (a newer read wins).
+  orientsFromNow = null
+  void readOrient($, option)
   const facts = await readBinding($, option, true)
   await $.state.set(BINDING_STATE, { shown: true, facts })
   await refreshMentions($, option)
@@ -985,13 +988,12 @@ function readBinding($: EngineInterface, option: PluginOptions, again: boolean):
       cwd,
       ...(home ? { home } : {}),
       doorTools: !!control?.trim() || !!ran.facts?.reach?.control,
-      orientsFrom: orientsFromNow,
     }
     if (generation !== bindingGeneration) return facts
     await $.state.set(BINDING_STATE, { shown: (await $.state.get(BINDING_STATE)).value?.shown ?? true, facts })
     $.ui.status(statusLine(facts))
     // The model was told something else (or that it was still looking): its context is made again.
-    if (bindingGiven !== undefined && bindingGiven !== bindingText(facts)) $.ui.invalidate('prompt.context')
+    if (bindingGiven !== undefined && bindingGiven !== bindingText(withOrient(facts))) $.ui.invalidate('prompt.context')
     return facts
   })()
   bindingLoad = load
@@ -1076,33 +1078,39 @@ async function runList($: EngineInterface, root: string, workspace: Workspace, a
  */
 function readOrient($: EngineInterface, option: PluginOptions): Promise<string | null> {
   const generation = ++orientGeneration
+  // Null: no answer (the card keeps what it said); none: no outline or no such note.
   const read = async (): Promise<{ text: string | null; from: string | null } | null> => {
     if (!references?.workspace) await loadReferences($, option)
     const workspace = references?.workspace
-    if (!workspace) return null
+    if (!workspace) return { text: null, from: null }
     const root = await outlinerRootOf($)
-    if (!root) return null
+    if (!root) return { text: null, from: null }
     const agent = await sessionPersona($)
     const listed = await runList($, root, workspace, listArgs(orientQuery(agent), ORIENT_LIMIT, ORIENT_FIELDS), ORIENT_TIMEOUT_MS)
     if (!listed) return null
-    const notes = orientOrder(listed.blocks)
-    return { text: orientText({ outline: workspace.outline, machine: workspace.machine, agent, notes }), from: orientsFrom(notes) }
+    const facts = { outline: workspace.outline, machine: workspace.machine, agent, notes: listed.blocks, complete: listed.complete }
+    return { text: orientText(facts), from: orientsFrom(listed.blocks) }
   }
-  const load = Promise.race([read().catch(() => null), $.clock.sleep(ORIENT_TIMEOUT_MS).then(() => null)]).then(async found => {
+  // No race of its own: each step has its budget (the CLI's ORIENT_TIMEOUT_MS), and prompt.context waits no longer than
+  // for the binding, so an answer that lands late still makes the context again.
+  const load = read().catch(() => null).then(found => {
     if (generation !== orientGeneration) return found?.text ?? null
-    // A read that didn't answer keeps what the card said; one that did says what it found.
     if (found && found.from !== orientsFromNow) {
       orientsFromNow = found.from
-      const card = (await $.state.get(BINDING_STATE)).value
-      if (card?.facts) await $.state.set(BINDING_STATE, { ...card, facts: { ...card.facts, orientsFrom: orientsFromNow } })
-      if (bindingGiven !== undefined && card?.facts && bindingGiven !== bindingText({ ...card.facts, orientsFrom: orientsFromNow })) $.ui.invalidate('prompt.context')
+      $.ui.invalidate('ui.render')
     }
     const text = found?.text ?? null
     if (orientGiven !== undefined && orientGiven !== text) $.ui.invalidate('prompt.context')
+    else if (found && bindingGiven && bindingLoad) void bindingLoad.then(f => { if (bindingGiven !== bindingText(withOrient(f))) $.ui.invalidate('prompt.context') }, () => {})
     return text
-  }).catch(() => null)
+  })
   orientLoad = load
   return load
+}
+
+/** The binding as the card and the model read it: its facts with what the session orients from now (readOrient). */
+function withOrient(facts: BindingFacts): BindingFacts {
+  return { ...facts, orientsFrom: orientsFromNow }
 }
 
 /** The folder's outline as the tools found it (`references`): bound, none named, opted out, or why it couldn't be found. */

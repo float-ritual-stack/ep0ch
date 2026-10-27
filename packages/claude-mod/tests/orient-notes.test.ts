@@ -96,6 +96,8 @@ describe('orientation notes, in the first prompt (PIE-1353)', () => {
     expect(text).toContain('[orient::sam] or [orient::all]')
     expect(text).toContain('## How we work in the garden ((n-sam))')
     expect(text).toContain('- **Ask before pruning** the pear.')
+    // The heading names the note; its own title line isn't given twice.
+    expect(text).not.toContain('How we work in the garden [orient::sam]')
     expect(text.indexOf('n-sam')).toBeLessThan(text.indexOf('n-all'))
     // The note changes; the compaction reads it anew, and the remade context carries the new text.
     c.notes = [ALL, { ...SAM, text: `${SAM.text}\n- **New:** the hose moved to the north bed.`, updatedAt: '2026-03-04T08:00:00Z' }]
@@ -151,6 +153,12 @@ describe('orientation text', () => {
     expect(text).toContain('- row 0 of the field guide')
     expect(text).not.toContain('- row 399')
     expect(text).toMatch(/of the field guide\n… read the rest: ep0ch show --ws garden --machine shed n-long$/)
+  })
+
+  test('one long paragraph is cut at a space; a read the service cut short says so', () => {
+    const text = orientText({ outline: 'garden', complete: false, notes: [{ id: 'n-p', title: 'Prose', text: `Prose [orient::all]\n${'water the beds '.repeat(400)}`, properties: [] }] })!
+    expect(text).toMatch(/ (?:water|the|beds)\n… read the rest: ep0ch show --ws garden n-p\n/)
+    expect(text).toContain("more notes carry orient than were read: ep0ch find --ws garden --query 'orient'")
   })
 
   test('no notes, no block; an agent name is quoted in the query', () => {
