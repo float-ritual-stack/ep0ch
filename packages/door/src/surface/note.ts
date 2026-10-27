@@ -103,6 +103,7 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rowLines, rule, wrap } from "../text";
 import { startShare, endsIn } from "../share-cli";
 import type { FragmentKind, ShareSession } from "@ep0ch/outline-core/protocol";
+import { startsTable, tableCells } from "@ep0ch/outline-core/table-shape";
 import { ActionRefused, actionSet, boundNow, def, keyCaption, agentLabel, agentWords, asActor, type ActionDef, type ActionSet, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
@@ -477,7 +478,7 @@ const sameLink = (a: Link, b: Link) => a.tag === b.tag && a.resource?.key === b.
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 /** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
 /** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string } | { crumbs: true } | { start: SessionKind } | { margin: true } | { fold: number } | { listPreview: number } | { region: string } | { sources: true });
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string } | { crumbs: true } | { start: SessionKind } | { margin: true } | { fold: number } | { listPreview: number } | { region: string } | { sources: true } | { zoom: number });
 
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
@@ -523,6 +524,8 @@ interface Element {
 const UNSENT_VERB: Record<UnsentOp, string> = { diff: "show what your edit changed against the note now", copy: "open its copy", dismiss: "let it go (its copy stays on disk)", add: "add the lines the note doesn't have into an edit", keep: "keep it as a note under this one", show: "show the old edits" };
 /** The copy control of a code block, a quote or a callout (PIE-638). */
 const COPY_GLYPH = "⧉";
+/** The zoom control's glyph (PIE-780): a part fills the tile. */
+const ZOOM_GLYPH = "⤢";
 /** How many of a block's first rows its copy control looks through for a free cell. */
 export const COPY_ROWS = 4;
 /** What ⏎ does on an element, for the hint. `open`: a fold is folded, a comment mark's thread is expanded. */
@@ -1219,7 +1222,7 @@ export class NoteSurface {
     // An extension's line or control: its keys go first, as a proposal's do.
     if (e?.link?.press) return `[ ] ${i + 1}/${this.elems.length} · press ${printable(e.label)} · ⏎ runs ${printable(e.link.press.act.replaceAll("\n", " -> "))}`;
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label)} · ⏎ ${verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label)} · ⏎ ${verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()} · ${this.zoomHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src))} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
@@ -1231,9 +1234,18 @@ export class NoteSurface {
     const context = this.contextualHint();
     if (context !== null) return context;
     const back = this.peek(-1) ? "alt← back · " : "";
+    // Zoomed into a part (PIE-780): the way back first; else W zooms (the keys from ZOOM_KEYS, the table that binds them).
+    const zoom = this.zoomHint();
+    if (this.zoom) return `${extra}${zoom} · ${back}↑↓ j k blocks/rows · [ ] elements · f fold`;
     // A proposal an agent's patch left (PIE-501): A applies it anyway (unless it can't be applied), X dismisses it.
     const proposal = this.msg && isOpenProposal(this.msg) ? this.proposalKeys(this.msg.id) : "";
-    return `${extra}${proposal}${back}↑↓ j k blocks/rows · ( ) sections · [ ] elements · f fold · M comments mode · R reply · t thread · i properties · z callouts · u up · C comment · m comments`;
+    return `${extra}${proposal}${back}↑↓ j k blocks/rows · ( ) sections · [ ] elements · ${zoom} · f fold · M comments mode · R reply · t thread · i properties · z callouts · u up · C comment · m comments`;
+  }
+
+  /** The zoom's keys (PIE-780) as the hint says them, read from ZOOM_KEYS: the way in, or while zoomed the way back. */
+  private zoomHint(): string {
+    const k = ZOOM_KEYS.find(k => k.key !== "click" && (k.args?.on === false) === !!this.zoom)!;
+    return `${keyCaption(k.key)} ${this.zoom ? k.label : "zoom"}`;
   }
 
   // ── which note ─────────────────────────────────────────────────────────────
@@ -1678,7 +1690,8 @@ export class NoteSurface {
     // Keep normal cell width: a terminal's sizing probe cannot prove its font will scale instead of spacing the letters.
     // A note with a Work ID shows it first, in the accent (PIE-809: `HOME-011 · <title>`), said once (outline-core's rule).
     // The rows the note leaves out (PIE-1319). `ep0ch show` (printed) keeps them all: its first line is what a script reads.
-    const omit = this.printed ? { crumbs: false, title: false, byline: false } : headerOmits(m);
+    // Zoomed into a part (PIE-780), the part fills the tile: one row above it says what it is and how back goes.
+    const omit = this.printed ? { crumbs: false, title: false, byline: false } : this.zoom ? { crumbs: false, title: true, byline: true } : headerOmits(m);
     // The rows above the title: the crumbs, unless the note leaves them out.
     const above = omit.crumbs ? 0 : 1;
     // The one name (board's headedTitle); its two parts colour it, the ID in the accent.
@@ -1756,7 +1769,7 @@ export class NoteSurface {
     // The byline's row: after the crumbs and the title, as many of them as are drawn.
     const first = this.printed ? lines.length + subRows.length : above + titleRows.length;
     // `ep0ch show` prints it too, title first as it always did: its first line is what an agent or a script reads.
-    const crumbs = fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
+    const crumbs = this.zoom && !this.printed ? this.zoomBar(m, w) : fg(C.dark) + pad(this.crumbs, w) + RESET, metas = metaRows.map(r => pad(r, w) + RESET);
     const rows = this.printed ? [...titled, ...subRows, ...metas, crumbs] : [...(omit.crumbs ? [] : [crumbs]), ...titleRows, ...(omit.byline ? [] : metas)];
     // The chip ends the first byline row (the one `said` is on), where it fits in the tile; with no byline, the tile
     // menu (⋯) has the same rows: comment on the whole note, comments, properties, sources.
@@ -2072,7 +2085,9 @@ export class NoteSurface {
     const keyOf = new Map(this.elems.filter(e => e.link).map(e => [`${e.row}:${e.from}`, e.key]));
     if (summary) for (const l of summaryLinks) this.hits.push({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link, value: l.key, elem: keyOf.get(`${summaryRow}:${l.from}`) });
     // The crumbs: a click shows the note in the outline (reader.reveal, PIE-794), where the host has one.
-    if (crumbsRow !== undefined && host?.revealInOutline && isOutlineNote(m)) this.hits.push({ row: crumbsRow, from: 0, to: Math.max(1, Math.min(w, width(this.crumbs))), crumbs: true });
+    // Zoomed (PIE-780), that row is the zoom's: a click on it goes back to the whole note.
+    if (crumbsRow !== undefined && this.zoom && !this.printed) this.hits.push({ row: crumbsRow, from: 0, to: w, history: -1 });
+    else if (crumbsRow !== undefined && host?.revealInOutline && isOutlineNote(m)) this.hits.push({ row: crumbsRow, from: 0, to: Math.max(1, Math.min(w, width(this.crumbs))), crumbs: true });
     if (commentChip) this.hits.push({ ...commentChip, start: "note" });
     if (sourcesChip) this.hits.push({ ...sourcesChip, sources: true });
     if (marginChip) this.hits.push({ ...marginChip, margin: true });
@@ -2184,6 +2199,17 @@ export class NoteSurface {
         break;
       }
     });
+    // The zoom control (PIE-780) on a figure, a table and a heading: a dim ⤢ at its right edge, unless the reader is zoomed
+    // into that part. A click is element.zoom on its line, as W is; which lines the part covers is the service's to say.
+    if (!this.printed && isOutlineNote(m)) for (const p of doc.parts ?? []) {
+      const row = p.row - this.scroll, at = top + row, line = noteLines[p.line];
+      if (row < 0 || row >= room || at >= lines.length || line === undefined || p.col + bx >= w) continue;
+      if (this.zoom && this.zoom.start === line) continue;
+      const put = putCell(lines[at]!, p.col + bx, ZOOM_GLYPH, fg(C.dark));
+      if (put === null) continue;
+      lines[at] = put;
+      this.hits.push({ row: at, from: p.col + bx, to: p.col + bx + 1, zoom: line });
+    }
     if (laid.listInline) {
       const i = laid.listInline;
       const r = attachedRect("inline", i.cols, i.rows, { from: top + i.at - this.scroll + heroRows, col: this.bx });
@@ -4531,6 +4557,9 @@ export class NoteSurface {
     // lets go of a focus mark someone set here.
     if (k.kind === "esc" && (this.cur || this.link >= 0)) { void this.runKey("element.select", { n: 0 }, host); return true; }
     if (k.kind === "esc" && this.focusMark) { void this.runKey("block.untint", {}, host); return true; }
+    // W zooms into the part the [ ] position or the reading line is in; esc then returns to the whole note (PIE-780).
+    const zk = modeBinding(ZOOM_KEYS, k);
+    if (zk && (zk.args?.on !== false || this.zoom) && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("element.zoom", zk.args ?? {}, host); return true; }
     if (isUp(k) || isDown(k)) { void this.runKey("reading.step", { by: isUp(k) ? -1 : 1 }, host); return true; }
     // A step that's the current element in view (PIE-472): space toggles it done or to do, as Detail's does;
     // ctrl+z undoes the last step change made here.
@@ -6136,6 +6165,7 @@ export class NoteSurface {
     const h = this.hitAt(x, y);
     if (h && "listPreview" in h) { void this.runKey("list.preview", { n: h.listPreview }, host); return true; }
     if (h && "sources" in h) { void this.runKey("sources.open", {}, host); return true; }
+    if (h && "zoom" in h) { void this.runKey("element.zoom", { line: h.zoom + 1 }, host); return true; }
     // An open mode first (in its precedence): the edit's or comment's own click, a status choice's row, a panel row.
     const taken = this.modes.click(x, y, host);
     if (taken !== undefined) return taken;
@@ -7867,6 +7897,14 @@ export class NoteSurface {
     return zoom;
   }
 
+  /** The zoom's row (PIE-780), in place of the crumbs: the part, the note it is in, and the key back. */
+  private zoomBar(m: Msg, w: number): string {
+    const z = this.zoom!, back = ZOOM_KEYS.find(k => k.args?.on === false)!;
+    // A table is a paragraph to the service, labelled by its words: named here by its header's cells, as drawn.
+    const lines = m.text.split("\n"), label = z.kind === "paragraph" && startsTable(lines, z.start) ? `table · ${tableCells(lines[z.start]!).map(c => c.text).join(", ")}` : z.label;
+    return drawEllipsized(`${fg(C.lcyan)}${ZOOM_GLYPH} ${printable(label)}${fg(C.dark)} · in ${printable(subject(m))} · ${fg(C.lcyan)}← ${keyCaption(back.key)} ${back.label}`, w) + RESET;
+  }
+
   /** The part `at` names in `m` (PIE-780), read from the service: refused, with why, where there is none. */
   private async partOf(m: Msg, at: { line?: number; anchor?: string }, board: SocketBoard): Promise<Zoom> {
     if (at.anchor !== undefined) {
@@ -8729,6 +8767,7 @@ export class NoteSurface {
       selection: this.describeSelection(this.selection),
       agentSelection: this.agentSelection ? { id: this.agentSelection.id, ...this.describeSelection(this.agentSelection.sel) } : null,
       history: this.describeHistory(),
+      ...(this.zoom ? { zoom: { kind: this.zoom.kind, label: this.zoom.label, lines: [this.zoom.start + 1, this.zoom.end + 1], ...(this.zoom.anchor ? { anchor: this.zoom.anchor } : {}) } } : {}),
       steps: this.drawn || this.digesting ? { drawn: this.elems.filter(e => e.kind === "task").length, undo: this.stepHistory.size, choosing: (this.modes.get("picker") as PickerMode | null)?.describe() ?? null } : null,
       // What the rules draw on the note (PIE-600), and whether the person has it raw (R).
       decorations: this.msg && isOutlineNote(this.msg) ? { raw: this.raw, drawn: decorationsOf(this.msg, this.src).map(d => ({ rule: d.name, place: d.place, status: d.status, on: d.hit.at, line: d.hit.line })) } : null,
