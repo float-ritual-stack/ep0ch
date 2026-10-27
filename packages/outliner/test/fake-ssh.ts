@@ -96,6 +96,8 @@ if (argv[0] === "--serve") {
     EP0CH_OUTLINES: process.env.FAKE_SSH_OUTLINES!, TERM: process.env.TERM ?? "dumb",
     ...(process.env.FAKE_SSH_OWNER_FILE ? { FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE } : {}),
     ...(process.env.FAKE_SSH_STATE ? { EP0CH_STATE: process.env.FAKE_SSH_STATE } : {}),
+    // box-test's mark on a run's processes: what the "other machine" starts is the run's too, and stopped with it (PIE-1360).
+    ...(process.env.BOX_TEST_RUN_DIR ? { BOX_TEST_RUN_DIR: process.env.BOX_TEST_RUN_DIR } : {}),
   };
   if (argv.includes("-tt")) {
     let drained!: () => void;

@@ -33,7 +33,7 @@ export const until = async (ok: () => boolean, what: string, ms = 5000) => {
 };
 
 /** Whether a process with this id runs (EPERM: it does, as another user's). */
-const alive = (pid: number) => {
+export const alive = (pid: number) => {
   try { process.kill(pid, 0); return true; } catch (e: any) { return e?.code === "EPERM"; }
 };
 
@@ -94,6 +94,65 @@ export function scratchDir(prefix: string): string {
   const dir = mkdtempSync(join(base, prefix));
   writeFileSync(join(dir, "pid"), `${process.pid}\n${space}`);
   return dir;
+}
+
+/**
+ * box-test's mark on every process of a run (scripts/box-test-guard): it stops what carries it when the run ends, and
+ * sweeps it after a run that was killed. A test that writes its children's environment whole passes it on with
+ * `wholeEnv`, or the hosts and sessions it starts outlive the run unseen (PIE-1360: 46 install-test hosts, for days).
+ */
+const RUN_MARK = "BOX_TEST_RUN_DIR";
+export const wholeEnv = (env: Record<string, string>): Record<string, string> =>
+  process.env[RUN_MARK] ? { ...env, [RUN_MARK]: process.env[RUN_MARK] } : env;
+
+/** This user's processes tied to `root`: their working folder or EP0CH_OUTLINES under it, or their command line naming it (Linux). */
+export function processesUnder(root: string): number[] {
+  const under = (p: string) => p === root || p.startsWith(root + "/");
+  const uid = process.getuid?.();
+  const found: number[] = [];
+  let ids: string[] = [];
+  try { ids = readdirSync("/proc").filter(n => /^\d+$/.test(n)); } catch { return found; }
+  for (const id of ids) {
+    const pid = Number(id);
+    if (pid === process.pid) continue;
+    try {
+      if (lstatSync(`/proc/${id}`).uid !== uid) continue;
+      const tied = (() => { try { return under(readlinkSync(`/proc/${id}/cwd`)); } catch { return false; } })()
+        || readFileSync(`/proc/${id}/cmdline`, "utf8").split("\0").some(under)
+        || readFileSync(`/proc/${id}/environ`, "utf8").split("\0").some(kv => kv.startsWith("EP0CH_OUTLINES=") && under(kv.slice(15)));
+      if (tied) found.push(pid);
+    } catch { /* gone */ }
+  }
+  return found;
+}
+
+/**
+ * Stops every process tied to `root`: TERM, up to 3 s to go, then KILL for those still tied to it (a pid freed in
+ * between may be another's now). Synchronous, so a signal handler can call it.
+ */
+export function stopUnder(root: string): void {
+  const pids = processesUnder(root);
+  for (const pid of pids) { try { process.kill(pid, "SIGTERM"); } catch { /* gone */ } }
+  for (const end = Date.now() + 3000; pids.some(alive) && Date.now() < end;) Bun.sleepSync(50);
+  for (const pid of processesUnder(root).filter(p => pids.includes(p))) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
+}
+
+/** The scratch folders this process owns, stopped together by one handler per signal. */
+const OWNED = new Set<string>();
+
+/**
+ * The test that made `root` owns what runs from it: hosts started with setsid and daemonized sessions leave the test's
+ * process tree, so Bun's own cleanup never reaches them, and a TERM, INT or HUP (box-test ending its run, a `timeout`)
+ * ends `bun test` without its afterAll. Then they are stopped here before it exits; afterAll calls `stopUnder` itself.
+ * A signal waits for a running spawnSync to return; a run that can't wait (box-test's KILL) is the guard's, through `wholeEnv`.
+ */
+export function ownScratch(root: string): void {
+  if (!OWNED.size) {
+    for (const [sig, n] of [["SIGTERM", 15], ["SIGINT", 2], ["SIGHUP", 1]] as const) {
+      process.once(sig, () => { for (const r of OWNED) stopUnder(r); process.exit(128 + n); });
+    }
+  }
+  OWNED.add(root);
 }
 
 /** Where a scratch host's stderr goes: `host.log` in its dir (a restart starts it again). */
