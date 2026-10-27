@@ -70,7 +70,7 @@ registerArgKind("view", async (typed, host) => {
 });
 
 registerArgKind("key", async (typed, host) => {
-  const found = await host.ctx.board.propertyCatalog(undefined, typed.trim(), 60);
+  const found = await host.ctx.board.propertyCatalog(undefined, typed.trim(), 60, true);
   const uses = new Map<string, number>();
   for (const f of found) uses.set(f.key, (uses.get(f.key) ?? 0) + f.count);
   return [...uses].map(([key, n]) => ({ value: key, label: key, detail: `${n} use${n === 1 ? "" : "s"}` }));

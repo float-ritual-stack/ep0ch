@@ -1347,11 +1347,11 @@ export class ExtensionCalls {
   async bar(request: ExtensionBarRequest): Promise<ExtensionBarResult> {
     const extension = this.registry.extension(request.extension);
     if (!extension) throw new Error(this.notActive(request.extension));
-    const source = manifestSources(extension.manifest).find((candidate) => candidate.id === request.source && (candidate.operation === "bar" || candidate.prefix || candidate.main));
+    const source = manifestSources(extension.manifest).find((candidate) => candidate.id === request.source && (candidate.prefix || candidate.main));
     if (!source) throw new Error(`${extension.name} has no bar source ${request.source}`);
     const near = request.near ? this.store.get(request.near) : null;
     const limit = Math.max(1, Math.min(MAX_BAR_ROWS, request.limit ?? MAX_BAR_ROWS));
-    const answer = await this.runtime.invokeLoaded(extension, source.operation, {
+    const answer = await this.runtime.invokeLoaded(extension, "source", {
       source: source.id, query: request.query, limit,
       ...(near && !near.effectiveDeletedRootId ? { context: this.context(near, undefined) } : {}),
     }, durationMs(source.deadline) ?? this.deadline(extension));
@@ -1383,7 +1383,7 @@ export class ExtensionCalls {
     if (!source) throw new Error(`${extension.name} has no completion source ${request.source}`);
     const near = request.near ? this.store.get(request.near) : null;
     const limit = Math.max(1, Math.min(MAX_COMPLETION_ROWS, request.limit ?? MAX_COMPLETION_ROWS));
-    const answer = await this.runtime.invokeLoaded(extension, source.operation, {
+    const answer = await this.runtime.invokeLoaded(extension, "source", {
       source: source.id, query: request.query, limit, trigger: request.trigger,
       ...(near && !near.effectiveDeletedRootId ? { context: this.context(near, undefined) } : {}),
     }, durationMs(source.deadline) ?? this.deadline(extension), signal ? { signal } : {});

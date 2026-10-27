@@ -1,7 +1,8 @@
 // A fake board answering `completion.rows` (PIE-1340) the way the service does: the outliner's own completion sources,
-// run over the fake's lookups (`completePages`, `searchBlocks`, `fragmentCandidates`, …), so a test that fakes those
+// run over the fake's lookups (`completePages`, `searchBlocks`, `fragmentCandidates`, `componentSchemas`, `calloutTypes`, `propertyCatalog`, …), so a test that fakes those
 // still sees the rows the door would. Only for test doubles; a scratch host answers it for real.
 import { completionRows } from "../../outliner/src/completion-sources";
+import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
 
 type Fake = Record<string, any>;
 
@@ -15,6 +16,10 @@ export function serviced<B extends Fake>(board: B): B & { completionRows: (r: an
       case "fragments.candidates": if (!board.fragmentCandidates) throw new Error("no fragments here"); return await board.fragmentCandidates(input.query) as T;
       case "files.complete": return await board.completeFiles(input.prefix) as T;
       case "extensions.list": return (board.listExtensions ? await board.listExtensions() : { extensions: [] }) as T;
+      case "components.schemas": return (board.componentSchemas ? await board.componentSchemas() : { schemas: BUILTIN_COMPONENT_SCHEMAS }) as T;
+      case "components.usage": return (board.componentUsage ? await board.componentUsage() : {}) as T;
+      case "callouts.types": return (board.calloutTypes ? await board.calloutTypes() : { types: [] }) as T;
+      case "properties.catalog": return (board.propertyCatalog ? await board.propertyCatalog(input.key, input.prefix, input.limit) : []) as T;
       case "blocks.context": { const c = await board.blockContext(input.blockId); return { selected: c.selected && { ...c.selected, title: c.selected.text?.split("\n")[0] }, ancestors: c.ancestors } as T; }
     }
     throw new Error(`the fake has no ${action}`);

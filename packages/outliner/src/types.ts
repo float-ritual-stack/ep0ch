@@ -2669,6 +2669,8 @@ export type OutlinerRequestAction =
       prefix?: string;
       limit?: number;
       propertyScope?: PropertyQueryScope;
+      /** With no key: one row per key (its notes counted, value empty), not one per key and value (PIE-1344). */
+      keys?: boolean;
     }
   | { id: string; action: "selection.get" }
   | { id: string; action: "selection.set"; blockId: string | null }

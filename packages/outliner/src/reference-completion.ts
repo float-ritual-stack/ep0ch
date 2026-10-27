@@ -58,8 +58,9 @@ function snippet(text:string):string {
 }
 
 export async function lookupReferenceCompletion(provider:ReferenceCompletionProvider,target:CompletionTarget,draft?:CompletionDraft):Promise<ReferenceCompletionState> {
-  const r=await provider.completionRows({target:{kind:target.kind,query:target.query,...(target.key?{key:target.key}:{}),...(target.component?{component:target.component}:{})},limit:LIMIT,...(draft?{near:draft.blockId,draft}:{})});
-  const items:ReferenceCompletionItem[]=mergeSourceAnswers(r.answers,target.query,{picks:r.picks}).map(({insert,from:_f,tier:_t,...row})=>{
+  const r=await provider.completionRows({target:{kind:target.kind,query:target.query,...(target.key?{key:target.key}:{}),...(target.component?{component:target.component}:{}),...(target.headingShort?{headingShort:true}:{})},limit:LIMIT,...(draft?{near:draft.blockId,draft}:{})});
+  // What a row draws (its example, its variations) is the door's: Detail lists the row's words.
+  const items:ReferenceCompletionItem[]=mergeSourceAnswers(r.answers,target.query,{picks:r.picks}).map(({insert,from:_f,tier:_t,example:_e,variations:_v,...row})=>{
     const selection=insertSelection(insert);
     return {...row,insertion:insertText(insert),...(selection?{selection}:{}),...(row.detail?{subtitle:row.detail}:{}),...(row.docs?{context:row.docs}:{})};
   });
@@ -159,7 +160,12 @@ export class ReferenceCompletionSession {
       b.replaceCurrentLine(state.start,state.end,item.insertion);
       });
       // A snippet's span is selected once it's in (its placeholder), so the next keys replace it.
-      if(item.selection){const row=b.row,at=Math.min(state.start,(b.lines[row]??'').length);b.placeCursor(row,at+item.selection.start);b.placeCursor(row,at+item.selection.end,true);}
+      // The insert may be several lines (a component's YAML): its offsets are placed by row.
+      if(item.selection){
+        const first=b.row-(item.insertion.match(/\n/g)?.length??0),at=Math.min(state.start,(b.lines[first]??'').length);
+        const place=(offset:number,extend:boolean)=>{const before=item.insertion.slice(0,offset).split('\n');b.placeCursor(first+before.length-1,(before.length===1?at:0)+before.at(-1)!.length,extend);};
+        place(item.selection.start,false);place(item.selection.end,true);
+      }
       if(state.pickKey)void this.provider.completionPicked?.(state.pickKey,item.insertion).catch(()=>{});
       this.dismiss();return true;
     }catch(error){if(this.current(generation)){state.message=error instanceof Error?error.message:String(error);this.changed();}return false;}finally{this.accepting=false;}

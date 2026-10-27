@@ -501,7 +501,7 @@ export class ExtensionRegistry {
 
   /** An extension's command-palette sources (PIE-656), as clients bind them. */
   barOf(extension: LoadedExtension): ExtensionBarEntry[] {
-    return manifestSources(extension.manifest).filter((source) => source.operation === "bar" || source.prefix || source.main).map((source) => ({
+    return manifestSources(extension.manifest).filter((source) => source.prefix || source.main).map((source) => ({
       id: source.id, extension: extension.id, name: `ext.${extension.id}.${source.id}`, title: source.title,
       ...(source.prefix ? { prefix: source.prefix } : {}),
       ...(source.description ? { description: source.description } : {}),

@@ -14,7 +14,7 @@
 import type { CompletionKind } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 273;
+export const PROTOCOL = 274;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 8;
 
@@ -699,7 +699,8 @@ export interface ExtensionsConfigured {
  * own sources' answers (`mergeSourceAnswers`): the door and Detail merge the same way, so they show the same rows.
  */
 export interface CompletionRowsRequest {
-  target: { kind: CompletionKind; query: string; key?: string; component?: string };
+  /** `headingShort`: the `# Title [hea…` shorthand, whose value is written as a whole `[heading::…` token. */
+  target: { kind: CompletionKind; query: string; key?: string; component?: string; headingShort?: boolean };
   /** The note the draft writes in, or is about: nearer notes first, and its own text for `((#heading`. */
   near?: string;
   draft?: { blockId: string; text: string };
