@@ -34,6 +34,8 @@ import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } fr
 import { isBarKey } from "./shell-keys";
 import { printable, withRowLimit } from "./text";
 import { SpeedMeter } from "./speed";
+import { CLAUDE_SPLIT_ACTIONS, SplitWatch } from "./claude-splits";
+import { realFleetIO } from "./agent-fleet";
 import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
@@ -192,6 +194,8 @@ export interface Ctx {
   readonly messages?: StatusLog;
   /** How fast the door keeps up (src/speed.ts): `status.speed` and `peek` read it. */
   readonly speed?: SpeedMeter;
+  /** The Claude sessions running twice (src/claude-splits.ts): the status bar's ⚠ ×2 chip and claude.splits. */
+  readonly splits?: SplitWatch;
   readonly dispatch?: Dispatcher;
   flash(msg: string, ms?: number, details?: MessageDetails): void;
   /**
@@ -602,6 +606,13 @@ export class App implements Ctx {
     this.statusNote = new StatusBarNote(board, () => this.redraw(), text => this.flash(text, 12_000, { kind: "warning" }));
     this.started = now();
     this.speed = new SpeedMeter(now);
+    // A Claude session running twice (PIE-1369): this machine's sessions and the outline's machine's, read while someone looks.
+    this.splits = new SplitWatch({
+      fleet: realFleetIO, env: process.env, now,
+      machines: () => [undefined, ...(this.machine ? [this.machine] : [])],
+      seen: () => this.viewers.size > 0 || !this.display.unseen?.(),
+      changed: () => this.statusChanged(),
+    });
     this.display = isDisplay(term) ? term : new Painter(term as RawTerm);
     // The door's own terminal: an image it lost is uploaded and placed again (PIE-795).
     const decoder = (term as { decoder?: KeyDecoder }).decoder, painter = this.display;
@@ -1075,6 +1086,7 @@ export class App implements Ctx {
       pointers: this.agentPointers.list(),
       // How the door is keeping up (a475084a): frames drawn against reports handled, the hover reports a busier moment folded into the newest, and the settle: the last input of a burst to the frame that shows it.
       // Per attached terminal (a session's): the frames it hasn't answered (a stalled link holds them) and the answer's round trip (PIE-1163).
+      ...((d => (d.splits.length ? { splits: d } : {}))(this.splits.describe())),
       speed: { ...this.speed.describe(), ...(this.term.speed ? { clients: this.term.speed() } : {}) },
       // Where the pointer rests on a cut-short value, and whether that value is being read in full (the pointer is the person's: this only says).
       hover: this.overflow.describe(),
@@ -1184,6 +1196,16 @@ export class App implements Ctx {
     { set: BAR_ACTIONS, takes: "none", on: (_, how) => ({ on: this.barOn, standing: how.standing }) },
     { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
     { set: RUNBOOK_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
+    { set: CLAUDE_SPLIT_ACTIONS, takes: "none", on: (_, how) => {
+      // The screen's desk, where tile.open lands too (a stage inside the showcase, a desk's own screen).
+      const here = (this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d)) ?? this.stack.at(-1)) as { overlay?(p: unknown): void } | undefined;
+      return {
+        splits: this.splits, flash: (m: string, ms?: number) => how.ctx.flash(m, ms), redraw: () => this.redraw(),
+        press: (action: string, args: Record<string, unknown>) => this.dispatch.press(action, args),
+        again: (action: string, args: Record<string, unknown>) => this.dispatch.act({ action, args }, how.actor),
+        over: typeof here?.overlay === "function" ? { overlay: (p: unknown) => here.overlay!(p) } : null,
+      };
+    } },
     { set: EXTENSION_INSTALL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
     { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.tile !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
     { claims: req => req.action.startsWith("layout.") || req.action.startsWith("tile."), delegate: () => (this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d)) ?? this.hostLayer.desks()[0])?.dispatch },
@@ -1282,6 +1304,8 @@ export class App implements Ctx {
   private hoverAt = 0;
   /** What the door counts about its own speed, always on and free (a475084a, src/speed.ts): read by `peek`. */
   readonly speed: SpeedMeter;
+  /** The Claude sessions running twice on this machine and the outline's (src/claude-splits.ts): the status bar's ⚠ ×2 chip. */
+  readonly splits: SplitWatch;
   private flushHover() {
     if (this.hoverTimer) { clearTimeout(this.hoverTimer); this.hoverTimer = null; }
     const held = this.hovering;
@@ -1511,7 +1535,7 @@ export class App implements Ctx {
   /** The status bar's time, as it would read now: the uptime and the clock; and the drawer's chip, which changes on its own. */
   private timeShown(): string {
     const now = this.now();
-    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}|${this.speed.slow() ?? ""}|${waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() }).plain}|${this.whatChanged.count()}|${this.linkLabel}`;
+    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}|${this.speed.slow() ?? ""}|${this.splits.chip()}|${waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() }).plain}|${this.whatChanged.count()}|${this.linkLabel}`;
   }
 
   /** The drawer's chip may have changed (its agent started or stopped working): the status bar alone, when it did. */
@@ -1675,6 +1699,7 @@ export class App implements Ctx {
     const ext = held ? `+${held} machine` : this.machineryChanges && this.whatChanged.hasMachinery() ? "machine on" : "";
     const backup = this.backupAlert();
     const slow = this.speed.slow();
+    const split = this.splits.chip();
     const count = this.whatChanged.count();
     const waiting = waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() });
     const items: StatusItem[] = [
@@ -1687,6 +1712,7 @@ export class App implements Ctx {
       right("yolo", this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD}` : "", "agents.yolo", { on: false }),
       { ...right("drawer", this.drawer.active ? this.drawer.chip() : "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}) },
       right("waiting", waiting.styled, "host.waiting"),
+      right("split", split ? `${fg(C.lred)}${split}` : "", "claude.splits"),
       right("offline", this.offline ? `${fg(C.lred)}offline` : "", "status.log"),
       right("slow", slow ? `${fg(C.yellow)}${slow}` : "", "status.speed"),
       right("backup", backup ? `${fg(backup.status ? C.dark : C.lred)}${backup.text}` : "", "backups.alert"),

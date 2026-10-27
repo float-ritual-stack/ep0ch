@@ -1691,6 +1691,18 @@ it's the same process and the same conversation.
   says how many it left out and which are behind. Only `--machine` names the machine, never `EP0CH_MACHINE` or a
   `.ep0ch`, so a restart can't follow an outline to another machine by accident. The script is the one implementation;
   `ep0ch agent` is argument handling and the ssh hop (`src/agent-fleet.ts`).
+- **A session running twice (PIE-1369).** A `claude --continue` started while its session runs elsewhere (Remote
+  Control, a reconnect) makes two processes write one transcript. The door reads this machine's sessions and the
+  outline's machine's (`ep0ch agent ls`'s reader, every 45 s while someone looks) and, while a session id is held by two
+  or more processes, shows a red `⚠ <name> ×2` chip on the status bar. A click on it (`claude.splits`) lists the
+  processes in a picker under the session's heading (when its one transcript was last written): pid, machine, when
+  it started, what `claude agents` says it's doing (busy, idle, waiting), older or newer, and where it runs. `a` attaches (`claude.attach`: a background job opens `claude attach <job id>` in a terminal tile, over `ssh -t`
+  on another machine; an interactive one is its terminal's, refused with where it runs), `s` stops one
+  (`claude.stop`: it asks first, naming the pid; an agent passes `confirm=<pid>`), `⏎` asks which. The stop is
+  `ep0ch agent stop <pid> --session <id> [--machine <ssh-name>]`, which stops nothing unless that pid is still a
+  process of that session and another process still holds it. `ep0ch agent splits [--session <id>] [--machine
+  <ssh-name>] [--json]` lists the same with the commands; the Claude mod reads it to say the same in the session that
+  just started. Showcase: `split-brain`.
 - `EP0CH_DAILY_CWD` is gone: a new agent tab starts in the folder chosen with its pick (`host.agent in=<folder>`),
   else the project's or the outline's; any other folder gets its own session with `ep0ch agent` there. `ep0ch
   doctor` says it when the variable is still set, with the command.

@@ -30,6 +30,9 @@ process.env.EP0CH_DAEMON = "0";
 // ctrl+t in a draft (draft.pick, src/pick.ts) hands the terminal to a picker: one that exits at once having chosen
 // nothing, never the person's tv (test/pick.test.ts sets its own).
 process.env.EP0CH_PICKER = "true";
+// No test reads the real `claude agents` for the status bar's split chip (src/claude-splits.ts): a real session running
+// twice on the test machine would draw it on every frame. The showcase's section hands its watch made-up rows.
+process.env.EP0CH_CLAUDE_SPLITS = "off";
 
 // e opens an edit at once, as before arming (src/arm.ts): a test that presses e means the edit. The arm itself is tested
 // where it's turned on (test/edit-arm.test.ts, the showcase's edit section, the parity probes).

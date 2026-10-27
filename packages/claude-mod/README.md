@@ -208,6 +208,23 @@ read anew each time.
 - **Never delays the session:** the read starts at `session.start` (and when a compaction or `/clear` begins). The
   first prompt waits for it no longer than for the binding (1.5s); one that lands later makes the context again.
 
+### A session running twice, said at the start (PIE-1369)
+
+`claude --continue` resumes a folder's latest session even while it runs elsewhere (Remote Control, a reconnect after
+ssh dropped), and then two processes write one transcript. At `session.start` the mod asks
+`ep0ch agent splits --json --session <its id>` once (`hooks/split-session.ts`): the door's one reader of
+`claude agents` and its one split decision, with the commands. When two or more processes hold this session's id:
+
+- **The model is told first:** this process's first prompt carries a `splitSession` block ahead of anything else it
+  attaches, naming each pid, when it started, what it's doing, which is this process (its own pid), how to reach it
+  (`claude attach <job id>` for a background job; an interactive one is its terminal's) and how to stop it
+  (`ep0ch agent stop <pid> --session <id>`), and asks the model to tell the person in its first answer. Not in the first
+  prompt's context blocks: a split is a resumed conversation, whose first prompt the other process made.
+- **The person sees it:** the status line leads with `running twice: pid N too · ep0ch agent stop N --session <id>`,
+  N being the other process, never this one. A check still running when the first prompt goes is carried by the next.
+- **Never a refusal,** and silent when the session runs once or `ep0ch agent splits` doesn't answer. The door shows the same
+  as a `⚠ <name> ×2` chip on its status bar (the door's README, "A session running twice").
+
 ### The outline's own orientation, at the start (PIE-1353)
 
 An outline says what a session bound to it should read first: a note carrying `[orient::<agent>]` (or

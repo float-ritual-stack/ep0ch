@@ -30,10 +30,13 @@ export interface SessionRow {
   /** Where an interactive session's process runs, when its parents say (a door terminal tile and its outline, a Herdr pane…). */
   place: string | null;
   running: string | null; installed: string; behind: boolean;
+  /** Its process, when it started (ms since the epoch) and when its transcript was last written; absent from an older `--ls`. */
+  pid?: number | null; startedAt?: number | null; lastWrite?: number | null;
 }
 
 const RESTART_USAGE = "ep0ch agent restart <name | short id | --all> [--if-update] [--fresh-daemon] [--check-env <VAR>] [--now] [--dry-run] [--machine <ssh-name>]";
 const LS_USAGE = "ep0ch agent ls [--machine <ssh-name>] [--json]";
+const STOP_USAGE = "ep0ch agent stop <pid> --session <session id> [--machine <ssh-name>]";
 
 const shq = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 
@@ -108,26 +111,85 @@ async function checkout(io: FleetIO): Promise<{ script: string } | { error: stri
   return existsSync(script) ? { script } : { error: `ep0ch agent: no ${script} in this ep0ch checkout · it is older than this command: ep0ch install --apply fast-forwards it` };
 }
 
+/**
+ * The Claude Code sessions on `machine` (this one when absent or local), as `scripts/agent-restart --ls` gives them:
+ * here from the installed checkout's script, there from `ep0ch agent ls --json` over ssh. The one reader of `claude
+ * agents --json` per machine: `ep0ch agent ls` and the door's split chip (src/claude-splits.ts) both read through it.
+ */
+export async function readSessions(machine: string | undefined, env: Env, io: FleetIO): Promise<{ rows: SessionRow[] } | { error: string; code: number }> {
+  const far = machine && !isLocalMachine(machine, env as NodeJS.ProcessEnv) ? machine : undefined;
+  let r: Ran;
+  if (far) {
+    r = await io.remote(far, "ep0ch agent ls --json", env);
+    const problem = remoteProblem(far, r);
+    if (problem) return { error: problem, code: 1 };
+  } else {
+    const c = await checkout(io);
+    if ("error" in c) return { error: c.error, code: 1 };
+    r = await io.local([c.script, "--ls"], env);
+  }
+  if (r.code !== 0) return { error: r.err.trim() || `ep0ch agent ls: exit ${r.code}${far ? ` on ${far}` : ""}`, code: r.code === 127 ? 1 : r.code };
+  // The last line that is a list: a login shell on the other machine may print around it.
+  const line = r.out.trim().split("\n").reverse().find(l => l.trim().startsWith("[")) ?? r.out;
+  try {
+    const rows = JSON.parse(line);
+    if (!Array.isArray(rows)) throw new Error("not a list");
+    return { rows };
+  } catch { return { error: `ep0ch agent ls: ${far ?? "the script"} answered something that isn't a list of sessions: ${r.out.trim().slice(0, 200)}`, code: 1 }; }
+}
+
 export async function agentLs(argv: readonly string[], env: Env, io: FleetIO, out: (s: string) => void = console.log, err: (s: string) => void = console.error): Promise<number> {
   const m = takeMachine(argv.filter(a => a !== "--json"), LS_USAGE);
   const json = argv.includes("--json");
   if ("error" in m) { err(`ep0ch agent ls: ${m.error}`); return 2; }
   if (m.rest.length) { err(`ep0ch agent ls: no argument ${m.rest[0]} · ${LS_USAGE}`); return 2; }
+  const read = await readSessions(m.machine, env, io);
+  if ("error" in read) { err(read.error); return read.code; }
   const far = m.machine && !isLocalMachine(m.machine, env as NodeJS.ProcessEnv) ? m.machine : undefined;
-  let r: Ran;
+  out(json ? JSON.stringify(read.rows) : formatSessions(read.rows, far));
+  return 0;
+}
+
+/**
+ * `ep0ch agent stop <pid> --session <id>`: stop one process of a Claude session that runs twice (PIE-1369), here or on
+ * `--machine`. The pid must still be a process of that session in `claude agents --json` (a pid is reused; a session id
+ * isn't), else nothing is stopped and it says why. A TERM, as closing its terminal would: Claude saves as it goes.
+ */
+export async function agentStop(argv: readonly string[], env: Env, io: FleetIO, out: (s: string) => void = console.log, err: (s: string) => void = console.error): Promise<number> {
+  const m = takeMachine(argv, STOP_USAGE);
+  if ("error" in m) { err(`ep0ch agent stop: ${m.error}`); return 2; }
+  let pid: number | undefined, session: string | undefined;
+  for (let i = 0; i < m.rest.length; i++) {
+    const a = m.rest[i]!;
+    if (a === "--session") { session = m.rest[++i]; if (!session || session.startsWith("-")) { err(`ep0ch agent stop: --session needs the session's id · ${STOP_USAGE}`); return 2; } }
+    else if (/^\d+$/.test(a) && pid === undefined) pid = Number(a);
+    else { err(`ep0ch agent stop: no argument ${a} · ${STOP_USAGE}`); return 2; }
+  }
+  if (pid === undefined || !session) { err(`ep0ch agent stop: which process? the pid and its session (ep0ch agent ls --json lists both) · ${STOP_USAGE}`); return 2; }
+  const far = m.machine && !isLocalMachine(m.machine, env as NodeJS.ProcessEnv) ? m.machine : undefined;
   if (far) {
-    r = await io.remote(far, "ep0ch agent ls --json", env);
+    const r = await io.remote(far, `ep0ch agent stop ${pid} --session ${shq(session)}`, env);
     const problem = remoteProblem(far, r);
     if (problem) { err(problem); return 1; }
-  } else {
-    const c = await checkout(io);
-    if ("error" in c) { err(c.error); return 1; }
-    r = await io.local([c.script, "--ls"], env);
+    if (r.out.trim()) out(r.out.trim().split("\n").map(l => `${far}: ${l}`).join("\n"));
+    if (r.code !== 0) { err(r.err.trim() ? `${far}: ${r.err.trim()}` : `ep0ch agent stop: exit ${r.code} on ${far}`); }
+    return r.code;
   }
-  if (r.code !== 0) { err(r.err.trim() || `ep0ch agent ls: exit ${r.code}${far ? ` on ${far}` : ""}`); return r.code === 127 ? 1 : r.code; }
-  let rows: SessionRow[];
-  try { rows = JSON.parse(r.out); if (!Array.isArray(rows)) throw new Error("not a list"); } catch { err(`ep0ch agent ls: ${far ?? "the script"} answered something that isn't a list of sessions: ${r.out.trim().slice(0, 200)}`); return 1; }
-  out(json ? JSON.stringify(rows) : formatSessions(rows, far));
+  const read = await readSessions(undefined, env, io);
+  if ("error" in read) { err(read.error); return read.code; }
+  const row = read.rows.find(r => r.pid === pid);
+  if (!row || !(row.sessionId === session || row.sessionId.startsWith(session) && session.length >= 8)) {
+    err(`ep0ch agent stop: pid ${pid} is not a process of session ${session.slice(0, 8)} now${row ? ` (it is ${row.name || row.id})` : ""}: nothing stopped · ep0ch agent ls lists what runs`);
+    return 1;
+  }
+  // The split may have ended since it was shown (the other process exited): this one would end the session, not a copy.
+  if (!read.rows.some(r => r.sessionId === row.sessionId && r.pid != null && r.pid !== pid)) {
+    err(`ep0ch agent stop: pid ${pid} is the only process of session ${row.sessionId.slice(0, 8)} now (${row.name || row.id}): stopping it would end the session, so nothing stopped · /exit in its terminal${row.kind === "background" ? `, or claude stop ${row.id},` : ""} ends it on purpose`);
+    return 1;
+  }
+  const r = await io.local(["kill", "-TERM", String(pid)], env);
+  if (r.code !== 0) { err(`ep0ch agent stop: kill ${pid} failed: ${r.err.trim() || `exit ${r.code}`}`); return 1; }
+  out(`stopped pid ${pid} (${row.name || row.id}, session ${row.sessionId.slice(0, 8)})`);
   return 0;
 }
 

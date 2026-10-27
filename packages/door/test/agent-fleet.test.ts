@@ -5,7 +5,7 @@
 // reached or lacks ep0ch says the command to run. Nothing here stops a real session: the "other machine" is a scratch
 // HOME with a made-up `claude` that only lists made-up sessions and logs a `stop`; `--dry-run` and refusals never get there.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { agentLs, agentRestart, type FleetIO, formatSessions, restartArgs, type SessionRow } from "../src/agent-fleet";
 import { outliner, scratchDir } from "./scratch";
@@ -261,6 +261,62 @@ describe.skipIf(!outliner)("the real script behind the fake ssh", () => {
       expect(bad.code).not.toBe(0);
       expect(bad.err).toContain("didn't answer a list of sessions");
     } finally { writeFileSync(file, kept); }
+  });
+
+  test("a session running twice (PIE-1369): its rows carry pid, start and last write; agent stop stops the pid named, only while it is that session's", async () => {
+    const file = join(home, "agents.json"), kept = readFileSync(file, "utf8");
+    const sid = "ffff6666-0000-4000-8000-000000000006";
+    // Two processes this test started, one session id between them; its transcript was written a minute ago.
+    const older = Bun.spawn([join(dir, "versions/2.0.0"), "600"], { stdio: ["ignore", "ignore", "ignore"] }).pid;
+    const newer = Bun.spawn([join(dir, "versions/2.0.0"), "600"], { stdio: ["ignore", "ignore", "ignore"] }).pid;
+    const transcript = join(home, ".claude/projects/-x", `${sid}.jsonl`);
+    mkdirSync(join(home, ".claude/projects/-x"), { recursive: true });
+    writeFileSync(transcript, "{}\n");
+    const wrote = Date.now() - 60_000;
+    utimesSync(transcript, wrote / 1000, wrote / 1000);
+    const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    try {
+      writeFileSync(file, JSON.stringify([
+        { pid: older, id: "ffff6666", cwd: "/x", kind: "background", startedAt: 1_700_000_000_000, sessionId: sid, name: "kitty-sr-1", status: "idle" },
+        { pid: newer, cwd: "/x", kind: "interactive", startedAt: 1_700_016_000_000, sessionId: sid, name: "kitty-sr-1", status: "busy" },
+      ]));
+      for (const where of [[], ["--machine", "far-box"]]) {
+        const rows = JSON.parse((await ep0ch(["agent", "ls", "--json", ...where])).out) as SessionRow[];
+        expect(rows.map(r => [r.pid, r.startedAt, r.sessionId])).toEqual([[older, 1_700_000_000_000, sid], [newer, 1_700_016_000_000, sid]]);
+        expect(Math.abs(rows[0]!.lastWrite! - wrote)).toBeLessThan(2000);
+      }
+      // The split as the door decides it, read by the Claude mod's own reader (hooks/split-session.ts): this process is
+      // the newer, so the line names the older and the command that stops it.
+      const { splitOf, splitStatus } = await import(join(import.meta.dir, "../../claude-mod/hooks/split-session.ts"));
+      const splits = await ep0ch(["agent", "splits", "--json", "--session", sid]);
+      expect(splits.err).toBe("");
+      const split = splitOf(splits.out, sid, newer);
+      expect(split.procs.map((p: { pid: number }) => p.pid)).toEqual([older, newer]);
+      expect(splitStatus(split)).toBe(`running twice: pid ${older} too · ep0ch agent stop ${older} --session ffff6666 · `);
+      expect(split.procs[0].attach).toBe("claude attach ffff6666");
+      expect((await ep0ch(["agent", "splits"])).out).toContain("kitty-sr-1 (session ffff6666) runs as 2 processes");
+      // A pid that isn't that session's now stops nothing, and says so.
+      const wrong = await ep0ch(["agent", "stop", String(older), "--session", "aaaa1111", "--machine", "far-box"]);
+      expect(wrong.code).toBe(1);
+      expect(wrong.err).toContain(`pid ${older} is not a process of session aaaa1111 now (it is kitty-sr-1): nothing stopped`);
+      expect(alive(older)).toBe(true);
+      const r = await ep0ch(["agent", "stop", String(older), "--session", sid.slice(0, 8), "--machine", "far-box"]);
+      expect(r.err).toBe("");
+      expect(r.code).toBe(0);
+      expect(r.out).toContain(`far-box: stopped pid ${older} (kitty-sr-1, session ffff6666)`);
+      for (let i = 0; i < 50 && alive(older); i++) await Bun.sleep(50);
+      expect(alive(older)).toBe(false);
+      expect(alive(newer)).toBe(true);
+      // The split is over (claude agents lists newer alone): stopping it would end the session, so it is refused.
+      writeFileSync(file, JSON.stringify([{ pid: newer, cwd: "/x", kind: "interactive", startedAt: 1_700_016_000_000, sessionId: sid, name: "kitty-sr-1", status: "busy" }]));
+      const last = await ep0ch(["agent", "stop", String(newer), "--session", sid]);
+      expect(last.code).toBe(1);
+      expect(last.err).toContain(`pid ${newer} is the only process of session ffff6666 now (kitty-sr-1): stopping it would end the session, so nothing stopped`);
+      expect(alive(newer)).toBe(true);
+    } finally {
+      writeFileSync(file, kept);
+      for (const pid of [older, newer]) try { process.kill(pid); } catch { /* stopped */ }
+    }
   });
 
   test("a job state that can't be read stops nothing", async () => {
