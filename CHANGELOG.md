@@ -18,6 +18,9 @@ are its record. The outliner's entries from then are kept below, under
   `scripts/agent-env`, and nothing falls through to the folder's or the only door after it.
 - **agent.lift leaves a put-away drawer put away (PIE-1337).** Lifting an agent tab that's out on a screen another one
   covers fetches it into the drawer and lifts it there; the drawer itself stays down.
+- **A wrapped heading is one heading (PIE-1349).** A click on any of its rows folds it, and "· N lines folded" stays inside
+  the tile (after the last word, else on a row of its own) and out of a copy. List items, plain headings and styled
+  headings drawn plainly share one hanging wrap: the same rows, cuts and joins.
 
 ### A header picture is set one way: the note's hero line (PIE-1361)
 

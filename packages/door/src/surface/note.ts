@@ -2183,13 +2183,17 @@ export class NoteSurface {
     const gutter: { row: number; text: string }[] = [];
     const gutterRows = new Map<number, string>();
     if (!this.printed) for (const hd of doc.heads) {
-      const row = top + hd.row - this.scroll;
-      if (row < top || row >= top + room) continue;
+      const first = top + hd.row - this.scroll, rows = hd.rows ?? 1;
+      if (first + rows <= top || first >= top + room) continue;
       const n = this.foldsIn(m).points.findIndex(p => p.key === hd.key);
       if (n < 0) continue;
       const folded = this.effectiveFolded(this.foldsIn(m).points[n]!);
-      gutterRows.set(row, dim(folded ? "▸" : "▾"));
-      this.hits.push({ row, from: this.gutterStart, to: this.gutterStart + 1, fold: n + 1 });
+      if (first >= top) gutterRows.set(first, dim(folded ? "▸" : "▾"));
+      // A wrapped heading is one heading (PIE-1349): a click on any of its rows folds it.
+      for (let r = Math.max(top, first); r < Math.min(first + rows, top + room); r++) this.hits.push({ row: r, from: this.gutterStart, to: this.gutterStart + 1, fold: n + 1 });
+      // What a fold hides is said after its last row.
+      const row = first + rows - 1;
+      if (row < top || row >= top + room) continue;
       if (folded || this.foldsIn(m).points[n]!.kind === "list") {
         const list = this.foldsIn(m).points[n]!.kind === "list";
         const col = Math.max(0, Math.min(bodyW - 3, width(visible(lines[row] ?? "").trimEnd()) + 1));
@@ -2766,7 +2770,8 @@ export class NoteSurface {
     const lines = doc.lines.map((l, r) => (current && r >= current.ruler[0] && r < current.ruler[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
     const links = doc.links.flatMap(r => (drawn[r.n] ? [{ row: r.line, from: r.from, to: r.to, link: drawn[r.n]! }] : []));
     for (const [i, row] of (picks?.rows ?? []).entries()) links.push({ row, from: 0, to: w, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
-    const folds = doc.heads.flatMap(h => { const n = points.findIndex(p => p.key === h.key); return n < 0 ? [] : [{ row: h.row, cols: h.cols, n: n + 1 }]; });
+    // Every row of a wrapped heading is its disclosure (PIE-1349).
+    const folds = doc.heads.flatMap(h => { const n = points.findIndex(p => p.key === h.key); return n < 0 ? [] : Array.from({ length: h.rows ?? 1 }, (_, k) => ({ row: h.row + k, cols: h.cols, n: n + 1 })); });
     const placements = imagePlacements(doc.images, 0, ...cellOf(host));
     onGround(lines, placements);
     return { lines, links, folds, placements, current: current ? current.row : null, key: current?.key ?? null, trims: doc.trims, blocks: doc.blocks.flatMap<ReturnType<NoteSurface["digest"]>["blocks"][number]>((b, n) => b.kind === "span" ? b.cells!.map(c => ({ row: c.row, rows: 1, col: c.from, to: c.to, kind: b.kind, n })) : [{ row: b.row, rows: b.rows, col: b.col, kind: b.kind, n }]) };
