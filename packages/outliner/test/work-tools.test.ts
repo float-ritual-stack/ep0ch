@@ -157,14 +157,14 @@ test("a pull request is recorded as the delivery: open reaches review, merge rea
   expect(delivery.properties).toContainEqual({ key: "merge-commit", value: "abc1234" });
   expect(delivery.properties).toContainEqual({ key: "work-branch", value: "feature/pie-001" });
   expect(delivery.properties).toContainEqual({ key: "merged-at", value: "2026-03-04T15:00:00Z" });
-  // The merge is on the record once, beside its delivery: a landed row naming the ticket.
+  // The merge is on the record once, beside its delivery: a merge row naming the ticket.
   expect(merged.json.landed).toMatchObject({ created: true, tickets: ["PIE-001"] });
   expect(h.store.require(merged.json.landed.blockId).text).toContain("Delivers [[PIE-001]].");
 });
 
-/** The landed rows a day's "merged today" figure lists: the build log template's query. */
+/** The merge row a day's "merged today" figure lists: the build log template's query. */
 function landedOn(store: OutlinerStore, day: string): string[] {
-  return store.queryBlocks({ where: `type=landed AND base-branch=main AND merged-at=${day}`, machinery: "show" }).blocks
+  return store.queryBlocks({ where: `type=merge AND base-branch=main AND merged-at=${day}`, machinery: "show" }).blocks
     .map((block) => block.properties.find((property) => property.key === "merge-commit")!.value).sort();
 }
 
@@ -191,7 +191,7 @@ test("a merge is landed once, ticket or not; landing a ticketed PR syncs its del
   const ticketless = await h.run(["work", "deliver", "--repo", REPO, "--pr", "41"]);
   expect(ticketless.json).toMatchObject({ landed: { created: true, tickets: [] }, deliveries: [] });
   const row = h.store.require(ticketless.json.landed.blockId);
-  expect(row.text.split("\n")[0]).toStartWith("#41 Fix a typo in the guide [skip review] [type::landed]");
+  expect(row.text.split("\n")[0]).toStartWith("#41 Fix a typo in the guide [skip review] [type::merge]");
   expect(row.text).toContain("No ticket.");
   for (const [key, value] of [["pull-request-number", "41"], ["merge-commit", "bbb4141"], ["merged-at", "2026-03-05T16:00:00Z"],
     ["pr-author", "example-builder"], ["base-branch", "main"], ["repository", REPO]]) expect(row.properties).toContainEqual({ key: key!, value: value! });
@@ -200,9 +200,9 @@ test("a merge is landed once, ticket or not; landing a ticketed PR syncs its del
   expect((await h.run(["work", "deliver", "--repo", REPO, "--pr", "41"])).json.landed).toMatchObject({ blockId: row.id, created: false, changed: false });
   expect((await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "40"])).json.landed).toMatchObject({ blockId: landed.json.landed.blockId, created: false });
   expect(landedOn(h.store, "2026-03-05")).toEqual(["aaa4040", "bbb4141"]);
-  // The rows sit on one Landed page under Records.
+  // The rows sit on one Merges page under Records.
   const page = h.store.require(row.parentId!);
-  expect(page.properties).toContainEqual({ key: "system-landed", value: "true" });
+  expect(page.properties).toContainEqual({ key: "system-merges", value: "true" });
   expect(h.store.require(page.parentId!).properties).toContainEqual({ key: "system-records", value: "true" });
 
   // An open PR with no item is refused, saying how to record it on its ticket.
@@ -223,7 +223,7 @@ test("a PR delivered to two tickets lands as one row naming both (PIE-1352)", as
   expect(landedOn(h.store, "2026-03-04")).toEqual(["ccc5050"]);
 });
 
-test("a day's landed rows are exactly git log --first-parent for that day, wave slices left out (PIE-1352)", async () => {
+test("a day's merge rows are exactly git log --first-parent for that day, wave slices left out (PIE-1352)", async () => {
   const h = await setup();
   await h.create();
   const repo = mkdtempSync(join(tmpdir(), "outliner-landed-git-"));

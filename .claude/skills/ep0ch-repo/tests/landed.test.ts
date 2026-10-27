@@ -40,7 +40,7 @@ describe('every merge on the record (PIE-1352)', () => {
     const out = await bash($, 'gh pr merge 960 --merge')
     expect(s.landed).toEqual([['/bin/sh', '/work/ep0ch/packages/outliner/scripts/run-bun.sh', '/work/ep0ch/packages/outliner/src/cli.ts',
       'work', 'deliver', '--repo=example-org/example-app', '--pr=960', '--author=agent', '--actor=loki']])
-    expect(out.context.join('\n')).toContain(`example-org/example-app#960 is on the record: landed row ((${ROW})), with no ticket.`)
+    expect(out.context.join('\n')).toContain(`example-org/example-app#960 is on the record: merge row ((${ROW})), with no ticket.`)
   })
 
   test('a PR not merged yet (auto-merge) is left alone', async ($, on) => {

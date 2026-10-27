@@ -14,7 +14,7 @@ are its record. The outliner's entries from then are kept below, under
 
 - **A delivery says when it merged:** syncing a merged PR stamps `merged-at` (GitHub's `mergedAt`) beside
   `pull-request-state=merged` and `merge-commit`, so "merged today" is `merged-at=<day>`, not `updated`.
-- **One landed row per merged PR, ticket or not:** `[type::landed]` under the Landed page (under Records), with the
+- **One merge row per merged PR, ticket or not:** `[type::merge]` under the Merges page (under Records), with the
   PR's number, title, author, branches, merge commit and `merged-at`, linking the items it delivers.
   `work deliver --repo R --pr N` with no item (`work_deliver` with no `ref`) writes it and syncs every delivery that
   records the PR; the repository's Claude mod runs it after each `gh pr merge` and says the row.

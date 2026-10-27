@@ -1,7 +1,7 @@
 /**
  * Every merge on the record (PIE-1352): after a `gh pr merge` that ran, the merged PR is put on the outline's record
  * through the one writer, the outliner's `work deliver --repo R --pr N` with no item. It syncs each delivery that records
- * the PR (merged, with its merge commit and merged-at) and writes the PR's one landed row, ticket or not, so a day's
+ * the PR (merged, with its merge commit and merged-at) and writes the PR's one merge row, ticket or not, so a day's
  * build log lists exactly that day's merges. Pure: register.ts runs gh and the CLI.
  */
 
@@ -31,9 +31,9 @@ export function landedSaid(pr: { repo: string; number: number }, run: { exitCode
   try {
     const out = JSON.parse(run.stdout) as { landed?: { blockId?: string; created?: boolean; tickets?: string[] } }
     const tickets = out.landed?.tickets ?? []
-    return `${pr.repo}#${pr.number} is on the record: landed row ((${out.landed?.blockId ?? '?'}))` +
+    return `${pr.repo}#${pr.number} is on the record: merge row ((${out.landed?.blockId ?? '?'}))` +
       (tickets.length ? `, delivering ${tickets.join(', ')}.` : ', with no ticket.')
   } catch {
-    return `${pr.repo}#${pr.number}: \`${by}\` answered something unreadable; check the Landed page.`
+    return `${pr.repo}#${pr.number}: \`${by}\` answered something unreadable; check the Merges page.`
   }
 }

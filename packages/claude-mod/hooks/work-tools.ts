@@ -164,9 +164,9 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
     description:
       "Record a GitHub pull request as one of the deliveries of the item `ref` and sync its live state: an open PR moves the " +
       "item to review, a merged one to validate (stamping merged-at). The PR's branches must match the delivery's. An item can have " +
-      'several deliveries (one per repository or branch), each under its own key. A merged PR also gets its one landed ' +
-      'row (type=landed, under the Landed page). Without `ref`, for a merged PR ticket or not: every delivery that records ' +
-      'it is synced, and its landed row written; the merge step runs this for each merge into main.',
+      'several deliveries (one per repository or branch), each under its own key. A merged PR also gets its one merge ' +
+      'row (type=merge, under the Merges page). Without `ref`, for a merged PR ticket or not: every delivery that records ' +
+      'it is synced, and its merge row written; the merge step runs this for each merge into main.',
     inputSchema: schema({
       ref: ITEM,
       repo: { type: 'string', description: 'owner/name' },

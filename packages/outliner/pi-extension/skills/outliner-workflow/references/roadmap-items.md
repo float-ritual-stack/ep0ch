@@ -35,14 +35,14 @@ from the delivery's. A merged PR's delivery gets `merged-at` (GitHub's
 
 ### Every merge on the record
 
-Each merged PR has one landed row, `[type::landed]` under the Landed page
+Each merged PR has one merge row, `[type::merge]` under the Merges page
 (under Records), with its repository, number, title, author, branches, merge
 commit and `merged-at`, and links to the items whose deliveries record it.
 `work deliver` writes it when it sees a merge. With no item, `work deliver
 --repo R --pr N` is the merge step's call for every merge, ticket or not: it
 syncs every delivery that records the PR, then writes its row. The repository's
 Claude mod runs it after each `gh pr merge`. A day's merges into main are
-`type=landed AND base-branch=main AND merged-at=<day>`, the build log
+`type=merge AND base-branch=main AND merged-at=<day>`, the build log
 template's query, and match `git log --first-parent` for that day.
 
 ### Items with several deliveries
