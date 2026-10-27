@@ -24,6 +24,13 @@ export const SOURCE_FIELD_KEYS: readonly ModeKey[] = [
   row("esc", "sources.field", "keep field", { op: "cancel" }), row("enter", "sources.field", "save", { op: "save" }), row("ctrl+s", "sources.field", "save", { op: "save" }),
   row("ctrl+z", "sources.field", "undo typing", { op: "key", value: "ctrl+z" }), row("click", "sources.field", ""),
 ];
+/**
+ * Zoom into a part of a reader's note (PIE-780): W on the part the [ ] position (else the reading line) is in, a click on
+ * the ⤢ at a figure's, a table's or a heading's right edge; esc (or back) returns to the whole note.
+ */
+export const ZOOM_KEYS: readonly ModeKey[] = [
+  row("W", "element.zoom", "zoom into this part"), row("click", "element.zoom", ""), row("esc", "element.zoom", "whole note", { on: false }),
+];
 export const REPLIES_CONTROLS = ["note.thread.full", "note.thread.groups", "note.thread.close"] as const;
 
 export const REORDER_KEYS: readonly ModeKey[] = [

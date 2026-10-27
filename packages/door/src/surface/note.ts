@@ -1,6 +1,6 @@
 import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
-import { READER_MOVE_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
+import { READER_MOVE_KEYS, ZOOM_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
 import { modeBinding, modeHint, modeActionKeys } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
@@ -102,8 +102,8 @@ import { visible, headOf, tailFrom, BOLD, bgRgb, fgRgb, ellipsize, drawEllipsize
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rowLines, rule, wrap } from "../text";
 import { startShare, endsIn } from "../share-cli";
-import type { ShareSession } from "@ep0ch/outline-core/protocol";
-import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ActionSet, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
+import type { FragmentKind, ShareSession } from "@ep0ch/outline-core/protocol";
+import { ActionRefused, actionSet, boundNow, def, keyCaption, agentLabel, agentWords, asActor, type ActionDef, type ActionSet, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, previewRows, wheelTarget, writtenBy, type EditFrame } from "./editor";
@@ -311,7 +311,12 @@ export interface ReaderHistory {
  * Where a reader was (PIE-453), so back comes back to it as it was: the note, how far down, the `[ ]`
  * position (the current element and link), and the reading state kept per note (folds, expanded threads).
  */
-interface Place { msg: Msg; position: ReaderPosition; cur: string | null; link: number; folded: string[]; previewLists: [string, boolean][]; previewOpen: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][] }
+interface Place { msg: Msg; position: ReaderPosition; cur: string | null; link: number; folded: string[]; previewLists: [string, boolean][]; previewOpen: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][]; zoom?: Zoom | null }
+/**
+ * The part of its note a reader is zoomed into (PIE-780): the lines the service says it covers (`fragments.at`, the part
+ * element.detach takes), its anchor when it has one, and the revision they were read at. Reading state, never the note's.
+ */
+export interface Zoom { start: number; end: number; line: number; kind: FragmentKind; label: string; anchor?: string; revision: number }
 /** What the person (or an agent) chose for one live figure in a reader: its tab, its density. Never the note's text. */
 type FigureChoice = { tab?: string; density?: Density };
 /** How many places back (and forward) a reader keeps. */
@@ -322,14 +327,14 @@ const HISTORY = 50;
  * version (an older daemon's, a newer one's) is read as having no history, never half-read.
  */
 export const NAV_VERSION = 2;
-export interface SavedPlace { address?: NoteAddress; id: string; title: string; position: ReaderPosition; cur: string | null; link: number; folded: string[]; previewLists?: [string, boolean][]; previewOpen?: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][] }
+export interface SavedPlace { address?: NoteAddress; id: string; title: string; position: ReaderPosition; cur: string | null; link: number; folded: string[]; previewLists?: [string, boolean][]; previewOpen?: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][]; zoom?: Zoom }
 export interface SavedNav { v: typeof NAV_VERSION; here?: SavedPlace; backs: SavedPlace[]; aheads: SavedPlace[] }
 
-const savedPlace = (p: Place): SavedPlace => ({ ...(p.msg.address ? { address: p.msg.address } : {}), id: p.msg.id, title: subject(p.msg), position: structuredClone(p.position), cur: p.cur, link: p.link, folded: p.folded, previewLists: p.previewLists, previewOpen: p.previewOpen, expanded: p.expanded, foldedThreads: p.foldedThreads, seen: p.seen, figures: p.figures });
+const savedPlace = (p: Place): SavedPlace => ({ ...(p.msg.address ? { address: p.msg.address } : {}), id: p.msg.id, title: subject(p.msg), position: structuredClone(p.position), cur: p.cur, link: p.link, folded: p.folded, previewLists: p.previewLists, previewOpen: p.previewOpen, expanded: p.expanded, foldedThreads: p.foldedThreads, seen: p.seen, figures: p.figures, ...(p.zoom ? { zoom: p.zoom } : {}) });
 /** A saved place as a stub the reader reads whole when it goes there (a list row's shape: `partial`). */
 const placeOf = (s: SavedPlace): Place => ({
   msg: { ...(s.address ? { address: s.address } : {}), id: s.id, text: s.title, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, properties: [], partial: true },
-  position: structuredClone(s.position), cur: s.cur, link: s.link, folded: s.folded, previewLists: s.previewLists ?? [], previewOpen: s.previewOpen ?? [], expanded: s.expanded, foldedThreads: s.foldedThreads, seen: s.seen, figures: s.figures,
+  position: structuredClone(s.position), cur: s.cur, link: s.link, folded: s.folded, previewLists: s.previewLists ?? [], previewOpen: s.previewOpen ?? [], expanded: s.expanded, foldedThreads: s.foldedThreads, seen: s.seen, figures: s.figures, zoom: s.zoom ?? null,
 });
 const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
 function readPlace(x: any): SavedPlace | null {
@@ -340,7 +345,12 @@ function readPlace(x: any): SavedPlace | null {
   const p = x.position;
   if (!p || !p.cursor || (p.view !== null && (!p.view || !Number.isFinite(p.view.line) || !Number.isFinite(p.view.row)))) return null;
   const position: ReaderPosition = { reading: int(p.reading, 0), cursor: { row: int(p.cursor.row, 0), col: int(p.cursor.col, 0) }, view: p.view === null ? null : { line: int(p.view.line, 0), row: Math.floor(p.view.row) } };
-  return { ...(x.address && typeof x.address.outline === "string" && (x.address.machine === undefined || typeof x.address.machine === "string") ? { address: x.address } : {}), id: x.id, title: x.title, position, cur: typeof x.cur === "string" ? x.cur : null, link: int(x.link, -1), folded: strings(x.folded), previewLists: x.previewLists ?? [], previewOpen: strings(x.previewOpen), expanded: strings(x.expanded), foldedThreads: strings(x.foldedThreads), seen: strings(x.seen), figures };
+  return { ...(x.address && typeof x.address.outline === "string" && (x.address.machine === undefined || typeof x.address.machine === "string") ? { address: x.address } : {}), id: x.id, title: x.title, position, cur: typeof x.cur === "string" ? x.cur : null, link: int(x.link, -1), folded: strings(x.folded), previewLists: x.previewLists ?? [], previewOpen: strings(x.previewOpen), expanded: strings(x.expanded), foldedThreads: strings(x.foldedThreads), seen: strings(x.seen), figures, ...(readZoom(x.zoom) ? { zoom: readZoom(x.zoom)! } : {}) };
+}
+/** A saved zoom (PIE-780), or null for anything that isn't one: it's left out, never half-read. */
+function readZoom(z: any): Zoom | null {
+  const n = (v: unknown) => typeof v === "number" && Number.isInteger(v) && v >= 0;
+  return z && n(z.start) && n(z.end) && n(z.line) && n(z.revision) && z.end >= z.start && typeof z.kind === "string" && typeof z.label === "string" && (z.anchor === undefined || typeof z.anchor === "string") ? z : null;
 }
 /** The note a saved history was taken on, if it is one this version reads. */
 export const navNote = (raw: unknown): string | null => readNav(raw)?.here?.id ?? null;
@@ -828,6 +838,11 @@ export class NoteSurface {
   private linkUnlaid: number | null = null;
   /** Bring the current element into view on the next render (after `[ ]`, `( )` or a fold). */
   private reveal = false;
+  /**
+   * The part of the note this reader is zoomed into (PIE-780, `element.zoom`): the reading render reads only its lines
+   * (`foldsIn`), so the part fills the tile and stays interactive; back (and esc) returns to the whole note.
+   */
+  zoom: Zoom | null = null;
   /** A focus mark an agent (or the person, through `act`) set here: never the person's `[ ]` position. */
   /** The reveal this surface took last (`takeReveal`), so showing the note again doesn't scroll back to it. */
   private revealed: object | null = null;
@@ -1272,6 +1287,7 @@ export class NoteSurface {
     m.address ??= this.msg.address;
     this.msg = m;
     if (!this.draft || this.replyParent) this.links = linksOf(m);
+    if (this.zoom && !m.partial && m.revision !== undefined && m.revision !== this.zoom.revision) void this.followZoom(m);
   }
 
   /** Show a note (or nothing). Refused, returning false, while an edit or a comment holds the surface on its note. */
@@ -1281,7 +1297,7 @@ export class NoteSurface {
     if (m && m.id === this.msg?.id && host.ctx.outline === this.msg.address?.outline) m.address ??= this.msg.address;
     this.use(host);
     if (m?.id !== this.msg?.id) { this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
-    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.previewLists.clear(); this.previewOpen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.listViews.clear(); this.linkBlocksDrawn = []; this.modes.drop("list"); this.modes.drop("sources"); this.foldsOf = m?.id ?? null; }
+    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.previewLists.clear(); this.previewOpen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.listViews.clear(); this.linkBlocksDrawn = []; this.modes.drop("list"); this.modes.drop("sources"); this.foldsOf = m?.id ?? null; this.zoom = null; }
     if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.reset(); }
     this.msg = m; if (!this.draft) this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
@@ -4891,7 +4907,7 @@ export class NoteSurface {
 
   /** The note's readable source, the note line each of its lines comes from, and its fold points. */
   foldsIn(m: Msg): { text: string; lines: number[]; points: FoldPoint[]; literal: Set<number>; unterminated: number | null; anchors: (string | undefined)[] } {
-    const r = readableSource(m, this.src);
+    const r = this.zoomed(m, readableSource(m, this.src));
     const sig = m.text + "\0" + r.text + "\0" + r.anchors.join("\0");
     if (this.foldCache?.text !== sig) this.foldCache = { text: sig, points: foldPoints(r.text, r.anchors), lines: r.lines };
     const all = m.text.split("\n");
@@ -4900,6 +4916,16 @@ export class NoteSurface {
       if (propertyTokensInLine(all[(r.lines[first] ?? 0) - 1] ?? "").some(t => t.key === "children" && t.value === "preview")) p.list.preview = true;
     }
     return { text: r.text, lines: r.lines, points: this.foldCache.points, literal: r.literal, unterminated: r.unterminated, anchors: r.anchors };
+  }
+
+  /** The note's readable source, only the zoomed part's lines while the reader is zoomed (PIE-780); each keeps its note line. */
+  private zoomed<R extends { text: string; lines: number[]; literal: Set<number>; unterminated: number | null; anchors: (string | undefined)[] }>(m: Msg, r: R): R {
+    const z = this.zoom;
+    if (!z || m.id !== this.msg?.id) return r;
+    const keep = r.lines.flatMap((l, i) => (l >= z.start && l <= z.end ? [i] : []));
+    if (!keep.length) return r;
+    const body = r.text.split("\n"), at = new Map(keep.map((i, n) => [i, n]));
+    return { ...r, text: keep.map(i => body[i] ?? "").join("\n"), lines: keep.map(i => r.lines[i]!), anchors: keep.map(i => r.anchors[i]), literal: new Set([...r.literal].flatMap(i => (at.has(i) ? [at.get(i)!] : []))), unterminated: r.unterminated !== null && at.has(r.unterminated) ? at.get(r.unterminated)! : null };
   }
 
   private previews(p: FoldPoint) { return !this.printed && !!p.list && (this.previewLists.get(p.list.key) ?? p.list.preview); }
@@ -7815,12 +7841,80 @@ export class NoteSurface {
     host.redraw();
   }
 
+  // ── zoom into a part (PIE-780) ─────────────────────────────────────────────
+
+  /**
+   * Zoom into the part of the note holding note line `line` (or anchored `^anchor`): the one element.detach takes there,
+   * as the service finds it (`fragments.at`, `fragments.read`), never a part rule of the door's own. The reader keeps
+   * reading the same note, only its lines (`foldsIn`), from the top; where it was goes on its back trail, so back, esc and
+   * a click on `← back` return to it as it was.
+   */
+  async zoomInto(at: { line?: number; anchor?: string }, host: SurfaceHost): Promise<Zoom> {
+    const m = this.msg;
+    if (!m || !isOutlineNote(m)) throw new ActionRefused("no note here to zoom into");
+    if (m.partial) throw new ActionRefused("the note is still being read: zoom again in a moment");
+    const holding = this.modes.holding();
+    if (holding) throw new ActionRefused(`finish ${holding} first · ${this.holdingHint()}`);
+    const zoom = await this.partOf(m, at, host.ctx.board);
+    if (this.msg !== m) throw new ActionRefused("the reader moved meanwhile");
+    if (this.zoom && this.zoom.start === zoom.start && this.zoom.end === zoom.end) return this.zoom;
+    const from = this.place();
+    if (from) { this.backs.push(from); if (this.backs.length > HISTORY) this.backs.shift(); this.aheads = []; }
+    this.zoom = zoom;
+    this.scroll = 0; this.position.view = null; this.position.reading = 0; this.letGo(); this.elems = [];
+    this.keptChanged?.();
+    host.redraw();
+    return zoom;
+  }
+
+  /** The part `at` names in `m` (PIE-780), read from the service: refused, with why, where there is none. */
+  private async partOf(m: Msg, at: { line?: number; anchor?: string }, board: SocketBoard): Promise<Zoom> {
+    if (at.anchor !== undefined) {
+      const r = await board.readFragment(m.id, at.anchor.replace(/^\^/, ""));
+      if (r.status === "missing") throw new ActionRefused(`this note has no ^${at.anchor.replace(/^\^/, "")}`);
+      if (r.status === "duplicate") throw new ActionRefused(`^${r.fragmentId} is in this note more than once: zoom by line= instead`);
+      const f = r.fragment;
+      return { start: f.startLine, end: f.endLine, line: f.startLine, kind: f.kind, label: f.label, anchor: r.fragmentId, revision: r.revision };
+    }
+    const line = at.line ?? this.elementLine();
+    if (line === undefined) throw new ActionRefused("nothing to zoom into here: put the [ ] position or the reading line on a figure, a table or a heading");
+    const r = await board.partAt(m.id, line);
+    if (!r.part) throw new ActionRefused(`line ${line + 1} is in no part (a figure, a table, a heading's section, a callout, a list item or a paragraph): nothing to zoom into`);
+    const p = r.part;
+    return { start: p.startLine, end: p.endLine, line: p.lineIndex, kind: p.kind, label: p.label, ...(p.fragmentId ? { anchor: p.fragmentId } : {}), revision: r.revision };
+  }
+
+  /** The zoomed note changed (PIE-780): the part is read again (by its anchor, else its line), or the zoom lets go, said, when it's gone. */
+  private async followZoom(m: Msg) {
+    const z = this.zoom, board = this.src?.board;
+    if (!z || !board) return;
+    const next = await this.partOf(m, z.anchor ? { anchor: z.anchor } : { line: z.line }, board).catch(() => null);
+    if (this.zoom !== z || this.msg?.id !== m.id) return;
+    if (next) this.zoom = next;
+    else { this.zoom = null; this.context?.flash(`the part you zoomed into (${z.label}) is gone from the note: showing the whole note`); }
+    this.src?.redraw();
+  }
+
+  /**
+   * Leave the zoom (PIE-780): back, when where the reader was before it is the top of its trail (the same note, not zoomed),
+   * so forward zooms in again; else only the zoom lets go. Null when it went, else why not.
+   */
+  async unzoom(host: SurfaceHost, actor: Actor): Promise<string | null> {
+    const z = this.zoom;
+    if (!z) return "not zoomed: element.zoom zooms into a part";
+    const to = this.backs.at(-1);
+    if (to && to.msg.id === this.msg?.id && !to.zoom) return this.travel(-1, host, actor);
+    this.zoom = null; this.scroll = 0; this.letGo(); this.keptChanged?.();
+    host.redraw();
+    return null;
+  }
+
   // ── back and forward (PIE-453) ─────────────────────────────────────────────
 
   /** Where the reader is now, as back would come back to it. */
   private place(): Place | null {
     const m = this.msg;
-    return m ? { msg: m, position: structuredClone(this.position), cur: this.cur, link: this.link, folded: [...this.folded], previewLists: [...this.previewLists], previewOpen: [...this.previewOpen], expanded: [...this.expanded], foldedThreads: [...this.foldedThreads], seen: [...this.foldSeen], figures: [...this.figureUI] } : null;
+    return m ? { msg: m, position: structuredClone(this.position), cur: this.cur, link: this.link, folded: [...this.folded], previewLists: [...this.previewLists], previewOpen: [...this.previewOpen], expanded: [...this.expanded], foldedThreads: [...this.foldedThreads], seen: [...this.foldSeen], figures: [...this.figureUI], zoom: this.zoom } : null;
   }
 
   /**
@@ -7908,7 +8002,7 @@ export class NoteSurface {
 
   private restorePlace(to: Place) {
     Object.assign(this.position, structuredClone(to.position)); this.cur = to.cur; this.link = to.link;
-    this.folded = new Set(to.folded); this.previewLists = new Map(to.previewLists); this.previewOpen = new Set(to.previewOpen); this.expanded = new Set(to.expanded); this.foldedThreads = new Set(to.foldedThreads); this.foldSeen = new Set(to.seen); this.figureUI = new Map(to.figures);
+    this.folded = new Set(to.folded); this.previewLists = new Map(to.previewLists); this.previewOpen = new Set(to.previewOpen); this.expanded = new Set(to.expanded); this.foldedThreads = new Set(to.foldedThreads); this.foldSeen = new Set(to.seen); this.figureUI = new Map(to.figures); this.zoom = to.zoom ?? null;
     // The element comes into view if the history row now under the note would hide it (only that far).
     this.reveal = to.cur !== null;
   }
@@ -10599,6 +10693,35 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     menu: noteRow("forward", "alt+right", { busy: true, now: ({ surface }) => (surface.describeHistory().forward.length ? null : { hide: true }) }),
     args: {},
     run: (_, on, actor) => travelAction(1, on, actor),
+  }),
+  "element.zoom": def({
+    summary: "zoom this reader into a part of its note (PIE-780): the figure, table, heading's section, callout, list item or paragraph at line= (from 1; default the [ ] position's, else the reading line's), or anchor=, fills the tile, interactive at full size, the part element.detach would take there (the service says which lines). Where it was goes on its back trail: on=false, esc, back or a click on ← back returns to the whole note as it was; forward zooms in again. An agent's is refused on the reader the person has focused",
+    keys: ZOOM_KEYS.map(k => k.key === "click" ? "a click on a part's ⤢" : `${keyCaption(k.key)}${k.args?.on === false ? " (zoomed)" : ""}`).join(", "),
+    touches: "tile", replay: "safe", way: "zooming would change what they're reading · an agent zooms only in another reader (name it with tile=)",
+    says: r => (r as { zoomed?: { label: string } }).zoomed ? `zoomed into ${(r as { zoomed: { label: string } }).zoomed.label}` : "back to the whole note",
+    menu: noteRow("zoom into this part", "W", { busy: true, now: ({ surface }) => (!surface.msg || !isOutlineNote(surface.msg) ? { hide: true } : surface.zoom ? { label: "back to the whole note" } : null) }),
+    args: {
+      line: { type: "number", optional: true, about: "a line of the part, in the note from 1 (default: the [ ] position's, else the reading line's)" },
+      anchor: { type: "string", optional: true, conflicts: ["line"], about: "the part's ^anchor, when it has one" },
+      on: { type: "boolean", optional: true, about: "false returns to the whole note; left out, zooms in (on a zoomed reader with no line= or anchor=, it returns)" },
+    },
+    examples: [
+      { act: "element.zoom line=4", does: "fills the reader with the figure (or table, or section) on line 4 of its note" },
+      { act: "element.zoom anchor=bed-jobs", does: "zooms into the part anchored ^bed-jobs" },
+      { act: "element.zoom on=false", does: "returns the reader to the whole note, scrolled as it was" },
+    ],
+    async run({ line, anchor, on }, { surface, host }, actor) {
+      if (on === false || (on === undefined && surface.zoom && line === undefined && anchor === undefined)) {
+        const why = await surface.unzoom(host, actor);
+        if (why) throw new ActionRefused(why);
+        surface.noteAgent(actor, "went back to the whole note");
+        return { zoomed: null, history: surface.describeHistory() };
+      }
+      if (line !== undefined && (!Number.isInteger(line) || line < 1)) throw new ActionRefused("line= is a line of the note, from 1");
+      const z = await surface.zoomInto({ ...(line !== undefined ? { line: line - 1 } : {}), ...(anchor !== undefined ? { anchor: String(anchor) } : {}) }, host);
+      surface.noteAgent(actor, `zoomed into ${z.label}`);
+      return { zoomed: { kind: z.kind, label: z.label, lines: [z.start + 1, z.end + 1], ...(z.anchor ? { anchor: z.anchor } : {}) }, history: surface.describeHistory() };
+    },
   }),
   "passage.select": def({
     summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text). The person's C writes on the words they selected (as a c does); with nothing selected C writes on the whole note (comment.note, PIE-846)", keys: "C on selected words; an agent: quote=",

@@ -23,7 +23,7 @@ import type {QueryExpression, SavedViewReadOptions, ViewWritePlanRequest, ViewWr
 import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS } from "./types";
 import type { ChecklistStatus } from "./types";
 import { stepClosed } from "@ep0ch/outline-core/checklist-marks";
-import { MCP_ACCESS_LEVELS, type BlockRevisionEntry, type BlockRevisions, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type PageRename, type RestoredBlock } from "@ep0ch/outline-core/protocol";
+import { MCP_ACCESS_LEVELS, type BlockRevisionEntry, type BlockRevisions, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type PageRename, type PartAt, type RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -2030,6 +2030,18 @@ export class OutlinerStore {
   /** `((id^fragment))`'s slice of its note, read in one transaction (src/transclusions.ts owns the rules). */
   readFragment(id: string, fragmentId: string): FragmentRead {
     return this.database.transaction(() => readFragment(this.requireActive(id), fragmentId)).deferred();
+  }
+
+  /**
+   * The part of note `id` holding `line` (PIE-780: a reader zooms into it), as `quote` takes one there (`elementAt`, the one
+   * rule), read in one transaction and nothing written: an anchor it has none of is only where it would go.
+   */
+  partAt(id: string, line: number): PartAt {
+    if (!Number.isInteger(line) || line < 0) throw new Error("fragments.at needs line: a note line from 0");
+    return this.database.transaction(() => {
+      const block = this.requireActive(id), e = elementAt(block.text, line);
+      return { blockId: block.id, revision: block.revision, part: e ? { kind: e.kind, label: e.label, lineIndex: e.lineIndex, startLine: e.start, endLine: e.end, ...(e.fragmentId ? { fragmentId: e.fragmentId } : {}) } : null };
+    }).deferred();
   }
 
   /** Fragment completion across every active note, in one read (src/fragment-search.ts owns the rules). */

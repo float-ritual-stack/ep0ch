@@ -515,13 +515,13 @@ function partsOf(text: string): { c: FragmentCandidate; start: number; end: numb
  * The element line `line` belongs to (PIE-1247: what a press, a drag or `element.detach` on that line means): the
  * innermost of the note's figures, callouts, quotes, list items, paragraphs and heading sections that holds it, with
  * its anchor when it has one, else the line its anchor would go on. With `next`, a line no part holds (a blank, the
- * title) means the first part that starts after it. Null when there is none. `end`: the last line it covers.
+ * title) means the first part that starts after it. Null when there is none. `start`, `end`: the lines it covers.
  */
-export function elementAt(text: string, line: number, next = false): (FragmentCandidate & { end: number }) | null {
+export function elementAt(text: string, line: number, next = false): (FragmentCandidate & { start: number; end: number }) | null {
   const parts = partsOf(text);
   const holding = parts.filter(p => line >= p.start && line <= p.end).sort((a, b) => (a.end - a.start) - (b.end - b.start))[0];
   const found = holding ?? (next ? parts.filter(p => p.start > line).sort((a, b) => a.start - b.start || b.end - a.end)[0] : undefined);
-  return found ? { ...found.c, end: found.end } : null;
+  return found ? { ...found.c, start: found.start, end: found.end } : null;
 }
 
 /** A passage's anchor: its first three words, short enough to type (`^water-the-seedlings`). */
