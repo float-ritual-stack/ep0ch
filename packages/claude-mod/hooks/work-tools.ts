@@ -163,8 +163,10 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
     aliases: { ref: ['item'] },
     description:
       "Record a GitHub pull request as one of the deliveries of the item `ref` and sync its live state: an open PR moves the " +
-      "item to review, a merged one to validate. The PR's branches must match the delivery's. An item can have " +
-      'several deliveries (one per repository or branch), each under its own key.',
+      "item to review, a merged one to validate (stamping merged-at). The PR's branches must match the delivery's. An item can have " +
+      'several deliveries (one per repository or branch), each under its own key. A merged PR also gets its one landed ' +
+      'row (type=landed, under the Landed page). Without `ref`, for a merged PR ticket or not: every delivery that records ' +
+      'it is synced, and its landed row written; the merge step runs this for each merge into main.',
     inputSchema: schema({
       ref: ITEM,
       repo: { type: 'string', description: 'owner/name' },
@@ -177,12 +179,13 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       },
       base: { type: 'string', description: "Base branch; defaults to the PR's" },
       branch: { type: 'string', description: "Work branch; defaults to the PR's head" },
-    }, ['ref', 'repo', 'pr']),
+    }, ['repo', 'pr']),
     command(input) {
       const [item, repo] = [text(input, 'ref'), text(input, 'repo')]
       const pr = input.pr
-      if (!item || !repo || typeof pr !== 'number' || !Number.isSafeInteger(pr) || pr < 1) return 'Give the ref, repo and PR number.'
+      if (!repo || typeof pr !== 'number' || !Number.isSafeInteger(pr) || pr < 1) return 'Give the repo and PR number (and the ref of its item, if it has one).'
       const args = ['work', 'deliver', opt('repo', repo), opt('pr', String(pr))]
+      if (!item) return { args }
       const [key, base, branch] = [text(input, 'key'), text(input, 'base'), text(input, 'branch')]
       if (key) args.push(opt('key', key))
       if (base) args.push(opt('base', base))

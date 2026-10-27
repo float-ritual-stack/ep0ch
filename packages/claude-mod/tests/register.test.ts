@@ -1243,6 +1243,10 @@ describe('register', () => {
     const delivered = session.runs.findLast(candidate => candidate.argv.includes('deliver'))!
     expect(delivered.argv.slice(3, 8)).toEqual(['work', 'deliver', '--repo=example-org/example-door', '--pr=16', '--key=door'])
     expect(delivered.argv.slice(-2)).toEqual(['--', 'PIE-8'])
+    await $.tool.call({ tool: 'mcp__ep0ch__work_deliver', repo: 'example-org/example-door', pr: 17 })
+    const landed = session.runs.findLast(candidate => candidate.argv.includes('--pr=17'))!
+    expect(landed.argv.slice(3, 7)).toEqual(['work', 'deliver', '--repo=example-org/example-door', '--pr=17'])
+    expect(landed.argv).not.toContain('--')
 
     await $.tool.call({ tool: 'mcp__ep0ch__work_set', item: 'PIE-8/door', key: 'delivery-stage', value: 'complete', expectedRevision: 2 })
     const set = session.runs.findLast(candidate => candidate.argv.includes('set'))!

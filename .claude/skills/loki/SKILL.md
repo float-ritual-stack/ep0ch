@@ -19,6 +19,11 @@ At session start and after every compaction, read pie's **Reorient here** note b
 
 After a merge to main (yours, or a sha an agent hands you):
 
+0. Put it on the record: the repository mod does it after `gh pr merge` and says the landed row in the result
+   (`… is on the record: landed row ((id))`). If it says it couldn't, or the merge was made elsewhere (GitHub's
+   page, another machine), run `bun packages/outliner/src/cli.ts work deliver --repo float-ritual-stack/ep0ch --pr <n>
+   --author agent --actor loki` from the live checkout (or `work_deliver` with no `ref`). It syncs every delivery
+   that records the PR (merged, `merged-at`) and writes its one landed row, ticket or not (PIE-1352).
 1. Check nothing is mid-flight: `uptime` (load), `ep0ch session list`, no migration or `install` already running.
 2. Peek the person's door before `ep0ch install --apply` (`door_peek`, or `ep0ch peek`: `person.typingIn`, `busy`). If
    they're typing in an editor, a comment or the drawer, wait or batch the pending deploys into one, unless they've
@@ -139,6 +144,11 @@ not because Evan said go; one-way doors (infrastructure, deletion, a protocol bu
 The rules are pie's: [[house-rules]] (House rules: how we work in pie, e19f9fe0), sections 'Requests and patch notes' and 'Build logs, snapshots and Welcome'.
 
 Use `ep0ch view order` to place the build log in Welcome's hand order.
+
+A day's build log starts from pie's build-log template, before any narrative: a note `Build log, <Mon D>
+[type::build-log] [page::build-log-<YYYY-MM-DD>]` whose body is `::use{of=type:build-log day=<YYYY-MM-DD>}`, then
+the narrative under it. The template's figures (merged that day, by `merged-at`; delivered; validate; notable) are
+live, so a day with no narrative still says what landed.
 
 A session (and a compacted one) starts with the `workboardNow` context block from the Claude mod (PIE-843): the
 latest build log, the items in doing, review and validate, what waits on Evan and the open PRs. A cold start reads it

@@ -336,8 +336,18 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       }
     }
     case 'work_deliver': {
+      if (typeof input.repo !== 'string' || typeof input.pr !== 'number') return null
+      const landed = recordOf(out?.landed)
+      if ((input.ref ?? input.item) === undefined) {
+        // No item: a merged PR put on the record, and the deliveries that record it.
+        const deliveries = Array.isArray(out?.deliveries) ? out.deliveries.length : 0
+        return {
+          kind: 'write', glyph: '⇡', target: { label: `${input.repo}#${input.pr}`, ref: typeof landed?.blockId === 'string' ? landed.blockId : '' },
+          change: [`landed ${input.repo}#${input.pr}`, ...(landed?.created === true ? ['new row'] : []), ...(deliveries ? [`${deliveries} deliver${deliveries === 1 ? 'y' : 'ies'} synced`] : ['no ticket'])],
+        }
+      }
       const target = itemTarget(input.ref ?? input.item, out, titleOf)
-      if (!target || typeof input.repo !== 'string' || typeof input.pr !== 'number') return null
+      if (!target) return null
       const pr = recordOf(out?.pullRequest)
       const delivery = recordOf(out?.delivery)
       return {

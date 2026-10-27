@@ -27,6 +27,14 @@ instead (`hooks/guards.ts`):
   merely behind a bump on main merges. A GRAMMAR-only bump is accepted, even though it edits the same file. A slice merging into its `wave/…` branch is let through: it takes its number
   when the wave merges. When `gh` can't answer within 10s, the merge goes on.
 
+## Every merge on the record
+
+After a `gh pr merge` that ran (from any loop), the mod asks `gh` whether each PR it names has merged, and for each that
+has runs the outliner's `work deliver --repo R --pr N` with no item, as `EP0CH_AGENT` (else `merge-step`), from the
+repository's root, so the outline its `.ep0ch` names gets it (`hooks/landed.ts`, PIE-1352). That syncs every delivery
+recording the PR and writes the PR's one landed row, ticket or not. The Bash result carries one line per PR: the row,
+or why it isn't on the record and the command to run. A PR still waiting (auto-merge) is left to the merge step.
+
 ## Scratch cleanup never stops for a prompt
 
 Claude Code's dangerous-command check stops some `rm -rf` shapes (a glob over the working folder, a path ending in

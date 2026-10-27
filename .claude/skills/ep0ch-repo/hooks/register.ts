@@ -2,6 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { pathsIn, type Rule, ruleContext, ruleOf, rulesFor } from './rules'
 import { guardOf, type Merge, mergesIn, protocolOf, protocolRefusal } from './guards'
+import { landArgv, landedSaid, mergedPr } from './landed'
 import { absolute, contentsOf, scratchRemovals, underScratch } from './scratch'
 import { agentOfEp0ch, type Counts, dueOf, SWEEP_AFTER_CHANGES, SWEEP_AFTER_TURNS, isDeploy, isMerge, isOutlineWrite, reportOf, SWEEP_SYSTEM, SWEEP_TOOLS, sweepBrief, sweepsFor } from './freshness'
 
@@ -9,6 +10,8 @@ const PROTOCOL_PATH = 'packages/outline-core/src/protocol.ts'
 /** The sweep's agent type, `ep0ch-repo:<name>`: registered by this mod, offered to no model. */
 const SWEEP_AGENT = 'freshness-sweep'
 const LOOKUP_MS = 10_000
+/** Landing a merge: gh once more and a few outline writes. */
+const LAND_MS = 60_000
 
 /** This machine's name, asked once (the --parallel rule holds on the shared machine only). */
 let hostname: Promise<string> | undefined
@@ -63,6 +66,25 @@ async function protocolCheck($: EngineInterface, merge: Merge): Promise<string |
   const [branch, main, base] = await Promise.all([at(headRefOid), at('main'), at(mergeBase)])
   const [b, m, o] = [branch, main, base].map(text => text === null ? null : protocolOf(text))
   return b == null || m == null || o == null ? null : protocolRefusal(m, b, o, merge.pr)
+}
+
+/**
+ * After a `gh pr merge` that ran, each merged PR goes on the outline's record (hooks/landed.ts): what that said, one line
+ * per PR, for the agent that merged. A PR not merged yet (auto-merge, a queue) is left to the merge step's next run.
+ */
+async function landMerges($: EngineInterface, command: string): Promise<string[]> {
+  const [cwd, root, envAgent] = await Promise.all([$.session.cwd(), $.session.root(), $.env.get('EP0CH_AGENT')])
+  const said: string[] = []
+  for (const merge of mergesIn(command)) {
+    const view = await $.process.run(['gh', 'pr', 'view', ...(merge.pr ? [merge.pr] : []), ...(merge.repo ? ['--repo', merge.repo] : []), '--json', 'number,url,state'], { cwd, timeoutMs: LOOKUP_MS })
+      .then(r => r.exitCode === 0 ? r.stdout : '', () => '')
+    const pr = mergedPr(view)
+    if (!pr) continue
+    const run = await $.process.run(landArgv(root, pr, envAgent?.trim() || 'merge-step'), { cwd: root, timeoutMs: LAND_MS })
+      .catch(error => ({ exitCode: 1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }))
+    said.push(landedSaid(pr, run))
+  }
+  return said
 }
 
 /** The first merge in `command` whose PROTOCOL is wrong, said; null when none is. */
@@ -180,7 +202,9 @@ export const register: Register = (on) => {
     const result = await next(e)
     if (result.deny !== undefined) return result
     if (e.agentId === undefined && !result.isError && (isDeploy(command) || isMerge(command))) counts.changes++
-    const context = await rulesToAttach($, command, e.agentId).catch(() => [])
+    // Every merge on the record (PIE-1352), from whichever loop merged.
+    const landed = !result.isError && isMerge(command) ? await landMerges($, command).catch(() => []) : []
+    const context = [...landed, ...await rulesToAttach($, command, e.agentId).catch(() => [])]
     return context.length ? { ...result, context: [...(result.context ?? []), ...context] } : result
   }).catch(($, e, next) => {
     if (next.called) return next(e)

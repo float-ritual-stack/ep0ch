@@ -144,6 +144,10 @@ describe('the formatter: one row per tool', () => {
     expect(words(toolRowOf(done('work_deliver', { item: 'PIE-561', repo: 'garden/plot', pr: 42 },
       { workId: 'PIE-561', delivery: { deliveryKey: 'PIE-561/plot', stage: 'review' }, pullRequest: { number: 42, state: 'OPEN' } }))))
       .toBe('⇡ PIE-561 · delivered garden/plot#42 · open · PIE-561/plot')
+    // No item: the merge step's call, a merged PR landed (PIE-1352).
+    expect(words(toolRowOf(done('work_deliver', { repo: 'garden/plot', pr: 43 },
+      { landed: { blockId: '11111111-2222-4333-8444-555555555555', created: true, tickets: [] }, deliveries: [] }))))
+      .toBe('⇡ garden/plot#43 · landed garden/plot#43 · new row · no ticket')
     const completed = toolRowOf(done('work_complete', { item: 'PIE-561', allMerged: true, proof: 'Merged and checked\n\nThe swap ran.' }))
     expect(words(completed)).toBe('✓ PIE-561 · completed · proof "Merged and checked"')
     expect(completed!.detail).toBe('Merged and checked\n\nThe swap ran.')
