@@ -214,6 +214,8 @@ export function cardLines(f: BindingFacts, compact = false): CardLine[] {
       lines.push({ label: 'why', text: f.folder.why })
       break
   }
+  // The note the session orients from (PIE-1353): shown on the compact card too, since it is where to start.
+  if (f.orientsFrom) lines.push({ label: 'orients', text: `from ${f.orientsFrom}` })
   const mismatch = mismatchOf(f)
   if (mismatch) lines.push({ label: 'careful', text: mismatch, tone: 'warn' })
   if (compact) return lines

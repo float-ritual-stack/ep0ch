@@ -298,6 +298,21 @@ one.
   `ep0ch route <note>` (`--actor <you>` records who asked), or `act note.route id=<note> --as <you>` in the door. A new
   note made with its words lands where its rule says (`outline_new` with `[type::recipe]` goes to Recipes directly).
 
+### Read this first: `[orient::<agent>]`
+
+A note can tell every Claude session bound to its outline where to start. Put `[orient::<agent>]` on its first line
+(the name the session writes as: the `.ep0ch`'s `agent`, or EP0CH_AGENT), or `[orient::all]` for everyone. The Claude
+mod gives each such note's text to the model at session start and again after a compaction, newest first; the binding
+card says "orients from" it. Keep it short (past 4,000 characters it is cut with `ep0ch show` for the rest) and keep
+it live: a figure or a query stays true, pasted numbers don't.
+
+```text
+How we work in the garden [orient::sam]
+
+- **Start here:** ((5e0c…|today's page)), then the ::graph-tabs below.
+- **Ask before pruning** the pear; write the question as a `- [ ]` at the top.
+```
+
 ## Pages, welcome and the briefing
 
 - Ask the person for a go in two places that say the same thing: `[needs::sysop: <one line>]` on the title line, and the
