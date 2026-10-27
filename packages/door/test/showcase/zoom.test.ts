@@ -85,6 +85,29 @@ describe.skipIf(!outliner)("showcase: zoom (PIE-780)", () => {
     await until(() => !reader().zoom, "back to the whole note", 8000);
   }, 60_000);
 
+  test("a part zoomed inside another: esc steps back to it, then to the whole note; a change above the part keeps it", async () => {
+    await open();
+    await act("element.zoom", { line: 17 });
+    await until(() => reader().zoom?.label === "Pruning", "the section", 8000);
+    await act("element.zoom", { line: 20 });
+    await until(() => reader().zoom?.kind === "list-item", "the list item inside it", 8000);
+    h.press({ kind: "esc" } as never);
+    await until(() => reader().zoom?.label === "Pruning", "back in the section", 8000);
+    h.press({ kind: "esc" } as never);
+    await until(() => !reader().zoom && h.screen().includes("WINTER JOBS"), "the whole note", 8000);
+    // Zoomed into the figure, then a line written above it elsewhere: the reader follows the figure, two lines down.
+    await act("element.zoom", { line: 4 });
+    await until(() => reader().zoom?.start === 3, "the figure", 8000);
+    const plan = (await h.board.get(h.seeded.notes.zoomPlan.id))!, lines = plan.text.split("\n");
+    await h.board.update(plan.id, [lines[0], "Written by another client.", "", ...lines.slice(1)].join("\n"), plan.revision!, { kind: "agent", id: "test-agent" });
+    await until(() => reader().zoom?.start === 5, "the figure followed", 8000).catch(e => { console.log(JSON.stringify(reader().zoom)); throw e; });
+    expect(h.screen()).toContain("WINTER JOBS");
+    expect(h.screen()).not.toContain("Written by another client");
+    await act("element.zoom", { on: false });
+    const now = (await h.board.get(plan.id))!;
+    await h.board.update(plan.id, plan.text, now.revision!, { kind: "agent", id: "test-agent" });
+  }, 60_000);
+
   test("refused, nothing moved: a line in no part, and an agent on the reader the person has focused", async () => {
     await open();
     await expect(act("element.zoom", { line: 3 })).rejects.toThrow("in no part");

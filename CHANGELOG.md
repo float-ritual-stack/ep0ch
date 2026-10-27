@@ -16,7 +16,8 @@ are its record. The outliner's entries from then are kept below, under
   full size (a figure's rows still open notes, its tabs still switch). `W` zooms into the part the `[ ]` position (or
   the reading line) is in; the tile menu has "zoom into this part".
 - **Back returns.** Esc, `alt+←`, `⌫` or a click on the zoom's top row comes back to the whole note, scrolled as it was;
-  `alt+→` zooms in again. A zoom is saved with the layout, like the rest of a reader's history.
+  `alt+→` zooms in again; a part zoomed inside another steps back to that one first. A zoom is saved with the layout,
+  like the rest of a reader's history, and follows its part when lines are written above it.
 - **The part is the one `alt+D` detaches**, as the service finds it (the new read `fragments.at`); nothing is written to
   the note. Agents: `element.zoom tile=<reader> line=<n>` (or `anchor=`), `on=false` to come back; refused on the
   reader the person has focused.
