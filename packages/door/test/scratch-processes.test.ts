@@ -8,12 +8,11 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hostOutliner, processesUnder, stopUnder, until } from "./scratch";
+import { alive, hostOutliner, processesUnder, stopUnder, until } from "./scratch";
 
 const linux = process.platform === "linux";
 const root = mkdtempSync(join(tmpdir(), "scratch-procs-"));
 const guard = join(import.meta.dir, "../../../scripts/box-test-guard");
-const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 // The stand-in test: a scratch folder, a host started with setsid from an environment written whole (passed through
 // wholeEnv, as install-migrate's is) in the folder it is given, the host's pid written to `out`, then it hangs. `own` makes it ownScratch's.
@@ -57,7 +56,7 @@ describe.skipIf(!linux)("a scratch folder owns what runs from it (PIE-1360)", ()
     mkdirSync(run);
     writeFileSync(join(run, "run.sh"), `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(child)} ${JSON.stringify(out)} ${JSON.stringify(dir)} whole\n`);
     const g = Bun.spawn(["bash", guard], {
-      env: { ...process.env, BOX_DIR: run, BOX_WT: "scratch-procs", BOX_SLOTS: "1", BOX_LOCKS: locks, BOX_MAX: "8" },
+      env: { ...process.env, BOX_DIR: run, BOX_WT: "scratch-procs", BOX_SLOTS: "1", BOX_LOCKS: locks, BOX_MAX: "40" },
       stdout: "pipe", stderr: "pipe",
     });
     const err = new Response(g.stderr).text();

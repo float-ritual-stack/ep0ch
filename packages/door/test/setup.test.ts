@@ -15,6 +15,7 @@ import { applyLinks } from "../src/setup/links";
 import { skillLinkFacts } from "../src/setup/skill-links";
 import { extFacts } from "../src/setup/ext-links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
+import { ownScratch, stopUnder, wholeEnv } from "./scratch";
 import { builtinChecks, doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
 import { claudeModIn, databases, depsState, fetchRace, herdrHyperChords, herdrKeys, hostAnswers, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, outlineSchema, schemaCodeOf, startFromElapsed, systemdState } from "../src/setup/facts";
 import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, type McpFacts, type SessionFact, staleness } from "../src/setup/model";
@@ -22,7 +23,9 @@ import { configuredMachineName, dialsIn, hostMachineName, isLocalMachine, localM
 import { backupName, buildPlan, builtinsStep, checkoutStep, nameStep, dialsStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, mcpStep, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
 
 const scratch = mkdtempSync(join(tmpdir(), "ep0ch-setup-"));
-afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+// The install tests' fake service manager starts a detached `link serve`: this file owns it (PIE-1360).
+ownScratch(scratch);
+afterAll(() => { stopUnder(scratch); rmSync(scratch, { recursive: true, force: true }); });
 
 const HOME = "/Users/wren";
 const REPO = `${HOME}/projects/ep0ch`;
@@ -1409,7 +1412,7 @@ if (process.env.TEST_LINK_ENTRY && !existsSync(home + '/service-down') && ['boot
 }
 `;
   for (const name of ["launchctl", "systemctl"]) writeFileSync(join(bin, name), fake, { mode: 0o755 });
-  const env = { EP0CH_BACKUP_MACHINE: "garden", HOME: home, PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, EP0CH_OUTLINES: outlines, EP0CH_STATE: join(home, "state"), XDG_CONFIG_HOME: join(home, ".config"), ...(kind === "link" ? { TEST_LINK_ENTRY: join(import.meta.dir, "../src/main.ts"), EP0CH_SSH: "/no-such-ssh" } : {}) };
+  const env = wholeEnv({ EP0CH_BACKUP_MACHINE: "garden", HOME: home, PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, EP0CH_OUTLINES: outlines, EP0CH_STATE: join(home, "state"), XDG_CONFIG_HOME: join(home, ".config"), ...(kind === "link" ? { TEST_LINK_ENTRY: join(import.meta.dir, "../src/main.ts"), EP0CH_SSH: "/no-such-ssh" } : {}) });
   const lines: string[] = [];
   const io = { env, platform, repoRoot: repo, cwd: home, out: (s: string) => lines.push(s), err: (s: string) => lines.push(s) };
   try {
