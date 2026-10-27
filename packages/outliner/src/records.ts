@@ -39,11 +39,22 @@ function recordTemplate(kind: RecordKind): string {
   ].join("\n");
 }
 
+/** The first note `where` holds, machinery included. */
+async function findNote(board: RecordWriter, where: string): Promise<Note | undefined> {
+  return (await board.request<{ blocks: Note[] }>("blocks.query", { query: { where, machinery: "show" } })).blocks[0];
+}
+
+/** The outline's Records page, made on the first record. */
+export async function recordsRoot(board: RecordWriter, who: RecordWho): Promise<Note> {
+  return await findNote(board, "system-records=true")
+    ?? await board.request<Note>("create", { text: "Records [page::Records] [machine::record] [system-records::true]", parentId: null, ...who });
+}
+
 export async function writeRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, o: { title?: string } = {}) {
-  const find = async (where: string) => (await board.request<{ blocks: Note[] }>("blocks.query", { query: { where, machinery: "show" } })).blocks[0];
+  const find = (where: string) => findNote(board, where);
   const deploy = kind === "deploy";
-  let root = await find(deploy ? "system-view=deploys" : "system-records=true");
-  if (!root) root = await board.request<Note>("create", { text: deploy ? DEPLOYS_NOTE : "Records [page::Records] [machine::record] [system-records::true]", parentId: null, ...who });
+  let root = deploy ? await find("system-view=deploys") : await recordsRoot(board, who);
+  if (!root) root = await board.request<Note>("create", { text: DEPLOYS_NOTE, parentId: null, ...who });
   let template: Note | undefined;
   for (const name of (deploy ? ["deploy"] : Object.keys(RECORD_FIELDS).filter(name => name !== "deploy")) as RecordKind[]) {
     let found = await find(`template-for=${name}${name === "deploy" ? " machine=install" : ""}`);

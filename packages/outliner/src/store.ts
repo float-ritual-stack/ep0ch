@@ -1673,13 +1673,16 @@ export class OutlinerStore {
       if (!Number.isSafeInteger(pr.number) || pr.number < 1 ||
         pr.url !== `https://github.com/${delivery.repository}/pull/${pr.number}` ||
         !["OPEN", "CLOSED", "MERGED"].includes(pr.state) ||
-        (pr.state === "MERGED" && !pr.mergeCommit)) {
+        (pr.state === "MERGED" && !pr.mergeCommit) ||
+        (pr.mergedAt != null && !Number.isFinite(Date.parse(pr.mergedAt)))) {
         throw new Error("Invalid pull request facts for this delivery");
       }
       const nextStage = delivery.stage === "complete" ? "complete" : pr.state === "MERGED" ? "validate" : "review";
       const values: Record<string, string> = { "delivery-stage": nextStage,
         "pull-request-number": String(pr.number), "pull-request-url": pr.url, "pull-request-state": pr.state.toLowerCase() };
       if (pr.mergeCommit) values["merge-commit"] = normalizeRoadmapText(pr.mergeCommit, "Merge commit");
+      // When it merged, as GitHub says: a day's "merged today" reads `merged-at`, never `updated` (PIE-1352).
+      if (pr.state === "MERGED" && pr.mergedAt) values["merged-at"] = pr.mergedAt;
       const records = parsePropertyRecords(deliveryBlock.text).filter(property => property.scope === "block");
       const operations = Object.entries(values).flatMap(([key, value]): PropertyPatchOperation[] => {
         const existing = records.filter(property => property.key === key);

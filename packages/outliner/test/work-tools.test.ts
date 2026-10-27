@@ -61,10 +61,13 @@ async function setup() {
     const result = await runCli(cliEnv, args, stdin);
     return { ...result, json: result.exitCode === 0 ? JSON.parse(result.stdout) : undefined, error: result.stderr.trim() };
   };
-  const pull = (number: number, state: "OPEN" | "MERGED", head = "feature/pie-001", mergeCommit: string | null = null, repo = REPO) =>
+  const pull = (number: number, state: "OPEN" | "MERGED", head = "feature/pie-001", mergeCommit: string | null = null, repo = REPO,
+    more: { mergedAt?: string; title?: string; base?: string } = {}) =>
     writeFileSync(join(pulls, `${number}.json`), JSON.stringify({
       number, url: `https://github.com/${repo}/pull/${number}`, state,
-      mergeCommit: mergeCommit ? { oid: mergeCommit } : null, headRefName: head, baseRefName: "main",
+      mergeCommit: mergeCommit ? { oid: mergeCommit } : null, headRefName: head, baseRefName: more.base ?? "main",
+      mergedAt: state === "MERGED" ? more.mergedAt ?? "2026-03-04T15:00:00Z" : null,
+      title: more.title ?? `Example change ${number}`, author: { login: "example-builder" },
     }));
   const file = (name: string, text: string) => {
     writeFileSync(join(root, name), text);
@@ -153,6 +156,134 @@ test("a pull request is recorded as the delivery: open reaches review, merge rea
   const delivery = h.store.require(opened.json.delivery.blockId);
   expect(delivery.properties).toContainEqual({ key: "merge-commit", value: "abc1234" });
   expect(delivery.properties).toContainEqual({ key: "work-branch", value: "feature/pie-001" });
+  expect(delivery.properties).toContainEqual({ key: "merged-at", value: "2026-03-04T15:00:00Z" });
+  // The merge is on the record once, beside its delivery: a merge row naming the ticket.
+  expect(merged.json.landed).toMatchObject({ created: true, tickets: ["PIE-001"] });
+  expect(h.store.require(merged.json.landed.blockId).text).toContain("Delivers [[PIE-001]].");
+});
+
+/** The merge row a day's "merged today" figure lists: the build log template's query. */
+function landedOn(store: OutlinerStore, day: string): string[] {
+  return store.queryBlocks({ where: `type=merge AND base-branch=main AND merged-at=${day}`, machinery: "show" }).blocks
+    .map((block) => block.properties.find((property) => property.key === "merge-commit")!.value).sort();
+}
+
+test("a merge is landed once, ticket or not; landing a ticketed PR syncs its delivery to merged (PIE-1352)", async () => {
+  const h = await setup();
+  await h.create();
+  // The builder delivered while the PR was open; nobody synced it after the merge.
+  h.pull(40, "OPEN");
+  const opened = await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "40"]);
+  h.pull(40, "MERGED", "feature/pie-001", "aaa4040", REPO, { mergedAt: "2026-03-05T14:00:00Z" });
+  h.pull(41, "MERGED", "loki/fix-typo", "bbb4141", REPO, { mergedAt: "2026-03-05T16:00:00Z", title: "Fix a typo in the guide [skip review]" });
+  h.pull(43, "MERGED", "loki/header", "ccc4343", REPO, { mergedAt: "2026-03-05T17:00:00Z", title: "A note can hide its header: [header::none]" });
+
+  // The merge step's call has no item: it finds the delivery that records the PR.
+  const landed = await h.run(["work", "deliver", "--repo", REPO, "--pr", "40", "--author", "agent", "--actor", "loki"]);
+  expect(landed.json).toMatchObject({
+    landed: { created: true, tickets: ["PIE-001"] },
+    deliveries: [{ blockId: opened.json.delivery.blockId, workId: "PIE-001", stage: "validate" }],
+  });
+  const delivery = h.store.require(opened.json.delivery.blockId);
+  expect(delivery.properties).toContainEqual({ key: "merged-at", value: "2026-03-05T14:00:00Z" });
+  expect(delivery.properties).toContainEqual({ key: "pull-request-state", value: "merged" });
+
+  // No ticket: still one row, with the PR's facts.
+  const ticketless = await h.run(["work", "deliver", "--repo", REPO, "--pr", "41"]);
+  expect(ticketless.json).toMatchObject({ landed: { created: true, tickets: [] }, deliveries: [] });
+  const row = h.store.require(ticketless.json.landed.blockId);
+  expect(row.text.split("\n")[0]).toStartWith("#41 Fix a typo in the guide [skip review] [type::merge]");
+  expect(row.text).toContain("No ticket.");
+  for (const [key, value] of [["pull-request-number", "41"], ["merge-commit", "bbb4141"], ["merged-at", "2026-03-05T16:00:00Z"],
+    ["pr-author", "example-builder"], ["base-branch", "main"], ["repository", REPO]]) expect(row.properties).toContainEqual({ key: key!, value: value! });
+
+  // A property written in a PR's title stays prose: the row gets no header::none.
+  const quoted = h.store.require((await h.run(["work", "deliver", "--repo", REPO, "--pr", "43"])).json.landed.blockId);
+  expect(quoted.text).toStartWith("#43 A note can hide its header: `[header::none]` [type::merge]");
+  expect(quoted.properties.map((property) => property.key)).not.toContain("header");
+
+  // Again, and again by the ticket: nothing new, nothing doubled.
+  expect((await h.run(["work", "deliver", "--repo", REPO, "--pr", "41"])).json.landed).toMatchObject({ blockId: row.id, created: false, changed: false });
+  expect((await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "40"])).json.landed).toMatchObject({ blockId: landed.json.landed.blockId, created: false });
+  expect(landedOn(h.store, "2026-03-05")).toEqual(["aaa4040", "bbb4141", "ccc4343"]);
+  // The rows sit on one Merges page under Records.
+  const page = h.store.require(row.parentId!);
+  expect(page.properties).toContainEqual({ key: "system-merges", value: "true" });
+  expect(h.store.require(page.parentId!).properties).toContainEqual({ key: "system-records", value: "true" });
+
+  // An open PR with no item is refused, saying how to record it on its ticket.
+  h.pull(42, "OPEN", "feature/other");
+  const open = await h.run(["work", "deliver", "--repo", REPO, "--pr", "42"]);
+  expect(open.error).toContain("is open: a PR with no item is recorded when it merges");
+});
+
+test("a PR retargeted since its delivery was recorded still gets its merge row, and says the delivery it couldn't sync", async () => {
+  const h = await setup();
+  await h.create();
+  h.pull(55, "OPEN", "feature/pie-001", null, REPO, { base: "wave/records" });
+  await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "55"]);
+  h.pull(55, "MERGED", "feature/pie-001", "eee5555");
+  const landed = await h.run(["work", "deliver", "--repo", REPO, "--pr", "55"]);
+  expect(landed.json).toMatchObject({ landed: { created: true, tickets: ["PIE-001"] }, deliveries: [], failed: [{ deliveryKey: "PIE-001/primary" }] });
+  expect(landed.json.failed[0].error).toContain("not feature/pie-001 into wave/records");
+  expect(landedOn(h.store, "2026-03-04")).toEqual(["eee5555"]);
+});
+
+test("a PR delivered to two tickets lands as one row naming both (PIE-1352)", async () => {
+  const h = await setup();
+  await h.create();
+  await h.create();
+  h.pull(50, "MERGED", "wave/records", "ccc5050");
+  const first = await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "50"]);
+  // Someone adds a line under the row; a later landing rewrites only its generated lines.
+  const row = h.store.require(first.json.landed.blockId);
+  h.store.update(row.id, `${row.text}\n\nReverted in a later change, see the guide.`, row.revision);
+  const second = await h.run(["work", "deliver", "PIE-002", "--repo", REPO, "--pr", "50"]);
+  expect(second.json.landed).toMatchObject({ created: false, changed: true, tickets: ["PIE-001", "PIE-002"] });
+  expect(h.store.require(second.json.landed.blockId).text).toContain("Delivers [[PIE-001]], [[PIE-002]].\n\nReverted in a later change, see the guide.");
+  expect(landedOn(h.store, "2026-03-04")).toEqual(["ccc5050"]);
+});
+
+test("a day's merge rows are exactly git log --first-parent for that day, wave slices left out (PIE-1352)", async () => {
+  const h = await setup();
+  await h.create();
+  const repo = mkdtempSync(join(tmpdir(), "outliner-landed-git-"));
+  cleanups.push(async () => rmSync(repo, { recursive: true, force: true }));
+  // git reads the day in this process's time zone, as the service does (bun test runs in UTC; the system may not).
+  const env = { ...process.env, TZ: Intl.DateTimeFormat().resolvedOptions().timeZone, GIT_AUTHOR_NAME: "Example", GIT_AUTHOR_EMAIL: "example@example.test", GIT_COMMITTER_NAME: "Example", GIT_COMMITTER_EMAIL: "example@example.test" };
+  const git = (args: string[], at?: Date) => {
+    const result = Bun.spawnSync(["git", ...args], { cwd: repo, env: at ? { ...env, GIT_AUTHOR_DATE: at.toISOString(), GIT_COMMITTER_DATE: at.toISOString() } : env });
+    if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
+    return result.stdout.toString().trim();
+  };
+  // Local times: the day is the reader's day, as git's --since is (one merge just before midnight, one just after).
+  const local = (day: number, hour: number, minute = 0) => new Date(2026, 2, day, hour, minute);
+  git(["init", "-q", "-b", "main"]);
+  git(["commit", "-q", "--allow-empty", "-m", "root"], local(1, 9));
+  const merges: Array<{ pr: number; at: Date; ticket?: string; base?: string }> = [
+    { pr: 60, at: local(9, 23, 50), ticket: "PIE-001" },
+    { pr: 61, at: local(10, 0, 10) },
+    { pr: 62, at: local(10, 13), ticket: "PIE-001" },
+    { pr: 63, at: local(10, 23, 59) },
+    { pr: 64, at: local(11, 0, 5) },
+  ];
+  for (const merge of merges) {
+    const branch = `feature/change-${merge.pr}`;
+    git(["checkout", "-q", "-b", branch, "main"]);
+    git(["commit", "-q", "--allow-empty", "-m", `change ${merge.pr}`], merge.at);
+    git(["checkout", "-q", "main"]);
+    git(["merge", "-q", "--no-ff", branch, "-m", `Merge pull request #${merge.pr} from example-org/${branch}`], merge.at);
+    h.pull(merge.pr, "MERGED", branch, git(["rev-parse", "HEAD"]), REPO, { mergedAt: merge.at.toISOString() });
+    if (merge.ticket) await h.run(["work", "deliver", merge.ticket, "--repo", REPO, "--pr", String(merge.pr), "--key", `pr-${merge.pr}`]);
+    await h.run(["work", "deliver", "--repo", REPO, "--pr", String(merge.pr)]);
+  }
+  // A slice merged into a wave branch the same day is landed too, but is no merge to main.
+  h.pull(65, "MERGED", "wave-records/slice", "ddd6565", REPO, { mergedAt: local(10, 12).toISOString(), base: "wave/records" });
+  await h.run(["work", "deliver", "--repo", REPO, "--pr", "65"]);
+
+  const logged = git(["log", "--first-parent", "--merges", "--since=2026-03-10 00:00", "--until=2026-03-10 23:59:59", "--format=%H", "main"]).split("\n").sort();
+  expect(logged).toHaveLength(3);
+  expect(landedOn(h.store, "2026-03-10")).toEqual(logged);
 });
 
 test("completion needs a merged delivery and records proof, delivery Complete and Done", async () => {

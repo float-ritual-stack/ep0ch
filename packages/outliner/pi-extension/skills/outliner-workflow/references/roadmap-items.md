@@ -19,6 +19,7 @@ bun src/cli.ts work stage PIE-123 doing [--expected N]
 bun src/cli.ts work set PIE-123 priority high [--expected N]
 bun src/cli.ts work set PIE-123/site delivery-stage complete [--expected N]
 bun src/cli.ts work deliver PIE-123 --repo owner/name --pr 42 [--key site] [--base main] [--branch feature/x]
+bun src/cli.ts work deliver --repo owner/name --pr 42   # a merged PR, ticket or not: on the record
 bun src/cli.ts work complete PIE-123 [--delivery <uuid|key|name>]… [--all-merged] --proof-file proof.md|--stdin|--proof-block <uuid>
 bun src/cli.ts work body PIE-123 --file body.md|--stdin [--expected N]
 bun src/cli.ts work link <request copy uuid> PIE-123 [--expected N]
@@ -29,7 +30,20 @@ bun src/cli.ts work help
 Add `--author agent --actor <id>` for agent writes. `work stage … done` is
 refused: Done goes through `work complete`, which creates or links the proof.
 `work deliver` reads the PR through `gh` and refuses a PR whose branches differ
-from the delivery's.
+from the delivery's. A merged PR's delivery gets `merged-at` (GitHub's
+`mergedAt`) beside `pull-request-state=merged` and `merge-commit`.
+
+### Every merge on the record
+
+Each merged PR has one merge row, `[type::merge]` under the Merges page
+(under Records), with its repository, number, title, author, branches, merge
+commit and `merged-at`, and links to the items whose deliveries record it.
+`work deliver` writes it when it sees a merge. With no item, `work deliver
+--repo R --pr N` is the merge step's call for every merge, ticket or not: it
+syncs every delivery that records the PR, then writes its row. The repository's
+Claude mod runs it after each `gh pr merge`. A day's merges into main are
+`type=merge AND base-branch=main AND merged-at=<day>`, the build log
+template's query, and match `git log --first-parent` for that day.
 
 ### Items with several deliveries
 
