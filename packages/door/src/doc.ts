@@ -1012,7 +1012,9 @@ export function imageBox(m: { width: number; height: number }, spec: MediaSpec, 
  */
 export function heroBox(m: { width: number; height: number }, spec: MediaSpec, W: number, cap: number, cellW: number, cellH: number): { col: number; cols: number; rows: number; crop?: { x: number; y: number; w: number; h: number } } {
   const own = Math.max(1, Math.round((W * cellW * m.height) / m.width / cellH)), most = Math.max(1, cap);
-  if (own <= most) return { col: 0, cols: W, rows: own };
+  // A height its line sets (PIE-1361: the header's edge dragged down) is the height, cropped to fill; else at most its own.
+  const asked = spec.fit !== "contain" && (spec.height !== undefined || spec.heightShare !== undefined);
+  if (own <= most && !(asked && own < most)) return { col: 0, cols: W, rows: own };
   if (spec.fit === "contain") {
     const cols = Math.max(1, Math.min(W, Math.round((most * cellH * m.width) / m.height / cellW)));
     return { col: Math.floor((W - cols) / 2), cols, rows: most };

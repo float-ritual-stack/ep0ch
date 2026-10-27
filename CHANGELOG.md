@@ -10,6 +10,25 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A header picture is set one way: the note's hero line (PIE-1361)
+
+- **The note owns its header.** Its first `[img::…] [layout::hero]` line is the header picture, and its look is that
+  line's properties (`height`, `hero-focus`, `fit`, `dim`, `tint`, `fade`, `blur`, `bleed`, `title`, `scroll`), so the
+  source shows every value and the look travels with the note. A second `[layout::hero]` is an image in the text that
+  says so.
+- **No hidden pictures.** The look cascade's `header.image` and `header.image.*`/`header.title` are gone: a picture
+  set at a tile, screen or global level no longer shows on every note there. A note or style note still carrying one
+  says, in the tune, that it's gone and where the look is written now. The header's surface and rule stay look values.
+- **The tune edits the line.** alt+y shows the hero's properties as its Hero rows at the top; − + ×, the wheel and
+  `tune.nudge row=hero.tint by=1` write the line at once (ctrl+z in the reader puts it back), with no level and nothing
+  to save. New `image.look` does the same for an agent.
+- **Drag it.** The header's bottom row drags its height (it stays that tall, cropped to fill, past the picture's own);
+  the picture above it drags its focus. One save on release.
+- **Fixed:** the picture drawn twice (a page-level `header.image` naming no picture of the note was drawn behind the
+  header while the hero showed), the tile-level picture on other notes, "none (this note has no hero)" with a header
+  showing, and the wide tune's cut names.
+- GRAMMAR 7 → 8 (the style tokens). No PROTOCOL or schema change; `ep0ch install --apply` as usual. A note with old
+  `style.header.image…` keys: move what's wanted onto its hero line (the tune names each one).
 ### An outline tells its agents where to start: `[orient::<agent>]` (PIE-1353)
 
 - **A note carrying `[orient::<agent>]` or `[orient::all]`** is read by the Claude mod at session start and again

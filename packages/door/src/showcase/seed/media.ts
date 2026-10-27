@@ -137,7 +137,7 @@ export const heroText = (dir = SHOWCASE_ASSETS) => [
   `${SEED.hero} [season::autumn]`,
   `[img::${dir}/evening-beds.jpg] [layout::hero] [hero-focus::0.85,0.6] [blur::4] [bleed::full] [height::33%] [fit::cover] [dim::0.4] [tint::0.5] [fade::0.75] [title::over] [scroll::pinned] [alt::the beds at dusk, the shed lit]`,
   "",
-  "Tune header.image.* at any level, or write blur, bleed, height, fit, dim, tint, fade, title and scroll on the hero line. This header is blurred, full bleed, a third high, cover cropped, dimmed, tinted, faded, titled over and pinned. The line wins over tune defaults. In cells, scroll down (j, the wheel, space): as the picture goes up under the header, the title, the byline and the crumbs take it as their background, dimmed and muted so they stay readable. It fades in from the background by steps.",
+  "This header's look is its own line: blur, bleed, height, fit, dim, tint, fade, title and scroll written there, so the note carries it into any tile. It is blurred, full bleed, a third high, cover cropped, dimmed, tinted, faded, titled over and pinned. alt+y opens the tune: its Hero rows change this line at once. Drag the header's bottom row to size it, the picture above it to move its focus. In cells, scroll down (j, the wheel, space): as the picture goes up under the header, the title, the byline and the crumbs take it as their background, dimmed and muted so they stay readable. It fades in from the background by steps.",
   "",
   "The crop follows the lit shed: `[hero-focus::0.85,0.6]` on the picture's line moves it (across, then down). An image marked `[layout::hero]` does the same once it scrolls away above the title.",
   "",

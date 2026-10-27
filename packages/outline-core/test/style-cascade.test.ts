@@ -179,13 +179,13 @@ describe("surfaces, frames and the header (PIE-675)", () => {
     expect(resolveStyle([{ level: "page", label: "page", fields: { "list.divider.glyph": "]" } }], 80).problems).toHaveLength(1);
   });
 
-  test("the header: its surface and opacity, its picture over the hero (as written), and the crop's offsets", () => {
-    const sheets = styleSheetsFromBlocks([{ id: "hhhh0001", properties: props({ "style-for": "tile:detail", "style.header.bg": "blue", "style.header.bg.opacity": "40", "style.header.image": "media/Shed Door.png", "style.header.image.x": "-15" }) }]);
-    expect(sheets.problems).toEqual([]);
+  test("the header: its surface and opacity; no level sets a picture (PIE-1361: the note's hero line owns it), and an old key says where it went", () => {
+    const sheets = styleSheetsFromBlocks([{ id: "hhhh0001", properties: props({ "style-for": "tile:detail", "style.header.bg": "blue", "style.header.bg.opacity": "40", "style.header.image": "media/Shed Door.png", "style.header.image.x": "-15", "style.header.title": "over" }) }]);
+    expect(sheets.problems).toHaveLength(3);
+    expect(sheets.problems[0]).toMatch(/style\.header\.image is gone: a header picture's look is written on its own \[layout::hero\] line \(\[height::…\] \[hero-focus::…\]/);
     const r = resolveStyle(styleLayers(sheets.sheets, { tile: "detail" }), 80);
-    expect(r.values).toMatchObject({ "header.bg": "blue", "header.bg.opacity": 40, "header.image": "media/Shed Door.png", "header.image.x": -15, "header.image.y": 0 });
-    expect(nudgeStyleValue("header.image.y", 0, -1)).toBe(-5);
-    expect(nudgeStyleValue("header.image.x", 50, 1)).toBe(50);
+    expect(r.values).toMatchObject({ "header.bg": "blue", "header.bg.opacity": 40 });
+    expect(Object.keys(r.values).filter(k => k.startsWith("header.image") || k === "header.title")).toEqual([]);
   });
 
   test("tier-keyed values: narrow | normal | wide in one field, its written variant winning", () => {

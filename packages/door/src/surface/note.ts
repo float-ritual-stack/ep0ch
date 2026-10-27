@@ -86,7 +86,7 @@ import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, u
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
 import { theme, type Rgb } from "../theme";
-import { ALIGNS, fileName, imagePrimitiveSpec, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
+import { ALIGNS, fileName, HERO_PROP_NAMES, HERO_PROPS, heroPropSet, heroPropStep, heroPropText, imagePrimitiveSpec, isHeroProp, media, type HeroProp, parseDim, parseFocus, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
 import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
 import { TONE_INDEX, surfaceMix } from "../theme";
@@ -947,6 +947,17 @@ export class NoteSurface {
   private splits: Record<"comment" | "sources" | "list-preview" | "edit-preview", AttachedSplit> = { comment: {}, sources: {}, "list-preview": {}, "edit-preview": readState<{ split?: AttachedSplit }>("edit-preview-place.json")?.split ?? { direction: "down", share: .5 } };
   private splitDrawn: SplitFrame[] = [];
   private splitDrag: SplitFrame | null = null;
+  /**
+   * The header image being dragged (PIE-1361): its bottom row sizes it (`height`), the picture moves what its crop keeps
+   * (`focus`). Drawn from `now` while the button is down; one image.size or image.look on release, so the line takes
+   * one save. A press that doesn't move is a click on the header.
+   */
+  /**
+   * The header image as last placed, by its line: it stands in while it's dragged, and while a changed look (a blur, a
+   * tint) is being made, so the header never goes blank under its rows (PIE-1361: the "margin" left behind).
+   */
+  private heroPlaced: { line: number; p: Placement } | null = null;
+  private heroDrag: { kind: "height" | "focus"; x: number; y: number; rows: number; cols: number; focus: Focus; line: number; now?: { height?: number; focus?: Focus }; saving?: boolean } | null = null;
   private besideRect: { x: number; y: number; w: number; h: number } | null = null;
   private readonly forms = new Map<string, NoteForm>();
   get form(): NoteForm | null { return this.msg ? this.formOf(this.msg) : null; }
@@ -1071,7 +1082,7 @@ export class NoteSurface {
   get picker(): Picker | null { return (this.modes.get("picker") as PickerMode | null)?.picker ?? null; }
   set picker(p: Picker | null) { if (p) this.modes.push(this.pickerMode(p)); else this.modes.drop("picker"); }
   /** The header image the last render drew above the note (PIE-532): its rows, and its image's element. */
-  private hero: { line: number; full: number; pinned: boolean; over: boolean } | null = null;
+  private hero: { line: number; full: number; pinned: boolean; over: boolean; max: number; picture: number } | null = null;
   /** The last digest's layout (its note, doc and note lines), for its host's sticky header (stickyHeader). */
   private digested: { m: Msg; w: number; maxImageRows: number; doc: Doc; lines: number[] } | null = null;
   /** The header's backdrop the last render drew (PIE-598): its image and note line, its step, and how it was drawn. */
@@ -1496,14 +1507,20 @@ export class NoteSurface {
   /** The note as the reader draws it (with its header image), and a floating or popup composer over it (PIE-770). */
   private renderReading(w: number, h: number, host: SurfaceHost | undefined, writing: ReturnType<NoteSurface["composing"]>): SurfaceView {
     const hero = this.heroOf(w, h, host);
-    this.hero = hero && { line: hero.line, full: hero.box.rows, pinned: hero.look.scroll === "pinned", over: hero.look.title === "over" };
+    this.hero = hero && { line: hero.line, full: hero.box.rows, pinned: hero.look.scroll === "pinned", over: hero.look.title === "over", max: Math.floor(h / 2), picture: hero.box.rows };
     let v = this.renderNote(w, h, host);
     const shown = this.drawn?.heroRows ?? 0;
     if (hero && shown) {
       const cut = this.hero?.pinned ? 0 : Math.min(this.scroll, hero.box.rows), lines = Array.from({ length: shown }, () => "");
       if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · loading…`, w));
+      // A drag going on says what it will write (PIE-1361), on the header's bottom row.
+      const dn = this.heroDrag?.now;
+      if (dn) lines[shown - 1] = fg(C.yellow) + pad(`  ${dn.height !== undefined ? `↕ ${dn.height} rows` : `✥ focus ${dn.focus!.x},${dn.focus!.y}`} · let go to write it on the hero line`, w) + RESET;
       const above = hero.placement?.row ?? 0;
-      const p = hero.placement && inWindow(hero.placement, cut + above, Math.min(h, hero.box.rows - cut) - above, above);
+      const was = this.heroPlaced?.line === hero.line ? this.heroPlaced.p : null;
+      const held = (this.heroDrag?.now || (!hero.placement && !hero.loading && !cut)) && was;
+      const p = held ? { ...held, rows: Math.max(1, Math.min(h, hero.box.rows) - cut - held.row) } : hero.placement && inWindow(hero.placement, cut + above, Math.min(h, hero.box.rows - cut) - above, above);
+      if (!held && p && !cut) this.heroPlaced = { line: hero.line, p };
       v = { ...v, headerBand: v.headerBand && { ...v.headerBand, row: shown }, lines: [...lines, ...v.lines], gutter: v.gutter?.map(g => ({ ...g, row: g.row + shown })), placements: [...(p ? [p] : []), ...(v.placements ?? []).map(x => ({ ...x, row: x.row + shown }))] };
     }
     // A split that does not fit shares the popup path.
@@ -1582,9 +1599,12 @@ export class NoteSurface {
     const m = this.msg;
     if (!m || m.partial || !host?.ctx.graphics || this.modes.covers || this.panel?.full || h < HERO_MIN_PANE) return null;
     const values = this.lookAt(m, w, host).values;
-    const refs = this.imagesIn(m), named = values["header.image"];
-    const ref = (named ? refs.find(x => x.path === named || x.path.split("/").pop() === named) : undefined) ?? refs.find(x => x.spec.layout === "hero");
-    if (!ref) return null;
+    // The note's own hero line, the first one (PIE-1361): nothing else names a header picture.
+    const found = this.heroRef(m);
+    if (!found) return null;
+    // A drag going on draws where it is (heroDrag), before its one save.
+    const now = this.heroDrag?.line === found.line ? this.heroDrag.now : undefined;
+    const ref = now ? { ...found, spec: { ...found.spec, ...(now.height !== undefined ? { height: now.height, heightShare: undefined } : {}), ...(now.focus ? { focus: now.focus } : {}) } } : found;
     const look = heroLook(ref.spec, values);
     const bounds = look.bleed === "full" ? host.heroBounds : undefined;
     const cols = look.bleed === "full" ? bounds?.cols ?? w : Math.max(1, w - this.bx - this.bxRight);
@@ -1599,6 +1619,8 @@ export class NoteSurface {
       return { line: ref.line, box, placement: null, loading: true, name, look };
     }
     const box = heroBox(entry, look, cols, cap, cw, chh);
+    // A drag going on scales nothing: the picture drawn when it began stands in (renderReading), the terminal scaling it.
+    if (now) return { line: ref.line, box, placement: null, loading: false, name: ref.path.split("/").pop() ?? ref.path, look };
     const [placement] = imagePlacements([{ line: 0, media: entry, look: look.pixels, ...box }], 0, cw, chh);
     return { line: ref.line, box, placement: placement ? { ...placement, key: `hero:${placement.key}`, col: placement.col + (bounds?.col ?? (look.bleed === "full" ? 0 : this.bx)), row: bounds?.row ?? 0, rows: placement.rows - (bounds?.row ?? 0) } : null, loading: false, name, look };
   }
@@ -1824,24 +1846,12 @@ export class NoteSurface {
     });
   }
 
-  /** heroSources' pictures, before the look's offsets: the look's `header.image` first when it names one, else the hero. */
+  /** heroSources' pictures: the hero first, then (follow) the body's. */
   private heroPictures(m: Msg, doc: Doc, noteLines: number[], mode: HeroMode, scroll: number): { path: string; kind: "img" | "video"; focus?: Focus; dim?: number; line: number; gone: number; pixels?: import("../media").Look }[] {
     const clamp = (x: number) => Math.max(0, Math.min(1, x));
     const look = (spec: MediaSpec) => ({ ...(spec.focus ? { focus: spec.focus } : {}), ...(spec.dim !== undefined ? { dim: spec.dim } : {}) });
     const out: ReturnType<NoteSurface["heroSources"]> = [];
-    // `header.image` (PIE-675): one of the note's pictures (by its path or its file's name), taken in as it scrolls under
-    // like the hero; or a picture of its own, the header's from the start (muted and dark-capped as every backdrop is).
-    const named = this.lastLook?.values["header.image"]?.trim();
-    if (named) {
-      const base = (p: string) => p.split("/").pop() ?? p;
-      const ref = this.imagesIn(m).find(x => x.path === named || base(x.path) === named);
-      const im = ref && doc.media.find(x => noteLines[x.line] === ref.line);
-      const at = im?.image !== undefined ? doc.images[im.image] : undefined;
-      const gone = !ref ? 1 : ref.line === this.hero?.line ? scroll / Math.max(1, this.hero.full) : at ? (scroll - at.line) / Math.max(1, at.rows) : im ? (scroll - im.row) / HERO_RAMP_ROWS : 1;
-      out.push({ path: ref?.path ?? named, kind: ref?.spec.kind === "video" ? "video" : "img", ...(ref ? look(ref.spec) : {}), line: ref?.line ?? 0, gone: clamp(gone) });
-      if (mode === "first") return out;
-    }
-    if (this.hero && !named) {
+    if (this.hero) {
       const ref = this.imagesIn(m).find(x => x.line === this.hero!.line);
       if (ref) out.push({ path: ref.path, kind: ref.spec.kind === "video" ? "video" : "img", ...look(ref.spec), line: ref.line, gone: this.hero.pinned ? 0 : clamp(scroll / Math.max(1, this.hero.full)) });
       if (mode === "first") return out;
@@ -5789,6 +5799,15 @@ export class NoteSurface {
     }
     return out;
   }
+  /** Which of `m`'s images is its header: the first `[layout::hero]` line (PIE-1361), the one place that decides it. */
+  heroRef(m: Msg) { return this.imagesIn(m).find(x => x.spec.layout === "hero"); }
+  /** The note's header image as the tune shows it (PIE-1361): its line, its file, its look as written, its rows drawn; null when it has none. */
+  heroInfo(m: Msg): { line: number; name: string; values: Partial<Record<HeroProp, string>>; rows: number | null } | null {
+    const ref = this.heroRef(m);
+    if (!ref) return null;
+    const values = Object.fromEntries(HERO_PROP_NAMES.flatMap(p => { const v = heroPropText(ref.spec, p); return v === undefined ? [] : [[p, v]]; }));
+    return { line: ref.line, name: ref.path.split("/").pop() ?? ref.path, values, rows: this.hero?.line === ref.line ? this.hero.full : null };
+  }
   /** How many rows the header image takes now, or null when the reader doesn't draw one. */
   heroRowsDrawn(): number | null { return this.hero?.full ?? null; }
 
@@ -7985,6 +8004,15 @@ export class NoteSurface {
     }
     this.dragging = false;
     if (this.placementMenu) { this.gesture.press(x, y); return; }
+    // The header image (PIE-1361): its bottom row sizes it, the picture above that moves its focus.
+    // Its rows as drawn: under a title written over it, the picture runs on under the title's rows.
+    const heroRows = host.attachment || !(this.drawn?.heroRows) || !this.hero ? 0 : this.hero.pinned || !this.scroll ? this.hero.picture : this.drawn.heroRows;
+    if (!this.editing && this.hero && heroRows > 0 && y >= 0 && y < heroRows && !this.floatAt(x, y, host)) {
+      const spec = this.msg && this.imagesIn(this.msg).find(r => r.line === this.hero!.line)?.spec;
+      this.heroDrag = { kind: y === heroRows - 1 ? "height" : "focus", x, y, rows: this.hero.picture, cols: this.drawn?.w ?? 80, focus: spec?.focus ?? { x: 0.5, y: 0.5 }, line: this.hero.line };
+      this.gesture.press(x, y);
+      return;
+    }
     const float = this.floatAt(x, y, host);
     const ep = this.editPreview;
     if (float === "draft" && this.draft?.preview && ep.place === "floating" && ep.frame) {
@@ -8039,6 +8067,17 @@ export class NoteSurface {
   /** The pointer moved with the button down: once off the pressed cell, it selects from there. */
   drag(x: number, y: number, host: SurfaceHost): void {
     if (this.panel?.fieldMouse("drag", x, y)) { host.redraw(); return; }
+    const hd = this.heroDrag;
+    if (hd) {
+      if (hd.saving || (x === hd.x && y === hd.y && !hd.now)) return;
+      const clamp = (v: number) => Math.max(0, Math.min(1, Math.round(v * 100) / 100));
+      hd.now = hd.kind === "height"
+        ? { height: Math.max(3, Math.min(this.hero?.max ?? hd.rows, hd.rows + y - hd.y)) }
+        // The picture follows the pointer: dragged right, the crop shows more of its left.
+        : { focus: { x: clamp(hd.focus.x - (x - hd.x) / Math.max(1, hd.cols)), y: clamp(hd.focus.y - (y - hd.y) / Math.max(1, hd.rows)) } };
+      host.redraw();
+      return;
+    }
     if (this.modes.get("form")) {
       const hit = this.formHit(x, y);
       if (hit && "link" in hit && hit.link.form?.field === this.form?.fields[this.form.focus]?.name) {
@@ -8090,6 +8129,19 @@ export class NoteSurface {
 
   private releaseNow(x: number, y: number, host: SurfaceHost): boolean {
     if (this.panel?.fieldMouse("up", x, y)) { host.redraw(); return true; }
+    const hd = this.heroDrag;
+    if (hd && !hd.saving) {
+      this.gesture.release(x, y);
+      if (!hd.now) { this.heroDrag = null; return this.click(x, y, host); }
+      // Drawn where it was let go until its save lands, so the header never snaps back first.
+      hd.saving = true;
+      const r = (v: number) => String(Math.round(v * 100) / 100);
+      const saved = hd.now.height !== undefined ? this.runKey("image.size", { line: hd.line + 1, height: String(hd.now.height) }, host)
+        : this.runKey("image.look", { line: hd.line + 1, focus: `${r(hd.now.focus!.x)},${r(hd.now.focus!.y)}` }, host);
+      void saved.finally(() => { if (this.heroDrag === hd) this.heroDrag = null; host.redraw(); });
+      host.redraw();
+      return true;
+    }
     if (this.placementMenu) return this.modes.click(x, y, host) ?? false;
     if (this.splitDrag) { this.splitDrag = null; host.redraw(); return true; }
     if (this.frameDrag?.target === "sources" || this.frameDrag?.target === "edit-preview") { this.frameDrag = null; host.redraw(); return true; }
@@ -8576,7 +8628,7 @@ export class NoteSurface {
       elements: this.drawn || this.digesting ? { count: this.elems.length, current: this.describeElements().find(e => e.current) ?? null } : null,
       focus: this.focusMark ? { by: whoOf(this.focusMark.by), marked: this.focusMark.label, ...this.focusMark.spec } : null,
       // The look it was drawn with (PIE-673): reported here, never put into the text it reads back.
-      look: this.lastLook ? { breakpoint: this.lastLook.breakpoint, width: this.lastLook.width, ...Object.fromEntries((["measure", "pad.x", "pad.y", "margin.x", "margin.y", "list.gap", "list.zebra", "list.zebra.bg", "list.zebra.strength", "list.divider", "list.divider.glyph", "list.divider.align", "bg", "bg.strength", "border", "edge", "tone", "header.bg", "header.bg.opacity", "header.rule", "header.rule.tone", "header.image", "header.image.x", "header.image.y"] as const).map(t => [t, this.lastLook!.values[t]])) } : null,
+      look: this.lastLook ? { breakpoint: this.lastLook.breakpoint, width: this.lastLook.width, ...Object.fromEntries((["measure", "pad.x", "pad.y", "margin.x", "margin.y", "list.gap", "list.zebra", "list.zebra.bg", "list.zebra.strength", "list.divider", "list.divider.glyph", "list.divider.align", "bg", "bg.strength", "border", "edge", "tone", "header.bg", "header.bg.opacity", "header.rule", "header.rule.tone"] as const).map(t => [t, this.lastLook!.values[t]])) } : null,
       properties: (this.modes.get("panel") as PanelMode | null)?.describe() ?? null,
       sources: this.sourcesMode?.describe() ?? null,
       listPreview: this.previewPoint() ? { selected: this.previewPoint()!.text, place: this.listPreview.place, top: this.listPreview.top } : null,
@@ -12020,7 +12072,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "image.size": def({
-    summary: "size an image (PIE-532): to= its width (cells, N% of the reader, full, or none for its own), height= its rows (a number, or none), or by=1|-1 one step (a quarter, a third, a half, two thirds, three quarters, full; on the header, its height by 2 rows). Its aspect is kept. Written as [size::…] [height::…] on its line through the note's save, checked against the line as drawn and the revision read now, recorded as whoever asks; ctrl+z (image.undo) puts it back",
+    summary: "size an image (PIE-532): to= its width (cells, N% of the reader, full, or none for its own), height= its rows (a number, or none), or by=1|-1 one step (a quarter, a third, a half, two thirds, three quarters, full; on the header, its height by the steps image.look prop=height takes). Its aspect is kept. Written as [size::…] [height::…] on its line through the note's save, checked against the line as drawn and the revision read now, recorded as whoever asks; ctrl+z (image.undo) puts it back",
     keys: "+ - while an image is the [ ] position, a click on its caption's − or +",
     touches: "draft", draft: "write", replay: "ask",
     args: {
@@ -12041,8 +12093,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const ref = await surface.imageNamed(which, actor), hero = ref.spec.layout === "hero";
         const set: Partial<Record<MediaAttr, string | null>> = {};
         if (by !== undefined && hero) {
-          const now = ref.spec.height ?? surface.heroRowsDrawn() ?? HERO_ROWS;
-          set.height = String(Math.max(3, Math.min(60, now + (by > 0 ? 2 : -2))));
+          // The same steps as the tune's height row (outline-core's HERO_PROPS), a share by shares.
+          set.height = heroPropStep("height", heroPropText(ref.spec, "height") ?? String(surface.heroRowsDrawn() ?? HERO_ROWS), by);
         } else if (by !== undefined) {
           const next = surface.sizeStep(ref, by);
           if (next === null) { const why = by > 0 ? "it's the full width already" : "it's at the smallest step (25%) already: image.size to= any width"; host.ctx.flash(why); throw new ActionRefused(why); }
@@ -12138,6 +12190,47 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if (v !== "auto" && d === null) throw new ActionRefused(`to is a number from 0 (as it is) to 1 (black), or auto; not ${JSON.stringify(to)}`);
         const ref = notArtifact(await surface.imageNamed(which, actor));
         return surface.changeImage(ref, { dim: d === null ? null : String(d) }, d === null ? "dimmed as bright images are" : `dim ${d}`, host, actor);
+      });
+    },
+  }),
+  "image.look": def({
+    summary: "change the note's header image's look (PIE-1361): prop= one of HERO_PROPS (height, focus.x, focus.y, fit, dim, tint, fade, blur, bleed, title, scroll) with to= a value (none takes it off the line: the built-in) or by=1|-1 a step; or focus=x,y for both halves at once. Written as that property on the hero's own line ([tint::0.5], [hero-focus::0.3,0.6]) through the note's save, checked against the line as drawn, recorded as whoever asks; ctrl+z (image.undo) puts it back. The tune's hero rows and the header's drags run this",
+    keys: "the tune's hero rows (− + × and the wheel), a drag inside the header picture (focus)",
+    touches: "draft", draft: "write", replay: "ask",
+    args: {
+      ...IMAGE_ARGS,
+      prop: { type: "string", optional: true, about: "height, focus.x, focus.y, fit, dim, tint, fade, blur, bleed, title or scroll" },
+      to: { type: "string", optional: true, about: "its value, or none" },
+      by: { type: "number", optional: true, about: "1 a step up, -1 a step down" },
+      focus: { type: "string", optional: true, about: "x,y: the point the crop keeps in view, each 0 to 1" },
+    },
+    examples: [
+      { act: "image.look prop=tint to=0.5", does: "tints the header picture halfway toward the tile's tone, writing [tint::0.5] on its line" },
+      { act: "image.look prop=title by=1", does: "puts the title over the picture's bottom ([title::over])" },
+      { act: "image.look focus=0.3,0.7", does: "keeps the point 30% across and 70% down in view ([hero-focus::0.3,0.7])" },
+    ],
+    async run({ prop, to, by, focus, ...which }, { surface, host }, actor) {
+      return surface.inTurn(async () => {
+        const named = which.n !== undefined || which.line !== undefined ? await surface.imageNamed(which, actor) : surface.heroRef(await surface.whole());
+        if (!named) throw new ActionRefused("this note has no header image: H on an image (image.hero) makes it one");
+        const ref = notArtifact(named);
+        if (ref.spec.layout !== "hero") throw new ActionRefused(`the image on line ${ref.line + 1} isn't the header: image.look changes the header's ([layout::hero]); image.hero makes it one`);
+        if (focus !== undefined) {
+          if (prop !== undefined || to !== undefined || by !== undefined) throw new ActionRefused("say focus=x,y alone, or prop= with to= or by=");
+          const f = parseFocus(focus);
+          if (!f) throw new ActionRefused(`focus is x,y, each 0 to 1 (0.3,0.7); not ${JSON.stringify(focus)}`);
+          const r = (x: number) => String(Math.round(x * 100) / 100);
+          return surface.changeImage(ref, { "hero-focus": `${r(f.x)},${r(f.y)}` }, `focus ${r(f.x)},${r(f.y)}`, host, actor);
+        }
+        if (prop === undefined || !isHeroProp(prop)) throw new ActionRefused(`prop is one of ${HERO_PROP_NAMES.join(", ")}`);
+        if ((to === undefined) === (by === undefined)) throw new ActionRefused("say to= (a value, or none) or by=1|-1");
+        if (by !== undefined && by !== 1 && by !== -1) throw new ActionRefused(`by is 1 or -1 (a step), not ${by}`);
+        const drawnRows = prop === "height" && ref.spec.height === undefined ? surface.heroRowsDrawn() : null;
+        // A height left out steps from the rows drawn (or, none drawn, the reader's usual header).
+        const value = to ?? heroPropStep(prop, heroPropText(ref.spec, prop) ?? (prop === "height" ? String(drawnRows ?? HERO_ROWS) : undefined), by!);
+        const r = heroPropSet(ref.spec, prop, value);
+        if ("problem" in r) throw new ActionRefused(r.problem);
+        return { ...(await surface.changeImage(ref, r.set, `${prop} ${value === "none" ? `as built in (${HERO_PROPS[prop].none})` : value}`, host, actor)), prop, value };
       });
     },
   }),

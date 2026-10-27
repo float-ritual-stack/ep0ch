@@ -23,8 +23,9 @@ import {
   SURFACE_STEPS, type Breakpoint, type StyleGroup, type StyleLayer, type StyleSource, type StyleToken, type StyleValue, type Surface,
 } from "@ep0ch/outline-core/style-cascade";
 import { liveTokensInLine } from "@ep0ch/outline-core/heading-styles";
+import { HERO_PROP_NAMES, HERO_PROPS, isHeroProp, type HeroProp } from "@ep0ch/outline-core/media-line";
 import {
-  clearNotes, levelNotes, listTarget, lookFor, parseListTarget, writeLine, writeTile, revertAll, rewrite, saveTuning, sourceTarget, stepWords, targetWords, tuneTarget, tuningOf, UNSET,
+  clearNotes, levelNotes, styleSheetProblems, listTarget, lookFor, parseListTarget, writeLine, writeTile, revertAll, rewrite, saveTuning, sourceTarget, stepWords, targetWords, tuneTarget, tuningOf, UNSET,
   type Look, type NoteWrite, type StyleWriteBoard, type TuneTarget,
 } from "../look";
 import { readState, writeState } from "../state";
@@ -66,12 +67,20 @@ const rowNamed = (name: string) => TUNE_ROWS.find(r => r.name === name.trim().to
 /** What the inspector sees of the tile it tunes (DeskApi.tileLook). */
 export interface TuneTargetInfo {
   look: Look; kind: string; title: string; cols: number; box: { attrs: string; line: number } | null;
-  /** The note's pictures (a reader's), by path: what a nudge of `header.image` steps through, after the hero (empty). */
-  pictures?: string[];
-  hero?: boolean;
+  /**
+   * The note's header image (a reader's, PIE-1361): its line and what that line writes for each of its look's
+   * properties; null when the note has none. Its rows are the tune's Hero group, edited on that line (image.look).
+   */
+  hero?: TuneHero | null;
   /** The list the reader's [ ] is in (`this list`): where its save goes, and its own layers. */
   list?: { target: string | null; layers: StyleLayer[]; first: number; revision?: number; component?: boolean } | null;
 }
+
+/** A reader's header image as the tune shows it (DeskApi.tileLook): its line, its file, its properties as written, its rows drawn. */
+export interface TuneHero { line: number; name: string; values: Partial<Record<HeroProp, string>>; rows: number | null }
+/** A Hero row's name in actions and `peek`: `hero.tint`. */
+const HERO_ROW = (p: HeroProp) => `hero.${p}`;
+const heroRowNamed = (name: string): HeroProp | null => { const n = name.trim().toLowerCase(); return n.startsWith("hero.") && isHeroProp(n.slice(5)) ? n.slice(5) as HeroProp : null; };
 
 /** The rows that are a surface (PIE-675): drawn with a swatch of it beside the value, at the strength they're shown at. */
 const SWATCH: Partial<Record<StyleToken, StyleToken>> = { "bg": "bg.strength", "list.zebra.bg": "list.zebra.strength", "header.bg": "header.bg.opacity" };
@@ -83,6 +92,9 @@ function widthWords(look: Look): string {
   const v = look.values;
   return look.breakpoint === "narrow" ? `narrow (under ${v["bp.narrow"]})` : look.breakpoint === "wide" ? `wide (${v["bp.wide"]} and up)` : `normal (${v["bp.narrow"]}–${v["bp.wide"] - 1})`;
 }
+
+/** The widest a row's source runs: a wide tune keeps its controls beside the values, not at the far edge. */
+const SRC_MAX = 32;
 
 /** The help line under the rows: the door's own selection copies the text; a terminal's own copies the spacing as spaces. */
 export const TUNE_HELP = "copy with the door's own selection (a drag; it copies the text over OSC 52): a terminal's shift-drag or copy-mode copies the spacing as spaces and blank lines";
@@ -104,6 +116,10 @@ export class TunePane implements Pane {
   besideShort = false;
   sel = 0;
   group: StyleGroup | null = null;
+  /** The Hero row picked (a reader's header image, PIE-1361), over `sel` and `group`. */
+  heroSel: HeroProp | null = null;
+  /** Nothing picked yet: a note with a header picture opens on its first Hero row, the rows a person came for. */
+  fresh = true;
   foldedGroups = new Set(readState<StyleGroup[]>("tune-folds.json") ?? []);
   onlySet = false;
   /**
@@ -123,7 +139,7 @@ export class TunePane implements Pane {
   private head = 0;
   private controls: { y: number; x: number; cols: number; action: string; args: Record<string, unknown> }[] = [];
   /** The rows' screen lines as last drawn: the row each is, or the value cell a wheel nudges. */
-  private rowAt = new Map<number, { row: number; valueFrom: number; valueTo: number }>();
+  private rowAt = new Map<number, { row: number; hero?: HeroProp; valueFrom: number; valueTo: number }>();
   /** `source`: the tile it tunes, by name (re-resolved each frame: ADR 0001, a role). */
   constructor(public source: string) {}
 
@@ -196,22 +212,39 @@ export class TunePane implements Pane {
     };
   }
 
-  entries(t: TuneTargetInfo): ({ group: StyleGroup } | { index: number })[] {
-    return STYLE_GROUPS.flatMap(group => [
+  entries(t: TuneTargetInfo): ({ group: StyleGroup } | { index: number } | { hero: HeroProp })[] {
+    return [...(t.hero ? HERO_PROP_NAMES.map(hero => ({ hero })) : []), ...STYLE_GROUPS.flatMap(group => [
       { group } as { group: StyleGroup } | { index: number },
       ...TUNE_ROWS.flatMap((row, index) => groupOf(row) === group && !this.foldedGroups.has(group) && (!this.onlySet || row.tokens.some(tk => this.ownValue(t, tk) !== null)) ? [{ index }] : []),
-    ]);
+    ])];
+  }
+  /** The Hero row picked, while the note shown has a header picture (one without lets the pick go). */
+  heroPicked(desk: DeskApi): HeroProp | null {
+    if (this.heroSel && !this.info(desk)?.hero) this.heroSel = null;
+    return this.heroSel;
+  }
+  /** Whether `r` is the entry picked. */
+  private isPicked(r: { group: StyleGroup } | { index: number } | { hero: HeroProp }) {
+    return "hero" in r ? this.heroSel === r.hero : this.heroSel !== null ? false : "group" in r ? r.group === this.group : this.group === null && r.index === this.sel;
   }
 
   move(by: number, desk: DeskApi) {
     const t = this.info(desk); if (!t) return;
-    const rows = this.entries(t), at = rows.findIndex(r => "group" in r ? r.group === this.group : this.group === null && r.index === this.sel);
+    const rows = this.entries(t), at = rows.findIndex(r => this.isPicked(r));
     const next = rows[Math.max(0, Math.min(rows.length - 1, at + by))]!;
-    this.run(desk, "group" in next ? "tune.group.pick" : "tune.pick", "group" in next ? { group: next.group } : { n: next.index + 1 });
+    this.run(desk, "group" in next ? "tune.group.pick" : "tune.pick", "group" in next ? { group: next.group } : "hero" in next ? { row: HERO_ROW(next.hero) } : { n: next.index + 1 });
   }
 
   async editField(desk: DeskApi) {
-    const row = TUNE_ROWS[this.sel]!, t = this.info(desk);
+    const t = this.info(desk), hp = this.heroSel;
+    if (hp && t?.hero) {
+      const choices = [...HERO_PROPS[hp].steps];
+      await this.view.edit(HERO_ROW(hp), t.hero.values[hp] ?? "none", choices, false, `tune:hero:${hp}`,
+        value => TUNE_ACTIONS.run("tune.set", { row: HERO_ROW(hp), value }, { pane: this, desk, standing: true }, { kind: "user" }), { redraw: () => desk.redraw(), said: text => desk.ctx.flash(text) });
+      desk.redraw();
+      return { editing: HERO_ROW(hp) };
+    }
+    const row = TUNE_ROWS[this.sel]!;
     if (!t || this.group || row.tokens.length !== 1) throw new ActionRefused("choose a single value row to edit");
     const token = row.tokens[0]!, kind = STYLE_TOKENS[token].type;
     const choices = kind.kind === "enum" ? [...kind.values] : kind.kind === "bool" ? ["on", "off"] : [];
@@ -300,7 +333,8 @@ export class TunePane implements Pane {
         ...(s.can.includes("clear") ? [{ label: `[c ${s.clear}]`, action: "tune.nudge", args: { row: o.row, by: o.by, shadow: "clear" } }] : []),
       ]);
     } else lines.push("");
-    if (t.look.problems.length) words(`!! ${t.look.problems.join(" · ")}`, C.yellow);
+    const problems = problemsOf(t, desk);
+    if (problems.length) words(`!! ${problems.join(" · ")}`, C.yellow);
     chips([{ label: this.onlySet ? "[set here]" : "[all values]", on: this.onlySet, action: "tune.filter", args: { set: !this.onlySet } }]);
     const help = wrap(TUNE_HELP, w);
     this.head = lines.length;
@@ -308,8 +342,9 @@ export class TunePane implements Pane {
     // A level (or one width) picked: a column of what it says itself, beside the value in force.
     const picked = this.level !== "auto" || this.scope === "this";
     // Columns that fit the tile: the source gives way first (to 6), then the value (to 8), then the name.
+    // A wide tune gives its names and values the room (no `bg.stren…` beside empty columns).
     const ctl = 10, room0 = Math.max(0, w - ctl - 1), lvlW = picked ? 8 : 0;
-    let valW = 12, nameW = Math.min(20, room0 - valW - lvlW - 8);
+    let valW = w >= 100 ? 18 : 12, nameW = Math.min(w >= 100 ? 26 : 20, room0 - valW - lvlW - 8);
     if (nameW < 14) { valW = 8; nameW = Math.max(6, Math.min(20, room0 - valW - lvlW - 6)); }
     const room = Math.max(2, h - this.head - help.length - 1);
     // With a level (or a width) picked, a header names the columns: the value in force, what that level says itself, where the value in force comes from.
@@ -317,21 +352,48 @@ export class TunePane implements Pane {
       const lv = this.level === "auto" ? "where set" : this.level;
       lines.push(fg(C.dark) + pad("", nameW) + pad("in force", valW) + fg(C.lcyan) + " " + pad(drawEllipsized(`${lv}${this.scope === "this" && t.look.breakpoint ? ` ${t.look.breakpoint}` : ""}`, lvlW - 2), lvlW - 1) + fg(C.dark) + "from" + RESET);
     }
+    if (this.fresh && t.hero) { this.fresh = false; this.heroSel = HERO_PROP_NAMES[0]!; }
+    if (!t.hero) this.heroSel = null;
     const entries = this.entries(t);
-    const cursor = entries.findIndex(r => "group" in r ? r.group === this.group : this.group === null && r.index === this.sel);
-    this.view.place(Math.max(0, cursor), entries.length, picked ? room - 1 : room);
-    for (const entry of entries.slice(this.view.top, this.view.top + (picked ? room - 1 : room))) {
+    const cursor = entries.findIndex(r => this.isPicked(r));
+    // The note's header image first (PIE-1361): its own line's properties, written there at once.
+    // Without one, a row saying how to make one, when there's room to spare (it never takes the values' rows).
+    const heroHead = t.hero ? 1 : t.hero === null && room >= 6 ? 1 : 0;
+    if (heroHead) {
+      if (t.hero) {
+        const head = `▾ Hero · this note's · line ${t.hero.line + 1} · ${t.hero.name}`;
+        lines.push(fg(C.lcyan) + pad(drawEllipsized(head, w), w) + RESET);
+      } else lines.push(fg(C.dark) + pad(drawEllipsized("Hero · this note has no header picture: H on one of its images (image.hero) makes it one", w), w) + RESET);
+    }
+    const heroRows = t.hero ? HERO_PROP_NAMES.length : 0;
+    this.view.place(Math.max(0, cursor), entries.length, (picked ? room - 1 : room) - heroHead - (heroRows ? 1 : 0));
+    let heroDone = false;
+    for (const entry of entries.slice(this.view.top, this.view.top + (picked ? room - 1 : room) - heroHead - (heroRows ? 1 : 0))) {
+      if ("hero" in entry) {
+        const hp = entry.hero, on = this.heroSel === hp, own = t.hero!.values[hp];
+        const shown = own ?? (hp === "height" && t.hero!.rows !== null ? `${t.hero!.rows} rows` : HERO_PROPS[hp].none);
+        const y = lines.length, srcW = Math.max(0, Math.min(SRC_MAX, w - nameW - valW - ctl - 1));
+        const name = " " + pad(drawEllipsized(hp, nameW - 2), nameW - 1), value = pad(drawEllipsized(shown, valW - 1), valW);
+        const whence = own === undefined ? "built in" : `[${HERO_PROPS[hp].attr}::]`;
+        const body = (on ? "" : fg(C.grey)) + name + (on ? "" : fg(own === undefined ? C.dark : C.white)) + value + (on ? "" : fg(C.dark)) + pad(whence, srcW) + RESET;
+        const unset = nameW + valW + srcW + 1, minus = unset + 2;
+        this.rowAt.set(y, { row: -1, hero: hp, valueFrom: nameW, valueTo: nameW + valW });
+        this.controls.push({ y, x: unset, cols: 1, action: "tune.unset", args: { row: HERO_ROW(hp) } }, { y, x: minus, cols: 3, action: "tune.nudge", args: { row: HERO_ROW(hp), by: -1 } }, { y, x: minus + 4, cols: 3, action: "tune.nudge", args: { row: HERO_ROW(hp), by: 1 } });
+        lines.push((on ? selectedRow(body, nameW + valW + srcW, focused) : body) + " " + fg(C.dark) + "×" + RESET + " " + fg(C.cyan) + "[−] [+]" + RESET);
+        continue;
+      }
+      if (heroRows && !heroDone) { heroDone = true; lines.push(fg(C.dark) + pad(drawEllipsized(" saved on the note's hero line at once · ctrl+z in the reader undoes", w), w) + RESET); }
       if ("group" in entry) {
-        const group = entry.group, on = this.group === group;
+        const group = entry.group, on = this.heroSel === null && this.group === group;
         const count = STYLE_TOKEN_NAMES.filter(tk => groupOf({ name: tk, tokens: [tk] }) === group && this.ownValue(t, tk) !== null).length;
         const body = `${this.foldedGroups.has(group) ? "▸" : "▾"} ${group} (${count} set here)`;
         this.controls.push({ y: lines.length, x: 0, cols: w, action: "tune.group", args: { group } });
         lines.push(on ? selectedRow(body, w, focused) : fg(C.lcyan) + body + RESET);
         continue;
       }
-      const i = entry.index, row = TUNE_ROWS[i]!, on = this.group === null && i === this.sel, last = row.tokens[row.tokens.length - 1]!;
+      const i = entry.index, row = TUNE_ROWS[i]!, on = this.heroSel === null && this.group === null && i === this.sel, last = row.tokens[row.tokens.length - 1]!;
       const text = row.tokens.map(tk => styleValueText(values[tk] as StyleValue)).join(" ");
-      const shown = text === "" ? (t.hero ? "(the hero)" : "none (this note has no hero)") : text;
+      const shown = text;
       // A surface's row shows it: a swatch of the colour it draws, at the strength (or opacity) it's drawn at.
       const sw = SWATCH[row.tokens[0]!], swatch = sw ? swatchOf(values[row.tokens[0]!] as Surface, values[sw] as number, row.tokens[0] === "header.bg") : "";
       const src = sources[last];
@@ -342,7 +404,7 @@ export class TunePane implements Pane {
       const aimed = picked ? this.aimAt(t, last) : null;
       const own = picked && aimed ? row.tokens.map(tk => this.ownValue(t, tk)) : [];
       const ownText = !picked ? "" : !aimed ? "—" : own.every(v => v === null) ? "—" : own.map(v => (v === UNSET ? "×" : v ?? "·")).join(" ");
-      const srcW = Math.max(0, w - nameW - valW - lvlW - ctl - 1);
+      const srcW = Math.max(0, Math.min(SRC_MAX, w - nameW - valW - lvlW - ctl - 1));
       const y = lines.length;
       const name = " " + pad(drawEllipsized(row.name, nameW - 2), nameW - 1), value = swatch && valW > 6 ? pad(drawEllipsized(shown, valW - 4), valW - 3) + " " + swatch + (on ? selected(focused) : "") : pad(drawEllipsized(shown, valW - 1), valW);
       const lvl = picked ? " " + pad(drawEllipsized(ownText, lvlW - 2), lvlW - 1) : "";
@@ -355,7 +417,6 @@ export class TunePane implements Pane {
       this.controls.push({ y, x: unset, cols: 1, action: "tune.unset", args: { row: row.name } }, { y, x: minus, cols: 3, action: "tune.nudge", args: { row: row.name, by: -1 } }, { y, x: minus + 4, cols: 3, action: "tune.nudge", args: { row: row.name, by: 1 } });
       lines.push((on ? selectedRow(body, nameW + valW + lvlW + srcW, focused) : body) + " " + fg(C.dark) + "×" + RESET + " " + fg(C.cyan) + "[−] [+]" + RESET);
     }
-    if (!this.group && TUNE_ROWS[this.sel]?.name === "header.image" && !values["header.image"]) words(t.hero ? "(the hero)" : "none (this note has no hero)", C.lcyan);
     lines.push(...help.map(l => fg(C.dark) + l + RESET));
     return { lines };
   }
@@ -430,14 +491,14 @@ export class TunePane implements Pane {
     const at = this.rowAt.get(y);
     if (k.action === "wheel-up" || k.action === "wheel-down") {
       const up = k.action === "wheel-up";
-      if (at && x >= at.valueFrom && x < at.valueTo) this.run(desk, "tune.nudge", { row: TUNE_ROWS[at.row]!.name, by: up ? 1 : -1 });
+      if (at && x >= at.valueFrom && x < at.valueTo) this.run(desk, "tune.nudge", { row: at.hero ? HERO_ROW(at.hero) : TUNE_ROWS[at.row]!.name, by: up ? 1 : -1 });
       else this.move(up ? -1 : 1, desk);
       return true;
     }
     if (k.action !== "down") return true;
     const c = this.controls.find(s => s.y === y && x >= s.x && x < s.x + s.cols);
     if (c) { this.run(desk, c.action, c.args); return true; }
-    if (at) { const gesture = this.view.press(at.row, press ?? {}); this.run(desk, "tune.pick", { n: at.row + 1 }); if (gesture === "open") this.run(desk, "tune.edit", {}); }
+    if (at) { const gesture = this.view.press(at.hero ? -1 - HERO_PROP_NAMES.indexOf(at.hero) : at.row, press ?? {}); this.run(desk, "tune.pick", at.hero ? { row: HERO_ROW(at.hero) } : { n: at.row + 1 }); if (gesture === "open") this.run(desk, "tune.edit", {}); }
     return true;
   }
 
@@ -457,7 +518,8 @@ export class TunePane implements Pane {
     const picked = this.level !== "auto" || this.scope === "this";
     return {
       tile: this.source, kind: t.kind, cols: t.cols, breakpoint: t.look.breakpoint, level: this.level, scope: this.scope, ...(t.box ? { box: t.box } : {}),
-      selected: this.group ?? TUNE_ROWS[this.sel]!.name,
+      selected: this.heroSel ? HERO_ROW(this.heroSel) : this.group ?? TUNE_ROWS[this.sel]!.name,
+      hero: t.hero ? { line: t.hero.line + 1, image: t.hero.name, values: Object.fromEntries(HERO_PROP_NAMES.map(p => [p, { value: t.hero!.values[p] ?? HERO_PROPS[p].none, from: t.hero!.values[p] === undefined ? "built in" : "the hero line" }])) } : t.hero === null ? null : undefined,
       groups: STYLE_GROUPS.map(group => ({ group, folded: this.foldedGroups.has(group) })), onlySet: this.onlySet,
       values: Object.fromEntries((Object.keys(STYLE_TOKENS) as StyleToken[]).map(tk => {
         const a = picked ? this.aimAt(t, tk) : null, own = a ? this.ownValue(t, tk) : null, sh = picked ? this.shadowOf(t, tk) : null;
@@ -467,7 +529,7 @@ export class TunePane implements Pane {
           ...(sh ? { overridden: sh.why } : {}),
         }];
       })),
-      unsaved: tuning?.unsaved() ?? [], problems: t.look.problems,
+      unsaved: tuning?.unsaved() ?? [], problems: desk ? problemsOf(t, desk) : t.look.problems,
       ...(this.offer ? { offer: { row: this.offer.row, why: this.offer.shadow.why, choices: this.offer.shadow.can } } : {}),
       ...(this.armed ? { armed: this.armed } : {}),
     };
@@ -544,6 +606,25 @@ function listOnly(target: TuneTarget, field: string, t: TuneTargetInfo, tuning: 
   if (t.list?.revision !== undefined && !tuning.listSeen.has(target)) tuning.listSeen.set(target, t.list.revision);
 }
 
+/**
+ * A Hero row's change (PIE-1361): the reader's header image's own line, through the reader's image.look, saved at once
+ * and attributed (ctrl+z there undoes it). Not a nudge: no level, nothing to save, nothing in the tune's history.
+ */
+async function writeHeroRow(pane: TunePane, desk: DeskApi, actor: Actor, prop: HeroProp, change: { by: number } | { to: string }) {
+  const t = pane.info(desk);
+  if (!t?.hero) throw new ActionRefused(t?.hero === null ? `${pane.source}'s note has no header picture: H on one of its images (image.hero) makes it one` : `${pane.source} isn't a reader showing a note`);
+  const args = { prop, ...change };
+  const reader = desk.paneNamed?.(pane.source);
+  const out = actor.kind === "agent" && desk.within ? await desk.within("image.look", args, actor, reader) : await desk.perform?.("image.look", args, actor, pane.source);
+  desk.redraw();
+  // A person's refused press has said why already (perform flashes it): nothing more to say.
+  if (!out || typeof out !== "object") return { row: HERO_ROW(prop), refused: true };
+  return { row: HERO_ROW(prop), ...out, at: "the hero line" };
+}
+
+/** What's wrong with the look here: the tile's layers, then the outline's style notes (a key one no longer reads, PIE-1361). */
+const problemsOf = (t: TuneTargetInfo, desk: DeskApi) => [...new Set([...t.look.problems, ...styleSheetProblems(desk.ctx.board as object)])];
+
 /** The step words for the status line and the result. */
 const stepSaid = (actor: Actor, desk: DeskApi, words: string) => { desk.ctx.flash(says(actor, words)); return words; };
 
@@ -555,7 +636,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     run({ group }, { pane, desk }) {
       const found = STYLE_GROUPS.find(g => g === group);
       if (!found) throw new ActionRefused(`choose a group: ${STYLE_GROUPS.join(", ")}`);
-      pane.group = found; desk.redraw(); return { group: found };
+      pane.group = found; pane.heroSel = null; pane.fresh = false; desk.redraw(); return { group: found };
     },
   }),
   "tune.group": def({
@@ -599,14 +680,23 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     run: async ({ op, value, n, row, col }, { pane, desk }) => { const copied = await pane.view.input(op, value, n, row, col); if (copied) desk.ctx.copy?.(copied); desk.redraw(); return { edited: true }; },
   }),
   "tune.pick": def({
-    summary: "pick a row of the tune inspector (n from 1, as peek lists them)",
+    summary: "pick a row of the tune inspector (n from 1, as peek lists them), or a Hero row by its name (row=hero.tint)",
     keys: "j k ↑ ↓, a click on a row, the wheel off the values",
     touches: "tile", replay: "safe",
-    args: { n: { type: "number", about: "the row, from 1" } },
+    args: { n: { type: "number", optional: true, about: "the row, from 1" }, row: { type: "string", optional: true, about: "a Hero row: hero.height, hero.tint, …" } },
     examples: [
       { act: "tune.pick n=3 tile=tune", does: "picks the third row of the tune inspector and answers its name" },
+      { act: "tune.pick row=hero.fade tile=tune", does: "picks the header picture's fade row" },
     ],
-    run({ n }, { pane, desk }) {
+    run({ n, row }, { pane, desk }) {
+      if (row !== undefined) {
+        const hp = heroRowNamed(row);
+        if (!hp) throw new ActionRefused(`row is a Hero row: ${HERO_PROP_NAMES.map(HERO_ROW).join(", ")}`);
+        pane.heroSel = hp; pane.fresh = false; desk.redraw();
+        return { row: HERO_ROW(hp) };
+      }
+      if (n === undefined) throw new ActionRefused("say n= (a row, from 1) or row=hero.<property>");
+      pane.heroSel = null; pane.fresh = false;
       if (!Number.isInteger(n) || n < 1 || n > TUNE_ROWS.length) throw new ActionRefused(`n is 1-${TUNE_ROWS.length}`);
       pane.sel = n - 1; pane.group = null; pane.foldedGroups.delete(groupOf(TUNE_ROWS[pane.sel]!));
       desk.redraw();
@@ -614,9 +704,9 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     },
   }),
   "tune.nudge": def({
-    summary: "nudge a look value by steps (by=1 or -1): a number by its step (columns by 2, rows by 1: cells are twice as tall as wide; pad and margin move a row and two columns), on/off flipped, a choice to the next, header.image through the note's pictures. It draws in the next frame, from memory; s saves it. level= and width= (all, or this: the breakpoint the tile is in now) default to the inspector's. Where something nearer wins over the level (or the width) it writes, it asks first: shadow=anyway (nudge it; it shows only where nothing nearer sets it), shadow=instead (nudge what wins), shadow=clear (take what wins away, then nudge)",
+    summary: "nudge a look value by steps (by=1 or -1): a number by its step (columns by 2, rows by 1: cells are twice as tall as wide; pad and margin move a row and two columns), on/off flipped, a choice to the next. A Hero row (row=hero.tint, …: the reader's header image) is written on the hero's own line at once (image.look). It draws in the next frame, from memory; s saves it. level= and width= (all, or this: the breakpoint the tile is in now) default to the inspector's. Where something nearer wins over the level (or the width) it writes, it asks first: shadow=anyway (nudge it; it shows only where nothing nearer sets it), shadow=instead (nudge what wins), shadow=clear (take what wins away, then nudge)",
     keys: "+ − (= l → and - h ←), a click on [−] [+], the wheel over a value; on a row that asks: a, o, c, or a click on a choice",
-    touches: "nothing", replay: "ask", says: out => (out.offered ? `· ${out.row}: ${out.why}` : `· ${out.row} ${out.value} (${out.at}) · s saves`),
+    touches: "nothing", replay: "ask", says: out => (out.refused ? null : out.offered ? `· ${out.row}: ${out.why}` : out.at === "the hero line" ? `· ${out.row} ${out.value}, written on the hero line` : `· ${out.row} ${out.value} (${out.at}) · s saves`),
     args: {
       by: { type: "number", about: "steps: 1 up, -1 down" },
       row: { type: "string", optional: true, about: "the row (measure, pad, pad.x, margin, list.gap, …); default the picked one" },
@@ -629,6 +719,8 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       { act: "tune.nudge by=-1 row=list.gap level=screen width=this tile=tune", does: "tightens the list gap for this screen's current width only" },
     ],
     async run({ by, row, level, width, shadow }, { pane, desk, standing }, actor) {
+      const hp = row === undefined ? pane.heroPicked(desk) : heroRowNamed(row);
+      if (hp) return writeHeroRow(pane, desk, actor, hp, { by: Math.sign(by) || 1 });
       const r = row === undefined ? (pane.group ? undefined : TUNE_ROWS[pane.sel]) : rowNamed(row);
       if (!r) throw new ActionRefused(`row is one of ${TUNE_ROWS.map(x => x.name).join(", ")}`);
       if (level !== undefined && !TUNE_LEVELS.includes(level as TuneLevel)) throw new ActionRefused(`level is ${TUNE_LEVELS.join(", ")}`);
@@ -670,7 +762,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
         // From the level's own value when it sets one (what it will say), else the value in force.
         const own = pane.ownValue(t, tk, lv, sc), parsed = own !== null && own !== UNSET ? parseStyleValue(tk, own) : null;
         const from = parsed && "value" in parsed ? parsed.value : values[tk];
-        const next = tk === "header.image" ? stepPicture(from as string, t.pictures ?? [], step) : nudgeStyleValue(tk, from as StyleValue, step);
+        const next = nudgeStyleValue(tk, from as StyleValue, step);
         listOnly(a.target, a.field, t, tuning);
         tuning.set(a.target, a.field, styleValueText(next), actor);
         shown.push(styleValueText(next));
@@ -681,9 +773,9 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     },
   }),
   "tune.set": def({
-    summary: "set a look value outright, as a nudge does (in memory until saved): row= a token, value= as a style note writes it (88, on, dots, \"1 0 1\")",
+    summary: "set a look value outright, as a nudge does (in memory until saved): row= a token, value= as a style note writes it (88, on, dots, \"1 0 1\"). A Hero row (row=hero.tint) is written on the note's hero line at once (image.look)",
     keys: "`ep0ch act tune.set row=measure value=72`",
-    touches: "nothing", replay: "ask", says: out => `· ${out.row} ${out.value} (${out.at}) · s saves`,
+    touches: "nothing", replay: "ask", says: out => (out.refused ? null : out.at === "the hero line" ? `· ${out.row} ${out.value}, written on the hero line` : `· ${out.row} ${out.value} (${out.at}) · s saves`),
     args: {
       row: { type: "string", about: "a token (measure, pad.x, list.gap, …)" },
       value: { type: "string", about: "its value" },
@@ -695,6 +787,8 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       { act: "tune.set row=list.zebra value=on level=global tile=tune", does: "turns zebra stripes on in every list, until saved" },
     ],
     run({ row, value, level, width }, { pane, desk, standing }, actor) {
+      const hp = heroRowNamed(row);
+      if (hp) return writeHeroRow(pane, desk, actor, hp, { to: value });
       const r = rowNamed(row);
       if (!r || r.tokens.length !== 1) throw new ActionRefused(`row is one token: ${TUNE_ROWS.filter(x => x.tokens.length === 1).map(x => x.name).join(", ")}`);
       const tk = r.tokens[0]!;
@@ -712,14 +806,16 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     },
   }),
   "tune.unset": def({
-    summary: "reset a row's value to what it inherits: what sets it here is taken away (a width variant first, then its plain value), off the note that wrote it (in memory until s, the save removing the property), or, set only by a nudge, the nudge let go. A built-in, a box's or a heading style's is edited where it's written; one a shorthand or a tier gives is refused, naming the note",
+    summary: "reset a row's value to what it inherits: what sets it here is taken away (a width variant first, then its plain value), off the note that wrote it (in memory until s, the save removing the property), or, set only by a nudge, the nudge let go. A Hero row (row=hero.tint) is taken off the note's hero line at once. A built-in, a box's or a heading style's is edited where it's written; one a shorthand or a tier gives is refused, naming the note",
     keys: "x, a click on a row's × or on [reset value]",
-    touches: "nothing", replay: "ask", says: out => `· ${out.row} ${out.value} (${out.from}) · s saves`,
+    touches: "nothing", replay: "ask", says: out => (out.refused ? null : out.at === "the hero line" ? `· ${out.row} back to the built-in, written on the hero line` : `· ${out.row} ${out.value} (${out.from}) · s saves`),
     args: { row: { type: "string", optional: true, about: "the row (measure, pad, bg, list.divider, …); default the picked one" } },
     examples: [
       { act: "tune.unset row=measure tile=tune", does: "takes away what sets the measure here, so it falls back to what it inherits" },
     ],
     async run({ row }, { pane, desk, standing }, actor) {
+      const hp = row === undefined ? pane.heroPicked(desk) : heroRowNamed(row);
+      if (hp) return writeHeroRow(pane, desk, actor, hp, { to: "none" });
       const r = row === undefined ? (pane.group ? undefined : TUNE_ROWS[pane.sel]) : rowNamed(row);
       if (!r) throw new ActionRefused(`row is one of ${TUNE_ROWS.map(x => x.name).join(", ")}`);
       const t = fresh(pane, desk);
@@ -954,12 +1050,3 @@ function swatchOf(role: Surface, n: number, opacity: boolean): string {
   const c = surfaceMix(role, opacity ? n / 100 : n / SURFACE_STEPS);
   return c ? bgRgb(c) + "  " + RESET : fg(C.dark) + "--" + RESET;
 }
-
-/** The next of the header's pictures by `by`: the hero (empty) first, then the note's pictures in order. */
-function stepPicture(now: string, pictures: readonly string[], by: number): string {
-  const all = ["", ...pictures.filter((p, i) => p && pictures.indexOf(p) === i)];
-  if (all.length < 2 || by === 0) return now;
-  const i = all.indexOf(now);
-  return all[i < 0 ? (by > 0 ? 1 : all.length - 1) : (((i + by) % all.length) + all.length) % all.length]!;
-}
-
