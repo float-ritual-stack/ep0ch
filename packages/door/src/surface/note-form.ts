@@ -1,6 +1,6 @@
 import { formFields, FORM_FIELD_KEY, type FormField } from "@ep0ch/outline-core/form-fields";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
-import { chipRows } from "./chip-rows";
+import { tabStrip } from "./chip-rows";
 import { LineField } from "./line";
 import { partyOf } from "../steps";
 import { USER, type Actor } from "../socket";
@@ -101,7 +101,7 @@ export class NoteForm {
           label: tag(field.name, `(${d.text === value ? "*" : " "}) ${printable(value)}`, shownLine("form.set", { field: field.name, value })),
           on: d.text === value, cursor: active && this.focus === index && d.text === value, hit: { action: "form.set", args: { field: field.name, value } },
         }));
-        for (const row of chipRows(chips, inner, label)) line(row.text);
+        for (const row of tabStrip(chips, { width: inner, lead: label })) line(row.text);
       } else {
         const box = field.type === "number" ? Math.min(10, room) : room;
         const cell = stringFrame(box + 2, { glyphs: LINE_BOX, pad: 0 });
