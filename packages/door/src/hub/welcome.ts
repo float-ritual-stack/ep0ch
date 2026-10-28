@@ -2,6 +2,7 @@ import { standsAsPerson } from "../surface/dispatch";
 import { NOBODY } from "../whereabouts";
 import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "../surface/modes";
 import { clipText } from "../overflow";
+import { TAB_DIGITS, tabStrip } from "../surface/chip-rows";
 // Welcome: the notes with a block-scoped `welcome` property (any value: it only marks a note), one at a time, in the
 // hand-set order of the Welcome view (a saved view `[query::welcome]`, #190's order: alt+↑ alt+↓ or a drag in the list,
 // `welcome.move`, `ep0ch view order`, a board lane on it); the first is the detail when the screen opens. Notes the
@@ -80,7 +81,7 @@ export async function findWelcome(board: SocketBoard): Promise<{ notes: Msg[]; v
 }
 
 /** The digit for the note at place `i` (from 0): 1…9, then 0 for the tenth; none after that. */
-export const tabKey = (i: number): string | null => (i < 9 ? String(i + 1) : i === 9 ? "0" : null);
+export const tabKey = (i: number): string | null => TAB_DIGITS[i] ?? null;
 
 // ── the logo ────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -171,8 +172,8 @@ type ListRow = { i: number } | { more: number };
 const QUIET = new Set(["annotate", "reorder", "move", "draft"]);
 /** What `welcome.select` and `welcome.read` answer. */
 export type Shown = { id: string; title: string; welcome: string | null; n: number | null; of: number };
-/** A click target in the band: rows `y0`..`y1`, columns `from`..`to`. */
-type TabHit = { y0: number; y1: number; from: number; to: number } & ({ i: number } | { more: true } | { logo: true });
+/** A click target in the band: rows `y0`..`y1`, columns `from`..`to`, and the action it presses. */
+type BandHit = { y0: number; y1: number; from: number; to: number; action: string; args?: Record<string, unknown> };
 
 /**
  * The welcome notes down the side: each with its digit, the one in the detail lit; past the tenth, "more". It is the
@@ -209,7 +210,7 @@ export class WelcomeList implements Pane {
   private view = new RowView();
   private rows: ListRow[] = [];
   private reload: Timer | null = null;
-  private tabs: TabHit[] = [];
+  private hits: BandHit[] = [];
 
   /** The place of the welcome note the detail shows, or -1 (another note, alt+⏎'s, or nothing). */
   get at(): number { const id = this.detail?.msg?.id; return id ? (this.items ?? []).findIndex(m => m.id === id) : -1; }
@@ -421,14 +422,14 @@ export class WelcomeList implements Pane {
   bandRows(_cols: number, rows: number): number { const logo = this.logoFor(rows); return logo ? logo.rows.length + 1 : 1; }
 
   drawBand(canvas: Canvas, r: Rect, desk: DeskApi): Placement[] {
-    this.tabs = [];
+    this.hits = [];
     const ctx = desk.ctx;
     const logo = this.logoFor(ctx.t.rows);
     let placements: Placement[] = [];
     if (logo) {
       const drawn = drawLogo(canvas, r, ctx, logo, `welcome-logo-${this.logo}`, this.info(desk));
       placements = drawn.placements;
-      this.tabs.push({ y0: r.row, y1: r.row + logo.rows.length - 1, from: drawn.x0, to: drawn.x0 + logo.width, logo: true });
+      this.hits.push({ y0: r.row, y1: r.row + logo.rows.length - 1, from: drawn.x0, to: drawn.x0 + logo.width, action: "welcome.logo" });
     }
     this.drawTabs(canvas, r.row + r.rows - 1, r.cols, !logo);
     return placements;
@@ -436,10 +437,10 @@ export class WelcomeList implements Pane {
 
   /** A press on the band: a tab reads its note, "… more" goes to the list, the logo is the next logo. */
   pressBand(x: number, y: number, desk: DeskApi) {
-    const t = this.tabs.find(h => y >= h.y0 && y <= h.y1 && x >= h.from && x < h.to);
-    if (t && "i" in t) void desk.press?.(this, WELCOME_ACTIONS, "welcome.select", { n: t.i + 1, read: true });
-    else if (t && "more" in t) { desk.focusPane?.(this, USER); desk.redraw(); }
-    else if (t && "logo" in t) void desk.press?.(this, WELCOME_ACTIONS, "welcome.logo", {});
+    const t = this.hits.find(h => y >= h.y0 && y <= h.y1 && x >= h.from && x < h.to);
+    // "… more" gives the list the keys, as a click on the list does.
+    if (t?.action === "tile.focus") { desk.focusPane?.(this, USER); desk.redraw(); }
+    else if (t) void desk.press?.(this, WELCOME_ACTIONS, t.action, t.args ?? {});
   }
 
   /** The words beside the logo: real counts only. */
@@ -458,37 +459,17 @@ export class WelcomeList implements Pane {
    * detail is lit; each is a click target, the logo too (the next logo).
    */
   private drawTabs(canvas: Canvas, row: number, cols: number, named: boolean) {
-    const rail = fg(C.blue), items = this.items ?? [], at = this.at;
-    let x = 0, s = "";
-    const put = (text: string, sgr: string, hit?: { i: number } | { more: true } | { logo: true }, end = cols - 1) => {
-      if (x + width(text) > end) text = rowLines(text, Math.max(0, end - x), 1)[0]!;
-      if (!text) return;
-      if (hit) this.tabs.push({ y0: row, y1: row, from: x, to: x + width(text), ...hit } as TabHit);
-      s += sgr + text + RESET; x += width(text);
-    };
-    put("[=", rail);
-    if (named) put(" e p 0 c h ", fg(C.white), { logo: true }), put("=", rail);
-    const shownTabs = items.slice(0, 10);
-    const more = items.length - shownTabs.length;
-    // Whole titles when they fit; otherwise each gets an even share (at most 28, at least 4).
-    const room = cols - x - 2 - (more ? 12 : 0) - shownTabs.length * 5;
-    const whole = shownTabs.reduce((a, m) => a + subject(m).length, 0) <= room;
-    const titleW = whole ? Infinity : Math.max(4, Math.min(28, Math.floor(room / Math.max(1, shownTabs.length))));
-    shownTabs.forEach((m, i) => {
-      const on = i === at;
-      const t = subject(m);
-      const label = rowLines(t, titleW, 1)[0]!;
-      put(" ", "");
-      put(`${tabKey(i)} ${label}`, on ? chip(C.magenta) : fg(C.lmagenta), { i });
-      put(" =", rail);
-    });
-    if (more) { put(" ", ""); put(`… ${more} more`, fg(C.lcyan), { more: true }); put(" =", rail); }
-    if (!items.length) put(this.items ? ` no welcome notes yet · showing [[${welcomeFallback()}]] ` : " asking the outline… ", fg(C.dark)), put("=", rail);
-    put("=".repeat(Math.max(0, cols - 1 - x)), rail);
-    put("]", rail, undefined, cols);
-    canvas.text(0, row, s, cols);
-    // Each unlit tab's digit bright, as the menu's hot keys are.
-    for (const t of this.tabs) if ("i" in t && t.i !== at) canvas.text(t.from, row, fg(C.white) + tabKey(t.i)! + RESET, 1);
+    const rail = (t: string) => fg(C.blue) + t + RESET, items = this.items ?? [], at = this.at;
+    if (named) this.hits.push({ y0: row, y1: row, from: 2, to: 13, action: "welcome.logo" });
+    const lead = rail("[=") + (named ? fg(C.white) + " e p 0 c h " + RESET + rail("=") : "") + " ";
+    const [strip] = items.length
+      ? tabStrip(items.slice(0, 10).map((m, i) => ({ label: subject(m), key: tabKey(i)!, on: i === at, hit: { action: "welcome.select", args: { n: i + 1, read: true } } })), {
+        width: cols - 2, lead, overflow: "share", more: Math.max(0, items.length - 10), moreHit: { action: "tile.focus" },
+        style: { on: chip(C.magenta), off: fg(C.lmagenta), key: fg(C.white), more: fg(C.lcyan), sep: " ", gap: rail(" =") },
+      })
+      : [{ text: lead + fg(C.dark) + (this.items ? `no welcome notes yet · showing [[${welcomeFallback()}]] ` : "asking the outline… ") + RESET + rail("="), hits: [], cells: 0 }];
+    for (const h of strip!.hits) this.hits.push({ y0: row, y1: row, ...h });
+    canvas.text(0, row, strip!.text + rail("=".repeat(Math.max(0, cols - 1 - width(strip!.text))) + "]"), cols);
   }
 }
 
