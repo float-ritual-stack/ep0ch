@@ -28,7 +28,7 @@ import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, quoteByline, strip
 import { TONE } from "./callouts";
 import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
-import { BORDER_BOXES, frame } from "./canvas";
+import { BORDER_BOXES, stringFrame } from "./canvas";
 import { dividerLine, gapSlots } from "./list-look";
 import { zebraBg } from "./surface/selection";
 import { theme } from "./theme";
@@ -562,7 +562,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       });
       endZebra(); run = null;
       mark();
-      const f = frame(W - 2 * mx, { glyphs: glyphs ?? BORDER_BOXES.line, ink, pad: px });
+      const f = stringFrame(W - 2 * mx, { glyphs: glyphs ?? BORDER_BOXES.line, ink, pad: px });
       // A row of the box: its text (or nothing, a padding row) between its frame's sides, after its bar, or inset.
       const row = (l: string) => framed ? " ".repeat(mx) + f.row(l) : bar ? " ".repeat(mx) + ink + "▌" + RESET + " ".repeat(1 + px) + l : " ".repeat(left) + l;
       // Drawing only (margins, the frame's edges, padding): edge rows, never copied.
@@ -612,7 +612,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         const child = childEnv(children, { off, end, width: inner });
         // The frame already being drawn must not decorate itself again.
         const sub = renderDoc(src.slice(i, end).join("\n"), { ...child, decorate: child.decorate && ((n, w) => n === 0 ? null : child.decorate!(n, w)) });
-        const f = frame(W, { ink: fg(colour) });
+        const f = stringFrame(W, { ink: fg(colour) });
         out.push(f.top(deco.frame.title ? ` ${deco.frame.title} ` : ""));
         mark();
         const base = out.length;
@@ -737,7 +737,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       // A ```diff fence colours its lines by their mark: + added, - removed, @@ a hunk, the rest dim (the unsent diff).
       const diff = /^diff\b/.test(fence.fence.info);
       const ink = (c: string) => (!diff ? C.lcyan : c.startsWith("+") ? C.lgreen : c.startsWith("-") ? C.lred : c.startsWith("@@") ? C.cyan : C.grey);
-      const f = frame(W, { glyphs: BORDER_BOXES.round, ink: fg(C.blue), open: true });
+      const f = stringFrame(W, { glyphs: BORDER_BOXES.round, ink: fg(C.blue), open: true });
       for (const c of code) for (const piece of chunk(c, f.inner)) { cut(out.length, [0, 2]); out.push(f.row(fg(ink(c)) + piece)); }
       blocks.push({ kind: "code", row: first, rows: out.length - first, line: fence.start, end: fence.end + 1, inner: [fence.start + 1, fence.start + 1 + code.length], strip: 0, text: code.join("\n"), col: W - 1 });
       continue;
@@ -863,7 +863,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const label = typeName && bw - 3 - vwidth(head) >= vwidth(typeName) + 4 ? ` ${tag(typeName)} ` : "";
       // Its frame is the look's border when one is named (a tile's, a box's around it), else round.
       const lines = look?.values.border;
-      const f = frame(bw, { glyphs: lines === "line" || lines === "round" || lines === "heavy" || lines === "double" ? BORDER_BOXES[lines] : BORDER_BOXES.round, ink: fg(colour) });
+      const f = stringFrame(bw, { glyphs: lines === "line" || lines === "round" || lines === "heavy" || lines === "double" ? BORDER_BOXES[lines] : BORDER_BOXES.round, ink: fg(colour) });
       if (fp2) heads.push({ key: fp2.key, row: out.length, cols: W });
       const top = out.length;
       edge(top);
@@ -1109,7 +1109,7 @@ function artifactCard(spec: MediaSpec, facts: ArtifactFacts, W: number, env: Doc
     return;
   }
   const inner = W - 4;
-  const f = frame(W, { ink: fg(ink) }), row = f.row;
+  const f = stringFrame(W, { ink: fg(ink) }), row = f.row;
   edge(out.length);
   out.push(f.top(BOLD + ` ◇ ${kind} ` + UNBOLD));
   ref.row = out.length;

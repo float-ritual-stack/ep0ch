@@ -1,4 +1,4 @@
-import { frame, LINE_BOX } from "./canvas";
+import { LINE_BOX, stringFrame } from "./canvas";
 // A rich component's view (an extension's `component` handler line, pi-herdr-outliner
 // PIE-507), and a rule's decoration (PIE-600): the shared primitives (card, box, stack, row, text, badge, stat, bar,
 // table, checklist, sparkline, image, and band and track for headings and dividers) in the terminal, as the service's `terminal` target lays them out, with tone as colour. The
@@ -195,7 +195,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
         ...kids(n).flatMap(c => inner(c, w - 2).map(l => `  ${l}`))];
     }
     case "box": {
-      const f = frame(w, { glyphs: LINE_BOX, ink: fg(C.dark) });
+      const f = stringFrame(w, { glyphs: LINE_BOX, ink: fg(C.dark) });
       return [f.top(n.title !== undefined ? fg(C.lcyan) + ` ${one(n.title)} ` : ""), ...kids(n).flatMap(c => inner(c, f.inner)).map(f.row), f.bottom()];
     }
     case "stack":

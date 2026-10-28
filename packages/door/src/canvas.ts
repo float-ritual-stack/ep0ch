@@ -76,7 +76,7 @@ export const NO_BOX: BoxGlyphs = { top: " ", bottom: " ", side: " ", tl: " ", tr
 /** The dotted frame of the ep0ch logos (WoE, 1997): dots along, colons down. */
 export const DOTTED_BOX: BoxGlyphs = { top: ".", bottom: ".", side: ":", tl: ".", tr: ".", bl: ":", br: ":" };
 
-/** The lines of a frame drawn as strings (`frame`): its top edge, a row of text between its sides, its bottom edge. */
+/** The lines of a frame drawn as strings (`stringFrame`): its top edge, a row of text between its sides, its bottom edge. */
 export interface StringFrame {
   /** The text's room: `w - 2 - 2 * pad` cells (`w - 1 - pad` on an open frame). */
   inner: number;
@@ -94,7 +94,7 @@ export interface StringFrame {
  * the forms draw theirs here, so each obeys the BoxGlyphs it's given and no edge comes out wider than its sides.
  * `pad`: the cells between a side and the text. `open`: a half-box, its right side left off (a panel under a passage).
  */
-export function frame(w: number, { glyphs: g = BORDER_BOXES.round, ink = "", pad: px = 1, open = false }: { glyphs?: BoxGlyphs; ink?: string; pad?: number; open?: boolean } = {}): StringFrame {
+export function stringFrame(w: number, { glyphs: g = BORDER_BOXES.round, ink = "", pad: px = 1, open = false }: { glyphs?: BoxGlyphs; ink?: string; pad?: number; open?: boolean } = {}): StringFrame {
   const inner = Math.max(0, open ? w - 1 - px : w - 2 - 2 * px), gap = " ".repeat(px);
   return {
     inner,

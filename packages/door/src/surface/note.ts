@@ -13,7 +13,7 @@ import { coerceActionArgs } from "./actions";
 import { errorDetails } from "../status-log";
 import { messageContext } from "../status-log";
 import { mentionsExtension as mentionsExtensionLine, mentionsStamp } from "../extensions";
-import { Canvas, LINE_BOX } from "../canvas";
+import { Canvas, LINE_BOX, stringFrame } from "../canvas";
 import { CONFIRM_HINT, hintStatus } from "./hint-card";
 import { heroLook } from "./hero-look";
 import { withFigureBoard } from "../graphs";
@@ -9035,10 +9035,8 @@ interface LineUndo { patch?: { start: number }; block: string; edits: LineEdit[]
  * one the keys are on lit, the step's current status marked, and what the last choice said.
  */
 function pickerPanel(ref: StepRef, sel: number, note: string, busy: boolean, W: number): { lines: string[]; rows: number[] } {
-  const edge = fg(C.yellow), inner = Math.max(8, W - 2);
-  const title = ` ${STEP_BOXES[ref.step.status]} ${printable(stepTitle(ref.step))} `;
-  const room = Math.max(0, W - 2);
-  const lines = [edge + "┌─" + fg(C.white) + (width(title) > room ? pad(title, room) : title + edge + "─".repeat(Math.max(0, room - width(title)))) + RESET];
+  const edge = fg(C.yellow), inner = Math.max(8, W - 2), f = stringFrame(W, { glyphs: LINE_BOX, ink: edge, pad: 0, open: true });
+  const lines = [f.top(fg(C.white) + ` ${STEP_BOXES[ref.step.status]} ${printable(stepTitle(ref.step))} `)];
   const rows: number[] = [];
   STEP_CHOICES.forEach((c, i) => {
     const now = (c.id === ref.step.status ? " · now" : "");
@@ -9048,7 +9046,7 @@ function pickerPanel(ref: StepRef, sel: number, note: string, busy: boolean, W: 
   });
   if (note) lines.push(edge + "│" + fg(busy ? C.dark : C.lred) + pad(` ${printable(note)}`, inner) + RESET);
   const foot = ` ⏎ choose · esc cancel${ref.via ? ` · in ${ref.via}` : ""} `;
-  lines.push(edge + "└─" + fg(C.dark) + (width(foot) > room ? pad(foot, room) : foot + edge + "─".repeat(Math.max(0, room - width(foot)))) + RESET);
+  lines.push(f.bottom(fg(C.dark) + foot));
   return { lines, rows };
 }
 
@@ -9057,10 +9055,9 @@ function pickerPanel(ref: StepRef, sel: number, note: string, busy: boolean, W: 
  * icon in its tone and its other names, its type now marked; then whether it starts folded or open, the `-` or `+`.
  */
 function calloutPanel(ref: CalloutRef, P: Picker, W: number): { lines: string[]; rows: number[] } {
-  const edge = fg(C.yellow), inner = Math.max(8, W - 2), room = Math.max(0, W - 2), types = P.types!;
+  const edge = fg(C.yellow), inner = Math.max(8, W - 2), types = P.types!, f = stringFrame(W, { glyphs: LINE_BOX, ink: edge, pad: 0, open: true });
   const now = types.resolve(ref.type)?.name ?? ref.type;
-  const title = ` [!${printable(ref.type)}] ${printable(calloutTitle(ref))} `;
-  const lines = [edge + "┌─" + fg(C.white) + (width(title) > room ? pad(title, room) : title + edge + "─".repeat(Math.max(0, room - width(title)))) + RESET];
+  const lines = [f.top(fg(C.white) + ` [!${printable(ref.type)}] ${printable(calloutTitle(ref))} `)];
   // Every choice drawn, as the step choice draws its own, so each is a click away; the reader brings the panel into
   // view when it opens, and scrolls (the wheel) over a tall one.
   const items = P.list.items, rows: number[] = [];
@@ -9076,7 +9073,7 @@ function calloutPanel(ref: CalloutRef, P: Picker, W: number): { lines: string[];
   });
   if (P.note) lines.push(edge + "│" + fg(P.busy ? C.dark : C.lred) + pad(` ${printable(P.note)}`, inner) + RESET);
   const foot = " ⏎ choose · - folded · + open · esc cancel ";
-  lines.push(edge + "└─" + fg(C.dark) + (width(foot) > room ? pad(foot, room) : foot + edge + "─".repeat(Math.max(0, room - width(foot)))) + RESET);
+  lines.push(f.bottom(fg(C.dark) + foot));
   return { lines, rows };
 }
 
@@ -9115,8 +9112,8 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   const inner = Math.max(4, W - 2);
   const n = c.replies.length;
   const title = ` ${kindOf(c)} · ${c.open ? "■" : "·"} ${printable(authorName(c.author))} · ${ago(c.at)}${editedMark(c)} · ${c.lifecycle}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
-  const room = Math.max(0, W - 5), head = width(title) > room ? pad(title, room) : title + edge + "─".repeat(room - width(title));
-  const lines = [edge + "┌─" + fg(c.open ? C.white : C.grey) + head + fg(C.lcyan) + "[–]" + RESET];
+  const f = stringFrame(W, { glyphs: LINE_BOX, ink: edge, open: true });
+  const lines = [f.top(fg(c.open ? C.white : C.grey) + title, fg(C.lcyan) + "[–]")];
   const text = (s: string, w: number) => printable(s.replace(/\t/g, " "), "", { lines: true }).split("\n").flatMap(l => (l ? wrap(l, w) : [""]));
   // The body and replies as the reader draws a note (PIE-770): references by title, embeds transcluded; else as typed.
   const body = (s: string, w: number, col = 2) => (draw ? draw(s, w, col) : text(s, w));
@@ -9180,7 +9177,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
     controls.push({ thread: c.id, control: k, row: lines.length, from: col, to: col + shown.length, label, ...(value ? { value } : {}) });
     col += shown.length;
   });
-  lines.push(row + RESET, edge + "└" + "─".repeat(Math.max(0, W - 1)) + RESET);
+  lines.push(row + RESET, f.bottom());
   return { lines, controls, images, links };
 }
 

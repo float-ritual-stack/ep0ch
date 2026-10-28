@@ -14,7 +14,7 @@ import { regionRows, type RegionBook } from "./output-region";
 import type { LiveSite } from "./live";
 import { printable, type Source } from "./props";
 import { LINK_OFF, LINK_ON, type LinkTarget } from "./refs";
-import { C, fg, linkTag, LINK_END, RESET } from "./style";
+import { C, dim, fg, linkTag, LINK_END, RESET } from "./style";
 import { watchedOn, type Watching } from "./watched";
 
 /** The most nested `::use` calls drawn inside each other (the service's chain bound, one short). */
@@ -67,7 +67,6 @@ const callWords = (props: Record<string, string[]>) => Object.entries(props).map
  * template's name and props behind the gutter mark, where the template's note is one click away.
  */
 export function useRegion(d: UseDrawing): string[] | AfterRows {
-  const dim = (text: string) => fg(C.dark) + text + RESET;
   const who = d.call.of ?? "(no template)";
   const key = `${d.host}:${d.line}`;
   const only = (...notes: string[]) => regionRows({ key, label: `::use ${who}`, body: [], notes, facts: [`::use ${who}`], controls: [], width: d.width }, d.book);

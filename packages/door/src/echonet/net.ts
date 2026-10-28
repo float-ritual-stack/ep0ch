@@ -18,7 +18,7 @@
 // in the door, and unread is the read marks' `unread:me`. A tag's value can be a list (`[echo::a, b]`), which a query's
 // `echo=<name>` wouldn't match, so the tagged notes are the `echo` question's, filtered here.
 import { subject, type Msg } from "../board";
-import { ago, bbsDate } from "../text";
+import { ago, bbsDate, rowLines } from "../text";
 import { actorName } from "@ep0ch/outline-core/attribution";
 import { prop } from "../props";
 
@@ -179,24 +179,12 @@ export function upstreamNewer(m: Msg): { upstream: number; here: number | null }
   return { upstream: n, here: Number.isFinite(here) ? here : null };
 }
 
-/** `words` after `lead`, wrapped at `w`, each further line starting with `cont`. */
-const wrapWords = (words: string[], w: number, lead: string, cont: string): string[] => {
-  const out: string[] = [];
-  let line = lead;
-  for (const word of words) {
-    if (line.length + word.length + 1 > w && line.trim() !== lead.trim()) { out.push(line); line = cont; }
-    line += (line.endsWith(" ") ? "" : " ") + word;
-  }
-  out.push(line);
-  return out;
-};
-
 /**
  * The FidoNet footer under a message (SurfaceHost.footer): the tear line, the origin line naming the node it came from
  * and the area, and SEEN-BY with the nodes it has been echoed to, wrapped at `w`. Plain text with `|NN` colours.
  */
 export function footerOf(m: Msg, area: Area, w: number, marked: readonly string[] = []): string[] {
-  const seen = wrapWords(seenBy(m, area, marked), Math.max(20, w), "SEEN-BY:", "        ");
+  const seen = rowLines(`SEEN-BY: ${seenBy(m, area, marked).join(" ")}`, Math.max(20, w), Number.MAX_SAFE_INTEGER, { hang: 8 });
   return [
     "",
     "|08--- |07ep0ch echonet",

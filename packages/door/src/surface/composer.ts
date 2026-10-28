@@ -14,6 +14,7 @@ import { attachedPlaceOf, type AttachedPlace } from "./attached";
 // is a Draft drawn by renderEditor (the one edit control): mouse select, undo, paste, `((` completion, the preview.
 import type { Draft } from "../edit";
 import { scrollOff } from "../scroll";
+import { LINE_BOX, stringFrame } from "../canvas";
 import { C, fg, headOf, pad, RESET, tailFrom, width } from "../style";
 import { COMPLETION_ROWS, completerOf, completionOf } from "./completer";
 import { renderEditor, type EditFrame } from "./editor";
@@ -69,12 +70,8 @@ export function composerBody(d: Draft, frame0: EditFrame, W: number, rows: numbe
 
 /** Inline and split composers keep their frame; floating composers give their body to Canvas.float. */
 export function composerBox(d: Draft, frame: EditFrame, W: number, rows: number, fill = false): ComposerBox {
-  const box = composerBody(d, frame, W, rows, fill), iw = box.width - 2, edge = fg(C.yellow);
-  return { ...box, lines: [
-    edge + "┌" + "─".repeat(iw) + "┐" + RESET,
-    ...box.lines.map(l => edge + "│" + RESET + pad(l, iw) + RESET + edge + "│" + RESET),
-    edge + "└" + "─".repeat(iw) + "┘" + RESET,
-  ] };
+  const box = composerBody(d, frame, W, rows, fill), f = stringFrame(box.width, { glyphs: LINE_BOX, ink: fg(C.yellow), pad: 0 });
+  return { ...box, lines: [f.top(), ...box.lines.map(f.row), f.bottom()] };
 }
 
 /**
