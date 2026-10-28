@@ -15,9 +15,9 @@ export const CHIPS: TabStyle = { on: chip(C.blue), off: fg(C.grey), cursor: fg(C
  * Every tab set's one strip (PIE-1288): the tabs drawn in `style`, from column `at` after `lead`, within `width`. The one
  * overflow rule: `wrap` breaks rows where the next tab doesn't fit; `share` keeps one row, each label whole when they all
  * fit, else cut to an even share, and when a share would be under 4 cells the tail goes into "… N more" (`more` adds tabs
- * the caller left out; `moreHit` is its click). `tag` wraps a drawn tab (a figure's inline link).
+ * the caller left out; `moreHit` is its click). `tag` wraps the `i`th tab as drawn (a figure's inline link).
  */
-export function tabStrip(tabs: readonly Tab[], o: { width: number; style?: TabStyle; lead?: string; at?: number; overflow?: "wrap" | "share"; more?: number; moreHit?: Omit<Hit, "from" | "to">; tag?: (tab: Tab, drawn: string) => string }): TabRow[] {
+export function tabStrip(tabs: readonly Tab[], o: { width: number; style?: TabStyle; lead?: string; at?: number; overflow?: "wrap" | "share"; more?: number; moreHit?: Omit<Hit, "from" | "to">; tag?: (drawn: string, i: number) => string }): TabRow[] {
   const s = o.style ?? CHIPS, p = s.pad ?? "", gap = s.gap ?? "", sep = s.sep ?? "", at0 = o.at ?? 0, lead = o.lead ?? "";
   const fixed = (t: Tab) => width(p) * 2 + (t.key ? width(t.key) + 1 : 0);
   const shown = [...tabs];
@@ -30,20 +30,20 @@ export function tabStrip(tabs: readonly Tab[], o: { width: number; style?: TabSt
   }
   const rows: TabRow[] = [];
   let text = lead, under = " ".repeat(width(lead)), hits: Hit[] = [], x = width(lead);
-  const put = (t: Tab, tail = false) => {
+  const put = (t: Tab, i: number, tail = false) => {
     const label = tail ? t.label : ellipsize(t.label, cut), drawn = `${p}${t.key ? `${t.key} ` : ""}${label}${p}`, n = width(drawn);
     if (o.overflow !== "share" && x > width(lead) && x + width(sep) + n + width(gap) > o.width) { rows.push({ text, hits, under: s.under && under, cells: x }); text = " ".repeat(width(lead)); under = text; hits = []; x = width(lead); }
     else if (x > width(lead)) { text += sep; under += " ".repeat(width(sep)); x += width(sep); }
     const look = t.on ? s.on : t.cursor ? s.cursor ?? s.off : tail ? s.more ?? s.off : s.off;
     const marked = t.cursor ? `\x1b[4m${drawn}\x1b[24m` : t.key && !t.on && s.key ? `${p}${s.key}${t.key}${RESET}${look} ${label}${p}` : drawn;
     const body = look + (t.hint || label !== t.label ? fullText(t.hint ?? t.label, marked) : marked) + RESET;
-    text += (o.tag ? o.tag(t, body) : body) + gap;
+    text += (o.tag && !tail ? o.tag(body, i) : body) + gap;
     under += (t.on && s.under ? s.under + "▀".repeat(n) + RESET : " ".repeat(n)) + " ".repeat(width(gap));
     if (t.hit) hits.push({ from: at0 + x, to: at0 + x + n, ...t.hit });
     x += n + width(gap);
   };
-  for (const t of shown) put(t);
-  if (more) put({ label: `… ${more} more`, ...(o.moreHit ? { hit: o.moreHit } : {}) }, true);
+  shown.forEach((t, i) => put(t, i));
+  if (more) put({ label: `… ${more} more`, ...(o.moreHit ? { hit: o.moreHit } : {}) }, -1, true);
   rows.push({ text, hits, under: s.under && under, cells: x });
   return rows;
 }
