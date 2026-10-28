@@ -16,7 +16,7 @@ import { authorName, whoOf, USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
 import { isCopyKey, SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
-import { bg, C, chip, drawEllipsized, fg, RESET, width } from "./style";
+import { bg, C, chip, codePointCells, drawEllipsized, fg, RESET, width } from "./style";
 import { wrap } from "./text";
 import { lastTop, scrolled, scrollOff } from "./scroll";
 import type { Key } from "./term";
@@ -1055,14 +1055,16 @@ export class Draft {
     return out;
   }
 
-  /** The visual row the cursor is on, and its cell. */
-  private cursorIn(rows: VRow[]): { vi: number; x: number } {
+  /** The visual row the cursor is on, its cell (`x`, in cells) and its code point in the line (`cp`). */
+  private cursorIn(rows: VRow[]): { vi: number; x: number; cp: number } {
     const cp = [...this.line.slice(0, this.col)].length;
     let vi = rows.findIndex(r => r.line === this.row);
-    if (vi < 0) return { vi: 0, x: 0 };
+    if (vi < 0) return { vi: 0, x: 0, cp };
     while (vi + 1 < rows.length && rows[vi + 1]!.line === this.row && !rows[vi + 1]!.status && rows[vi + 1]!.start <= cp) vi++;
-    const r = rows[vi]!;
-    return { vi, x: r.indent + cp - r.start };
+    const r = rows[vi]!, cw = codePointCells([...this.line]);
+    let x = r.indent;
+    for (let k = r.start; k < cp; k++) x += cw[k] ?? 1;
+    return { vi, x, cp };
   }
 
   /** The source place at a visual row's cell `x`. */
@@ -1071,8 +1073,10 @@ export class Draft {
     vi = Math.max(0, Math.min(rows.length - 1, vi));
     const r = rows[vi]!, last = rows[vi + 1]?.line !== r.line || !!rows[vi + 1]?.status;
     if (r.status) return { row: r.line, col: this.lines[r.line]!.length };
-    const cp = Math.min(r.start + Math.max(0, x - r.indent), last ? r.end : Math.max(r.start, r.end - 1));
-    const line = this.lines[r.line]!;
+    // The code point at cell `x`: past the glyphs that end at or before it, never inside one.
+    const line = this.lines[r.line]!, cw = codePointCells([...line]), end = last ? r.end : Math.max(r.start, r.end - 1);
+    let cp = r.start;
+    for (let at = r.indent; cp < end && at + (cw[cp] ?? 1) <= x; ) { at += cw[cp] ?? 1; cp++; while (cp < end && cw[cp] === 0) cp++; }
     return { row: r.line, col: [...line].slice(0, cp).join("").length };
   }
 
@@ -1158,7 +1162,7 @@ export class Draft {
         const b = sel[1].row > r.line ? Infinity : sel[1].row === r.line ? cpOf(sel[1]) : -1;
         s0 = Math.max(r.start, a) - r.start; s1 = Math.min(r.end, b) - r.start;
       }
-      const cx = vi === at.vi ? at.x - r.indent : -1;
+      const cx = vi === at.vi ? at.cp - r.start : -1;
       if (cx >= cells.length) cells.push(" ");
       const glow = lit.map(f => ({
         from: (f.a.row < r.line ? 0 : f.a.row === r.line ? f.a.cp : Infinity) - r.start,
@@ -1232,9 +1236,9 @@ export function hangOf(line: string, w: number): number {
 export function wrapRows(chars: readonly string[], w: number, hang: number): { start: number; end: number; indent: number }[] {
   const out: { start: number; end: number; indent: number }[] = [];
   const n = chars.length;
-  // Each character's cells as the row draws it (a tab or control as one space; CJK and wide emoji two, a
-  // combining mark none), so a row of wide characters wraps where the screen ends, not past it (PIE-510).
-  const cw = chars.map(c => (c.length === 1 && c < "\u0300" ? 1 : Bun.stringWidth(c)));
+  // Each code point's cells as the row draws it, by glyph (a tab or control as one space; CJK and wide emoji two,
+  // a joined emoji's or a combining mark's later code points none), so a row wraps where the screen ends (PIE-510, PIE-1291).
+  const cw = codePointCells(chars);
   let s = 0;
   for (;;) {
     const indent = out.length ? hang : 0, room = Math.max(1, w - indent);

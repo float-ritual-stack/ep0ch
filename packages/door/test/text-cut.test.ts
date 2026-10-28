@@ -16,7 +16,7 @@ const CODER = "👩‍💻";
 
 describe("nothing drawn overflows its width", () => {
   test("a callout with a wide title keeps its corner", () => {
-    const lines = draw(`> [!note] ${CJK}\n> 本文 ${CODER} soft­hyphen`);
+    const lines = draw(`> [!note] ${CJK}\n> 本文 ${CODER} soft\u00ADhyphen`);
     expect(widest(lines)).toBeLessThanOrEqual(W);
     expect(visible(lines[0]!).trimEnd().endsWith("╮")).toBe(true);
     // The words the top edge had no room for flow into the box, none lost.
@@ -30,7 +30,7 @@ describe("nothing drawn overflows its width", () => {
 
   test("a framed decoration, a box and an extension's box with a wide title fit", () => {
     expect(widest(draw(`::box{border=heavy}\n${CJK}\n::`))).toBeLessThanOrEqual(W);
-    const box = primitiveLines({ type: "box", title: CJK, children: [{ type: "text", text: `${CODER} soft­hyphen ${CJK}` }] }, 24);
+    const box = primitiveLines({ type: "box", title: CJK, children: [{ type: "text", text: `${CODER} soft\u00ADhyphen ${CJK}` }] }, 24);
     expect(box.map(width)).toEqual(box.map(() => 24));
   });
 
@@ -42,13 +42,14 @@ describe("nothing drawn overflows its width", () => {
 describe("the editor measures by glyph", () => {
   test("five joined emoji in ten cells are one row", () => {
     const d = new Draft("b1", 1, CODER.repeat(5));
+    d.key({ kind: "home" } as never);
     const rows = d.render(10, 4).filter(r => visible(r).trim());
     expect(rows).toHaveLength(1);
     expect(widest(rows)).toBeLessThanOrEqual(10);
   });
 
   test("wide glyphs and a soft hyphen wrap where the screen ends", () => {
-    const d = new Draft("b1", 1, `${CJK} soft­hyphen ${CODER}${CODER}`);
+    const d = new Draft("b1", 1, `${CJK} soft\u00ADhyphen ${CODER}${CODER}`);
     expect(widest(d.render(12, 10))).toBeLessThanOrEqual(12);
   });
 
@@ -64,6 +65,6 @@ describe("the editor measures by glyph", () => {
 test("one sparkline: a component's and a figure's draw the same values the same", () => {
   const values = [10, 11, 10, 12, 11];
   const component = visible(primitiveLines({ type: "sparkline", values }, 40).join("")).trim().split(/\s+/).at(-1);
-  const figure = visible(renderGraph("spark", `data: [${values.join(", ")}]`, 40)[0]!).trim();
+  const figure = renderGraph("spark", `data: [${values.join(", ")}]`, 40).map(l => visible(l).replace(/[^_░▒▓█]/g, "")).find(Boolean);
   expect(component).toBe(figure);
 });

@@ -5,7 +5,7 @@ import { rowLines } from "./text";
 // then it becomes one styled line per row. Blank cells keep the default background so the
 // CRT underlay shows through.
 import { closesHyperlink, DRAWN_PART, OSC8_CLOSE } from "./hyperlink";
-import { bgRgb, fgRgb, fitHint, glyphWidth, graphemes, RESET, width } from "./style";
+import { bgRgb, drawEllipsized, fgRgb, fitHint, glyphWidth, graphemes, pad, RESET, width } from "./style";
 import { floatTheme, theme } from "./theme";
 import { printable } from "./text";
 
@@ -75,6 +75,44 @@ export const BORDER_BOXES: Readonly<Record<"line" | "round" | "heavy" | "double"
 export const NO_BOX: BoxGlyphs = { top: " ", bottom: " ", side: " ", tl: " ", tr: " ", bl: " ", br: " " };
 /** The dotted frame of the ep0ch logos (WoE, 1997): dots along, colons down. */
 export const DOTTED_BOX: BoxGlyphs = { top: ".", bottom: ".", side: ":", tl: ".", tr: ".", bl: ":", br: ":" };
+
+/** The lines of a frame drawn as strings (`frame`): its top edge, a row of text between its sides, its bottom edge. */
+export interface StringFrame {
+  /** The text's room: `w - 2 - 2 * pad` cells (`w - 1 - pad` on an open frame). */
+  inner: number;
+  /** The top edge with `title` after its corner (and `label` at its right end), both cut to fit, filled to `w`. */
+  top(title?: string, label?: string): string;
+  /** `text` between the sides, padded or cut to `inner` (an open frame draws it as it is, after its one side). */
+  row(text: string): string;
+  /** The bottom edge, with `foot` after its corner on an open frame. */
+  bottom(foot?: string): string;
+}
+
+/**
+ * Lines of text framed `w` cells wide with `glyphs`, in `ink`: the one place strings are framed (PIE-1291; Canvas.box
+ * frames cells). A callout, a `::box`, a decoration's frame, an artifact's card, an extension's box, the composer and
+ * the forms draw theirs here, so each obeys the BoxGlyphs it's given and no edge comes out wider than its sides.
+ * `pad`: the cells between a side and the text. `open`: a half-box, its right side left off (a panel under a passage).
+ */
+export function frame(w: number, { glyphs: g = BORDER_BOXES.round, ink = "", pad: px = 1, open = false }: { glyphs?: BoxGlyphs; ink?: string; pad?: number; open?: boolean } = {}): StringFrame {
+  const inner = Math.max(0, open ? w - 1 - px : w - 2 - 2 * px), gap = " ".repeat(px);
+  return {
+    inner,
+    top(title = "", label = "") {
+      const ends = open ? 2 : 3, room = Math.max(0, w - ends - (label ? width(label) + (open ? 0 : 1) : 0));
+      const t = width(title) > room ? drawEllipsized(title, room) : title;
+      const fill = g.top.repeat(Math.max(0, room - width(t)));
+      return ink + g.tl + g.top + t + RESET + ink + fill + (label ? label + RESET + ink + (open ? "" : g.top) : "") + (open ? "" : g.tr) + RESET;
+    },
+    row: text => open ? ink + g.side + RESET + gap + text + RESET : ink + g.side + RESET + gap + pad(text, inner) + gap + ink + g.side + RESET,
+    bottom(foot = "") {
+      if (!open) return ink + g.bl + g.bottom.repeat(Math.max(0, w - 2)) + g.br + RESET;
+      if (!foot) return ink + g.bl + g.bottom.repeat(Math.max(0, w - 1)) + RESET;
+      const room = Math.max(0, w - 2), f = width(foot) > room ? drawEllipsized(foot, room) : foot;
+      return ink + g.bl + g.bottom + f + RESET + ink + g.bottom.repeat(Math.max(0, room - width(f))) + RESET;
+    },
+  };
+}
 
 /** The cells `Canvas.shadow` draws for a float at `r`: the column at its right, then the row below it. */
 export const shadowRects = (r: Rect): [Rect, Rect] => [

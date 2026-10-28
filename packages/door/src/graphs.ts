@@ -3,7 +3,7 @@ import { clipText } from "./overflow";
 // charts made of characters, one accent. Two inputs render the same way:
 //   ::graph-<kind>          Comark block with YAML props between --- lines, drawn here natively
 //   ```+--- [ TITLE ] ---+  the official fenced ASCII an agent pastes, re-framed to fit the pane
-import { BOLD, C, drawEllipsized, fg, pad, RESET, SPARK_STEPS, UNBOLD, visible, width as vwidth } from "./style";
+import { BOLD, C, drawEllipsized, fg, pad, RESET, sparkGlyphs, UNBOLD, visible, width as vwidth } from "./style";
 import { rowLines, withRowLimit, wrap } from "./text";
 import { childRows, resolveLive, setLiveSource, liveSource, type LiveSite } from "./live";
 import { asksPerItem, liveProps } from "@ep0ch/outline-core/figure-live";
@@ -197,8 +197,8 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
   },
 
   spark: (p) => {
-    const d: number[] = (p.data ?? []).map(num), max = Math.max(...d, 1), top = SPARK_STEPS.length - 1;
-    const s = d.map((v, i) => fg(i === d.length - 1 ? ACCENT : C.lblue) + SPARK_STEPS[Math.min(top, Math.max(0, Math.round((v / max) * top)))]).join("") + RESET;
+    const glyphs = sparkGlyphs((p.data ?? []).map(num));
+    const s = glyphs.map((g, i) => fg(i === glyphs.length - 1 ? ACCENT : C.lblue) + g).join("") + RESET;
     return p.caption ? [s, fg(DIM) + p.caption + RESET] : [s];
   },
 

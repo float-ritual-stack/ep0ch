@@ -68,6 +68,11 @@ export const dim = (s: string) => fg(C.dark) + s + RESET;
  * (they draw as ?). A shade ramp, the BBS way, over an underscore for the lowest.
  */
 export const SPARK_STEPS = "_░▒▓█";
+/** `values` as a sparkline's glyphs, one each, from zero to the largest (at least 1): the one scale (PIE-1291). */
+export const sparkGlyphs = (values: readonly number[]): string[] => {
+  const max = Math.max(...values, 1), top = SPARK_STEPS.length - 1;
+  return values.map(v => SPARK_STEPS[Math.min(top, Math.max(0, Math.round((v / max) * top)))]!);
+};
 /** The cursor at the end of a line being typed (a search, a filter, a layout's name): CP437 has no ▁, and _ reads as typed. */
 export const INPUT_CURSOR = "▌";
 
@@ -171,6 +176,13 @@ export const graphemes = (s: string): string[] => (SIMPLE.test(s) ? [...s] : Arr
 /** One glyph's cells: 0 for a link tag, a mark or a lone zero-width character, 2 for a wide one. */
 export const glyphWidth = (g: string) => (isTag(g) || (g >= "\uE000" && g <= "\uE00A") ? 0 : g.length === 1 && g < "\x7f" ? 1 : Bun.stringWidth(g));
 
+/** Each code point's cells (`chars` is `[...line]`): a glyph's on its first code point, none on the rest of it. */
+export function codePointCells(chars: readonly string[]): number[] {
+  const out: number[] = [];
+  for (const g of graphemes(chars.join(""))) { out.push(glyphWidth(g)); for (let k = [...g].length; k > 1; k--) out.push(0); }
+  return out;
+}
+
 /** Where a link is on screen: row `line`, columns `from` (inclusive) to `to` (exclusive), link `n`. */
 export interface LinkRange { line: number; from: number; to: number; n: number }
 
@@ -216,25 +228,27 @@ export function balanceTags(lines: string[]): string[] {
 }
 
 /**
- * `s` (plain text and link tags, no colour) split after `n` visible characters, by code point, so a tag
- * (a surrogate pair) is never split. A link open at the cut is closed in the head and re-opened in the
- * tail; a tag that opens right at the cut goes with the tail, one that closes there with the head.
+ * `s` (plain text, link tags and marks, no colour) split after its first `n` cells: the one cut of text to a width
+ * (PIE-1291). By glyph, never through a wide or joined one, and at least one glyph when `n` is 1 or more, so a loop of
+ * cuts always moves on. A link open at the cut is closed in the head and re-opened in the tail; a tag that opens right
+ * at the cut goes with the tail, one that closes there with the head.
  */
 export function splitVisible(s: string, n: number): [string, string] {
-  const chars = [...s];
+  const gs = graphemes(s);
   let seen = 0, open = -1, i = 0;
-  for (; i < chars.length; i++) {
-    const ch = chars[i]!;
-    if (isTag(ch)) {
-      const end = ch.codePointAt(0) === TAG_END;
+  for (; i < gs.length; i++) {
+    const g = gs[i]!;
+    if (isTag(g)) {
+      const end = g.codePointAt(0) === TAG_END;
       if (seen >= n && !end) break;
-      open = end ? -1 : ch.codePointAt(0)! - TAG0;
+      open = end ? -1 : g.codePointAt(0)! - TAG0;
       continue;
     }
-    if (seen >= n) break;
-    seen++;
+    const gw = glyphWidth(g);
+    if (seen + gw > n && (seen > 0 || n < 1)) break;
+    seen += gw;
   }
-  const head = chars.slice(0, i).join(""), tail = chars.slice(i).join("");
+  const head = gs.slice(0, i).join(""), tail = gs.slice(i).join("");
   if (open < 0) return [head, tail];
   return [head + LINK_END, tail ? linkTag(open) + tail : ""];
 }

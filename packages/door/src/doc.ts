@@ -9,7 +9,7 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 // media lines as image slots the caller fills with Kitty placements.
 import { ARTIFACT_KIND_LABELS, brightness, fileName, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
-import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, extractLinks, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
+import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, ellipsize, extractLinks, glyphWidth, graphemes, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv, type RowInline } from "./graphs";
@@ -28,7 +28,7 @@ import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, quoteByline, strip
 import { TONE } from "./callouts";
 import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
-import { BORDER_BOXES } from "./canvas";
+import { BORDER_BOXES, frame } from "./canvas";
 import { dividerLine, gapSlots } from "./list-look";
 import { zebraBg } from "./surface/selection";
 import { theme } from "./theme";
@@ -562,15 +562,13 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       });
       endZebra(); run = null;
       mark();
-      const g = glyphs ?? BORDER_BOXES.line;
+      const f = frame(W - 2 * mx, { glyphs: glyphs ?? BORDER_BOXES.line, ink, pad: px });
       // A row of the box: its text (or nothing, a padding row) between its frame's sides, after its bar, or inset.
-      const row = (l: string) => framed ? " ".repeat(mx) + ink + g.side + RESET + " ".repeat(px) + pad(l, inner) + " ".repeat(px) + ink + g.side + RESET
-        : bar ? " ".repeat(mx) + ink + "▌" + RESET + " ".repeat(1 + px) + l : " ".repeat(left) + l;
+      const row = (l: string) => framed ? " ".repeat(mx) + f.row(l) : bar ? " ".repeat(mx) + ink + "▌" + RESET + " ".repeat(1 + px) + l : " ".repeat(left) + l;
       // Drawing only (margins, the frame's edges, padding): edge rows, never copied.
       const drawn = (text: string, n: number, at: number) => { for (let k = 0; k < n; k++) { edge(out.length); out.push(text); source.push(at); } };
-      const frameEdge = (l: string, r: string) => " ".repeat(mx) + ink + l + g.top.repeat(Math.max(0, W - 2 * mx - 2)) + r + RESET;
       drawn("", my, i);
-      if (framed) drawn(frameEdge(g.tl, g.tr), 1, i);
+      if (framed) drawn(" ".repeat(mx) + f.top(), 1, i);
       const surfaceFrom = out.length;
       drawn(framed || bar ? row("") : "", py, i);
       const base = out.length;
@@ -586,7 +584,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       if (surface) tints.push({ rows: [surfaceFrom, out.length], cols: [outside + (framed || bar ? 1 : 0), Math.max(outside + 1, W - outside - (framed ? 1 : 0))], bg: surface });
       for (const t of sub.tints ?? []) tints.push({ rows: [base + t.rows[0], base + t.rows[1]], cols: t.cols ? [t.cols[0] + left, t.cols[1] + left] : [left, left + inner], bg: t.bg });
       adoptMedia(sub, base, left, off);
-      if (framed) drawn(frameEdge(g.bl, g.br), 1, end);
+      if (framed) drawn(" ".repeat(mx) + f.bottom(), 1, end);
       drawn("", my, end);
       inserted = end;
       i = end;
@@ -614,17 +612,17 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         const child = childEnv(children, { off, end, width: inner });
         // The frame already being drawn must not decorate itself again.
         const sub = renderDoc(src.slice(i, end).join("\n"), { ...child, decorate: child.decorate && ((n, w) => n === 0 ? null : child.decorate!(n, w)) });
-        const title = deco.frame.title ? ` ${clipText(deco.frame.title, Math.max(0, W - 6))} ` : "";
-        out.push(fg(colour) + "╭─" + title + "─".repeat(Math.max(0, W - 3 - vwidth(title))) + "╮" + RESET);
+        const f = frame(W, { ink: fg(colour) });
+        out.push(f.top(deco.frame.title ? ` ${deco.frame.title} ` : ""));
         mark();
         const base = out.length;
-        sub.lines.forEach((l, r) => { out.push(fg(colour) + "│ " + RESET + pad(l, inner) + fg(colour) + " │" + RESET); source.push(sub.source[r]! < 0 ? -1 : off + sub.source[r]!); });
+        sub.lines.forEach((l, r) => { out.push(f.row(l)); source.push(sub.source[r]! < 0 ? -1 : off + sub.source[r]!); });
         for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
         edge(base - 1);
         adopt(sub, base, 2, off, { inner });
         adoptMedia(sub, base, 2, off);
         inserted = end;
-        out.push(fg(colour) + "╰" + "─".repeat(Math.max(0, W - 2)) + "╯" + RESET); source.push(-1);
+        out.push(f.bottom()); source.push(-1);
         edge(out.length - 1);
         i = end - 1;
         continue;
@@ -739,7 +737,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       // A ```diff fence colours its lines by their mark: + added, - removed, @@ a hunk, the rest dim (the unsent diff).
       const diff = /^diff\b/.test(fence.fence.info);
       const ink = (c: string) => (!diff ? C.lcyan : c.startsWith("+") ? C.lgreen : c.startsWith("-") ? C.lred : c.startsWith("@@") ? C.cyan : C.grey);
-      for (const c of code) for (const piece of chunk(c, W - 2)) { cut(out.length, [0, 2]); out.push(fg(C.blue) + "│ " + fg(ink(c)) + piece + RESET); }
+      const f = frame(W, { glyphs: BORDER_BOXES.round, ink: fg(C.blue), open: true });
+      for (const c of code) for (const piece of chunk(c, f.inner)) { cut(out.length, [0, 2]); out.push(f.row(fg(ink(c)) + piece)); }
       blocks.push({ kind: "code", row: first, rows: out.length - first, line: fence.start, end: fence.end + 1, inner: [fence.start + 1, fence.start + 1 + code.length], strip: 0, text: code.join("\n"), col: W - 1 });
       continue;
     }
@@ -851,29 +850,32 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       let spill = "";
       // Counted and cut in visible characters: a link's tags take no room and are never split, and a link
       // open at the cut is closed on the top edge (a folded callout drops the spill) and re-opened in it.
-      const room = bw - 8 - [...t.icon].length - (glyph ? 2 : 0);
+      const room = bw - 8 - vwidth(t.icon) - (glyph ? 2 : 0);
       if (vwidth(title) > room) {
-        const seen = [...stripTags(title)];
-        const cut = seen.lastIndexOf(" ", room - 1);
-        const [h, rest] = splitVisible(title, cut > room * 0.4 ? cut : room - 1);
+        // The last space the top edge has room for, in cells.
+        let col = 0, space = -1;
+        for (const g of graphemes(stripTags(title))) { if (col >= room) break; if (g === " ") space = col; col += glyphWidth(g); }
+        const [h, rest] = splitVisible(title, space > room * 0.4 ? space : room - 1);
         spill = trimTagged(rest);
         title = trimTagged(h) + " …";
       }
       const head = ` ${glyph}${tag(t.icon)} ${selected ? fg(C.yellow) : ""}${title}${fg(colour)} `;
-      const label = typeName && bw - 3 - vwidth(head) >= typeName.length + 4 ? ` ${tag(typeName)} ` : "";
+      const label = typeName && bw - 3 - vwidth(head) >= vwidth(typeName) + 4 ? ` ${tag(typeName)} ` : "";
+      // Its frame is the look's border when one is named (a tile's, a box's around it), else round.
+      const lines = look?.values.border;
+      const f = frame(bw, { glyphs: lines === "line" || lines === "round" || lines === "heavy" || lines === "double" ? BORDER_BOXES[lines] : BORDER_BOXES.round, ink: fg(colour) });
       if (fp2) heads.push({ key: fp2.key, row: out.length, cols: W });
       const top = out.length;
       edge(top);
-      out.push(fg(colour) + "╭─" + BOLD + head + UNBOLD + "─".repeat(Math.max(0, bw - 3 - vwidth(head) - vwidth(label) - (label ? 1 : 0))) + (label ? fg(C.dark) + label + fg(colour) + "─" : "") + "╮" + RESET);
-      const framed = (l: string) => { cut(out.length, [0, 2], [2 + inner, Infinity]); return fg(colour) + "│ " + RESET + pad(l, inner) + fg(colour) + " │" + RESET; };
+      out.push(f.top(BOLD + head + UNBOLD, label && fg(C.dark) + label));
+      const framed = (l: string) => { cut(out.length, [0, 2], [2 + inner, Infinity]); return f.row(l); };
       if (folded) {
         const n = body.filter(l => l.trim()).length, said = `▸ ${n} line${n === 1 ? "" : "s"} folded`;
         // The hint gives way by width, whole words at a time, never cut mid-word.
         const hint = (fp2 ? [`${said} · f, gutter or … unfolds`, `${said} · f`] : [`${said} · z unfolds`]).find(x => vwidth(x) <= inner) ?? said;
-        cut(out.length, [0, 2], [2 + inner, Infinity]);
-        out.push(fg(colour) + "│ " + fg(C.dark) + pad(hint, inner) + fg(colour) + " │" + RESET);
+        out.push(framed(fg(C.dark) + hint));
       } else {
-        for (const l of spill ? wrap(spill, inner) : []) { cut(out.length, [0, 2], [2 + inner, Infinity]); out.push(fg(colour) + "│ " + BOLD + pad(l, inner) + UNBOLD + " │" + RESET); }
+        for (const l of spill ? wrap(spill, inner) : []) out.push(framed(fg(colour) + BOLD + l + UNBOLD));
         // A title-only callout is just the titled frame; no empty row inside.
         if (body.length) {
           const off = i + 1;
@@ -889,7 +891,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       }
       mark();
       edge(out.length);
-      out.push(fg(colour) + "╰" + "─".repeat(bw - 2) + "╯" + RESET); source.push(-1);
+      out.push(f.bottom()); source.push(-1);
       blocks.push({ kind: "callout", row: top, rows: out.length - top, line: i, end: cb.end, inner: [i + 1, cb.end], strip: cb.depth, text: written, col: bw - 2 });
       mark();
       insert(i + 1);
@@ -1069,7 +1071,7 @@ function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: nu
     : hero ? ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} rows ${spec.fit === "contain" ? ctl({ fit: "cover" }, "[fill]") : ctl({ fit: "contain" }, "[whole]")} ${ctl({ hero: false }, "[▀ ✓]")}`
     : ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} ${ctl({ align: -1 }, "[◂]")}${ctl({ align: 1 }, "[▸]")} ${ctl({ hero: true }, "[▀]")}`;
   const room = Math.max(4, W - vwidth(controls));
-  const fit = (x: string) => (vwidth(x) > room ? splitVisible(x, room - 1)[0] + "…" : x);
+  const fit = (x: string) => ellipsize(x, room);
   if (entry.state === "loading") return fg(C.dark) + pad(fit(`◌ ${label} ${name} · loading…`), room) + controls + RESET;
   if (entry.state === "error") return fg(C.lred) + pad(`✗ ${label} ${name} · ${entry.reason}`, W) + RESET;
   const off = !env.graphics && env.noImages && !env.printed ? ` · ${env.noImages}` : "";
@@ -1107,18 +1109,16 @@ function artifactCard(spec: MediaSpec, facts: ArtifactFacts, W: number, env: Doc
     return;
   }
   const inner = W - 4;
-  const fit = (x: string, room: number) => (vwidth(x) > room ? splitVisible(x, room - 1)[0] + "…" : x);
-  const head = ` ◇ ${kind} `;
+  const f = frame(W, { ink: fg(ink) }), row = f.row;
   edge(out.length);
-  out.push(fg(ink) + "╭─" + BOLD + head + UNBOLD + "─".repeat(Math.max(0, W - 3 - vwidth(head))) + "╮" + RESET);
-  const row = (text: string) => fg(ink) + "│ " + RESET + text + fg(ink) + " │" + RESET;
+  out.push(f.top(BOLD + ` ◇ ${kind} ` + UNBOLD));
   ref.row = out.length;
-  const title = fit(facts.title, Math.max(4, inner - vwidth(open) - 1));
+  const title = ellipsize(facts.title, Math.max(4, inner - vwidth(open) - 1));
   out.push(row(fg(C.white) + BOLD + title + UNBOLD + RESET + " ".repeat(Math.max(1, inner - vwidth(title) - vwidth(open))) + open));
-  if (facts2) out.push(row(fg(C.dark) + pad(fit(facts2, inner), inner) + RESET));
-  for (const x of said) out.push(row(fg(x.startsWith("✗") ? C.lred : x.startsWith("⚠") ? C.yellow : C.dark) + pad(fit(x, inner), inner) + RESET));
+  if (facts2) out.push(row(fg(C.dark) + ellipsize(facts2, inner)));
+  for (const x of said) out.push(row(fg(x.startsWith("✗") ? C.lred : x.startsWith("⚠") ? C.yellow : C.dark) + ellipsize(x, inner)));
   edge(out.length);
-  out.push(fg(ink) + "╰" + "─".repeat(Math.max(0, W - 2)) + "╯" + RESET);
+  out.push(f.bottom());
 }
 
 /**
