@@ -1,4 +1,5 @@
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
+import { tabStrip } from "../surface/chip-rows";
 import { ZOOM_WHEEL } from "./wkeys";
 import type { ZoomReach } from "./screen-layout";
 import { declaredHints, hintSetting, setHint, resetHints, type HintSetting } from "../surface/hints";
@@ -122,6 +123,8 @@ export function deskSpec(): ScreenSpec {
 }
 /** Frame glyphs by a spec's `frame`. */
 const FRAMES: Record<NonNullable<ScreenSpec["frame"]>, BoxGlyphs> = { dotted: DOTTED_BOX };
+/** A tile's tab set in its header: the shown tab cyan, the rest grey, a dark bar between. */
+const TILE_TABS = { on: fg(C.cyan), off: fg(C.grey), sep: fg(C.dark) + " | " + RESET };
 
 const TO_EDGE: Record<string, Dir> = { H: "left", J: "down", K: "up", L: "right" };
 const MOVE: Record<string, Dir> = { h: "left", j: "down", k: "up", l: "right" };
@@ -3991,10 +3994,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.putStatus(id, put, true);
     if (state) put(`${state} · `, fg(C.dark));
     if (set && set.ids.length > 1) {
-      set.ids.forEach((t, i) => {
-        if (i) put(" | ", fg(C.dark));
-        put(pad(`${this.numLabel(t)}${this.displayTitle(t)}`, Math.max(1, Math.floor((room - 3 * (set.ids.length - 1)) / set.ids.length))).trimEnd(), i === set.active ? fg(C.cyan) : fg(C.grey), t);
-      });
+      const [strip] = tabStrip(set.ids.map((t, i) => ({ label: `${this.numLabel(t)}${this.displayTitle(t)}`, on: i === set.active, hit: { action: "tab.select", args: { tile: t } } })), { width: room, at: x, overflow: "share", style: TILE_TABS });
+      for (const h of strip!.hits) if (h.from < max) this.heads.push({ id: h.args!.tile as number, from: h.from, to: Math.min(max, h.to), row: r.row });
+      this.headOut += strip!.text; x += width(strip!.text);
     } else put(pad(`${this.numLabel(id)}${this.displayTitle(id)}`, room).trimEnd(), focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
     if (wire) {
       const from = xNow() + 1;

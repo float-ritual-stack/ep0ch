@@ -25,7 +25,8 @@ export function tabStrip(tabs: readonly Tab[], o: { width: number; style?: TabSt
   if (o.overflow === "share") {
     const room = (n: number, m: number) => o.width - width(lead) - (m ? width(`… ${m} more`) + width(sep) + width(gap) : 0) - n * width(gap) - Math.max(0, n - 1) * width(sep);
     const whole = shown.reduce((a, t) => a + fixed(t) + width(t.label), 0) <= room(shown.length, more);
-    while (!whole && shown.length > 1 && Math.floor(room(shown.length, more) / shown.length) - fixed(shown[0]!) < 4) { shown.pop(); more++; }
+    // The lit tab is never the one put away.
+    while (!whole && shown.length > 1 && Math.floor(room(shown.length, more) / shown.length) - fixed(shown[0]!) < 4) { shown.splice(shown.findLastIndex(t => !t.on), 1); more++; }
     if (!whole) cut = Math.max(1, Math.floor(room(shown.length, more) / Math.max(1, shown.length)) - fixed(shown[0]!));
   }
   const rows: TabRow[] = [];
