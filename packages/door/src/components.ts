@@ -13,6 +13,8 @@ import { TONE as CALLOUT_TONE } from "./callouts";
 import { imageSource, type ImagePrimitive } from "@ep0ch/outline-core/media-line";
 import type { ListPrimitive } from "@ep0ch/outline-core/list-row";
 import { listRowLines, listRowsOf } from "./surface/list-view";
+import { buttonText } from "./surface/button";
+import { viewToneAsButton } from "@ep0ch/outline-core/button-call";
 
 /** The service's primitives (src/component-primitives.ts PRIMITIVE_TYPES): what `primitiveLines` draws. */
 export const PRIMITIVES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image", "button", "list"] as const;
@@ -149,7 +151,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       return rowLines(`${fg(C.grey)}${label}  ${meter(value, max, room, n.tone)}  ${fg(toned(n.tone))}${tail}${RESET}`, w);
     }
     case "button":
-      return [fg(toned(n.tone ?? "accent")) + BOLD + press(n.act, `[${one(n.label)}]`) + UNBOLD + RESET];
+      return [buttonText(one(n.label), { tone: viewToneAsButton(n.tone) }, t => press(n.act, t))];
     case "sparkline": {
       const values = Array.isArray(n.values) ? n.values.map(Number).filter(Number.isFinite) : [];
       if (!values.length) throw new PrimitiveUnknown("a sparkline needs values");

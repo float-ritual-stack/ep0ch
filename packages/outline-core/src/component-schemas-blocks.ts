@@ -4,9 +4,9 @@
 // tells an agent they exist. Their grammars are outline-core's (link-syntax.ts, media-line.ts, code-fence.ts,
 // style-cascade.ts); the door's `LINK_BLOCK_KINDS` and the media line's attributes are what a test holds this list to
 // (packages/door/test/component-coverage.test.ts). Pure: no I/O; types only from component-schema.ts.
-import type { ComponentSchema, PropSchema, PropValue } from "./component-schema";
+import type { ComponentSchema, PropSchema } from "./component-schema";
+import { enumOf } from "./prop-values";
 
-const enumOf = (meanings: Record<string, string>): PropValue[] => Object.entries(meanings).map(([value, meaning]) => ({ value, meaning }));
 
 // ── the links components ──────────────────────────────────────────────────────
 

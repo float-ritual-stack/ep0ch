@@ -5,7 +5,7 @@ import { headOf, pad, RESET, selected, tailFrom, visible, width } from "./style"
 // Marks carry only a reference; hidden values never travel through composed drawing strings.
 export const FULL_END = "\x1b[778m";
 export const FULL_MARKERS = /\x1b\[(?:777;[01];\d+|778)m/g;
-interface Full { id: number; source: string; reveal?: string }
+interface Full { id: number; source: string; reveal?: string; lit?: string }
 const values = new Map<string, Full>();
 const byId = new Map<number, Full>();
 let nextId = 0;
@@ -22,35 +22,41 @@ function revealText(value: Full): string {
   return value.reveal = prefix.length < plain.length ? `${prefix}… (${plain.length - prefix.length} more characters)` : plain;
 }
 
-export function fullValue(sequence: string): { readonly text: string; selected: boolean } | null {
+export function fullValue(sequence: string): { readonly text: string; selected: boolean; lit?: string } | null {
   const match = /^\x1b\[777;([01]);(\d+)m$/.exec(sequence);
   const value = match && byId.get(Number(match[2]));
-  return value ? { get text() { return revealText(value); }, selected: match![1] === "1" } : null;
+  return value ? { get text() { return revealText(value); }, selected: match![1] === "1", ...(value.lit !== undefined ? { lit: value.lit } : {}) } : null;
 }
 export function fullPlainText(text: string): string {
   return text.replace(/\x1b\[777;[01];(\d+)m[\s\S]*?\x1b\[778m/g,
     (drawn, id: string) => {
       const value = byId.get(Number(id));
-      return value ? fullPlainText(value.source) : drawn.replace(FULL_MARKERS, "");
+      return value && value.lit === undefined ? fullPlainText(value.source) : drawn.replace(FULL_MARKERS, "");
     });
 }
-export function fullText(text: string, drawn: string): string {
-  let value = values.get(text);
+export function fullText(text: string, drawn: string, lit?: string): string {
+  const key = lit === undefined ? text : `\0lit\0${lit}`;
+  let value = values.get(key);
   if (!value) {
-    value = { id: ++nextId, source: text };
-    values.set(text, value); byId.set(value.id, value);
+    value = { id: ++nextId, source: text, ...(lit !== undefined ? { lit } : {}) };
+    values.set(key, value); byId.set(value.id, value);
     // Bound retained source references as screens and completions come and go.
     if (values.size > 1024) {
       const oldest = values.values().next().value!;
       values.delete(oldest.source); byId.delete(oldest.id);
     }
-  } else { values.delete(text); values.set(text, value); }
+  } else { values.delete(key); values.set(key, value); }
   return `\x1b[777;0;${value.id}m${drawn.replace(FULL_MARKERS, "")}${FULL_END}`;
 }
+/**
+ * `drawn` brightened under the pointer (PIE-1287): the one hover rule for anything pressable (a button in a note, on the status
+ * bar, in a float). `lit` is the same cells drawn lit; the frame is composed first, so it holds wherever the drawing lands.
+ */
+export const litText = (drawn: string, lit: string): string => fullText("", drawn, lit);
 export const clipText = (text: string, cells: number): string => width(text) > cells ? fullText(text, headOf(text, cells)) : text;
 export const selectFullText = (text: string) => text.replaceAll("\x1b[777;0;", "\x1b[777;1;");
 
-interface Cut { text: string; x: number; y: number; end: number; selected: boolean }
+interface Cut { text: string; x: number; y: number; end: number; selected: boolean; lit?: string }
 
 /** Clipping travels with the drawn cells, so composing a float also composes its hit targets. */
 export class Overflow {
@@ -66,7 +72,7 @@ export class Overflow {
 
   /** The cut-short value at a cell, if any, as `draw` keys it: one answer for what the pointer reveals and whether that changed. */
   private cutAt(x: number, y: number): Cut | undefined { return this.cuts.find(c => c.y === y && x >= c.x && x < c.end); }
-  private static keyOf(cut: Cut | undefined): string { return cut ? `${cut.y}:${cut.x}:${cut.text}` : ""; }
+  private static keyOf(cut: Cut | undefined): string { return cut ? `${cut.y}:${cut.x}:${cut.lit ?? cut.text}` : ""; }
 
   /**
    * The pointer moved to a cell. True when what it reveals is not what the last draw showed (a value came under it, or
@@ -84,7 +90,7 @@ export class Overflow {
   clear() { this.pointer = null; this.chosen = null; this.keyboard = false; }
   keys() { this.clear(); this.keyboard = true; }
   reveal() {
-    const choices = this.cuts.filter((c, i, all) => all.findIndex(v => v.text === c.text) === i);
+    const choices = this.cuts.filter(c => c.lit === undefined).filter((c, i, all) => all.findIndex(v => v.text === c.text) === i);
     const at = choices.findIndex(c => c.text === this.chosen);
     const cut = choices[(at + 1) % choices.length];
     this.pointer = null; this.chosen = cut?.text ?? null;
@@ -106,7 +112,7 @@ export class Overflow {
       const full = fullValue(part);
       if (full || part === FULL_END) {
         if (open) open.end = x;
-        open = full ? { get text() { return full.text; }, selected: full.selected, x, y, end: x } : undefined;
+        open = full ? { get text() { return full.text; }, selected: full.selected, ...(full.lit !== undefined ? { lit: full.lit } : {}), x, y, end: x } : undefined;
         if (open) this.cuts.push(open);
         return "";
       }
@@ -125,6 +131,11 @@ export class Overflow {
     const key = Overflow.keyOf(cut);
     if (key !== this.active) { this.active = key; this.since = now; this.step = 0; }
     if (!cut) return { lines: clean };
+    if (cut.lit !== undefined) {
+      this.scrolling = false;
+      clean[cut.y] = headOf(clean[cut.y] ?? "", cut.x) + OSC8_CLOSE + RESET + cut.lit + RESET + tailFrom(clean[cut.y] ?? "", cut.end);
+      return { lines: clean };
+    }
     this.step = Math.max(0, Math.floor((now - this.since - 900) / 100));
     const text = printable(visible(cut.text), " ").replace(/\s+/g, " ").trim();
     // In place: the value scrolls inside the cells it was cut to, on its own row, in the selection's colours (PIE-1140).

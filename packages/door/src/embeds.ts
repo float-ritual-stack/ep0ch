@@ -23,6 +23,7 @@ import type { ChecklistStep, ProposalsBeside, SocketBoard, TransclusionNode } fr
 import { BOLD, C, drawEllipsized, fg, LINK_END, linkTag, pad, RESET, tint, UNBOLD } from "./style";
 import { themed } from "./theme";
 import { readView, type ViewRead } from "./views";
+import { buttonText } from "./surface/button";
 
 /** Embeds one document projects (the service's `maxPerDocument`, the same as Detail's). */
 export const MAX_EMBEDS = 16;
@@ -264,7 +265,7 @@ export const proposalOps = (m: Pick<Msg, "properties">) => PROPOSAL_OPS.filter(o
 
 /** ` [apply] [dismiss]` for proposal `m`, each tagged as its control in `sink` (text without one). */
 export function proposalControls(m: Msg, sink: LinkTarget[] | undefined): string {
-  return proposalOps(m).map(op => " " + fg(C.lcyan) + tagged(sink, { block: m.id, role: "control", proposal: { id: m.id, op } }, `[${op}]`)).join("");
+  return proposalOps(m).map(op => " " + buttonText(op, { tone: op === "apply" ? "primary" : "quiet" }, t => tagged(sink, { block: m.id, role: "control", proposal: { id: m.id, op } }, t))).join("");
 }
 const controlsWidth = (m: Msg) => proposalOps(m).reduce((n, op) => n + op.length + 3, 0);
 

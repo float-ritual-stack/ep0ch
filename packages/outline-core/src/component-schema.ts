@@ -17,6 +17,7 @@ import { FIGURE_COMPONENT_SCHEMAS, LIVE, liveFilter } from "./component-schemas-
 import { BLOCK_COMPONENT_SCHEMAS } from "./component-schemas-blocks";
 import { USE } from "./component-schemas-use";
 import { BUTTON } from "./component-schemas-button";
+import { enumOf } from "./prop-values";
 
 /** What a property's value is. */
 export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query", "action", "writers", "duration", "property", "script", "node"] as const;
@@ -123,7 +124,6 @@ const styleValues = (styles: readonly HeadingStyle[]): PropValue[] =>
   styles.map(s => ({ value: s.name, meaning: STYLE_MEANING[s.name] ?? `${s.pattern}, ${s.rows} row${s.rows === 1 ? "" : "s"}, ${s.align}, ${s.letters}`, ...(s.block ? { declared: s.block } : {}) }));
 const calloutValues = (types: readonly CalloutType[]): PropValue[] =>
   types.map(t => ({ value: t.name, meaning: `${t.icon} ${t.title}, ${t.tone}${t.aliases.length ? `; also ${t.aliases.join(", ")}` : ""}`, ...(t.block ? { declared: t.block } : {}) }));
-const enumOf = (meanings: Record<string, string>): PropValue[] => Object.entries(meanings).map(([value, meaning]) => ({ value, meaning }));
 const TONE_MEANING: Record<(typeof CALLOUT_TONES)[number], string> = {
   blue: "blue, for notes and information", green: "green, for tips and success", violet: "violet, for questions and examples",
   amber: "amber, for warnings", coral: "coral, for failures and danger", neutral: "the level's own colour, no tone of its own",

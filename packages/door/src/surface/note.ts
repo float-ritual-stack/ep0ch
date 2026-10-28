@@ -5,7 +5,7 @@ import { modeBinding, modeHint, modeActionKeys } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
 import { commandButton } from "../bar/command";
-import { buttonLabel } from "./home";
+import { buttonRows, buttonText, pressing, pressState } from "./button";
 import { withFigureProp } from "@ep0ch/outline-core/figure-props";
 import { checkValue as schemaCheck } from "@ep0ch/outline-core/component-schema";
 import { Inspector } from "./inspector";
@@ -2509,7 +2509,12 @@ export class NoteSurface {
    * What the note's body is drawn with, at `width`: images laid out when the host draws Kitty graphics (and why not
    * when it doesn't).
    */
+  /** Why a press of action line `act` would be refused now (the dispatcher of the host this surface last drew for), or null. */
+  private refusedPress: (act: string) => string | null = () => null;
+
   private docEnv(width: number, host: SurfaceHost | undefined, maxImageRows: number): DocEnv {
+    const d = (host?.ctx as { dispatch?: import("./dispatch").Dispatcher } | undefined)?.dispatch;
+    if (d) this.refusedPress = act => { try { return d.refusedNow(actRequestOf(lineWords(act)), USER); } catch { return null; } };
     const t = host?.ctx.t, graphics = !!host?.ctx.graphics;
     const noImages = graphics ? undefined : t?.kitty ? "video: cells · alt+v draws images" : "no Kitty graphics in this terminal";
     return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold, callouts: calloutsOf(this.src), headings: headingStylesOf(this.src), printed: this.printed };
@@ -2760,11 +2765,14 @@ export class NoteSurface {
       if (line < 0) return [];
       return useRegion({ call, line, host: block, ...(site ? { site } : {}), top: m?.id ?? "", width, src, sink: drawn, depth, body: templateBody(depth), ...(book ? { book } : {}) });
     };
-    // A `::button` on body line `i` (PIE-957): a chip that is a press of its action line, on this note.
+    // A `::button` on body line `i` (PIE-957): the button part, a press of its action line on this note, in its press's state or
+    // disabled with the action's refusal now (PIE-1287).
     const buttonHook = (block: string, lines: readonly number[]): DocEnv["button"] => (call, i) => {
       const line = lines[i] ?? -1, label = printable(call.label);
       if (call.act === null || line < 0) return [fg(C.yellow) + `[${label}] ${call.problem ?? ""}` + RESET];
-      return [tagged(drawn, { role: "control", label, press: { act: call.act, steps: call.steps, ...(call.alt ? { alt: call.alt } : {}), block, line } }, buttonLabel(label))];
+      const pressed = pressState(block, line), refused = pressed.state || call.empty.length || call.sequence ? null : this.refusedPress(call.act);
+      return buttonRows(label, { ...call.look, ...pressed, ...(refused ? { state: "disabled", why: refused } : {}) },
+        t => tagged(drawn, { role: "control", label, press: { act: call.act!, steps: call.steps, ...(call.alt ? { alt: call.alt } : {}), block, line } }, t));
     };
     const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m?.id ?? "", env.inlineList);
     // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
@@ -4748,7 +4756,9 @@ export class NoteSurface {
       host.redraw();
       return result;
     };
-    return actor.kind === "user" ? d.pressDoing(p.act, { note: p.block || this.msg?.id }, run) : run();
+    const home = p.block || this.msg?.id;
+    const shown = () => home && p.line >= 0 ? pressing(home, p.line, () => host.redraw(), run) : run();
+    return actor.kind === "user" ? d.pressDoing(p.act, { note: home }, shown) : shown();
   }
 
   /**
@@ -9173,7 +9183,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
     const shown = `[${label}]`, on = cur === controlKey(c.id, k, value);
     if (col > 2 && col + 3 + shown.length > W) { lines.push(row + RESET); row = edge + "│ "; col = 2; }
     if (col > 2) { row += fg(C.dark) + " · "; col += 3; }
-    row += (on ? ITEM_BG + fg(C.white) : fg(C.lcyan)) + shown + RESET;
+    row += on ? ITEM_BG + fg(C.white) + shown + RESET : buttonText(label);
     controls.push({ thread: c.id, control: k, row: lines.length, from: col, to: col + shown.length, label, ...(value ? { value } : {}) });
     col += shown.length;
   });

@@ -4,6 +4,8 @@ import type { Msg } from "./board";
 import type { Actor, SocketBoard } from "./socket";
 import { ActionRefused, actionSet, def, type ActRequest } from "./surface/actions";
 import { C, fg, width } from "./style";
+import { buttonText, pressState } from "./surface/button";
+import type { ButtonLookWords } from "@ep0ch/outline-core/button-call";
 
 /** Bindings name the existing ActionDefs; the dispatcher owns their execution and descriptions. */
 export interface StatusItem {
@@ -15,6 +17,8 @@ export interface StatusItem {
   click?: ActRequest;
   alt?: ActRequest;
   lastCell?: ActRequest;
+  /** A note's `::button` (its label is `text`): drawn by the button part, in its press's state, one row high. */
+  button?: { look: ButtonLookWords; line: number };
 }
 export interface StatusHit { item: StatusItem; from: number; to: number }
 
@@ -100,7 +104,7 @@ export class StatusBarNote {
         if (!builtin) throw new Error(`line ${i + 1}: no built-in "${id}"; status.bar.items lists their ids`);
         out.push(builtin);
       } else if (button) {
-        if (button.problem) throw new Error(`line ${i + 1}: ${button.problem}`);
+        if (button.act === null) throw new Error(`line ${i + 1}: ${button.problem}`);
         const key = button.label.toLowerCase(), first = labels.get(key);
         if (first !== undefined) {
           const warning = `Status bar: line ${i + 1}: duplicate label="${button.label}"; line ${first} already has it; choose a different label=`;
@@ -112,7 +116,7 @@ export class StatusBarNote {
         }
         labels.set(key, i + 1);
         const alt = button.alt;
-        out.push({ id: `button:${i}`, text: button.label, place: "left", after: " │ ", click: { action: "button.press", args: { note: note.id, label: button.label, line: i + 1 } }, ...(alt ? { alt: { action: "button.press", args: { note: note.id, label: button.label, line: i + 1, alt: true } } } : {}) });
+        out.push({ id: `button:${i}`, text: button.label, button: { look: button.look, line: i }, place: "left", after: " │ ", click: { action: "button.press", args: { note: note.id, label: button.label, line: i + 1 } }, ...(alt ? { alt: { action: "button.press", args: { note: note.id, label: button.label, line: i + 1, alt: true } } } : {}) });
         i = button.endLine;
       } else throw new Error(`line ${i + 1}: use - <built-in id> or ::button{label="Collapse" act="tile.collapse tile=screen"}`);
     }
@@ -127,7 +131,8 @@ export class StatusBarNote {
       if (!line.id.startsWith("button:")) { out.push(builtins.find(b => b.id === line.id)!); continue; }
       // A button sits where its line is: after the item above it in the note, on that item's side of the bar.
       const place = out.at(-1)?.place ?? "left";
-      out.push({ ...line, place, after: place === "right" ? RIGHT_AFTER : " │ " });
+      const b = line.button!, text = buttonText(line.text, { ...b.look, ...pressState(this.note!.id, b.line) });
+      out.push({ ...line, text, place, after: place === "right" ? RIGHT_AFTER : " │ " });
     }
     return out;
   }
