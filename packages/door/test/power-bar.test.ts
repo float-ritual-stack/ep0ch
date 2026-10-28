@@ -142,7 +142,7 @@ describe.skipIf(!outliner)("the power bar", () => {
       key({ kind: "mouse", action: "up", x, y, button: 0 } as Key);
       expect(peek().bar).toMatchObject({ scope: "tiles", query: "beans" });
     } finally { stop(); }
-    expect(runs.filter(r => r.action === "bar.open").map(r => r.args)).toEqual([{}, { scope: "notes" }, { by: 1 }, { by: -1 }, { scope: "tiles", keep: true }]);
+    expect(runs.filter(r => r.action === "bar.open").map(r => r.args)).toEqual([{}, { scope: "notes", keep: true }, { by: 1 }, { by: -1 }, { scope: "tiles", keep: true }]);
   });
 
   test("backspacing past an empty action query keeps its scope until an explicit exit", () => {
