@@ -799,7 +799,8 @@ export interface LokiLeaseUse { status: number; id?: string }
  */
 export interface UploadLease { id: string; name?: string; outline: string; url: string; expiresAt: string; curl: string }
 /** A device that may upload (`ep0ch device add`): its token is shown once, when it's made. */
-export interface UploadDevice { id: string; name: string; outline: string; createdAt: string; lastUsedAt?: string; revokedAt?: string }
+/** `shortcutUrl`: the sign-in page where its signed "Send to ep0ch" Shortcut waits (PIE-1408). */
+export interface UploadDevice { id: string; name: string; outline: string; createdAt: string; lastUsedAt?: string; revokedAt?: string; shortcutUrl?: string }
 /** What the host says of a request to the upload route: who it may be, or why not. A write comes with the `claim` to settle. */
 export type UploadTake =
   | { status: 200; claim?: string; who: { kind: "lease" | "device"; id: string; name?: string; outline: string; by: string; deviceName?: string }; expiresAt?: string }
