@@ -632,10 +632,10 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
   });
 
   test("a search says how it was ranked and why; a top-level note's path is (root)", async () => {
-    const lexical = JSON.parse((await tool("outline_find", { query: "Lantern inventory", outline: scratch.name })).text);
-    expect(lexical.search).toMatchObject({ asked: false, status: "lexical", said: expect.stringContaining("semantic: true") });
+    const lexical = JSON.parse((await tool("outline_find", { query: "Lantern inventory", outline: scratch.name, semantic: false })).text);
+    expect(lexical.search).toMatchObject({ asked: false, status: "lexical", said: expect.stringContaining("semantic: false") });
     expect(lexical.matches.find((m: { id: string }) => m.id === note.id).path).toBe("(root)");
-    const asked = JSON.parse((await tool("outline_find", { query: "Lantern inventory", outline: scratch.name, semantic: true })).text);
+    const asked = JSON.parse((await tool("outline_find", { query: "Lantern inventory", outline: scratch.name })).text);
     expect(asked.search.asked).toBe(true);
     // No Jev key in a scratch host: it says so rather than claiming a ranking it didn't get.
     if (asked.search.status !== "ranked") expect(asked.search.said).toContain("isn't available here");

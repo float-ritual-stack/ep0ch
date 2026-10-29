@@ -4,6 +4,7 @@
 // eval measures exactly what search asks.
 import { loadGotoPrompt, PromptFileError, type ExistsQuestion, type PromptRevision } from "./ai-prompts";
 import { askJev, jevKey, type JevAnswer, type JevOptions } from "./jev";
+import { jevOff } from "./work-jev";
 import type { BlockCollectionCompleteness, GotoSearchCollection, SearchCertainty } from "./types";
 export { JEV_ENDPOINT, JEV_MODEL, jevKey, resetJevKey } from "./jev";
 
@@ -75,6 +76,8 @@ export async function rankSearchWithJev<T extends SearchExcerpt>(
     note?: { title: string; path: string };
   } = {},
 ): Promise<SearchCollection<T & { score?: number }>> {
+  // OUTLINER_FIGURE_FIT=off (the tests' default) turns every Jev loop off, search's too: a scratch host never asks.
+  if (!options.apiKey && jevOff(options.env)) return { ...candidates, semantic: { status: "unavailable", message: "Jev is off here (OUTLINER_FIGURE_FIT=off); showing text matches" } };
   const apiKey = options.apiKey ?? await jevKey(options.env);
   if (!apiKey) return { ...candidates, semantic: { status: "unavailable", message: "Jev is not configured; showing text matches · add its key: with-secrets --add typesafe TYPESAFE_API_KEY" } };
   if (query.trim().length < 3 || candidates.matches.length === 0 || candidates.matches[0]?.exact) return candidates;

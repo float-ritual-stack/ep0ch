@@ -134,6 +134,16 @@ const TILES: BarSource = {
 /** A hit's row: its work id (when its title doesn't start with it) and its title. */
 const noteRow = (m: Msg): BarRow => ({ key: m.id, label: headedTitle(m), subtitle: subtitleOf(m), fill: subject(m), note: { id: m.id } });
 
+/** What a search's row carries to its pick: the words and its place, kept as the search eval's label (`search.picked`). */
+interface Searched { query: string; rank: number }
+/** A search's rows, each with where it came from, and Jev's Score on a ranked one (`2.7/3`: how well it answers). */
+const searchRows = (hits: Msg[] & { scores?: Map<string, number> }, query: string): BarRow[] => hits.map((m, rank) => {
+  const score = hits.scores?.get(m.id);
+  return { ...noteRow(m), ...(score !== undefined ? { detail: `${score.toFixed(1)}/3` } : {}), data: { query, rank } satisfies Searched };
+});
+/** What the bar says of a ranked list: the service's verdict, said short (the sentence is on the row it names). */
+const jevSaid = (semantic: { verdict?: string } | undefined) => semantic?.verdict === "strong" ? "jev ranked · sure" : semantic?.verdict ? "jev ranked · no strong match" : "jev ranked";
+
 /** How many notes `/` lists with nothing typed. */
 const RECENT_NOTES = 30;
 /**
@@ -183,20 +193,23 @@ const NOTES: BarSource = {
     if (to) return addressedRows(to, host);
     if (!q.trim()) return recentNotes(host);
     if (q.trim().length < 2) return [];
-    return (await host.ctx.board.search(q.trim(), 30, { near: host.near() ?? undefined, signal })).map(noteRow);
+    return searchRows(await host.ctx.board.search(q.trim(), 30, { near: host.near() ?? undefined, signal }), q.trim());
   },
   later(q, rows, host, signal) {
     const board = host.ctx.board;
     if (q.startsWith("outline:") || rows[0]?.exact || q.trim().length < 3 || rows.length < 2 || jevOff.has(board)) return null;
     return board.search(q.trim(), 30, { semantic: true, near: host.near() ?? undefined, signal }).then(h => {
       if (h.semantic && notConfigured(h.semantic)) jevOff.add(board);
-      return h.semantic?.status === "ranked" ? { rows: h.map(noteRow), said: "jev ranked" } : null;
+      return h.semantic?.status === "ranked" ? { rows: searchRows(h, q.trim()), said: jevSaid(h.semantic) } : null;
     }, () => null);
   },
   preview: row => (row.refused ? { lines: [row.refused] } : { note: row.key }),
   pick(row, host, how) {
     if (row.refused) throw new ActionRefused(row.refused);
-    return openNote(row.key, host, how, (row.data as { fragment?: string } | undefined)?.fragment);
+    // The person's own pick labels the words with the note wanted; an agent's doesn't speak for him.
+    const data = row.data as (Partial<Searched> & { fragment?: string }) | undefined;
+    if (data?.query !== undefined && data.rank !== undefined && how.actor.kind === "user") host.ctx.board.searchPicked(data.query, row.key, data.rank, "power-bar");
+    return openNote(row.key, host, how, data?.fragment);
   },
 };
 

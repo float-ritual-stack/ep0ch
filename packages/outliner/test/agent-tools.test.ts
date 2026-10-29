@@ -158,6 +158,8 @@ test("find by text, property, key, query and under", async () => {
   store.create("Carrot cake recipe");
   const text = await agent("find", { text: "carrot" });
   expect(text.json.blocks.length).toBeGreaterThanOrEqual(2);
+  // Words alone are the ranked search: it says how it was ranked (no Jev in a scratch host: text matches, said so).
+  expect(text.json.search).toMatchObject({ status: "unavailable", said: expect.stringContaining("text matches only") });
   expect((await agent("find", { property: "crop=leek" })).json.blocks.map((b: any) => b.title)).toEqual(["Leeks in bed two"]);
   expect((await agent("find", { hasKey: "crop" })).json.blocks).toHaveLength(2);
   expect((await agent("find", { query: "crop=carrot" })).json.blocks.map((b: any) => b.title)).toEqual(["Carrots in bed one"]);
