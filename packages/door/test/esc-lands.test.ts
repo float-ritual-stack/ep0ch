@@ -92,6 +92,36 @@ describe.skipIf(!outliner)("Esc lands where it was meant (PIE-1431)", () => {
     } finally { d.quit(); }
   });
 
+  test("two Esc presses that arrive in one read right after the bar closed are held back together", async () => {
+    const d = await door();
+    try {
+      await d.typeIn();
+      await d.feed(click(d.chip("power"), d.rows - 1));
+      await until(() => !!d.A.bar, "the power bar opens");
+      await d.feed("\x1b");
+      await d.feed("\x1b\x1b");
+      expect(await d.echoed(d.kettle)).toBe(false);
+    } finally { d.quit(); }
+  });
+
+  test("a terminal inside a group: the bar's Esc, then a second Esc right after, never reach it", async () => {
+    const d = await door();
+    try {
+      const g = await d.desk.dispatch.press("tile.group", { with: "reader", where: "left" }, "kettle") as { tile: string };
+      const group = d.desk.pane(g.tile) as any;
+      await d.desk.dispatch.press("tile.focus", {}, g.tile);
+      await group.inner.dispatch.press("tile.focus", {}, "kettle");
+      await group.inner.dispatch.press("tile.enter", {}, "kettle");
+      await until(() => d.desk.programKeys().typing, "typing in kettle inside its group");
+      await d.app.dispatch.press("bar.open");
+      await until(() => !!d.A.bar, "the power bar opens");
+      await d.feed("\x1b");
+      expect(!!d.A.bar).toBe(false);
+      await d.feed("\x1b");
+      expect(await d.echoed(() => group.inner.pane("kettle"))).toBe(false);
+    } finally { d.quit(); }
+  });
+
   test("typing in a terminal tile: Esc on its own tile menu closes the menu, and a second Esc right after goes nowhere", async () => {
     const d = await door();
     try {

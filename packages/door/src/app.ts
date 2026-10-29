@@ -1469,6 +1469,9 @@ export class App implements Ctx {
     // The hyper layer (PIE-699): ⌃⌥⇧⌘ and a key, before any tile's own keys (a draft's and a terminal tile's too). Each chord
     // presses an action that has other keys and a click (src/hyper.ts); the layer is off unless turned on.
     if (k.kind === "hyper") { this.hyper(k.ch); return; }
+    // A menu opened over the screen while the person is in the drawer (a status-bar group's) has the keys before the drawer
+    // and a tile of it lifted over the screen: Esc closes it, never the agent's (PIE-1431).
+    if (k.kind !== "mouse" && this.overDrawer()) { this.stack.at(-1)!.key(k, this); return; }
     const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
     if (lifted?.liftInput(k, () => {
       if (this.drawer.made?.liftedDesk === lifted) this.drawerRun("host.enter", {});
@@ -1479,8 +1482,6 @@ export class App implements Ctx {
     })) return;
     // Your drawer's ^W panel, over the screen (PIE-1338): a click on it is its.
     if (this.drawer.shown && this.drawer.desk?.keyPanelInput(k)) return;
-    // A menu opened over the screen while the person is in the drawer (a status-bar group's) has the keys before the drawer: Esc closes it, never the agent's (PIE-1431).
-    if (k.kind !== "mouse" && this.overDrawer()) { this.stack.at(-1)!.key(k, this); return; }
     // The drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
     if (k.kind === "mouse" && k.y === this.term.info.rows - 1) {
@@ -1556,11 +1557,16 @@ export class App implements Ctx {
     return !!over && over !== this.drawer.made && over.overlayOpen();
   }
   /** The person's keys are a terminal program's (a terminal tile's, the drawer's agent's), whatever is open over it. */
-  private typingInProgram(): boolean { return this.drawer.entered ? !!this.drawer.desk?.rawKeys() : !!this.stack.at(-1)?.rawKeys?.(); }
+  private typingInProgram(): boolean {
+    const top = this.stack.at(-1), d = this.drawer.entered ? this.drawer.desk : tilesOf(top);
+    if (!d) return !!top?.rawKeys?.();
+    // A screen that frames a desk (the showcase's stage) says whether the keys are in it at all.
+    return d.programKeys().typing && (this.drawer.entered || d === top || !!top?.rawKeys?.());
+  }
   /** Something over the program the person types in has their keys: the power bar, or a menu or picker over its tiles. */
   private overProgram(): boolean {
     if (this.bar || this.overDrawer()) return true;
-    return !!(this.drawer.entered ? this.drawer.desk : tilesOf(this.stack.at(-1)))?.overlayOpen();
+    return !!(this.drawer.entered ? this.drawer.desk : tilesOf(this.stack.at(-1)))?.programKeys().over;
   }
   /** When an Esc last closed something over a terminal the person types in, or was held back for it. */
   private escSpentAt = -Infinity;
@@ -1572,7 +1578,7 @@ export class App implements Ctx {
     return true;
   }
   /** Raw bytes that are an Esc (legacy, or a Kitty report), held back as heldEsc says. */
-  private escSpent(bytes: string): boolean { return (bytes === "\x1b" || rawKey(bytes)?.kind === "esc") && this.heldEsc(); }
+  private escSpent(bytes: string): boolean { return (/^\x1b+$/.test(bytes) || rawKey(bytes)?.kind === "esc") && this.heldEsc(); }
 
   private probing = false;
   probeKeys(on = !this.probing): boolean {
