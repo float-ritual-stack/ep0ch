@@ -52,8 +52,9 @@ export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --
                                    Goto, the door's / and (( use, asked from no note; at most 30), re-ordered
                                    by Jev when it's set up: each row its Score (2.7/3) and a last line saying
                                    how sure it is ("strong match: …", or "no strong match: …" when the top
-                                   isn't a sure answer; on stderr with --ids, --lines, --json); --lexical
-                                   leaves Jev out; --recent, its newest 30; --tree, the outline (or the notes under
+                                   isn't a sure answer; on stderr with --ids, --lines, --json); when none is
+                                   sure, Jev reads every note's title for ones the words missed (deep, PIE-1200:
+                                   such a row says "by meaning"); --lexical leaves Jev out; --recent, its newest 30; --tree, the outline (or the notes under
                                    <root id>) depth first, as Tree draws it; without, every note, newest first.
                                    A <note> here is an id, ((id)), an id's first 8+ characters, a Work ID of
                                    any prefix the outline has (PIE-870) or a [[page]], resolved by the service.
@@ -415,8 +416,8 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
     } else {
       // --recent: the service's own answer to an empty search (the newest notes), without reading the whole index.
       // Words are ranked by Jev when the service has it (PIE-1198): each hit its Score, and how sure the list is.
-      const hits = query || recent ? await board.searchBlocks(query, query && !args.includes("--lexical") ? { semantic: true } : {}) : null;
-      found = withUris(board, hits ? hits.matches.map(m => ({ id: m.block.id, title: m.title, path: m.path, ...(m.score !== undefined ? { score: m.score } : {}) })) : everyNote(await board.index()));
+      const hits = query || recent ? await board.searchBlocks(query, query && !args.includes("--lexical") ? { semantic: true, deep: true } : {}) : null;
+      found = withUris(board, hits ? hits.matches.map(m => ({ id: m.block.id, title: m.title, path: m.path, ...(m.score !== undefined ? { score: m.score } : {}), ...(m.deep ? { matched: "by meaning" } : {}) })) : everyNote(await board.index()));
       sure = hits?.semantic.status === "ranked" ? hits.semantic.said : undefined;
     }
     // How sure the ranked list is: under the rows, or on stderr where stdout is for a program.

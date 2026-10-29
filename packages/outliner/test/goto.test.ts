@@ -51,7 +51,7 @@ function promptFixture() {
   return {
     directory, path,
     write(instructions: string, criteria = ["No match", "Related topic", "Relevant note", "Exact requested note"], exists: object | null = { instructions: "Is the note asked for among these?", true: "It is listed.", false: "Only related notes are listed." }) {
-      const text = JSON.stringify({ instructions, criteria, ...(exists ? { exists } : {}) }, null, 2) + "\n";
+      const text = JSON.stringify({ instructions, criteria, ...(exists ? { exists, structured: { instructions: "How well does `{candidate}` match?", criteria } } : {}) }, null, 2) + "\n";
       writeFileSync(path, text);
       return { path, sha256: createHash("sha256").update(text).digest("hex"), text };
     },

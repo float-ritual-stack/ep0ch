@@ -457,13 +457,13 @@ const annotationAuthor = (actor: Actor = USER) =>
 /** What `tree.search` answers (the outliner's `GotoSearchCollection`). */
 export interface SearchHits {
   /** `score`: Jev's for the row (0 to 3), on a ranked search (PIE-1198). */
-  matches: { block: { id: string; revision: number }; title: string; subtitle?: string; path: string; snippet: string; exact: boolean; score?: number; reason?: "linked" | "near" | "yours" }[];
+  matches: { block: { id: string; revision: number }; title: string; subtitle?: string; path: string; snippet: string; exact: boolean; score?: number; deep?: true; reason?: "linked" | "near" | "yours" }[];
   completeness: { kind: string; limit?: number };
   /** How sure a ranked search is (`verdict`, `said`): the service decides, the door only says it. */
-  semantic: { status: "lexical" | "ranked" | "unavailable"; message?: string } & Partial<SearchCertainty>;
+  semantic: { status: "lexical" | "ranked" | "unavailable"; message?: string; deep?: { status: string; windows?: number; found?: number; elapsedMs?: number; inputTokens?: number; message?: string } } & Partial<SearchCertainty>;
 }
 /** How a search is asked: `semantic` has Jev re-order the candidates; `near` is the note it's asked from. */
-export interface SearchOptions { semantic?: boolean; near?: string; limit?: number; signal?: AbortSignal }
+export interface SearchOptions { semantic?: boolean; /** With semantic: when the ranked hits hold no sure answer, Jev reads the notes themselves (PIE-1200). */ deep?: boolean; near?: string; limit?: number; signal?: AbortSignal }
 
 /** What the service says of a selection's facets (SocketBoard.facetList). */
 export interface FacetAnswer {
@@ -927,17 +927,19 @@ export class SocketBoard implements Board {
    * `text` lists what's linked and edited around it.
    */
   searchBlocks(text: string, opts: SearchOptions = {}): Promise<SearchHits> {
-    return this.request<SearchHits>("tree.search", { query: text, ...(opts.limit !== undefined ? { limit: opts.limit } : {}), ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) }, undefined, opts.signal);
+    // A deep search reads every note's title in windows: it gets longer than a keystroke's.
+    return this.request<SearchHits>("tree.search", { query: text, ...(opts.limit !== undefined ? { limit: opts.limit } : {}), ...(opts.semantic ? { semantic: true } : {}), ...(opts.semantic && opts.deep ? { deep: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) }, opts.deep ? 60_000 : undefined, opts.signal);
   }
 
   /** `searchBlocks`, at most `limit` hits read whole for a preview, with what Jev did (`semantic`) and its Score per hit (`scores`). */
-  async search(text: string, limit: number, opts: SearchOptions = {}): Promise<Msg[] & { semantic?: SearchHits["semantic"]; scores?: Map<string, number> }> {
+  async search(text: string, limit: number, opts: SearchOptions = {}): Promise<Msg[] & { semantic?: SearchHits["semantic"]; scores?: Map<string, number>; deep?: Set<string> }> {
     const r = await this.searchBlocks(text, opts);
     const ids = r.matches.slice(0, Math.min(1000, limit)).map(m => m.block.id);
     // A search replaced meanwhile (its signal aborted) stops reading its hits.
     const by = new Map((ids.length ? (await this.readBlocks(ids, opts.signal)).blocks : []).map(m => [m.id, m]));
     const scores = new Map(r.matches.flatMap(m => m.score !== undefined ? [[m.block.id, m.score] as const] : []));
-    return Object.assign(ids.flatMap(id => by.get(id) ?? []), { semantic: r.semantic, ...(scores.size ? { scores } : {}) });
+    const deep = new Set(r.matches.flatMap(m => m.deep ? [m.block.id] : []));
+    return Object.assign(ids.flatMap(id => by.get(id) ?? []), { semantic: r.semantic, ...(scores.size ? { scores } : {}), ...(deep.size ? { deep } : {}) });
   }
 
   async callers(): Promise<Caller[]> {

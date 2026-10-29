@@ -16,9 +16,10 @@ import { askJev, type JevOptions } from "./jev";
 import { promptRevOf, setChip } from "./jev-suggestions";
 import { writeRecord, type RecordWho } from "./records";
 import { recordRun } from "./work-jev";
-import { certaintyOf, readSearchAnswers, searchRequest, SEARCH_THRESHOLDS } from "./search-ranking";
+import { certaintyOf, readSearchAnswers, searchRequest, SEARCH_THRESHOLDS, type SearchShape } from "./search-ranking";
+import { deepCandidates } from "./search-deep";
 import type { SearchPick } from "./search-records";
-import type { GotoSearchCollection, VisibleBlockCollection } from "./types";
+import type { Block, GotoSearchCollection, GotoSearchMatch, VisibleBlockCollection } from "./types";
 
 export const EVAL_EXPERIMENT = "search-eval";
 const EVAL: RecordWho = { author: "agent", provenance: { actorId: "jev/search-eval" } };
@@ -31,9 +32,10 @@ export interface EvalCase {
   /**
    * Who said what should come first: an agent's open after the search (`agent-read`), the note it made when the search
    * had none (`agent-made`), Evan's pick (`evan-pick`), or none: the query asked of the outline it wasn't about
-   * (`other-outline`, made by the run, never kept).
+   * (`other-outline`, made by the run, never kept). `paraphrase`: a note's subject asked in none of its words, written by
+   * hand to measure finding by meaning (PIE-1200), since a search's next open is a word search's answer.
    */
-  source: "agent-read" | "agent-made" | "evan-pick" | "other-outline";
+  source: "agent-read" | "agent-made" | "evan-pick" | "other-outline" | "paraphrase";
   surface?: string;
   rank?: number;
   asked?: string;
@@ -159,7 +161,7 @@ export interface CaseResult {
   usage?: { input: number; output: number };
 }
 
-export interface ModelRun { model: string; results: CaseResult[]; promptRev: string; prompt: PromptRevision[] }
+export interface ModelRun { model: string; /** What else the run varied: the request's shape, the deep pass. */ variant?: string; results: CaseResult[]; promptRev: string; prompt: PromptRevision[] }
 
 export interface EvalClient { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> }
 
@@ -169,7 +171,7 @@ export async function candidatesOf(client: EvalClient, query: string): Promise<G
 }
 
 /** Every case asked of one model: the request search sends, cached under `cacheDir` by the request itself. */
-export async function runModel(model: string, cases: readonly { case: EvalCase; candidates: GotoSearchCollection }[], o: JevOptions & { cacheDir: string; promptDirectory?: string; atOnce?: number }): Promise<ModelRun> {
+export async function runModel(model: string, cases: readonly { case: EvalCase; candidates: GotoSearchCollection }[], o: JevOptions & { cacheDir: string; promptDirectory?: string; atOnce?: number; shape?: SearchShape; variant?: string }): Promise<ModelRun> {
   const prompt = await loadGotoPrompt(o.promptDirectory);
   mkdirSync(o.cacheDir, { recursive: true });
   const results: CaseResult[] = new Array(cases.length);
@@ -180,7 +182,7 @@ export async function runModel(model: string, cases: readonly { case: EvalCase; 
       const matches = candidates.matches;
       const lexical = matches.map(m => m.block.id);
       if (!matches.length || matches[0]!.exact) { results[i] = { case: c, lexical }; continue; }
-      const request = searchRequest(c.query, matches, prompt);
+      const request = searchRequest(c.query, matches, prompt, undefined, o.shape);
       const file = join(o.cacheDir, `${createHash("sha256").update(JSON.stringify({ model, ...request })).digest("hex")}.json`);
       let answers: Record<string, unknown> | undefined, usage: CaseResult["usage"], cached = false;
       if (existsSync(file)) { ({ answers, usage } = JSON.parse(readFileSync(file, "utf8"))); cached = true; }
@@ -197,7 +199,41 @@ export async function runModel(model: string, cases: readonly { case: EvalCase; 
       } catch (e) { results[i] = { case: c, lexical, unavailable: (e as Error).message }; }
     }
   }));
-  return { model, results, promptRev: promptRevOf({ prompt: prompt.revisions }), prompt: prompt.revisions };
+  return { model, ...(o.variant ? { variant: o.variant } : {}), results, promptRev: promptRevOf({ prompt: prompt.revisions }), prompt: prompt.revisions };
+}
+
+/** A fetch that answers a request it has seen from `cacheDir` (by its body), and keeps each new answer there. */
+export function cachingFetch(cacheDir: string, real: (url: string, init: RequestInit) => Promise<Response> = fetch): (url: string, init: RequestInit) => Promise<Response> {
+  mkdirSync(cacheDir, { recursive: true });
+  return async (url, init) => {
+    const file = join(cacheDir, `${createHash("sha256").update(String(init.body)).digest("hex")}.json`);
+    if (existsSync(file)) return new Response(readFileSync(file, "utf8"), { status: 200, headers: { "content-type": "application/json" } });
+    const response = await real(url, init);
+    if (!response.ok) return response;
+    const text = await response.text();
+    writeFileSync(file, text);
+    return new Response(text, { status: 200, headers: { "content-type": "application/json" } });
+  };
+}
+
+/**
+ * Each case's candidates with deep search's finds added (PIE-1200), as tree.search's deep pass adds them: the pool is
+ * the outline's own notes (`pools`, one per outline). The deep pass runs on every case here, sure or not, so its effect
+ * on the cases the text never reached can be read; `deep` says what it added and what it cost.
+ */
+export async function withDeep(cases: readonly { case: EvalCase; candidates: GotoSearchCollection }[], pools: Record<string, { blocks: () => Block[]; matches: (ids: string[], query: string) => GotoSearchMatch[] }>, o: JevOptions & { promptDirectory?: string }): Promise<{ case: EvalCase; candidates: GotoSearchCollection; deep?: { added: number; tokens: number; ms: number; unavailable?: string } }[]> {
+  const out = [];
+  for (const c of cases) {
+    const pool = pools[c.case.outline];
+    if (!pool || c.candidates.matches[0]?.exact) { out.push(c); continue; }
+    const found = await deepCandidates(pool.blocks(), c.case.query, { jev: { timeoutMs: 120_000, ...o } });
+    if ("unavailable" in found) { out.push({ ...c, deep: { added: 0, tokens: 0, ms: 0, unavailable: found.unavailable } }); continue; }
+    const have = new Set(c.candidates.matches.map(m => m.block.id));
+    const added = pool.matches(found.candidates.map(x => x.id).filter(id => !have.has(id)), c.case.query);
+    // Jev's finds first, as the deep pass puts them: the Noul reads the first candidates.
+    out.push({ ...c, candidates: { ...c.candidates, matches: [...added, ...c.candidates.matches] }, deep: { added: added.length, tokens: found.reading?.usage?.input ?? 0, ms: found.elapsedMs } });
+  }
+  return out;
 }
 
 const hitAt = (order: readonly string[] | undefined, expect: readonly string[], n: number) => !!order && order.slice(0, n).some(id => expect.includes(id));
@@ -237,7 +273,7 @@ export function scoreRun(run: ModelRun, t = SEARCH_THRESHOLDS): ModelScore {
   const answered = r.filter(x => x.ranked && x.exists !== undefined && reach.includes(x)).map(x => x.exists!);
   const not = r.filter(x => x.ranked && x.exists !== undefined && !reach.includes(x)).map(x => x.exists!);
   return {
-    model: run.model, cases: run.results.length, positives: pos.length, reachable: reach.length, negatives: neg.length,
+    model: run.variant ? `${run.model} · ${run.variant}` : run.model, cases: run.results.length, positives: pos.length, reachable: reach.length, negatives: neg.length,
     asked: r.filter(x => x.ranked).length, unavailable: run.results.length - r.length,
     hit1: pos.filter(x => hitAt(order(x), expectOf(x), 1)).length, hit5: pos.filter(x => hitAt(order(x), expectOf(x), 5)).length,
     lexHit1: pos.filter(x => hitAt(x.lexical, expectOf(x), 1)).length, lexHit5: pos.filter(x => hitAt(x.lexical, expectOf(x), 5)).length,
@@ -384,4 +420,27 @@ export async function keepRun(client: EvalClient, scores: readonly ModelScore[],
   }
   const made = await client.request<{ id: string }>({ action: "create", text: note, parentId: page!.id, ...EVAL });
   return made.id;
+}
+
+/**
+ * An outline's copy opened for the eval (`ep0ch outline snapshot … --out`, never a live outline): its own service in
+ * this process, so the candidates are this checkout's search, and its notes for the deep pass.
+ */
+export async function openSnapshot(path: string): Promise<{ client: EvalClient; blocks: () => Block[]; matches: (ids: string[], query: string) => GotoSearchMatch[]; close: () => Promise<void> }> {
+  const { OutlinerStore } = await import("./store");
+  const { OutlinerServer } = await import("./server");
+  const { OutlinerClient } = await import("./client");
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(join(tmpdir(), "search-eval-"));
+  const store = new OutlinerStore(path, { workspaceRoot: dir });
+  const socket = join(dir, "host.sock");
+  const server = new OutlinerServer(store, socket);
+  await server.start();
+  const client = new OutlinerClient(socket);
+  return {
+    client: { request: <T>(input: { action: string } & Record<string, unknown>) => client.request<T>(input as never) },
+    blocks: () => store.searchPool(), matches: (ids, query) => store.searchMatches(ids, query),
+    close: async () => { await server.close(); store.close(); },
+  };
 }

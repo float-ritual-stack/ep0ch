@@ -1482,7 +1482,8 @@ export class OutlinerServer {
     const deep = { status: "found" as const, windows: found.windows, found: added.length, elapsedMs: found.elapsedMs, ...(found.reading?.usage ? { inputTokens: found.reading.usage.input } : {}) };
     if (found.reading) this.tallySearch({ status: "ranked", model: found.reading.model, promptRevisions: found.reading.prompt, candidateCount: found.windows, ...(found.reading.usage ? { inputTokens: found.reading.usage.input, outputTokens: found.reading.usage.output } : {}) });
     if (!added.length) return { ...ranked, semantic: { ...ranked.semantic, deep } };
-    const again = await rankSearchWithJev(query, { ...ranked, matches: [...ranked.matches.map(({ score: _s, ...m }) => m), ...added] }, { promptDirectory: this.promptDirectory, ...note });
+    // Jev's finds first: the "is it among these?" Noul reads the first candidates, and these are the ones it hasn't seen.
+    const again = await rankSearchWithJev(query, { ...ranked, matches: [...added, ...ranked.matches.map(({ score: _s, ...m }) => m)] }, { promptDirectory: this.promptDirectory, ...note });
     return { ...again, semantic: { ...again.semantic, deep } };
   }
 

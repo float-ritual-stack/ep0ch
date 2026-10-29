@@ -572,7 +572,7 @@ const pathOf = (path: string) => path || ROOT_PATH;
 const semanticSays = (asked: boolean, semantic: SearchHits["semantic"] | undefined) => {
   if (!asked) return { asked, status: "lexical", said: "lexical: ep0ch find's ranker (title, text, properties); semantic: false left Jev out" };
   const status = semantic?.status ?? "unavailable";
-  if (status === "ranked" && semantic?.verdict) return { asked, status, verdict: semantic.verdict, ...(semantic.label ? { label: semantic.label } : {}), said: semantic.said, ...(semantic.exists !== undefined ? { exists: semantic.exists } : {}) };
+  if (status === "ranked" && semantic?.verdict) return { asked, status, verdict: semantic.verdict, ...(semantic.label ? { label: semantic.label } : {}), said: semantic.said, ...(semantic.deep ? { deep: semantic.deep } : {}), ...(semantic.exists !== undefined ? { exists: semantic.exists } : {}) };
   return { asked, status, said: status === "ranked" ? "re-ranked semantically (Jev) over the lexical candidates" : `lexical: semantic re-ranking was asked for and isn't available here${semantic?.message ? ` (${semantic.message})` : ""}` };
 };
 
@@ -596,8 +596,9 @@ async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>):
   // already cut at the service's own limit).
   let rows: (Found & { revision?: number })[], more: boolean, search: ReturnType<typeof semanticSays> | undefined;
   if (query) {
-    const found = await board.searchBlocks(query, askSemantic ? { semantic: true } : {});
-    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: pathOf(m.path), uri: blockUri(board, m.block.id), revision: m.block.revision, ...(m.score !== undefined ? { score: m.score } : {}) }));
+    // An agent's search goes deep when the ranked hits hold no sure answer (PIE-1200): Jev reads the notes themselves.
+    const found = await board.searchBlocks(query, askSemantic ? { semantic: true, deep: args.deep !== false } : {});
+    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: pathOf(m.path), uri: blockUri(board, m.block.id), revision: m.block.revision, ...(m.score !== undefined ? { score: m.score } : {}), ...(m.deep ? { byMeaning: true } : {}) }));
     // A hit the caller holds at this revision is a stub: its title and path are what they already have.
     if (seen) rows = rows.map(r => r.revision !== undefined && seen.has(pairOf(r.id, r.revision)) ? ({ ...unchangedStub(r.id, r.revision, r.uri), path: r.path }) as unknown as typeof r : r);
     more = found.matches.length > limit || found.completeness.kind !== "complete";
@@ -773,12 +774,13 @@ function toolsFor(outlines: McpOutlines) {
     },
     {
       name: "outline_find",
-      description: `Search ${which} with the same ranker as ep0ch find: lexical candidates (title, text, properties) re-ranked by Jev, each match with its score (0 to 3), and search says how sure it is: verdict strong, or "no strong match" (weak: the closest is named, not claimed; none: nothing here answers it), with exists (Jev's "is it among these?", 0 to 1). semantic: false is the lexical order alone. ` +
+      description: `Search ${which} with the same ranker as ep0ch find: lexical candidates (title, text, properties) re-ranked by Jev, and when none is a sure answer Jev reads every note to find ones the words missed (deep), each match with its score (0 to 3), and search says how sure it is: verdict strong, or "no strong match" (weak: the closest is named, not claimed; none: nothing here answers it), with exists (Jev's "is it among these?", 0 to 1). semantic: false is the lexical order alone. ` +
         `source and asOf say whether it searched the live outline or a read-only mirror; a top-level note's path is "${ROOT_PATH}". Requires ${grant}. Empty query lists index rows.`,
       inputSchema: { type: "object", properties: {
         query: { type: "string" },
         limit: { ...limitSchema(LIST_LIMIT, "Rows for an empty query"), description: `Matches: 1 to ${FIND_LIMIT.max} for a query (default ${FIND_LIMIT.fallback}); 1 to ${LIST_LIMIT.max} rows for an empty query (default ${LIST_LIMIT.fallback})` },
         semantic: { type: "boolean", default: true, description: "Jev re-ranks the lexical candidates and says how sure it is (the default); false for the lexical order alone. The answer's search says whether it happened" },
+        deep: { type: "boolean", default: true, description: "When the ranked hits hold no sure answer, Jev reads every note's title to find ones the words missed (byMeaning: true on those rows; search.deep says what it found and cost); false skips it" },
         seen: seenProperty,
         outline: outlineProperty(outlines),
       }, additionalProperties: false },

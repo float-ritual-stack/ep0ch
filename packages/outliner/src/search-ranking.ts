@@ -27,10 +27,11 @@ type Prompt = { ranking: Question; structured?: Question; exists: ExistsQuestion
 
 /**
  * How a search puts its candidates to Jev: `inline`, each candidate's text in its own Score question (the skill's
- * default), or `state` (PIE-1199): the candidates once in the state with their type, length and age, each Score
+ * default), `facts` (the same, each candidate with its type, length and age and the criteria that know a log
+ * mentioning the subject isn't the note about it), or `state` (PIE-1199): the candidates once in the state with their type, length and age, each Score
  * pointing at its own by path. The search eval compares them; SEARCH_SHAPE is the one search uses.
  */
-export type SearchShape = "inline" | "state";
+export type SearchShape = "inline" | "facts" | "state";
 export const SEARCH_SHAPE: SearchShape = "inline";
 /** In the state shape, each candidate's passage is cut to this (the state is read with every question). */
 const STATE_SNIPPET = 300;
@@ -45,10 +46,11 @@ export function searchRequest(query: string, matches: readonly SearchExcerpt[], 
     questions.exists = { type: "noul", instructions: prompt.exists.instructions.replace("listed below", "in `candidates`"), criteria: { true: prompt.exists.true, false: prompt.exists.false } };
     return { state: { query, ...(note ? { note } : {}), candidates }, questions };
   }
-  const questions: Record<string, unknown> = Object.fromEntries(matches.map(({ title, path, snippet }, index) => [`candidate_${index}`, {
+  const facts = shape === "facts";
+  const questions: Record<string, unknown> = Object.fromEntries(matches.map(({ title, path, snippet, facts: f }, index) => [`candidate_${index}`, {
     type: "score",
-    instructions: `${prompt.ranking.instructions}\nCandidate: ${JSON.stringify({ title, path, text: snippet })}`,
-    criteria: prompt.ranking.criteria,
+    instructions: `${prompt.ranking.instructions}\nCandidate: ${JSON.stringify({ title, path, ...(facts && f ? f : {}), text: snippet })}`,
+    criteria: facts && prompt.structured ? prompt.structured.criteria : prompt.ranking.criteria,
   }]));
   const listed = matches.slice(0, EXISTS_CANDIDATES).map(({ title, path, snippet }) => ({ title, path, text: snippet.length > EXISTS_SNIPPET ? `${snippet.slice(0, EXISTS_SNIPPET)}…` : snippet }));
   questions.exists = { type: "noul", instructions: `${prompt.exists.instructions}\nNotes: ${JSON.stringify(listed)}`, criteria: { true: prompt.exists.true, false: prompt.exists.false } };

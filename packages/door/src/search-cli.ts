@@ -24,7 +24,10 @@ interface Eval {
   keptCases(client: Client): Promise<Kept[]>;
   keepCase(client: Client, c: Case): Promise<void>;
   candidatesOf(client: Client, query: string): Promise<unknown>;
-  runModel(model: string, cases: { case: Case; candidates: unknown }[], o: { cacheDir: string }): Promise<Run>;
+  runModel(model: string, cases: { case: Case; candidates: unknown }[], o: { cacheDir: string; shape?: string; variant?: string; fetch?: unknown }): Promise<Run>;
+  withDeep(cases: { case: Case; candidates: unknown }[], pools: Record<string, unknown>, o: { model?: string; fetch?: unknown }): Promise<{ case: Case; candidates: unknown; deep?: { added: number; tokens: number; ms: number; unavailable?: string } }[]>;
+  cachingFetch(dir: string): unknown;
+  openSnapshot(path: string): Promise<{ client: Client; blocks: () => unknown[]; matches: (ids: string[], q: string) => unknown[]; close: () => Promise<void> }>;
   scoreRun(run: Run): Score;
   sweep(run: Run): unknown;
   reportNote(scores: Score[], sweeps: Record<string, unknown>, meta: { day: string; outlines: string[]; promptRev: string; current: string }): string;
@@ -39,12 +42,16 @@ export const SEARCH_USAGE = `  ep0ch search harvest [--into pie] [--logs <dir>] 
                                    agents' searches in Claude Code's session logs (~/.claude/projects, read only) and the
                                    note each opened next, and Evan's picks from a search, kept as search-eval-case
                                    records in --into (pie by default); only pie's and gurgle's notes become cases.
-  ep0ch search eval [--models jev-1.13.0,jev-1.14.0] [--into pie] [--json] [--machine <ssh-name>]
+  ep0ch search eval [--models jev-1.13.0,jev-1.14.0] [--variants state,deep,state+deep] [--snapshots <dir>] [--cases <file>] [--only <source>] [--into pie] [--json] [--machine <ssh-name>]
                                    the kept cases' candidates from each outline's own search, ranked by each model as
                                    search ranks them (cached by request): hit@1, hit@5, the Noul's spread, thresholds
-                                   tried; --into keeps a jev-run per model and the report under pie's Search evals page.`;
+                                   tried; --into keeps a jev-run per model and the report under pie's Search evals page.
+                                   --snapshots <dir> reads <dir>/pie.sqlite and gurgle.sqlite (copies: ep0ch outline
+                                   snapshot … --out) with this checkout's search, never the live host's; --variants also
+                                   runs the pinned model with the candidates in the request's state (state, PIE-1199)
+                                   and with the deep pass's finds added (deep, PIE-1200).`;
 
-const VALUED = ["--into", "--logs", "--models", "--machine", "--cache"];
+const VALUED = ["--into", "--logs", "--models", "--machine", "--cache", "--snapshots", "--variants", "--cases", "--only"];
 const SOLO = ["--dry-run", "--json"];
 
 function sessionFiles(dir: string): string[] {
@@ -77,7 +84,7 @@ export async function searchCommand(args: string[], io = { out: (s: string) => c
   const client = (b: Exclude<Awaited<ReturnType<typeof boardFor>>, { error: string }>): Client => ({ request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return b.request<T>(action, params, 120_000); } });
   try {
     const e = await import(EVAL) as Eval;
-    const into = client(await board(opts["--into"] ?? "pie"));
+    const into = verb === "eval" && opts["--snapshots"] && !opts["--into"] ? undefined as unknown as Client : client(await board(opts["--into"] ?? "pie"));
     if (verb === "harvest") {
       const searches = sessionFiles(opts["--logs"] ?? join(homedir(), ".claude", "projects")).flatMap(f => { try { return e.sessionSearches(readFileSync(f, "utf8"), f); } catch { return []; } });
       // Which outline holds each opened note: asked of pie and gurgle only.
@@ -96,6 +103,8 @@ export async function searchCommand(args: string[], io = { out: (s: string) => c
       // A case kept before takes this harvest's label (more rows opened, a note made since).
       let refreshed = 0;
       for (const c of harvested) { const k = kept.get(e.caseKey(c.query, c.outline)); if (k && !rest.includes("--dry-run") && await e.refreshCase(into, k, c)) refreshed++; }
+      // Cases written by hand (--cases <file.json>: [{query, outline, expect: [ids], source: "paraphrase"}]) are kept too.
+      if (opts["--cases"]) harvested.push(...(JSON.parse(readFileSync(opts["--cases"], "utf8")) as Case[]));
       const cases = harvested.filter(c => !have.has(e.caseKey(c.query, c.outline)));
       for (const name of EVAL_OUTLINES) {
         const { picks } = await (await board(name)).searchPicks().catch(() => ({ picks: [] }));
@@ -107,23 +116,46 @@ export async function searchCommand(args: string[], io = { out: (s: string) => c
         : `${searches.length} searches read; ${cases.length} new cases (${by("agent-read")} an agent opened, ${by("agent-made")} answered by the note made after, ${by("evan-pick")} Evan picked)${rest.includes("--dry-run") ? ", none kept (--dry-run)" : `, kept in ${opts["--into"] ?? "pie"}`}; ${have.size} were already kept, ${refreshed} relabelled`);
       return 0;
     }
+    const runs: Run[] = [];
     const models = (opts["--models"] ?? "jev-1.13.0,jev-1.14.0").split(",").map(m => m.trim()).filter(Boolean);
-    const labelled = await e.keptCases(into);
-    if (!labelled.length) { io.err("ep0ch search eval: no cases kept yet; run ep0ch search harvest first"); return 1; }
-    const cases = [...labelled, ...e.otherOutlineCases(labelled, EVAL_OUTLINES)];
-    const withCandidates = [];
-    for (const c of cases) {
-      if (!EVAL_OUTLINES.includes(c.outline)) continue;
-      withCandidates.push({ case: c, candidates: await e.candidatesOf(client(await board(c.outline)), c.query) });
-    }
-    const cacheDir = opts["--cache"] ?? join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "ep0ch", "search-eval");
-    const runs = [];
-    for (const model of models) runs.push(await e.runModel(model, withCandidates, { cacheDir }));
+    const variants = (opts["--variants"] ?? "").split(",").map(v => v.trim()).filter(Boolean);
+    const { JEV_MODEL } = await import("@ep0ch/outliner/jev") as { JEV_MODEL: string };
+    // The outlines read: their copies, opened here (this checkout's search), or the live hosts.
+    const snaps = new Map<string, Awaited<ReturnType<Eval["openSnapshot"]>>>();
+    if (opts["--snapshots"]) for (const name of EVAL_OUTLINES) snaps.set(name, await e.openSnapshot(join(opts["--snapshots"], `${name}.sqlite`)));
+    const source = async (name: string) => snaps.get(name)?.client ?? client(await board(name));
+    try {
+      const labelled = await e.keptCases(snaps.get("pie")?.client ?? into);
+      if (!labelled.length) { io.err("ep0ch search eval: no cases kept yet; run ep0ch search harvest first"); return 1; }
+      const extra = opts["--cases"] ? JSON.parse(readFileSync(opts["--cases"], "utf8")) as Case[] : [];
+      const have = new Set(labelled.map(c => e.caseKey(c.query, c.outline)));
+      const all = [...labelled, ...extra.filter(c => !have.has(e.caseKey(c.query, c.outline)))];
+      // --only <source>: the cases of one source (paraphrase: finding by meaning), and no other-outline ones.
+      const cases = opts["--only"] ? all.filter(c => c.source === opts["--only"]) : [...all, ...e.otherOutlineCases(all, EVAL_OUTLINES)];
+      const withCandidates = [];
+      for (const c of cases) {
+        if (!EVAL_OUTLINES.includes(c.outline)) continue;
+        withCandidates.push({ case: c, candidates: await e.candidatesOf(await source(c.outline), c.query) });
+      }
+      const cacheDir = opts["--cache"] ?? join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "ep0ch", "search-eval");
+      const fetch = e.cachingFetch(join(cacheDir, "requests"));
+      for (const model of models) runs.push(await e.runModel(model, withCandidates, { cacheDir }));
+      let deepened: Awaited<ReturnType<Eval["withDeep"]>> | undefined;
+      for (const v of variants) {
+        const shape = v.includes("state") ? "state" : v.includes("facts") ? "facts" : "inline";
+        if (v.includes("deep") && !deepened) {
+          if (!snaps.size) { io.err("ep0ch search eval: --variants deep reads the notes themselves: pass --snapshots <dir>"); return 2; }
+          deepened = await e.withDeep(withCandidates, Object.fromEntries([...snaps].map(([n, sn]) => [n, sn])), { model: JEV_MODEL, fetch });
+          const added = deepened.filter(d => d.deep), tokens = added.reduce((a, d) => a + (d.deep?.tokens ?? 0), 0), ms = added.reduce((a, d) => a + (d.deep?.ms ?? 0), 0);
+          io.err(`deep pass: ${added.length} cases, ${added.reduce((a, d) => a + (d.deep?.added ?? 0), 0)} notes added, ${added.filter(d => d.deep?.unavailable).length} unavailable, ${tokens} tokens, ${added.length ? Math.round(ms / added.length) : 0} ms each`);
+        }
+        runs.push(await e.runModel(JEV_MODEL, v.includes("deep") ? deepened! : withCandidates, { cacheDir, shape, variant: v }));
+      }
+    } finally { for (const sn of snaps.values()) await sn.close(); }
     const scores = runs.map(r => e.scoreRun(r));
     const sweeps = Object.fromEntries(runs.map(r => [r.model, e.sweep(r)]));
     const day = new Date().toISOString().slice(0, 10);
-    const { JEV_MODEL } = await import("@ep0ch/outliner/jev") as { JEV_MODEL: string };
-    const note = e.reportNote(scores, sweeps, { day, outlines: [...new Set(withCandidates.map(c => c.case.outline))], promptRev: runs[0]!.promptRev, current: JEV_MODEL });
+    const note = e.reportNote(scores, sweeps, { day, outlines: EVAL_OUTLINES, promptRev: runs[0]!.promptRev, current: JEV_MODEL });
     if (scores.every(s => s.asked === 0 && s.unavailable > 0)) { io.err(`ep0ch search eval: Jev couldn't be asked (${runs[0]!.results.find(r => r.unavailable)?.unavailable})`); return 1; }
     const kept = opts["--into"] ? await e.keepRun(into, scores, runs, note, day) : undefined;
     io.out(rest.includes("--json") ? JSON.stringify({ scores, sweeps, ...(kept ? { note: kept } : {}) }, null, 2) : `${note}${kept ? `\n\nkept: ((${kept}))` : ""}`);

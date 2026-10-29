@@ -20,7 +20,9 @@ describe.skipIf(!outliner)("the power bar says how sure a search is", () => {
     port: 0, hostname: "127.0.0.1",
     async fetch(request) {
       const { model, questions } = await request.json() as { model: string; questions: Record<string, { instructions: string }> };
-      const answers = Object.fromEntries(Object.entries(questions).map(([id, q]) => [id, id === "exists" ? { type: "noul", noul: exists } : { type: "score", score: q.instructions.includes("Compost turning") ? 2.6 : 0.3 }]));
+      const answers = Object.fromEntries(Object.entries(questions).map(([id, q]) => [id, id === "exists" ? { type: "noul", noul: questions.which ? 0.9 : exists }
+        : id === "which" ? { type: "choice", probabilities: Object.fromEntries(Object.entries((q as unknown as { criteria: Record<string, string> }).criteria).map(([n, d]) => [n, d.includes("Compost turning") ? 0.9 : 0.001])) }
+        : { type: "score", score: q.instructions.includes("Compost turning") ? 2.6 : 0.3 }]));
       return Response.json({ model, answers, usage: { input_tokens: 300, output_tokens: 2 } });
     },
   });
@@ -60,6 +62,17 @@ describe.skipIf(!outliner)("the power bar says how sure a search is", () => {
     const rows = frame();
     expect(rows.some(l => l.includes("Compost turning schedule") && l.includes("2.6/3"))).toBe(true);
     expect(rows.some(l => l.includes("Compost bin repairs") && l.includes("0.3/3"))).toBe(true);
+    // Not sure: the footer says how to read every note.
+    expect(rows.some(l => l.includes("// reads every note"))).toBe(true);
+    key({ kind: "esc" }); key({ kind: "esc" });
+  });
+
+  test("a second / reads every note: a note none of whose words were typed is found by meaning", async () => {
+    exists = 0.1;
+    key({ kind: "char", ch: "k", ctrl: true });
+    type("//rotating the pile");
+    await until(() => frame().some(l => l.includes("found by meaning")), "the deep search's footer", 15_000);
+    expect(frame().some(l => l.includes("Compost turning schedule") && l.includes("by meaning"))).toBe(true);
     key({ kind: "esc" }); key({ kind: "esc" });
   });
 

@@ -24,7 +24,9 @@ function fakeJev(o: { best: string; exists: number }) {
       const body = await request.json() as (typeof asked)[number];
       asked.push(body);
       const answers = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => [id, id === "exists"
-        ? { type: "noul", noul: o.exists }
+        ? { type: "noul", noul: body.questions.which ? 0.9 : o.exists }
+        // A deep window: the note whose option names `best` takes the probability.
+        : id === "which" ? { type: "choice", probabilities: Object.fromEntries(Object.entries((q as unknown as { criteria: Record<string, string> }).criteria).map(([n, d]) => [n, d.includes(o.best) ? 0.9 : 0.1 / 250])) }
         : { type: "score", score: q.instructions.includes(o.best) ? 2.8 : 0.4 }]));
       return Response.json({ model: body.model, answers, usage: { input_tokens: 500, output_tokens: 3 } });
     },
@@ -91,6 +93,25 @@ test("a search with nothing that answers it says no strong match instead of a co
   const r = await client.request<GotoSearchCollection>({ action: "tree.search", query: "compost tea recipe for tomatoes", semantic: true });
   expect(r.semantic).toMatchObject({ status: "ranked", verdict: "none", said: "no strong match: nothing here looks like what was asked for" });
   expect(await until(async () => (await records("jev-run")).some(run => run.experiment === "search-live" && run.suggested === "1"))).toBe(true);
+});
+
+test("deep: a note none of whose words were asked is found by meaning, scored and said sure (PIE-1200)", async () => {
+  const { store, client, asked } = await setup({ best: "Compost turning", exists: 0.1 });
+  const target = store.create("Compost turning schedule\nTurn the heap every two weeks in summer.");
+  store.create("Bike shed\nthe spare inner tubes");
+  const r = await client.request<GotoSearchCollection>({ action: "tree.search", query: "rotating the pile", semantic: true, deep: true });
+  expect(r.matches[0]).toMatchObject({ block: { id: target.id }, deep: true, score: 2.8 });
+  expect(r.semantic.deep).toMatchObject({ status: "found", windows: 1, found: 1 });
+  expect(asked.some(a => "which" in a.questions)).toBe(true);
+});
+
+test("deep is skipped when the ranked hits already hold a sure answer", async () => {
+  const { store, client, asked } = await setup({ best: "Compost turning", exists: 0.95 });
+  store.create("Compost turning schedule\nTurn the heap every two weeks in summer.");
+  store.create("Compost bin repairs\nThe lid hinge on the compost bin.");
+  const r = await client.request<GotoSearchCollection>({ action: "tree.search", query: "when to turn the compost", semantic: true, deep: true });
+  expect(r.semantic).toMatchObject({ verdict: "strong", deep: { status: "skipped" } });
+  expect(asked.some(a => "which" in a.questions)).toBe(false);
 });
 
 test("the person's pick from a search is kept with the words, and read back for the eval", async () => {
