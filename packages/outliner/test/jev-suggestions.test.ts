@@ -221,12 +221,13 @@ test("a kit finding is followed only when its own section draws the component", 
 });
 
 // PIE-1388: pie's page was shaped by hand; a new section and column reach it on their own, added and never rewritten.
-test("an existing suggestions page gains the quiet writes' table and a created column, keeping its own order", async () => {
+test("an existing suggestions page gains the quiet writes' table, with when, keeping its own order", async () => {
   const { SUGGESTIONS_PAGE, upgradeSuggestionsPage } = await import("../src/jev-suggestions");
-  const old = SUGGESTIONS_PAGE.replace(/## Reviewed, nothing to fix\n[\s\S]*?\n::\n\n/, "").replace("columns: [note, said, passage, rubric, patch, writer, created]", "columns: [note, rubric, said, passage, writer, patch]");
+  const old = SUGGESTIONS_PAGE.replace(/## Reviewed, nothing to fix\n[\s\S]*?\n::\n\n/, "").replace("columns: [note, said, passage, rubric, patch, writer]", "columns: [note, rubric, said, passage, writer, patch]");
   expect(old).not.toContain("review-quiet");
   const up = upgradeSuggestionsPage(old);
-  expect(up).toContain("columns: [note, rubric, said, passage, writer, patch, created]");
+  expect(up).toContain("columns: [note, rubric, said, passage, writer, patch]");
+  expect(up).toContain("columns: [note, writer, revision, created]");
   expect(up.indexOf("## Reviewed, nothing to fix")).toBeLessThan(up.indexOf("## What the writer did"));
   expect(up.split("\n").filter(l => l === "::").length).toBe(old.split("\n").filter(l => l === "::").length + 1);
   expect(upgradeSuggestionsPage(up)).toBe(up);

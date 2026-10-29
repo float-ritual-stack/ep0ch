@@ -53,8 +53,7 @@ test("a stamped note is hidden by default, alone with only, and with the rest on
 
   const activity = async (machinery?: string) => (await client.request<{ entries: { block: Block }[] }>({ action: "activity.recent", author: "agent", limit: 20, ...(machinery ? { machinery } : {}) } as never)).entries.map(e => e.block.id);
   expect(await activity()).not.toContain(toss.id);
-  // The service's own Extensions pages are machinery too (PIE-1427): only the two notes here are asked about.
-  expect((await activity("only")).filter(id => id === toss.id || id === gate.id)).toEqual([toss.id]);
+  expect(await activity("only")).toEqual([toss.id]);
 
   const feed = async (machinery?: string) => {
     const page = await client.request<ChangeFeedPage>({ action: "changes.since", sequence: 0, limit: 100, ...(machinery ? { machinery } : {}) } as never);
@@ -178,10 +177,7 @@ test("an agent's recent-activity find leaves fetched notifications out and says 
   const titles = found.blocks.map(b => b.title);
   expect(titles).toContain("Pruned the pear row");
   expect(titles.filter(t => t.startsWith("Seed order") || t.startsWith("Toss"))).toEqual([]);
-  // The Extensions hub and its pages the service wrote at start are left out too, and counted (PIE-1427).
-  const pages = found.machineryOmitted?.by["extension-page"] ?? 0;
-  expect(pages).toBeGreaterThan(0);
-  expect(found.machineryOmitted).toEqual({ count: 4 + pages, by: { notification: 3, echonet: 1, "extension-page": pages }, said: `${4 + pages} notifications and bookkeeping notes left out (machinery: show brings them back)` });
+  expect(found.machineryOmitted).toEqual({ count: 4, by: { notification: 3, echonet: 1 }, said: "4 notifications and bookkeeping notes left out (machinery: show brings them back)" });
   expect((await findBlocks(client as never, { query: "updated >= -1d", machinery: "show" })).machineryOmitted).toBeUndefined();
   expect((await findBlocks(client as never, { query: "type=chore" })).machineryOmitted).toBeUndefined();
 });

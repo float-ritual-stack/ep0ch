@@ -167,7 +167,7 @@ export const SUGGESTIONS_PAGE = [
   "title: what each writer was told",
   "query: type=review-finding NOT source=backfill",
   "machinery: show",
-  "columns: [note, said, passage, rubric, patch, writer, created]",
+  "columns: [note, said, passage, rubric, patch, writer]",
   "link: note",
   "sort: created",
   "direction: desc",
@@ -253,17 +253,12 @@ export const REVIEW_RECORDS_RULE =
   "[rule-decorate::card] [rule-place::prepend] [rule-fields::note, rubric, component, verdict, said, passage, outcome, because, writer]";
 
 /**
- * An existing suggestions page with what a later version added and it lacks (PIE-1388): the quiet writes' section, and
- * a `created` column on the findings table. Only added, never rewritten, so a page shaped by hand keeps its order and
- * words; a page that has them is returned as it is.
+ * An existing suggestions page with what a later version added and it lacks (PIE-1388): the quiet writes' section, with
+ * when each was written. Only added, never rewritten, so a page shaped by hand keeps its order and words; a page that
+ * has it is returned as it is.
  */
 export function upgradeSuggestionsPage(text: string): string {
   let lines = text.split("\n");
-  // The findings table: the first figure whose query is the live findings', its columns line.
-  const query = lines.findIndex(l => l.trim() === "query: type=review-finding NOT source=backfill");
-  const columns = query < 0 ? -1 : lines.findIndex((l, i) => i > query && /^columns:\s*\[/.test(l.trim()));
-  const end = query < 0 ? -1 : lines.findIndex((l, i) => i > query && l.trim() === "---");
-  if (columns > 0 && columns < end && !/\bcreated\b/.test(lines[columns]!)) lines[columns] = lines[columns]!.replace(/\s*\]\s*$/, ", created]");
   if (!lines.some(l => l.includes("query: type=review-quiet"))) {
     const section = SUGGESTIONS_PAGE.split("\n"), from = section.indexOf(QUIET_HEADING);
     const quiet = section.slice(from, section.indexOf("", from) + 1);

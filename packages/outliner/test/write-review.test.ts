@@ -473,7 +473,7 @@ test("a live write that ships is kept as quiet, findable on the suggestions page
   expect(quiet[0]!.note).not.toBe(sore.json.id);
   const { SUGGESTIONS_PAGE } = await import("../src/jev-suggestions");
   expect(SUGGESTIONS_PAGE).toContain("query: type=review-quiet NOT source=backfill");
-  expect(SUGGESTIONS_PAGE).toContain("columns: [note, said, passage, rubric, patch, writer, created]");
+  expect(SUGGESTIONS_PAGE).toContain("columns: [note, writer, revision, created]");
 });
 
 test("Jev's dense finding with its ready patch stays the writer's to apply across writes, as code's do", async () => {
