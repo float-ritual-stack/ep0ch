@@ -198,7 +198,7 @@ test("a lone PDF arrives as a document: a page drawn by its first page and linki
   if (hasPdftoppm) {
     expect(readFileSync(join(live("lantern-deck"), "first-page.png")).subarray(1, 4).toString()).toBe("PNG");
     expect(page).toContain('src="./first-page.png"');
-  } else expect(page).toContain("pdftoppm isn't installed here");
+  } else expect(page).toContain("pdftoppm isn&#39;t installed here");
   expect(existsSync(join(live("lantern-deck"), "Lantern-Deck.pdf"))).toBe(true);
   // The card: what it is and who sent it on its title line, the artifact line under it as before.
   const card = (await childrenOf("garden", day())).find(block => block.text.includes("[artifact::lantern-deck]"));
