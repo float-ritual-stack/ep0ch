@@ -6,7 +6,7 @@
  * `pi-outliner://` URI the Outliner's own link navigation takes.
  */
 import { codeBlocks } from './link-grammar.js'
-import { linkOccurrences, qualifiedReference } from './link-grammar.js'
+import { linkOccurrences, pageLinkSpans, qualifiedReference, referencedBlock } from './link-grammar.js'
 
 const STAND_IN = 'https://pi-outliner.invalid/'
 
@@ -171,7 +171,9 @@ export function outlinerUriFor(reference: string): string | null {
   if (new RegExp(`^${UUID}$`).test(text)) return `pi-outliner://block/${text.toLowerCase()}`
   if (/^[A-Z][A-Z0-9]*-\d+$/.test(text)) return `pi-outliner://work/${text}`
   const { hrefs } = linkifyReferences(text, [])
-  if (hrefs.length === 1 && /^(\[\[[^\]]+\]\]|\(\([^)]+\)\))$/.test(text)) return outlinerUriOf(hrefs[0]!)
+  // One link written whole, by outline-core's grammar: `((id|Rough edges (x)))` and `[[[[2026-10-06]] - notes]]` too.
+  const [page] = pageLinkSpans(text)
+  if (hrefs.length === 1 && (referencedBlock(text) || (page?.start === 0 && page.end === text.length))) return outlinerUriOf(hrefs[0]!)
   return `pi-outliner://page/${encodeURIComponent(text)}`
 }
 

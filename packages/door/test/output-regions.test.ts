@@ -74,7 +74,7 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
       s.key(char("]"), host);
       expect(lines()[out]!.startsWith("≡")).toBe(true);                          // then the one dim mark, in the first row's gutter cell
       const text = rows.join("\n");
-      expect(text).not.toMatch(/ran (just now|\d+ min ago)/);
+      expect(text).not.toMatch(/ran (just now|\d+ s ago|\d+ min ago)/);
       expect(text).not.toContain("run again");
       expect(text).not.toContain("[keep]");
       expect(s.render(120, 80, host).lines.some(l => l.includes(SHADE))).toBe(false);   // no tint under the region
@@ -86,7 +86,7 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
       expect(row).toBeGreaterThan(0);
       const before = lines().length;
       s.click(0, row, host);
-      await until(() => /Horoscope virgo · ran (just now|\d+ min ago)/.test(lines().join("\n")), "the row behind the mark", 5000);
+      await until(() => /Horoscope virgo · ran (just now|\d+ s ago|\d+ min ago)/.test(lines().join("\n")), "the row behind the mark", 5000);
       const open = lines().find(l => l.includes("Horoscope virgo · ran"))!;
       expect(open).toContain("[keep]");
       expect(open).toContain("[r run again]");

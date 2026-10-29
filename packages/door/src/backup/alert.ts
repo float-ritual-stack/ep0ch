@@ -6,7 +6,7 @@
 // that couldn't take a newer snapshot, a restore drill that failed. Each is announced once (the door's status bar
 // keeps showing it until it clears; the push and `herdr notification` go out when it starts), with the command that
 // fixes it.
-import { age as ageOf } from "@ep0ch/outline-core/age";
+import { age } from "@ep0ch/outline-core/age";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeState } from "../state";
@@ -119,7 +119,7 @@ export const readAlert = (dir: string): Alert | null => readJson<Alert>(join(dir
 export const writeAlert = (dir: string, a: Alert) => writeState("alert.json", a, dir);
 
 /** `29s`, `5m`, `2h`, `3d`: outline-core's `age`. */
-export const age = (ms: number) => ageOf(ms);
+export { age };
 export const hhmm = (t: string | number) => new Date(t).toISOString().replace("T", " ").slice(0, 16) + "Z";
 
 /** How the person runs the job and reads its log, here. */

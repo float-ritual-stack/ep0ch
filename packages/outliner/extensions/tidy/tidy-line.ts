@@ -1,9 +1,20 @@
 // What @tidy does to one line, kept apart from tidy.ts (which reads its request from stdin) so the
 // service's `outliner patch-demo` uses the same rules instead of a copy. Fences are outline-core's (the bundle).
-import { codeFenceLines } from "./link-grammar.js";
+import { blockReferenceOccurrences, codeFenceLines } from "./link-grammar.js";
 
-/** Links, references, anchors, properties and code: tidying never goes inside one. */
-const PROTECTED = /\[\[[^\]\r\n]*\]\]|!?\(\([^)\r\n]*\)\)|\[[A-Za-z][A-Za-z0-9_.-]*::[^\]\r\n]*\]|(?<=\s)\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$|`[^`\r\n]*`/g;
+/** Page links, anchors, properties and code: tidying never goes inside one. Block references are the grammar's (below). */
+const PROTECTED = /\[\[[^\]\r\n]*\]\]|\[[A-Za-z][A-Za-z0-9_.-]*::[^\]\r\n]*\]|(?<=\s)\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$|`[^`\r\n]*`/g;
+
+/** What tidying leaves as written in `text`, in order: PROTECTED's spans and every `((…))` (embeds' `!` too), label and all. */
+function protectedSpans(text: string): { start: number; end: number }[] {
+  const spans = [
+    ...[...text.matchAll(PROTECTED)].map(m => ({ start: m.index!, end: m.index! + m[0].length })),
+    ...blockReferenceOccurrences(text, []).map(r => ({ start: text[r.start - 1] === "!" ? r.start - 1 : r.start, end: r.end })),
+  ].sort((a, b) => a.start - b.start);
+  const kept: { start: number; end: number }[] = [];
+  for (const span of spans) if (!kept.length || span.start >= kept.at(-1)!.end) kept.push(span);
+  return kept;
+}
 
 function tidyGap(text: string): string {
   return text.replace(/\*\*\s+([^*\n]*?)\s+\*\*/g, "**$1**").replace(/ {2,}/g, " ");
@@ -19,20 +30,20 @@ export function tidyLine(line: string): string {
   const lead = /^\s*(?:(?:[-*+]|\d{1,9}[.)])\s+)?/.exec(out)![0];
   let body = "";
   let cursor = lead.length;
-  for (const match of out.slice(lead.length).matchAll(PROTECTED)) {
-    const at = lead.length + match.index!;
-    body += tidyGap(out.slice(cursor, at)) + match[0];
-    cursor = at + match[0].length;
+  for (const span of protectedSpans(out.slice(lead.length))) {
+    const at = lead.length + span.start;
+    body += tidyGap(out.slice(cursor, at)) + out.slice(at, lead.length + span.end);
+    cursor = lead.length + span.end;
   }
   return lead + body + tidyGap(out.slice(cursor));
 }
 
 /** Keep relative parent/child order, normalizing each increase to one two-space level. */
-export function tidyPassage(lines: string[]): { replacement: string; message: string } {
+/** `fenced`: each line's fence as `codeFenceLines` reads the whole note (a passage cut from inside a fence can't tell). */
+export function tidyPassage(lines: string[], fenced: readonly number[] = codeFenceLines(lines)): { replacement: string; message: string } {
   const indents: { indent: number; shift: number }[] = [];
   let nested = 0, trimmed = 0, formatted = 0;
   // Fenced code is code, by outline-core's one fence grammar: a `js` line inside a fence never closes it.
-  const fenced = codeFenceLines(lines);
   const replacement = lines.map((line, at) => {
     const fence = fenced[at]! >= 0;
     const lead = /^\s*/.exec(line)![0].replaceAll("\t", "  ").length;

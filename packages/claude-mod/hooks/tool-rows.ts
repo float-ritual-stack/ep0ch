@@ -1,7 +1,7 @@
 import type { MarkdownProps, RenderElement, RenderSurface, TextProps } from 'claude-code'
 
 import type { ToolRowsPrefs } from '../types'
-import { BLOCK_ID_PATTERN, codeBlocks, labelBar, pageAddressText, pageLinkSpans, referencedBlock } from './link-grammar.js'
+import { BLOCK_ID_PATTERN, labelBar, pageAddressText, pageLinkSpans, referencedBlock } from './link-grammar.js'
 
 /**
  * The mod's own outline and workboard tool calls, redrawn in the transcript as
@@ -597,9 +597,15 @@ export function capped(markdown: string): string {
   }
   const more = all.length - kept.length
   if (!more && !cutLine) return kept.join('\n')
-  // A fence the cut leaves open (outline-core's codeBlocks: one that runs to the last kept line unclosed) is closed.
-  const last = codeBlocks(kept).fences.at(-1)
-  const open = last && !last.closed && last.end === kept.length - 1 ? last.fence.char.repeat(last.fence.length) : null
+  // Claude Code's Markdown renderer reads this, not the outline: a fence runs until its closer, blank lines and all
+  // (CommonMark), so the cut closes one by that rule rather than Blockdown's (codeBlocks ends one at its paragraph).
+  let open: string | null = null
+  for (const line of kept) {
+    const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)
+    if (!fence) continue
+    if (!open) open = fence[1]!
+    else if (fence[1]![0] === open[0] && fence[1]!.length >= open.length && !fence[2]!.trim()) open = null
+  }
   const notice = more ? `*… ${more} more ${more === 1 ? 'line' : 'lines'}*` : '*… the rest is cut*'
   return [...kept, ...(open ? [open] : []), '', notice].join('\n')
 }

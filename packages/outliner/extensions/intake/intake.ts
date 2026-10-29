@@ -15,7 +15,7 @@
 // Self-contained on purpose: an extension folder is copied anywhere, so it imports nothing from the outline's code.
 import { hostname } from "node:os";
 import { outline, type Route } from "./outline";
-import { firstLineWithoutPropertyTokens } from "./link-grammar.js";
+import { BLOCK_ID_PATTERN, blockReferenceOccurrences, firstLineWithoutPropertyTokens } from "./link-grammar.js";
 
 interface Block { id: string; text: string; revision: number; parentId?: string | null }
 interface Match { block: { id: string; revision: number }; title: string; path?: string; snippet?: string }
@@ -175,7 +175,7 @@ if (request.operation === "act" && request.input.action === "prior-art") {
 } else if (request.operation === "respond" && request.input.agent === "prior-art") {
   const input = request.input;
   const note = input.note as { id: string; text: string };
-  const ref = /\(\(([0-9a-f-]{36})/i.exec(String(input.request ?? ""))?.[1];
+  const ref = blockReferenceOccurrences(String(input.request ?? ""), []).map((r) => r.blockId).find((id) => BLOCK_ID_PATTERN.test(id));
   const target = ref ? await outline<Block>({ action: "get", blockId: ref }).catch(() => null) : { ...note, revision: 0 };
   const capability = "I find earlier related notes using this ask and the note's text.";
   if (!target || (!ref && /^(?:when|why|how)\b.*\btrigger(?:ed)?\b/i.test(input.request.trim()))) {

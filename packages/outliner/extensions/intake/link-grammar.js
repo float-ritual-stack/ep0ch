@@ -1828,5 +1828,7 @@ function firstLineWithoutPropertyTokens(text) {
   return noteTitleLine(text).text || undefined;
 }
 export {
+  BLOCK_ID_PATTERN,
+  blockReferenceOccurrences,
   firstLineWithoutPropertyTokens
 };

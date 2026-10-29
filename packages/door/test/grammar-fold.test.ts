@@ -27,10 +27,9 @@ const mod = await import(ROWS) as {
 const modArgs = await import(MOD_ARGS) as { sameReference(a: unknown, b: unknown): boolean };
 const ECHONET = "../../outliner/extensions/echonet/shapes";
 const echonet = await import(ECHONET) as { firstLine(text: string): string };
-const TIDY = "../../outliner/extensions/tidy/tidy-line", LISTS = "../../outliner/extensions/structure/lists", FRAGMENTS = "../../outliner/src/fragments";
-const tidy = await import(TIDY) as { tidyPassage(lines: string[]): { replacement: string } };
+const TIDY = "../../outliner/extensions/tidy/tidy-line", LISTS = "../../outliner/extensions/structure/lists";
+const tidy = await import(TIDY) as { tidyPassage(lines: string[], fenced?: readonly number[]): { replacement: string }; tidyLine(line: string): string };
 const lists = await import(LISTS) as { ownLines(item: { lines: string[]; marker: string }): string[] };
-const fragments = await import(FRAGMENTS) as { codeLineSet(text: string): Set<number> };
 const DEVICES = "../../outliner/src/device-cli", WEB = "../../outliner/src/web-cli";
 const devices = await import(DEVICES) as { deviceLine(device: Record<string, string>, now: number): string };
 const web = await import(WEB) as { webSessionLine(session: Record<string, string>, now: number): string };
@@ -79,6 +78,10 @@ describe("block-reference unwrapping: one answer, referencedBlock's", () => {
     expect(mod.blockIdOfRef("((dddddddd))")).toBeNull();
   });
 
+  test("tidy never goes inside a labelled reference", () => {
+    expect(tidy.tidyLine(`see  ((${ID}|a (b)  c))  now`)).toBe(`see ((${ID}|a (b)  c)) now`);
+  });
+
   test("a page link holding another is one link token, as the grammar counts brackets", () => {
     expect(linkTokenOf("[[[[2026-10-06]] - notes]]")).toEqual({ token: "[[[[2026-10-06]] - notes]]", written: true });
   });
@@ -124,11 +127,18 @@ describe("fenced code: one answer, codeBlocks'", () => {
   test("a fence in a list item is code at every site", () => {
     const text = "- item\n  ```\n  # not a heading ^not-an-anchor\n  ```\n- next";
     expect(codeFenceLines(text.split("\n"))).toEqual([-1, 1, 1, 1, -1]);
-    expect(fragments.codeLineSet(text).has(2)).toBe(true);
     expect(lists.ownLines({ lines: ["- item", "  ```", "  - inside code", "  ```", "  after"], marker: "-" })).toEqual(["- item", "  after"]);
   });
 
-  test("the mod closes only a fence the cut leaves open", () => {
+  test("a passage cut from inside a fence keeps the note's reading of it", () => {
+    const note = ["Notes", "```", "x  = 1", "", "y  = 2", "```", "after  text"];
+    const fenced = codeFenceLines(note);
+    expect(tidy.tidyPassage(note.slice(4), fenced.slice(4)).replacement.split("\n")).toEqual(["y  = 2", "```", "after text"]);
+  });
+
+  test("the mod closes only a fence the cut leaves open, as Claude Code's renderer reads one (a blank line inside it too)", () => {
+    const blank = ["```ts", "a", "", ...Array.from({ length: 60 }, (_, i) => `line ${i}`)].join("\n");
+    expect(rows.capped(blank).split("\n").slice(-3)[0]).toBe("```");
     const open = ["```ts", ...Array.from({ length: 60 }, (_, i) => `line ${i}`)].join("\n");
     expect(rows.capped(open).split("\n").slice(-3)[0]).toBe("```");
     const closed = ["```", "x", "```", ...Array.from({ length: 60 }, (_, i) => `prose ${i}`)].join("\n");
