@@ -130,7 +130,7 @@ const TILES: BarSource = {
 };
 
 /** A hit's row: its work id (when its title doesn't start with it) and its title. */
-const noteRow = (m: Msg): BarRow => ({ key: m.id, label: headedTitle(m), subtitle: subtitleOf(m), fill: subject(m) });
+const noteRow = (m: Msg): BarRow => ({ key: m.id, label: headedTitle(m), subtitle: subtitleOf(m), fill: subject(m), note: { id: m.id } });
 
 /** How many notes `/` lists with nothing typed. */
 const RECENT_NOTES = 30;
@@ -153,14 +153,14 @@ export async function recentNotes(host: BarHost): Promise<BarRow[]> {
 
 const NOTES: BarSource = {
   id: "notes", title: "notes", prefix: "/", by: "door", asks: true,
-  about: "outline:<name> words searches another outline on this host; otherwise the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up; ⏎ opens one where opens land, alt+⏎ in a new detail",
+  about: "outline:<name> words searches another outline on this host; otherwise the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up; ⏎ opens one where opens land, alt+⏎ in a new detail; alt+m or a right-click on a hit is its menu: copy its id, reference or web link (note.copy-ref)",
   main: { empty: false, typed: true, most: 10 },
   async rows(q, host) {
     const named = q.match(/^outline:([^\s]+)(?:\s+(.*))?$/);
     if (named) {
       const ctx = await outlineBoards(host.ctx).on({ outline: named[1]! });
       const info = await ctx.board.info();
-      return (await ctx.board.search(named[2] ?? "", 30)).map(m => ({ ...noteRow(m), key: formatEp0chBlockUri({ outline: named[1]!, machine: ctx.machine ?? info.machine!, blockId: m.id }), detail: named[1] }));
+      return (await ctx.board.search(named[2] ?? "", 30)).map(m => ({ ...noteRow(m), key: formatEp0chBlockUri({ outline: named[1]!, machine: ctx.machine ?? info.machine!, blockId: m.id }), detail: named[1], note: { id: m.id, outline: named[1]! } }));
     }
     if (!q.trim()) return recentNotes(host);
     if (q.trim().length < 2) return [];

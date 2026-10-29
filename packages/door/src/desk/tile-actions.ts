@@ -17,7 +17,6 @@ import { AGENT_WORDS, isAgentLevel, type AgentLevel } from "../surface/agent-lev
 import { EDGE_WORD, isDir, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
 import type { Desk } from "./desk";
 import { lastTrashed, trashConfirm, trashNote, trashPlan, untrashNote } from "../note-trash";
-import type { NoteRefKind } from "../note-ref";
 import { subject } from "../board";
 import { renamedPagesNote } from "@ep0ch/outline-core/protocol";
 import { FOLLOW_MODES, tileKind, tileNoun, type TileKindName } from "./tile-kinds";
@@ -574,27 +573,6 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     args: { kind: { type: "string", optional: true, choices: ["id", "ref"], about: "id (default): the tile's t-<uuid>; ref: the address of its place, which a restarted tile answers to" } },
     examples: [{ act: "tile.copy-ref kind=ref tile=drawer.agent", does: "answers drawer.agent and the program's t-<uuid>, for a button's tile= or a script" }],
     run({ kind }, { d, reader }, actor) { return d.copyTileRef(reader, (kind ?? "id") as "id" | "ref", actor); },
-  }),
-  "note.copy-ref": def({
-    summary: "copy the address of the note the tile points at (PIE-1297: a reader's note, a list's, the tree's or a lane's selected row; or ref=<block id>): kind=id its full id (a short one doesn't resolve), kind=ref ((id|title)) to paste into another note (((outline:id|title)) for another outline's note), kind=link its web link (https://my.ep0ch.sh/pub/o/<outline>/p/<id>, a roadmap item's by its Work ID: the web client's home outline's redirects to /pub/p/), kind=line in a reader ((id^anchor|words)) for one line (line=, else your selection's first line, the heading the keys selected or the line being read), adding the ^anchor when it has none. An inline list's row in a reader is the reader's note: open the row to copy it. The person's goes to their clipboard and the status line says what; an agent's is returned to it and never touches the clipboard",
-    keys: "^W y (a reference), the tile menu's \"copy id\", \"copy reference\", \"copy web link\" and \"copy a reference to this line\"",
-    // A line's copy may write its anchor into the note: the draft rule holds for it as for any write; the rest read.
-    touches: "draft", draft: "write", touchesWith: ({ kind }) => (kind === "line" ? "draft" : "nothing"), replay: "ask",
-    menu: ([["copy id", "id", ""], ["copy reference", "ref", "ctrl+w y"], ["copy web link", "link", ""], ["copy a reference to this line", "line", ""]] as const).map(([label, kind, key]) => ({
-      label, group: "Note", key, args: { kind },
-      now: ({ d, reader }: On) => (d.noteRefOf(reader, kind === "line") ? null : { hide: true }),
-    })),
-    args: {
-      kind: { type: "string", optional: true, choices: ["id", "ref", "link", "line"], about: "id (default): the full id; ref: ((id|title)); link: the web link; line: ((id^anchor|words)) for one line of a reader's note" },
-      ref: { type: "string", optional: true, about: "the note's block id; default the note the tile points at" },
-      line: { type: "number", optional: true, about: "kind=line: the source line, from 1; default your selection's first line (the person's: the selected heading, else the line being read)" },
-    },
-    examples: [
-      { act: "note.copy-ref kind=ref tile=tree", does: "answers ((<id>|<title>)) for the tree's selected row" },
-      { act: "note.copy-ref kind=link", does: "answers the focused tile's note's web link: its Work ID's for a roadmap item" },
-      { act: "note.copy-ref kind=line line=4 tile=reader", does: "anchors line 4 of the reader's note if it has no anchor, and answers ((<id>^<anchor>|<its words>))" },
-    ],
-    run({ kind, ref, line }, { d, reader }, actor) { return d.copyNoteRef(reader, (kind ?? "id") as NoteRefKind, actor, ref, line); },
   }),
   "layout.resize": def({
     summary: "move a border: in split split=<id> (layout.get gives each split's id, s<n>; it stays with the split when tiles move around it), or the split at path=<p> (\"\" the root, \"1.0\" its second kid's first kid: where it is now, so pass expected=<rev> too), the border after kid border=<i> is placed so kid i and kid i+1 share their room share=<0-1> to (1-share). The answer names the split, its path and its tiles",

@@ -637,7 +637,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "cross-outline", need: "read and edit another outline on this screen", part: "one board per outline, the shared reader and DraftSession", files: "src/desk/outline-boards.ts, src/desk/panes.ts",
+    key: "cross-outline", need: "read and edit another outline on this screen, and copy its notes' addresses as that outline's", part: "one board per outline, the shared reader and DraftSession, a links tile's rows in its target's outline (Pane.noteAt, note.copy-ref)", files: "src/desk/outline-boards.ts, src/desk/panes.ts, src/note-ref.ts",
     stage(n, show) {
       const local = detailPane();
       const foreign = detailPane();

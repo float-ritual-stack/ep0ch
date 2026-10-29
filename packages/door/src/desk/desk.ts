@@ -12,7 +12,7 @@ import { FRAME_GLYPHS, FRAME_LEGEND } from "./frame-controls";
 import { HintCard, hintStatus, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
 import { revealOn, type Reveal } from "../reveal";
 import { rowLines, withRowLimit } from "../text";
-import { readNote, outlineBoards } from "./outline-boards";
+import { readNote, outlineBoards, type NoteAddress } from "./outline-boards";
 import { MIN_ROWS, SPINES, type AltRule } from "./layout";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 // The desk: the door owns the whole canvas, and the canvas is tiles (PIE-413). A tile is a view (the outline
@@ -39,7 +39,7 @@ import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
 import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { lastTrashed } from "../note-trash";
-import { deliverCopy, deliverNoteRef, NOTE_REF_KINDS, noteRefText, type NoteRefKind } from "../note-ref";
+import { copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
 import { LayoutHistory, type LayoutEntry } from "./layout-history";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
@@ -2791,6 +2791,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       { set: HINT_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: tileSel(at) }) },
       { set: DESK_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: at.place ?? tileSel(at) }) },
       { set: TILE_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: at.place ?? tileSel(at) }) },
+      { set: NOTE_REF_ACTIONS, takes: "screen", on: (at): NoteRefOn => { const sel = at.place ?? tileSel(at); return { copy: (a, actor) => this.copyNoteRef(sel, a.kind, actor, a.ref, a.line, a.outline), has: line => this.noteRefOf(sel, line) }; } },
       { set: PANE_ACTIONS, takes: "screen", on: at => ({ h: this, reader: tileSel(at) }) },
       // Built from the registry each time: an extension's kind comes and goes while the door runs.
       { claims: (req: ActRequest) => allKindActions().some(set => set.has(req.action)), delegate: () => this.kindDispatch(kindSets()), listed: true },
@@ -6155,32 +6156,36 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...answer, ...deliverCopy(this.ctx, actor, text, what) };
   }
 
-  /**
-   * Whether tile `sel` points at a note `note.copy-ref` can copy (`Pane.subject`); `line`: and draws it in a reader, where
-   * a line can be named. Nothing is read: the menu asks it as it opens.
-   */
-  noteRefOf(sel: string | undefined, line = false): boolean {
-    const t = this.tile(sel), pane = this.panes.get(t.id), id = pane?.subject?.();
-    return !!id && (!line || (pane instanceof ReaderPane && pane.msg?.id === id && !pane.surface.editing));
+  /** The note tile `sel` points at for `note.copy-ref`, with its outline when it's another's (`Pane.noteAt`, else `Pane.subject`). */
+  private noteAtTile(sel: string | undefined): { id: string; address?: NoteAddress } | null {
+    const pane = this.panes.get(this.tile(sel).id), at = pane?.noteAt?.();
+    if (at !== undefined) return at;
+    const id = pane?.subject?.();
+    return id ? { id } : null;
   }
 
   /**
-   * `note.copy-ref` (PIE-1297): the address of the note tile `sel` points at (`subjectOf`), or of `ref`. A reader's own
-   * note is the reader's to copy (`NoteSurface.copyNoteRef`: another outline's note, a line and its anchor); any other
-   * row's is read from this door's outline.
+   * Whether tile `sel` points at a note `note.copy-ref` can copy; `line`: and draws it in a reader, where a line can be
+   * named. Nothing is read: the menu asks it as it opens.
    */
-  async copyNoteRef(sel: string | undefined, kind: NoteRefKind, actor: Actor, ref?: string, line?: number) {
-    if (!NOTE_REF_KINDS.includes(kind)) throw new ActionRefused(`kind is ${NOTE_REF_KINDS.join(", ")}`);
-    const t = this.tile(sel), pane = this.panes.get(t.id), s = this.subjectOf(sel);
-    // This door's outline by name, as the host answers it (a board opened with no name reads the host's default).
-    const own = this.ctx.outline ?? this.ctx.board.outline ?? (await this.ctx.board.info()).outline;
-    const id = ref ?? s.id;
-    if (!id) throw new ActionRefused(`${s.tile} points at no note; ref=<a block id> names one`);
-    if (pane instanceof ReaderPane && pane.msg?.id === id) return { ...this.tileAnswer(t.id), ...(await pane.surface.copyNoteRef(kind, pane.host(this), actor, own, line)) };
-    if (kind === "line") throw new ActionRefused(`a line's reference is a reader's: open the note in one and put the cursor on the line (${s.tile} lists notes)`);
-    const m = await this.ctx.board.get(id);
-    if (!m) throw new ActionRefused(`no note ${id} in this outline`);
-    return { ...this.tileAnswer(t.id), ...deliverNoteRef(this.ctx, actor, m.id, kind, noteRefText(kind, m, { ...(own ? { outline: own } : {}) })) };
+  noteRefOf(sel: string | undefined, line = false): boolean {
+    const pane = this.panes.get(this.tile(sel).id), at = this.noteAtTile(sel);
+    return !!at && (!line || (pane instanceof ReaderPane && pane.msg?.id === at.id && !pane.surface.editing));
+  }
+
+  /**
+   * `note.copy-ref` (PIE-1297): the address of the note tile `sel` points at, or of `ref` (in `outline`). A reader's own
+   * note is the reader's to copy (`NoteSurface.copyNoteRef`: another outline's note, a line and its anchor); any other
+   * is read where it lives (`copyNoteById`).
+   */
+  async copyNoteRef(sel: string | undefined, kind: NoteRefKind, actor: Actor, ref?: string, line?: number, outline?: string) {
+    const t = this.tile(sel), pane = this.panes.get(t.id), at = ref ? { id: ref, ...(outline ? { address: { outline } } : {}) } : this.noteAtTile(sel);
+    if (!at) throw new ActionRefused(`${this.nameOf(t.id)} points at no note; ref=<a block id> names one`);
+    if (pane instanceof ReaderPane && pane.msg?.id === at.id && (!outline || pane.msg.address?.outline === outline)) {
+      return { ...this.tileAnswer(t.id), ...(await pane.surface.copyNoteRef(kind, pane.host(this), actor, await ownOutline(this.ctx), line)) };
+    }
+    if (kind === "line") throw new ActionRefused(`a line's reference is a reader's: open the note in one and put the cursor on the line (${this.nameOf(t.id)} lists notes)`);
+    return { ...this.tileAnswer(t.id), ...(await copyNoteById(this.ctx, actor, kind, at.id, at.address)) };
   }
 
   /** The person's `tile.info` (^W ,), as a card by the tile: its answer's own fields as they come, and its copy rows. */

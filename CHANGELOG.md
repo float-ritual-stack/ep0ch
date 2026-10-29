@@ -12,8 +12,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ### Copy a note's link, a line's reference, or any row's address (PIE-1297)
 
-- **Every row that is a note copies it:** a list's, the tree's or a lane's menu (⋯ or a right-click) has copy id,
-  copy reference and copy web link for the selected row, as a reader's has for its note.
+- **Every row that is a note copies it:** a list's, the tree's or a lane's menu (⋯, or a right-click on the row) has
+  copy id, copy reference and copy web link for that row, as a reader's has for its note. A power-bar hit has them on
+  its menu (alt+m, a right-click), and a BBS message reader copies its message.
+- **Another outline's notes copy as that outline's:** a links list on another outline's note, an EchoNet area's
+  messages and `/outline:<name>` hits give `((outline:id|title))` and its `/pub/o/<outline>/` link.
 - **A web link:** copy web link gives `https://my.ep0ch.sh/pub/o/<outline>/p/<id>`, a roadmap item's by its Work
   ID; pie's opens as `/pub/p/<id>`.
 - **A line's reference:** in a reader, copy a reference to this line gives `((id^anchor|words))`, adding the anchor

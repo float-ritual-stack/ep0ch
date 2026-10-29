@@ -450,7 +450,7 @@ export class PowerBar {
     this.sourceHead = scoped?.head?.(w, this.host) ?? [];
     this.menuSpots = [];
     let menu = " ";
-    for (const [label, action, args] of [["copy command", "bar.command", { op: "copy" }], ["copy button", "bar.command", { op: "button" }], ["insert button", "bar.insert", {}]] as const) {
+    for (const [label, action, args] of this.menuEntries()) {
       this.menuSpots.push({ from: menu.length + 1, to: menu.length + label.length + 3, action, args });
       menu += `[${label}] `;
     }
@@ -626,6 +626,20 @@ export class PowerBar {
   }
 
   menuOpen = false;
+  /**
+   * The row menu's entries (alt+m, a right-click on a row): a row that stands for a note (a notes hit, another outline's
+   * too) offers note.copy-ref's own rows (its menu's labels and arguments, the row's note as ref=; a line is a reader's);
+   * any other, the command's copies.
+   */
+  private menuEntries(): (readonly [string, string, Record<string, unknown>])[] {
+    const note = this.items[this.picker.sel]?.row.note, def = note ? this.host.dispatch.defOf("note.copy-ref") : undefined;
+    if (note && def?.menu) {
+      const rows = (Array.isArray(def.menu) ? def.menu : [def.menu]).filter(e => (e.args as { kind?: string } | undefined)?.kind !== "line");
+      return rows.map(e => [e.label, "note.copy-ref", { ...e.args, ref: note.id, ...(note.outline ? { outline: note.outline } : {}) }] as const);
+    }
+    return [["copy command", "bar.command", { op: "copy" }], ["copy button", "bar.command", { op: "button" }], ["insert button", "bar.insert", {}]];
+  }
+
   async command(op: string, n?: number) {
     if (op === "recall" && this.scope === "ask") throw new ActionRefused("recall belongs to the command line; finish or close the question first");
     if (op === "menu") { this.menuOpen = !this.menuOpen; this.host.ctx.redraw(); return; }

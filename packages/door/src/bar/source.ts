@@ -34,6 +34,8 @@ export interface BarRow {
   group?: string;
   /** What's typed names this row outright (an action line with its arguments): the main list puts its source first, so ⏎ picks it. */
   exact?: true;
+  /** The note it stands for (a notes hit), in another outline when `outline` says: its row menu copies its address (note.copy-ref). */
+  note?: { id: string; outline?: string };
   data?: unknown;
 }
 
