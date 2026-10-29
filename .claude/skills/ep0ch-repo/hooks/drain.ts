@@ -40,7 +40,9 @@ export function drainPrompt(): string {
   return [
     'Drain tick (the ep0ch-repo mod, every 30 minutes; the loki skill, "Draining Up next"; ' +
       `the rules: ((${DRAIN_REQUEST}|Drain on its own clock))):`,
-    '1. Merge what is ready: an open PR whose builder reported green and whose review findings are answered.',
+    '1. Merge what is ready, in one batch: every open PR whose builder reported green and whose review findings are ' +
+      'answered goes onto one integration branch from main, gets one box-test where any of them needs one, merges together ' +
+      'and deploys once. loki\'s own mod, skill and changelog edits ride in one PR a day, not one each.',
     '2. Fill free builder slots, up to 3 builders, with experiences, not tickets: pick what Evan will use (Up next, then a ' +
       'capability or thread, then high priority), write the one sentence of what he will open and do, and gather every queued ' +
       'ticket that sentence needs into one brief and one PR, shared gaps included. The builder owns it to a walk of that sentence ' +
