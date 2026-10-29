@@ -285,7 +285,7 @@ const ACTIONS: BarSource = {
       seen.add(a.name);
       const k = firstKey(a.keys);
       const script = scriptActions().find(s => s.action.name === a.name);
-      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${a.summary}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}${takesArgs(a) ? " · ⏎ its form" : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys, form: takesArgs(a), bare: bare(a) } });
+      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${script ? scriptSaid(script, true) : a.summary}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}${takesArgs(a) ? " · ⏎ its form" : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys, form: takesArgs(a), bare: bare(a) } });
     }
     // By name, and by what it says it does (its summary: an extension's action by its label and description).
     const found = filtered(rows, q, r => [r.label, r.fill ?? "", r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
@@ -295,7 +295,10 @@ const ACTIONS: BarSource = {
   named: (q, host) => actionLine(q, host),
   preview(row, host) {
     const d = row.data as { action: string; summary?: string; keys?: string };
-    const info = host.dispatch.list().actions.find(a => a.name === d.action);
+    const found = host.dispatch.list().actions.find(a => a.name === d.action);
+    // A script reads as itself (PIE-1405): its name, as it's typed, and its own words, never its action's id.
+    const script = scriptActions().find(s => s.action.name === d.action);
+    const info = found && script ? { ...found, name: script.extension.name ?? found.name, summary: scriptSaid(script) } : found;
     // Its page (PIE-1032): the lead, its keys as keycaps, its arguments as a properties table, its examples.
     const page: ActionInfo = info ?? { name: d.action, summary: d.summary ?? "", ...(d.keys ? { keys: d.keys } : {}), args: {}, scope: "", touches: "nothing", replay: "ask" };
     return { markdown: actionPage(page, { title: row.label, ...(row.refused ? { refused: row.refused } : {}), ...(hyperOn() ? { hyper: hyperKeysOf(d.action) } : {}) }) };
@@ -322,6 +325,16 @@ const ACTIONS: BarSource = {
     return on.press(d.action, d.args, d.tile);
   },
 };
+
+/**
+ * A script's row and page in its own words (PIE-1405): what it says it is (its note's title, its extension's about),
+ * then (on its page) what running it does, never its action's "<name>: Run <name>." summary said under its name again.
+ */
+function scriptSaid({ extension: e, action: a }: ReturnType<typeof scriptActions>[number], short = false): string {
+  const about = (e.summary || e.description || a.label).trim().replace(/[.;:]$/, "");
+  // The row: what it is. The page: that, then what a run does (the revision it runs, what it keeps).
+  return short ? about : [about, a.description].filter(Boolean).join(". ");
+}
 
 /**
  * What's typed as an action line, as `ep0ch act` takes it (PIE-856): an action this door has, then its `key=value`

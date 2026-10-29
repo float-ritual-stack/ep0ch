@@ -27,7 +27,7 @@ import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note"
 import { keyCaption, keyName, keyOfName, lineWords, ActionRefused } from "../surface/actions";
 import { shellWord } from "../machine";
 import { RowView, wheelRows, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE } from "../scroll";
-import { C, chip, dim, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, visible, width } from "../style";
+import { C, chip, dim, drawEllipsized, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, visible, width } from "../style";
 import { paintable, rowLines, withRowLimit, wrap } from "../text";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
@@ -411,7 +411,12 @@ export class PowerBar {
     // Its kind at the right (an extension's: rule, script), once the words keep room to read (CHIP_ROOM columns).
     const kind = r.chip && w - width(r.chip) - 2 - (r.keycap ? width(keyCaption(r.keycap)) + 2 : 0) >= CHIP_ROOM ? ` ${r.chip} ` : "";
     const cap = (r.keycap ? ` ${keyCaption(r.keycap)} ` : "") + kind;
-    return rowLines(head + r.label + detail, w - width(cap), r.oneLine ? 1 : undefined, { hang: width(head) }).map((line, i) =>
+    // One line whose name fits: only what follows the name is cut short, so the lit row's marquee (PIE-1140) scrolls the
+    // detail in its own cells and the name stays where it is (PIE-1405).
+    const room = w - width(cap), named = head + r.label + " · ";
+    const lines = r.oneLine && detail && width(named) < room && width(head + r.label + detail) > room ? [named + drawEllipsized(detail.slice(3), room - width(named))]
+      : rowLines(head + r.label + detail, room, r.oneLine ? 1 : undefined, { hang: width(head) });
+    return lines.map((line, i) =>
       pickRow(line, on, w - width(cap), r.refused ? C.dark : C.grey) + (i ? " ".repeat(width(cap)) : kind ? cap.slice(0, -kind.length) + fg(C.dark) + kind + RESET : cap));
   }
 
