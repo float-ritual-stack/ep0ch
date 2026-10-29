@@ -19,8 +19,10 @@ let hostname: Promise<string> | undefined
 /** The session's agent, and whether it sweeps, read once. */
 let sessionAgent: Promise<string | null> | undefined
 let sweeps: Promise<boolean> | undefined
-/** The drain tick's clock, whether a tick waits for the session, and whether a dropped one was said. */
+/** The drain tick's clock (armed once per start; its generation stops an earlier start's first tick), whether a tick waits for the session, and whether a dropped one was said. */
+let drainStarting: Promise<void> | undefined
 let drainTimer: { cancel: () => void } | undefined
+let drainGen = 0
 let drainWaiting = false
 let drainDropSaid = false
 /** Deploys and merges, and turns that wrote to the outline, since the last sweep. */
@@ -65,16 +67,22 @@ function sweepsHere($: EngineInterface): Promise<boolean> {
 /**
  * The drain tick (hooks/drain.ts, PIE-1372), in the deployer's sessions (EP0CH_DRAIN says otherwise): the drain prompt
  * every 30 minutes on the engine's clock, the first soon after the start. A prompt the session drops is said once; the
- * next tick tries again. Never throws.
+ * next tick tries again. Once per start (or, for a module reloaded mid-session, the first turn after). Never throws.
  */
+function startDrainOnce($: EngineInterface): Promise<void> {
+  return (drainStarting ??= startDrain($))
+}
+
 async function startDrain($: EngineInterface): Promise<void> {
   try {
     drainTimer?.cancel()
     drainTimer = undefined
+    const gen = ++drainGen
     if (!drainsFor(await $.env.get('EP0CH_DRAIN'), await agentHere($))) return
+    if (gen !== drainGen) return
     const tick = () => void drainTick($)
     drainTimer = $.clock.every(DRAIN_EVERY_MS, tick)
-    $.clock.after(DRAIN_FIRST_MS, tick)
+    $.clock.after(DRAIN_FIRST_MS, () => { if (gen === drainGen) tick() })
   } catch (error) {
     $.ui.toast(`Drain tick couldn't start: ${error instanceof Error ? error.message : String(error)}`, { timeoutMs: 8000 })
   }
@@ -240,6 +248,8 @@ export const register: Register = (on) => {
   sweeps = undefined
   drainTimer?.cancel()
   drainTimer = undefined
+  drainStarting = undefined
+  drainGen++
   drainWaiting = false
   drainDropSaid = false
   counts.changes = 0
@@ -307,7 +317,8 @@ export const register: Register = (on) => {
   // The drain tick (hooks/drain.ts), armed at each start (a resume, a /clear) in the deployer's sessions.
   on('session.start', async ($, e, next) => {
     const result = await next(e)
-    $.clock.after(0, () => void startDrain($))
+    drainStarting = undefined
+    $.clock.after(0, () => void startDrainOnce($))
     return result
   })
 
@@ -332,6 +343,8 @@ export const register: Register = (on) => {
       return result
     }
     if (e.agentId !== undefined) return result
+    // A module reloaded mid-session (a deploy of this mod) never sees its session.start.
+    if (!drainStarting) $.clock.after(0, () => void startDrainOnce($))
     if (wroteThisTurn) counts.turns++
     wroteThisTurn = false
     if (sweepId !== null && (await $.clock.now()) - sweepAt > SWEEP_STALE_MS) sweepId = null

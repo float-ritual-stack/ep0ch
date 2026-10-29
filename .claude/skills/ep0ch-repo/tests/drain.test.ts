@@ -28,6 +28,7 @@ function sessionIn(on: On, files: Record<string, string> = {}, env: Record<strin
   on('prompt.submit', ($, e) => { submitted.push(e.text); return (dropping ? { drop: 'busy' } : { text: e.text }) as never })
   on('ui.toast', ($, e) => { toasts.push(e.text); return { value: undefined } })
   on('session.start', ($, e) => ({ cwd: e.cwd }) as never)
+  on('turn.complete', ($, e) => ({ text: e.answer }) as never)
   return { submitted, toasts, clock, drop: (d: boolean) => { dropping = d } }
 }
 
@@ -91,6 +92,25 @@ describe('the drain tick', () => {
     expect(s.submitted).toHaveLength(2)
     await s.clock.advance(30 * MIN)
     expect(s.submitted).toHaveLength(3)
+  })
+
+  test('a start again before the first tick fires gives one first tick, not two', async ($, on) => {
+    const s = sessionIn(on, LOKI)
+    await $.session.start(START)
+    await s.clock.advance(MIN / 2)
+    await $.session.start(START)
+    await s.clock.advance(2 * MIN)
+    expect(s.submitted).toHaveLength(1)
+  })
+
+  test('a mod reloaded mid-session (no session.start) arms the clock at the next turn', async ($, on) => {
+    const s = sessionIn(on, LOKI)
+    await $.turn.complete({ reason: 'answer', answer: 'ok', durationMs: 10, isAborted: false, turnId: 't' })
+    await s.clock.advance(2 * MIN)
+    expect(s.submitted).toHaveLength(1)
+    await $.turn.complete({ reason: 'answer', answer: 'ok', durationMs: 10, isAborted: false, turnId: 't2' })
+    await s.clock.advance(30 * MIN)
+    expect(s.submitted).toHaveLength(2)
   })
 
   test('a dropped tick is said once, and the next tick tries again', async ($, on) => {
