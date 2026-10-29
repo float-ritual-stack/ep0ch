@@ -26,6 +26,46 @@ are its record. The outliner's entries from then are kept below, under
   deployer's by-hand restart of them after every deploy is gone.
 - **Run:** nothing; the next `ep0ch install --apply` decides by the new rule.
 
+### Writing, reading and pressing work the same in the river and at 40 columns (PIE-1392)
+
+- **The wide column is never cut:** at 36 to 44 columns the river's column you read is laid out at the width it has, as a
+  desk tile is, never drawn wider and clipped under its neighbour's ▒ edge.
+- **A selected row reads once:** a wrapped title in the Library (or any list) shows its first line, then the rest; the
+  selection reveals only what the last line cut, never the whole title again.
+- **A press in the river is a press:** a click on a `::button` in a river column runs it as a click in a reader does
+  (it asked `[[undefined]]` before); every element of the river's note goes through the reader's one click.
+- **A pick finishes the press:** a button's empty slots are asked in order and the last answer runs it, no second
+  press. In the page picker, ⏎ on words typed takes the note they find; "as typed" is the last row.
+- **neat in the river:** `tile.collapse` folds a river column to a spine (the wide place passes on, `^W W` opens it),
+  so two up works there as on the desk.
+- **Writing components:** ⏎ after `::box{…}` (any component with a body) brings its closing `::`; a query's values
+  in completion are their words, without a glimpse of the figure's example.
+### The backlog is checked by Jev, a new ticket meets its twin first, and validation starts from what to try (PIE-1258)
+
+- **Twins at filing:** `work_create` (MCP, `ep0ch work create`, the board's new card) asks the service for open items
+  like the new one (`roadmap.items.similar`: the search matcher's candidates, one Jev request, code's call). An
+  agent's create with a twin is refused naming it and the two calls: `attach: "PIE-n"` adds the ask under that item
+  in its words, dated (`roadmap.items.attach`); `new: true` files it beside them. Never reopens done work.
+- **The person is never blocked:** the new card's composer shows `looks like PIE-n (stage) … [attach here] [file new]`;
+  ctrl+s again files it new, ctrl+x a or a click attaches it (`card.attach`). With Jev off, a strong title match is
+  the offer, said as one.
+- **`ep0ch work groom`:** each queued ticket against the CHANGELOG, merged pull requests and the other tickets:
+  solved, superseded, duplicate or open, with confidence and evidence; merged then found wrong in use is open. Read
+  only; `--into` keeps `groom-verdict` records, a comment on each confident "solved" for the verifier, and the "Jev
+  thinks these are done" view. Jev never closes.
+- **`ep0ch work try PIE-a …`:** for a batch of merged tickets, the door's actions Jev picks (keys, `act` call) and the
+  ticket's lines that say what should show; `--into` keeps a `[type::validation-plan]` note. The verifier starts there.
+- **Costs on the page:** each pass is a `jev-run` (experiment `work-groom`, `work-twins`, `work-try`) with tokens and
+  `cost` in dollars; Jev's suggestions page has a section for the loops. All wording is in `prompts/work-jev.json`.
+- **What to run:** `PROTOCOL` is 279 (`roadmap.items.similar`, `roadmap.items.attach`, `new` on
+  `roadmap.items.create`): `ep0ch install --apply` on float-2, float-box and the laptop.
+### A script's empty slots ask in order, in the kind the script declares (PIE-1298)
+
+- **In the order written:** a button that runs a script (neat's "two up") asks for page 1, then page 2, as the line
+  writes them, in the note picker.
+- **The script says what a slot is:** `[form-field::page note]` on the script's note, or in a file's opening comments,
+  makes the question a note picker; each pick is written on the line as the note's id.
+
 ### Every agent write is reviewed, ship or fix, and Evan sees each review (PIE-1388)
 
 - **A verdict on every write:** `outline_create`, `outline_edit` and `outline_patch` answer with `review`: `ship` or

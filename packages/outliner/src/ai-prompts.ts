@@ -143,3 +143,19 @@ export async function loadWriteReviewPrompt(directory?: string): Promise<WriteRe
   const data = object(json(revision), revision.path, [...WRITE_REVIEW_QUESTIONS], "document");
   return { ...Object.fromEntries(WRITE_REVIEW_QUESTIONS.map(k => [k, nonempty(data[k], revision.path, k)])) as Record<typeof WRITE_REVIEW_QUESTIONS[number], string>, revisions: [revision] };
 }
+
+/** The questions the workboard's Jev loops ask (work-jev.ts): twins at filing, the groom, what to try. `{candidate}` is the item asked about. */
+export const WORK_JEV_QUESTIONS = ["same", "part", "ships", "replaces", "duplicate", "unfinished", "tries", "shows"] as const;
+export type WorkJevPrompt = Record<typeof WORK_JEV_QUESTIONS[number], string> & { revisions: PromptRevision[] };
+
+/** work-jev.json: every question the workboard's loops ask Jev, in one file, read as loadWriteReviewPrompt reads its own. */
+export async function loadWorkJevPrompt(directory?: string): Promise<WorkJevPrompt> {
+  let revision: PromptRevision;
+  try { revision = await readPrompt(aiPromptDirectory(directory), "work-jev.json"); }
+  catch (error) {
+    if (!(error instanceof PromptFileError) || aiPromptDirectory(directory) === resolve(DEFAULT_AI_PROMPT_DIRECTORY)) throw error;
+    revision = await readPrompt(resolve(DEFAULT_AI_PROMPT_DIRECTORY), "work-jev.json");
+  }
+  const data = object(json(revision), revision.path, [...WORK_JEV_QUESTIONS], "document");
+  return { ...Object.fromEntries(WORK_JEV_QUESTIONS.map(k => [k, nonempty(data[k], revision.path, k)])) as Record<typeof WORK_JEV_QUESTIONS[number], string>, revisions: [revision] };
+}

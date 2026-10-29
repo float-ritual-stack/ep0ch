@@ -352,6 +352,18 @@ export function revisionRefusal<I>(s: LayoutState<I>, expected: unknown): string
  * state (with where the person's keys are now, and what the operation has to say) or the refusal, with the state the
  * caller holds left exactly as it was. Pure: a caller may apply to ask (a drag's ghost asks before the release).
  */
+/**
+ * The wide place is never folded (PIE-1392): whatever made a column the wide one (a close passing it on, a key bringing
+ * a column on, an open), its fold opens. One rule after every operation, not a check in each that moves the wide place.
+ */
+function wideOpens<I>(tree: LNode<I>, collapsed: Map<I, Fold>) {
+  const walk = (n: LNode<I>) => {
+    if (n.t === "flow") { const i = columnOf(n, n.anchor); if (i >= 0) for (const t of leaves(n.kids[i]!)) collapsed.delete(t); }
+    if (n.t !== "leaf") kidsOf(n).forEach(walk);
+  };
+  walk(tree);
+}
+
 export function apply<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Result<I> {
   const d = attempt(s, op, ctx);
   if (typeof d === "string") return { ok: false, refused: d };
@@ -372,6 +384,7 @@ export function apply<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Result<I> {
   }
   if (renamed.length) { d.answer.renamed = renamed; d.changed = true; }
   neverBlank(d);
+  wideOpens(d.tree, d.collapsed as Map<I, Fold>);
   if (ctx.actor.kind === "user" && d.focus !== ctx.person.focus && d.lift && d.focus !== d.lift.tile) d.lift = null;
   return { ok: true, state: seal(d, s), focus: d.focus, changed: d.changed, answer: d.answer, base: s };
 }
@@ -696,7 +709,7 @@ function flowHolding<I>(tree: LNode<I>, id: I): { flow: Flow<I>; ci: number } | 
 
 /** How the tiles are placed: a folded tile is a spine across a row; a tile holding work keeps its flow column wide. */
 export function placeOpts<I>(s: Pick<LayoutState<I>, "collapsed" | "tree" | "policy">, holds?: (id: I) => boolean): PlaceOpts<I> {
-  return { flowPolicy: f => policyOfNode(s, f), fixed: (id, dir) => { const f = s.collapsed.get(id); return f && foldFits(f, dir) ? (f.dir === "h" ? 1 : SPINE) : undefined; }, ...(holds ? { holds } : {}) };
+  return { flowPolicy: f => policyOfNode(s, f), fixed: (id, dir) => { const f = s.collapsed.get(id); return f && foldFits(f, dir) ? (f.dir === "h" ? 1 : SPINE) : undefined; }, folded: id => s.collapsed.has(id), ...(holds ? { holds } : {}) };
 }
 /** Tile `id`'s share of the screen along each axis: the product of its weight in each line over it (a flow's columns count whole). */
 function shareOf<I>(tree: LNode<I>, id: I): { row: number; col: number } {
@@ -729,7 +742,7 @@ function coversOf<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed" | "
   const ps = place(s, area, holds);
   const at = [...(ps.flows ?? []), ...ps.slid.flatMap(x => x.placed.flows ?? [])].find(x => x.node === f || x.node.id === f.id);
   if (at) return new Map(at.cols.map(c => [c.i, c.cover]));
-  return new Map(squeeze(f, area.cols, holds, policyOfNode(s, f)).map(c => [c.i, c.cover]));
+  return new Map(squeeze(f, area.cols, holds, policyOfNode(s, f), placeOpts(s).folded).map(c => [c.i, c.cover]));
 }
 
 /** The tree as `peek` and `layout.get` show it: each tile by name with its share, each container with its id and path. */
@@ -781,6 +794,8 @@ export function serialize<I, L>(s: LayoutState<I>, leafOf: (id: I) => L, skip?: 
 
 /** The fewest cells a float has (unless the screen itself is smaller). */
 export const FLOAT_MIN = { cols: 20, rows: 5 };
+/** A new float's least size where the screen has room: a note's reading width and a few paragraphs. */
+const FLOAT_READS = { cols: 64, rows: 20 };
 
 const AGENT_ORDER: Record<AgentLevel, number> = { free: 0, edit: 1, off: 2 };
 
@@ -1428,7 +1443,9 @@ class Step<I> {
   /** Where a new float goes: half the screen, a little lower and to the right of the last one. */
   private newFloatRect(): Rect {
     const a = this.ctx.area, n = this.d.floats.length;
-    return { col: Math.round(a.cols * 0.22) + n * 3, row: a.row + Math.round(a.rows * 0.12) + n * 2, cols: Math.round(a.cols * 0.5), rows: Math.round(a.rows * 0.6) };
+    // Half the screen, but never narrower than a note reads (PIE-1392: at 40 columns a new note's float was 20 wide).
+    const cols = Math.max(Math.round(a.cols * 0.5), Math.min(a.cols - 2, FLOAT_READS.cols)), rows = Math.max(Math.round(a.rows * 0.6), Math.min(a.rows - 2, FLOAT_READS.rows));
+    return { col: a.col + Math.min(Math.round(a.cols * 0.22), Math.max(1, a.cols - cols - 1)) + n * 3, row: a.row + Math.min(Math.round(a.rows * 0.12), Math.max(0, a.rows - rows - 1)) + n * 2, cols, rows };
   }
   /** A float's rectangle kept on the screen: never smaller than a float is drawn, never off it. */
   private onScreen(r: Rect): Rect { return keepOnScreen(r, this.ctx.area); }
@@ -1611,9 +1628,12 @@ class Step<I> {
     const name = this.name(id), was = this.d.collapsed.get(id), want = on ?? !was;
     if (dir !== undefined && dir !== "v" && dir !== "h") refuse(`tile.collapse: dir is v (a vertical spine) or h (a horizontal one), not ${dir}`);
     if (!want && !was) { this.d.changed = false; this.d.answer = { collapsed: false, changed: false }; return; }
+    // A column of a flow (PIE-1392): folded, it stays a spine however much room there is; open, it squeezes as any column.
+    const column = this.flowColumn(id);
     if (!want) {
       const before = rects({ ...this.d, zoom: null }, this.ctx.area);
       for (const t of this.foldSet(id)) this.d.collapsed.delete(t);
+      if (column) { this.d.answer = { ...this.d.answer, collapsed: false }; return; }
       this.openSpine(id, before);
       if (this.d.altReaders.has(id)) this.room(id, before, true);
       this.d.changed = true;
@@ -1627,6 +1647,7 @@ class Step<I> {
     if (was && (was.dir ?? "v") === (fold.dir ?? "v")) { this.d.changed = false; this.d.answer = { collapsed: true, changed: false }; return; }
     this.notFloat(id, "a spine");
     this.shape(id, `folding ${name}`);
+    if (column) return this.foldColumn(id, column);
     if (!foldsBeside(this.d.tree, id) || !foldFits(fold, axis)) {
       refuse(p?.parent.t === "flow" ? `${name} is a column of a flow: it squeezes to a spine by itself as it recedes (^W W widens it)`
         : !p ? `${name} isn't side by side with other tiles (nor stacked with any): only a tile in a row or a column folds to a spine`
@@ -1639,6 +1660,30 @@ class Step<I> {
     const by = byOf(this.ctx.actor);
     for (const t of this.foldSet(id)) this.d.collapsed.set(t, { ...by, ...fold });
     this.d.answer = { collapsed: true, dir: fold.dir === "h" ? "h" : "v" };
+  }
+
+  /** The flow `id` is a column of (alone in it, or a tab of it), with the column's index; null in a split inside a column. */
+  private flowColumn(id: I): { flow: Flow<I>; ci: number } | null {
+    const f = flowHolding(this.d.tree, id), kid = f?.flow.kids[f.ci];
+    return f && kid && (kid.t === "leaf" || kid.t === "tabs") ? f : null;
+  }
+  /**
+   * Fold a flow's column to a spine (PIE-1392): it stays one until it's opened or widened, whatever room the flow has. The
+   * wide place passes to the nearest open column, as closing the wide one passes it on; the last open column stays open.
+   */
+  private foldColumn(id: I, f: { flow: Flow<I>; ci: number }) {
+    const e = this.policyAt(id);
+    if (!e.collapsible) refuse(`${this.name(id)} stays open: ${e.by.collapsible} doesn't fold · ^W P there turns collapsible on`);
+    if (this.agent && this.foldSet(id).includes(this.d.focus)) refuse(`${this.name(this.d.focus)} has the person's keys; an agent doesn't fold it`);
+    const open = (i: number) => leaves(f.flow.kids[i]!).some(t => !this.d.collapsed.has(t));
+    if (columnOf(f.flow, f.flow.anchor) === f.ci) {
+      const to = [...f.flow.kids.keys()].filter(i => i !== f.ci && open(i)).sort((a, b) => Math.abs(a - f.ci) - Math.abs(b - f.ci) || a - b)[0];
+      if (to === undefined) refuse(`${this.name(id)} is the only open column of its flow: open another first (^W W widens one)`);
+      f.flow.anchor = tileOfColumn(f.flow, to!);
+    }
+    const by = byOf(this.ctx.actor);
+    for (const t of this.foldSet(id)) this.d.collapsed.set(t, { ...by });
+    this.d.answer = { collapsed: true, dir: "v" };
   }
 
   private touch(id: I) {
@@ -2056,10 +2101,12 @@ class Step<I> {
     // The column the person is typing in never squeezes under them for an agent's shift.
     const typing = this.ctx.person.typingIn;
     if (this.ctx.protectTyping && typing !== null && typing !== id && columnOf(f.flow, typing) >= 0) refuse(`the person is typing in ${this.name(typing)}, a column of this flow; an agent's widen would squeeze it (block.mark gets their attention)`);
-    const before = f.flow.anchor;
+    const before = f.flow.anchor, folded = leaves(f.flow.kids[f.ci]!).filter(t => this.d.collapsed.has(t));
     this.rememberFlowSides(f.flow);
     widenFlow(f.flow, f.ci, this.d.touched);
-    if (f.flow.anchor === before) this.d.changed = false;
+    // A folded column widened opens: the wide place is never a spine.
+    for (const t of folded) this.d.collapsed.delete(t);
+    if (f.flow.anchor === before && !folded.length) this.d.changed = false;
     this.d.answer = { wide: true };
   }
   /**

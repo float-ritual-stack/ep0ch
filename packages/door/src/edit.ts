@@ -6,6 +6,7 @@ import { ReaderPosition, PositionRows } from "./reader-position";
 import { propertyListOf, type PropertyList } from "./props";
 import { strayKeys } from "./stray";
 import { pageTitleLine } from "@ep0ch/outline-core/page-title";
+import { COMPONENT_OPEN, componentBlocks, noteCodeFences } from "@ep0ch/outline-core/component-block";
 import { linkOccurrences, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -59,7 +60,7 @@ export type DraftPatchAnswer = { applied: true } | { applied: false; reason: str
  * What a key in a draft asks its host to do: `close` (esc on nothing changed), `discard` (the second esc on
  * changed text: its session puts it aside as unsent), `copy` (cmd+c: the host runs its draft.copy).
  */
-export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "close" | "discard" | "copy" | "follow" | "image";
+export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "close" | "discard" | "copy" | "follow" | "image" | "attach";
 
 export class Draft {
   lines: string[];
@@ -105,6 +106,8 @@ export class Draft {
   private discardArmed = false;
   /** ctrl+x was pressed: a ctrl+e next hands the draft to $EDITOR (bash's edit-and-execute chord); any other key lets it go. */
   private ctrlX = false;
+  /** Its host offers to attach it to open work (a new roadmap card with a twin, PIE-1258): ctrl+x a does that. */
+  attachChord = false;
   note = "";
 
   /**
@@ -432,10 +435,11 @@ export class Draft {
     if (k.kind === "super") return "keep";
     const was = this.discardArmed;
     this.discardArmed = false;
+    if (chord && this.attachChord && k.kind === "char" && !k.ctrl && k.ch === "a") return "attach";
     if (k.kind === "char" && k.ctrl) {
       if (k.ch === "s") return "save";
       // ctrl+x ctrl+e: $EDITOR. ctrl+e alone is the line's end, as ctrl+a is its start (a Mac's cmd+→ and cmd+←).
-      if (k.ch === "x") { this.ctrlX = true; this.note = "ctrl+x · ctrl+e opens $EDITOR"; return "keep"; }
+      if (k.ch === "x") { this.ctrlX = true; this.note = `ctrl+x · ctrl+e opens $EDITOR${this.attachChord ? " · a attaches it" : ""}`; return "keep"; }
       if (k.ch === "e" && chord) return "editor";
       if (k.ch === "e") { this.anchor = this.goal = null; this.col = this.line.length; return "keep"; }
       if (k.ch === "t") return "pick";
@@ -619,9 +623,24 @@ export class Draft {
       return;
     }
     const keep = indent && col >= indent.length ? indent : "";
+    const closes = !plain && !rest.trim() && this.opensComponent(this.row);
     L[this.row] = line.slice(0, col);
     L.splice(this.row + 1, 0, keep + (keep ? rest.replace(/^[ \t]+/, "") : rest));
+    // ⏎ after a component's opening line that nothing closes yet (`::box{list.gap="2"}`): its `::` comes with it, as an
+    // editor closes a bracket, so what's written between reads as the component and not as plain text (PIE-1392).
+    if (closes) L.splice(this.row + 2, 0, indent + "::");
     this.row++; this.col = keep.length;
+  }
+
+  /** Whether line `row` opens a component with a body (not a one-line call) that no `::` closes yet, outside code. */
+  private opensComponent(row: number): boolean {
+    const open = COMPONENT_OPEN.exec(this.lines[row]!);
+    if (!open || open[2] !== undefined) return false;
+    if (noteCodeFences(this.lines).some(f => row > f.start && row <= f.end)) return false;
+    // Unclosed when a `::` after it closes one more component than the note has now: a closer already below may be an
+    // inner component's (a box typed inside a box), so whether this line is paired isn't asked alone.
+    const closer = [...this.lines.slice(0, row + 1), "::", ...this.lines.slice(row + 1)];
+    return componentBlocks(closer).length > componentBlocks(this.lines).length;
   }
 
   /** The nearest list item above `row` indented less than `than`: the item this one is nested in. */
@@ -969,7 +988,7 @@ export class Draft {
   previewScroll: { lineDelta: number; row: number; text: string } | null = null;
   /** Where the edit frame drew the text and its controls, in the host's cells (set by renderEditor). */
   frame: {
-    row: number; col: number; rows: number; cols: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" | "lands" }[];
+    row: number; col: number; rows: number; cols: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" | "lands" | "attach" | "file-new" }[];
     /**
      * The preview's rows under the text (its rule first), and its top row and length as drawn: what its wheel scrolls.
      * `placements`: its pictures (PIE-846), on the rows they're drawn, for the host to put out with its own.

@@ -262,7 +262,7 @@ export class Lanes implements SourceModel {
       // A drag (or a shift+click) selects; the button coming up copies what it selected (copy on select, as in a reader).
       if (k.action === "up" && this.composerDrag) { this.composerDrag = false; if (d.selectedText()?.trim() && copyOnSelect()) this.composerCommand("copy"); return true; }
       const shift = k.action === "down" && !!((k.mods ?? 0) & 4);
-      if (r && (k.action === "down" || k.action === "drag") && (inText || k.action === "drag") && editorClick(d, k.x - r.col - 1, k.y - r.row - 1, k.action === "drag" || shift, USER, { pick: () => void this.host.pressAction(BOARD_ACTIONS, "composer.pick", {}), copy: () => this.composerCommand("copy") })) {
+      if (r && (k.action === "down" || k.action === "drag") && (inText || k.action === "drag") && editorClick(d, k.x - r.col - 1, k.y - r.row - 1, k.action === "drag" || shift, USER, { pick: () => void this.host.pressAction(BOARD_ACTIONS, "composer.pick", {}), copy: () => this.composerCommand("copy"), attach: () => void this.host.pressAction(BOARD_ACTIONS, "card.attach", {}), fileNew: () => void this.submitComposer() })) {
         if (k.action === "drag" || shift) this.composerDrag = true;
         this.host.redraw(); return true;
       }
@@ -849,8 +849,10 @@ export class Lanes implements SourceModel {
     // service's plan arrives. A lane that can't define a card says why, and the text is kept.
     // A new card put aside in this lane (esc twice, a click away, the board closed) comes back: the card adapter's
     // place is the lane's view, so another hub's lane of the same name never brings it back (or creates it there).
-    const session = this.openComposer(cardTarget({ kind: "card", lane: lane.name, view: lane.view, create: (text, by) => BOARD_ACTIONS.run("card.create", { lane: lane.name, text, ...(C0.parent ? { parent: C0.parent.id } : {}) }, { model: this }, by) }));
-    const C0: Composer = { kind: "card", lane, planning: true, born: [], defaults: [], needs: [], parent: null, session };
+    const session = this.openComposer(cardTarget({ kind: "card", lane: lane.name, view: lane.view, create: (text, by) => C0.attachTo
+      ? BOARD_ACTIONS.run("card.attach", { twin: C0.attachTo, text }, { model: this }, by).finally(() => { C0.attachTo = undefined; })
+      : BOARD_ACTIONS.run("card.create", { lane: lane.name, text, ...(C0.parent ? { parent: C0.parent.id } : {}) }, { model: this }, by) }));
+    const C0: Extract<Composer, { kind: "card" }> = { kind: "card", lane, planning: true, born: [], defaults: [], needs: [], parent: null, session };
     this.composer = C0;
     this.host.redraw();
     this.cardPlan(lane).then(plan => {
@@ -902,6 +904,7 @@ export class Lanes implements SourceModel {
     if (cmd === "save") void this.submitComposer();
     else if (cmd === "editor") void this.host.pressAction(BOARD_ACTIONS, "composer.external", {});
     else if (cmd === "pick") void this.host.pressAction(BOARD_ACTIONS, "composer.pick", {});
+    else if (cmd === "attach") void this.host.pressAction(BOARD_ACTIONS, "card.attach", {});
     // A new card has no reader beside it to open a link in: open it from the card once it's made.
     else if (cmd === "follow") this.host.ctx.flash("ctrl+l opens a link from a note's edit or a comment; a new card's links open once it's made");
     else if (cmd === "image") { this.host.ctx.flash("a picture goes into a note's edit or a comment; make the card, then e on it"); }
@@ -958,11 +961,11 @@ export class Lanes implements SourceModel {
   }
 
   /** Ctrl+S in the composer: create it (the card adapter, through card.create or note.create). A refusal keeps the text, says why, and copies it to disk. */
-  private async submitComposer() {
+  private async submitComposer(actor: Actor = USER) {
     const C0 = this.composer;
     if (!C0) return;
     this.host.redraw();
-    const r = await C0.session.submit(USER);
+    const r = await C0.session.submit(actor);
     if (!r.ok) this.host.ctx.flash(r.why);
     this.host.redraw();
   }
@@ -973,11 +976,11 @@ export class Lanes implements SourceModel {
    * parent. `create` has no revision or request id, so a lost answer is looked for, never retried.
    * A roadmap lane's card is a roadmap item, made by the workboard's allocator instead (createItem).
    */
-  async createCard(lane: Lane, text: string, actor: Actor, parent?: string): Promise<{ id: string; workId?: string; lane: string; parent: string; text: string; bornWith: string[]; recordedAs: string }> {
+  async createCard(lane: Lane, text: string, actor: Actor, parent?: string, fileNew = false): Promise<{ id: string; workId?: string; lane: string; parent: string; text: string; bornWith: string[]; recordedAs: string }> {
     const body = text.replace(/\s+$/, "");
     if (!body.trim()) throw new ActionRefused("type the card's title first");
     const plan = await this.cardPlan(lane, parent, body);
-    if (!plan.parent) return this.createItem(lane, actor, plan);
+    if (!plan.parent) return this.createItem(lane, actor, plan, fileNew);
     const composed = plan.plan.text;
     if (composed === undefined) throw new ActionRefused(`the outline planned no text for the card in ${lane.name}`);
     const m = await this.landCreate(plan.parent.id, composed, actor);
@@ -993,15 +996,32 @@ export class Lanes implements SourceModel {
    * default), already checked against the lane's whole query. Not retried: a lost answer is looked for
    * among the project's newest items.
    */
-  private async createItem(lane: Lane, actor: Actor, plan: CardPlan) {
+  private async createItem(lane: Lane, actor: Actor, plan: CardPlan, fileNew = false) {
     const board = this.host.ctx.board;
-    const input = plan.plan.item;
+    let input = plan.plan.item;
     if (!input) throw new ActionRefused(`the outline planned no roadmap item for ${lane.name}`);
+    // Open work it looks like (PIE-1258): the person sees it on a row of the composer and is never blocked; ctrl+s
+    // again on the same text files it new, [attach here] (ctrl+x a, card.attach) adds it there. An agent's create is
+    // the service's to refuse, with the twins named.
+    const C0 = this.composer?.kind === "card" && this.composer.lane === lane ? this.composer : null;
+    const person = actor.kind !== "agent" && !actor.with?.length;
+    if (C0?.twin && C0.twin.text === C0.session.draft.text) fileNew = true;
+    if (person && !fileNew) {
+      const answer = await board.similarItems({ title: input.title, ...(input.body ? { body: input.body } : {}) }).catch(() => null);
+      const twin = answer?.candidates.find(c => answer.twins.includes(c.workId));
+      if (twin) {
+        const said = `looks like ${twin.said}`;
+        if (C0) { C0.twin = { text: C0.session.draft.text, workId: twin.workId, said }; C0.session.draft.attachChord = true; }
+        // The composer's row names the twin; its note says only what to do.
+        throw new ActionRefused(C0 ? `open work looks like it: ctrl+s again files it new · [attach here] or ctrl+x a adds it to ${twin.workId}` : `${said} · card.create … new=true files it anyway, card.attach twin=${twin.workId} text=… adds it there`);
+      }
+    }
+    if (fileNew) input = { ...input, new: true };
     const since = Date.now();
     let made: { workId: string; workQueueId: string; block: Msg };
     try { made = await board.createRoadmapItem(input, actor); }
     catch (e) {
-      if (e instanceof Refused) throw new ActionRefused(e.message);
+      if (e instanceof Refused) throw new ActionRefused(e.message.startsWith("not filed:") && !person ? `${e.message}\nIn the door: card.create … new=true files it anyway; card.attach twin=<Work ID> text=… adds it there.` : e.message);
       const found = await this.findItem(input.project, input.title, since).catch(() => null);
       if (!found) throw new ActionRefused(`the outline didn't answer (${e instanceof Error ? e.message : String(e)}) and no such item is there yet; the outcome is unknown, so look before creating it again`);
       made = { workId: prop(found, "work-id") ?? "", workQueueId: found.parentId ?? "", block: found };
@@ -1013,6 +1033,35 @@ export class Lanes implements SourceModel {
     const props = m.properties;
     const bornWith = ["type", "priority", "work-stage", "work-batch", "project", "arc", "track"].flatMap(k => props.filter(p => p.key === k).map(p => `${k}=${p.value}`));
     return { id: m.id, workId: made.workId, lane: lane.name, parent: made.workQueueId, text: m.text, bornWith, recordedAs: recordedAs(actor) };
+  }
+
+  /**
+   * `card.attach`: an ask added under open work instead of a ticket of its own (the service's roadmap.items.attach).
+   * With text, that text; without, the composer's draft goes through its own submit (so it ends as created does).
+   */
+  async attachCard(twin: string | undefined, text: string | undefined, actor: Actor): Promise<{ attached: string; recordedAs: string } | { submitted: boolean }> {
+    const C0 = this.composer?.kind === "card" ? this.composer : null;
+    if (text === undefined) {
+      if (!C0) throw new ActionRefused("no new card is being written; card.attach twin=PIE-n text=… adds an ask under that item");
+      // The card being written is the person's: an agent attaches its own words.
+      if (actor.kind === "agent") throw new ActionRefused("the new card being written is the person's; an agent passes its own text= (card.attach twin=PIE-n text=…)");
+      const to = twin ?? C0.twin?.workId;
+      if (!to) throw new ActionRefused("the new card hasn't been offered open work yet: ctrl+s asks, or name it with twin=PIE-n");
+      C0.attachTo = to;
+      await this.submitComposer();
+      return { submitted: !this.composer };
+    }
+    if (!twin) throw new ActionRefused("card.attach needs twin=<Work ID>: the open item to add it to");
+    const lines = text.replace(/\s+$/, "").split("\n");
+    const title = lines[0]!.replace(/\[[^\]]+::[^\]]*\]/g, "").trim();
+    if (!title) throw new ActionRefused("type the ask's first line first");
+    const body = lines.slice(1).join("\n").trim();
+    let r: { attached: string; block: Msg };
+    try { r = await this.host.ctx.board.attachToItem({ item: twin, title, ...(body ? { body } : {}) }, actor); }
+    catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); }
+    this.host.ctx.flash(`added under ${r.attached} · ${title}${actor.kind === "agent" ? ` · by ${agentLabel(actor)}` : ""}`);
+    this.host.redraw();
+    return { attached: r.attached, recordedAs: recordedAs(actor) };
   }
 
   /** After an allocator create whose answer was lost: the project's item with that title, made since. */
@@ -1352,7 +1401,7 @@ export class Lanes implements SourceModel {
       line(`a child note of ${drawEllipsized(titleOf(C0.parent), 60)}`, C.cyan),
       line(d.note || "the first line is the title", d.note.startsWith("not created") ? C.lred : C.dark),
     ];
-    const lines = renderEditor(d, { look, title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save"), preview: (t, pw, links) => draftPreviewDoc(t, pw, { board: this.host.ctx.board, redraw: () => this.host.redraw() }, links), pick: true }, w, r.rows - 2);
+    const lines = renderEditor(d, { look, title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, ...(C0.kind === "card" && C0.twin ? { twin: C0.twin.said } : {}), by: writtenBy(d, "save"), preview: (t, pw, links) => draftPreviewDoc(t, pw, { board: this.host.ctx.board, redraw: () => this.host.redraw() }, links), pick: true }, w, r.rows - 2);
     this.composerAt = r;
     lines.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
   }
@@ -1373,7 +1422,11 @@ const roadmapHint = (C0: { born: { key: string }[]; defaults: { key: string }[] 
 export const recordedAs = (actor: Actor) => actor.kind === "agent" || actor.with?.length ? `agent ${recordedActorId(actor)}` : "you";
 
 type Composer =
-  | { kind: "card"; lane: Lane; planning: boolean; born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: (ParentPick & { title: string }) | null; session: DraftSession }
+  | { kind: "card"; lane: Lane; planning: boolean; born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: (ParentPick & { title: string }) | null; session: DraftSession;
+      /** Open work the new item looks like (PIE-1258), offered at the last ctrl+s with the text it was offered for: ctrl+s again on that text files it new. */
+      twin?: { text: string; workId: string; said: string };
+      /** Set by card.attach: the next submit adds the draft under this item instead of creating one. */
+      attachTo?: string }
   | { kind: "child"; parent: Msg; session: DraftSession };
 
 /** A step's first line, without its list mark, checkbox and ^id. */
@@ -1538,12 +1591,26 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
       lane: { type: "string", about: "the lane's name" },
       text: { type: "string", about: "title line and body; [key::value] tokens are properties (they must meet an OR group the lane has)" },
       parent: { type: "string", optional: true, about: "the block to create it under, instead of the lane's default" },
+      new: { type: "boolean", optional: true, about: "a roadmap item: file it although open work looks like it (it says it was filed beside it)" },
     },
     examples: [
       { act: "card.create lane=Queued text=\"Order seed trays [priority::2]\"", does: "creates a card in the Queued lane with the lane's properties and priority 2" },
       { act: "card.create lane=Queued text=\"Fix shed door\" parent=2b7f5e90-1c34-4a86-8d5e-9f0a3c7b1d62", does: "creates the card under that block instead of the lane's default" },
     ],
-    run: ({ lane, text, parent }, { model }, actor) => lanesOf({ model }).createCard(lanesOf({ model }).laneFor(lane), text, actor, parent),
+    run: ({ lane, text, parent, new: fileNew }, { model }, actor) => lanesOf({ model }).createCard(lanesOf({ model }).laneFor(lane), text, actor, parent, fileNew === true),
+  }),
+  "card.attach": def({
+    summary: "add a new ask under open work it repeats instead of filing it (PIE-1258): its title and body, in its writer's words and dated, at the end of that roadmap item. With no text, the new card being written goes there: the composer's [attach here] when it says what the card looks like", keys: "ctrl+x a, click [attach here]",
+    touches: "nothing", replay: "ask",
+    args: {
+      twin: { type: "string", optional: true, about: "the open item's Work ID (PIE-12); default the one the composer offered" },
+      text: { type: "string", optional: true, about: "title line and body; default the new card being written" },
+    },
+    examples: [
+      { act: "card.attach twin=PIE-12 text=\"Water the basil too\"", does: "adds a dated line with that ask at the end of PIE-12" },
+      { act: "card.attach", does: "adds the new card being written under the open item the composer offered, and closes the composer" },
+    ],
+    run: ({ twin, text }, { model }, actor) => lanesOf({ model }).attachCard(twin, text, actor),
   }),
   "note.create": def({
     summary: "add a note under the selected card (or parent=<id>)", keys: "N, typing, ctrl+s",

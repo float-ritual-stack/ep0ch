@@ -562,6 +562,10 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(query.items.some((i: any) => i.insertion === 'trellis=north"')).toBe(true);
     const density: any = await e.s.act("complete", { text: '::graph-table{density="' }, e.h, AGENT);
     expect(density.items.some((i: any) => i.insertion === 'compact"')).toBe(true);
+    // A figure's query value is its words alone: no glimpse of the example's first drawn row after it (PIE-1392).
+    const yq: any = await e.s.act("complete", { text: "::graph-table\n---\nquery: trellis=" }, e.h, AGENT);
+    const north = yq.items.find((i: any) => String(i.insertion).includes("trellis=north"));
+    expect(north?.label).toBe("trellis=north");
     const ref: any = await e.s.act("complete", { text: '::fields{of="Seed list' }, e.h, AGENT);
     expect(ref.items.some((i: any) => i.insertion === `((${ids.seeds}))"`)).toBe(true);
     const template = await create("Picker template [page::picker-template] [form-field::which property]");
