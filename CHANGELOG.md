@@ -19,7 +19,11 @@ are its record. The outliner's entries from then are kept below, under
 - **A status-bar group in a group** opens its menu beside its parent's, which stays open: Esc closes the inner, then the outer.
 - **"pin to status bar"** is the tile menu's first row when you right-click a button.
 - **alt+o in the power bar** says what it copied on the status line and in the log, not only in the toast.
-- **At 40 columns,** a pasted link's explanation and the undo ask at a save read whole.
+- **At 40 columns,** a pasted link's explanation and the undo ask at a save read whole. A message the status bar cuts
+  short (a Pipe or Fold refusal) is said whole just above it while it's up. The BBS reader's Number, Refer# and Reply
+  take a row of their own, and a figure's warning wraps.
+- **alt+T in the BBS reader** lists the trail over it, as its footer says. In the river at 40 columns, alt+T on a
+  squeezed column lists the trail over the screen, not in a one-letter-wide tile.
 - **For agents:** a refusal about the tile the person types in reads one way: "the person is typing in <tile>; an
   agent doesn't <what> · <what to do>", never `drawer.tiles`. `button.press note=` takes the 8-character short id,
   a Work ID or a [[page]], as `open id=` does.
