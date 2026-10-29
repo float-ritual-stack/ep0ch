@@ -1,5 +1,5 @@
 {
-  "same": "Is the work `new` asks for the same work as this open ticket, so that doing one would do the other? Ticket: {candidate}",
+  "same": "Is the work `new` asks for the same work as this ticket, so that doing one would do the other? Ticket: {candidate}",
   "part": "Would `new` fit inside this open ticket as one more step or ask of it, rather than as work of its own? Ticket: {candidate}",
   "ships": "Does this shipped change already do what `ticket` asks for? Shipped change: {candidate}",
   "replaces": "Does this shipped change make `ticket` unnecessary by solving its problem a different way? Shipped change: {candidate}",

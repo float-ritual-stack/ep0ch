@@ -45,6 +45,18 @@ are its record. The outliner's entries from then are kept below, under
 - **On the web page:** `≡ trail` at the end of the breadcrumbs lists the notes this tab opened, newest first.
 - **Agents:** `act trail` reads the stops (it opens nothing); `act back steps=2` goes two at once; `ep0ch.trail()` on a page.
 - **Run:** nothing extra; `ep0ch install --apply` as usual (no protocol or schema change).
+### A patch applied as written leaves nothing to fix, and a backfill rerun costs nothing twice (PIE-1402)
+
+- **The buried question's patch:** its box is its own paragraph, the text under it stays out of it, and on a note whose
+  chips sit on the line under the title, the box goes below them.
+- **A wall's or a stacked bullet's patch** splits at sentences, never commas; a sentence too long for one bullet comes
+  with no patch, and the finding names it.
+- **Twins and the groom give one answer:** the groom asks the filing's same-work question and reads it the same way
+  ("maybe the same work as PIE-n" in the band where Jev is unsure).
+- **A live check's chooser says what each choice writes** (`Mark done · jev::right`, `Reject · jev::rejected`).
+- **The backfill:** a note Jev read and said nothing of is kept as quiet, so a rerun asks only about what's new; a
+  run keeps one row; its records look the Records page and templates up once. The host's own load under a backfill
+  is PIE-1413's.
 
 ### Agents work in your door while you type, and every refusal says the same thing (PIE-1294)
 
