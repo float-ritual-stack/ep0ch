@@ -668,9 +668,9 @@ async function reviewOf(client: AgentToolsClient, text: string, before: string |
     // Each read is bounded on its own; the outline's facets (seconds on a big outline: pie took 2 to 7 s) are read while
     // Jev answers, and only when the text types a number before a word, so they never hold Jev up.
     // The host answers a connection's requests in turn, so the quick reads go first and the facets after them.
-    const [schemas, qaRule] = await Promise.all([within(schemasOf(client), null), within(houseRule(client as never, "qa-for-evan"), undefined)]);
+    const [schemas, qaRule, told] = await Promise.all([within(schemasOf(client), null), within(houseRule(client as never, "qa-for-evan"), undefined), off ? Promise.resolve(undefined) : within(toldKeys(client, at.note), undefined)]);
     const facets = hasCountCandidate(text) ? within(facetsOf(client), []) : Promise.resolve([]);
-    return reviewWrite({ ...input, schemas, facets, jev: !off, ...(qaRule ? { qaRule } : {}) }, { timeoutMs: REVIEW_BUDGET_MS });
+    return reviewWrite({ ...input, schemas, facets, jev: !off, ...(qaRule ? { qaRule } : {}), ...(told ? { told } : {}) }, { timeoutMs: REVIEW_BUDGET_MS });
   };
   // The whole review is bounded, and any failure leaves code's measures alone, saying why Jev wasn't heard: the write has landed.
   const codeOnly = (why: string) => reviewWrite({ ...input, schemas: null, jev: false, jevWhy: why });
@@ -680,6 +680,12 @@ async function reviewOf(client: AgentToolsClient, text: string, before: string |
   ]).catch((e: unknown) => codeOnly(`not heard: ${(e as Error)?.message ?? String(e)} (after ${((Date.now() - started) / 1000).toFixed(1)} s)`));
   if (!off) await keepRecords(client, { kind: "reviewed", at: { ...at, source: "write" }, title: headerLine(text).prose.trim(), review, ...(reading ? { reading } : {}) });
   return review;
+}
+
+/** The keys a note's writers were already told (its `review-finding` records, write-review.ts `told`): each is said once. */
+async function toldKeys(client: AgentToolsClient, note: string): Promise<Set<string>> {
+  const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=review-finding note=${note} NOT source=backfill`, machinery: "show", limit: 500 } });
+  return new Set(found.blocks.flatMap(b => b.properties.filter(p => p.key === "key").map(p => p.value)));
 }
 
 /** Asks the service to make the records of what Jev said (jev-suggestions.ts); waits for it no longer than the budget, and never throws. */

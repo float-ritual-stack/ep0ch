@@ -119,7 +119,7 @@ test("each finding the writer was told is a record with its passage and what was
   const told = await records("review-finding");
   expect(told.map(r => r.rule).sort()).toEqual(["count", "stacked"]);
   const stacked = told.find(r => r.rule === "stacked")!;
-  expect(stacked).toMatchObject({ note: made.json.id, rubric: "dense", title: "Status tonight", patch: "ready", verdict: "fix", writer: "loki", source: "write" });
+  expect(stacked).toMatchObject({ note: made.json.id, rubric: "dense", title: "Status tonight", patch: "ready", writer: "loki", source: "write" });
   expect(stacked.passage).toContain("The swap table went up at nine");
   expect(stacked.said).toContain("3 points in one item");
   // The page is made with the first finding; its table names the note by its title, which every reader links.
@@ -130,6 +130,9 @@ test("each finding the writer was told is a record with its passage and what was
   // A record opened on its own reads: titled as a sentence, and a card of what it says, its note by title and linked.
   const finding = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=review-finding rule=stacked", machinery: "show" } })).blocks[0]!;
   expect(finding.text.split("\n", 1)[0]).toStartWith("fix: dense in Status tonight");
+  // The fix offered is kept on the record, in a fence so its chips stay the note's, never the record's (PIE-1402).
+  expect(finding.text).toContain("\nfix:\n```text\n- The swap table went up at nine and the jars were sorted by size.\n- The labels ran out halfway");
+  expect(finding.properties.some(p => p.key === "needs")).toBe(false);
   const read = await client.request<{ decorations?: { view?: { type: string; link?: string; children?: { children?: { label: string; value: string }[] }[] } }[] }>({ action: "resources.projection.read", blockId: finding.id });
   const card = read.decorations!.find(d => d.view?.type === "card")!.view!;
   expect(card.link).toBe(made.json.id);
@@ -167,13 +170,22 @@ test("prose reaches Jev with no shape gate: the rubric's judgments are findings 
   expect(asked).toHaveLength(1);
   expect(Object.keys(asked[0]!.questions)).toEqual(expect.arrayContaining(["argues", "kit::s0", "dense::s0", "mixed::s0", "context::s0"]));
 
-  // A rewrite Jev still says it of isn't "followed"; one it doesn't say it of is.
+  // The context finding quotes the phrase it leans on, not its section's opening (PIE-1402).
+  const context = review.findings.find(f => f.rule === "context")!;
+  expect(context.say).toContain(`("As discussed")`);
+  expect(context.passage).toStartWith("As discussed, the issue above");
+
+  // A rewrite Jev still says it of isn't "followed", and isn't told again: the writer heard it once, so it is carried
+  // and the verdict can ship (PIE-1402). One Jev reads and doesn't say it of is followed.
   const note = store.require(made.json.id);
-  await agent("edit", { ref: note.id, expectedRevision: note.revision, text: essay.replace("north fence", "north wall") });
+  const repeat = await agent("edit", { ref: note.id, expectedRevision: note.revision, text: essay.replace("north fence", "north wall") });
+  expect((repeat.json.review as Review).findings.filter(f => f.new).map(f => f.rule)).toEqual([]);
+  expect((repeat.json.review as Review).verdict).toBe("ship");
   expect((await records("suggestion-outcome")).filter(o => o.rule === "argues")).toEqual([]);
+  expect((await records("review-finding")).filter(r => r.rule === "argues")).toHaveLength(1);
   const again = store.require(note.id);
   await agent("edit", { ref: again.id, expectedRevision: again.revision, text: "Beds moved south\n\nThey moved for the light." });
-  expect((await records("suggestion-outcome")).filter(o => o.rule === "argues").map(o => o.outcome)).toEqual(["followed", "followed"]);
+  expect((await records("suggestion-outcome")).filter(o => o.rule === "argues").map(o => [o.outcome, o.because])).toEqual([["followed", expect.stringContaining("Jev, reading it again, didn't say it")]]);
 
   const clean = await agent("create", { parent: "root", text: "Bean rows\n\n- Three rows sown on Saturday.\n- Watered at nine." });
   expect((clean.json.review as Review).verdict).toBe("ship");
@@ -250,7 +262,7 @@ const THREE_PARAGRAPHS = [
 ].join("\n");
 
 test("acceptance: three long paragraphs with the ask hidden in the last sentence: Jev reads it, the ask is buried with its exact words and moved to the top, the paragraphs are dense", async () => {
-  const { store, agent, asked } = await setup((id, _q, state) => {
+  const { store, agent, asked, records } = await setup((id, _q, state) => {
     const line = (state.asks as Record<string, string> | undefined)?.[id.split("::")[1] ?? ""] ?? "";
     if (id.startsWith("asks::")) return { type: "noul", noul: line.includes("cedar beds or switch") ? 0.95 : 0.05 };
     if (id.startsWith("unclear::")) return { type: "noul", noul: 0.9 };
@@ -268,9 +280,13 @@ test("acceptance: three long paragraphs with the ask hidden in the last sentence
   const note = store.require(made.json.id);
   await agent("patch", { ref: note.id, revision: note.revision, patches: buried.patch });
   const fixed = store.require(note.id).text;
-  expect(fixed.split("\n").slice(0, 3)).toEqual([`Garden beds after the autumn [needs::sysop: ${ASK.slice(0, 60)}]`, "", `- [ ] ${ASK}`]);
+  expect(fixed.split("\n").slice(0, 3)).toEqual([`Garden beds after the autumn [needs::sysop: ${ASK}]`, "", `- [ ] ${ASK}`]);
   expect(fixed).toContain("costs more and takes a weekend to lay.");
-  expect(fixed.split(ASK)).toHaveLength(2);
+  // Moved, not copied: the chip names it and the box holds it, and the paragraph it was in no longer does.
+  expect(fixed.split(`- [ ] ${ASK}`)).toHaveLength(2);
+  expect(fixed.split("\n").slice(3).join("\n")).not.toContain(ASK);
+  // The patch applied as written reads as patched (PIE-1402: it read patched=no, the patch made again without Jev's asks).
+  expect((await records("suggestion-outcome")).filter(o => o.rule === "question").map(o => [o.outcome, o.patched])).toEqual([["followed", "yes"]]);
 });
 
 test("acceptance: a short, clear, self-contained note ships, pushed into no component it doesn't need", async () => {

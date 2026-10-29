@@ -285,9 +285,26 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       dropped++;
     }
     const remaining = width0 - dropped;
-    if (tier(w) === "narrow" && remaining > 2) {
-      reduce([tcol, [...Array(remaining).keys()].find(k => k !== tcol)!]);
-      dropped += remaining - 2;
+    // Narrow with more than two columns (PIE-1402: a 44-column tile hid a record's passage and what was said behind
+    // "+4 columns"): each row is a card, its title column first and every other cell under it as `header: value`,
+    // wrapped, so nothing is hidden. Each line is its row's note (a cell naming a note, that note), as a row's are.
+    if (tier(w) === "narrow" && remaining > 2 && rows.length) {
+      const blocks: unknown[] = p.blocks ?? [];
+      const named: (string | null)[][] = Array.isArray(p.cellBlocks) ? p.cellBlocks.map((r: (string | null)[]) => keepCols(r)) : [];
+      const density = ui?.density ?? (isDensity(p.density) ? p.density : "cozy");
+      const most = { compact: 1, cozy: 4, comfortable: 12 }[density];
+      const card = (r: string[], i: number) => {
+        const linkOf = (k: number) => named[i]?.[k] ?? blocks[i];
+        const lead = rowLinks(link, linkOf(tcol), rowLines(r[tcol] ?? "", w, Math.max(2, most)).map(l => fg(HI) + BOLD + l + UNBOLD + RESET), ui?.key);
+        const cells = r.flatMap((value, k) => {
+          if (k === tcol || !value.trim()) return [];
+          const label = head[k] ? `${head[k]}: ` : "";
+          const lines = rowLines(label + value, w, most, { hang: 2 }).map((l, n) => n === 0 && label ? fg(DIM) + label + fg(INK) + l.slice(label.length) + RESET : fg(INK) + l + RESET);
+          return rowLinks(link, linkOf(k), lines, ui?.key);
+        });
+        return [...lead, ...cells];
+      };
+      return rows.flatMap((r, i) => [...(i ? [fg(DIM) + rep("·", Math.min(w, 12)) + RESET] : []), ...card(r, i)]);
     }
     const all = [head, ...rows, ...(foot ? [foot] : [])];
     const n = Math.max(...all.map(r => r.length));

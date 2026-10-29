@@ -18,6 +18,7 @@ import { headerLine } from "@ep0ch/outline-core/header-line";
 import { asksEvan, FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt, type PromptRevision, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
+import { chipValue } from "./records";
 import { JEV_ENDPOINT, JEV_MODEL, jevKey } from "./search-ranking";
 import type { QuestionFacet } from "@ep0ch/outline-core/protocol";
 
@@ -56,6 +57,11 @@ export interface WriteReview {
   /** `fix` when this write left something new to fix; `ship` otherwise. Code's call, over code's and Jev's findings. */
   verdict: "ship" | "fix";
   findings: ReviewFinding[];
+  /**
+   * What Jev read and judged this time (`jevScope` of a key): a later write's review that judged a finding's scope and
+   * didn't say it again is how the finding is known fixed, not a quiet Jev on a part it never read (PIE-1402).
+   */
+  judged?: string[];
   /** Whether Jev read it: `asked`, `not asked` (nothing it would judge changed), or why it couldn't be. */
   jev: string;
   next: string;
@@ -177,6 +183,30 @@ async function askJev(text: string, sections: readonly Section[], asks: readonly
 
 const unit = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
 
+/**
+ * Words that lean on the session the note was written in ("as discussed", "the issue above"): where a context finding
+ * points, so it quotes the phrase rather than its section's opening.
+ */
+const CONTEXT_CUE = /\b(?:as (?:we )?(?:discussed|said|agreed|mentioned|planned)|discussed (?:above|earlier|before)|(?:the|that|this) (?:issue|note|point|thing|item|bug|fix|plan|idea|change|one) (?:above|earlier|from before)|(?:see|per) above|like (?:before|last time)|same as before|the usual|you know the|per our)\b/i;
+
+/** The line of a section that holds a context cue, and the cue: the passage a context finding quotes. */
+function contextCue(s: Section, lines: readonly string[]): { line: number; phrase: string; text: string } | undefined {
+  for (let i = s.line; i <= s.end; i++) {
+    const m = CONTEXT_CUE.exec(lines[i] ?? "");
+    if (m) return { line: i, phrase: m[0], text: lines[i]! };
+  }
+  return undefined;
+}
+
+/** What a key's judgment was about, as a review's `judged` lists it: a section by its heading, a line by its words, the opening. */
+export function jevScope(key: string): string {
+  if (key === "argues") return "argues";
+  const unclear = /^unclear:(.*)$/s.exec(key);
+  if (unclear) return `line:${unclear[1]}`;
+  const parts = key.split(":");
+  return `section:${(parts[0] === "kit" ? parts.slice(2) : parts.slice(1)).join(":")}`;
+}
+
 /** Jev's findings from its answers: code's truth table over them, one finding per judgment that holds. */
 function jevFindings(text: string, sections: readonly Section[], asked: Asked, schemas: readonly ComponentSchema[], code: readonly { line?: number; rubric: Rubric }[], qaRule = QA_RULE): ReviewFinding[] {
   const a = asked.answers, out: ReviewFinding[] = [], t = REVIEW_THRESHOLDS;
@@ -208,7 +238,16 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
     if (yes(`dense::${s.id}`) && roomy(REVIEW_SIZES.dense) && !codeIn(s, "dense")) out.push({ ...base, rule: "dense", rubric: "dense", key: `dense:${clip(s.heading, 24)}`, say: `${where} packs several points into one paragraph or item: one point per line, a heading over each part` });
     if (yes(`mixed::${s.id}`) && roomy(REVIEW_SIZES.mixed)) out.push({ ...base, rule: "mixed", rubric: "mixed", key: `mixed:${clip(s.heading, 24)}`, say: `${where} mixes what's true, what was decided and what's still open: give each its own section, decisions in a ::graph-decision` });
     if (yes(`qa::${s.id}`) && !codeIn(s, "qa-for-evan")) out.push({ ...base, rule: "qa-for-evan", rubric: "qa-for-evan", key: `qa:${clip(s.heading, 24)}`, say: `${where} asks Evan to try or check something himself: ${qaRule}` });
-    if (yes(`context::${s.id}`) && !codeIn(s, "context")) out.push({ ...base, rule: "context", rubric: "context", key: `context:${clip(s.heading, 24)}`, say: `${where} leans on today's context ("as discussed", "the issue above", a bare id or jargon): name the thing, or link it as ((id|label)), so it reads without this session` });
+    if (yes(`context::${s.id}`) && !codeIn(s, "context")) {
+      // The phrase it leans on, quoted where code finds one; else the section's opening, said as such.
+      const cue = contextCue(s, lines);
+      out.push({
+        ...base, ...(cue ? { line: cue.line + 1, passage: clip(cue.text) } : {}), rule: "context", rubric: "context", key: `context:${clip(s.heading, 24)}`,
+        say: cue
+          ? `line ${cue.line + 1} leans on today's context ("${cue.phrase}"): name the thing it means, or link it as ((id|label)), so it reads without this session`
+          : `${where} leans on today's context (a bare id, jargon, or a thing named as if known): name the thing, or link it as ((id|label)), so it reads without this session`,
+      });
+    }
   }
   for (const [id, answer] of Object.entries(a)) {
     const m = /^unclear::L(\d+)$/.exec(id);
@@ -238,6 +277,11 @@ export interface ReviewInput {
   jev: boolean;
   /** How the outline words its validation rule (work-review.ts houseRule), for a finding that asks Evan to check things. */
   qaRule?: string;
+  /**
+   * The keys this note's writer was already told (its `review-finding` records): told once, a finding is carried after,
+   * so a write that fixed everything else can ship (PIE-1402: Jev's findings were new on every write).
+   */
+  told?: ReadonlySet<string>;
 }
 
 /**
@@ -266,15 +310,16 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   const code: ReviewFinding[] = writeShape(text, shape).map(f => {
     const n = had.get(f.key) ?? 0;
     if (n) had.set(f.key, n - 1);
-    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.passage ?? (f.line ? lines[f.line - 1] ?? "" : text)), new: !n, by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
+    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.passage ?? (f.line ? lines[f.line - 1] ?? "" : text)), new: !n && !toldOf(input.told, f.key), by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
   });
   const qaRule = input.qaRule ?? QA_RULE;
-  code.push(...qaFindings(text, before, qaRule));
-  const jev = answers ? jevFindings(text, sections, asked as Asked, input.schemas ?? [], code, qaRule) : [];
+  code.push(...qaFindings(text, before, qaRule).map(f => toldOf(input.told, f.key) ? { ...f, new: false } : f));
+  const jev = (answers ? jevFindings(text, sections, asked as Asked, input.schemas ?? [], code, qaRule) : []).map(f => toldOf(input.told, f.key) ? { ...f, new: false } : f);
   const findings = withoutOverlaps(text, [...code, ...jev]);
   const review: WriteReview = {
     verdict: findings.some(f => f.new) ? "fix" : "ship",
     findings,
+    ...(answers ? { judged: [...sections.map(s => `section:${clip(s.heading, 24)}`), ...asks.map(i => `line:${clip(lines[i] ?? "", 40)}`), ...(ask.opening ? ["argues"] : [])] } : {}),
     jev: !input.jev ? input.jevWhy ?? "off" : asked === null ? "not asked: nothing it judges changed" : "answers" in asked ? "asked" : asked.unavailable,
     next: findings.some(f => f.new && f.patch)
       ? `apply the patches with outline_patch (each finding's patch, as written), fix the rest, then ${shapeNext(input.id)}`
@@ -282,6 +327,9 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   };
   return { review, ...(asked && "reading" in asked ? { reading: asked.reading } : {}) };
 }
+
+/** Whether a key was told: its record holds it as a chip holds it (records.ts chipValue). */
+const toldOf = (told: ReadonlySet<string> | undefined, key: string) => !!told && (told.has(key) || told.has(chipValue(key)));
 
 /** What a finding that asks Evan to validate says, unless the outline words it (house rules, work-review.ts). */
 export const QA_RULE = "validation is the agents' job, never Evan's: drive it yourself (a scratch door, a headless page) and tell him what you saw";
