@@ -652,7 +652,7 @@ export class App implements Ctx {
     // In the drawer, the person's bytes are the drawer's alone (a picker, a reader tab): never the screen's terminal under it.
     // Nothing over it: the power bar, or a menu over the screen while the person is in the drawer, has the keys first (PIE-1431).
     (term as { rawSink?: unknown }).rawSink = () => {
-      const sink = this.probing || this.bar || this.overDrawer() ? null : this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
+      const sink = this.chromeOver() ? null : this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
       return sink ? (bytes: string) => {
         if (this.escSpent(bytes)) return;
         this.drawer.desks().map(d => d.liftedDesk).find(Boolean)?.dropLiftElsewhere();
@@ -1573,9 +1573,10 @@ export class App implements Ctx {
    * desk or a group in it. A new overlay is over the program by being one of these, never by a list of kinds.
    */
   private program(): { typing: boolean; over: boolean } {
-    const chrome = this.probing || !!this.bar || this.overDrawer();
-    // The drawer's tab, shown or hidden by a screen over it that has no drawer (the message log).
-    if (this.drawer.keysIn) {
+    const chrome = this.chromeOver();
+    // The drawer's tab, shown, or hidden by a screen pushed over it that has no drawer (the message log); a screen of
+    // tiles that has no drawer (a desk with host=none) has the keys itself.
+    if (this.drawer.keysIn && (this.drawer.entered || this.stack.length > 1 && !tilesOf(this.stack.at(-1)))) {
       const p = this.drawer.desk?.programKeys();
       return { typing: !!p?.typing, over: chrome || !this.drawer.entered || !!p?.over };
     }
@@ -1588,6 +1589,8 @@ export class App implements Ctx {
     }
     return { typing: false, over: false };
   }
+  /** The door's own layers over every screen that take the keys first: the key probe, the power bar, a bar menu over the drawer. */
+  private chromeOver(): boolean { return this.probing || !!this.bar || this.overDrawer(); }
   /** When an Esc last closed something over a terminal the person types in, or was held back for it. */
   private escSpentAt = -Infinity;
   /** An Esc right after one closed something over the program: held back, and said (PIE-1431). */

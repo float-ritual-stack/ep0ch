@@ -1604,9 +1604,9 @@ export class MessageReader implements Screen {
   private readersBelow(ctx: Ctx): { id: string; title: string }[] {
     const stack = ctx.screens?.() ?? [], out: { id: string; title: string }[] = [];
     for (let i = stack.indexOf(this) - 1; i >= 0; i--) {
-      const m = (stack[i] as MessageReader | undefined)?.surface?.msg;
-      if (!(stack[i] instanceof MessageReader) || !m) break;
-      out.push({ id: m.id, title: subject(m) });
+      const r = stack[i];
+      if (!(r instanceof MessageReader) || !r.surface.msg) break;
+      out.push({ id: r.surface.msg.id, title: subject(r.surface.msg) });
     }
     return out;
   }
