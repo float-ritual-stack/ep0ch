@@ -145,6 +145,8 @@ export function fixOf(recordText: string): string[] {
  * backfill's stats by rubric and writer. Every number is a live figure. An outline that already has a page by this
  * address (pie's, made by hand) keeps its own.
  */
+const QUIET_HEADING = "## Reviewed, nothing to fix";
+
 export const SUGGESTIONS_PAGE = [
   "Jev's suggestions [page::jevs-suggestions] [system-view::jev-suggestions]",
   "",
@@ -173,7 +175,7 @@ export const SUGGESTIONS_PAGE = [
   "---",
   "::",
   "",
-  "## Reviewed, nothing to fix",
+  QUIET_HEADING,
   "::graph-table",
   "---",
   "title: writes the review passed",
@@ -250,9 +252,34 @@ export const REVIEW_RECORDS_RULE =
   "Review records read [rule-name::review-records] [rule-match::type=review-finding OR type=suggestion OR type=suggestion-outcome] " +
   "[rule-decorate::card] [rule-place::prepend] [rule-fields::note, rubric, component, verdict, said, passage, outcome, because, writer]";
 
+/**
+ * An existing suggestions page with what a later version added and it lacks (PIE-1388): the quiet writes' section, and
+ * a `created` column on the findings table. Only added, never rewritten, so a page shaped by hand keeps its order and
+ * words; a page that has them is returned as it is.
+ */
+export function upgradeSuggestionsPage(text: string): string {
+  let lines = text.split("\n");
+  // The findings table: the first figure whose query is the live findings', its columns line.
+  const query = lines.findIndex(l => l.trim() === "query: type=review-finding NOT source=backfill");
+  const columns = query < 0 ? -1 : lines.findIndex((l, i) => i > query && /^columns:\s*\[/.test(l.trim()));
+  const end = query < 0 ? -1 : lines.findIndex((l, i) => i > query && l.trim() === "---");
+  if (columns > 0 && columns < end && !/\bcreated\b/.test(lines[columns]!)) lines[columns] = lines[columns]!.replace(/\s*\]\s*$/, ", created]");
+  if (!lines.some(l => l.includes("query: type=review-quiet"))) {
+    const section = SUGGESTIONS_PAGE.split("\n"), from = section.indexOf(QUIET_HEADING);
+    const quiet = section.slice(from, section.indexOf("", from) + 1);
+    const before = lines.findIndex(l => l.trim() === "## What the writer did");
+    lines = before < 0 ? [...lines, "", ...quiet.slice(0, -1)] : [...lines.slice(0, before), ...quiet, ...lines.slice(before)];
+  }
+  return lines.join("\n");
+}
+
 async function suggestionsPage(client: SuggestionClient): Promise<void> {
   const has = await read(client, "system-view=jev-suggestions OR page=jevs-suggestions", 1);
   if (!has.length) await client.request({ action: "create", text: SUGGESTIONS_PAGE, parentId: null, author: JEV.author, provenance: JEV.provenance } as RequestInput);
+  else {
+    const page = has[0]!, text = upgradeSuggestionsPage(page.text);
+    if (text !== page.text) await client.request({ action: "update", blockId: page.id, text, expectedRevision: page.revision, mutation: { author: "agent", actorId: "jev/figure-fit" } } as RequestInput);
+  }
   if (!(await read(client, "rule-name=review-records", 1)).length) await client.request({ action: "create", text: REVIEW_RECORDS_RULE, parentId: null, author: JEV.author, provenance: JEV.provenance } as RequestInput);
 }
 
