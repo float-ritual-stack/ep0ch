@@ -59,9 +59,9 @@ export async function pageSources(host: LiveHost, blockId: string, outline: stri
   const entries = sources.sources.map((s, i) => {
     const download = (format: "csv" | "json") => `<a data-source-download href="${e(sourceHref(base, blockId, s, format))}" download="${e(sourceFile(s, format).filename)}">${format.toUpperCase()}</a>`;
     const read = s.readAt ? `${s.live ? "live, " : ""}as of ${s.readAt}` : "as written";
-    // The downloads first under the source's name, each a tap target (PIE-1409: on a phone they were 15 px tall,
-    // behind three disclosures).
-    return `<details class="source-entry" id="source-${i}" data-source-offset="${offsets[s.line] ?? 0}"><summary>${e(s.name)} <small>${e(s.readAt ?? "as written")}</small></summary>
+    // The downloads first under the source's name, each a tap target, and a page's one source open (PIE-1409: on a
+    // phone they were 15 px tall, behind three disclosures).
+    return `<details class="source-entry" id="source-${i}" data-source-offset="${offsets[s.line] ?? 0}"${sources.sources.length === 1 ? " open" : ""}><summary>${e(s.name)} <small>${e(s.readAt ?? "as written")}</small></summary>
 <p class="source-downloads">Download ${download("csv")} ${download("json")}</p>
 ${s.problem ? `<p>${e(s.problem)}</p>` : ""}
 <details open><summary>Query</summary><dl>${s.query.params.map(p => `<dt>${e(p.key)}</dt><dd>${e(p.value)}</dd>`).join("")}</dl><pre>${e(s.query.text)}</pre>${copy("query", s.query.text)}</details>

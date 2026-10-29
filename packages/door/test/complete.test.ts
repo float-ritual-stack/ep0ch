@@ -67,6 +67,12 @@ describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, th
   });
   const draw = (s: CompletionState, w: number) => renderCompletion(s, w, 14, [], 4).map(visible);
 
+  test("at 40 columns how sure Jev is reads whole beside a note about the list (PIE-1409)", () => {
+    const s = state("see ((gree", { jev: "ranked", sure: { verdict: "weak", label: "no strong match", said: "" }, message: "showing the first 20 matches" });
+    // The popup at 40 columns, beside its anchor: about 30 wide.
+    expect(draw(s, 30).some(l => l.includes("no strong match · show"))).toBe(true);
+  });
+
   test("at 120 columns the docs wrap beside the list, the first word drawn and none cut; each row has its kind at the right", () => {
     const s = state(), lines = draw(s, 120);
     const row = lines.find(l => l.includes("Greenhouse meeting"))!;
