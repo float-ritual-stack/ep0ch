@@ -1,5 +1,5 @@
 import { ageSince } from "@ep0ch/outline-core/age";
-import { fullText, FULL_MARKERS } from "./overflow";
+import { FULL_MARKERS } from "./overflow";
 // Text helpers shared by the BBS screens and the desk panes.
 import { closesHyperlink, DRAWN_PART, OSC8_CLOSE } from "./hyperlink";
 import { pageLinkRanges, referencedBlock } from "@ep0ch/outline-core/link-syntax";
@@ -153,16 +153,17 @@ export function rowLines(text: string, w: number, lines = rowLimit, { hang }: { 
   // Wrap the marker with the first line, then reuse wrap's seams to consume source text, not balanced tags.
   let rest = text;
   const out: string[] = [];
-  let clipped = false;
   for (let i = 0; rest && i < lines; i++) {
     const room = w - (i ? indent : 0), before = i ? lead : "";
-    if (i === lines - 1 || width(rest) <= room) { clipped = width(rest) > room; out.push(before + drawEllipsized(rest, room)); break; }
+    // Only the line cut short carries what it cut, from where it starts (drawEllipsized): the selection reveals the rest
+    // there, never the whole row again under the lines already shown (PIE-1392).
+    if (i === lines - 1 || width(rest) <= room) { out.push(before + drawEllipsized(rest, room)); break; }
     const joins: (string | undefined)[] = [];
     const wrapped = wrap(rest, room, { joins });
     out.push(before + wrapped[0]!);
     rest = wrapped.slice(1).map((l, j) => (j ? joins[j + 1] ?? "" : "") + l).join("");
   }
-  return out.length ? clipped ? out.map(line => fullText(text, line)) : out : [""];
+  return out.length ? out : [""];
 }
 
 /** Each `[[page link]]` of `line` in the link colour, its brackets counted (a page link may hold another, PIE-592). */

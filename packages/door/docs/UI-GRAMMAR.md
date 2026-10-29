@@ -1273,6 +1273,12 @@ collapsed to its headings. So the river keeps two things apart:
   dock shadow (`▒`) on the edge, and the visible part is dimmed (`Canvas.dim`). Nothing rewraps when it
   widens. Only the far columns become spines. Since PIE-515 this is the desk's drawing of any flow's peek: the
   river's columns are tiles in a flow on the desk, not a strip of their own.
+- **The wide column is never a peek** (PIE-1392): narrower than a full column (a 40-column pane), it is laid out at
+  the width it has, as a desk tile is, and the others give way to spines. A column folded with `tile.collapse` (`^W c`,
+  neat's two up) stays a spine whatever the room; the wide place passes to the nearest open column, and `^W W` opens it.
+- **One click for its note:** a river column draws its note through the surface's digest and hands a click on any of
+  its elements (a button, a step, a list row, a link) to the surface's own `pressLink`, the reader's click: one
+  decision, not a second copy in the column.
 - **Opens shift as little as they can:** ⏎ on a card or a followed link adds the column after its source as
   before. If that column already shows full next to the source, nothing moves; otherwise the new column
   becomes wide and the source stays full beside it. A close hands a full column's place to the column

@@ -470,6 +470,13 @@ const nextDensity = (d: Density): Density => DENSITIES[(DENSITIES.indexOf(d) + 1
 /** A live figure's tab or density control, named across renders (its figure's key, then which). */
 const figureElemBase = (c: FigureControl) => `figure:${c.figure}|${c.tab !== undefined ? `tab:${c.tab}` : "density"}`;
 const sameLink = (a: Link, b: Link) => a.tag === b.tag && a.resource?.key === b.resource?.key && a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
+/** The same element's link in another draw: a press by its button's place, anything else as sameLink, of the same role. */
+const sameElementLink = (a: Link, b: Link) => a.press || b.press
+  ? !!a.press && !!b.press && a.press.block === b.press.block && a.press.line === b.press.line && a.label === b.label
+  : a.role === b.role && sameLink(a, b) && same(a.task, b.task, taskBase) && same(a.callout, b.callout, calloutBase)
+    && same(a.figure, b.figure, figureElemBase) && a.inlineList?.key === b.inlineList?.key && a.inlineList?.row === b.inlineList?.row
+    && a.listRow?.key === b.listRow?.key && a.listRow?.row === b.listRow?.row;
+const same = <T,>(a: T | undefined, b: T | undefined, base: (x: T) => unknown) => (a && b ? base(a) === base(b) : !a === !b);
 /**
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
  * title or result, a summary value), or a row of the property panel (`follow`: its value names a target).
@@ -4714,7 +4721,7 @@ export class NoteSurface {
       // A button that reads differently than it was written runs nothing (it never acts on the focused tile instead); one with an
       // empty slot asks for it, and alt+click on a button with slots (and no alt= of its own) asks again (PIE-1298).
       if (button?.problem && button.act === null) throw new ActionRefused(`the ::button on line ${button.line + 1} runs nothing: ${button.problem}`);
-      if (button && note && (button.empty.length || (repick && button.slots.length))) return this.askSlots(note.id, button, repick ? button.slots.map(s => s.key) : button.empty, host, actor);
+      if (button && note && (button.empty.length || (repick && button.slots.length))) return this.askSlots(note.id, button, repick ? button.slots.map(s => s.key) : button.empty, host, actor, !repick);
       if (button?.sequence && p.act === button.act) {
         const invitation = actor.kind === "user" ? INVITES.mint("you") : undefined;
         const r = await host.ctx.board.request<import("../extensions").ExtensionActResult>("scripts.sequence", {
@@ -4788,9 +4795,10 @@ export class NoteSurface {
    * A press of a button with an empty slot (PIE-1298): the person is asked for it in the kind the action's own argument takes
    * (the wire picker for a tile: click one, h j k l, 1-9; the power bar's kind completion for a note, a screen, a file), and
    * the choice is written on the line (`button.slot`, the note's checked save, ctrl+z takes it back). A later press runs bound.
-   * An agent is never asked: it is told the line to run, and the picker stays the person's.
+   * An agent is never asked: it is told the line to run, and the picker stays the person's. With `run` (a press, not a
+   * re-pick), the last answer presses the button: the person pressed it to run it (PIE-1392).
    */
-  async askSlots(block: string, button: ButtonCall, keys: readonly string[], host: SurfaceHost, actor: Actor): Promise<unknown> {
+  async askSlots(block: string, button: ButtonCall, keys: readonly string[], host: SurfaceHost, actor: Actor, run = false): Promise<unknown> {
     const key = keys[0]!, line = button.line + 1;
     const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
     if (!d) throw new ActionRefused("this screen has no dispatcher to ask with");
@@ -4800,7 +4808,7 @@ export class NoteSurface {
     }
     const tile = messageContext.getStore()?.tile;
     // The keys still to ask go with the answer (a re-pick asks filled slots too, so they can't be read again from `empty`).
-    const later = keys.slice(1), rest = later.length ? ` next=${later.join(",")}` : "";
+    const later = keys.slice(1), rest = `${later.length ? ` next=${later.join(",")}` : ""}${run ? " run=true" : ""}`;
     const then = `button.slot note=${block} line=${line} key=${key}${rest}${tile ? ` --tile ${tile}` : ""}`;
     const what = keys.length > 1 ? `${key} (${button.slots.findIndex(s => s.key === key) + 1} of ${button.slots.length})` : key;
     if (q?.kind === "tile") {
@@ -4808,7 +4816,7 @@ export class NoteSurface {
       return d.act({ action: "tile.pick", args: { then, prompt: `${button.label}: choose a tile for ${what}` }, ...(tile ? { tile } : {}) }, actor);
     }
     return askInBar(host.ctx as never, `${button.label}: ${what}`, [q ?? { name: "value", type: "text", label: key, free: true, required: true }], {}, actor,
-      answers => d.act({ action: "button.slot", args: { note: block, line, key, value: answers.value ?? "", ...(later.length ? { next: later.join(",") } : {}) }, ...(tile ? { tile } : {}) }, actor));
+      answers => d.act({ action: "button.slot", args: { note: block, line, key, value: answers.value ?? "", ...(later.length ? { next: later.join(",") } : {}), ...(run ? { run: true } : {}) }, ...(tile ? { tile } : {}) }, actor));
   }
 
   /**
@@ -4817,7 +4825,7 @@ export class NoteSurface {
    * the place it fills (`drawer.agent`, `role:<role>`, `<slot>@<screen>`), never the number a layout gives it (`t7`, `3`, `#3`). With no value
    * the person is asked again (a re-pick); with `ask`, the next empty slot is asked after it.
    */
-  async setButtonSlot(a: { note?: string; line?: number; label?: string; key?: string; value?: string; ask?: boolean; next?: string }, host: SurfaceHost, actor: Actor): Promise<unknown> {
+  async setButtonSlot(a: { note?: string; line?: number; label?: string; key?: string; value?: string; ask?: boolean; next?: string; run?: boolean }, host: SurfaceHost, actor: Actor): Promise<unknown> {
     const m = a.note && a.note !== this.msg?.id ? await host.ctx.board.get(a.note) : await this.whole();
     if (!m) throw new ActionRefused(`no note ${a.note}: button.slot note=<id> takes the note the button is written in`);
     const buttons = buttonCallsOf(m.text);
@@ -4828,21 +4836,24 @@ export class NoteSurface {
     const button = hits[0]!;
     const key = a.key ?? (button.empty[0] ?? (button.slots.length === 1 ? button.slots[0]!.key : undefined));
     if (!key || !button.slots.some(s => s.key === key)) throw new ActionRefused(`${button.label} has ${button.slots.length ? `the slots ${button.slots.map(s => s.key).join(", ")}; say key=<one>` : "no slot"} (write target= on its line and {target} where it goes)`);
-    if (a.value === undefined) return this.askSlots(m.id, button, [key], host, actor);
+    if (a.value === undefined) return this.askSlots(m.id, button, [key], host, actor, !!a.run);
     const given = await this.slotValue(m.id, button, key, a.value, host, actor);
     const line = button.line, before = m.text.split("\n")[line] ?? "", after = withButtonSlot(before, key, given);
     if (after === null) throw new ActionRefused(`that value can't be written on line ${line + 1}: a button line can't hold a newline, { or } in a value`);
     const wrote = after !== before;
     const r = await this.inTurn(() => this.rewriteLines(m.id, wrote ? [{ line, before, after }] : [], this.sourceHistory, host, actor, SOURCE_STALE));
     const said = `${button.label}: ${key}=${given}`;
-    if (wrote) { host.ctx.flash(`${said}${actor.kind === "user" ? " · press it again to use it · ctrl+z takes it back" : ""}`); this.noteAgent(actor, said); }
+    if (wrote) { host.ctx.flash(`${said}${actor.kind === "user" && !a.run ? " · press it again to use it · ctrl+z takes it back" : ""}`); this.noteAgent(actor, said); }
     host.redraw();
     const out = { block: m.id, line: line + 1, wrote: { [key]: given }, changed: wrote, revision: r.revision ?? null, recordedAs: mutationFor(actor) };
     // More slots empty on the same press: the next is asked (the person's pick leaves the rest to this).
-    if (actor.kind === "user" && (a.next !== undefined || a.ask)) {
+    if (actor.kind === "user" && (a.next !== undefined || a.ask || a.run)) {
       const now = await host.ctx.board.get(m.id), again = now ? buttonCallAt(now.text.split("\n"), line) : null;
-      const left = a.next !== undefined ? a.next.split(",").filter(Boolean) : again?.empty ?? [];
-      if (again && left.length) void this.askSlots(m.id, again, left, host, actor).catch(e => host.ctx.flash(e instanceof Error ? e.message : String(e)));
+      const left = a.next !== undefined ? a.next.split(",").filter(Boolean) : a.ask ? again?.empty ?? [] : [];
+      const fail = (e: unknown) => host.ctx.flash(e instanceof Error ? e.message : String(e));
+      if (again && left.length) void this.askSlots(m.id, again, left, host, actor, !!a.run).catch(fail);
+      // The last answer of a press runs it, as the press meant (PIE-1392); a slot still empty is asked by that press.
+      else if (again && a.run && again.act !== null && !again.empty.includes(key)) void this.runPress({ act: again.act, block: m.id, line }, host, actor).catch(fail);
     }
     return out;
   }
@@ -6306,41 +6317,63 @@ export class NoteSurface {
     if ("image" in h) { void this.runKey("element.select", { n: this.elems.findIndex(x => x.key === h.image) + 1 }, host); return true; }
     // A link (in the text, the summary line, an embed's title, a figure's row): the `[ ]` position, then
     // it opens where ⏎ on it would.
-    const e = h.elem ? this.elems.find(e => e.key === h.elem) : undefined;
+    return this.pressLink(h.link, h.elem ? this.elems.find(e => e.key === h.elem) : undefined, was, h.value, !!host.freshClick, host);
+  }
+
+  /**
+   * A click on a link the surface drew, wherever its host drew it (a reader's own rows, the river's column, PIE-1392): the
+   * one place that decides what the click does. `e` is its element, `was` the `[ ]` position before the click, `value` a
+   * summary-line value's key, `fresh` an alt-, ctrl- or middle-click.
+   */
+  private pressLink(link: Link, e: Element | undefined, was: string | null, value: string | undefined, fresh: boolean, host: SurfaceHost): boolean {
     // A proposal's [apply] or [dismiss] (PIE-501): it becomes the `[ ]` position, and its action runs.
-    const pc = h.link.proposal;
+    const pc = link.proposal;
     if (pc?.op) { if (e) this.setElem(e); host.redraw(); void this.proposalControl(pc.op, pc.id, host); return true; }
     // An `■ unsent` line's control: it becomes the `[ ]` position, and its action runs.
-    const uc = h.link.unsent;
+    const uc = link.unsent;
     if (uc) { if (e) this.setElem(e); host.redraw(); void this.runKey(`unsent.${uc.op}`, { kind: uc.kind }, host); return true; }
     // A live figure's tab or density: it becomes the `[ ]` position, and figure.tab or figure.density runs.
-    if (h.link.role === "figure" && h.link.figure) { if (e) this.setElem(e); this.pressFigure(h.link.figure, host); host.redraw(); return true; }
+    if (link.role === "figure" && link.figure) { if (e) this.setElem(e); this.pressFigure(link.figure, host); host.redraw(); return true; }
     // An image's caption control (PIE-532): the image becomes the `[ ]` position, and the control's action runs.
-    if (h.link.role === "image" && h.link.image) { this.pressImage(h.link.image, host); return true; }
+    if (link.role === "image" && link.image) { this.pressImage(link.image, host); return true; }
     // A row of an inline ::links (PIE-693), as a links tile's row (PIE-794, one list model): a click selects it (the [ ]
     // position; its preview and a preview linked to this reader follow), a second click on it soon after opens it (⏎),
     // an alt-, ctrl- or middle-click opens it fresh (alt+⏎); the click that gives the reader the keys only selects.
-    const lbk = h.link.listRow;
+    const lbk = link.listRow;
     // A figure's row is a list row like any other (Evan, Oct 21: a click selects and previews; it never opens at once).
-    if (e && (lbk?.row || e.link?.inlineList) && !host.opensOnClick?.(h.link)) {
+    if (e && (lbk?.row || e.link?.inlineList) && !host.opensOnClick?.(link)) {
       const i = this.elems.indexOf(e), inline = e.link?.inlineList;
       const presses = inline ? this.inlineLists.get(inline.key)!.view : this.linkPresses;
       const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was });
-      void this.runKey(g === "open" || (g === "select" && host.freshClick) ? "element.open" : "element.select", { n: i + 1, ...(host.freshClick ? { fresh: true } : {}) }, host);
+      void this.runKey(g === "open" || (g === "select" && fresh) ? "element.open" : "element.select", { n: i + 1, ...(fresh ? { fresh: true } : {}) }, host);
       host.redraw();
       return true;
     }
     // A step's box: its status choice opens under it, as ⏎ on it does (PIE-472); a link (or a summary-line
     // value) opens where ⏎ on it would. Both are element.open on that element.
     // alt+click: a button's alt=, or, on one with slots and no alt= of its own, asking for its slots again (PIE-1298).
-    if (e) { void this.runKey(e.link?.press ? "button.press" : "element.open", { n: this.elems.indexOf(e) + 1, ...(host.freshClick && e.link?.press ? { alt: true } : {}) }, host); host.redraw(); return true; }
-    const i = this.links.findIndex(x => sameLink(x, h.link));
-    if (i >= 0 && h.value === undefined) { void this.runKey("link.follow", { n: i + 1 }, host); return true; }
+    if (e) { void this.runKey(e.link?.press ? "button.press" : "element.open", { n: this.elems.indexOf(e) + 1, ...(fresh && e.link?.press ? { alt: true } : {}) }, host); host.redraw(); return true; }
+    const i = this.links.findIndex(x => sameLink(x, link));
+    if (i >= 0 && value === undefined) { void this.runKey("link.follow", { n: i + 1 }, host); return true; }
     // A link drawn outside the note's elements and links (none today): opened as ⏎ on it would.
     host.redraw();
-    if (h.value !== undefined) void this.followValue({ key: h.value, target: h.link.block ? { block: h.link.block } : { page: h.link.page! } }, host, { link: true });
-    else void this.followTarget(h.link, host, { link: true });
+    if (value !== undefined) void this.followValue({ key: value, target: link.block ? { block: link.block } : { page: link.page! } }, host, { link: true });
+    else void this.followTarget(link, host, { link: true });
     return true;
+  }
+
+  /**
+   * A click on a link a host drew itself from the digest (the river's note body, PIE-1392): its element gets the reader's
+   * click (`pressLink`: a button presses, a list row selects then opens, a step opens its choice); a picker row or a link
+   * outside the elements opens as `open` does. A host that kept its rows from an earlier draw holds that draw's link, so
+   * the element is found by what it is.
+   */
+  clickLink(l: Link, host: SurfaceHost, fresh = false): void {
+    if (l.choice === undefined) {
+      const el = this.elems.find(x => x.link === l) ?? this.elems.find(x => !!x.link && sameElementLink(x.link, l));
+      if (el) { this.pressLink(l, el, this.cur, undefined, fresh, host); return; }
+    }
+    void this.open(l, host, fresh);
   }
 
   /**
@@ -10637,6 +10670,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       value: { type: "string", optional: true, about: "what it holds: a tile's name, id or drawer.agent; a note's id; any text. Left out, the person is asked" },
       ask: { type: "boolean", optional: true, about: "after this, ask for the next empty slot of the same button (the person's)" },
       next: { type: "string", optional: true, about: "after this, ask for these slots of the same button, in order (key,key: a re-pick of filled ones)" },
+      run: { type: "boolean", optional: true, about: "after the last slot is answered, press the button (the person's press that asked for them)" },
     },
     examples: [
       { act: 'button.slot label="pop it" key=target value=drawer.agent', does: "writes target=drawer.agent on the pop it button, so its next press lifts the drawer's agent" },
