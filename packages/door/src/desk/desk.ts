@@ -42,7 +42,7 @@ import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
 import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { lastTrashed } from "../note-trash";
-import { copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
+import { COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
 import { LayoutHistory, type LayoutEntry } from "./layout-history";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
@@ -6935,11 +6935,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   tileMenu(sel: string | undefined, at: string | undefined, actor: Actor, q = ""): TileDone {
     const t = this.tile(sel);
-    // Each group's rows together under one heading, the tile's own operations first. A right-click on a spot (at=) is about
-    // the row it lands on, so its Note rows (copy it, PIE-1297) come next; the ⋯ menu is about the tile, so its kind's own
-    // groups (a reader's Shows and page lock) come before the long Note group and never fall below the fold.
+    // Each group's rows together under one heading. The copy rows first (PIE-1398: the note's and the tile's, a few rows,
+    // in reach in a short tile), then the tile's own operations. A right-click on a spot (at=) is about the row it lands
+    // on, so its Note rows come next; the ⋯ menu is about the tile, so its kind's own groups (a reader's Shows and page
+    // lock) come before the long Note group and never fall below the fold.
     const listed: MenuRow[] = this.dispatch.menu(this.tileId(t.id), actor), groups = listed.map(r => r.group).filter(g => g !== "Note");
-    const order = [...new Set(at ? ["Tile", "Note", ...groups] : ["Tile", ...groups, "Note"])];
+    const order = [...new Set(at ? [COPY_GROUP, "Tile", "Note", ...groups] : [COPY_GROUP, "Tile", ...groups, "Note"])];
     const every = order.flatMap(g => listed.filter(r => r.group === g));
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
