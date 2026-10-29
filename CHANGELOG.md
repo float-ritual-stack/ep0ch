@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The status bar's last rough edges (PIE-1415, PIE-1224, PIE-1410)
+
+- **A group inside a group opens where you clicked:** More inside Tools opens over Tools, not at the left edge.
+- **A message never leaves an invisible button:** the pins, `!` and `+N` kept beside it are the ones drawn, and a click
+  on the bar finds only those; pins give way first, `+N` last.
+- **A failed button's `!` stays its own:** deleting a line no longer moves it onto the next button, and it follows its button when lines move.
+- **Right-click a note's `::button`** to pin it to the status bar: it becomes the `[ ]` position and nothing runs.
+
 ### Jev's patches, round three: buried prose questions and kept chips (PIE-1419)
 
 - **A question at the bottom is buried** whether or not it names Evan: a line that ends in a question counts unless

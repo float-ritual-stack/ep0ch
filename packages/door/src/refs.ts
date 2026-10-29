@@ -285,7 +285,8 @@ export type LinkTarget = {
    * A press (PIE-957): a `::button`, or a view's button, badge, card, text or table row that carries an action line (role
    * "control"). ⏎ and a click run `act` through the door's one dispatcher as the person, on the note `block` (the script's `this`).
    */
-  press?: { act: string; steps?: readonly import("@ep0ch/outline-core/button-call").ButtonStep[]; alt?: string; block: string; line: number };
+  /** `label`: a `::button`'s words, so its press's state stays with it when an edit moves lines (PIE-1415). */
+  press?: { act: string; steps?: readonly import("@ep0ch/outline-core/button-call").ButtonStep[]; alt?: string; block: string; line: number; label?: string };
   /** A ticket's age (PIE-445): following it refreshes the tickets this block shows (`projection.refresh`). */
   refresh?: string;
   /** With `refresh`: only the ticket under this line of that block (its index in the note's text). */
