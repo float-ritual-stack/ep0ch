@@ -885,4 +885,25 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(peek().bar.runs.at(-1).line).toBe("tile.collapse tile=reader on=false");
   });
 
+  test("a row's copy command is the line its pick runs: a tile's, a screen's; a note's row has none to copy (PIE-1405)", async () => {
+    key(ctrlK); type("%reader");
+    const n = peek().bar.rows.findIndex((r: any) => r.source === "tiles" && r.detail.startsWith("reader ·")) + 1;
+    expect(n).toBeGreaterThan(0);
+    const copied = await app.dispatch.press("bar.command", { op: "copy", n }) as { text: string };
+    expect(copied.text).toBe("ep0ch act tile.focus tile=reader");
+    // The copy runs: the line is one the door's own act takes.
+    key({ kind: "esc" }); key({ kind: "esc" });
+    desk.focusTile("tree", USER);
+    await app.dispatch.act({ action: "tile.focus", tile: "reader" }, USER);
+    expect(desk.focusedPane()).toBe(desk.pane("reader"));
+    key(ctrlK); type("@kanban");
+    await until(() => peek().bar.rows.some((r: any) => r.source === "screens"), "the screens answered");
+    expect((await app.dispatch.press("bar.command", { op: "copy" }) as { text: string }).text).toBe("ep0ch act screen.open name=K");
+    key({ kind: "esc" }); key({ kind: "esc" });
+    key(ctrlK); type("/garden");
+    await until(() => peek().bar.rows.some((r: any) => r.source === "notes"), "the notes search answered", 5000);
+    const hit = peek().bar.rows.findIndex((r: any) => r.source === "notes") + 1;
+    await expect(app.dispatch.act({ action: "bar.command", args: { op: "copy", n: hit } }, USER)).rejects.toThrow("its menu copies its reference");
+  });
+
 });

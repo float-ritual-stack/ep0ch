@@ -24,10 +24,10 @@ import { LineField } from "../surface/line";
 import { editorLineKey } from "../surface/editor";
 import { Gesture, rowsOf, wordAt, Selection, paintRange, SELECT_BG, isCopyKey, modeKey } from "../surface/selection";
 import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note";
-import { keyCaption, keyName, keyOfName, lineWords, shownLine, ActionRefused } from "../surface/actions";
+import { keyCaption, keyName, keyOfName, lineWords, ActionRefused } from "../surface/actions";
 import { shellWord } from "../machine";
 import { RowView, wheelRows, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE } from "../scroll";
-import { C, chip, dim, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, width } from "../style";
+import { C, chip, dim, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, visible, width } from "../style";
 import { paintable, rowLines, withRowLimit, wrap } from "../text";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
@@ -438,7 +438,11 @@ export class PowerBar {
     // Nothing found for what's typed, said on the line itself: a narrow bar draws no preview to say it in.
     const none = !this.items.length && !this.asking.size && this.query.trim() !== "" && !this.problems.size;
     const count = [none ? "no matches" : `${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
-    const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, Math.max(10, w - 30))) : this.input.render(Math.max(10, w - 30), 1)[0]) + paint(` |08${busy || count}`);
+    // What's typed gets the row before the count does (PIE-1405): a pasted link at 40 columns reads whole, and the count
+    // takes what's left, cut short (hover reads it).
+    const status = busy || count, room = Math.max(10, w - 3);
+    const field = Math.min(room, Math.max(10, w - 3 - width(status), width(this.query) + 1));
+    const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, field)) : this.input.render(field, 1)[0]) + (room - field > 1 ? paint(" |08") + clipText(status, room - field - 1) : "");
     const scoped = this.scope ? barSource(this.scope) : undefined;
     this.sourceHead = scoped?.head?.(w, this.host) ?? [];
     // The row menu (alt+m, a right-click): each entry a chip with its digit (1, 2… or alt+1 while the menu is open, as a
@@ -608,12 +612,12 @@ export class PowerBar {
       return line;
     }
     const it = this.items[n - 1];
-    if (it?.source.id === "runs" || it?.row.key.startsWith("line:")) return it.row.fill!;
-    if (it?.source.id === "actions") {
-      const d = it.row.data as { action: string; args?: Record<string, unknown>; tile?: string };
-      return shownLine(d.action, d.args, d.tile);
-    }
-    return this.query;
+    if (!it) return this.query;
+    if (it.source.id === "runs" || it.row.key.startsWith("line:")) return it.row.fill!;
+    // The row's source says the line its pick runs (PIE-1405); a row with none has nothing to copy, never what's typed.
+    const line = it.source.command?.(it.row, this.host);
+    if (!line) throw new ActionRefused(`${visible(it.row.label)} runs no act line: ${it.row.note ? "its menu copies its reference" : "⏎ picks it"}`);
+    return line;
   }
 
   menuOpen = false;

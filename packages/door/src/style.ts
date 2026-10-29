@@ -1,4 +1,4 @@
-import { FULL_END, fullText, selectFullText } from "./overflow";
+import { FULL_END, FULL_START, fullText, selectFullText } from "./overflow";
 // Palette styling for real terminal text, plus width-safe padding. Every UI colour comes through the active
 // theme (src/theme.ts); ANSI art keeps true VGA (artLines).
 import { closesHyperlink, DRAWN_PART, OSC8_ALL } from "./hyperlink";
@@ -6,8 +6,6 @@ import { glyph, VGA_RGB, type Cell } from "./ansi";
 import { contrast, luminance, surfaceRgb, theme, type Rgb, type Theme } from "./theme";
 import type { Surface } from "@ep0ch/outline-core/style-cascade";
 
-/** Where a cut-short value's or a button's mark (src/overflow.ts) begins; FULL_END ends it. */
-const FULL_START = "\x1b[777;";
 const rgb = (i: number) => theme().palette[i & 15]!.join(";");
 export const fg = (i: number) => `\x1b[38;2;${rgb(i)}m`;
 export const bg = (i: number) => `\x1b[48;2;${rgb(i)}m`;

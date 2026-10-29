@@ -108,6 +108,11 @@ export interface BarSource {
   preview(row: BarRow, host: BarHost): BarPreview | Promise<BarPreview>;
   /** Pick it: through the shared paths, as `how.actor`. */
   pick(row: BarRow, host: BarHost, how: PickHow): Promise<unknown>;
+  /**
+   * The act line its pick runs (`tile.focus tile=b`, `screen.open name=K`), for the row menu's copy command and copy
+   * button (PIE-1405): the source says it, as its pick does it. None: the row has no line (a note's row copies its ref).
+   */
+  command?(row: BarRow, host: BarHost): string | null;
 }
 
 const sources: BarSource[] = [];

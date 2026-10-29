@@ -101,6 +101,7 @@ const TILES: BarSource = {
     if (p instanceof PtyPane) { const text = p.text(); while (text.length && !text.at(-1)!.trim()) text.pop(); return { lines: text.length ? text : ["(the terminal is blank)"] }; }
     return { lines: [`${t.name}: a ${t.kind} tile${t.screen ? ` on the ${t.screen.title}` : " in your drawer"}`, "", p?.title?.() ?? "", "", "⏎ goes to it · alt+⏎ zooms it"] };
   },
+  command: row => shownLine("tile.focus", {}, (row.data as TileAt).path),
   async pick(row, host, how) {
     const t = row.data as TileAt, p = t.desk.pane(t.name);
     if (!p) throw new ActionRefused(`${t.path} isn't open any more`);
@@ -299,6 +300,11 @@ const ACTIONS: BarSource = {
     const page: ActionInfo = info ?? { name: d.action, summary: d.summary ?? "", ...(d.keys ? { keys: d.keys } : {}), args: {}, scope: "", touches: "nothing", replay: "ask" };
     return { markdown: actionPage(page, { title: row.label, ...(row.refused ? { refused: row.refused } : {}), ...(hyperOn() ? { hyper: hyperKeysOf(d.action) } : {}) }) };
   },
+  command(row) {
+    if (row.key.startsWith("line:")) return row.fill!;
+    const d = row.data as { action: string; args?: Record<string, unknown>; tile?: string };
+    return shownLine(d.action, d.args, d.tile);
+  },
   async pick(row, host, how) {
     if (row.refused) throw new ActionRefused(row.refused);
     const d = row.data as { action: string; args: Record<string, unknown>; tile?: string; form?: boolean; bare?: boolean; missing?: string[] };
@@ -433,6 +439,7 @@ const SCREENS: BarSource = {
     return filtered(rows, q, r => [r.label, r.detail ?? "", (r.data as { about: string }).about]);
   },
   preview: row => ({ markdown: `**${row.label}**\n\n${(row.data as { about: string }).about || "a screen"}\n\n⏎ opens it over this screen; q comes back.` }),
+  command: row => shownLine("screen.open", { name: (row.data as { name: string }).name }),
   pick(row, host, how) {
     const args = { name: (row.data as { name: string }).name };
     return how.actor.kind === "agent" ? host.dispatch.act({ action: "screen.open", args }, how.actor) : host.dispatch.press("screen.open", args);
@@ -524,6 +531,13 @@ const EXTENSIONS: BarSource = {
     }
     if (d.kind === "remove") return { markdown: [`**${row.label}**`, "", !d.notes ? "Its folder goes, and its lines and actions stop working. Its page goes with it." : d.demo === "keep" ? "Its folder goes, and its lines and actions stop working. Its demo notes stay under its page." : "Its folder goes, and its demo notes go to Trash: the ones nobody changed (the rest are kept, and named). Trash can restore them.", "", `The same from a shell: \`ep0ch ext remove ${d.id}${d.demo === "remove" ? " --demo remove" : ""}\``].join("\n") };
     return { lines: [row.label, "", row.refused ?? ""] };
+  },
+  command(row) {
+    const d = row.data as ExtRow;
+    if (d.kind === "install") return shownLine("extensions.install", { id: d.id });
+    if (d.kind === "remove") return shownLine("extensions.uninstall", { id: d.id, demo: d.demo });
+    if (d.kind === "settings") return shownLine(`ext.${d.id}.settings`);
+    return null;
   },
   async pick(row, host, how) {
     const d = row.data as ExtRow;
