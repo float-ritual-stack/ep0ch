@@ -10,7 +10,7 @@ import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
-import { changelogSections, groom, groomCandidates, groomSummary, groomVerdict, keepGroom, latestLines, namedIn } from "../src/work-groom";
+import { changelogSections, groom, groomCandidates, groomSummary, groomVerdict, keepGroom, latestLines, namedIn, originalFirst } from "../src/work-groom";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -134,4 +134,10 @@ test("a ticket's candidates come from its body too; the summary lists every open
   const open = summary.split("\n").slice(summary.split("\n").indexOf("open (what each was read against):") + 1);
   expect(open[0]).toContain("PIE-30 0.40 Daily irrigation for the vegetable plot · close but under 0.8: PIE-3");
   expect(open[1]).toContain("PIE-31");
+});
+
+test("of two twins the newer is the duplicate; the original stays open and names it", () => {
+  const dup = { verdict: "duplicate" as const, confidence: 0.9, evidence: "PIE-6 (queued): Turn the heaps", of: "PIE-6" };
+  expect(originalFirst("PIE-2", dup)).toMatchObject({ verdict: "open", evidence: expect.stringContaining("the original: PIE-6 repeats it") });
+  expect(originalFirst("PIE-9", dup)).toEqual(dup);
 });
