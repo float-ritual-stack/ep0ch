@@ -1,8 +1,9 @@
 // PIE-621: a draft's one history (undo and redo for every change), its keyboard selection and its copy keys.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { BIG_PASTE_LINES, changeOf, Draft, DRAFT_ACTIONS, TYPING_PAUSE_MS } from "../src/edit";
+import { BIG_PASTE_LINES, changeOf, Draft, DRAFT_ACTIONS, TYPING_PAUSE_MS, UNDO_ASK_PAUSE_MS } from "../src/edit";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
+import { editHint } from "../src/surface/editor";
 import { SocketBoard, USER } from "../src/socket";
 import { NOTE_ACTIONS } from "../src/surface/note";
 import { pasteKeys, type Key } from "../src/term";
@@ -201,7 +202,7 @@ describe("a draft's history", () => {
     a.place(0, 3);
     type(a, " two");
     const b = new Draft("b1", 2, "one two");
-    b.adopt(a.undos);
+    b.adopt(a.undos, 2);
     b.place(0, 7);
     type(b, " three");
     await undo(b);
@@ -215,21 +216,30 @@ describe("a draft's history", () => {
     expect(b.text).toBe("one two");
     await undo(b);
     expect(b.text).toBe("one two");
-    await undo(b);                                                     // asked twice in a row: it goes past the save
+    for (let i = 0; i < 5; i++) await undo(b);                         // a held ctrl+z's repeats keep asking
+    expect(b.text).toBe("one two");
+    await Bun.sleep(UNDO_ASK_PAUSE_MS);
+    b.place(0, 0);                                                     // a click lets the question go too
+    await undo(b);
+    expect(b.text).toBe("one two");
+    await Bun.sleep(UNDO_ASK_PAUSE_MS);
+    await undo(b);                                                     // pressed again after a pause: it goes past the save
     expect(b.text).toBe("one");
     expect(b.dirty).toBe(true);                                        // against what's saved now
+    expect(b.note).toContain("undid");
     // An agent never takes back saved text, and draft.undo past=true is the asked-for crossing.
     const c = new Draft("b1", 2, "one two");
-    c.adopt(a.undos);
+    c.adopt(a.undos, 2);
+    expect(editHint(c, { save: "save" })).toContain("ctrl+z undo (asks: saved)");   // the keys line says it first
     await expect(DRAFT_ACTIONS.run("draft.undo", {}, c, { kind: "agent", id: "tidy" } as never)).rejects.toThrow();
     expect(c.text).toBe("one two");
-    expect(await DRAFT_ACTIONS.run("draft.undo", {}, c, USER)).toMatchObject({ asks: expect.stringContaining("saved") });
+    expect(await DRAFT_ACTIONS.run("draft.undo", {}, c, USER)).toMatchObject({ asks: expect.stringContaining("revision 2 stays") });
     expect(c.text).toBe("one two");
-    await DRAFT_ACTIONS.run("draft.undo", { past: true }, c, USER);
+    expect(await DRAFT_ACTIONS.run("draft.undo", { past: true }, c, USER)).toMatchObject({ undone: expect.stringContaining("undid"), redo: 1 });
     expect(c.text).toBe("one");
     // Only onto the text it ended on.
     const e = new Draft("b1", 2, "something else");
-    e.adopt(a.undos);
+    e.adopt(a.undos, 2);
     expect(e.undos).toEqual([]);
   });
 });
@@ -305,6 +315,7 @@ describe.skipIf(!outliner)("against a scratch outline: past a save, and back to 
     await until(() => again.draft().note.includes("saved"), "ctrl+z says the text is saved");
     expect(again.draft().text).toBe("Jam labels for the plums");
     expect(again.draft().dirty).toBe(false);
+    await Bun.sleep(UNDO_ASK_PAUSE_MS);
     again.pane.key(ctrl("z"), again.d); again.pane.key(ctrl("z"), again.d); again.pane.key(ctrl("z"), again.d);
     await until(() => again.draft().text === "Jam labels", "asked, then back to where the first draft started");
     again.pane.key(ctrl("y"), again.d);

@@ -4,6 +4,7 @@
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { unsent } from "../../src/draft-session";
+import { UNDO_ASK_PAUSE_MS } from "../../src/edit";
 import { osc52 } from "../../src/surface/selection";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -838,9 +839,10 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     expect(screen()).toContain("saved · ctrl+z again");
     // Through act the same: it asks, and past=true is the answer.
     expect(await stage().dispatch.act({ action: "draft.undo", tile: "reader" }, USER)).toMatchObject({ asks: expect.stringContaining("saved") });
-    await expect(app.act({ action: "draft.undo", tile: "reader", as: "test-agent" })).rejects.toThrow("already saved");
+    await expect(app.act({ action: "draft.undo", tile: "reader", as: "test-agent" })).rejects.toThrow("this agent has no edit to undo");
+    await Bun.sleep(UNDO_ASK_PAUSE_MS);
     press({ kind: "char", ch: "z", ctrl: true });
-    await until(() => !draft()!.text.endsWith("Lids go on warm."), "ctrl+z again goes past the save");
+    await until(() => !draft()!.text.endsWith("Lids go on warm."), "ctrl+z again, after a pause, goes past the save");
     expect(draft()!.dirty).toBe(true);
     expect((await board.get(id))!.text).toBe(saved);                  // nothing saved changed
     await stage().dispatch.press("edit.close", { discard: true }, "reader");

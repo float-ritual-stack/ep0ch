@@ -160,7 +160,7 @@ export class DraftSession {
     if (by.kind !== "agent" && !s.restore()) {
       // The last draft written here, on the text this one starts from: its history carries on (PIE-621).
       const h = histories.get(target.place);
-      if (h && h.revision === s.draft.base) s.draft.adopt(h.steps);
+      if (h && h.revision === s.draft.base) s.draft.adopt(h.steps, h.revision);
     }
     if (init.position) {
       if (s.draft.restored !== null) Object.assign(init.position, s.draft.position);
