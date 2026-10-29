@@ -186,6 +186,9 @@ yourself (path 1): `/exit`, then `claude --continue`.
 - Your `select.copy` (and `copy`, `draft.copy`) returns the text to you and never touches the person's
   clipboard. Their mouse selection is copied when they let go (copy on select; `EP0CH_COPY_ON_SELECT=0`
   turns it off), and their `y` or cmd+c copies too.
+- Every tile keeps its own back and forward (PIE-1426): a reader's is `back`/`forward` (a preview's too: each pick,
+  open or selection wired to it is a stop), the links tile's is the person's `tile.travel` (alt+←: the notes it
+  listed before `b`). An agent's `back` is refused on the reader the person has the keys in.
 - Writes carry the revision they read; a changed note is refused, never overwritten. Read again and retry.
 - Drafts are never discarded: a refused save keeps the text; unsaved text is copied to disk on exit.
 - An agent never moves the reader the person has: `link.follow`, `element.open`, `up`, `back`, `props.follow`,

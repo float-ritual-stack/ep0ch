@@ -215,6 +215,11 @@ export interface Pane {
    * tile on another outline's note, an EchoNet area's messages). Left out: `subject`, in this door's outline.
    */
   noteAt?(): { id: string; address?: import("./outline-boards").NoteAddress } | null;
+  /**
+   * Its back and forward (PIE-1426): what it showed before, whichever tile or key changed it. A reader's is its surface's
+   * stacks (PIE-453); the links tile's, the notes it listed. `tile.travel` walks it, the trail lists it.
+   */
+  readonly trail?: TileTrail;
   /** `typing`: the person is typing in it (a terminal shows its cursor then). */
   render(w: number, h: number, focused: boolean, desk: DeskApi, typing?: boolean): PaneView;
   /** Return true when the pane used the key. */
@@ -334,11 +339,29 @@ export type FollowMode = "follows" | "held" | "pinned";
  * A reader is a note surface (src/surface/note.ts) hosted in a pane: the surface shows, edits and
  * comments on the note; the reader adds pinning and tells the desk or board when a link is followed.
  */
+/** A tile's own back and forward (Pane.trail): the stops nearest first, and a walk of `steps` stops. Null when it went, else why not. */
+export interface TileTrail {
+  stops(): { back: TrailStop[]; forward: TrailStop[] };
+  go(dir: -1 | 1, steps: number, desk: DeskApi, actor: Actor): Promise<string | null>;
+}
+
 export class ReaderPane implements Pane {
   readonly kind: TileKindName = "reader";
   readonly measured = true;
   protected readonly ownSurface = new NoteSurface();
   get surface() { return this.ownSurface; }
+  /**
+   * Its back and forward are its surface's (PIE-453), the same the trail lists; a walk is the reader's own `back` or
+   * `forward` action (its unsent-comment ask, its agent rules and its say-so stay theirs).
+   */
+  readonly trail: TileTrail = {
+    stops: () => { const h = this.surface.describeHistory(), s = (ss: readonly unknown[]): TrailStop[] => ss.flatMap(x => (typeof x === "string" ? [{ title: x }] : x ? [x as TrailStop] : [])); return { back: s(h.back), forward: s(h.forward) }; },
+    go: async (dir, steps, desk, actor) => {
+      if (!desk.perform) return "this screen can't run the reader's back";
+      await desk.perform(dir < 0 ? "back" : "forward", { steps }, actor, this);
+      return null;
+    },
+  };
   gutterCols = 0;
   innerFrame?: Rect;
   heroBounds?: { col: number; row: number; cols: number };

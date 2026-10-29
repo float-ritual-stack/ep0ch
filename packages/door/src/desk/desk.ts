@@ -2227,11 +2227,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return this.previewIntoPane(p, m, by);
   }
 
-  /** Selection previews change only their follower, without opening a note or recording Back. */
+  /**
+   * A selection previewed: only its follower changes, nothing opens, and Back there comes back to what it showed before
+   * (PIE-1426: whichever tile changed it, a list's pick, a link's open or `b`, the tile's own history has it).
+   */
   private previewIntoPane(p: Pane, m: Msg, by: Actor): boolean {
     if (this.keptFrom(p, by) || (p instanceof ReaderPane && (p.editing || p.holdsKeys))) return false;
     const changed = this.showing(p)?.id !== m.id;
-    const why = p instanceof ReaderPane && p.follows && !p.holding ? (p.show(m, this), null) : kindOf(p)?.take?.(p, m, this, by);
+    const take = () => (p instanceof ReaderPane && p.follows && !p.holding ? (p.show(m, this), null) : kindOf(p)?.take?.(p, m, this, by));
+    const why = p instanceof ReaderPane ? p.surface.track(take) : take();
     if (why) return false;
     if (changed) this.arrived(this.idOf(p)!, by, true);
     return true;
@@ -7160,13 +7164,23 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** `tile.travel`: back (-1) or forward (1) in tile `sel`'s flow, the column it was opened from or the one back left. The person's keys. */
-  travelTile(sel: string | undefined, dir: -1 | 1, actor: Actor): TileDone {
-    const t = this.tile(sel);
+  travelTile(sel: string | undefined, dir: -1 | 1, actor: Actor, steps = 1): TileDone | Promise<TileDone> {
+    const t = this.tile(sel), p = this.panes.get(t.id);
+    // Not a column of a flow: the tile's own back and forward (PIE-1426), as the links tile keeps the notes it listed.
+    if (!this.inFlow(t.id) && p?.trail) return this.travelOwn(t.id, p.trail, dir, steps, actor);
+    if (steps !== 1) throw new ActionRefused("steps= is for a tile's own back and forward; in a flow, back goes one column at a time");
     const r = this.apply({ op: "flow.travel", tile: t.id, dir }, actor);
     this.entered.clear();
     this.panes.get(this.focus)?.focused?.(this, actor);
     this.save(); this.redraw();
     return { ...this.tileAnswer(this.tile(String(r.answer.tile ?? this.nameOf(this.focus))).id), from: this.tileId(t.id) };
+  }
+
+  private async travelOwn(id: number, trail: import("./panes").TileTrail, dir: -1 | 1, steps: number, actor: Actor): Promise<TileDone> {
+    const why = await trail.go(dir, steps, this, actor);
+    if (why) throw new ActionRefused(why);
+    this.save(); this.redraw();
+    return { ...this.tileAnswer(id), went: dir < 0 ? "back" : "forward", history: trail.stops() };
   }
 
   /**

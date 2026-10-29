@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Back goes back in every tile, whichever tile changed it (PIE-1426)
+
+- **A preview steps back through what it showed:** a pick in the links tile, a link opened up top into it, a source
+  tile's selection: each is a stop, so alt+← in the preview goes to the one before, in order.
+- **The links tile goes back too:** after `b` (or its home moving) lists another note's links, alt+← (or `tile.travel
+  tile=links`) lists the one before; its hint says where back goes.
+- **One history a tile:** a reader's back and forward and the links tile's are one shape (`Pane.trail`), so the trail
+  lists either. The kitchen sink's "back anywhere" section is Evan's layout to try it in.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### The status bar's last rough edges (PIE-1415, PIE-1224, PIE-1410)
 
 - **A group inside a group opens where you clicked:** More inside Tools opens over Tools, not at the left edge.
