@@ -203,6 +203,39 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
   }, 40_000);
 
 
+  // PIE-1255: in marks only, a card opened above where the reader is anchored comes into view at once (it was drawn
+  // above the window, so nothing changed until a scroll); the whole-note marks are after the title only.
+  test("marks only (PIE-1255): each whole-note [+] after the title opens its card in view, by a click, with no scroll; the gutter keeps no row of them", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as Desk; };
+    await until(() => screen().includes("question · "), "the comments loaded", 8000);
+    const act = (action: string, args: Record<string, unknown>) => stage().dispatch.act({ action, args, tile: "plan" }, { kind: "agent", id: "test-agent" }) as Promise<any>;
+    const before = (await board.comments(seeded.notes.marginalia.id)).length;
+    const added = [await act("comment.note", { body: "Label the trays by row." }), await act("comment.note", { body: "Order more fleece." })].map(r => r.thread as string);
+    const bodies = ["Keep this plan beside the seed trays.", "Label the trays by row.", "Order more fleece."];
+    await until(() => screen().includes(`■ ${before + 2} comments`), "the two new threads");
+    await act("margin", { mode: "off" });
+    await until(() => screen().includes("marks (M)") && !bodies.some(b => screen().includes(b)), "marks only, every card folded");
+    const title = () => screen().split("\n").find(l => l.includes("Greenhouse plan for the spring") && !l.includes("═") && !l.includes("─ 1"))!;
+    // The three whole-note marks are after the title; the gutter in front of it holds none of them.
+    expect(title().split("[+]").length - 1).toBe(3);
+    expect(title().slice(0, title().indexOf("Greenhouse"))).not.toContain("[+]");
+    for (let i = 0; i < 3; i++) {
+      const ls = screen().split("\n"), y = ls.indexOf(title()), x = ls[y]!.indexOf("[+]", ls[y]!.indexOf("Greenhouse"));
+      press({ kind: "mouse", action: "down", button: 0, x: x + 1, y }); press({ kind: "mouse", action: "up", button: 0, x: x + 1, y });
+      await until(() => title().slice(title().indexOf("Greenhouse")).split("[+]").length - 1 === 2 - i, `mark ${i + 1} opened`);
+      // Every card opened so far is on the screen, with nothing scrolled.
+      const shown = bodies.filter(b => screen().includes(b)).length;
+      expect({ opened: i + 1, shown }).toEqual({ opened: i + 1, shown: i + 1 });
+    }
+    // As it was, for the tests after.
+    for (const id of added) await board.trash(id);
+    await act("margin", { mode: "trim" });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+
   test("margin attention: the kept thread's TL;DR is its card, the seen one is off the margin; thread.seen puts the current one on the earlier shelf and back=true brings it back (PIE-791)", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "margin-attention" }, as: "test-agent" })).toMatchObject({ key: "margin-attention" });

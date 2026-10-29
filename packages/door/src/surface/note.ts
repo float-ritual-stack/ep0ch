@@ -808,7 +808,8 @@ export class NoteSurface {
   gutterWidth(): number {
     const counts = new Map<number, number>(), lineOf = lineAtOffset(this.msg?.text ?? "");
     for (const c of this.comments ?? []) {
-      const line = isWholeNote(c) ? -1 : c.start === null ? null : lineOf(c.start);
+      // A whole-note thread's mark is after the title (headerBlock), so it takes no gutter column.
+      const line = isWholeNote(c) || c.start === null ? null : lineOf(c.start);
       if (line !== null) counts.set(line, (counts.get(line) ?? 0) + 1);
     }
     return this.printed ? 0 : 1 + (counts.size ? 3 * Math.max(...counts.values()) : 0);
@@ -1794,17 +1795,17 @@ export class NoteSurface {
     const lines = width(title) <= w ? [title] : wrap(title, w);
     const titled = lines.map((l, i) => (i === 0 && named.workId && l.startsWith(`${named.workId} · `) ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${l.slice(named.workId.length + 3)}`, w) : ink + pad(l, w)) + RESET);
     const wholeMarks: NonNullable<HeaderBlock["wholeMarks"]> = [];
+    // A folded whole-note thread's [+] is after the title, never in the gutter (PIE-1255: a row of them there pushed
+    // the body over); the ones that don't fit go on a row of their own under it, so none is lost in a narrow tile.
     if (!this.printed && !omit.title) {
-      let col = width(lines.at(-1) ?? "");
+      let col = width(lines.at(-1) ?? ""), row = titled.length - 1, n = 0;
+      const put = () => { if (n) titled[row] = pad(titled[row]!.replace(/ *\x1b\[0m$/, "") + fg(C.yellow) + " [+]".repeat(n) + RESET, w); };
       for (const c of (this.comments ?? []).filter(c => isWholeNote(c) && !this.threadShown(c.id))) {
-        if (col + 4 > w) break; // The gutter remains available when the title fills its row.
-        wholeMarks.push({ thread: c.id, row: above + lines.length - 1, from: col + 1, to: col + 4 });
-        col += 4;
+        if (col + 4 > w && (col > 0 || n > 0)) { put(); titled.push(""); lines.push(""); row++; col = 0; n = 0; }
+        wholeMarks.push({ thread: c.id, row: above + row, from: col + 1, to: Math.min(w, col + 4) });
+        col += 4; n++;
       }
-      if (wholeMarks.length) {
-        const styled = titled[titled.length - 1]!.replace(/ *\x1b\[0m$/, "");
-        titled[titled.length - 1] = pad(styled + fg(C.yellow) + " [+]".repeat(wholeMarks.length) + RESET, w);
-      }
+      put();
     }
     const titleControls: NonNullable<HeaderBlock["titleControls"]> = [];
     if (!this.printed && !this.raw && !omit.title && isOutlineNote(m)) {
@@ -2045,8 +2046,13 @@ export class NoteSurface {
     // A whole-note thread's mark is on the title's row; a note that leaves its title out (PIE-1319) has it on the body's first.
     const wholeRow = title?.row ?? (own ? 1 : top);
     const gutterRow = (k: Mark) => whole.has(k.thread) ? wholeRow : top + k.row - this.scroll;
-    this.elems = laid.elems.map(e => e.kind === "comment" && whole.has(e.thread!)
-      ? { ...e, row: wholeRow, ruler: [wholeRow, wholeRow + 1] as [number, number] } : e);
+    // Its `[ ]` stop is its [+] after the title, while it's folded there.
+    const wholeAt = new Map((wholeMarks ?? []).map(k => [k.thread, k]));
+    this.elems = laid.elems.map(e => {
+      if (e.kind !== "comment" || !whole.has(e.thread!)) return e;
+      const k = wholeAt.get(e.thread!), row = k?.row ?? wholeRow;
+      return { ...e, row, ...(k ? { from: k.from, to: k.to } : {}), ruler: [row, row + 1] as [number, number] };
+    });
 
     // An opened proposal's [apply] [dismiss] (in the header, so not part of the kept layout): elements and click targets.
     if (proposalHead) {
@@ -2095,6 +2101,16 @@ export class NoteSurface {
     this.lastReveal = this.reveal && !!current;
     if (this.reveal && current) bringIn([current.row, picks && this.picker?.key === current.key ? Math.max(current.row + 1, top + picks.at + picks.lines) : current.row + 1]);
     this.reveal = false;
+    // A card the person just opened comes into view (PIE-1255): spliced in above the row the reader keeps in place (a
+    // whole-note card is at the top of the body), it would otherwise open out of sight, until a scroll.
+    if (this.revealThread) {
+      // Rows went in where the card opened: what was at the top of the view stays at the top, not the line under them.
+      if (this.revealFrom !== null) { this.scroll = Math.min(this.revealFrom, this.maxScroll); room = roomAt(this.scroll); }
+      const side = laid.margin.cards.find(c => c.thread === this.revealThread);
+      const rows = side ? [side.at, side.at + side.rows.length - 1] : controls.filter(c => c.thread === this.revealThread).map(c => c.row);
+      if (rows.length) bringIn([top + Math.min(...rows), top + Math.max(...rows) + 2]);
+      this.revealThread = null; this.revealFrom = null;
+    }
     const markRows = this.focusMark ? this.focusRows(this.focusMark.spec, m, doc, noteLines, top) : null;
     // A followed fragment comes to the top (a line of what's above it kept); an agent's mark only as far as needed.
     if (this.revealMark && markRows) { if (this.focusMark?.fragment || this.focusMark?.line) this.scroll = Math.max(0, markRows[0] - top - Number(room > 1)); else bringIn(markRows); }
@@ -2173,7 +2189,8 @@ export class NoteSurface {
     }
     for (const k of this.printed ? [] : marks) {
       const row = gutterRow(k);
-      if (row >= (whole.has(k.thread) ? 0 : top) && row < top + room && (host?.externalGutter === undefined || (k.col ?? 0) + 4 <= host.externalGutter)) this.hits.push({ row, from: this.gutterStart + 1 + (k.col ?? 0), to: this.gutterStart + 1 + (k.col ?? 0) + 3, thread: k.thread, elem: `comment:${k.thread}` });
+      if (whole.has(k.thread)) continue;
+      if (row >= top && row < top + room && (host?.externalGutter === undefined || (k.col ?? 0) + 4 <= host.externalGutter)) this.hits.push({ row, from: this.gutterStart + 1 + (k.col ?? 0), to: this.gutterStart + 1 + (k.col ?? 0) + 3, thread: k.thread, elem: `comment:${k.thread}` });
     }
     for (const c of controls) {
       const row = c.row - this.scroll;
@@ -2329,7 +2346,7 @@ export class NoteSurface {
     }
     for (const k of this.printed ? [] : marks) {
       const row = gutterRow(k);
-      if (row < (whole.has(k.thread) ? 0 : top) || row >= top + room) continue;
+      if (whole.has(k.thread) || row < top || row >= top + room) continue;
       const glyph = this.threadShown(k.thread) ? "[–]" : "[+]";
       const old = gutterRows.get(row) ?? "";
       gutterRows.set(row, pad(old, 1 + (k.col ?? 0)) + fg(k.open ? C.yellow : C.dark) + glyph + RESET);
@@ -5534,6 +5551,11 @@ export class NoteSurface {
   }
 
   private openedWhileOff = new Set<string>();
+  /** The thread the person just opened: the next frame brings its card into view. */
+  private revealThread: string | null = null;
+  private revealFrom: number | null = null;
+  /** The person opened a card: it comes into view on the next frame (an agent's open leaves their view where it is). */
+  revealCard(thread: string) { if (this.threadShown(thread)) { this.revealThread = thread; this.revealFrom = this.scroll; } }
 
   setMargin(mode: MarginMode) { this.keepCommentSelection(); this.marginMode = mode; this.openedWhileOff.clear(); }
 
@@ -11442,7 +11464,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       await surface.whole();
       const id = surface.threadId(thread);
       surface.setExpanded(id, expand ?? !surface.threadShown(id));
-      if (actor.kind === "user") surface.readThread(id, host);
+      if (actor.kind === "user") { surface.readThread(id, host); surface.revealCard(id); }
       surface.noteAgent(actor, `${surface.threadShown(id) ? "opened" : "folded"} a comment`);
       host.redraw();
       return { thread: id, expanded: surface.threadShown(id) };
