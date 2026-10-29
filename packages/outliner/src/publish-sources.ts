@@ -59,11 +59,14 @@ export async function pageSources(host: LiveHost, blockId: string, outline: stri
   const entries = sources.sources.map((s, i) => {
     const download = (format: "csv" | "json") => `<a data-source-download href="${e(sourceHref(base, blockId, s, format))}" download="${e(sourceFile(s, format).filename)}">${format.toUpperCase()}</a>`;
     const read = s.readAt ? `${s.live ? "live, " : ""}as of ${s.readAt}` : "as written";
+    // The downloads first under the source's name, each a tap target (PIE-1409: on a phone they were 15 px tall,
+    // behind three disclosures).
     return `<details class="source-entry" id="source-${i}" data-source-offset="${offsets[s.line] ?? 0}"><summary>${e(s.name)} <small>${e(s.readAt ?? "as written")}</small></summary>
+<p class="source-downloads">Download ${download("csv")} ${download("json")}</p>
 ${s.problem ? `<p>${e(s.problem)}</p>` : ""}
 <details open><summary>Query</summary><dl>${s.query.params.map(p => `<dt>${e(p.key)}</dt><dd>${e(p.value)}</dd>`).join("")}</dl><pre>${e(s.query.text)}</pre>${copy("query", s.query.text)}</details>
 <details><summary>Transform</summary><p>${e(s.transform.label)}</p>${s.transform.block ? `<a href="${e(host.href(s.transform.block) ?? "#")}">Jump to its note</a>` : ""}<pre>${e(s.transform.text ?? "")}</pre>${copy("transform", s.transform.text ?? "")}</details>
-<details open><summary>Result · ${s.result.rows} rows</summary><pre>${e(s.result.text)}</pre>${copy("result", s.result.text)} · Download ${download("csv")} ${download("json")}
+<details open><summary>Result · ${s.result.rows} rows</summary><pre>${e(s.result.text)}</pre>${copy("result", s.result.text)}
 <dl><dt>Outline</dt><dd>${e(outline)} ${copy("outline", outline)}</dd><dt>Read</dt><dd>${e(read)} ${copy("read", read)}</dd><dt>Query</dt><dd>${e(s.query.text)} ${copy("query", s.query.text)}</dd></dl></details></details>`;
   }).join("\n");
   return `<details class="sources-panel"><summary>Updated <time datetime="${e(sources.readAt)}">${e(sources.readAt)}</time> · Sources</summary><aside aria-label="Sources"><a href="">⟳ Refresh all</a><button type="button" data-sources-close>Close</button><h2>Sources</h2>${entries}</aside></details>`;
@@ -74,5 +77,6 @@ export const SOURCES_STYLE = `
 .sources-panel{font:13px/1.5 ui-monospace,monospace;color:var(--dim);margin:.5rem 0}
 .sources-panel>summary{cursor:pointer}.sources-panel aside{position:fixed;right:0;top:0;bottom:0;width:min(32rem,90vw);overflow:auto;background:var(--bg);color:var(--fg);padding:1.5rem;z-index:20;border-left:1px solid var(--rule)}
 .sources-panel details{margin:1rem 0}.sources-panel pre{white-space:pre-wrap;overflow-wrap:anywhere}.sources-panel button{color:var(--link);background:none;border:0;cursor:pointer;font:inherit}.sources-panel dd{margin-left:1rem}.source-entry small{color:var(--dim)}
+.source-downloads a,.sources-panel button{display:inline-flex;align-items:center;min-height:44px}.source-downloads a{min-width:44px;justify-content:center;padding:0 .75rem;margin-right:.5rem;border:1px solid var(--rule);border-radius:4px;text-decoration:none;color:var(--link)}.sources-panel summary{min-height:44px;padding:.6rem 0;box-sizing:border-box}
 .source-selection{position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);z-index:21;padding:.5rem 1rem}
 `;

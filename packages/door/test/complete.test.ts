@@ -364,6 +364,18 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
     expect(renderCompletion(c.state!, 60, 8).map(visible).join("\n")).toContain("jev ranked");
   });
 
+  test("a person who never moved off the top row stays on the top row: Jev's #1, not the old #1 wherever it sank (PIE-1409)", async () => {
+    const { board } = fake();
+    const d = new Draft("note-1", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "((party hats") completionKey(d, char(ch), c);
+    await until(() => !!c.state && !c.state.loading && c.state.items.length === 3, "the lexical lookup");
+    expect(c.state!.index).toBe(0);
+    await until(() => c.state?.jev === "ranked", "Jev's order");
+    expect(c.state!.items.map(i => i.blockId)).toEqual(["b3", "b1", "b2"]);
+    expect(c.state!.index).toBe(0);                                       // Fat cats, Jev's best, lit
+  });
+
   test("typing more selects the best match again; a re-ask of the same query keeps the pick", async () => {
     const { board } = fake();
     const d = new Draft("note-1", 1, "");

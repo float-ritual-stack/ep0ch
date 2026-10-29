@@ -347,6 +347,11 @@ test("published Sources exposes query, transform and downloadable visible rows",
   expect(html).toContain("Result");
   expect(html).toContain('download="graph-table.csv"');
   expect(html).toContain('download="graph-table.json"');
+  // On a phone (PIE-1409): the downloads sit right under the source's name, not inside its Result, each a 44 px tap target.
+  const entry = /<details class="source-entry"[^>]*><summary>[\s\S]*?<\/summary>\s*<p class="source-downloads">([\s\S]*?)<\/p>/.exec(html)?.[1] ?? "";
+  expect(entry).toContain('download="graph-table.csv"');
+  expect(entry).toContain('download="graph-table.json"');
+  expect(html).toMatch(/\.source-downloads a[^{]*\{[^}]*min-height:44px/);
   // A real URL, not a data: link a phone saves into a folder nobody sees (PIE-1383): the file, named, behind the note's own gate.
   expect(html).not.toContain('href="data:');
   // The source is named by its key in the note (the line it starts on) and its name, never its place in the list.

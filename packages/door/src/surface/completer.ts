@@ -9,7 +9,7 @@ import { Canvas, type Rect } from "../canvas";
 // `tree.search`: the one search, Goto's ranker, forgiving punctuation, order and typos; `fragments.candidates`,
 // `files.complete`, `blocks.context`), so the door keeps no index, ranking or fragment rules of its own. The
 // draft's note is the search's context: nearer notes first, and `((` alone lists what's linked and edited
-// around it. A pause asks Jev to re-order the same candidates; the selected one stays selected. Keep typing
+// around it. A pause asks Jev to re-order the same candidates; a row moved to stays selected, the top row stays the top. Keep typing
 // to filter, up/down choose, Enter or Tab inserts, Esc dismisses; Tab or Ctrl+Space asks again. The popup
 // never keeps a key it doesn't use: with nothing to choose, Enter, arrows and Esc do what they always do.
 //
@@ -395,7 +395,8 @@ export class Completer {
 
   /**
    * After a pause, ask the service again with Jev re-ordering the same candidates. The answer is used only if
-   * nothing moved meanwhile (the query, the cursor, the selection), and the selected candidate stays selected.
+   * nothing moved meanwhile (the query, the cursor, the selection); a row the person moved to stays selected, the top
+   * row stays the top.
    */
   private askJev(turn: SearchTurn, target: CompletionTarget): void {
     const fragment = target.kind === "block" && parseFragmentCompletionQuery(target.query);
@@ -403,7 +404,8 @@ export class Completer {
     // Jev re-orders the service's candidates (up to 30 for ((): one beyond the 20 shown can come into view.
     turn.after(JEV_PAUSE_MS, async () => {
       const s = this.state;
-      if (!s || !this.current(turn) || s.loading || s.items.length < 2 || this.accepting || this.d.busy) return;
+      // One row is nothing to re-order, except `[[` naming no page yet: Jev reads the pages by meaning (PIE-1409).
+      if (!s || !this.current(turn) || s.loading || (s.items.length < 2 && !(target.kind === "page" && s.items[0]?.newPage)) || this.accepting || this.d.busy) return;
       const index = s.index, chosen = s.items[index]?.insertion;
       s.jev = "asking";
       this.redraw();
@@ -414,7 +416,9 @@ export class Completer {
         if (now !== s) return;
         // Anything moved meanwhile (the pick, the cursor, a save or an insert under way): the answer isn't used.
         if (!this.current(turn) || now.index !== index || now.items[index]?.insertion !== chosen || this.accepting || this.d.busy) { now.jev = undefined; this.redraw(); return; }
-        const at = r.items.findIndex(i => i.insertion === chosen);
+        // A row the person moved to stays lit wherever Jev puts it; the top row (never moved off) is Jev's best, not
+        // the old best followed down the list (PIE-1409: a 0.0/3 row lit at 19/20).
+        const at = index === 0 ? 0 : r.items.findIndex(i => i.insertion === chosen);
         if (at < 0) { now.jev = undefined; this.redraw(); return; }
         this.state = { ...r, target, picked: now.picked, line: now.line, index: at, loading: false, at: now.at };
         this.redraw();
@@ -1002,7 +1006,9 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   s.listWidth = drawn.listWidth;
   rows.push(...drawn.rows); out.push(...drawn.lines);
   // Whether Jev ordered the list, said quietly first, where a narrow popup doesn't cut it.
-  const jev = s.jev === "ranked" ? (s.sure?.label ? `jev ranked · ${s.sure.label} · ` : "jev ranked · ") : s.jev === "asking" ? "jev… · " : "";
+  const long = s.jev === "ranked" ? (s.sure?.label ? `jev ranked · ${s.sure.label} · ` : "jev ranked · ") : s.jev === "asking" ? "jev… · " : "";
+  // Where it and a note about the list don't both fit (40 columns, PIE-1409), how sure is said in its own words alone.
+  const jev = s.message && s.sure?.label && cells(` ${long}${s.message}`) > w ? `${s.sure.label} · ` : long;
   const hint = completionHint(s, selected);
   const enter = enterKeeps(s);
   const keys = enter ? `↑↓ tab ⏎ ${enter} esc` : "↑↓ ⏎/tab esc";

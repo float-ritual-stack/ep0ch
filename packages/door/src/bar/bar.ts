@@ -348,8 +348,9 @@ export class PowerBar {
       turn.answered(s.id); this.got.set(s.id, rows); this.kept.delete(s.id); this.build(); this.host.ctx.redraw();
       // An agent's bar is read once and put away: no re-ordering asked for it.
       if (this.quick || !s.later) return;
-      // The same hits re-ordered (Jev), after a pause: what's lit stays lit, as it did in the search it replaced.
-      turn.after(JEV_PAUSE_MS, () => void s.later!(q, rows, this.host, turn.signal)?.then(r => { if (r && alive()) { this.got.set(s.id, r.rows); if (r.said) this.said.set(s.id, r.said); this.build(true); this.host.ctx.redraw(); } }, () => {}));
+      // The same hits re-ordered (Jev), after a pause: a row the person moved to stays lit; the top row stays the top,
+      // Jev's best (PIE-1409), never the old best followed down the list.
+      turn.after(JEV_PAUSE_MS, () => void s.later!(q, rows, this.host, turn.signal)?.then(r => { if (r && alive()) { this.got.set(s.id, r.rows); if (r.said) this.said.set(s.id, r.said); this.build(this.picker.sel > 0); this.host.ctx.redraw(); } }, () => {}));
     };
     const fail = (s: BarSource, e: unknown) => {
       if (!alive()) return;
@@ -449,11 +450,15 @@ export class PowerBar {
     const said = [...this.problems].map(([id, why]) => `${barSource(id)?.title ?? id}: ${why}`).join(" · ");
     // Nothing found for what's typed, said on the line itself: a narrow bar draws no preview to say it in.
     const none = !this.items.length && !this.asking.size && this.query.trim() !== "" && !this.problems.size;
-    const count = [none ? "no matches" : `${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
+    const rows = none ? "no matches" : `${this.items.length} row${this.items.length === 1 ? "" : "s"}`, verdict = [...this.said.values()].join(" · ");
     // What's typed gets the row before the count does (PIE-1405, PIE-1418): a long query at 40 columns reads whole or
-    // scrolled with its « », and the count takes what's left, cut short (hover reads it).
-    const status = busy || count, room = Math.max(10, w - 2);
-    const field = Math.min(room, Math.max(10, room - 1 - width(status), width(this.query) + 1));
+    // scrolled with its « », and the count takes what's left, cut short (hover reads it). What a source said of its
+    // rows (Jev's "no strong match") is never cut: when it won't fit beside the query it gets a row of its own (PIE-1409).
+    const room = Math.max(10, w - 2), fieldFor = (status: string) => Math.min(room, Math.max(10, room - 1 - width(status), width(this.query) + 1));
+    const beside = busy || [rows, verdict].filter(Boolean).join(" · ");
+    const below = !busy && !!verdict && room - fieldFor(beside) - 1 < width(beside);
+    const status = below ? rows : beside;
+    const field = fieldFor(status);
     this.fieldW = field;
     const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, field)) : this.input.render(field, 1)[0]) + (room - field > 1 ? paint(" |08") + drawEllipsized(status, room - field - 1) : "");
     const scoped = this.scope ? barSource(this.scope) : undefined;
@@ -462,7 +467,9 @@ export class PowerBar {
     // click on it), wrapped onto more rows where the bar is narrow (the one strip, chip-rows' tabStrip).
     const menu = this.menuOpen ? tabStrip(this.menuEntries().map(([label, action, args], i) => ({ label, key: String(i + 1), hit: { action, args } })), { width: w, at: 1, lead: " ", overflow: "wrap", style: MENU_LOOK() }) : [];
     this.menuSpots = menu.map(r => r.hits.map(h => ({ from: h.from, to: h.to, action: h.action, args: h.args ?? {} })));
-    const head = [tabs, line, ...menu.map(r => r.text), ...this.sourceHead, fg(C.blue) + "─".repeat(w) + RESET];
+    // After the menu and the scope's own rows, so their clicks keep their rows.
+    const verdictRows = below ? wrap(verdict, w - 2).slice(0, 2).map(l => paint(" |08") + l) : [];
+    const head = [tabs, line, ...menu.map(r => r.text), ...this.sourceHead, ...verdictRows, fg(C.blue) + "─".repeat(w) + RESET];
     const tail = said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : [];
     const it = this.items[this.picker.sel];
     const empty = !this.items.length && !this.asking.size;

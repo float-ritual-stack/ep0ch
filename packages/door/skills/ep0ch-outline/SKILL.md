@@ -28,7 +28,7 @@ For changing the code instead, use `ep0ch-core`. For driving their door (peek, a
 4. **Look before you make.** Find the existing owner and the vocabulary in use (`outline_find` by text,
    `property`, `hasKey` or `query`) before creating a note, a key or a view. Text alone is the ranked search: each row
    its `score`, and `search.verdict` says whether the top answers it; "no strong match" means it likely doesn't exist
-   yet, so make it rather than reuse the closest.
+   yet, so make it rather than reuse the closest; "not sure" means the top scores as a match: read it before deciding.
 
 ## Tools
 

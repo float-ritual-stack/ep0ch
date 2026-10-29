@@ -21,7 +21,8 @@ export const RECORD_FIELDS = {
   // PIE-1197: a real query and the note(s) that should come first (`expect`: ids, or `none` when nothing should), and who
   // said so (`source`: an agent's read after its search, the note it made, or Evan's pick). The search eval reads them.
   "search-eval-case": ["query", "outline", "expect", "source", "surface", "rank", "asked", "note"],
-  "jev-run": ["experiment", "run", "model", "prompt-rev", "items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out", "cost"],
+  // `hit5` is the search eval's (PIE-1409): how often the label was in Jev's first five; the others are every loop's.
+  "jev-run": ["experiment", "run", "model", "prompt-rev", "items", "agreed", "agreement", "hit5", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out", "cost"],
   // The workboard's Jev loops (work-jev.ts): the groom's verdict per queued ticket, and each twin offered at filing with
   // what became of it (offered, filed-anyway, attached).
   "groom-verdict": ["item", "verdict", "confidence", "evidence", "by", "pass", "thread"],
@@ -68,7 +69,8 @@ function recordTemplate(kind: RecordKind): string {
       : ["run", "finding", "previous"].includes(key) && kind !== "jev-run"
       ? `[${key}::(({{props.${key}}}))]`
       : key === "fix" ? `\nfix:\n{{props.fix}}`
-      : ["clients", "local", "summary", "report", "failure", "likelihood", "cost", "dismissed", "sessions", "failed", "details"].includes(key)
+      // A run's cost is a number its tables read (a chip); a finding's is its words.
+      : ["clients", "local", "summary", "report", "failure", "likelihood", "cost", "dismissed", "sessions", "failed", "details"].includes(key) && !(kind === "jev-run" && key === "cost")
         ? `\n${key}:\n{{props.${key}}}` : `[${key}::{{props.${key}}}]`),
   ].join("\n");
 }
@@ -119,11 +121,12 @@ async function stampRecord(board: RecordWriter, kind: RecordKind, props: Record<
     if (!cache.templates.has(name)) cache.templates.set(name, await findNote(board, `template-for=${name}${name === "deploy" ? " machine=install" : ""}`) ?? await board.request<Note>("create", { text: recordTemplate(name), parentId: root.id, ...who }));
   }
   const template = cache.templates.get(kind)!;
-  // A template made before its kind gained fields stamps without them: brought up to the fields in code, once.
+  // A template made before its kind gained fields, or with a field written another way since (jev-run's cost, once
+  // words, now a chip), stamps the old shape: brought up to the code's, once.
   if (!(cache.checked ??= new Set()).has(kind)) {
     const stored = await board.request<{ id: string; text: string; revision: number } | null>("get", { blockId: template.id });
     let current = !!stored;
-    if (stored && RECORD_FIELDS[kind].some(key => !stored.text.includes(`[form-field::${key} `))) {
+    if (stored && recordTemplate(kind).split("\n").some(line => line && !stored.text.includes(line))) {
       current = await board.request("update", { blockId: stored.id, text: recordTemplate(kind), expectedRevision: stored.revision, mutation: { author: who.author, ...(who.provenance?.actorId ? { actorId: who.provenance.actorId } : {}) } }).then(() => true, () => false);
     }
     // Checked only once it is known current: a failed upgrade is tried again by the next record.

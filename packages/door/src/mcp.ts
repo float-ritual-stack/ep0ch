@@ -574,7 +574,7 @@ const pathOf = (path: string) => path || ROOT_PATH;
 
 /**
  * What a search's ranking was and how sure it is, in words a caller can act on: on a ranked one the service's verdict
- * (`strong`, or `weak`/`none`: "no strong match"), its sentence, and Jev's "is it among these?" (`exists`).
+ * (`strong`: "sure"; `weak`: "not sure" or "no strong match"; `none`: "no strong match"), its sentence, and Jev's "is it among these?" (`exists`).
  */
 const semanticSays = (asked: boolean, semantic: SearchHits["semantic"] | undefined) => {
   if (!asked) return { asked, status: "lexical", said: "lexical: ep0ch find's ranker (title, text, properties); semantic: false left Jev out" };
@@ -781,7 +781,7 @@ function toolsFor(outlines: McpOutlines) {
     },
     {
       name: "outline_find",
-      description: `Search ${which} with the same ranker as ep0ch find: lexical candidates (title, text, properties) re-ranked by Jev, and when none is a sure answer Jev reads every note to find ones the words missed (deep), each match with its score (0 to 3), and search says how sure it is: verdict strong, or "no strong match" (weak: the closest is named, not claimed; none: nothing here answers it), with exists (Jev's "is it among these?", 0 to 1). semantic: false is the lexical order alone. ` +
+      description: `Search ${which} with the same ranker as ep0ch find: lexical candidates (title, text, properties) re-ranked by Jev, and when none is a sure answer Jev reads every note to find ones the words missed (deep), each match with its score (0 to 3), and search says how sure it is: verdict strong ("sure"), or weak ("not sure" over a top Jev scores as a match, else "no strong match": the closest is named, not claimed; none: nothing here answers it), with exists (Jev's "is it among these?", 0 to 1). semantic: false is the lexical order alone. ` +
         `source and asOf say whether it searched the live outline or a read-only mirror; a top-level note's path is "${ROOT_PATH}". Requires ${grant}. Empty query lists index rows.`,
       inputSchema: { type: "object", properties: {
         query: { type: "string" },

@@ -117,7 +117,7 @@ describe.skipIf(!outliner)("the showcase screen: search", () => {
   }, 30_000);
 
 
-  test("search: (( forgives a typo and another order through act, from the note read there; the bar's notes scope asks from that note, then Jev keeps the pick", async () => {
+  test("search: (( forgives a typo and another order through act, from the note read there; the bar's notes scope asks from that note, then Jev's best is lit", async () => {
     (app as any).lastInput = 0;
     const finding = seeded.notes.finding.id;
     const asked: { query: string; semantic: boolean; near?: string }[] = [];
@@ -154,10 +154,11 @@ describe.skipIf(!outliner)("the showcase screen: search", () => {
       expect(asked.some(a => a.query === "alotment notebok" && a.semantic && a.near === finding)).toBe(true);
       const drawn = () => { (app as any).paint(); return h.painted.map(plain).join("\n"); };
       expect(drawn().split("\n").find(l => l.includes("› alotment notebok"))).toContain("jev ranked");
-      // Jev's order (the stand-in reversed it) puts another note first, and the notebook, picked before, is still lit.
+      // Jev's order (the stand-in reversed it) puts another note first, and the top row, never moved off, is lit: Jev's
+      // best, not the notebook followed down the list (PIE-1409).
       const d = bar().describe();
       expect(d.rows[0].label).not.toBe("Allotment notebook");
-      expect(d.rows[d.selected - 1].label).toBe("Allotment notebook");
+      expect(d.selected).toBe(1);
       press({ kind: "esc" });
       expect(bar().describe().query).toBe("");
       press({ kind: "esc" });

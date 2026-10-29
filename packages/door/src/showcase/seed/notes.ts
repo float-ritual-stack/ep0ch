@@ -356,7 +356,7 @@ export const WRITE_REVIEW = [
  */
 const score = (model: string, hit1: number, hit5: number, sureRight: number, sureNothing: number) => ({
   model, cases: 24, positives: 12, reachable: 11, negatives: 12, asked: 22, unavailable: 0, hit1, hit5, lexHit1: 5, lexHit5: 9,
-  existsAnswered: 0.81, existsNot: 0.34, sureRight, sureWrong: 1, sureNothing, quietRight: 14, quietWrong: 2, tokensIn: 41000, tokensOut: 90,
+  existsAnswered: 0.81, existsNot: 0.34, sureRight, sureWrong: 1, sureNothing, quietRight: 14, quietWrong: 2, tokensIn: 41000, tokensOut: 90, setIn: 41000, setOut: 90,
 });
 export const SEARCH_EVAL_SCORES = [score("jev-1.13.0", 7, 10, 6, 1), score("jev-1.14.0", 7, 10, 6, 2)];
 export const SEARCH_EVAL_SWEEP = [

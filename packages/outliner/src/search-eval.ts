@@ -252,7 +252,8 @@ export interface ModelScore {
    * match" over a wrong top or nothing (`quietRight`) and over the right one (`quietWrong`).
    */
   sureRight: number; sureWrong: number; sureNothing: number; quietRight: number; quietWrong: number;
-  tokensIn: number; tokensOut: number;
+  /** Tokens this run asked for (a cached answer costs none); `setIn`/`setOut` the whole set's, cached or not: what ranking it costs. */
+  tokensIn: number; tokensOut: number; setIn: number; setOut: number;
 }
 
 /** A model's numbers on the set, with the thresholds' verdict on each case read against its label. */
@@ -280,6 +281,7 @@ export function scoreRun(run: ModelRun, t = SEARCH_THRESHOLDS): ModelScore {
     existsAnswered: avg(answered), existsNot: avg(not),
     sureRight, sureWrong, sureNothing, quietRight, quietWrong,
     tokensIn: r.reduce((a, x) => a + (x.cached ? 0 : x.usage?.input ?? 0), 0), tokensOut: r.reduce((a, x) => a + (x.cached ? 0 : x.usage?.output ?? 0), 0),
+    setIn: r.reduce((a, x) => a + (x.usage?.input ?? 0), 0), setOut: r.reduce((a, x) => a + (x.usage?.output ?? 0), 0),
   };
 }
 
@@ -320,7 +322,7 @@ export function reportNote(scores: readonly ModelScore[], sweeps: Record<string,
     row("Noul when it's there · when it isn't", s => `${s.existsAnswered ?? "—"} · ${s.existsNot ?? "—"}`),
     row("sure: right · another note · nothing there", s => `${s.sureRight} · ${s.sureWrong} · ${s.sureNothing}`),
     row("\"no strong match\" right · wrong", s => `${s.quietRight} · ${s.quietWrong}`),
-    row("tokens in (new this run)", s => String(s.tokensIn)),
+    row("tokens in: the set · new this run", s => `${s.setIn} · ${s.tokensIn}`),
     "",
     `## Thresholds tried on ${meta.current}`,
     "Over the cached answers: when search would say it's sure, and when it would say \"no strong match\" over a right top.",
@@ -340,13 +342,16 @@ export const EVALS_PAGE = [
   "> [!summary] Ranked search measured on real queries before its thresholds or its Jev model change.",
   "> - **Cases:** agents' searches and the note opened next; Evan's picks once they're kept.",
   "> - **Run it:** `ep0ch search harvest`, then `ep0ch search eval --into pie`.",
+  "> - **hit@1, hit@5:** of the cases with an answer, how often it came first, and in the first five.",
+  "> - **sure, wrong:** of every search asked (the ones with nothing there too), how often it said sure, and how often that sure was wrong: the answer the thresholds are set against. **cost $** is ranking the whole set.",
   "",
   "::graph-table",
   "---",
-  "title: every run, per model (agreed is hit@1; quiet sure, suggested no strong match)",
+  "title: every run, newest first",
   "query: type=jev-run experiment=search-eval",
   "machinery: show",
-  "columns: [model, items, agreed, quiet, suggested, cost]",
+  "columns: [model, items, agreed, hit5, quiet, different, cost]",
+  "headers: [model, cases, hit@1, hit@5, sure, wrong, cost $]",
   "sort: created",
   "direction: desc",
   "---",
@@ -409,15 +414,20 @@ export function otherOutlineCases(cases: readonly EvalCase[], outlines: readonly
 export async function keepRun(client: EvalClient, scores: readonly ModelScore[], runs: readonly ModelRun[], note: string, day: string): Promise<string> {
   let page = (await read(client, "system-view=search-evals"))[0];
   if (!page) { await client.request({ action: "create", text: EVALS_PAGE, parentId: null, ...EVAL }); page = (await read(client, "system-view=search-evals"))[0]; }
+  // The page is the eval's own: one made before its figure changed is brought up to it.
+  else if (page.text !== EVALS_PAGE) await client.request({ action: "update", blockId: page.id, text: EVALS_PAGE, expectedRevision: page.revision, mutation: { author: "agent", actorId: EVAL.provenance!.actorId! } });
   for (const [i, s] of scores.entries()) {
     // Scores come in the runs' order; a variant's score is named "<model> · <variant>".
     const run = runs[i]!;
     await recordRun(client, EVAL_EXPERIMENT, day, {
-      // The run-level keys in the meaning every loop gives them (agreed: Jev's top agreed with the label); hit@5 and the
-      // rest are the report's.
-      items: s.positives, agreed: s.hit1, agreement: s.positives ? Math.round(s.hit1 / s.positives * 100) / 100 : 0,
-      suggested: s.quietRight + s.quietWrong, quiet: s.sureRight + s.sureWrong + s.sureNothing, unavailable: s.unavailable,
-    }, { model: s.model, prompt: run.prompt, questions: s.asked, usage: { input: s.tokensIn, output: s.tokensOut } });
+      // The run-level keys in the meaning search's own runs give them (search-records.ts): quiet the searches said sure,
+      // suggested the ones that named the closest and didn't claim it; over every search asked, the ones with nothing
+      // there too. items the cases with an answer, agreed Jev's top was the label (hit@1), hit5 it was in the first
+      // five, different it said sure and was wrong (another note, or nothing there; PIE-1409).
+      items: s.positives, agreed: s.hit1, agreement: s.positives ? Math.round(s.hit1 / s.positives * 100) / 100 : 0, hit5: s.hit5,
+      suggested: s.quietRight + s.quietWrong, quiet: s.sureRight + s.sureWrong + s.sureNothing, different: s.sureWrong + s.sureNothing, unavailable: s.unavailable,
+      // The cost is ranking the whole set, cached answers too: what the model costs, comparable run to run.
+    }, { model: s.model, prompt: run.prompt, questions: s.asked, usage: { input: s.setIn, output: s.setOut } });
   }
   const made = await client.request<{ id: string }>({ action: "create", text: note, parentId: page!.id, ...EVAL });
   return made.id;

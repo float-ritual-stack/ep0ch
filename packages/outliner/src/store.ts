@@ -3930,6 +3930,27 @@ export class OutlinerStore {
     return { addresses: addresses.map(({ exact: _exact, ...address }) => address), completeness, ...(context ? { context } : {}) };
   }
 
+  /**
+   * The notes that have an address (a page, a Work ID, an alias), for `[[`'s deep pass (PIE-1409), and each one's
+   * address as a completion row, its page first: what deep search found, in the order given.
+   */
+  addressedBlockIds(): Set<string> {
+    return new Set((this.database.query("SELECT DISTINCT block_id AS id FROM page_addresses").all() as { id: string }[]).map(r => r.id));
+  }
+  pageAddressesFor(blockIds: readonly string[]): (PageAddressMatch & { exact: boolean })[] {
+    if (!blockIds.length) return [];
+    const rows = this.database.query(`
+      SELECT address.normalized_address, address.display_address, address.block_id, address.kind, block.text
+      FROM page_addresses address JOIN blocks block ON block.id = address.block_id
+      WHERE block.effective_deleted_root_id IS NULL AND address.block_id IN (${blockIds.map(() => "?").join(",")})
+    `).all(...blockIds) as PageAddressMatchRow[];
+    const kindOrder = (kind: string) => kind === "page" ? 0 : kind === "work-id" ? 1 : 2;
+    return blockIds.flatMap(id => {
+      const row = rows.filter(r => r.block_id === id).sort((a, b) => kindOrder(a.kind) - kindOrder(b.kind) || a.normalized_address.localeCompare(b.normalized_address))[0];
+      return row ? [{ ...this.pageAddressRecord(row), title: firstLineWithoutPropertyTokens(row.text)?.trim() || row.block_id, subtitle: subtitleOf(row), exact: false }] : [];
+    });
+  }
+
   /** Whether `normalizedAddress` still names `blockId`, a live note (after a Jev ranking, which takes seconds). */
   pageAddressLive(normalizedAddress: string, blockId: string): boolean {
     return !!this.database.query(`
