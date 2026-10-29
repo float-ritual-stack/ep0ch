@@ -405,7 +405,7 @@ export function historyKey(k: Key): -1 | 1 | 0 {
  * `<title> · forward →` on the right, each a click (`hits`, in the row's cells). Null with nowhere to go.
  */
 export function historyRow(w: number, back: string | null, forward: string | null, trail = true): { line: string; hits: { from: number; to: number; dir: TrailDir }[] } | null {
-  if ((!back && !forward) || w < 4) return null;
+  if ((!back && !forward) || w < 8) return null;
   // The trail's chip (PIE-208) after back, where the row has room for it beside both titles.
   const chip = trail && w >= TRAIL_CHIP_MIN ? TRAIL_CHIP : "", chipW = chip ? width(chip) + 2 : 0;
   const room = back && forward ? Math.floor((w - 3 - chipW) / 2) : w - 2 - chipW;

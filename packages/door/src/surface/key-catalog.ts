@@ -58,8 +58,8 @@ export interface Binding {
 /** A screen's row's kinds of focused tile (KeyBinding's `only`, `unless`). */
 const kinds = (r: TableRow & { only?: readonly string[]; unless?: readonly string[] }) => ({ ...(r.only ? { only: r.only } : {}), ...(r.unless ? { unless: r.unless } : {}) });
 const clause = (summary: string) => summary.split(/[.:;(]/)[0]!.trim();
-/** A table row's words: its label where it says something (`close sources`), else the action's words with it (`query` alone isn't). */
-const tableWords = (label: string | undefined, about: string) => (!label ? about : label.trim().split(/\s+/).length > 1 ? label : whole(about, label, ""));
+/** A table row's words: its `says`, else its label where it says something (`close sources`), else the action's words with it (`query` alone isn't). */
+const tableWords = (r: TableRow, about: string) => r.says ?? (!r.label ? about : r.label.trim().split(/\s+/).length > 1 ? r.label : whole(about, r.label, ""));
 /** An action's own words for a row: its `words`, else its summary's first clause. */
 const aboutOf = (def: ActionDef<any, any>) => def.words ?? clause(def.summary);
 /**
@@ -103,7 +103,7 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
       held.add(`${key} ${r.action}`);
       out.push({
         key, cap: capOf(key), action: r.action, args, id, scope: t.scope, layer: t.screen || (t.scope === screenName && screen.length) ? "screen" : tableLayer(t.scope),
-        does: tableWords((r as { label?: string }).label, summary(r.action)), about: summary(r.action), from: yours ? "yours" : "table",
+        does: tableWords(r, summary(r.action)), about: summary(r.action), from: yours ? "yours" : "table",
         rebind: t.prefix === "hyper+" ? `a hyper chord: the window can't read one (the door takes it first), so give it another in keybindings.json ("${bindingId(r.action, r.args ?? {})}": [..., "hyper+<key>"])` : rebindable(t.rows, r) ? true : `${r.action} is bound to several keys here, each a different way (${rows.filter(x => x.action === r.action && !GESTURES.has(x.key)).map(x => capOf(tableKey(t.prefix, x.key))).join(" ")}): they move together in code, not one at a time`,
         ...(yours ? { yours: true as const } : {}), table,
         ...kinds(r),
@@ -128,7 +128,7 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
         seen.add(key);
         const gone = entry && !entry.keys.includes(key);
         if (gone) continue;
-        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: SCOPE_LAYER[scope] ?? "tile", does: whole(aboutOf(def), row.does, capOf(key)), about: aboutOf(def), from: "action", rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
+        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: SCOPE_LAYER[scope] ?? "tile", does: row.says ?? whole(aboutOf(def), row.does, capOf(key)), about: aboutOf(def), from: "action", rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
       }
     }
     // A key the keymap gives the whole action that it didn't declare.

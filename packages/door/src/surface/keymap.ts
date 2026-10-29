@@ -136,7 +136,12 @@ export function undoKeymap(): boolean {
 // ── tables: what matches is what's said ─────────────────────────────────────
 
 /** A row of a key table: a key and the action (with arguments) it runs. W_KEYS, ModeKey, HyperBinding and KeyBinding are. */
-export interface TableRow { readonly key: string; readonly action: string; readonly args?: Record<string, unknown>; readonly label?: string }
+/**
+ * A key table's row: its key, the action and arguments it runs, its `label` (the short word a hint row shows: `columns`,
+ * `wider`) and `says`, the whole sentence the keys window lists for it where the label alone would read as a fragment
+ * after the action's words (PIE-1425: "give your keys to the column on the left", not "…, columns").
+ */
+export interface TableRow { readonly key: string; readonly action: string; readonly args?: Record<string, unknown>; readonly label?: string; readonly says?: string }
 
 /**
  * Whether a table's row can be rebound by its binding's name: its other rows with that name are the same binding (the

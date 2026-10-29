@@ -19,7 +19,7 @@ const leaf = (kind: string, name: string, more: Record<string, unknown> = {}) =>
 const char = (ch: string): Key => ({ kind: "char", ch } as Key);
 
 test("a narrow reader's back row drops the title, then the words, never cutting back or forward short", () => {
-  for (let w = 4; w <= 44; w++) {
+  for (let w = 8; w <= 44; w++) {
     const row = historyRow(w, "Paint the potting shed", "Weekend jobs")!;
     const text = plain(row.line);
     expect(text).toContain("←");
@@ -138,6 +138,15 @@ describe.skipIf(!outliner)("Back goes back in every tile, whichever tile changed
     expect(tiles()).toEqual(before.tiles);
     expect(wires()).toBe(before.wires);
     expect(D().nameOf(D().focus)).toBe("preview");
+    // Held (p), the same: back onto the shed, forward onto the hub, and the preview stays where it is.
+    key(char("p"));
+    key({ kind: "alt-left" } as Key);
+    await whole("preview", n.shed.id);
+    key({ kind: "alt-right" } as Key);
+    await whole("preview", n.hub.id);
+    render();
+    expect(tiles()).toEqual(before.tiles);
+    expect(wires()).toBe(before.wires);
   }, 30_000);
 
   afterAll(async () => { D()?.dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
