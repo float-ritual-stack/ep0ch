@@ -23,6 +23,7 @@ import { C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { describeChanges, type MovePlan } from "../move";
+import { framesDrawn } from "../frames";
 import { readView, type ViewRead } from "../views";
 import { RELOAD_PAUSE_MS, SearchSchedule } from "../search-schedule";
 import { summarySegments, viewSummaryKeys, prop } from "../props";
@@ -70,6 +71,38 @@ export function laneTileName(lane: string): string {
 
 /** A card's place in the lane, or what's being dragged over it (for its frame). */
 export type DropShown = { plan: MovePlan | null } | null;
+
+/** A tile drawn within this long counts as shown: its changes are read at once. */
+const DRAWN_LATELY_MS = 2_000;
+/** A tile not shown reads what changed at most this often, and only one such read is out at a time, door-wide. */
+const HIDDEN_REFRESH_MS = 10_000;
+
+/**
+ * The tiles not shown with changes to read (a board's lanes off the screen): read one at a time, each at most every
+ * HIDDEN_REFRESH_MS, so an agent's `act` on a lane still finds the outline nearly as it is, while the board's 86 lanes
+ * never ask the host all at once (PIE-1413).
+ */
+const hiddenStale = new Set<QueryPane>();
+
+let hiddenReading = false;
+function behind(p: QueryPane) {
+  hiddenStale.add(p);
+  if (!hiddenReading) void readBehind();
+}
+async function readBehind() {
+  hiddenReading = true;
+  try {
+    while (hiddenStale.size) {
+      const now = Date.now();
+      const next = [...hiddenStale].find(p => now - p.readAt >= HIDDEN_REFRESH_MS);
+      if (!next) { await Bun.sleep(Math.max(250, HIDDEN_REFRESH_MS - Math.max(...[...hiddenStale].map(p => now - p.readAt)))); continue; }
+      hiddenStale.delete(next);
+      // Shown meanwhile, read already, or put away: nothing to do.
+      if (!next.stale || !next.desk || next.disposed) continue;
+      await next.refreshNow(next.desk).catch(() => {});
+    }
+  } finally { hiddenReading = false; }
+}
 
 export class QueryPane implements Pane {
   readonly kind = "query" as const;
@@ -201,9 +234,45 @@ export class QueryPane implements Pane {
 
   onEvent(desk: DeskApi, e?: OutlineEvent) {
     if (this.managed || e?.change?.kind === "draft" || e?.change?.kind === "annotate") return;
-    this.search.pause(() => void this.load(desk));
+    this.search.pause(() => void this.refresh(desk));
   }
-  dispose() { this.search.cancel(); }
+
+  private refreshing: Promise<void> | null = null;
+  private again = false;
+  /** When it was last drawn and last read because the outline changed, and whether a change since is still to read. */
+  private drawnAt = 0;
+  disposed = false;
+  readAt = 0;
+  stale = false;
+  desk: DeskApi | null = null;
+  /**
+   * Read again because the outline changed: one read at a time, and changes while it is out read once more when it
+   * lands (PIE-1413: a board's lanes each started a read per change and dropped the last, which the host still answered,
+   * so a backfill's records queued thousands of lane reads). A reload asked on purpose (`r`, a new query) is `load`.
+   */
+  refresh(desk: DeskApi): Promise<void> {
+    // Not drawn lately (a lane scrolled off the board, a tile folded to its spine): read when it is drawn again, or at
+    // most every HIDDEN_REFRESH_MS meanwhile, so an agent's `act` on it still sees the outline nearly as it is.
+    this.desk = desk;
+    const now = Date.now();
+    // The door draws frames and this tile isn't in them lately (a lane off the board, a tab behind another, a session
+    // nobody watches): it reads behind. One never read yet, and any in a door that has never drawn a frame (a test's, an
+    // agent's headless one), reads at once.
+    const hidden = framesDrawn() && now - this.drawnAt > DRAWN_LATELY_MS && this.items !== null;
+    if (hidden) { this.stale = true; behind(this); return Promise.resolve(); }
+    return this.refreshNow(desk);
+  }
+
+  /** Read what changed now: one read at a time, once more if more changed while it was out. */
+  refreshNow(desk: DeskApi): Promise<void> {
+    this.stale = false;
+    this.readAt = Date.now();
+    if (this.disposed) return Promise.resolve();
+    if (this.refreshing) { this.again = true; return this.refreshing; }
+    const run = async () => { do { this.again = false; await this.load(desk); } while (this.again && !this.disposed); };
+    return this.refreshing = run().finally(() => { this.refreshing = null; });
+  }
+  dispose() { this.search.cancel(); this.disposed = true; this.again = false; hiddenStale.delete(this); }
 
   private drawnItems: number[] = [];
   private cardHeight = 2;
@@ -211,6 +280,8 @@ export class QueryPane implements Pane {
   fits(rows: number) { return Math.max(1, Math.floor(rows / this.cardHeight)); }
 
   render(w: number, h: number, focused: boolean): PaneView {
+    this.drawnAt = Date.now();
+    if (this.stale && this.desk) { const desk = this.desk; queueMicrotask(() => void this.refreshNow(desk)); }
     const items = this.items ?? [];
 
     const lines: string[] = [];

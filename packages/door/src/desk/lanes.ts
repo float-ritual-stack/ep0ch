@@ -41,6 +41,8 @@ import { STEP_CHOICES, STEP_BOXES, statusWord, stepTitle } from "../steps";
 
 /** A lane: a query tile of the board's hub (its view, cards, cursor and read). */
 type Lane = QueryPane;
+/** More changed blocks than this in one settled burst, and the lanes are read again rather than each block planned. */
+const PLAN_BURST = 4;
 /** A card pressed in a lane: dragged onto another lane it moves there; released where it was, a click (a second one opens it). */
 /** `onto`: the card of its own lane it's over now, by id (a lane read again mid-drag can shift rows): dropped there, it goes above or below it (card.reorder). */
 interface CardDrag { from: number; card: Msg; over: number | null; open: "open" | "fresh" | null; onto: string | null }
@@ -336,11 +338,15 @@ export class Lanes implements SourceModel {
     this.host.redraw();
   }
 
-  loadLanes(which: Lane[] = this.lanes): Promise<unknown> {
+  /**
+   * Read lanes again: `changed` (the outline moved: a lane off the screen reads behind, `QueryPane.refresh`), or at once
+   * for an action that waits on them (a move, a reload, a first fill).
+   */
+  loadLanes(which: Lane[] = this.lanes, how: "now" | "changed" = "now"): Promise<unknown> {
     if (which === this.lanes || which.length === this.lanes.length) this.refreshes.full++; else this.refreshes.lanes += which.length;
     this.asked.push(...which.map(l => l.name));
     if (this.asked.length > 200) this.asked.splice(0, 100);
-    return Promise.all(which.map(l => l.load(this.host)));
+    return Promise.all(which.map(l => how === "changed" ? l.refresh(this.host) : l.refreshNow(this.host)));
   }
 
   /** Everything again: after a reconnect the door couldn't catch up on. Drafts are kept, only marked. */
@@ -395,12 +401,31 @@ export class Lanes implements SourceModel {
     const own = this.lanes.filter(l => l.view === id);
     if (own.length) return this.markLanes(own);                       // a lane's definition or its ranks changed
     const members = this.lanes.filter(l => l.items?.some(m => m.id === id));
-    // Which other lanes it's in now is the service's answer: a plan that's "already" there.
-    const ready = this.lanes.filter(l => !members.includes(l) && l.read?.status === "ready");
-    if (!ready.length) return this.markLanes(members);
-    this.host.ctx.board.planMoves(ready.map(l => l.view), id).then(r => {
-      this.markLanes([...members, ...ready.filter(l => r.plans.get(l.view)?.kind === "already")]);
-    }, () => this.markLanes(this.lanes));
+    this.markLanes(members);
+    // Which other lanes it's in now is the service's answer: a plan that's "already" there, asked once the burst settles.
+    this.planning.add(id);
+    this.armReload();
+  }
+
+  /** Changed blocks whose lanes are still to be asked (`planMoves`), once the burst they came in settles. */
+  private readonly planning = new Set<string>();
+
+  /**
+   * The settled burst's plans: each changed block's lanes asked of the service, or, past PLAN_BURST blocks (a backfill,
+   * an import: PIE-1413, a plan of every lane per record), every lane read again once instead.
+   */
+  private plan() {
+    const ids = [...this.planning];
+    this.planning.clear();
+    const ready = () => this.lanes.filter(l => l.read?.status === "ready");
+    if (ids.length > PLAN_BURST) return this.markLanes(ready());
+    for (const id of ids) {
+      const others = ready().filter(l => !l.items?.some(m => m.id === id));
+      if (!others.length) continue;
+      this.host.ctx.board.planMoves(others.map(l => l.view), id).then(r => {
+        this.markLanes(others.filter(l => r.plans.get(l.view)?.kind === "already"));
+      }, () => this.markLanes(this.lanes));
+    }
   }
 
   /** The lanes (other than `except`) the service says `card` is in now. */
@@ -433,11 +458,18 @@ export class Lanes implements SourceModel {
   private markLanes(lanes: Lane[]) {
     if (!lanes.length) { this.refreshes.skipped++; return; }
     for (const l of lanes) this.dirtyLanes.add(l);
+    this.armReload();
+  }
+
+  /** In 150 ms of quiet: the burst's plans asked, then the lanes marked read again. */
+  private armReload() {
     if (this.reload) clearTimeout(this.reload);
     this.reload = setTimeout(() => {
+      this.reload = null;
+      if (this.planning.size) this.plan();
       const which = this.lanes.filter(l => this.dirtyLanes.has(l));
       this.dirtyLanes.clear();
-      if (which.length) this.loadLanes(which.length === this.lanes.length ? this.lanes : which);
+      if (which.length) this.loadLanes(which.length === this.lanes.length ? this.lanes : which, "changed");
     }, 150);
   }
 
