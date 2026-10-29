@@ -83,6 +83,9 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     const done = await app.act({ action: "extensions.install", args: { id: "horoscope" }, as: "test-agent" }) as { page?: string };
     expect(title((await board.get(done.page!))!)).toBe("Horoscope [ext.page::horoscope] [page::ext-horoscope]");
     await until(() => !!extensionNamed("horoscope"), "the door bound horoscope", 5000);
+    // The status line says it by name, never a script id (PIE-1399).
+    await until(() => app.describe().messages.some(m => /extensions: .*Horoscope added/.test(m.message)), "the install said", 5000);
+    expect(app.describe().messages.filter(m => m.message.startsWith("extensions:")).map(m => m.message).join("\n")).not.toMatch(/script-[0-9a-f]{6}/);
     await expect(app.act({ action: "extensions.uninstall", args: { id: "horoscope" }, as: "test-agent" })).rejects.toThrow(/demo/);
     await app.act({ action: "extensions.uninstall", args: { id: "horoscope", demo: "keep" }, as: "test-agent" });
     expect((await board.listExtensions(true)).pages?.horoscope).toBeUndefined();
@@ -99,6 +102,8 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     expect(groups.findIndex(g => g.startsWith("not installed"))).toBeGreaterThan(groups.findIndex(g => KIND.test(g)));
     expect(rows.rows.find(r => r.label === "Extensions")?.detail).toMatch(/\d+ of \d+ installed/);
     const listed = rows.rows.filter(r => KIND.test(r.group ?? "") || /^(settings|not installed) · /.test(r.group ?? ""));
+    // A plain install (the built-in's files, unchanged) reads as installed, never as an override (PIE-1399).
+    for (const r of listed) expect(r.detail ?? "").not.toContain("overrides the built-in (the same files)");
     // No ids, versions or paths on a row, settings' included: those are the preview's.
     for (const r of listed) expect(r.detail ?? "").not.toMatch(/ v\d|\/|script-[0-9a-f]{6}/);
     // Each row's words are its own (its manifest's summary, its note's first line, what it adds): never empty, never one phrase for every script.

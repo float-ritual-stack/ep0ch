@@ -170,11 +170,12 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
   });
 
   // PIE-1297: copy a tile's and a note's id and reference from where you see them.
-  test("the tile menu heads with the tile's id and has copy id and copy reference, beside the note's own", async () => {
+  test("the tile menu heads with the tile's id and starts with its Copy group: the note's copy rows and the tile's own", async () => {
     const links = (await act("tile.info", {}, "links", AGENT)).tile as string;
     const menu = await act("tile.menu", {}, "notes", AGENT);
     const rows = (menu.rows as { label: string; group: string; action: string }[]).map(r => `${r.group}: ${r.label}`);
-    expect(rows).toEqual(expect.arrayContaining(["Tile: copy id", "Tile: copy reference", "Note: copy id", "Note: copy reference"]));
+    expect(rows).toEqual(expect.arrayContaining(["Copy: copy tile id", "Copy: copy tile reference", "Copy: copy note id", "Copy: copy note reference"]));
+    expect(rows[0]).toBe("Copy: copy note id");
     // An agent's copy comes back to it; the person's clipboard is untouched.
     expect(await act("tile.copy-ref", { kind: "id" }, "links", AGENT)).toMatchObject({ text: links, clipboard: false });
     const ref = await act("tile.copy-ref", { kind: "ref" }, "drawer.agent", AGENT);
@@ -254,14 +255,15 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     // A line is a reader's: a list row has none.
     await expect(act("note.copy-ref", { kind: "line" }, tree, AGENT)).rejects.toThrow(/reader/);
     const rows = ((await act("tile.menu", {}, tree, AGENT)).rows as { label: string; group: string }[]).map(r => `${r.group}: ${r.label}`);
-    expect(rows).toEqual(expect.arrayContaining(["Note: copy id", "Note: copy reference", "Note: copy web link"]));
-    expect(rows).not.toContain("Note: copy a reference to this line");
-    // The person's menu, opened on the row's tile; a click on its "copy web link" row puts the link on the clipboard.
-    await act("tile.menu", { q: "copy web link" }, tree);
-    await until(() => screen().includes("copy web link"), "the menu");
+    // The Copy group first (PIE-1398), the note's rows and the tile's, each saying which it copies.
+    expect(rows.slice(0, 5)).toEqual(["Copy: copy note id", "Copy: copy note reference", "Copy: copy note web link", "Copy: copy tile id", "Copy: copy tile reference"]);
+    expect(rows).not.toContain("Copy: copy line reference");
+    // The person's menu, opened on the row's tile; a click on its "copy note web link" row puts the link on the clipboard.
+    await act("tile.menu", { q: "copy note web link" }, tree);
+    await until(() => screen().includes("copy note web link"), "the menu");
     const lines = h.sc.render(h.app).lines.map((l: string) => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, ""));
     // The last match is the row: the first is the menu's query line, typed.
-    const y = lines.findLastIndex((l: string) => l.includes("copy web link")), x = lines[y]!.lastIndexOf("copy web link") + 2;
+    const y = lines.findLastIndex((l: string) => l.includes("copy note web link")), x = lines[y]!.lastIndexOf("copy note web link") + 2;
     const before = h.written.length;
     h.press({ kind: "mouse", action: "down", button: 0, x, y } as never);
     h.press({ kind: "mouse", action: "up", button: 0, x, y } as never);
@@ -273,11 +275,11 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     expect(subject((await board.get(d.pane(tree).subject!()!))!)).not.toBe("Bean packet");
     h.press({ kind: "mouse", action: "down", button: 2, x: bx, y: by } as never);
     h.press({ kind: "mouse", action: "up", button: 2, x: bx, y: by } as never);
-    await until(() => plainLines().some((l: string) => l.includes("copy web link")), "the row's menu");
+    await until(() => plainLines().some((l: string) => l.includes("copy note web link")), "the row's menu");
     const picked = d.pane(tree).subject!()!;
     expect(subject((await board.get(picked))!)).toBe("Bean packet");
-    // The "copy id" under the "Note" heading (the Tile group has one too).
-    const menu = plainLines(), nh = menu.findIndex((l: string) => /│ Note ─/.test(l)), my = menu.findIndex((l: string, i: number) => i > nh && /│\s*copy id\s/.test(l)), mx = menu[my]!.lastIndexOf("copy id") + 2;
+    // Its "copy note id", first under the Copy heading.
+    const menu = plainLines(), nh = menu.findIndex((l: string) => /│ Copy ─/.test(l)), my = menu.findIndex((l: string, i: number) => i > nh && /│\s*copy note id\s/.test(l)), mx = menu[my]!.lastIndexOf("copy note id") + 2;
     const at = h.written.length;
     h.press({ kind: "mouse", action: "down", button: 0, x: mx, y: my } as never);
     h.press({ kind: "mouse", action: "up", button: 0, x: mx, y: my } as never);
@@ -295,7 +297,7 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await until(() => plainLines().some((l: string) => /Queued · t-/.test(l)), "the lane's menu");
     // Typed, the menu narrows to the card's Note row: ⏎ copies the card's reference.
     const before = h.written.length;
-    for (const c of "copy web link") h.ch(c);
+    for (const c of "copy note web link") h.ch(c);
     h.press({ kind: "enter" });
     await until(() => /\/p\/HOME-001/.test(Buffer.from((h.written.slice(before).join("").match(/\x1b\]52;c;([A-Za-z0-9+/=]+)/)?.[1]) ?? "", "base64").toString()), "the card's web link, by its Work ID");
     h.press({ kind: "esc" });

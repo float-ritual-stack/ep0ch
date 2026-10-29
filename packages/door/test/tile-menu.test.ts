@@ -63,7 +63,8 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     const out = await act("tile.menu", {}, "reader") as { tile: string; rows: MenuRow[] };
     expect(out.tile).toBe(D().tileInfo("reader").tile);
     const groups = [...new Set(out.rows.map(r => r.group))];
-    expect(groups.slice(0, 1)).toEqual(["Tile"]);
+    // The copy rows first (PIE-1398: in reach in a short tile), then the tile's own operations.
+    expect(groups.slice(0, 2)).toEqual(["Copy", "Tile"]);
     expect(groups).toContain("Note");
     const by = (action: string) => out.rows.find(r => r.action === action);
     expect(by("tile.close")).toMatchObject({ label: "close", key: "ctrl+w x", tile: expect.stringMatching(/^t-/) });
