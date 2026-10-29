@@ -1,7 +1,7 @@
 import type { RenderElement, RenderSurface } from 'claude-code'
 
 import type { DetailEntry, DetailHistory, DetailLink, DetailSource } from '../types'
-import { linkifyReferences } from './references'
+import { linkifyReferences, outlinerUriOf } from './references'
 import { COMPONENT_OPEN, componentBlocks } from './link-grammar.js'
 
 /**
@@ -143,11 +143,11 @@ export function subtreeMarkdownOf(stdout: string, id: string): { markdown: strin
   return { markdown, isTruncated: completeness?.kind !== undefined && completeness.kind !== 'complete' }
 }
 
-/** Every stand-in link in linkified Markdown, once each, with its text. */
+/** Every reference link in linkified Markdown (one `outlinerUriOf` reads back), once each, with its text. */
 export function linksOf(markdown: string): DetailLink[] {
   const seen = new Map<string, string>()
-  for (const m of markdown.matchAll(/\[((?:\\.|[^\]\\\n])*)\]\((https:\/\/pi-outliner\.invalid\/[^)\s]+)\)/g)) {
-    if (!seen.has(m[2]!)) seen.set(m[2]!, m[1]!.replace(/\\(.)/g, '$1'))
+  for (const m of markdown.matchAll(/\[((?:\\.|[^\]\\\n])*)\]\((https?:\/\/[^)\s]+)\)/g)) {
+    if (!seen.has(m[2]!) && outlinerUriOf(m[2]!) !== null) seen.set(m[2]!, m[1]!.replace(/\\(.)/g, '$1'))
   }
   return [...seen].map(([href, label]) => ({ href, label }))
 }

@@ -1,6 +1,6 @@
 /**
  * A reply's references, drawn as their labels only (PIE-1042). Claude Code's `Markdown` and `Link` print the address
- * beside the text in a terminal that has no hyperlinks (`PIE-1008 (https://pi-outliner.invalid/work/PIE-1008)`), and
+ * beside the text in a terminal that has no hyperlinks (`PIE-1008 (https://my.ep0ch.sh/pub/o/pie/p/PIE-1008)`), and
  * neither can be told not to. So in a terminal the lines that hold a reference are drawn by the mod, one pressable
  * label per reference; every other line stays the engine's Markdown, in runs. Pure: the elements come from register.ts.
  */

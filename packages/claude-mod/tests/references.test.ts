@@ -1,35 +1,36 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
 
 import { replyBlocks } from '../hooks/reply-lines'
-import { unlabelledBlockIds, linkifyReferences, outlinerReferenceOf, outlinerUriFor, outlinerUriOf } from '../hooks/references'
+import { unlabelledBlockIds, linkifyReferences, outlinerReferenceOf, outlinerUriFor, outlinerUriOf, webOriginOf } from '../hooks/references'
 
 tier('user')
 
 const UUID = '88476cef-3559-492e-85c3-2d6d31de882e'
 const STAND_IN = 'https://pi-outliner.invalid/'
+const WEB = 'https://my.ep0ch.sh/pub/p/'
 
 describe('references', () => {
-  test('pages, block references and Work IDs become stand-in links', async () => {
+  test('pages, block references and Work IDs link to their pages on the web client (PIE-926)', async () => {
     const { text, hrefs } = linkifyReferences(
       `See PIE-356, [[PIE-325]], [[Daily notes|the notes]] and ((${UUID})).`,
       ['PIE'],
     )
     expect(text).toBe(
-      `See [PIE-356](${STAND_IN}work/PIE-356), [PIE-325](${STAND_IN}page/PIE-325), ` +
-        `[the notes](${STAND_IN}page/Daily%20notes) and [${UUID.slice(0, 8)}…](${STAND_IN}block/${UUID}).`,
+      `See [PIE-356](${WEB}PIE-356), [PIE-325](${WEB}PIE-325), ` +
+        `[the notes](${WEB}Daily%20notes) and [${UUID.slice(0, 8)}…](${WEB}${UUID}).`,
     )
     expect(hrefs).toEqual([
-      `${STAND_IN}work/PIE-356`,
-      `${STAND_IN}page/PIE-325`,
-      `${STAND_IN}page/Daily%20notes`,
-      `${STAND_IN}block/${UUID}`,
+      `${WEB}PIE-356`,
+      `${WEB}PIE-325`,
+      `${WEB}Daily%20notes`,
+      `${WEB}${UUID}`,
     ])
   })
 
   test('a labelled block reference draws its label, and repeats share one href', async () => {
     const { text, hrefs } = linkifyReferences(`((${UUID}|the ticket)) then PIE-1 and PIE-1`, ['PIE'])
     expect(text).toBe(
-      `[the ticket](${STAND_IN}block/${UUID}) then [PIE-1](${STAND_IN}work/PIE-1) and [PIE-1](${STAND_IN}work/PIE-1)`,
+      `[the ticket](${WEB}${UUID}) then [PIE-1](${WEB}PIE-1) and [PIE-1](${WEB}PIE-1)`,
     )
     expect(hrefs).toHaveLength(2)
   })
@@ -49,25 +50,25 @@ describe('references', () => {
   test('a four-backtick fence is code until four backticks close it; indented code is code too (PIE-631)', async () => {
     const fenced = ['````md', '```', `PIE-1 and ((${UUID}))`, '```', '````', 'After: PIE-2'].join('\n')
     const { text, hrefs } = linkifyReferences(fenced, ['PIE'])
-    expect(text).toBe(['````md', '```', `PIE-1 and ((${UUID}))`, '```', '````', `After: [PIE-2](${STAND_IN}work/PIE-2)`].join('\n'))
-    expect(hrefs).toEqual([`${STAND_IN}work/PIE-2`])
-    expect(linkifyReferences('Text\n\n    PIE-3 in code\n\nPIE-4', ['PIE']).hrefs).toEqual([`${STAND_IN}work/PIE-4`])
+    expect(text).toBe(['````md', '```', `PIE-1 and ((${UUID}))`, '```', '````', `After: [PIE-2](${WEB}PIE-2)`].join('\n'))
+    expect(hrefs).toEqual([`${WEB}PIE-2`])
+    expect(linkifyReferences('Text\n\n    PIE-3 in code\n\nPIE-4', ['PIE']).hrefs).toEqual([`${WEB}PIE-4`])
   })
 
   test('a block reference preserves its fragment when pressed', async () => {
     const { text, hrefs } = linkifyReferences(`See ((${UUID}^beds|the beds)).`, [])
-    expect(text).toBe(`See [the beds](${STAND_IN}block/${UUID}%5Ebeds).`)
-    expect(hrefs).toEqual([`${STAND_IN}block/${UUID}%5Ebeds`])
+    expect(text).toBe(`See [the beds](${WEB}${UUID}#beds).`)
+    expect(hrefs).toEqual([`${WEB}${UUID}#beds`])
     expect(outlinerUriFor(`((${UUID}^beds))`)).toBe(`pi-outliner://block/${UUID}?fragment=beds`)
   })
 
   test('bare Work IDs follow the configured prefixes only', async () => {
-    expect(linkifyReferences('ABC-12 and PIE-3', ['ABC']).hrefs).toEqual([`${STAND_IN}work/ABC-12`])
-    expect(linkifyReferences('PIE-3 and [[x]]', []).hrefs).toEqual([`${STAND_IN}page/x`])
+    expect(linkifyReferences('ABC-12 and PIE-3', ['ABC']).hrefs).toEqual([`${WEB}ABC-12`])
+    expect(linkifyReferences('PIE-3 and [[x]]', []).hrefs).toEqual([`${WEB}x`])
   })
 
   test('link-label brackets are escaped', async () => {
-    expect(linkifyReferences(`((${UUID}|x [y] z))`, []).text).toBe(`[x \\[y\\] z](${STAND_IN}block/${UUID})`)
+    expect(linkifyReferences(`((${UUID}|x [y] z))`, []).text).toBe(`[x \\[y\\] z](${WEB}${UUID})`)
   })
 
   test('stand-ins map back to Outliner URIs; other links do not', async () => {
@@ -77,6 +78,30 @@ describe('references', () => {
     expect(outlinerUriOf(`${STAND_IN}resource/x`)).toBeNull()
     expect(outlinerUriOf(`${STAND_IN}work/PIE-1/extra`)).toBeNull()
     expect(outlinerUriOf('https://example.com/work/PIE-1')).toBeNull()
+  })
+
+  test('a page link names the session\'s outline, or the one the reference names, and maps back to the Outliner URI (PIE-926)', async () => {
+    const web = { origin: 'https://web.example', outline: 'garden' }
+    const { text, hrefs } = linkifyReferences(`PIE-7, [[Bed plan^north]], ((orchard:${UUID})) and ((${UUID}^beds)).`, ['PIE'], () => undefined, () => undefined, web)
+    expect(hrefs).toEqual([
+      'https://web.example/pub/o/garden/p/PIE-7',
+      'https://web.example/pub/o/garden/p/Bed%20plan#north',
+      `https://web.example/pub/o/orchard/p/${UUID}`,
+      `https://web.example/pub/o/garden/p/${UUID}#beds`,
+    ])
+    expect(text).toContain('[orchard · ')
+    const back = hrefs.map(href => outlinerUriOf(href, web))
+    expect(back).toEqual([
+      'pi-outliner://work/PIE-7',
+      'pi-outliner://page/Bed%20plan?fragment=north',
+      `pi-outliner://block/orchard%3A${UUID}`,
+      `pi-outliner://block/${UUID}?fragment=beds`,
+    ])
+    // A press in a terminal stays the mod's (a reference), not a link out of the outline.
+    expect(replyBlocks(text).flatMap(b => b.kind === 'line' ? b.parts : []).filter(p => 'ref' in p && !('external' in p))).toHaveLength(4)
+    expect(webOriginOf('https://my.example.test/, https://other.example')).toBe('https://my.example.test')
+    expect(webOriginOf(undefined)).toBe('https://my.ep0ch.sh')
+    expect(outlinerUriOf('https://web.example/pub/p/x#line:74')).toBeNull()
   })
 
   test('a reference as the model writes it becomes an Outliner URI', async () => {
@@ -98,9 +123,9 @@ describe('references', () => {
 
   test('an unaliased ((id)) shows the note title, or the short id until it is known; an alias always wins (PIE-1043)', () => {
     const none = linkifyReferences(`See ((${UUID})) and ((${UUID}^beds)).`, [])
-    expect(none.text).toBe(`See [${UUID.slice(0, 8)}…](${STAND_IN}block/${UUID}) and [${UUID.slice(0, 8)}…](${STAND_IN}block/${UUID}%5Ebeds).`)
+    expect(none.text).toBe(`See [${UUID.slice(0, 8)}…](${WEB}${UUID}) and [${UUID.slice(0, 8)}…](${WEB}${UUID}#beds).`)
     const titled = linkifyReferences(`See ((${UUID})) and ((${UUID}^beds)) and ((${UUID}|mine)).`, [], () => 'Bike shed')
-    expect(titled.text).toBe(`See [Bike shed](${STAND_IN}block/${UUID}) and [Bike shed › beds](${STAND_IN}block/${UUID}%5Ebeds) and [mine](${STAND_IN}block/${UUID}).`)
+    expect(titled.text).toBe(`See [Bike shed](${WEB}${UUID}) and [Bike shed › beds](${WEB}${UUID}#beds) and [mine](${WEB}${UUID}).`)
     expect(linkifyReferences(`((${UUID}))`, [], () => 'x'.repeat(80)).text).toContain(`[${'x'.repeat(47)}…]`)
     expect(unlabelledBlockIds(`((${UUID.toUpperCase()})) ((${UUID}^a)) ((${UUID}|alias)) https://my.ep0ch.sh/pub/p/${UUID}`)).toEqual([UUID])
   })
@@ -109,9 +134,9 @@ describe('references', () => {
     const source = `See https://my.ep0ch.sh/pub/p/PIE-8. And [it](https://my.ep0ch.sh/pub/p/Daily%20notes), https://my.ep0ch.sh/pub/p/${UUID} and https://example.com/a.`
     const { text, hrefs } = linkifyReferences(source, [], id => (id === UUID ? 'Bike shed' : undefined))
     expect(text).toBe(
-      `See [PIE-8](${STAND_IN}work/PIE-8). And [it](${STAND_IN}page/Daily%20notes), [Bike shed](${STAND_IN}block/${UUID}) and https://example.com/a.`,
+      `See [PIE-8](${WEB}PIE-8). And [it](${WEB}Daily%20notes), [Bike shed](${WEB}${UUID}) and https://example.com/a.`,
     )
-    expect(hrefs).toEqual([`${STAND_IN}work/PIE-8`, `${STAND_IN}page/Daily%20notes`, `${STAND_IN}block/${UUID}`])
+    expect(hrefs).toEqual([`${WEB}PIE-8`, `${WEB}Daily%20notes`, `${WEB}${UUID}`])
     expect(linkifyReferences('`https://my.ep0ch.sh/pub/p/PIE-8`', []).hrefs).toEqual([])
   })
 
@@ -121,7 +146,7 @@ describe('references', () => {
     expect(blocks.map(b => b.kind)).toEqual(['markdown', 'line', 'markdown'])
     expect(blocks[1]).toEqual({
       kind: 'line',
-      parts: [{ text: '• ' }, { text: 'see ' }, { ref: `${STAND_IN}work/PIE-1`, label: 'PIE-1' }, { text: ' and ' }, { ref: `${STAND_IN}work/PIE-2`, label: 'PIE-2' }],
+      parts: [{ text: '• ' }, { text: 'see ' }, { ref: `${WEB}PIE-1`, label: 'PIE-1' }, { text: ' and ' }, { ref: `${WEB}PIE-2`, label: 'PIE-2' }],
     })
     expect(JSON.stringify(blocks)).not.toContain('PIE-3](')
   })
@@ -144,13 +169,13 @@ describe('references', () => {
     expect(JSON.stringify(blocks)).not.toContain('*')
     expect(blocks[0]).toEqual({
       kind: 'line',
-      parts: [{ text: 'A bold line with ', style: 'bold' }, { ref: `${STAND_IN}work/PIE-1030`, label: 'PIE-1030' }, { text: ' inside it', style: 'bold' }],
+      parts: [{ text: 'A bold line with ', style: 'bold' }, { ref: `${WEB}PIE-1030`, label: 'PIE-1030' }, { text: ' inside it', style: 'bold' }],
     })
     expect(blocks[1]).toEqual({
       kind: 'line',
       parts: [
-        { text: 'Some ' }, { text: 'italic ', style: 'italic' }, { ref: `${STAND_IN}work/PIE-2`, label: 'PIE-2' }, { text: ' words', style: 'italic' },
-        { text: ' and ' }, { text: 'both ', style: 'bold-italic' }, { ref: `${STAND_IN}work/PIE-3`, label: 'PIE-3' },
+        { text: 'Some ' }, { text: 'italic ', style: 'italic' }, { ref: `${WEB}PIE-2`, label: 'PIE-2' }, { text: ' words', style: 'italic' },
+        { text: ' and ' }, { text: 'both ', style: 'bold-italic' }, { ref: `${WEB}PIE-3`, label: 'PIE-3' },
       ],
     })
   })
@@ -165,7 +190,7 @@ describe('references', () => {
     if (table.kind !== 'table') throw Error('not a table')
     expect(table.header).toEqual([[{ text: 'Ticket' }], [{ text: 'What' }]])
     expect(table.rows).toEqual([
-      [[{ ref: `${STAND_IN}work/PIE-1031`, label: 'PIE-1031' }], [{ text: 'argument', style: 'bold' }, { text: ' forms' }]],
+      [[{ ref: `${WEB}PIE-1031`, label: 'PIE-1031' }], [{ text: 'argument', style: 'bold' }, { text: ' forms' }]],
       [[{ text: 'plain' }], [{ text: 'row' }]],
     ])
     // A table with no reference stays the engine's.

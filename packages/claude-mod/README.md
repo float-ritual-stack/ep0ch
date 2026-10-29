@@ -120,7 +120,10 @@ A click, `show` and `door_open` share one open (`openNote` in
   and `Link` print the address beside a link when the terminal has no hyperlinks, and cannot be told not to, so in a
   terminal the mod draws the lines that hold a reference itself (`hooks/reply-lines.ts`: one pressable `Button` per
   reference, prose around it with bold, italic and code kept) and leaves every other line to the engine's Markdown.
-  The desktop and VS Code keep the Markdown, whose links are real, on `https://pi-outliner.invalid/...` stand-ins.
+  The desktop and VS Code keep the Markdown, whose links are real: each reference links to its note's page on the web
+  client (PIE-926), `<EP0CH_WEB_URL's first origin, else https://my.ep0ch.sh>/pub/o/<the session's outline>/p/<PIE-n|page|id>`
+  (another outline's reference names that outline), so it opens in a browser, in claude.ai and on a phone; a press the
+  mod takes maps it back and opens it in the door or Detail as before.
   `https://my.ep0ch.sh/pub/p/<PIE-n|page|id>` that Claude writes, bare or as `[label](url)`, is the same reference
   (a bare one drawn as its PIE-n, page name or the note's title). An unaliased `((id))` or `((id^anchor))` is drawn as its note's title (cut to 48 characters, then `› anchor`), looked up once through the same cache as a tool row's titles and redrawn when it lands; until then, and when the block is not found, as its first eight characters and `…`; a press still opens it. Any other http(s) link, bare or `[label](url)`, is drawn in the terminal as the engine's `Link` (an OSC 8 hyperlink the terminal opens) in the dim `inactive` colour with a trailing `↗`, apart from the underlined references that open in the door; a bare address keeps its text.
   Emphasis spanning a reference and other text stays bold or italic, and a table with a reference in a cell is drawn

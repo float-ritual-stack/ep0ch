@@ -395,9 +395,9 @@ describe('register', () => {
     // A line with no reference stays the engine's Markdown.
     const mixed = await mountReply($, 'Plain **line** first.\nThen PIE-3 here.')
     expect((await mixed.find({ type: 'Markdown' }))?.props.text).toBe('Plain **line** first.')
-    expect(((await mixed.find({ type: 'Box' }))?.text ?? '')).not.toContain('pi-outliner.invalid')
+    expect(((await mixed.find({ type: 'Box' }))?.text ?? '')).not.toContain('my.ep0ch.sh/pub')
 
-    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-8' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-8' })
     await session.clock.settle()
     expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', 'pi-outliner://work/PIE-8'])
 
@@ -420,11 +420,11 @@ describe('register', () => {
     })
     await session.clock.settle()
     for (const [key, label] of [
-      ['https://pi-outliner.invalid/page/Daily%20notes', 'Daily notes'],
-      [`https://pi-outliner.invalid/block/${BLOCK}`, 'Daily notes'],
-      [`https://pi-outliner.invalid/block/${BLOCK}#2`, 'the note'],
-      ['https://pi-outliner.invalid/work/PIE-7', 'PIE-7'],
-      ['https://pi-outliner.invalid/work/PIE-8', 'PIE-8'],
+      ['https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes', 'Daily notes'],
+      [`https://my.ep0ch.sh/pub/o/garden/p/${BLOCK}`, 'Daily notes'],
+      [`https://my.ep0ch.sh/pub/o/garden/p/${BLOCK}#2`, 'the note'],
+      ['https://my.ep0ch.sh/pub/o/garden/p/PIE-7', 'PIE-7'],
+      ['https://my.ep0ch.sh/pub/o/garden/p/PIE-8', 'PIE-8'],
     ]) {
       expect((await drawn.find({ key }))?.text).toBe(label)
     }
@@ -432,7 +432,7 @@ describe('register', () => {
     const row = await drawn.find({ type: 'Box' })
     expect(row?.text).toContain('\u276f See ')
     expect(row?.props.backgroundColor).toBe('userMessageBackground')
-    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
     await session.clock.settle()
     expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', 'pi-outliner://work/PIE-7'])
   })
@@ -468,7 +468,7 @@ describe('register', () => {
     await session.clock.settle()
     expect((await drawn.find({ type: 'Box' }))?.text ?? '').toContain('See Daily notes here.')
     expect((await drawn.find({ type: 'Box' }))?.text ?? '').not.toContain(BLOCK)
-    await drawn.press({ key: `https://pi-outliner.invalid/block/${BLOCK}` })
+    await drawn.press({ key: `https://my.ep0ch.sh/pub/o/garden/p/${BLOCK}` })
     await session.clock.settle()
     expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', `pi-outliner://block/${BLOCK}`])
   })
@@ -521,7 +521,7 @@ describe('register', () => {
     expect(await link('https://example.com/c')).toBeUndefined()
     expect(await link('https://example.com/d')).toBeDefined()
     // The internal reference is still a pressable, underlined Button, never a Link.
-    expect(await drawn.find({ key: 'https://pi-outliner.invalid/work/PIE-7' })).toBeDefined()
+    expect(await drawn.find({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })).toBeDefined()
   })
 
   test('a bold line and a table with references are drawn as bold and a whole table, their references pressable (PIE-1043)', async ($, on) => {
@@ -533,9 +533,9 @@ describe('register', () => {
     expect(shown).not.toMatch(/\| PIE-1031|\| PIE-1032/)
     expect(shown).toContain('Ticket')
     expect(shown).toContain('argument forms')
-    expect(await drawn.find({ key: 'https://pi-outliner.invalid/work/PIE-1031' })).toBeDefined()
+    expect(await drawn.find({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-1031' })).toBeDefined()
     expect(await drawn.find({ type: 'Text', text: 'bold ', bold: true })).toBeDefined()
-    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-1032' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-1032' })
     await session.clock.settle()
     expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', 'pi-outliner://work/PIE-1032'])
   })
@@ -545,7 +545,7 @@ describe('register', () => {
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See [[Daily notes]].')
 
-    await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
     await session.clock.settle()
 
     // The Outliner's own ensure-detail, from Claude's pane, in the session's workspace, never focusing.
@@ -569,7 +569,7 @@ describe('register', () => {
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See PIE-7.')
 
-    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
     await session.clock.settle()
 
     expect(herdrOpens(session.runs, 'ensure-detail')).toHaveLength(1)
@@ -587,7 +587,7 @@ describe('register', () => {
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See PIE-7.')
 
-    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
     await session.clock.settle()
 
     expect(herdrOpens(session.runs, 'ensure-detail')).toHaveLength(1)
@@ -601,7 +601,7 @@ describe('register', () => {
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See PIE-7.')
 
-    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
     await session.clock.settle()
 
     expect(session.runs.some(run => run.argv.includes('link'))).toBe(false)
@@ -626,7 +626,7 @@ describe('register', () => {
     const drawn = await mountReply($, 'See PIE-7.')
 
     await Promise.all([
-      drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' }),
+      drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' }),
       $.tool.call({ tool: 'mcp__ep0ch__show', reference: 'PIE-8' }),
     ])
     await session.clock.settle()
@@ -708,7 +708,7 @@ describe('register', () => {
         on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
         await session.begin(() => $.session.start(START))
         const drawn = await mountReply($, 'See [[Daily notes]].')
-        await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+        await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
         await session.clock.settle()
         const opened = session.runs.find(run => run.argv.includes('door-open'))!
         expect(opened.argv[opened.argv.indexOf('--control') + 1]).toBe(LIVE)
@@ -729,7 +729,7 @@ describe('register', () => {
         on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
         await session.begin(() => $.session.start(START))
         const drawn = await mountReply($, 'See [[Daily notes]].')
-        await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+        await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
         await session.clock.settle()
         expect(asked[0]!.slice(0, 3)).toEqual(['ep0ch', 'act', 'host.tileOf'])
         expect(asked[0]).toContain('port=51234')
@@ -748,7 +748,7 @@ describe('register', () => {
       on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See [[Daily notes]].')
-      await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+      await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
       await session.clock.settle()
       // The marker went to Claude's terminal, and the door was asked which tile drew that same token.
       const written = session.runs.find(run => run.argv[0] === 'sh' && String(run.argv.at(-1)).includes('?mark='))!
@@ -766,7 +766,7 @@ describe('register', () => {
       on('ui.open', () => ({ value: { isPlaced: false, reason: 'opened unasked under 144 columns (120 now)' } }))
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See [[Daily notes]].')
-      await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+      await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
       await session.clock.settle()
       expect(session.toasts.join('\n')).toContain('no door runs on garden')
     })
@@ -836,7 +836,7 @@ describe('register', () => {
       await session.begin(() => $.session.start({ ...START, surface: 'desktop' }))
       const reply = await $.ui.mount({ plugin: 'ep0ch', surface: 'desktop', component: 'AssistantMessage', props: { text: 'See [[Daily notes]].', isFirstOfReply: true } })
 
-      await reply.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/page/Daily%20notes' } })
+      await reply.press({ key: 'outliner-references', link: { href: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' } })
       await session.clock.settle()
       // Seated by the press itself (the person's ask), then opened by openNote; nothing copied, no toast, no Herdr.
       expect(opened).toEqual([DETAIL, DETAIL])
@@ -855,17 +855,17 @@ describe('register', () => {
       expect(body?.type).toBe('Markdown')
       expect(body?.props.text).toBe(
         '# Daily notes\n[type::note]\n## Today\n- rode to the shed\n\n' +
-        '- Bring the [Other page](https://pi-outliner.invalid/page/Other%20page) list, see [PIE-7](https://pi-outliner.invalid/work/PIE-7)',
+        '- Bring the [Other page](https://my.ep0ch.sh/pub/p/Other%20page) list, see [PIE-7](https://my.ep0ch.sh/pub/p/PIE-7)',
       )
       expect(body?.props.dimColor).toBeUndefined()
-      expect(body?.props.pressableLinks).toEqual(['https://pi-outliner.invalid/page/Other%20page', 'https://pi-outliner.invalid/work/PIE-7'])
+      expect(body?.props.pressableLinks).toEqual(['https://my.ep0ch.sh/pub/p/Other%20page', 'https://my.ep0ch.sh/pub/p/PIE-7'])
       // Desktop's links are in the Markdown: no link buttons.
       expect(await pane.find({ key: 'detail-link-1' })).toBeUndefined()
       // Back from the first note is the mentions list.
       expect((await pane.find({ key: 'detail-back' }))?.text).toBe('← mentions')
 
       // A link in the note opens in the pane, through the same open.
-      await pane.press({ key: 'detail-body', link: { href: 'https://pi-outliner.invalid/page/Other%20page' } })
+      await pane.press({ key: 'detail-body', link: { href: 'https://my.ep0ch.sh/pub/p/Other%20page' } })
       await session.clock.settle()
       expect(await titleOf(pane)).toBe('Other page')
       expect((await pane.find({ key: 'detail-body' }))?.props.text).toBe('# Other page\nThe chain oil is the wax one.')
@@ -913,7 +913,7 @@ describe('register', () => {
       const opened = panesIn(on)
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See [[Daily notes]].')
-      await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+      await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
       await session.clock.settle()
       expect(opened[0]).toBe(DETAIL)
 
@@ -951,7 +951,7 @@ describe('register', () => {
       const body = await (await detail($, 'desktop')).find({ key: 'detail-body' })
       expect(body?.props.text).toBe(
         '# Daily notes\n[type::note]\n## Today\n- rode to the shed\n\n' +
-        '- Bring the [Other page](https://pi-outliner.invalid/page/Other%20page) list, see [PIE-7](https://pi-outliner.invalid/work/PIE-7)',
+        '- Bring the [Other page](https://my.ep0ch.sh/pub/p/Other%20page) list, see [PIE-7](https://my.ep0ch.sh/pub/p/PIE-7)',
       )
     })
 
@@ -1066,7 +1066,7 @@ describe('register', () => {
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See PIE-7.')
 
-      await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+      await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
       await session.clock.settle()
 
       const opened = doorOpenOf(session.runs)!
@@ -1086,7 +1086,7 @@ describe('register', () => {
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See PIE-7.')
 
-      await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+      await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
       await session.clock.settle()
 
       expect(session.toasts).toEqual(['Could not open PIE-7 in the Outliner: right holds an edit; an agent never takes it'])
@@ -1102,7 +1102,7 @@ describe('register', () => {
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See PIE-7.')
 
-      await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+      await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
       await session.clock.settle()
 
       // Not seated by the press (a door was named), but opened once the door didn't answer.

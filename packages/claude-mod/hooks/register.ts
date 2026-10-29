@@ -30,6 +30,7 @@ import {
   outlinerReferenceOf,
   outlinerUriFor,
   outlinerUriOf,
+  webOriginOf,
 } from './references'
 import { replyBlocks, tableWidths, type LinePart, type ReplyBlock } from './reply-lines'
 import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-persona'
@@ -285,7 +286,9 @@ async function drawReferences($: EngineInterface, e: RenderInput<'AssistantMessa
     const location = await $.state.get({ ...TOOL_OUTLINES, id });
     if (location.value) outlines.set(id, location.value);
   }
-  const { text, hrefs } = linkifyReferences(e.props.text, references!.prefixes, id => titles.get(id), id => outlines.get(id))
+  // Each reference links to its note's page on the web client (PIE-926), which opens anywhere: a browser, claude.ai, a phone.
+  const web = { origin: webOriginOf(await $.env.get('EP0CH_WEB_URL')), ...(workspace.outline ? { outline: workspace.outline } : {}) }
+  const { text, hrefs } = linkifyReferences(e.props.text, references!.prefixes, id => titles.get(id), id => outlines.get(id), web)
   if (prompt && hrefs.length === 0) return null
   // A terminal draws a link out of the outline itself too (a trailing arrow, dim), so a reply with one is not left to the engine.
   const blocks: ReplyBlock[] = e.surface === 'terminal' ? replyBlocks(text) : [{ kind: 'markdown', text }]
@@ -2193,7 +2196,7 @@ function outlineFlags(workspace: Workspace): string {
 
 /** A click on a reference: opened by `openNote`, or a toast saying why not. */
 async function openReference($: EngineInterface, workspace: Workspace, href: string, surface: RenderSurface): Promise<void> {
-  const uri = outlinerUriOf(href)
+  const uri = outlinerUriOf(href, workspace.outline ? { outline: workspace.outline } : {})
   if (uri) await openUri($, workspace, uri, surface)
 }
 
