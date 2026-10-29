@@ -24,7 +24,7 @@ export const marks: Record<string, string[]> = {
   sources: ["Which issue is the swap, see [[seed", "issue"],
   twins: ["Fix the back gate latch", "Queued"],
   "write-review": ["Shed status tonight", "Jev's suggestions", "Each finding, newest first"],
-  "search-sure": ["Search evals", "EVERY RUN, PER MODEL", "Cases by source"],
+  "search-sure": ["Search evals", "EVERY RUN, NEWEST FIRST", "Cases by source"],
   // Four readers on one note, each writing a comment in another place (PIE-770).
   composer: ["Writing in the margin", "[inline ▸]", "[floating ▸]", "[split ▸]", "[popup ▸]"],
   // A comment on the whole note in its own tile beside the reader (PIE-846); the note's whole-note thread in the margin.
@@ -103,7 +103,7 @@ export const marks: Record<string, string[]> = {
   steps: ["Shed roof build log", "Needs you", "felt from the merchant", "screws, not nails"],
   values: ["Vent rail demo", "Owner: Ada", "did you mean owner?", "Spring sowing jobs"],
   "figure-steps": ["Shed door test plan", "YOU TEST", "lift the latch twice", "Plane the door"],
-  "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "shown (M)"],
+  "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", " (M)"],
   // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
   marginalia: ["Greenhouse plan for the spring", "question · ", "cold-frame-guide.md", "Marginalia notebook"],
   // The pump rota's margin: its current comment and the kept one's TL;DR face; the seen one is off the margin.

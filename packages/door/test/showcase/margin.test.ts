@@ -176,7 +176,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as any; };
-    await until(() => screen().includes("question · ") && / comments? · shown \(M\)/.test(screen()), "the plan with its cards and count", 8000);
+    await until(() => screen().includes("question · ") && / comments? · short cards \(M\)/.test(screen()), "the plan with its cards and count", 8000);
     const planId = [...stage().panes.keys()].find((id: number) => stage().nameOf(id) === "plan") as number;
     const plan = () => stage().panes.get(planId) as ReaderPane;
     expect(plan().surface.marginMode).toBe("trim");
@@ -186,10 +186,10 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
       const x = ls[y]!.search(re) + 3;
       press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     };
-    click(/■ \d+( comments?)? · (shown|full) \(M\)/);
+    click(/■ \d+( comments?)? · (short cards|whole) \(M\)/);
     await until(() => plan().surface.marginMode === "full", "cards whole");
-    click(/■ \d+( comments?)? · (shown|full) \(M\)/);
-    await until(() => /■ \d+( comments?)? · marks \(M\)/.test(screen()), "the count says marks only");
+    click(/■ \d+( comments?)? · (short cards|whole) \(M\)/);
+    await until(() => /■ \d+( comments?)? · as marks \(M\)/.test(screen()), "the count says marks only");
     expect(plan().surface.marginMode).toBe("off");
     expect(screen()).not.toContain("question · ");
     // Kept with the tile: its spec (what a layout, a handover and a restart save) says so, and a tile made from it reads the same.
@@ -197,8 +197,78 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     expect(spec.margin).toBe("off");
     expect((makeTile({ ...spec }) as ReaderPane).surface.marginMode).toBe("off");
     // As it was, for the tests after.
-    click(/■ \d+( comments?)? · marks \(M\)/);
+    click(/■ \d+( comments?)? · as marks \(M\)/);
     await until(() => plan().surface.marginMode === "trim", "a row each again");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+
+  // PIE-1255: in marks only, a card opened above where the reader is anchored comes into view at once (it was drawn
+  // above the window, so nothing changed until a scroll); the whole-note marks are after the title only.
+  test("marks only (PIE-1255): each whole-note [+] after the title opens its card in view, by a click, with no scroll; the gutter keeps no row of them", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as Desk; };
+    await until(() => screen().includes("question · "), "the comments loaded", 8000);
+    const act = (action: string, args: Record<string, unknown>) => stage().dispatch.act({ action, args, tile: "plan" }, { kind: "agent", id: "test-agent" }) as Promise<any>;
+    const before = (await board.comments(seeded.notes.marginalia.id)).length;
+    const added = [await act("comment.note", { body: "Label the trays by row." }), await act("comment.note", { body: "Order more fleece." })].map(r => r.thread as string);
+    const bodies = ["Keep this plan beside the seed trays.", "Label the trays by row.", "Order more fleece."];
+    await until(() => screen().includes(`■ ${before + 2} comments`), "the two new threads");
+    await act("margin", { mode: "off" });
+    await until(() => screen().includes("marks (M)") && !bodies.some(b => screen().includes(b)), "marks only, every card folded");
+    const title = () => screen().split("\n").find(l => l.includes("Greenhouse plan for the spring") && !l.includes("═") && !l.includes("─ 1"))!;
+    // The three whole-note marks are after the title; the gutter in front of it holds none of them.
+    expect(title().split("[+]").length - 1).toBe(3);
+    expect(title().slice(0, title().indexOf("Greenhouse"))).not.toContain("[+]");
+    for (let i = 0; i < 3; i++) {
+      const ls = screen().split("\n"), y = ls.indexOf(title()), x = ls[y]!.indexOf("[+]", ls[y]!.indexOf("Greenhouse"));
+      press({ kind: "mouse", action: "down", button: 0, x: x + 1, y }); press({ kind: "mouse", action: "up", button: 0, x: x + 1, y });
+      await until(() => title().slice(title().indexOf("Greenhouse")).split("[+]").length - 1 === 2 - i, `mark ${i + 1} opened`);
+      // Every card opened so far is on the screen, with nothing scrolled.
+      const shown = bodies.filter(b => screen().includes(b)).length;
+      expect({ opened: i + 1, shown }).toEqual({ opened: i + 1, shown: i + 1 });
+    }
+    // As it was, for the tests after.
+    for (const id of added) await board.trash(id);
+    await act("margin", { mode: "trim" });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+
+  // PIE-1184: the person's quote lands where they are: the quote note opens where their new notes open (a float), lit as just
+  // arrived, in its edit with the cursor at the end of the quote; "under this note" is asked first, and makes it a child.
+  test("quoting lands where you are (PIE-1184): under this note first in the bar; the quote opens beside the plan, lit, in edit under the quote", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as Desk; };
+    await until(() => screen().includes("question · "), "the comments loaded", 8000);
+    const plan = seeded.notes.marginalia;
+    const thread = (await board.comments(plan.id)).find(t => t.body === "Why ten days, not a week?")!;
+    // The bar asks where, under this note first, each row saying where it lands.
+    void stage().dispatch.press("quote", { threads: thread.id }, "plan");
+    const asking = () => (app as any).bar?.describe() as { scope: string; rows: { label: string }[] } | undefined;
+    await until(() => asking()?.scope === "ask", "the power bar asking where", 5000);
+    expect(asking()!.rows.map(r => r.label).slice(0, 2)).toEqual(["under this note", "in the Inbox"]);
+    press({ kind: "enter" });
+    let quote: string | undefined;
+    const by = Date.now() + 5000;
+    while (!(quote = (await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn?.[0])) { if (Date.now() > by) throw new Error("timed out waiting for the quote"); await Bun.sleep(50); }
+    expect((await board.get(quote))!.parentId).toBe(plan.id);
+    // Opened where new notes open (a float over the screen), the plan left as it was, lit as arrived, in the person's
+    // edit, the cursor at the end of the quote (⏎ starts the reply under it).
+    const tiles = () => { const l = stage().layoutGet() as any; return [...l.tiles, ...l.floats] as any[]; };
+    const writing = () => tiles().find(t => t.name && (stage().pane(t.name) as ReaderPane)?.surface?.draft?.blockId === quote);
+    await until(() => !!writing(), "the quote's edit open", 5000);
+    expect(tiles().some(t => t.showing?.id === quote && t.arrival)).toBe(true);
+    expect(tiles().find(t => t.name === "plan")?.showing?.id).toBe(plan.id);
+    const d = (stage().pane(writing().name) as ReaderPane).surface.draft!;
+    expect(d.text.split("\n")[d.row]).toBe(`!((${thread.id}))`);
+    expect({ col: d.col, row: d.row }).toEqual({ col: `!((${thread.id}))`.length, row: d.text.split("\n").length - 1 });
+    const tile = writing;
+    // As it was: the edit put away, the quote taken back.
+    await stage().dispatch.press("edit.close", {}, tile().name).catch(() => {});
+    await board.trash(quote);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 
@@ -360,19 +430,24 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     await app.act({ action: "ext.undo", tile: "plan", as: "test-agent" });
     expect((await board.get(quoted.block).catch(() => null))?.deleted ?? true).toBe(true);
     expect((await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn).toBeUndefined();
-    // The person's: a click on the thread's [Quote], then the power bar asks where; ⏎ on its first row, the Inbox.
+    // The person's: a click on the thread's [Quote], then the power bar asks where; ↓ ⏎ on its second row, the Inbox.
     const quoteAt = () => { const ls = screen().split("\n"), y = ls.findIndex(l => l.includes("[Quote]") && l.includes("[TL;DR]")); return { y, x: y < 0 ? -1 : ls[y]!.indexOf("[Quote]") }; };
     await until(() => quoteAt().y >= 0, "the open thread's [Quote]", 5000);
     const q = quoteAt();
     press({ kind: "mouse", action: "down", button: 0, x: q.x + 2, y: q.y }); press({ kind: "mouse", action: "up", button: 0, x: q.x + 2, y: q.y });
     const asking = () => (app as any).bar?.describe() as { scope: string; rows: { label: string }[] } | undefined;
-    await until(() => asking()?.scope === "ask" && asking()!.rows.map(r => r.label).join() === "in the Inbox,under this note", "the power bar asking where", 5000);
-    press({ kind: "enter" });
+    await until(() => asking()?.scope === "ask" && asking()!.rows.map(r => r.label).join() === "under this note,in the Inbox", "the power bar asking where", 5000);
+    press({ kind: "down" }); press({ kind: "enter" });
     let mine: string | undefined;
     const by = Date.now() + 5000;
     while (!(mine = (await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn?.[0])) { if (Date.now() > by) throw new Error("timed out waiting for the person's quote"); await Bun.sleep(50); }
     expect((await board.get((await board.get(mine))!.parentId!))!.text).toMatch(/^Inbox/);
-    // ctrl+z in the reader takes the person's quote back.
+    // It opened in the person's edit (PIE-1184); closed untouched, nothing changed, the keys still on it.
+    const editing = () => { const l = stage().layoutGet() as any; return ([...l.tiles, ...l.floats] as any[]).find(t => t.name && (stage().pane(t.name) as ReaderPane)?.surface?.draft?.blockId === mine); };
+    await until(() => !!editing(), "the person's quote open in their edit", 5000);
+    await stage().dispatch.press("edit.close", {}, editing().name);
+    await until(() => !editing(), "the edit closed");
+    // ctrl+z there, the edit closed, takes the quote back (its flash says so).
     press({ kind: "char", ch: "z", ctrl: true });
     const gone = Date.now() + 5000;
     while ((await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn?.length) { if (Date.now() > gone) throw new Error("timed out waiting for ctrl+z to undo the quote"); await Bun.sleep(50); }

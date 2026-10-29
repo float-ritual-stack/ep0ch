@@ -26,6 +26,18 @@ import { printable } from "../text";
 export type MarginMode = "trim" | "full" | "off";
 export const MARGIN_MODES: readonly MarginMode[] = ["trim", "full", "off"];
 
+/**
+ * What each mode is, in the words every place that names it uses (PIE-1255: the byline's chip, M's flash, the agent's
+ * note, the `margin` action's docs): `chip` is what you see, one name each; `does` says it whole.
+ */
+export const MARGIN_MODE_WORDS: Readonly<Record<MarginMode, { chip: string; does: string }>> = {
+  trim: { chip: "short cards", does: "each comment a short card, beside the text when the tile is wide, a line under its words when it's narrow" },
+  full: { chip: "whole", does: "each comment whole, with its replies" },
+  off: { chip: "as marks", does: "no cards: a [+] beside each passage and after the title opens just that comment" },
+};
+/** The mode M (or a click on the chip) goes to next. */
+export const nextMargin = (mode: MarginMode): MarginMode => MARGIN_MODES[(MARGIN_MODES.indexOf(mode) + 1) % MARGIN_MODES.length]!;
+
 /** A rule tone as the look's surface it's drawn on: the callouts' families. */
 const SURFACE_OF: Readonly<Record<RuleTone, CalloutTone>> = { default: "blue", good: "green", warn: "amber", bad: "coral", accent: "violet", dim: "neutral" };
 /** The ink a tone's mark and card edge are drawn in. */
@@ -35,6 +47,17 @@ const INK_OF: Readonly<Record<RuleTone, number>> = { default: C.lcyan, good: C.l
 export function spanBg(props: Comment["props"]): string {
   return surfaceBg(SURFACE_OF[annotationTone(props ?? {})], Math.round(SURFACE_STEPS * 0.6));
 }
+
+/**
+ * The background a comment's card is drawn on (PIE-1255): its tone's surface, darker than its highlight, so a card reads
+ * as a comment beside the note's words and never as more of them.
+ */
+export function cardBg(props: Comment["props"]): string {
+  return surfaceBg(SURFACE_OF[annotationTone(props ?? {})], Math.round(SURFACE_STEPS * 0.35));
+}
+
+/** One row of a card on its background, `w` cells: the background survives the resets inside it. */
+export const onCard = (row: string, w: number, bg: string) => bg + pad(row, w).split(RESET).join(RESET + bg) + RESET;
 
 /** A rule decoration's span (place: span) in its tone. */
 export function toneBg(tone: string | undefined): string {
@@ -51,13 +74,19 @@ export const kindOf = (c: Comment) => annotationKind(c.props ?? {}, c.body);
 /** An annotation drawn as a card: one with something to read (a body, or replies). */
 export const hasCard = (c: Comment) => !!c.body.trim() || c.replies.length > 0;
 
+/** The widest the side column grows, in a wide tile with no measure (PIE-1255). */
+export const MARGIN_MAX = 56;
+/** The room a measured reader keeps beside its text for the side column. */
+export const MARGIN_RESERVE = 36;
+
 /**
- * The margin column's width at reader width `w`: room for cards beside the words when the reader is wide (a third of
- * it, 24 to 36 cells), else 0 (the cards fold under their passages).
+ * The margin column's width at reader width `w`: room for cards beside the words when the reader is wide (about a
+ * third of it, 24 to MARGIN_MAX cells: a wide tile's spare room goes to the cards, so they wrap less), else 0 (the
+ * cards fold under their passages).
  */
 export function marginColumn(w: number, mode: MarginMode, cards: number): number {
   if (mode === "off" || cards === 0 || w < 100) return 0;
-  return Math.max(24, Math.min(36, Math.floor(w * 0.28)));
+  return Math.max(24, Math.min(MARGIN_MAX, Math.floor(w * 0.32)));
 }
 
 /**

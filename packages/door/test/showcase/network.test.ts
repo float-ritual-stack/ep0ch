@@ -195,7 +195,7 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     const plan = RECENT_FILES()[0]!;
     const before = readFileSync(plan.file, "utf8");
     // The seeded thread is read for the Resource and placed in its text (the note has a header before the file's own text).
-    await until(() => /1(?: comments?)? · shown \(M\)/.test(screen()), "the seeded thread counted", 8000);
+    await until(() => /1(?: comments?)? · short cards \(M\)/.test(screen()), "the seeded thread counted", 8000);
     const threads = await app.act({ action: "threads", tile, as: "test-agent" }) as any;
     expect(threads.threads).toHaveLength(1);
     // An agent comments on a passage of the rendered Markdown: the quote is the source's own (`**Bed 2:**` keeps its asterisks).
