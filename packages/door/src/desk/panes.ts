@@ -63,14 +63,18 @@ export interface DeskApi {
   /** The layout permits closing this tile, including the container that keeps it. */
   canClose?(p: Pane): boolean;
   holdReader?(pane: ReaderPane, actor: Actor): void;
-  /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it is newer. */
+  /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it has nothing of its own. */
   layoutUndoSeq?(): number | undefined;
+  /** Bring back the note the person trashed last on `board` (note.untrash), for a reader's ctrl+z; false for another outline's board. */
+  untrash?(board: object): boolean;
   /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
   summaryKeys?(m: Msg): readonly string[] | null;
   /** Start a session in `pane` as the person's key does, so they're in it (a comment mark's ⏎ or click). */
   startSession?(pane: ReaderPane, kind: SessionKind, opener?: Key): void;
   /** The tile named `name` on this screen. */
   paneNamed?(name: string): Pane | undefined;
+  /** The person's new note (a quote, PIE-1184) opened to write in where their new notes open, lit as arrived: its reader. */
+  writeFrom?(from: ReaderPane, m: Msg): Promise<{ tile: string; pane: ReaderPane } | null>;
   /** Close tile `p` as nothing was lost by it (the comment tile once its comment ended). */
   dismiss?(p: Pane): void;
   /** Reader `r`'s comment into a tile of its own beside it (`on`), or that tile closed (PIE-846). */
@@ -226,6 +230,8 @@ export interface Pane {
    * stacks (PIE-453); the links tile's, the notes it listed. `tile.travel` walks it, the trail lists it.
    */
   readonly trail?: TileTrail;
+  /** The scope its keys run in now (`?` opens the keys window on `in:<it>`, PIE-1425); left out, its kind's action set's. */
+  keysScope?(): string;
   /** `typing`: the person is typing in it (a terminal shows its cursor then). */
   render(w: number, h: number, focused: boolean, desk: DeskApi, typing?: boolean): PaneView;
   /** Return true when the pane used the key. */
@@ -485,6 +491,8 @@ export class ReaderPane implements Pane {
     return this.msg ? ["detail", st].filter(Boolean).join(" · ") : "detail · empty";
   }
   hint() { return this.surface.hint(this.follows ? (this.holding ? "p follow · " : "p hold · ") : ""); }
+  /** A reader's keys are its note's (NOTE_ACTIONS). */
+  keysScope(): string { return NOTE_ACTIONS.scope; }
   /**
    * The frame and policy panel share the words for the reader's state.
    */
@@ -550,6 +558,7 @@ export class ReaderPane implements Pane {
       ...(desk.overlay ? { overlay: (p: ListPicker<any, any>) => desk.overlay!(p) } : {}),
       ...(desk.keepLayout ? { keptChanged: () => desk.keepLayout!() } : {}),
       ...(desk.layoutUndoSeq ? { layoutUndoSeq: () => desk.layoutUndoSeq!() } : {}),
+      ...(desk.untrash ? { untrash: (board: object) => desk.untrash!(board) } : {}),
       // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): a held reader with no
       // link replaces its own note and moves nothing else; a following one moves the current note; alt+⏎ opens beside.
       navigate: (m, how) => { m.address ??= this.noteAddress; desk.setCurrent(m, { reveal: true, from: this, ...how }); },
@@ -566,6 +575,10 @@ export class ReaderPane implements Pane {
       // Its look (PIE-673), as the desk resolved it for this tile: margin, list density, heading spacing.
       get look() { return desk.lookOf?.(pane); },
       startSession: desk.startSession ? (kind, opener) => desk.startSession!(this, kind, opener) : undefined,
+      ...(desk.writeFrom ? { writeNew: async (m: Msg) => {
+        const at = await desk.writeFrom!(this, m);
+        return at ? { tile: at.tile, surface: at.pane.surface } : null;
+      } } : {}),
       // Its comment in a tile of its own beside it (PIE-846), where the screen has tiles.
       ...(desk.answerTile ? { answerTile: (ask: string, actor: Actor, fold?: string) => desk.answerTile!(this, ask, actor, fold) } : {}),
       hasWiredPreview: () => !!desk.hasWiredPreview?.(this),
@@ -943,7 +956,7 @@ export class ArtPane implements Pane {
 export const ACTIVITY_ACTIONS = actionSet<{ pane: ActivityPane; desk: DeskApi; standing: boolean }>()("activity", {
   "activity.pick": def({
     summary: "pick a row of the activity tile (last callers, live): n from 1, else the selected one; open=true makes its note the current one, as ⏎ does. An agent's pick answers the row and moves nothing of the person's",
-    keys: "j k ↑ ↓ click wheel, ⏎ (open)",
+    keys: [{ keys: "j k ↑ ↓", does: "a row" }, { keys: "click wheel", does: "a row" }, { keys: "⏎", does: "open", says: "open the picked row of the activity tile" }],
     touches: "nothing", replay: "safe", says: r => (r.opened ? `opened ${String(r.title)}` : null),
     args: { n: { type: "number", optional: true, about: "the row, from 1" }, open: { type: "boolean", optional: true, about: "make its note the current one, as ⏎ does" } },
     examples: [

@@ -1501,19 +1501,26 @@ export class OutlinerServer {
    * added to the text's candidates and the whole ranked again, so they're scored and said as any hit is. Never throws.
    */
   private async deepen(query: string, ranked: GotoSearchCollection, note: { note?: { title: string; path: string } }): Promise<GotoSearchCollection> {
-    if (query.trim().length < 3 || ranked.matches[0]?.exact || ranked.semantic.verdict === "strong") {
-      return { ...ranked, semantic: { ...ranked.semantic, deep: { status: "skipped" } } };
-    }
-    const found = await deepCandidates(this.store.searchPool(), query, { jev: { promptDirectory: this.promptDirectory } });
-    if ("unavailable" in found) return { ...ranked, semantic: { ...ranked.semantic, deep: { status: "unavailable", message: found.unavailable } } };
-    const have = new Set(ranked.matches.map(m => m.block.id));
-    const added = this.store.searchMatches(found.candidates.map(c => c.id).filter(id => !have.has(id)), query);
-    const deep = { status: "found" as const, windows: found.windows, found: added.length, elapsedMs: found.elapsedMs, ...(found.reading?.usage ? { inputTokens: found.reading.usage.input } : {}) };
-    if (found.reading) this.tallySearch({ status: "ranked", model: found.reading.model, promptRevisions: found.reading.prompt, candidateCount: found.windows, ...(found.reading.usage ? { inputTokens: found.reading.usage.input, outputTokens: found.reading.usage.output } : {}) });
+    const found = await this.deepFinds(query, ranked.semantic, ranked.matches[0]?.exact, new Set(ranked.matches.map(m => m.block.id)));
+    if (!("ids" in found)) return { ...ranked, semantic: { ...ranked.semantic, deep: found } };
+    const added = this.store.searchMatches(found.ids, query), deep = { ...found.deep, found: added.length };
     if (!added.length) return { ...ranked, semantic: { ...ranked.semantic, deep } };
     // Jev's finds first: the "is it among these?" Noul reads the first candidates, and these are the ones it hasn't seen.
     const again = await rankSearchWithJev(query, { ...ranked, matches: [...added, ...ranked.matches.map(({ score: _s, ...m }) => m)] }, { promptDirectory: this.promptDirectory, ...note });
     return { ...again, semantic: { ...again.semantic, deep } };
+  }
+
+  /**
+   * The one deep pass (search-deep.ts) both searches take, `/`'s notes and `[[`'s pages (`where`): asked when the ranked
+   * search isn't sure, the ids Jev found that the words didn't (`have`), or why it wasn't asked. Counted on the day's run.
+   */
+  private async deepFinds(query: string, semantic: GotoSearchCollection["semantic"], exact: boolean | undefined, have: ReadonlySet<string>, where?: (b: Block) => boolean): Promise<{ ids: string[]; deep: NonNullable<GotoSearchCollection["semantic"]["deep"]> } | NonNullable<GotoSearchCollection["semantic"]["deep"]>> {
+    if (query.trim().length < 3 || exact || semantic.verdict === "strong") return { status: "skipped" };
+    const found = await deepCandidates(this.store.searchPool(), query, { ...(where ? { where } : {}), jev: { promptDirectory: this.promptDirectory } });
+    if ("unavailable" in found) return { status: "unavailable", message: found.unavailable };
+    if (found.reading) this.tallySearch({ status: "ranked", model: found.reading.model, promptRevisions: found.reading.prompt, candidateCount: found.windows, ...(found.reading.usage ? { inputTokens: found.reading.usage.input, outputTokens: found.reading.usage.output } : {}) });
+    const ids = found.candidates.map(c => c.id).filter(id => !have.has(id));
+    return { ids, deep: { status: "found", windows: found.windows, found: ids.length, elapsedMs: found.elapsedMs, ...(found.reading?.usage ? { inputTokens: found.reading.usage.input } : {}) } };
   }
 
   private readonly searchTallies = new SearchTallies();
@@ -2255,8 +2262,22 @@ export class OutlinerServer {
         if (request.query?.trim() && this.activeGotoRankings < 2) {
           this.activeGotoRankings++;
           try {
-            const candidates = ranked.addresses.map(address => ({ address, title: address.title.slice(0, 250), path: address.address, snippet: (this.store.get(address.blockId)?.text ?? "").slice(0, 1000), exact: address.exact }));
-            const reordered = await rankSearchWithJev(request.query, { matches: candidates, completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...(ranked.context ? { note: { title: ranked.context.title, path: ranked.context.path } } : {}) });
+            const candidate = (address: (typeof ranked.addresses)[number]) => ({ address, title: address.title.slice(0, 250), path: address.address, snippet: (this.store.get(address.blockId)?.text ?? "").slice(0, 1000), exact: address.exact });
+            const note = ranked.context ? { note: { title: ranked.context.title, path: ranked.context.path } } : {};
+            let reordered = await rankSearchWithJev(request.query, { matches: ranked.addresses.map(candidate), completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...note });
+            // `[[` by meaning (PIE-1409): when no page its words found is sure (or none was), Jev reads every page, as
+            // `//` reads every note, and its finds are ranked with the rest.
+            if (reordered.semantic.status === "ranked" || !ranked.addresses.length) {
+              const paged = this.store.pagedBlockIds();
+              const found = await this.deepFinds(request.query, reordered.semantic, ranked.addresses[0]?.exact, new Set(ranked.addresses.map(a => a.blockId)), b => paged.has(b.id));
+              const added = "ids" in found ? this.store.pageAddressesFor(found.ids) : [];
+              if (added.length) {
+                const limit = request.limit ?? ranked.addresses.length, all = [...added.map(candidate), ...ranked.addresses.map(candidate)];
+                const again = await rankSearchWithJev(request.query, { matches: all, completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...note });
+                // Still the request's limit: the finds take the places of the weakest.
+                reordered = { ...again, matches: again.matches.slice(0, limit), completeness: all.length > limit ? { kind: "truncated", limit } : ranked.completeness, semantic: { ...again.semantic, deep: { ...(found as { deep: NonNullable<GotoSearchCollection["semantic"]["deep"]> }).deep, found: added.length } } };
+              } else reordered = { ...reordered, semantic: { ...reordered.semantic, deep: "ids" in found ? { ...found.deep, found: 0 } : found } };
+            }
             // A model answer cannot resurrect an address renamed or deleted while it ranked.
             result = { addresses: reordered.matches.map(match => { const { exact: _exact, ...address } = match.address; return { ...address, ...(match.score !== undefined ? { score: match.score } : {}) }; }).filter(address => this.store.pageAddressLive(address.normalizedAddress, address.blockId)), completeness: ranked.completeness, semantic: reordered.semantic, ...context };
             this.tallySearch(reordered.semantic);

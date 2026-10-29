@@ -9,7 +9,7 @@ import { Canvas, type Rect } from "../canvas";
 // `tree.search`: the one search, Goto's ranker, forgiving punctuation, order and typos; `fragments.candidates`,
 // `files.complete`, `blocks.context`), so the door keeps no index, ranking or fragment rules of its own. The
 // draft's note is the search's context: nearer notes first, and `((` alone lists what's linked and edited
-// around it. A pause asks Jev to re-order the same candidates; the selected one stays selected. Keep typing
+// around it. A pause asks Jev to re-order the same candidates; a row moved to stays selected, the top row stays the top. Keep typing
 // to filter, up/down choose, Enter or Tab inserts, Esc dismisses; Tab or Ctrl+Space asks again. The popup
 // never keeps a key it doesn't use: with nothing to choose, Enter, arrows and Esc do what they always do.
 //
@@ -26,7 +26,7 @@ import { Canvas, type Rect } from "../canvas";
 // button's steps) is DOOR_SOURCES below; outline-core's mergeSourceAnswers ranks them all with the one matcher, recent
 // and frequent picks first among equals.
 import { ListPicker, pickRow } from "./picker";
-import { ActionRefused, actionSet, declaredKeys, def, keyCaption } from "./actions";
+import { ActionRefused, actionSet, declaredKeys, def, keyCaption, shownLine } from "./actions";
 import { listPreview } from "../bar/list-preview";
 import { litCells } from "../bar/filter";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
@@ -50,7 +50,7 @@ import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import type { ListSource } from "../outline-lists";
 import { drawVariation, drawComponentProps } from "../library/draw";
 import { openNote, barSource, type BarHost } from "../bar/source";
-import { commandCandidates } from "../bar/command";
+import { commandRows, type CommandRow } from "../bar/command";
 import { Gesture, Selection, rowsOf, paintRange, selectText, SELECT_BG } from "./selection";
 import { visible, width as cells, ellipsize } from "../style";
 import { JEV_PAUSE_MS, SearchSchedule, SearchTurn, TYPING_PAUSE_MS } from "../search-schedule";
@@ -121,7 +121,7 @@ export interface CompletionLookup {
 export const nearOf = (d: CompletionField | null | undefined, own?: OwnNote): string | undefined => own?.blockId ?? d?.near;
 
 /** How the lookup is asked: `semantic` has Jev re-order it; `near` is the note the draft writes in. */
-export interface LookupOptions { semantic?: boolean; near?: string; limit?: number; offset?: number; host?: BarHost; signal?: AbortSignal }
+export interface LookupOptions { /** Asked on purpose (Tab, ctrl+space): a source may offer what it holds back while typing. */ explicit?: boolean; semantic?: boolean; near?: string; limit?: number; offset?: number; host?: BarHost; signal?: AbortSignal }
 
 /** The note a note draft is writing, for `((#heading` in itself; comments and replies have none. */
 export interface OwnNote { blockId: string; text: string }
@@ -147,6 +147,33 @@ interface DoorSource { decl: SourceDecl; kinds: readonly CompletionKind[]; rows(
 const hostOf = (board: CompletionBoard, opts: LookupOptions) => opts.host ?? (ambient?.board === board ? ambient.host?.() : undefined);
 const door = (id: string, title: string, ranked = false): SourceDecl => ({ id, title, triggers: [], priority: 10, ranked, by: "door" });
 
+/** An act line past its action's name (`tile.zoom t`): what's left to complete is its arguments. */
+const actLineArgs = (query: string, host: BarHost) => { const q = query.trimStart(), first = q.split(/\s/)[0]!; return q.length > first.length && host.dispatch.has(first); };
+/** An act line's arguments and their values as the popup's rows, each written by `write` (its quoting, a `/` before it); null before the action's name ends. */
+const argRows = async (query: string, host: BarHost, opts: LookupOptions, write: (line: string) => string): Promise<DoorAnswer | null> =>
+  actLineArgs(query, host) ? { rows: (await commandRows(query, host, { explicit: opts.explicit })).map(r => commandItem(r, write(r.line))) } : null;
+/** An argument's row in the popup: its name or value as the label, what it means beside, a tile's screen or a note as its preview. */
+const commandItem = (r: CommandRow, insertion: string): CompletionItem => ({
+  label: r.label, insertion, kind: r.kind, ...(r.detail ? { detail: r.detail } : {}), ...(r.docs ? { docs: r.docs } : {}),
+  ...(r.preview && "note" in r.preview ? { blockId: r.preview.note } : {}),
+  ...(r.preview && "lines" in r.preview ? { preview: ((lines: string[]) => (_w: number, h: number) => lines.slice(0, h))(r.preview.lines) } : {}),
+});
+
+/**
+ * An action line in a note's edit (PIE-1076): `/` first on the line (after its indent), the action's name and its
+ * arguments after it, as the power bar's line takes them (`/ext.structure.sort-list by=title`). Its token is the whole
+ * line through the cursor; ⏎ with no list open runs it (`edit.run`).
+ */
+export function actionHereAt(line: string, col: number, lines: readonly string[] = [line], row = 0): CompletionTarget | null {
+  const m = /^(\s*)\/(?=[a-z]|$)/.exec(line);
+  // Code is opaque: a / line in a fence or a code span is an example, never a command.
+  if (!m || col <= m[1]!.length || cursorInCode(lines, row, col)) return null;
+  const query = line.slice(m[1]!.length + 1, col);
+  return /^(?:[a-z][\w.-]*(?:\s.*)?)?$/.test(query) ? { kind: "action", start: m[1]!.length, end: wordEnd(line, col), query } : null;
+}
+/** Where the word at `col` ends: a choice replaces it, never the arguments after it. */
+const wordEnd = (line: string, col: number) => col + /^\S*/.exec(line.slice(col))![0].length;
+
 const DOOR_SOURCES: readonly DoorSource[] = [
   // A button's step (PIE-1298): a script note's name after `((`, else the door's actions and their arguments.
   { decl: door("steps", "steps", true), kinds: ["button-step"], async rows({ board, target, own, opts }) {
@@ -158,9 +185,35 @@ const DOOR_SOURCES: readonly DoorSource[] = [
     }
     const host = hostOf(board, opts);
     if (!host) return { rows: [] };
+    // Past the action's name, its arguments and their values; before it, the actions.
+    const args = await argRows(target.query, host, opts, line => line);
+    if (args) return args;
     const rows = await barSource("actions")!.rows(target.query, host, "actions");
-    const args = await commandCandidates(target.query, host);
-    return { rows: [...args.map(value => ({ label: value, insertion: value, kind: "value" })), ...rows.map(r => ({ label: r.label, insertion: r.fill ?? r.label, docs: r.detail, kind: "action" }))] };
+    return { rows: rows.map(r => ({ label: r.label, insertion: r.fill ?? r.label, docs: r.detail, kind: "action" })) };
+  } },
+  // The actions that apply here, from a note's edit (PIE-1076): the power bar's `>` rows (the tile's own menu first),
+  // then, past the name, its arguments as the bar's line completes them.
+  { decl: door("here-args", "arguments", true), kinds: ["action"], async rows({ board, target, opts }) {
+    const host = hostOf(board, opts);
+    return (host && await argRows(target.query, host, opts, line => "/" + line)) || { rows: [] };
+  } },
+  // Matched by the one matcher against their words (`sort list` finds "Sort the list in this block").
+  { decl: door("here", "actions here"), kinds: ["action"], async rows({ board, target, opts }) {
+    const host = hostOf(board, opts);
+    if (!host || actLineArgs(target.query, host)) return { rows: [] };
+    const rows = await barSource("actions")!.rows(target.query, host, "actions");
+    // A passage's actions (their words as quote=) need words selected in a reader: a / line has none.
+    const passage = new Set(host.dispatch.list().actions.filter(a => a.args.quote?.context).map(a => a.name));
+    const seen = new Set<string>(passage), out: CompletionItem[] = [];
+    for (const r of rows) {
+      const d = r.data as { action?: string; args?: Record<string, unknown>; summary?: string; words?: string } | undefined;
+      if (!d?.action || r.key.startsWith("line:") || r.key.startsWith("w:") || seen.has(d.action) || !host.dispatch.has(d.action)) continue;
+      seen.add(d.action);
+      // A menu row by its own words ("Sort the list in this block"), its action dim beside; the rest by name.
+      const label = d.words ?? r.label, named = label !== d.action;
+      out.push({ label, insertion: `/${shownLine(d.action, d.args ?? {})} `, ...(named || r.keycap ? { detail: [named ? d.action : "", r.keycap ?? ""].filter(Boolean).join(" · ") } : {}), docs: d.summary || r.detail, filter: d.action, kind: "action" });
+    }
+    return { rows: out };
   } },
   { decl: door("fence", "settings"), kinds: ["fence-setting"], async rows() {
     return { rows: SCRIPT_FENCE.settings.map(s => ({ label: `${s.key}=`, insertion: `${s.key}=`, docs: s.meaning, kind: "setting" })) };
@@ -173,8 +226,10 @@ const DOOR_SOURCES: readonly DoorSource[] = [
     const schema = schemas.find(s => COMPONENT_OPEN.exec(s.source.use.split("\n")[0]!)?.[1] === target.component);
     if (schema?.props.find(p => p.key === target.key)?.type !== "action") return { rows: [] };
     const q = target.query, write = (v: string) => target.kind === "yaml-value" ? yamlScalar(v) : attributeScalar(v, target.quote);
-    const args = await commandCandidates(q, host), rows = await barSource("actions")!.rows(q, host, "actions");
-    return { rows: [...args.map(v => ({ label: v, insertion: write(v), kind: "value" })), ...rows.map(r => ({ label: r.label, insertion: write(r.fill ?? r.label), docs: r.detail, kind: "value" }))] };
+    const args = await argRows(q, host, opts, line => write(line));
+    if (args) return args;
+    const rows = await barSource("actions")!.rows(q, host, "actions");
+    return { rows: rows.map(r => ({ label: r.label, insertion: write(r.fill ?? r.label), docs: r.detail, kind: "value" })) };
   } },
 ];
 
@@ -338,6 +393,8 @@ export interface CompletionState extends CompletionLookup {
   at: { row: number; col: number; line: string };
   /** The person chose the popup with arrows, the wheel, a click, Tab or Ctrl+Space. */
   picked?: boolean;
+  /** The person moved the lit row (arrows, the wheel, a click): a re-order keeps it lit (PIE-1409). */
+  moved?: boolean;
   /** It completes a line (a filter, a property's value), whose ⏎ applies it, rather than a draft's text. */
   line?: boolean;
 }
@@ -362,7 +419,14 @@ export class Completer {
   target(): CompletionTarget | null {
     const f = this.d, line = f.lines[f.row] ?? "", c = f.complete;
     if (c && c.grammar === "filter") { const t = filterTargetAtCursor(line, f.col); return t && { ...t, words: true }; }
+    // An act line (the power bar's): past an action's name, the whole line through the cursor is one button step.
+    if (c && c.grammar === "act") { const host = ambient?.board === this.board ? ambient.host?.() : undefined; return host && actLineArgs(line.slice(0, f.col), host) ? { kind: "button-step", start: 0, end: wordEnd(line, f.col), query: line.slice(0, f.col) } : null; }
+    // `/` at a line's start in a note's own edit: the actions that apply here, then their arguments (PIE-1076). Past a
+    // real action's name the line is its arguments' even where a value starts `[[` (the sigil's rows, quoted for act).
+    const here = !c && this.own() ? actionHereAt(line, f.col, f.lines, f.row) : null, host = ambient?.board === this.board ? ambient.host?.() : undefined;
+    if (here && host && actLineArgs(here.query, host)) return here;
     const t = completionTargetAtCursor(line, f.col, f.lines, f.row);
+    if (!t && here) return here;
     if (t || !c || !c.valueKey) return t;
     return { kind: "filter-value", start: 0, end: line.length, query: line.slice(0, f.col), key: c.valueKey };
   }
@@ -395,7 +459,8 @@ export class Completer {
 
   /**
    * After a pause, ask the service again with Jev re-ordering the same candidates. The answer is used only if
-   * nothing moved meanwhile (the query, the cursor, the selection), and the selected candidate stays selected.
+   * nothing moved meanwhile (the query, the cursor, the selection); a row the person moved to stays selected, the top
+   * row stays the top.
    */
   private askJev(turn: SearchTurn, target: CompletionTarget): void {
     const fragment = target.kind === "block" && parseFragmentCompletionQuery(target.query);
@@ -403,7 +468,8 @@ export class Completer {
     // Jev re-orders the service's candidates (up to 30 for ((): one beyond the 20 shown can come into view.
     turn.after(JEV_PAUSE_MS, async () => {
       const s = this.state;
-      if (!s || !this.current(turn) || s.loading || s.items.length < 2 || this.accepting || this.d.busy) return;
+      // One row is nothing to re-order, except `[[` naming no page yet: Jev reads the pages by meaning (PIE-1409).
+      if (!s || !this.current(turn) || s.loading || (s.items.length < 2 && !(target.kind === "page" && s.items[0]?.newPage)) || this.accepting || this.d.busy) return;
       const index = s.index, chosen = s.items[index]?.insertion;
       s.jev = "asking";
       this.redraw();
@@ -414,9 +480,13 @@ export class Completer {
         if (now !== s) return;
         // Anything moved meanwhile (the pick, the cursor, a save or an insert under way): the answer isn't used.
         if (!this.current(turn) || now.index !== index || now.items[index]?.insertion !== chosen || this.accepting || this.d.busy) { now.jev = undefined; this.redraw(); return; }
-        const at = r.items.findIndex(i => i.insertion === chosen);
-        if (at < 0) { now.jev = undefined; this.redraw(); return; }
-        this.state = { ...r, target, picked: now.picked, line: now.line, index: at, loading: false, at: now.at };
+        // A row the person moved to stays lit wherever Jev puts it; the top row (never moved off) is Jev's best, not
+        // the old best followed down the list (PIE-1409: a 0.0/3 row lit at 19/20).
+        // A new page alone on the list stays lit with Jev's finds above it: Enter stays the draft's until one is chosen.
+        const follow = now.moved || !!now.items[index]?.newPage;
+        const at = follow ? r.items.findIndex(i => i.insertion === chosen) : 0;
+        if (at < 0 || !r.items.length) { now.jev = undefined; this.redraw(); return; }
+        this.state = { ...r, target, picked: now.picked, moved: now.moved, line: now.line, index: at, loading: false, at: now.at };
         this.redraw();
         void this.enrich(turn);
       } catch {
@@ -441,17 +511,17 @@ export class Completer {
     const turn = this.search.begin(), was = same ? this.state?.items[this.state.index]?.insertion : undefined;
     this.state = { target, picked, line: this.d.complete !== undefined, items: this.state?.items ?? [], index: this.state?.index ?? 0, truncated: null, message: "finding references...", loading: true, at: this.here() };
     this.redraw();
-    if (explicit || !asksService(this.board, target)) return this.lookup(turn, target, was);
+    if (explicit || !asksService(this.board, target)) return this.lookup(turn, target, was, explicit);
     return new Promise<void>(done => {
       turn.signal.addEventListener("abort", () => done(), { once: true });
       this.search.pause(() => void this.lookup(turn, target, was).then(done));
     });
   }
 
-  private async lookup(turn: SearchTurn, target: CompletionTarget, was: string | undefined): Promise<void> {
+  private async lookup(turn: SearchTurn, target: CompletionTarget, was: string | undefined, explicit = false): Promise<void> {
     try {
       // Only an answer is kept for the draft: a failed lookup is asked again next time, as the outliner does.
-      const r = await lookupCompletion(this.board, target, this.own(), { near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined, signal: turn.signal });
+      const r = await lookupCompletion(this.board, target, this.own(), { near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined, signal: turn.signal, ...(explicit ? { explicit } : {}) });
       if (r.jevOff) jevOff.add(this.board);
       if (!this.current(turn)) return;
       // `::` with nothing typed lists the components used ones first: the order this draft first saw stays while it's
@@ -576,7 +646,7 @@ export class Completer {
     if (x < (at.col ?? 0) + (s.listCol ?? 0) || x >= (at.col ?? 0) + (s.listWidth ?? Infinity)) return true;
     const i = at.items[y - at.row];
     if (i !== null && i !== undefined && s.items[i] && !s.loading) {
-      if (s.index !== i) { s.previewTop = 0; s.previewSelection = undefined; this.previewGesture.cancel(); }
+      if (s.index !== i) { s.previewTop = 0; s.previewSelection = undefined; this.previewGesture.cancel(); s.moved = true; }
       s.index = i; s.picked = true;
       if (s.items[i]!.children && at.items[y - at.row - 1] !== i && x === (at.col ?? 0) + (s.listWidth ?? 0) - 1) {
         void COMPLETION_ACTIONS.run("complete.step", { direction: "right" }, this, USER);
@@ -649,7 +719,7 @@ export class Completer {
   moveBy(delta: number): boolean {
     const s = this.state;
     if (!s?.items.length) return false;
-    s.picked = true;
+    s.picked = true; s.moved = true;
     s.previewTop = 0; s.previewSelection = undefined;
     const picker = completionPicker(s);
     picker.sel = s.index;
@@ -698,7 +768,8 @@ export class Completer {
       this.dismiss();
       // A folder leaves `[file::notes/` open: its entries are offered next; a filter's key `stage:` its values. A chosen value ends it
       // (the cursor is still in its word, which would offer the same value again).
-      if (s.target.kind !== "filter-value" && (s.target.kind !== "component" || item.kind === "property") && this.target()) void this.refresh();
+      // An action chosen in a note's edit lists its arguments next, as an editor's signature help does (esc closes them, ⏎ then runs).
+      if (s.target.kind !== "filter-value" && (s.target.kind !== "component" || item.kind === "property") && this.target()) void this.refresh(s.target.kind === "action" && item.kind === "action");
       return true;
     } catch (e) {
       if (this.current(turn)) { s.message = e instanceof Error ? e.message : String(e); this.redraw(); }
@@ -718,7 +789,7 @@ export const COMPLETION_PREVIEW = {
 
 export const COMPLETION_STEP = {
   summary: "show a component's variations and arguments, or return to components",
-  keys: "right or click >; left returns", touches: "nothing", replay: "safe",
+  keys: [{ keys: "right", does: "into a component's variations" }, { keys: "click", does: "on >" }, { keys: "left", does: "returns", says: "return from a component's variations to the components" }], touches: "nothing", replay: "safe",
   args: { direction: { type: "string", choices: ["right", "left"], about: "right opens variations; left returns" } },
   examples: [{ act: "complete.step direction=right", does: "shows the selected component's variations and arguments" }],
 } as const;
@@ -739,6 +810,7 @@ export const COMPLETION_MOVE = {
   examples: [{ act: "complete.move by=2", does: "lights the row two below the lit one" }],
 } as const;
 export const COMPLETION_ACCEPT = {
+  words: "insert the lit completion row",
   summary: "insert the lit row of the open completion list, or row n= (from 1), as tab or enter does: checked with the service first, one undo step",
   keys: "tab, enter (unless the footer says it's a new line), double click", touches: "draft", draft: "type", replay: "ask",
   args: { n: { type: "number", optional: true, about: "the row to insert (from 1); default the lit one" } },
@@ -858,8 +930,8 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
       if (k.kind === "right" && item?.children) { void COMPLETION_ACTIONS.run("complete.step", { direction: "right" }, c, USER); return true; }
       if (k.kind === "left" && c.hasParent) { void COMPLETION_ACTIONS.run("complete.step", { direction: "left" }, c, USER); return true; }
       if (k.kind === "up" || k.kind === "down") { c.move(k.kind === "up" ? -1 : 1); return true; }
-      // A new page alone on the list (PIE-592) is chosen only on purpose (↓ or a click): Enter and Tab stay the draft's.
-      const lone = s.items.length === 1 && !!s.items[0]!.newPage && !s.picked;
+      // A new page lit and not chosen on purpose (PIE-592: ↓, ↑ or a click; PIE-1409: Jev's finds above it): Enter and Tab stay the draft's.
+      const lone = !!s.items[s.index]?.newPage && !s.picked;
       // Tab and Enter both insert the lit row; where Enter is the field's, the footer says so (enterKeeps).
       if ((k.kind === "tab" || (k.kind === "enter" && !enterKeeps(s))) && !lone) { personRuns("complete.accept", {}, c); return true; }
     }
@@ -974,7 +1046,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   }
   const header = h >= 3, footer = h >= 2 && (!reference || h >= 6);
   const out: string[] = [];
-  const heading = { attribute: "attributes", "attribute-value": "values", component: "components", agent: "agents", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values" }[s.target?.kind as string] ?? "references";
+  const heading = { attribute: "attributes", "attribute-value": "values", component: "components", agent: "agents", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values", "button-step": ({ value: "values", argument: "arguments" } as Record<string, string>)[s.items[0]?.kind ?? ""] ?? "actions", action: ({ value: "values", argument: "arguments" } as Record<string, string>)[s.items[0]?.kind ?? ""] ?? "actions here" }[s.target?.kind as string] ?? "references";
   const ranking = !footer && s.jev ? ` · jev ${s.jev}` : "";
   if (header) rows.push(null), out.push(fg(C.lcyan) + pad(` ${printable(s.heading ?? heading, " ")} ${s.index + 1}/${s.items.length}${echo}${ranking}${scopes ? ` ${scopes}` : ""}${s.loading ? " · finding..." : ""}`, w) + RESET);
   const picker = completionPicker(s);
@@ -1002,7 +1074,9 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   s.listWidth = drawn.listWidth;
   rows.push(...drawn.rows); out.push(...drawn.lines);
   // Whether Jev ordered the list, said quietly first, where a narrow popup doesn't cut it.
-  const jev = s.jev === "ranked" ? (s.sure?.label ? `jev ranked · ${s.sure.label} · ` : "jev ranked · ") : s.jev === "asking" ? "jev… · " : "";
+  const long = s.jev === "ranked" ? (s.sure?.label ? `jev ranked · ${s.sure.label} · ` : "jev ranked · ") : s.jev === "asking" ? "jev… · " : "";
+  // Where it and a note about the list don't both fit (40 columns, PIE-1409), how sure is said in its own words alone.
+  const jev = s.message && s.sure?.label && cells(` ${long}${s.message}`) > w ? `${s.sure.label} · ` : long;
   const hint = completionHint(s, selected);
   const enter = enterKeeps(s);
   const keys = enter ? `↑↓ tab ⏎ ${enter} esc` : "↑↓ ⏎/tab esc";
@@ -1039,9 +1113,12 @@ export function enterKeeps(s: CompletionState): "new line" | "applies" | null {
   const item = s.items[s.index];
   if (s.picked || !item) return null;
   const word = s.line ? "applies" : "new line";
-  if (s.items.length === 1 && item.newPage) return word;
+  if (item.newPage) return word;
   if (s.target.kind === "filter-key" || s.target.kind === "filter-value") return "applies";
   if (ENTER_ENDS_THE_LINE.has(s.target.kind)) return word;
+  // A button's step in a note: ⏎ starts the next step until a row is chosen (↓, tab, a click), as nvim and VS Code do.
+  // The power bar's line is one line, so ⏎ there takes the lit row (its list closes once the value is typed whole).
+  if (s.target.kind === "button-step" && !s.line) return word;
   if (AUTO_OPENING_KINDS.has(s.target.kind) && s.target.kind !== "component" && !s.target.query.trim()) return word;
   const line = s.at.line;
   if (line.slice(0, s.target.start) + item.insertion + line.slice(s.target.end) === line) return word;

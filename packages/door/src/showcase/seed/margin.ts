@@ -59,7 +59,7 @@ export const MARGINALIA_FILE = (dir = SHOWCASE_ASSETS) => join(dir, "cold-frame-
 export const MARGINALIA_PLAN = (file = MARGINALIA_FILE()) => [
   SEED.marginalia,
   "",
-  "Select any words, then a (or click a chip on the selection's line): h highlight, c comment, a ask @margin, e explain, d define, k cite. M cycles shown, full and marks. Click [–] on a card to fold it to its gutter [+]; click [+] to open just that thread.",
+  "Select any words, then a (or click a chip on the selection's line): h highlight, c comment, a ask @margin, e explain, d define, k cite. M cycles the comments: in the margin, whole, as marks. Click [–] on a card to fold it to its [+]; click [+] to open just that card. [Quote] on a card opens the quote beside you, to write in.",
   "",
   "Water the tomatoes at dawn, before the glass warms. ^water",
   "Keep the soil pH near 6.5 for the peppers; the chillies want it a touch lower.",

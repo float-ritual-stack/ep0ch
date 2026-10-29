@@ -55,6 +55,11 @@ export interface ArgSpec {
   of?: string;
   /** What a left-out optional one means, when it means one thing (`focused`, `1`): its page's default column. */
   default?: string;
+  /**
+   * The host binds it (the block in front, a passage, the button that pressed it): an agent's `act` names it, and a
+   * person is never asked it, so no form or completion offers it (PIE-1076).
+   */
+  context?: true;
 }
 
 /**
@@ -97,7 +102,11 @@ export type DraftUse = "type" | "leave" | "write" | "safe" | "text" | "replace";
  * `j k`), or a mouse gesture (`click`, `double-click`, `drag`, `wheel`); `does`, what this way does, in a few words
  * (`on a spine opens it`). `via`, instead of keys: a way that is no key at all (the tile menu's "fold", the power bar).
  */
-export type KeyRow = { keys: string; does: string } | { via: string };
+/**
+ * One row of an action's keys: the keys and what they do under the action's heading (its page, `::graph-keys`), and
+ * `says`, the whole sentence the keys window lists where `does` would read as a fragment after the action's words (PIE-1425).
+ */
+export type KeyRow = { keys: string; does: string; says?: string } | { via: string };
 /** An action's keys: rows (KeyRow), or one line that reads cleanly as them (declaredKeys, keyRows). */
 export type Keys = string | readonly KeyRow[];
 /** An action's keys as one line, for a listing (`actions`, a flash): each row's keys and what it does. */
@@ -272,7 +281,7 @@ export const actionSet = <H>() => <M extends { [K in keyof M]: object }>(scope: 
  * An action as `ep0ch-door actions` lists it: `touches`, `replay` and `person` are its declarations (what it touches
  * of the person's, whether a restarted door may run it again, the person's only).
  */
-export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; keys?: Keys; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; /** The person's own (ActionDef.person): why, as an agent is told. */ person?: string; /** The person's alone, never lifted (ActionDef.personAlways): why. */ personAlways?: string; /** Its arguments decide whether it is the person's own (ActionDef.personWith). */ personVaries?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** What it says about repainting (`repaints`): whether a run changed what's shown, or `answer` when its answer says; left out, by what it touches. */ repaints?: boolean | "answer"; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[] }
+export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; /** What it does as a person reads it (ActionDef.words), when it says. */ words?: string; keys?: Keys; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; /** The person's own (ActionDef.person): why, as an agent is told. */ person?: string; /** The person's alone, never lifted (ActionDef.personAlways): why. */ personAlways?: string; /** Its arguments decide whether it is the person's own (ActionDef.personWith). */ personVaries?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** What it says about repainting (`repaints`): whether a run changed what's shown, or `answer` when its answer says; left out, by what it touches. */ repaints?: boolean | "answer"; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[] }
 
 /**
  * A set of actions over one kind of host. `M` maps each action name to its argument object (derived from each
@@ -311,7 +320,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
   list(): ActionInfo[] {
     return (Object.keys(this.defs) as (keyof M & string)[]).map(name => {
       const d = this.defs[name];
-      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: d.person } : {}), ...(d.personAlways ? { personAlways: d.personAlways } : {}), ...(d.personWith ? { personVaries: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.repaints === undefined ? {} : { repaints: typeof d.repaints === "function" ? "answer" as const : d.repaints }), ...(d.examples?.length ? { examples: d.examples } : {}) };
+      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, ...(d.words ? { words: d.words } : {}), keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: d.person } : {}), ...(d.personAlways ? { personAlways: d.personAlways } : {}), ...(d.personWith ? { personVaries: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.repaints === undefined ? {} : { repaints: typeof d.repaints === "function" ? "answer" as const : d.repaints }), ...(d.examples?.length ? { examples: d.examples } : {}) };
     });
   }
 

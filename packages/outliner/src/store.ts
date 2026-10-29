@@ -248,6 +248,11 @@ interface PageAddressRow {
 interface PageAddressMatchRow extends PageAddressRow {
   text: string;
 }
+/** How `[[` orders a note's addresses (page, Work ID, alias, then by address) and titles one: its note's first line. */
+const kindOrder = (kind: string) => kind === "page" ? 0 : kind === "work-id" ? 1 : 2;
+const byAddress = (a: PageAddressMatchRow, b: PageAddressMatchRow) =>
+  kindOrder(a.kind) - kindOrder(b.kind) || a.normalized_address.localeCompare(b.normalized_address) || a.block_id.localeCompare(b.block_id);
+const addressTitle = (row: PageAddressMatchRow) => firstLineWithoutPropertyTokens(row.text)?.trim() || row.block_id;
 
 interface WorkIdAllocatorRow {
   prefix: string;
@@ -3930,6 +3935,36 @@ export class OutlinerStore {
     return { addresses: addresses.map(({ exact: _exact, ...address }) => address), completeness, ...(context ? { context } : {}) };
   }
 
+  /**
+   * The notes that are pages, for `[[`'s deep pass (PIE-1409), and each found note's address as a completion row, its
+   * page first: what deep search found, in the order given.
+   */
+  pagedBlockIds(): Set<string> {
+    return new Set((this.database.query("SELECT DISTINCT block_id AS id FROM page_addresses WHERE kind = 'page'").all() as { id: string }[]).map(r => r.id));
+  }
+  pageAddressesFor(blockIds: readonly string[]): (PageAddressMatch & { exact: boolean })[] {
+    const rows = this.pageAddressRows(blockIds).sort(byAddress);
+    return blockIds.flatMap(id => {
+      const row = rows.find(r => r.block_id === id);
+      return row ? [this.pageAddressMatch(row, false)] : [];
+    });
+  }
+
+  /** The live notes' addresses (or `blockIds`' only), each with its note's text: what `[[` lists rows from. */
+  private pageAddressRows(blockIds?: readonly string[]): PageAddressMatchRow[] {
+    if (blockIds && !blockIds.length) return [];
+    return this.database.query(`
+      SELECT address.normalized_address, address.display_address, address.block_id, address.kind, block.text
+      FROM page_addresses address
+      JOIN blocks block ON block.id = address.block_id
+      WHERE block.effective_deleted_root_id IS NULL${blockIds ? ` AND address.block_id IN (${blockIds.map(() => "?").join(",")})` : ""}
+    `).all(...(blockIds ?? [])) as PageAddressMatchRow[];
+  }
+
+  private pageAddressMatch(row: PageAddressMatchRow, exact: boolean): PageAddressMatch & { exact: boolean } {
+    return { ...this.pageAddressRecord(row), title: addressTitle(row), subtitle: subtitleOf(row), exact };
+  }
+
   /** Whether `normalizedAddress` still names `blockId`, a live note (after a Jev ranking, which takes seconds). */
   pageAddressLive(normalizedAddress: string, blockId: string): boolean {
     return !!this.database.query(`
@@ -3956,16 +3991,7 @@ export class OutlinerStore {
       return { addresses: [], completeness: { kind: "complete" } };
     }
     return this.database.transaction(() => {
-      const rows = this.database.query(`
-        SELECT address.normalized_address, address.display_address, address.block_id, address.kind, block.text
-        FROM page_addresses address
-        JOIN blocks block ON block.id = address.block_id
-        WHERE block.effective_deleted_root_id IS NULL
-      `).all() as PageAddressMatchRow[];
-      const kindOrder = (kind: string) => kind === "page" ? 0 : kind === "work-id" ? 1 : 2;
-      const byAddress = (a: PageAddressMatchRow, b: PageAddressMatchRow) =>
-        kindOrder(a.kind) - kindOrder(b.kind) || a.normalized_address.localeCompare(b.normalized_address) || a.block_id.localeCompare(b.block_id);
-      const titleOf = (row: PageAddressMatchRow) => firstLineWithoutPropertyTokens(row.text)?.trim() || row.block_id;
+      const rows = this.pageAddressRows(), titleOf = addressTitle;
       let context: SearchContext | null = null;
       let byId: Map<string, Block> = new Map();
       if (contextBlockId !== undefined) {
@@ -3999,7 +4025,7 @@ export class OutlinerStore {
         ranked = rows.map(row => ({ row, exact: false }));
       }
       return {
-        addresses: ranked.slice(0, limit).map(({ row, exact }) => ({ ...this.pageAddressRecord(row), title: titleOf(row), subtitle: subtitleOf(row), exact })),
+        addresses: ranked.slice(0, limit).map(({ row, exact }) => this.pageAddressMatch(row, exact)),
         completeness: ranked.length <= limit ? { kind: "complete" as const } : { kind: "truncated" as const, limit },
         ...(context ? { context: { blockId: context.block.id, ...context.note } } : {}),
       };

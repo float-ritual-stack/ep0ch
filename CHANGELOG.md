@@ -21,6 +21,63 @@ are its record. The outliner's entries from then are kept below, under
   now point at Jev's suggestions.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
 
+### One completer: an action and its arguments complete where you type (PIE-1076)
+
+- **In a note's edit, ctrl+k** (or `/` first on a line) lists the actions that apply here at the cursor, in the edit's
+  own completion float, never the power bar over the note. `sort list` finds "Sort the list in this block"; ⏎ or tab
+  takes it and lists its arguments next; ⏎ on the line runs it: the line goes, the note saves, ctrl+z in the reader
+  takes the result back. What you leave out takes its default; nothing is asked again in the bar.
+- **On the power bar's line,** an action's arguments complete in place in the same float: `tile.zoom t`, tab gives
+  `tile=`, then this screen's tiles by the names `tile=` takes (`drawer.agent`), each with its preview; `reach=` lists
+  `screen column full`. ↑↓ move, tab and ⏎ take the lit row, esc closes the list and leaves the line.
+- **A sigil first in a value names its kind:** `%` tiles, `/` notes, `[[` pages, `:` screens.
+- **A note's `::button` step** completes from the same rows: values labelled as values, never whole lines.
+- **What the door fills (block=, quote=, with=) is never offered** in a form or a completion; `act` still takes it.
+- **ctrl+k in a note's edit was cut to the line's end;** it is now the actions here, as it is the power bar everywhere
+  else. The cut stays in one-line fields (the bar, a filter); in an edit, shift+End then ctrl+x does it.
+- **The keys card keeps a `::button{…}` example whole** (`ep0ch actions --doc agent.lift`).
+- **Run:** nothing.
+### Back and forward keep your layout; the keys window speaks where you are (PIE-1426, PIE-1425)
+
+- **Your layout stays:** back or forward in a preview onto the note its detail shows (after `b`, say) shows it there; the preview no longer closes and the detail's wires stay.
+- **Narrow back row:** at 40 columns a reader's back row keeps `← back` and `forward →` whole, dropping the title first.
+- **The keys window where you are:** `?` in the river's Library opens on the river's keys (`in:river`), not a note's editing keys.
+- **Whole sentences:** every row reads as one ("give your keys to the column on the left", not "…, columns"; "close this tile", not "close tile=<tile>").
+- **At 40 columns:** the keys tile opens below, at the screen's width, instead of a 20-column strip beside.
+### Search reads right wherever you search (PIE-1409)
+
+- **How sure, in plain words:** a right first result Jev isn't certain of says "not sure" instead of "no strong match" (the 0.8 line stays: measured on 204 cases).
+- **`[[` by meaning:** page completion finds pages by meaning too, as `((` does; after the re-rank the cursor stays on the row you were on.
+- **At 40 columns** the search footer reads whole; **on the phone** Sources' download buttons are 70×46 px.
+- **The search evals page** shows hit@1, hit@5 and cost in plain words (`ep0ch search eval --into pie` refreshes it).
+- **Still open:** daily digests can outrank real notes; it stays on the ticket.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### ctrl+z in a reader undoes that note's last change (PIE-1435)
+
+- **Your change first:** ctrl+z in a reader undoes its own last change (your edit, or an extension's or agent's write you can see), never a tile move you made somewhere else afterwards; the layout's undo gets the key only when the reader has nothing of its own. A trash newer than the reader's change still comes back first.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### Margin comments read as comments, and a quote lands where you are (PIE-1255, PIE-1184)
+
+- **A card opens the moment you press its `[+]`,** in marks mode too: it comes into view instead of opening above
+  the window (it used to need a scroll down and back up).
+- **Whole-note comments have one `[+]` each, after the title,** never a row of them in the gutter pushing the text over.
+- **The comment count says what you see:** "short cards", "whole", "as marks", and M says
+  what each does as it changes.
+- **A comment looks like a comment:** each card on its own dark surface in its tone, jutting into the margin under its
+  passage; the side column grows with a wide tile.
+- **[Quote] asks "under this note" first** and opens the quote where your new notes open (a float beside what you read, unless `note.opens` says otherwise), lit as just arrived, in
+  your edit at the end of the quote: nothing to hunt for.
+### The write review flags only what's really wrong (PIE-1428, PIE-1417, PIE-1427, PIE-1388)
+
+- **No false asks:** a note's own instruction ("check the water butt; write it on the shed door") is not a QA question, and a ticked checkbox (any mark: x ~ ! - ✓) is an answered one, so its patch never puts `[needs::sysop]` back on a done ticket.
+- **Patches ship:** once a finding's patch is applied the note can ship; a told patch keeps the verdict at fix until what it named is fixed, and the checkbox patch leaves no double blank line.
+- **No future times:** a build-log line stamped later than now is a finding when it's written (a row still to come is marked *next*).
+- **Jev's record reads true:** a figure suggestion counts as followed only when its own section changed; reviews where Jev had nothing to say are recorded live, in a "Reviewed, nothing to fix" table with when.
+- **Quieter recent activity:** notify's pull page carries `[machine::notify]`, so a chat's "what changed lately" leaves it out; extension pages stay in search and the bar.
+- **Run:** nothing beyond the usual `ep0ch install --apply`; pie's suggestions page adds its new table at the next review.
+
 ### Esc closes what's in front of you, never the Claude tile by mistake (PIE-1431, PIE-1428)
 
 - **Esc over a terminal you type in** (a terminal tile, the drawer's agent) closes the power bar or the menu over it,

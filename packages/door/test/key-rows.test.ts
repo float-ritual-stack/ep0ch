@@ -49,7 +49,7 @@ test("every row of the keys window reads as a whole sentence: the action's own w
     if (b.from !== "action") continue;
     // A key typed into the power bar (`> share.list`, `^K then macro.record`) isn't a binding of the action: it's the bar's.
     if ((b.key === ">" && b.does.includes("power bar")) || /^then\s+\S+\.\S/.test(b.does)) wrong.push(`${b.cap} ${b.id}: "${b.does}" is a line typed in the power bar, not a key: write it as a via row`);
-    else if (!b.does.startsWith(b.about)) wrong.push(`${b.cap} ${b.id}: "${b.does}" doesn't start with what ${b.id} does ("${b.about}")`);
+    else if (!b.said && !b.does.startsWith(b.about)) wrong.push(`${b.cap} ${b.id}: "${b.does}" doesn't start with what ${b.id} does ("${b.about}")`);
   }
   expect(wrong).toEqual([]);
 });
@@ -67,4 +67,22 @@ test("a row says what it does in a person's words: no act arguments, no cut-off 
   // A table's four keys each say their own operation.
   const rich = all.filter(b => b.action === "rich.change").map(b => b.does);
   expect(new Set(rich).size).toBe(rich.length);
+});
+
+/** Words a row's tail starts with when it says where or when (", in a river column", ", while recording"). */
+const WHERE_WHEN = /^(in|on|at|while|when|with|after|before|twice|from|to|then|over|beside|as|or|and|by|during|inside|under|for|once|again|alone|until|without|outside|above|below|within|wherever|either|nothing)\b/;
+
+test("no row ends in a fragment after the action's words, or names an act argument (PIE-1425)", async () => {
+  const { bindings, unbound } = await import("../src/surface/key-catalog");
+  const all = bindings(), wrong: string[] = [];
+  for (const b of [...all, ...unbound(all)]) {
+    const tail = b.does.startsWith(`${b.about}, `) ? b.does.slice(b.about.length + 2) : null;
+    // ", columns", ", widen", ", the next tile": a word of a hint row, not a sentence; write the row's `says`.
+    if (tail !== null && tail.split(/\s+/).length <= 2 && !WHERE_WHEN.test(tail)) wrong.push(`${b.cap} ${b.action}: "${b.does}" ends in a fragment: give the row its says`);
+    // tile=<tile>, by=, all=true: act's grammar, not words; give the ActionDef its words.
+    if (/\b[a-z]+=|<[a-z][\w ]*>/.test(b.does)) wrong.push(`${b.cap || "(no key)"} ${b.action}: "${b.does}" names an act argument: give its ActionDef words`);
+    // 'whether "what changed"', "which terminal tile": a summary's clause that isn't a whole thing the action does.
+    if (/^(whether|which|how|where|why)\b/.test(b.about) && b.about.split(/\s+/).length < 5) wrong.push(`${b.cap || "(no key)"} ${b.action}: "${b.about}" is a clause cut short: give its ActionDef words`);
+  }
+  expect([...new Set(wrong)]).toEqual([]);
 });

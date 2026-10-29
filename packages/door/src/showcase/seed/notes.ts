@@ -356,7 +356,7 @@ export const WRITE_REVIEW = [
  */
 const score = (model: string, hit1: number, hit5: number, sureRight: number, sureNothing: number) => ({
   model, cases: 24, positives: 12, reachable: 11, negatives: 12, asked: 22, unavailable: 0, hit1, hit5, lexHit1: 5, lexHit5: 9,
-  existsAnswered: 0.81, existsNot: 0.34, sureRight, sureWrong: 1, sureNothing, quietRight: 14, quietWrong: 2, tokensIn: 41000, tokensOut: 90,
+  existsAnswered: 0.81, existsNot: 0.34, sureRight, sureWrong: 1, sureNothing, quietRight: 14, quietWrong: 2, tokensIn: 41000, tokensOut: 90, setIn: 41000, setOut: 90,
 });
 export const SEARCH_EVAL_SCORES = [score("jev-1.13.0", 7, 10, 6, 1), score("jev-1.14.0", 7, 10, 6, 2)];
 export const SEARCH_EVAL_SWEEP = [
@@ -400,6 +400,19 @@ export const STICKY_PLAN = [
   "The rest of the plan: rotations, seed orders, who has the van.",
 ].join("\n");
 export const STICKY_JOBS = ["Turn the compost", "Mend the north bed"];
+/** The one completer (PIE-1076): a list to sort from inside its own edit, with the keys that do it written beside it. */
+export const ONE_COMPLETER = [
+  SEED.oneCompleter,
+  "",
+  "- Water the leeks",
+  "- Label the chilli trays",
+  "- Sow the broad beans",
+  "",
+  "- **From where you type:** in the edit, ctrl+k (or `/` first on a line) lists the actions that apply here; type `sort list` and ⏎.",
+  "- **Its arguments in place:** `o` then tab gives `order=`, ↓ and ⏎ choose `desc`; ⏎ on the line runs it and saves the note; ctrl+z in the reader takes it back.",
+  "- **The same list in the power bar:** ctrl+k outside the edit, `tile.zoom t`, tab gives `tile=`, and the list is this screen's tiles by the names `tile=` takes; `%` first in a value lists tiles whatever it takes.",
+].join("\n");
+
 export const STICKY_PAD = [
   SEED.stickyPad,
   `One part of the [[${SEED.stickyPlan}]], kept beside the long note:`,

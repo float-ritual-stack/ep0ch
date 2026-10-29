@@ -134,6 +134,7 @@ export const SEED = {
   deepLinks: "Deep links, by hand",
   stickyPlan: "Raised beds plan",
   stickyPad: "Sticky pad",
+  oneCompleter: "Seed tray jobs",
   shedPlan: "Shed rebuild plan",
   shedPad: "Shed sticky pad",
   zoomPlan: "Orchard winter plan",

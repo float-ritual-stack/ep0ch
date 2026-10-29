@@ -79,9 +79,9 @@ const HOME_CHOICES = { outline: "home.open", new: "home.new", import: "home.impo
 const HOME_CHOICE_KEYS: readonly ModeKey[] = Object.values(HOME_CHOICES).flatMap(action => ["enter", "click"].map(key => ({ key, action, label: "open" })));
 const HOME_KEYS: readonly ModeKey[] = keyTable("home", "the home base", [
   ...["click", "wheel"].map(key => ({ key, action: "home.pick", label: "pick" })),
-  ...["j", "down", "k", "up"].map(key => ({ key, action: "home.pick", label: "pick", args: { by: ["j", "down"].includes(key) ? 1 : -1 } })),
-  { key: "n", action: "home.new", label: "new" }, { key: "i", action: "home.import", label: "import" },
-  { key: "a", action: "home.add", label: "add machine" }, { key: "r", action: "home.reload", label: "reload" },
+  ...["j", "down", "k", "up"].map(key => ({ key, action: "home.pick", label: "pick", says: ["j", "down"].includes(key) ? "move to the next choice" : "move to the previous choice", args: { by: ["j", "down"].includes(key) ? 1 : -1 } })),
+  { key: "n", action: "home.new", label: "new", says: "make a new outline and open it" }, { key: "i", action: "home.import", label: "import" },
+  { key: "a", action: "home.add", label: "add machine" }, { key: "r", action: "home.reload", label: "reload", says: "ask every host again" },
 ]);
 
 export class HomePane implements Pane {
