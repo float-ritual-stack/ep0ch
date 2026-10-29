@@ -799,3 +799,45 @@ describe("renaming a tile (PIE-1283)", () => {
     ok(fresh(), { op: "rename", tile: 2, name: "yo" }, AGENT);
   });
 });
+
+// PIE-1306: an open naming no tile, on a screen with no reader of its own whose readers are all inside mounts (a group,
+// a board or the welcome screen in a tile), lands inside one: the mount says where its own such open starts
+// (`Ctx.inside`), and placement hops in there, as it hops out of a mount with no reader (`outward`).
+describe("an open naming no tile reaches the readers inside mounts (PIE-1306)", () => {
+  const MOUNTS = new Map([[1, "tree"], [4, "activity"], [5, "welcome"], [6, "group"]]);
+  const mounted = () => init({ tree: splitOf("row", [leaf(1), leaf(4), leaf(5), leaf(6)], [0.25, 0.25, 0.25, 0.25]), names: MOUNTS });
+  const SCREEN: Partial<TileFacts> = { kind: "screen", notes: false };
+  /** The default open from tile `focus`, with these mounts answering where their own opens start. */
+  const open = (s: LayoutState, inside: Record<number, string>, focus = 4, actor: Actor = AGENT) =>
+    placement(s, { from: focus, note: "arrival", default: true }, { ...ctxOf(actor, { focus }), inside: id => inside[id] });
+  const hop = (target: string) => ({ kind: "across" as const, target, rule: "tile" as const, source: true as const });
+  const none = { kind: "none" as const, reason: "no reader takes this open" };
+
+  test("the first mount with a reader in it takes it, the one with the person's keys first; the keys stay", () => {
+    extra = { 5: SCREEN, 6: SCREEN };
+    try {
+      const both = { 5: "welcome/welcome", 6: "group/notes" };
+      for (const actor of [AGENT, PERSON]) {
+        const p = open(mounted(), both, 4, actor);
+        expect(p.destination).toEqual(hop("welcome/welcome"));
+        expect(p.keys).toBeUndefined();
+      }
+      expect(open(mounted(), both, 6).destination).toEqual(hop("group/notes"));
+    } finally { extra = {}; }
+  });
+
+  test("a folded mount, one kept from the actor or one with no reader inside doesn't take it; a reader of the screen's own, even a busy one, keeps it on the screen", () => {
+    extra = { 5: SCREEN, 6: SCREEN };
+    try {
+      const s = mounted(), one = { 6: "group/notes" };
+      expect(open(s, one).destination).toEqual(hop("group/notes"));
+      expect(open(ok(s, { op: "collapse", tile: 6, on: true }, PERSON, { focus: 4 }).state, one).destination).toEqual(none);
+      extra[6] = { ...SCREEN, available: false };
+      expect(open(s, one).destination).toEqual(none);
+      extra[6] = { kind: "reader", notes: true };
+      expect(open(s, { 5: "welcome/welcome" }).destination).toMatchObject({ kind: "swap", tile: 6 });
+      extra[6] = { kind: "reader", notes: true, editing: "draft" };
+      expect(open(s, { 5: "welcome/welcome" }).destination.kind).not.toBe("across");
+    } finally { extra = {}; }
+  });
+});

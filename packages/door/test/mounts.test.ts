@@ -358,3 +358,87 @@ describe.skipIf(!outliner)("a mounted screen is one screen with the one around i
     await act("tile.close", {}, pv.tile);
   }, 20_000);
 });
+
+// PIE-1306: an agent's open naming no tile (`ep0ch open <id>`, an ssh'd agent with no tile to name) on a screen whose
+// readers are all inside mounts lands in one of them, never "no reader takes this open"; the person's keys stay put.
+describe.skipIf(!outliner)("an open naming no tile reaches the readers inside mounts (PIE-1306)", () => {
+  const scratch = new Scratch();
+  let board: SocketBoard, app: App, desk: Desk, seeded: Seeded;
+  const AS = "mount-agent-1306";
+  const D = () => desk as any;
+  const act = (action: string, args: Record<string, unknown> = {}, tile?: string) => app.act({ action, args, tile, as: AS }) as Promise<any>;
+  const render = () => desk.render(D().ctx);
+  const settle = async (n = 4) => { for (let i = 0; i < n; i++) { render(); await new Promise(r => setTimeout(r, 80)); } };
+  const get = () => D().layoutGet() as { focus: string; tiles: any[] };
+  const shows = async (tile: string) => (await act("tile.info", {}, tile)).showing?.id;
+
+  beforeAll(async () => {
+    process.env.EP0CH_STATE = join(scratch.root, "door");
+    board = new SocketBoard(await scratch.start());
+    await board.info();
+    seeded = await scratch.seedShowcase();
+    const term = { info: { cols: 220, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
+    app = new App(term as any, board, Date.now(), () => {});
+    app.push(new MainMenu());
+    // A screen with no reader of its own: its outline and an activity tile.
+    desk = new Desk({ name: "mounts-1306", title: "mounts", layout: { root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "tree", name: "outline" }, { t: "leaf", kind: "activity", name: "activity" }] } } });
+    app.push(desk);
+    render();
+  }, 30_000);
+  afterAll(async () => { D().dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
+
+  test("with no mount it is refused, saying what gives it a destination", async () => {
+    await expect(act("open", { id: seeded.cards[0]!.id })).rejects.toThrow(/no reader takes this open; tile.open kind=reader/);
+  });
+
+  test("a mount with no reader inside never hands it back out to the screen around it: still refused", async () => {
+    await act("tile.open", { kind: "activity", name: "a-1306" }, "activity");
+    await act("tile.open", { kind: "activity", name: "b-1306" }, "a-1306");
+    const g = await act("tile.group", { with: "b-1306" }, "a-1306");
+    try {
+      await settle();
+      await expect(act("open", { id: seeded.cards[0]!.id })).rejects.toThrow(/no reader takes this open/);
+    } finally {
+      await act("tile.group", { on: false }, g.tile);
+      for (const t of ["a-1306", "b-1306"]) await act("tile.close", {}, t);
+    }
+  }, 20_000);
+
+  test("the welcome screen mounted beside the activity tile: it lands where welcome's own opens do, the keys stay", async () => {
+    const focus = get().focus;
+    const m = await act("tile.open", { kind: "screen", screen: "welcome" }, "activity");
+    await settle();
+    const card = seeded.cards[0]!;
+    const r = await act("open", { id: card.id });
+    expect(r.name).toBe("preview");                              // where the welcome screen's own opens land (its lands)
+    expect(await shows(r.tile)).toBe(card.id);
+    // In the mount: no tile of the screen around it, and named by its path through the mount.
+    expect(get().tiles.some((t: any) => t.tile === r.tile)).toBe(false);
+    expect((await act("tile.info", {}, `${m.name}/${r.name}`)).tile).toBe(r.tile);
+    expect(get().focus).toBe(focus);
+    await act("tile.close", {}, m.tile);
+  }, 20_000);
+
+  test("a group holding a reader takes it; a board mounted inside a group takes it through both", async () => {
+    const focus = get().focus;
+    await act("tile.open", { kind: "reader", name: "inside-1306" }, "activity");
+    await act("tile.open", { kind: "activity", name: "beside-1306" }, "inside-1306");
+    const g = await act("tile.group", { with: "beside-1306" }, "inside-1306");
+    await settle();
+    const card = seeded.cards[1]!;
+    const r = await act("open", { id: card.id });
+    expect(await shows(r.tile)).toBe(card.id);
+    expect(r.name).toBe("inside-1306");
+    expect(get().focus).toBe(focus);
+    // The group's reader gone: a board mounted in the group (its readers row) is two mounts down.
+    await D().dispatch.press("tile.close", {}, `${g.tile}/inside-1306`);   // the group's own keys are on it: the person closes it
+    const b = await act("tile.open", { kind: "screen", screen: "board", target: seeded.notes.hub.id, name: "kanban-1306" }, `${g.tile}/beside-1306`);
+    await settle(8);
+    const next = seeded.cards[2]!;
+    const o = await act("open", { id: next.id });
+    expect(await shows(o.tile)).toBe(next.id);
+    expect(get().focus).toBe(focus);
+    await act("tile.close", {}, b.tile);
+    await act("tile.group", { on: false }, g.tile);
+  }, 30_000);
+});

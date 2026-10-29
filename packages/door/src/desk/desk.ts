@@ -699,6 +699,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     };
   }
   /**
+   * The screen mounted in tile `id` takes an open naming no tile (PIE-1306, `Ctx.inside`): the path to the tile that open
+   * starts from, when that screen's own landing (`landingRequest`) keeps it inside (a reader there, or in a mount below),
+   * never back out through `outward` or a wire.
+   */
+  private inside(id: number, actor: Actor): string | undefined {
+    const p = this.panes.get(id), inner = p instanceof ScreenTile ? p.inner : null, start = inner?.panes.get(inner.focus);
+    if (!inner || !start) return undefined;
+    const d = placement(inner.layout, inner.landingRequest(inner.focus, ""), inner.layoutCtx(actor)).destination;
+    const down = (path: string) => { const t = inner.storedPane(path); return !!t && inner.pathDown(t) !== undefined; };
+    if (d.kind === "none" || d.kind === "into" || (d.kind === "across" && !down(d.target))) return undefined;
+    return this.pathDown(start);
+  }
+  /**
    * Who acts, where the person is, the room: what `apply` reads. Where the person is comes from the shell's one
    * answer (the whereabouts query, PIE-514): the tile they type in, and whether they're busy anywhere (here, in the
    * drawer, in a shell the door waits under). Their focus here is this screen's own state.
@@ -722,7 +735,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const facts = new Map<number, TileFacts>();
     return {
       ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : {}), self: this.layoutSelf(),
-      beside: this.besides, opened: this.opened, outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
+      beside: this.besides, opened: this.opened, inside: id => this.inside(id, actor), outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
       actor, standing: this.dispatch.standing(actor, "shape"), protectTyping: actor.kind === "agent" && !w.yolo && !INVITES.covers(actor.invitation, "shape", actor.run), area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
       person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, { action: "layout.change" }), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
@@ -1988,7 +2001,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const target = this.resolveTile(dest.target);
       if (!target) return null;
       const d = target.desk, id = d.idNamed(target.tile.id!)!;
-      return d.placeNote(m, { from: id, ...(dest.source ? { default: true } : { to: id, rule: dest.rule, keep: dest.rule === "tile" ? false : undefined }), fresh: request.fresh, note: m.id, keys: false }, by);
+      return d.placeNote(m, { ...(dest.source ? d.landingRequest(id, m.id) : { from: id, to: id, rule: dest.rule, keep: dest.rule === "tile" ? false : undefined }), fresh: request.fresh, note: m.id, keys: false }, by);
     }
     if (dest.kind === "into") return null;
     const id = this.nextId;
@@ -2462,10 +2475,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * Where an open naming no tile lands: the tile the spec says (`ScreenSpec.lands`) takes it its kind's way, a refusal
    * thrown (an agent's `open` is told why); else where the focused tile's opens land (`openShown`).
    */
-  private landBlock(m: Msg, by: Actor) {
+  /**
+   * An open naming no tile, from tile `from`: the tile the spec says (`ScreenSpec.lands`), else its container, else the
+   * screen's default. One request for `ep0ch open <id>` here and for one handed in from the screen around (PIE-1306) or out of a mount.
+   */
+  private landingRequest(from: number, note: string): import("./screen-layout").PlacementRequest<number> {
     const target = this.spec.lands === undefined ? undefined : this.specTile(this.spec.lands);
-    const landed = this.placeNote(m, { from: this.focus, note: m.id, to: target,
-      ...(target === undefined && this.spec.lands ? { container: this.spec.lands } : { default: true }) }, by);
+    return { from, note, to: target, ...(target === undefined && this.spec.lands ? { container: this.spec.lands } : { default: true }) };
+  }
+  private landBlock(m: Msg, by: Actor) {
+    const landed = this.placeNote(m, this.landingRequest(this.focus, m.id), by);
     if (!landed) throw new ActionRefused("no reader takes this open; tile.open kind=reader gives it a destination");
     this.redraw();
     return landed;
