@@ -19,6 +19,7 @@
     "./write-review-backfill": "./src/write-review-backfill.ts",
     "./work-groom": "./src/work-groom.ts",
     "./work-try": "./src/work-try.ts",
+    "./work-later": "./src/work-later.ts",
     "./write-review": "./src/write-review.ts",
     "./search-eval": "./src/search-eval.ts",
     "./jev": "./src/jev.ts",
