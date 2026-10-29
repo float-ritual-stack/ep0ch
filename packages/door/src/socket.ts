@@ -9,7 +9,7 @@ import type { SourcesAnswer } from "@ep0ch/outline-core/sources";
 // started from, so a stale one is refused instead of overwriting someone else's change; a comment names
 // the note's revision and an exact quote, and carries a requestId, so a retry after a lost answer
 // returns the comment that was already saved instead of adding a second one.
-import { MACHINE_KEY, type MachineryMode } from "@ep0ch/outline-core/machinery";
+import type { MachineryLeftOut, MachineryMode } from "@ep0ch/outline-core/machinery";
 import type { StyleSheet } from "@ep0ch/outline-core/style-cascade";
 import { isMarkLifecycle, isTldr, markCurrent, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { actorName } from "@ep0ch/outline-core/attribution";
@@ -1116,28 +1116,17 @@ export class SocketBoard implements Board {
    * and `text` (every word, any order) as the service evaluates them, under `subtreeRootId` (itself included). At most
    * 1000; `truncated` when there were more.
    */
-  async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string; sort?: { field: string; direction: string }; propertyScope?: string; machinery?: MachineryMode }, limit = 1000): Promise<{ ids: string[]; truncated: boolean; hint?: string; matches?: Map<string, PropertyMatch[]> }> {
-    const r = await this.request<{ blocks: { id: string; propertyMatches?: PropertyMatch[] }[]; completeness: { kind: string }; hint?: string }>("blocks.query", {
-      query: { limit: Math.min(1000, limit), ...(q.expression ? { where: q.expression } : {}), ...(q.text ? { text: q.text } : {}), ...(q.subtreeRootId ? { subtreeRootId: q.subtreeRootId } : {}), ...(q.sort ? { sort: q.sort } : {}), ...(q.propertyScope ? { propertyScope: q.propertyScope } : {}), ...(q.machinery ? { machinery: q.machinery } : {}) },
+  async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string; sort?: { field: string; direction: string }; propertyScope?: string; machinery?: MachineryMode; countMachinery?: boolean }, limit = 1000): Promise<{ ids: string[]; truncated: boolean; hint?: string; matches?: Map<string, PropertyMatch[]>; machineryLeftOut?: MachineryLeftOut }> {
+    const r = await this.request<{ blocks: { id: string; propertyMatches?: PropertyMatch[] }[]; completeness: { kind: string }; hint?: string; machineryLeftOut?: MachineryLeftOut }>("blocks.query", {
+      query: { limit: Math.min(1000, limit), ...(q.expression ? { where: q.expression } : {}), ...(q.text ? { text: q.text } : {}), ...(q.subtreeRootId ? { subtreeRootId: q.subtreeRootId } : {}), ...(q.sort ? { sort: q.sort } : {}), ...(q.propertyScope ? { propertyScope: q.propertyScope } : {}), ...(q.machinery ? { machinery: q.machinery } : {}), ...(q.countMachinery ? { countMachinery: true } : {}) },
       fields: ["id"],
     });
     // With a scope past the note's own header (PIE-1277), where each note matched: `ep0ch find` says the line.
     const matched = r.blocks.filter(b => b.propertyMatches?.length);
     // `hint`: a key no note has, or values a date or number comparison couldn't read (PIE-769).
-    return { ids: r.blocks.map(b => b.id), truncated: r.completeness.kind !== "complete", ...(r.hint ? { hint: r.hint } : {}),
+    // `machineryLeftOut`: with countMachinery, what hide left out, by producer (PIE-1427).
+    return { ids: r.blocks.map(b => b.id), truncated: r.completeness.kind !== "complete", ...(r.hint ? { hint: r.hint } : {}), ...(r.machineryLeftOut ? { machineryLeftOut: r.machineryLeftOut } : {}),
       ...(matched.length ? { matches: new Map(matched.map(b => [b.id, b.propertyMatches!])) } : {}) };
-  }
-
-  /**
-   * How many notes tools stamped `[machine::…]` a question holds, by producer (PIE-1427): the same question asked with
-   * `machinery: only`, counted by the service's facets of `machine` over every match. What a hiding read left out.
-   */
-  async machineryCounts(q: { expression?: string; subtreeRootId?: string; propertyScope?: string }): Promise<Record<string, number>> {
-    const r = await this.request<{ facets?: { key: string; values: { value: string; count: number }[] }[] }>("blocks.query", {
-      query: { limit: 1, machinery: "only", facets: [MACHINE_KEY], facetValues: 1000, ...(q.expression ? { where: q.expression } : {}), ...(q.subtreeRootId ? { subtreeRootId: q.subtreeRootId } : {}), ...(q.propertyScope ? { propertyScope: q.propertyScope } : {}) },
-      fields: ["id"],
-    });
-    return Object.fromEntries((r.facets?.find(f => f.key === MACHINE_KEY)?.values ?? []).map(v => [v.value, v.count]));
   }
 
   /** Blocks as records (`blocks.records`, outline-core's block-record.ts), in the order asked, 200 a request (the service's most; each request is one backlink pass over the outline). */

@@ -45,8 +45,8 @@ are its record. The outliner's entries from then are kept below, under
   read (`updated >= -1d`) with `machineryOmitted`: "212 notifications and bookkeeping notes left out", by producer.
 - **One word brings them back:** `machinery: "show"` on `outline_query` (new) or `outline_find`; `"only"` with
   `machine=notification` asks for just the notifications.
-- **Run once per outline that has the hub:** `ep0ch machinery backfill --ws <name> [--machine <ssh-name>] --apply`
-  stamps the notes and boards an earlier version wrote (`--machine` is new).
+- **Run once per outline that has the hub,** on its machine: `ep0ch machinery backfill --ws <name> --apply` stamps
+  the notes and boards an earlier version wrote.
 
 ### The keys window: every binding, what it shadows, and a rebind said before it lands (PIE-492, PIE-1048)
 

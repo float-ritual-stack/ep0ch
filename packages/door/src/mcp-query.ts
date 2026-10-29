@@ -8,7 +8,7 @@ import { pathsOf, selectNotes, type NotesBoard } from "./notes-cli";
 import type { PropertyMatch } from "@ep0ch/outline-core/protocol";
 import { callRegistry, callShown } from "./mcp-calls";
 import { foldIds, type Changes, type FoldedRow } from "./mcp-orient";
-import { machineryLeftOut, type MachineryLeftOut, type MachineryMode } from "@ep0ch/outline-core/machinery";
+import type { MachineryLeftOut, MachineryMode } from "@ep0ch/outline-core/machinery";
 
 export const QUERY_LIMIT = { fallback: 20, max: 50 } as const;
 
@@ -27,7 +27,7 @@ export interface QueryAnswer {
   foldedFrom?: number;
   /** With `omitCall`: how many blocks only that call changed were left out (`includeOwn` keeps them). */
   ownOmitted?: { call: string; handle?: string; count: number; said: string };
-  /** With `countMachinery` in hide mode: the notes tools stamped `[machine::…]` the query left out, by producer, and the sentence that says so (PIE-1427). */
+  /** With `countMachinery` in hide mode: the notes tools stamped `[machine::…]` the query left out, by producer, and the sentence that says so, as the service counts them (PIE-1427). */
   machineryOmitted?: MachineryLeftOut;
   more: boolean;
   nextOffset?: number;
@@ -70,7 +70,7 @@ export async function queryPage(board: NotesBoard, a: QueryAsk): Promise<QueryAn
   const picked = await selectNotes(board, {
     ids: [], words: [], dates: [], ...(a.query ? { query: a.query } : {}), ...(a.view ? { view: viewIdOf(a.view) } : {}),
     ...(a.sort ? { sort: a.sort.field, direction: a.sort.direction } : {}), ...(a.under ? { under: a.under } : {}),
-    ...(a.propertyScope ? { propertyScope: a.propertyScope } : {}), ...(a.machinery ? { machinery: a.machinery } : {}),
+    ...(a.propertyScope ? { propertyScope: a.propertyScope } : {}), ...(a.machinery ? { machinery: a.machinery } : {}), ...(a.countMachinery ? { countMachinery: true } : {}),
   });
   if ("error" in picked) return { error: inTool(picked.error) };
   let ids = picked.ids, ownOmitted: QueryAnswer["ownOmitted"];
@@ -85,10 +85,7 @@ export async function queryPage(board: NotesBoard, a: QueryAsk): Promise<QueryAn
       if (count) ownOmitted = { call: a.omitCall, handle: callShown(a.omitCall).handle, count, said: `${count} of yours this call (${callShown(a.omitCall).handle ?? a.omitCall}), omitted (includeOwn: true shows them)` };
     }
   }
-  // What a hiding read left out, counted by the service (the same question, machinery only, by producer).
-  const machineryOmitted = a.countMachinery && a.query && (a.machinery ?? "hide") === "hide"
-    ? machineryLeftOut(await board.machineryCounts({ expression: a.query, ...(a.under ? { subtreeRootId: a.under } : {}), ...(a.propertyScope ? { propertyScope: a.propertyScope } : {}) }), 'machinery: "show" brings them back; "only" with machine=notification asks for just the notifications')
-    : undefined;
+  const machineryOmitted = picked.machineryLeftOut;
   const index = a.fold || a.path ? await board.index() : null;
   const folded = a.fold && index ? foldIds(ids, index) : ids.map((id): FoldedRow => ({ id }));
   const page = folded.slice(a.offset, a.offset + a.limit);

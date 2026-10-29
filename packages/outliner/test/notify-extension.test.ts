@@ -11,7 +11,8 @@ import type { Block } from "../src/types";
 import { githubWebUrl } from "../extensions/notify/sources";
 import { valueOf } from "@ep0ch/outline-core/block-record";
 import { parseProperties } from "@ep0ch/outline-core/property-parse";
-import { inert, merged } from "../extensions/notify/notification";
+import { inert, merged, STAMP } from "../extensions/notify/notification";
+import { NOTIFICATION_MACHINE } from "@ep0ch/outline-core/machinery";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -72,7 +73,9 @@ test("pure parts: the web URL of a subject, imported words kept inert, and read 
   const note = (text: string) => ({ text, properties: parseProperties(text) });
   expect(valueOf(note(merged(n, note(read))), "notify.state")).toBe("read");
   expect(valueOf(note(merged({ ...n, unread: false }, note(merged(n)))), "notify.state")).toBe("read");
-  // Stamped as machinery of its own kind, once, however often it is pulled again (PIE-1427).
+  // Stamped as machinery of its own kind, once, however often it is pulled again (PIE-1427). The extension spells its
+  // kind itself (it imports nothing); the backfill and the left-out sentence read outline-core's name: the same one.
+  expect(STAMP).toBe(`[machine::${NOTIFICATION_MACHINE}]`);
   const twice = merged(n, note(merged(n, note(read))));
   expect(twice.match(/\[machine::notification\]/g)).toEqual(["[machine::notification]"]);
 });

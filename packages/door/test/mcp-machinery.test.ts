@@ -47,7 +47,7 @@ describe.skipIf(!outliner)("outline_query leaves machinery out of a recent-activ
     expect(titles.filter(t => t.startsWith("Pruned the pear row"))).toHaveLength(10);
     expect(titles.some(t => t.startsWith("Seed order"))).toBe(false);
     expect(r.json.machineryOmitted).toMatchObject({ count: 200, by: { notification: 200 } });
-    expect(r.json.machineryOmitted.said).toStartWith("200 notifications left out (machinery: \"show\" brings them back");
+    expect(r.json.machineryOmitted.said).toBe("200 notifications left out (machinery: show brings them back)");
   });
 
   test("machinery show brings them back, and only with machine=notification asks for just them", async () => {
@@ -56,6 +56,10 @@ describe.skipIf(!outliner)("outline_query leaves machinery out of a recent-activ
     expect(all.json.machineryOmitted).toBeUndefined();
     const just = await query({ ...ORIENT, query: "updated >= -1d machine=notification", machinery: "only" });
     expect(just.json.total).toBe(200);
+    // A question that names machine itself is answered as written: nothing is left out, so nothing is counted.
+    const named = await query({ ...ORIENT, query: "updated >= -1d machine=notification" });
+    expect(named.json.total).toBe(200);
+    expect(named.json.machineryOmitted).toBeUndefined();
   });
 
   test("a read that isn't about recent activity says nothing extra, and a wrong mode says what is allowed", async () => {

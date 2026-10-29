@@ -49,8 +49,8 @@ export function bookkeepingOnly(before: string, after: string): boolean {
 /** What the notifications hub stamps on each notification it fetched (PIE-1427): its own kind, so a reader can ask for them on purpose (`machine=notification`). */
 export const NOTIFICATION_MACHINE = "notification";
 
-/** Whether a query reads recent activity: it compares `updated` (`updated >= -1d`). Such a read says what machinery it left out. */
-export const readsRecentActivity = (where: string | undefined): boolean => !!where && /\bupdated\s*(?:<=|>=|<|>|=)/i.test(where);
+/** Whether a query reads recent activity: it compares `updated` (`updated >= -1d`, never a `last-updated` property). Such a read says what machinery it left out. */
+export const readsRecentActivity = (where: string | undefined): boolean => !!where && /(?<![\w.-])updated\s*(?:<=|>=|<|>)/i.test(where);
 
 /** What a read left out, by producer (`[machine::<producer>]`), as one count and one sentence that says how to get them back. */
 export interface MachineryLeftOut { count: number; by: Record<string, number>; said: string }

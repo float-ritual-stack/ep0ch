@@ -431,7 +431,7 @@ async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, s
   let machinery: MachineryMode | undefined;
   try { machinery = args.machinery === undefined ? undefined : parseMachineryMode(args.machinery); }
   catch (e) { return toolError(`${(e as Error).message}. show brings back fetched notifications and bookkeeping notes; only with machine=notification asks for just the notifications.`); }
-  if (machinery && view) return toolError("machinery goes with query; a saved view says its own with [machinery::show] or [machinery::only].");
+  if (machinery && machinery !== "hide" && view) return toolError("machinery goes with query; a saved view says its own with [machinery::show] or [machinery::only].");
   // Recent activity (an `updated` range or sort, or fold) leaves out what this call itself just wrote: it isn't news to it,
   // and says how many fetched notifications and bookkeeping notes it left out (PIE-1427).
   const recent = readsRecentActivity(query) || sort?.field === "updated" || args.fold === true;
@@ -441,7 +441,7 @@ async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, s
     ...(query ? { query: callRegistry().resolveIn(query) } : {}), ...(view ? { view } : {}), limit, offset, ...(sort ? { sort } : {}), ...(under ? { under } : {}),
     ...(args.fold === true ? { fold: true } : {}), ...(fields?.fields.includes("path") ? { path: true } : {}),
     ...(typeof propertyScope === "string" ? { propertyScope } : {}),
-    ...(machinery ? { machinery } : {}), ...(recent && query ? { countMachinery: true } : {}),
+    ...(machinery ? { machinery } : {}), ...(readsRecentActivity(query) ? { countMachinery: true } : {}),
   });
   if ("error" in answer) return toolError(answer.error);
   const { rows, ...page } = answer;

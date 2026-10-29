@@ -15,7 +15,7 @@
 // without it, plain text. `--cells` prints the same drawing as JSON cells (src/cells.ts) for a program that paints a
 // grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep. `--site` prints
 // the text and the service's whole `site.answer` for its `{{ }}` (PIE-533 S2), as a JSON line a program reads.
-import type { MachineryMode } from "@ep0ch/outline-core/machinery";
+import type { MachineryLeftOut, MachineryMode } from "@ep0ch/outline-core/machinery";
 import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
@@ -239,7 +239,7 @@ export interface Out { out: (s: string) => void; err: (s: string) => void; colum
 
 /** Which notes, by the outline's own reading: a query, a saved view, a subtree, words, or ids given. */
 /** `sort`/`direction`: the order the outline gives a query's notes (created, updated or a property key), as views sort. */
-export interface Selection { ids: string[]; query?: string; view?: string; under?: string; sort?: string; direction?: string; words: string[]; dates: string[]; /** Which chips the query reads (PIE-1277): block (the default), line, inline or all. */ propertyScope?: string; /** What a query holds of the notes tools stamped `[machine::…]` (PIE-867): the service's hide when left out. */ machinery?: MachineryMode }
+export interface Selection { ids: string[]; query?: string; view?: string; under?: string; sort?: string; direction?: string; words: string[]; dates: string[]; /** Which chips the query reads (PIE-1277): block (the default), line, inline or all. */ propertyScope?: string; /** What a query holds of the notes tools stamped `[machine::…]` (PIE-867): the service's hide when left out. */ machinery?: MachineryMode; /** Ask the service to count what hide left out, by producer (PIE-1427). */ countMachinery?: boolean }
 
 /** The flags that select notes and take a value, and the query clause each date flag writes. */
 export const SELECT_FLAGS = ["--query", "--view", "--under", "--sort", "--direction", "--property-scope", "--updated-after", "--updated-before", "--created-after", "--created-before"];
@@ -306,7 +306,7 @@ async function resolveNote(board: SocketBoard, ref: string): Promise<{ id: strin
  * query, the subtree and words through `query.matches`), or else the notes a query, a subtree and words hold for, in
  * outline order (`blocks.query`). The outline evaluates all of it. `truncated` says what was cut at its limits.
  */
-export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ ids: string[]; truncated?: string; hint?: string; matches?: Map<string, PropertyMatch[]> } | { error: string }> {
+export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ ids: string[]; truncated?: string; hint?: string; matches?: Map<string, PropertyMatch[]>; machineryLeftOut?: MachineryLeftOut } | { error: string }> {
   const named = await resolveNotes(board, [...s.ids, ...(s.view ? [s.view] : []), ...(s.under ? [s.under] : [])]);
   const bad = named.find((n): n is { error: string } => "error" in n);
   if (bad) return { error: bad.error };
@@ -315,7 +315,7 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
   if (s.under) s = { ...s, under: (named.at(-1) as { id: string }).id };
   const expression = selectionQuery(s), text = s.words.join(" ").trim() || undefined;
   const filtered = !!(expression || text || s.under || s.sort);
-  let truncated: string | undefined, hint: string | undefined, matches: Map<string, PropertyMatch[]> | undefined;
+  let truncated: string | undefined, hint: string | undefined, matches: Map<string, PropertyMatch[]> | undefined, machineryLeftOut: MachineryLeftOut | undefined;
   let found: string[] = [];
   const refused = (e: unknown) => {
     const why = (e as Error).message;
@@ -346,15 +346,16 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
     } catch (e) { return refused(e); }
   } else if (filtered) {
     try {
-      const q = await board.queryIds({ expression, text, subtreeRootId: s.under, ...(s.sort ? { sort: { field: s.sort, direction: s.direction ?? "asc" } } : {}), ...(s.propertyScope ? { propertyScope: s.propertyScope } : {}), ...(s.machinery ? { machinery: s.machinery } : {}) });
+      const q = await board.queryIds({ expression, text, subtreeRootId: s.under, ...(s.sort ? { sort: { field: s.sort, direction: s.direction ?? "asc" } } : {}), ...(s.propertyScope ? { propertyScope: s.propertyScope } : {}), ...(s.machinery ? { machinery: s.machinery } : {}), ...(s.countMachinery ? { countMachinery: true } : {}) });
       if (q.truncated) truncated = "the outline's first 1000 matches";
       hint = q.hint;
       matches = q.matches;
+      machineryLeftOut = q.machineryLeftOut;
       found = q.ids;
     } catch (e) { return refused(e); }
   }
   const seen = new Set<string>();
-  return { ids: [...ids, ...found].filter(id => !seen.has(id) && !!seen.add(id)), ...(truncated ? { truncated } : {}), ...(hint ? { hint } : {}), ...(matches ? { matches } : {}) };
+  return { ids: [...ids, ...found].filter(id => !seen.has(id) && !!seen.add(id)), ...(truncated ? { truncated } : {}), ...(hint ? { hint } : {}), ...(matches ? { matches } : {}), ...(machineryLeftOut ? { machineryLeftOut } : {}) };
 }
 
 /** The most of a view's members a selection reads (ten pages of the service's thousand). */

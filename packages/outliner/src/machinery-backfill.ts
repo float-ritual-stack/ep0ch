@@ -21,14 +21,14 @@ export const BACKFILL_SHAPES: readonly { producer: string; where: string; about:
 
 /**
  * The views that hold machinery, so they say so (`[machinery::show]`): the file-touch tree's, and the notifications
- * hub's boards (a lane whose query reads `notify.…`). `keep` narrows what the question found, for a test the grammar can't ask.
+ * hub's boards (a lane whose query reads `notify.…`).
  */
-const VIEW_SHAPES: readonly { producer: string; where: string; keep?: (block: Block) => boolean }[] = [
+const VIEW_SHAPES: readonly { producer: string; where: string }[] = [
   { producer: "file-touch views", where: "type=virtual-branch AND file-project-view" },
-  { producer: "notification boards", where: "type=virtual-branch AND query", keep: block => block.properties.some(p => p.key === "query" && /^\s*\(?\s*notify\./.test(p.value)) },
+  { producer: "notification boards", where: 'type=virtual-branch AND text~"[query::notify."' },
 ];
 
-const USAGE = `usage: ep0ch machinery backfill [--ws <outline>] [--machine <ssh-name>] [--apply] [--json]
+const USAGE = `usage: ep0ch machinery backfill [--ws <outline>] [--apply] [--json]
   Stamps [machine::<producer>] on what tools wrote before they stamped: file touches and their folders, EchoNet's
   nodelist, tosses, ledger and receipts, delivery records, intake's prior art, backup runs, fetched notifications; and
   [machinery::show] on the file-touch views and the notifications boards. A dry run says what it would stamp; --apply stamps. A note already stamped is left alone.`;
@@ -41,7 +41,7 @@ const hasKey = (block: Block, key: string) => block.properties.some(p => p.key =
 /** What a pass over an outline would stamp (or did), by producer. */
 export async function backfill(client: Client, apply: boolean): Promise<{ producer: string; stamped: number; skipped: number; atLeast?: true }[]> {
   const report: { producer: string; stamped: number; skipped: number; atLeast?: true }[] = [];
-  const questions: { producer: string; where: string; key: string; value: string; keep?: (block: Block) => boolean }[] = [
+  const questions: { producer: string; where: string; key: string; value: string }[] = [
     ...BACKFILL_SHAPES.map(s => ({ producer: s.producer, where: s.where, key: MACHINE_KEY, value: s.producer })),
     ...VIEW_SHAPES.map(v => ({ ...v, key: "machinery", value: "show" }))];
   for (const q of questions) {
@@ -49,7 +49,7 @@ export async function backfill(client: Client, apply: boolean): Promise<{ produc
     // Pages of a thousand: the ones stamped drop out of the next ask, so it ends when nothing is left to stamp.
     for (let pass = 0; pass < 200; pass++) {
       const found = await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `(${q.where}) AND NOT ${q.key}`, limit: 1000, machinery: "show" } });
-      const todo = found.blocks.filter(b => !b.effectiveDeletedRootId && !hasKey(b, q.key) && (q.keep?.(b) ?? true));
+      const todo = found.blocks.filter(b => !b.effectiveDeletedRootId && !hasKey(b, q.key));
       if (!todo.length) break;
       // A dry run reads one page (it stamps nothing, so the next ask would be the same): a full page is a lower bound.
       if (!apply) { stamped += todo.length; atLeast = found.blocks.length >= 1000; break; }
@@ -74,14 +74,14 @@ export async function runMachineryCommand(args: readonly string[], env: NodeJS.P
     return operation === undefined || operation === "help" || operation === "--help" ? 0 : 2;
   }
   try {
-    const { values } = parseArgs({ args: [...rest], strict: true, options: { ws: { type: "string" }, machine: { type: "string" }, apply: { type: "boolean" }, json: { type: "boolean" } } });
-    const paths = resolveClientPaths({ ...env, ...(values.ws ? { EP0CH_WS: values.ws } : {}), ...(values.machine ? { EP0CH_MACHINE: values.machine } : {}) });
+    const { values } = parseArgs({ args: [...rest], strict: true, options: { ws: { type: "string" }, apply: { type: "boolean" }, json: { type: "boolean" } } });
+    const paths = resolveClientPaths(values.ws ? { ...env, EP0CH_WS: values.ws } : env);
     const client = createOutlinerClient(paths as Parameters<typeof createOutlinerClient>[0]) as unknown as Client;
     const report = await backfill(client, values.apply === true);
     if (values.json) console.log(JSON.stringify({ applied: values.apply === true, report }));
     else {
       for (const r of report) console.log(`${r.producer}: ${values.apply ? "stamped" : "would stamp"} ${r.atLeast ? "at least " : ""}${r.stamped}${r.skipped ? `, ${r.skipped} changed meanwhile or refused: run it again` : ""}`);
-      if (!values.apply) console.log("A dry run. To stamp them: ep0ch machinery backfill" + (values.ws ? ` --ws ${values.ws}` : "") + (values.machine ? ` --machine ${values.machine}` : "") + " --apply");
+      if (!values.apply) console.log("A dry run. To stamp them: ep0ch machinery backfill" + (values.ws ? ` --ws ${values.ws}` : "") + " --apply");
     }
     return 0;
   } catch (error) {

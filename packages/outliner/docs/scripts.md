@@ -405,7 +405,7 @@ examples lean on:
 | `stopRun` | `packages/outliner/src/script-runs.ts:217` |
 | `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:330` |
 | `scripts.stop` | `packages/outliner/src/server.ts:2173` |
-| `scripts.stop` request | `packages/outliner/src/types.ts:2546` |
+| `scripts.stop` request | `packages/outliner/src/types.ts:2553` |
 
 ## Traps
 
