@@ -208,6 +208,8 @@ export interface Wire { says: string; short?: string; /** The tile on this desk 
  */
 /** A frame drawn within this long is the screen as it is: a tile not in it is off the screen. */
 const SHOWN_LATELY_MS = 2_000;
+/** A selection walk's steps (PIE-1426): one within this of the last, from the same list, joins its stop. */
+const WALK_MS = 1000;
 
 export class Desk implements Screen, DeskApi, ColumnsHost {
   readonly ownsQuestion = true;
@@ -2031,7 +2033,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private follow(at: number, m: Msg, by: Actor) {
     for (const to of selectTargets(this.layout, at)) {
       const p = this.panes.get(to);
-      if (to !== at && !(p instanceof ReaderPane && (p.editing || p.holdsKeys))) this.openInto(to, m, by, true);
+      if (to !== at && !(p instanceof ReaderPane && (p.editing || p.holdsKeys))) this.openInto(to, m, by, true, at);
     }
     for (const w of this.ext.get(at) ?? []) if (w.verb === "select") {
       const t = this.extTarget(at, "select", w);
@@ -2177,6 +2179,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.redraw();
   }
 
+  /** DeskApi.previewsEmpty: every preview following tile `from`'s selection here shows nothing yet. */
+  previewsEmpty(from: Pane): boolean {
+    const id = this.idOf(from);
+    return id === undefined || this.followers(id).every(p => p === from || !this.showing(p));
+  }
+
   /** A list's home (the reader it belongs to), if it has one here. */
   private homeId(id: number): number | undefined {
     const name = this.homeName(id);
@@ -2264,7 +2272,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * Replace what tile `to` shows with `m` (its link target, a list's home, the reader an open lands in): false when that
    * tile can't show a note, or holds an edit. `preview`: a selection shown there, not an open (showFrom).
    */
-  private openInto(to: number, m: Msg, by: Actor = USER, preview = false): boolean { return this.openIntoPane(this.panes.get(to), m, this.nameOf(to), by, preview); }
+  private openInto(to: number, m: Msg, by: Actor = USER, preview = false, from = this.focus): boolean { return this.openIntoPane(this.panes.get(to), m, this.nameOf(to), by, preview, from); }
   /**
    * Show `m` in tile `p` of this desk (a link's target, here or reached across a group's edge) as its kind takes a note:
    * a reader's note replaced, kept in its history (`take`, PIE-794: its mode stays). A selection previewed in a reader
@@ -2273,18 +2281,28 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private openIntoPane(p: Pane | undefined, m: Msg, name: string, by: Actor = USER, preview = false, from = this.focus, keys = false): boolean {
     if (!p || !kindOf(p)?.accepts?.notes) throw new ActionRefused(`${name} cannot show a note`);
     if (!preview) return !!this.placeNote(m, { from, to: this.idOf(p)!, note: m.id, ...(keys ? {} : { keys: false as const }) }, by);
-    return this.previewIntoPane(p, m, by);
+    return this.previewIntoPane(p, m, by, from);
   }
 
-  /** Selection previews change only their follower, without opening a note or recording Back. */
-  private previewIntoPane(p: Pane, m: Msg, by: Actor): boolean {
+  /**
+   * A selection previewed: only its follower changes, nothing opens, and Back there comes back to what it showed before
+   * (PIE-1426: whichever tile changed it, a list's pick, a link's open or `b`, the tile's own history has it). A walk
+   * through one list (j k, each step within WALK_MS of the last, nothing else changing the preview between) is one
+   * stop: Back goes to what it showed before the walk, not through every row passed (PIE-1187's intent).
+   */
+  private previewIntoPane(p: Pane, m: Msg, by: Actor, from: number): boolean {
     if (this.keptFrom(p, by) || (p instanceof ReaderPane && (p.editing || p.holdsKeys))) return false;
-    const changed = this.showing(p)?.id !== m.id;
-    const why = p instanceof ReaderPane && p.follows && !p.holding ? (p.show(m, this), null) : kindOf(p)?.take?.(p, m, this, by);
+    const changed = this.showing(p)?.id !== m.id, now = Date.now(), last = this.walks.get(p);
+    const walking = !!last && last.from === from && now - last.at < WALK_MS && last.shown === this.showing(p)?.id;
+    const take = () => (p instanceof ReaderPane && p.follows && !p.holding ? (p.show(m, this), null) : kindOf(p)?.take?.(p, m, this, by));
+    const why = p instanceof ReaderPane && !walking ? p.surface.track(take) : take();
     if (why) return false;
+    this.walks.set(p, { from, at: now, shown: m.id });
     if (changed) this.arrived(this.idOf(p)!, by, true);
     return true;
   }
+  /** Each preview's last selection shown (previewIntoPane): which tile sent it, when, and what it showed then. */
+  private walks = new WeakMap<Pane, { from: number; at: number; shown: string }>();
 
   /** The detail `besideEdit` opened beside each reader holding an edit, by that reader's tile: the next open reuses it. */
   private besides = new Map<number, number>();
@@ -2308,7 +2326,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * read through (the focused reader; from the list itself, its home; else the one following their columns); that
    * reader becomes its home, its dock slides open, and the keys go to it. Resolves once the service has answered.
    */
-  async aimBacklinks(L: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void> }, m: Msg | null, given?: ReaderPane, actor: Actor = USER): Promise<void> {
+  async aimBacklinks(L: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void>; showSelected?(desk: DeskApi, actor: Actor): void }, m: Msg | null, given?: ReaderPane, actor: Actor = USER): Promise<void> {
     const held = this.dispatch.rule("screen", actor, { host: true });
     if (held) throw new ActionRefused(held);
     const lid = this.idOf(L);
@@ -2329,7 +2347,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.focus !== lid) { this.keysTo(lid, actor); this.entered.clear(); }
     this.redraw();
     await L.show(note, this);
-    L.focused?.(this, actor);
+    // Another note's links: a new selection, shown where it goes (giving the list the keys alone shows nothing).
+    L.showSelected?.(this, actor);
     this.save(); this.redraw();
   }
 
@@ -2430,7 +2449,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     await q.retarget(query, this);
     // A query the service refused is said, never answered as no notes (the tile shows it too).
     if (q.read?.status === "failed") throw new ActionRefused(`${query}: ${q.read.errors.join("; ") || "the service couldn't answer"}`);
-    if (standing) { this.keysTo(id, actor); q.focused(this); }
+    if (standing) { this.keysTo(id, actor); q.showSelected(this); }
     this.save(); this.redraw();
     return { ...this.tileAnswer(id), query, notes: (q.items ?? []).map((m: Msg) => ({ id: m.id, title: subject(m) })) };
   }
@@ -7269,13 +7288,23 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** `tile.travel`: back (-1) or forward (1) in tile `sel`'s flow, the column it was opened from or the one back left. The person's keys. */
-  travelTile(sel: string | undefined, dir: -1 | 1, actor: Actor): TileDone {
-    const t = this.tile(sel);
+  travelTile(sel: string | undefined, dir: -1 | 1, actor: Actor, steps = 1): TileDone | Promise<TileDone> {
+    const t = this.tile(sel), p = this.panes.get(t.id);
+    // Not a column of a flow: the tile's own back and forward (PIE-1426), as the links tile keeps the notes it listed.
+    if (!this.inFlow(t.id) && p?.trail) return this.travelOwn(t.id, p.trail, dir, steps, actor);
+    if (steps !== 1) throw new ActionRefused("steps= is for a tile's own back and forward; in a flow, back goes one column at a time");
     const r = this.apply({ op: "flow.travel", tile: t.id, dir }, actor);
     this.entered.clear();
     this.panes.get(this.focus)?.focused?.(this, actor);
     this.save(); this.redraw();
     return { ...this.tileAnswer(this.tile(String(r.answer.tile ?? this.nameOf(this.focus))).id), from: this.tileId(t.id) };
+  }
+
+  private async travelOwn(id: number, trail: import("./panes").TileTrail, dir: -1 | 1, steps: number, actor: Actor): Promise<TileDone> {
+    const why = await trail.go(dir, steps, this, actor);
+    if (why) throw new ActionRefused(why);
+    this.save(); this.redraw();
+    return { ...this.tileAnswer(id), went: dir < 0 ? "back" : "forward", history: trail.stops() };
   }
 
   /**

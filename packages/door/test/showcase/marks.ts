@@ -16,6 +16,7 @@ export const marks: Record<string, string[]> = {
   "detach": ["Shed rebuild plan", "SHED JOBS", "Drop a part of the plan here."],
   "zoom": ["Orchard winter plan", "WINTER JOBS", "Bramley", "Pruning"],
   "trail": ["Garden walk: the gate", "Stop 1 of 5"],
+  "back-anywhere": ["Back anywhere: weekend jobs", "Seed order for the weekend"],
   "sticky-pad": ["Raised beds plan", "BED JOBS", "Turn the compost"],
   "deep-links": ["Greenhouse meeting, October", "We agreed to water the seedlings", "» comment"],
   completion: ["Ask about the beds, see ((Gree", "block"],

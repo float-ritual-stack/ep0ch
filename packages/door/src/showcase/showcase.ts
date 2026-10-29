@@ -110,7 +110,7 @@ const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, l
 const repliesTile = () => new BacklinksPane("reader", false, ["children"]);
 
 /** A stage: its tiles (made here, the exhibits), how they're laid out by their place (default side by side), its title. */
-interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode; names?: string[]; agents?: (AgentLevel | undefined)[]; roles?: (string | undefined)[] }
+interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode; names?: string[]; agents?: (AgentLevel | undefined)[]; roles?: (string | undefined)[]; wires?: { verb: "open" | "select"; to: number }[][] }
 /**
  * A stage as a screen spec (PIE-515) on the desk, its tiles given (the showcase makes its own exhibits): each named by
  * its kind (reader, reader2), laid out as the stage says.
@@ -121,7 +121,7 @@ function stageDesk(st: Stage): Desk {
   const ids = st.panes.map((_, i) => i);
   st.roles?.forEach((role, i) => { if (role) tileRegistry.setRole(st.panes[i]!, role); });
   const tree = st.layout ? st.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, leaf(id)), leaf(0));
-  const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.panes[i] instanceof PreviewPane && "tile" in st.panes[i].source ? { source: `tile:${st.panes[i].source.tile}` } : {}), ...(st.panes[i]!.deliberate ? { deliberate: true } : {}), ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}) })) as SavedTree;
+  const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.panes[i] instanceof PreviewPane && "tile" in st.panes[i].source ? { source: `tile:${st.panes[i].source.tile}` } : {}), ...(st.panes[i]!.deliberate ? { deliberate: true } : {}), ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}), ...(st.wires?.[i]?.length ? { wires: st.wires[i]!.map(w => ({ verb: w.verb, to: names.get(w.to)! })) } : {}) })) as SavedTree;
   return new Desk({ name: "showcase", title: st.title, layout: { root, focus: names.get(0) } }, { given: new Map(st.panes.map((p, i) => [names.get(i)!, p])) });
 }
 /** A stage whose readers show `notes` (one each, in order) once it opens. */
@@ -283,6 +283,19 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const walk = new ReaderPane();
       return deskOf({ title: "showcase · trail", panes: [walk], names: ["walk"] }, show, [[walk, n.trailGate]]);
+    },
+  },
+  {
+    key: "back-anywhere", need: "go back in any tile to what it showed before, whichever tile or key changed it: a preview changed by a list's pick, a link's open or b, and the links tile changed by b", part: "each tile's own back and forward (PIE-1426, Pane.trail): a reader's is its surface's stacks (NoteSurface.track, now around a wired preview too: Desk.previewIntoPane), the links tile's the notes it listed (BacklinksPane.trail); back and forward in a reader, tile.travel in the links tile (alt+←), the trail lists both",
+    files: "src/desk/desk.ts (previewIntoPane, travelTile), src/desk/panes.ts (TileTrail, ReaderPane.trail), src/desk/backlinks-pane.ts (trail), src/desk/tile-actions.ts (tile.travel)",
+    aside: "Evan's layout: the detail up top opens and picks into the preview below; the links tile beside it lists the detail's links and its pick shows in the preview too · pick two rows in the links tile, ⏎ on a link up top, then b in the preview and a row in the links tile · alt+← in the preview steps back through each in order · alt+← in the links tile lists the note it listed before b · agents: act back tile=preview (the links tile's back is the person's)",
+    stage(n, show) {
+      const detail = detailPane(), links = new BacklinksPane("detail", true), preview = new PreviewPane({ tile: "" });
+      return deskOf({
+        title: "showcase · back anywhere", panes: [detail, links, preview], names: ["detail", "links", "preview"],
+        layout: ([a, b, c]) => pair("col", 0.45, leaf(a!), pair("row", 0.5, leaf(b!), leaf(c!))),
+        wires: [[{ verb: "open", to: 2 }, { verb: "select", to: 2 }], [{ verb: "select", to: 2 }, { verb: "open", to: 2 }], []],
+      }, show, [[detail, n.backHub]]);
     },
   },
   {
