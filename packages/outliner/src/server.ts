@@ -58,6 +58,7 @@ import { placeOutput } from "./place";
 import { quoteInto, readQuoteInput } from "./quote-into";
 import { stampTemplateInto, stampTemplate, type TemplateStampResult } from "./template-stamp";
 import { keepSuggestion, readKeep } from "./jev-suggestions";
+import type { RecordCache } from "./records";
 import { parseWorkId } from "@ep0ch/outline-core/work-ids";
 import { attachText, findTwins, recordTwin, tallyTwins, twinRefusal, writerName } from "./work-twins";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
@@ -1463,6 +1464,8 @@ export class OutlinerServer {
 
   /** The `suggestions.keep` in progress (PIE-1251): the next waits for it. */
   private suggestionKeeps: Promise<void> = Promise.resolve();
+  /** What the records' writer looked up (records.ts RecordCache): the Records page and templates, kept across keeps. */
+  private recordCache: RecordCache = {};
   /**
    * A ranked search (or one Jev couldn't answer) counted on the day's `jev-run` (search-records.ts), after the answer
    * has gone: one at a time, on the same turn as Jev's other records, so the day's run is made once.
@@ -2390,15 +2393,13 @@ export class OutlinerServer {
         if (this.readOnly) throw new Error("This outline is read-only.");
         const keep = readKeep(request.keep);
         const own = { request: async <T>(input: RequestInput): Promise<T> => {
-          // The loop turns between the records' requests, so a person's door is answered while a run keeps them
-          // (PIE-1402: a backfill's keep held it 5–8 s on pie, and a checklist waited 64 s).
-          await new Promise(resolve => setImmediate(resolve));
           const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
           if (!response.ok) throw new Error(response.error);
           return response.result as T;
         } };
         // One at a time: the day's run is found, made and counted by each, and two at once would make it twice.
-        const turn = this.suggestionKeeps.then(() => keepSuggestion(own, keep, this.componentSchemas().schemas));
+        // The Records page and templates are looked up once and kept (records.ts writeRecord looks again when one is gone).
+        const turn = this.suggestionKeeps.then(() => keepSuggestion(own, keep, this.componentSchemas().schemas, this.recordCache));
         this.suggestionKeeps = turn.then(() => undefined, () => undefined);
         const settled = await turn;
         return { id: request.id, ok: true, result: { settled }, sequence: this.store.sequence };

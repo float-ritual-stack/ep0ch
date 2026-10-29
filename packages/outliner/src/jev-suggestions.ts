@@ -81,14 +81,13 @@ export async function recordSuggestion(client: SuggestionClient, fit: FigureFit,
  * rule, Evan's rubric item, the passage, what was said and whether a ready patch came with it; the day's run counts the
  * review's tokens. A review with nothing new is a quiet ask on the run. Never throws.
  */
-export async function recordReview(client: SuggestionClient, keep: Extract<SuggestionKeep, { kind: "reviewed" }>, now = new Date()): Promise<void> {
+export async function recordReview(client: SuggestionClient, keep: Extract<SuggestionKeep, { kind: "reviewed" }>, now = new Date(), cache: RecordCache = {}): Promise<void> {
   try {
     const day = dayOf(now), told = keep.review.findings.filter(f => f.new);
-    if (told.length) await suggestionsPage(client);
+    if (told.length && !cache.pageMade) { await suggestionsPage(client); cache.pageMade = true; }
     // Each finding is told once (PIE-1402: a repeat patch wrote the same one four times): one the note's records hold is skipped.
     const had = told.length && keep.at.source !== "backfill" ? await toldKeys(client, keep.at.note) : new Set<string>();
-    // One lookup of the Records page and the templates for every record this review leaves.
-    const cache: RecordCache = {};
+    // One lookup of the Records page and the templates for every record (the service keeps it across keeps).
     for (const f of told) {
       if (had.has(chipValue(f.key))) continue;
       had.add(chipValue(f.key));
@@ -537,14 +536,14 @@ export function readKeep(value: unknown): SuggestionKeep {
  * the next time Jev speaks); a quiet or unavailable ask counted on the day's run; or the settling alone. Returns the
  * outcomes it wrote. Never throws.
  */
-export async function keepSuggestion(client: SuggestionClient, keep: SuggestionKeep, schemas: readonly ComponentSchema[]): Promise<number> {
+export async function keepSuggestion(client: SuggestionClient, keep: SuggestionKeep, schemas: readonly ComponentSchema[], cache?: RecordCache): Promise<number> {
   switch (keep.kind) {
     case "suggested":
       await recordSuggestion(client, keep.fit, keep.reading, keep.at);
       // A write's suggestion also settles the day-old ones; the sweep settles once, before it starts.
       return keep.at.source === "write" ? settleOpen(client, schemas) : 0;
     case "reviewed": {
-      await recordReview(client, keep);
+      await recordReview(client, keep, new Date(), cache);
       if (keep.at.source !== "write") return 0;
       // The note's earlier findings are judged against this write; a review that told something new also settles the
       // day-old ones anywhere (as a figure suggestion did), so an ordinary clean write costs one note's settling.

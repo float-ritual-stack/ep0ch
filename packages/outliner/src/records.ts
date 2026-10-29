@@ -84,10 +84,19 @@ export async function recordsRoot(board: RecordWriter, who: RecordWho): Promise<
  * What a run of records looks up once, not per record (PIE-1402: a backfill's keep looked every kind's template up again
  * for each record, ~1 s a record on pie, and stalled the host): the Records page, and each kind's template, checked.
  */
-export interface RecordCache { root?: Note; deploys?: Note; templates?: Map<string, Note>; checked?: Set<string> }
+export interface RecordCache { root?: Note; deploys?: Note; templates?: Map<string, Note>; checked?: Set<string>; pageMade?: boolean }
 
-export async function writeRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, o: { title?: string; cache?: RecordCache } = {}) {
-  const cache = o.cache ?? {};
+export async function writeRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, o: { title?: string; cache?: RecordCache } = {}): Promise<{ id: string; warnings: string[] }> {
+  if (!o.cache) return stampRecord(board, kind, props, who, o.title, {});
+  try { return await stampRecord(board, kind, props, who, o.title, o.cache); }
+  catch {
+    // What was kept may be gone (the Records page or a template trashed): looked up again, once.
+    for (const key of Object.keys(o.cache) as (keyof RecordCache)[]) delete o.cache[key];
+    return stampRecord(board, kind, props, who, o.title, o.cache);
+  }
+}
+
+async function stampRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, title: string | undefined, cache: RecordCache): Promise<{ id: string; warnings: string[] }> {
   const deploy = kind === "deploy";
   let root = deploy ? cache.deploys ??= await findNote(board, "system-view=deploys") : cache.root ??= await recordsRoot(board, who);
   if (!root) root = cache.deploys = await board.request<Note>("create", { text: DEPLOYS_NOTE, parentId: null, ...who });
@@ -109,7 +118,7 @@ export async function writeRecord(board: RecordWriter, kind: RecordKind, props: 
     }
   }
   const result = await board.request<{ stamped: Note[]; warnings: string[] }>("template.stamp", {
-    of: template.id, parent: root.id, title: o.title ?? (deploy ? `Deploy ${props.when ?? new Date().toISOString()} on ${props.host ?? "unknown"}` : `${kind} ${new Date().toISOString()}`), props, ...who,
+    of: template.id, parent: root.id, title: title ?? (deploy ? `Deploy ${props.when ?? new Date().toISOString()} on ${props.host ?? "unknown"}` : `${kind} ${new Date().toISOString()}`), props, ...who,
   });
   return { id: result.stamped[0]!.id, warnings: result.warnings };
 }
