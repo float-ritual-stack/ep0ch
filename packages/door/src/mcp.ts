@@ -934,8 +934,9 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
   const { board } = target;
   const status = withLevel(await board.mcpAccessStatus(), caller, board.address);
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
-  // Shares are live and writable: they are the outline's own machine's (PIE-1091).
-  if (target.home && name !== "outline_snapshot" && name !== "reader_view") return toolError(awayShareRefusal(outlines, target, name, args));
+  // A share is live and takes comments: it is the outline's own machine's. Listing and revoking an outline served from
+  // its copy are the copy's own links, its snapshots' (PIE-1091).
+  if (target.home && name === "share_start") return toolError(awayShareRefusal(outlines, target, args));
   try {
     if (name === "outline_snapshot") {
       const snapshot = await board.request<OutlineSnapshot>("outline.snapshot", {
@@ -945,7 +946,8 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
         mutation: caller ? { author: "agent", ...actorOf(caller) } : { author: "agent", actorId: "mcp" },
       }, 120_000);
       const how = "Show the curl command with its URL inside a fenced code block, never as a clickable link, to avoid chat link previews.";
-      return toolText({ ...snapshot, ...copyFields(target), said: target.home ? `${copyLine(target, "A snapshot of")} ${how}` : how });
+      // The copy's provenance first: the snapshot's own asOf is the file's.
+      return toolText({ ...copyFields(target), ...snapshot, said: target.home ? `${copyLine(target, "A snapshot of", snapshot.asOf)} ${how}` : how });
     }
     if (name === "reader_view") {
       const seen = await readerView(board);
@@ -975,17 +977,13 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
 const copyFields = (target: McpBoard) => target.home ? target.served : {};
 
 /** One line for an answer from a copy: as of when, and how fresh, in the words reads use (the mirror's note, which says a stale copy is). */
-const copyLine = ({ board, served }: McpBoard, what: string) => `${what} ${board.address.outline} as of ${served.asOf}: ${served.note ?? "read-only copy"}.`;
+const copyLine = ({ board, served }: McpBoard, what: string, asOf = served.asOf) => `${what} ${board.address.outline} as of ${asOf}: ${served.note ?? "read-only copy"}.`;
 
 /** A share of an outline served from its copy: refused, with why and the two ways out. */
-const awayShareRefusal = (outlines: McpOutlines, { board, served, home }: McpBoard, name: ShareTool, args: Record<string, unknown>) => {
-  const on = `on ${home!.machine}`;
-  const command = name === "share_start" ? `ep0ch share start ${typeof args.ref === "string" ? args.ref : "<ref>"} --ws ${board.address.outline}`
-    : name === "share_list" ? `ep0ch share list --ws ${board.address.outline}` : `ep0ch share revoke ${typeof args.id === "string" ? args.id : "<id>"} --ws ${board.address.outline}`;
-  return `${board.address.outline} lives on ${home!.machine}, which isn't reached from here now; ${outlines.machine} reads only its read-only copy (as of ${served.asOf}). ` +
-    `A share is live and takes comments, so it is made by the outline's own host: ${on}, run \`${command}\` (or ${name} again once ${home!.machine} answers). ` +
-    `To read it now: outline_snapshot gives a download of the copy, and outline_read and outline_find read it.`;
-};
+const awayShareRefusal = (outlines: McpOutlines, { board, served, home }: McpBoard, args: Record<string, unknown>) =>
+  `${board.address.outline} lives on ${home!.machine}${served.liveTried ? `, which isn't reached from here now (${served.liveTried.why})` : ""}; ${outlines.machine} reads ${served.liveTried ? "only " : "it only from "}its read-only copy (as of ${served.asOf}). ` +
+  `A share is live and takes comments, so it is made by the outline's own host: on ${home!.machine}, run \`ep0ch share start ${typeof args.ref === "string" ? args.ref : "<ref>"} --ws ${board.address.outline}\`${served.liveTried ? ` (or share_start again once ${home!.machine} answers)` : ""}. ` +
+  `To read it now: outline_snapshot gives a download of the copy, and outline_read and outline_find read it.`;
 
 const lokiDefinition = { name: "loki_lease", description: "Mint an hour-long read-only Loki query URL for curl/scripts. Requires read access or higher to a local outline on this host. Keep it in LOKI_URL; do not publish it. A host restart ends leases too.", inputSchema: { type: "object", properties: { ttl: { type: "string", description: "Duration, default 1h (1m to 24h)" } }, additionalProperties: false } };
 

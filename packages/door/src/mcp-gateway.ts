@@ -187,8 +187,10 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
    * Writes queued while it was away are drained first (PIE-1351), so what was written before lands before what comes now.
    * `fresh`: a write's, tried even inside the backoff.
    */
+  /** A mirror's board as answers name it (its machine's own name once known), kept for the grammar notice. */
+  const namedFor = <T extends McpBoard>(mirror: OutlineMirror, b: T): T => { b.board.address = { outline: mirror.outline, machine: nameOf(mirror) }; usedBoards.add(b.board); return b; };
   const routed = async (mirror: OutlineMirror, how: { fresh?: boolean } = {}): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
-    const named = <T extends McpBoard>(b: T): T => { b.board.address = { outline: mirror.outline, machine: nameOf(mirror) }; usedBoards.add(b.board); return b; };
+    const named = <T extends McpBoard>(b: T): T => namedFor(mirror, b);
     if (!live) { const r = await mirrorRead(mirror); return "error" in r ? r : named(r); }
     const a = await live.board(mirror.machine, mirror.outline, how);
     if ("board" in a) {
@@ -202,19 +204,22 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     const { why, checkedAt, command } = a.away;
     const copy = await mirrorRead(mirror);
     if ("error" in copy) return { ...copy, error: `${why}. ${copy.error}` };
-    // A mirror older than a write made live through this server: said, with what it made.
-    const wrote = netmailAt ? lastLiveWrite(mirror) : null;
-    const staleSince = wrote && Date.parse(wrote.at) > Date.parse(copy.served.copy?.copiedAt ?? copy.served.asOf)
-      ? { at: wrote.at, revision: wrote.revision, uri: wrote.uri, said: `a write made live through this server at ${wrote.at}${wrote.revision ? ` (revision ${wrote.revision})` : ""} is newer than this copy` } : null;
+    const staleSince = newerWrite(mirror, copy);
     return named({ ...copy, served: { ...copy.served, note: `${why}; ${copy.served.note ?? ""}`.trim(), liveTried: { at: checkedAt, why, ...(command ? { command } : {}) }, ...(staleSince ? { staleSince } : {}) } });
+  };
+  /** A mirror older than a write made live through this server: said, with what it made. */
+  const newerWrite = (mirror: OutlineMirror, copy: McpBoard) => {
+    const wrote = netmailAt ? lastLiveWrite(mirror) : null;
+    return wrote && Date.parse(wrote.at) > Date.parse(copy.served.copy?.copiedAt ?? copy.served.asOf)
+      ? { at: wrote.at, revision: wrote.revision, uri: wrote.uri, said: `a write made live through this server at ${wrote.at}${wrote.revision ? ` (revision ${wrote.revision})` : ""} is newer than this copy` } : null;
   };
   /** The mirror's copy, whether or not its machine answers (`board`'s `copy`), named as answers name it. */
   const copyOf = async (mirror: OutlineMirror): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
     const r = await mirrorRead(mirror);
     if ("error" in r) return r;
-    r.board.address = { outline: mirror.outline, machine: nameOf(mirror) };
-    usedBoards.add(r.board);
-    return r;
+    namedFor(mirror, r);
+    const staleSince = newerWrite(mirror, r);
+    return staleSince ? { ...r, served: { ...r.served, staleSince } } : r;
   };
   /** Whether writes wait for this mirror's outline (the store opened only when there is one). */
   const waitingFor = (mirror: OutlineMirror): boolean => {

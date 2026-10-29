@@ -62,14 +62,14 @@ export class OutlinePublishers {
     // forms for its own pages, so the outlines do too.
     const below = root && (pathname === root || pathname.startsWith(`${root}/`)) ? pathname.slice(root.length) : pathname;
     if (below === "/o" || below === "/o/") return this.list(request);
-    // Another machine's snapshot link is its copy's here, whether or not the machine answers now (PIE-1091).
-    if (this.options.remotes?.length && /^\/o\/[^/]+\/s\/[^/]+\/snapshot\.sqlite$/.test(below)) return this.snapshot(request, root);
     const named = below === null ? null : OUTLINE_PATH.exec(below);
     if (!named) return this.options.home.handle(request, audience, undefined, signedIn);
     let name: string;
     try { name = decodeURIComponent(named[1]!); } catch { name = ""; }
     if (name === this.options.homeName) return redirect(`${root}${named[2] ?? "/"}`);
     const remote = this.options.remotes?.find((candidate) => candidate.address === name);
+    // Its snapshot link is its copy's here, whether or not the machine answers now (PIE-1091).
+    if (remote && /^\/s\/[^/]+\/snapshot\.sqlite$/.test(named[2] ?? "")) return this.snapshot(request, root);
     if (!remote && (!isOutlineName(name) || !(await this.options.names()).includes(name))) return plainPage("No such outline", `<h1>No outline “${escapeHtml(name)}” here</h1>\n<p><a href="${escapeHtml(`${root}/o/`)}">the outlines</a></p>\n`, 404);
     let publisher: Publisher;
     try {

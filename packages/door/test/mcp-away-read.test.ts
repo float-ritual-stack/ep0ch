@@ -3,13 +3,14 @@
 // and a share is refused with why and what to do. Every answer says how fresh the copy is. "The other machine" is a
 // scratch host whose database Litestream's follow leaves in the mirrors folder (a VACUUM INTO); the web client is the
 // outliner's own OutlinePublishers with a RemoteOutline whose forward never answers, so it reads the same copy.
-// Fictional notes throughout.
+// Calls go over HTTP to the real gateway (startGateway) with tokens a test issuer signs. Fictional notes throughout.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { answerMcp, type McpOutlines } from "../src/mcp";
-import { machineOutlines } from "../src/mcp-gateway";
+import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
+import type { McpOutlines } from "../src/mcp";
+import { gatewayConfig, machineOutlines, startGateway, type Gateway } from "../src/mcp-gateway";
 import { OutlineMirror } from "../src/mcp-mirror";
 import { SocketBoard } from "../src/socket";
 import { outliner, ScratchHost, scratchDir } from "./scratch";
@@ -22,7 +23,9 @@ const load = async <T>(file: string, name: string) => (await import(join(outline
 
 const FAR = "far-box";
 const TAILNET = "garden.tail0000.ts.net";
-const caller = { sub: "user_owner", clientId: "claude-ai" };
+const ISSUER = "https://fake-clerk.example.test";
+const RESOURCE = "https://mcp.example.test/mcp";
+const PERSON = "user_fictional_owner";
 
 describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, reader view, shares", () => {
   const far = new ScratchHost();
@@ -30,6 +33,7 @@ describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, r
   let here = "", mirrors = "", nextId = 1;
   let garden: SocketBoard, porch: SocketBoard;
   let outlines: McpOutlines & { close(): void };
+  let gateway: Gateway, sign: () => Promise<string>;
   let web: Web, home: Started;
   let lantern = "";
   let stale: { since: string; why: string } | null = null;
@@ -42,9 +46,13 @@ describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, r
     const source = new Database(join(far.outlines, "garden-notes.sqlite"), { readonly: true });
     try { source.run("VACUUM INTO ?", [target]); } finally { source.close(); }
   };
+  /** A tool call as claude.ai makes it: over HTTP to the gateway, with a token its issuer signed. */
   const tool = async (name: string, args: Record<string, unknown> = {}) => {
-    const answer = await answerMcp(outlines, JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name, arguments: args } }), caller, "http");
-    const result = (answer!.reply as { result: { isError?: boolean; content: { text: string }[] } }).result;
+    const res = await fetch(gateway.url, {
+      method: "POST", headers: { Host: "mcp.example.test", Authorization: `Bearer ${await sign()}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name, arguments: args } }),
+    });
+    const result = ((await res.json()) as { result: { isError?: boolean; content: { text: string }[] } }).result;
     return { isError: !!result.isError, text: result.content[0]!.text };
   };
   const fetchWeb = (url: string, init: RequestInit = {}) => web.handle(new Request(url, { ...init, headers: { host: TAILNET, ...(init.headers as Record<string, string> ?? {}) } }));
@@ -65,6 +73,13 @@ describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, r
     // The gateway: no outline of its own here, and the far machine's outline only from its copy (no live link).
     const mirror = new OutlineMirror("garden-notes", FAR, mirrors, line => logs.push(line), () => clock, async () => stale);
     outlines = machineOutlines(undefined, line => logs.push(line), async () => ({ error: "no local host" }), [mirror], async () => []);
+    const pair = await generateKeyPair("RS256", { extractable: true });
+    const keys = createLocalJWKSet({ keys: [{ ...(await exportJWK(pair.publicKey)), kid: "test-key", alg: "RS256" }] });
+    sign = () => new SignJWT({ client_id: "client_fictional", scope: "profile" }).setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" })
+      .setIssuer(ISSUER).setSubject(PERSON).setAudience(RESOURCE).setIssuedAt().setExpirationTime("5m").sign(pair.privateKey);
+    const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
+    if ("error" in config) throw new Error(config.error);
+    gateway = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", keys, log: line => logs.push(line) });
     // The web client: its home outline (porch-notes stands in), and the far outline at /pub/o/garden-notes@far-box/,
     // whose forward never answers, so its pages read the copy.
     const [OutlinerClient, Publisher, RemoteOutline, OutlinePublishers] = await Promise.all([
@@ -81,6 +96,7 @@ describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, r
 
   afterAll(async () => {
     if (savedWebUrl === undefined) delete process.env.EP0CH_WEB_URL; else process.env.EP0CH_WEB_URL = savedWebUrl;
+    gateway?.stop();
     outlines?.close();
     await web?.stop();
     garden?.close(); porch?.close();
@@ -147,6 +163,14 @@ describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, r
     expect(refused.text).toContain("live");
     expect(refused.text).toContain(`ep0ch share start ${lantern} --ws garden-notes`);
     expect(refused.text).toContain("outline_snapshot");
-    expect((await tool("share_list", { outline: "garden-notes" })).text).toContain(`garden-notes lives on ${FAR}`);
   });
+
+  test("a snapshot of the copy is listed and revoked like any other: its link ends at once", async () => {
+    const snapshot = JSON.parse((await tool("outline_snapshot", { outline: "garden-notes" })).text) as { url: string; shareId: string };
+    const listed = JSON.parse((await tool("share_list", { outline: "garden-notes" })).text) as { shares: { id: string }[] };
+    expect(listed.shares.map(s => s.id)).toContain(snapshot.shareId);
+    const revoked = JSON.parse((await tool("share_revoke", { outline: "garden-notes", id: snapshot.shareId })).text) as { revoked: string[] };
+    expect(revoked.revoked).toEqual([snapshot.shareId]);
+    expect((await fetchWeb(snapshot.url)).status).not.toBe(200);
+  }, 30_000);
 });

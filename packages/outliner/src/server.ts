@@ -374,9 +374,9 @@ export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "p
  * machine's outline read from its mirror while that machine is away), with the change feed it subscribes to.
  */
 const READ_ONLY_COPY_ACTIONS: ReadonlySet<string> = new Set([...READ_ONLY_ACTIONS, "artifacts.show", "artifacts.list", "artifacts.versions", "events.subscribe", "children", "blocks.read", "transclusions.read", "callouts.types", "extensions.list",
-  // A snapshot is a read (PIE-1091): made from the copy, downloaded once from this machine's web client; and what its
-  // pages here have in front of them. Shares stay the outline's own machine's.
-  "outline.snapshot", "shares.resolve", "shares.snapshot.take", "shares.snapshot.finish", "reader.report", "reader.view"]);
+  // A snapshot is a read (PIE-1091): made from the copy, downloaded once from this machine's web client, listed and
+  // revoked here; and what its pages here have in front of them. Starting a share stays the outline's own machine's.
+  "outline.snapshot", "shares.resolve", "shares.snapshot.take", "shares.snapshot.finish", "shares.list", "shares.revoke", "reader.report", "reader.view"]);
 
 export class OutlinerServer {
   private readonly mentions: MentionRepository;
