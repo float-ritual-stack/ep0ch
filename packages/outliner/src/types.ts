@@ -2595,7 +2595,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "virtual.occurrences.place"; input: VirtualBranchPlacementInput; mutation?: MutationProvenance }
   | { id: string; action: "references.resolve"; text: string }
   /** Notes named the way a person types them (an id, ((id)), an id's first 8+ characters, a Work ID, a [[page]]): each one's block id, or why not, with a did-you-mean (PIE-875). Read-only. */
-  | { id: string; action: "blocks.resolve"; refs: string[] }
+  | { id: string; action: "blocks.resolve"; refs: string[]; includeTrashed?: boolean }
   /** The outline's callout types (PIE-538): the built-ins and those its notes declare with [callout-type::name]. */
   | { id: string; action: "callouts.types" }
   /** The outline's heading styles (PIE-599): the built-ins and those its notes declare with [heading-style::name]. */

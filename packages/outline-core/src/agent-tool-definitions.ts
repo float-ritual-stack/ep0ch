@@ -97,7 +97,7 @@ export const UP_FRONT_TOOLS: readonly string[] = ["list_outlines", "outline_find
 
 const REF: ToolSchema = {
   type: "string",
-  description: "The block: its id, ((id)), [[page]] or a Work ID (PIE-123). Never a title: find it with outline_find first.",
+  description: "The block: its id, ((id)), its first 8+ characters, [[page]] or a Work ID (PIE-123). Never a title: find it with outline_find first.",
 };
 const EXPECTED: ToolSchema = {
   type: "integer",

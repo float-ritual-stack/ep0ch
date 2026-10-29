@@ -25,6 +25,14 @@ are its record. The outliner's entries from then are kept below, under
 - **The deployer is found again:** the mod reads `.ep0ch/config.toml` (and the old `.ep0ch` file), so the freshness
   sweep runs in the live checkout without `EP0CH_AGENT`.
 
+### Agent tools take a short id (PIE-1371)
+
+- **One resolver:** `outline_read`, `outline_patch`, `outline_set_property` and the other agent tools, in the Claude mod,
+  the MCP gateway and scripts, name a note by its id's first 8 characters (`b234391f`), as `ep0ch show` does.
+- **Errors teach:** an ambiguous prefix lists each note's id, title and where it sits; a miss names the nearest ids;
+  a title still points at `outline_find`.
+- **Work IDs by any spelling:** `PIE-12` finds PIE-012 everywhere a note is named.
+
 ### One tab strip for every tab set (PIE-1288)
 
 - **The power bar's scopes are actions:** alt+← alt+→ (alt+b alt+f), a prefix and a click on a scope run
