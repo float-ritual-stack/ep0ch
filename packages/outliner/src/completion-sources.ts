@@ -37,7 +37,7 @@ type Semantic = { status: string; message?: string } & Partial<SearchCertainty>;
 interface Search { matches: { block: { id: string }; title: string; subtitle?: string; path: string; snippet: string; score?: number; reason?: "linked" | "near" | "yours" }[]; completeness: { kind: string; limit?: number | null }; semantic?: Semantic }
 interface Pages { outlines?: string[]; addresses: PageAddressMatch[]; completeness: { kind: string; limit?: number | null }; semantic?: Semantic }
 /** How sure a ranked list is, as the service decided it (search-ranking.ts), for the list to say. */
-const sureOf = (semantic: Semantic | undefined): { sure?: SearchCertainty } => semantic?.status === "ranked" && semantic.verdict ? { sure: { verdict: semantic.verdict, said: semantic.said ?? "", ...(semantic.exists !== undefined ? { exists: semantic.exists } : {}), ...(semantic.top !== undefined ? { top: semantic.top } : {}) } } : {};
+const sureOf = (semantic: Semantic | undefined): { sure?: SearchCertainty } => semantic?.status === "ranked" && semantic.verdict ? { sure: { verdict: semantic.verdict, said: semantic.said ?? "", ...(semantic.label ? { label: semantic.label } : {}), ...(semantic.exists !== undefined ? { exists: semantic.exists } : {}), ...(semantic.top !== undefined ? { top: semantic.top } : {}) } } : {};
 /** A ranked row's Score, beside what the row already says. */
 const scored = (detail: string | undefined, score: number | undefined) => [detail, score !== undefined ? `${score.toFixed(1)}/3` : ""].filter(Boolean).join(" · ") || undefined;
 interface Fragment { blockId: string; title: string; revision: number; kind: string; label: string; lineIndex: number; fragmentId?: string; anchor?: { fragmentId: string; line: string } }

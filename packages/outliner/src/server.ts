@@ -31,7 +31,7 @@ import type { ChangeAttribution } from "./change-feed";
 import { MentionRepository } from "./mentions";
 import { EditRecoveryRepository } from "./edit-recovery";
 import {rankSearchWithJev} from './search-ranking';
-import { keepSearchPick, readSearchPicked, readSearchPicks, SEARCH_PICKS_METADATA_KEY, tallySearch, type SearchTally } from './search-records';
+import { keepSearchPick, readSearchPicked, readSearchPicks, SEARCH_PICKS_METADATA_KEY, SEARCH_TALLY_MS, SearchTallies, type SearchTally } from './search-records';
 import { blockDisplayTitle } from "./references";
 import { previewPropertyParse } from "./properties";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
@@ -873,6 +873,7 @@ export class OutlinerServer {
   async close(): Promise<void> {
     this.artifactStore?.close();
     this.stopping = true;
+    if (this.searchTallyTimer) { clearTimeout(this.searchTallyTimer); this.searchTallyTimer = null; }
     for (const waiting of this.holderAnswers.values()) { clearTimeout(waiting.timer); waiting.reject(new Error("the service is stopping")); }
     this.holderAnswers.clear();
     this.watches.stop();
@@ -1465,6 +1466,8 @@ export class OutlinerServer {
    * A ranked search (or one Jev couldn't answer) counted on the day's `jev-run` (search-records.ts), after the answer
    * has gone: one at a time, on the same turn as Jev's other records, so the day's run is made once.
    */
+  private readonly searchTallies = new SearchTallies();
+  private searchTallyTimer: ReturnType<typeof setTimeout> | null = null;
   private tallySearch(semantic: GotoSearchCollection["semantic"]): void {
     if (this.readOnly || semantic.status === "lexical" || /busy|not configured/i.test(semantic.message ?? "")) return;
     const tally: SearchTally = semantic.status === "ranked"
@@ -1475,7 +1478,15 @@ export class OutlinerServer {
       if (!response.ok) throw new Error(response.error);
       return response.result as T;
     } };
-    this.suggestionKeeps = this.suggestionKeeps.then(() => tallySearch(own, tally), () => undefined);
+    this.searchTallies.count(tally);
+    if (this.searchTallyTimer) return;
+    const wait = Number(process.env.OUTLINER_SEARCH_TALLY_MS ?? SEARCH_TALLY_MS);
+    this.searchTallyTimer = setTimeout(() => {
+      this.searchTallyTimer = null;
+      if (this.stopping) return;
+      this.suggestionKeeps = this.suggestionKeeps.then(() => this.searchTallies.flush(own), () => undefined);
+    }, Number.isFinite(wait) ? wait : SEARCH_TALLY_MS);
+    this.searchTallyTimer.unref?.();
   }
 
   /**

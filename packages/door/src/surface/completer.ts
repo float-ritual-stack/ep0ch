@@ -693,8 +693,8 @@ export class Completer {
       if (!await insertCompletion(this.board, this.d, s.target, item, this.own(), () => this.current(turn))) return false;
       // Counted by the outline host (PIE-1340), so this pick ranks higher next time, here and in every other client.
       if (s.pickKey) void this.board.completionPicked?.(s.pickKey, item.insertion).catch(() => {});
-      // A note picked from a list Jev ranked: the words and the note, kept as the search eval's label (PIE-1197).
-      if (s.jev === "ranked" && item.blockId) this.board.searchPicked?.(s.target.query, item.blockId, index, "complete");
+      // A note picked from a search's list (ranked or not, as the bar's): the words and the note, the eval's label (PIE-1197).
+      if ((s.target.kind === "page" || s.target.kind === "block") && item.blockId) this.board.searchPicked?.(s.target.query, item.blockId, index, "complete");
       this.dismiss();
       // A folder leaves `[file::notes/` open: its entries are offered next; a filter's key `stage:` its values. A chosen value ends it
       // (the cursor is still in its word, which would offer the same value again).
@@ -1001,7 +1001,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   s.listWidth = drawn.listWidth;
   rows.push(...drawn.rows); out.push(...drawn.lines);
   // Whether Jev ordered the list, said quietly first, where a narrow popup doesn't cut it.
-  const jev = s.jev === "ranked" ? (s.sure && s.sure.verdict !== "strong" ? "no strong match · " : "jev ranked · ") : s.jev === "asking" ? "jev… · " : "";
+  const jev = s.jev === "ranked" ? (s.sure?.label ? `jev ranked · ${s.sure.label} · ` : "jev ranked · ") : s.jev === "asking" ? "jev… · " : "";
   const hint = completionHint(s, selected);
   const enter = enterKeeps(s);
   const keys = enter ? `↑↓ tab ⏎ ${enter} esc` : "↑↓ ⏎/tab esc";

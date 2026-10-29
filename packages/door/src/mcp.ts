@@ -572,7 +572,7 @@ const pathOf = (path: string) => path || ROOT_PATH;
 const semanticSays = (asked: boolean, semantic: SearchHits["semantic"] | undefined) => {
   if (!asked) return { asked, status: "lexical", said: "lexical: ep0ch find's ranker (title, text, properties); semantic: false left Jev out" };
   const status = semantic?.status ?? "unavailable";
-  if (status === "ranked" && semantic?.verdict) return { asked, status, verdict: semantic.verdict, said: semantic.said, ...(semantic.exists !== undefined ? { exists: semantic.exists } : {}) };
+  if (status === "ranked" && semantic?.verdict) return { asked, status, verdict: semantic.verdict, ...(semantic.label ? { label: semantic.label } : {}), said: semantic.said, ...(semantic.exists !== undefined ? { exists: semantic.exists } : {}) };
   return { asked, status, said: status === "ranked" ? "re-ranked semantically (Jev) over the lexical candidates" : `lexical: semantic re-ranking was asked for and isn't available here${semantic?.message ? ` (${semantic.message})` : ""}` };
 };
 

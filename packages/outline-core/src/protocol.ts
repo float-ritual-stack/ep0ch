@@ -745,7 +745,7 @@ export interface CompletionSourceAnswer extends SourceAnswer {
  * and only said by clients: `strong` when the top note answers it, `weak` when the closest is named but not claimed,
  * `none` when nothing here does. `said` is the sentence; `exists` Jev's "is it among these?" (0–1), `top` its best Score (0–3).
  */
-export interface SearchCertainty { verdict: "strong" | "weak" | "none"; said: string; exists?: number; top?: number }
+export interface SearchCertainty { verdict: "strong" | "weak" | "none"; said: string; exists?: number; top?: number; /** The short form a footer or a row draws: `sure` or `no strong match`. */ label?: string }
 
 /**
  * `search.picked`: the person opened a search's row (the power bar, `[[`, Tree's goto). Kept with the query and the row's

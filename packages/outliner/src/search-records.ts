@@ -40,12 +40,30 @@ export type SearchTally =
   | { kind: "ranked"; sure: SearchCertainty | undefined; reading: JevReading }
   | { kind: "unavailable" };
 
-/** One ranked search (or one Jev couldn't answer) counted on the day's run (work-jev.ts's tallyRun). Never throws. */
-export async function tallySearch(client: WorkJevClient, tally: SearchTally, now = new Date()): Promise<void> {
-  try {
-    const day = now.toISOString().slice(0, 10);
-    if (tally.kind === "unavailable") return await tallyRun(client, SEARCH_LIVE_EXPERIMENT, day, { unavailable: 1 });
-    const sure = tally.sure?.verdict === "strong";
-    await tallyRun(client, SEARCH_LIVE_EXPERIMENT, day, { items: 1, ...(tally.sure ? sure ? { quiet: 1 } : { suggested: 1 } : {}) }, tally.reading);
-  } catch { /* best-effort */ }
+/**
+ * Searches counted in memory and written to the day's run at most once per `SEARCH_TALLY_MS`: a search is a read, and a
+ * write per keystroke-settled query would add a revision and wake every subscribed door each time. A host that stops
+ * between flushes loses those few counts; the run is a rate, not a log.
+ */
+export const SEARCH_TALLY_MS = 5 * 60_000;
+
+export class SearchTallies {
+  private add = { items: 0, quiet: 0, suggested: 0, unavailable: 0 };
+  private usage = { input: 0, output: 0 };
+  private reading: JevReading | undefined;
+  get pending() { return this.add.items + this.add.unavailable > 0; }
+  count(tally: SearchTally): void {
+    if (tally.kind === "unavailable") { this.add.unavailable++; return; }
+    this.add.items++;
+    if (tally.sure) tally.sure.verdict === "strong" ? this.add.quiet++ : this.add.suggested++;
+    this.usage.input += tally.reading.usage?.input ?? 0; this.usage.output += tally.reading.usage?.output ?? 0;
+    this.reading = tally.reading;
+  }
+  /** What's counted, written as one change to the day's run. Never throws. */
+  async flush(client: WorkJevClient, now = new Date()): Promise<void> {
+    if (!this.pending) return;
+    const add = this.add, reading = this.reading ? { ...this.reading, usage: this.usage } : undefined;
+    this.add = { items: 0, quiet: 0, suggested: 0, unavailable: 0 }; this.usage = { input: 0, output: 0 }; this.reading = undefined;
+    try { await tallyRun(client, SEARCH_LIVE_EXPERIMENT, now.toISOString().slice(0, 10), add, reading); } catch { /* best-effort */ }
+  }
 }

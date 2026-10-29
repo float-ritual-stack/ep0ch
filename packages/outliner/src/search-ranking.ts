@@ -58,12 +58,12 @@ const figure = (n: number) => (Math.round(n * 10) / 10).toFixed(1);
 export function certaintyOf(top: { title: string; score: number } | undefined, exists: number | undefined, t = SEARCH_THRESHOLDS): SearchCertainty {
   const sure = exists === undefined || exists >= t.exists.yes;
   if (!top || top.score < t.floor || (exists !== undefined && exists < t.exists.no)) {
-    return { verdict: "none", said: "no strong match: nothing here looks like what was asked for", ...(exists !== undefined ? { exists } : {}), ...(top ? { top: top.score } : {}) };
+    return { verdict: "none", label: "no strong match", said: "no strong match: nothing here looks like what was asked for", ...(exists !== undefined ? { exists } : {}), ...(top ? { top: top.score } : {}) };
   }
   if (top.score >= t.strong && sure) {
-    return { verdict: "strong", said: `strong match: ${quoted(top.title)} (${figure(top.score)} of 3${exists !== undefined ? `, sure ${figure(exists)}` : ""})`, ...(exists !== undefined ? { exists } : {}), top: top.score };
+    return { verdict: "strong", label: "sure", said: `strong match: ${quoted(top.title)} (${figure(top.score)} of 3${exists !== undefined ? `, sure ${figure(exists)}` : ""})`, ...(exists !== undefined ? { exists } : {}), top: top.score };
   }
-  return { verdict: "weak", said: `no strong match: the closest is ${quoted(top.title)} (${figure(top.score)} of 3)`, ...(exists !== undefined ? { exists } : {}), top: top.score };
+  return { verdict: "weak", label: "no strong match", said: `no strong match: the closest is ${quoted(top.title)} (${figure(top.score)} of 3)`, ...(exists !== undefined ? { exists } : {}), top: top.score };
 }
 
 /** HTTP and model output stay outside the synchronous SQLite read transaction. */
@@ -77,7 +77,7 @@ export async function rankSearchWithJev<T extends SearchExcerpt>(
   } = {},
 ): Promise<SearchCollection<T & { score?: number }>> {
   // OUTLINER_FIGURE_FIT=off (the tests' default) turns every Jev loop off, search's too: a scratch host never asks.
-  if (!options.apiKey && jevOff(options.env)) return { ...candidates, semantic: { status: "unavailable", message: "Jev is off here (OUTLINER_FIGURE_FIT=off); showing text matches" } };
+  if (!options.apiKey && jevOff(options.env)) return { ...candidates, semantic: { status: "unavailable", message: "Jev is not configured here (OUTLINER_FIGURE_FIT=off); showing text matches" } };
   const apiKey = options.apiKey ?? await jevKey(options.env);
   if (!apiKey) return { ...candidates, semantic: { status: "unavailable", message: "Jev is not configured; showing text matches · add its key: with-secrets --add typesafe TYPESAFE_API_KEY" } };
   if (query.trim().length < 3 || candidates.matches.length === 0 || candidates.matches[0]?.exact) return candidates;
