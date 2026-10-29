@@ -85,6 +85,8 @@ import { isOutlineNote, openResource, resourceRefTarget } from "../authored";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileNow, type Where } from "./tile-actions";
 import { tileMenu } from "./tile-menu";
+import { KeysPane } from "./keys-window";
+import { TrailPane } from "./trail-tile";
 import { filtered } from "../bar/filter";
 import { ScreenTile } from "./screen-tile";
 import { QueryPane } from "./query";
@@ -428,14 +430,36 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.save(); this.redraw();
     return { ...this.tileAnswer(id), side: this.commentSide };
   }
-  private openPair(at: number, pane: Pane, name: string, keys: boolean, actor: Actor): number {
+  private openPair(at: number, pane: Pane, name: string, keys: boolean, actor: Actor, dir: Dir = this.commentSide): number {
     const id = this.nextId;
     const ok = this.ask({ op: "open", tile: id, kind: pane.kind, name: this.autoName(name),
-      at: { kind: "split", target: at, dir: this.commentSide, pair: true, weight: this.attachedShare[name] ?? 0.45 },
+      at: { kind: "split", target: at, dir, pair: true, weight: this.attachedShare[name] ?? 0.45 },
       ...(keys ? {} : { keys: false as const }) }, actor);
     if (!ok.ok) throw new ActionRefused(ok.refused);
     this.put(pane); this.commit(ok); this.startTile(id); this.openedBy(id, at);
     return id;
+  }
+
+  /**
+   * Reader `r`'s trail (PIE-208) in a tile of its own beside it (PIE-1425): docked, resized and closed like any tile, the
+   * person's keys in it and back in the reader when it closes. The one already open for `r` gets the keys back; null when
+   * the layout won't place one there (the trail then lists over the screen).
+   */
+  async trailTile(r: ReaderPane): Promise<unknown> {
+    const at = [...this.panes].find(([, p]) => p === r)?.[0];
+    if (at === undefined) return null;
+    const source = this.nameOf(at);
+    const have = [...this.panes].find(([, p]) => p instanceof TrailPane && p.source === source)?.[0];
+    let id: number;
+    if (have !== undefined) id = have;
+    else {
+      const made = this.sides(at).reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source), "trail", true, USER, dir); } catch (e) { if (e instanceof ActionRefused) return null; throw e; } }, null);
+      if (made === null) return null;
+      id = made;
+    }
+    this.keysTo(id);
+    this.save(); this.redraw();
+    return this.tileAnswer(id);
   }
 
   async answerTile(reader: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown> {
@@ -4557,6 +4581,38 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
+   * Where a list that wants width (the keys window, the trail) opens beside tile `at`, best first: the layout's one rule
+   * (`splitAxis`, wide), so a 44-column tile keeps its width and the list has all of it too.
+   */
+  private sides(at: number): ["right", "down"] | ["down", "right"] {
+    const r = this.placed.rects.get(at);
+    return r && splitAxis(r, true) === "row" ? ["right", "down"] : ["down", "right"];
+  }
+
+  /**
+   * The keys window as a tile (PIE-1425): beside the focused tile, filtered to where you are, so it resizes, docks and
+   * closes like any; the one already on this screen gets the person's keys back with the new filter.
+   */
+  async openKeys(filter: string | undefined, actor: Actor): Promise<unknown> {
+    const words = filter ?? this.keysFilter();
+    const have = this.all().find(id => this.panes.get(id) instanceof KeysPane);
+    if (have === undefined) {
+      // From a float: beside the tile under it, as tile.open does.
+      const at = this.isFloat(this.focus) ? this.grounded() ?? this.focus : this.focus, [first, then] = this.sides(at);
+      const done = await this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), first, actor).catch(e => { if (e instanceof ActionRefused) return this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), then, actor); throw e; });
+      // Closed (esc, q, ^W x), it gives the keys back to the tile it opened beside.
+      const made = this.all().find(id => this.panes.get(id) instanceof KeysPane);
+      if (made !== undefined) this.openedBy(made, at);
+      return done;
+    }
+    const p = this.panes.get(have) as KeysPane;
+    p.filter = words; p.at = 0; p.field = null; p.record = null;
+    if (this.dispatch.standing(actor)) await this.dispatch.press("tile.focus", {}, this.tileId(have));
+    this.redraw();
+    return { ...this.tileAnswer(have), kind: "keys" };
+  }
+
+  /**
    * The words `?` opens the keys window with: the scope of the focused tile's own actions (a reader's are NOTE_ACTIONS',
    * `note`; another kind's, its set's), else nothing (every binding).
    */
@@ -5487,7 +5543,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const under = at === undefined && this.isFloat(this.focus) ? this.grounded() : undefined;
     const empty = !this.all().length;
     const base = empty ? { id: this.focus, name: "home" } : this.tile(under !== undefined ? this.nameOf(under) : at);
-    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...this.mountFields(t) };
+    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...(t.state ? { state: t.state } : {}), ...this.mountFields(t) };
     // The kind checks its fields (a preview's source) and fills what it starts with (it follows `at`).
     const wrong = k.check?.(spec);
     // Short of what it needs (a query tile with no view): the person picks it from the kind's choices, then it opens.
