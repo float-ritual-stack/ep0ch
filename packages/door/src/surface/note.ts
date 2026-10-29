@@ -293,7 +293,7 @@ export interface SurfaceHost {
    * reader's `p`): an extension's key on a line never takes one of them (PIE-512).
    */
   ownKeys?: string;
-  /** The place in the door's undo order of the screen's newest layout change (PIE-957): a reader's ctrl+z yields to it when it is newer than the reader's own. */
+  /** The place in the door's undo order of the screen's newest layout change (PIE-957): a reader's ctrl+z yields to it only when the reader has nothing of its own to undo (PIE-1435). */
   layoutUndoSeq?(): number | undefined;
   /**
    * This note's links (Outlinks, Resources, Backlinks) in the screen's links tile, as `b` asks: where the host has
@@ -4676,11 +4676,12 @@ export class NoteSurface {
       if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
       const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["use.undo", this.useHistory.last("you", at)], ["sources.undo", this.sourceHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)]] as const)
         .reduce<{ name: "callout.undo" | "image.undo" | "use.undo" | "sources.undo" | "task.undo" | "ext.undo" | "note.move.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
-      // Nothing of this reader's to undo: the desk's ctrl+z brings back a note trashed (note.untrash).
+      // A note trashed after it comes back first (the desk's note.untrash). The layout isn't compared (PIE-1435): a tile
+      // moved elsewhere didn't happen to this note, so the desk's ctrl+z (layout.undo) gets the key only when the reader
+      // has nothing of its own; with no layout change either, the reader's refusal says there's nothing to undo.
       const trashedAt = lastTrashed(host.ctx.board, USER)?.seq;
       if (trashedAt !== undefined && trashedAt > last.seq) return false;
-      const laid = host.layoutUndoSeq?.();
-      if (laid !== undefined && laid > last.seq) return false;
+      if (last.seq < 0 && host.layoutUndoSeq?.() !== undefined) return false;
       void this.runKey(last.name, {}, host, true);
       return true;
     }

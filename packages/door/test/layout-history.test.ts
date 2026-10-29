@@ -342,4 +342,28 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     await board.stopScript(run.undo, USER);
     await untilAsync(async () => names().includes(b), "the stopped run's layout put back", 8000);
   }, 60_000);
+
+  // PIE-1435: the reader owns ctrl+z while it has something of its own; a tile closed elsewhere afterwards stays closed.
+  test("ctrl+z in a reader undoes the extension's write on its note, not a tile closed elsewhere after it", async () => {
+    await board.request("create", { author: "user", text: 'Stamp [script::stamp-note] [results::keep] [effects::write]\n```js\nreturn "stamped";\n```' });
+    const note = await board.request<{ id: string }>("create", { author: "user", text: "A note a script stamps" });
+    await board.request("extensions.list", { reload: true });
+    await app.loadExtensions(true);
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "stamp-note"), "the script loaded");
+    const ext = extensionList()!.extensions.find(e => e.name === "stamp-note")!;
+    const reader = await person("tile.open", { kind: "detail", note: note.id }) as { tile: string };
+    await person("tile.focus", {}, reader.tile);
+    const here = D().layoutGet().focus as string;
+    const run = await person(`ext.${ext.id}.run`, { block: note.id }) as { undo: string; written: string[] };
+    const result = run.written[0]!;
+    await untilAsync(async () => (await board.get(result))?.text.includes("· done") ?? false, "the run to finish");
+    // The person closes another tile: the layout's newest change is now newer than the reader's write.
+    const victim = names().find(n => n !== here)!;
+    await person("tile.close", {}, victim);
+    await person("tile.focus", {}, reader.tile);
+    expect(D().layoutGet().focus).toBe(here);
+    key({ kind: "char", ch: "z", ctrl: true });
+    await untilAsync(async () => { const b = await board.get(result).catch(() => null); return !b || !!b.deleted || !b.text.includes("stamped"); }, "ctrl+z undid the script's write");
+    expect(names()).not.toContain(victim);
+  }, 60_000);
 });
