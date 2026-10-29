@@ -43,9 +43,12 @@ export function drainPrompt(): string {
     '1. Merge what is ready: an open PR whose builder reported green and whose review findings are answered.',
     '2. Fill free builder slots, up to 3 builders: Up next, then #hydra and arc=floor items with a written definition of done, ' +
       'then high-priority queued items, oldest first. Skip [needs::sysop] and one-way doors (infrastructure, deletion, protocol).',
-    '3. Once a day, while Evan has written nothing in pie, gurgle or float-hub for about 2 hours: the sweep ' +
+    '3. Validate: when no verifier is out, one ep0ch-verifier that built none of them takes the oldest validate items ' +
+      '(drive it on a scratch door or name the covering test); close each with proof, send a finding back to queued with its repro, ' +
+      'and ask Evan only for taste or hands ([needs::sysop]).',
+    '4. Once a day, while Evan has written nothing in pie, gurgle or float-hub for about 2 hours: the sweep ' +
       '(queued over 5 days: pick it up, re-rank it with a reason, or close it with the reason; no definition of done: write one).',
-    '4. A line under the day\'s build log for each pick, re-rank and close.',
-    'If there is nothing to merge and no slot to fill, answer in one line and do nothing else.',
+    '5. A line under the day\'s build log for each pick, re-rank, close and finding.',
+    'If there is nothing to merge, no slot to fill and nothing in validate, answer in one line and do nothing else.',
   ].join('\n')
 }

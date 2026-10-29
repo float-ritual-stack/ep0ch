@@ -142,13 +142,17 @@ session), so no cron is set by hand. The rules are daddy's request ((5bfab6fb-75
    `#hydra` and `arc=floor` items whose definition of done is written, then high-priority queued items, oldest first.
    Skip `[needs::sysop]` and one-way doors (infrastructure, deletion, a protocol bump: a one-line heads-up first).
    Absence is a green light: Evan offline means fill every free slot.
-3. **Once a day, while Evan has written nothing in pie, gurgle or float-hub for about 2 hours, sweep:** queued more than
+3. **Validate on the clock** (daddy's request ((826d6a88-f888-42d4-a787-34c406ebb2f8|Loki's validate sweep goes on the clock))):
+   when no verifier is out, one `ep0ch-verifier` that built none of them takes the oldest validate items. Proof is
+   driving it on a scratch door or the test that covers it; each closes with `work_complete`, a finding goes back to
+   queued with its repro on the ticket, and Evan is asked only for taste or hands (`[needs::sysop]`).
+4. **Once a day, while Evan has written nothing in pie, gurgle or float-hub for about 2 hours, sweep:** queued more than
    5 days is picked up, re-ranked with a one-line reason, or closed with the reason; an item with no definition of done
    gets one written from its note and links.
-4. **A line under the day's build log** for every pick, re-rank and close. Close picks on proof the same day.
+5. **A line under the day's build log** for every pick, re-rank, close and finding. Close picks on proof the same day.
 
 The tick stays quiet when the open PRs and the doing and queued items read as at the last drain, the same day.
-Nothing to merge and no slot to fill: one line, nothing else.
+Nothing to merge, no slot to fill and nothing in validate: one line, nothing else.
 
 ## The build log
 
