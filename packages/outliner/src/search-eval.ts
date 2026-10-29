@@ -376,8 +376,10 @@ export async function keepRun(client: EvalClient, scores: readonly ModelScore[],
   for (const s of scores) {
     const run = runs.find(r => r.model === s.model)!;
     await recordRun(client, EVAL_EXPERIMENT, day, {
-      items: s.positives, agreed: s.hit1, agreement: s.positives ? Math.round(s.hit1 / s.positives * 100) / 100 : 0, different: s.hit5,
-      suggested: s.quietRight + s.quietWrong, quiet: s.sureRight + s.sureWrong + s.sureNothing, ignored: s.negatives, unavailable: s.unavailable,
+      // The run-level keys in the meaning every loop gives them (agreed: Jev's top agreed with the label); hit@5 and the
+      // rest are the report's.
+      items: s.positives, agreed: s.hit1, agreement: s.positives ? Math.round(s.hit1 / s.positives * 100) / 100 : 0,
+      suggested: s.quietRight + s.quietWrong, quiet: s.sureRight + s.sureWrong + s.sureNothing, unavailable: s.unavailable,
     }, { model: s.model, prompt: run.prompt, questions: s.asked, usage: { input: s.tokensIn, output: s.tokensOut } });
   }
   const made = await client.request<{ id: string }>({ action: "create", text: note, parentId: page!.id, ...EVAL });

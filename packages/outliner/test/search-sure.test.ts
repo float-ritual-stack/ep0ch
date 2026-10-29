@@ -34,9 +34,9 @@ function fakeJev(o: { best: string; exists: number }) {
 
 async function setup(jev: { best: string; exists: number }) {
   const { fake, asked, endpoint } = fakeJev(jev);
-  const was = { on: process.env.OUTLINER_FIGURE_FIT, key: process.env.TYPESAFE_API_KEY, at: process.env.OUTLINER_JEV_ENDPOINT };
-  // The service is in this process: its Jev is the fake for this test only.
-  Object.assign(process.env, { OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: endpoint });
+  const was = { on: process.env.OUTLINER_FIGURE_FIT, key: process.env.TYPESAFE_API_KEY, at: process.env.OUTLINER_JEV_ENDPOINT, tally: process.env.OUTLINER_SEARCH_TALLY_MS };
+  // The service is in this process: its Jev is the fake for this test only, and the day's run is written at once.
+  Object.assign(process.env, { OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: endpoint, OUTLINER_SEARCH_TALLY_MS: "0" });
   const root = mkdtempSync(join(tmpdir(), "outliner-search-sure-"));
   const { env: _env, ...paths } = scratchOutline(root);
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
@@ -45,7 +45,7 @@ async function setup(jev: { best: string; exists: number }) {
   const client = new OutlinerClient(paths.socket);
   cleanups.push(async () => {
     fake.stop(true); await server.close(); store.close(); rmSync(root, { recursive: true, force: true });
-    for (const [k, v] of [["OUTLINER_FIGURE_FIT", was.on], ["TYPESAFE_API_KEY", was.key], ["OUTLINER_JEV_ENDPOINT", was.at]] as const) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    for (const [k, v] of [["OUTLINER_FIGURE_FIT", was.on], ["TYPESAFE_API_KEY", was.key], ["OUTLINER_JEV_ENDPOINT", was.at], ["OUTLINER_SEARCH_TALLY_MS", was.tally]] as const) if (v === undefined) delete process.env[k]; else process.env[k] = v;
   });
   const records = async (type: string) => (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `type=${type}`, machinery: "show" } })).blocks
     .map(b => Object.fromEntries(parsePropertyRecords(b.text).map(p => [p.key, p.value])) as Record<string, string>);
@@ -64,11 +64,24 @@ test("a search whose top answers it says so, scores each row, and counts itself 
   expect(r.matches.slice(1).every(m => m.score === 0.4)).toBe(true);
   expect(r.semantic).toMatchObject({ status: "ranked", verdict: "strong", exists: 0.93, top: 2.8 });
   expect(r.semantic.said).toBe("strong match: “Compost turning schedule” (2.8 of 3, sure 0.9)");
+  expect(r.semantic.label).toBe("sure");
   // One request: a Score per candidate and the Noul over them.
   expect(asked).toHaveLength(1);
   expect(Object.keys(asked[0]!.questions)).toEqual([...r.matches.map((_, i) => `candidate_${i}`), "exists"]);
   expect(await until(async () => (await records("jev-run")).some(run => run.experiment === "search-live" && run.items === "1"))).toBe(true);
   expect((await records("jev-run")).find(run => run.experiment === "search-live")).toMatchObject({ quiet: "1", suggested: "0", "tokens-in": "500", model: "jev-1.13.0" });
+});
+
+test("many searches are one write to the day's run, not one each", async () => {
+  const { store, client, records } = await setup({ best: "Compost turning", exists: 0.93 });
+  process.env.OUTLINER_SEARCH_TALLY_MS = "150";
+  store.create("Compost turning schedule\nTurn the heap every two weeks in summer.");
+  store.create("Compost bin repairs\nThe lid hinge on the compost bin.");
+  for (const q of ["turn the compost", "compost turning when", "compost heap turning"]) await client.request({ action: "tree.search", query: q, semantic: true });
+  expect(await until(async () => (await records("jev-run")).some(run => run.experiment === "search-live" && run.items === "3"))).toBe(true);
+  const [run] = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=jev-run experiment=search-live", machinery: "show" } })).blocks;
+  // Made (stamped, its cost chip added), then counted once: three revisions, whatever the searches.
+  expect(run!.revision).toBeLessThanOrEqual(3);
 });
 
 test("a search with nothing that answers it says no strong match instead of a confident #1", async () => {

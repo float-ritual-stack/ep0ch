@@ -141,7 +141,7 @@ const searchRows = (hits: Msg[] & { scores?: Map<string, number> }, query: strin
   return { ...noteRow(m), ...(score !== undefined ? { detail: `${score.toFixed(1)}/3` } : {}), data: { query, rank } satisfies Searched };
 });
 /** What the bar says of a ranked list: the service's verdict, said short (the sentence is on the row it names). */
-const jevSaid = (semantic: { verdict?: string } | undefined) => semantic?.verdict === "strong" ? "jev ranked · sure" : semantic?.verdict ? "jev ranked · no strong match" : "jev ranked";
+const jevSaid = (semantic: { label?: string } | undefined) => semantic?.label ? `jev ranked · ${semantic.label}` : "jev ranked";
 
 /** How many notes `/` lists with nothing typed. */
 const RECENT_NOTES = 30;

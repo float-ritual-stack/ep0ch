@@ -404,7 +404,7 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       const hits = blocks ? `${plural(blocks.length, 'hit', 'hits')}${out?.complete === false ? '+' : ''}` : null
       // A ranked find says how sure it is (PIE-1198): "no strong match" beside the count when the top isn't a sure answer.
       const search = recordOf(out?.search)
-      const unsure = search?.verdict === 'weak' || search?.verdict === 'none' ? ['no strong match'] : []
+      const unsure = typeof search?.label === 'string' && search.verdict !== 'strong' ? [search.label] : []
       const score = (b: Record<string, unknown>) => typeof b.score === 'number' ? ` · ${b.score.toFixed(1)}/3` : ''
       return {
         kind: 'read', glyph: '⌕', lead: `find ${what}`, target: null, change: [...(hits ? [hits] : []), ...unsure],
