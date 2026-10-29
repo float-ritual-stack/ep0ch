@@ -407,12 +407,16 @@ fits; `ep0ch library --guide` (the Claude mod's context, the MCP gateway's instr
 A write answers with the `components` the note now holds and its `warnings` (a figure's name or key with a typo, YAML
 that doesn't read, a reference that leads nowhere): the text is saved as written, so fix them in the same turn. A live figure you wrote (a `query:` or `view:`)
 comes back in `figures` with the rows it returned, and one that returned 0 is a warning too: check the query with
-`outline_find` (`hasKey` names a property). The answer also measures the note against the house rules above, and each finding is a warning that starts "fix before you
-call this done": a title line over about 70 characters, a paragraph past three sentences, a long run of prose with no
-figure or callout, a callout inside a callout, a question for Evan below the top with no `[needs::sysop]`. Where
-figure-fit is on, a write that leaves a note as rows with no figure adds one more ("this reads as a timeline:
-::graph-timeline would draw it"): take it from `outline_components <id>`. Every answer ends with `next`, the check to
-make: read the note as drawn (`ep0ch show <id>`, or `outline_read` it back) before you call the write done. In
+`outline_find` (`hasKey` names a property). Every create, edit and patch is reviewed (PIE-1388): the answer's `review` has a `verdict`, `ship` or `fix`, and
+`findings`, each filed under Evan's rubric (dense, format, buried, unclear, mixed, context, argues, qa-for-evan) with
+where it is and the smallest fix. Code measures a title over about 70 characters, a paragraph past three sentences, a
+bullet stacking several points, a note past a screen with no headings, a count typed in prose that a query keeps true,
+a bare id, a question for Evan below the top; Jev reads every section the write changed (prose too) for the rest, and
+which of the outline's components would show it. Many findings carry a `patch`: pass it to `outline_patch` as written
+(the figure built from your own lines, the bullet split a point a line, the question moved to the top). Each new
+finding is also a warning that starts "fix before you call this done". Every answer ends with `next`, the check to
+make: read the note as drawn (`ep0ch show <id>`, or `outline_read` it back) before you call the write done. What you
+were told and what you did next land on Jev's suggestions page. In
 the Claude mod a note that holds a figure comes back drawn already. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
 the content.
 
