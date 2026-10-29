@@ -113,7 +113,7 @@ import { composerBody, composerBox, placeBox, type ComposerBox } from "./compose
 import { AttachedTile, attachedAt, attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedTileHost, type AttachedSide, type AttachedPlace, type AttachedSplit, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, nextPlace, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
 import { pickerCwd, pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
-import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, scriptInstallWords, threadAgents } from "../extensions";
+import { ASKED_IN_PLACE, askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, scriptInstallWords, threadAgents } from "../extensions";
 import { actionLine, actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { INVITES } from "./invite";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
@@ -137,7 +137,7 @@ import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTar
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
-import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
+import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -3456,6 +3456,11 @@ export class NoteSurface {
     if (this.replyParent && ch(k) === '"' && this.selection) { void this.runKey("note.quote", {}, host); return true; }
     if (this.replyParent && (k.kind === "pgup" || k.kind === "pgdn")) { this.scrollKey(k, host); return true; }
     if (elementEdit(s.draft).key(k, (action, args = {}) => { void this.runKey(action, args, host); })) { host.redraw(); return true; }
+    // A note's own edit runs actions where the person types (PIE-1076): ctrl+k lists them, ⏎ on a / line runs it.
+    if (s.draft === this.draft && !completionOf(s.draft)?.items.length) {
+      if (k.kind === "char" && k.ctrl && k.ch === "k" && !k.shift) { void this.runKey("edit.actions", {}, host); return true; }
+      if (k.kind === "enter" && actionHereAt(s.draft.lines[s.draft.row] ?? "", (s.draft.lines[s.draft.row] ?? "").length) && (s.draft.lines[s.draft.row] ?? "").trim() !== "/") { void this.runKey("edit.run", {}, host); return true; }
+    }
     // What ends or hands off the draft is an action (PIE-506); the rest is typing.
     s.key(k, {
       completer: this.completer(s.draft, host),
@@ -10553,6 +10558,56 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "draft", draft: "leave", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => saveDraft(surface, host, actor),
+  }),
+  "edit.actions": def({
+    words: "run an action from where you're typing",
+    summary: "list the actions that apply here at the cursor, in the edit's own completion float (PIE-1076): a `/` line under the cursor's (or the cursor's own line, when empty), then the action's arguments in place as you choose it; ⏎ runs it (edit.run). ctrl+k is the power bar's key everywhere else, and its actions here",
+    keys: [{ keys: "ctrl+k", does: "in a note's edit" }, { keys: "/", does: "first on a line of a note's edit" }], touches: "draft", draft: "type", replay: "safe",
+    args: {},
+    examples: [{ act: "edit.actions", does: "puts a / line under the cursor's line and lists the actions that apply here" }],
+    async run(_, { surface, host }, actor) {
+      const d = surface.draft;
+      if (!d) throw new ActionRefused("nothing is being edited here · e edits the note, then ctrl+k or / lists its actions");
+      if (d.busy) throw new ActionRefused("the save is still landing");
+      if (!actionHereAt((d.lines[d.row] ?? ""), d.col)) {
+        if ((d.lines[d.row] ?? "").trim()) { d.place(d.row, (d.lines[d.row] ?? "").length); d.pasteText("\n", actor); }
+        d.pasteText("/", actor);
+      }
+      const c = surface.completer(d, host);
+      await c?.refresh(true);
+      host.redraw();
+      return { rows: c?.shown?.items.length ?? 0, line: d.row + 1 };
+    },
+  }),
+  "edit.run": def({
+    words: "run the action typed on its / line",
+    summary: "run the action on the cursor's `/` line (or line=, an act line without the /) on this note: the line is taken out, the edit saved (it leaves, as ctrl+s does) and the action run here as the power bar would run it; its result is one undo step (ctrl+z in the reader)",
+    keys: [{ keys: "enter", does: "on a / line of a note's edit, with no list open" }], touches: "draft", draft: "leave", replay: "ask",
+    args: { line: { type: "string", optional: true, about: "the act line to run (ext.structure.sort-list by=title); default the cursor's / line" } },
+    examples: [{ act: 'edit.run line="ext.structure.sort-list order=desc"', does: "saves the edit and sorts the note's list, last first" }],
+    async run({ line }, { surface, host }, actor) {
+      const d = surface.draft;
+      if (!d) throw new ActionRefused("nothing is being edited here");
+      if (d.busy) throw new ActionRefused("the save is still landing");
+      const here = line === undefined ? actionHereAt((d.lines[d.row] ?? ""), (d.lines[d.row] ?? "").length) : null;
+      const typed = line ?? (here ? (d.lines[d.row] ?? "").slice(here.start + 1) : null);
+      if (!typed?.trim()) throw new ActionRefused("the cursor isn't on a / line · ctrl+k or / first on a line lists the actions here");
+      const req = actRequestOf(lineWords(typed.trim()));
+      const dispatch = host.ctx.dispatch;
+      if (!dispatch?.has(req.action)) throw new ActionRefused(`no action ${req.action} here · / lists the ones that apply`);
+      // The / line goes before the save: what's saved is the note as written, never the command.
+      if (here) {
+        const row = d.row, lines = d.lines.filter((_, i) => i !== row);
+        surface.drafting!.replace(lines.join("\n"), actor);
+        d.place(Math.min(row, d.lines.length - 1), 0);
+      }
+      if (d.dirty) await saveDraft(surface, host, actor);
+      else surface.closeDraftAction(false);
+      if (surface.draft) throw new ActionRefused(d.note || "the edit didn't save, so the action didn't run");
+      const answer = await ASKED_IN_PLACE.run(true, () => dispatch.act(req, actor));
+      host.redraw();
+      return { ran: actionLine(req), answer };
+    },
   }),
   "edit.reload": def({
     summary: "after the note changed elsewhere: start over from its current text (the draft is copied to disk first)", keys: "ctrl+r",

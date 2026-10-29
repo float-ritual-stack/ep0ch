@@ -26,7 +26,7 @@ import { Canvas, type Rect } from "../canvas";
 // button's steps) is DOOR_SOURCES below; outline-core's mergeSourceAnswers ranks them all with the one matcher, recent
 // and frequent picks first among equals.
 import { ListPicker, pickRow } from "./picker";
-import { ActionRefused, actionSet, declaredKeys, def, keyCaption } from "./actions";
+import { ActionRefused, actionSet, declaredKeys, def, keyCaption, shownLine } from "./actions";
 import { listPreview } from "../bar/list-preview";
 import { litCells } from "../bar/filter";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
@@ -156,6 +156,18 @@ const commandItem = (r: CommandRow, insertion: string): CompletionItem => ({
   ...(r.preview && "lines" in r.preview ? { preview: ((lines: string[]) => (_w: number, h: number) => lines.slice(0, h))(r.preview.lines) } : {}),
 });
 
+/**
+ * An action line in a note's edit (PIE-1076): `/` first on the line (after its indent), the action's name and its
+ * arguments after it, as the power bar's line takes them (`/ext.structure.sort-list by=title`). Its token is the whole
+ * line through the cursor; ⏎ with no list open runs it (`edit.run`).
+ */
+export function actionHereAt(line: string, col: number): CompletionTarget | null {
+  const m = /^(\s*)\/(?=[a-z]|$)/.exec(line);
+  if (!m || col <= m[1]!.length) return null;
+  const query = line.slice(m[1]!.length + 1, col);
+  return /^(?:[a-z][\w.-]*(?:\s.*)?)?$/.test(query) ? { kind: "action", start: m[1]!.length, end: line.length, query } : null;
+}
+
 const DOOR_SOURCES: readonly DoorSource[] = [
   // A button's step (PIE-1298): a script note's name after `((`, else the door's actions and their arguments.
   { decl: door("steps", "steps", true), kinds: ["button-step"], async rows({ board, target, own, opts }) {
@@ -171,6 +183,31 @@ const DOOR_SOURCES: readonly DoorSource[] = [
     if (actLineArgs(target.query, host)) return { rows: (await commandRows(target.query, host, { explicit: opts.explicit })).map(r => commandItem(r, r.line)) };
     const rows = await barSource("actions")!.rows(target.query, host, "actions");
     return { rows: rows.map(r => ({ label: r.label, insertion: r.fill ?? r.label, docs: r.detail, kind: "action" })) };
+  } },
+  // The actions that apply here, from a note's edit (PIE-1076): the power bar's `>` rows (the tile's own menu first),
+  // then, past the name, its arguments as the bar's line completes them.
+  { decl: door("here-args", "arguments", true), kinds: ["action"], async rows({ board, target, opts }) {
+    const host = hostOf(board, opts);
+    if (!host || !actLineArgs(target.query, host)) return { rows: [] };
+    return { rows: (await commandRows(target.query, host, { explicit: opts.explicit })).map(r => commandItem(r, "/" + r.line)) };
+  } },
+  // Matched by the one matcher against their words (`sort list` finds "Sort the list in this block").
+  { decl: door("here", "actions here"), kinds: ["action"], async rows({ board, target, opts }) {
+    const host = hostOf(board, opts);
+    if (!host || actLineArgs(target.query, host)) return { rows: [] };
+    const rows = await barSource("actions")!.rows(target.query, host, "actions");
+    // A passage's actions (their words as quote=) need words selected in a reader: a / line has none.
+    const passage = new Set(host.dispatch.list().actions.filter(a => a.args.quote?.context).map(a => a.name));
+    const seen = new Set<string>(passage), out: CompletionItem[] = [];
+    for (const r of rows) {
+      const d = r.data as { action?: string; args?: Record<string, unknown>; summary?: string; words?: string } | undefined;
+      if (!d?.action || r.key.startsWith("line:") || r.key.startsWith("w:") || seen.has(d.action) || !host.dispatch.has(d.action)) continue;
+      seen.add(d.action);
+      // A menu row by its own words ("Sort the list in this block"), its action dim beside; the rest by name.
+      const label = d.words ?? r.label, named = label !== d.action;
+      out.push({ label, insertion: `/${shownLine(d.action, d.args ?? {})} `, ...(named || r.keycap ? { detail: [named ? d.action : "", r.keycap ?? ""].filter(Boolean).join(" · ") } : {}), docs: d.summary || r.detail, filter: d.action, kind: "action" });
+    }
+    return { rows: out };
   } },
   { decl: door("fence", "settings"), kinds: ["fence-setting"], async rows() {
     return { rows: SCRIPT_FENCE.settings.map(s => ({ label: `${s.key}=`, insertion: `${s.key}=`, docs: s.meaning, kind: "setting" })) };
@@ -376,6 +413,8 @@ export class Completer {
     // An act line (the power bar's): past an action's name, the whole line through the cursor is one button step.
     if (c && c.grammar === "act") { const host = ambient?.board === this.board ? ambient.host?.() : undefined; return host && actLineArgs(line.slice(0, f.col), host) ? { kind: "button-step", start: 0, end: line.length, query: line.slice(0, f.col) } : null; }
     const t = completionTargetAtCursor(line, f.col, f.lines, f.row);
+    // `/` at a line's start in a note's own edit: the actions that apply here, then their arguments (PIE-1076).
+    if (!t && !c && this.own()) { const here = actionHereAt(line, f.col); if (here) return here; }
     if (t || !c || !c.valueKey) return t;
     return { kind: "filter-value", start: 0, end: line.length, query: line.slice(0, f.col), key: c.valueKey };
   }
@@ -711,7 +750,8 @@ export class Completer {
       this.dismiss();
       // A folder leaves `[file::notes/` open: its entries are offered next; a filter's key `stage:` its values. A chosen value ends it
       // (the cursor is still in its word, which would offer the same value again).
-      if (s.target.kind !== "filter-value" && (s.target.kind !== "component" || item.kind === "property") && this.target()) void this.refresh();
+      // An action chosen in a note's edit lists its arguments next, as an editor's signature help does (esc closes them, ⏎ then runs).
+      if (s.target.kind !== "filter-value" && (s.target.kind !== "component" || item.kind === "property") && this.target()) void this.refresh(s.target.kind === "action" && item.kind === "action");
       return true;
     } catch (e) {
       if (this.current(turn)) { s.message = e instanceof Error ? e.message : String(e); this.redraw(); }
@@ -987,7 +1027,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   }
   const header = h >= 3, footer = h >= 2 && (!reference || h >= 6);
   const out: string[] = [];
-  const heading = { attribute: "attributes", "attribute-value": "values", component: "components", agent: "agents", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values", "button-step": ({ value: "values", argument: "arguments" } as Record<string, string>)[s.items[0]?.kind ?? ""] ?? "actions" }[s.target?.kind as string] ?? "references";
+  const heading = { attribute: "attributes", "attribute-value": "values", component: "components", agent: "agents", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values", "button-step": ({ value: "values", argument: "arguments" } as Record<string, string>)[s.items[0]?.kind ?? ""] ?? "actions", action: ({ value: "values", argument: "arguments" } as Record<string, string>)[s.items[0]?.kind ?? ""] ?? "actions here" }[s.target?.kind as string] ?? "references";
   const ranking = !footer && s.jev ? ` · jev ${s.jev}` : "";
   if (header) rows.push(null), out.push(fg(C.lcyan) + pad(` ${printable(s.heading ?? heading, " ")} ${s.index + 1}/${s.items.length}${echo}${ranking}${scopes ? ` ${scopes}` : ""}${s.loading ? " · finding..." : ""}`, w) + RESET);
   const picker = completionPicker(s);

@@ -289,7 +289,7 @@ const ACTIONS: BarSource = {
       seen.add(a.name);
       const k = firstKey(a.keys);
       const script = scriptActions().find(s => s.action.name === a.name);
-      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${script ? scriptSaid(script, true) : a.summary}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}${takesArgs(a) ? " · ⏎ its form" : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys, form: takesArgs(a), bare: bare(a) } });
+      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${script ? scriptSaid(script, true) : a.summary}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}${takesArgs(a) ? " · ⏎ its form" : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, ...(a.words ? { words: a.words } : {}), keys: a.keys, form: takesArgs(a), bare: bare(a) } });
     }
     // By name, and by what it says it does (its summary: an extension's action by its label and description).
     const found = filtered(rows, q, r => [r.label, r.fill ?? "", r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
