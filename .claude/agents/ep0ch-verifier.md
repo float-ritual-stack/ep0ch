@@ -44,7 +44,7 @@ will and find where it's wrong.
 
 - **Start from Jev's list of what to try:** `ep0ch work try PIE-a PIE-b … --ws pie --machine float-2` (loki puts its
   `[type::validation-plan]` note in your brief): per ticket, the actions Jev picked with their keys and `act` calls,
-  and the ticket's lines that say what should show. It's a map, not a script: drive it, then go past it. A ticket it
+  the pages and views to open (each with its `screen.open` call), and the ticket's lines that say what should show. It's a map, not a script: drive it, then go past it. A ticket it
   marks **Finding** never said what Evan opens and does; that is your first finding. For a groom pass's "Jev thinks
   this is done", the ticket carries Jev's comment: keep it when Jev was right, resolve it when not.
 - **Start from the purpose, not the code:** what is this for, in Evan's day? Use it for that, cold, before reading the
