@@ -232,6 +232,7 @@ describe("a draft's history", () => {
     c.adopt(a.undos, 2);
     expect(editHint(c, { save: "save" })).toContain("ctrl+z undo (asks: saved)");   // the keys line says it first
     await expect(DRAFT_ACTIONS.run("draft.undo", {}, c, { kind: "agent", id: "tidy" } as never)).rejects.toThrow();
+    expect(DRAFT_ACTIONS.def("draft.undo")!.personWith!({ past: true })).toMatchObject({ always: expect.stringContaining("only the person") });
     expect(c.text).toBe("one two");
     expect(await DRAFT_ACTIONS.run("draft.undo", {}, c, USER)).toMatchObject({ asks: expect.stringContaining("revision 2 stays") });
     expect(c.text).toBe("one two");

@@ -840,6 +840,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     // Through act the same: it asks, and past=true is the answer.
     expect(await stage().dispatch.act({ action: "draft.undo", tile: "reader" }, USER)).toMatchObject({ asks: expect.stringContaining("saved") });
     await expect(app.act({ action: "draft.undo", tile: "reader", as: "test-agent" })).rejects.toThrow("this agent has no edit to undo");
+    await expect(app.act({ action: "draft.undo", tile: "reader", args: { past: true }, as: "test-agent" })).rejects.toThrow("only the person");
     await Bun.sleep(UNDO_ASK_PAUSE_MS);
     press({ kind: "char", ch: "z", ctrl: true });
     await until(() => !draft()!.text.endsWith("Lids go on warm."), "ctrl+z again, after a pause, goes past the save");

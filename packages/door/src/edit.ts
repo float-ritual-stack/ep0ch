@@ -281,10 +281,10 @@ export class Draft {
     this.record(USER, "a change");
     const s = this.undos.at(-1);
     if (by.kind === "agent" && (!s || !sameParty(s.by, by))) return { asked: false, said: this.undoPatch(by) };
-    if (by.kind === "agent" && s?.saved !== undefined) throw new ActionRefused("the next undo takes back text that's already saved; an agent doesn't (the person's ctrl+z asks them)");
     if (!s) throw new ActionRefused("nothing to undo in this draft");
     // Saved text is never taken back silently (PIE-1414): ctrl+z at a save says so; one after a pause goes past it.
-    if (s.saved !== undefined && !past) {
+    // Going past is the person's alone (draft.undo's personWith): an agent at a save only ever hears the question.
+    if (s.saved !== undefined && (!past || by.kind === "agent")) {
       this.undoArmed = Date.now();
       return { asked: true, said: this.note = `saved · ctrl+z again undoes past the save (${s.what}; revision ${s.saved} stays in its history)` };
     }
@@ -1391,6 +1391,11 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     summary: "take back the last change in this draft, whoever made it: typing (a word or a pause at a time), a paste (one step, however big), an insert, an agent's draft.patch; back to where the draft started. In a note opened again on what was saved, it stops at the save and asks: ctrl+z again (or past=true) takes saved text back. An agent takes back only its own: its newest step, else its last patch where it is now, never saved text", keys: "ctrl+z",
     touches: "draft", draft: "safe", replay: "ask",
     args: { past: { type: "boolean", optional: true, about: "go past the save: take back text the note already holds (ctrl+z pressed again after it asked)" } },
+    personWith: ({ past }) => (past ? { always: "going past a save takes back text the note already holds: only the person does that (their ctrl+z, pressed again after it asks)" } : null),
+    examples: [
+      { act: "draft.undo", does: "takes back the newest change; in a note opened again after a save, stops there and answers asks" },
+      { act: "draft.undo past=true", does: "the person goes past the save: takes back text from before it (the saved revision stays in the note's history)" },
+    ],
     async run({ past }, d, actor) {
       const r = d.undoStep(actor, past === true);
       return r.asked ? { asks: r.said, left: d.undos.length } : { undone: r.said, left: d.undos.length, redo: d.redos.length };
