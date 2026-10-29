@@ -45,6 +45,17 @@ are its record. The outliner's entries from then are kept below, under
   neat:"); a pasted id that isn't here is named once, on one line; Jira's install row says what it does.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
 
+### A chat's "what changed lately" is real work, and says what it left out (PIE-1427)
+
+- **Fetched notifications are machinery:** the notifications hub stamps each one `[machine::notification]`, so lists,
+  `ep0ch find` and a chat's orient read leave them out; its boards say `[machinery::show]` and keep their cards.
+- **The count:** `outline_query` (claude.ai, ChatGPT, Grok) and the mod's `outline_find` answer a recent-activity
+  read (`updated >= -1d`) with `machineryOmitted`: "212 notifications and bookkeeping notes left out", by producer.
+- **One word brings them back:** `machinery: "show"` on `outline_query` (new) or `outline_find`; `"only"` with
+  `machine=notification` asks for just the notifications.
+- **Run once per outline that has the hub,** on its machine: `ep0ch machinery backfill --ws <name> --apply` stamps
+  the notes and boards an earlier version wrote.
+
 ### The keys window: every binding, what it shadows, and a rebind said before it lands (PIE-492, PIE-1048)
 
 - **`?` on any screen opens it,** filtered to where you are (`in:note` in a reader); `ep0ch --screen keys`,
