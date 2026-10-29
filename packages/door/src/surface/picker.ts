@@ -36,6 +36,8 @@ export interface PickerSpec<T, H> {
   choose(it: T, i: number, host: H): void;
   /** It stays open after a choice (the policy panel, the steps). */
   stays?: boolean;
+  /** This item's choice leaves it open (a menu's row that opens another menu beside it). */
+  keepsOpen?(it: T): boolean;
   /** A row drawn above an item (a menu's group): never lit, and a click on it chooses nothing. */
   heading?(it: T, i: number, w: number): string | null;
   /** A click chooses the row it's on, at once (a menu), instead of moving the cursor there first. */
@@ -100,7 +102,7 @@ export class ListPicker<T, H> implements Mode<H> {
     const it = this.items[i];
     if (it === undefined) return;
     this.sel = i;
-    if (!this.spec.stays) this.done = true;
+    if (!this.spec.stays && !this.spec.keepsOpen?.(it)) this.done = true;
     this.spec.choose(it, i, host);
   }
 

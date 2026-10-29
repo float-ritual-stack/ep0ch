@@ -78,7 +78,8 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
       await app.dispatch.act({ action: "open", args: { id: note.id } }, USER);
       const drawn = () => desk.render(app).lines.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, "")).join("\n");
       await until(() => drawn().includes("[Video]"), "video buttons drawn");
-      for (const args of [{ label: "Video" }, { note: note.id, label: "Video" }]) {
+      // note= by its id, or by its first 8 characters as open id= takes them (PIE-1428).
+      for (const args of [{ label: "Video" }, { note: note.id, label: "Video" }, { note: note.id.slice(0, 8), label: "Video" }]) {
         const result = await app.dispatch.act({ action: "button.press", args }, USER);
         expect(result).toMatchObject({ act: "video.cycle" });
         const refused = await app.dispatch.act({ action: "button.press", args: { ...args, label: "Vid" } }, USER).then(() => "", (e: Error) => e.message);

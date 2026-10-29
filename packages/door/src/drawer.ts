@@ -70,7 +70,7 @@ import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, preset, agentLabel, type ActRequest, type Again } from "./surface/actions";
 import { layoutStanding, standsAsPerson, stepRule, type Dispatcher, type TileRef } from "./surface/dispatch";
-import { HOST_AGENT, NOBODY, type Whereabouts } from "./whereabouts";
+import { HOST_AGENT, HOST_TILES, NOBODY, type Whereabouts } from "./whereabouts";
 import { bg, C, chip as chipStyle, fg, pad, RESET, width } from "./style";
 import type { Key } from "./term";
 import type { Placement } from "./kitty";
@@ -80,7 +80,7 @@ export const MARK_WAIT_MS = 400;
 /** `drawer.agent`: the alias of `role:agent`, the agent tab used last (src/desk/tile-address.ts). */
 export { DRAWER_TILE_ID };
 /** The host layer's drawer holds the drawer's desk: one leaf, its tiles the drawer's tabs. */
-export const HOST_TILES = "drawer.tiles";
+export { HOST_TILES };
 /**
  * The drawer's desk as a screen spec: one tab set. Every agent in it is an ordinary terminal tab with role `agent`
  * (PIE-1331); the first pull of a drawer that has never been saved opens one running the last agent picked.

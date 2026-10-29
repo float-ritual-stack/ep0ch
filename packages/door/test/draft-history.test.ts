@@ -211,6 +211,8 @@ describe("a draft's history", () => {
     expect(b.text).toBe("one two");                                    // the saved text stays: ctrl+z says so and asks
     expect(b.note).toContain("saved");
     expect(b.note).toContain("ctrl+z again");
+    // The ask first, whole on the draft's one row in a 40-column tile; what was saved after it (PIE-1428).
+    expect(b.note.split(" · ").slice(0, 2).join(" · ")).toBe("saved · ctrl+z again undoes past it");
     type(b, "!");                                                      // anything else lets the question go
     await undo(b);
     expect(b.text).toBe("one two");

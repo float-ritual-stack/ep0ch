@@ -322,4 +322,21 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     await shows("Seed swap");
     expect(r.surface.msg?.id).toBe(n.second.id);
   }, 20_000);
+
+  test("alt+T, as its footer says, lists the trail over the reader; a pick goes back there and Esc closes it (PIE-1428)", async () => {
+    const r = await open(0);
+    key(char("n"));
+    await shows("Seed swap");
+    expect(text()).toContain("alt+T trail");
+    key({ kind: "alt", ch: "T" });
+    await until(() => text().includes("trail · where this reader has been"), "the trail over the reader");
+    key({ kind: "esc" });
+    await until(() => !text().includes("trail · where this reader has been"), "Esc closes it");
+    expect(r.surface.msg?.id).toBe(n.second.id);
+    key({ kind: "alt", ch: "T" });
+    await until(() => text().includes("trail · where this reader has been"), "the trail again");
+    key({ kind: "down" }); key({ kind: "enter" });
+    await shows("Bring the kettle");
+    expect(r.surface.msg?.id).toBe(n.first.id);
+  }, 20_000);
 });

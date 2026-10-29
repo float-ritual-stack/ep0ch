@@ -22,7 +22,7 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
   "tile.type": def({
     words: "send text to the terminal's program, as typed keys",
     summary: "send text=<text> to the program in terminal tile=<tile>, as typed keys (\\n is ⏎). Refused to an agent for the terminal the person is in",
-    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there (an nvim tile's socket edits other lines without their cursor)", says: r => `typed into ${r.tile}`,
+    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there · an nvim tile's socket edits other lines without their cursor", says: r => `typed into ${r.tile}`,
     args: { text: { type: "string", about: "what to type; \\n for enter, \\e for escape" } },
     examples: [
       { act: "tile.type tile=draft text=\"ls -la\\n\"", does: "types ls -la and enter into the program in the draft terminal" },
@@ -36,7 +36,7 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     words: "run the terminal's program again",
     summary: "run the program in terminal tile=<tile> again (after it exited). Refused to an agent for the terminal the person is in",
     keys: "⏎ on an exited terminal",
-    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them (block.mark gets their attention)", says: r => `restarted ${r.tile}`,
+    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them · block.mark gets their attention", says: r => `restarted ${r.tile}`,
     menu: { label: "run it again", group: TERMINAL, key: "enter", now: ({ pane }) => (pane.exited === null ? { hide: true } : null) },
     args: {},
     run(_, { pane, desk, tile }, actor) {
