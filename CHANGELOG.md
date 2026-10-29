@@ -17,7 +17,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Browsing is one stop:** a run of j or k through a list is one stop, so Back goes to what the preview showed before
   you started, not through every row you passed.
 - **Giving a list the keys changes nothing:** Tab or a click into the links tile (or a query tile) leaves its preview,
-  and the preview's forward, as they were; a new selection still shows.
+  and the preview's forward, as they were (an empty preview still fills); a new selection still shows.
 - **The links tile goes back too:** after `b` (or its home moving) lists another note's links, alt+← (or `tile.travel
   tile=links`) lists the one before; its hint says where back goes.
 - **One history a tile:** a reader's back and forward and the links tile's are one shape (`Pane.trail`), so the trail

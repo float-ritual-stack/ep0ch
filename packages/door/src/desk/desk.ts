@@ -2131,6 +2131,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.redraw();
   }
 
+  /** DeskApi.previewsEmpty: every preview following tile `from`'s selection here shows nothing yet. */
+  previewsEmpty(from: Pane): boolean {
+    const id = this.idOf(from);
+    return id === undefined || this.followers(id).every(p => p === from || !this.showing(p));
+  }
+
   /** A list's home (the reader it belongs to), if it has one here. */
   private homeId(id: number): number | undefined {
     const name = this.homeName(id);

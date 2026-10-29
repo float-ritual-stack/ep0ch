@@ -155,6 +155,8 @@ export class QueryPane implements Pane {
   }
   spine() { return { title: this.title() }; }
 
+  /** Given the keys: its selected card fills a preview that shows nothing yet, never replacing one (PIE-1426). */
+  focused(desk: DeskApi) { if (desk.previewsEmpty?.(this)) this.showSelected(desk); }
   /** Its selected card shown where its selection goes (a new query's first card): a selection change, never focus alone (PIE-1426). */
   showSelected(desk: DeskApi) { const m = this.card(); if (m && this.home && desk.showFrom) desk.showFrom(this, m); }
 

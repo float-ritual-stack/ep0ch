@@ -360,6 +360,9 @@ export class BacklinksPane implements Pane {
     }, (e: Error) => { if (current()) { this.children = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
   }
 
+  /** Given the keys: its selection fills a preview that shows nothing yet, and never replaces what one shows (PIE-1426). */
+  focused(desk: DeskApi, actor: Actor) { if (desk.previewsEmpty?.(this)) this.showSelected(desk, actor); }
+
   /**
    * Show the selected row's note (a group's header shows nothing): when the selection changes (a step, a pick, `b`
    * listing another note's links), never because the tile was given the keys (PIE-1426: a preview gone back stays).
