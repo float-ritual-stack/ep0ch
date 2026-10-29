@@ -27,6 +27,7 @@ import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { readNewNoteIntent } from "./note-placement";
 import { DRAFT_HOLDER_TIMEOUT_MS, DraftHolds, type DraftHold, type DraftHolderAnswer } from "./draft-patch";
 import { DraftPatchRouter, type DraftHolderAsk } from "./draft-patch-router";
+import { proposalOutcomes } from "./proposal-outcomes";
 import type { ChangeAttribution } from "./change-feed";
 import { MentionRepository } from "./mentions";
 import { EditRecoveryRepository } from "./edit-recovery";
@@ -311,7 +312,7 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
  */
 const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "outputs.place", "move", "delete", "annotations.create", "annotations.reply", "annotations.batch"]);
 const EXTENSION_READS: ReadonlySet<string> = new Set([
-  "children", "blocks.read", "blocks.context", "block.revisions", "blocks.authored-links", "changes.since", "activity.recent",
+  "children", "blocks.read", "blocks.context", "block.revisions", "proposals.outcomes", "blocks.authored-links", "changes.since", "activity.recent",
   "annotations.get", "fragments.read", "fragments.at", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
   "properties.preview", "properties.catalog", "components.schemas", "components.usage", "headings.styles", "callouts.types", "styles.list",
   "extensions.list", "extensions.args", "work-ids.status", "notes.render", "notes.address", "site.answer", "site.sources", "template.use", "template.props",
@@ -2194,7 +2195,12 @@ export class OutlinerServer {
         if (!selected) throw new Error("This block has no authored script; add [script::name] and a closed js or ts fence");
         const extension = this.extensionRegistry.extension(selected.expectedId);
         if (!extension) throw new Error(`Script ${nameOf(selected)}: ${this.extensionRegistry.list().extensions.find(e => e.id === selected.expectedId)?.error ?? "not runnable"}`);
-        const asked: ExtensionActRequest = { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(typeof request.door === "string" ? { clientId: request.door } : {}) };
+        const slots = request.slots;
+        if (slots !== undefined && (typeof slots !== "object" || slots === null || Array.isArray(slots) || Object.values(slots).some(v => typeof v !== "string"))) {
+          throw new Error("scripts.run's slots are { name: \"value\" }: each value one line of text");
+        }
+        const about = request.this === undefined ? undefined : this.store.requireActive(String(request.this)).id;
+        const asked: ExtensionActRequest = { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(about ? { blockId: about } : {}), ...(slots && Object.keys(slots).length ? { args: slots } : {}), ...(typeof request.door === "string" ? { clientId: request.door } : {}) };
         const result = await this.scriptRuns.answered(this.scriptRuns.start(extension, asked), asked);
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
@@ -3346,6 +3352,9 @@ export class OutlinerServer {
         }
         case "get":
           result = this.store.require(request.blockId);
+          break;
+        case "proposals.outcomes":
+          result = proposalOutcomes(this.store, request);
           break;
         case "block.revisions":
           result = request.revision !== undefined ? this.store.revisionText(request.blockId, request.revision) : request.latest ? this.store.revisions(request.blockId, true) : this.store.revisions(request.blockId);
