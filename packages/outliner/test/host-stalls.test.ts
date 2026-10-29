@@ -10,6 +10,7 @@ import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block, TreeIndexSnapshot } from "../src/types";
 import { reviewBackfill } from "../src/write-review-backfill";
+import { readBlockRecords } from "../src/block-records";
 
 // What keeps the outline host answering (PIE-625). The timing guard is scripts/bench-host-stalls.ts (a note read
 // answered in under 200 ms at start-up, under load, during a backup and after a restart). The bounded-read
@@ -515,3 +516,30 @@ test("a connection's whole-outline reads never hold its note read or its save, a
     done();
   }
 }, 120_000);
+
+// Seen live on gurgle (Oct 29): one `blocks.records` of 200 notes held the loop 24 s, checking every value-reading
+// note's deps twice for each record. The value references are checked once per change to the outline.
+test("a records read of many notes checks the value-reading notes once, not once a note (PIE-1413)", () => {
+  const { store, done } = scratch("records-values");
+  try {
+    // Notes whose links are built from values: each reads its 30 children.
+    for (let i = 0; i < 5; i++) {
+      const shelf = store.create(`Shelf ${i}\n[[{{this.children}}]]`);
+      for (let j = 0; j < 30; j++) store.create(`Tool ${i}.${j}`, shelf.id);
+    }
+    const notes = Array.from({ length: 100 }, (_, i) => store.create(`Note ${i}`).id);
+    const internals = store as unknown as { valueReferenceVersion(id: string): string };
+    const version = internals.valueReferenceVersion.bind(store);
+    let checks = 0;
+    internals.valueReferenceVersion = (id: string) => { checks += 1; return version(id); };
+    store.referenceValues(notes[0]!);
+    const once = checks;
+    readBlockRecords(store as never, notes);
+    expect(checks).toBe(once);
+    store.update(notes[1]!, "Note 1, oiled", store.require(notes[1]!).revision);
+    readBlockRecords(store as never, notes);
+    expect(checks - once).toBeLessThanOrEqual(once);
+  } finally {
+    done();
+  }
+});
