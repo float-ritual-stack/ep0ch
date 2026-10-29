@@ -35,6 +35,16 @@ describe.skipIf(!outliner)("the showcase: an agent works while the person types 
     expect([...(desk() as any).panes.values()].some((p: any) => p !== left && p.msg?.id === shed)).toBe(true);
     expect(left!.msg!.id).toBe(editing);
     expect(left!.draft).toBeTruthy();
+    // Seen in use, Oct 29: an agent's open never resizes the tile the person types in. Its size on screen, in cells:
+    const size = () => { h.screen(); const r = desk().rectOf(left!)!; return { cols: r.cols, rows: r.rows }; };
+    const wide = size();
+    // A new tile beside the tile with the keys is refused in the owner's words; beside another, it opens.
+    await expect(fern("tile.open", { kind: "reader", mode: "held", note: shed })).rejects.toThrow(`the person is typing in ${before.typingIn}; an agent doesn't resize it`);
+    expect(size()).toEqual(wide);
+    // A short id (the first 8 characters, as show and find take it) opens, and the edit keeps its size.
+    const short = await fern("open", { id: h.seeded.notes.shed!.id.slice(0, 8) }) as { id: string };
+    expect(short.id).toBe(shed);
+    expect(size()).toEqual(wide);
     // A comment on the other reader's note goes through, attributed, and the keys stay put.
     await fern("comment.note", { body: "A made-up note from fern" }, "2");
     const end = Date.now() + 10_000;

@@ -277,7 +277,7 @@ describe("the explicit shift, holding, closing, back and forward", () => {
     no(locked, { op: "flow.widen", tile: 1 }, /is locked: widening is refused/);
     no(locked, { op: "flow.hold", tile: 1, on: true }, /is locked: holding a column is refused/);
     // An agent's widen never squeezes the column the person types in; elsewhere it shifts, the keys staying put.
-    no(s, { op: "flow.widen", tile: 1 }, /the person is typing in c3, a column of this flow; an agent's widen would squeeze it/, AGENT, { focus: 3, typingIn: 3, busy: true });
+    no(s, { op: "flow.widen", tile: 1 }, /the person is typing in c3, a column of this flow; an agent doesn't widen another column: it would squeeze theirs/, AGENT, { focus: 3, typingIn: 3, busy: true });
     // reveal (tile.preview's) brings a column off the strip on; an agent's never shifts the strip the person types in.
     AREA = wide(60); const long = river(25, 1);
     expect(place(long, AREA).rects.has(24)).toBe(false);
