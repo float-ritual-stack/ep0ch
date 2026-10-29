@@ -60,9 +60,12 @@ short and they are the contract.
   registers its action sets, its tiles (`TileRef`) and where the person's keys are on it (`Screen.keys`); keys
   and clicks call `press`, the control socket `act`. `tile=` has one grammar there (name, id, number, alias,
   `focused`, block id): never parse a tile name in a screen. Each `ActionDef` declares what it `touches`
-  (`nothing`, `tile`, `shape`, `draft`, `screen`), whether a `replay` is `safe`, and `person` when it is the
-  person's only; the dispatcher checks that once against the shell's whereabouts query (`App.person()`,
-  `src/whereabouts.ts`). Don't write `actor.kind === "agent"` checks for the person's keys: declare it. What
+  (`nothing`, `tile`, `shape`, `draft`, `screen`), whether a `replay` is `safe`, `person` when it is the
+  person's own (their pressed script may), `personAlways` when it is theirs alone (never lifted), `personWith`
+  when its arguments decide; the dispatcher checks that once against the shell's whereabouts query (`App.person()`,
+  `src/whereabouts.ts`). Don't write `actor.kind === "agent"` checks for the person's keys: declare it. A step asks
+  `Dispatcher.rule`; a reader taking a note `ReaderPane.keepsOff`; a write's record `recorded(actor)`
+  (`test/one-owner.test.ts` keeps each to its one owner, PIE-1294). What
   remains per actor is whose state it is (an agent's own card selection) and who is told.
 - **Every draft is a draft session** (`src/draft-session.ts`): a new kind of text the door writes is a
   target adapter on it (block, comment or reply, card or child), never its own put-aside, restore, hold or

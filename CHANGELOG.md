@@ -78,6 +78,19 @@ are its record. The outliner's entries from then are kept below, under
 - **The ▾ at a heading's words folds it** on a click, as the gutter's ▾ does, at 38 columns too.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
 
+### Agents work in your door while you type, and every refusal says the same thing (PIE-1294)
+
+- **Your edit is yours:** an agent's open never replaces the note you're editing, on any screen; on Welcome your own
+  pick while the detail holds an edit now opens beside it, as the desk does (it was refused). `ep0ch where` says
+  "typing" while you're in an edit in a reader, not only in a terminal.
+- **One wording:** a reader keeping its note says "<reader> holds an edit or a comment; it stays on its note until
+  that's saved or closed" on the desk, Welcome, the brief, EchoNet, the river and the message reader.
+- **What's yours alone stays yours:** access changes, handing over yolo, logging off, ending or upgrading the
+  session and sending a held request are refused to an agent even on a script you pressed (`personAlways`); the
+  action's page says so. An agent turns yolo off with `on=false`.
+- **One record:** a save you and an agent both wrote says what was stored ("yours, naming …"), as the revision
+  records it; a trash receipt and a share say who was recorded the same way (`recorded()` in the door's socket.ts).
+- **Kitchen sink:** `ep0ch --showcase`, section while-typing.
 ### Paste a note's address into the power bar and it opens; copy rows first in the tile menu (PIE-1398, PIE-1399, PIE-1284)
 
 - **Any address opens:** paste an id, `((id|label))`, another outline's `((outline:id|…))`, a line's `((id^anchor|…))`,

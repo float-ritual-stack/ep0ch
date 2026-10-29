@@ -1,3 +1,4 @@
+import { holdsEdit } from "../whereabouts";
 import { errorDetails } from "../status-log";
 import { outlineBoards } from "../desk/outline-boards";
 // EchoNet's message areas (PIE-779): a classic BBS message base over echomail. The areas of every outline this door
@@ -500,7 +501,14 @@ export class EchoReader extends ReaderPane {
       ctx: net.ctxOf(a, desk),
       contextFor: () => net.ctxOf(a, desk),
       // A link followed in a message is read here, on the message's own outline (alt+← comes back); } { go on through the list.
-      navigate: (m: Msg, how?: OpenHow) => { if (how?.by?.kind === "agent" && this.holdsKeys) { desk.ctx.flash(`not opened while you're in ${this.surface.sessionWord() ?? "a session"} here: ${subject(m)}`); return; } this.surface.show(m, h); desk.redraw(); },
+      // Who may follow it here is the actor rule's (the reader the person reads: touches tile), and whether the reader
+      // takes it is keepsOff's: the one answer each (PIE-1294), said as every screen says it.
+      navigate: (m: Msg, how?: OpenHow) => {
+        const name = desk.nameOfPane?.(this);
+        const no = (how?.by && name ? desk.ruleFor?.("tile", how.by, { tile: name, way: "what it followed is named, not opened over them" }) : null) ?? this.keepsOff(m);
+        if (no) { desk.ctx.flash(`not opened: ${subject(m)} · ${no}`); return; }
+        this.surface.show(m, h); desk.redraw();
+      },
       header: (m: Msg, _w: number, info: HeaderInfo) => {
         const found = this.list.find(x => x.msg.id === m.id);
         const comments = info.comments?.total ? [`|08■ ${info.comments.open ? `${info.comments.open} open` : `${info.comments.total} earlier`} repl${info.comments.total === 1 ? "y" : "ies"} on this copy · m lists them`] : [];
@@ -545,9 +553,10 @@ export class EchoReader extends ReaderPane {
     if (!m) throw new ActionRefused(list.length ? `${area.tag} has messages 1 to ${list.length}` : `${area.tag} has no messages`);
     const was = { area: this.area, list: this.list, index: this.index };
     this.area = area; this.list = list; this.index = i;
-    if (this.msg?.id !== m.msg.id && !this.show(m.msg, desk)) {
+    const no = this.msg?.id !== m.msg.id ? this.showOr(m.msg, desk) : null;
+    if (no) {
       Object.assign(this, was);
-      throw new ActionRefused("the reader holds an edit or a comment; save or close it first");
+      throw new ActionRefused(no);
     }
     const fresh = m.fresh;
     // Read at the revision listed: a change since then is still new.
@@ -801,10 +810,11 @@ export function echoKinds(): TileKind[] {
           if (ms?.area && ms.items && i >= 0) r.read(ms.area, ms.items, i, desk, by ?? USER);
           else {
             // Not one of the area's messages: read on the door's own outline, where `open` found it.
-            if (r.holdsKeys) return "the reader holds an edit or a comment";
+            const no = r.keepsOff(m) ?? (r.holdsKeys ? holdsEdit("the reader") : null);
+            if (no) return no;
             const was = { area: r.area, list: r.list, index: r.index };
             r.area = null; r.list = []; r.index = -1;
-            if (!r.show(m, desk)) { Object.assign(r, was); return "the reader holds an edit or a comment"; }
+            r.show(m, desk);
           }
           return null;
         } catch (e) { return e instanceof Error ? e.message : String(e); }

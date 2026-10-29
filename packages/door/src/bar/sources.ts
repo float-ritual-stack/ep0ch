@@ -435,7 +435,7 @@ const SCREENS: BarSource = {
   preview: row => ({ markdown: `**${row.label}**\n\n${(row.data as { about: string }).about || "a screen"}\n\n⏎ opens it over this screen; q comes back.` }),
   pick(row, host, how) {
     const args = { name: (row.data as { name: string }).name };
-    return how.actor.kind === "agent" ? host.dispatch.act({ action: "screen.open", args }, how.actor) : host.dispatch.press("screen.open", args);
+    return host.dispatch.as(how.actor, { action: "screen.open", args });
   },
 };
 
@@ -548,7 +548,7 @@ const EXTENSIONS: BarSource = {
     }
     if (d.block) return openNote(d.block, host, how);
     const [action, args] = d.kind === "install" ? ["extensions.install", { id: d.id }] : ["extensions.uninstall", { id: d.id, demo: d.demo! }];
-    return how.actor.kind === "agent" ? host.dispatch.act({ action, args }, how.actor) : host.dispatch.press(action, args);
+    return host.dispatch.as(how.actor, { action, args });
   },
 };
 
