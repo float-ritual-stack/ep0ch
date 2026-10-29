@@ -1976,3 +1976,66 @@ describe('approve from the phone (PIE-1386)', () => {
     expect(watched.written()).toBe('')
   })
 })
+
+describe('what became of a proposal reaches its session once (PIE-1086)', () => {
+  const MIN = 60_000
+  const NOTE = '5e1d7a40-0c55-4b8e-9a0e-6f2f3c1d9a11'
+  const P = '7c0b2a19-4f6e-4d3a-8b21-0d9e5f4a3c22'
+  type O = { proposal: string; note: string; title: string; state: string; at: string; revision: number; by?: string; reason?: string }
+
+  /** A session (with a persona, or none) whose `agent proposals` answers the outcomes listed so far, recording what it was asked and the wakes. */
+  function heardSession(on: On, persona: string | null) {
+    const outcomes: O[] = []
+    const asked: { argv: readonly string[]; stdin?: string }[] = []
+    const session = sessionIn(on, WORKSPACE, run => {
+      if (run.argv[0] === 'ep0ch' && run.argv[1] === 'where') return result(0, JSON.stringify({ inDoor: false, here: { machine: 'garden-host', folder: WORKSPACE, ...(persona ? { persona: { name: persona, source: 'file', file: `${WORKSPACE}/.ep0ch` } } : {}) } }), '')
+      if (run.argv.includes('agent') && run.argv.includes('proposals')) {
+        asked.push({ argv: run.argv, stdin: run.init?.stdin as string | undefined })
+        return result(0, JSON.stringify({ actor: 'x', outcomes, cursor: outcomes.at(-1)?.at ?? '2026-10-29T12:00:00.000Z', complete: true }), '')
+      }
+      return succeeding(run)
+    }, '', { EP0CH_SETTLE: 'off' })
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
+    mock.store(on, {})
+    const wakes: string[] = []
+    on('prompt.submit', ($, e) => { if (e.text !== 'plant the beans') wakes.push(e.text); return { text: e.text, context: e.context ?? [] } as any })
+    return { session, outcomes, asked, wakes }
+  }
+  const at = (m: number) => new Date(Date.parse('2026-10-29T12:00:00Z') + m * MIN).toISOString()
+
+  test("a persona's stale proposal wakes it once; an applied one rides with the next prompt; neither comes twice", async ($, on) => {
+    const s = heardSession(on, 'loki')
+    await s.session.clock.set(Date.parse('2026-10-29T12:00:00Z'))
+    await s.session.begin(() => $.session.start(START))
+    s.outcomes.push({ proposal: P, note: NOTE, title: 'Bean rota', state: 'proposed', at: at(1), revision: 1, reason: 'the note is open in a draft' })
+    s.outcomes.push({ proposal: P, note: NOTE, title: 'Bean rota', state: 'stale', at: at(1.5), revision: 2, by: 'user', reason: 'the note changed since it was proposed' })
+    await s.session.clock.advance(2 * MIN + 1000)
+    expect(s.asked[0]!.argv).toContain('--actor')
+    expect(JSON.parse(s.asked[0]!.stdin!)).toEqual({ since: '2026-10-29T12:00:00.000Z' })
+    expect(s.wakes).toHaveLength(1)
+    expect(s.wakes[0]).toContain(`- gone stale by Evan: your proposal ((${P}|proposal)) on ((${NOTE}|Bean rota))`)
+    expect(s.wakes[0]).toContain('proposed instead of applied')
+    // The next look starts where the last ended; told ones are not told again.
+    s.outcomes.push({ proposal: P, note: NOTE, title: 'Bean rota', state: 'applied', at: at(4), revision: 3, by: 'user' })
+    await s.session.clock.advance(2 * MIN)
+    expect(JSON.parse(s.asked.at(-1)!.stdin!)).toEqual({ since: at(1.5) })
+    expect(s.wakes).toHaveLength(1)
+    const context = ((await $.prompt.submit({ text: 'plant the beans', wait: false })).context ?? []) as string[]
+    const heard = context.find(c => c.startsWith('<ep0ch-proposals>'))!
+    expect(heard).toContain('- applied by Evan: your proposal')
+    expect(heard).not.toContain('gone stale')
+    const later = ((await $.prompt.submit({ text: 'plant the beans', wait: false })).context ?? []) as string[]
+    expect(later.some(c => c.startsWith('<ep0ch-proposals>'))).toBe(false)
+  })
+
+  test('a session with no persona is never woken: its next prompt carries the stale one', async ($, on) => {
+    const s = heardSession(on, null)
+    await s.session.clock.set(Date.parse('2026-10-29T12:00:00Z'))
+    await s.session.begin(() => $.session.start(START))
+    s.outcomes.push({ proposal: P, note: NOTE, title: 'Bean rota', state: 'stale', at: at(1), revision: 2, by: 'user', reason: 'the note changed since it was proposed' })
+    await s.session.clock.advance(2 * MIN + 1000)
+    expect(s.wakes).toEqual([])
+    const context = ((await $.prompt.submit({ text: 'plant the beans', wait: false })).context ?? []) as string[]
+    expect(context.find(c => c.startsWith('<ep0ch-proposals>'))).toContain('gone stale by Evan')
+  })
+})
