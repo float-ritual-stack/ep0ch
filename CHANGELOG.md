@@ -21,6 +21,42 @@ are its record. The outliner's entries from then are kept below, under
   a callout is "would read better as a callout", not "a callouts"; every finding leads with its fix, so
   the 44-column suggestions page reads it.
 
+### Only the power bar answers the mouse, and it reads right at 44 and 40 columns (PIE-1407, PIE-1405)
+
+- **Nothing behind an overlay shows through it:** with the bar open over a reader, hovering the bar drew the reader's
+  byline across it. A tile's cut-short value or button now ends where the bar, a float, a menu or a toast starts, so
+  the pointer over an overlay reads only the overlay.
+- **The second click on a row runs it**, as ⏎ does: a click lights a row and shows its preview, the next click on it
+  runs it, however long between (a double click still does).
+- **A pasted link reads on the line at 40 columns**, the field scrolling sideways to the cursor instead of showing its
+  last few characters; the count takes what's left.
+- **A lit row's name stays put at 44 columns:** only its detail scrolls.
+- **Copy command copies what the row runs:** a tile's `tile.focus tile=<it>`, a screen's `screen.open`, an
+  extension's install or remove; a note's row says its menu copies its reference.
+- **Rows say themselves:** a script reads under its own name with its own words (no `ext.script-…run`, no "neat ·
+  neat:"); a pasted id that isn't here is named once, on one line; Jira's install row says what it does.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### The keys window: every binding, what it shadows, and a rebind said before it lands (PIE-492, PIE-1048)
+
+- **`?` on any screen opens it,** filtered to where you are (`in:note` in a reader); `ep0ch --screen keys`,
+  `keys.open` and the power bar too. Type `/` to filter by a key, an action, a scope or words; `Bindings 1350 ·
+  Conflicts · Yours` with a count, each row a keycap, its scope and what it does.
+- **Help on the main menu is `H` now** (`?` there is the keys window); its key line says `? keys H help`, each a click.
+- **The detail says what the key runs, its layer, what it takes the key from and what gets it first,** and whether a
+  program in a terminal tile still sees it.
+- **Rebind:** `r`, then the new key (`^W` then a key for a ^W key). What it would take from what is said first; `⏎`
+  saves it, `esc` drops it. `u` unbinds, `d` gives the built-in keys back, `ctrl+z` undoes. Agents: `keys.rebind
+  id=tile.close key="^W x" to="ctrl+w q" tile=keys`, `keys.find text=…`.
+- **One keymap file:** `keybindings.json` in the door's state dir, `{"<act line>": ["<key>", …]}` (the outliner's
+  shape; `[]` unbinds). Edit it by hand too: the door reads it again within half a second and says a bad entry.
+- **What follows a rebind:** the key itself, the ^W panel, the tile menu's keycaps, the power bar and the desk's hint
+  row (`^N new` becomes your key). A key you moved away says where it went instead of running.
+- **An action's keys are rows of keys and what each does** (PIE-1048): its page's keys table draws right
+  (tile.collapse's no longer reads "or" under the wrong key); 157 garbled ones were rewritten.
+- **Not yet:** the hint rows written by hand on some screens still say the built-in key; a key bound to several
+  meanings under one name (^W h j k l) or after another key (`a then c`) can't be moved alone, and the window says so.
+- **Run:** nothing; no protocol or schema change.
 ### Send to ep0ch from your phone in one tap (PIE-1408)
 
 - **One link, one tap:** open the Send to ep0ch page on my.ep0ch.sh on your iPhone, tap Add Shortcut, and "Send to ep0ch" is in your share sheet; a PDF or photo you share to it lands as a card in today's note. The Shortcut is signed and carries its own device link, so there is nothing to copy or edit.

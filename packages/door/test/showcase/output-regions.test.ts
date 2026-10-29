@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
-import { hintKeys, declaredKeys } from "../../src/surface/actions";
+import { hintKeys, declaredKeys, keysText } from "../../src/surface/actions";
 import { COMMENT_KEYS, EDIT_PREVIEW_KEYS } from "../../src/surface/attached-keys";
 import { Canvas } from "../../src/canvas";
 import { BacklinksPane } from "../../src/desk/backlinks-pane";
@@ -140,11 +140,11 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     const stage = h.S().stages.get(h.S().sel).top as Desk;
     for (const actions of [stage.dispatch, app.dispatch]) {
       for (const help of [actions.defOf("tile.focus"), actions.list().actions.find(a => a.name === "tile.focus")]) {
-        for (const key of ["Tab", "shift+tab", "1-9", "hyper", "^W"]) expect(help?.keys).toContain(key);
+        for (const key of ["Tab", "shift+tab", "1-9", "hyper", "^W"]) expect(keysText(help?.keys)).toContain(key);
       }
       for (const help of [actions.defOf("layout.move"), actions.list().actions.find(a => a.name === "layout.move")]) {
-        expect(help?.keys).toContain("^W m then h j k l beside");
-        expect(help?.keys).toContain("^W t then h j k l into tabs");
+        expect(keysText(help?.keys)).toContain("^W m then h j k l: beside");
+        expect(keysText(help?.keys)).toContain("^W t then h j k l: into tabs");
       }
     }
   });

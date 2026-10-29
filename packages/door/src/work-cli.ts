@@ -104,8 +104,8 @@ export async function workCommand(args: string[], io = { out: (s: string) => con
       if (!block) { io.err(`ep0ch work try: no ticket ${id} in ${source.address.outline}`); return 1; }
       tickets.push(block);
     }
-    const { registryActions } = await import("./actions-doc");
-    const actions = (await registryActions()).map(a => ({ name: a.name, summary: a.summary, ...(a.keys ? { keys: a.keys } : {}), ...(a.examples ? { examples: a.examples } : {}) }));
+    const { registryActions } = await import("./actions-doc"), { keysText } = await import("./surface/actions");
+    const actions = (await registryActions()).map(a => ({ name: a.name, summary: a.summary, ...(a.keys ? { keys: keysText(a.keys)! } : {}), ...(a.examples ? { examples: a.examples } : {}) }));
     const report = await m.planTries(tickets, actions, { jev });
     const kept = into ? await m.keepTries(clientOf(into), report) : undefined;
     io.out(rest.includes("--json") ? JSON.stringify({ ...(report as object), ...(kept ? { kept } : {}) }, null, 2)

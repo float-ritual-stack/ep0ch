@@ -316,12 +316,11 @@ describe("the BBS screens with keys and no mouse, until now", () => {
     expect(s.stack.length).toBe(0);
   });
 
-  test.skipIf(!art)("the main menu's ? still shows help, and keys there still only close it", () => {
+  test.skipIf(!art)("the main menu's ? opens the keys window on the menu's keys (PIE-492), as on every screen", () => {
     const s = on(new MainMenu());
     s.key({ kind: "char", ch: "?" });
-    expect(s.top()).toBeInstanceOf(Help);
-    s.key({ kind: "char", ch: "N" });
-    expect(s.top()).toBeInstanceOf(MainMenu);
+    expect((s.top() as any).spec?.name).toBe("keys");
+    expect((s.top() as any).describe().keys?.filter ?? (s.top() as any).describe().tiles?.[0]?.keys?.filter).toBe("menu");
   });
 
   test("stats: Q back is clickable", () => {

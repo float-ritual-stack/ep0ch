@@ -12,7 +12,7 @@
 // click is an action (FACETS_ACTIONS), so `act` reaches them with no tile open.
 import { subject, type Msg } from "../board";
 import type { FacetAnswer } from "../socket";
-import { ActionRefused, actionSet, def } from "../surface/actions";
+import { ActionRefused, actionSet, def, keysText } from "../surface/actions";
 import { C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { ago, rowLines } from "../text";
@@ -105,7 +105,7 @@ export class FacetsPane implements Pane {
   /** The selection as the query the service is asked. */
   query(): string { return selectionQuery(this.clauses, this.raw); }
   title() { const q = this.query(); return q ? `${this.kind} ${q}` : this.kind; }
-  hint() { return this.draft ? "type the query (the views' grammar: #tag key=value NOT … OR …) · ⏎ apply · esc undo" : `${HINT} · ${FACETS_ACTIONS.def("facets.resize")!.keys}`; }
+  hint() { return this.draft ? "type the query (the views' grammar: #tag key=value NOT … OR …) · ⏎ apply · esc undo" : `${HINT} · ${keysText(FACETS_ACTIONS.def("facets.resize")!.keys)}`; }
   headLabel() { return fg(C.dark) + (this.error ? "failed" : this.answer ? String(this.answer.facets.length) : "…") + RESET; }
   spine() { return { title: this.title() }; }
   typing() { return this.draft !== null; }
@@ -397,7 +397,7 @@ const pathy = (p: FacetsPane, key: string, path: string) => p.hasBelow(key, path
 export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   "facets.pick": def({
     summary: "move the cursor in the facets tile (tile=<its name>): n (from 1), or by=<rows> from where it is",
-    keys: "j k ↑ ↓ PgUp PgDn, the wheel",
+    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "pick a row" }, { keys: "wheel", does: "pick a row" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's cursor (facets.list reads the rows, facets.set picks a value by name)",
     args: { n: { type: "number", optional: true, about: "the row, from 1" }, by: { type: "number", optional: true, about: "rows on from the cursor (negative: up)" }, part: { type: "string", optional: true, about: "keys or matches; left out, both" } },
     examples: [
@@ -423,7 +423,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.set": def({
     summary: "include a key (any value) or a value (the notes must carry it), exclude it (they must not), or drop it: key= (value= narrows it; a tag is key=tag), n (its row), or the row the cursor is on; mode= include, exclude or off, left out it steps include → exclude → off. Several included values of a facet are ORed, whole keys and facets are ANDed; a value with values below it (a path) includes them too",
-    keys: "⏎, space, a click (steps); + include, - exclude, 0 or backspace drop; alt- or ctrl-click excludes",
+    keys: [{ keys: "⏎ space click", does: "steps the facet value" }, { keys: "+", does: "include" }, { keys: "-", does: "exclude" }, { keys: "0 backspace", does: "drop" }, { keys: "alt-click ctrl-click", does: "excludes" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent picks by key=, with value= to narrow it: the person's selection moves with it",
     says: r => `${r.mode === "off" ? "dropped" : r.mode === "include" ? "included" : "excluded"} ${r.clause}`,
     args: {
@@ -503,7 +503,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.query": def({
     summary: "set the selection as text in the views' grammar (`project=x/* type=meeting #yomama NOT week=3`): it replaces the picks; the service evaluates it and the facets and notes follow. Empty clears. The person types it with e",
-    keys: "e, then typing, ⏎ applies, esc undoes", touches: "tile", while: "typing", replay: "safe", way: "an agent passes text=<query>: the person's selection moves with it",
+    keys: [{ keys: "e", does: "then typing edits the query" }, { keys: "⏎", does: "applies" }, { keys: "esc", does: "undoes" }], touches: "tile", while: "typing", replay: "safe", way: "an agent passes text=<query>: the person's selection moves with it",
     args: { text: { type: "string", about: "the query; empty clears the selection" } },
     examples: [
       { act: "facets.query text=\"#garden NOT type=meeting\" tile=facets", does: "selects notes tagged #garden that are not meetings, replacing the picks" },
@@ -586,7 +586,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.resize": def({
     summary: "resize the matching notes' share of the tile: share= (0.15 to 0.85), or by= (a change in share)",
-    keys: "[ less, ] more; Matches less/more buttons or drag its divider",
+    keys: [{ keys: "[", does: "less" }, { keys: "]", does: "more" }, { via: "the Matches less/more buttons" }, { keys: "drag", does: "its divider" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent names share= or by=",
     args: {
       share: { type: "number", optional: true, about: "the matching notes' share, 0.15 to 0.85" },

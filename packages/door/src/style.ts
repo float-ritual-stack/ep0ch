@@ -1,4 +1,4 @@
-import { fullText, selectFullText } from "./overflow";
+import { FULL_END, FULL_START, fullText, selectFullText } from "./overflow";
 // Palette styling for real terminal text, plus width-safe padding. Every UI colour comes through the active
 // theme (src/theme.ts); ANSI art keeps true VGA (artLines).
 import { closesHyperlink, DRAWN_PART, OSC8_ALL } from "./hyperlink";
@@ -280,16 +280,22 @@ function shortened(s: string, w: number, padded: boolean): string {
  * marks ride along.
  */
 export function headOf(s: string, n: number): string {
-  let out = "", seen = 0;
+  // A cut-short value's or a button's mark ends at the cut (PIE-1407): what is laid after the head (the power bar, a
+  // float, a toast) is never read as part of the tile's value under it, so hovering the overlay answers the overlay.
+  let out = "", seen = 0, open = false;
   for (const part of s.split(DRAWN_PART)) {
-    if (part.startsWith("\x1b")) { out += part; continue; }
+    if (part.startsWith("\x1b")) {
+      if (part.startsWith(FULL_START)) open = true;
+      else if (part === FULL_END) open = false;
+      out += part; continue;
+    }
     for (const g of graphemes(part)) {
       const gw = glyphWidth(g);
-      if (seen + gw > n) return out;
+      if (seen + gw > n) return open ? out + FULL_END : out;
       out += g; seen += gw;
     }
   }
-  return out;
+  return open ? out + FULL_END : out;
 }
 
 /**
@@ -298,11 +304,14 @@ export function headOf(s: string, n: number): string {
  * (`w` cells) over `s`.
  */
 export function tailFrom(s: string, n: number): string {
-  let out = "", seen = 0, state = "", link = "";
+  let out = "", seen = 0, state = "", link = "", full = "";
   for (const part of s.split(DRAWN_PART)) {
     if (part.startsWith("\x1b")) {
       if (seen >= n) out += part;
       else if (part.startsWith("\x1b]8;")) link = closesHyperlink(part) ? "" : part;
+      // The part of a value still showing after the cut is its own again: its mark opens where the tail starts.
+      else if (part.startsWith(FULL_START)) full = part;
+      else if (part === FULL_END) full = "";
       else if (part.endsWith("m")) state = part === RESET || part === "\x1b[m" ? "" : state + part;
       continue;
     }
@@ -312,7 +321,7 @@ export function tailFrom(s: string, n: number): string {
       if (seen > n) out += " ".repeat(seen - n);
     }
   }
-  return link + state + out;
+  return link + state + full + out;
 }
 
 /**

@@ -9,6 +9,8 @@
 // the state dir (`hyper.json`). Without the Kitty keyboard protocol nothing arrives as hyper at all (src/kbd.ts):
 // `keys.probe` shows what a chord does arrive as.
 
+import { effective, keyTable } from "./surface/keymap";
+
 /** One hyper chord: the base key (the key without shift: `=`, not `+`), the action it presses, and what it's called. */
 export interface HyperBinding {
   key: string;
@@ -23,7 +25,7 @@ export interface HyperBinding {
   leaves?: true;
 }
 
-export const HYPER_KEYS: readonly HyperBinding[] = [
+export const HYPER_KEYS: readonly HyperBinding[] = keyTable("hyper", "the hyper layer: ⌃⌥⇧⌘ held with a key", [
   { key: "p", action: "bar.open", label: "the power bar" },
   { key: "g", action: "bar.open", args: { scope: "screens" }, label: "go to a screen" },
   { key: "h", action: "tile.focus", args: { dir: "left" }, label: "focus the tile to the left", leaves: true },
@@ -37,17 +39,17 @@ export const HYPER_KEYS: readonly HyperBinding[] = [
   { key: "a", action: "agent.lift", label: "lift or drop the drawer's agent, wherever it is" },
   { key: "n", action: "note.new", label: "a new note" },
   ...Array.from({ length: 9 }, (_, i): HyperBinding => ({ key: String(i + 1), action: "tile.focus", tile: `#${i + 1}`, label: `focus tile ${i + 1}`, leaves: true })),
-];
+], "hyper+");
 
 /** The chord a base key names: `+` is `=` with shift, which hyper always holds. */
 const BASE: Record<string, string> = { "+": "=", _: "-" };
-export const hyperBinding = (key: string): HyperBinding | undefined => { const k = BASE[key] ?? key; return HYPER_KEYS.find(b => b.key === k); };
+export const hyperBinding = (key: string): HyperBinding | undefined => { const k = BASE[key] ?? key; return effective(HYPER_KEYS, "hyper+").find(b => b.key === k); };
 
 /** `✦k`: how a chord is written in a hint, the power bar and the docs. */
 export const hyperLabel = (key: string) => `✦${key}`;
 /** The hyper chords an action is also reached by, as `✦-` (the hints and the power bar show them only while the layer is on). */
 export function hyperKeysOf(action: string): string[] {
-  return HYPER_KEYS.filter(b => b.action === action && b.tile === undefined && !(b.args?.scope)).map(b => hyperLabel(b.key));
+  return effective(HYPER_KEYS, "hyper+").filter(b => b.action === action && b.tile === undefined && !(b.args?.scope)).map(b => hyperLabel(b.key));
 }
 
 let saved: boolean | null = null;

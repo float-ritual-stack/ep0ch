@@ -725,11 +725,11 @@ export const COMPLETION_STEP = {
 
 export const COMPLETION_COPY = {
   summary: "copy the selected component's source, ready to paste into a note",
-  keys: "choose a component, then y; click [copy]", touches: "nothing", replay: "safe", args: {},
+  keys: [{ keys: "y", does: "after choosing a component" }, { keys: "click", does: "[copy]" }], touches: "nothing", replay: "safe", args: {},
 } as const;
 export const COMPLETION_DEFINITION = {
   summary: "open the selected agent's defining script note beside the draft",
-  keys: "choose an agent, then g; click [g]", touches: "nothing", replay: "safe", args: {},
+  keys: [{ keys: "g", does: "after choosing an agent" }, { keys: "click", does: "[g]" }], touches: "nothing", replay: "safe", args: {},
 } as const;
 
 export const COMPLETION_MOVE = {

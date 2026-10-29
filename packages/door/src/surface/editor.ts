@@ -223,7 +223,7 @@ export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload
   if (pop) return `${popupHint(pop)} · ctrl+s ${o.save}`;
   // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
   const last = d.undos.at(-1);
-  const undo = last ? ` · ctrl+z undo${last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}` : "";
+  const undo = last ? ` · ctrl+z undo${last.saved !== undefined ? " (asks: saved)" : last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}` : "";
   return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${o.follow && d.linkAtCursor() ? " · ctrl+l open link" : ""}${undo}${o.place ? ` · ctrl+o ${o.place}` : ""}${o.move ? " · ctrl+g move" : ""}${d.redos.length ? " · ctrl+y redo" : ""}${d.selection() ? " · alt+c copy" : ""} · ctrl+x ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview`;
 }
 
