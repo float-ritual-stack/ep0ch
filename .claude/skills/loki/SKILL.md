@@ -51,6 +51,7 @@ After a merge to main (yours, or a sha an agent hands you):
    it is often off by work policy: that is normal, never work around it. A step only Evan can do goes on the build
    log's **Needs you** with the exact command.
 8. Write it up: a line in today's build log, patch notes on the requests it answers, and the release notes (below).
+   A build-log line's time comes from `date` (local time, Toronto) or the event's own stamp (`gh pr view <n> --json mergedAt`), never from memory or an estimate: on Oct 29 estimated times ran two hours ahead and a reader caught it.
 
 Never deploy over someone else's half-finished migration, and never kill the outline host or a publisher you didn't
 start except through its service.
@@ -67,9 +68,11 @@ a time and tell the next one main's new value. A PR that bumps it says what each
 A cron at minutes 17 and 47 (set up at Evan's ask, Oct 12). Check quietly, act on what you find, and tell Evan only
 what needs him or what changed; if nothing changed and nothing's wrong, one line. What changed goes in the build log.
 
-1. **Margins:** comments addressed to @loki in pie or gurgle since the last check:
-   `ep0ch find --ws <ws> --query "(type=annotation OR type=annotation-reply) AND annotation-source=user AND updated >= -40m" --json`.
-   Reply in place, act on clear asks, and summarise.
+1. **Margins:** an @loki comment (Evan's, daddy's, kitty's, anyone's) wakes this session by itself: the mod's
+   addressed check (PIE-1404) sends an `Addressed to @loki` prompt within 30 minutes, listing every open thread that
+   asks you with no reply from you, Evan's first. Answer each in its thread (`outline_reply`, its thread id) or
+   resolve it; it stays on that list until you do. The check-in only sweeps what that can't see: Evan's comments
+   that name nobody, `ep0ch find --ws <ws> --query "(type=annotation OR type=annotation-reply) AND annotation-source=user AND updated >= -40m" --json`.
 2. **Requests:** new copies in pie's "ep0ch requests" subscription (`67a152f1-779a-482c-9b58-d5f7594714f0`; short
    ids don't resolve in `ep0ch show`) created since the last check (compare `created_at` with
    `date -u -d '-40 min' +%Y-%m-%dT%H:%M`), and whether intake wrote a prior-art note for each. Also list every
