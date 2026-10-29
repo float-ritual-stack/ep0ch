@@ -485,6 +485,21 @@ by another agent, wakes every live session of that persona, and stays on its lis
 - **Agents asking agents:** another agent's @ counts, so kitty can raise loki's traffic with loki. The wake says to
   name another agent only when its answer is needed; a loop costs one wake per check at most.
 
+## What became of your proposals (PIE-1086)
+
+An edit of this session's that was proposed instead of applied, and every change to it after (gone stale, applied,
+dismissed, resolved), reaches the session once each, with the note's link and the proposal's.
+
+- **What it reads** (`hooks/proposals-heard.ts`): `outliner agent proposals`, the service's `proposals.outcomes`
+  (`src/proposal-outcomes.ts`), from the proposals' own revision records: no feed of its own. The same reader answers
+  `outline_proposals` here and on the MCP gateway.
+- **Whose:** a session that writes as a persona hears that persona's proposals from every client (`loki/claude-code@…`
+  and `mcp:loki/claude.ai`); a session with none hears its own session's only.
+- **When:** looked up every 2 minutes from the session's start (or a `/clear`); what is new rides with the next prompt
+  as an `ep0ch-proposals` block. A stale one wakes a persona's idle session (one prompt, as addressed mail does): it
+  asks for the edit again, or the proposal dismissed. Nothing is said to the person: the waiting-on-you tile has the
+  open ones.
+
 ## Workboard tools
 
 In a bound folder Claude also gets `work_create`, `work_stage`, `work_set`, `work_link`,
@@ -534,7 +549,9 @@ copy from the marker down.
 
 | Tool | Input | Returns |
 |---|---|---|
-| `outline_read` | `ref`, `depth?` (1, at most 6), `limit?` (50, at most 500) | full `text` (never the title alone), `properties`, `revision`, `author`, `actorId`, `updated`, children to `depth` with full text (60k characters of children's text at most), `complete`, and for a note that holds a `{{ }}` its `site`: the service's answer for each placeholder (`values`, or a `problem` with the nearest keys), how it was found (`route`) and the notes it came from (`deps`), while `text` stays what the author wrote |
+| `outline_read` | `ref`, `depth?` (1, at most 6), `limit?` (50, at most 500), `view?`, `width?` (44) | with `view: true` also `view`: the note as the door draws it, a line each (`ep0ch show`); full `text` (never the title alone), `properties`, `revision`, `author`, `actorId`, `updated`, children to `depth` with full text (60k characters of children's text at most), `complete`, and for a note that holds a `{{ }}` its `site`: the service's answer for each placeholder (`values`, or a `problem` with the nearest keys), how it was found (`route`) and the notes it came from (`deps`), while `text` stays what the author wrote |
+| `outline_proposals` | `since?` (an ISO time or the last `cursor`; a week back when left out), `actor?` (yours; a persona covers every client it writes through), `limit?` | `outcomes`, oldest first, each once: `proposal`, `note`, `title`, `state` (`proposed`, `stale`, `applied`, `dismissed`, `resolved`), `at`, `by`, `reason`; `cursor`, `complete` |
+| `script_run` | `ref` (the script block), `this?` (the note the run is about), `slots?` (`{ name: "value" }`, its `props`) | what the run said: `message`, `state`, `answer`, what it `written` |
 | `outline_find` | `text?`, `property?` (`key=value` or `key`), `hasKey?`, `query?`, `under?`, or `view?`; `limit?` | rows: `id`, `title`, `revision`; `complete` |
 | `outline_resolve` | `ref` | `id`, `title`, `revision`, `workId`, `fragmentId` |
 | `outline_edit` | `ref`, `expectedRevision`, one of `text`, `replaceSection {heading, body}`, `append`; `allowStructural?` | the new `revision`, a short `diff`, and with `allowStructural` what it `dropped` |
