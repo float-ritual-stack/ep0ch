@@ -65,6 +65,12 @@ Before a PR claims a change works:
      `TEST_EACH_JOBS` runs several at once): `bun test` loads every file into one process, so a file that only
      loads because another loaded a module first passes there and fails alone. #204's import cycle left 13 files
      unable to load alone for a day, and nobody saw.
+   - **A door test file leaves nothing for the next** (PIE-1412). Between files the door's preload
+     (`packages/door/test/preload.ts`) retires the earlier file's Apps (which unbinds the extensions they read), stops
+     its scratch hosts, puts the environment back and unbinds an extension list it bound itself; a scratch host still
+     running or an extension list still bound is named (`test leak: <file> left behind: …`) and fails the run. Stop
+     what you start in `afterAll` (`scratch.dispose()`, `bindExtensions(null)`, `app.quit()`); a part with
+     process-wide state of its own registers it with the check, as `src/extensions.ts` does.
 3. A change to what one package prints or answers that another reads is tested against the real other side,
    not a fake: the mod's readers over the real `ep0ch` (`packages/door/test/claude-mod-contract.test.ts`), the
    outliner's CLI under the mod's work tools (`packages/outliner/test/work-tools.test.ts`). Stderr another program

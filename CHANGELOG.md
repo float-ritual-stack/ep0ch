@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The door's tests pass together as alone (PIE-1412)
+
+- **For builders:** a door test file that leaves a scratch host running or an extension list bound is named
+  (`test leak: <file> left behind: …`) and fails the run; the shared teardown between files puts the rest back. The
+  tests that failed only beside other files, or only on a loaded box, now hold: the power bar's extension actions,
+  the kitchen sink's panes and regions marks, the kettle's close click, the no-op repaint count, the copy-ref and
+  motion checks, and the drawer program's handovers.
+- **Run:** nothing.
+
 ### The keys window: every binding, what it shadows, and a rebind said before it lands (PIE-492, PIE-1048)
 
 - **`?` on any screen opens it,** filtered to where you are (`in:note` in a reader); `ep0ch --screen keys`,
