@@ -14,7 +14,7 @@ import type { Key } from "../src/term";
 import { applyLocated, locateSpans } from "@ep0ch/outline-core/draft-patch-compare";
 import { outliner, Scratch, until } from "./scratch";
 import { prop } from "../src/props";
-import { loadExtensions } from "../src/extensions";
+import { bindExtensions, loadExtensions } from "../src/extensions";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
@@ -227,7 +227,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     agent = new SocketBoard(scratch.sock);
     await agent.info();
   });
-  afterAll(async () => { board?.close(); agent?.close(); await scratch.dispose(); });
+  afterAll(async () => { bindExtensions(null); board?.close(); agent?.close(); await scratch.dispose(); });
 
   async function editing(text: string) {
     const id = await create(text);

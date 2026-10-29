@@ -568,7 +568,8 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const row = app.drawer.rect!.row + 1, header = plain(h.painted[row] ?? ""), col = header.indexOf("x", header.indexOf("kettle"));
     expect(col).toBeGreaterThan(0);
     for (const action of ["down", "up"] as const) press({ kind: "mouse", action, button: 0, x: col, y: row });
-    expect((app as any).message).toContain("closing ends it");
+    // The header row with it: a miss says what was clicked.
+    expect({ message: (app as any).message, header, col }).toMatchObject({ message: expect.stringContaining("closing ends it") });
     expect(app.drawer.tabs().map(t => t.name)).toContain("kettle");
     press({ kind: "char", ch: "]", ctrl: true });
     (app as any).lastInput = 0;

@@ -1,5 +1,5 @@
-// A test file that sets an environment variable and never puts it back: the check names it, and the next file has
-// the environment the run started with.
+// A test file that sets an environment variable and never puts it back: the next file has the environment the run
+// started with all the same.
 import { expect, test } from "bun:test";
 
 test("an env var set and left", () => {

@@ -5,6 +5,7 @@
 // named, and the run fails.
 import { expect, test } from "bun:test";
 import { join } from "node:path";
+import { outliner } from "./scratch";
 
 const fixtures = join(import.meta.dir, "fixtures/leaks");
 const run = (...files: string[]) => {
@@ -27,9 +28,18 @@ test("a file that binds extensions itself and never unbinds them is named, and t
   expect(r.code).not.toBe(0);
 }, 60_000);
 
-test("an env var a file set and left is named and put back before the next file runs", () => {
+test("an env var a file set and left is put back before the next file runs", () => {
   const r = run("sets-env.ts", "reads-actions.ts");
-  expect(r.out).toContain("test/fixtures/leaks/sets-env.ts left behind: env EP0CH_LEAK_PROBE");
+  expect(r.out).toMatch(/ 2 pass/);
+  expect(r.code).toBe(0);
+}, 60_000);
+
+test.skipIf(!outliner)("a scratch host a file left running is named and stopped before the next file runs", () => {
+  const r = run("leaves-host.ts", "reads-actions.ts");
+  expect(r.out).toMatch(/test\/fixtures\/leaks\/leaves-host\.ts left behind: a scratch host still running \(/);
+  const pid = Number(/scratch pid (\d+)/.exec(r.out)?.[1]);
+  expect(pid).toBeGreaterThan(0);
+  expect(() => process.kill(pid, 0)).toThrow();
   expect(r.out).toMatch(/ 2 pass/);
   expect(r.code).not.toBe(0);
 }, 60_000);
