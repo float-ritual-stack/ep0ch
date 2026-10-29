@@ -281,14 +281,14 @@ export function moved(action: string, args: Record<string, unknown>, declared: K
 // ── the tables, by where they bind ──────────────────────────────────────────
 
 /** A key table as the keys window lists it: where its keys work (`scope`), what reads them, and the keymap prefix its keys take. */
-export interface KeyTable { readonly scope: string; readonly about: string; readonly rows: readonly TableRow[]; readonly prefix: string; /** A screen's own key map (its spec's): the screen layer. */ readonly screen?: true }
+export interface KeyTable { readonly scope: string; readonly about: string; readonly rows: readonly TableRow[]; readonly prefix: string; /** The action set whose place this table's keys are part of (the river column's, `river`): `in:<it>` in the keys window lists them too. */ readonly within?: string; /** A screen's own key map (its spec's): the screen layer. */ readonly screen?: true }
 const TABLES: KeyTable[] = [];
 /**
  * Say a key table (a mode's, the ^W keys, the hyper layer) where it's made, so the keys window lists it under its scope
  * and the App's keymap layer leaves its keys to it (the table reads the file itself, through `effective`). Returns the rows.
  */
-export function keyTable<R extends TableRow>(scope: string, about: string, rows: readonly R[], prefix = ""): readonly R[] {
-  TABLES.push({ scope, about, rows, prefix });
+export function keyTable<R extends TableRow>(scope: string, about: string, rows: readonly R[], prefix = "", within?: string): readonly R[] {
+  TABLES.push({ scope, about, rows, prefix, ...(within ? { within } : {}) });
   return rows;
 }
 /** Every key table said so far. */

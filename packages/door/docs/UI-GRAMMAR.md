@@ -1207,13 +1207,13 @@ desk's, until `^W e` goes in: then every key is the mount's, its `^W` too, and `
 - **The keys window** (`keys` tile kind and screen): on a screen of tiles `keys.open` (`?`) opens it as a tile beside
   the focused one (`Desk.openKeys`, PIE-1425), so it resizes, docks and closes like any tile and gives the keys back to
   its opener; beside a tile that halves under `LIST_COLS` (40) it opens below, and under a tile already narrower along
-  the bottom edge at the screen's width (`Desk.sides`, which the trail tile shares). It opens filtered to where you
+  the bottom edge at the screen's width (`Desk.sides`, the one order for a list that wants width; the trail tile asks it with its own 18 columns). It opens filtered to where you
   are: the scope the focused tile says its keys run in now (`Pane.keysScope`: a reader's `note`, a river column's
   `river` unless an edit is open), else its kind's action set's; the keys screen is for a screen without tiles (`ep0ch --screen keys`, a BBS list). `⏎` (or a second click
   on the selected row) is `keys.run`: the binding's action, pressed as the person in the tile the window opened beside;
   one needing arguments the binding doesn't give opens its form in the power bar (`bar.form op=open`). `esc` and `q`
   close it. The catalog's bindings filtered as typed (`in:<scope>` is a scope
-  exactly, or one named after it: `in:river` holds the `river column` table), each row one sentence: the action's
+  exactly, or a set a table says it is part of, `KeyTable.within`: `in:river` holds the river column's tables), each row one sentence: the action's
   `words`, then where or when, or the row's own `says` (`TableRow.says`, `KeyRow.says`) where its hint word alone would
   be a fragment (`test/key-rows.test.ts` refuses a `, <word>` tail and an act argument), each with its layer, what it takes its key from and what takes it first, and whether a terminal tile's
   program still gets it. `r` records the new key (^W then a key for a ^W binding), says what it would take before ⏎

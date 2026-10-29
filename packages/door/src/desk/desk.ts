@@ -212,7 +212,7 @@ const SHOWN_LATELY_MS = 2_000;
 const WALK_MS = 1000;
 /** The narrowest a trail tile opens (Desk.trailTile): a stop's title and its arrow still read; narrower, it lists over the screen. */
 const TRAIL_MIN_COLS = 18;
-/** The narrowest a list that wants width (the keys window, the trail) is opened beside a tile: narrower, below it (sides). */
+/** The narrowest the keys window is opened beside a tile: narrower, below it (Desk.sides). */
 const LIST_COLS = 40;
 
 export class Desk implements Screen, DeskApi, ColumnsHost {
@@ -484,7 +484,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     let id: number;
     if (have !== undefined) id = have;
     else {
-      const made = this.sides(at).reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source), "trail", true, USER, dir); } catch (e) { if (e instanceof ActionRefused) return null; throw e; } }, null);
+      const made = this.sides(at, TRAIL_MIN_COLS).flatMap(d => (d === "right" || d === "down" ? [d] : [])).reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source), "trail", true, USER, dir); } catch (e) { if (e instanceof ActionRefused) return null; throw e; } }, null);
       if (made === null) return null;
       // Too narrow to read (a squeezed river column at 40 columns, PIE-1428): no one-letter-a-row spine taking the keys
       // unseen; the trail lists over the screen instead.
@@ -4663,11 +4663,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /**
    * Where a list that wants width (the keys window, the trail) opens beside tile `at`, best first: the layout's one rule
    * (`splitAxis`, wide), so a 44-column tile keeps its width and the list has all of it too. A tile too narrow to halve
-   * into a readable list (at 40 columns, PIE-1425) opens it below, never as a 20-column strip beside.
+   * into a list of `min` columns (the keys window's LIST_COLS at 40 columns, PIE-1425) opens it below, and one already
+   * narrower along the bottom edge at the screen's width, never as a strip beside; the screen's edge last, which a
+   * container that takes only its own kind (the board's lanes) never refuses.
    */
-  private sides(at: number): ["right", "down"] | ["down", "right"] {
+  private sides(at: number, min: number): ("right" | "down" | "edge-right" | "edge-down")[] {
     const r = this.placed.rects.get(at);
-    return r && splitAxis(r, true) === "row" && Math.floor(r.cols / 2) >= LIST_COLS ? ["right", "down"] : ["down", "right"];
+    if (r && r.cols < min) return ["edge-down", "down", "right"];
+    if (r && Math.floor(r.cols / 2) < min) return ["down", "edge-down", "right"];
+    return r && splitAxis(r, true) === "row" ? ["right", "down", "edge-right"] : ["down", "right", "edge-right"];
   }
 
   /**
@@ -4679,13 +4683,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const have = this.all().find(id => this.panes.get(id) instanceof KeysPane);
     if (have === undefined) {
       // From a float: beside the tile under it, as tile.open does.
-      const at = this.isFloat(this.focus) ? this.grounded() ?? this.focus : this.focus, [first, then] = this.sides(at);
-      // Beside it, else below or beside the other way, else along the screen's right edge: a container that takes only
-      // its own kind (the board's lanes) refuses the first two, never the edge. Narrow, never a strip beside: below a tile
-      // that halves too thin, along the bottom edge (the screen's width) under one already thinner than a list.
+      const at = this.isFloat(this.focus) ? this.grounded() ?? this.focus : this.focus;
+      // Where `sides` says, best first.
       let done: unknown;
-      const cols = this.placed.rects.get(at)?.cols ?? Infinity;
-      const order = cols < LIST_COLS ? (["edge-down", "down", "right"] as const) : Math.floor(cols / 2) < LIST_COLS ? (["down", "edge-down", "right"] as const) : ([first, then, "edge-right"] as const);
+      const order = this.sides(at, LIST_COLS);
       for (const [i, where] of order.entries()) {
         try { done = await this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), where, actor); break; }
         catch (e) { if (!(e instanceof ActionRefused) || i === order.length - 1) throw e; }

@@ -1082,7 +1082,7 @@ const FLOW_KEYS: readonly ModeKey[] = keyTable("river column", "a river column",
   { key: "w", action: "tile.widen", label: "widen", says: "give this column the wide place in its flow" },
   { key: "p", action: "tile.hold", label: "hold" },
   { key: "g", action: "search", label: "search", says: "search for notes by their words" },
-]);
+], "", "river");
 
 /** The river column as a tile kind: a reader of the river's own view, opening a column of its own kind next. */
 export function riverColumnKind(): TileKind {

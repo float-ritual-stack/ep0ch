@@ -394,5 +394,8 @@ test("? on a river column opens on the river's keys, its h l x p among them; in 
   expect(library.keysScope()).toBe("river");
   const shown = bindings().filter(b => matches(b, `in:${library.keysScope()}`));
   for (const action of ["tile.focus", "tile.close", "tile.hold"]) expect(shown.some(b => b.action === action && b.scope === "river column")).toBe(true);
+  // Its card moves (K J I O) too, and nothing of another place named alike (`in:status` isn't the status bar's).
+  expect(shown.some(b => b.action === "column.move")).toBe(true);
+  expect(bindings().filter(b => matches(b, "in:status")).every(b => b.scope === "status" || b.layer === "status")).toBe(true);
   expect(shown.some(b => b.scope === "note")).toBe(false);
 });

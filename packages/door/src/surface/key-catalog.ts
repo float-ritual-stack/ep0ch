@@ -38,6 +38,8 @@ export interface Binding {
   id: string;
   /** Where it works: the action set's scope (note, tile, shell) or the table's (^W, sources, comment). */
   scope: string;
+  /** The action set whose place its table is part of (KeyTable.within: the river column's tables, `river`). */
+  within?: string;
   layer: Layer;
   /** What it does there, in its own words: the row's, the table's label, else the action's summary. */
   does: string;
@@ -104,7 +106,7 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
       const yours = keymapEntries().some(e => e.id === id && e.keys.includes(key));
       held.add(`${key} ${r.action}`);
       out.push({
-        key, cap: capOf(key), action: r.action, args, id, scope: t.scope, layer: t.screen || (t.scope === screenName && screen.length) ? "screen" : tableLayer(t.scope),
+        key, cap: capOf(key), action: r.action, args, id, scope: t.scope, ...(t.within ? { within: t.within } : {}), layer: t.screen || (t.scope === screenName && screen.length) ? "screen" : tableLayer(t.scope),
         does: tableWords(r, summary(r.action)), about: summary(r.action), from: yours ? "yours" : "table",
         rebind: t.prefix === "hyper+" ? `a hyper chord: the window can't read one (the door takes it first), so give it another in keybindings.json ("${bindingId(r.action, r.args ?? {})}": [..., "hyper+<key>"])` : rebindable(t.rows, r) ? true : `${r.action} is bound to several keys here, each a different way (${rows.filter(x => x.action === r.action && !GESTURES.has(x.key)).map(x => capOf(tableKey(t.prefix, x.key))).join(" ")}): they move together in code, not one at a time`,
         ...(yours ? { yours: true as const } : {}), table,

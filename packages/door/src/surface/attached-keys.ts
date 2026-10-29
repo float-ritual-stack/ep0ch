@@ -17,7 +17,7 @@ export const SOURCES_KEYS: readonly ModeKey[] = keyTable("sources", "the Sources
   row("wheel", "sources.scroll", ""),
 ]);
 export const SOURCE_KEYS: readonly ModeKey[] = keyTable("source", "one source in the Sources inspector", [
-  ...SOURCES_KEYS.map(row => ["enter", "shift+enter", "ctrl+enter"].includes(row.key) ? { ...row, label: "choose row" } : row),
+  ...SOURCES_KEYS.map(row => ["enter", "shift+enter", "ctrl+enter"].includes(row.key) ? { ...row, label: "choose row", says: "choose the selected row of the source" } : row),
   row("left", "sources.back", "source list"), row("e", "sources.set", "edit"), row("y", "sources.copy", "copy"), row("g", "sources.jump", "jump"),
   row("c", "sources.download", "CSV", { format: "csv" }), row("J", "sources.download", "JSON", { format: "json" }),
   say(row("1", "sources.fold", "query", { fold: "query" }), "fold or unfold the source's query"), say(row("2", "sources.fold", "transform", { fold: "transform" }), "fold or unfold the source's transform"), say(row("3", "sources.fold", "result", { fold: "result" }), "fold or unfold the source's result"),
@@ -43,7 +43,7 @@ export const REORDER_KEYS: readonly ModeKey[] = keyTable("reorder", "moving a no
   row("ctrl+z", "note.move.undo", "undo move"),
 ]);
 export const TREE_MOVE_KEYS = REORDER_KEYS.map(binding => ({ ...binding, action: "tree.move", ...(binding.action === "note.move.undo" ? { args: { undo: true } } : {}) }));
-export const COLUMN_MOVE_KEYS = TREE_MOVE_KEYS.map(binding => ({ ...binding, action: "column.move" }));
+export const COLUMN_MOVE_KEYS = keyTable("river column moves", "moving a river column's card among its siblings", TREE_MOVE_KEYS.map(binding => ({ ...binding, action: "column.move" })), "", "river");
 export const LIST_MOVE_KEYS = TREE_MOVE_KEYS.map(binding => ({ ...binding, action: "note.move" }));
 export const READER_MOVE_KEYS = REORDER_KEYS.filter(binding => binding.action === "note.move" && binding.args?.step !== "in" && binding.args?.step !== "out");
 
