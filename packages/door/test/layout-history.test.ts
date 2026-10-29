@@ -126,7 +126,8 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     await person("layout.undo");
     expect(names()).toContain(victim);
     const menu = app.dispatch.list().actions.find(a => a.name === "layout.undo");
-    expect(menu?.keys).toContain("ctrl+z");
+    expect(menu?.keys).toContainEqual(expect.objectContaining({ keys: "ctrl+z" }));
+    expect(menu?.keys).toContainEqual({ via: "the tile menu's row" });
   });
 
   test("txn=<id> and motion=<style> are open to every action; motion needs a txn; a bad id is refused with the shape", async () => {

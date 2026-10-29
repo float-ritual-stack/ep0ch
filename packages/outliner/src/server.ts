@@ -102,7 +102,7 @@ import {
   TUI_RESOURCE_PRESENTATION_CONTEXT,
 } from "./resource-presentation";
 import { probeSocket } from "./socket-probe";
-import { actionOf, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
+import { actionOf, thisTurn, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
 import { isWatchable, QueryWatches, type WatchConnection } from "./query-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
@@ -447,6 +447,33 @@ export class OutlinerServer {
   /** The host's outlines folder, when hosted: this machine's name is read from it. */
   private readonly outlinesFolder?: string;
   private readonly turns = new Turns();
+  /**
+   * The service asking itself: a job's own reads and writes (Jev's records, a search's tally, a script's calls, the
+   * in-process publisher, a write's structure check). Each request waits its turn on the loop as a client's does
+   * (Turns), so a job of many requests never holds the loop between them: a ping or a note read goes in between
+   * (PIE-1413: a backfill's keep ran ~40 of them in one go, half a second each on pie). The one way the service asks
+   * itself something that takes a turn; `handle` stays for answers that must be synchronous (a watch's evaluation,
+   * the draft router's guard).
+   */
+  private readonly own = {
+    request: async <T>(input: RequestInput | ({ action: string } & Record<string, unknown>)): Promise<T> => {
+      // A request's own reads and writes go as its asker's (a backfill's keep as the backfill's); a timer's as `own`.
+      const key = turnOwner.getStore() ?? "own";
+      await this.turns.next(input.action, key);
+      const started = performance.now();
+      const sameTurn = thisTurn();
+      const pending = this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
+      let ms = performance.now() - started;
+      const response = await pending;
+      // What it held the loop for (all of it when it never waited outside the loop): charged to whose it is, and named
+      // in a stall.
+      if (sameTurn()) ms = performance.now() - started;
+      this.turns.charge(key, ms);
+      noteWork(`${input.action} (own)`, ms);
+      if (!response.ok) throw new Error(response.error);
+      return response.result as T;
+    },
+  };
   /** Watched questions (ADR 0004): each connection's, evaluated again after changes (src/query-watches.ts). */
   readonly watches: QueryWatches;
 
@@ -475,7 +502,9 @@ export class OutlinerServer {
     this.watches = new QueryWatches({
       answer: request => this.handle(request as unknown as OutlinerRequest),
       sequence: () => this.store.sequence,
-      timed: ms => noteWork("queries.changed", ms),
+      timed: ms => { noteWork("queries.changed", ms); this.turns.charge("watches", ms); },
+      // A pass waits its turn a watch at a time, behind interactive requests (PIE-1413).
+      turn: action => this.turns.next(action, "watches"),
     });
     this.workflows = new WorkflowManager(store);
     this.mentions = new MentionRepository(store,store.workspaceRoot,folder => this.folderOpensThisOutline(folder));
@@ -593,11 +622,7 @@ export class OutlinerServer {
     });
     this.scriptRuns = new ScriptRuns(store, this.extensionRegistry, this.extensionCalls.writes, {
       requireCompatibleService: async () => undefined,
-      request: async <T>(input: RequestInput): Promise<T> => {
-        const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
-        if (!response.ok) throw new Error(response.error);
-        return response.result as T;
-      },
+      request: <T>(input: RequestInput): Promise<T> => this.own.request<T>(input),
     }, changes => this.publishChanges(undefined, changes), run => this.draftPatches.scriptInverse(run), (clientId, action, args, actor, signal, meta) => {
       // The door that asked, else the only door here; none or several is refused with which there are (PIE-957).
       const doors = [...this.subscribers.values()].filter(c => c.app === "door").map(c => c.clientId);
@@ -1497,11 +1522,7 @@ export class OutlinerServer {
     const tally: SearchTally = semantic.status === "ranked"
       ? { kind: "ranked", sure: semantic.verdict ? { verdict: semantic.verdict, said: semantic.said ?? "" } : undefined, reading: { model: semantic.model ?? "unknown", prompt: semantic.promptRevisions ?? [], questions: (semantic.candidateCount ?? 0) + 1, ...(semantic.inputTokens !== undefined ? { usage: { input: semantic.inputTokens, output: semantic.outputTokens ?? 0 } } : {}) } }
       : { kind: "unavailable" };
-    const own = { request: async <T>(input: { action: string } & Record<string, unknown>): Promise<T> => {
-      const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
-      if (!response.ok) throw new Error(response.error);
-      return response.result as T;
-    } };
+    const own = this.own;
     this.searchTallies.count(tally);
     if (this.searchTallyTimer) return;
     const wait = Number(process.env.OUTLINER_SEARCH_TALLY_MS ?? SEARCH_TALLY_MS);
@@ -2092,11 +2113,7 @@ export class OutlinerServer {
       const block = this.store.require(request.blockId);
       const section = replaceSectionText(block.text, request.replaceSection.heading, request.replaceSection.body, block.id);
       if (request.mutation.author === "agent" && request.allowStructural !== true) {
-        await refuseDroppedStructure({ request: async <T>(input: RequestInput): Promise<T> => {
-          const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
-          if (!response.ok) throw new Error(response.error);
-          return response.result as T;
-        } }, block, section.text);
+        await refuseDroppedStructure(this.own, block, section.text);
       }
       const { replaceSection, allowStructural, ...update } = request;
       // A save that landed during the structure check is not a no-op: the update below refuses the stale revision.
@@ -2296,11 +2313,7 @@ export class OutlinerServer {
           if (t.quote !== undefined && t.quote !== '"' && t.quote !== "'") throw new Error(`target.quote must be " or '`);
           if (request.near !== undefined && typeof request.near !== "string") throw new Error("near must be a block id");
           if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1)) throw new Error("limit must be a positive whole number");
-          const own = { request: async <T>(action: string, input: Record<string, unknown>): Promise<T> => {
-            const response = await this.handleAsync({ id: crypto.randomUUID(), action, ...input } as OutlinerRequest);
-            if (!response.ok) throw new Error(response.error);
-            return response.result as T;
-          } };
+          const own = { request: <T>(action: string, input: Record<string, unknown>): Promise<T> => this.own.request<T>({ action, ...input } as RequestInput) };
           const listed = this.extensionRegistry.list().completionSources;
           result = await completionRows(own, request, listed, (source, ask, signal) => this.extensionCalls.complete({
             extension: source.extension, source: source.id, query: ask.query,
@@ -2318,11 +2331,7 @@ export class OutlinerServer {
       // Twins at filing (PIE-1258, work-twins.ts): code finds open items like the new one, Jev reads them, code decides.
       // An agent's create with twins is refused with the two calls; a person's never is (the door shows a hint).
       try {
-        const own = { request: async <T>(input: { action: string } & Record<string, unknown>): Promise<T> => {
-          const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
-          if (!response.ok) throw new Error(response.error);
-          return response.result as T;
-        } };
+        const own = this.own;
         const jev = { promptDirectory: this.promptDirectory };
         if (request.action === "roadmap.items.similar") {
           const input = request.input;
@@ -2392,11 +2401,7 @@ export class OutlinerServer {
       try {
         if (this.readOnly) throw new Error("This outline is read-only.");
         const keep = readKeep(request.keep);
-        const own = { request: async <T>(input: RequestInput): Promise<T> => {
-          const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
-          if (!response.ok) throw new Error(response.error);
-          return response.result as T;
-        } };
+        const own = this.own;
         // One at a time: the day's run is found, made and counted by each, and two at once would make it twice.
         // The Records page and templates are looked up once and kept (records.ts writeRecord looks again when one is gone).
         const turn = this.suggestionKeeps.then(() => keepSuggestion(own, keep, this.componentSchemas().schemas, this.recordCache));
@@ -4424,13 +4429,7 @@ export class OutlinerServer {
    * extension sends.
    */
   private inServicePublisher(): Publisher {
-    const client: PublishClient = {
-      request: async <T>(input: RequestInput): Promise<T> => {
-        const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
-        if (!response.ok) throw new Error(response.error);
-        return response.result as T;
-      },
-    };
+    const client: PublishClient = { request: <T>(input: RequestInput): Promise<T> => this.own.request<T>(input) };
     return Publisher.inService(client, this.publisherAddress());
   }
 
@@ -4803,15 +4802,16 @@ export class OutlinerServer {
     return { group, values };
   }
 
-  private async respond(socket: Socket, line: string, received = performance.now()): Promise<void> {
-    const response = this.respondNow(socket, line, received);
+  private async respond(socket: Socket, line: string, received = performance.now(), key: TurnKey = socket): Promise<void> {
+    const response = this.respondNow(socket, line, received, key);
     this.responses.add(response);
     try { await response; }
     finally { this.responses.delete(response); }
   }
 
-  private async respondNow(socket: Socket, line: string, received: number): Promise<void> {
+  private async respondNow(socket: Socket, line: string, received: number, key: TurnKey): Promise<void> {
     const started = performance.now();
+    const sameTurn = thisTurn();
     let request: OutlinerRequest | undefined;
     let response: OutlinerResponse;
     let attribution: ChangeAttribution | undefined;
@@ -4859,10 +4859,11 @@ export class OutlinerServer {
         kind: requestChangeKind(current.action),
         collect: true,
       });
-      const pending = this.store.changes.run(attribution, () => this.handleAsync(current, subscribedClient, socket));
-      // What ran before the handler first waited held the loop; the waits after it didn't.
+      const pending = this.store.changes.run(attribution, () => turnOwner.run(key, () => this.handleAsync(current, subscribedClient, socket)));
+      // What ran before the handler first waited held the loop; the waits after it didn't, unless they were all in this turn.
       loopMs = performance.now() - started;
       response = await pending;
+      if (sameTurn()) loopMs = performance.now() - started;
       if (grant && response.ok && String(current.action) === "mcp.access.status") (response.result as McpAccessStatus).granted = this.grantedLevel(grant);
     } catch (error) {
       const problem = queryRequestProblem(error);
@@ -4891,7 +4892,10 @@ export class OutlinerServer {
       // The changes are durable in the feed; subscribers recover them with changes.since.
       process.stderr.write(`outliner: live event publication failed: ${error instanceof Error ? error.message : String(error)}\n`);
     }
-    if (loopWatched()) this.timeRequest(request, received, started, answered, loopMs ?? answered - started, performance.now() - answered);
+    const publishMs = performance.now() - answered;
+    // Who asked is charged what its request held the loop for (Turns): the next turn goes to someone who used it less.
+    this.turns.charge(key, (loopMs ?? answered - started) + publishMs);
+    if (loopWatched()) this.timeRequest(request, received, started, answered, loopMs ?? answered - started, publishMs);
   }
 
   /** The host's per-request timing (loop-watch.ts): a request that took long is logged, and named in a stall. */
@@ -4955,8 +4959,9 @@ export class OutlinerServer {
           // Each request waits its turn on the loop (Turns): a burst of whole-outline reads never holds it. One that waits
           // for a script run's answer (PIE-1264) lets the next go once the run has started: the run's own calls into the
           // door that asked (`scripts.answer`, and what its action then reads) come back over this connection.
-          requestQueue = requestQueue.then(() => this.turns.next(actionOf(line))).then(() => new Promise<void>(release =>
-            void queueRelease.run(release, () => this.respond(socket, line, received)).finally(release)));
+          const key = turnKeyOf(line, socket);
+          requestQueue = requestQueue.then(() => this.turns.next(actionOf(line), key)).then(() => new Promise<void>(release =>
+            void queueRelease.run(release, () => this.respond(socket, line, received, key)).finally(release)));
         }
         newline = buffer.indexOf("\n");
       }
