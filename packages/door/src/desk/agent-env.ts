@@ -30,6 +30,21 @@ export const AGENT_VARS = ["EP0CH_CONTROL", "EP0CH_TILE", "EP0CH_TILE_ID", "EP0C
  */
 export const DOOR_START_VARS = ["EP0CH_DAILY_AGENT", "EP0CH_LANDING", "EP0CH_AGENT_CONTINUE"] as const;
 /**
+ * A Claude Code session's own identity, as a program it runs inherits it (PIE-1432): CLAUDECODE, every CLAUDE_CODE_*
+ * (its session id, child-session mark, messaging socket and token), CLAUDE_PID, CLAUDE_JOB_DIR, AI_AGENT. A door started
+ * from inside a Claude (a background session's Bash) never passes them on, to its session, its terminal host or a tile:
+ * a Claude in a tile is a session of its own (its transcript kept, its own name in ListAgents), never the outer one's
+ * child. What configures Claude stays (CLAUDE_CONFIG_DIR; the mod folders are in Claude's settings, and a login shell
+ * exports the person's own again).
+ */
+export const outerClaudeVar = (k: string) => k === "CLAUDECODE" || k.startsWith("CLAUDE_CODE_") || k === "CLAUDE_PID" || k === "CLAUDE_JOB_DIR" || k === "AI_AGENT";
+/** `env` without an outer Claude session's identity (`outerClaudeVar`). */
+export function withoutOuterClaude(env: Record<string, string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) if (v !== undefined && !outerClaudeVar(k)) out[k] = v;
+  return out;
+}
+/**
  * The folder of the outline's session in the state dir (src/session/place.ts), where that outline's door serves
  * `door.sock` whichever process it is now: with it, the agent's `ep0ch` and the Claude mod follow the door through a
  * handover or restart (outline-core's door-reach.ts, PIE-604). Not one of AGENT_VARS: a Herdr agent's pane has none

@@ -17,10 +17,11 @@ import { constants } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { privateDir } from "../state";
-import type { Adopted, PtyBackend, PtyMeta, PtyProc, PtyStart } from "../desk/pty-backend";
+import type { Adopted, KeptProgram, PtyBackend, PtyMeta, PtyProc, PtyStart } from "../desk/pty-backend";
 import { frameBytes, FrameSplitter } from "./protocol";
 import { spawnReady } from "./start";
 import { jsonLine, listening } from "../jsonl";
+import { withoutOuterClaude } from "../desk/agent-env";
 
 export const HOST_PROTOCOL = 1;
 /** What the host keeps of each program's output, to replay into the next daemon's emulator. */
@@ -51,7 +52,7 @@ export class HostFrames {
 }
 
 /** A program as the host lists it to a daemon. */
-export interface HostPty { id: number; key: string | null; argv: string[]; cols: number; rows: number; meta: PtyMeta; pid?: number; exited: number | null }
+export interface HostPty { id: number; key: string | null; argv: string[]; cols: number; rows: number; meta: PtyMeta; pid?: number; exited: number | null; at?: number }
 
 // ── the host process ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -92,6 +93,7 @@ export async function servePtyHost(dir: string): Promise<never> {
       cols: s.cols, rows: s.rows, name: "xterm-256color",
       data: (_t, d) => {
         const b = Buffer.from(d);
+        h.at = Date.now();
         h.ring.push(b); h.bytes += b.length;
         while (h.bytes > RING && h.ring.length > 1) { h.bytes -= h.ring.shift()!.length; h.trimmed = true; }
         send(frame("o", id, b), id);
@@ -145,7 +147,7 @@ export async function servePtyHost(dir: string): Promise<never> {
               dropped.clear();
             });
             checkIdle();
-            const list: HostPty[] = [...held.values()].map(({ id, key, argv, cols, rows, meta, pid, exited }) => ({ id, key, argv, cols, rows, meta, ...(pid ? { pid } : {}), exited }));
+            const list: HostPty[] = [...held.values()].map(({ id, key, argv, cols, rows, meta, pid, exited, at }) => ({ id, key, argv, cols, rows, meta, ...(pid ? { pid } : {}), exited, ...(at ? { at } : {}) }));
             sock.write(frame("l", 0, { proto: HOST_PROTOCOL, pid: process.pid, ptys: list }));
             for (const x of held.values()) sock.write(frame("r", x.id, replayOf(x)));
             sock.write(frame("y", 0));
@@ -185,13 +187,16 @@ function replayOf(h: Held): Buffer {
   return nl >= 0 ? all.subarray(nl + 1) : all;
 }
 
-/** Start the host of the session in the outline folder `dir`, detached, and wait until it serves (it says so on fd 3). */
-export const startPtyHost = (dir: string, timeoutMs = 15_000) => spawnReady(["session", "pty-host", dir], process.env as Record<string, string>, hostLog(dir), "the terminal host", timeoutMs);
+/**
+ * Start the host of the session in the outline folder `dir`, detached, and wait until it serves (it says so on fd 3).
+ * Never with the identity of a Claude the daemon was started from (PIE-1432): every program it starts inherits its own.
+ */
+export const startPtyHost = (dir: string, timeoutMs = 15_000) => spawnReady(["session", "pty-host", dir], withoutOuterClaude(process.env), hostLog(dir), "the terminal host", timeoutMs);
 
 // ── the daemon's side: a PtyBackend over the host ──────────────────────────────────────────────────────────
 
 interface Entry {
-  id: number; key: string | null; argv: string[]; cols: number; rows: number; meta: PtyMeta; pid?: number; exited: number | null;
+  id: number; key: string | null; argv: string[]; cols: number; rows: number; meta: PtyMeta; pid?: number; exited: number | null; at?: number;
   /** Where its output goes once a tile has it; till then it's kept to replay. */
   live: ((d: Uint8Array) => void) | null;
   /** Where its whole output goes again, when the host had to drop some (the tile's emulator starts over). */
@@ -265,6 +270,7 @@ export class HostPtys implements PtyBackend {
     if (!e) return;
     switch (f.t) {
       case "r": case "o":
+        if (f.t === "o") e.at = Date.now();
         // Its output again, whole, after the host dropped some (this daemon fell behind): the tile starts over from it.
         if (f.t === "r" && e.adopted && e.resync) e.resync(f.raw);
         else if (e.live) e.live(f.raw);
@@ -328,7 +334,9 @@ export class HostPtys implements PtyBackend {
   holds(key: string): boolean { return [...this.entries.values()].some(e => e.key === key && !e.adopted && e.exited === null); }
 
   /** Programs the host keeps that no tile has adopted (yet): `session list` says them. */
-  unadopted(): HostPty[] { return [...this.entries.values()].filter(e => !e.adopted && e.exited === null).map(({ id, key, argv, cols, rows, meta, pid, exited }) => ({ id, key, argv, cols, rows, meta, ...(pid ? { pid } : {}), exited })); }
+  unadopted(): HostPty[] { return [...this.entries.values()].filter(e => !e.adopted && e.exited === null).map(({ id, key, argv, cols, rows, meta, pid, exited, at }) => ({ id, key, argv, cols, rows, meta, ...(pid ? { pid } : {}), exited, ...(at ? { at } : {}) })); }
+
+  kept(): KeptProgram[] { return this.unadopted().flatMap(p => (p.key ? [{ key: p.key, cmd: p.meta.cmd ?? p.argv, pid: p.pid ?? null, at: p.at ?? null, ...(p.meta.cwd ? { cwd: p.meta.cwd } : {}), ...(p.meta.session ? { session: p.meta.session } : {}) }] : [])); }
 
   /** End every program and the host (the session ends). */
   endAll(): void { if (!this.sock.destroyed) this.sock.end(frame("q", 0)); }
