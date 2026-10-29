@@ -1342,7 +1342,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ line, col, extend }, d, actor) { d.place(line - 1, col === undefined ? Infinity : col - 1, !!extend); d.follow = true; return { line: d.row + 1, col: d.col + 1 }; },
   }),
   "draft.scroll": def({
-    summary: "scroll the draft's view by rows; the cursor stays (the next key brings it back into view). preview=true scrolls its preview instead (PIE-846), until the text changes", keys: "wheel over the text, or over the preview",
+    summary: "scroll the draft's view by rows; the cursor stays (the next key brings it back into view). preview=true scrolls its preview instead (PIE-846), until the text changes", keys: [{ keys: "wheel", does: "over the text, or over the preview" }],
     touches: "draft", draft: "type", replay: "safe",
     args: { by: { type: "number", about: "rows, negative up" }, preview: { type: "boolean", optional: true, about: "scroll the preview under the text (ctrl+p shows it)" } },
     examples: [
@@ -1378,7 +1378,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     async run(_, d, actor) { const said = d.undo(actor); return { undone: said, left: d.undos.length, redo: d.redos.length }; },
   }),
   "draft.redo": def({
-    summary: "put back what draft.undo took back, in order; any new change drops what could be put back. An agent puts back only its own", keys: "ctrl+y, ctrl+shift+z",
+    summary: "put back what draft.undo took back, in order; any new change drops what could be put back. An agent puts back only its own", keys: [{ keys: "ctrl+y", does: "redo" }, { via: "ctrl+shift+z (redo)" }],
     touches: "draft", draft: "safe", replay: "ask",
     args: {},
     async run(_, d, actor) { const said = d.redo(actor); return { redone: said, left: d.redos.length }; },
@@ -1394,7 +1394,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ on }, d, actor) { d.preview =on ?? !d.preview; return { preview: d.preview }; },
   }),
   "draft.copy": def({
-    summary: "the draft's selected text, returned. The host puts the person's on their clipboard (OSC 52; an agent's never) and says \"copied N chars\". A selection made with the mouse copies when the button comes up, as in a reader (EP0CH_COPY_ON_SELECT=0 turns it off); one made by keys (shift+arrows) is copied by cmd+c, alt+c or the frame's [copy]", keys: "cmd+c, alt+c, the frame's [copy], the release of a drag",
+    summary: "the draft's selected text, returned. The host puts the person's on their clipboard (OSC 52; an agent's never) and says \"copied N chars\". A selection made with the mouse copies when the button comes up, as in a reader (EP0CH_COPY_ON_SELECT=0 turns it off); one made by keys (shift+arrows) is copied by cmd+c, alt+c or the frame's [copy]", keys: [{ keys: "cmd+c alt+c", does: "copy" }, { keys: "click", does: "the frame's [copy]" }, { keys: "drag", does: "the release of a drag copies" }],
     touches: "draft", draft: "type", replay: "safe",
     args: {},
     run(_, d, actor) {

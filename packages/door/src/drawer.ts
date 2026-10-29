@@ -1756,7 +1756,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   }),
   "access.open": def({
     summary: "the who-can-reach-what matrix as a tab in the drawer: which MCP caller (a named path, a stdio client) can reach which outline and how far, the lower of the outline's grant and the caller's cap, with each one's calls in the last 7 days. The person's pulls the drawer up and goes to it (n r p f plan a change, ⏎ applies it: the person's only); an agent's opens it behind the tab shown (mcp.access.matrix reads the same data)",
-    keys: "the power bar (ctrl+k, > access.open), then % lists it among the tiles",
+    keys: [{ via: "the power bar (ctrl+k, > access.open), then % lists it among the tiles" }],
     touches: "shape", replay: "ask",
     says: (out: { name?: string }) => `· opened who can reach what in the drawer (${out.name ?? "access-matrix"})`,
     args: {},
@@ -1764,7 +1764,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   }),
   "mcp.access.matrix": def({
     summary: "who can reach what, read: each MCP caller (a named path such as /gpty/mcp, or a client such as claude-code@float-2) against each outline of this door's machine, the effective level (the lower of the outline's grant and the caller's cap) with why, and the caller's calls in the last 7 days and last call per outline. Reads the grants (ep0ch mcp access), the caps (EP0CH_MCP_PATH_ACCESS) and the usage records (ep0ch mcp usage); changing access is the person's (access.apply on the tile)",
-    keys: "ep0ch mcp access --matrix --json prints the same",
+    keys: [{ via: "ep0ch mcp access --matrix --json prints the same" }],
     touches: "nothing", replay: "safe",
     args: {},
     async run(_, { drawer }) {
@@ -1784,21 +1784,21 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   }),
   "changes.list": def({
     summary: "what changed since the person last looked, read: each note others changed (id, title, who, kind, when, seen, revision), newest first, from the service's change feed. Changes nothing, and never marks anything seen",
-    keys: "the status bar's +N new, the drawer's what-changed tab",
+    keys: [{ via: "the status bar's +N new" }, { via: "the drawer's what-changed tab" }],
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { drawer }) { return drawer.changesRead(); },
   }),
   "status.list": def({
     summary: "what waits on the person, read: each terminal tile's program status rows that ask something of them (blocked, failed, done unseen), most urgent first, with the tile, the record (state, kind, progress, app, title, msg) and since when. `peek` gives every terminal's records too (terminal.status)",
-    keys: "the status bar's waiting count, the drawer's waiting-on-you tab",
+    keys: [{ via: "the status bar's waiting count" }, { via: "the drawer's waiting-on-you tab" }],
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { drawer, ctx }) { return { waiting: waitingOnYou(drawer).map((r, i) => rowFacts(r, i + 1)), messages: ctx.messages?.rows ?? [] }; },
   }),
   "host.tileOf": def({
     summary: "which terminal tile (the drawer's or the screen's) a process is drawn in, read: mark=<token> finds the tile whose program wrote the marker OSC 7501 ; ?mark=<token> to its terminal (over ssh, or through tmux's passthrough: a program that can't read its own input, PIE-1306; waited for up to 400ms); pid=<pid> finds the tile whose program is that process or its ancestor; port=<n> the tile whose program, or a descendant of it, holds a TCP connection with that local port (the ssh client in a tile, for the sshd on the far end: its client port is the second field of SSH_CONNECTION). Answers {tile, id, by} with tile null when none matches. Changes nothing and says nothing on the screen: the Claude mod asks it to open a pressed reference where the tile's opens go",
-    keys: "ep0ch act host.tileOf mark=<token>|pid=<pid>|port=<n>",
+    keys: [{ via: "ep0ch act host.tileOf mark=<token>|pid=<pid>|port=<n>" }],
     touches: "nothing", replay: "safe",
     args: {
       mark: { type: "string", optional: true, about: "the token a program wrote to its terminal as OSC 7501 ; ?mark=<token>" },
@@ -1823,7 +1823,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   }),
   "host.agent": def({
     summary: "a new agent tab in the drawer: name=<agent> picks one installed here (claude, codex, pi, … or shell; herdr=true runs it in Herdr, where it outlives the door) and starts it in a new tab, inside the person's login shell; the pick is saved as what the next new agent tab starts, for this outline's session (default=true: for every outline). Nothing running is ended: ^W x on a tab closes it. No name: the person's picker of the agents installed here. EP0CH_DAILY_AGENT, when set, still overrides it",
-    keys: "alt+click or a right click on the agent chip opens the picker (a plain click opens and closes the drawer); the power bar finds agent or claude",
+    keys: [{ keys: "alt-click right-click", does: "on the agent chip, opens the picker (a plain click opens and closes the drawer)" }, { via: "the power bar finds agent or claude" }],
     touches: "screen", replay: "ask",
     says: (out: { agent?: string; name?: string }) => (out.agent ? `· started ${out.agent} in a new agent tab (${out.name})` : null),
     args: { name: { type: "string", optional: true, about: "the agent: claude, codex, pi, … or shell (host.agent with no name lists them on screen)" }, herdr: { type: "boolean", optional: true, about: "run it in this session's own Herdr pane (it outlives the door)" }, default: { type: "boolean", optional: true, about: "the default for every outline's session, not only this one" }, in: { type: "string", optional: true, about: "the folder it starts in (~ is your home); left out: the project's .ep0ch folder, else the outline's own" } },
@@ -1849,14 +1849,14 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   }),
   "agents.list": def({
     summary: "every agent session this door holds, read: id (<program>:<folder>), program, folder, persona, config, how it became one (started, found running in a terminal tile, the drawer's own), state (working, waiting, idle, done, failed) and where it's shown. Changes nothing",
-    keys: "the agent panel (alt+g)",
+    keys: [{ keys: "alt+g", does: "opens the agent panel" }],
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { drawer }) { return { sessions: drawer.sessions().map((s, i) => sessionFacts(s, i + 1)) }; },
   }),
   "agent.start": def({
     summary: "start an agent session, or attach the one running: program= (an agent config in the outline, a note with [agent-config::<name>] [program::<command>] and args::, persona::, folder::; or an agent installed here: claude, codex, pi, …) in folder in= (left out: the config's, else the drawer's). The same program in the same folder is the same session: it's attached, not started twice (fresh=true starts another). A new one opens as a tab in your drawer, continuing the program's last conversation in that folder (claude and pi --continue, codex resume --last, when there is one), inside your login shell, so it leaves you a shell when it exits. The person's goes to it; an agent's (and `ep0ch agent`) starts it behind the tab shown and never moves their keys",
-    keys: "n in the agent panel (then the program and the folder), `ep0ch agent [--program <name>] [--in <folder>]` from any folder",
+    keys: [{ keys: "n", does: "in the agent panel, then the program and the folder" }, { via: "`ep0ch agent [--program <name>] [--in <folder>]` from any folder" }],
     touches: "shape", replay: "ask",
     says: (out: { program?: string; folder?: string; attached?: boolean; id?: string }) => (out?.attached ? `· attached ${out.id}` : `· started ${out?.program ?? "an agent"} in ${out?.folder ? tildeOf(out.folder) : "a folder"} (your drawer)`),
     args: {
@@ -1900,7 +1900,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   }),
   "agents.drawer": def({
     summary: "pull an agent session into your drawer (session=…), from the screen it's on: the same process and conversation, now with you on every screen. The person's shows it there; an agent's adds it behind the tab shown",
-    keys: "a on a row of the agent panel; ^W a on its tile",
+    keys: [{ keys: "a", does: "on a row of the agent panel" }, { keys: "^W a", does: "on its tile" }],
     touches: "shape", replay: "ask",
     says: (out: { session?: string }) => `· pulled ${out?.session ?? "a session"} into your drawer`,
     args: { session: { type: "string", about: "as agents.go's" } },
@@ -1922,7 +1922,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   }),
   "host.size": def({
     summary: "how much of the screen the drawer covers, as a share of the rows above the status bar (0.2 to 0.9); over a screen, the screen under it doesn't move; beside one, the screen is drawn shorter",
-    keys: "drag the drawer's top edge; alt+A steps 40%, 50%, 60%, 75%",
+    keys: [{ keys: "drag", does: "the drawer's top edge" }, { keys: "alt+A", does: "steps 40%, 50%, 60%, 75%" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't resize it under them",
     args: { share: { type: "number", about: "0.2 to 0.9 (0.5: half the screen)" } },
     examples: [
@@ -1941,7 +1941,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   // expand the drawer to float the agent"); with no agent tab open one opens running the last agent picked (PIE-1331).
   "agent.lift": preset({
     summary: "lift the agent tab you're using above everything as a column (reach=full: across the terminal), wherever it is: the one you last typed in or clicked (an agent from alt+g too); with none open, a new agent tab running the last agent picked opens first. A folded or put-away drawer stays as it is (drawer=true brings it up too). Again, or on=false, drops it. The person's lift takes their keys and clicks, the drawer down too, until it drops; an agent's lift never replaces the person's",
-    keys: "✦a; a status-bar button (::button{label=\"▲ lift\" act=\"agent.lift\"} in your bar note); ^W Z on its tile does the same where it is",
+    keys: [{ keys: "✦a", does: "lift the agent tab" }, { via: "a status-bar button (::button{label=\"▲ lift\" act=\"agent.lift\"} in your bar note)" }, { keys: "^W Z", does: "on its tile, does the same where it is" }],
     touches: "screen", host: true, replay: "safe",
     says: (out: { zoomed?: boolean }) => ({ text: out?.zoomed ? "· lifted the agent tab" : "· dropped the agent tab", ms: 4000 }),
     args: {
@@ -1987,7 +1987,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   }),
   "agent.type": def({
     summary: "send the agent tab used last (▲ claude) text as typed: \\n is ⏎, \\e Esc (tile.type tile=<its id> types into any one). Refused while the person is typing in it, and while it isn't running",
-    keys: "the person types in the drawer (ctrl+], a click in it)",
+    keys: [{ keys: "ctrl+]", does: "the person types in the drawer" }, { keys: "click", does: "in the drawer, to type in it" }],
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there",
     says: (out: { name?: string }) => `· typed to ${out?.name ?? "the drawer"}`,
     args: { text: { type: "string", about: "what to type (\\n ⏎, \\e Esc)" } },
@@ -2003,7 +2003,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   }),
   "agent.knows": def({
     summary: "what the agent tab used last (▲ claude) knows: read now from its own process (its environment and start time) against the installed Outliner Claude mod. state current (door tools; a changed mod reloads into it live), stale (started before the mod manifest changed, or by an older door without its variables), no-door (no EP0CH_CONTROL) or unknown",
-    keys: "the ▲ claude chip says it: · door tools, · started before update ⟳",
+    keys: [{ via: "the ▲ claude chip says it: · door tools, · started before update ⟳" }],
     touches: "nothing", replay: "safe",
     args: {},
     async run(_, { drawer }) { return { knows: await drawer.readKnows(), pid: drawer.knowsPid }; },

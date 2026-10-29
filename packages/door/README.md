@@ -2038,6 +2038,37 @@ The board's new-card composer is the same control too.
   outliner's own Detail.
 - `peek` reports open drafts under `editing` (dirty, changed elsewhere, refused, where the copy went).
 
+### The keys window (PIE-492)
+
+`?` on any screen opens every key binding the door has, filtered to where you are (`in:note` in a reader, `in:board`
+on the board); `/` and type to filter by a key (`^W x`), an action (`tile.close`), a scope or words. Each row is a
+keycap, where it works and what it does; the detail says what it runs, its layer, what it takes the key from, what gets
+it first and whether a terminal tile's program sees it. Tabs: Bindings, Conflicts (two bindings on one key in one
+place), Yours.
+
+| Key | Does |
+|---|---|
+| `j` `k` `↓` `↑` `pgdn` `pgup` | select a binding |
+| `/` | type the filter (`⏎` done, `esc` clears) |
+| `1` `2` `3` | Bindings, Conflicts, Yours |
+| `r` | rebind: press the new key (`^W` then a key for a ^W key); what it takes is said first, `⏎` saves, `esc` drops |
+| `u` / `d` | unbind it / give it its built-in keys back |
+| `ctrl+z` | undo the last change |
+| `esc` `q` | close |
+
+Rebinds go in one file, `keybindings.json` in the door's state dir (`$XDG_STATE_HOME/ep0ch-door`, or `EP0CH_STATE`):
+an act line to every key it has, as the outliner's keybindings.json, `[]` leaving it unbound. The window writes all of
+a binding's keys, so moving `^W x` leaves the board's `x` alone; a key left out of the list no longer runs it:
+
+```json
+{ "tile.close": ["x", "esc", "q", "ctrl+w q"], "note.new": ["hyper+n", "+", "alt+n"], "element.select by=1": ["]", "n"] }
+```
+
+The key, the ^W panel, the tile menu, the power bar and the desk's hint row follow it; a key you moved away says
+where it went. Edit it by hand too: the door reads it again within half a second and names a bad entry at the top of
+the window. Agents read and change it through the window's actions (`keys.find`, `keys.rebind id= key= to=`,
+`keys.unbind`, `keys.reset`, `keys.undo`, with `tile=keys`).
+
 ### The power bar (PIE-656)
 
 `ctrl+k` (or `cmd+k` where the terminal sends it, or a click on `^K` at the status bar's left) opens one palette over
@@ -2954,7 +2985,8 @@ Drawings of the book and of align left, centre and right: [UI-GRAMMAR, Spines](d
 | `list.select`, `list.open`, `list.read` | `n=` the row from 1 (`open`: default the lit one); `from=`, `limit=` for `read`, which moves nothing. On the BBS lists (a message list, Join, File areas); `select` and `open` wait as `screen.open` does | `j k ↑↓ PgUp PgDn Home End`, the wheel, a click; `⏎`, a click on the lit row |
 | `list.thread` | `n=` the row (default the lit one): its replies as a message list over this one. On message lists; waits as `screen.open` does | `t`, `T`, a click on `T thread` |
 | `menu.select` | `name=` an item's key or label, or `by=` steps (1 down, 4 a column right). The main menu's lit item; waits as `screen.open` does | `↑ ↓ ← →`, `Tab`, the wheel, pressing an item |
-| `screen.help` | none: the help screen over this one (any key goes back); waits as `screen.open` does | `?` on the menu |
+| `screen.help` | none: the help screen over this one (any key goes back); waits as `screen.open` does | H on the main menu (or a click on H help on its key line), the power bar |
+| `keys.open` | `filter=` the words: the keys window over this screen ([The keys window](#the-keys-window-pie-492)); waits as `screen.open` does | `?` on every screen |
 | `video.cycle` | none: the next video mode (Kitty+CRT, Kitty, cells); the person's display, said on the status bar | `alt+v` on every screen; `V` on the menu, board, desk, river, showcase and views; `v` in the art viewer; a click on the status bar's video mode |
 | `theme.set`, `theme.cycle` | `name=calm\|night\|classic` for `set`: the door's colours on every screen, kept for next time (see [Themes and accessibility](#themes-and-accessibility)); waits as `screen.open` does | `alt+t` on every screen (cycle); a click on the status bar's theme |
 | `who.refresh` | none: ask again who's attached; answers the callers (Who's online) | `r`, a click on `r refresh` |

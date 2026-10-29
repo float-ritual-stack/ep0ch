@@ -702,7 +702,7 @@ const stepSaid = (actor: Actor, desk: DeskApi, words: string) => { desk.ctx.flas
 
 export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   "tune.group.pick": def({
-    summary: "pick a token group heading", keys: "j k, arrows, wheel", touches: "tile", replay: "safe",
+    summary: "pick a token group heading", keys: [{ keys: "j k ← ↑ ↓ →", does: "pick a group heading" }, { keys: "wheel", does: "the same" }], touches: "tile", replay: "safe",
     examples: [{ act: "tune.group.pick group=Header tile=tune", does: "picks the Header heading" }],
     args: { group: { type: "string", about: "the group heading" } },
     run({ group }, { pane, desk }) {
@@ -745,7 +745,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     args: {}, run: (_, { pane, desk }) => pane.editField(desk),
   }),
   "tune.field": def({
-    summary: "type, choose, save or cancel the shared inspector field", keys: "typing, paste, arrows, j k, enter, esc in a field; a click saves",
+    summary: "type, choose, save or cancel the shared inspector field", keys: [{ via: "typing in the field" }, { keys: "paste", does: "into the field" }, { keys: "← ↑ ↓ → j k", does: "choose" }, { keys: "⏎", does: "in a field: save" }, { keys: "esc", does: "in a field: cancel" }, { keys: "click", does: "saves" }],
     touches: "tile", replay: "ask", person: "the field belongs to the person; an agent uses tune.set",
     args: { op: { type: "string", about: "text, key, pick, save or cancel" }, value: { type: "string", optional: true, about: "typed text or key name" }, n: { type: "number", optional: true, about: "choice from zero" }, row: { type: "number", optional: true, about: "content row from zero" }, col: { type: "number", optional: true, about: "content column from zero" } },
     examples: [{ act: "tune.field op=save", does: "sets the typed value" }],
@@ -753,7 +753,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   }),
   "tune.pick": def({
     summary: "pick a row of the tune inspector (n from 1, as peek lists them), or a Hero row by its name (row=hero.tint)",
-    keys: "j k ↑ ↓, a click on a row, the wheel off the values",
+    keys: [{ keys: "j k ↑ ↓", does: "pick a row" }, { keys: "click", does: "on a row" }, { keys: "wheel", does: "off the values" }],
     touches: "tile", replay: "safe",
     args: { n: { type: "number", optional: true, about: "the row, from 1" }, row: { type: "string", optional: true, about: "a Hero row: hero.height, hero.tint, …" } },
     examples: [
@@ -777,7 +777,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   }),
   "tune.nudge": def({
     summary: "nudge a look value by steps (by=1 or -1): a number by its step (columns by 2, rows by 1: cells are twice as tall as wide; pad and margin move a row and two columns), on/off flipped, a choice to the next. A Hero row (row=hero.tint, …: the reader's header image) is written on the hero's own line at once (image.look). It draws in the next frame, from memory; s saves it. level= and width= (all, or this: the breakpoint the tile is in now) default to the inspector's. Where something nearer wins over the level (or the width) it writes, it asks first: shadow=anyway (nudge it; it shows only where nothing nearer sets it), shadow=instead (nudge what wins), shadow=clear (take what wins away, then nudge)",
-    keys: "+ − (= l → and - h ←), a click on [−] [+], the wheel over a value; on a row that asks: a, o, c, or a click on a choice",
+    keys: [{ keys: "+ = l →", does: "nudge up" }, { keys: "- h ←", does: "nudge down" }, { keys: "click", does: "on [−] [+]" }, { keys: "wheel", does: "over a value" }, { keys: "a o c", does: "on a row that asks" }, { keys: "click", does: "on a choice of a row that asks" }],
     touches: "nothing", replay: "ask", says: out => (out.refused ? null : out.offered ? `· ${out.row}: ${out.why}` : out.at === "the hero line" ? `· ${out.row} ${out.value}, written on the hero line` : `· ${out.row} ${out.value} (${out.at}) · s saves`),
     args: {
       by: { type: "number", about: "steps: 1 up, -1 down" },
@@ -846,7 +846,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   }),
   "tune.set": def({
     summary: "set a look value outright, as a nudge does (in memory until saved): row= a token, value= as a style note writes it (88, on, dots, \"1 0 1\"). A Hero row (row=hero.tint) is written on the note's hero line at once (image.look)",
-    keys: "`ep0ch act tune.set row=measure value=72`",
+    keys: [{ via: "ep0ch act tune.set row=measure value=72" }],
     touches: "nothing", replay: "ask", says: out => (out.refused ? null : out.at === "the hero line" ? `· ${out.row} ${out.value}, written on the hero line` : `· ${out.row} ${out.value} (${out.at}) · s saves`),
     args: {
       row: { type: "string", about: "a token (measure, pad.x, list.gap, …)" },
@@ -1068,7 +1068,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   }),
   "tune.cancel": def({
     summary: "keep the changes and dismiss the tune confirmation",
-    keys: "Esc, any other key, a click on [cancel]", touches: "tile", replay: "safe", args: {},
+    keys: [{ keys: "esc", does: "cancel" }, { via: "any other key" }, { keys: "click", does: "on [cancel]" }], touches: "tile", replay: "safe", args: {},
     run(_, { pane, desk }) { pane.armed = null; pane.offer = null; desk.redraw(); return { cancelled: true }; },
   }),
   "tune.revert": def({
