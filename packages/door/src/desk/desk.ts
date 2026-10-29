@@ -3601,7 +3601,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const p = this.focusedPane(), values = p ? this.lookAt(p, cols).values : lookFor(this.lookSrc, { screen: this.name }, cols).values;
       withRowLimit(values["rows.lines"], () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 }, values));
       placements = [];
-      const box = o.drawn();
+      const box = o.drawn?.();
       if (box) this.raised.menus.push(box);
     }
     // A screen mounted in a tile has no hint row of its own: the outermost screen's says the focused tile's keys (PIE-1305).

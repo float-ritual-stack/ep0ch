@@ -158,6 +158,7 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     await mine("tile.slide", { open: true }, "side");
     expect(D().focus).toBe(idOf("side"));
     D().overlays.push({ name: "layouts", key: () => true, draw() {} }); // typing (a picker counts)
+    expect(D().render(D().ctx).lines.length).toBeGreaterThan(0);   // an overlay that keeps no box still draws a frame
     await expect(act("tile.slide", { open: false }, "side")).rejects.toThrow(/shut the dock they have/);
     D().overlays.drop("layouts");
     await mine("tile.dock", { on: false }, "side");
