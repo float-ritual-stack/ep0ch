@@ -1218,6 +1218,11 @@ drawn when a terminal attaches or `peek`, `snap` or an `act` reads it.
   the phone's, attaches to that outline's session instead of starting a door of its own; a dropped connection only
   detaches. With no terminal (a script, an agent's shell, ssh without `-t`) `ep0ch` starts no session: it says so,
   and `--no-daemon` opens the door there.
+- **A dropped link leaves the terminal clean with `ep0ch door`.** Once the link is gone the far side can't turn off what
+  the door turned on (mouse reports, the alternate screen, paste), so the side still running does: `ep0ch door
+  [<ssh-name>] [<outline>]` runs `ssh -t` to that login (default `ep0ch`), then resets the terminal and says the
+  command that reattaches. Plain `ssh ep0ch` can't: ssh has no step after it exits. The ForceCommand script is
+  `scripts/ssh-door.sh` (installed by hand on float-box as `~/srv/ep0ch.io/door.sh`).
 - **The daily agent stays Herdr's.** With an agent chosen "in Herdr", the drawer attaches to its session's own pane in Herdr
   ([The daily agent in Herdr](#the-daily-agent-in-herdr)), and that stays so: the session now keeps the attach alive
   between terminals and across upgrades (the drawer's program is in the terminal host), and Herdr keeps the agent
