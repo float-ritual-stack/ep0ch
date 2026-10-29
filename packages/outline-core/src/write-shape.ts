@@ -410,6 +410,9 @@ function bareIds(lines: readonly string[], structure: readonly number[], title: 
   return out;
 }
 
+/** Whether the text types a number before a word anywhere: the count rule asks the outline's facets only then. */
+export const hasCountCandidate = (text: string) => /(?<![\w#$€£.\/:-])\d{1,5}(?![\w.:\/%-]|\.\d)\s+\p{L}/u.test(text);
+
 // ── Counts typed in prose ────────────────────────────────────────────────────
 
 const MONTH_BEFORE = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*$/i;

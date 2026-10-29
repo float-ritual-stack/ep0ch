@@ -19,13 +19,14 @@ type Answer = { type: string; choice?: string; confidence?: number; probabilitie
 /** What the fake Jev says to a question: by default a choice of its first option, unsure, and every noul a no. */
 type Answers = (id: string, q: Question, state: Record<string, unknown>) => Answer | undefined;
 
-async function setup(answers: Answers = () => undefined) {
+async function setup(answers: Answers = () => undefined, o: { facetsDelayMs?: number; jevDelayMs?: number } = {}) {
   const asked: { state: Record<string, unknown>; questions: Record<string, Question> }[] = [];
   const fake = Bun.serve({
     port: 0, hostname: "127.0.0.1",
     async fetch(request) {
       const body = await request.json() as { state: Record<string, unknown>; questions: Record<string, Question> };
       asked.push(body);
+      if (o.jevDelayMs) await Bun.sleep(o.jevDelayMs);
       const out: Record<string, Answer> = {};
       for (const [id, q] of Object.entries(body.questions)) {
         out[id] = answers(id, q, body.state) ?? (q.type === "choice"
@@ -40,13 +41,22 @@ async function setup(answers: Answers = () => undefined) {
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
   const server = new OutlinerServer(store, paths.socket);
   await server.start();
+  // A big outline's facets are slow (pie answered them in 2 to 7 s, Oct 29): the read every count rule asks.
+  if (o.facetsDelayMs) {
+    const real = server.handleAsync.bind(server);
+    (server as unknown as { handleAsync: typeof real }).handleAsync = async (request, ...rest) => {
+
+      if (request.action === "blocks.query" && (request as { query?: { facets?: unknown } }).query?.facets) await Bun.sleep(o.facetsDelayMs!);
+      return real(request, ...rest);
+    };
+  }
   cleanups.push(async () => { fake.stop(true); await server.close(); store.close(); rmSync(root, { recursive: true, force: true }); });
   const cliEnv: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !/^(HERDR_|OUTLINER_|EP0CH_)/.test(k)) cliEnv[k] = v;
   Object.assign(cliEnv, env, { OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` });
-  const agent = async (operation: string, input: unknown, actor = "loki/claude-code@float-box") => {
+  const agent = async (operation: string, input: unknown, actor = "loki/claude-code@float-box", extraEnv: Record<string, string> = {}) => {
     const child = Bun.spawn(["bun", "src/cli.ts", "agent", operation, "--stdin", "--actor", actor, "--session", "s-9"], {
-      cwd: join(import.meta.dir, ".."), env: cliEnv, stdin: new Blob([JSON.stringify(input)]), stdout: "pipe", stderr: "pipe",
+      cwd: join(import.meta.dir, ".."), env: { ...cliEnv, ...extraEnv }, stdin: new Blob([JSON.stringify(input)]), stdout: "pipe", stderr: "pipe",
     });
     const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { exitCode, stderr, json: exitCode === 0 ? JSON.parse(stdout) : undefined };
@@ -268,4 +278,21 @@ test("acceptance: a short, clear, self-contained note ships, pushed into no comp
   const made = await agent("create", { parent: "root", text: "Cedar beds stay this winter\n\nThe corner bed's cedar is soft but holds until spring.\n\n- Stone costs more and takes a weekend.\n- We revisit it in March." });
   expect((made.json.review as Review).verdict).toBe("ship");
   expect((made.json.review as Review).findings).toEqual([]);
+});
+
+// Live on pie (Oct 29): every answer said jev "off". The outline's facets took 5 s, the whole review ran past its budget,
+// and the code-only answer hid why. Jev is never held up by the facets, and an answer without Jev says why.
+test("a slow facets read never keeps Jev from answering; an answer without Jev says why, never 'off'", async () => {
+  const { agent } = await setup((id) => (id === "argues" ? { type: "noul", noul: 0.95 } : undefined), { facetsDelayMs: 2800, jevDelayMs: 1500 });
+  const made = await agent("create", { parent: "root", text: "Why the beds moved\n\nTo understand it, go back to the spring: 3 queued then." });
+  expect(made.exitCode, made.stderr).toBe(0);
+  const review = made.json.review as Review & { jev: string };
+  expect(review.jev).toBe("asked");
+  expect(review.findings.map(f => f.rule)).toContain("argues");
+});
+
+test("with no Jev key the answer says so", async () => {
+  const { agent } = await setup();
+  const made = await agent("create", { parent: "root", text: "Bean rows\n\n- Sown." }, undefined, { TYPESAFE_API_KEY: "", WITH_SECRETS_DIR: "/nonexistent" });
+  expect((made.json.review as { jev: string }).jev).toMatch(/^Jev is not configured/);
 });
