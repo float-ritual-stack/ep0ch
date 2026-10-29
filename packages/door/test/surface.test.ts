@@ -179,9 +179,9 @@ describe("the surface without a service", () => {
     // Replacing the text is the agent's to ask (the person's is copied out first), and waits for the save; leaving or
     // reloading the person's draft is never an agent's (the draft rule, checked before the action runs).
     await expect(act("edit.text", { text: "Something else" })).rejects.toThrow("the person is typing in reader; an agent doesn't replace their text");
-    await expect(act("edit.close", { discard: true })).rejects.toThrow("the person is in this edit");
-    await expect(act("edit.reload")).rejects.toThrow("this draft is the person's");
-    await expect(act("edit.save")).rejects.toThrow("the person is in this edit");
+    await expect(act("edit.close", { discard: true })).rejects.toThrow("the person is typing in this edit");
+    await expect(act("edit.reload")).rejects.toThrow("the person is typing in this draft");
+    await expect(act("edit.save")).rejects.toThrow("the person is typing in this edit");
     expect(s.draft?.text).toBe(previewed);
     answer([]);
     await saving;
@@ -211,7 +211,7 @@ describe("the surface without a service", () => {
     // Theirs while they aren't typing in it too: the draft rule says whose it is, and names the way in.
     expect(draftRule(AGENT, "text", { session: s.session.writing })).toBe(`the person is writing the comment on “Water” here; an agent doesn't replace their text · block.mark gets their attention, or wait until it's sent or closed (an @claude-7 line in it invites one reply)`);
     // Picking a passage in it is typing in the person's comment: the draft rule refuses it before anything runs.
-    await expect(act("comment", { quote: "ferns", body: "Replaced" })).rejects.toThrow("this draft is the person's");
+    await expect(act("comment", { quote: "ferns", body: "Replaced" })).rejects.toThrow("the person is typing in this draft");
     expect(s.session.composer!.text).toBe("Mine: daily?");
   }));
 
@@ -419,7 +419,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(draftRule(AGENT, "replace", { session: pane.surface.draftSession() })).toMatch(/the person has this note open in an edit here; an agent doesn't replace their draft/);
     // Nothing of the agent's in it: the preview and the draft don't say an agent is editing.
     expect(pane.surface.describe().agent?.did ?? "").not.toContain("is editing");
-    await expect(act("edit.close", { discard: true }, cards.mine.id)).rejects.toThrow("the person is in this edit");
+    await expect(act("edit.close", { discard: true }, cards.mine.id)).rejects.toThrow("the person is typing in this edit");
     expect(await mine("edit.close", { discard: true }, cards.mine.id)).toMatchObject({ closed: true });
     expect(pane.draft).toBeNull();
     expect((await current(cards.mine.id)).text).toBe("Turn the compost [stage::queued]\nEvery two weeks.");
@@ -448,8 +448,8 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(was.text).toBe("Which canes?");
     await expect(act("comment.write", { body: "Tie them in pairs." }, reader)).rejects.toThrow(/the person is typing in .*; an agent doesn't replace their text · block.mark gets their attention/);
     expect(message()).toContain("comment.write refused: the person is typing in");
-    await expect(act("complete", { insert: 1 }, reader)).rejects.toThrow("this draft is the person's; an agent doesn't type in it");
-    expect(message()).toContain("complete refused: this draft is the person's");
+    await expect(act("complete", { insert: 1 }, reader)).rejects.toThrow("the person is typing in this draft; an agent doesn't type in it");
+    expect(message()).toContain("complete refused: the person is typing in this draft");
     expect(theirs()).toEqual(was);
     expect(c.writers.map(w => w.kind)).toEqual(["user"]);
     key({ kind: "esc" }); key({ kind: "esc" });                               // put aside as unsent, as esc twice does
@@ -464,7 +464,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const d = pane.draft!;
     const editing = () => ({ text: d.text, cursor: [d.row, d.col], focus: BV.where(b) });
     const before = editing();
-    await expect(act("complete", { insert: 1 }, reader)).rejects.toThrow("this draft is the person's; an agent doesn't type in it");
+    await expect(act("complete", { insert: 1 }, reader)).rejects.toThrow("the person is typing in this draft; an agent doesn't type in it");
     await expect(act("edit.text", { text: "Stake the raspberries\nTie them in pairs." }, reader)).rejects.toThrow(/the person is typing in/);
     // A lookup only reads: the agent may still ask what the popup would offer.
     expect(await act("complete", {}, reader)).toMatchObject({ kind: expect.any(String) });
@@ -503,7 +503,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const u = await openFresh("Net the currants\nBefore June.");
     key(char("e")); await until(() => !!u.pane.draft, "the draft");
     key({ kind: "end" }); type(" (birds)");
-    await expect(act("edit.save", {}, u.reader)).rejects.toThrow("the person is in this edit");
+    await expect(act("edit.save", {}, u.reader)).rejects.toThrow("the person is typing in this edit");
     expect(await mine("edit.save", {}, u.reader)).toMatchObject({ saved: true, recordedAs: { author: "user", actorId: ACTOR_ID } });
     expect(await lastBy(u.id, "user")).toEqual(["user", ACTOR_ID]);
 

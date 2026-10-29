@@ -54,7 +54,7 @@ function promised(def: ActionDef<unknown, unknown>, actor: Actor, state: keyof t
     return def.while === "typing" ? null : /middle has the person's keys/;
   }
   // screen: never while they type, never within the idle window.
-  return state === "typing" ? /the person is typing in middle; not moved/ : state === "at the keys" ? /the person is at the keys/ : null;
+  return state === "typing" ? /the person is typing in middle; an agent doesn't move the screen or their keys now/ : state === "at the keys" ? /the person is at the keys/ : null;
 }
 
 
@@ -176,7 +176,7 @@ describe("the draft rule, for the person's draft and an agent's (round 3, deferr
   const comment = (by: Actor) => DraftSession.open({ place: `comment:${by.kind}`, back: "C brings it back", label: "c", what: "the comment on “Sow the leeks”", verb: "send", leaveWrites: false, submit: async () => ({ ok: true }) }, { by });
   const edit = (by: Actor, blockId: string) => DraftSession.open({ place: `edit:${blockId}`, back: "e brings it back", label: "e", what: "the edit to “Sow the leeks”", verb: "save", blockId, leaveWrites: true, submit: async () => ({ ok: true }) }, { by, text: "Sow the leeks" });
   const PERSONS = /^the person is writing the comment on “Sow the leeks” here; an agent doesn't replace their text/;
-  const TYPE = /^this draft is the person's; an agent doesn't type in it/;
+  const TYPE = /^the person is typing in this draft; an agent doesn't type in it/;
 
   test("each use × whose draft: the person's is theirs, an agent's own is its own, an invitation is the one way in", () => {
     const sessions: DraftSession[] = [];
@@ -318,7 +318,7 @@ describe("the dispatcher, on a fake screen", () => {
     expect(drawer.ran.at(-1)).toMatchObject({ actor: "agent" });
     // Typing on the screen itself still holds a screen change back.
     const onScreen = fakeScreen({ keys: "screen", typingIn: "middle", busy: true, why: "the person is typing in middle", idle: 0 });
-    await expect(onScreen.d.act({ action: "go.screen" }, AGENT)).rejects.toThrow("the person is typing in middle; not moved");
+    await expect(onScreen.d.act({ action: "go.screen" }, AGENT)).rejects.toThrow("the person is typing in middle; an agent doesn't move the screen or their keys now");
   });
 
   test("expected= is checked against the layout's revision before anything runs", async () => {
@@ -333,7 +333,7 @@ describe("the dispatcher, on a fake screen", () => {
     const typing = fakeScreen({ typingIn: "middle", busy: true, why: "the person is typing in middle", idle: 0 });
     await expect(typing.d.act({ action: "go.tile" }, AGENT)).rejects.toThrow("the person is typing in middle; an agent does it elsewhere");
     await expect(typing.d.act({ action: "go.typing", tile: "middle" }, AGENT)).rejects.toThrow("the person is typing in middle");
-    await expect(typing.d.act({ action: "go.screen" }, AGENT)).rejects.toThrow("the person is typing in middle; not moved");
+    await expect(typing.d.act({ action: "go.screen" }, AGENT)).rejects.toThrow("the person is typing in middle; an agent doesn't move the screen or their keys now");
     await expect(typing.d.act({ action: "go.mine" }, AGENT)).rejects.toThrow("that's the person's");
     expect(typing.ran).toEqual([]);
     for (const a of ["go.tile", "go.typing", "go.screen", "go.mine", "go.shape", "go.nothing"]) await typing.d.act({ action: a }, USER);

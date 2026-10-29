@@ -197,7 +197,7 @@ export class StatusBarNote {
     if (entry.kind === "builtin") { const b = builtins.find(x => x.id === entry.id); return b ? { ...b, rank: RANK.listed } : null; }
     if (entry.kind === "group") return { id: `group:${entry.line}`, text: `${entry.label} ${fg(C.yellow)}▲${fg(C.lcyan)}`, place, after, rank: RANK.pinned, click: { action: "status.bar.menu", args: { group: [...path, entry.label].join("/") } } };
     const b = entry.call, line = entry.line, note = this.note!.id;
-    const text = buttonText(b.label, { ...b.look, ...pressState(note, line) }) + STATUS_INK;
+    const text = buttonText(b.label, { ...b.look, ...pressState(note, line, b.label) }) + STATUS_INK;
     return { id: `button:${line}`, text, place, after, rank: RANK.pinned, button: { look: b.look, line },
       click: { action: "button.press", args: { note, label: b.label, line: line + 1 } }, ...(b.alt ? { alt: { action: "button.press", args: { note, label: b.label, line: line + 1, alt: true } } } : {}) };
   }
@@ -270,8 +270,13 @@ export class StatusBarNote {
   }
 }
 
-/** Two group paths name the same group: case and the spaces around a `/` aside. */
-const same = (a: string, b: string) => a.split("/").map(x => x.trim()).join("/").toLowerCase() === b.split("/").map(x => x.trim()).join("/").toLowerCase();
+const pathOf = (p: string) => p.split("/").map(x => x.trim()).join("/").toLowerCase();
+/**
+ * The bar's group a menu for group path `path` opens from: that group, or the outer group it is nested in (`Tools` for
+ * `Tools/More`, PIE-1415: an inner group isn't on the bar, so its menu stands where its outer group's did). Case and the
+ * spaces around a `/` aside.
+ */
+const opensFrom = (bar: string, path: string) => { const a = pathOf(bar), b = pathOf(path); return a === b || b.startsWith(`${a}/`); };
 
 /** A bar item as a menu row: its words, and what a click on it runs. */
 export function menuRowOf(item: StatusItem, group: string): MenuRow {
@@ -335,7 +340,7 @@ export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
       if (overflow) rows.push({ action: "status.bar.edit", args: {}, tile: "", label: "edit the status bar", group: "the bar" });
       const title = overflow ? "status bar" : g.label, answer = { title, rows: rows.map(({ tile: _t, group: _g, ...r }) => r) };
       if (actor.kind === "agent") return answer;
-      if (!on.menu(title, rows, i => (overflow ? i.id === "overflow" : i.click?.action === "status.bar.menu" && same(String(i.click.args?.group ?? ""), group ?? "")))) on.flash(`${title}: ${rows.map(r => r.label).join(" · ")}`);
+      if (!on.menu(title, rows, i => (overflow ? i.id === "overflow" : i.click?.action === "status.bar.menu" && opensFrom(String(i.click.args?.group ?? ""), group ?? "")))) on.flash(`${title}: ${rows.map(r => r.label).join(" · ")}`);
       return answer;
     },
   }),

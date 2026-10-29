@@ -63,15 +63,26 @@ export const buttonText = (label: string, look: ButtonLook = {}, press?: (drawn:
 
 // ── a press's state, per button ─────────────────────────────────────────────
 
-interface Pressed { state: "running" | "done" | "failed"; why?: string; run?: string; at: number }
+/** `label`: the button's words when pressed. Presses are kept by line, and an edit moves lines: another button now on it isn't this press's. */
+interface Pressed { state: "running" | "done" | "failed"; why?: string; run?: string; label?: string; at: number }
 /** How long a press that ended well shows done before it is a button again. */
 export const DONE_MS = 3000;
 const presses = new Map<string, Pressed>();
 const keyOf = (block: string, line: number) => `${block}:${line}`;
 
-/** The press of the button on `line` of `block`, as the person last saw it: running, done (for DONE_MS), failed until pressed again. */
-export function pressState(block: string, line: number): Pick<ButtonLook, "state" | "why"> {
-  const p = presses.get(keyOf(block, line));
+/**
+ * The press of the button `label` on `line` of `block`, as the person last saw it: running, done (for DONE_MS), failed until
+ * pressed again. An edit moves lines (PIE-1415): a press another button made on that line is none of this one's, and this
+ * one's press is found by its label wherever it now stands.
+ */
+export function pressState(block: string, line: number, label?: string): Pick<ButtonLook, "state" | "why"> {
+  let p = presses.get(keyOf(block, line));
+  if (p?.label !== undefined && label !== undefined && p.label !== label) p = undefined;
+  // Moved by an edit above it: the press is found by its words, when exactly one in the note has them.
+  if (!p && label !== undefined) {
+    const named = [...presses].filter(([k, q]) => k.startsWith(`${block}:`) && q.label === label);
+    if (named.length === 1) p = named[0]![1];
+  }
   if (!p || (p.state === "done" && Date.now() - p.at > DONE_MS)) return {};
   return { state: p.state, ...(p.why ? { why: p.why } : {}) };
 }
@@ -84,15 +95,15 @@ export const RUNNING_MS = 150;
  * once. A script run that outlasts the service's wait answers `state: "running"` and its id (`undo`): it stays running until
  * `scripts.ended` (pressEnded).
  */
-export async function pressing<T>(block: string, line: number, redraw: () => void, press: () => Promise<T>): Promise<T> {
-  const key = keyOf(block, line), settle = (p: Omit<Pressed, "at">) => {
-    presses.set(key, { ...p, at: Date.now() });
+export async function pressing<T>(block: string, line: number, redraw: () => void, press: () => Promise<T>, label?: string): Promise<T> {
+  const key = keyOf(block, line), named = label !== undefined ? { label } : {}, settle = (p: Omit<Pressed, "at">) => {
+    presses.set(key, { ...p, ...named, at: Date.now() });
     redraw();
     if (p.state === "done") setTimeout(redraw, DONE_MS + 50);
   };
   presses.delete(key);
   let shown = false;
-  const slow = setTimeout(() => { shown = true; presses.set(key, { state: "running", at: Date.now() }); redraw(); }, RUNNING_MS);
+  const slow = setTimeout(() => { shown = true; presses.set(key, { state: "running", ...named, at: Date.now() }); redraw(); }, RUNNING_MS);
   try {
     const r = await press();
     const answer = r && typeof r === "object" ? r as { state?: string; message?: string; undo?: string } : {};
@@ -112,7 +123,7 @@ export function pressEnded(run: string, reason: "done" | "stopped" | "failed", m
   for (const [key, p] of presses) {
     if (p.run !== run) continue;
     if (reason === "stopped") presses.delete(key);
-    else presses.set(key, { state: reason, ...(reason === "failed" ? { why: message || "the run failed" } : {}), at: Date.now() });
+    else presses.set(key, { state: reason, ...(reason === "failed" ? { why: message || "the run failed" } : {}), ...(p.label !== undefined ? { label: p.label } : {}), at: Date.now() });
     redraw();
     if (reason === "done") setTimeout(redraw, DONE_MS + 50);
     return true;
