@@ -44,9 +44,9 @@ async function findPage(address: string): Promise<Block | null> {
   return resolved.status === "resolved" && resolved.block ? o<Block>({ action: "get", blockId: resolved.block.id }) : null;
 }
 
-/** The page the notifications land under, made the first time. */
+/** The page the notifications land under, made the first time: the hub's own, so stamped as machinery (PIE-1427). */
 async function ensurePage(): Promise<Block> {
-  return (await findPage(addressOf)) ?? o<Block>({ action: "create", text: `Notifications [page::${addressOf}]` });
+  return (await findPage(addressOf)) ?? o<Block>({ action: "create", text: `Notifications [page::${addressOf}] [machine::notify]` });
 }
 
 const page = await ensurePage();

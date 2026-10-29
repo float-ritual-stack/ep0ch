@@ -11,6 +11,7 @@
 
 import { calloutBlocks, quoteDepth, stripQuotes } from "./callouts";
 import { componentBlocks, noteStructure } from "./component-block";
+import { figureRow } from "./figure-markdown";
 import { headerLine } from "./header-line";
 import { blockReferenceOccurrences } from "./link-syntax";
 import { parsePropertyRecords } from "./property-parse";
@@ -43,7 +44,7 @@ export const SHAPE_LIMITS = {
   vocabulary: 20,
 } as const;
 
-export type ShapeRule = "title" | "wall" | "stacked" | "prose" | "headings" | "count" | "callout-nesting" | "question" | "bare-id";
+export type ShapeRule = "title" | "wall" | "stacked" | "prose" | "headings" | "count" | "callout-nesting" | "question" | "bare-id" | "time";
 
 /**
  * Evan's rubric for a note an agent wrote (Oct 29), which every finding is filed under, code's and Jev's alike, so the
@@ -51,14 +52,14 @@ export type ShapeRule = "title" | "wall" | "stacked" | "prose" | "headings" | "c
  * shown as structure); the ask buried; the ask unclear; facts, decisions and investigation mixed; assumes today's
  * context; argues instead of answering. Then the workboard's own rules where agents act (loki, Oct 29): `qa-for-evan`,
  * validation asked of Evan or a completion proved by tests alone (validation is the agents' job), and `experience`, a
- * ticket that doesn't say what Evan will open and do.
+ * ticket that doesn't say what Evan will open and do. And `time`: a time written as past that hasn't come yet (PIE-1417).
  */
-export const RUBRIC = ["dense", "format", "buried", "unclear", "mixed", "context", "argues", "qa-for-evan", "experience"] as const;
+export const RUBRIC = ["dense", "format", "buried", "unclear", "mixed", "context", "argues", "qa-for-evan", "experience", "time"] as const;
 export type Rubric = typeof RUBRIC[number];
 
 /** The rubric item each of code's rules measures. */
 export const RUBRIC_OF: Record<ShapeRule, Rubric> = {
-  title: "format", wall: "dense", stacked: "dense", prose: "format", headings: "format", count: "format", "callout-nesting": "format", question: "buried", "bare-id": "context",
+  title: "format", wall: "dense", stacked: "dense", prose: "format", headings: "format", count: "format", "callout-nesting": "format", question: "buried", "bare-id": "context", time: "time",
 };
 
 /** One edit of a ready fix, as outline_patch takes it: the exact text seen, and what replaces it. */
@@ -88,9 +89,11 @@ export interface ShapeFacet { key: string; value: string; count?: number; values
  * `note`: a note or a block (the default); `comment`: a margin comment, which has no title and asks nothing of Evan.
  * `facets`: the outline's property values, so a number typed before one is told to be a live count. `asks`: the lines
  * (0-based) Jev judged to ask Evan something, used instead of the word heuristic when given; `titleIsContent`: Jev
- * judged a short title with several clauses to be the content rather than its name.
+ * judged a short title with several clauses to be the content rather than its name. `now`: the clock a time written
+ * as past is read against, in the zone of the process that reviews (float-2 and the laptop keep Evan's); none, no time
+ * is checked, so the measure stays pure.
  */
-export interface ShapeOptions { kind?: "note" | "comment"; facets?: readonly ShapeFacet[]; asks?: ReadonlySet<number>; titleIsContent?: boolean }
+export interface ShapeOptions { kind?: "note" | "comment"; facets?: readonly ShapeFacet[]; asks?: ReadonlySet<number>; titleIsContent?: boolean; now?: Date }
 
 /** What every finding is listed under in a write's `warnings`: a gate on calling the write done, not a suggestion. */
 export const FIX_BEFORE_DONE = "fix before you call this done: ";
@@ -258,6 +261,7 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
     }
 
     found.push(...bareIds(lines, structure, header?.line ?? -1));
+    if (o.now && header && header.line >= 0) found.push(...futureTimes(lines, header.line, o.now));
     if (o.facets?.length) found.push(...countFindings(lines, structure, header?.line ?? -1, o.facets));
   }
   return found;
@@ -368,6 +372,18 @@ function wallPatch(lines: readonly string[], p: Paragraph): ShapePatch[] | undef
   return keepsEverything(sourceOf(lines, p), gap + points.map(point => `${quote}${indent}- ${point}`).join("\n"));
 }
 
+/**
+ * The patch that makes the longest prose unit between lines `from` and `to` (0-based, inclusive) one point a line: a
+ * paragraph a list, a stacked item its items. For a judgment code didn't make (Jev's "dense", PIE-1428), so a finding it
+ * can fix comes with the fix; none when no unit there splits into bullets.
+ */
+export function pointsPatch(text: string, from: number, to: number): ShapePatch[] | undefined {
+  const lines = text.split("\n");
+  const unit = paragraphs(text, false).filter(p => p.line >= from && p.end <= to).sort((a, b) => b.text.length - a.text.length)[0];
+  if (!unit) return undefined;
+  return unit.item ? stackedPatch(lines, unit, patchPoints(rawOf(lines, unit))) : wallPatch(lines, unit);
+}
+
 /** The first piece of a unit too long for a bullet, said so the writer knows which to cut (no patch can). */
 function tooLong(lines: readonly string[], p: Paragraph): string {
   const long = patchPoints(rawOf(lines, p)).find(point => !fitsBullet(point));
@@ -447,8 +463,10 @@ function questionPatch(lines: readonly string[], at: number, title: number, sent
   const next = anchor + 1 === at ? (rest ?? lines[at + 1]) : lines[anchor + 1];
   const box = `\n\n- [ ] ${ask}${next?.trim() ? "\n" : ""}`;
   const chip = `${lines[title]!.trimEnd()} [needs::sysop: ${chipWords(ask)}]`;
+  // A line that was its own paragraph takes the blank line before it along, so none is left doubled (PIE-1428).
+  const alone = at - 1 > title && !lines[at - 1]!.trim() && !lines[at + 1]?.trim();
   return [
-    rest === null ? { observed: `\n${line}`, replacement: "" } : { observed: line, replacement: rest },
+    rest === null ? { observed: `${alone ? "\n\n" : "\n"}${line}`, replacement: "" } : { observed: line, replacement: rest },
     ...(anchor === title
       ? [{ observed: lines[title]!, replacement: `${chip}${box}` }]
       : [{ observed: lines[title]!, replacement: chip }, { observed: lines[anchor]!, replacement: `${lines[anchor]!.trimEnd()}${box}` }]),
@@ -483,6 +501,55 @@ function bareIds(lines: readonly string[], structure: readonly number[], title: 
       ...(lines.filter(l => l === raw).length === 1 ? { patch: [{ observed: raw, replacement: fixed }] } : {}),
     });
   });
+  return out;
+}
+
+// ── Times still to come ──────────────────────────────────────────────────────
+
+/** A clock time as written (`9:55 AM`, `21:05`, `~10 PM`), in minutes past midnight; none when it isn't one. */
+function clockMinutes(text: string): number | undefined {
+  const m = /^~?\s*(\d{1,2})(?::(\d{2}))?\s*([AaPp]\.?[Mm]\.?)?$/.exec(text.trim());
+  if (!m || (!m[2] && !m[3])) return undefined;
+  let hours = Number(m[1]);
+  const minutes = Number(m[2] ?? 0);
+  if (m[3]) { if (hours < 1 || hours > 12) return undefined; hours = hours % 12 + (/^p/i.test(m[3]) ? 12 : 0); }
+  return hours < 24 && minutes < 60 ? hours * 60 + minutes : undefined;
+}
+
+const two = (n: number) => String(n).padStart(2, "0");
+const dayOf = (d: Date) => `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+const clockOf = (minutes: number) => `${(Math.floor(minutes / 60) + 11) % 12 + 1}:${two(minutes % 60)} ${minutes >= 720 ? "PM" : "AM"}`;
+
+/**
+ * A time written as past that hasn't come yet (PIE-1417): on a note whose `[day::]` is today, a `::graph-timeline` row
+ * whose time is later than `now`; and a `[day::]` that carries a time later than now. A day alone is a day to plan for,
+ * and a row with a date of its own is a plan's; neither is told. No patch: only the writer knows when it happened.
+ */
+function futureTimes(lines: readonly string[], title: number, now: Date): ShapeFinding[] {
+  let last = title;
+  while (last + 1 < lines.length && chipsOnly(lines[last + 1]!)) last++;
+  const day = lines.slice(title, last + 1).flatMap(l => parsePropertyRecords(l)).find(p => p.key === "day")?.value.trim();
+  const at = day ? /^(\d{4}-\d{2}-\d{2})(?:[T ](.+))?$/.exec(day) : null;
+  const today = dayOf(now), nowMinutes = now.getHours() * 60 + now.getMinutes();
+  if (!at || at[1] !== today) return [];
+  const told = (line: number, time: string): ShapeFinding => ({
+    rule: "time", key: `time:${time}`, line: line + 1,
+    say: `line ${line + 1} says ${time} on today's note, but it's ${clockOf(nowMinutes)} now: write the time it happened, once it has`,
+  });
+  const out: ShapeFinding[] = [];
+  // `10:30 AM` as written, or an ISO time's hours and minutes (`T10:30:00`).
+  const own = at[2] === undefined ? undefined : clockMinutes(at[2]) ?? clockMinutes(/^\d{1,2}:\d{2}/.exec(at[2])?.[0] ?? "");
+  const ownLine = lines.slice(title, last + 1).findIndex(l => /\[day::/.test(l)) + title;
+  if (own !== undefined && own > nowMinutes) out.push(told(ownLine, clockOf(own)));
+  for (const block of componentBlocks(lines)) {
+    if (block.name !== "graph-timeline") continue;
+    for (let i = block.start + 1; i < block.end; i++) {
+      const item = /^[ \t>]*[-*+][ \t]+(.*)$/.exec(lines[i]!);
+      const label = item ? figureRow(item[1]!).label : null;
+      const minutes = label === null ? undefined : clockMinutes(label);
+      if (minutes !== undefined && minutes > nowMinutes) out.push(told(i, label!.trim()));
+    }
+  }
   return out;
 }
 
@@ -548,7 +615,7 @@ function countFindings(lines: readonly string[], structure: readonly number[], t
 function endsAsking(lines: readonly string[], i: number): boolean {
   const line = lines[i]!, { quote, indent, marker } = leadOf(line);
   const content = line.slice(quote.length);
-  if (HEADING.test(content) || TABLE_ROW.test(content) || /\[[^\] ]\]/.test(marker)) return false;
+  if (HEADING.test(content) || TABLE_ROW.test(content) || answeredBox(line)) return false;
   const words = line.slice(quote.length + indent.length + marker.length).replace(PROPERTY_CHIP, " ").trim();
   if (!words || /^(\*\*|__|\*|_)[^*_].*\1$/.test(words)) return false;
   const next = lines[i + 1];
@@ -560,10 +627,15 @@ function endsAsking(lines: readonly string[], i: number): boolean {
  * Whether line `i` asks Evan: the one answer, the review's and code's alone. Jev's judgment, when it was asked, is
  * `yes` (an ask whatever the words), `no` (said firmly: a question that asks nothing) or unsure; a line that names Evan
  * and asks, or ends its paragraph with a question, is an ask unless Jev said no to the question (PIE-1402, PIE-1419).
+ * A ticked box is answered, whatever its words and Jev say (PIE-1428).
  */
 export function asksAt(lines: readonly string[], i: number, jev?: "yes" | "no"): boolean {
+  if (answeredBox(lines[i]!)) return false;
   return asksEvan(lines[i]!) || jev === "yes" || (jev !== "no" && endsAsking(lines, i));
 }
+
+/** A ticked checkbox (`- [x] Does it save?`, any mark but the open one): a question already answered, never an ask. */
+export const answeredBox = (line: string): boolean => /\[[^\] ]\]/.test(leadOf(line).marker);
 
 /** A line that asks Evan: names him and has a question mark or a decision word. A heuristic until PIE-1251's judgment replaces it. */
 export function asksEvan(line: string): boolean {

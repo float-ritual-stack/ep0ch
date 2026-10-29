@@ -1,5 +1,12 @@
 # Changelog
 
+## 5 (2026-10-29)
+
+- The notifications page is stamped `[machine::notify]` (PIE-1427): every pull rewrites its cursors, so a chat's "what
+  changed lately" left it in as real work. It still opens by `[[notifications]]`. `ep0ch machinery backfill --apply`
+  stamps the page an earlier version made. The boards, their lanes and the start-here note are demo notes, yours, and
+  stay unstamped: a stamped view would drop out of the door's boards and its lane picker.
+
 ## 4 (2026-10-29)
 
 - Each notification is stamped `[machine::notification]` (PIE-1427), so lists and a chat's "what changed lately" leave

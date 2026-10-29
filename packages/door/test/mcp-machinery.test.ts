@@ -46,13 +46,15 @@ describe.skipIf(!outliner)("outline_query leaves machinery out of a recent-activ
     // The 10 people's notes and the notifications page; none of the notifications.
     expect(titles.filter(t => t.startsWith("Pruned the pear row"))).toHaveLength(10);
     expect(titles.some(t => t.startsWith("Seed order"))).toBe(false);
-    expect(r.json.machineryOmitted).toMatchObject({ count: 200, by: { notification: 200 } });
-    expect(r.json.machineryOmitted.said).toBe("200 notifications left out (machinery: show brings them back)");
+    // The service's own Extensions hub and pages are bookkeeping too, and counted beside them (PIE-1427).
+    const pages = r.json.machineryOmitted.by["extension-page"] ?? 0;
+    expect(r.json.machineryOmitted).toMatchObject({ count: 200 + pages, by: { notification: 200 } });
+    expect(r.json.machineryOmitted.said).toBe(pages ? `${200 + pages} notifications and bookkeeping notes left out (machinery: show brings them back)` : "200 notifications left out (machinery: show brings them back)");
   });
 
   test("machinery show brings them back, and only with machine=notification asks for just them", async () => {
     const hidden = await query(ORIENT), all = await query({ ...ORIENT, machinery: "show" });
-    expect(all.json.total - hidden.json.total).toBe(200);
+    expect(all.json.total - hidden.json.total).toBe(hidden.json.machineryOmitted.count);
     expect(all.json.machineryOmitted).toBeUndefined();
     const just = await query({ ...ORIENT, query: "updated >= -1d machine=notification", machinery: "only" });
     expect(just.json.total).toBe(200);

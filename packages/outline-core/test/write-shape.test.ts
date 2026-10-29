@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { FIX_BEFORE_DONE, SHAPE_LIMITS, sentenceCount, shapeNext, shapeWarnings, writeShape } from "../src/write-shape";
+import { asksAt, FIX_BEFORE_DONE, SHAPE_LIMITS, sentenceCount, shapeNext, shapeWarnings, writeShape } from "../src/write-shape";
 
 const wall = "Seeds were sorted by hand on Tuesday. The borlotti came in two sizes. Nobody counted the small ones. The jars ran out before the lentils did. We reordered at noon.";
 
@@ -341,4 +341,52 @@ test("a long item of two points is told its length, not that it stacks", () => {
   const found = writeShape(`Notes\n\n${item}`).find(f => f.rule === "stacked")!;
   expect(found.say).toContain(`is one item of ${item.length - 2} characters`);
   expect(found.say).not.toContain("stacks 2 points");
+});
+
+// PIE-1428, seen in use (Oct 29): an answered checkbox was called a buried ask, and its patch put `[needs::sysop]` back
+// on a done ticket; the checkbox patch left a double blank line where the box had been.
+test("a ticked checkbox question is answered, not an ask, wherever it sits and whatever Jev says", () => {
+  const top = "PIE-9 · Downloads work on a phone [type::roadmap-item]\n\n- [x] Does Save to Files appear when you tap CSV? Evan, Oct 29: \"sharing that way works\".\n\n## Why\nThe link was a data URL.";
+  expect(writeShape(top).map(f => f.rule)).not.toContain("question");
+  const low = ["Hedge plan", "", "The hedge is cut.", "", "The ladder is back.", "", "The clippings are in the bay.", "", "- [x] Evan, should we borrow the long ladder again?"].join("\n");
+  expect(writeShape(low).map(f => f.rule)).not.toContain("question");
+  // Jev's yes is about the words; the box says it was answered.
+  expect(asksAt(low.split("\n"), 8, "yes")).toBe(false);
+  expect(asksAt(low.replace("- [x]", "- [ ]").split("\n"), 8)).toBe(true);
+});
+
+test("a buried checkbox moved to the top leaves no double blank line, mid-note or last", () => {
+  for (const after of ["\n\nThe cutting can wait a week.", ""]) {
+    const note = `Hedge trimming plan\n\nThe hedge along the east fence needs cutting.\n\nNobody has the ladder yet.\n\nThe clippings go in the bay.\n\n- [ ] who has the long ladder, and can it be back by Friday?${after}`;
+    const q = writeShape(note).find(f => f.rule === "question")!;
+    const moved = apply(note, q.patch!);
+    expect(moved).not.toContain("\n\n\n");
+    expect(moved.endsWith("\n")).toBe(false);
+    expect(moved.split("\n").slice(0, 3)).toEqual(["Hedge trimming plan [needs::sysop: who has the long ladder, and can it be back by Friday?]", "", "- [ ] who has the long ladder, and can it be back by Friday?"]);
+  }
+});
+
+// PIE-1417: a build log's time still to come, written as if it had happened (loki, Oct 29, three times in a morning).
+test("a timeline time later than now on today's note is a finding with the time now; one already past is not", () => {
+  const now = new Date(2026, 9, 29, 9, 40);
+  const log = (time: string, day = "2026-10-29") => `Build log, Oct 29 [type::build-log] [day::${day}]\n\n::graph-timeline\n---\ntitle: what landed\n---\n- 9:00 AM: the hedge cut\n- ${time}: the ladder back\n::`;
+  const ahead = writeShape(log("9:50 AM"), { now }).filter(f => f.rule === "time");
+  expect(ahead).toHaveLength(1);
+  expect(ahead[0]!.line).toBe(8);
+  expect(ahead[0]!.say).toContain("9:50 AM");
+  expect(ahead[0]!.say).toContain("9:40 AM");
+  expect(writeShape(log("9:30 AM"), { now }).map(f => f.rule)).not.toContain("time");
+  expect(writeShape(log("**10:15 PM**"), { now }).map(f => f.rule)).toContain("time");
+  // Another day's log, and no clock to read, say nothing.
+  expect(writeShape(log("9:50 AM", "2026-10-28"), { now }).map(f => f.rule)).not.toContain("time");
+  expect(writeShape(log("9:50 AM")).map(f => f.rule)).not.toContain("time");
+});
+
+test("a time in the note's own [day::] that hasn't come yet is a finding", () => {
+  const now = new Date(2026, 9, 29, 9, 40);
+  expect(writeShape("Garden walk [day::2026-10-29 10:30 AM]\n\nThe beds were weeded.", { now }).map(f => f.rule)).toContain("time");
+  expect(writeShape("Garden walk [day::2026-10-29T10:30]\n\nThe beds were weeded.", { now }).map(f => f.rule)).toContain("time");
+  expect(writeShape("Garden walk [day::2026-10-29T09:10]\n\nThe beds were weeded.", { now }).map(f => f.rule)).not.toContain("time");
+  // A day alone is a day to plan for: no finding.
+  expect(writeShape("Garden walk [day::2026-10-30]\n\nWeed the beds.", { now }).map(f => f.rule)).not.toContain("time");
 });

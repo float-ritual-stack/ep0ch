@@ -17,6 +17,9 @@ export const BACKFILL_SHAPES: readonly { producer: string; where: string; about:
   { producer: "intake", where: "type=prior-art", about: "intake's prior-art notes" },
   { producer: "backup", where: "type=backup-run", about: "backup runs" },
   { producer: NOTIFICATION_MACHINE, where: "notify.key", about: "the notifications hub's fetched notifications (PIE-1427)" },
+  // What extensions write for themselves, by who wrote it last: a note the person changed since is theirs, and stays.
+  { producer: "extension-page", where: "by:ext:extension-pages", about: "the Extensions hub and each extension's page" },
+  { producer: "notify", where: "by:ext:notify AND child>=1:notify.key", about: "the page the notifications hub pulls into" },
 ];
 
 /**
@@ -30,7 +33,8 @@ const VIEW_SHAPES: readonly { producer: string; where: string }[] = [
 
 const USAGE = `usage: ep0ch machinery backfill [--ws <outline>] [--apply] [--json]
   Stamps [machine::<producer>] on what tools wrote before they stamped: file touches and their folders, EchoNet's
-  nodelist, tosses, ledger and receipts, delivery records, intake's prior art, backup runs, fetched notifications; and
+  nodelist, tosses, ledger and receipts, delivery records, intake's prior art, backup runs, fetched notifications, the
+  Extensions hub and its pages, and the page the notifications hub pulls into; and
   [machinery::show] on the file-touch views and the notifications boards. A dry run says what it would stamp; --apply stamps. A note already stamped is left alone.`;
 
 interface Client { request<T>(input: Record<string, unknown>, timeoutMs?: number): Promise<T> }
