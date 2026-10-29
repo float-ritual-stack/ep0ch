@@ -208,7 +208,7 @@ export async function restore(client: WorkJevClient, id: string, why: string, so
   const item = await client.request<Block>({ action: "get", blockId: id });
   const patched = await client.request<Block>({ action: "properties.patch", blockId: id, expectedRevision: item.revision, mutation: who(o),
     operations: [propertyTransition(item, "work-stage", "queued"), propertyTransition(item, "restored", `${day}: ${kind}, ${o.actor ?? LOOP}`)] });
-  const unmarked = patched.text.replace(/ ?\[(?:wreckage|parked-at)::[^\]]*\]/g, "").replace(/\n[ \t]*\n[ \t]*\n/g, "\n\n").trimEnd();
+  const unmarked = patched.text.replace(/ ?\[(?:wreckage|parked-at)::[^\]]*\]/g, "").replace(/^[ \t]+(?=\[[^\]]+::)/gm, "").replace(/\n[ \t]*\n[ \t]*\n/g, "\n\n").trimEnd();
   const line = `**Back from later, ${day}:** ${why}${source ? ` ((${source}))` : ""}`;
   return client.request<Block>({ action: "update", blockId: id, text: `${unmarked}\n\n${line}`, expectedRevision: patched.revision, mutation: who(o) });
 }

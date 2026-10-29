@@ -87,7 +87,7 @@ test("a parked item comes back when a new note links it, with a line saying why;
   const parkedDay = ago(10).slice(0, 10);
   for (const b of [wanted, quiet, nudged, wrong]) {
     const fresh = store.require(b.id);
-    store.update(b.id, fresh.text.replace("[work-stage::later]", `[work-stage::later] [wreckage::${parkedDay}]`), fresh.revision);
+    store.update(b.id, fresh.text.replace("[work-stage::later]", `[work-stage::later]\n[wreckage::${parkedDay}]`), fresh.revision);
   }
   const workId = (b: Block) => b.properties.find(p => p.key === "work-id")!.value;
   // Before anything asks: nothing comes back; the one parked against the rule is listed with its restore command.
@@ -104,6 +104,7 @@ test("a parked item comes back when a new note links it, with a line saying why;
   expect(stage(quiet.id)).toBe("later");
   const back = store.require(wanted.id).text;
   expect(back).toContain("**Back from later,");
+  expect(back.split("\n").every(l => !/^\s+\[\w[\w-]*::/.test(l))).toBe(true);
   expect(back).toContain("named in a note since");
   expect(back).toContain(`((${note.id}))`);
   expect(store.require(nudged.id).text).toContain("nudged: a comment");
