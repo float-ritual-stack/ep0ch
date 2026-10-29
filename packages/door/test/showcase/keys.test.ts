@@ -14,7 +14,7 @@ const AGENT = { kind: "agent" as const, id: "keys-demo" };
 
 describe.skipIf(!outliner)("the keys section", () => {
   const h = useShowcaseScreen();
-  test("the keys tile lists the ^W keys; an agent moves ^W x to ^W q, the table and the menu follow, undo puts it back", async () => {
+  test("the keys tile lists the ^W keys; an agent moves ^W x to ^W q, the table and the menu follow, Conflicts has none, undo puts it back", async () => {
     await h.app.act({ action: "section", args: { name: "keys" }, as: "keys-demo" });
     await until(() => !!h.S().stages.get(h.S().sel), "the keys section");
     const d = h.S().stages.get(h.S().sel).top as Desk;
@@ -28,6 +28,13 @@ describe.skipIf(!outliner)("the keys section", () => {
     expect(wKey("q")?.action).toBe("tile.close");
     const menu: any = await d.dispatch.act({ action: "tile.menu", args: {}, tile: "reader" }, AGENT);
     expect(menu.rows.find((x: any) => x.action === "tile.close")?.key).toBe("ctrl+w q");
+    // Conflicts are real fights only: the built-in keys have none, and the tab says so.
+    await d.dispatch.act({ action: "keys.filter", args: { text: "" }, tile: "keys" }, AGENT);
+    const tab: any = await d.dispatch.act({ action: "keys.tab", args: { tab: "conflicts" }, tile: "keys" }, AGENT);
+    expect(tab.rows).toBe(0);
+    await until(() => text().includes("Conflicts 0") && text().includes("no two bindings fight over a key"), "the Conflicts tab");
+    // ⏎ runs a row as the person's own key would; an agent runs the action itself.
+    await expect(d.dispatch.act({ action: "keys.run", args: { n: 1 }, tile: "keys" }, AGENT)).rejects.toThrow("an agent runs the action itself");
     await d.dispatch.act({ action: "keys.undo", args: {}, tile: "keys" }, AGENT);
     expect(wKey("x")?.action).toBe("tile.close");
     expect(existsSync(keymapPath())).toBe(true);

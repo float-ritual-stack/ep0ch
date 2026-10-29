@@ -2041,14 +2041,19 @@ The board's new-card composer is the same control too.
 ### The keys window (PIE-492)
 
 `?` on any screen opens every key binding the door has, filtered to where you are (`in:note` in a reader, `in:board`
-on the board); `/` and type to filter by a key (`^W x`), an action (`tile.close`), a scope or words. Each row is a
-keycap, where it works and what it does; the detail says what it runs, its layer, what it takes the key from, what gets
-it first and whether a terminal tile's program sees it. Tabs: Bindings, Conflicts (two bindings on one key in one
-place), Yours.
+on the board): on the desk, the board and the river a **keys tile** beside the one you're in (below a narrow one), resized by its border,
+docked and closed like any tile (`?` again goes back to it); elsewhere the keys screen. `/` and type to filter by a key
+(`^W x`), an action (`tile.close`), a scope or words. Each row is a keycap, where it works and what it does, as a whole
+sentence; the detail says what it runs, its layer, what it takes the key from, what gets it first and whether a terminal
+tile's program sees it. `⏎` runs the row in the tile you opened it from, as its key would there; one that needs
+arguments asks for them in the power bar's form. Tabs: Bindings, Conflicts (two bindings that really fight over a key:
+two rows of one key table, or one key twice in your keymap file, with which one runs; the states of one control, like
+esc clearing then closing the power bar, aren't), Yours.
 
 | Key | Does |
 |---|---|
 | `j` `k` `↓` `↑` `pgdn` `pgup` | select a binding |
+| `⏎`, a click on the selected row | run it where you opened the window (its arguments asked in the power bar) |
 | `/` | type the filter (`⏎` done, `esc` clears) |
 | `1` `2` `3` | Bindings, Conflicts, Yours |
 | `r` | rebind: press the new key (`^W` then a key for a ^W key); what it takes is said first, `⏎` saves, `esc` drops |
@@ -2986,7 +2991,7 @@ Drawings of the book and of align left, centre and right: [UI-GRAMMAR, Spines](d
 | `list.thread` | `n=` the row (default the lit one): its replies as a message list over this one. On message lists; waits as `screen.open` does | `t`, `T`, a click on `T thread` |
 | `menu.select` | `name=` an item's key or label, or `by=` steps (1 down, 4 a column right). The main menu's lit item; waits as `screen.open` does | `↑ ↓ ← →`, `Tab`, the wheel, pressing an item |
 | `screen.help` | none: the help screen over this one (any key goes back); waits as `screen.open` does | H on the main menu (or a click on H help on its key line), the power bar |
-| `keys.open` | `filter=` the words: the keys window over this screen ([The keys window](#the-keys-window-pie-492)); waits as `screen.open` does | `?` on every screen |
+| `keys.open` | `filter=` the words: the keys window, a tile beside the focused one on the desk, board and river, else a screen over this one ([The keys window](#the-keys-window-pie-492)); waits as `screen.open` does | `?` on every screen |
 | `video.cycle` | none: the next video mode (Kitty+CRT, Kitty, cells); the person's display, said on the status bar | `alt+v` on every screen; `V` on the menu, board, desk, river, showcase and views; `v` in the art viewer; a click on the status bar's video mode |
 | `theme.set`, `theme.cycle` | `name=calm\|night\|classic` for `set`: the door's colours on every screen, kept for next time (see [Themes and accessibility](#themes-and-accessibility)); waits as `screen.open` does | `alt+t` on every screen (cycle); a click on the status bar's theme |
 | `who.refresh` | none: ask again who's attached; answers the callers (Who's online) | `r`, a click on `r refresh` |

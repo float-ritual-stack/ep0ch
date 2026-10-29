@@ -74,7 +74,7 @@ import {
 import { answerSite, pathValues } from "./site-answer";
 import type { FilterRow } from "@ep0ch/outline-core/resolve-path";
 import { closest } from "@ep0ch/outline-core/tool-args";
-import { isMachinery, MACHINE_KEY, machineryAllows, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
+import { isMachinery, MACHINE_KEY, machineryAllows, machineryLeftOut, machineryProducer, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { ReadMarks } from "./read-marks";
 import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, patchPropertyText } from "./properties";
 import { firstLineWithoutPropertyTokens, titlePropertyRanges, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
@@ -4276,6 +4276,19 @@ export class OutlinerStore {
    * have held (at most 50, then `+`), when the answer came back empty, and the hint names the flag, so a view or figure that went empty explains itself.
    */
   private withMachineryHidden(query: NormalizedBlockSearchQuery, answer: VisibleBlockCollection): VisibleBlockCollection {
+    // Asked for (`countMachinery`, a recent-activity read): every one left out, by producer, full answer or empty (PIE-1427).
+    if (query.machinery === "hide" && query.countMachinery) {
+      const by: Record<string, number> = {};
+      for (const block of this.traverseLoadedGraph(this.loadGraph(), {
+        filters: query.filters, where: query.predicate, machinery: "only", propertyScope: query.propertyScope,
+        subtreeRootId: query.subtreeRootId, text: query.text, deletedMode: query.includeDeleted ?? "active",
+      })) {
+        const producer = machineryProducer(block.properties);
+        if (producer) by[producer] = (by[producer] ?? 0) + 1;
+      }
+      const leftOut = machineryLeftOut(by);
+      if (leftOut) answer = { ...answer, machineryLeftOut: leftOut };
+    }
     // Only for an answer that came back empty: a list that went empty explains itself, and a full one costs nothing more.
     if (query.machinery !== "hide" || answer.blocks.length > 0 || !this.database.query("SELECT 1 AS found FROM block_properties WHERE key = ? AND scope = 'block' LIMIT 1").get(MACHINE_KEY)) return answer;
     const graph = this.loadGraph();
