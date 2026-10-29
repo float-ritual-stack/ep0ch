@@ -14,7 +14,11 @@ export const RECORD_FIELDS = {
   // which repeats the passage and what was said, so one row reads whole. (A template holds at most 16 fields.)
   "review-finding": ["day", "note", "revision", "writer", "harness", "rule", "rubric", "component", "key", "line", "title", "passage", "said", "verdict", "patch", "source"],
   "suggestion-outcome": ["day", "suggestion", "note", "outcome", "component", "writer", "harness", "because", "rule", "rubric", "title", "passage", "said", "patched"],
-  "jev-run": ["experiment", "run", "model", "prompt-rev", "items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out"],
+  "jev-run": ["experiment", "run", "model", "prompt-rev", "items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out", "cost"],
+  // The workboard's Jev loops (work-jev.ts): the groom's verdict per queued ticket, and each twin offered at filing with
+  // what became of it (offered, filed-anyway, attached).
+  "groom-verdict": ["item", "verdict", "confidence", "evidence", "by", "pass", "thread"],
+  "work-twin": ["day", "title", "twin", "same", "outcome", "item", "writer", "by"],
 } as const;
 export type RecordKind = keyof typeof RECORD_FIELDS;
 interface Note { id: string }

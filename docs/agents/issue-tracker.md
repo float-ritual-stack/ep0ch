@@ -29,6 +29,9 @@ Every write checks the revision you read (`expectedRevision`), so read the item 
   `[type::design-note]` block with `[source-block::<item uuid>]`, linked from an item.
 - **Tickets from a spec**: one roadmap item each. Set `[source-block::<spec uuid>]` and
   `[depends-on::<blocker uuid>]` (block UUIDs, never Work IDs or titles). Create them blockers first.
+- **Twins**: `work_create` first asks the service for open items like the new one (the search matcher, then Jev).
+  An agent's create that looks like open work is refused naming them: call again with `attach: "PIE-n"` to add the
+  ask under that item (its words, dated), or `new: true` to file it beside them. Attach never reopens done work.
 - **Triage state**: the `triage` property, set with `work_set` (see `triage-labels.md`). `work-stage` owns the
   lifecycle. A triage role never moves an item into a batch or to `queued`: Evan commits the scope.
 - **Comments**: `outline_comment` (on a quote or the whole item) and `outline_reply`. Rewrite the body with
@@ -38,7 +41,17 @@ Every write checks the revision you read (`expectedRevision`), so read the item 
 ## When a skill says "publish to the issue tracker"
 
 Search first (`outline_find` with `text`, or `query: "type=roadmap-item AND …"`) for an item with the same outcome.
-If there is none, `work_create` and give back the Work ID and its `((ref))`.
+If there is none, `work_create` and give back the Work ID and its `((ref))`; it refuses over a twin it finds itself.
+
+## Jev's loops over the board
+
+- **`ep0ch work groom --ws pie --machine float-2`**: each queued item against the CHANGELOG, merged pull requests
+  and the other items: solved, superseded, duplicate or open, with confidence and evidence. Read only; `--into pie`
+  keeps the verdicts, a comment on each confident "solved" and the "Jev thinks these are done" view. Merged and then
+  found wrong in use (the item's newest lines say so) is open. Jev never closes anything.
+- **`ep0ch work try PIE-a PIE-b … [--into pie]`**: what a validator tries for a batch of merged items: the door's
+  actions Jev picks for each, with keys and `act` call, and the item's lines that say what should show. The
+  verifier's brief starts from it.
 
 ## When a skill says "fetch the relevant ticket"
 

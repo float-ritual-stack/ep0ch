@@ -24,6 +24,25 @@ are its record. The outliner's entries from then are kept below, under
   so two up works there as on the desk.
 - **Writing components:** ⏎ after `::box{…}` (any component with a body) brings its closing `::`; a query's values
   in completion are their words, without a glimpse of the figure's example.
+### The backlog is checked by Jev, a new ticket meets its twin first, and validation starts from what to try (PIE-1258)
+
+- **Twins at filing:** `work_create` (MCP, `ep0ch work create`, the board's new card) asks the service for open items
+  like the new one (`roadmap.items.similar`: the search matcher's candidates, one Jev request, code's call). An
+  agent's create with a twin is refused naming it and the two calls: `attach: "PIE-n"` adds the ask under that item
+  in its words, dated (`roadmap.items.attach`); `new: true` files it beside them. Never reopens done work.
+- **The person is never blocked:** the new card's composer shows `looks like PIE-n (stage) … [attach here] [file new]`;
+  ctrl+s again files it new, ctrl+x a or a click attaches it (`card.attach`). With Jev off, a strong title match is
+  the offer, said as one.
+- **`ep0ch work groom`:** each queued ticket against the CHANGELOG, merged pull requests and the other tickets:
+  solved, superseded, duplicate or open, with confidence and evidence; merged then found wrong in use is open. Read
+  only; `--into` keeps `groom-verdict` records, a comment on each confident "solved" for the verifier, and the "Jev
+  thinks these are done" view. Jev never closes.
+- **`ep0ch work try PIE-a …`:** for a batch of merged tickets, the door's actions Jev picks (keys, `act` call) and the
+  ticket's lines that say what should show; `--into` keeps a `[type::validation-plan]` note. The verifier starts there.
+- **Costs on the page:** each pass is a `jev-run` (experiment `work-groom`, `work-twins`, `work-try`) with tokens and
+  `cost` in dollars; Jev's suggestions page has a section for the loops. All wording is in `prompts/work-jev.json`.
+- **What to run:** `PROTOCOL` is 279 (`roadmap.items.similar`, `roadmap.items.attach`, `new` on
+  `roadmap.items.create`): `ep0ch install --apply` on float-2, float-box and the laptop.
 ### A script's empty slots ask in order, in the kind the script declares (PIE-1298)
 
 - **In the order written:** a button that runs a script (neat's "two up") asks for page 1, then page 2, as the line

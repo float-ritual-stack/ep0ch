@@ -18,7 +18,7 @@ import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { connect, type Socket } from "node:net";
 import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
-import type { PartAt, PropertyMatch } from "@ep0ch/outline-core/protocol";
+import type { PartAt, PropertyMatch, TwinAnswer } from "@ep0ch/outline-core/protocol";
 import type { CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
@@ -88,7 +88,10 @@ interface WireBlock {
 export interface RoadmapItemInput {
   title: string; body?: string; priority: string; workStage?: string; workBatchId?: string;
   project: string; arc: string; tracks: string[]; dependsOn?: string[]; relatedTo?: string[]; sourceBlockId?: string; wave?: string;
+  /** File it although open items look like the same work (the service refuses an agent's otherwise). */
+  new?: boolean;
 }
+
 /** Everything a list row needs, without the note's full text. */
 export const LIST_FIELDS = ["parent", "title", "properties", "revision", "timestamps", "author", "hasChildren"] as const;
 
@@ -1602,6 +1605,18 @@ export class SocketBoard implements Board {
     const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
     const r = await this.request<{ workId: string; workQueueId: string; block: WireBlock }>("roadmap.items.create", { input, ...who });
     return { workId: r.workId, workQueueId: r.workQueueId, block: toMsg(r.block) };
+  }
+
+  /** Open items like a new one (`roadmap.items.similar`): the service's candidates and the ones it calls twins. */
+  similarItems(input: { title: string; body?: string }, timeoutMs = 8000): Promise<TwinAnswer> {
+    return this.request<TwinAnswer>("roadmap.items.similar", { input }, timeoutMs);
+  }
+
+  /** A new ask added under an open item instead (`roadmap.items.attach`): its words, dated, at the end of the item. */
+  async attachToItem(input: { item: string; title: string; body?: string; sourceBlockId?: string }, actor: Actor = USER): Promise<{ attached: string; block: Msg }> {
+    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    const r = await this.request<{ attached: string; block: WireBlock }>("roadmap.items.attach", { input, ...who });
+    return { attached: r.attached, block: toMsg(r.block) };
   }
 
   // ── reference completion (the lookups Tree, Detail and Quick Capture use) ────────────────────────

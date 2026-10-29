@@ -14,7 +14,8 @@ it read, reads the result back and prints JSON with the Work ID, `((block ref))`
 and new revision. Refusals print one `error: …` line and exit 1.
 
 ```sh
-bun src/cli.ts work create --title … --project … --arc … --track … --priority … [--stage queued] [--wave <theme>] [--source <uuid>] [--stdin|--body-file f]
+bun src/cli.ts work create --title … --project … --arc … --track … --priority … [--stage queued] [--wave <theme>] [--source <uuid>] [--stdin|--body-file f] [--new]
+bun src/cli.ts work create --title … --attach PIE-12 [--source <uuid>] [--stdin|--body-file f]   # the ask under an open item
 bun src/cli.ts work stage PIE-123 doing [--expected N]
 bun src/cli.ts work set PIE-123 priority high [--expected N]
 bun src/cli.ts work set PIE-123/site delivery-stage complete [--expected N]
@@ -144,7 +145,9 @@ Optional:
 2. Use `outliner_roadmap_create` (or `work create`) with title, body, priority, project, arc and tracks.
    Source and relationship fields take UUIDs. New work defaults to `unprioritized`.
    Ticketing a request, pass its copy as the source (`--source`, the mod's `from`)
-   so the copy names its ticket.
+   so the copy names its ticket. An agent's create that looks like open work is
+   refused naming the twins: attach the ask there (`--attach PIE-n`, the mod's and
+   Pi's `attach`), or file it anyway (`--new`, `new: true`), said in the item.
 3. After the owner commits scope, create an ordinary `work-batch` block with its
    project and objective. Assign members through optimistic `work-batch` property
    patches; use `queued` for selected items waiting to start. `workBatchId` on

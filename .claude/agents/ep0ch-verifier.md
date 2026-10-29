@@ -42,6 +42,11 @@ Evan, Oct 29: the thing to catch is "unit tests, e2e test passes - but the actua
 wrong". The tests passed before you were sent; re-running them proves nothing new. Your job is to use it the way he
 will and find where it's wrong.
 
+- **Start from Jev's list of what to try:** `ep0ch work try PIE-a PIE-b … --ws pie --machine float-2` (loki puts its
+  `[type::validation-plan]` note in your brief): per ticket, the actions Jev picked with their keys and `act` calls,
+  and the ticket's lines that say what should show. It's a map, not a script: drive it, then go past it. A ticket it
+  marks **Finding** never said what Evan opens and does; that is your first finding. For a groom pass's "Jev thinks
+  this is done", the ticket carries Jev's comment: keep it when Jev was right, resolve it when not.
 - **Start from the purpose, not the code:** what is this for, in Evan's day? Use it for that, cold, before reading the
   diff. If you can't tell how he'd find it (a key, a menu row, a hint, the power bar), that's a finding.
 - **Use it his ways:** mouse and keys both; in his daily shape, a 177-column desk with four tiles 43–44 columns wide

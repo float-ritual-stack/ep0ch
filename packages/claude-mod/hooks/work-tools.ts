@@ -72,7 +72,9 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
     description:
       "Create a roadmap item under the project's work queue with a newly allocated Work ID. Returns the Work ID, " +
       'block reference and revision. New work defaults to unprioritized; pass stage only when it was agreed. The body says ' +
-      'what Evan will open and do when it is done: the answer\'s `review` says fix when it doesn\'t.',
+      'what Evan will open and do when it is done: the answer\'s `review` says fix when it doesn\'t. When open items look like ' +
+      'the same work, it is refused naming them: call again with attach: "PIE-n" to add it under that item (its words, ' +
+      'dated), or new: true to file it anyway beside them.',
     inputSchema: schema({
       title: { type: 'string', description: 'Concise outcome, without a Work ID or property tokens' },
       project: { type: 'string' },
@@ -87,11 +89,23 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
         description: 'The note it came from (block UUID), recorded as [source-block::…]; a request copy ([type::request]) gets [ticket::<the new Work ID>]',
       },
       body: { type: 'string', description: 'Markdown body: context and acceptance criteria' },
-    }, ['title', 'project', 'arc', 'tracks', 'priority']),
+      attach: { type: 'string', description: 'An open item (PIE-n) to add this to instead of filing a new one: what a refusal over a twin names' },
+      new: { type: 'boolean', description: 'File it although open items look like the same work (a refusal named them)' },
+    }, ['title']),
     command(input) {
+      const attach = text(input, 'attach')
+      if (attach) {
+        const title = text(input, 'title')
+        if (!title) return 'Give the title: the ask, as written, that goes under ' + attach + '.'
+        const args = ['work', 'create', opt('title', title), opt('attach', attach)]
+        const from = text(input, 'from')
+        if (from) args.push(opt('source', from))
+        const body = text(input, 'body')
+        return body ? { args: [...args, '--stdin'], stdin: body } : { args }
+      }
       const tracks = Array.isArray(input.tracks) ? input.tracks.filter((track): track is string => typeof track === 'string') : []
       const [title, project, arc, priority] = ['title', 'project', 'arc', 'priority'].map(key => text(input, key))
-      if (!title || !project || !arc || !priority || tracks.length === 0) return 'Give a title, project, arc, priority and at least one track.'
+      if (!title || !project || !arc || !priority || tracks.length === 0) return 'Give a title, project, arc, priority and at least one track (or attach: "PIE-n" and the title, to add it under an open item).'
       const args = ['work', 'create', opt('title', title), opt('project', project), opt('arc', arc), opt('priority', priority),
         ...tracks.map(track => opt('track', track))]
       const [stage, batch, wave, from] = ['stage', 'batch', 'wave', 'from'].map(key => text(input, key))
@@ -99,6 +113,7 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       if (batch) args.push(opt('batch', batch))
       if (wave) args.push(opt('wave', wave))
       if (from) args.push(opt('source', from))
+      if (input.new === true) args.push('--new')
       const body = text(input, 'body')
       return body ? { args: [...args, '--stdin'], stdin: body } : { args }
     },

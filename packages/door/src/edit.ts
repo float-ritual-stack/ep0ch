@@ -60,7 +60,7 @@ export type DraftPatchAnswer = { applied: true } | { applied: false; reason: str
  * What a key in a draft asks its host to do: `close` (esc on nothing changed), `discard` (the second esc on
  * changed text: its session puts it aside as unsent), `copy` (cmd+c: the host runs its draft.copy).
  */
-export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "close" | "discard" | "copy" | "follow" | "image";
+export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "close" | "discard" | "copy" | "follow" | "image" | "attach";
 
 export class Draft {
   lines: string[];
@@ -106,6 +106,8 @@ export class Draft {
   private discardArmed = false;
   /** ctrl+x was pressed: a ctrl+e next hands the draft to $EDITOR (bash's edit-and-execute chord); any other key lets it go. */
   private ctrlX = false;
+  /** Its host offers to attach it to open work (a new roadmap card with a twin, PIE-1258): ctrl+x a does that. */
+  attachChord = false;
   note = "";
 
   /**
@@ -433,10 +435,11 @@ export class Draft {
     if (k.kind === "super") return "keep";
     const was = this.discardArmed;
     this.discardArmed = false;
+    if (chord && this.attachChord && k.kind === "char" && !k.ctrl && k.ch === "a") return "attach";
     if (k.kind === "char" && k.ctrl) {
       if (k.ch === "s") return "save";
       // ctrl+x ctrl+e: $EDITOR. ctrl+e alone is the line's end, as ctrl+a is its start (a Mac's cmd+→ and cmd+←).
-      if (k.ch === "x") { this.ctrlX = true; this.note = "ctrl+x · ctrl+e opens $EDITOR"; return "keep"; }
+      if (k.ch === "x") { this.ctrlX = true; this.note = `ctrl+x · ctrl+e opens $EDITOR${this.attachChord ? " · a attaches it" : ""}`; return "keep"; }
       if (k.ch === "e" && chord) return "editor";
       if (k.ch === "e") { this.anchor = this.goal = null; this.col = this.line.length; return "keep"; }
       if (k.ch === "t") return "pick";
@@ -985,7 +988,7 @@ export class Draft {
   previewScroll: { lineDelta: number; row: number; text: string } | null = null;
   /** Where the edit frame drew the text and its controls, in the host's cells (set by renderEditor). */
   frame: {
-    row: number; col: number; rows: number; cols: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" | "lands" }[];
+    row: number; col: number; rows: number; cols: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" | "copy" | "place" | "lands" | "attach" | "file-new" }[];
     /**
      * The preview's rows under the text (its rule first), and its top row and length as drawn: what its wheel scrolls.
      * `placements`: its pictures (PIE-846), on the rows they're drawn, for the host to put out with its own.

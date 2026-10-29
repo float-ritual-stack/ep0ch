@@ -21,6 +21,7 @@ import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { figuresIn, type FigureFit, type FigureFitReading } from "./figure-fit";
 import { kitIn, sectionsOf, type ReviewReading, type WriteReview } from "./write-review";
 import { writeRecord, type RecordWho, type RecordWriter } from "./records";
+import { LOOPS_SECTION } from "./work-jev";
 import type { AnnotationThread, Block, VisibleBlockCollection } from "./types";
 
 /** A suggestion is followed when one of the note's next writes, within a day, draws the figure; this many writes count. */
@@ -183,6 +184,8 @@ export const SUGGESTIONS_PAGE = [
   "direction: desc",
   "---",
   "::",
+  "",
+  LOOPS_SECTION,
 ].join("\n");
 
 /**
