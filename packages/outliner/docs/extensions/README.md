@@ -2021,6 +2021,7 @@ Answers `RenderedNote`.
 | `facetValues?` | `number` | Values a facet lists per key: 50 when left out, at most 1000. |
 | `facetKeys?` | `number` | Keys `facets: true` lists: 50 when left out, at most 1000. |
 | `machinery?` | `MachineryMode` | `hide` leaves out what tools write for their own bookkeeping (`[machine::…]`, outline-core `machinery.ts`), `only` holds just that, `show` everything (PIE-867). The service's requests answer `hide` when it is left out; asked of the store directly, left out means unfiltered. |
+| `countMachinery?` | `boolean` | `true`: with `machinery: hide`, the answer's `machineryLeftOut` counts every stamped note the same question would have held, by producer, and says so in words (PIE-1427): a recent-activity read reports what it left out. |
 
 **`VisibleBlockCollection`**
 
@@ -2029,6 +2030,7 @@ Answers `RenderedNote`.
 | `blocks` | `VisibleBlock[]` |  |
 | `completeness` | `BlockCollectionCompleteness` |  |
 | `machineryHidden?` | `number` | How many notes `machinery: hide` left out of the answer (at most 50: then there are more), when it left any (PIE-867). |
+| `machineryLeftOut?` | `MachineryLeftOut` | With `countMachinery`: every note `machinery: hide` left out, by producer, and the sentence (outline-core `machineryLeftOut`, PIE-1427). |
 | `generation?` | `number` |  |
 | `groups?` | `QuestionGroup[]` |  |
 | `facets?` | `QuestionFacet[]` |  |
