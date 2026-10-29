@@ -32,15 +32,24 @@ describe.skipIf(!outliner)("showcase: trail (PIE-208)", () => {
     expect(read.shown).toBe(false);
     expect(read.here.title).toBe("Garden walk: the compost heap");
     expect(read.back.map(s => s.title)).toEqual(["Garden walk: the shed", "Garden walk: the orchard", "Garden walk: the pond", "Garden walk: the gate"]);
-    // The person's: a list over the screen, the note shown lit.
+    // The person's: a trail tile beside the reader (PIE-1425), docked, resized and closed like any tile, the note shown lit.
+    const tiles = () => stage().tiles().length as number, before = tiles();
     h.press({ kind: "alt", ch: "T" } as never);
-    await until(() => h.screen().includes("trail · where this reader has been"), "the trail list", 8000);
-    expect(h.screen()).toContain("● Garden walk: the compost heap · here");
+    await until(() => tiles() === before + 1 && stage().panes.get(stage().focus)?.kind === "trail", "the trail tile beside the walk", 8000);
+    await until(() => h.screen().includes("● Garden walk: the compost heap · here"), "the trail drawn", 8000);
     expect(h.screen()).toContain("← Garden walk: the orchard · 2 back");
-    // ↓ ↓ ⏎: two stops back, at once.
+    await stage().dispatch.act({ action: "tile.resize", args: { by: 1 }, tile: "trail" }, USER);
+    // ↓ ↓ ⏎: two stops back, at once; the trail stays beside it, the note shown lit again.
     h.press({ kind: "down" } as never); h.press({ kind: "down" } as never); h.press({ kind: "enter" } as never);
     await until(() => walk().msg?.text.startsWith("Garden walk: the orchard"), "two stops back", 10_000);
     expect(walk().describeHistory().forward.map((s: { title: string }) => s.title)).toEqual(["Garden walk: the shed", "Garden walk: the compost heap"]);
+    await until(() => h.screen().includes("● Garden walk: the orchard · here"), "the trail follows its reader", 8000);
+    // alt+T again is the same tile; esc closes it, the keys back in the walk.
+    h.press({ kind: "alt", ch: "T" } as never);
+    expect(tiles()).toBe(before + 1);
+    h.press({ kind: "esc" } as never);
+    await until(() => tiles() === before, "esc closed the trail tile", 8000);
+    expect(stage().nameOf(stage().focus)).toBe("walk");
     // Forward walks the same trail.
     await stage().dispatch.act({ action: "forward", tile: "walk" }, USER);
     await until(() => walk().msg?.text.startsWith("Garden walk: the shed"), "forward one", 10_000);

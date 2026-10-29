@@ -86,6 +86,7 @@ import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileNow, type Where } from "./tile-actions";
 import { tileMenu } from "./tile-menu";
 import { KeysPane } from "./keys-window";
+import { TrailPane } from "./trail-tile";
 import { filtered } from "../bar/filter";
 import { ScreenTile } from "./screen-tile";
 import { QueryPane } from "./query";
@@ -437,6 +438,24 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!ok.ok) throw new ActionRefused(ok.refused);
     this.put(pane); this.commit(ok); this.startTile(id); this.openedBy(id, at);
     return id;
+  }
+
+  /**
+   * Reader `r`'s trail (PIE-208) in a tile of its own beside it (PIE-1425): docked, resized and closed like any tile, the
+   * person's keys in it and back in the reader when it closes. The one already open for `r` gets the keys back; null when
+   * the layout won't place one there (the trail then lists over the screen).
+   */
+  async trailTile(r: ReaderPane): Promise<unknown> {
+    const at = [...this.panes].find(([, p]) => p === r)?.[0];
+    if (at === undefined) return null;
+    const source = this.nameOf(at);
+    const have = [...this.panes].find(([, p]) => p instanceof TrailPane && p.source === source)?.[0];
+    let id: number;
+    if (have !== undefined) id = have;
+    else try { id = this.openPair(at, new TrailPane(source), "trail", true, USER); } catch { return null; }
+    this.keysTo(id);
+    this.save(); this.redraw();
+    return this.tileAnswer(id);
   }
 
   async answerTile(reader: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown> {

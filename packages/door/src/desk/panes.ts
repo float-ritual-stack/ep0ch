@@ -81,6 +81,8 @@ export interface DeskApi {
   editPreviewTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   hasSourcesTile?(r: ReaderPane): boolean;
   sourcesTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
+  /** Reader `r`'s trail in a tile beside it (PIE-1425), or the one already open with the keys back in it; null when the layout can't place one. */
+  trailTile?(r: ReaderPane): Promise<unknown>;
   composerTile?(r: ReaderPane, on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** Reader `r`'s comment tile is open. */
   hasComposerTile?(r: ReaderPane): boolean;
@@ -536,6 +538,7 @@ export class ReaderPane implements Pane {
       hasWiredPreview: () => !!desk.hasWiredPreview?.(this),
       ...(desk.listPreviewTile ? { hasListPreviewTile: () => !!desk.hasListPreviewTile?.(this), listPreviewTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.listPreviewTile!(this, on, side) } : {}),
       ...(desk.editPreviewTile ? { hasEditPreviewTile: () => !!desk.hasEditPreviewTile?.(this), editPreviewTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.editPreviewTile!(this, on, side) } : {}),
+      ...(desk.trailTile ? { trailTile: () => desk.trailTile!(this) } : {}),
       ...(desk.sourcesTile ? { hasSourcesTile: () => !!desk.hasSourcesTile?.(this), sourcesTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.sourcesTile!(this, on, side) } : {}),
       ...(desk.composerTile ? { composerTile: (on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down") => desk.composerTile!(this, on, keys, side), hasComposerTile: () => !!desk.hasComposerTile?.(this) } : {}),
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
