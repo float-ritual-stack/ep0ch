@@ -45,6 +45,10 @@ are its record. The outliner's entries from then are kept below, under
 - **It stays on the list** in every wake until the persona replies in the thread or the thread is resolved; a session
   started later hears what's still open within a minute of starting.
 - Nothing to run: it ships with the Claude mod (`ep0ch install --apply`).
+### Send to ep0ch from your phone in one tap (PIE-1408)
+
+- **One link, one tap:** open the Send to ep0ch page on my.ep0ch.sh on your iPhone, tap Add Shortcut, and "Send to ep0ch" is in your share sheet; a PDF or photo you share to it lands as a card in today's note. The Shortcut is signed and carries its own device link, so there is nothing to copy or edit.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
 
 ### A patch applied as written leaves nothing to fix, and a backfill rerun costs nothing twice (PIE-1402)
 
