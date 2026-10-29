@@ -238,6 +238,9 @@ export async function revisionDiff(board: Pick<SocketBoard, "get" | "revisions" 
   return { from: a, to: b, rows: diffRows(await textAt(board, list, a.revision), await textAt(board, list, b.revision)), current: list.revision, list };
 }
 
+/** A diff row's ink: `+` added, `-` taken out, the rest as it was. The what-changed list and the reader's revision compare draw with it. */
+export const diffInk = (row: string) => (row.startsWith("+") ? fg(C.lgreen) : row.startsWith("-") ? fg(C.lred) : fg(C.grey));
+
 const MAX_DIFF = 40;
 
 export class WhatChangedPane implements Pane {
@@ -303,10 +306,7 @@ export class WhatChangedPane implements Pane {
       const who = `${authorName(r.who)}${tag && !r.who.startsWith(tag) ? ` (${tag})` : ""}`;
       if (n === this.at) lines.push({ row: n, text: selectedRow(` ${mark} ${title} · ${who} · ${r.kind}  ${age}`, w, focused) });
       else lines.push({ row: n, text: pad(` ${isNew ? fg(C.yellow) + mark : dim(mark)} ${fg(C.lcyan)}${title}${fg(C.dark)} · ${r.agent ? fg(C.lmagenta) : fg(C.grey)}${who}${fg(C.dark)} · ${fg(C.grey)}${r.kind}  ${dim(age)}`, w) + RESET });
-      for (const d of this.diffs.get(this.keyOf(r)) ?? []) {
-        const sgr = d.startsWith("+") ? fg(C.lgreen) : d.startsWith("-") ? fg(C.lred) : fg(C.grey);
-        lines.push({ row: n, text: pad(`    ${sgr}${d}`, w) + RESET });
-      }
+      for (const d of this.diffs.get(this.keyOf(r)) ?? []) lines.push({ row: n, text: pad(`    ${diffInk(d)}${d}`, w) + RESET });
     });
     const first = lines.findIndex(l => l.row === this.at), last = lines.findLastIndex(l => l.row === this.at);
     this.view.place(first, lines.length, h, [first, last]);

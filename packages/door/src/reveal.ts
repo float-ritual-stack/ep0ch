@@ -11,8 +11,8 @@ import type { Actor } from "./socket";
  * `says`: why the line is lit, when it is not a link's (a `{{ }}` value shows the line it is written on).
  */
 export interface Reveal { fragment?: string; at?: number; label?: string; says?: string;
-  /** Open the note at this revision, beside how it is now (PIE-1433: the reader's revision compare), at `passage` when given. */
-  revision?: number; passage?: string }
+  /** Open the note at this revision, beside how it is now (PIE-1433: the reader's revision compare). */
+  revision?: number }
 
 export const revealOn = new WeakMap<Msg, Reveal & { by: Actor }>();
 

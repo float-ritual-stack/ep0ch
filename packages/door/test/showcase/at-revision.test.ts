@@ -53,7 +53,7 @@ describe.skipIf(!outliner)("showcase: at a revision (PIE-1433)", () => {
     expect(surface(opened).msg.id).toBe(h.seeded.notes.writeReview.id);
 
     // The history (the tile menu's), a row chosen: the same compare.
-    const hist = (await stage().dispatch.act({ action: "revision.history", tile: "note" }, USER)) as { shown: boolean; revisions: { revision: number }[] };
+    const hist = (await stage().dispatch.act({ action: "revisions", tile: "note" }, USER)) as { shown: boolean; revisions: { revision: number }[] };
     expect(hist.shown).toBe(true);
     await until(() => h.screen().includes("history · Shed status tonight"), "the history list", 8000);
     h.press({ kind: "enter" } as never);

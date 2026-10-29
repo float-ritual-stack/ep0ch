@@ -6,13 +6,16 @@ import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { C, fg, pad, RESET, width } from "../style";
 import { rowLines } from "../text";
 import { whenPut } from "../edit";
-import type { RevisionDiff } from "../desk/what-changed";
-import { REVISION_CONTROLS, REVISION_KEYS } from "./attached-keys";
+import { diffInk, type RevisionDiff } from "../desk/what-changed";
+import { REVISION_CONTROLS } from "./attached-keys";
 
 export type RevisionAgainst = "next" | "now";
 
-/** What the compare holds: the diff it shows, what it's against, where it's scrolled, and the passage it opened on. */
-export interface RevisionView { diff: RevisionDiff; against: RevisionAgainst; top: number; passage?: string }
+/**
+ * What the compare holds: the diff it shows, what it's against, where it's scrolled (in drawn lines), the passage it
+ * opened on, and the diff row to open at (`opening`, laid out into `top` at its first draw, once rows are wrapped).
+ */
+export interface RevisionView { diff: RevisionDiff; against: RevisionAgainst; top: number; passage?: string; opening?: number }
 
 /** The header's first row: which two revisions, and the later one's when and who. */
 export function revisionTitle(v: RevisionView): string {
@@ -56,18 +59,15 @@ export function drawRevision(v: RevisionView, cols: number, rows: number): { lin
   const title = rowLines(revisionTitle(v), cols).map(l => pad(fg(C.white) + l, cols) + RESET);
   const head = [...title, pad(fg(C.lcyan) + bar, cols) + RESET];
   // Every row whole, wrapped under its mark: the passage is the point, never cut short.
-  const body = v.diff.rows.flatMap(r => rowLines(r, cols, 1000, { hang: 2 }).map(l => {
-    const sgr = r[0] === "+" ? fg(C.lgreen) : r[0] === "-" ? fg(C.lred) : fg(C.grey);
-    return pad(sgr + l, cols) + RESET;
-  }));
+  const wrapped = v.diff.rows.map(r => rowLines(r, cols, 1000, { hang: 2 }).map(l => pad(diffInk(r) + l, cols) + RESET));
+  if (v.opening !== undefined) { v.top = wrapped.slice(0, v.opening).reduce((n, ls) => n + ls.length, 0); delete v.opening; }
+  const body = wrapped.flat();
   const room = Math.max(0, rows - head.length);
   v.top = Math.max(0, Math.min(v.top, Math.max(0, body.length - room)));
   const shown = body.length ? body.slice(v.top, v.top + room) : [pad(fg(C.grey) + "(no text at this revision)", cols) + RESET];
   return { lines: [...head, ...shown], controls, body: title.length + 1 };
 }
 
-/** The keys the compare answers (for the hint and peek): its own table. */
-export const revisionKeys = () => REVISION_KEYS;
 
 /** The compare as peek and the actions give it: which revisions, against what, its rows and where it's scrolled. */
 export function revisionFacts(v: RevisionView) {

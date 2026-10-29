@@ -60,12 +60,12 @@ export const REPLIES_FOLD_KEYS: readonly ModeKey[] = REPLIES_KEYS.map(row => row
 
 /** The controls on a revision compare's header row, in order (PIE-1433): each is a click on the action its key runs. */
 export const REVISION_CONTROLS = ["revision.older", "revision.newer", "revision.against", "revision.close"] as const;
-export const REVISION_KEYS: readonly ModeKey[] = keyTable("revision", "a note at a revision, beside how it is now (the tile menu's history)", [
+export const REVISION_KEYS: readonly ModeKey[] = keyTable("revision", "a note at a revision, beside how it is now (the tile menu's history, a suggestions row)", [
   row("esc", "revision.close", "back to the note"), row("q", "revision.close", "back to the note"),
   row("left", "revision.older", "older"), row("h", "revision.older", "older"), row("right", "revision.newer", "newer"), row("l", "revision.newer", "newer"),
   row("n", "revision.against", "against now"),
   row("j", "revision.scroll", "scroll", { by: 1 }), row("down", "revision.scroll", "scroll", { by: 1 }), row("k", "revision.scroll", "scroll", { by: -1 }), row("up", "revision.scroll", "scroll", { by: -1 }),
-  row("pgdn", "revision.scroll", "scroll", { by: 10 }), row("space", "revision.scroll", "scroll", { by: 10 }), row("pgup", "revision.scroll", "scroll", { by: -10 }),
+  row("pgdn", "revision.scroll", "scroll", { by: 8 }), row("space", "revision.scroll", "scroll", { by: 8 }), row("pgup", "revision.scroll", "scroll", { by: -8 }),
   ...REVISION_CONTROLS.map(action => row("click", action, "")), row("wheel", "revision.scroll", ""),
 ]);
 
