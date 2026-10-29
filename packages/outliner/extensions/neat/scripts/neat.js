@@ -51,8 +51,8 @@ if (L) {
 for (const t of await tiles()) {
   if (t.tile === A || t.tile === B || t.tile === L || t.collapsed || t.shown === false) continue;
   // A float has no place to fold in: it goes back into the layout first, then folds as the rest do.
-  if (t.float && !(await step('tile.float', { tile: t.tile }))) continue;
-  await step('tile.collapse', { tile: t.tile, on: true });
+  const back = t.float ? await step('tile.float', { tile: t.tile, on: false }) : t;
+  if (back) await step('tile.collapse', { tile: back.tile ?? t.tile, on: true });
 }
 await step('layout.even', {});
 // Said in the notes' words, never the tiles' ids.

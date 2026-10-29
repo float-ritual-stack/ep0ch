@@ -421,7 +421,7 @@ export class PowerBar {
     const busy = this.asking.size ? `${[...this.asking].map(id => barSource(id)?.title ?? id).join(", ")}…` : "";
     const said = [...this.problems].map(([id, why]) => `${barSource(id)?.title ?? id}: ${why}`).join(" · ");
     // Nothing found for what's typed, said on the line itself: a narrow bar draws no preview to say it in.
-    const none = !this.items.length && this.query.trim() !== "" && !this.problems.size;
+    const none = !this.items.length && !this.asking.size && this.query.trim() !== "" && !this.problems.size;
     const count = [none ? "no matches" : `${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
     const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, Math.max(10, w - 30))) : this.input.render(Math.max(10, w - 30), 1)[0]) + paint(` |08${busy || count}`);
     const scoped = this.scope ? barSource(this.scope) : undefined;
@@ -438,7 +438,7 @@ export class PowerBar {
     const tail = said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : [];
     const it = this.items[this.picker.sel];
     const empty = !this.items.length && !this.asking.size;
-    const hint = this.scope ? barSource(this.scope)?.about ?? "" : this.query.trim() ? "nothing here matches" : "nothing open yet";
+    const hint = this.scope ? barSource(this.scope)?.about ?? "" : none ? "no matches" : this.query.trim() ? "" : "nothing open yet";
     const preview = (pw: number, ph: number) => it ? this.previewLines(it, pw, ph) : empty ? wrap(hint, pw).map(l => dim(l)) : [];
     return {
       rect, title: " power bar ",
