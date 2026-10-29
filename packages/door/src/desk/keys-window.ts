@@ -25,20 +25,20 @@ export const KEYS_TABS = ["bindings", "conflicts", "yours", "unbound"] as const;
 export type KeysTab = (typeof KEYS_TABS)[number];
 
 
-const row = (key: string, action: string, label: string, args?: Record<string, unknown>): ModeKey => ({ key, action, label, ...(args ? { args } : {}) });
+const row = (key: string, action: string, label: string, args?: Record<string, unknown>, says?: string): ModeKey => ({ key, action, label, ...(args ? { args } : {}), ...(says ? { says } : {}) });
 /** The window's own keys: a table like any mode's, so the keymap moves them and the hint row says them. */
 export const KEYS_WINDOW_KEYS: readonly ModeKey[] = keyTable("keys window", "the keys window (?)", [
   row("j", "keys.select", "select", { by: 1 }), row("down", "keys.select", "select", { by: 1 }),
   row("k", "keys.select", "select", { by: -1 }), row("up", "keys.select", "select", { by: -1 }),
-  row("pgdn", "keys.select", "page", { by: 10 }), row("pgup", "keys.select", "page", { by: -10 }),
+  row("pgdn", "keys.select", "page", { by: 10 }, "select the binding a page down"), row("pgup", "keys.select", "page", { by: -10 }, "select the binding a page up"),
   // Tabs by digit (the screen has no tile digits); Tab stays the desk's focus key.
-  row("/", "keys.filter", "filter"), row("1", "keys.tab", "bindings", { tab: "bindings" }), row("2", "keys.tab", "conflicts", { tab: "conflicts" }), row("3", "keys.tab", "yours", { tab: "yours" }), row("4", "keys.tab", "unbound", { tab: "unbound" }),
-  row("r", "keys.rebind", "rebind"), row("u", "keys.unbind", "unbind"), row("d", "keys.reset", "built-in keys"),
-  row("enter", "keys.run", "run it"), row("ctrl+z", "keys.undo", "undo"), row("esc", "keys.close", "close"), row("q", "keys.close", "close"),
+  row("/", "keys.filter", "filter"), row("1", "keys.tab", "bindings", { tab: "bindings" }), row("2", "keys.tab", "conflicts", { tab: "conflicts" }), row("3", "keys.tab", "yours", { tab: "yours" }, "show the keys your keymap gives"), row("4", "keys.tab", "unbound", { tab: "unbound" }, "show the actions no key reaches"),
+  row("r", "keys.rebind", "rebind", undefined, "move the selected binding to another key"), row("u", "keys.unbind", "unbind", undefined, "take the selected binding's key away"), row("d", "keys.reset", "built-in keys"),
+  row("enter", "keys.run", "run it"), row("ctrl+z", "keys.undo", "undo", undefined, "undo the last change to your keymap made here"), row("esc", "keys.close", "close"), row("q", "keys.close", "close"),
 ]);
 /** While the filter is typed: the line editor has every other key. */
 export const KEYS_FILTER_KEYS: readonly ModeKey[] = keyTable("keys filter", "the keys window's filter, being typed", [
-  row("enter", "keys.filter", "done", { done: true }), row("esc", "keys.filter", "clear", { text: "", done: true }),
+  row("enter", "keys.filter", "done", { done: true }, "keep the filter typed in the keys window"), row("esc", "keys.filter", "clear", { text: "", done: true }, "clear the keys window's filter"),
 ]);
 /** While a rebind waits for its key, and then for the person's yes. */
 export const KEYS_RECORD_KEYS: readonly ModeKey[] = keyTable("keys record", "a rebind waiting for the new key", [
@@ -422,6 +422,7 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
     run(_, { pane }) { const p = paneOf(pane), undone = undoKeymap(); p.said = undone ? "the last change undone" : "nothing to undo here"; p.record = null; return { undone }; },
   }),
   "keys.find": def({
+    words: "list the bindings matching some words, as the keys window does",
     summary: "the bindings matching text= (words in their keys, action, scope or what they do), as the window lists them, each with where it works and whether it can move; moves nothing",
     touches: "nothing", replay: "safe",
     args: { text: { type: "string", optional: true, about: "the words; left out, the window's own filter" }, limit: { type: "number", optional: true, about: "at most this many (default 40)" } },

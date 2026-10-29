@@ -45,6 +45,8 @@ export interface Binding {
   about: string;
   /** Where it comes from: an action's own keys, a key table, or the keymap file (a key it gives). */
   from: "action" | "table" | "yours" | "unbound";
+  /** `does` is the row's own whole sentence (`says`), not the action's words and then the row's. */
+  said?: true;
   /** It can be moved through the keymap: true, or why not. */
   rebind: true | string;
   /** The keymap gives it this key (it's not the built-in). */
@@ -128,7 +130,7 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
         seen.add(key);
         const gone = entry && !entry.keys.includes(key);
         if (gone) continue;
-        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: SCOPE_LAYER[scope] ?? "tile", does: row.says ?? whole(aboutOf(def), row.does, capOf(key)), about: aboutOf(def), from: "action", rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
+        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: SCOPE_LAYER[scope] ?? "tile", does: row.says ?? whole(aboutOf(def), row.does, capOf(key)), about: aboutOf(def), from: "action", ...(row.says ? { said: true as const } : {}), rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
       }
     }
     // A key the keymap gives the whole action that it didn't declare.

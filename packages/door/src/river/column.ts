@@ -936,7 +936,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   }),
   "column.complete": def({
     summary: "what a filter's word offers in a river column's `/`: text=<the filter as typed, ending in the word> (`ty`, `type:`, `-status:do`) answers the keys, or the values of the key before its colon, each with the insertion a choice writes, from the outline's property index (`properties.catalog`, most used first) and the component schemas. Nothing on screen moves and nothing is typed: an agent's filter is `column.filter query=`",
-    keys: [{ keys: "↑ ↓", does: "choose, while typing in /" }, { keys: "⏎ tab", does: "insert the candidate" }, { keys: "esc", does: "dismiss" }, { keys: "click", does: "on a candidate" }, { keys: "ctrl+space", does: "asks again" }],
+    keys: [{ keys: "↑ ↓", does: "choose, while typing in /" }, { keys: "⏎ tab", does: "insert the candidate" }, { keys: "esc", does: "dismiss", says: "dismiss the filter's suggestions" }, { keys: "click", does: "on a candidate" }, { keys: "ctrl+space", does: "asks again", says: "ask for the filter's suggestions again" }],
     touches: "nothing", replay: "safe",
     args: { text: { type: "string", about: "the filter text ending in the word to complete" } },
     examples: [
@@ -951,7 +951,8 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     },
   }),
   "column.scroll": def({
-    summary: "scroll a river column by= rows (a page is its height less two); what it lists, its selection and the keys stay", keys: [{ keys: "pgup pgdn", does: "scroll the column" }, { keys: "wheel", does: "scroll the column" }],
+    words: "scroll a river column",
+    summary: "scroll a river column by= rows (a page is its height less two); what it lists, its selection and the keys stay", keys: [{ keys: "pgup pgdn", does: "by a page" }, { keys: "wheel", does: "by a few rows" }],
     touches: "tile", replay: "safe", way: "an agent doesn't scroll what they're reading · peek reads the column whole, or act on another column", says: r => `scrolled ${r.tile}`,
     args: { by: { type: "number", about: "rows: positive down, negative up" } },
     examples: [
@@ -962,7 +963,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   }),
   "column.filter": def({
     summary: "filter what a river column lists: type:hub -status:done author:codex word (query= empty clears it). The person's /, typing, ⏎",
-    keys: "/ then typing, ⏎ or alt+⏎ (esc cancels)",
+    keys: [{ keys: "/", does: "then typing sets the filter" }, { keys: "⏎ alt+⏎", does: "applies it", says: "apply the typed filter to the column" }, { keys: "esc", does: "cancels", says: "cancel the typed filter" }],
     touches: "tile", replay: "safe", way: "an agent doesn't change what it lists under them (a filter goes back to the top) · search finds notes; open or column.tag puts a column of your own beside, or act on another column", says: r => `filtered ${r.tile}${r.filter ? ` by ${r.filter}` : " (cleared)"}`,
     args: { query: { type: "string", about: "clauses: key:value, -key:value, author:x, or words" } },
     examples: [
@@ -1005,6 +1006,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     },
   }),
   "column.move": def({
+    words: "move the selected card of a river column",
     summary: "move the selected card of a river column, or id=, as note.move does (to=, before=, after=, step=up|down|in|out, position=, revision=): the shared move, recorded as who asks; with none of them the person is asked in the power bar. The column reads its notes again; an agent's never moves your selection",
     keys: modeActionKeys([COLUMN_MOVE_KEYS], "column.move"),
     touches: "nothing", replay: "ask", says: r => String((r as { said?: string }).said ?? "moved a note"),
@@ -1073,13 +1075,13 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
  */
 const FLOW_KEYS: readonly ModeKey[] = keyTable("river column", "a river column", [
   { key: "x", action: "tile.close", label: "close" },
-  { key: "h", action: "tile.focus", args: { dir: "left" }, label: "columns" },
-  { key: "left", action: "tile.focus", args: { dir: "left" }, label: "columns" },
-  { key: "l", action: "tile.focus", args: { dir: "right" }, label: "columns" },
-  { key: "right", action: "tile.focus", args: { dir: "right" }, label: "columns" },
-  { key: "w", action: "tile.widen", label: "widen" },
+  { key: "h", action: "tile.focus", args: { dir: "left" }, label: "columns", says: "give your keys to the column on the left" },
+  { key: "left", action: "tile.focus", args: { dir: "left" }, label: "columns", says: "give your keys to the column on the left" },
+  { key: "l", action: "tile.focus", args: { dir: "right" }, label: "columns", says: "give your keys to the column on the right" },
+  { key: "right", action: "tile.focus", args: { dir: "right" }, label: "columns", says: "give your keys to the column on the right" },
+  { key: "w", action: "tile.widen", label: "widen", says: "give this column the wide place in its flow" },
   { key: "p", action: "tile.hold", label: "hold" },
-  { key: "g", action: "search", label: "search" },
+  { key: "g", action: "search", label: "search", says: "search for notes by their words" },
 ]);
 
 /** The river column as a tile kind: a reader of the river's own view, opening a column of its own kind next. */
