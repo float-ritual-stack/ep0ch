@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Margin comments read as comments, and a quote lands where you are (PIE-1255, PIE-1184)
+
+- **A card opens the moment you press its `[+]`,** in marks mode too: it comes into view instead of opening above
+  the window (it used to need a scroll down and back up).
+- **Whole-note comments have one `[+]` each, after the title,** never a row of them in the gutter pushing the text over.
+- **The comment count says what you see:** "in the margin" (or "a line each" in a narrow tile), "whole", "as marks";
+  hover it, or a mark, for what a click does.
+- **A comment looks like a comment:** each card on its own dark surface in its tone, jutting into the margin under its
+  passage; the side column grows with a wide tile.
+- **[Quote] asks "under this note" first** and opens the quote where the reader's opens go, lit as just arrived, in
+  your edit at the end of the quote: nothing to hunt for.
+
 ### A dropped connection leaves the terminal clean (PIE-1429)
 
 - **`ep0ch door`** carries the ssh door (`ssh ep0ch`) in this terminal and gives it back clean however it ends, a
