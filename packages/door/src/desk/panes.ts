@@ -22,7 +22,7 @@ import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
-import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList, type TrailStop } from "../surface/note";
+import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList, type Trail, type TrailStop } from "../surface/note";
 import { artLines, C, dim, fg, pad, RESET, selectedRow, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rowLines, ago, wrap } from "../text";
@@ -81,6 +81,8 @@ export interface DeskApi {
   editPreviewTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   hasSourcesTile?(r: ReaderPane): boolean;
   sourcesTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
+  /** Reader `r`'s trail in a tile beside it (PIE-1425), or the one already open with the keys back in it; null when the layout can't place one. */
+  trailTile?(r: ReaderPane): Promise<unknown>;
   composerTile?(r: ReaderPane, on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** Reader `r`'s comment tile is open. */
   hasComposerTile?(r: ReaderPane): boolean;
@@ -341,9 +343,12 @@ export type FollowMode = "follows" | "held" | "pinned";
  * A reader is a note surface (src/surface/note.ts) hosted in a pane: the surface shows, edits and
  * comments on the note; the reader adds pinning and tells the desk or board when a link is followed.
  */
-/** A tile's own back and forward (Pane.trail): the stops nearest first, and a walk of `steps` stops. Null when it went, else why not. */
+/**
+ * A tile's own back and forward (Pane.trail): what it shows now and the stops each way, nearest first (the trail tile and
+ * the trail list draw it, `trailRows`), and a walk of `steps` stops. Null when it went, else why not.
+ */
 export interface TileTrail {
-  stops(): { back: TrailStop[]; forward: TrailStop[] };
+  stops(): Trail;
   go(dir: -1 | 1, steps: number, desk: DeskApi, actor: Actor): Promise<string | null>;
 }
 
@@ -357,10 +362,11 @@ export class ReaderPane implements Pane {
    * `forward` action (its unsent-comment ask, its agent rules and its say-so stay theirs).
    */
   readonly trail: TileTrail = {
-    stops: () => { const h = this.surface.describeHistory(), s = (ss: readonly unknown[]): TrailStop[] => ss.flatMap(x => (typeof x === "string" ? [{ title: x }] : x ? [x as TrailStop] : [])); return { back: s(h.back), forward: s(h.forward) }; },
+    stops: () => this.surface.trailOf(),
     go: async (dir, steps, desk, actor) => {
-      if (!desk.perform) return "this screen can't run the reader's back";
-      await desk.perform(dir < 0 ? "back" : "forward", { steps }, actor, this);
+      const run = desk.within ?? desk.perform;
+      if (!run) return "this screen can't run the reader's back";
+      await run.call(desk, dir < 0 ? "back" : "forward", { steps }, actor, this);
       return null;
     },
   };
@@ -563,6 +569,7 @@ export class ReaderPane implements Pane {
       hasWiredPreview: () => !!desk.hasWiredPreview?.(this),
       ...(desk.listPreviewTile ? { hasListPreviewTile: () => !!desk.hasListPreviewTile?.(this), listPreviewTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.listPreviewTile!(this, on, side) } : {}),
       ...(desk.editPreviewTile ? { hasEditPreviewTile: () => !!desk.hasEditPreviewTile?.(this), editPreviewTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.editPreviewTile!(this, on, side) } : {}),
+      ...(desk.trailTile ? { trailTile: () => desk.trailTile!(this) } : {}),
       ...(desk.sourcesTile ? { hasSourcesTile: () => !!desk.hasSourcesTile?.(this), sourcesTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.sourcesTile!(this, on, side) } : {}),
       ...(desk.composerTile ? { composerTile: (on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down") => desk.composerTile!(this, on, keys, side), hasComposerTile: () => !!desk.hasComposerTile?.(this) } : {}),
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.

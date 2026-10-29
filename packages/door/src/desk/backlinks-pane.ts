@@ -280,7 +280,7 @@ export class BacklinksPane implements Pane {
   private aheads: Msg[] = [];
   private travelling = false;
   readonly trail: TileTrail = {
-    stops: () => { const t = (ms: Msg[]) => ms.map(m => ({ id: m.id, title: subject(m), ...(m.address ? { address: m.address } : {}) })).reverse(); return { back: t(this.backs), forward: t(this.aheads) }; },
+    stops: () => { const t = (ms: Msg[]) => ms.map(m => ({ id: m.id, title: subject(m), ...(m.address ? { address: m.address } : {}) })).reverse(); return { here: this.target ? { id: this.target.id, title: subject(this.target) } : null, back: t(this.backs), forward: t(this.aheads) }; },
     go: async (dir, steps, desk) => {
       const stack = dir < 0 ? this.backs : this.aheads, other = dir < 0 ? this.aheads : this.backs;
       if (!stack.length) return dir < 0 ? "nothing to go back to: this list hasn't listed another note's links here" : "nothing ahead: go back first";

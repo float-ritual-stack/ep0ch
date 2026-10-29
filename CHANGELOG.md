@@ -24,6 +24,21 @@ are its record. The outliner's entries from then are kept below, under
   lists either. The kitchen sink's "back anywhere" section is Evan's layout to try it in.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
 
+### The keys window and the trail are tiles you resize, dock and close; ⏎ runs a key; Conflicts are real (PIE-1425)
+
+- **`?` opens the keys window as a tile beside the one you're in** (below it when that one is narrow, so both keep
+  their width) on the desk, the board and the river: drag its
+  border, dock it, `esc` or `q` closes it and the keys go back where they were. `?` again goes back to it.
+- **`⏎` runs the selected row** where you opened the window, as its key would there (a second click on the row too).
+  One that needs arguments (`^W o` opens a tile, which kind?) asks for them in the power bar's form.
+- **Conflicts lists only keys that really fight:** two rows of one key table on one key, or one key given twice in your
+  `keybindings.json`, each saying which one runs. Today's built-in keys have none (it said 176: esc clearing then closing
+  the power bar, alt+Q starting or stopping a recording, were counted as clashes).
+- **Every row reads as a whole sentence:** the action's own words, then where or when ("start recording, while
+  recording"), never a fragment like "then macro.stop". The power bar's typed lines (`> share.list`) aren't listed as keys.
+- **The trail (alt+T, `≡ trail`) is a tile beside its reader too:** dock it to the side and it follows the reader as
+  you walk; `⏎` or a click on a picked stop goes there, `esc` closes it. A screen without tiles still lists it over itself.
+
 ### Undo never takes back what's saved (PIE-1414)
 
 - **ctrl+z stops at the save:** in a note you opened again after saving, the first ctrl+z keeps the saved text and says "saved · ctrl+z again undoes past the save (revision N stays in its history)"; a second press after a pause goes past it. A held key never crosses a save, and an agent's undo never does.

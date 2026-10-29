@@ -48,7 +48,7 @@ const TILE = "Tile";
 export interface TileDone { tile: string; [k: string]: unknown }
 
 /** A new tile: its kind and what it needs (the fields of a saved tile). */
-export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; outline?: string; machine?: string; page?: string; mode?: "follows" | "held" | "pinned"; cwd?: string; view?: string; query?: string; screen?: string; part?: string; target?: string; inner?: unknown; args?: Record<string, unknown>; label?: string }
+export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; outline?: string; machine?: string; page?: string; mode?: "follows" | "held" | "pinned"; cwd?: string; view?: string; query?: string; screen?: string; part?: string; target?: string; inner?: unknown; args?: Record<string, unknown>; label?: string; /** A kind's own state to start with (the keys window's filter), opened in code. */ state?: Record<string, unknown> }
 
 /**
  * What a tile action runs on: the desk, and the tile `tile=` named (by its name: the dispatcher read the grammar).
@@ -780,7 +780,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.tune": def({
     summary: "open the tune inspector (PIE-673) on a tile (default the focused one): its look's spacing and list values (measure, padding, margin, list gap, zebra and dividers, surfaces, frames, edges and tone, the header's surface and rule, the note's header picture (its hero line), heading spacing, breakpoints), where each comes from (built-in, global, its kind, the screen, the page, a box), nudged live and saved to the level picked. The one on the screen turns to it, else one opens under it (beside it when too short to split)",
-    keys: [{ keys: "alt+y", does: "tune its look" }, { keys: "^W o y", does: "the same" }, { via: "the tile menu's \"tune its look\"" }],
+    keys: [{ keys: "alt+y", does: "tune its look" }, { keys: "^W o y", does: "open it beside the tile" }, { via: "the tile menu's \"tune its look\"" }],
     touches: "shape", replay: "ask", says: r => `· tuning ${r.tunes}`,
     menu: { label: "tune its look", group: TILE, key: "alt+y", now: ({ d, reader }) => (d.tileLook(reader ?? "") ? null : { hide: true }) },
     args: {},
