@@ -3418,7 +3418,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (from !== undefined && p.msg) this.placeNote(p.msg, { from, note: p.msg.id, history: true, keep: false }, by);
   }
   layoutUndoSeq(): number | undefined { return this.history.newest()?.seq; }
-  untrash() { this.run("note.untrash", {}, this.nameOf(this.focus)); }
+  untrash(board: object): boolean {
+    if (board !== this.ctx.board) return false;
+    this.run("note.untrash", {}, this.nameOf(this.focus));
+    return true;
+  }
   keepPlace() { this.save(); }
   keepDrafts() { return [...this.drafts().flatMap(p => p.keepDrafts?.() ?? []), ...[...this.models.values()].flatMap(m => m.keepDrafts?.() ?? [])]; }
   /** The edits open here, by tile: what a session's next daemon opens again (src/session/restore.ts). */

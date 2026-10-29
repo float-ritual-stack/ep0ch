@@ -295,8 +295,11 @@ export interface SurfaceHost {
   ownKeys?: string;
   /** The place in the door's undo order of the screen's newest layout change (PIE-957): a reader's ctrl+z yields to it only when the reader has nothing of its own to undo (PIE-1435). */
   layoutUndoSeq?(): number | undefined;
-  /** Bring back the note the person trashed last (the desk's note.untrash): a reader's ctrl+z, when that trash is newer than its own change. */
-  untrash?(): void;
+  /**
+   * Bring back the note the person trashed last on `board` (the desk's note.untrash): a reader's ctrl+z, when that trash is
+   * newer than its own change. False when the desk can't: a reader on another outline's board.
+   */
+  untrash?(board: object): boolean;
   /**
    * This note's links (Outlinks, Resources, Backlinks) in the screen's links tile, as `b` asks: where the host has
    * one, or can open one beside the reader. Without it `b` says so and points at the inline `::links`.
@@ -4683,9 +4686,7 @@ export class NoteSurface {
       // reader has nothing of its own; with no layout change either, the reader's refusal says there's nothing to undo.
       const trashedAt = lastTrashed(host.ctx.board, USER)?.seq;
       if (trashedAt !== undefined && trashedAt > last.seq) {
-        if (last.seq < 0 || !host.untrash) return false;
-        host.untrash();
-        return true;
+        return last.seq >= 0 && !!host.untrash?.(host.ctx.board);
       }
       if (last.seq < 0 && host.layoutUndoSeq?.() !== undefined) return false;
       void this.runKey(last.name, {}, host, true);
