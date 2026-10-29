@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A copy of a built-in extension lists once and says it overrides the built-in (PIE-1283)
+
+- **One row:** a copy of neat (or any built-in) in your extensions folder is one row in `ep0ch ext ls`, the power
+  bar's `&` list and the Extensions hub. The script it ships is no longer a second row or a second page.
+- **Says what runs:** the row reads "your copy overrides the built-in". `ext ls --long` and the preview show both
+  folders. `ep0ch doctor` and `ep0ch install --apply` give the command to remove a stale or changed copy.
+- **Two renames:** a tile's menu has "rename this tile…" and, when the tile shows a note, "rename the note it
+  shows…" (`note.rename text=`). That one changes the note's title only; its first line's properties and its body
+  stay.
+
 ### The extensions list reads at a glance, settings and scripts too (PIE-1284)
 
 - **One line a row:** `settings <name>` rows are one line with their state; where config.json lives is in the preview.

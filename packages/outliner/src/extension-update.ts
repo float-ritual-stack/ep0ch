@@ -190,68 +190,109 @@ function manifestVersion(dir: string): number | null {
 /** What the built-in `id` is now, read once per id. */
 interface BuiltInNow { files: Map<string, string>; hash: string; history: BuiltInVersion[] | null; version: number | null }
 
+/** The built-ins as read once: each one's files now, and its history when a copy needs it. */
+class BuiltIns {
+  private readonly known = new Map<string, BuiltInNow>();
+  readonly real: string;
+  constructor(readonly dir: string, readonly repo: string | null) {
+    this.real = realpathSync(dir);
+  }
+  now(id: string): BuiltInNow {
+    let now = this.known.get(id);
+    if (!now) {
+      const files = folderFiles(join(this.dir, id));
+      now = { files, hash: filesHash(files), history: null, version: manifestVersion(join(this.dir, id)) };
+      this.known.set(id, now);
+    }
+    return now;
+  }
+  history(id: string): BuiltInVersion[] {
+    const now = this.now(id);
+    now.history ??= this.repo ? builtInHistory(this.repo, this.dir, id) : [];
+    return now.history;
+  }
+  /** Whether `dir` (named `id`) is an installed copy of a built-in: a built-in has that name, and it isn't the built-in's own folder. */
+  copies(dir: string, id: string): boolean {
+    if (!existsSync(join(dir, "extension.json")) || !existsSync(join(this.dir, id, "extension.json"))) return false;
+    try { return !within(realpathSync(dir), this.real); } catch { return false; }
+  }
+}
+
+const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
+
+/** The one check of an installed copy against its built-in: current, stale (unchanged, behind) or forked (changed here). */
+function copyOf(builtIns: BuiltIns, dir: string, id: string, where: string, news: boolean): InstalledCopy {
+  const now = builtIns.now(id);
+  const files = folderFiles(dir);
+  const hash = filesHash(files);
+  const record = readRecord(dir);
+  const differs = [...new Set([...files.keys(), ...now.files.keys()])].filter((path) => files.get(path) !== now.files.get(path)).sort();
+  let state: CopyState;
+  let base = record?.commit;
+  if (hash === now.hash) state = "current";
+  else if (record) state = record.hash === hash ? "stale" : "forked";
+  else {
+    // Made before the record: unchanged when it is some earlier version of the built-in (the newest that matches;
+    // git log lists newest first).
+    const match = builtIns.history(id).find((version) => version.hash === hash);
+    state = match ? "stale" : "forked";
+    base = match?.commit;
+  }
+  // The commits since the base that touched it; a base this checkout doesn't have says none.
+  const since = news && state !== "current" && base && builtIns.repo ? builtInNews(builtIns.repo, builtIns.dir, id, base) : [];
+  return {
+    id, dir, where, state, recorded: !!record, recordCurrent: record?.hash === hash, ...(base ? { base } : {}), news: since, differs,
+    version: { builtIn: now.version, copy: manifestVersion(dir) },
+  };
+}
+
 /**
  * Every installed copy of a built-in in `roots`, with its state. A folder whose name isn't a built-in's is someone's
  * own extension and isn't listed. Read-only.
  */
 export function installedCopies(roots: readonly CopyRoot[], builtIns: string, options: { repo?: string | null } = {}): InstalledCopy[] {
-  const repo = options.repo === undefined ? repoOf(builtIns) : options.repo;
-  const known = new Map<string, BuiltInNow>();
-  const builtIn = (id: string): BuiltInNow => {
-    let now = known.get(id);
-    if (!now) {
-      const files = folderFiles(join(builtIns, id));
-      now = { files, hash: filesHash(files), history: null, version: manifestVersion(join(builtIns, id)) };
-      known.set(id, now);
-    }
-    return now;
-  };
-  const history = (id: string) => {
-    const now = builtIn(id);
-    now.history ??= repo ? builtInHistory(repo, builtIns, id) : [];
-    return now.history;
-  };
+  const known = new BuiltIns(builtIns, options.repo === undefined ? repoOf(builtIns) : options.repo);
   const copies: InstalledCopy[] = [];
   const seen = new Set<string>();
-  const builtInsReal = realpathSync(builtIns);
-  const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
   for (const root of roots) {
     if (!existsSync(root.path)) continue;
     // Real paths: a folder that is (or links to) the checkout's built-ins is never a copy of them, and a root reached
     // twice is read once.
     let real: string;
     try { real = realpathSync(root.path); } catch { continue; }
-    if (seen.has(real) || within(real, builtInsReal)) continue;
+    if (seen.has(real) || within(real, known.real)) continue;
     seen.add(real);
     for (const id of readdirSync(root.path).sort()) {
       const dir = join(root.path, id);
-      if (!existsSync(join(dir, "extension.json")) || !existsSync(join(builtIns, id, "extension.json"))) continue;
-      if (within(realpathSync(dir), builtInsReal)) continue;
-      const now = builtIn(id);
-      const files = folderFiles(dir);
-      const hash = filesHash(files);
-      const record = readRecord(dir);
-      const differs = [...new Set([...files.keys(), ...now.files.keys()])].filter((path) => files.get(path) !== now.files.get(path)).sort();
-      let state: CopyState;
-      let base = record?.commit;
-      if (hash === now.hash) state = "current";
-      else if (record) state = record.hash === hash ? "stale" : "forked";
-      else {
-        // Made before the record: unchanged when it is some earlier version of the built-in (the newest that matches;
-        // git log lists newest first).
-        const match = history(id).find((version) => version.hash === hash);
-        state = match ? "stale" : "forked";
-        base = match?.commit;
-      }
-      // The commits since the base that touched it; a base this checkout doesn't have says none.
-      const news = state !== "current" && base && repo ? builtInNews(repo, builtIns, id, base) : [];
-      copies.push({
-        id, dir, where: root.where, state, recorded: !!record, recordCurrent: record?.hash === hash, ...(base ? { base } : {}), news, differs,
-        version: { builtIn: now.version, copy: manifestVersion(dir) },
-      });
+      if (known.copies(dir, id)) copies.push(copyOf(known, dir, id, root.where, true));
     }
   }
   return copies;
+}
+
+/**
+ * The copy check for one extension folder as the registry lists it (PIE-1283): the built-in it is a copy of and its
+ * state, or null when it is no built-in's copy. Memoized on the folder's files, so a reload that changed nothing in it
+ * reads no git history again.
+ */
+export class BuiltInCopies {
+  private known: BuiltIns | null | undefined;
+  private memo = new Map<string, { hash: string; state: CopyState }>();
+  constructor(private readonly builtIns: string) {}
+  of(dir: string, id: string): { directory: string; state: CopyState } | null {
+    if (this.known === undefined) {
+      try { this.known = existsSync(this.builtIns) ? new BuiltIns(this.builtIns, repoOf(this.builtIns)) : null; } catch { this.known = null; }
+    }
+    if (!this.known?.copies(dir, id)) return null;
+    const hash = filesHash(folderFiles(dir)) + (readRecord(dir)?.hash ?? "");
+    const key = `${id}\0${dir}`;
+    let seen = this.memo.get(key);
+    if (seen?.hash !== hash) {
+      seen = { hash, state: copyOf(this.known, dir, id, "", false).state };
+      this.memo.set(key, seen);
+    }
+    return { directory: join(this.builtIns, id), state: seen.state };
+  }
 }
 
 /** Writes the install record for a copy just made from the built-in `id` (its files now). */
@@ -294,6 +335,20 @@ export const newsWords = (news: readonly BuiltInNews[]) => news.map((n) => n.sub
 
 /** "the user folder" or "pie's folder", for people. */
 export const whereWords = (where: string) => (where === "user" ? "the user folder" : `${where}'s folder`);
+
+/** The `ext remove` that takes a copy away, so the built-in can be installed fresh (an outline's own names its folder). */
+export const removeCommand = (copy: { id: string; where: string; dir: string }) =>
+  `ext remove ${copy.id}${copy.where === "user" ? "" : ` --outline-folder ${resolve(copy.dir, "..", "..")}`}`;
+
+/** ", your copy v1, the built-in v2" when the versions differ, else nothing. */
+export const versionWords = (copy: Pick<InstalledCopy, "version">) =>
+  copy.version.copy !== copy.version.builtIn ? `, your copy v${copy.version.copy ?? "?"}, the built-in v${copy.version.builtIn ?? "?"}` : "";
+
+/** What a copy of a built-in says on its row (PIE-1283): that it is what runs, and how it stands against the built-in. */
+export function overrideWords(id: string, builtIn: { readonly state: CopyState }): string {
+  const how = builtIn.state === "current" ? "the same files" : builtIn.state === "stale" ? `behind it: ep0ch ext update ${id}` : "changed here";
+  return `your copy overrides the built-in (${how})`;
+}
 
 /** One line for a copy's state, with what to run when there is something to take. */
 export function copyLine(copy: InstalledCopy): string {

@@ -121,6 +121,36 @@ export function bodyOffset(h: HeaderLine, at: number): number {
   return at - (h.end + 1) + h.body.split("\n", 1)[0]!.length + 1;
 }
 
+/** A heading's or a list item's marker at the start of a header line (`## `, `- `, `- [ ] `): a title's words come after it. */
+const TITLE_MARKER = /^[ \t]*(?:#{1,6}[ \t]+|[-*+][ \t]+(?:\[[ xX]\][ \t]+)?)/;
+
+/** What `retitle` replaces: the title's words, without its marker (`## `, `- `) or a property written among them. */
+export function titleWords(text: string): string {
+  const prose = headerLine(text).prose;
+  const marker = TITLE_MARKER.exec(prose)?.[0] ?? "";
+  let words = prose.slice(marker.length);
+  for (const token of propertyTokensInLine(words).reverse()) words = words.slice(0, token.start) + words.slice(token.end);
+  return words.replace(/[ \t]+/g, " ").trim();
+}
+
+/**
+ * The text with its title's words replaced by `title` (one line): the header line's marker (`## `, `- `), any property
+ * written among the words (`[type::chirp] Seed swap`) and the trailing chips and hashtags stay, as does every other line.
+ * A text with no header line becomes the title. The one rename of a note's title (a template's stamp, a tile's
+ * "rename the note it shows").
+ */
+export function retitle(text: string, title: string): string {
+  title = title.replace(/\s*\n\s*/g, " ").trim();
+  const h = headerLine(text);
+  if (h.line < 0) return title;
+  const prose = text.slice(h.offset, h.offset + h.kept);
+  const marker = TITLE_MARKER.exec(prose)?.[0] ?? "";
+  const inside = propertyTokensInLine(prose.slice(marker.length)).map(token => token.raw);
+  const after = text.slice(h.offset + h.kept);
+  const words = [title, ...inside].filter(Boolean).join(" ");
+  return text.slice(0, h.offset) + marker + words + (words && after && !/^\s/.test(after) ? " " : "") + after;
+}
+
 /** A chip as the outline writes it. */
 export const chipText = (c: { key: string; value: string }) => `[${c.key}::${c.value}]`;
 
