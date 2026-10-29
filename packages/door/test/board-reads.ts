@@ -14,13 +14,15 @@ export function cacheReads(board: SocketBoard) {
   const kept = new Map<string, unknown>();
   let generation = 0;
   const forget = () => { generation++; kept.clear(); };
-  const ask = board.request.bind(board) as (action: string, params?: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>;
-  (board as { request: unknown }).request = (action: string, params: Record<string, unknown> = {}, timeoutMs?: number) => {
-    if (!READS.has(action)) { forget(); return ask(action, params, timeoutMs).finally(forget); }
+  const ask = board.request.bind(board) as (action: string, params?: Record<string, unknown>, timeoutMs?: number, signal?: AbortSignal) => Promise<unknown>;
+  // `signal` (a search turn's) goes through to the board: a replaced search stops here as it does in the door.
+  (board as { request: unknown }).request = (action: string, params: Record<string, unknown> = {}, timeoutMs?: number, signal?: AbortSignal) => {
+    if (!READS.has(action)) { forget(); return ask(action, params, timeoutMs, signal).finally(forget); }
     const key = `${action}\0${JSON.stringify(params)}`;
+    if (signal?.aborted) return Promise.reject(signal.reason);
     if (kept.has(key)) return Promise.resolve(structuredClone(kept.get(key)));
     const gen = generation;
-    return ask(action, params, timeoutMs).then(v => { if (gen === generation) kept.set(key, structuredClone(v)); return v; });
+    return ask(action, params, timeoutMs, signal).then(v => { if (gen === generation) kept.set(key, structuredClone(v)); return v; });
   };
   return { forget };
 }

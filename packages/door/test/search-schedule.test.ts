@@ -1,7 +1,7 @@
 // PIE-1382: one search scheduler. The power bar, the completer and the desk's query tiles ask the host as the person
 // types or the outline changes; each went through its own timer and generation counter, and each decided differently
 // (the completer asked on every key, the bar never stopped a search it had sent). Fake boards, no host.
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { PowerBar } from "../src/bar/bar";
 import type { BarHost } from "../src/bar/source";
 import { QueryPane } from "../src/desk/query";
@@ -10,7 +10,8 @@ import { Draft } from "../src/edit";
 import { completerFor, completionKey } from "../src/surface/completer";
 import type { Key } from "../src/term";
 import { FakeSearchClock, RELOAD_PAUSE_MS, SearchSchedule, TYPING_PAUSE_MS, useSearchClock } from "../src/search-schedule";
-import { until } from "./scratch";
+import { hostTraffic, SocketBoard } from "../src/socket";
+import { outliner, Scratch, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const never = <T>() => new Promise<T>(() => {});
@@ -160,5 +161,24 @@ describe("each path asks the host the same way", () => {
     pane.dispose();
     clock.runOut();
     expect(reads).toBe(1);
+  });
+});
+
+describe.skipIf(!outliner)("a turn's signal on the socket, on a scratch service", () => {
+  const scratch = new Scratch();
+  afterAll(async () => { await scratch.dispose(); });
+
+  test("an aborted search stops waiting at once, and the board answers the next one", async () => {
+    const board = new SocketBoard(await scratch.start());
+    try {
+      await board.request("create", { parentId: null, text: "Garden beds", author: "agent" });
+      const ctl = new AbortController(), waiting = hostTraffic.waiting;
+      const first = board.search("garden", 10, { signal: ctl.signal });
+      ctl.abort();
+      expect(await first.then(() => "answered", e => (e as Error).name)).toBe("AbortError");
+      expect(hostTraffic.waiting).toBe(waiting);
+      expect((await board.search("garden", 10)).map(m => m.text)).toEqual(["Garden beds"]);
+      await expect(board.search("garden", 10, { signal: ctl.signal })).rejects.toThrow();
+    } finally { board.close(); }
   });
 });
