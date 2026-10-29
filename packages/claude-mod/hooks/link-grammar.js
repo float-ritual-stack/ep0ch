@@ -1149,9 +1149,28 @@ function linkOccurrences(text, code) {
   }
   return outsideCode(text, out, codeRanges).sort((a, b) => a.start - b.start);
 }
+// packages/outline-core/src/checklist-marks.ts
+var STEP_BOX_CHARS = " xX~!✓✗+\\-";
+var STEP_BOX = `\\[[${STEP_BOX_CHARS}]\\]`;
+var BY_CHAR = {
+  " ": "todo",
+  x: "done",
+  X: "done",
+  "~": "waiting",
+  "!": "problem",
+  "✓": "approved",
+  "+": "approved",
+  "✗": "rejected",
+  "-": "rejected"
+};
+function boxStatus(box) {
+  const c = box.length === 3 && box[0] === "[" && box[2] === "]" ? box[1] : box;
+  return Object.hasOwn(BY_CHAR, c) ? BY_CHAR[c] : null;
+}
 export {
   BLOCK_ID_PATTERN,
   COMPONENT_OPEN,
+  boxStatus,
   codeBlocks,
   componentBlocks,
   formatEp0chBlockUri,

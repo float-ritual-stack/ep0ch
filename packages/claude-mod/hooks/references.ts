@@ -1,14 +1,39 @@
 /**
  * Outliner references in a Claude reply, made clickable. `Markdown` only draws
- * `https:`, `http:` and `file:` links as links, so each reference becomes an
- * https stand-in on the reserved `.invalid` domain, which never resolves: a
- * click the plugin does not take goes nowhere. The plugin maps it back to the
- * `pi-outliner://` URI the Outliner's own link navigation takes.
+ * `https:`, `http:` and `file:` links as links, so each reference becomes the
+ * note's page on the web client (PIE-926): `https://my.ep0ch.sh/pub/o/<outline>/p/<PIE-n|page|id>`,
+ * which opens in a browser, in claude.ai and on a phone (the publisher sends its
+ * home outline's `/o/<name>/` back to `/pub/p/`). A press the mod takes maps it
+ * back to the `pi-outliner://` URI the Outliner's own link navigation takes. The
+ * old `pi-outliner.invalid` stand-in is still read back, for a reply drawn before.
  */
 import { codeBlocks } from './link-grammar.js'
 import { linkOccurrences, pageLinkSpans, qualifiedReference, referencedBlock } from './link-grammar.js'
 
 const STAND_IN = 'https://pi-outliner.invalid/'
+
+/** Where the web client is opened when `EP0CH_WEB_URL` names none: the outline host's own default (artifact-grants.ts). */
+export const WEB_ORIGIN = 'https://my.ep0ch.sh'
+
+/**
+ * Where references link: the web client's origin (`EP0CH_WEB_URL`'s first, else WEB_ORIGIN) and the outline the
+ * session is bound to, which an unqualified reference names. Unknown, a link goes to the web client's home outline.
+ */
+export type WebLinks = { origin: string; outline?: string }
+
+/** The first origin `EP0CH_WEB_URL` lists (it may list several, comma-separated), else WEB_ORIGIN. */
+export function webOriginOf(value: string | undefined): string {
+  const first = value?.split(',')[0]?.trim().replace(/\/+$/, '')
+  return first && /^https?:\/\/[^/\s]+$/.test(first) ? first : WEB_ORIGIN
+}
+
+/** A reference's page: `<origin>/pub[/o/<outline>]/p/<target>[#fragment]`. */
+function webHref(web: WebLinks, value: string, outline: string | undefined): string {
+  const anchored = /^(.+?)\^([A-Za-z0-9][\w-]{0,63})$/.exec(value)
+  const [target, fragment] = anchored ? [anchored[1]!, anchored[2]] : [value, undefined]
+  const where = outline ?? web.outline
+  return `${web.origin}/pub/${where ? `o/${encodeURIComponent(where)}/` : ''}p/${encodeURIComponent(target)}${fragment ? `#${encodeURIComponent(fragment)}` : ''}`
+}
 
 const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 
@@ -37,19 +62,21 @@ function codeRuns(text: string): { code: boolean; text: string }[] {
   return runs
 }
 
-/** A `my.ep0ch.sh/pub/p/<PIE-n|page|id>` address: the web form of a reference (the tailnet's published notes). */
-const WEB = 'https://my\\.ep0ch\\.sh/pub/p/([^\\s<>()\\[\\]?#]+)(?:[?#][^\\s<>()]*)?'
-const WEB_LINK = new RegExp(`^\\[([^\\]\\n]*)\\]\\(${WEB}\\)$`, 'i')
-const WEB_BARE = new RegExp(`^${WEB}$`, 'i')
+/** A `<origin>/pub/p/<PIE-n|page|id>` address: the web form of a reference (the web client's home outline). */
+const webPattern = (origin: string) => `${origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/pub/p/([^\\s<>()\\[\\]?#]+)(?:[?#][^\\s<>()]*)?`
+const webLink = (origin: string) => new RegExp(`^\\[([^\\]\\n]*)\\]\\(${webPattern(origin)}\\)$`, 'i')
+const webBare = (origin: string) => new RegExp(`^${webPattern(origin)}$`, 'i')
 
 /**
  * A `my.ep0ch.sh` address Claude wrote, bare or as `[label](url)`, as the same stand-in link a reference gets (labelled
  * by its label, else the Work ID, the page name or the note's title); null for any other link or URL, left as written.
  */
-function mirrored(piece: string, hrefs: Set<string>, titleOf: (id: string) => string | undefined): string | null {
+function mirrored(piece: string, hrefs: Set<string>, titleOf: (id: string) => string | undefined, web: WebLinks): string | null {
   const trimmed = /^(.*?)([.,;:!?]*)$/s.exec(piece)!
-  const given = WEB_LINK.exec(piece)
-  const bare = given ? null : WEB_BARE.exec(trimmed[1]!)
+  // my.ep0ch.sh's, and the web client's own when EP0CH_WEB_URL names another.
+  const origins = [...new Set([WEB_ORIGIN, web.origin])]
+  const given = origins.map(o => webLink(o).exec(piece)).find(Boolean) ?? null
+  const bare = given ? null : origins.map(o => webBare(o).exec(trimmed[1]!)).find(Boolean) ?? null
   const target = given?.[2] ?? bare?.[1]
   if (!target) return null
   let value: string
@@ -57,7 +84,8 @@ function mirrored(piece: string, hrefs: Set<string>, titleOf: (id: string) => st
   const [kind, id] = /^[A-Z][A-Z0-9]*-\d+$/.test(value) ? ['work', value]
     : new RegExp(`^${UUID}$`).test(value) ? ['block', value.toLowerCase()]
       : ['page', value]
-  const href = `${STAND_IN}${kind}/${encodeURIComponent(id)}`
+  // `/pub/p/…` names the web client's home outline, whatever outline this session is bound to: kept as written.
+  const href = webHref({ origin: web.origin }, id, undefined)
   hrefs.add(href)
   const label = (given?.[1]?.trim() || (kind === 'block' ? blockLabel(id, undefined, titleOf) : id)).replace(/[[\]\\]/g, '\\$&')
   return `[${label}](${href})${given ? '' : trimmed[2]}`
@@ -100,7 +128,7 @@ export type Linkified = {
  * `[[page]]`, `[[target|label]]`, `((uuid))`, `((uuid|label))` and bare Work
  * IDs with one of `prefixes`, rewritten as links outside protected ranges.
  */
-export function linkifyReferences(text: string, prefixes: readonly string[], titleOf: (id: string) => string | undefined = () => undefined, outlineOf: (id: string) => string | undefined = () => undefined): Linkified {
+export function linkifyReferences(text: string, prefixes: readonly string[], titleOf: (id: string) => string | undefined = () => undefined, outlineOf: (id: string) => string | undefined = () => undefined, web: WebLinks = { origin: WEB_ORIGIN }): Linkified {
   const hrefs = new Set<string>()
   const workIds = prefixes
     .filter(prefix => /^[A-Z][A-Z0-9]*$/.test(prefix))
@@ -113,15 +141,14 @@ export function linkifyReferences(text: string, prefixes: readonly string[], tit
     let out = '', at = 0;
     for (const ref of [...links, ...work].sort((a, b) => a.start - b.start)) {
       if (ref.kind === 'markdown') continue;
-      const kind = ref.kind === 'block' ? 'block' : ref.kind === 'page' ? 'page' : 'work';
       const authoredOutline = ref.kind === 'work' ? undefined : ref.outline;
       const address = ref.kind === 'block' ? `${authoredOutline ? authoredOutline + ':' : ''}${ref.blockId.toLowerCase()}` : '';
       const outline = authoredOutline ?? (ref.kind === 'block' ? outlineOf(address) : undefined);
-      const value = ref.kind === 'block' ? `${authoredOutline ? authoredOutline + ':' : ''}${ref.blockId.toLowerCase()}${ref.fragmentId ? '^' + ref.fragmentId : ''}`
-        : ref.kind === 'page' ? `${ref.displayAddress}${ref.fragmentId ? '^' + ref.fragmentId : ''}` : ref.value;
+      const value = ref.kind === 'block' ? `${ref.blockId.toLowerCase()}${ref.fragmentId ? '^' + ref.fragmentId : ''}`
+        : ref.kind === 'page' ? `${authoredOutline ? qualifiedReference(ref.displayAddress).target : ref.displayAddress}${ref.fragmentId ? '^' + ref.fragmentId : ''}` : ref.value;
       const label = (outline ? `${outline} · ` : '') + (ref.kind === 'block' ? ref.label ?? blockLabel(ref.blockId, ref.fragmentId, () => titleOf(address))
         : ref.kind === 'page' ? ref.label ?? qualifiedReference(ref.displayAddress).target : ref.value);
-      const href = `${STAND_IN}${kind}/${encodeURIComponent(value)}`;
+      const href = webHref(web, value, outline);
       hrefs.add(href);
       out += plain.slice(at, ref.start) + `[${label.replace(/[[\]\\]/g, '\\$&')}](${href})`;
       at = ref.end;
@@ -134,7 +161,7 @@ export function linkifyReferences(text: string, prefixes: readonly string[], tit
     if (run.code) { out += run.text; continue }
     let last = 0
     for (const match of run.text.matchAll(PROTECTED)) {
-      out += rewrite(run.text.slice(last, match.index)) + (mirrored(match[0], hrefs, titleOf) ?? match[0])
+      out += rewrite(run.text.slice(last, match.index)) + (mirrored(match[0], hrefs, titleOf, web) ?? match[0])
       last = match.index + match[0].length
     }
     out += rewrite(run.text.slice(last))
@@ -142,10 +169,31 @@ export function linkifyReferences(text: string, prefixes: readonly string[], tit
   return { text: out, hrefs: [...hrefs] }
 }
 
+/** A web client page's address, as `linkifyReferences` writes one: the outline it names, the target, its fragment. */
+const WEB_PAGE = /^https?:\/\/[^/\s]+\/pub\/(?:o\/([^/?#]+)\/)?p\/([^/?#]+)(?:#([A-Za-z0-9][\w-]{0,63}))?$/
+
 /**
- * The `pi-outliner://` URI a stand-in href names, or null for any other link.
+ * The `pi-outliner://` URI a reference's href names (its web page, or the old stand-in), or null for any other link.
+ * A page of another outline than the session's (`web.outline`) keeps its outline (`pi-outliner://block/<outline>:<id>`);
+ * `web.origin` (WEB_ORIGIN when left out) is the web client's.
  */
-export function outlinerUriOf(href: string): string | null {
+export function outlinerUriOf(href: string, web: Partial<WebLinks> = {}): string | null {
+  // Only the web client's own pages: another site's `/pub/p/…` is a link out.
+  const page = href.startsWith(`${web.origin ?? WEB_ORIGIN}/pub/`) ? WEB_PAGE.exec(href) : null
+  if (page) {
+    let outline: string | undefined, target: string, fragment: string | undefined
+    try {
+      outline = page[1] ? decodeURIComponent(page[1]) : undefined
+      target = decodeURIComponent(page[2]!)
+      fragment = page[3] ? decodeURIComponent(page[3]) : undefined
+    } catch { return null }
+    const elsewhere = outline && outline !== web.outline ? `${outline}:` : ''
+    const at = fragment ? `?fragment=${encodeURIComponent(fragment)}` : ''
+    if (new RegExp(`^${UUID}$`).test(target)) return `pi-outliner://block/${encodeURIComponent(elsewhere + target.toLowerCase())}${at}`
+    // Another outline's Work ID or page is opened by its qualified address there (`orchard:Bed plan`, `orchard:PIE-7`).
+    if (/^[A-Z][A-Z0-9]*-\d+$/.test(target) && !fragment && !elsewhere) return `pi-outliner://work/${target}`
+    return `pi-outliner://page/${encodeURIComponent(elsewhere + target)}${at}`
+  }
   if (!href.startsWith(STAND_IN)) return null
   const [kind, value, ...rest] = href.slice(STAND_IN.length).split('/')
   if (rest.length || !value || !['block', 'page', 'work'].includes(kind!)) return null

@@ -158,6 +158,10 @@ test("find by text, property, key, query and under", async () => {
   store.create("Carrot cake recipe");
   const text = await agent("find", { text: "carrot" });
   expect(text.json.blocks.length).toBeGreaterThanOrEqual(2);
+  // Words alone are the ranked search: it says how it was ranked (no Jev in a scratch host: text matches, said so).
+  expect(text.json.search).toMatchObject({ status: "unavailable", said: expect.stringContaining("text matches only") });
+  // Whatever the limit, words alone mean the ranked search (at most 30 rows).
+  expect((await agent("find", { text: "carrot", limit: 50 })).json.search).toBeDefined();
   expect((await agent("find", { property: "crop=leek" })).json.blocks.map((b: any) => b.title)).toEqual(["Leeks in bed two"]);
   expect((await agent("find", { hasKey: "crop" })).json.blocks).toHaveLength(2);
   expect((await agent("find", { query: "crop=carrot" })).json.blocks.map((b: any) => b.title)).toEqual(["Carrots in bed one"]);
@@ -1123,4 +1127,16 @@ test("the host replaces a section from its own component boundaries", async () =
   expect(updated.text).toBe("Plan\n\n## First\n\nReplacement.\n\n## Keep\n\nKeep this section.\n::");
   expect(updated.section).toEqual({ heading: "## First", previous: "::graph-stat\nunfinished" });
   expect(store.get(note.id)!.text).toBe(updated.text);
+});
+
+test("a read says who last wrote the note, not who made it: the person's tick on an agent's note reads as theirs (PIE-1386)", async () => {
+  const { store, agent } = await setup();
+  const made = await agent("create", { parent: "root", text: "Allow the gate? [needs::sysop: the gate]\n- [ ] allow this once\n- [ ] deny" });
+  expect((await agent("read", { ref: made.json.id })).json).toMatchObject({ author: "agent", actorId: "garden-agent" });
+  const note = store.get(made.json.id)!;
+  store.update(note.id, note.text.replace("- [ ] allow", "- [x] allow"), note.revision, { author: "user" });
+  const read = (await agent("read", { ref: made.json.id })).json;
+  expect(read.text).toContain("- [x] allow this once");
+  expect(read.author).toBe("user");
+  expect(read.actorId).toBeUndefined();
 });

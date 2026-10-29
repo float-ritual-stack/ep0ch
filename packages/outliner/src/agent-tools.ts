@@ -32,7 +32,7 @@ import { randomUUID } from "node:crypto";
 import { checkToolArgs, closest } from "@ep0ch/outline-core/tool-args";
 import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
 import { createBlockComment } from "./block-comments";
-import { matchFacts, resourceTextRevision } from "@ep0ch/outline-core/protocol";
+import { matchFacts, resourceTextRevision, type BlockRevisions } from "@ep0ch/outline-core/protocol";
 import { authoredResourceReferenceOccurrences, type AuthoredResourceReference } from "./resource-references";
 import { resourceCommentSource } from "./resource-comments";
 import type { ResourceDescription } from "./resources";
@@ -62,6 +62,8 @@ import type {
   BlockEditActivityPage,
   BlockReadCollection,
   BlockSearchQuery,
+  GotoSearchCollection,
+  SearchCertainty,
   MutationProvenance,
   ProjectedBlock,
   ResolvedBlockReferences,
@@ -419,6 +421,10 @@ export async function readBlock(
   else await markMore([{ id: block.id, text: "", revision: block.revision }]);
   const record = textRecord(block);
   const site = await readSiteOf(client, block);
+  // Who last wrote it (its current revision's edit), as `updated` says when: the block's own author is who made it.
+  // Only the entry for the revision read: a write that lands between the two reads never lends its author to older text.
+  const saved = (await client.request<BlockRevisions>({ action: "block.revisions", blockId: block.id, latest: true }).catch(() => undefined))?.revisions.find(r => r.revision === block.revision);
+  const writer = saved?.author ? { author: saved.author, ...(saved.actorId ? { actorId: saved.actorId } : {}) } : { author: block.author, ...(block.actorId ? { actorId: block.actorId } : {}) };
   return {
     ...resolved,
     title: blockDisplayTitle(block),
@@ -426,8 +432,7 @@ export async function readBlock(
     text: block.text,
     properties: record.properties,
     fields: record.fields,
-    author: block.author,
-    ...(block.actorId ? { actorId: block.actorId } : {}),
+    ...writer,
     updated: block.updatedAt,
     parentId: block.parentId,
     children,
@@ -509,7 +514,12 @@ function propertyScopeInput(value: string): PropertyQueryScope {
  * next (id, title, revision). `text`, `property`, `hasKey`, `query` and `under`
  * combine; `view` stands alone. `complete: false` means more matched than `limit`.
  */
-export async function findBlocks(client: AgentToolsClient, input: FindInput): Promise<{ blocks: FindRow[]; complete: boolean; total?: number }> {
+/** How sure a ranked find is (PIE-1198): the service's verdict and sentence, and Jev's "is it among these?". */
+export interface FindSearch { status: "ranked" | "lexical" | "unavailable"; verdict?: SearchCertainty["verdict"]; label?: string; said: string; exists?: number; deep?: GotoSearchCollection["semantic"]["deep"] }
+/** A words-only find is the ranked search: at most this many rows (tree.search's own cap). */
+const RANKED_FIND_LIMIT = 30;
+
+export async function findBlocks(client: AgentToolsClient, input: FindInput): Promise<{ blocks: (FindRow & { score?: number })[]; complete: boolean; total?: number; search?: FindSearch }> {
   const limit = boundedInteger(input.limit, "limit", 20, 1, 200);
   const given = (key: keyof FindInput) => typeof input[key] === "string" && (input[key] as string).trim() !== "";
   if (given("view")) {
@@ -528,6 +538,27 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
   }
   if (!["text", "property", "hasKey", "query"].some(key => given(key as keyof FindInput))) {
     throw new WorkToolRefusal("Give text, property, hasKey, query or view to find blocks by");
+  }
+  // Words alone are a search, not a filter: the service's ranked one (ep0ch find's, the door's), re-ordered by Jev, each
+  // row its Score and the answer how sure it is, so a weak top says "no strong match" instead of reading as the answer.
+  if (given("text") && !["property", "hasKey", "query", "under", "this", "propertyScope"].some(key => given(key as keyof FindInput)) && (input.machinery === undefined || input.machinery === "hide")) {
+    // Every candidate is ranked (as the door's / ranks them), then cut to what was asked: at most RANKED_FIND_LIMIT.
+    // Deep when the ranked hits hold no sure answer (PIE-1200): notes that never use the words are found by meaning.
+    const found = await client.request<GotoSearchCollection>({ action: "tree.search", query: input.text!, semantic: true, deep: true });
+    const shown = Math.min(limit, RANKED_FIND_LIMIT);
+    const ids = found.matches.slice(0, shown).map(m => m.block.id);
+    const read = await Promise.all(ids.map(blockId => client.request<Block | null>({ action: "get", blockId }).catch(() => null)));
+    const by = new Map(read.flatMap(b => b ? [[b.id, b] as const] : []));
+    const scores = new Map(found.matches.map(m => [m.block.id, m.score]));
+    const byMeaning = new Set(found.matches.flatMap(m => m.deep ? [m.block.id] : []));
+    const s = found.semantic;
+    const search: FindSearch = s.status === "ranked" && s.verdict ? { status: "ranked", verdict: s.verdict, ...(s.label ? { label: s.label } : {}), said: s.said ?? "", ...(s.exists !== undefined ? { exists: s.exists } : {}), ...(s.deep ? { deep: s.deep } : {}) }
+      : s.status === "ranked" ? { status: "ranked", said: "ranked by Jev over the text matches" }
+      : { status: s.status, said: `text matches only${s.message ? ` (${s.message})` : ""}` };
+    return {
+      blocks: ids.flatMap(id => { const b = by.get(id); if (!b) return []; const score = scores.get(id); return [{ ...findRow(b), ...(score !== undefined ? { score } : {}), ...(byMeaning.has(id) ? { byMeaning: true } : {}) }]; }),
+      complete: found.completeness.kind === "complete" && found.matches.length <= shown, search,
+    };
   }
   const filters: PropertyFilter[] = [];
   if (given("property")) filters.push(parsePropertyFilterClause(input.property!));
