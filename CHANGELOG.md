@@ -67,6 +67,17 @@ are its record. The outliner's entries from then are kept below, under
 - **Quieter recent activity:** notify's pull page carries `[machine::notify]`, so a chat's "what changed lately" leaves it out; extension pages stay in search and the bar.
 - **Run:** nothing beyond the usual `ep0ch install --apply`; pie's suggestions page adds its new table at the next review.
 
+### A new ticket's twin shows on its title, and `work try` points at pages (PIE-1258)
+
+- **On the title:** a new card in a roadmap lane asks for open work like it as soon as its title settles, before any
+  priority, arc or track: the composer's row says `looks like PIE-n … [attach here] [file new]`. Attaching needs no
+  chips; once the row has shown, ctrl+s with the chips files it new, never a second offer.
+- **Pressed early:** ctrl+s on a title alone says the twin first, not the missing chips.
+- **`ep0ch work try` opens pages too:** besides actions, it names the outline's pages and views to open, each with its
+  `screen.open` call: those that link the ticket first, then by words and by meaning (Jev). PIE-1388 and PIE-1252
+  now point at Jev's suggestions.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### Esc closes what's in front of you, never the Claude tile by mistake (PIE-1431, PIE-1428)
 
 - **Esc over a terminal you type in** (a terminal tile, the drawer's agent) closes the power bar or the menu over it,
