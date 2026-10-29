@@ -233,6 +233,9 @@ if (!prompt.includes("wrap each item in a callout") || !prompt.includes("- apple
 console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, message: "rewrote 2 items as callouts" }));`);
     writeFileSync(join(folder, "config.json"), JSON.stringify({ config: { answer: ["bun", model] } }));
     await app.loadExtensions(true);
+    // Esc keeps the keys in a float (PIE-1418): the float an earlier test's new note made still has them. Closed, as a
+    // person's x does, so this new note opens as a tab.
+    for (const f of (stage as any).describe().floats ?? []) await stage.dispatch.press("tile.close", {}, f.name);
     await (app as any).dispatch.press("note.new", { opens: "tab" });
     await until(() => [...stage.panes.values()].some(p => p.surface?.draft), "new draft");
     const r = [...stage.panes.values()].find(p => p.surface?.draft) as ReaderPane;
