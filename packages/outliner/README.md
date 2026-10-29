@@ -1367,14 +1367,19 @@ curl -sS -T orrery-site.zip 'https://my.ep0ch.sh/_upload/<token>/'
   like the Loki lease route, because the token is the credential. It takes a page, a zip, a tar, an image or a pdf up
   to `EP0CH_ARTIFACT_MAX_BYTES`, writes it whole into `<outlines>/.artifacts/inbox-remote/<id>/` (a folder the watcher
   also reads, so nothing flickers onto the laptop's synced inbox) and answers once the watcher has installed it:
-  `201 {name, version, title, card}`, `422 {reason}` for a refused file, or `202` if the check is still running after
+  `201 {name, version, kind, title, card}`, `422 {reason}` for a refused file, or `202` if the check is still running after
   `EP0CH_UPLOAD_WAIT_MS` (25 s). A zip needs no `Content-Type`; a phone's POST with no name is sniffed from its bytes.
 - **Archives** (the watcher, `src/artifact-archive.ts`, for the synced inbox too) follow the tar path's rules: no links,
   no `..` or absolute names, no encryption or Zip64, and caps on the entry count (`EP0CH_ARTIFACT_MAX_ENTRIES`) and the
   unpacked size, checked against the header's claim before anything is inflated and against what actually unpacks. One
   folder inside a zip is stripped so `index.html` lands at the root; `__MACOSX/` and `.DS_Store` are dropped. A refused
   archive waits in `inbox-remote/.failed/<id>/` with `reason.txt`.
-- **The card and the record.** After the install the watcher writes a card (`Title` then `[artifact::name]`) under today's
+- **A lone PDF** has no page to run, so compiling it writes one (`index.html`, PIE-1370): its first page
+  (`first-page.png`, drawn by poppler's `pdftoppm`; without it the page says so and names the install), fit to the width
+  and linking the file. A lone image needs none: the artifact host serves it as itself. A deck meant to be read belongs on the wall as a poster instead; the lease's
+  description says so.
+- **The card and the record.** After the install the watcher writes a card (`Title [arrival::new] [arrival-kind::…]
+  [sent-by::…]` then `[artifact::name]`) under today's
   note in the lease's outline (`pages.follow` on the day, the way the reader lease finds it), or under `?note=<page
   address>`, and a record line under the `artifact-uploads` page of `EP0CH_ARTIFACT_RECORDS`'s outline (default: the
   card's), stamped `[machine::upload]` so default searches leave it out. A host that is down does not undo the install;

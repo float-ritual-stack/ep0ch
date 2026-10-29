@@ -4,10 +4,10 @@ import { localMachineName } from "./machine-name";
 import { deployedArtifacts } from "./artifact-deploy";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, openSync, closeSync, readSync, writeSync, rmSync, fstatSync, realpathSync, constants, lstatSync, existsSync, cpSync, watch, type FSWatcher } from "node:fs";
 import { join, dirname, extname, basename, resolve } from "node:path";
-import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
+import { ArtifactCompiler, fileArtifactPage, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { artifactReference, type ArtifactInfo, type ArtifactReader, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { artifactKey, artifactPageUrl, grantPath } from "./artifact-grants";
-import { artifactEntryLimit, artifactLimit, DROP_FILE, DROP_RESULTS, remoteInbox, type DropMeta, type DropResult } from "./artifact-inbox";
+import { artifactEntryLimit, artifactLimit, DROP_FILE, DROP_RESULTS, remoteInbox, DROP_FILE_KINDS, type ArrivalKind, type DropMeta, type DropResult } from "./artifact-inbox";
 import { looksTar, looksZip, stripRoot, unzip } from "./artifact-archive";
 import { handOver, pageTitle } from "./artifact-handover";
 
@@ -40,6 +40,16 @@ function readArtifactInput(source: string, folder: boolean, ignoreHidden = false
   const paths = folder ? artifactFiles(source, ignoreHidden, { entries: 0, bytes: 0 }) : [basename(source)];
   if (!folder) checkArtifactSize(1, lstatSync(source).size);
   return Object.fromEntries(paths.map(path => [path, readFileSync(folder ? join(source, path) : source)]));
+}
+
+/** A PDF's first page, drawn beside it so its card shows something; the page's name in the artifact. */
+const FIRST_PAGE = "first-page.png";
+/** Draws `pdf`'s first page to `png` with poppler's pdftoppm: the picture's name, or why there is none. */
+async function firstPage(pdf: string, png: string): Promise<{ picture: string } | { missing: string }> {
+  try {
+    const run = Bun.spawn(["pdftoppm", "-png", "-f", "1", "-l", "1", "-singlefile", "-scale-to", "1600", pdf, png.replace(/\.png$/, "")], { stdout: "ignore", stderr: "ignore", timeout: 30_000 });
+    return await run.exited === 0 && existsSync(png) ? { picture: basename(png) } : { missing: "pdftoppm could not read this PDF." };
+  } catch { return { missing: "No first page: pdftoppm isn't installed here (sudo apt install poppler-utils, or brew install poppler)." }; }
 }
 
 function artifactHash(folder: string, files: string[]): string {
@@ -94,12 +104,18 @@ export class ArtifactStore {
     const generated = join(this.root, "generated", name);
     const index = join(folder, "index.html");
     if (existsSync(index) && (!existsSync(generated) || readFileSync(generated, "utf8") !== new Bun.CryptoHasher("sha256").update(readFileSync(index)).digest("hex"))) return;
-    const files = artifactFiles(folder).filter(p => p !== "index.html");
-    if (files.length !== 1 || !/\.(jsx|tsx|mermaid|mmd|md|markdown)$/i.test(files[0]!)) return;
-    const source = readFileSync(join(folder, files[0]!), "utf8");
+    const all = artifactFiles(folder).filter(p => p !== "index.html");
+    // A PDF's drawn first page sits beside it; any other file of that name is the sender's own.
+    const files = all.length === 2 && all.includes(FIRST_PAGE) && all.some(p => /\.pdf$/i.test(p)) ? all.filter(p => p !== FIRST_PAGE) : all;
+    if (files.length !== 1 || !/\.(jsx|tsx|mermaid|mmd|md|markdown|pdf)$/i.test(files[0]!)) return;
     const extension = extname(files[0]!).toLowerCase();
+    // A lone PDF has nothing to run: its page shows its first page and links the file (PIE-1370). A lone image needs
+    // none: the artifact server serves it as itself.
+    const file = extension === ".pdf" ? files[0]! : undefined;
+    const source = file ? "" : readFileSync(join(folder, files[0]!), "utf8");
     let html: string;
-    if (extension === ".mermaid" || extension === ".mmd") html = mermaidArtifactPage(name, source);
+    if (file) html = fileArtifactPage(file, file, lstatSync(join(folder, file)).size, await firstPage(join(folder, file), join(folder, FIRST_PAGE)));
+    else if (extension === ".mermaid" || extension === ".mmd") html = mermaidArtifactPage(name, source);
     else if (extension === ".md" || extension === ".markdown") {
       const { renderMarkdownHtml } = await import("./publish");
       html = `<!doctype html><meta charset="utf-8"><body>${renderMarkdownHtml(source)}</body>`;
@@ -109,7 +125,7 @@ export class ArtifactStore {
       // Direct puts preserve source even when it cannot compile.
       html = build.ok ? reactArtifactPage(name, build.script) : `<!doctype html><title>Artifact needs fixing</title><pre>${build.problems.join("\n").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`;
     }
-    if (readFileSync(join(folder, files[0]!), "utf8") !== source) return;
+    if (!file && readFileSync(join(folder, files[0]!), "utf8") !== source) return;
     if (!existsSync(join(folder, "index.html")) || readFileSync(join(folder, "index.html"), "utf8") !== html) {
       mkdirSync(dirname(generated), { recursive: true });
       writeFileSync(generated, new Bun.CryptoHasher("sha256").update(html).digest("hex"));
@@ -150,10 +166,10 @@ export class ArtifactStore {
     for (const name of readdirSync(inbox)) enqueue(name);
   }
   /** What a dropped entry holds, as the files to install: a folder, a zip or tar (opened under the archive rules), or one page or image. */
-  private readDrop(source: string, entry: string, explicit?: string): { name: string; files: Record<string, Buffer>; compile: boolean } {
+  private readDrop(source: string, entry: string, explicit?: string): { name: string; files: Record<string, Buffer>; compile: boolean; kind: ArrivalKind } {
     const stat = lstatSync(source), folder = stat.isDirectory();
     if (stat.isSymbolicLink() || (!folder && !stat.isFile())) throw new Error("Drop a regular file or folder, without links.");
-    if (folder) return { name: explicit ?? entry, files: readArtifactInput(source, true, true), compile: false };
+    if (folder) return { name: explicit ?? entry, files: readArtifactInput(source, true, true), compile: false, kind: "site" };
     const head = Buffer.alloc(512), fd = openSync(source, "r");
     try { readSync(fd, head, 0, 512, 0); } finally { closeSync(fd); }
     const extension = extname(entry).toLowerCase();
@@ -166,27 +182,28 @@ export class ArtifactStore {
       mkdirSync(stage);
       try { untar(source, stage); files = stripRoot(readArtifactInput(stage, true, true)); }
       finally { rmSync(stage, { recursive: true, force: true }); }
-    } else if (/\.(html|jsx|tsx|svg|mermaid|md|png|jpe?g|gif|webp|pdf)$/i.test(entry)) {
+    } else if (Object.hasOwn(DROP_FILE_KINDS, extension)) {
       files = readArtifactInput(source, false); compile = true;
     } else throw new Error("Unknown artifact kind; use html, jsx, tsx, svg, mermaid or md, a zip or tar of a built folder, or an image or pdf.");
     if (!Object.keys(files).length) throw new Error("The archive holds no files.");
-    if (explicit) return { name: explicit, files, compile };
+    const archive = looksZip(head) || looksTar(head) || extension === ".tar";
+    const kind: ArrivalKind = archive ? "site" : DROP_FILE_KINDS[extension]!;
+    if (explicit) return { name: explicit, files, compile, kind };
     // It names itself: a single page by its own title (a file called orrery.html with <title>ep0ch Orrery</title> is
     // ep0ch-orrery), an archive by its file name unless that says nothing (upload, index), then by its page's title.
     const stem = artifactSlug(basename(entry, extname(entry)));
     const page = files["index.html"] ?? Object.entries(files).find(([path]) => /\.html?$/i.test(path))?.[1];
     const titled = page ? artifactSlug(pageTitle(page.toString("utf8")) ?? "") : "";
-    const archive = looksZip(head) || looksTar(head) || extension === ".tar";
     const empty = ["", "index", "upload", "file", "untitled", "artifact"].includes(stem);
     const chosen = archive ? (empty ? titled : stem) : titled || (empty ? "" : stem);
-    return { name: chosen || `upload-${crypto.randomUUID().slice(0, 4)}`, files, compile };
+    return { name: chosen || `upload-${crypto.randomUUID().slice(0, 4)}`, files, compile, kind };
   }
   private async pickup(inbox: string, entry: string, current: () => boolean, remote = false) {
     const source = join(inbox, entry);
     let meta: DropMeta | undefined;
     try {
       if (remote) meta = JSON.parse(readFileSync(join(source, DROP_FILE), "utf8")) as DropMeta;
-      const { name, files, compile } = remote ? this.readDrop(join(source, "file", basename(meta!.filename)), basename(meta!.filename), meta!.name) : this.readDrop(source, entry);
+      const { name, files, compile, kind } = remote ? this.readDrop(join(source, "file", basename(meta!.filename)), basename(meta!.filename), meta!.name) : this.readDrop(source, entry);
       await this.put(name, files, { compile, rejectErrors: true });
       const version = await this.snapshot(name);
       appendFileSync(join(inbox, "receipts.log"), `${new Date().toISOString()}\t${name}\t${version.version}\t${version.url ?? ""}\n`);
@@ -194,9 +211,10 @@ export class ArtifactStore {
       if (!current()) return;
       if (meta) {
         const page = Object.hasOwn(files, "index.html") ? files["index.html"] : Object.entries(files).find(([path]) => /\.html?$/i.test(path))?.[1];
-        const title = page ? pageTitle(page.toString("utf8")) : undefined;
-        const told = await handOver(this.outlines, meta, { installed: { name, version: version.version, ...(title ? { title } : {}) } });
-        this.answer(inbox, meta.id, { ok: true, name, version: version.version, ...(title ? { title } : {}), ...told });
+        // A document or an image is titled by its file's name; a page by its <title>.
+        const title = page ? pageTitle(page.toString("utf8")) : kind === "document" || kind === "image" ? basename(meta.filename) : undefined;
+        const told = await handOver(this.outlines, meta, { installed: { name, version: version.version, kind, ...(title ? { title } : {}) } });
+        this.answer(inbox, meta.id, { ok: true, name, version: version.version, kind, ...(title ? { title } : {}), ...told });
       }
       rmSync(source, { recursive: true, force: true });
     } catch (error) {
@@ -406,7 +424,7 @@ export class ArtifactStore {
               const generated = join(this.root, "generated", name), index = join(live, "index.html");
               const generatedIndex = !Object.hasOwn(files, "index.html") && existsSync(generated) && existsSync(index)
                 && readFileSync(generated, "utf8") === new Bun.CryptoHasher("sha256").update(readFileSync(index)).digest("hex");
-              const paths = artifactFiles(live).filter(p => !(generatedIndex && p === "index.html"));
+              const paths = artifactFiles(live).filter(p => !(generatedIndex && (p === "index.html" || (p === FIRST_PAGE && !Object.hasOwn(files, FIRST_PAGE)))));
               if (aliases[path] === name && paths.length === Object.keys(files).length
                 && paths.every(p => files[p] !== undefined && readFileSync(join(live, p)).equals(files[p]!))) alreadyThere.push(entry);
               else collided.push({ entry, name });

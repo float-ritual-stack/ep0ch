@@ -443,6 +443,29 @@ export function reactArtifactPage(title: string, script: string): string {
 `;
 }
 
+/**
+ * The page for an artifact that is one PDF and nothing to run (PIE-1370): its first page fit to the width when one was
+ * drawn, else why not, and a link to the file itself. Dark first, like the React page.
+ */
+export function fileArtifactPage(title: string, file: string, bytes: number, drawn: { picture: string } | { missing: string }): string {
+  // A path relative to the page, each segment encoded, so `#`, `?` or a scheme-like name stays a file name.
+  const url = (path: string) => escapeHtml(`./${path.split("/").map(encodeURIComponent).join("/")}`);
+  const href = url(file), size = bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  // No <object> fallback: the artifact host's CSP blocks plugins, so a page without a picture says why instead.
+  const shown = "picture" in drawn ? `<a href="${href}"><img src="${url(drawn.picture)}" alt="${escapeHtml(`${title}, first page`)}"></a>`
+    : `<p class="file">${escapeHtml(drawn.missing)}</p>`;
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><title>${escapeHtml(title)}</title>
+<style>body{margin:0;padding:1rem;background:#111;color:#ddd;font:15px/1.5 system-ui,sans-serif}img{display:block;max-width:100%;height:auto;margin:0 auto}
+a{color:#7cd}p.file{text-align:center}</style>
+</head><body>
+${shown}
+<p class="file"><a href="${href}">${escapeHtml(file)}</a> · PDF, ${size}</p>
+</body></html>
+`;
+}
+
 /** A page that renders a mermaid diagram with mermaid from its CDN; the diagram source is text, not markup. */
 export function mermaidArtifactPage(title: string, diagram: string): string {
   return `<!doctype html>

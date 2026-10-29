@@ -762,7 +762,11 @@ To hand over a file you cannot put yourself (an attachment in claude.ai, somethi
 MCP `artifact_upload_lease {outline, name?}` (or `ep0ch artifact lease [<name>] --ws <outline>`) returns a `curl -sS -T <file>
 '<link>/'` for a code sandbox or shell to run where the file is: one upload, one hour, a page, zip or tar. Show it in a code
 block, never as a link, and never paste it elsewhere. The answer says what was installed or why it was refused (links, `..`
-paths and oversized archives are); a card for it lands in the outline's note for today. A phone sends with its own token
+paths and oversized archives are); a card for it lands in the outline's note for today. The card's title line says what
+arrived and who sent it, `[arrival::new] [arrival-kind::page|site|document|image] [sent-by::<who>]`: a tidy pass queries
+`arrival=new`, connects each one (links it from its thread, makes a deck a poster) and clears the chip. **A deck or a PDF
+meant to be read is not an artifact:** it goes on the wall as a poster (a note of its pages as images), not through a
+lease; one sent anyway lands as a document drawn by its first page. A phone sends with its own token
 (`ep0ch device add <name>`), which the person makes.
 See the outliner README's **Artifacts** section for import, limits and deployment.
 

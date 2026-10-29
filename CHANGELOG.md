@@ -44,6 +44,15 @@ are its record. The outliner's entries from then are kept below, under
 - **Your comment stays yours:** no agent text is written into it under your name. An `@name` line in a note still
   gets its answer under the line.
 
+### Every arrival is visible and connectable (PIE-1370)
+
+- **A PDF sent by lease shows its first page:** a lone PDF lands as a document whose page draws page 1 (poppler's
+  `pdftoppm`) and links the file, instead of an empty box. Without `pdftoppm` the page says so and names the install.
+- **The card says what arrived:** `[arrival::new] [arrival-kind::page|site|document|image] [sent-by::…]` on its title
+  line. A tidy pass queries `arrival=new`, connects each arrival and clears the chip.
+- **Decks go on the wall:** the lease's description (MCP, the drop page, the ep0ch-outline skill) says a deck or PDF
+  meant to be read becomes a poster, not an artifact.
+
 ### The drain runs on its own clock (PIE-1372)
 
 - **No cron by hand:** the repository's mod hands the deployer's session (loki's `.ep0ch`) the drain every 30

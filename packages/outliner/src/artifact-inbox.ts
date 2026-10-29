@@ -16,6 +16,18 @@ export const remoteInbox = (outlines: string, env: NodeJS.ProcessEnv = process.e
  * A drop is a folder `<inbox-remote>/<id>/` holding `drop.json` (this) and `file/<filename>`, renamed into place whole
  * so the watcher never sees half of it.
  */
+/**
+ * What an arrival is, as its card says (PIE-1370): a single page, a site (a folder, zip or tar), a document (a PDF,
+ * drawn by its first page) or an image.
+ */
+export type ArrivalKind = "page" | "site" | "document" | "image";
+
+/** The single files a drop may be, each with what it arrives as: one table, so the accept rule and the kind agree. */
+export const DROP_FILE_KINDS: Readonly<Record<string, ArrivalKind>> = {
+  ".html": "page", ".htm": "page", ".jsx": "page", ".tsx": "page", ".svg": "page", ".mermaid": "page", ".md": "page",
+  ".pdf": "document", ".png": "image", ".jpg": "image", ".jpeg": "image", ".gif": "image", ".webp": "image",
+};
+
 export interface DropMeta {
   id: string;
   /** What admitted it: a one-time lease, or a device's token. */
@@ -41,6 +53,8 @@ export interface DropResult {
   ok: boolean;
   name?: string;
   version?: number;
+  /** What arrived: a page, a site, a document or an image (PIE-1370). */
+  kind?: ArrivalKind;
   title?: string;
   /** Why it was refused (also in `.failed/<id>/reason.txt`). */
   reason?: string;

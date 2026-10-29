@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import type { UploadLease } from "@ep0ch/outline-core/protocol";
 import { ArtifactStore } from "../src/artifact-store";
+import { arrivalCard } from "../src/artifact-handover";
 import { OutlinerClient } from "../src/client";
 import { runDeviceCommand } from "../src/device-cli";
 import { OutlineHost } from "../src/outline-host";
@@ -107,7 +108,7 @@ test("a leased zip is unpacked, versioned, carded in today's note and recorded, 
   expect(existsSync(join(live("orrery"), "__MACOSX"))).toBe(false);
   // The card: today's note in the lease's outline, titled by the page, drawing the artifact.
   const cards = await childrenOf("garden", day());
-  expect(cards.map(card => card.text)).toContain("Moth Orrery\n[artifact::orrery]");
+  expect(cards.map(card => card.text)).toContain("Moth Orrery [arrival::new] [arrival-kind::site] [sent-by::you]\n[artifact::orrery]");
   // The record of the arrival, where records go (machinery, so default searches leave it out).
   const records = await childrenOf("garden", "artifact-uploads");
   expect(records).toHaveLength(1);
@@ -162,6 +163,66 @@ test("a lease with no name lets the page name itself, and an agent's lease makes
   expect((await childrenOf("ledger", "artifact-uploads"))[0]!.text).toContain("minted by fictional-agent/claude-code@test");
   // The garden's note for today was not touched.
   expect((await childrenOf("garden", day())).some(block => block.text.includes("ledger-lanterns"))).toBe(false);
+});
+
+/** A one-page PDF, written by hand: a page with one line of text, its offsets counted so readers take it as it is. */
+function onePagePdf(): Buffer {
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    "<< /Length 44 >>\nstream\nBT /F1 18 Tf 20 40 Td (Lantern deck) Tj ET\nendstream",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let body = "%PDF-1.4\n";
+  const offsets = objects.map((object, i) => { const at = body.length; body += `${i + 1} 0 obj\n${object}\nendobj\n`; return at; });
+  const xref = body.length;
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map(at => `${String(at).padStart(10, "0")} 00000 n \n`).join("")}`;
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(body, "latin1");
+}
+/** A 1×1 PNG. */
+const DOT_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+const hasPdftoppm = Bun.which("pdftoppm") !== null;
+
+test("a lone PDF arrives as a document: a page drawn by its first page and linking the file, and a card that says so (PIE-1370)", async () => {
+  const issued = await lease(undefined, "garden", { author: "agent", actorId: "fictional-agent/claude-code@test" });
+  const sent = await send(issued.url + "Lantern-Deck.pdf", onePagePdf());
+  const answer = await sent.json();
+  expect(sent.status, JSON.stringify(answer)).toBe(201);
+  expect(answer).toMatchObject({ ok: true, name: "lantern-deck", kind: "document", title: "Lantern-Deck.pdf" });
+  expect(answer.said).toContain("a document");
+  // It has a page now: the frame that was an empty box shows the first page and links the PDF.
+  const page = readFileSync(join(live("lantern-deck"), "index.html"), "utf8");
+  expect(page).toContain('href="./Lantern-Deck.pdf"');
+  if (hasPdftoppm) {
+    expect(readFileSync(join(live("lantern-deck"), "first-page.png")).subarray(1, 4).toString()).toBe("PNG");
+    expect(page).toContain('src="./first-page.png"');
+  } else expect(page).toContain("pdftoppm isn&#39;t installed here");
+  expect(existsSync(join(live("lantern-deck"), "Lantern-Deck.pdf"))).toBe(true);
+  // The card: what it is and who sent it on its title line, the artifact line under it as before.
+  const card = (await childrenOf("garden", day())).find(block => block.text.includes("[artifact::lantern-deck]"));
+  expect(card?.text).toBe("Lantern-Deck.pdf [arrival::new] [arrival-kind::document] [sent-by::fictional-agent/claude-code@test]\n[artifact::lantern-deck]");
+  // A tidy pass finds it by the chip, as a query, with nothing in a reader special-casing the key.
+  const open = await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "arrival=new AND arrival-kind=document" } as never });
+  expect(open.blocks.map(block => block.id)).toContain(card!.id);
+});
+
+test("a lone image arrives as an image, served as itself", async () => {
+  const sent = await send((await lease()).url + "moth.png", DOT_PNG);
+  const answer = await sent.json();
+  expect(sent.status, JSON.stringify(answer)).toBe(201);
+  expect(answer).toMatchObject({ name: "moth", kind: "image", title: "moth.png" });
+  expect(readdirSync(live("moth"))).toEqual(["moth.png"]);
+  expect((await childrenOf("garden", day())).map(block => block.text)).toContain("moth.png [arrival::new] [arrival-kind::image] [sent-by::you]\n[artifact::moth]");
+});
+
+test("a page titled like a block opener still makes a card whose properties and artifact line read", () => {
+  for (const title of ["~~~example", "::graph-stat", "---", "> quoted"]) {
+    const card = arrivalCard({ by: "you" }, { name: "odd", version: 1, kind: "page", title });
+    expect(card).toMatch(/^[\p{L}\p{N}]/u);
+    expect(card.split("\n")[1]).toBe("[artifact::odd]");
+  }
 });
 
 test("a link preview or an interrupted upload leaves the lease working; only a finished upload uses it", async () => {
@@ -289,11 +350,11 @@ test("a device token sends many files, to a note it names, until it is revoked, 
   const first = await fetch(aim("photo-page.html?name=night-page&note=field-notes"), { method: "POST", body: site("Night page"), headers: { host: HOST } });
   expect(first.status, await first.clone().text()).toBe(201);
   expect(await first.json()).toMatchObject({ name: "night-page", version: 1 });
-  expect((await childrenOf("garden", "field-notes")).map(card => card.text)).toContain("Night page\n[artifact::night-page]");
+  expect((await childrenOf("garden", "field-notes")).map(card => card.text)).toContain("Night page [arrival::new] [arrival-kind::page] [sent-by::Fictional Phone]\n[artifact::night-page]");
   // A second file with the same token, no note named: it goes under today's.
   const second = await fetch(aim("more.html?name=night-page-two"), { method: "POST", body: site("Night page two"), headers: { host: HOST } });
   expect(second.status).toBe(201);
-  expect((await childrenOf("garden", day())).map(card => card.text)).toContain("Night page two\n[artifact::night-page-two]");
+  expect((await childrenOf("garden", day())).map(card => card.text)).toContain("Night page two [arrival::new] [arrival-kind::page] [sent-by::Fictional Phone]\n[artifact::night-page-two]");
 
   lines.length = 0;
   expect(await runDeviceCommand(["ls"], io, env)).toBe(0);
