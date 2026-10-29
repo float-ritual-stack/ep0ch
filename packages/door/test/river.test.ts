@@ -584,7 +584,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     };
     // Closed, then opened again: its column has what was written.
     const a = await write("Mulch the rhubarb", "Straw, a hand deep.");
-    await mine("tile.close", {}, a.tile);
+    key(char("x"));                                               // x closes the float, as it closes a column
     await until(() => !(river as any).describe().floats?.some((f: any) => f.id === a.id), "its float closed");
     await mine("tile.focus", {}, lib());
     await fromBar("Mulch the rhubarb", a.id);
