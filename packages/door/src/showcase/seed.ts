@@ -1,4 +1,4 @@
-import { BUTTON_SEQUENCES } from "./seed/button-sequences";
+import { BUTTON_LOOKS, BUTTON_SEQUENCES } from "./seed/button-sequences";
 import { PICK_A_TILE } from "./seed/pick-a-tile";
 // The showcase outline (PIE-439): a fictional household's notes that exercise every shared door part.
 // Written through the service API (create, work-ids.configure, roadmap.items.create, properties.patch,
@@ -191,6 +191,7 @@ if (request.input.request === "describe the beds") {
   await make(notes.scripts.id, "Seed count [script::seed-count]\n```js\nreturn (await q('script')).blocks.length;\n```");
   await make(notes.scripts.id, "Beds table [script::beds-table] [mode::render]\n```js\nconst owner = (await resolve('this.owner')).values[0];\nreturn view.table({ columns: ['Owner', 'Week', 'Crop'], rows: [[owner, props.week[0], this.title]] });\n```");
   notes.buttonSequences = await make(notes.root.id, BUTTON_SEQUENCES);
+  notes.buttons = await make(notes.root.id, BUTTON_LOOKS);
   notes.pickATile = await make(notes.root.id, PICK_A_TILE);
   notes.scriptsInPlace = await make(notes.root.id, [
     `${SEED.scriptsInPlace} [owner::Sam] [crop::beans] [publish::public:scripts-in-place]`,

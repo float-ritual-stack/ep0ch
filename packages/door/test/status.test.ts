@@ -254,8 +254,9 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       app.flash("");
       const line = bar();
       expect(width(line)).toBe(80);
+      // The bar draws each pin as the button part does, one row high (PIE-1287).
       // Pins append after `- clock`, so they sit after it, on its side (a button sits where its line is).
-      expect(line).toMatch(/\d\d:\d\d │ Pin 1/);
+      expect(line).toMatch(/\d\d:\d\d │ \[Pin 1\]/);
       const result = await app.dispatch.act({ action: "status.bar.items" }, USER) as any;
       const shown = result.items.filter((i: any) => i.from !== undefined);
       const pins = shown.filter((i: any) => i.id.startsWith("button:"));
@@ -315,10 +316,10 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       await until(() => bar().includes("Collapse"), "the configured bar");
       app.flash("");
       const line = bar();
-      expect(line).toMatch(/ │ Fold │ /);
-      expect(line).not.toMatch(/\S(Fold|Collapse)/);
-      expect(line.trimEnd().endsWith("Collapse")).toBe(true);
-      expect(line).toMatch(/\d │ Collapse/);
+      expect(line).toMatch(/ │ \[Fold\] │ /);
+      expect(line).not.toMatch(/[^\s[](Fold|Collapse)/);
+      expect(line.trimEnd().endsWith("[Collapse]")).toBe(true);
+      expect(line).toMatch(/\d │ \[Collapse\]/);
       const ran: string[] = [];
       const stop = traceActions(a => ran.push(a.name));
       try {

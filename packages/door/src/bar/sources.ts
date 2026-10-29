@@ -26,7 +26,7 @@ import { actionLead, actionPage } from "../surface/action-page";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
-import { extensionList, scriptActions } from "../extensions";
+import { extensionList, extensionParts, PART_KINDS, scriptActions, type ExtensionEntry } from "../extensions";
 import { openActionForm } from "./form";
 import { settingsChip, settingsMarkdown, shownValue } from "../extension-settings";
 
@@ -395,6 +395,20 @@ const SCREENS: BarSource = {
 
 interface ExtRow { kind: "hub" | "page" | "install" | "remove" | "make" | "settings"; id: string; block?: string; demo?: "keep" | "remove"; notes?: number; about?: string; scripts?: { name: string; about: string }[] }
 
+/** A description's first sentence: what an extension says it is, at a glance. */
+const firstSentence = (text: string | undefined) => (text ?? "").replace(/\s+/g, " ").trim().match(/^.*?[.!?](?=\s|$)/)?.[0] ?? (text ?? "").trim();
+
+/** An installed extension as its preview reads it: its id and version, its state and settings, where it lives, its words, what it adds. */
+function extensionFacts(e: ExtensionEntry, then: string): string {
+  const parts = extensionParts(e);
+  return [
+    `**${e.name ?? e.id}** \`${e.id}\`${e.version !== undefined ? ` v${e.version}` : ""} · ${e.state}${e.settings ? ` · settings ${settingsChip(e.settings)}` : ""}`,
+    ...(e.error ? ["", `> [!warning] ${e.error}`] : []), "", e.description ?? "",
+    ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${p.kind.replace(/s$/, "")} **${p.name}**${p.about ? `: ${p.about}` : ""}`)] : []),
+    ...(e.directory ? ["", `\`${e.directory}\``] : []), "", then,
+  ].join("\n");
+}
+
 /**
  * The outline's extensions (the service's `extensions.list`, as the extension binding last read it): the Extensions hub,
  * each installed extension's page (its README, what it adds, its demo notes), the repo's extensions not installed (⏎
@@ -409,15 +423,17 @@ const EXTENSIONS: BarSource = {
     const l = extensionList();
     if (!l) return [];
     const rows: BarRow[] = [{ key: "make", label: "make your own", detail: "ep0ch-extend skill · ep0ch docs extensions", group: "make", data: { kind: "make", id: "" } satisfies ExtRow }];
-    if (l.hub) rows.push({ key: "hub", label: "Extensions", detail: "the hub: what's installed and what you can add", group: "installed", data: { kind: "hub", id: "", block: l.hub } satisfies ExtRow });
-    const installed = l.extensions.filter(e => e.state !== "shadowed");
-    for (const e of installed) {
-      const page = l.pages?.[e.id];
-      rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [`${e.id}${e.version !== undefined ? ` v${e.version}` : ""}`, e.state === "active" ? "" : e.state, e.settings ? settingsChip(e.settings) : "", e.description ?? ""].filter(Boolean).join(" · "), group: "installed", ...(page ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(page ? { block: page } : {}), about: e.description } satisfies ExtRow });
+    const installed = l.extensions.filter(e => e.state !== "shadowed"), all = installed.length + (l.available?.length ?? 0);
+    if (l.hub) rows.push({ key: "hub", label: "Extensions", detail: `the hub · ${installed.length} of ${all} installed`, group: "installed", data: { kind: "hub", id: "", block: l.hub } satisfies ExtRow });
+    // One line each, grouped by what it adds first (PIE-1284): the words are its own (its description's first sentence); the rest is the preview's.
+    const kindOf = (e: ExtensionEntry) => extensionParts(e, l)[0]?.kind ?? "actions";
+    for (const kind of PART_KINDS) {
+      const these = installed.filter(e => kindOf(e) === kind);
+      for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.settings ? settingsChip(e.settings) : "", firstSentence(e.description)].filter(Boolean).join(" · "), group: `${kind} · ${these.length}`, oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
     }
     // Its settings (PIE-1343): a row each, its chip first, ⏎ the form its configSchema draws.
     for (const e of installed) if (e.settings) rows.push({ key: `settings:${e.id}`, label: `settings ${e.name ?? e.id}`, detail: [settingsChip(e.settings), e.settings.file].join(" · "), group: "settings", data: { kind: "settings", id: e.id } satisfies ExtRow });
-    for (const a of l.available ?? []) rows.push({ key: `install:${a.id}`, label: `install ${a.name}`, detail: [`${a.id} v${a.version}`, ...(a.scripts ?? []).map(s => `adds the script ${s.name}: ${s.about}`), a.description ?? ""].filter(Boolean).join(" · "), group: "not installed", data: { kind: "install", id: a.id, about: a.description, scripts: a.scripts } satisfies ExtRow });
+    for (const a of l.available ?? []) rows.push({ key: `install:${a.id}`, label: `install ${a.name}`, detail: firstSentence(a.description), group: `not installed · ${l.available!.length}`, oneLine: true, data: { kind: "install", id: a.id, about: a.description, scripts: a.scripts } satisfies ExtRow });
     // Removing one is offered once its name is typed, both ways, so the demo notes never go by a stray ⏎.
     if (q.trim()) for (const e of installed) {
       const notes = l.demos?.[e.id] ?? 0, name = e.name ?? e.id;
@@ -425,7 +441,7 @@ const EXTENSIONS: BarSource = {
       for (const demo of ["keep", "remove"] as const) rows.push({ key: `remove:${e.id}:${demo}`, label: `remove ${name}${demo === "keep" ? `, keep its ${notes} demo ${notes === 1 ? "note" : "notes"}` : ` and its ${notes} demo ${notes === 1 ? "note" : "notes"}`}`, detail: e.id, group: "remove", data: { kind: "remove", id: e.id, demo, notes } satisfies ExtRow });
     }
     const typed = !!q.trim();
-    const hits = filtered(rows, q, r => [r.label, r.detail ?? ""]);
+    const hits = filtered(rows, q, r => [r.label, r.detail ?? "", (r.data as ExtRow).id]);
     return typed ? hits.map(({ group: _g, ...r }) => r) : hits;
   },
   preview(row) {
@@ -435,8 +451,15 @@ const EXTENSIONS: BarSource = {
       const e = extensionList()?.extensions.find(x => x.id === d.id && x.state !== "shadowed");
       return e?.settings ? { markdown: settingsMarkdown(e, e.settings) } : { lines: [`${d.id} has no settings now`] };
     }
+    if (d.kind === "page") {
+      const e = extensionList()?.extensions.find(x => x.id === d.id && x.state !== "shadowed");
+      if (e) return { markdown: extensionFacts(e, d.block ? "⏎ opens its page: its README, what it adds, its demo notes." : "Its page isn't written yet.") };
+    }
     if (d.block) return { note: d.block };
-    if (d.kind === "install") return { markdown: [`**${row.label.replace(/^install /, "")}** \`${d.id}\``, "", d.about ?? "", "", ...(d.scripts ?? []).map(s => `Adds the script **${s.name}**: ${s.about}`), "", "⏎ installs it for every outline this host serves (`ep0ch ext add " + d.id + "`): its page goes under the outline's Extensions hub, with its README, what it adds and its demo notes."].join("\n") };
+    if (d.kind === "install") {
+      const a = extensionList()?.available?.find(x => x.id === d.id);
+      return { markdown: [`**${row.label.replace(/^install /, "")}** \`${d.id}\`${a ? ` v${a.version}` : ""}`, "", d.about ?? "", "", ...(d.scripts ?? []).map(s => `Adds the script **${s.name}**: ${s.about}`), "", "⏎ installs it for every outline this host serves (`ep0ch ext add " + d.id + "`): its page goes under the outline's Extensions hub, with its README, what it adds and its demo notes."].join("\n") };
+    }
     if (d.kind === "remove") return { markdown: [`**${row.label}**`, "", !d.notes ? "Its folder goes, and its lines and actions stop working. Its page goes with it." : d.demo === "keep" ? "Its folder goes, and its lines and actions stop working. Its demo notes stay under its page." : "Its folder goes, and its demo notes go to Trash: the ones nobody changed (the rest are kept, and named). Trash can restore them.", "", `The same from a shell: \`ep0ch ext remove ${d.id}${d.demo === "remove" ? " --demo remove" : ""}\``].join("\n") };
     return { lines: [row.label, "", row.refused ?? ""] };
   },

@@ -1385,6 +1385,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "buttons", need: "see what a button does before pressing it: its tone, glyph and frame, and its state (running, done, failed, can't run now)", part: "the button part (src/surface/button.ts): outline-core button-call.ts reads glyph=, tone=, frame= and fill=; buttonRows draws them over the box glyph sets and theme roles, the press's state from runPress and scripts.ended, disabled from Dispatcher.refusedNow; the Overflow pass lights the one under the pointer (litText) or reads its why. The same part draws a script view's button, an output region's and a proposal's controls, a thread's controls, the empty screen's, the status bar's and a page's", files: "src/surface/button.ts, outline-core/src/button-call.ts, src/overflow.ts, src/surface/dispatch.ts (refusedNow), src/status-bar.ts, outliner/src/component-primitives.ts (buttonHtml)",
+    aside: "Point at a button: it lights. Press Sync now (a click, or [ ] to it and ⏎): ◐ while its script runs, ✓ for a few seconds after. Water fails and keeps ! with its words under the pointer until the next press. Turn the compost is dim: its action would be refused here, and the pointer reads why. act: button.press label=\"Sync now\" tile=notes does the same, attributed. tone= quiet, primary or danger; frame= none, box, round, heavy or double; fill=on a filled band",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · buttons", panes: [a, b], names: ["notes", "extra"] }, show, [[a, n.buttons], [b, n.shed]]);
+    },
+  },
+  {
     key: "status-bar", need: "keep a note's button on your status bar", part: "App's declared status items, StatusBarNote, outline-core button-call and button.press", files: "src/app.ts, src/status-bar.ts, src/surface/note.ts",
     aside: 'Right-click or alt+click an empty part of the bar, or ^K status bar: edit. The note orders built-ins with - <id> lines; leave one out to hide it. Append ::button{label="Collapse" act="tile.collapse tile=screen"}; alt= names an alternate action. A note button offers pin to status bar in its tile menu. status.bar.items describes the same actions the mouse presses. Missing or broken config keeps the default bar; malformed lines stay saved and are said in the message log.',
     stage(n, show) {
