@@ -47,7 +47,7 @@ import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { isSystemNote, systemNoteKind } from "./note-placement";
-import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { readSavedView } from "./saved-view-read";
 import { parseWorkId } from "./work-ids";
 import { refuseDroppedStructure, WorkToolRefusal, type WorkToolsClient } from "./work-tools";
@@ -120,17 +120,20 @@ function workIdOf(block: Block): string | undefined {
 // ─── Resolve ───────────────────────────────────────────────────────────────
 
 /**
- * The refs the link grammar names by itself, read here: a `pi-outliner://` link, a full id, or one whole `((id))`
- * with `^fragment` or another outline's name. Null for the rest, which `blocks.resolve` reads.
+ * The refs the link grammar names by itself, read here: a `pi-outliner://` link, a full id or `((id))`, and a
+ * `((…))` or `[[…]]` with an `^anchor` or another outline's name (links route those). Null for the rest, which
+ * `blocks.resolve` reads.
  */
 function linkTarget(text: string): OutlinerLinkTarget | null {
   if (text.startsWith("pi-outliner://")) return parseOutlinerLinkUri(text);
-  if (UUID.test(text)) return { kind: "block", value: text.toLowerCase() };
-  const references = blockReferenceOccurrences(text);
-  if (references.length !== 1 || references[0]!.start !== 0 || references[0]!.end !== text.length) return null;
-  const { outline, blockId, fragmentId } = references[0]!;
-  if (!outline && !fragmentId) return null;
-  return { kind: "block", value: outline ? `${outline}:${blockId}` : blockId, ...(fragmentId ? { fragmentId } : {}) };
+  const block = referencedBlock(text);
+  if (block && (block.outline || block.fragment || UUID.test(block.blockId))) {
+    return { kind: "block", value: block.outline ? `${block.outline}:${block.blockId}` : block.blockId.toLowerCase(), ...(block.fragment ? { fragmentId: block.fragment } : {}) };
+  }
+  const pages = pageAddressReferences(text).filter(page => !page.nested);
+  const page = pages.length === 1 && pages[0]!.start === 0 && pages[0]!.end === text.length ? pages[0]! : null;
+  if (!page || !(page.outline || page.fragmentId)) return null;
+  return { kind: "page", value: page.outline ? `${page.outline}:${page.displayAddress}` : page.displayAddress, ...(page.fragmentId ? { fragmentId: page.fragmentId } : {}) };
 }
 
 /** The id `blocks.resolve` reads `text` as (a note in Trash too, so it can be read and restored), or its refusal. */
@@ -1094,7 +1097,7 @@ async function commentOnResource(
 }
 
 function threadId(thread: string): string {
-  const id = (typeof thread === "string" ? thread.trim() : "").replace(/^\(\((.*)\)\)$/, "$1");
+  const id = typeof thread === "string" ? referencedBlock(thread)?.blockId ?? "" : "";
   if (!UUID.test(id)) throw new WorkToolRefusal("Name the thread by its id (outline_comment returns it)");
   return id.toLowerCase();
 }

@@ -609,7 +609,8 @@ test("references resolve through the service's one resolver: ((id^fragment)), [[
   expect(await resolve("GDN-001")).toMatchObject({ id: ticket.id });
   expect(await resolve("[[Seed Swap]]")).toMatchObject({ id: page.id });
   expect(await resolve("[[Seed Swap|the swap]]")).toMatchObject({ id: page.id });
-  expect(await resolve("[[Seed Swap^beans]]")).toMatchObject({ id: page.id });
+  expect(await resolve("[[Seed Swap^beans]]")).toMatchObject({ id: page.id, fragmentId: "beans" });
+  expect(await resolve(`((${page.id}))`)).toMatchObject({ id: page.id });
   expect(await resolve(`((${page.id.slice(0, 8)}^beans))`)).toMatchObject({ id: page.id, fragmentId: "beans" });
   expect((await resolve("seed swap notes")).error).toContain("titles aren't accepted");
   // A note in Trash still reads by Work ID or short id, marked, so it can be restored.
