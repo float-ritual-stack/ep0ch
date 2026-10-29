@@ -28,9 +28,32 @@ export const SHAPE_LIMITS = {
   proseAny: 40,
   /** A question for Evan belongs in the first lines; one below line `top` is buried. */
   top: 8,
+  /** A list item is one point; past this many (sentences, and clauses after `;` or a dash) it is points stacked in one bullet (PIE-1388). */
+  itemPoints: 2,
+  /** A list item past this many characters is a wall whatever its punctuation. */
+  itemChars: 240,
+  /** A note past this many lines (about a screen) is read by its headings: one with none is a wall of sections. */
+  screen: 40,
 } as const;
 
-export type ShapeRule = "title" | "wall" | "prose" | "callout-nesting" | "question";
+export type ShapeRule = "title" | "wall" | "stacked" | "prose" | "headings" | "count" | "callout-nesting" | "question" | "bare-id";
+
+/**
+ * Evan's rubric for a note an agent wrote (Oct 29), which every finding is filed under, code's and Jev's alike, so the
+ * suggestions page and the backfill count by it: dense prose; badly formatted (no headings past a screen, structure not
+ * shown as structure); the ask buried; the ask unclear; facts, decisions and investigation mixed; assumes today's
+ * context; argues instead of answering.
+ */
+export const RUBRIC = ["dense", "format", "buried", "unclear", "mixed", "context", "argues"] as const;
+export type Rubric = typeof RUBRIC[number];
+
+/** The rubric item each of code's rules measures. */
+export const RUBRIC_OF: Record<ShapeRule, Rubric> = {
+  title: "format", wall: "dense", stacked: "dense", prose: "format", headings: "format", count: "format", "callout-nesting": "format", question: "buried", "bare-id": "context",
+};
+
+/** One edit of a ready fix, as outline_patch takes it: the exact text seen, and what replaces it. */
+export interface ShapePatch { observed: string; replacement: string }
 
 export interface ShapeFinding {
   rule: ShapeRule;
@@ -38,10 +61,22 @@ export interface ShapeFinding {
   key: string;
   /** The smallest fix, as an instruction. */
   say: string;
+  /** The line it is about (1 is the first), when it is about one. */
+  line?: number;
+  /** The fix made, ready for outline_patch, when code can make it exactly; none when only the writer can. */
+  patch?: ShapePatch[];
 }
 
-/** `note`: a note or a block (the default); `comment`: a margin comment, which has no title and asks nothing of Evan. */
-export interface ShapeOptions { kind?: "note" | "comment" }
+/** A property value the outline holds, which a count typed in prose may be counting (`work-stage` = `queued`). */
+export interface ShapeFacet { key: string; value: string }
+
+/**
+ * `note`: a note or a block (the default); `comment`: a margin comment, which has no title and asks nothing of Evan.
+ * `facets`: the outline's property values, so a number typed before one is told to be a live count. `asks`: the lines
+ * (0-based) Jev judged to ask Evan something, used instead of the word heuristic when given; `titleIsContent`: Jev
+ * judged a short title with several clauses to be the content rather than its name.
+ */
+export interface ShapeOptions { kind?: "note" | "comment"; facets?: readonly ShapeFacet[]; asks?: ReadonlySet<number>; titleIsContent?: boolean }
 
 /** What every finding is listed under in a write's `warnings`: a gate on calling the write done, not a suggestion. */
 export const FIX_BEFORE_DONE = "fix before you call this done: ";
@@ -79,7 +114,7 @@ const RULE_LINE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$/;
 const PROPERTY_CHIP = /\[[\w-]+::[^\]]*\]/g;
 const CALLOUT_OPEN = /^\[![^\]]+\]/;
 
-interface Paragraph { line: number; text: string; lines: number; item: boolean }
+interface Paragraph { line: number; end: number; text: string; lines: number; item: boolean }
 
 /**
  * The prose units of a note: each run of plain lines, and each list item (with its continuation lines), in or out of a
@@ -95,7 +130,7 @@ function paragraphs(text: string, comment: boolean): Paragraph[] {
   const close = () => {
     // A `[key::value]` chip is a property, not prose: its value (a URL, a path) never makes a paragraph long.
     const text = open?.text.replace(PROPERTY_CHIP, " ").replace(/\s+/g, " ").trim();
-    if (open && text) out.push({ line: open.line, text, lines: open.lines, item: open.item });
+    if (open && text) out.push({ line: open.line, end: open.end, text, lines: open.lines, item: open.item });
     open = null;
   };
   lines.forEach((raw, i) => {
@@ -103,10 +138,10 @@ function paragraphs(text: string, comment: boolean): Paragraph[] {
     const { depth } = quoteDepth(raw);
     const content = stripQuotes(raw, depth).replace(/\r$/, "");
     if (!content.trim() || HEADING.test(content) || TABLE_ROW.test(content) || RULE_LINE.test(content) || CALLOUT_OPEN.test(content.trim())) { close(); return; }
-    if (LIST_ITEM.test(content)) { close(); open = { line: i, text: content.replace(LIST_ITEM, ""), lines: 1, depth, item: true }; return; }
-    if (open && open.depth === depth) { open.text += ` ${content.trim()}`; open.lines++; return; }
+    if (LIST_ITEM.test(content)) { close(); open = { line: i, end: i, text: content.replace(LIST_ITEM, ""), lines: 1, depth, item: true }; return; }
+    if (open && open.depth === depth) { open.text += ` ${content.trim()}`; open.lines++; open.end = i; return; }
     close();
-    open = { line: i, text: content.trim(), lines: 1, depth, item: false };
+    open = { line: i, end: i, text: content.trim(), lines: 1, depth, item: false };
   });
   close();
   return out;
@@ -118,23 +153,39 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
   const comment = o.kind === "comment";
   const lines = text.split("\n");
   const prose = paragraphs(text, comment);
+  const header = comment ? null : headerLine(text);
 
-  if (!comment) {
-    const title = headerLine(text).prose.trim();
-    if (title.length > SHAPE_LIMITS.title) {
+  if (header && header.line >= 0) {
+    const title = header.prose.trim();
+    const clauses = splitPoints(title).length;
+    if (title.length > SHAPE_LIMITS.title || (o.titleIsContent && clauses > 1)) {
+      const patch = titlePatch(lines[header.line]!, title);
       found.push({
-        rule: "title", key: "title",
-        say: `the title line is ${title.length} characters (keep it under ${SHAPE_LIMITS.title}): make it a short name, "${excerpt(title, 40)}", and move the rest under it`,
+        rule: "title", key: "title", line: header.line + 1,
+        say: title.length > SHAPE_LIMITS.title
+          ? `the title line is ${title.length} characters (keep it under ${SHAPE_LIMITS.title}): make it a short name, "${excerpt(title, 40)}", and move the rest under it`
+          : `the title line reads as the content, not its name ("${excerpt(title, 40)}"): give it a short subject and move the rest under it`,
+        ...(patch ? { patch } : {}),
       });
     }
   }
 
   for (const p of prose) {
     const sentences = sentenceCount(p.text);
-    if (sentences > SHAPE_LIMITS.sentences || p.text.length > SHAPE_LIMITS.paragraphChars) {
+    const points = p.item ? splitPoints(p.text) : [];
+    if (p.item && (points.length > SHAPE_LIMITS.itemPoints || p.text.length > SHAPE_LIMITS.itemChars)) {
+      const patch = stackedPatch(lines, p, points);
       found.push({
-        rule: "wall", key: `wall:${p.text.slice(0, 24)}…${p.text.slice(-24)}`,
+        rule: "stacked", key: `stacked:${p.text.slice(0, 24)}…${p.text.slice(-24)}`, line: p.line + 1,
+        say: `line ${p.line + 1} ("${excerpt(p.text, 32)}") stacks ${points.length} points in one item, ${p.text.length} characters: a bullet is one point; make each its own item${points.length > 1 ? " (the patch does)" : ""}, or a figure if they share fields`,
+        ...(patch ? { patch } : {}),
+      });
+    } else if (!p.item && (sentences > SHAPE_LIMITS.sentences || p.text.length > SHAPE_LIMITS.paragraphChars)) {
+      const patch = wallPatch(lines, p);
+      found.push({
+        rule: "wall", key: `wall:${p.text.slice(0, 24)}…${p.text.slice(-24)}`, line: p.line + 1,
         say: `line ${p.line + 1} ("${excerpt(p.text, 32)}") is ${sentences} sentences, ${p.text.length} characters: a paragraph is at most ${SHAPE_LIMITS.sentences} sentences; split it, or make it a list, a callout or a figure`,
+        ...(patch ? { patch } : {}),
       });
     }
   }
@@ -149,25 +200,205 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
       });
     }
 
+    const structure = noteStructure(lines);
+    const written = lines.filter((l, i) => structure[i] === -1 && l.trim()).length;
+    if (written > SHAPE_LIMITS.screen && !lines.some((l, i) => structure[i] === -1 && HEADING.test(stripQuotes(l, quoteDepth(l).depth)))) {
+      found.push({
+        rule: "headings", key: "headings",
+        say: `${written} lines and no heading: a note past a screen is read by its sections; put a "## " heading over each part (a heading-style band reads at a glance), with the conclusion first`,
+      });
+    }
+
     const callouts = calloutBlocks(lines);
     for (const inner of callouts) {
       if (callouts.some(outer => outer !== inner && outer.line < inner.line && inner.line < outer.end && outer.depth < inner.depth)) {
-        found.push({ rule: "callout-nesting", key: `nest:${excerpt(lines[inner.line]!, 40)}`, say: `the callout on line ${inner.line + 1} sits inside another callout: make it a heading, or close the outer one first` });
+        found.push({ rule: "callout-nesting", key: `nest:${excerpt(lines[inner.line]!, 40)}`, line: inner.line + 1, say: `the callout on line ${inner.line + 1} sits inside another callout: make it a heading, or close the outer one first` });
       }
     }
 
     if (!/\[needs::\s*sysop/i.test(text)) {
-      const structure = noteStructure(lines);
-      const buried = lines.findIndex((line, i) => i >= SHAPE_LIMITS.top && structure[i] === -1 && asksEvan(line));
+      const buried = lines.findIndex((line, i) => i >= SHAPE_LIMITS.top && structure[i] === -1 && (o.asks ? o.asks.has(i) : asksEvan(line)));
       if (buried >= 0) {
+        const patch = questionPatch(lines, buried, header?.line ?? 0);
         found.push({
-          rule: "question", key: `question:${excerpt(lines[buried]!, 40)}`,
+          rule: "question", key: `question:${excerpt(lines[buried]!, 40)}`, line: buried + 1,
           say: `line ${buried + 1} asks Evan something below the top ("${excerpt(lines[buried]!, 32)}"): put the question first as one "- [ ]" line and mark the note [needs::sysop: the decision]`,
+          ...(patch ? { patch } : {}),
         });
       }
     }
+
+    found.push(...bareIds(lines, structure, header?.line ?? -1));
+    if (o.facets?.length) found.push(...countFindings(lines, structure, header?.line ?? -1, o.facets));
   }
   return found;
+}
+
+// ── Points, and the ready patches ────────────────────────────────────────────
+
+const ABBREVIATION = /\b(?:e\.g|i\.e|etc|vs|approx|fig|no|cf|dr|mr|mrs|ms|prof|st|jr|sr)\./gi;
+
+/** `text` with what can't end a point (references, code, links, URLs, properties, abbreviations, decimals) blanked, the same length. */
+function masked(text: string): string {
+  const out = [...text];
+  const blank = (start: number, end: number) => { for (let i = start; i < end; i++) out[i] = "x"; };
+  for (const ref of blockReferenceOccurrences(text, [])) blank(ref.start, ref.end);
+  for (const re of [/\[[\w-]+::[^\]]*\]/g, /`[^`]*`/g, /\[\[[^\]]*\]\]|\[[^\]]*\]\([^)]*\)/g, /https?:\/\/\S*[^\s.,;:!?)]/g, ABBREVIATION, /\d\.\d/g]) {
+    for (const m of text.matchAll(re)) blank(m.index!, m.index! + m[0].length);
+  }
+  return out.join("");
+}
+
+/**
+ * The points one prose unit makes, in its own words: its sentences, and the clauses a `;` or a spaced dash joins. A
+ * bullet whose first words are a bold or colon lead (`**Board:** …`) keeps that lead on its first point.
+ */
+export function splitPoints(text: string): string[] {
+  const m = masked(text);
+  const cuts: { at: number; skip: number }[] = [];
+  for (const end of m.matchAll(/[.!?]+(?=\s+["'(\[*_`]*[\p{Lu}\d])/gu)) cuts.push({ at: end.index! + end[0].length, skip: 0 });
+  for (const semi of m.matchAll(/;\s+/g)) cuts.push({ at: semi.index! + 1, skip: 0 });
+  for (const dash of m.matchAll(/\s+(?:—|–|--)\s+/g)) cuts.push({ at: dash.index!, skip: dash[0].length });
+  cuts.sort((a, b) => a.at - b.at);
+  const out: string[] = [];
+  let from = 0;
+  for (const cut of cuts) {
+    const piece = text.slice(from, cut.at).trim();
+    if (piece) out.push(piece);
+    from = cut.at + cut.skip;
+  }
+  const rest = text.slice(from).trim();
+  if (rest) out.push(rest);
+  return out.length ? out : [text.trim()];
+}
+
+/** A unit's first line's lead-in (quote marks and indent) and, for an item, its marker. */
+function leadOf(line: string): { quote: string; indent: string; marker: string } {
+  const quote = /^(?:[ \t]*>[ \t]?)*/.exec(line)![0];
+  const rest = line.slice(quote.length);
+  const indent = /^[ \t]*/.exec(rest)![0];
+  const marker = /^(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?/.exec(rest.slice(indent.length))?.[0] ?? "";
+  return { quote, indent, marker };
+}
+
+const sourceOf = (lines: readonly string[], p: Paragraph) => lines.slice(p.line, p.end + 1).join("\n");
+
+/** A stacked item made into one item per point: a lead (`**Board:**`) keeps the item and its points nest under it. */
+function stackedPatch(lines: readonly string[], p: Paragraph, points: string[]): ShapePatch[] | undefined {
+  if (points.length < 2) return undefined;
+  const { quote, indent, marker } = leadOf(lines[p.line]!);
+  const bullet = /^\d/.test(marker) ? "- " : marker.replace(/\[[ xX]\][ \t]+/, "");
+  const lead = /^(\*\*[^*]{1,40}\*\*:?|[^\s:][^:]{0,38}:)\s+(.+)$/s.exec(points[0]!);
+  const rows = lead
+    ? [`${quote}${indent}${marker}${lead[1]}`, ...[lead[2]!, ...points.slice(1)].map(point => `${quote}${indent}  ${bullet}${point}`)]
+    : [`${quote}${indent}${marker}${points[0]}`, ...points.slice(1).map(point => `${quote}${indent}${bullet}${point}`)];
+  return [{ observed: sourceOf(lines, p), replacement: rows.join("\n") }];
+}
+
+/** A wall of sentences made into a list, one sentence a line. */
+function wallPatch(lines: readonly string[], p: Paragraph): ShapePatch[] | undefined {
+  const points = splitPoints(p.text);
+  if (points.length < 2) return undefined;
+  const { quote, indent } = leadOf(lines[p.line]!);
+  return [{ observed: sourceOf(lines, p), replacement: points.map(point => `${quote}${indent}- ${point}`).join("\n") }];
+}
+
+/** A title line cut at its first break under the limit (`: `, a dash, `. `, `, `): the name stays, the rest is the first paragraph. */
+function titlePatch(line: string, title: string): ShapePatch[] | undefined {
+  const at = line.indexOf(title);
+  if (at < 0) return undefined;
+  const cut = [...title.matchAll(/(?::|\.|,|;)\s+|\s+(?:—|–|--)\s+/g)].find(m => m.index! >= 8 && m.index! <= SHAPE_LIMITS.title);
+  if (!cut) return undefined;
+  const name = title.slice(0, cut.index!).trim(), rest = title.slice(cut.index! + cut[0].length).trim();
+  if (!rest) return undefined;
+  const after = line.slice(at + title.length);
+  return [{ observed: line, replacement: `${line.slice(0, at)}${name}${after}\n\n${rest[0]!.toUpperCase()}${rest.slice(1)}` }];
+}
+
+/** A buried question moved to the top, as one `- [ ]` under the title, and the note marked `[needs::sysop: …]`. */
+function questionPatch(lines: readonly string[], at: number, title: number): ShapePatch[] | undefined {
+  const line = lines[at]!;
+  if (lines.filter(l => l === line).length !== 1 || lines.filter(l => l === lines[title]).length !== 1 || at <= title) return undefined;
+  const words = line.replace(/^(?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])?[ \t]*(?:\[[ xX]\][ \t]*)?/, "").trim();
+  const decision = words.replace(/[\[\]]/g, "").slice(0, 60);
+  return [
+    { observed: `\n${line}`, replacement: "" },
+    { observed: lines[title]!, replacement: `${lines[title]!.trimEnd()} [needs::sysop: ${decision}]\n\n- [ ] ${words}` },
+  ];
+}
+
+/**
+ * A note's id typed bare in prose (`8a1c…` or a whole uuid), not as `((id))`: a reader without today's session can't
+ * follow it. The patch makes each a reference, which every reader draws as the note's title, linked.
+ */
+function bareIds(lines: readonly string[], structure: readonly number[], title: number): ShapeFinding[] {
+  const out: ShapeFinding[] = [];
+  lines.forEach((raw, i) => {
+    if (i === title || structure[i] !== -1) return;
+    const shown = [...raw];
+    for (const ref of blockReferenceOccurrences(raw, [])) for (let k = ref.start; k < ref.end; k++) shown[k] = " ";
+    for (const m of raw.matchAll(/\[[\w-]+::[^\]]*\]|`[^`]*`|https?:\/\/\S+|\[\[[^\]]*\]\]/g)) for (let k = m.index!; k < m.index! + m[0].length; k++) shown[k] = " ";
+    const ids = [...shown.join("").matchAll(/(?<![\w-])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\w-])/g)];
+    if (!ids.length) return;
+    let fixed = raw;
+    for (const m of [...ids].reverse()) fixed = `${fixed.slice(0, m.index!)}((${m[0]}))${fixed.slice(m.index! + m[0].length)}`;
+    out.push({
+      rule: "bare-id", key: `bare-id:${ids.map(m => m[0].slice(0, 8)).join(",")}`, line: i + 1,
+      say: `line ${i + 1} names a note by its bare id (${ids.map(m => m[0].slice(0, 8)).join(", ")}): write it as ((id)) so it reads as the note's title and opens it`,
+      ...(lines.filter(l => l === raw).length === 1 ? { patch: [{ observed: raw, replacement: fixed }] } : {}),
+    });
+  });
+  return out;
+}
+
+// ── Counts typed in prose ────────────────────────────────────────────────────
+
+const singular = (word: string) => word.toLowerCase().replace(/(?:ies)$/, "y").replace(/(?:ses|xes)$/, m => m.slice(0, -2)).replace(/(?<=[^s])s$/, "");
+
+/**
+ * A number typed before a property value the outline holds (`3 queued`, `14 roadmap items`): a count a query keeps
+ * true. Only values the outline has match, so `3 sentences` or `PR 912` never do; dates, versions and money don't
+ * either. The patch takes the number out of the sentence and puts a live `::graph-stat` after it, one tile per count.
+ */
+function countFindings(lines: readonly string[], structure: readonly number[], title: number, facets: readonly ShapeFacet[]): ShapeFinding[] {
+  const byWord = new Map<string, ShapeFacet>();
+  for (const f of facets) {
+    const value = f.value.trim().toLowerCase();
+    if (value.length < 3 || /^\d/.test(value) || /\s{2,}/.test(value)) continue;
+    for (const w of [value, singular(value), value.replace(/-/g, " "), singular(value.replace(/-/g, " "))]) if (!byWord.has(w)) byWord.set(w, f);
+  }
+  const out: ShapeFinding[] = [];
+  lines.forEach((raw, i) => {
+    if (i === title || structure[i] !== -1 || !raw.trim() || HEADING.test(raw) || TABLE_ROW.test(stripQuotes(raw, quoteDepth(raw).depth))) return;
+    const m = masked(raw);
+    const counts: { number: string; start: number; end: number; facet: ShapeFacet; words: string }[] = [];
+    for (const n of m.matchAll(/(?<![\w#$€£.\/:-])(\d{1,5})(?![\w.:\/%-]|\.\d)\s+((?:[\p{L}][\p{L}-]*\s+){0,2})/gu)) {
+      const after = raw.slice(n.index! + n[0].length);
+      const next = /^[\p{L}][\p{L}-]*(?:\s+[\p{L}][\p{L}-]*)?/u.exec(after)?.[0] ?? "";
+      const between = n[2]!.trim().split(/\s+/).filter(Boolean);
+      const candidates = [...between, ...next.split(/\s+/)].filter(Boolean);
+      // The value may be the word right after the number, or after one filler word (`2 in review`), one word or two (`roadmap items`).
+      for (let k = 0; k < Math.min(2, candidates.length); k++) {
+        const one = candidates[k]!.toLowerCase(), two = candidates[k + 1] ? `${one} ${candidates[k + 1]!.toLowerCase()}` : "";
+        const facet = (two && (byWord.get(two) ?? byWord.get(singular(two)))) || byWord.get(one) || byWord.get(singular(one));
+        if (facet) { counts.push({ number: n[1]!, start: n.index!, end: n.index! + n[1]!.length, facet, words: candidates.slice(0, k + (byWord.get(two) || byWord.get(singular(two)) ? 2 : 1)).join(" ") }); break; }
+      }
+    }
+    if (!counts.length) return;
+    const quote = /^(?:[ \t]*>[ \t]?)*/.exec(raw)![0];
+    const query = (f: ShapeFacet) => `${f.key}=${/^[\p{L}\p{N}_.\/-]+$/u.test(f.value) ? f.value : JSON.stringify(f.value)}`;
+    const said = counts.map(c => `"${c.number} ${c.words}" is ${query(c.facet)}`).join(", ");
+    let rewritten = raw;
+    for (const c of [...counts].reverse()) rewritten = rewritten.slice(0, c.start) + rewritten.slice(c.end).replace(/^\s+/, "");
+    const items = counts.map(c => `{ label: ${JSON.stringify(c.facet.value)}, query: ${JSON.stringify(query(c.facet))} }`).join(", ");
+    const unique = lines.filter(l => l === raw).length === 1;
+    out.push({
+      rule: "count", key: `count:${counts.map(c => query(c.facet)).join(",")}`, line: i + 1,
+      say: `line ${i + 1} types a count a query keeps true (${said}): a live ::graph-stat counts it, with query: ${query(counts[0]!.facet)}; drop the typed number`,
+      ...(unique && !quote ? { patch: [{ observed: raw, replacement: `${rewritten}\n\n::graph-stat\n---\nitems: [${items}]\n---\n::` }] } : {}),
+    });
+  });
+  return out;
 }
 
 /** A line that asks Evan: names him and has a question mark or a decision word. A heuristic until PIE-1251's judgment replaces it. */

@@ -16,7 +16,10 @@ import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRevisions } from "@ep0ch/outline-core/protocol";
 import type { RequestInput } from "./client";
+import { writeShape, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
+import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { figuresIn, type FigureFit, type FigureFitReading } from "./figure-fit";
+import { kitIn, sectionsOf, type ReviewReading, type WriteReview } from "./write-review";
 import { writeRecord, type RecordWho, type RecordWriter } from "./records";
 import type { AnnotationThread, Block, VisibleBlockCollection } from "./types";
 
@@ -40,7 +43,7 @@ export function writerOf(actorId: string): { writer: string; harness: string } {
 }
 
 /** The prompt revisions a reading was made with, as short names: `figure-fit.json:1a2b3c4d5e6f`. */
-export const promptRevOf = (reading?: FigureFitReading) => reading?.prompt.map(p => `${p.path.split("/").pop()}:${p.sha256.slice(0, 12)}`).join(" ") || "unknown";
+export const promptRevOf = (reading?: Pick<FigureFitReading, "prompt">) => reading?.prompt.map(p => `${p.path.split("/").pop()}:${p.sha256.slice(0, 12)}`).join(" ") || "unknown";
 
 /** A value written as a property chip: one line, with nothing that reads as a bracket or a `::` opener. */
 const chipValue = (v: string) => v.replace(/[\[\]\r\n]+/g, " ").replace(/:{2,}/g, ":").trim().slice(0, 200) || "none";
@@ -55,7 +58,7 @@ export interface SuggestionWrite {
   note: string;
   revision: number;
   actorId: string;
-  source: "write" | "sweep";
+  source: "write" | "sweep" | "backfill";
   /** The sweep's margin thread, when it left one. */
   thread?: string;
 }
@@ -72,6 +75,29 @@ export async function recordSuggestion(client: SuggestionClient, fit: FigureFit,
       model: reading?.model ?? "unknown", "prompt-rev": promptRevOf(reading), source: at.source, thread: at.thread ?? "none",
     }), JEV);
     await updateRun(client, day, { reading });
+  } catch { /* the write has landed; a record that can't be made is not its failure */ }
+}
+
+/**
+ * What a review told its writer, as facts (PIE-1388): a `suggestion` per new finding, code's and Jev's alike, with its
+ * rule, Evan's rubric item, the passage, what was said and whether a ready patch came with it; the day's run counts the
+ * review's tokens. A review with nothing new is a quiet ask on the run. Never throws.
+ */
+export async function recordReview(client: SuggestionClient, keep: Extract<SuggestionKeep, { kind: "reviewed" }>, now = new Date()): Promise<void> {
+  try {
+    const day = dayOf(now), told = keep.review.findings.filter(f => f.new);
+    for (const f of told) {
+      await writeRecord(board(client), "suggestion", clean({
+        day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), component: f.component ?? f.rule,
+        gate: "none", confidence: "none", callout: "none", model: keep.reading?.model ?? "none", "prompt-rev": keep.reading ? promptRevOf(keep.reading) : "none",
+        source: keep.at.source, thread: "none", rule: f.rule, rubric: f.rubric, key: f.key, line: String(f.line ?? 0), title: keep.title || "untitled",
+        passage: f.passage, said: f.say, verdict: keep.review.verdict, patch: f.patch ? "ready" : "none",
+      }), JEV);
+    }
+    const asked = keep.review.jev === "asked";
+    const unavailable = !asked && !/^(?:off|not asked)/.test(keep.review.jev);
+    if (keep.at.source === "backfill") return;
+    await updateRun(client, day, { ...(told.length ? {} : asked ? { quiet: 1 } : {}), ...(unavailable ? { unavailable: 1 } : {}), ...(keep.reading ? { reading: keep.reading } : {}) });
   } catch { /* the write has landed; a record that can't be made is not its failure */ }
 }
 
@@ -99,7 +125,7 @@ const chipNumber = (text: string, key: string) => Number(new RegExp(`\\[${key}::
  * outcome records of the day, never carried by hand; `quiet`, `unavailable` and tokens are the tally itself. The one
  * record that is rewritten, as a rate: a conflicting write loses a count rather than looping.
  */
-async function updateRun(client: SuggestionClient, day: string, change: { quiet?: number; unavailable?: number; reading?: FigureFitReading }): Promise<void> {
+async function updateRun(client: SuggestionClient, day: string, change: { quiet?: number; unavailable?: number; reading?: Pick<FigureFitReading, "model" | "prompt" | "usage"> }): Promise<void> {
   const find = async () => (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=jev-run experiment=${LIVE_EXPERIMENT} run=${day}`, machinery: "show", limit: 1 } })).blocks[0];
   let run = await find();
   if (!run) {
@@ -108,7 +134,7 @@ async function updateRun(client: SuggestionClient, day: string, change: { quiet?
     run = await find();
     if (!run) return;
   }
-  const suggested = (await countOf(client, `type=suggestion day=${day}`, "day"))[day] ?? 0;
+  const suggested = (await countOf(client, `type=suggestion day=${day} NOT source=backfill`, "day"))[day] ?? 0;
   const outcomes = await countOf(client, `type=suggestion-outcome day=${day}`, "outcome");
   const quiet = chipNumber(run.text, "quiet") + (change.quiet ?? 0);
   let text = run.text;
@@ -137,6 +163,36 @@ export interface OpenSuggestion {
   at: number;
   component: string;
   thread?: string;
+  /** A review's finding (PIE-1388): its rule, its key and its line; none for a figure-fit suggestion. */
+  rule?: string;
+  key?: string;
+  line?: number;
+}
+
+/** The values a count finding's key names (`count:work-stage=queued,…`), so its patch can be made again from the note as it was. */
+const facetsOfKey = (key: string): ShapeFacet[] => key.startsWith("count:") ? key.slice(6).split(",").flatMap(q => { const m = /^([^=]+)=(.*)$/.exec(q); return m ? [{ key: m[1]!, value: m[2]!.replace(/^"|"$/g, "") }] : []; }) : [];
+
+/**
+ * A review finding's verdict (PIE-1388): followed when a later write applied its ready patch (made again from the
+ * note as it was), or left the note without the problem (code's rules: the same key no longer found; a kit finding:
+ * the component drawn; Jev's judgments: the passage rewritten); ignored when the window closed with neither.
+ */
+function judgeFinding(
+  s: Pick<OpenSuggestion, "component" | "at" | "rule" | "key" | "line">, baseline: string,
+  window: readonly { revision: number; savedAt: string; text: string }[], schemas: readonly ComponentSchema[], closed: boolean,
+): { outcome: Outcome; because: string; patched?: boolean } | null {
+  const rule = s.rule!, key = s.key ?? "";
+  const facets = facetsOfKey(key);
+  const was = writeShape(baseline, { facets }).find(f => f.key === key);
+  const patch = rule === "kit" ? (() => { const section = sectionsOf(baseline).find(x => s.line !== undefined && x.line + 1 === s.line); const made = section ? figurePatch(section.text, s.component) : null; return made && "patch" in made ? made.patch : undefined; })() : was?.patch;
+  for (const w of window) {
+    if (patch?.length && patch.every(p => w.text.includes(p.replacement))) return { outcome: "followed", because: `revision ${w.revision} applied the ready patch`, patched: true };
+    const gone = rule === "kit" ? kitIn(w.text, schemas).has(s.component)
+      : was ? !writeShape(w.text, { facets }).some(f => f.key === key)
+      : (() => { const section = sectionsOf(baseline).find(x => s.line !== undefined && x.line + 1 === s.line); return !!section && !w.text.includes(section.text); })();
+    if (gone) return { outcome: "followed", because: rule === "kit" ? `revision ${w.revision} draws ${s.component}` : `revision ${w.revision} no longer has it` };
+  }
+  return closed ? { outcome: "ignored", because: `${window.length} later write${window.length === 1 ? "" : "s"} within a day left it as it was` } : null;
 }
 
 /**
@@ -150,14 +206,18 @@ export interface OpenSuggestion {
  * - ignored: it closed with neither.
  */
 export function judgeSuggestion(
-  s: Pick<OpenSuggestion, "component" | "at">,
+  s: Pick<OpenSuggestion, "component" | "at"> & Partial<Pick<OpenSuggestion, "rule" | "key" | "line">>,
   baseline: string,
   after: readonly { revision: number; savedAt: string; text: string }[],
   schemas: readonly ComponentSchema[],
   now: number,
   threadLifecycle?: string,
-): { outcome: Outcome; because: string } | null {
+): { outcome: Outcome; because: string; patched?: boolean } | null {
   if (threadLifecycle === "kept") return { outcome: "followed", because: "the margin thread was kept" };
+  if (s.rule) {
+    const window = after.filter(w => Date.parse(w.savedAt) - s.at <= FOLLOW_WITHIN_MS).slice(0, FOLLOW_WITHIN_WRITES);
+    return judgeFinding(s, baseline, window, schemas, window.length >= FOLLOW_WITHIN_WRITES || now - s.at > FOLLOW_WITHIN_MS);
+  }
   const schema = schemas.find(x => x.id === s.component);
   const suggested = (schema && blockNameOf(schema)) ?? s.component;
   const had = new Set(figuresIn(baseline, schemas));
@@ -181,13 +241,17 @@ async function read(client: SuggestionClient, where: string, limit = 1000): Prom
 
 const openOf = (suggestions: Block[], outcomes: Block[]): OpenSuggestion[] => {
   const settled = new Set(outcomes.map(o => propsOf(o.text).suggestion));
-  return suggestions.filter(b => !settled.has(b.id)).map(b => {
+  // A backfill's findings were never told to anyone: nothing to follow.
+  return suggestions.filter(b => !settled.has(b.id) && propsOf(b.text).source !== "backfill").map(b => {
     const p = propsOf(b.text);
-    return { id: b.id, note: p.note!, revision: Number(p.revision), at: Date.parse(b.createdAt), component: p.component!, ...(p.thread && p.thread !== "none" ? { thread: p.thread } : {}), writer: p.writer, harness: p.harness, day: p.day };
+    return {
+      id: b.id, note: p.note!, revision: Number(p.revision), at: Date.parse(b.createdAt), component: p.component!, ...(p.thread && p.thread !== "none" ? { thread: p.thread } : {}), writer: p.writer, harness: p.harness, day: p.day,
+      ...(p.rule ? { rule: p.rule, key: p.key, line: Number(p.line) || undefined, rubric: p.rubric, title: p.title, passage: p.passage, said: p.said } : {}),
+    };
   }).filter(s => s.note && Number.isFinite(s.revision) && s.component);
 };
 
-type OpenWithWho = OpenSuggestion & { writer?: string; harness?: string; day?: string };
+type OpenWithWho = OpenSuggestion & { writer?: string; harness?: string; day?: string; rubric?: string; title?: string; passage?: string; said?: string };
 
 /**
  * Settles what can be settled of one note's open suggestions against its revisions: a verdict from `judgeSuggestion`
@@ -222,6 +286,7 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
     if ((await read(client, `type=suggestion-outcome suggestion=${s.id}`, 1)).length) continue;
     await writeRecord(board(client), "suggestion-outcome", clean({
       day: s.day ?? dayOf(s.at), suggestion: s.id, note, outcome: verdict.outcome, component: s.component, writer: s.writer ?? "unknown", harness: s.harness ?? "unknown", because: verdict.because,
+      rule: s.rule ?? "figure-fit", rubric: s.rubric ?? "format", title: s.title ?? "none", passage: s.passage ?? "none", said: s.said ?? "none", patched: verdict.patched ? "yes" : "no",
     }), JEV);
     written++;
     await updateRun(client, s.day ?? dayOf(s.at), {}).catch(() => undefined);
@@ -257,6 +322,8 @@ export async function settleOpen(client: SuggestionClient, schemas: readonly Com
 export type SuggestionKeep =
   | { kind: "suggested"; fit: FigureFit; reading?: FigureFitReading; at: SuggestionWrite }
   | { kind: "quiet" | "unavailable"; reading?: FigureFitReading }
+  /** A write's review (PIE-1388): what it told the writer, kept as a suggestion per new finding. */
+  | { kind: "reviewed"; at: SuggestionWrite; title: string; review: WriteReview; reading?: ReviewReading }
   /** A note's open suggestions judged (after a write to it), or, with no note, every open one (the tidy sweep's). */
   | { kind: "settle"; note?: string };
 
@@ -265,6 +332,13 @@ export function readKeep(value: unknown): SuggestionKeep {
   const keep = value as Partial<SuggestionKeep> | null | undefined;
   const text = (v: unknown, what: string) => { if (typeof v !== "string" || !v) throw new Error(`suggestions.keep: ${what} is a non-empty string`); return v; };
   if (!keep || typeof keep !== "object") throw new Error("suggestions.keep needs keep: {kind: suggested | quiet | unavailable | settle, …}");
+  if (keep.kind === "reviewed") {
+    const { at, review } = keep as Extract<SuggestionKeep, { kind: "reviewed" }>;
+    if (!at || typeof at !== "object" || !Number.isInteger(at.revision) || !["write", "backfill"].includes(at.source)) throw new Error("suggestions.keep: a reviewed keep needs at: {note, revision, actorId, source: write | backfill}");
+    text(at.note, "at.note"); text(at.actorId, "at.actorId");
+    if (!review || !Array.isArray(review.findings) || (review.verdict !== "ship" && review.verdict !== "fix")) throw new Error("suggestions.keep: a reviewed keep needs review: {verdict: ship | fix, findings: […]}");
+    return keep as SuggestionKeep;
+  }
   if (keep.kind === "settle") return { kind: "settle", ...(keep.note === undefined ? {} : { note: text(keep.note, "note") }) };
   if (keep.kind === "quiet" || keep.kind === "unavailable") return { kind: keep.kind, ...(keep.reading ? { reading: keep.reading } : {}) };
   if (keep.kind === "suggested") {
@@ -274,7 +348,7 @@ export function readKeep(value: unknown): SuggestionKeep {
     text(at.note, "at.note"); text(at.actorId, "at.actorId");
     return { kind: "suggested", fit, ...(keep.reading ? { reading: keep.reading } : {}), at };
   }
-  throw new Error(`suggestions.keep: kind is suggested, quiet, unavailable or settle (got ${JSON.stringify((keep as { kind?: unknown }).kind)})`);
+  throw new Error(`suggestions.keep: kind is suggested, reviewed, quiet, unavailable or settle (got ${JSON.stringify((keep as { kind?: unknown }).kind)})`);
 }
 
 /**
@@ -289,6 +363,10 @@ export async function keepSuggestion(client: SuggestionClient, keep: SuggestionK
       await recordSuggestion(client, keep.fit, keep.reading, keep.at);
       // A write's suggestion also settles the day-old ones; the sweep settles once, before it starts.
       return keep.at.source === "write" ? settleOpen(client, schemas) : 0;
+    case "reviewed":
+      await recordReview(client, keep);
+      // The note's earlier findings are judged against this write, and a day-old one anywhere settles.
+      return keep.at.source === "write" ? (await settleNote(client, keep.at.note, schemas)) + (await settleOpen(client, schemas)) : 0;
     case "quiet":
     case "unavailable":
       await tallyAsk(client, keep.kind, keep.reading);
