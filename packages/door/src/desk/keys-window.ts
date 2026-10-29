@@ -418,8 +418,9 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
     args: { text: { type: "string", optional: true, about: "the words; left out, the window's own filter" }, limit: { type: "number", optional: true, about: "at most this many (default 40)" } },
     examples: [{ act: "keys.find text=\"tile.close\" tile=keys", does: "lists every key that closes a tile, and where" }],
     run({ text, limit }, { pane }) {
-      const p = paneOf(pane), all = p.all(), rows = listed(all).filter(b => matches(b, text ?? p.filter));
-      return { total: rows.length, bindings: rows.slice(0, limit ?? 40).map(b => ({ key: b.key, cap: b.cap, id: b.id, scope: b.scope, layer: b.layer, does: b.does, rebind: b.rebind, ...(b.yours ? { yours: true } : {}), ...(() => { const s = shadowsOf(b, all); return { takesFrom: s.under.map(u => u.id), takenBy: s.over.map(o => o.id), terminal: s.terminal ? "the program gets it" : "the door takes it" }; })() })) };
+      // Every binding, then the actions no key reaches (key "", unbound: true), so an agent finds those too.
+      const p = paneOf(pane), all = p.all(), rows = [...listed(all), ...listed(p.unbound())].filter(b => matches(b, text ?? p.filter));
+      return { total: rows.length, bindings: rows.slice(0, limit ?? 40).map(b => ({ key: b.key, cap: b.cap, id: b.id, scope: b.scope, layer: b.layer, does: b.does, rebind: b.rebind, ...(b.yours ? { yours: true } : {}), ...(!b.key ? { unbound: true } : {}), ...(() => { const s = shadowsOf(b, all); return { takesFrom: s.under.map(u => u.id), takenBy: s.over.map(o => o.id), terminal: s.terminal ? "the program gets it" : "the door takes it" }; })() })) };
     },
   }),
   "keys.run": def({
@@ -468,9 +469,9 @@ function save(p: KeysPane, b: Binding, to: string, desk: DeskApi): Record<string
   setKeys(b.id, keysAfter(p, b, to));
   p.record = null;
   const took = e.takes.map(t => t.id);
-  p.said = `${b.cap} → ${keyCaption(to)} for ${b.id}${took.length ? `; ${took.join(", ")} lost it` : ""} · ctrl+z undoes`;
+  p.said = `${b.cap || "no key"} → ${keyCaption(to)} for ${b.id}${took.length ? `; ${took.join(", ")} lost it` : ""} · ctrl+z undoes`;
   desk.redraw();
-  return { saved: true, id: b.id, from: b.cap, to: keyCaption(to), took, still: e.over.map(o => o.id), file: keymapPath() };
+  return { saved: true, id: b.id, from: b.cap || null, to: keyCaption(to), took, still: e.over.map(o => o.id), file: keymapPath() };
 }
 
 /** The keys window as a tile kind: one list, opened by the `keys` screen (`?`) or ^W o. */

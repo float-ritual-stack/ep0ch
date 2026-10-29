@@ -227,10 +227,13 @@ export function rebindEffects(b: Binding, key: string, all: readonly Binding[]):
   const there = all.filter(x => x.key === name && x.id !== b.id);
   // A key given to an action with none is pressed through the App's keymap layer, over the screens' own.
   const at = LAYERS.indexOf(!b.key || b.layer === "yours" ? "yours" : b.layer);
+  // A key given to an action with none takes it only from your other keymap entries (setKeys moves those); a built-in
+  // binding keeps it, under your keymap's layer, wherever the action can't run.
+  const takes = (x: Binding) => (b.key ? x.scope === b.scope : x.from === "yours");
   return {
-    takes: there.filter(x => x.scope === b.scope),
-    under: there.filter(x => x.scope !== b.scope && LAYERS.indexOf(x.layer) >= at),
-    over: there.filter(x => x.scope !== b.scope && LAYERS.indexOf(x.layer) < at),
+    takes: there.filter(takes),
+    under: there.filter(x => !takes(x) && (b.key ? x.scope !== b.scope : true) && LAYERS.indexOf(x.layer) >= at),
+    over: there.filter(x => !takes(x) && (b.key ? x.scope !== b.scope : true) && LAYERS.indexOf(x.layer) < at),
     problem: null,
   };
 }
