@@ -36,6 +36,22 @@ describe.skipIf(!outliner)("Back goes back in every tile, whichever tile changed
   };
   const backTitles = (name: string) => r(name).surface.describeHistory().back.map((s: any) => s.title ?? s);
 
+  /** Evan's layout, fresh: the detail on the hub, its links listed beside the preview. */
+  const build = async () => {
+    if (desk) { D().dispose(); app.pop(); }
+    desk = new Desk({ name: "evan", title: "evan", layout: { focus: "detail", root: { t: "split", dir: "column", weights: [0.5, 0.5], kids: [
+      leaf("reader", "detail", { mode: "held", note: n.hub.id, wires: [{ verb: "open", to: "preview" }, { verb: "select", to: "preview" }] }),
+      { t: "split", dir: "row", weights: [0.5, 0.5], kids: [
+        leaf("backlinks", "links", { source: "tile:detail", groups: "open", wires: [{ verb: "select", to: "preview" }, { verb: "open", to: "preview" }] }),
+        leaf("preview", "preview"),
+      ] },
+    ] } } } as any);
+    app.push(desk);
+    render();
+    await whole("detail", n.hub.id);
+    await until(() => L().target?.id === n.hub.id && !!L().data && L().rows().some((row: any) => row.kind === "backlink"), "the links tile lists the hub's links");
+  };
+
   beforeAll(async () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
     board = new SocketBoard(await scratch.start());
@@ -49,25 +65,51 @@ describe.skipIf(!outliner)("Back goes back in every tile, whichever tile changed
     const term = { info: { cols: 177, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.push(new MainMenu());
-    desk = new Desk({ name: "evan", title: "evan", layout: { focus: "detail", root: { t: "split", dir: "column", weights: [0.5, 0.5], kids: [
-      leaf("reader", "detail", { mode: "held", note: n.hub.id, wires: [{ verb: "open", to: "preview" }, { verb: "select", to: "preview" }] }),
-      { t: "split", dir: "row", weights: [0.5, 0.5], kids: [
-        leaf("backlinks", "links", { source: "tile:detail", groups: "open", wires: [{ verb: "select", to: "preview" }, { verb: "open", to: "preview" }] }),
-        leaf("preview", "preview"),
-      ] },
-    ] } } } as any);
-    app.push(desk);
-    render();
-    await whole("detail", n.hub.id);
-    await until(() => L().target?.id === n.hub.id && !!L().data && L().rows().some((row: any) => row.kind === "backlink"), "the links tile lists the hub's links");
+    await build();
   }, 30_000);
+  test("a walk through the list with j or k is one stop: Back goes to what the preview showed before it", async () => {
+    await build();
+    await mine("tile.focus", {}, "links");
+    await mine("list.pick", { n: rowOf(n.seeds.id) }, "links");
+    await whole("preview", n.seeds.id);
+    await Bun.sleep(1200);                                              // a pick, then a pause: the walk starts after it
+    const before = backTitles("preview").length;
+    for (let i = 0; i < 4; i++) { key({ kind: "char", ch: "k" } as Key); await Bun.sleep(80); }
+    await until(() => r("preview").msg?.id !== n.seeds.id, "the walk moved the preview");
+    expect(backTitles("preview")).toHaveLength(before + 1);
+    expect(backTitles("preview")[0]).toBe("Seed order");
+    await mine("back", {}, "preview");
+    await whole("preview", n.seeds.id);
+  }, 30_000);
+
+  test("giving the links tile the keys leaves the preview, and its forward, as they were", async () => {
+    await build();
+    await mine("tile.focus", {}, "links");
+    await mine("list.pick", { n: rowOf(n.seeds.id) }, "links");
+    await whole("preview", n.seeds.id);
+    await Bun.sleep(1200);
+    await mine("list.pick", { n: rowOf(n.rain.id) }, "links");
+    await whole("preview", n.rain.id);
+    await mine("tile.focus", {}, "preview");
+    await mine("back", {}, "preview");
+    await whole("preview", n.seeds.id);
+    // Tab (or a click) into the list: focus alone changes nothing it shows elsewhere.
+    await mine("tile.focus", {}, "links");
+    key({ kind: "tab" } as Key); key({ kind: "backtab" } as Key);
+    await Bun.sleep(300);
+    expect(r("preview").msg?.id).toBe(n.seeds.id);
+    expect(r("preview").surface.describeHistory().forward.map((s: any) => s.title)).toEqual(["Rain gauge"]);
+  }, 30_000);
+
   afterAll(async () => { D()?.dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   test("the preview changed from the links tile, from a link up top and after b: Back steps through each in order", async () => {
+    await build();
     // From the links tile: two backlinks picked, one after the other.
     await mine("tile.focus", {}, "links");
     await mine("list.pick", { n: rowOf(n.seeds.id) }, "links");
     await whole("preview", n.seeds.id);
+    await Bun.sleep(1200);                                              // two picks, not one walk
     await mine("list.pick", { n: rowOf(n.rain.id) }, "links");
     await whole("preview", n.rain.id);
     expect(backTitles("preview")).toEqual(["Seed order"]);

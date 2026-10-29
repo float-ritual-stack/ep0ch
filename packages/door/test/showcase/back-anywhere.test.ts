@@ -28,6 +28,7 @@ describe.skipIf(!outliner)("showcase: back anywhere (PIE-1426)", () => {
     await mine("tile.focus", {}, "links");
     await mine("list.pick", { n: rowOf(n.backSeeds.id) }, "links");
     await shows("preview", n.backSeeds.id);
+    await Bun.sleep(1200);                                              // two picks, not one walk
     await mine("list.pick", { n: rowOf(n.backRain.id) }, "links");
     await shows("preview", n.backRain.id);
     // A link opened up top: it lands in the preview.

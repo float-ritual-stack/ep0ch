@@ -360,14 +360,13 @@ export class BacklinksPane implements Pane {
     }, (e: Error) => { if (current()) { this.children = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
   }
 
-  /** The tile was given the keys: the selected source shows where its selection goes, as moving to it would. */
-  focused(desk: DeskApi, actor: Actor) {
-    if (this.data) this.showSelected(desk, actor);
-    else if (this.target) this.showOnLoad = actor;
-  }
-
-  /** Show the selected row's note (a group's header shows nothing). */
-  private showSelected(desk: DeskApi, actor: Actor) {
+  /**
+   * Show the selected row's note (a group's header shows nothing): when the selection changes (a step, a pick, `b`
+   * listing another note's links), never because the tile was given the keys (PIE-1426: a preview gone back stays).
+   * Asked before its rows are read, it shows once they are.
+   */
+  showSelected(desk: DeskApi, actor: Actor) {
+    if (!this.data) { if (this.target) this.showOnLoad = actor; return; }
     if (!isLinkEntry(this.rows()[this.sel])) return;
     void this.pick(this.sel, "show", desk, actor).catch(() => {});
   }

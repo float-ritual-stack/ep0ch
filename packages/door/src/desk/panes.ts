@@ -170,7 +170,7 @@ export interface DeskApi {
    * The person's backlinks (`b`): tile `p` lists the backlinks of `m` (else of the note the reader they read through
    * shows), following the reader that shows it; its dock slides open and their keys go to it.
    */
-  aimBacklinks?(p: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void> }, m: Msg | null, given?: ReaderPane, actor?: Actor): Promise<void>;
+  aimBacklinks?(p: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void>; showSelected?(desk: DeskApi, actor: Actor): void }, m: Msg | null, given?: ReaderPane, actor?: Actor): Promise<void>;
   /**
    * The links of reader `r`'s note (`b`, the note action `links`): the screen's links tile aims at it, or, on a
    * screen without one, a links tile opens below the reader with a preview following it. The person's keys go to
