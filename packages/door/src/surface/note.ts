@@ -328,7 +328,7 @@ export interface Zoom { start: number; end: number; line: number; kind: Fragment
 /** What the person (or an agent) chose for one live figure in a reader: its tab, its density. Never the note's text. */
 type FigureChoice = { tab?: string; density?: Density };
 /** How many places back (and forward) a reader keeps. */
-const HISTORY = 50;
+export const HISTORY = 50;
 
 /**
  * A reader's place and history as a layout file keeps them (PIE-643). `v` is this shape's version: a file of another
@@ -8143,9 +8143,10 @@ export class NoteSurface {
 
   /**
    * Run a navigation (a followed link, `u`, or a host opening a note into this reader on purpose: an agent's
-   * `open`, a card's ⏎ into a detail) so that, when it leaves this reader on another note, back comes here.
-   * A reader following a selection (the board's preview, a desk reader following the current note) isn't
-   * navigating, so the host shows it without this.
+   * `open`, a card's ⏎ into a detail, a selection wired to it: a links tile's pick, a preview's source, PIE-1426) so
+   * that, when it leaves this reader on another note, back comes here, whichever tile changed it (a wired preview is
+   * tracked whether it is held or follows). A desk reader following the current note isn't navigating, so the host
+   * shows it without this.
    */
   track<T>(open: () => T): T {
     const from = this.place();

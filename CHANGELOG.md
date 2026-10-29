@@ -10,6 +10,20 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Back goes back in every tile, whichever tile changed it (PIE-1426)
+
+- **A preview steps back through what it showed:** a pick in the links tile, a link opened up top into it, a source
+  tile's selection: each is a stop, so alt+← in the preview goes to the one before, in order.
+- **Browsing is one stop:** a run of j or k through a list is one stop, so Back goes to what the preview showed before
+  you started, not through every row you passed.
+- **Giving a list the keys changes nothing:** Tab or a click into the links tile (or a query tile) leaves its preview,
+  and the preview's forward, as they were (an empty preview still fills); a new selection still shows.
+- **The links tile goes back too:** after `b` (or its home moving) lists another note's links, alt+← (or `tile.travel
+  tile=links`) lists the one before; its hint says where back goes.
+- **One history a tile:** a reader's back and forward and the links tile's are one shape (`Pane.trail`), so the trail
+  lists either. The kitchen sink's "back anywhere" section is Evan's layout to try it in.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### The keys window and the trail are tiles you resize, dock and close; ⏎ runs a key; Conflicts are real (PIE-1425)
 
 - **`?` opens the keys window as a tile beside the one you're in** (below it when that one is narrow, so both keep
@@ -24,6 +38,7 @@ are its record. The outliner's entries from then are kept below, under
   recording"), never a fragment like "then macro.stop". The power bar's typed lines (`> share.list`) aren't listed as keys.
 - **The trail (alt+T, `≡ trail`) is a tile beside its reader too:** dock it to the side and it follows the reader as
   you walk; `⏎` or a click on a picked stop goes there, `esc` closes it. A screen without tiles still lists it over itself.
+
 ### Undo never takes back what's saved (PIE-1414)
 
 - **ctrl+z stops at the save:** in a note you opened again after saving, the first ctrl+z keeps the saved text and says "saved · ctrl+z again undoes past the save (revision N stays in its history)"; a second press after a pause goes past it. A held key never crosses a save, and an agent's undo never does.

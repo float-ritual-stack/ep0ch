@@ -372,16 +372,18 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.travel": def({
-    summary: "back (dir=back, the default) or forward in tile=<tile>'s flow: the person's keys go to the column it was opened from, or the one back last left; it widens only if it's covered, so the text comes back where it was. The person's keys only: an agent opens beside instead (open, link.follow)",
-    keys: [{ keys: "alt+← alt+b backspace", does: "back, in a river column" }, { via: "the mouse's back button" }, { keys: "click", does: "on ← back (back)" }, { keys: "alt+→ alt+f", does: "forward" }, { via: "the mouse's forward button" }, { keys: "click", does: "on forward → (forward)" }],
-    touches: "screen", replay: "safe", person: "back and forward in a flow move the person's keys between columns; an agent opens beside (open, link.follow) instead",
-    args: { dir: { type: "string", optional: true, choices: ["back", "forward"], about: "back or forward; default back" } },
+    summary: "back (dir=back, the default) or forward in tile=<tile>: in a flow, the person's keys go to the column it was opened from, or the one back last left (it widens only if it's covered, so the text comes back where it was); any other tile that keeps its own back and forward goes to what it showed before (PIE-1426: the links tile lists the note it listed before `b` or its home changed it). The person's: an agent goes back in a reader with back and forward, or opens beside (open, link.follow)",
+    keys: [{ keys: "alt+← alt+b backspace", does: "back, in a river column or the links tile" }, { via: "the mouse's back button" }, { keys: "click", does: "on ← back (back)" }, { keys: "alt+→ alt+f", does: "forward" }, { via: "the mouse's forward button" }, { keys: "click", does: "on forward → (forward)" }],
+    touches: "screen", replay: "safe", person: "back and forward in a flow move the person's keys between columns, and the links tile's are what the person is looking at; an agent opens beside (open, link.follow) instead",
+    args: { dir: { type: "string", optional: true, choices: ["back", "forward"], about: "back or forward; default back" }, steps: { type: "number", optional: true, about: "stops at once, outside a flow (as back steps= in a reader); default 1" } },
     examples: [
       { act: "tile.travel tile=card", does: "takes the person's keys back to the column this one was opened from" },
       { act: "tile.travel dir=forward tile=card", does: "takes the keys forward to the column back last left" },
+      { act: "tile.travel tile=links", does: "the links tile lists the note it listed before" },
     ],
-    run({ dir }, { d, reader }, actor) {
-      return d.travelTile(reader, dir === "forward" ? 1 : -1, actor);
+    run({ dir, steps }, { d, reader }, actor) {
+      if (steps !== undefined && (!Number.isInteger(steps) || steps < 1)) throw new ActionRefused("steps is a whole number from 1");
+      return d.travelTile(reader, dir === "forward" ? 1 : -1, actor, steps ?? 1);
     },
   }),
   "tile.hold": def({
