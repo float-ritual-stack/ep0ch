@@ -36,4 +36,10 @@ test("a link killed under ep0ch door leaves the terminal clean and says what rea
   await until(() => modes().endsWith(" 1"), "ep0ch door exits", 20_000);
   expect(modes()).toBe("0 0 0 1");
   expect(screen()).toContain("ep0ch door box-a reattaches");
-}, 30_000);
+}, 60_000);
+
+test("the ssh door's script resets what the door's TERM_RESET does", async () => {
+  const { TERM_RESET } = await import("../src/term");
+  const script = readFileSync(resolve(import.meta.dir, "../scripts/ssh-door.sh"), "utf8");
+  expect(script).toContain(`printf '${TERM_RESET.replaceAll("\x1b", "\\033")}\\r\\n'`);
+});

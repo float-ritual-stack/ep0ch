@@ -30,10 +30,10 @@ bun "$HOME/projects/ep0ch/packages/door/src/main.ts" --ws "$ws" --machine float-
 code=$?
 printf '%s door client exit %s%s (ws %s)\n' "$(date -Is)" "$code" "${hup:-}" "$ws" >>"$L"
 # A client that didn't end itself cleanly may leave the terminal in the door's modes: give it back (mouse, paste, the
-# Kitty keyboard, the alternate screen; the door's TERM_RESET) and say what reattaches. Over a dropped link nothing
+# Kitty keyboard, the alternate screen: the door's TERM_RESET, test/ssh-drop.test.ts keeps them the same) and say what reattaches. Over a dropped link nothing
 # arrives; `ep0ch door` on the client's side does it there (src/machine.ts).
 if [ "$code" -ne 0 ] && [ -t 1 ]; then
-  printf '\033[<u\033[?2004l\033[?1006l\033[?1003l\033[?1002l\033[?1000l\033[0m\033[?7h\033[?25h\033[?1049l\r\n'
+  printf '\033[<u\033[?2004l\033[?1006l\033[?1003l\033[?1002l\033[0m\033[?7h\033[?25h\033[?1049l\r\n'
   echo "ep0ch: the door ended (exit $code) · ssh ep0ch reattaches"
 fi
 exit $code
