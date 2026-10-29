@@ -3,6 +3,8 @@ import { DRAWN_PART, OSC8_ALL, OSC8_CLOSE } from "./hyperlink";
 import { headOf, pad, RESET, selected, tailFrom, visible, width } from "./style";
 
 // Marks carry only a reference; hidden values never travel through composed drawing strings.
+/** A cut-short value's or a button's mark opens with FULL_START (`\x1b[777;<selected>;<id>m`) and ends with FULL_END. */
+export const FULL_START = "\x1b[777;";
 export const FULL_END = "\x1b[778m";
 export const FULL_MARKERS = /\x1b\[(?:777;[01];\d+|778)m/g;
 interface Full { id: number; source: string; reveal?: string; lit?: string }
