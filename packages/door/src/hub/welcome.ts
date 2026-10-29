@@ -429,7 +429,7 @@ export class WelcomeList implements Pane {
       placements = drawn.placements;
       this.hits.push({ y0: r.row, y1: r.row + logo.rows.length - 1, from: drawn.x0, to: drawn.x0 + logo.width, action: "welcome.logo" });
     }
-    this.drawTabs(canvas, r.row + r.rows - 1, r.cols, !logo);
+    this.drawRail(canvas, r.row + r.rows - 1, r.cols, !logo);
     return placements;
   }
 
@@ -456,7 +456,7 @@ export class WelcomeList implements Pane {
    * The tabs, in the logos' own voice: `[= 1 Start here = 2 House rules = … 3 more =====]`. The one in the
    * detail is lit; each is a click target, the logo too (the next logo).
    */
-  private drawTabs(canvas: Canvas, row: number, cols: number, named: boolean) {
+  private drawRail(canvas: Canvas, row: number, cols: number, named: boolean) {
     const rail = (t: string) => fg(C.blue) + t + RESET, items = this.items ?? [], at = this.at;
     if (named) this.hits.push({ y0: row, y1: row, from: 2, to: 13, action: "welcome.logo" });
     const lead = rail("[=") + (named ? fg(C.white) + " e p 0 c h " + RESET + rail("=") : "") + " ";
