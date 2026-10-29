@@ -172,11 +172,12 @@ async function addressedRows(to: NonNullable<ReturnType<typeof addressOf>>, host
     const [r] = await host.ctx.board.resolveReferences(blockRefText(to.block!, "", outline ? { outline } : {}));
     if (r?.status === "resolved") m = await readNote(host.ctx, r.blockId, r.outline && r.outline !== own ? { outline: r.outline, ...(r.machine ? { machine: r.machine } : {}) } : at);
   }
-  if (!m || m.deleted) return [{ key: `address:${named}`, label: to.label ?? named!, exact: true, refused: `no note ${named} in ${where}`, detail: "the address you pasted" }];
+  if (!m || m.deleted) return [{ key: `address:${named}`, label: to.label ?? named!, exact: true, refused: `no note ${named} in ${where}` }];
   const there = m.address?.outline && m.address.outline !== own ? m.address : undefined;
   const c = there ? await outlineBoards(host.ctx).on(there) : null;
   const key = there ? formatEp0chBlockUri({ outline: there.outline, machine: there.machine ?? c!.machine ?? (await c!.board.info()).machine!, blockId: m.id }) : m.id;
-  return [{ ...noteRow(m), key, exact: true, detail: `${there ? `${there.outline} · ` : ""}${to.fragment ? `its line ^${to.fragment} · ` : ""}the note this address names`, note: { id: m.id, ...(there ? { outline: there.outline } : {}) }, data: { fragment: to.fragment } }];
+  const detail = [there?.outline, to.fragment ? `line ^${to.fragment}` : ""].filter(Boolean).join(" · ");
+  return [{ ...noteRow(m), key, exact: true, oneLine: true, ...(detail ? { detail, subtitle: undefined } : {}), note: { id: m.id, ...(there ? { outline: there.outline } : {}) }, data: { fragment: to.fragment } }];
 }
 
 const NOTES: BarSource = {

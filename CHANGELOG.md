@@ -14,8 +14,9 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Any address opens:** paste an id, `((id|label))`, another outline's `((outline:id|…))`, a line's `((id^anchor|…))`,
   an `ep0ch://` address or a note's web link into the power bar: that note is the first row, lit, and ⏎ opens it (a
-  line's at that line, another outline's in its own outline). A note that isn't there says so on the row. A web link
-  pasted into a note opens the note too, on the web client's own origin and in its `/pub/p/` form.
+  line's at that line, another outline's in its own outline). A note that isn't there says so on the row. In a note, a
+  reference opens as before, and a Markdown link to a note's web link now opens the note in its `/pub/p/` form and on
+  the web client's own origin too (a bare URL in a note isn't a link yet).
 - **The list holds still:** typing no longer empties the bar between keys; the rows stay until the next answer replaces them.
 - **The row menu by its digits:** alt+m (or a right-click) on a hit shows `1 copy note id`, `2 copy note reference`…;
   press the digit (alt+digit works too). The chips wrap onto a second row in a narrow tile instead of being cut.
