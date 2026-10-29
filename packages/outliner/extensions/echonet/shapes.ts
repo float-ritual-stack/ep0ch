@@ -9,6 +9,7 @@
 //   a copy       [from::<outline>@<machine>/<id>] …: never a message itself, so nothing bounces between nodes
 //   EchoNet's own  [type::nodelist], [type::toss], [type::echo-ledger], [type::echo-undeliverable]
 
+import { firstLineWithoutPropertyTokens } from "./link-grammar.js";
 /** A property as the service sends it: a wire block's `{ key, value }`, or a record's `{ key, values }` (`context.block`, outline-core's block record). */
 export interface Property { key: string; value?: string; values?: string[] }
 export interface Block {
@@ -113,8 +114,8 @@ export function areasIn(tagged: readonly Block[]): Map<string, AreaEntry> {
   return areas;
 }
 
-/** The first line without its properties: a note's title. */
-export const firstLine = (text: string) => text.split("\n", 1)[0]!.replace(/\s*\[[A-Za-z][\w.-]*::[^\]]*\]/g, "").trim();
+/** A note's title: outline-core's, through the bundled grammar. */
+export const firstLine = (text: string) => firstLineWithoutPropertyTokens(text) ?? "";
 
 /** `[key::value]` set on a note's first line: replaced where it is, else added at its end; `undefined` takes it out. */
 export function setHeaderProperty(text: string, key: string, value: string | undefined): string {

@@ -1,6 +1,7 @@
 // Structure: extract a passage into a child block, sort a list in a block, sort a block's children. A userland
 // extension: it reads the outline and writes through its own connection (outline.ts) as ext:structure, and imports
 // nothing from the outline's code.
+import { firstLineWithoutPropertyTokens } from "./link-grammar.js";
 import { outline } from "./outline";
 import { extractFrom, lineRange, sortListInText, sortSpec, compareKeys, propertyIn } from "./lists";
 
@@ -70,7 +71,7 @@ async function act() {
     try { spec = sortSpec(args); } catch (e) { return refuse((e as Error).message); }
     const kids = await outline<Block[]>({ action: "children", parentId: block.id });
     if (kids.length < 2) return say({ message: "nothing to sort: fewer than two children" });
-    const keyOf = (b: Block) => spec.by === "title" ? b.text.split("\n")[0]!.replace(/\[[A-Za-z][\w.-]*::[^\]]*\]/g, "").trim()
+    const keyOf = (b: Block) => spec.by === "title" ? firstLineWithoutPropertyTokens(b.text) ?? ""
       : spec.by === "created" ? b.createdAt : (b.properties.find((x) => x.key === spec.by)?.value ?? propertyIn(b.text.split("\n"), spec.by));
     if (!["title", "created"].includes(spec.by) && !kids.some((k) => keyOf(k) !== undefined)) {
       const keys = [...new Set(kids.flatMap((k) => k.properties.map((x) => x.key)))].sort();

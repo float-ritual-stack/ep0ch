@@ -7,16 +7,21 @@ import { linkTokenOf, parsePath } from "@ep0ch/outline-core/resolve-path";
 import { rulesFromBlocks } from "@ep0ch/outline-core/rules";
 import { sameReference } from "@ep0ch/outline-core/tool-args";
 import { sentenceCount } from "@ep0ch/outline-core/write-shape";
+import { noteTitleLine, firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
+import { titleLine } from "../src/board";
 import { viewIdOf } from "../src/mcp-query";
 
 // The outliner's and the mod's sites, loaded by path: the door's type check holds its own sources, so these are typed
 // here by what the test calls.
-const { bareBlockRef } = await import("../../outliner/src/pi-tool-args") as { bareBlockRef(ref: string): string };
-const mod = await import("../../claude-mod/hooks/tool-rows") as {
+const PI = "../../outliner/src/pi-tool-args", ROWS = "../../claude-mod/hooks/tool-rows", MOD_ARGS = "../../claude-mod/hooks/tool-args";
+const { bareBlockRef } = await import(PI) as { bareBlockRef(ref: string): string };
+const mod = await import(ROWS) as {
   blockIdOfRef(ref: string): string | null;
   targetOf(ref: unknown): { label: string; ref: string } | null;
 };
-const modArgs = await import("../../claude-mod/hooks/tool-args") as { sameReference(a: unknown, b: unknown): boolean };
+const modArgs = await import(MOD_ARGS) as { sameReference(a: unknown, b: unknown): boolean };
+const ECHONET = "../../outliner/extensions/echonet/shapes";
+const echonet = await import(ECHONET) as { firstLine(text: string): string };
 
 const ID = "3b8e6c21-5f4a-4d7b-9c02-a1e8d4f7b650";
 
@@ -61,8 +66,30 @@ describe("block-reference unwrapping: one answer, referencedBlock's", () => {
     expect(mod.blockIdOfRef("((dddddddd))")).toBeNull();
   });
 
+  test("a page link holding another is one link token, as the grammar counts brackets", () => {
+    expect(linkTokenOf("[[[[2026-10-06]] - notes]]")).toEqual({ token: "[[[[2026-10-06]] - notes]]", written: true });
+  });
+
   test("the mod reads a labelled page link by the bracket count", () => {
     expect(mod.targetOf("[[PIE-12|the plan]]")?.label).toBe("the plan");
     expect(mod.targetOf("[[[[2026-10-06]] - notes]]")?.label).toBe("2026-10-06 - notes");
+  });
+});
+
+// The extensions that read a title from raw text (intake, structure) call the same bundled function as EchoNet's
+// `firstLine`; their modules read stdin when loaded, so they are held by construction, not imported here.
+describe("a note's title: one answer, noteTitleLine's", () => {
+  const cases = [
+    { text: "status:: draft\nTitle line", title: "Title line", line: 1 },
+    { text: "Seed order - [a::1] - [b::2]\nbody", title: "Seed order", line: 0 },
+    { text: "Use `[k::v]` here [type::note]", title: "Use `[k::v]` here", line: 0 },
+    { text: "[type::note]\nbody", title: "body", line: 1 },
+  ];
+
+  test.each(cases)("$text is titled $title everywhere", ({ text, title, line }) => {
+    expect(noteTitleLine(text)).toEqual({ line, text: title });
+    expect(firstLineWithoutPropertyTokens(text)).toBe(title);
+    expect(titleLine(text)).toEqual({ line, text: title });
+    expect(echonet.firstLine(text)).toBe(title);
   });
 });

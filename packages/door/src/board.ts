@@ -1,11 +1,9 @@
 // What the door needs from the outline, independent of the wire protocol.
 import { headedTitle as titleWithWorkId } from "@ep0ch/outline-core/work-id-title";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
+import { noteTitleLine } from "@ep0ch/outline-core/property-parse";
 import { printable } from "./text";
 import { presentLinks, stripMarks } from "./refs";
-import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
-import { withoutHeaderDashes } from "@ep0ch/outline-core/header-line";
-import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
 import { prop } from "./props";
 
 import type { PropertyMatch } from "@ep0ch/outline-core/protocol";
@@ -94,16 +92,14 @@ export interface Board {
 }
 
 /**
- * Where a note's title comes from, as the service picks it (`firstLineWithoutPropertyTokens`): the first
- * line with text once its `[key::value]` tokens are taken out, skipping literal-region marker lines
- * (PIE-422). Inside a region a token is text, so it stays. `line` is -1 when no line has text. A mark's title is
- * its own words (outline-core's `markTitleLine`).
+ * Where a note's title comes from: outline-core's `noteTitleLine`, the service's own answer, cached. `line` is -1
+ * when no line has text.
  */
 export function titleLine(text: string): { line: number; text: string } {
   // A function of the text alone, asked for every row of every list each frame (a showcase load asks it ~10⁴ times): answered once per text.
   const known = TITLES.get(text);
   if (known) return { ...known };
-  const found = titleLineOf(text);
+  const found = noteTitleLine(text);
   if (kept.room(text)) TITLES.clear();
   TITLES.set(text, found);
   return { ...found };
@@ -122,22 +118,6 @@ const kept = {
     return false;
   },
 };
-function titleLineOf(text: string): { line: number; text: string } {
-  const mark = markTitleLine(text);
-  if (mark) return mark;
-  const lines = text.split("\n");
-  const lit = text.includes("<!--") ? literalLines(text) : null;
-  let first = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (lit?.markers.has(i)) continue;
-    const l = lines[i]!;
-    if (first < 0 && l.trim()) first = i;
-    // The first line is the header line: its chips' ` - ` separators go with them (outline-core's header-line.ts).
-    const t = (lit?.inside.has(i) ? l : withoutPropertyTokens(first === i ? withoutHeaderDashes(l) : l)).trim();
-    if (t) return { line: i, text: t };
-  }
-  return { line: first, text: "" };
-}
 /**
  * The lines after a note's title, for a digest (the river's cards, the desk's search preview): matched
  * literal-region markers hidden, each line saying whether it's inside a region, where `[key::value]` is text.
