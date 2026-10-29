@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The drain runs on its own clock (PIE-1372)
+
+- **No cron by hand:** the repository's mod hands the deployer's session (loki's `.ep0ch`) the drain every 30
+  minutes, the first a minute after it starts: merge what's ready, fill builder slots up to 3, the daily sweep while
+  Evan is offline, a build-log line per pick. `EP0CH_DRAIN=on|off` overrides.
+- **The deployer is found again:** the mod reads `.ep0ch/config.toml` (and the old `.ep0ch` file), so the freshness
+  sweep runs in the live checkout without `EP0CH_AGENT`.
+
 ### One tab strip for every tab set (PIE-1288)
 
 - **The power bar's scopes are actions:** alt+← alt+→ (alt+b alt+f), a prefix and a click on a scope run
