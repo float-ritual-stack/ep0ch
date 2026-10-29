@@ -110,7 +110,7 @@ interface Armed { action: "tune.resetlevel" | "tune.revert"; words: string; targ
 /** The label of the outline's layer a target writes (look.ts's layers): `global`, `tile detail`, `page`, `style lab`. */
 const layerLabel = (target: TuneTarget) => (target === "global" ? "global" : target.startsWith("page:") ? "page" : target.startsWith("instance:") ? "this tile" : target.startsWith("list:") ? "this list" : target.includes(":") ? target.replace(":", " ") : `style ${target}`);
 /** A hint's settings: the one it has green, the rest cyan, as Hints always drew them. */
-const HINT_LOOK = { on: fg(C.lgreen), off: fg(C.cyan), gap: " " };
+const hintLook = () => ({ on: fg(C.lgreen), off: fg(C.cyan), gap: " " });
 /** A strip row's tabs as the inspector's click targets on line `y`. */
 const controlsOf = (row: TabRow, y: number) => row.hits.map(h => ({ y, x: h.from, cols: h.to - h.from, action: h.action, args: h.args ?? {} }));
 /** The save level a source's target is, for the level picker: named styles are written "where it's set" (auto). */
@@ -276,7 +276,7 @@ export class TunePane implements Pane {
       lines.push(...rowLines(body, w).map(l => n === this.hintSel ? selectedRow(l, w, focused) : fg(C.grey) + l + RESET));
       lines.push(...rowLines(r.trigger, Math.max(1, w - 2)).map(l => "  " + fg(C.dark) + l + RESET));
       for (let row = start; row < lines.length; row++) hits.push({ y: row, x: 0, cols: w, action: "tune.hint.pick", args: { id: r.id } });
-      const settings = tabStrip(HINT_SETTINGS.map(to => ({ label: `[${to}]`, on: to === r.setting, hit: { action: "hints.set", args: { id: r.id, to } } })), { width: w, lead: "  ", style: HINT_LOOK });
+      const settings = tabStrip(HINT_SETTINGS.map(to => ({ label: `[${to}]`, on: to === r.setting, hit: { action: "hints.set", args: { id: r.id, to } } })), { width: w, lead: "  ", style: hintLook() });
       for (const row of settings) { hits.push(...controlsOf(row, lines.length)); lines.push(row.text); }
     });
     const section = this.sectionTabs(w), head = section.length + 1;

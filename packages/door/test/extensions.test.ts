@@ -72,7 +72,8 @@ describe("a component's view in the terminal", () => {
     const text = lines.map(plain);
     expect(text[0]).toBe("▌ Plot 4  [busy]");
     expect(text[1]).toBe("▌ two beds still to dig");
-    expect(text[2]).toMatch(/^ {2}Beds {2}6 of 8 +Rain {2}_▒░█$/);
+    // The one scale, zero to the largest (PIE-1291): 1 3 2 5 of 5.
+    expect(text[2]).toMatch(/^ {2}Beds {2}6 of 8 +Rain {2}░▒▒█$/);
     expect(text[3]).toMatch(/^ {2}Dug {2}█+░+ {2}6\/8/);
     // The checklist figure's drawing (PIE-1348): its box, two spaces, the words.
     expect(text.slice(4, 6)).toEqual(["  [x]  dig the leek bed", "  [ ]  net the brassicas"]);
