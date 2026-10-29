@@ -458,6 +458,33 @@ has the steps for a wake.
 - A host older than `list --facets` is one toast naming `ep0ch install --apply`; the check changes nothing until it
   can read.
 
+## Addressed mail: an @persona comment reaches its sessions (PIE-1404)
+
+A comment that says `@loki` (or `@daddy`, `@kitty`, any persona) on any note, written in the door, on a web page or
+by another agent, wakes every live session of that persona, and stays on its list until it answers. The capability is
+"Addressed mail" in pie (f9f2475c).
+
+- **Who:** any session that writes as a persona (the folder's `.ep0ch` `agent =`, or `EP0CH_AGENT`), on the settle
+  check's clock: 15 seconds after the start, then every `every` minutes (30; `EP0CH_SETTLE_TUNING`'s `every=`).
+- **What it asks** (`hooks/addressed.ts`, three reads, no scan and no thread limit): the comments naming `@<persona>`
+  (`list --query '((type=annotation AND annotation-status=open) OR type=annotation-reply) AND text~"@<persona>"'`),
+  the thread roots and notes they sit under (`read`), and every reply in those threads
+  (`type=annotation-reply AND (parent-annotation=… OR …)`). The `@name` matcher is outline-core's `mention.ts`, the
+  one the gateway's thread inbox uses: `@loki` is loki, `@loki-sr` isn't, and an `@loki` in the quoted passage isn't.
+- **An ask** is an open thread where a comment the persona didn't write names it, and no comment by the persona comes
+  after (from any client: `mcp:loki/claude.ai` and `loki/claude-code@float-2` are both loki). A reply from it, or the
+  thread resolved, takes it off the list; a later @ in the same thread puts it back.
+- **A wake** is one prompt, `Addressed to @loki: N open threads ask you …`, sent when an ask is new to this session
+  (or asked again): every open ask, the new first, Evan's first, each with who, when, the note, the thread id and the
+  words, then how to answer (`outline_reply`). What was told is kept in memory, so every session of the persona hears
+  each ask once, and a session that starts later hears what is still open at its first check. A wake that doesn't go
+  is tried again at the next check.
+- **Where:** the bound outline, and the outlines `settleOutlines` or `EP0CH_SETTLE_OUTLINES` name; with neither, pie
+  and gurgle on its machine when the bound outline is one of them. An outline that can't be read is one toast and is
+  left out of that check.
+- **Agents asking agents:** another agent's @ counts, so kitty can raise loki's traffic with loki. The wake says to
+  name another agent only when its answer is needed; a loop costs one wake per check at most.
+
 ## Workboard tools
 
 In a bound folder Claude also gets `work_create`, `work_stage`, `work_set`, `work_link`,

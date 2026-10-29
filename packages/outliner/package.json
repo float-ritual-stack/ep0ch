@@ -47,6 +47,8 @@
   "scripts": {
     "outliner": "bun run src/outliner.ts",
     "profile:tree": "bun run scripts/profile-tree.ts",
+    "bench:host": "bun run scripts/bench-host-fairness.ts",
+    "bench:stalls": "bun run scripts/bench-host-stalls.ts",
     "host": "bun run src/host-main.ts",
     "cli": "bun run src/cli.ts",
     "workflow": "bun run src/workflow-main.ts",

@@ -14,6 +14,41 @@ are its record. The outliner's entries from then are kept below, under
 
 - **One link, one tap:** open the Send to ep0ch page on my.ep0ch.sh on your iPhone, tap Add Shortcut, and "Send to ep0ch" is in your share sheet; a PDF or photo you share to it lands as a card in today's note. The Shortcut is signed and carries its own device link, so there is nothing to copy or edit.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
+### @loki in a comment reaches loki, and stays on its list until it answers (PIE-1404)
+
+- **Write `@loki …` (or `@daddy`, `@kitty`) in a comment on any note,** from the door, a web page on your phone or
+  another agent: that persona's live Claude sessions hear it within 30 minutes, with the note, the words and who
+  wrote it, yours first.
+- **It stays on the list** in every wake until the persona replies in the thread or the thread is resolved; a session
+  started later hears what's still open within a minute of starting.
+- Nothing to run: it ships with the Claude mod (`ep0ch install --apply`).
+### A bulk job never freezes the host: your door answers at once while thousands of records are written (PIE-1413)
+
+- **What you'll notice:** a write-review backfill, an import or an agent's bulk writes no longer stall the outline
+  host. The door's ping, a note read and a save answer in tens of milliseconds while it runs, and nothing catches up
+  in a rush when it stops. Measured on a private copy of pie (ping p95 / max / longest stall, ms):
+
+  | while | before | after |
+  |---|---|---|
+  | an ordinary day (clients re-reading after each write) | 1800 / 1911 / 1710 | 31 / 66 / 0 |
+  | a backfill writes its records | 5272 / 7004 / 4502 | 61 / 311 / 271 |
+  | an import writes notes | 7458 / 7458 / 2130 | 53 / 240 / 235 |
+  | after the import is stopped | 657 / 657 / 1224 | 23 / 111 / 0 |
+
+- **Faster jobs too:** the backfill finishes (297 notes' records in 43 s; before, 44 in two minutes), and an import
+  writes 1,503 notes in 8.5 s where it wrote 55 in a minute. A note read, a query and a save on an ordinary day went
+  from 1.8 s, 2.8 s and 56 ms (p95) to 41, 74 and 34 ms.
+- **Why it froze:** every write threw away the whole-outline graph (~200 ms to read again on pie), a job's own
+  requests ran back to back without letting anything in, each watch pass ran every watch at once, and the routing
+  rules, script sources and the waiting-on-you list were read again after every write.
+- **How it's fair now:** a write patches the graph; the service's own requests and each watch take a turn on the
+  loop; the next turn goes to whoever used the loop least lately; those lists are read only when what they read
+  changed. No job throttles itself and no client changes.
+- **What's left:** a single whole-outline read (a 200-row view, the backlinks of a busy hub) is still one turn of
+  0.2–0.4 s at pie's size, so a ping can wait that long once, never seconds.
+- **The harness:** `bun run bench:host` in packages/outliner measures it (ping p50, p95, p99, max and the longest
+  stall per phase); `scripts/box-test host-bench` runs it on float-box, and CONTRIBUTING's review checklist asks a
+  bulk or subscription change for its fan-out, its count at pie's size and that measured proof.
 
 ### A patch applied as written leaves nothing to fix, and a backfill rerun costs nothing twice (PIE-1402)
 
