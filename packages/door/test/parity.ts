@@ -18,7 +18,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { declaredKeys, hintKeys, keyName, traceActions, type ActionRun } from "../src/surface/actions";
+import { declaredKeys, hintKeys, keyName, keysText, traceActions, type ActionRun } from "../src/surface/actions";
 import { rewriteRequests, traceRequests, type RunRequest } from "../src/surface/dispatch";
 import { SHELL_ACTIONS, MENU_SCREENS, MainMenu, MessageReader, StatusMessages } from "../src/screens";
 import { DRAWER_ACTIONS } from "../src/drawer";
@@ -378,6 +378,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const keyed = (r: ActionRun) => r.touches !== "nothing" || !!r.keys;
   const tokens = (runs: ActionRun[]) => new Set(runs.flatMap(r => [...declaredKeys(r.keys)]));
   const named = (k: Key) => (k.kind === "mouse" ? `${k.action === "down" ? "click" : k.action}@${k.x},${k.y}` : keyName(k) ?? "?");
+  // A click after a click on the same cell is a double click when it comes within DOUBLE_MS (src/scroll.ts), which a
+  // second check's two can, by how fast the box builds the screen between them (boxd, PIE-1412): a "double-click" row names it.
+  const sameClick = (a: Key, b?: Key) => !!b && a.kind === "mouse" && b.kind === "mouse" && a.action === "down" && b.action === "down" && a.x === b.x && a.y === b.y && a.button === b.button;
   /** What the declared keys must name for this probe: the key's name, or for the mouse its gesture. */
   const declares = (t: Set<string>, k: Key, prefix?: Key) =>
     k.kind === "mouse" ? t.has(k.action === "wheel-up" || k.action === "wheel-down" ? "wheel" : "click") : t.has(keyName(k)!) || (!!prefix && t.has(`${keyName(prefix)} ${keyName(k)}`));
@@ -700,7 +703,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     try { await go(k2); } finally { stop(); timed(`${named(k1)} ${named(k2)}`, pressed); }
     const after = snap(mask);
     if (same(mid, after)) return null;
-    if (runs.length) return declares(tokens(runs), k2, k1) ? null : `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it`;
+    const doubled = sameClick(k2, k1) && runs.every(r => /\bdouble-click\b/.test(keysText(r.keys) ?? ""));
+    if (runs.length) return doubled || declares(tokens(runs), k2, k1) ? null : `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it`;
     if (after.holds && after.top === mid.top) return null;   // still typing, or another input state
     // Cancelled: the screen as it was before the state, built again now so rows that age ("3s ago") match.
     // A second boundary can fall between the two snaps: a mismatch is tried twice more from the start.
