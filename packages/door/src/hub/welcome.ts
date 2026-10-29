@@ -183,11 +183,11 @@ const WELCOME_LIST_KEYS: readonly ModeKey[] = keyTable("welcome", "the welcome s
   { key: "click", action: "welcome.select", label: "pick" },
   { key: "wheel", action: "welcome.select", label: "pick" },
   { key: "drag", action: "welcome.move", label: "reorder" },
-  ...["j", "down", "k", "up"].map(key => ({ key, action: "welcome.select", label: "pick", args: { by: ["j", "down"].includes(key) ? 1 : -1 } })),
-  { key: "home", action: "welcome.select", label: "first", args: { n: 1 } },
-  { key: "end", action: "welcome.select", label: "last", args: { last: true } },
+  ...["j", "down", "k", "up"].map(key => ({ key, action: "welcome.select", label: "pick", says: ["j", "down"].includes(key) ? "read the next welcome note" : "read the previous welcome note", args: { by: ["j", "down"].includes(key) ? 1 : -1 } })),
+  { key: "home", action: "welcome.select", label: "first", says: "read the first welcome note", args: { n: 1 } },
+  { key: "end", action: "welcome.select", label: "last", says: "read the last welcome note", args: { last: true } },
   { key: "enter", action: "welcome.select", label: "read", args: { read: true } },
-  ...["alt+up", "alt+down"].map(key => ({ key, action: "welcome.move", label: "reorder", args: { by: key === "alt+up" ? -1 : 1 } })),
+  ...["alt+up", "alt+down"].map(key => ({ key, action: "welcome.move", label: "reorder", says: key === "alt+up" ? "move this welcome note up the Welcome order" : "move this welcome note down the Welcome order", args: { by: key === "alt+up" ? -1 : 1 } })),
 ]);
 
 export class WelcomeList implements Pane {

@@ -22,6 +22,13 @@ are its record. The outliner's entries from then are kept below, under
 ### ctrl+z in a reader undoes that note's last change (PIE-1435)
 
 - **Your change first:** ctrl+z in a reader undoes its own last change (your edit, or an extension's or agent's write you can see), never a tile move you made somewhere else afterwards; the layout's undo gets the key only when the reader has nothing of its own. A trash newer than the reader's change still comes back first.
+### Back and forward keep your layout; the keys window speaks where you are (PIE-1426, PIE-1425)
+
+- **Your layout stays:** back or forward in a preview onto the note its detail shows (after `b`, say) shows it there; the preview no longer closes and the detail's wires stay.
+- **Narrow back row:** at 40 columns a reader's back row keeps `← back` and `forward →` whole, dropping the title first.
+- **The keys window where you are:** `?` in the river's Library opens on the river's keys (`in:river`), not a note's editing keys.
+- **Whole sentences:** every row reads as one ("give your keys to the column on the left", not "…, columns"; "close this tile", not "close tile=<tile>").
+- **At 40 columns:** the keys tile opens below, at the screen's width, instead of a 20-column strip beside.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
 
 ### Margin comments read as comments, and a quote lands where you are (PIE-1255, PIE-1184)

@@ -136,7 +136,12 @@ export function undoKeymap(): boolean {
 // ── tables: what matches is what's said ─────────────────────────────────────
 
 /** A row of a key table: a key and the action (with arguments) it runs. W_KEYS, ModeKey, HyperBinding and KeyBinding are. */
-export interface TableRow { readonly key: string; readonly action: string; readonly args?: Record<string, unknown>; readonly label?: string }
+/**
+ * A key table's row: its key, the action and arguments it runs, its `label` (the short word a hint row shows: `columns`,
+ * `wider`) and `says`, the whole sentence the keys window lists for it where the label alone would read as a fragment
+ * after the action's words (PIE-1425: "give your keys to the column on the left", not "…, columns").
+ */
+export interface TableRow { readonly key: string; readonly action: string; readonly args?: Record<string, unknown>; readonly label?: string; readonly says?: string }
 
 /**
  * Whether a table's row can be rebound by its binding's name: its other rows with that name are the same binding (the
@@ -276,14 +281,14 @@ export function moved(action: string, args: Record<string, unknown>, declared: K
 // ── the tables, by where they bind ──────────────────────────────────────────
 
 /** A key table as the keys window lists it: where its keys work (`scope`), what reads them, and the keymap prefix its keys take. */
-export interface KeyTable { readonly scope: string; readonly about: string; readonly rows: readonly TableRow[]; readonly prefix: string; /** A screen's own key map (its spec's): the screen layer. */ readonly screen?: true }
+export interface KeyTable { readonly scope: string; readonly about: string; readonly rows: readonly TableRow[]; readonly prefix: string; /** The action set whose place this table's keys are part of (the river column's, `river`): `in:<it>` in the keys window lists them too. */ readonly within?: string; /** A screen's own key map (its spec's): the screen layer. */ readonly screen?: true }
 const TABLES: KeyTable[] = [];
 /**
  * Say a key table (a mode's, the ^W keys, the hyper layer) where it's made, so the keys window lists it under its scope
  * and the App's keymap layer leaves its keys to it (the table reads the file itself, through `effective`). Returns the rows.
  */
-export function keyTable<R extends TableRow>(scope: string, about: string, rows: readonly R[], prefix = ""): readonly R[] {
-  TABLES.push({ scope, about, rows, prefix });
+export function keyTable<R extends TableRow>(scope: string, about: string, rows: readonly R[], prefix = "", within?: string): readonly R[] {
+  TABLES.push({ scope, about, rows, prefix, ...(within ? { within } : {}) });
   return rows;
 }
 /** Every key table said so far. */

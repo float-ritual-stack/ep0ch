@@ -25,6 +25,8 @@ export interface KeyBinding {
   key: string;
   action: string;
   label?: string;
+  /** The whole sentence the keys window lists for it (TableRow.says). */
+  says?: string;
   args?: Record<string, unknown>;
   /** The tile it runs in (by name); left out, the action's own default (the focused tile, or the one tile of its kind). */
   tile?: string;

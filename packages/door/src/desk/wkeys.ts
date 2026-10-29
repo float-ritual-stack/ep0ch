@@ -37,6 +37,8 @@ export interface WKey {
   how: WHow;
   /** A label where the action alone says too little (several keys run `tile.resize`). */
   label?: string;
+  /** The whole sentence the keys window lists for it (TableRow.says). */
+  says?: string;
   /** Stays in resize mode after it (the desk's sticky mode): the next resize keys need no ^W. */
   sticky?: true;
 }
@@ -58,10 +60,10 @@ const W_TABLE = [
   { key: "L", group: "focus & move", action: "layout.move", how: { k: "edge" }, label: "to the right edge" },
   { key: "s", group: "focus & move", action: "layout.swap", how: { k: "special" }, label: "swap with the next tile" },
 
-  { key: "<", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "row" }, "n"), label: "narrower", sticky: true },
-  { key: ">", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "row" }, "n"), label: "wider", sticky: true },
-  { key: "-", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "col" }, "n"), label: "shorter", sticky: true },
-  { key: "+", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "col" }, "n"), label: "taller", sticky: true },
+  { key: "<", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "row" }, "n"), label: "narrower", says: "make this tile narrower", sticky: true },
+  { key: ">", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "row" }, "n"), label: "wider", says: "make this tile wider", sticky: true },
+  { key: "-", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: -1, axis: "col" }, "n"), label: "shorter", says: "make this tile shorter", sticky: true },
+  { key: "+", group: "size & shape", action: "tile.resize", how: run("tile.resize", { by: 1, axis: "col" }, "n"), label: "taller", says: "make this tile taller", sticky: true },
   { key: "=", group: "size & shape", action: "layout.even", how: run("layout.even", {}, "-"), label: "even out every split", sticky: true },
   { key: "{", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "right" }) },
   { key: "}", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "left" }) },
