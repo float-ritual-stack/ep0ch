@@ -20,7 +20,7 @@ import type { DocEnv } from "./doc";
 import { printable, summarySegments, viewSummaryKeys, type Source, prop } from "./props";
 import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, MISSING_MARK, outlineChanged, drawShortId, type LinkTarget } from "./refs";
 import type { ChecklistStep, ProposalsBeside, SocketBoard, TransclusionNode } from "./socket";
-import { BOLD, C, drawEllipsized, fg, LINK_END, linkTag, pad, RESET, tint, UNBOLD } from "./style";
+import { BOLD, C, drawEllipsized, fg, LINK_END, linkTag, pad, RESET, tint, UNBOLD, width as cells } from "./style";
 import { themed } from "./theme";
 import { readView, type ViewRead } from "./views";
 import { buttonText } from "./surface/button";
@@ -267,7 +267,7 @@ export const proposalOps = (m: Pick<Msg, "properties">) => PROPOSAL_OPS.filter(o
 export function proposalControls(m: Msg, sink: LinkTarget[] | undefined): string {
   return proposalOps(m).map(op => " " + buttonText(op, { tone: op === "apply" ? "primary" : "quiet" }, t => tagged(sink, { block: m.id, role: "control", proposal: { id: m.id, op } }, t))).join("");
 }
-const controlsWidth = (m: Msg) => proposalOps(m).reduce((n, op) => n + op.length + 3, 0);
+const controlsWidth = (m: Msg) => cells(proposalControls(m, undefined));
 
 /**
  * The embed's source line: a dim, clickable "» note" (a view's "≡ view"). Problems keep their loud colour.

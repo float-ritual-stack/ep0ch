@@ -3,7 +3,7 @@ import { noteCodeFences } from "@ep0ch/outline-core/component-block";
 import type { Msg } from "./board";
 import type { Actor, SocketBoard } from "./socket";
 import { ActionRefused, actionSet, def, type ActRequest } from "./surface/actions";
-import { C, fg, width } from "./style";
+import { bg, C, fg, width } from "./style";
 import { buttonText, pressState } from "./surface/button";
 import type { ButtonLookWords } from "@ep0ch/outline-core/button-call";
 
@@ -35,6 +35,9 @@ export function statusHits(items: StatusItem[], from: number, limit: number): St
   return hits;
 }
 export const statusText = (items: StatusItem[]) => items.map(i => (i.before ?? "") + i.text + (i.after ?? "")).join("");
+
+/** The bar's own colours: what a drawn part that ends in RESET (a button) is followed by, so the band goes on. */
+export const STATUS_INK = bg(C.blue) + fg(C.lcyan);
 
 /** The bar's separator between items on its right. */
 export const RIGHT_AFTER = ` ${fg(C.lcyan)}│ `;
@@ -131,7 +134,7 @@ export class StatusBarNote {
       if (!line.id.startsWith("button:")) { out.push(builtins.find(b => b.id === line.id)!); continue; }
       // A button sits where its line is: after the item above it in the note, on that item's side of the bar.
       const place = out.at(-1)?.place ?? "left";
-      const b = line.button!, text = buttonText(line.text, { ...b.look, ...pressState(this.note!.id, b.line) });
+      const b = line.button!, text = buttonText(line.text, { ...b.look, ...pressState(this.note!.id, b.line) }) + STATUS_INK;
       out.push({ ...line, text, place, after: place === "right" ? RIGHT_AFTER : " │ " });
     }
     return out;

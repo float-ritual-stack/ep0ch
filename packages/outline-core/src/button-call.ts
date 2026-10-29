@@ -31,6 +31,8 @@ export interface ButtonCall {
   empty: string[];
   /** The line couldn't be read as a button, or reads as something other than what was written: what to write. */
   problem?: string;
+  /** A look word it doesn't take (`tone=red`): what to write. It still runs; only its look falls back. */
+  lookProblem?: string;
 }
 
 /** A button's tone: a theme role, never a colour. */
@@ -175,10 +177,8 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
   const line = problem && !steps.length ? null : steps.map(s => s.source).join("\n") || null;
   // A look word it can't read is said, but the button still runs: only its look falls back.
   const { look, problem: lookProblem } = lookOf(get);
-  const runs = problem && misreadOnly(problem) ? null : line;
-  problem ??= lookProblem;
-  return { line: i, endLine, steps, props, slots, empty, look, sequence: endLine > i || !!(act || of)?.startsWith("["), label: label || steps[0]?.source.split(/\s+/)[0] || "button", act: runs,
-    ...(get("alt") ? { alt: slotted(get("alt")!) } : {}), ...(problem ? { problem } : {}) };
+  return { line: i, endLine, steps, props, slots, empty, look, sequence: endLine > i || !!(act || of)?.startsWith("["), label: label || steps[0]?.source.split(/\s+/)[0] || "button", act: problem && misreadOnly(problem) ? null : line,
+    ...(lookProblem ? { lookProblem } : {}), ...(get("alt") ? { alt: slotted(get("alt")!) } : {}), ...(problem ? { problem } : {}) };
 }
 
 /** The look words of a button's line, read; a value it doesn't take is the problem to fix (the rest still draw). */

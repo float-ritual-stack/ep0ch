@@ -108,11 +108,13 @@ export async function pressing<T>(block: string, line: number, redraw: () => voi
 }
 
 /** A script run ended (`scripts.ended`): the button that started it is done, or failed, or a button again when it was stopped. */
-export function pressEnded(run: string, reason: "done" | "stopped" | "failed", message?: string): boolean {
+export function pressEnded(run: string, reason: "done" | "stopped" | "failed", message: string | undefined, redraw: () => void): boolean {
   for (const [key, p] of presses) {
     if (p.run !== run) continue;
     if (reason === "stopped") presses.delete(key);
     else presses.set(key, { state: reason, ...(reason === "failed" ? { why: message || "the run failed" } : {}), at: Date.now() });
+    redraw();
+    if (reason === "done") setTimeout(redraw, DONE_MS + 50);
     return true;
   }
   return false;
