@@ -7776,7 +7776,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (id !== this.focus) this.run("tile.focus", {}, this.nameOf(id));
         // On a list's row the menu is that row's (PIE-1297: its Note rows copy it): the row is picked first, as the press
         // that gives a tile the keys picks one (`focusing`: it selects, never opens or folds).
-        if (pane?.subject && pane.mouse && this.inBody(id, r, k.x, k.y)) {
+        if ((pane?.subject || pane?.noteAt) && pane.mouse && this.inBody(id, r, k.x, k.y)) {
           const { x, y } = this.local(id, r, k.x, k.y), how: RowPress = { mods: 0, button: 0, focusing: true };
           pane.mouse({ ...k, button: 0, action: "down" }, x, y, this, how);
           pane.mouse({ ...k, button: 0, action: "up" }, x, y, this, how);

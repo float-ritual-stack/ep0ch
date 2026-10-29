@@ -659,23 +659,26 @@ describe.skipIf(!outliner)("the power bar", () => {
       key(ctrlK); type("/bike shed");
       await until(() => peek().bar.rows[0]?.label === "Bike shed", "the shed found");
       key({ kind: "alt", ch: "m" } as Key);
-      await until(() => frame().some(l => l.includes("[copy reference]")), "the hit's menu");
+      await until(() => frame().some(l => l.includes("copy reference]")), "the hit's menu");
       const f = frame();
-      expect(f.join("\n")).not.toContain("[copy command]");
-      const y = f.findIndex(l => l.includes("[copy reference]")), x = f[y]!.indexOf("[copy reference]") + 2;
+      expect(f.join("\n")).not.toContain("copy command]");
+      const y = f.findIndex(l => l.includes("copy reference]")), x = f[y]!.indexOf("copy reference]");
       key({ kind: "mouse", action: "down", x, y, button: 0 } as Key);
       key({ kind: "mouse", action: "up", x, y, button: 0 } as Key);
       await until(() => copied.includes(`((${notes.shed!.id}|Bike shed))`), "the reference copied");
       // The same row, by a right-click on it (the menu put away first): its web link names the outline.
       key({ kind: "alt", ch: "m" } as Key);
-      await until(() => !frame().some(l => l.includes("[copy reference]")), "the menu put away");
+      await until(() => !frame().some(l => l.includes("copy reference]")), "the menu put away");
       const r = frame(), ry = r.findIndex(l => l.includes("Bike shed")), rx = r[ry]!.indexOf("Bike shed") + 1;
       key({ kind: "mouse", action: "down", x: rx, y: ry, button: 2 } as Key);
-      await until(() => frame().some(l => l.includes("[copy web link]")), "the menu by a right-click");
-      const w = frame(), wy = w.findIndex(l => l.includes("[copy web link]")), wx = w[wy]!.indexOf("[copy web link]") + 2;
+      await until(() => frame().some(l => l.includes("copy web link]")), "the menu by a right-click");
+      const w = frame(), wy = w.findIndex(l => l.includes("copy web link]")), wx = w[wy]!.indexOf("copy web link]");
       key({ kind: "mouse", action: "down", x: wx, y: wy, button: 0 } as Key);
       key({ kind: "mouse", action: "up", x: wx, y: wy, button: 0 } as Key);
       await until(() => copied.some(t => t.endsWith(`/p/${notes.shed!.id}`)), "the web link copied");
+      // By keys: with the menu open, alt+1 is its first entry (copy id).
+      key({ kind: "alt", ch: "1" } as Key);
+      await until(() => copied.includes(notes.shed!.id), "the id copied by alt+1");
       // An agent names the hit by ref=.
       expect(await app.act({ action: "note.copy-ref", args: { kind: "id", ref: notes.shed!.id }, as: "wren-agent" })).toMatchObject({ text: notes.shed!.id, clipboard: false });
     } finally { (app as any).copy = copy; }
