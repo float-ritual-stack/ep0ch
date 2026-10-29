@@ -6,6 +6,7 @@ import { Draft } from "../src/edit";
 import { primitiveLines } from "../src/components";
 import { renderGraph } from "../src/graphs";
 import { visible, width } from "../src/style";
+import { lookFor } from "../src/look";
 
 const W = 30;
 const env = { width: W, cellW: 9, cellH: 18, graphics: false, maxImageRows: 4, unfold: true };
@@ -32,6 +33,14 @@ describe("nothing drawn overflows its width", () => {
     expect(widest(draw(`::box{border=heavy}\n${CJK}\n::`))).toBeLessThanOrEqual(W);
     const box = primitiveLines({ type: "box", title: CJK, children: [{ type: "text", text: `${CODER} soft\u00ADhyphen ${CJK}` }] }, 24);
     expect(box.map(width)).toEqual(box.map(() => 24));
+  });
+
+  test("a callout's frame is the look's border, as a box's is", () => {
+    const look = { values: { ...lookFor(null, {}, 80).values, border: "heavy" } as never, layers: [], width: 80 };
+    const lines = renderDoc(`> [!note] ${CJK}\n> body`, { ...env, look }).lines.map(l => visible(l));
+    expect(lines[0]!.startsWith("┏━")).toBe(true);
+    expect(lines.at(-1)!.startsWith("┗")).toBe(true);
+    expect(visible(draw("> [!note] Plain\n> body")[0]!).startsWith("╭─")).toBe(true);
   });
 
   test("an artifact card with a wide title fits", () => {

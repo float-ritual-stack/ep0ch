@@ -3838,7 +3838,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // around this screen (the showcase's index beside its stage).
     // At rest, the lines its look's `border` names (auto: the screen's frame; none: blank edges, the title kept).
     const lines = lv.border === "none" || joined ? NO_BOX : lv.border !== "auto" && lv.border !== "joined" ? BORDER_BOXES[lv.border] : this.spec.frame ? FRAMES[this.spec.frame] : undefined;
-    // The focused tile's frame is double lines, so the tile the keys go to shows by its shape whatever its colour.
     const glyphs = nests ? NO_BOX : keys ? BORDER_BOXES.double : arrival ? LINE_BOX : lines;
     const frameInk = (cover === "peek" && !focused && !arrival ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
     const pointers = this.ctx?.agentPointers?.list(this).filter(p => p.tile === this.tileId(id)) ?? [];

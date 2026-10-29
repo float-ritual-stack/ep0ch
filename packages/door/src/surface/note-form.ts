@@ -92,8 +92,7 @@ export class NoteForm {
     const inner = Math.max(16, w - 4), labelWidth = Math.min(16, Math.max(...this.fields.map(f => width(f.name) + (f.required ? 2 : 0))) + 2);
     const room = Math.max(4, inner - labelWidth - 4);
     const rows: string[] = [];
-    const f = stringFrame(inner + 4, { glyphs: LINE_BOX, ink: fg(C.dark) });
-    const line = (text: string) => rows.push(f.row(text));
+    const f = stringFrame(inner + 4, { glyphs: LINE_BOX, ink: fg(C.dark) }), line = (text: string) => rows.push(f.row(text));
     rows.push(f.top("Fill in the form"));
     this.fields.forEach((field, index) => {
       const d = this.draft(field.name), label = pad(field.name + (field.required ? " *" : ""), labelWidth);
@@ -115,9 +114,7 @@ export class NoteForm {
     });
     const indent = " ".repeat(labelWidth), button = "Fill in the form";
     const submit = stringFrame(width(button) + 4, { glyphs: LINE_BOX });
-    line(indent + submit.top());
-    line(indent + submit.row(tag("@submit", button, "form.submit")));
-    line(indent + submit.bottom());
+    for (const l of [submit.top(), submit.row(tag("@submit", button, "form.submit")), submit.bottom()]) line(indent + l);
     const warning = this.warnings.get(partyOf(USER));
     if (warning) line(fg(C.yellow) + printable(warning) + RESET);
     for (const text of ["* required", ...wrap(modeHint(FORM_KEYS, () => undefined), inner)]) line(text);

@@ -76,36 +76,25 @@ export const NO_BOX: BoxGlyphs = { top: " ", bottom: " ", side: " ", tl: " ", tr
 /** The dotted frame of the ep0ch logos (WoE, 1997): dots along, colons down. */
 export const DOTTED_BOX: BoxGlyphs = { top: ".", bottom: ".", side: ":", tl: ".", tr: ".", bl: ":", br: ":" };
 
-/** The lines of a frame drawn as strings (`stringFrame`): its top edge, a row of text between its sides, its bottom edge. */
-export interface StringFrame {
-  /** The text's room: `w - 2 - 2 * pad` cells (`w - 1 - pad` on an open frame). */
-  inner: number;
-  /** The top edge with `title` after its corner (and `label` at its right end), both cut to fit, filled to `w`. */
-  top(title?: string, label?: string): string;
-  /** `text` between the sides, padded or cut to `inner` (an open frame draws it as it is, after its one side). */
-  row(text: string): string;
-  /** The bottom edge, with `foot` after its corner on an open frame. */
-  bottom(foot?: string): string;
-}
-
 /**
  * Lines of text framed `w` cells wide with `glyphs`, in `ink`: the one place strings are framed (PIE-1291; Canvas.box
- * frames cells). A callout, a `::box`, a decoration's frame, an artifact's card, an extension's box, the composer and
- * the forms draw theirs here, so each obeys the BoxGlyphs it's given and no edge comes out wider than its sides.
- * `pad`: the cells between a side and the text. `open`: a half-box, its right side left off (a panel under a passage).
+ * frames cells), so every frame obeys the BoxGlyphs it's given and no edge is wider than its sides. `pad`: cells between
+ * a side and the text. `open`: a half-box, no right side (a fence, a panel under a passage). `top` cuts its title and
+ * label to fit and fills the rest; `row` pads or cuts its text to `inner` (an open one draws it as it is); `bottom` takes
+ * a foot on an open frame.
  */
-export function stringFrame(w: number, { glyphs: g = BORDER_BOXES.round, ink = "", pad: px = 1, open = false }: { glyphs?: BoxGlyphs; ink?: string; pad?: number; open?: boolean } = {}): StringFrame {
+export function stringFrame(w: number, { glyphs: g = BORDER_BOXES.round, ink = "", pad: px = 1, open = false }: { glyphs?: BoxGlyphs; ink?: string; pad?: number; open?: boolean } = {}) {
   const inner = Math.max(0, open ? w - 1 - px : w - 2 - 2 * px), gap = " ".repeat(px);
   return {
     inner,
-    top(title = "", label = "") {
+    top(title = "", label = ""): string {
       const ends = open ? 2 : 3, room = Math.max(0, w - ends - (label ? width(label) + (open ? 0 : 1) : 0));
       const t = width(title) > room ? drawEllipsized(title, room) : title;
       const fill = g.top.repeat(Math.max(0, room - width(t)));
       return ink + g.tl + g.top + t + RESET + ink + fill + (label ? label + RESET + ink + (open ? "" : g.top) : "") + (open ? "" : g.tr) + RESET;
     },
-    row: text => open ? ink + g.side + RESET + gap + text + RESET : ink + g.side + RESET + gap + pad(text, inner) + gap + ink + g.side + RESET,
-    bottom(foot = "") {
+    row: (text: string) => open ? ink + g.side + RESET + gap + text + RESET : ink + g.side + RESET + gap + pad(text, inner) + gap + ink + g.side + RESET,
+    bottom(foot = ""): string {
       if (!open) return ink + g.bl + g.bottom.repeat(Math.max(0, w - 2)) + g.br + RESET;
       if (!foot) return ink + g.bl + g.bottom.repeat(Math.max(0, w - 1)) + RESET;
       const room = Math.max(0, w - 2), f = width(foot) > room ? drawEllipsized(foot, room) : foot;

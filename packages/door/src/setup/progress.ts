@@ -4,7 +4,7 @@
 // and the step's line becomes its timed ✓ or ✗ when it ends. Piped, in CI, on a dumb terminal: the plain
 // lines as before, no escapes. With --json: nothing (the JSON is the output).
 import { kittyHint } from "../kitty";
-import { C, fg, headOf, RESET, width } from "../style";
+import { C, ellipsize, fg, RESET, width } from "../style";
 import { paintable, printable } from "../text";
 
 type Env = Record<string, string | undefined>;
@@ -216,7 +216,7 @@ export class Progress {
     // Room at the end of each line: the terminal echoes ^C after the last one, and a wrap there would leave a
     // stray line above the interrupted step.
     const cols = Math.max(20, (this.o.terminal!.columns ?? 80) - 3);
-    const fit = (s: string) => (width(s) > cols ? `${headOf(s, cols - 1)}…` : s);
+    const fit = (s: string) => ellipsize(s, cols);
     const spin = this.paint(C.lcyan, this.spinner[this.frame % this.spinner.length]!);
     const lines = [`${this.lead(t.head)}${spin} ${t.head.title} ${this.paint(C.dark, `· ${elapsed(this.now() - t.started)}`)}`, ...(t.head.body ?? []), ...t.says];
     const n = t.counted;
