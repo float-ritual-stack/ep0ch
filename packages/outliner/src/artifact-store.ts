@@ -52,13 +52,15 @@ async function firstPage(pdf: string, png: string): Promise<{ picture: string } 
   } catch { return { missing: "No first page: pdftoppm isn't installed here (sudo apt install poppler-utils, or brew install poppler)." }; }
 }
 
-/** An iPhone photo (HEIC) as a JPEG, through ImageMagick: browsers other than Safari can't draw HEIC. */
-function heicAsJpeg(source: string): Buffer {
-  let run: ReturnType<typeof Bun.spawnSync>;
-  try { run = Bun.spawnSync(["convert", source, "-auto-orient", "-quality", "88", "jpg:-"], { stdout: "pipe", stderr: "pipe", timeout: 60_000 }); }
+/** An iPhone photo (HEIC) as a JPEG, through ImageMagick's HEIF reader only: browsers other than Safari can't draw HEIC. */
+async function heicAsJpeg(source: string): Promise<Buffer> {
+  let run: ReturnType<typeof Bun.spawn<"ignore", "pipe", "pipe">>;
+  try { run = Bun.spawn(["convert", `heic:${source}`, "-auto-orient", "-quality", "88", "jpg:-"], { stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 60_000 }); }
   catch { throw new Error("A HEIC photo needs ImageMagick here to become a JPEG (sudo apt install imagemagick libheif1, or brew install imagemagick)."); }
-  if (run.exitCode !== 0 || !run.stdout?.length) throw new Error(`ImageMagick could not read this HEIC photo${run.stderr?.length ? `: ${run.stderr.toString().trim().split("\n")[0]}` : ""}.`);
-  return Buffer.from(run.stdout);
+  const [jpeg, said, code] = await Promise.all([new Response(run.stdout).bytes(), new Response(run.stderr).text(), run.exited]);
+  const codec = /unsupported codec/i.test(said) ? " Its HEVC decoder is missing: sudo apt install libheif-plugin-libde265 (Ubuntu), or brew install libheif." : "";
+  if (code !== 0 || !jpeg.length) throw new Error(`ImageMagick could not read this HEIC photo${said.trim() ? `: ${said.trim().split("\n")[0]}` : ""}.${codec}`);
+  return Buffer.from(jpeg);
 }
 
 function artifactHash(folder: string, files: string[]): string {
@@ -175,7 +177,7 @@ export class ArtifactStore {
     for (const name of readdirSync(inbox)) enqueue(name);
   }
   /** What a dropped entry holds, as the files to install: a folder, a zip or tar (opened under the archive rules), or one page or image. */
-  private readDrop(source: string, entry: string, explicit?: string): { name: string; files: Record<string, Buffer>; compile: boolean; kind: ArrivalKind } {
+  private async readDrop(source: string, entry: string, explicit?: string): Promise<{ name: string; files: Record<string, Buffer>; compile: boolean; kind: ArrivalKind }> {
     const stat = lstatSync(source), folder = stat.isDirectory();
     if (stat.isSymbolicLink() || (!folder && !stat.isFile())) throw new Error("Drop a regular file or folder, without links.");
     if (folder) return { name: explicit ?? entry, files: readArtifactInput(source, true, true), compile: false, kind: "site" };
@@ -193,7 +195,7 @@ export class ArtifactStore {
       finally { rmSync(stage, { recursive: true, force: true }); }
     } else if (extension === ".heic" || extension === ".heif") {
       checkArtifactSize(1, stat.size);
-      files = { [`${basename(entry, extname(entry))}.jpg`]: heicAsJpeg(source) }; compile = true;
+      files = { [`${basename(entry, extname(entry))}.jpg`]: await heicAsJpeg(source) }; compile = true;
     } else if (Object.hasOwn(DROP_FILE_KINDS, extension)) {
       files = readArtifactInput(source, false); compile = true;
     } else throw new Error("Unknown artifact kind; use html, jsx, tsx, svg, mermaid or md, a zip or tar of a built folder, or an image or pdf.");
@@ -215,7 +217,7 @@ export class ArtifactStore {
     let meta: DropMeta | undefined;
     try {
       if (remote) meta = JSON.parse(readFileSync(join(source, DROP_FILE), "utf8")) as DropMeta;
-      const { name, files, compile, kind } = remote ? this.readDrop(join(source, "file", basename(meta!.filename)), basename(meta!.filename), meta!.name) : this.readDrop(source, entry);
+      const { name, files, compile, kind } = remote ? await this.readDrop(join(source, "file", basename(meta!.filename)), basename(meta!.filename), meta!.name) : await this.readDrop(source, entry);
       await this.put(name, files, { compile, rejectErrors: true });
       const version = await this.snapshot(name);
       appendFileSync(join(inbox, "receipts.log"), `${new Date().toISOString()}\t${name}\t${version.version}\t${version.url ?? ""}\n`);

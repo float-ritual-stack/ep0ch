@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { UploadTake } from "@ep0ch/outline-core/protocol";
 import { artifactReference } from "@ep0ch/outline-core/artifacts";
+import { extensionOfBytes } from "@ep0ch/outline-core/file-magic";
 import type { OutlinerClient } from "./client";
 import { artifactLimit, DROP_FILE, DROP_RESULTS, remoteInbox, type DropMeta, type DropResult } from "./artifact-inbox";
 import { looksTar, looksZip } from "./artifact-archive";
@@ -50,24 +51,13 @@ function filenameOf(url: URL, rest: string | undefined, headers: Headers): strin
   return dropFilename(rest ? decode(rest) : undefined) || dropFilename(url.searchParams.get("filename") ?? undefined) || dropFilename(disposition ? (disposition[1] ? decode(disposition[2]!) : disposition[2]!) : undefined) || "upload";
 }
 
-/** What a document's or a photo's first bytes say it is: a phone may send one with no extension and no type. */
-function sniffedExtension(head: Uint8Array): string | undefined {
-  const start = Buffer.from(head.subarray(0, 12));
-  if (start.subarray(0, 5).toString("latin1") === "%PDF-") return ".pdf";
-  if (start.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return ".png";
-  if (start[0] === 0xff && start[1] === 0xd8 && start[2] === 0xff) return ".jpg";
-  if (start.subarray(4, 8).toString("latin1") === "ftyp" && /^(heic|heix|heim|heis|hevc|hevx|mif1|msf1)$/.test(start.subarray(8, 12).toString("latin1"))) return ".heic";
-  if (start.subarray(0, 4).toString("latin1") === "RIFF" && start.subarray(8, 12).toString("latin1") === "WEBP") return ".webp";
-  return undefined;
-}
-
 /** A name with no extension gets the one its bytes (or its declared type) show; a wrong extension on an archive is corrected. */
 function withExtension(filename: string, head: Uint8Array, contentType: string | null): string {
   const dot = filename.lastIndexOf("."), stem = dot > 0 ? filename.slice(0, dot) : filename, ext = dot > 0 ? filename.slice(dot).toLowerCase() : "";
   if (looksZip(head)) return ext === ".zip" ? filename : `${stem}.zip`;
   if (looksTar(head)) return ext === ".tar" ? filename : `${stem}.tar`;
   if (ext) return filename;
-  const sniffed = sniffedExtension(head);
+  const sniffed = extensionOfBytes(head);
   if (sniffed) return `${filename}${sniffed}`;
   const declared = TYPES[(contentType ?? "").split(";")[0]!.trim().toLowerCase()];
   if (declared) return `${filename}${declared}`;

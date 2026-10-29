@@ -48,17 +48,17 @@ export async function runDeviceCommand(args: string[], io = { out: console.log, 
     if (!outline) { io.err(`error: say which outline gets the cards: ep0ch device add ${JSON.stringify(names[0])} --ws <outline> (ep0ch outline list)`); return 2; }
     const added = await host.request<{ device: UploadDevice; token: string; url: string }>({ action: "devices.add", name: names[0]!, outline });
     if (wantsShortcut) {
-      const signer = shortcutSigner(env);
-      let signed: Uint8Array;
-      try { signed = await signShortcut(plistXml(sendToEp0chWorkflow(added.url)), signer, env); }
-      catch (error) {
+      let device: UploadDevice;
+      try {
+        const signed = await signShortcut(plistXml(sendToEp0chWorkflow(added.url)), shortcutSigner(env), env);
+        ({ device } = await host.request<{ device: UploadDevice }>({ action: "devices.shortcut.put", device: added.device.id, data: Buffer.from(signed).toString("base64") }));
+      } catch (error) {
         // Nobody holds this token now: end it, so the same name can be tried again.
         await host.request({ action: "devices.revoke", device: added.device.id }).catch(() => {});
-        throw new Error(`${error instanceof Error ? error.message : String(error)}. Nothing was kept; try again: ep0ch device add ${JSON.stringify(added.device.name)} --ws ${outline} --shortcut`);
+        throw new Error(`${error instanceof Error ? error.message : String(error)}. The new device was revoked (device ls lists it as revoked); try again: ep0ch device add ${JSON.stringify(added.device.name)} --ws ${outline} --shortcut`);
       }
-      const { url } = await host.request<{ device: UploadDevice; url: string }>({ action: "devices.shortcut.put", device: added.device.id, data: Buffer.from(signed).toString("base64") });
-      if (json) io.out(JSON.stringify({ device: added.device, shortcut: url }, null, 2));
-      else io.out(`${added.device.name} can send files; cards go to ${outline}'s note for today.\nOpen this on the phone, signed in, and tap Add Shortcut. Then share any file or photo to "Send to ep0ch".\n\n${url}\n\nLost the phone? ep0ch device revoke ${JSON.stringify(added.device.name)}`);
+      if (json) io.out(JSON.stringify({ device }, null, 2));
+      else io.out(`${device.name} can send files; cards go to ${outline}'s note for today.\nOpen this on the phone, signed in, and tap Add Shortcut. Then share any file or photo to "Send to ep0ch".\n\n${device.shortcutUrl}\n\nLost the phone? ep0ch device revoke ${JSON.stringify(device.name)}`);
       return 0;
     }
     if (json) io.out(JSON.stringify(added, null, 2));

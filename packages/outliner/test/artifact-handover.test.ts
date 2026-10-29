@@ -427,7 +427,7 @@ test("device add --shortcut signs a Send to ep0ch Shortcut, serves it only signe
 
   // The request the Shortcut makes for a PDF from Files: its encoded "<Name>.<File Extension>", the file as the body.
   const pdf = createPdfFixture([{ width: 300, height: 200, lines: [{ text: "Allotment plan", x: 20, y: 150 }] }]);
-  const shared = await fetch(`${local(link)}/${encodeURIComponent("Allotment plan.pdf")}?reply=text`, { method: "POST", body: pdf, headers: { host: HOST, "content-type": "application/pdf" } });
+  const shared = await fetch(`${local(link)}/${encodeURIComponent("Allotment plan.pdf")}?reply=text`, { method: "POST", body: pdf as BodyInit, headers: { host: HOST, "content-type": "application/pdf" } });
   const answer = await shared.text();
   expect(shared.status, answer).toBe(201);
   expect(shared.headers.get("content-type")).toStartWith("text/plain");

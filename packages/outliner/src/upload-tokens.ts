@@ -167,11 +167,12 @@ export class UploadTokens {
 
   /** Device `id`'s signed Shortcut, while the device is not revoked. */
   shortcut(id: string): Uint8Array | undefined {
-    if (!/^[0-9a-f]{8}$/.test(id) || !this.load().devices.some(d => d.id === id && !d.revokedAt)) return undefined;
+    if (!this.load().devices.some(d => d.id === id && !d.revokedAt)) return undefined;
     try { return readFileSync(this.shortcutFile(id)); } catch { return undefined; }
   }
 
-  private shown({ digest: _digest, ...device }: StoredDevice): UploadDevice {
-    return { ...device, ...(!device.revokedAt && existsSync(this.shortcutFile(device.id)) ? { shortcut: true } : {}) };
-  }
+  /** Whether device `id` has a signed Shortcut waiting (the host names its link). */
+  hasShortcut(id: string): boolean { return existsSync(this.shortcutFile(id)); }
+
+  private shown({ digest: _digest, ...device }: StoredDevice): UploadDevice { return device; }
 }

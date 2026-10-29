@@ -208,7 +208,7 @@ export class SignInGate {
       const root = this.settings.home.replace(/\/+$/, "");
       if (path === "/" || path === "") return redirect(this.settings.home, renewed);
       if (root && path.startsWith("/p/")) return redirect(`${root}${path}${url.search}`, renewed);
-      const shortcut = /^\/_shortcut\/([0-9a-f]{8})(?:\/[^/]*)?$/.exec(path);
+      const shortcut = /^\/_shortcut\/([A-Za-z0-9]+)(?:\/[^/]*)?$/.exec(path);
       if (shortcut && reading && this.options.shortcut) return withGateHeaders(await this.options.shortcut(shortcut[1]!), renewed);
       const sessionId = found.session.id;
       return withGateHeaders(await this.options.serve(request, { sessionId, origin, stillSignedIn: () => this.stillSignedIn(sessionId) }), renewed);

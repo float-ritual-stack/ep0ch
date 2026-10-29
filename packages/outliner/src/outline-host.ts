@@ -6,7 +6,7 @@ import { ArtifactStore } from "./artifact-store";
 import { artifactReference, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { writeDotEp0ch } from "./outline-binding";
 import { Database } from "bun:sqlite";
-import { PROTOCOL, GRAMMAR, type OutlineAbout, type UploadLease } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, type OutlineAbout, type UploadDevice, type UploadLease } from "@ep0ch/outline-core/protocol";
 import { composeActor } from "@ep0ch/outline-core/attribution";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
@@ -897,9 +897,10 @@ export class OutlineHost {
     return (process.env.EP0CH_WEB_URL?.split(",")[0]?.trim() || DEFAULT_WEB_ORIGIN).replace(/\/+$/, "");
   }
 
-  /** The sign-in page that hands a device its signed Shortcut. */
-  private shortcutUrl(id: string): string {
-    return `${this.webOrigin()}/_shortcut/${id}/${encodeURIComponent(SHORTCUT_NAME)}.shortcut`;
+  /** The device, with the sign-in page that hands it its signed Shortcut when one is waiting. */
+  private withShortcut(device: UploadDevice): UploadDevice {
+    if (device.revokedAt || !this.uploads().hasShortcut(device.id)) return device;
+    return { ...device, shortcutUrl: `${this.webOrigin()}/_shortcut/${device.id}/${encodeURIComponent(SHORTCUT_NAME)}.shortcut` };
   }
 
   private requireOutline(name: string): void {
@@ -949,12 +950,11 @@ export class OutlineHost {
         const url = `${this.webOrigin()}/_upload/${token}`;
         return { device, token, url };
       }
-      case "devices.list": return { devices: this.uploads().devices().map(device => device.shortcut ? { ...device, shortcutUrl: this.shortcutUrl(device.id) } : device) };
+      case "devices.list": return { devices: this.uploads().devices().map(device => this.withShortcut(device)) };
       // The signed "Send to ep0ch" Shortcut for a device (PIE-1408): kept here, served behind the sign-in.
       case "devices.shortcut.put": {
         if (typeof request.device !== "string" || typeof request.data !== "string") throw new Error("devices.shortcut.put needs the device's id and the signed Shortcut (base64)");
-        const device = this.uploads().putShortcut(request.device, Buffer.from(request.data, "base64"));
-        return { device, url: this.shortcutUrl(device.id) };
+        return { device: this.withShortcut(this.uploads().putShortcut(request.device, Buffer.from(request.data, "base64"))) };
       }
       case "devices.shortcut.get": {
         if (typeof request.device !== "string") throw new Error("devices.shortcut.get names the device's id");
