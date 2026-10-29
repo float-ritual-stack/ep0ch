@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A script's empty slots ask in order, in the kind the script declares (PIE-1298)
+
+- **In the order written:** a button that runs a script (neat's "two up") asks for page 1, then page 2, as the line
+  writes them, in the note picker.
+- **The script says what a slot is:** `[form-field::page note]` on the script's note, or in a file's opening comments,
+  makes the question a note picker; each pick is written on the line as the note's id.
+
 ### A copy of a built-in extension lists once and says it overrides the built-in (PIE-1283)
 
 - **One row:** a copy of neat (or any built-in) in your extensions folder is one row in `ep0ch ext ls`, the power
