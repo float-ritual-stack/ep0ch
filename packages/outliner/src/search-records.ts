@@ -1,21 +1,18 @@
 // What ranked search leaves behind (PIE-1197, PIE-1198), so its cost and its judgment can be read and measured:
 //
-// - the day's `jev-run` (`experiment::search-live`), counted up in place as figure-fit's is: `items` searches Jev ranked,
+// - the day's `jev-run` (`experiment::search-live`), counted up in place as the workboard's loops are (work-jev.ts): `items` searches Jev ranked,
 //   `suggested` the ones that said "no strong match", `quiet` the sure ones, `unavailable` the asks Jev couldn't answer,
 //   and the tokens. pie's Jev's suggestions page reads every `jev-run`, so the loop's cost shows beside the others.
 // - the picks (`search.picked`): the query, the row opened and its place, kept in the outline's metadata (the last
 //   PICKS_KEPT, not note content) for the search eval to label a query with what was wanted.
 // Best-effort: a search's answer never waits on, or fails for, its bookkeeping.
 import type { SearchCertainty, SearchPickedRequest } from "@ep0ch/outline-core/protocol";
-import { chipNumber, chipValue, dayOf, promptRevOf, setChip, type SuggestionClient } from "./jev-suggestions";
 import type { JevReading } from "./jev";
-import { writeRecord, type RecordWho } from "./records";
-import type { Block, VisibleBlockCollection } from "./types";
+import { tallyRun, type WorkJevClient } from "./work-jev";
 
 export const SEARCH_LIVE_EXPERIMENT = "search-live";
 export const SEARCH_PICKS_METADATA_KEY = "search.picks";
 export const PICKS_KEPT = 500;
-const JEV: RecordWho = { author: "agent", provenance: { actorId: "jev/search" } };
 
 export interface SearchPick extends SearchPickedRequest { at: string }
 
@@ -40,32 +37,15 @@ export function keepSearchPick(picks: readonly SearchPick[], pick: SearchPickedR
 }
 
 export type SearchTally =
-  | { kind: "ranked"; sure: SearchCertainty | undefined; reading: Pick<JevReading, "model" | "prompt" | "usage"> }
+  | { kind: "ranked"; sure: SearchCertainty | undefined; reading: JevReading }
   | { kind: "unavailable" };
 
-/** One ranked search (or one Jev couldn't answer) counted on the day's run. Never throws. */
-export async function tallySearch(client: SuggestionClient, tally: SearchTally, now = new Date()): Promise<void> {
+/** One ranked search (or one Jev couldn't answer) counted on the day's run (work-jev.ts's tallyRun). Never throws. */
+export async function tallySearch(client: WorkJevClient, tally: SearchTally, now = new Date()): Promise<void> {
   try {
-    const day = dayOf(now);
-    const find = async () => (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=jev-run experiment=${SEARCH_LIVE_EXPERIMENT} run=${day}`, machinery: "show", limit: 1 } })).blocks[0];
-    let run = await find();
-    if (!run) {
-      const zero = Object.fromEntries(["items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out"].map(k => [k, "0"]));
-      await writeRecord({ request: (action, params) => client.request({ action, ...params } as never) }, "jev-run", { experiment: SEARCH_LIVE_EXPERIMENT, run: day, model: "unknown", "prompt-rev": "unknown", ...zero }, JEV, { title: `search ${day}` });
-      run = await find();
-      if (!run) return;
-    }
-    let text = run.text;
-    const add = (key: string, n: number) => { text = setChip(text, key, chipNumber(text, key) + n); };
-    if (tally.kind === "unavailable") add("unavailable", 1);
-    else {
-      add("items", 1);
-      if (tally.sure?.verdict === "strong") add("quiet", 1); else if (tally.sure) add("suggested", 1);
-      text = setChip(text, "model", chipValue(tally.reading.model));
-      text = setChip(text, "prompt-rev", chipValue(promptRevOf(tally.reading)));
-      add("tokens-in", tally.reading.usage?.input ?? 0);
-      add("tokens-out", tally.reading.usage?.output ?? 0);
-    }
-    if (text !== run.text) await client.request<Block>({ action: "update", blockId: run.id, text, expectedRevision: run.revision, mutation: { author: "agent", actorId: JEV.provenance!.actorId! } });
+    const day = now.toISOString().slice(0, 10);
+    if (tally.kind === "unavailable") return await tallyRun(client, SEARCH_LIVE_EXPERIMENT, day, { unavailable: 1 });
+    const sure = tally.sure?.verdict === "strong";
+    await tallyRun(client, SEARCH_LIVE_EXPERIMENT, day, { items: 1, ...(tally.sure ? sure ? { quiet: 1 } : { suggested: 1 } : {}) }, tally.reading);
   } catch { /* best-effort */ }
 }

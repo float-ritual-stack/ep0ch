@@ -1468,9 +1468,9 @@ export class OutlinerServer {
   private tallySearch(semantic: GotoSearchCollection["semantic"]): void {
     if (this.readOnly || semantic.status === "lexical" || /busy|not configured/i.test(semantic.message ?? "")) return;
     const tally: SearchTally = semantic.status === "ranked"
-      ? { kind: "ranked", sure: semantic.verdict ? { verdict: semantic.verdict, said: semantic.said ?? "" } : undefined, reading: { model: semantic.model ?? "unknown", prompt: semantic.promptRevisions ?? [], ...(semantic.inputTokens !== undefined ? { usage: { input: semantic.inputTokens, output: semantic.outputTokens ?? 0 } } : {}) } }
+      ? { kind: "ranked", sure: semantic.verdict ? { verdict: semantic.verdict, said: semantic.said ?? "" } : undefined, reading: { model: semantic.model ?? "unknown", prompt: semantic.promptRevisions ?? [], questions: (semantic.candidateCount ?? 0) + 1, ...(semantic.inputTokens !== undefined ? { usage: { input: semantic.inputTokens, output: semantic.outputTokens ?? 0 } } : {}) } }
       : { kind: "unavailable" };
-    const own = { request: async <T>(input: RequestInput): Promise<T> => {
+    const own = { request: async <T>(input: { action: string } & Record<string, unknown>): Promise<T> => {
       const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
       if (!response.ok) throw new Error(response.error);
       return response.result as T;
@@ -2332,6 +2332,7 @@ export class OutlinerServer {
         if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
+    }
     if (request.action === "search.picks") {
       return { id: request.id, ok: true, result: { picks: readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)) }, sequence: this.store.sequence };
     }
