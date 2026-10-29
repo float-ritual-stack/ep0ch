@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A bulk job never freezes the host: your door answers at once while thousands of records are written (PIE-1413)
+
+- **What you'll notice:** a write-review backfill, an import or an agent's bulk writes no longer stall the outline
+  host; the door's ping, a note read and a save answer in tens of milliseconds while it runs, and nothing catches up
+  in a rush when it stops. On a pie-shaped outline the backfill's ping p95 went from 3.4 s to under 50 ms, and an
+  import from 310 notes a minute to 1,500 in six seconds.
+- **Why it froze:** every write threw away the whole-outline graph (~200 ms to read again on pie), a job's own
+  requests ran back to back without letting anything in, each watch pass ran every watch at once, and the routing
+  rules and script sources were read again after every write.
+- **How it's fair now:** a write patches the graph; the service's own requests and each watch take a turn on the
+  loop; the next turn goes to whoever used the loop least lately; routing rules and script sources are read only
+  when what they read changed. No job throttles itself and no client changes.
+- **The harness:** `bun run bench:host` in packages/outliner measures it (ping p50, p95, p99, max and the longest
+  stall per phase); `scripts/box-test host-bench` runs it on float-box, and CONTRIBUTING's review checklist asks a
+  bulk or subscription change for its fan-out, its count at pie's size and that measured proof.
+
 ### A patch applied as written leaves nothing to fix, and a backfill rerun costs nothing twice (PIE-1402)
 
 - **The buried question's patch:** its box is its own paragraph, the text under it stays out of it, and on a note whose
