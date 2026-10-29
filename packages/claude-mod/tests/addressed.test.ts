@@ -1,5 +1,5 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
-import { addressedWakeText, askKey, asksOf, mentionArgs, newAsks, repliesArgs, threadsToRead, wordsOf } from '../hooks/addressed'
+import { addressedWakeText, askKey, asksOf, mentionArgs, newAsks, repliesArgs, shownAsks, threadsToRead, WAKE_LINES, wordsOf } from '../hooks/addressed'
 import type { ListedBlock } from '../hooks/workboard-now'
 
 tier('user')
@@ -94,6 +94,15 @@ describe('what a check asks and tells', () => {
     expect(lines[0]).toBe(`- new: daddy, 5 min ago, on ((${NOTE}|Bean planting plan)), thread ${T1}: "@loki one"`)
     expect(lines[1]).toStartWith('- still waiting: Evan, 50 min ago')
     expect(text).toContain('outline_reply')
+  })
+
+  test('a wake shows ten at most, the new first, so an ask past the last line is still new at the next check', () => {
+    const many = asks('loki', Array.from({ length: 12 }, (_, i) => root(`t${i}`, `@loki ask ${i}`, i + 1, DADDY)))
+    const fresh = new Set(many.slice(2).map(askKey))
+    const shown = shownAsks(many, fresh)
+    expect(shown).toHaveLength(WAKE_LINES)
+    expect(shown.every(a => fresh.has(askKey(a)))).toBe(true)
+    expect(addressedWakeText('loki', many, fresh, NOW, 'garden')).toContain('- and 2 more')
   })
 
   test('the words are the comment\'s own, not the header the service writes', () => {

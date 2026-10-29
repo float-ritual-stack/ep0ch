@@ -144,14 +144,18 @@ export function askLine(a: Ask, now: number, fresh: boolean, bound: string | und
   return `${fresh ? 'new' : 'still waiting'}: ${a.from}${a.asks > 1 ? ` (${a.asks} asks)` : ''}, ${agoOf(now - a.at)} ago, on ((${a.note}|${a.title.replace(/[|)]/g, ' ').trim() || a.note.slice(0, 8)}))${where}, thread ${a.thread}: "${cut}"`
 }
 
-/** The prompt that wakes the persona: every open ask, the new ones first, and how each leaves the list. */
+/** The asks one wake lists: the new ones first (Evan's first among them), then those still waiting, WAKE_LINES at most. Only these are marked told. */
+export function shownAsks(asks: readonly Ask[], fresh: ReadonlySet<string>): Ask[] {
+  return [...asks].sort((a, b) => Number(fresh.has(askKey(b))) - Number(fresh.has(askKey(a)))).slice(0, WAKE_LINES)
+}
+
+/** The prompt that wakes the persona: every open ask (the new ones first), and how each leaves the list. */
 export function addressedWakeText(persona: string, asks: readonly Ask[], fresh: ReadonlySet<string>, now: number, bound: string | undefined): string {
-  const ordered = [...asks].sort((a, b) => Number(fresh.has(askKey(b))) - Number(fresh.has(askKey(a))))
-  const shown = ordered.slice(0, WAKE_LINES)
+  const shown = shownAsks(asks, fresh)
   return [
     `Addressed to @${persona}: ${asks.length} open ${asks.length === 1 ? 'thread asks' : 'threads ask'} you with no reply from you (${fresh.size} new).`,
     ...shown.map(a => `- ${askLine(a, now, fresh.has(askKey(a)), bound)}`),
-    ...(ordered.length > shown.length ? [`- and ${ordered.length - shown.length} more: the next wake lists them`] : []),
+    ...(asks.length > shown.length ? [`- and ${asks.length - shown.length} more: the next check lists the new ones among them`] : []),
     `Read each thread (outline_threads or outline_read on its note), then answer in it with outline_reply (its thread id), or resolve it with outline_resolve_thread when nothing is asked. An ask stays on this list until you reply after it. Name another agent with @ only when you need its answer.`,
   ].join('\n')
 }

@@ -39,7 +39,7 @@ import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, dropp
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, stampOf, unwrapPeer } from './peer-log'
 import { answerOf, approveWaitMs, askOutlineOf, askPageCreateArgv, askPageFindArgv, askReadOf, askText, ASK_STEPS, byThePerson, closedText } from './approve'
-import { addressedWakeText, askKey, asksOf, mentionArgs, newAsks, PERSONA_NAME, readArgs, repliesArgs, threadsToRead, type Ask } from './addressed'
+import { addressedWakeText, askKey, asksOf, mentionArgs, newAsks, PERSONA_NAME, readArgs, repliesArgs, shownAsks, threadsToRead, type Ask } from './addressed'
 import { baselineOf, DEFAULT_OUTLINES, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
 import { type StatusInput, tileMark, tmuxPassthrough } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
@@ -2180,6 +2180,7 @@ async function runAddressed($: EngineInterface, option: PluginOptions, persona: 
         const first = roots.length ? await cli(o, readArgs(roots)) : { blocks: [], complete: true }
         const notes = [...new Set([...mentioning.blocks, ...first.blocks].filter(b => b.properties.some(p => p.key === 'type' && p.value === 'annotation')).map(b => b.parentId).filter((id): id is string => !!id))]
         const [read, ...replies] = await Promise.all([notes.length ? cli(o, readArgs(notes)) : Promise.resolve({ blocks: [], complete: true }), ...repliesArgs(threads).map(args => cli(o, args))])
+        if (replies.some(r => !r.complete)) addressedToast($, `${outlineLabel(o)}: a thread has more replies than one read holds; its answer may be missed.`)
         asks.push(...asksOf(persona, o === here ? o.outline : outlineLabel(o), mentioning.blocks, [...first.blocks, ...read!.blocks], replies.flatMap(r => r.blocks)))
       } catch (error) {
         addressedToast($, `${outlineLabel(o)} could not be read for @${persona}: ${error instanceof Error ? error.message : String(error)}`)
@@ -2189,10 +2190,12 @@ async function runAddressed($: EngineInterface, option: PluginOptions, persona: 
     if (!fresh.length) return
     const now = await $.clock.now()
     // Marked before the call returns: it resolves as the turn starts, which can wait for the session to go idle.
+    // Only what the wake shows is told: a new ask past its last line wakes the next check.
+    const freshKeys = new Set(fresh.map(askKey))
     const before = new Map(toldAsks)
-    for (const a of fresh) toldAsks.set(askKey(a), a.at)
+    for (const a of shownAsks(asks, freshKeys)) if (freshKeys.has(askKey(a))) toldAsks.set(askKey(a), a.at)
     try {
-      const sent = await $.prompt.submit({ text: addressedWakeText(persona, asks, new Set(fresh.map(askKey)), now, here.outline) })
+      const sent = await $.prompt.submit({ text: addressedWakeText(persona, asks, freshKeys, now, here.outline) })
       if (sent.drop !== undefined) throw Error(sent.drop || 'the prompt was dropped')
     } catch (error) {
       toldAsks.clear()
