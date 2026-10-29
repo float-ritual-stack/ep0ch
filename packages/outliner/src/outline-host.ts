@@ -1,6 +1,7 @@
 import { OutlineLinks } from "./outline-links";
 import { LokiLeases } from "./loki-leases";
 import { UploadTokens } from "./upload-tokens";
+import { SHORTCUT_NAME } from "./send-to-ep0ch-shortcut";
 import { ArtifactStore } from "./artifact-store";
 import { artifactReference, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { writeDotEp0ch } from "./outline-binding";
@@ -87,7 +88,7 @@ export interface OutlineHostOptions {
 }
 
 // `web.sessions.*`: the signed-in web client's sessions (web-sessions.ts), the host's own since one opens every outline.
-const HOST_ACTIONS = new Set(["outlines.list", "echonet.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS, "loki.lease.start", "loki.lease.revoke", "loki.lease.use", "uploads.take", "uploads.finish", "devices.add", "devices.list", "devices.revoke", "mcp.access.files"]);
+const HOST_ACTIONS = new Set(["outlines.list", "echonet.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS, "loki.lease.start", "loki.lease.revoke", "loki.lease.use", "uploads.take", "uploads.finish", "devices.add", "devices.list", "devices.revoke", "devices.shortcut.put", "devices.shortcut.get", "mcp.access.files"]);
 /** How long a request relayed to another machine's host waits for its answer, and how big that answer may be. */
 const RELAY_WAIT_MS = 60_000;
 const RELAY_MAX_ANSWER = 64 * 2 ** 20;
@@ -896,6 +897,11 @@ export class OutlineHost {
     return (process.env.EP0CH_WEB_URL?.split(",")[0]?.trim() || DEFAULT_WEB_ORIGIN).replace(/\/+$/, "");
   }
 
+  /** The sign-in page that hands a device its signed Shortcut. */
+  private shortcutUrl(id: string): string {
+    return `${this.webOrigin()}/_shortcut/${id}/${encodeURIComponent(SHORTCUT_NAME)}.shortcut`;
+  }
+
   private requireOutline(name: string): void {
     if (!this.list().outlines.some(outline => outline.name === name)) throw new Error(`This host has no outline ${name}: ep0ch outline list shows the ones it has`);
   }
@@ -943,7 +949,18 @@ export class OutlineHost {
         const url = `${this.webOrigin()}/_upload/${token}`;
         return { device, token, url };
       }
-      case "devices.list": return { devices: this.uploads().devices() };
+      case "devices.list": return { devices: this.uploads().devices().map(device => device.shortcut ? { ...device, shortcutUrl: this.shortcutUrl(device.id) } : device) };
+      // The signed "Send to ep0ch" Shortcut for a device (PIE-1408): kept here, served behind the sign-in.
+      case "devices.shortcut.put": {
+        if (typeof request.device !== "string" || typeof request.data !== "string") throw new Error("devices.shortcut.put needs the device's id and the signed Shortcut (base64)");
+        const device = this.uploads().putShortcut(request.device, Buffer.from(request.data, "base64"));
+        return { device, url: this.shortcutUrl(device.id) };
+      }
+      case "devices.shortcut.get": {
+        if (typeof request.device !== "string") throw new Error("devices.shortcut.get names the device's id");
+        const signed = this.uploads().shortcut(request.device);
+        return signed ? { data: Buffer.from(signed).toString("base64") } : { data: null };
+      }
       case "devices.revoke":
         if (typeof request.device !== "string") throw new Error("devices.revoke names the device (ep0ch device ls)");
         return { revoked: this.uploads().revokeDevice(request.device) };

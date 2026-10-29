@@ -1,4 +1,4 @@
-// The upload route (PIE-1267): `PUT|POST /_upload/<token>[/<filename>]` on the signed-in web client's origin
+// The upload route (PIE-1267): `PUT|POST /_upload/<token>[/<filename>][?name=&note=&reply=text]` on the signed-in web client's origin
 // (my.ep0ch.sh), reached before the sign-in because the token is the credential, like the Loki lease route
 // (publish-loki.ts). It takes one file (a page, a zip, a tar), writes it whole into the server-side inbox
 // (`inbox-remote`, artifact-inbox.ts) and answers once the watcher has installed it, or has said why not.
@@ -39,7 +39,7 @@ const TYPES: Record<string, string> = {
 /** A filename that is safe as one path segment of the inbox: letters, numbers, dots, hyphens and underscores. */
 export function dropFilename(value: string | undefined): string {
   const base = (value ?? "").split(/[\\/]/).pop() ?? "";
-  const clean = base.normalize("NFKD").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[.-]+/, "").replace(/-+$/, "").slice(0, 100);
+  const clean = base.normalize("NFKD").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[.-]+/, "").replace(/[.-]+$/, "").slice(0, 100);
   return clean;
 }
 
@@ -50,12 +50,25 @@ function filenameOf(url: URL, rest: string | undefined, headers: Headers): strin
   return dropFilename(rest ? decode(rest) : undefined) || dropFilename(url.searchParams.get("filename") ?? undefined) || dropFilename(disposition ? (disposition[1] ? decode(disposition[2]!) : disposition[2]!) : undefined) || "upload";
 }
 
+/** What a document's or a photo's first bytes say it is: a phone may send one with no extension and no type. */
+function sniffedExtension(head: Uint8Array): string | undefined {
+  const start = Buffer.from(head.subarray(0, 12));
+  if (start.subarray(0, 5).toString("latin1") === "%PDF-") return ".pdf";
+  if (start.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return ".png";
+  if (start[0] === 0xff && start[1] === 0xd8 && start[2] === 0xff) return ".jpg";
+  if (start.subarray(4, 8).toString("latin1") === "ftyp" && /^(heic|heix|heim|heis|hevc|hevx|mif1|msf1)$/.test(start.subarray(8, 12).toString("latin1"))) return ".heic";
+  if (start.subarray(0, 4).toString("latin1") === "RIFF" && start.subarray(8, 12).toString("latin1") === "WEBP") return ".webp";
+  return undefined;
+}
+
 /** A name with no extension gets the one its bytes (or its declared type) show; a wrong extension on an archive is corrected. */
 function withExtension(filename: string, head: Uint8Array, contentType: string | null): string {
   const dot = filename.lastIndexOf("."), stem = dot > 0 ? filename.slice(0, dot) : filename, ext = dot > 0 ? filename.slice(dot).toLowerCase() : "";
   if (looksZip(head)) return ext === ".zip" ? filename : `${stem}.zip`;
   if (looksTar(head)) return ext === ".tar" ? filename : `${stem}.tar`;
   if (ext) return filename;
+  const sniffed = sniffedExtension(head);
+  if (sniffed) return `${filename}${sniffed}`;
   const declared = TYPES[(contentType ?? "").split(";")[0]!.trim().toLowerCase()];
   if (declared) return `${filename}${declared}`;
   const start = Buffer.from(head.subarray(0, 1024)).toString("utf8").trimStart().toLowerCase();
@@ -143,6 +156,12 @@ export async function publishUpload(request: Request, host: Pick<OutlinerClient,
     await host.request({ action: "uploads.finish", claim, ok: true }).catch((error: Error) => options.log(`upload: could not settle ${who.kind} ${who.id}: ${error.message}`));
 
     const result = await awaitResult(inbox, id, options.waitMs ?? Number(env.EP0CH_UPLOAD_WAIT_MS ?? 25_000));
+    // The phone's Shortcut asks for the sentence alone (`?reply=text`) and shows it as its notification.
+    if (url.searchParams.get("reply") === "text") {
+      if (!result) return text(`Received ${filename}. It is being checked and installed; a card for it lands in ${outline}'s note for today.`, 202);
+      if (!result.ok) return text(`Refused: ${result.reason}`, 422);
+      return text(`Installed ${result.name} version ${result.version}${result.title ? ` (${result.title})` : ""}. ${result.card}`, 201);
+    }
     if (!result) return json({ ok: true, pending: true, received: { bytes, sha256: meta.sha256 }, said: `Received ${filename}. It is being checked and installed; a card for it lands in ${outline}'s note for today. If it was refused, the reason is on the artifact-uploads page there.` }, 202);
     if (!result.ok) return json({ ok: false, reason: result.reason, received: { bytes, sha256: meta.sha256 }, said: `Refused: ${result.reason}` }, 422);
     return json({

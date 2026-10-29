@@ -8,7 +8,8 @@
 // end a lease. The file keeps SHA-256 digests only; nothing logs a token. Like a snapshot link (PIE-940), only a
 // FINISHED upload uses a lease up: a HEAD, a preview or an interrupted transfer leaves it working until it expires.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { chmodSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { UploadDevice, UploadTake } from "@ep0ch/outline-core/protocol";
 
 /** One hour, fixed: a leaked link adds at most one artifact, for at most this long. */
@@ -123,7 +124,7 @@ export class UploadTokens {
 
   addDevice(input: { name: string; outline: string }): { device: UploadDevice; token: string } {
     const name = clean(input.name, 40);
-    if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(name)) throw new Error("A device name is letters, numbers, spaces, dots, hyphens or underscores, e.g. ep0ch device add \"Evan's iPhone\"");
+    if (!/^[A-Za-z0-9][A-Za-z0-9 '’._-]*$/.test(name)) throw new Error("A device name is letters, numbers, spaces, apostrophes, dots, hyphens or underscores, e.g. ep0ch device add \"Evan's iPhone\"");
     const data = this.load();
     if (data.devices.some(d => !d.revokedAt && d.name.toLowerCase() === name.toLowerCase())) throw new Error(`A device named ${name} is already set up: ep0ch device revoke "${name}" first, or pick another name`);
     if (data.devices.filter(d => !d.revokedAt).length >= MAX_DEVICES) throw new Error(`${MAX_DEVICES} devices are set up already: ep0ch device ls, then revoke the ones you don't use`);
@@ -144,9 +145,33 @@ export class UploadTokens {
     if (!match.length) throw new Error(`No device ${ref} is set up: ep0ch device ls`);
     for (const device of match) device.revokedAt = at;
     this.save(data);
+    for (const device of match) rmSync(this.shortcutFile(device.id), { force: true });
     this.log(JSON.stringify({ event: "upload.device.revoke", ids: match.map(d => d.id) }));
     return match.map(d => this.shown(d));
   }
 
-  private shown({ digest: _digest, ...device }: StoredDevice): UploadDevice { return device; }
+  /** Where a device's signed Shortcut is kept (PIE-1408): beside this file, 0600, since it holds the device's token. */
+  private shortcutFile(id: string): string { return join(dirname(this.file), "shortcuts", `${id}.shortcut`); }
+
+  /** Keeps the signed "Send to ep0ch" Shortcut made for device `id` (send-to-ep0ch-shortcut.ts), replacing any before. */
+  putShortcut(id: string, signed: Uint8Array): UploadDevice {
+    const device = this.load().devices.find(d => d.id === id && !d.revokedAt);
+    if (!device) throw new Error(`No device ${id} is set up: ep0ch device ls`);
+    const file = this.shortcutFile(id), temporary = `${file}.${process.pid}.tmp`;
+    mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+    writeFileSync(temporary, signed, { mode: 0o600 });
+    renameSync(temporary, file);
+    this.log(JSON.stringify({ event: "upload.device.shortcut", id }));
+    return this.shown(device);
+  }
+
+  /** Device `id`'s signed Shortcut, while the device is not revoked. */
+  shortcut(id: string): Uint8Array | undefined {
+    if (!/^[0-9a-f]{8}$/.test(id) || !this.load().devices.some(d => d.id === id && !d.revokedAt)) return undefined;
+    try { return readFileSync(this.shortcutFile(id)); } catch { return undefined; }
+  }
+
+  private shown({ digest: _digest, ...device }: StoredDevice): UploadDevice {
+    return { ...device, ...(!device.revokedAt && existsSync(this.shortcutFile(device.id)) ? { shortcut: true } : {}) };
+  }
 }

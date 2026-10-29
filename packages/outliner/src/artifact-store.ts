@@ -52,6 +52,15 @@ async function firstPage(pdf: string, png: string): Promise<{ picture: string } 
   } catch { return { missing: "No first page: pdftoppm isn't installed here (sudo apt install poppler-utils, or brew install poppler)." }; }
 }
 
+/** An iPhone photo (HEIC) as a JPEG, through ImageMagick: browsers other than Safari can't draw HEIC. */
+function heicAsJpeg(source: string): Buffer {
+  let run: ReturnType<typeof Bun.spawnSync>;
+  try { run = Bun.spawnSync(["convert", source, "-auto-orient", "-quality", "88", "jpg:-"], { stdout: "pipe", stderr: "pipe", timeout: 60_000 }); }
+  catch { throw new Error("A HEIC photo needs ImageMagick here to become a JPEG (sudo apt install imagemagick libheif1, or brew install imagemagick)."); }
+  if (run.exitCode !== 0 || !run.stdout?.length) throw new Error(`ImageMagick could not read this HEIC photo${run.stderr?.length ? `: ${run.stderr.toString().trim().split("\n")[0]}` : ""}.`);
+  return Buffer.from(run.stdout);
+}
+
 function artifactHash(folder: string, files: string[]): string {
   const hash = new Bun.CryptoHasher("sha256");
   for (const file of files) hash.update(file + "\0").update(readFileSync(join(folder, file)));
@@ -182,6 +191,9 @@ export class ArtifactStore {
       mkdirSync(stage);
       try { untar(source, stage); files = stripRoot(readArtifactInput(stage, true, true)); }
       finally { rmSync(stage, { recursive: true, force: true }); }
+    } else if (extension === ".heic" || extension === ".heif") {
+      checkArtifactSize(1, stat.size);
+      files = { [`${basename(entry, extname(entry))}.jpg`]: heicAsJpeg(source) }; compile = true;
     } else if (Object.hasOwn(DROP_FILE_KINDS, extension)) {
       files = readArtifactInput(source, false); compile = true;
     } else throw new Error("Unknown artifact kind; use html, jsx, tsx, svg, mermaid or md, a zip or tar of a built folder, or an image or pdf.");
