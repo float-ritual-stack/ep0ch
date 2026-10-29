@@ -11,7 +11,7 @@
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { rankTextSearchMatches, type SearchMatchKind } from "@ep0ch/outline-core/search-match";
 import { workIdOf, workIdTitle } from "@ep0ch/outline-core/work-id-title";
-import { askNouls, chips, clip, dayOf, jevWho, NO, noul, tallyRun, YES, board, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
+import { askNouls, chips, clip, dayOf, jevOff, jevWho, NO, noul, tallyRun, YES, board, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { writeRecord } from "./records";
 import type { TwinAnswer as WireTwinAnswer, TwinCandidate } from "@ep0ch/outline-core/protocol";
 import type { Block, BlockAuthor, BlockProvenance, VisibleBlockCollection } from "./types";
@@ -28,6 +28,8 @@ const LOOP = "work-twins";
 
 /** Title matches strong enough to be a twin with no Jev: the phrase, or every term, in the title. */
 const STRONG: ReadonlySet<string> = new Set<SearchMatchKind>(["exact-title", "title-prefix", "title-contains", "title-terms"]);
+/** The stages of work under way, where a twin filed in other words most likely sits. */
+const ACTIVE: ReadonlySet<string> = new Set(["doing", "review", "validate", "queued"]);
 /** Kinds that are evidence at all; the fuzzy ones match letters, not words. */
 const WEAK: ReadonlySet<SearchMatchKind> = new Set(["title-fuzzy", "text-fuzzy"]);
 
@@ -50,14 +52,18 @@ const bodyOf = (b: Block, max = 600) => clip(b.text.split("\n").slice(headerLine
  * when one is given, its body (a paraphrase shares the body's words, not the title's), each item's best match kept.
  * Pure.
  */
-export function twinCandidates(open: readonly Block[], title: string, limit = TWIN_CANDIDATES, body?: string): (Omit<TwinCandidate, "verdict" | "said"> & { block: Block })[] {
+export function twinCandidates(open: readonly Block[], title: string, limit = TWIN_CANDIDATES, body?: string, o: { fill?: boolean } = {}): (Omit<TwinCandidate, "verdict" | "said"> & { block: Block; filler?: true })[] {
   const docs = open.map(b => ({ id: b.id, title: itemTitle(b), text: b.text, block: b }));
   const best = new Map<string, ReturnType<typeof rankTextSearchMatches<typeof docs[number]>>[number]>();
   // The title's matches first (they outrank any of the body's at the same rung), then the body's first sentences.
   for (const query of [title, ...(body?.trim() ? [clip(body, 160)] : [])]) {
     for (const m of rankTextSearchMatches(docs, query)) if (!WEAK.has(m.kind) && !best.has(m.document.id)) best.set(m.document.id, m);
   }
-  return [...best.values()].slice(0, limit).map(m => ({
+  // Room left: the work under way now (not later), newest first, so a twin that shares no word at all is still read by
+  // meaning; code never calls one of these a twin, only Jev can (twinVerdict: "related" without Jev's yes).
+  const active = !o.fill ? [] : docs.filter(d => !best.has(d.id) && ACTIVE.has(propOf(d.block, "work-stage") ?? "")).sort((a, b) => Date.parse(b.block.updatedAt ?? "") - Date.parse(a.block.updatedAt ?? ""));
+  const filled = [...best.values(), ...active.map(d => ({ document: d, kind: "some-terms" as const, score: 0, title: d.title, inTitle: 0, filler: true as const }))];
+  return filled.slice(0, limit).map(m => ({ ...("filler" in m ? { filler: true as const } : {}),
     id: m.document.id, workId: workIdOf(m.document.block) ?? m.document.id.slice(0, 8), title: m.document.title, stage: propOf(m.document.block, "work-stage") ?? "unknown", match: m.kind, inTitle: Math.round(m.inTitle * 100) / 100, block: m.document.block,
   }));
 }
@@ -81,7 +87,8 @@ export async function openItems(client: WorkJevClient): Promise<Block[]> {
 export async function findTwins(client: WorkJevClient, input: { title: string; body?: string }, o: JevOptions & { limit?: number } = {}): Promise<TwinAnswer> {
   // A filing waits on it: Jev gets a short budget, so the caller's own timeout never fires first.
   o = { timeoutMs: TWIN_JEV_MS, ...o };
-  const found = twinCandidates(await openItems(client), input.title, o.limit, input.body);
+  // Work under way fills the pool only when Jev can read it: with Jev off, code alone never makes a twin of it.
+  const found = twinCandidates(await openItems(client), input.title, o.limit, input.body, { fill: !!o.apiKey || !jevOff(o.env ?? process.env) });
   if (!found.length) return { candidates: [], twins: [], jev: "not asked: no open item shares its words" };
   const questions = Object.fromEntries(found.flatMap((c, i) => {
     const candidate = JSON.stringify({ id: c.workId, title: c.title, stage: c.stage, body: bodyOf(c.block, 500) });
@@ -89,11 +96,12 @@ export async function findTwins(client: WorkJevClient, input: { title: string; b
   }));
   const asked = await askNouls({ new: { title: input.title, ...(input.body?.trim() ? { body: clip(input.body, 800) } : {}) } }, questions, o);
   const answers = "answers" in asked ? asked.answers : undefined;
-  const candidates: TwinCandidate[] = found.map(({ block: _block, ...c }, i) => {
+  const candidates: TwinCandidate[] = found.flatMap(({ block: _block, filler, ...c }, i) => {
     const same = noul(answers, `same::${i}`), part = noul(answers, `part::${i}`);
     const withJev = { ...c, ...(same === undefined ? {} : { same }), ...(part === undefined ? {} : { part }) };
     const judged = { ...withJev, verdict: twinVerdict(withJev) };
-    return { ...judged, said: twinLine(judged) };
+    // A pool filler that shares no words is a candidate only when Jev reads it as the same work, or a step of it.
+    return filler && judged.verdict === "related" ? [] : [{ ...judged, said: twinLine(judged) }];
   });
   const order = (v: TwinCandidate["verdict"]) => ["same", "text", "part", "related"].indexOf(v);
   // Twins oldest first (PIE-1402: a near-duplicate named the newer twin, which was itself filed beside the original):

@@ -128,6 +128,10 @@ test("a twin filed in other words meets its original: its body's words make the 
   // No title word in common with "Water the tomato beds every morning"; its body says the same thing.
   const refused = await create("Daily irrigation for the vegetable plot", { body: "Each morning the tomato beds get watered, and the garden board shows which ones." }).then(() => null, (e: Error) => e.message);
   expect(refused).toContain("PIE-001 (doing) Water the tomato beds every morning · same work, Jev 0.88");
+  // With no body and no word in common, the work under way is still read by meaning; the rest stay out of the answer.
+  const bare = await create("Daily irrigation for the vegetable plot").then(() => null, (e: Error) => e.message);
+  expect(bare).toContain("PIE-001 (doing) Water the tomato beds every morning · same work, Jev 0.88");
+  expect(bare).not.toContain("Prune the apple tree");
 });
 
 test("of two twins, the original is named first, the newer one after it", async () => {
