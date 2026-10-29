@@ -50,6 +50,17 @@ export function spanBg(props: Comment["props"]): string {
   return surfaceBg(SURFACE_OF[annotationTone(props ?? {})], Math.round(SURFACE_STEPS * 0.6));
 }
 
+/**
+ * The background a comment's card is drawn on (PIE-1255): its tone's surface, darker than its highlight, so a card reads
+ * as a comment beside the note's words and never as more of them.
+ */
+export function cardBg(props: Comment["props"]): string {
+  return surfaceBg(SURFACE_OF[annotationTone(props ?? {})], Math.round(SURFACE_STEPS * 0.35));
+}
+
+/** One row of a card on its background, `w` cells: the background survives the resets inside it. */
+export const onCard = (row: string, w: number, bg: string) => bg + pad(row, w).split(RESET).join(RESET + bg) + RESET;
+
 /** A rule decoration's span (place: span) in its tone. */
 export function toneBg(tone: string | undefined): string {
   const t = (tone && tone in SURFACE_OF ? tone : "default") as RuleTone;
@@ -65,13 +76,17 @@ export const kindOf = (c: Comment) => annotationKind(c.props ?? {}, c.body);
 /** An annotation drawn as a card: one with something to read (a body, or replies). */
 export const hasCard = (c: Comment) => !!c.body.trim() || c.replies.length > 0;
 
+/** The widest the side column grows; a measured reader keeps this much room beside its text for it (PIE-1255). */
+export const MARGIN_MAX = 56;
+
 /**
- * The margin column's width at reader width `w`: room for cards beside the words when the reader is wide (a third of
- * it, 24 to 36 cells), else 0 (the cards fold under their passages).
+ * The margin column's width at reader width `w`: room for cards beside the words when the reader is wide (about a
+ * third of it, 24 to MARGIN_MAX cells: a wide tile's spare room goes to the cards, so they wrap less), else 0 (the
+ * cards fold under their passages).
  */
 export function marginColumn(w: number, mode: MarginMode, cards: number): number {
   if (mode === "off" || cards === 0 || w < 100) return 0;
-  return Math.max(24, Math.min(36, Math.floor(w * 0.28)));
+  return Math.max(24, Math.min(MARGIN_MAX, Math.floor(w * 0.32)));
 }
 
 /**

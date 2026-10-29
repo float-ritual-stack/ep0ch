@@ -132,7 +132,7 @@ import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "../live";
 import { SocketBoard } from "../socket";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, routeNote, undoMove, type MoveArgs } from "../note-move";
-import { hasCard, kindOf, MARGIN_MODE_WORDS, MARGIN_MODES, marginChipHint, marginColumn, nextMargin, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
+import { cardBg, hasCard, kindOf, MARGIN_MAX, MARGIN_MODE_WORDS, MARGIN_MODES, marginChipHint, marginColumn, nextMargin, onCard, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
@@ -2535,7 +2535,15 @@ export class NoteSurface {
     }
     // The document keeps a minimum width of its own (callouts, tables); a narrower column clips it.
     const inset = " ".repeat(this.bx);
-    const body = doc.lines.map(l => (width(l) + this.bx > w ? pad(inset + l, w) : inset + l));
+    // A card under its passage juts into the body's inset (PIE-1255), on its own background, so it reads as beside
+    // the words, not in them; its cells (and its controls') stay where the body's are.
+    const jut = Math.max(0, Math.min(2, this.bx - (host?.externalGutter !== undefined ? 0 : this.gutterWidth())));
+    const cardAt = new Map<number, string>();
+    if (jut) for (const c of threads.cards) for (let r = c.at; r < c.at + c.rows; r++) cardAt.set(shift(r) + (listInline && listInline.at <= shift(r) ? listInline.rows : 0), c.bg);
+    const body = doc.lines.map((l, r) => {
+      const bg = cardAt.get(r), row = bg ? inset.slice(jut) + bg + " ".repeat(jut) + l : inset + l;
+      return width(row) > w ? pad(row, w) : row;
+    });
     const marks = this.commentMarks(m, doc, noteLines);
     if (this.printed) for (const row of new Set(marks.map(k => k.row))) if (body[row])
       body[row] = fg(marks.some(k => k.row === row && k.open) ? C.yellow : C.dark) + "▐" + RESET + body[row]!.slice(1);
@@ -5602,7 +5610,7 @@ export class NoteSurface {
       this.marginMode === "trim" && !this.expanded.has(c.id));
   }
 
-  private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number, fold = false, composer?: readonly string[], host?: SurfaceHost, drawn: Link[] = []): { doc: Doc; controls: Control[]; passage: [number, number] | null; composerAt: number | null } {
+  private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number, fold = false, composer?: readonly string[], host?: SurfaceHost, drawn: Link[] = []): { doc: Doc; controls: Control[]; cards: { at: number; rows: number; bg: string }[]; passage: [number, number] | null; composerAt: number | null } {
     // A narrow reader folds each annotation's card under its passage (ADR 0004 contract 6), unless the margin is off.
     // The passage of the comment being written (PIE-770): its rows, and its box under them (after its thread, if expanded).
     const span = this.session ? this.composerSpan(this.session, m) : null;
@@ -5616,9 +5624,9 @@ export class NoteSurface {
       return { passage: was, composerAt: box.length ? starts[n] ?? null : null };
     };
     if (!fold || this.printed) {
-      if (!box.length) return { doc, controls: [], passage: at, composerAt: null };
+      if (!box.length) return { doc, controls: [], cards: [], passage: at, composerAt: null };
       const { doc: out, starts } = withRows(doc, box);
-      return { doc: out, controls: [], ...placed(out, starts, 0) };
+      return { doc: out, controls: [], cards: [], ...placed(out, starts, 0) };
     }
     const cs = this.comments ?? [];
     const panels = this.commentMarks(m, doc, noteLines).flatMap(k => {
@@ -5626,7 +5634,7 @@ export class NoteSurface {
       if (!c || !fold || this.printed || !this.threadShown(c.id)) return [];
       return [{ at: k.rows[1], thread: c.id, ...this.threadCard(c, W, host, drawn) }];
     });
-    if (!panels.length && !box.length) return { doc, controls: [], passage: at, composerAt: null };
+    if (!panels.length && !box.length) return { doc, controls: [], cards: [], passage: at, composerAt: null };
     // A reply's box goes right under its own thread; a comment's after every thread on its passage.
     const t = this.session?.mode === "compose" ? this.session.target : null;
     const own = t && (t.kind === "reply" || t.kind === "edit") ? panels.findIndex(p => p.thread === t.thread.id) : -1;
@@ -5634,7 +5642,8 @@ export class NoteSurface {
     const all = [...panels.slice(0, n), ...box, ...panels.slice(n)];
     const { doc: out, starts } = withRows(doc, all);
     const shown = (i: number) => (i < n || !box.length ? i : i + 1);
-    return { doc: out, controls: panels.flatMap((p, i) => p.controls.map(c => ({ ...c, row: starts[shown(i)]! + c.row }))), ...placed(out, starts, n) };
+    return { doc: out, controls: panels.flatMap((p, i) => p.controls.map(c => ({ ...c, row: starts[shown(i)]! + c.row }))),
+      cards: panels.map((p, i) => ({ at: starts[shown(i)]!, rows: p.lines.length, bg: p.bg })), ...placed(out, starts, n) };
   }
 
   /** The note's `{{ }}` as the service read them, for the property panel (the draft's, while one is open). */
@@ -8962,8 +8971,8 @@ export class NoteSurface {
     const m = this.msg;
     // An edit or the thread list covers the note; a comment written at its passage (PIE-770) keeps the margin as it was.
     if (!m || this.marginMode === "off" || this.modes.covers || this.printed) return 0;
-    const cards = (this.commentsFor === m.id ? this.comments ?? [] : []).some(c => c.start !== null && hasCard(c));
-    return cards ? 36 : 0;
+    const cards = (this.commentsFor === m.id ? this.comments ?? [] : []).some(c => (c.start !== null || isWholeNote(c)) && hasCard(c));
+    return cards ? MARGIN_MAX : 0;
   }
 
   /** What the passage toolbar offers: Comment, Ask and Explain (with an agent that answers in threads), and each extension's passage action. */
@@ -9348,7 +9357,7 @@ const SOURCES_CHIP = "[sources]";
 /** A thread on the whole note (PIE-846): no passage was ever quoted (one whose quoted words moved still has its quote). */
 export const isWholeNote = (c: Pick<Comment, "start" | "quote">) => c.start === null && !c.quote;
 
-function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text: string, width: number) => string[] | { lines: string[]; images?: DocImage[]; links?: LinkRange[] }, trim = false): { lines: string[]; controls: Control[]; images: DocImage[]; links: LinkRange[] } {
+function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text: string, width: number) => string[] | { lines: string[]; images?: DocImage[]; links?: LinkRange[] }, trim = false): { lines: string[]; bg: string; controls: Control[]; images: DocImage[]; links: LinkRange[] } {
   // Its pictures (PIE-846), on the panel's own rows: `col` cells in from the panel's left.
   const images: DocImage[] = [];
   const links: LinkRange[] = [];
@@ -9359,7 +9368,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
     for (const im of r.images ?? []) images.push({ ...im, line: lines.length + im.line, col: col + im.col });
     return r.lines;
   });
-  const edge = fg(c.open ? C.yellow : C.dark);
+  const edge = fg(c.open ? C.yellow : C.dark), bg = cardBg(c.props);
   const inner = Math.max(4, W - 2);
   const n = c.replies.length;
   const title = ` ${kindOf(c)} · ${c.open ? "■" : "·"} ${printable(authorName(c.author))} · ${ago(c.at)}${editedMark(c)} · ${c.lifecycle}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
@@ -9371,7 +9380,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   if (trim) {
     const summary = c.tldr ? `TL;DR ${c.tldr.body}` : c.replies.at(-1)?.body ?? c.body;
     lines.push(edge + "│ " + fg(C.grey) + drawEllipsized(body(summary, inner).join(" "), inner) + RESET);
-    return { lines, images: [], links: [], controls: [
+    return { lines: lines.map(l => onCard(l, W, bg)), bg, images: [], links: [], controls: [
       { thread: c.id, control: "toggle", row: 0, from: W - 3, to: W, label: "Fold thread" },
       { thread: c.id, control: "card", row: 0, from: 0, to: W - 3, label: "Open thread" },
       { thread: c.id, control: "card", row: 1, from: 0, to: W, label: "Open thread" },
@@ -9429,7 +9438,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
     col += shown.length;
   });
   lines.push(row + RESET, f.bottom());
-  return { lines, controls, images, links };
+  return { lines: lines.map(l => onCard(l, W, bg)), bg, controls, images, links };
 }
 
 /**
