@@ -122,7 +122,7 @@ describe("a reader's history, without a service", () => {
     await until(() => s.msg?.id === id(3), "the parent");
     let lines = s.render(60, 12, h).lines.map(plain);
     expect(lines).toHaveLength(12);
-    expect(lines[11]!.trim()).toBe("← back · Allotment diary");
+    expect(lines[11]!.trim()).toBe("← back · Allotment diary  ≡ trail");
     expect(s.hint()).toContain("alt← back");
     expect(s.click(3, 11, h)).toBe(true);
     await until(() => s.msg?.id === id(1), "the click went back");
@@ -165,6 +165,45 @@ describe("a reader's history, without a service", () => {
         expect(s.agent?.did).toBe("went back here");
       }
     }
+  });
+
+  // PIE-208: the trail is the same back and forward stacks, listed: alt+T, a click on ≡ trail, the tile menu, act.
+  test("the trail lists every stop by title; choosing one goes there in one step, and back and forward agree with it after", async () => {
+    const agent = { kind: "agent" as const, id: "test-agent-208" };
+    let picker: any = null;
+    const s = new NoteSurface(), h = host(s, { overlay: p => { picker = p; } });
+    s.show(notes[3] as any, h);
+    for (const next of [5, 6]) {
+      s.render(60, 12, h);
+      s.key(char("]"), h);
+      s.render(60, 12, h);
+      s.key({ kind: "enter" }, h);
+      await until(() => s.msg?.id === id(next), `followed to ${next}`);
+    }
+    // An agent reads it and opens nothing.
+    expect(await s.act("trail", {}, h, agent)).toMatchObject({ here: { id: id(6), title: "Rake" }, back: [{ id: id(5), title: "Tools" }, { id: id(4), title: "Shed" }], forward: [], shown: false });
+    expect(picker).toBeNull();
+    // The footer's chip opens it for the person, the note shown lit, the stops back below it.
+    const lines = s.render(60, 12, h).lines.map(plain);
+    const at = lines[11]!.indexOf("≡ trail");
+    expect(at).toBeGreaterThan(0);
+    expect(s.click(at + 2, 11, h)).toBe(true);
+    await until(() => picker !== null, "the trail opened");
+    expect(picker.items.map((r: any) => r.title)).toEqual(["Rake", "Tools", "Shed"]);
+    expect(picker.sel).toBe(0);
+    picker.sel = 2;
+    picker.key({ kind: "enter" }, h);
+    await until(() => s.msg?.id === id(4), "two stops back at once");
+    expect(s.describe().history).toMatchObject({ back: [], forward: [{ title: "Tools" }, { title: "Rake" }] });
+    // alt+T again: the stops ahead above the note shown.
+    picker = null;
+    s.key({ kind: "alt", ch: "T" }, h);
+    await until(() => picker !== null, "alt+T opened it");
+    expect(picker.items.map((r: any) => r.title)).toEqual(["Rake", "Tools", "Shed"]);
+    expect(picker.sel).toBe(2);
+    s.key({ kind: "alt-right" }, h);
+    await until(() => s.msg?.id === id(5), "forward is one step on the same trail");
+    await expect(s.act("forward", { steps: 2 }, { ...h, focused: false }, agent)).rejects.toThrow("only 1 ahead");
   });
 
   test("the history is saved and taken up by another reader (PIE-643): three notes, then back in order with the scroll kept; another version's is dropped", async () => {

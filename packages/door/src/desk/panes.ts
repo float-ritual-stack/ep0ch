@@ -22,7 +22,7 @@ import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
-import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList } from "../surface/note";
+import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList, type TrailStop } from "../surface/note";
 import { artLines, C, dim, fg, pad, RESET, selectedRow, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rowLines, ago, wrap } from "../text";
@@ -144,6 +144,8 @@ export interface DeskApi {
   askFollow?(p: ReaderPane): void;
   /** Where back (-1) or forward (1) from tile `p`'s column of a flow goes: that column's tile's title, or null. */
   travelPeek?(p: Pane, dir: -1 | 1): string | null;
+  /** Every column back and forward from tile `p`'s along its flow's trail, nearest first (PIE-208), or null outside a flow. */
+  travelTrail?(p: Pane): { back: TrailStop[]; forward: TrailStop[] } | null;
   /** Run an action as `by` in tile `p` through the screen's dispatcher, its refusal thrown (what an agent's `act` does). */
   within?(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown>;
   /** The person's key running a screen action in tile `p` (a refusal said, as any key's). */
@@ -509,6 +511,8 @@ export class ReaderPane implements Pane {
       enterMode: () => desk.enterSession?.(pane),
       redraw: () => desk.redraw(),
       ...(desk.historyLanded ? { historyLanded: (by: Actor) => desk.historyLanded!(this, by) } : {}),
+      // The trail (PIE-208) opens as a list over the screen this reader is on.
+      ...(desk.overlay ? { overlay: (p: ListPicker<any, any>) => desk.overlay!(p) } : {}),
       ...(desk.keepLayout ? { keptChanged: () => desk.keepLayout!() } : {}),
       ...(desk.layoutUndoSeq ? { layoutUndoSeq: () => desk.layoutUndoSeq!() } : {}),
       // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): a held reader with no
