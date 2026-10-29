@@ -22,6 +22,20 @@ are its record. The outliner's entries from then are kept below, under
 - **The backfill:** a note Jev read and said nothing of is kept as quiet, so a rerun asks only about what's new; a
   run keeps one row; its records look the Records page and templates up once. The host's own load under a backfill
   is PIE-1413's.
+### A note written in the river opens with its text, and neat speaks plainly (PIE-1403)
+
+- **Reopened, it shows what you wrote:** a note written in a float over the river, saved and opened again from the
+  power bar showed "(empty)" until the door restarted. An open now takes the newest copy on screen, and the screen's
+  current note is read again when it changes.
+- **x closes a float over the river**, as it closes a column there and a float on the board.
+- **The power bar says "no matches"** when nothing matches what you typed, and never stays on "notes…" once the
+  search has answered.
+- **neat from the power bar works** as it does from its button: your own run of a script acts as you, the way a
+  press does. From a float it puts other floats back and folds them; a step it can't do is said whole, in the
+  door's words, and its line names your notes, never tile ids. Typed as its row reads, `run neat` lists the run
+  row first, before any note named Neat.
+- **The ▾ at a heading's words folds it** on a click, as the gutter's ▾ does, at 38 columns too.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
 
 ### The trail: where a reader has been, and straight back to any stop (PIE-208)
 

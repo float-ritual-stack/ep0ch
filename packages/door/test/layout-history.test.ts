@@ -193,11 +193,11 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     const ext = extensionList()!.extensions.find(e => e.name === "tidy-tiles")!;
     const text = async (run: { written: string[] }) => (await board.get(run.written[0]!))?.text ?? "";
     const settled = async (run: { written: string[] }) => untilAsync(async () => !(await text(run)).split("\n")[0]!.includes("· working"), "the run to finish");
-    // The person has just clicked: without the press's invitation the script's moves are refused while they are at the keys.
+    // The person has just clicked: a run they didn't start (an agent's) carries no invitation, so its moves are refused while
+    // they are at the keys. The person's own run is their press (PIE-1403): it would carry one, as the run below does.
     (app as any).lastInput = Date.now();
-    const bare = await person(`ext.${ext.id}.run`, { block: note.id, a, b, f: D().layoutGet().focus }) as { undo: string; written: string[] };
-    await settled(bare);
-    expect(await text(bare)).toContain("at the keys");
+    // A failed run refuses the agent's act with the script's own words (PIE-1264).
+    await expect(app.act({ action: `ext.${ext.id}.run`, args: { block: note.id, a, b, f: D().layoutGet().focus }, as: AS })).rejects.toThrow("at the keys");
     expect(names().sort()).toEqual(before.sort());
     // With the press's invitation the same run moves them, as one entry in the layout's history.
     (app as any).lastInput = Date.now();

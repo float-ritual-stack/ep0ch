@@ -34,7 +34,7 @@ import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } 
 import { askInBar } from "../bar/ask";
 import type { WriteBoard } from "../mcp-writes";
 import { ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
-import type { ScreenSpec } from "../desk/screen-spec";
+import { CLOSE_KEY, type ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import type { TileSpec } from "../desk/tiles";
 import { LineField } from "../surface/line";
@@ -1112,5 +1112,7 @@ export function riverSpec(): ScreenSpec {
     // The Library is what the river is made around: it doesn't close (closable off, held by its tab set of one, as the
     // board's preview's is), so a saved river always comes back with it.
     layout: { focus: "library", root: { t: "flow", key: "river", held: [0], kids: [{ t: "tabs", tabs: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" } as TileSpec], active: 0, policy: { closable: false } }] } },
+    // x closes a reader floating over the river (a new note's float) as it closes a column, and as the board's x does (PIE-1403).
+    keys: [CLOSE_KEY],
   };
 }
