@@ -1,10 +1,8 @@
 import { overrideWords } from "@ep0ch/outliner/extension-update";
-import { outlineBoards, readNote } from "../desk/outline-boards";
+import { outlineBoards, readTarget } from "../desk/outline-boards";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
-import { BLOCK_ID_PATTERN, formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
-import { blockRefText } from "@ep0ch/outline-core/link-syntax";
+import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { addressOf } from "../open";
-import { ownOutline } from "../note-ref";
 // The power bar's built-in sources (PIE-656), each a scope with its prefix: tiles (%), notes (/), actions (>),
 // recent (+) and screens (@). None keeps a list of its own: tiles are the layout tree's (`Desk.tileOutline`) on every
 // screen and in the drawer; notes are the service's one search (`board.search`, Goto's ranker, Jev re-ordering after
@@ -161,20 +159,10 @@ export async function recentNotes(host: BarHost): Promise<BarRow[]> {
  * board; a page or Work ID by `pages.resolve`), never a search for its words. Refused, it says which note it named.
  */
 async function addressedRows(to: NonNullable<ReturnType<typeof addressOf>>, host: BarHost): Promise<BarRow[]> {
-  const own = await ownOutline(host.ctx), outline = to.outline && to.outline !== own ? to.outline : undefined;
-  const at = outline ? { outline, ...(to.machine ? { machine: to.machine } : {}) } : undefined;
-  const where = outline ?? "this outline", named = "block" in to ? to.block : to.page;
-  let m: Msg | null = null;
-  if ("page" in to && to.page) m = (await (at ? (await outlineBoards(host.ctx).on(at)).board : host.ctx.board).resolvePage(to.page)).block ?? null;
-  else if (BLOCK_ID_PATTERN.test(to.block!)) m = await readNote(host.ctx, to.block!, at);
-  // A short id (its first 8+ characters, as a reference may write it): the service's reading of the reference.
-  else {
-    const [r] = await host.ctx.board.resolveReferences(blockRefText(to.block!, "", outline ? { outline } : {}));
-    if (r?.status === "resolved") m = await readNote(host.ctx, r.blockId, r.outline && r.outline !== own ? { outline: r.outline, ...(r.machine ? { machine: r.machine } : {}) } : at);
-  }
-  if (!m || m.deleted) return [{ key: `address:${named}`, label: to.label ?? named!, exact: true, refused: `no note ${named} in ${where}` }];
-  const there = m.address?.outline && m.address.outline !== own ? m.address : undefined;
-  const c = there ? await outlineBoards(host.ctx).on(there) : null;
+  const named = "block" in to ? to.block : to.page;
+  const m = await readTarget(host.ctx, to);
+  if (!m || m.deleted) return [{ key: `address:${named}`, label: to.label ?? named!, exact: true, refused: `no note ${named} in ${to.outline ?? "this outline"}` }];
+  const there = m.address, c = there ? await outlineBoards(host.ctx).on(there) : null;
   const key = there ? formatEp0chBlockUri({ outline: there.outline, machine: there.machine ?? c!.machine ?? (await c!.board.info()).machine!, blockId: m.id }) : m.id;
   const detail = [there?.outline, to.fragment ? `line ^${to.fragment}` : ""].filter(Boolean).join(" · ");
   return [{ ...noteRow(m), key, exact: true, oneLine: true, ...(detail ? { detail, subtitle: undefined } : {}), note: { id: m.id, ...(there ? { outline: there.outline } : {}) }, data: { fragment: to.fragment } }];
@@ -446,14 +434,14 @@ function summaryOf(e: ExtensionEntry, l: ExtensionList): string {
 
 /** An installed extension as its preview reads it: its id and version, its state and settings, where it lives, its words, what it adds. */
 function extensionFacts(e: ExtensionEntry, then: string): string {
-  const parts = extensionParts(e);
+  const parts = extensionParts(e), override = e.builtIn && overrideWords(e.id, e.builtIn);
   return [
     `**${e.name ?? e.id}** \`${e.id}\`${e.version !== undefined ? ` v${e.version}` : ""} · ${e.state}${e.settings ? ` · settings ${settingsChip(e.settings)}` : ""}`,
     ...(e.error ? ["", `> [!warning] ${e.error}`] : []), ...(e.script && e.summary ? ["", e.summary] : []), "", e.description ?? "",
     ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${partKind(p.kind)} **${p.name}**${p.about ? ` · ${p.about}` : ""}`)] : []),
     ...(e.directory ? ["", `\`${e.directory}\``] : []),
     // A copy of a built-in (PIE-1283): this copy runs, the built-in never does in place; both folders said.
-    ...(e.builtIn ? ["", overrideWords(e.id, e.builtIn) ? `${overrideWords(e.id, e.builtIn)}: this copy runs; the built-in is \`${e.builtIn.directory}\`` : `installed from the built-in \`${e.builtIn.directory}\``] : []), "", then,
+    ...(e.builtIn ? ["", override ? `${override}: this copy runs; the built-in is \`${e.builtIn.directory}\`` : `installed from the built-in \`${e.builtIn.directory}\``] : []), "", then,
   ].join("\n");
 }
 

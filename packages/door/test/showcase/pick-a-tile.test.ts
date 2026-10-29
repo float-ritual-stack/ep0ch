@@ -233,7 +233,7 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     expect(screen()).not.toContain(`tile: ${links}`);
     await act("tile.info", { card: true }, "links");
     await until(() => screen().includes(`tile: ${links}`), "the tile's card");
-    expect(screen()).toContain("copy reference");
+    expect(screen()).toContain("copy tile reference");
     await act("hint.dismiss", {}, "links");
   });
 

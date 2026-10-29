@@ -1,4 +1,5 @@
-import { parseAddressedBlock, parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { BLOCK_ID_PATTERN, parseAddressedBlock, parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { canonicalLocalMachineName, isLocalMachine } from "@ep0ch/outliner/machine-name";
 import type { Ctx } from "../app";
 import type { Msg } from "../board";
@@ -94,5 +95,26 @@ export async function readNote(ctx: Ctx, given: string, address?: NoteAddress): 
   const on = at ? await outlineBoards(ctx).on(at) : ctx;
   const note = await on.board.get(parsed.blockId);
   if (note && at) note.address = { outline: at.outline, ...(on.machine ? { machine: on.machine } : {}) };
+  return note;
+}
+
+/**
+ * The note a link target names, read where it lives (the one answer for a link's or a pasted address's `{ block | page,
+ * outline?, machine? }`: the links tile's rows and the power bar's, PIE-1398): another outline's through its board, a
+ * page or Work ID by `pages.resolve`, a short id (a reference's first 8+ characters) by the service's reading of it; the
+ * note's `address` says which outline it is in when that's another's. None when nothing answers there.
+ */
+export async function readTarget(ctx: Ctx, target: { block?: string; page?: string; outline?: string; machine?: string }): Promise<Msg | null> {
+  const own = ctx.outline ?? ctx.board.outline ?? (await ctx.board.info()).outline;
+  const foreign = target.outline && target.outline !== own ? { outline: target.outline, machine: target.machine ?? ctx.machine } : undefined;
+  const on = foreign ? await outlineBoards(ctx).on(foreign) : ctx;
+  let note: Msg | null = null;
+  if (target.page !== undefined) note = (await on.board.resolvePage(target.page)).block ?? null;
+  else if (target.block && BLOCK_ID_PATTERN.test(target.block)) note = await on.board.get(target.block);
+  else if (target.block) {
+    const [r] = await ctx.board.resolveReferences(blockRefText(target.block, "", foreign ? { outline: foreign.outline } : {}));
+    if (r?.status === "resolved") return readTarget(ctx, { block: r.blockId, ...(r.outline ? { outline: r.outline } : {}), ...(r.machine ? { machine: r.machine } : {}) });
+  }
+  if (note && foreign) note.address = { outline: foreign.outline, ...(on.machine ? { machine: on.machine } : foreign.machine ? { machine: foreign.machine } : {}) };
   return note;
 }

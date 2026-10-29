@@ -348,8 +348,8 @@ export const versionWords = (copy: Pick<InstalledCopy, "version">) =>
  * What a copy of a built-in says on its row (PIE-1283): that it is what runs, and how it stands against the built-in.
  * A copy with the built-in's own files is how installing one works (PIE-1399), so it says nothing: it is installed.
  */
-export function overrideWords(id: string, builtIn: { readonly state: CopyState }): string {
-  if (builtIn.state === "current") return "";
+export function overrideWords(id: string, builtIn: { readonly state: CopyState }): string | null {
+  if (builtIn.state === "current") return null;
   return `your copy overrides the built-in (${builtIn.state === "stale" ? `behind it: ep0ch ext update ${id}` : "changed here"})`;
 }
 

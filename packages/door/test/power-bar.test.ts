@@ -685,9 +685,13 @@ describe.skipIf(!outliner)("the power bar", () => {
       key({ kind: "alt", ch: "m" } as Key);
       key({ kind: "alt", ch: "2" } as Key);
       await until(() => copied.filter(t => t === `((${notes.shed!.id}|Bike shed))`).length === 2, "the reference copied by alt+2");
-      // Menu closed, a digit types again.
+      // Menu closed, a digit types again; and typing with it open puts it away, the digits the query's.
       key(ch("9"));
       expect(peek().bar.query).toBe("bike shed9");
+      key({ kind: "alt", ch: "m" } as Key);
+      key(ch("x")); key(ch("1"));
+      expect(peek().bar.query).toBe("bike shed9x1");
+      expect(frame().some(l => l.includes("copy note id"))).toBe(false);
       // An agent names the hit by ref=.
       expect(await app.act({ action: "note.copy-ref", args: { kind: "id", ref: notes.shed!.id }, as: "wren-agent" })).toMatchObject({ text: notes.shed!.id, clipboard: false });
     } finally { (app as any).copy = copy; }
@@ -715,9 +719,11 @@ describe.skipIf(!outliner)("the power bar", () => {
         closeBar();
       }
     }
-    // ⏎ opens it where opens land; a line's reference at that line.
-    key(ctrlK); key({ kind: "paste", text: `((${shed}|zzz))` });
-    await until(() => peek().bar.rows[0]?.key === shed, "the reference's row");
+    // ⏎ at once after the paste, over the recent notes / listed before it: the pasted note opens, never a row kept from before.
+    desk.setCurrent(notes.garden!);
+    key(ctrlK); type("/");
+    await until(() => peek().bar.rows.length > 0 && !peek().bar.asking, "the recent notes");
+    key({ kind: "paste", text: `((${shed}|zzz))` });
     key({ kind: "enter" });
     await until(() => !peek().bar && [...(desk as any).panes.values()].some((p: any) => p.msg?.id === shed), "the shed opened", 5000);
     // A reference to a note that isn't there says so on its row, instead of waiting on a search.
