@@ -2235,6 +2235,9 @@ export class NoteSurface {
       if (first >= top) gutterRows.set(first, dim(folded ? "▸" : "▾"));
       // A wrapped heading is one heading (PIE-1349): a click on any of its rows folds it.
       for (let r = Math.max(top, first); r < Math.min(first + rows, top + room); r++) this.hits.push({ row: r, from: this.gutterStart, to: this.gutterStart + 1, fold: n + 1 });
+      // The disclosure drawn at the heading's words (doc.ts's headingGlyph) is a click target as much as the gutter's (PIE-1403).
+      const glyph = first >= top ? [...visible(lines[first] ?? "")].findIndex((c, i) => i >= this.bx && (c === "▾" || c === "▸")) : -1;
+      if (glyph >= 0) this.hits.push({ row: first, from: glyph, to: glyph + 1, fold: n + 1 });
       // What a fold hides is said after its last row.
       const row = first + rows - 1;
       if (row < top || row >= top + room) continue;
