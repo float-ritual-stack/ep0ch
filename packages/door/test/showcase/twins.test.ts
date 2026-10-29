@@ -10,7 +10,7 @@ import { marks } from "./marks";
 
 describe.skipIf(!outliner)("showcase: twins at filing (PIE-1258)", () => {
   const h = useShowcaseScreen(200);
-  const latch = () => h.board.get(h.seeded.notes.gateLatch.id);
+  const latch = () => h.board.get(h.seeded.cards[0]!.id);
   const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 15_000) => {
     const end = Date.now() + ms;
     while (!(await ok())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(50); }

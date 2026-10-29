@@ -140,7 +140,6 @@ export const SEED = {
   sources: "Completion from an extension",
   writeReview: "Shed status tonight",
   jevPage: "Jev's suggestions",
-  gateLatch: "Fix the back gate latch",
   copyPage: "Crate day, copied with its results",
   swapDay: "Seed swap day",
   meeting: "Greenhouse meeting, October",
