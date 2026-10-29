@@ -223,7 +223,7 @@ export interface SurfaceHost {
    * thread list (⏎ or a click on a comment mark), an armed edit confirmed (edit.arm). Without it the surface opens it itself.
    */
   startSession?(kind: SessionKind, opener?: Key): void | Promise<unknown>;
-  /** The person's new note `m` opened in their edit where this reader's opens go (the desk's `note.new` lands), lit as arrived. */
+  /** The person's new note `m` made from this reader, opened in their edit where their new notes open (`note.opens`), lit as arrived. */
   writeNew?(m: Msg): Promise<{ tile: string; surface: NoteSurface } | null>;
   /**
    * The comment being written goes into a tile of its own beside this reader (`on`), or out of it (PIE-846): the host's
@@ -6994,7 +6994,7 @@ export class NoteSurface {
   }
 
   /**
-   * The person's new quote opened to write in (PIE-1184), as their new note opens (`note.new`'s `lands`: where this
+   * The person's new quote opened to write in (PIE-1184), as their new notes open (`note.opens`: a float beside what they read, by default
    * reader's opens go, lit as just arrived), the cursor at the end of the quote. The tile's name, or null.
    */
   private async writeQuote(id: string, host: SurfaceHost): Promise<string | null> {
@@ -11741,7 +11741,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "quote": def({
-    summary: "quote marks into a new block (the margin's quote-tweet): a highlight, a comment or a reply, or several, each transcluded (!((mark))) under one [from::((mark))] line so it traces back to where it was said; each mark's card then says quoted in. where= inbox (the default), note (under this note) or a block (its id or ((ref))); the person's, left out, is asked in the power bar: under this note (first: a quote-reply sits with what it answers), the Inbox, or any note by its words. The person's quote then opens where this reader's opens go, lit as just arrived, in their edit at the end of the quote (PIE-1184); an agent's opens nothing. text= the new block's own words above the quotes (its title). The marks stay where they are. One write: ctrl+z (ext.undo) takes it back. Recorded as whoever asks",
+    summary: "quote marks into a new block (the margin's quote-tweet): a highlight, a comment or a reply, or several, each transcluded (!((mark))) under one [from::((mark))] line so it traces back to where it was said; each mark's card then says quoted in. where= inbox (the default), note (under this note) or a block (its id or ((ref))); the person's, left out, is asked in the power bar: under this note (first: a quote-reply sits with what it answers), the Inbox, or any note by its words. The person's quote then opens where their new notes open (note.opens: a float beside the reader, by default), lit as just arrived, in their edit at the end of the quote (PIE-1184); an agent's opens nothing. text= the new block's own words above the quotes (its title). The marks stay where they are. One write: ctrl+z (ext.undo) takes it back. Recorded as whoever asks",
     keys: "q in the thread list (m) on the thread, or on the threads picked with space; a click on an expanded thread's [Quote] or a reply's [Quote]",
     touches: "nothing", replay: "ask",
     args: {
@@ -11761,7 +11761,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const named = threads ?? (s ? (s.picked.size ? [...s.picked].join(",") : s.threads[s.sel]?.id) : undefined);
       if (!named) throw new ActionRefused("say which marks: threads=<id>[,<id>…] (peek lists them under comments.threads); in the thread list, q quotes the current thread or the ones picked with space");
       const ids = surface.markIds(named);
-      // The person's quote lands where they are (PIE-1184): opened in their edit where this reader's opens go.
+      // The person's quote lands where they are (PIE-1184): opened in their edit where their new notes open.
       const run = (answers: Record<string, string>) => surface.quoteMarks(ids, answers.where ?? "inbox", host, actor, text, standing && actor.kind === "user").then(r => { s?.picked.clear(); return r; });
       if (where !== undefined || actor.kind === "agent") return run({ where: where ?? "inbox" });
       // Under this note first: a quote-reply sits with what it answers.

@@ -19,7 +19,7 @@ are its record. The outliner's entries from then are kept below, under
   hover it, or a mark, for what a click does.
 - **A comment looks like a comment:** each card on its own dark surface in its tone, jutting into the margin under its
   passage; the side column grows with a wide tile.
-- **[Quote] asks "under this note" first** and opens the quote where the reader's opens go, lit as just arrived, in
+- **[Quote] asks "under this note" first** and opens the quote where your new notes open (a float beside what you read, unless `note.opens` says otherwise), lit as just arrived, in
   your edit at the end of the quote: nothing to hunt for.
 
 ### A dropped connection leaves the terminal clean (PIE-1429)

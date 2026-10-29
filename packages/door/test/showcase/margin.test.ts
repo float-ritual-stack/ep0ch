@@ -236,7 +236,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
   }, 40_000);
 
 
-  // PIE-1184: the person's quote lands where they are: the quote note opens where the reader's opens go, lit as just
+  // PIE-1184: the person's quote lands where they are: the quote note opens where their new notes open (a float), lit as just
   // arrived, in its edit with the cursor at the end of the quote; "under this note" is asked first, and makes it a child.
   test("quoting lands where you are (PIE-1184): under this note first in the bar; the quote opens beside the plan, lit, in edit under the quote", async () => {
     (app as any).lastInput = 0;
@@ -255,13 +255,13 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     const by = Date.now() + 5000;
     while (!(quote = (await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn?.[0])) { if (Date.now() > by) throw new Error("timed out waiting for the quote"); await Bun.sleep(50); }
     expect((await board.get(quote))!.parentId).toBe(plan.id);
-    // Opened where the plan's opens go (this screen's wire keeps the plan beside it), lit as arrived, in the person's
+    // Opened where new notes open (a float over the screen), the plan left as it was, lit as arrived, in the person's
     // edit, the cursor at the end of the quote (⏎ starts the reply under it).
-    const tiles = () => stage().layoutGet().tiles as any[];
-    const writing = () => tiles().find(t => (stage().pane(t.name) as ReaderPane)?.surface?.draft?.blockId === quote);
+    const tiles = () => { const l = stage().layoutGet() as any; return [...l.tiles, ...l.floats] as any[]; };
+    const writing = () => tiles().find(t => t.name && (stage().pane(t.name) as ReaderPane)?.surface?.draft?.blockId === quote);
     await until(() => !!writing(), "the quote's edit open", 5000);
     expect(tiles().some(t => t.showing?.id === quote && t.arrival)).toBe(true);
-    expect(tiles().some(t => t.showing?.id === plan.id)).toBe(true);
+    expect(tiles().find(t => t.name === "plan")?.showing?.id).toBe(plan.id);
     const d = (stage().pane(writing().name) as ReaderPane).surface.draft!;
     expect(d.text.split("\n")[d.row]).toBe(`!((${thread.id}))`);
     expect({ col: d.col, row: d.row }).toEqual({ col: `!((${thread.id}))`.length, row: d.text.split("\n").length - 1 });
@@ -443,7 +443,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     while (!(mine = (await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn?.[0])) { if (Date.now() > by) throw new Error("timed out waiting for the person's quote"); await Bun.sleep(50); }
     expect((await board.get((await board.get(mine))!.parentId!))!.text).toMatch(/^Inbox/);
     // It opened in the person's edit (PIE-1184); closed untouched, nothing changed.
-    const editing = () => (stage().layoutGet().tiles as any[]).find(t => (stage().pane(t.name) as ReaderPane)?.surface?.draft?.blockId === mine);
+    const editing = () => { const l = stage().layoutGet() as any; return ([...l.tiles, ...l.floats] as any[]).find(t => t.name && (stage().pane(t.name) as ReaderPane)?.surface?.draft?.blockId === mine); };
     await until(() => !!editing(), "the person's quote open in their edit", 5000);
     await stage().dispatch.press("edit.close", {}, editing().name);
     await until(() => !editing(), "the edit closed");

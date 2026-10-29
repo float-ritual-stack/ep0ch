@@ -48,7 +48,7 @@ import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
 import { ActionRefused, ActionSet, actionSet, actRequestOf, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
-import { newNoteOffer, type NewNoteHow } from "../new-note";
+import { newNoteOffer, personOpens, type NewNoteHow } from "../new-note";
 import { layoutStanding, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
@@ -3295,11 +3295,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * it there. Its edit opens through the reader's own `edit` (the one editor and draft session) and their keys go to it.
    * From an edit, that edit stays open where it is, as a click away leaves it (PIE-812). The reader's name, or null when no reader took it.
    */
-  /** DeskApi.writeFrom: the person's new note opened from reader `from` (a quote, PIE-1184): where its opens go, in edit. */
+  /**
+   * DeskApi.writeFrom: the person's new note made from reader `from` (a quote, PIE-1184) opened to write in where their
+   * new notes open (`note.opens`: a float beside what they read, by default), the reader left as it was.
+   */
   async writeFrom(from: ReaderPane, m: Msg): Promise<string | null> {
     const id = this.idOf(from);
     if (id !== undefined && id !== this.focus) this.focusTile(this.nameOf(id), USER);
-    return this.editNew(m, { opens: "lands", context: from.msg?.id ?? null, actor: USER });
+    return this.editNew(m, { opens: this.newNoteRule()?.opens ?? personOpens(), context: from.msg?.id ?? null, actor: USER });
   }
 
   async editNew(m: Msg, how: NewNoteHow = { opens: "lands", context: null }): Promise<string | null> {
