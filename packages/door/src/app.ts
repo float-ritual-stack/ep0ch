@@ -318,6 +318,8 @@ export interface Screen {
   title: string;
   /** `?` is its own (the desk's: the cut hint row first, the keys window filtered to the focused tile next; the menu's); else the App opens the keys window. */
   readonly ownsQuestion?: true;
+  /** The keys window as a tile of this screen beside the focused one (a desk's, PIE-1425), filtered by `filter` (default: where you are); else keys.open pushes the keys screen. */
+  openKeys?(filter: string | undefined, actor: Actor): Promise<unknown>;
   /**
    * What the screen is, by name (a screen spec's, PIE-515: `desk`, `board`, `welcome`; the river's, the showcase's):
    * a menu item that keeps state opens only one screen of its name at a time.

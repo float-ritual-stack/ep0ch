@@ -85,6 +85,7 @@ import { isOutlineNote, openResource, resourceRefTarget } from "../authored";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileNow, type Where } from "./tile-actions";
 import { tileMenu } from "./tile-menu";
+import { KeysPane } from "./keys-window";
 import { filtered } from "../bar/filter";
 import { ScreenTile } from "./screen-tile";
 import { QueryPane } from "./query";
@@ -4557,6 +4558,27 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
+   * The keys window as a tile (PIE-1425): beside the focused tile, filtered to where you are, so it resizes, docks and
+   * closes like any; the one already on this screen gets the person's keys back with the new filter.
+   */
+  async openKeys(filter: string | undefined, actor: Actor): Promise<unknown> {
+    const words = filter ?? this.keysFilter();
+    const have = this.all().find(id => this.panes.get(id) instanceof KeysPane);
+    if (have === undefined) {
+      const at = this.focus, done = await this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), "right", actor);
+      // Closed (esc, q, ^W x), it gives the keys back to the tile it opened beside.
+      const made = this.all().find(id => this.panes.get(id) instanceof KeysPane);
+      if (made !== undefined) this.openedBy(made, at);
+      return done;
+    }
+    const p = this.panes.get(have) as KeysPane;
+    p.filter = words; p.at = 0; p.field = null; p.record = null;
+    if (actor.kind !== "agent") await this.dispatch.press("tile.focus", {}, this.tileId(have));
+    this.redraw();
+    return { ...this.tileAnswer(have), kind: "keys" };
+  }
+
+  /**
    * The words `?` opens the keys window with: the scope of the focused tile's own actions (a reader's are NOTE_ACTIONS',
    * `note`; another kind's, its set's), else nothing (every binding).
    */
@@ -5487,7 +5509,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const under = at === undefined && this.isFloat(this.focus) ? this.grounded() : undefined;
     const empty = !this.all().length;
     const base = empty ? { id: this.focus, name: "home" } : this.tile(under !== undefined ? this.nameOf(under) : at);
-    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...this.mountFields(t) };
+    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...(t.state ? { state: t.state } : {}), ...this.mountFields(t) };
     // The kind checks its fields (a preview's source) and fills what it starts with (it follows `at`).
     const wrong = k.check?.(spec);
     // Short of what it needs (a query tile with no view): the person picks it from the kind's choices, then it opens.

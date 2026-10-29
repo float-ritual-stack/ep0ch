@@ -59,7 +59,7 @@ export class MacroRecording {
 export const MACRO_ACTIONS = actionSet<{ ctx: Ctx; recording: MacroRecording }>()("macros", {
   "macro.record": def({
     summary: "record your actions into an editable script; macro.stop saves it beside the note in front",
-    keys: "alt+Q (when not recording), or ^K then macro.record; a click on the status bar's ⇧⌥Q or its power bar row",
+    keys: [{ keys: "alt+Q", does: "when not recording" }, { via: "^K then macro.record in the power bar" }, { keys: "click", does: "on the status bar's ⇧⌥Q or its power bar row" }],
     touches: "nothing", replay: "ask", person: "A recording belongs to the person; an agent writes a [script::] block instead",
     args: { name: { type: "string", optional: true, about: "script name; default: a timestamped recording, editable after saving" } },
     examples: [
@@ -74,7 +74,7 @@ export const MACRO_ACTIONS = actionSet<{ ctx: Ctx; recording: MacroRecording }>(
   }),
   "macro.stop": def({
     summary: "stop recording and save its action lines in a [script::] block; edit argument values to {{props.slot}} to fill them at replay",
-    keys: "alt+Q (while recording), or ^K then macro.stop; a click on REC stop or its power bar row",
+    keys: [{ keys: "alt+Q", does: "while recording" }, { via: "^K then macro.stop in the power bar" }, { keys: "click", does: "on REC stop or its power bar row" }],
     touches: "nothing", replay: "ask", person: "Only the person stops their recording",
     args: {}, run(_, { ctx, recording }) { return recording.stop(ctx); },
   }),

@@ -547,7 +547,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "agents.yolo": def({
     summary: "hand the door to your agents (on=true) or take it back (on=false); left out, it toggles. In yolo no person guard holds an agent back: not your typing, focus or idle, not a tile's limit or a lock, not the drawer. What keeps state valid (revisions, the layout's shape) still holds, and every agent action is still attributed and said. Loud on the status bar (YOLO; a click takes it back). Kept across an update of the same session; off after the door ends or crashes. Turning it on is the person's; an agent may turn it off",
-    keys: "> agents.yolo in the power bar (ctrl+k); a click on the status bar's YOLO turns it off",
+    keys: [{ via: "> agents.yolo in the power bar (ctrl+k)" }, { keys: "click", does: "on the status bar's YOLO turns it off" }],
     touches: "nothing", replay: "ask",
     // Handing the door over is the person's alone, on their press too; taking it back (on=false) is anyone's.
     personWith: ({ on }) => (on === false ? null : { always: "yolo is the person's to hand over: they turn it on (ctrl+k > agents.yolo); an agent takes it back with on=false" }),
@@ -595,7 +595,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "outline.snapshot": def({
     summary: "copy a one-time SQLite snapshot link for read-only analysis; expires in 15 minutes, revocable with share.revoke. Includes private notes. Append ?gz=1 for gzip",
-    keys: "> outline.snapshot in the power bar",
+    keys: [{ via: "> outline.snapshot in the power bar" }],
     touches: "nothing", replay: "ask", says: out => `· snapshot link created · ${out.bytes} bytes · expires ${out.expiresAt}`,
     args: { ttl: { type: "string", optional: true, about: "15m by default, up to 24h" } },
     examples: [
@@ -613,7 +613,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "artifact.lease": def({
     summary: "upload a file: a one-time link to send a page, a zip or a tar (or an image) into the artifacts inbox from a shell, good for one upload for an hour. Prints the curl to run where the file is and copies it; the file is checked, installed as the next version of its artifact, and a card for it lands in this outline's note for today. name= names the artifact (left out, the file names itself by its page title). `ep0ch artifact lease` from a shell",
-    keys: "> artifact.lease (or: upload) in the power bar",
+    keys: [{ via: "> artifact.lease (or: upload) in the power bar" }],
     touches: "nothing", replay: "ask", says: out => `· upload link made${out.name ? ` for ${out.name}` : ""} · one upload, good until ${out.expiresAt}`,
     args: { name: { type: "string", optional: true, about: "the artifact's name: letters, numbers, dots, underscores, hyphens; sending it again is its next version. Left out, the file names itself" } },
     examples: [
@@ -631,7 +631,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "share.start": def({
     summary: "start a short-lived public link (a share session) to the outline, navigated as the tailnet's web client is: ref= is the page it opens on (an id, ((id)), a page name, [[page]] or PIE-123), only= narrows it to that note and what's under it; until it is revoked, or for ttl= (30m, 4h, 7d) when given, taking comments unless comments=false. The link goes on the clipboard and the status bar; [publish::never] notes stay hidden. `ep0ch share start` from a shell. An agent's is attributed to it",
-    keys: "> share.start in the power bar",
+    keys: [{ via: "> share.start in the power bar" }],
     touches: "nothing", replay: "ask", says: out => (out?.share ? { text: `· shared ${out.share.scope.kind === "outline" ? "the outline" : `only “${out.share.scope.title}”`} for ${endsIn(out.share.expiresAt)}: ${out.share.url ?? out.share.id}`, ms: 15_000 } : null),
     args: {
       ref: { type: "string", optional: true, about: "the page the link opens on (id, ((id)), a page name, [[page]], PIE-123); default: the top of the outline" },
@@ -661,7 +661,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "share.list": def({
     summary: "the open share sessions: each one's id, link, what it shares, when it ends and whether it takes comments; the status bar says how many and the soonest to end. Read-only. `ep0ch share list` from a shell; the tailnet's /pub/shares page shows the same, with Revoke and Kill all",
-    keys: "> share.list in the power bar",
+    keys: [{ via: "> share.list in the power bar" }],
     touches: "nothing", replay: "safe",
     args: {},
     async run(_, { ctx }) {
@@ -672,7 +672,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "share.revoke": def({
     summary: "end a share session now (id= from share.list), or every open one (all=true): its link answers 410 from the next request. `ep0ch share revoke <id> | --all` from a shell",
-    keys: "> share.revoke in the power bar",
+    keys: [{ via: "> share.revoke in the power bar" }],
     touches: "nothing", replay: "ask", says: out => (out?.revoked ? `· ended ${out.revoked.length} share${out.revoked.length === 1 ? "" : "s"}` : null),
     args: {
       id: { type: "string", optional: true, about: "the share's id (share.list)" },
@@ -820,12 +820,13 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "keys.open": def({
-    summary: "open the keys window over this screen (q comes back): every key binding, filtered by filter= (a key, an action, a scope or words), each with what it does, what it takes its key from and what takes it first, and a rebind that says what it would do before it saves it in your keymap. An agent's waits until the person is idle",
+    summary: "open the keys window: on a screen of tiles (the desk, the board, the river) a keys tile beside the focused one, resized, docked and closed like any tile (esc or q closes it; the one already open gets the keys back); elsewhere the keys screen over this one (q comes back). Every key binding, filtered by filter= (a key, an action, a scope or words), each with what it does, what it takes its key from and what takes it first, and a rebind that says what it would do before it saves it in your keymap. An agent's waits until the person is idle",
     keys: [{ keys: "?", does: "on every screen, filtered to where you are (on the desk: after ? more, when the hint row was cut)" }, { keys: "click", does: "on ? keys in the hint row" }],
-    touches: "screen", replay: "safe", says: () => ({ text: "· opened the keys window · q goes back", ms: 6000 }),
+    touches: "screen", replay: "safe", says: () => ({ text: "· opened the keys window · ⏎ runs a row · esc closes it", ms: 6000 }),
     args: { filter: { type: "string", optional: true, about: "the words to filter by: a key (^W x), an action (tile.close), a scope (note, board) or what it does" } },
     examples: [{ act: "keys.open filter=board", does: "opens the keys window on the board's keys" }, { act: "keys.open filter=\"^W\"", does: "opens it on the ^W keys" }],
-    async run({ filter }, { again }) {
+    async run({ filter }, { here, again }, actor) {
+      if (here?.openKeys) return here.openKeys(filter, actor);
       if (!again) throw new ActionRefused("this screen can't open another one");
       return again("screen.open", { name: "keys", ...(filter ? { target: filter } : {}) });
     },

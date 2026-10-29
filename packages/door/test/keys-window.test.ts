@@ -10,10 +10,12 @@ import { openScreen } from "../src/desk/screen-specs";
 import { wKey, wRows } from "../src/desk/wkeys";
 import { SocketBoard, USER } from "../src/socket";
 import { visible } from "../src/style";
-import { bindings, rebindEffects } from "../src/surface/key-catalog";
+import { bindings, conflicts, fightOf, rebindEffects, type Binding } from "../src/surface/key-catalog";
 import { declaredOf, effective, keymapEntries, keymapProblem, resetKeys, keymapPath, moved, asTyped, parse, reloadKeymap, setKeys, undoKeymap } from "../src/surface/keymap";
 import type { Key } from "../src/term";
 import { traceActions } from "../src/surface/actions";
+import { traceRequests } from "../src/surface/dispatch";
+import { formOpen } from "../src/bar/ask";
 import { outliner, Scratch, until } from "./scratch";
 import "../src/screens";
 
@@ -75,6 +77,26 @@ describe("the keymap file", () => {
     expect(all.some(b => b.layer === "screen" && b.scope === "board")).toBe(true);
   });
 
+  test("Conflicts are keys two bindings really fight over: one lookup, one key, both live; the states of one control aren't", () => {
+    // The built-in keys: a key an action set matches in code means one thing at a time (esc clears the bar's line, then
+    // closes it; alt+Q starts or stops a recording; ^] goes into a terminal and back), and the board's c folds a reader
+    // while the lanes' c collapses a lane. Counted by hand, none of them fight.
+    expect(conflicts(bindings()).map(g => g.map(b => `${b.cap} ${b.id}`).join(" | "))).toEqual([]);
+    // Two rows of one table on one key: the table is read first to last, so the second never runs, unless the kinds they
+    // run for (`only`, `unless`) never meet.
+    const row = (id: string, more: Partial<Binding> = {}): Binding => ({ key: "c", cap: "c", action: id, args: {}, id, scope: "a screen", layer: "screen", does: id, about: id, from: "table", rebind: true, table: 7, ...more });
+    expect(conflicts([row("tile.collapse"), row("lane.collapse")]).map(g => g.map(b => b.id))).toEqual([["tile.collapse", "lane.collapse"]]);
+    expect(conflicts([row("tile.collapse", { only: ["reader"] }), row("lane.collapse", { only: ["lanes"] })])).toEqual([]);
+    expect(conflicts([row("tile.collapse", { only: ["reader"] }), row("lane.collapse", { unless: ["reader"] })])).toEqual([]);
+    expect(conflicts([row("tile.collapse"), row("lane.collapse", { table: 8 })])).toEqual([]);
+    // A file edited by hand that gives one key to two bindings: the App's layer presses the last, so the first never runs.
+    writeFileSync(keymapPath(), JSON.stringify({ "note.new": ["alt+j"], "tile.close": ["alt+j"] }));
+    reloadKeymap();
+    const fights = conflicts(bindings());
+    expect(fights.map(g => g.map(b => b.id))).toEqual([["note.new", "tile.close"]]);
+    expect(fightOf(fights[0]!)).toMatchObject({ wins: "tile.close", loses: ["note.new"] });
+  });
+
   test("resetting one binding by name leaves the action's other entries alone", () => {
     setKeys("element.select by=1", ["n"]);
     setKeys("element.select by=-1", ["p"]);
@@ -115,11 +137,65 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
   const tiles = () => desk().tiles().length as number;
   const flashes: string[] = [];
 
+  const focusedKind = () => desk().panes.get(desk().focus)?.kind as string | undefined;
+  const focusedName = () => desk().nameOf(desk().focus) as string;
+  const keysPane = () => [...desk().panes.values()].find((p: any) => p.kind === "keys") as any;
+
+  test("? opens the keys window as a tile beside yours: it resizes like any tile, ⏎ runs a row there, one with arguments asks in the power bar, esc closes it", async () => {
+    const before = tiles(), opener = focusedName();
+    key(char("?"));
+    await until(() => tiles() === before + 1 && focusedKind() === "keys", "a keys tile beside the focused one", 8000);
+    expect(screen().spec?.name).toBe("desk");
+    expect(keysWin().filter).toStartWith("in:");
+    // A tile like any other: it grows by its keys and the layout keeps it.
+    await desk().dispatch.act({ action: "tile.resize", args: { by: 2 }, tile: "keys" }, USER);
+    // ⏎ on a row that needs nothing runs it where the window was opened from, as its key would there.
+    await act("keys.filter", { text: "tile.zoom" });
+    const found: any = await act("keys.find", {});
+    const n = found.bindings.findIndex((b: any) => b.key === "ctrl+w z") + 1;
+    expect(n).toBeGreaterThan(0);
+    await act("keys.select", { n });
+    const ran: { action: string; tile?: string }[] = [];
+    const stop = traceRequests(r => ran.push({ action: r.action, ...(r.tile ? { tile: r.tile.name } : {}) }));
+    key({ kind: "enter" });
+    await until(() => ran.some(r => r.action === "tile.zoom"), "⏎ ran tile.zoom");
+    stop();
+    expect(ran.find(r => r.action === "tile.zoom")?.tile).toBe(opener);
+    await desk().dispatch.act({ action: "tile.zoom", args: {}, tile: opener }, USER);
+    // ? again goes back to the same keys tile; a row whose action needs arguments opens its form in the power bar.
+    key(char("?"));
+    await until(() => focusedKind() === "keys", "back in the keys tile");
+    expect(tiles()).toBe(before + 1);
+    await act("keys.filter", { text: "tile.open ^W" });
+    const open: any = await act("keys.find", {});
+    await act("keys.select", { n: open.bindings.findIndex((b: any) => b.id === "tile.open") + 1 });
+    key({ kind: "enter" });
+    await until(() => formOpen(), "tile.open's form in the power bar");
+    await shell("bar.close", {});
+    // Esc closes it, as q does.
+    key(char("?"));
+    await until(() => focusedKind() === "keys", "the keys tile again");
+    key({ kind: "esc" });
+    await until(() => tiles() === before, "esc closed the keys tile");
+    expect(focusedName()).toBe(opener);
+  });
+
+  test("Conflicts says how many keys really fight, and none of the built-in ones do", async () => {
+    key(char("?"));
+    await until(() => focusedKind() === "keys", "the keys tile");
+    await act("keys.filter", { text: "" });
+    await act("keys.tab", { tab: "conflicts" });
+    expect(keysWin().rows).toBe(0);
+    expect(keysPane().render(44, 30, true, desk()).lines.map(visible).join("\n")).toContain("Conflicts 0");
+    key({ kind: "esc" });
+    await until(() => focusedKind() !== "keys", "closed");
+  });
+
   test("? opens the keys window on where you are; a rebind by keys is said first, then saved, and the ^W keys follow", async () => {
     const realFlash = app.flash.bind(app);
     (app as any).flash = (m: string, ...r: any[]) => { flashes.push(m); return realFlash(m, ...r); };
     key(char("?"));
-    await until(() => screen().title === "keys", "the keys window by ?", 8000);
+    await until(() => focusedKind() === "keys", "the keys window by ?", 8000);
     expect(keysWin().filter).toStartWith("in:");
     // Filter for closing a tile, pick its ^W row.
     await act("keys.filter", { text: "tile.close ^W" });
@@ -145,7 +221,7 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     expect(wKey("q")?.action).toBe("tile.close");
     expect(wKey("x")).toBeUndefined();
     key(char("q"));
-    await until(() => screen().spec?.name === "desk", "back on the desk");
+    await until(() => focusedKind() !== "keys", "the keys tile closed");
     expect(desk().wRows().find((r: any) => r.action === "tile.close")?.key).toBe("q");
     const before = tiles();
     key(char("w", true)); key(char("q"));
@@ -156,23 +232,23 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     expect(tiles()).toBe(before - 1);
     // ctrl+z in the window undoes it: the file is as it was.
     await shell("keys.open", {});
-    await until(() => screen().title === "keys", "the window again");
+    await until(() => focusedKind() === "keys", "the window again");
     key(char("z", true));
     await until(() => !file()["tile.close"], "undone");
     expect(wKey("x")?.action).toBe("tile.close");
     key(char("q"));
-    await until(() => screen().spec?.name === "desk", "back on the desk");
+    await until(() => focusedKind() !== "keys", "the keys tile closed");
   });
 
   test("an agent rebinds a key matched in code: the hint row says the new key, the old one says where it went", async () => {
     await shell("keys.open", { filter: "note.new" });
-    await until(() => screen().title === "keys", "the window");
+    await until(() => focusedKind() === "keys", "the window");
     const r: any = await app.act({ action: "keys.rebind", args: { id: "note.new", key: "ctrl+n", to: "alt+n" }, tile: "keys", as: "agent:keys-test" });
     expect(r).toMatchObject({ saved: true, id: "note.new", to: "alt+n" });
     // Its other built-in key (+ on the menu) stays; only ctrl+n moved.
     expect(file()["note.new"]).toEqual(["hyper+n", "+", "alt+n"]);
     key(char("q"));
-    await until(() => screen().spec?.name === "desk", "back on the desk");
+    await until(() => focusedKind() !== "keys", "the keys tile closed");
     const hint = () => visible(desk().render(desk().ctx).lines.at(-1) ?? "");
     await until(() => hint().includes("alt+n new"), "the hint row's new key");
     expect(hint()).not.toContain("^N new");
@@ -186,7 +262,7 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     await until(() => ran.includes("note.new"), "alt+n ran note.new");
     stop();
     await shell("keys.open", {});
-    await until(() => screen().title === "keys", "the window");
+    await until(() => focusedKind() === "keys", "the window");
     await act("keys.reset", { id: "note.new" });
     expect(file()["note.new"]).toBeUndefined();
     // An action with a key after another key (alt+l then s) moves its own key and writes a file that reads clean.
@@ -198,13 +274,16 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
 
   test("at 40 columns the list sits over the detail and every tab still shows", async () => {
     await shell("keys.open", {});
-    await until(() => screen().title === "keys", "the window");
+    await until(() => focusedKind() === "keys", "the window");
     cols = 40; rows = 30;
     try {
-      const l = lines();
-      expect(l[1]).toContain("Bindings");
+      const l = keysPane().render(40, 30, true, desk()).lines.map(visible) as string[];
+      expect(l[0]).toContain("Bindings");
       expect(l.join("\n")).toContain("runs");
+      expect(l[0]).toContain("Conflicts 0");
       expect(Math.max(...l.map(x => x.length))).toBeLessThanOrEqual(40);
     } finally { cols = 177; rows = 60; }
+    key({ kind: "esc" });
+    await until(() => focusedKind() !== "keys", "closed");
   });
 });

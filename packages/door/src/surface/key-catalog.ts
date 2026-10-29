@@ -49,9 +49,28 @@ export interface Binding {
   rebind: true | string;
   /** The keymap gives it this key (it's not the built-in). */
   yours?: true;
+  /** The key table it's a row of (its place in `keyTables`): a key is looked up in one table first to last. */
+  table?: number;
+  /** A screen's row runs only while the focused tile is of these kinds (`only`), or not of these (`unless`). */
+  only?: readonly string[]; unless?: readonly string[];
 }
 
+/** A screen's row's kinds of focused tile (KeyBinding's `only`, `unless`). */
+const kinds = (r: TableRow & { only?: readonly string[]; unless?: readonly string[] }) => ({ ...(r.only ? { only: r.only } : {}), ...(r.unless ? { unless: r.unless } : {}) });
 const clause = (summary: string) => summary.split(/[.:;(]/)[0]!.trim();
+/**
+ * A row of an action's keys as the keys window lists it, a whole sentence: the action's own words, then the row's where
+ * or when ("start recording, while recording"), since the list shows no heading above it as the action's page does. A row
+ * that says the action's words already, or a part of them, is them; `then …` is a key and what follows it (^K then
+ * typing); `or …` names another way, so the key itself does what the action does.
+ */
+function whole(about: string, does: string, cap: string): string {
+  const d = does.trim().replace(/^\([^)]*\)\s*/, "");
+  const a = about.toLowerCase(), l = d.toLowerCase();
+  if (!d || l.startsWith(a) || a.includes(l) || /^or\b/.test(l)) return l.startsWith(a) ? d : about;
+  if (/^then\b/.test(l)) return `${about}: ${cap} ${d}`;
+  return `${about}, ${d}`;
+}
 const GESTURES = new Set(["click", "drag", "wheel", "hover", "sideways"]);
 /** A table row's key as a binding's one name: the ^W keys after `ctrl+w `, the hyper ones after `hyper+`. */
 const tableKey = (prefix: string, key: string) => (prefix === "ctrl+w " ? `ctrl+w ${key === " " ? "space" : key}` : prefix + key);
@@ -69,7 +88,7 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
   const summary = (action: string) => { const d = defs.get(action)?.def; return d ? clause(d.summary) : action; };
   const held = new Set<string>();
   const tables = [...keyTables(), ...(screen.length ? [{ scope: screenName, about: "this screen's keys", rows: screen, prefix: "" }] : [])];
-  for (const t of tables) {
+  for (const [table, t] of tables.entries()) {
     const rows = effective(t.rows, t.prefix);
     for (const r of rows) {
       if (GESTURES.has(r.key)) continue;
@@ -80,7 +99,8 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
         key, cap: capOf(key), action: r.action, args, id, scope: t.scope, layer: t.screen || (t.scope === screenName && screen.length) ? "screen" : tableLayer(t.scope),
         does: (r as { label?: string }).label || summary(r.action), about: summary(r.action), from: yours ? "yours" : "table",
         rebind: t.prefix === "hyper+" ? `a hyper chord: the window can't read one (the door takes it first), so give it another in keybindings.json ("${bindingId(r.action, r.args ?? {})}": [..., "hyper+<key>"])` : rebindable(t.rows, r) ? true : `${r.action} is bound to several keys here, each a different way (${rows.filter(x => x.action === r.action && !GESTURES.has(x.key)).map(x => capOf(tableKey(t.prefix, x.key))).join(" ")}): they move together in code, not one at a time`,
-        ...(yours ? { yours: true as const } : {}),
+        ...(yours ? { yours: true as const } : {}), table,
+        ...kinds(r),
       });
       // The table's binding is said once, at its key, even when its tile kind's keys repeat it.
     }
@@ -98,7 +118,7 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
         seen.add(key);
         const gone = entry && !entry.keys.includes(key);
         if (gone) continue;
-        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: SCOPE_LAYER[scope] ?? "tile", does: row.does || clause(def.summary), about: clause(def.summary), from: "action", rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
+        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: SCOPE_LAYER[scope] ?? "tile", does: whole(clause(def.summary), row.does, capOf(key)), about: clause(def.summary), from: "action", rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
       }
     }
     // A key the keymap gives the whole action that it didn't declare.
@@ -133,19 +153,41 @@ export function shadowsOf(b: Binding, all: readonly Binding[]): { under: Binding
   };
 }
 
+/** Whether two rows of one table can be live at once: the kinds of focused tile each runs for meet. */
+const meet = (a: Binding, b: Binding) => {
+  if (a.only && b.only) return a.only.some(k => b.only!.includes(k));
+  if (a.only || b.only) { const [o, x] = a.only ? [a, b] : [b, a]; return !x.unless || o.only!.some(k => !x.unless!.includes(k)); }
+  return true;
+};
+
 /**
- * Keys two bindings claim in one place (the same layer and scope), so which runs depends on the code's order: the keys
- * window's Conflicts. A key the keymap gives that a built-in binding in the same scope also has is one too.
+ * The keys two bindings really fight over, by the order the door looks a key up (the keys window's Conflicts): two rows of
+ * one key table on one key, both live for the same tile (a table is read first to last, `modeBinding` and the screen's
+ * keys, so the second never runs), and two entries of the keymap file on one key (the App's layer presses the last one,
+ * `entryOfKey`). An action set's own keys aren't: its code matches each key once and picks by what's open (esc clears the
+ * bar's line, then closes it), so two of its actions on one key are one key, one meaning at a time. A key in two layers
+ * is a shadow, said on each binding (`shadowsOf`), not a fight.
  */
 export function conflicts(all: readonly Binding[]): Binding[][] {
+  // A key the file gives two entries: wherever their rows land, only the last entry is ever pressed for it.
+  const twice = new Set(keymapEntries().flatMap(e => e.keys).filter((k, i, ks) => ks.indexOf(k) !== i));
   const groups = new Map<string, Binding[]>();
   for (const b of all) {
-    const k = `${b.layer} ${b.scope} ${b.key}`;
-    const g = groups.get(k) ?? [];
+    const at = b.yours && twice.has(b.key) ? `file ${b.key}` : b.table !== undefined ? `table ${b.table} ${b.key}` : b.layer === "yours" ? `file ${b.key}` : null;
+    if (at === null) continue;
+    const g = groups.get(at) ?? [];
     if (!g.some(x => x.id === b.id)) g.push(b);
-    groups.set(k, g);
+    groups.set(at, g);
   }
-  return [...groups.values()].filter(g => g.length > 1);
+  const order = (id: string) => keymapEntries().findIndex(e => e.id === id);
+  return [...groups.entries()].flatMap(([at, g]) => (at.startsWith("file ") ? (g.length > 1 ? [g.sort((a, b) => order(a.id) - order(b.id)).map(({ table: _table, ...b }) => b)] : []) : g.some((b, i) => g.slice(i + 1).some(x => meet(b, x))) ? [g] : []));
+}
+
+/** Who wins a fight `conflicts` found, by the same lookup: a table's first row, the file's last entry. */
+export function fightOf(g: readonly Binding[]): { wins: string; loses: string[]; why: string } {
+  const file = g[0]!.table === undefined;
+  const w = file ? g.at(-1)! : g[0]!;
+  return { wins: w.id, loses: g.filter(b => b !== w).map(b => b.id), why: file ? "the keymap file's last entry for a key is the one pressed" : "its table is read first to last: the first row on a key is the one that runs" };
 }
 
 /**
