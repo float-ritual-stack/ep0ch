@@ -217,6 +217,9 @@ export class Scratch {
   /** The service's process id, while it runs. */
   get pid() { return this.proc?.pid; }
 
+  /** Set before start: what the host's environment adds (a fake Jev: OUTLINER_FIGURE_FIT, TYPESAFE_API_KEY, OUTLINER_JEV_ENDPOINT). */
+  hostEnv: Record<string, string> = {};
+
   /** Starts the host (its default outline is this one, so a board that names none reads it) and makes the outline. */
   async start(): Promise<string> {
     const env: Record<string, string> = {
@@ -226,6 +229,7 @@ export class Scratch {
     // No Jev key: a scratch host answers searches with text matches only, never a paid call.
     for (const k of [...HERDR_VARS, ...NO_JEV, ...OWN_FOLDERS, "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
     env.TZ = TEST_ZONE;
+    Object.assign(env, this.hostEnv);
     this.proc = watchHost(Bun.spawn(["bun", "src/host-main.ts"], { cwd: outliner!, env, stdout: "ignore", stderr: hostLog(this.root) }), this.root, () => this.proc);
     const path = join(this.outlines, ".host", "host.sock");
     const { hostRequest, SocketBoard } = await import("../src/socket");
