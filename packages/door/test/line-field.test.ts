@@ -127,6 +127,8 @@ test("a long line in a narrow field shows the cells up to the cursor, and a clic
   // End, then a click on the field's first cell places the cursor on the character drawn there.
   l.take({ kind: "end" });
   l.render(20, 1);
+  // Every caller's click mapping (a form's box places by posAt) counts from the first cell shown.
+  expect(l.posAt(0, 0).col).toBe(link.length - 19);
   l.drawnAt(0, 0, 20);
   l.take({ kind: "mouse", action: "down", x: 0, y: 0, button: 0 } as Key);
   expect(l.cursor).toBe(link.length - 19);

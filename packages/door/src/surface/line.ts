@@ -105,7 +105,7 @@ export class LineField extends Draft {
     if (k.action === "down" && k.button !== 2 && inside) {
       this.fresh = false;
       // Snapped to a grapheme's start: a click on an accent or an emoji's joiner never lands inside the character.
-      const n = this.gesture.press(k.x, k.y), col = clampToGraphemeStart(this.text, this.posAt(x + this.scrollX, 0).col);
+      const n = this.gesture.press(k.x, k.y), col = clampToGraphemeStart(this.text, this.posAt(x, 0).col);
       this.place(0, col);
       if (n > 1) {
         const cs = [...this.text], cp = [...this.text.slice(0, this.col)].length;
@@ -116,7 +116,7 @@ export class LineField extends Draft {
       return true;
     }
     if (!this.gesture.pressed) return false;
-    if (k.action === "drag") { if (this.gesture.drag(k.x, k.y)) this.place(0, clampToGraphemeStart(this.text, this.posAt(x + this.scrollX, 0).col), true); return true; }
+    if (k.action === "drag") { if (this.gesture.drag(k.x, k.y)) this.place(0, clampToGraphemeStart(this.text, this.posAt(x, 0).col), true); return true; }
     if (k.action === "up") { if (this.gesture.release(k.x, k.y).copy) { const t = this.selectedText(); if (t) this.copy(t); } return true; }
     return false;
   }
@@ -141,6 +141,9 @@ export class LineField extends Draft {
     this.cursorCol = cursor - this.scrollX;
     return [width(this.text) + 1 <= room ? line : headOf(tailFrom(line, this.scrollX), room) + RESET];
   }
+
+  /** The source place under a cell as last drawn: on one row, counted from the first cell shown (every caller's click). */
+  override posAt(x: number, y: number): { row: number; col: number } { return super.posAt(x + this.scrollX, y); }
 
   /** The text with ▌ where the cursor is, uncoloured (a status line's part). */
   plain(): string { return this.text.slice(0, this.col) + INPUT_CURSOR + this.text.slice(this.col); }
