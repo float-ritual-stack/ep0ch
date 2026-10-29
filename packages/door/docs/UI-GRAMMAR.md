@@ -1212,7 +1212,7 @@ desk's, until `^W e` goes in: then every key is the mount's, its `^W` too, and `
 
 **Key clash audit (`?`):** the desk's `?` keeps its two meanings (on a frame control: the hint card; with the hint row
 cut: `keys.more`) and adds a third after them: the keys window, filtered to the focused tile. The main menu's `?` was
-the help screen and is now the keys window (`screen.help` stays, by `act` and the power bar). Every other screen had no
+the help screen and is now the keys window; help moved to `H` there (a letter no menu item has), and the menu's key line says `? keys H help`. Every other screen had no
 `?`; the App opens the window there. `^W ?` (the ^W list) and `ctrl+] ?` (x-ray) don't move. In a filter, a draft or a
 terminal tile `?` is typed, as before.
 

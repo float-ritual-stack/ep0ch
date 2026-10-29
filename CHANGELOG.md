@@ -15,6 +15,7 @@ are its record. The outliner's entries from then are kept below, under
 - **`?` on any screen opens it,** filtered to where you are (`in:note` in a reader); `ep0ch --screen keys`,
   `keys.open` and the power bar too. Type `/` to filter by a key, an action, a scope or words; `Bindings 1350 ·
   Conflicts · Yours` with a count, each row a keycap, its scope and what it does.
+- **Help on the main menu is `H` now** (`?` there is the keys window); its key line says `? keys H help`, each a click.
 - **The detail says what the key runs, its layer, what it takes the key from and what gets it first,** and whether a
   program in a terminal tile still sees it.
 - **Rebind:** `r`, then the new key (`^W` then a key for a ^W key). What it would take from what is said first; `⏎`
