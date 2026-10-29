@@ -1,18 +1,14 @@
 // `web sessions` and `web revoke <id>|--all` (`ep0ch web …`): the signed-in web client's sessions (web-sessions.ts), the
 // same list and the same Revoke as the web client's `/sessions` page, asked of this machine's outline host.
+import { ageSince } from "@ep0ch/outline-core/age";
 import type { WebSession } from "@ep0ch/outline-core/protocol";
 import { outlineHostClient } from "./outline-host-client";
 
 export const WEB_USAGE = `web sessions [--json]                the browsers signed in to the web client (my.ep0ch.sh): id, browser, who, last seen
   web revoke <id> | --all [--json]     sign one out now, or every one (sign out everywhere)`;
 
-const ago = (iso: string, now: number) => {
-  const minutes = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000));
-  return minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : minutes < 48 * 60 ? `${Math.round(minutes / 60)} h ago` : `${Math.round(minutes / 1440)} days ago`;
-};
-
 export function webSessionLine(session: WebSession, now = Date.now()): string {
-  return `${session.id}  ${session.device}\n    ${session.name ? `${session.name} (${session.subject})` : session.subject} · last seen ${ago(session.lastSeenAt, now)} · ends ${session.expiresAt.slice(0, 10)}`;
+  return `${session.id}  ${session.device}\n    ${session.name ? `${session.name} (${session.subject})` : session.subject} · last seen ${ageSince(session.lastSeenAt, now, "ago")} · ends ${session.expiresAt.slice(0, 10)}`;
 }
 
 export async function runWebCommand(args: string[], io = { out: console.log, err: console.error }, env: NodeJS.ProcessEnv = process.env): Promise<number> {

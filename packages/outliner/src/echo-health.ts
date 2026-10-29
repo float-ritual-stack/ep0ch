@@ -2,6 +2,7 @@
 // heartbeat is the bulletin every toss writes beside the outline (`<outlines>/<name>/echonet/bulletin.json`, src/
 // echonet-mail.ts): its age against the toss's schedule says the tosser is trying. `ep0ch doctor` and `ep0ch echo
 // status` both read it from here. Files only: it asks no host anything.
+import { age } from "@ep0ch/outline-core/age";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -18,14 +19,8 @@ export interface TossHealth {
   fix?: string;
 }
 
-/** "4 min", "2 h", "3 days": how long ago, said briefly. */
-export function ago(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 90) return `${s} s`;
-  if (s < 90 * 60) return `${Math.round(s / 60)} min`;
-  if (s < 36 * 3600) return `${Math.round(s / 3600)} h`;
-  return `${Math.round(s / 86400)} days`;
-}
+/** "4 min", "2 h", "3 days": how long ago, said briefly (outline-core's `age`). */
+const ago = (ms: number) => age(ms, "words");
 
 /**
  * A toss's schedule as its copy of the extension declares it: `every` (`30m`, `90s`, `2h`) in ms, or null when it has

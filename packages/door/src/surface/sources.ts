@@ -6,7 +6,7 @@ import { Inspector } from "./inspector";
 // copyable, then Outline, Read and the Query). Drawn from the service's one answer (`site.sources`, outline-core sources.ts),
 // the one a published page's panel draws too. State and drawing only: the reader's mode (src/surface/note.ts) keeps it.
 import type { SourceEntry, SourcesAnswer } from "@ep0ch/outline-core/sources";
-import { relativeAge } from "../projection";
+import { ageSince } from "@ep0ch/outline-core/age";
 import { BOLD, C, dim, fg, pad, RESET, UNBOLD, width } from "../style";
 import { rowLines, wrap } from "../text";
 
@@ -65,7 +65,7 @@ export function itemsOf(s: SourceEntry, folds: Record<SourcesFold, boolean>): Pa
 
 const SOURCES_WIDE_COLS = 108;
 
-const age = (iso: string | undefined, now: number) => (iso ? relativeAge(iso, now) : "");
+const age = (iso: string | undefined, now: number) => ageSince(iso, now, "ago");
 
 /** The fully wrapped panel, its click targets, its items and the focused row; Inspector owns the viewport. */
 export function drawSources(p: SourcesPanel, w: number, now: number, wide = true): PanelDraw {

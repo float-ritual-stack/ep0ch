@@ -1,3 +1,4 @@
+import { ageSince } from "@ep0ch/outline-core/age";
 import { fullText, FULL_MARKERS } from "./overflow";
 // Text helpers shared by the BBS screens and the desk panes.
 import { closesHyperlink, DRAWN_PART, OSC8_CLOSE } from "./hyperlink";
@@ -51,14 +52,8 @@ export function paintable(line: string): string {
   return drawn + (link ? OSC8_CLOSE : "");
 }
 
-/** How long ago `ms` was, as of `now`: `42s`, `5m`, `3h`, `2d`. */
-export const ago = (ms: number, now = Date.now()) => {
-  const s = Math.max(0, (now - ms) / 1000);
-  if (s < 90) return `${Math.round(s)}s`;
-  if (s < 5400) return `${Math.round(s / 60)}m`;
-  if (s < 129600) return `${Math.round(s / 3600)}h`;
-  return `${Math.round(s / 86400)}d`;
-};
+/** How long ago `ms` was, as of `now`: `42s`, `5m`, `3h`, `2d` (outline-core's `age`). */
+export const ago = (ms: number, now = Date.now()) => ageSince(ms, now);
 export const bbsDate = (ms: number) => {
   const d = new Date(ms);
   const p = (n: number) => String(n).padStart(2, "0");

@@ -3,6 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { outputHeader } from "@ep0ch/outline-core/output-region";
+import { age, ageSince } from "@ep0ch/outline-core/age";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { linkTokenOf, parsePath } from "@ep0ch/outline-core/resolve-path";
 import { rulesFromBlocks } from "@ep0ch/outline-core/rules";
@@ -10,7 +11,10 @@ import { sameReference } from "@ep0ch/outline-core/tool-args";
 import { sentenceCount } from "@ep0ch/outline-core/write-shape";
 import { noteTitleLine, firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { titleLine } from "../src/board";
+import { age as backupAge } from "../src/backup/alert";
 import { viewIdOf } from "../src/mcp-query";
+import { readerLine } from "../src/share-cli";
+import { ago } from "../src/text";
 
 // The outliner's and the mod's sites, loaded by path: the door's type check holds its own sources, so these are typed
 // here by what the test calls.
@@ -27,6 +31,9 @@ const TIDY = "../../outliner/extensions/tidy/tidy-line", LISTS = "../../outliner
 const tidy = await import(TIDY) as { tidyPassage(lines: string[]): { replacement: string } };
 const lists = await import(LISTS) as { ownLines(item: { lines: string[]; marker: string }): string[] };
 const fragments = await import(FRAGMENTS) as { codeLineSet(text: string): Set<number> };
+const DEVICES = "../../outliner/src/device-cli", WEB = "../../outliner/src/web-cli";
+const devices = await import(DEVICES) as { deviceLine(device: Record<string, string>, now: number): string };
+const web = await import(WEB) as { webSessionLine(session: Record<string, string>, now: number): string };
 const rows = mod as unknown as { capped(markdown: string): string };
 
 const ID = "3b8e6c21-5f4a-4d7b-9c02-a1e8d4f7b650";
@@ -126,5 +133,31 @@ describe("fenced code: one answer, codeBlocks'", () => {
     expect(rows.capped(open).split("\n").slice(-3)[0]).toBe("```");
     const closed = ["```", "x", "```", ...Array.from({ length: 60 }, (_, i) => `prose ${i}`)].join("\n");
     expect(rows.capped(closed).split("\n").slice(-3)[0]).toMatch(/^prose/);
+  });
+});
+
+// mcp-live, backup/setup, the projection's and Detail's fetched age, echo-health and the publisher's sessions page call
+// `age`/`ageSince` inline with their style; the sites below are the ones with an exported line to read.
+describe("how old something is: one unit and rounding, age's", () => {
+  const now = Date.parse("2026-10-06T12:00:00.000Z");
+  const cases = [
+    { ms: 29_000, short: "29s", words: "29 s", ago: "29 s ago" },
+    { ms: 100 * 60_000, short: "2h", words: "2 h", ago: "2 h ago" },
+    { ms: 47.5 * 3_600_000, short: "2d", words: "2 days", ago: "2 days ago" },
+  ];
+
+  test.each(cases)("$ms ms is $short at every site", ({ ms, short, words, ago: said }) => {
+    expect([age(ms), age(ms, "words"), age(ms, "ago")]).toEqual([short, words, said]);
+    const at = new Date(now - ms).toISOString();
+    expect(ago(now - ms, now)).toBe(short);
+    expect(backupAge(ms)).toBe(short);
+    expect(readerLine({ reader: "tailnet", title: "Beds", url: "https://example.test/b", at } as never, now)).toContain(` · ${said}`);
+    expect(devices.deviceLine({ id: "d1", name: "phone", outline: "garden", createdAt: at, lastUsedAt: at }, now)).toContain(`last sent ${said}`);
+    expect(web.webSessionLine({ id: "w1", subject: "u", device: "Firefox", createdAt: at, lastSeenAt: at, expiresAt: at }, now)).toContain(`last seen ${said}`);
+  });
+
+  test("a moment a few seconds back is just now; a time that isn't one is no age", () => {
+    expect(age(4_000, "ago")).toBe("just now");
+    expect(ageSince("not a date", now, "ago")).toBe("");
   });
 });

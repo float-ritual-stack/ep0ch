@@ -13,7 +13,7 @@ import { subject, type Msg } from "../src/board";
 import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
 import { external } from "../src/open";
-import { drawingPending, drawnPresses, forgetProjectionAnswers, mayHaveProjections, projectionKeys, projectionLayout, relativeAge, resourceChanged, ticketRegion, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
+import { drawingPending, drawnPresses, forgetProjectionAnswers, mayHaveProjections, projectionKeys, projectionLayout, resourceChanged, ticketRegion, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
 import { bindExtensions } from "../src/extensions";
 import type { LinkTarget } from "../src/refs";
 import { MainMenu } from "../src/screens";
@@ -75,15 +75,6 @@ describe.skipIf(!outliner)("parity with Detail's layout (pi-herdr-outliner src/d
       expect({ status: p.status, lines: mine.lines }).toEqual({ status: p.status, lines: want.lines.map(drawn) });
       expect({ status: p.status, fetchedLine: mine.fetchedLine }).toEqual({ status: p.status, fetchedLine: want.fetchedLine });
     }
-  });
-
-  test("the age painted after the fetched time is Detail's relativeAge", () => {
-    const now = Date.parse("2026-09-28T12:00:00.000Z");
-    for (const ago of [0, 0.5, 1, 12, 59, 60, 61, 47 * 60, 48 * 60, 50 * 60 * 24, -5]) {
-      const at = new Date(now - ago * 60_000).toISOString();
-      expect({ ago, age: relativeAge(at, now) }).toEqual({ ago, age: theirs.relativeAge(at, now) });
-    }
-    expect(relativeAge("not a date", now)).toBe(theirs.relativeAge("not a date", now));
   });
 
   test("the door asks about every note the service could project, by the service's own provider keys", () => {

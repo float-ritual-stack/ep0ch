@@ -4,6 +4,7 @@
 // install`" line is the person's, said and left alone. restic and the secrets are the person's to add: install says
 // the commands. Gathering is read-only and needs no network: the units, the settings, `with-secrets --list` (names,
 // never values), and the job's own state and alert.
+import { ageSince } from "@ep0ch/outline-core/age";
 import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { existsSync, readFileSync } from "node:fs";
 import { hostname } from "node:os";
@@ -209,7 +210,7 @@ export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[
   const v = verdict(s, f.alert, now, { machine: f.config.machine, repo: f.repo, hub: f.config.kept?.EP0CH_MCP_HUB ?? parseEnvFile(f.config.text ?? "").EP0CH_MCP_HUB ?? null });
   out.push({ name: "restic verdict", status: v.level === "ok" ? "ok" : v.level === "bad" ? "missing" : "behind", detail: [v.headline, ...v.problems.map(p => p.text)].join(": "), ...(v.fix ? { fix: v.fix } : {}) });
   const hours = (iso: string) => (now - Date.parse(iso)) / 3_600_000;
-  const ago = (iso: string) => { const h = hours(iso); return h < 1 ? `${Math.round(h * 60)}m ago` : h < 48 ? `${h.toFixed(1)}h ago` : `${Math.round(h / 24)}d ago`; };
+  const ago = (iso: string) => ageSince(iso, now, "ago");
   if (s.lastRun) out.push({ name: "restic last run", status: s.lastRun.ok ? (hours(s.lastRun.at) > 1 ? "behind" : "ok") : "missing",
     detail: `${ago(s.lastRun.at)}: ${s.lastRun.detail}${hours(s.lastRun.at) > 1 ? "; the job runs every 15 minutes, so it has stopped" : ""}`,
     ...(!s.lastRun.ok || hours(s.lastRun.at) > 1 ? { fix: f.platform === "linux" ? "systemctl --user status ep0ch-backup.timer ep0ch-backup.service; ep0ch backup run" : `launchctl print gui/$(id -u)/${LAUNCHD_LABEL}; ep0ch backup run` } : {}) });

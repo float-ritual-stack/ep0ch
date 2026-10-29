@@ -184,7 +184,7 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     clock += 10_000;
     for (let i = 0; i < 3; i++) expect((await tool("outline_read", { ref: ids.map, outline: "attic-notes" })).json.reachability.source).toBe("mirror");
     expect(forwardCalls).toBe(calls);
-    expect((await tool("outline_read", { ref: ids.map, outline: "attic-notes" })).json.reachability.reason).toContain("tried 10s ago");
+    expect((await tool("outline_read", { ref: ids.map, outline: "attic-notes" })).json.reachability.reason).toContain("tried 10 s ago");
     // After it, one try; still away, so the backoff starts over.
     clock += 40_000;
     await tool("outline_read", { ref: ids.map, outline: "attic-notes" });
