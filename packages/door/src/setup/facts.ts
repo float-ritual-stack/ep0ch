@@ -685,9 +685,9 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   const machines = await part("the machines' forwards", Promise.all(named.map(async m => ({ ...(await machineStatus(m, { ...env, HOME: home })), ...(m === here.machine ? { here: true } : {}) }))));
 
   const dbs = databases(folder);
-  // What changed between the commit each service started on (and HEAD) and the one this run ends on (PIE-1397).
+  // What changed between the commit each service and door session started on (and HEAD) and the one this run ends on (PIE-1397).
   const c = repo.checkout;
-  if (c.git) repo.changes = await part("what changed in the checkout", codeChanges(repo.root, [c.head, host.runs, mcp?.runs, ...publishers.map(p => p.runs)], [c.head, c.upstream]));
+  if (c.git) repo.changes = await part("what changed in the checkout", codeChanges(repo.root, [c.head, host.runs, mcp?.runs, ...publishers.map(p => p.runs), ...(sessions ?? []).map(s => s.commit)], [c.head, c.upstream]));
   // What install linked (links.ts), one record for every kind of link it owns.
   const record = join(env.EP0CH_STATE ?? defaultStateDir(env), "install-links.json");
   return {
