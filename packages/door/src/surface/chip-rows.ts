@@ -9,7 +9,8 @@ export interface TabRow { text: string; hits: Hit[]; under?: string }
 export interface Tab { label: string; on?: boolean; cursor?: boolean; key?: string; hint?: string; hit?: Omit<Hit, "from" | "to"> }
 /** How a strip looks: the lit, unlit and cursor tab, an unlit tab's hot key, "… N more", the space inside and after a tab, between two, and the underline. */
 export interface TabStyle { on: string; off: string; cursor?: string; key?: string; more?: string; pad?: string; gap?: string; sep?: string; under?: string }
-export const CHIPS: TabStyle = { on: chip(C.blue), off: fg(C.grey), cursor: fg(C.white), pad: " ", gap: " " };
+/** The default look, built when drawn: an `fg` is the theme's colour at the time it's called, so a style kept in a constant would keep the theme it was imported under. */
+export const chips = (): TabStyle => ({ on: chip(C.blue), off: fg(C.grey), cursor: fg(C.white), pad: " ", gap: " " });
 
 /**
  * Every tab set's one strip (PIE-1288): the tabs drawn in `style`, from column `at` after `lead`, within `width`. The one
@@ -18,7 +19,7 @@ export const CHIPS: TabStyle = { on: chip(C.blue), off: fg(C.grey), cursor: fg(C
  * the caller left out; its click is `moreHit`, else the first tab put away). `tag` wraps the `i`th tab as drawn (a figure's inline link).
  */
 export function tabStrip(tabs: readonly Tab[], o: { width: number; style?: TabStyle; lead?: string; at?: number; overflow?: "wrap" | "share"; more?: number; moreHit?: Omit<Hit, "from" | "to">; tag?: (drawn: string, i: number) => string }): TabRow[] {
-  const s = o.style ?? CHIPS, p = s.pad ?? "", gap = s.gap ?? "", sep = s.sep ?? "", lead = o.lead ?? "", shown = [...tabs], away: Tab[] = [];
+  const s = o.style ?? chips(), p = s.pad ?? "", gap = s.gap ?? "", sep = s.sep ?? "", lead = o.lead ?? "", shown = [...tabs], away: Tab[] = [];
   const fixed = (t: Tab) => width(p) * 2 + (t.key ? width(t.key) + 1 : 0);
   let cut = Infinity, more = o.more ?? 0;
   if (o.overflow === "share") {

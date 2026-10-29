@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { droppedStructure } from "../src/draft-patch";
-import { moveBlock, changesSince, READ_CHILDREN_MAX_CHARS, referenceTarget, shortDiff } from "../src/agent-tools";
+import { moveBlock, changesSince, READ_CHILDREN_MAX_CHARS, shortDiff } from "../src/agent-tools";
 import { scratchOutline } from "./scratch-outline";
 import { OutlinerClient, type RequestInput } from "../src/client";
 import { OutlinerServer } from "../src/server";
@@ -594,11 +594,32 @@ test("writes without an actor are refused; reads need none", async () => {
   expect(JSON.parse(read.stdout).text).toBe("Hose reel");
 });
 
-test("references, dropped structure and the short diff", () => {
-  expect(referenceTarget("((0f3c2a1b-1111-4222-8333-444455556666^beans))")).toEqual({ kind: "block", value: "0f3c2a1b-1111-4222-8333-444455556666", fragmentId: "beans" });
-  expect(referenceTarget("[[PIE-12]]")).toEqual({ kind: "work", value: "PIE-012" });
-  expect(referenceTarget("[[Seed Swap]]")).toEqual({ kind: "page", value: "Seed Swap" });
-  expect(() => referenceTarget("seed swap notes")).toThrow("titles aren't accepted");
+test("references resolve through the service's one resolver: ((id^fragment)), [[page|label]], a Work ID, a note in Trash; a title is refused", async () => {
+  const { store, cli } = await setup();
+  const page = store.create("Seed Swap [page::Seed Swap]\nBeans ^beans");
+  store.configureWorkIdPrefix("GDN");
+  const rota = store.create("Water rota");
+  const ticket = store.allocateWorkId(rota.id, rota.revision).block;
+  const resolve = async (ref: string) => {
+    const run = await cli(["agent", "resolve", "--json", JSON.stringify({ ref })]);
+    return run.exitCode === 0 ? JSON.parse(run.stdout) : { error: run.stderr };
+  };
+  expect(await resolve(`((${page.id}^beans))`)).toMatchObject({ id: page.id, fragmentId: "beans" });
+  expect(await resolve("[[GDN-1]]")).toMatchObject({ id: ticket.id, workId: "GDN-001" });
+  expect(await resolve("GDN-001")).toMatchObject({ id: ticket.id });
+  expect(await resolve("[[Seed Swap]]")).toMatchObject({ id: page.id });
+  expect(await resolve("[[Seed Swap|the swap]]")).toMatchObject({ id: page.id });
+  expect(await resolve("[[Seed Swap^beans]]")).toMatchObject({ id: page.id, fragmentId: "beans" });
+  expect(await resolve(`((${page.id}))`)).toMatchObject({ id: page.id });
+  expect(await resolve(`((${page.id.slice(0, 8)}^beans))`)).toMatchObject({ id: page.id, fragmentId: "beans" });
+  expect((await resolve("seed swap notes")).error).toContain("titles aren't accepted");
+  // A note in Trash still reads by Work ID or short id, marked, so it can be restored.
+  store.delete(ticket.id);
+  expect(await resolve("GDN-1")).toMatchObject({ id: ticket.id, deleted: true });
+  expect(await resolve(ticket.id.slice(0, 8))).toMatchObject({ id: ticket.id, deleted: true });
+});
+
+test("dropped structure and the short diff", () => {
   expect(droppedStructure("A [page::X] ^a\nB [kind::y] ^b", "A ^a\nB [kind::z]")).toEqual({ pages: ["[page::X]"], anchors: ["b"] });
   expect(shortDiff("a\nb\nc", "a\nB\nc")).toBe("@@ line 2\n-b\n+B");
   expect(shortDiff("same", "same")).toBe("");

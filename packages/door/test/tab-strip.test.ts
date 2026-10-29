@@ -2,7 +2,8 @@
 // "… N more" clicks the first tab it put away. Made-up labels.
 import { expect, test } from "bun:test";
 import { tabStrip } from "../src/surface/chip-rows";
-import { width } from "../src/style";
+import { C, width } from "../src/style";
+import { setTheme, theme, THEMES } from "../src/theme";
 
 test("a shared strip keeps to its width and the lit tab; … more presses the first tab put away", () => {
   const tabs = ["beans", "squash", "onions", "leeks", "kale", "chard", "garlic", "radish"].map((label, i) => ({ label, on: i === 7, hit: { action: "tab.select", args: { n: i } } }));
@@ -16,4 +17,15 @@ test("a shared strip keeps to its width and the lit tab; … more presses the fi
     expect(row!.text).toContain("more");
     expect(more.args).toEqual({ n: row!.hits.length - 2 });
   }
+});
+
+test("a strip's default look is the theme it's drawn in, not the one it was imported under", () => {
+  const was = theme().name;
+  try {
+    for (const name of ["calm", "night"] as const) {
+      setTheme(name);
+      const [row] = tabStrip([{ label: "beans", on: true }, { label: "squash" }], { width: 40 });
+      expect(row!.text).toContain(`\x1b[38;2;${THEMES[name].palette[C.grey]!.join(";")}m`);
+    }
+  } finally { setTheme(was); }
 });

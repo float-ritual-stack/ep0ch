@@ -19,7 +19,30 @@ are its record. The outliner's entries from then are kept below, under
 - **Code is code:** `@tidy` no longer trims inside a fence a ```` ```js ```` line seemed to close, and four spaces
   before backticks no longer opens one; Structure, screen notes and Detail's row columns read fences the same way.
 - **One way to say how old:** `29s`, `29 s` or `29 s ago`, with one rounding, in the door, Detail and the CLIs.
-- **What to run:** `GRAMMAR` is 9; an older renderer warns once until `ep0ch install --apply`.
+- **What to run:** `GRAMMAR` is 10; an older renderer warns once until `ep0ch install --apply`.
+
+### Buttons look like buttons, and the power bar's extensions read at a glance (PIE-1287, PIE-1284)
+
+- **A button says how it looks:** `::button{… glyph="▶" tone=primary frame=round fill=on}`. Tones are quiet, primary
+  and danger; frames none (one row), box, round, heavy and double. With none of them it is `[label]`, as before.
+- **A button says what its press did:** ◐ while a slow one runs, ✓ after, `!` when it failed (the pointer reads why,
+  until the next press). One whose action would be refused now is drawn dim, in parentheses. Under the pointer a
+  button lights up, in a note, a script's view and on the status bar alike.
+- **One part draws them all:** note buttons, a script view's buttons, an output region's and a proposal's controls,
+  a thread's controls, the empty screen's and the status bar's (now `[Collapse]`, a button like the rest). Published
+  pages draw the same tone, glyph and frame, inert.
+- **`&` in the power bar** lists one line per extension, grouped by what it adds first (rules, components, scripts,
+  programs, sources, agents, tiles), each with a count; the hub says how many of the repo's are installed. Its id,
+  version, folder and everything it adds are in the preview beside.
+- The kitchen sink's **buttons** section shows every tone, frame and state. GRAMMAR is 9: an older door doesn't read the
+  look words and refuses those buttons until `ep0ch install --apply`.
+
+### One answer to an @margin ask in a comment (PIE-1374)
+
+- **Explain answers once:** the page's and the door's Explain, and a typed `@margin` in a comment or reply, get one
+  answer: a reply in the thread by the agent. The note's in-place answer no longer also writes into the comment.
+- **Your comment stays yours:** no agent text is written into it under your name. An `@name` line in a note still
+  gets its answer under the line.
 
 ### The drain runs on its own clock (PIE-1372)
 
@@ -28,6 +51,14 @@ are its record. The outliner's entries from then are kept below, under
   Evan is offline, a build-log line per pick. `EP0CH_DRAIN=on|off` overrides.
 - **The deployer is found again:** the mod reads `.ep0ch/config.toml` (and the old `.ep0ch` file), so the freshness
   sweep runs in the live checkout without `EP0CH_AGENT`.
+
+### Agent tools take a short id (PIE-1371)
+
+- **One resolver:** `outline_read`, `outline_patch`, `outline_set_property` and the other agent tools, in the Claude mod,
+  the MCP gateway and scripts, name a note by its id's first 8 characters (`b234391f`), as `ep0ch show` does.
+- **Errors teach:** an ambiguous prefix lists each note's id, title and where it sits; a miss names the nearest ids;
+  a title still points at `outline_find`.
+- **Work IDs by any spelling:** `PIE-12` finds PIE-012 everywhere a note is named.
 
 ### One tab strip for every tab set (PIE-1288)
 

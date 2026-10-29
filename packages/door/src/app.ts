@@ -1,6 +1,7 @@
 import { Canvas, type Rect } from "./canvas";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
-import { StatusBarNote, STATUS_BAR_ACTIONS, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
+import { pressEnded } from "./surface/button";
+import { StatusBarNote, STATUS_BAR_ACTIONS, STATUS_INK, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
 import { OSC8, OSC8_CLOSE } from "./hyperlink";
 import { fullPlainText } from "./overflow";
 import { Overflow } from "./overflow";
@@ -998,6 +999,7 @@ export class App implements Ctx {
     if (e.ended) {
       INVITES.spendRun(e.ended.run);
       for (const s of screens) s.scriptEnded?.(e.ended.run, e.ended.sequence ? "done" : e.ended.reason);
+      pressEnded(e.ended.run, e.ended.reason, e.ended.message, () => this.redraw());
       if (e.ended.targetClientId === this.board.clientId) {
         const by = e.ended.requestedBy;
         const actor: Actor = by.author === "agent" ? { kind: "agent", id: by.actorId ?? "agent" } : { kind: "user" };
@@ -1803,7 +1805,7 @@ export function statusLine(left: string, middle: string, right: string, cols: nu
   const body = pad(middle && width(left + middle) > room ? middle : left + middle, room);
   // A cut can drop the message's link terminator; RESET restores colours but cannot end a hyperlink.
   const endLink = OSC8.test(body) ? OSC8_CLOSE : "";
-  return bg(C.blue) + fg(C.lcyan) + body + endLink + bg(C.blue) + fg(C.lcyan) + sep + right + RESET;
+  return STATUS_INK + body + endLink + STATUS_INK + sep + right + RESET;
 }
 
 /**

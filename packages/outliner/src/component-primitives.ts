@@ -1,4 +1,5 @@
 import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
+import { viewToneAsButton, type ButtonLookWords } from "@ep0ch/outline-core/button-call";
 import { cleanExtensionText, inertBlockdown } from "./extension-records";
 import { ALIGNS, BAND_PATTERNS, type Align, type BandPattern } from "@ep0ch/outline-core/rules";
 import { HEADING_STYLE_NAME } from "@ep0ch/outline-core/heading-styles";
@@ -652,6 +653,10 @@ const markdown = (view: Primitive) => componentMarkdown(view);
 
 const html = (value: string | number) => String(value).replace(/[&<>"']/g, (character) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+/** A button (PIE-1287) as the door draws it, tone, glyph, frame and fill, and inert: a page never runs what it would. */
+export const buttonHtml = (label: string, look: ButtonLookWords = {}) =>
+  `<span class="ep-button tone-${look.tone ?? "quiet"}${look.frame && look.frame !== "none" ? ` frame-${look.frame}` : ""}${look.fill ? " fill" : ""}" role="button" aria-disabled="true">${look.glyph ? `<span aria-hidden="true">${html(look.glyph)}</span> ` : ""}${html(label)}</span>`;
+
 const toneClass = (value: Tone | undefined) => value && value !== "default" ? ` ext-${value}` : "";
 
 function htmlOf(node: Primitive, count = { images: 0 }): string {
@@ -662,7 +667,7 @@ function htmlOf(node: Primitive, count = { images: 0 }): string {
     case "blockdown": return `<div class="ext-blockdown">${html(node.text)}</div>`;
     case "badge": return `<span class="ext-badge${toneClass(node.tone)}">${html(node.label)}</span>`;
     // Inert (ADR 0005, readers read): a page draws the label and runs nothing.
-    case "button": return `<span class="ext-button${toneClass(node.tone)}">${html(node.label)}</span>`;
+    case "button": return buttonHtml(node.label, { tone: viewToneAsButton(node.tone) });
     case "stat": return `<div class="ext-stat${toneClass(node.tone)}"><span class="ext-label">${html(node.label)}</span> <strong>${html(statText(node))}</strong></div>`;
     case "bar": return `<div class="ext-bar${toneClass(node.tone)}"><span class="ext-label">${html(node.label)}</span> <meter min="0" max="${node.max}" value="${node.value}">${node.value}/${node.max}</meter> ${node.value}/${node.max}</div>`;
     case "sparkline": return `<div class="ext-sparkline">${node.label ? `<span class="ext-label">${html(node.label)}</span> ` : ""}${sparkline(node.values)}</div>`;

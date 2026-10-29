@@ -150,3 +150,17 @@ test("syntaxWarnings carries a misread button's reason", async () => {
   expect(syntaxWarnings('::button{label="zoom" act="tile.zoom reach="column" tile="t-a6125371"}').map(w => w.message).join()).toContain("act= ends early");
   expect(syntaxWarnings('::button{label="pop" act="tile.zoom tile={target}" target=}')).toEqual([]);
 });
+
+test("a button's look words are its own, and one it can't read is said while the button still runs (PIE-1287)", async () => {
+  const b = buttonCallsOf('::button{label="Ship" glyph="▶✦" tone=primary frame=round fill=on act="status.log"}')[0]!;
+  expect(b.look).toEqual({ glyph: "▶", tone: "primary", frame: "round", fill: true });
+  expect(b.problem).toBeUndefined();
+  const bad = buttonCallsOf('::button{label="Go" tone=red act="status.log"}')[0]!;
+  expect(bad.act).toBe("status.log");
+  expect(bad.problem).toBeUndefined();
+  expect(bad.lookProblem).toContain("tone=red");
+  const seq = buttonCallsOf('::button{label="Fold" frame=rounded}\ntile.collapse on=true tile=links\n::')[0]!;
+  expect(seq.problem).toBeUndefined();
+  const { syntaxWarnings } = await import("../src/syntax-warnings");
+  expect(syntaxWarnings('::button{label="Go" frame=rounded act="status.log"}').map(w => w.message).join()).toContain("runs but is drawn plain: the button doesn't read frame=rounded");
+});

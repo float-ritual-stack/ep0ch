@@ -6,7 +6,7 @@ import { subtitleOf, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/protocol";
 import { isSqliteBusy } from "./sqlite-busy";
 import { replaceReferenceIndex } from "./reference-index";
-import { embeddedPageAddress, referencedBlock } from "@ep0ch/outline-core/link-syntax";
+import { embeddedPageAddress, pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { propertyValueHolds, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import {handOrderRefusal, isVirtualBranchDefinition, VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
@@ -80,7 +80,7 @@ import { formatProperty, getProperty, matchingPropertyRecords, matchesFilters, p
 import { firstLineWithoutPropertyTokens, titlePropertyRanges, parsePropertyRecords, PROPERTY_PARSER_VERSION } from "@ep0ch/outline-core/property-parse";
 import { literalMarkerLineRanges } from "@ep0ch/outline-core/code-ranges";
 import { normalizePageAddress, tryNormalizePageAddress, type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
-import { blockReferenceDisplayText, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
+import { blockDisplayTitle, blockReferenceDisplayText, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import {
   ResourceCatalog,
@@ -257,7 +257,7 @@ interface WorkIdAllocatorRow {
 export type BlockRefLookup =
   | { kind: "found"; block: Block; how: string }
   | { kind: "ambiguous"; ids: string[]; message: string }
-  | { kind: "trashed"; message: string }
+  | { kind: "trashed"; message: string; id?: string }
   | { kind: "missing"; message: string; didYouMean?: string };
 
 // Singleton outline configuration uses the existing metadata table when it is not canonical user content
@@ -3446,12 +3446,15 @@ export class OutlinerStore {
    * an empty reference.
    */
   lookupBlockRef(ref: string, noun = "block"): BlockRefLookup {
-    // ((id)) and ((id|label)) name the id; [[page]] the page.
-    const text = typeof ref === "string" ? referencedBlock(ref)?.blockId ?? ref.trim().replace(/^\[\[(.+)\]\]$/, "$1").trim() : "";
+    // ((id)) and ((id|label)) name the id; [[page]], [[page|label]] and [[page^anchor]] the page.
+    const pages = typeof ref === "string" ? pageAddressReferences(ref.trim()).filter(link => !link.nested) : [];
+    const whole = pages.length === 1 && pages[0]!.start === 0 && pages[0]!.end === ref.trim().length ? pages[0]!.displayAddress : null;
+    const text = typeof ref === "string" ? referencedBlock(ref)?.blockId ?? whole ?? ref.trim() : "";
     if (!text) throw new Error("Give a block: an id, ((id)), a Work ID or a [[page]]");
-    const trashed = (): BlockRefLookup => ({ kind: "trashed", message: `${ref} is in Trash` });
+    let nearest: string | null = null;
+    const trashed = (id?: string): BlockRefLookup => ({ kind: "trashed", message: `${ref} is in Trash`, ...(id ? { id } : {}) });
     const exact = this.database.query("SELECT id, effective_deleted_root_id AS trashed FROM blocks WHERE id = ?").get(text.toLowerCase()) as { id: string; trashed: string | null } | null;
-    if (exact?.trashed) return trashed();
+    if (exact?.trashed) return trashed(exact.id);
     if (exact) return { kind: "found", block: this.getFromCurrentRead(exact.id)!, how: "block id" };
     if (/^[0-9a-f-]{8,}$/i.test(text)) {
       const low = text.toLowerCase();
@@ -3459,19 +3462,41 @@ export class OutlinerStore {
         .all(low, `${low}\uffff`) as { id: string; trashed: string | null }[];
       const active = rows.filter(row => !row.trashed);
       if (active.length === 1) return { kind: "found", block: this.getFromCurrentRead(active[0]!.id)!, how: "block id prefix" };
-      if (active.length > 1) return { kind: "ambiguous", ids: active.map(row => row.id), message: `${text} starts more than one block's id; give more of it` };
-      if (rows.length) return trashed();
+      if (active.length > 1) return { kind: "ambiguous", ids: active.map(row => row.id), message: `${text} starts ${active.length === 6 ? "6 or more" : active.length} notes' ids: ${active.map(row => this.refCandidate(row.id)).join("; ")}; give more of it` };
+      if (rows.length) return trashed(rows.length === 1 ? rows[0]!.id : undefined);
+      if (/^[0-9a-f]{8}/.test(low)) nearest = this.nearestIdsFromCurrentRead(low);
     }
     let page: PageAddressResolution | null = null;
-    try { page = this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(text)); } catch { /* not an address: said below */ }
+    // As written, then a Work ID by its canonical number (PIE-12 is PIE-012).
+    for (const address of new Set([text, parseWorkId(text)?.workId ?? text])) {
+      if (page && page.status !== "missing") break;
+      try { page = this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(address)); } catch { /* not an address: said below */ }
+    }
     if (page?.status === "resolved" && page.block) return { kind: "found", block: page.block, how: parseWorkId(text) ? "Work ID" : "page address" };
-    if (page?.status === "deleted") return trashed();
+    if (page?.status === "deleted") return trashed(page.block?.id);
     if (ref.trim().startsWith("[[")) {
       const near = this.completePageAddresses(text, 3).addresses.map(page => `[[${page.address}]]`);
       return { kind: "missing", message: `no page ${text}`, ...(near.length ? { didYouMean: near.join(" or ") } : {}) };
     }
-    const mean = this.workIdDidYouMeanFromCurrentRead(text);
+    const mean = this.workIdDidYouMeanFromCurrentRead(text) ?? nearest;
     return { kind: "missing", message: `No ${noun} ${ref}${mean ? `: ${mean}` : ""} (an id, ((id)), an id's first 8+ characters, a Work ID or a [[page]] names one)`, ...(mean ? { didYouMean: mean } : {}) };
+  }
+
+  /** A note offered for a reference: its id, its title and where it sits (`id title · in A › B`). */
+  private refCandidate(id: string): string {
+    const block = this.getFromCurrentRead(id)!;
+    const path: string[] = [];
+    for (let at = block.parentId ? this.getFromCurrentRead(block.parentId) : null; at && path.length < 4; at = at.parentId ? this.getFromCurrentRead(at.parentId) : null) path.unshift(blockDisplayTitle(at));
+    return `${id} ${blockDisplayTitle(block)} · in ${path.length ? path.join(" › ") : "(root)"}`;
+  }
+
+  /** For an id prefix nothing starts: the notes whose ids sort nearest it (one below, two above), or null in an empty outline. */
+  private nearestIdsFromCurrentRead(prefix: string): string | null {
+    const live = "effective_deleted_root_id IS NULL";
+    const below = this.database.query(`SELECT id FROM blocks WHERE ${live} AND id < ? ORDER BY id DESC LIMIT 1`).all(prefix) as { id: string }[];
+    const above = this.database.query(`SELECT id FROM blocks WHERE ${live} AND id > ? ORDER BY id LIMIT 2`).all(prefix) as { id: string }[];
+    const ids = [...below, ...above].map(row => row.id);
+    return ids.length ? `no id starts ${prefix}; the nearest are ${ids.map(id => this.refCandidate(id)).join("; ")}` : null;
   }
 
   /**

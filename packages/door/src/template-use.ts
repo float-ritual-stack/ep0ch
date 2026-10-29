@@ -16,6 +16,7 @@ import { printable, type Source } from "./props";
 import { LINK_OFF, LINK_ON, type LinkTarget } from "./refs";
 import { C, dim, fg, linkTag, LINK_END, RESET } from "./style";
 import { watchedOn, type Watching } from "./watched";
+import { buttonText } from "./surface/button";
 
 /** The most nested `::use` calls drawn inside each other (the service's chain bound, one short). */
 export const MAX_USE_DEPTH = 6;
@@ -87,8 +88,7 @@ export function useRegion(d: UseDrawing): string[] | AfterRows {
   }
   if (answer.missing.length) {
     const names = answer.missing.map(m => m.name).join(", ");
-    const fill = "[fill it in]";
-    notes.push(fg(C.yellow) + `needs ${names} ` + RESET + fg(C.lcyan) + (d.sink ? LINK_ON + tagged(d.sink, { block: d.host, role: "control", label: `fill in ${names}`, use: { block: d.host, line: d.line } }, fill) + LINK_OFF : fill) + RESET);
+    notes.push(fg(C.yellow) + `needs ${names} ` + RESET + buttonText("fill it in", {}, t => d.sink ? LINK_ON + tagged(d.sink, { block: d.host, role: "control", label: `fill in ${names}`, use: { block: d.host, line: d.line } }, t) + LINK_OFF : t));
   }
   const draw = (body: readonly string[]) => regionRows({ key, label: title, ...(open ? { target: open } : {}), body, notes, notesFirst: true, facts: [head], controls: [], width: d.width }, d.book);
   if (!answer.template) return draw([]);

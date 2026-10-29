@@ -4,9 +4,9 @@
 // source a variation shows, and its live form (`query:`/`view:`) is asked of the outline, so the library says it isn't
 // drawn there. A kind's name is the id (`graph-rank`); the door's `GRAPH_KINDS` is what a test holds this list to
 // (packages/door/test/component-coverage.test.ts). Pure: no I/O; types only from component-schema.ts.
-import type { ComponentSchema, PropSchema, PropValue } from "./component-schema";
+import type { ComponentSchema, PropSchema } from "./component-schema";
+import { enumOf } from "./prop-values";
 
-const enumOf = (meanings: Record<string, string>): PropValue[] => Object.entries(meanings).map(([value, meaning]) => ({ value, meaning }));
 const yaml = (key: string, type: PropSchema["type"], meaning: string, extra: Partial<PropSchema> = {}): PropSchema => ({ key, where: "yaml", type, meaning, ...extra });
 
 const TITLE = yaml("title", "text", "the title in the figure's frame", { samples: ["Plot jobs", "Moth counts"] });

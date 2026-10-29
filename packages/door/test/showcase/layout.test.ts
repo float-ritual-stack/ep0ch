@@ -42,7 +42,8 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     app.push(d);
     try {
       (app as any).paint(true);
-      const welcome = d.pane("welcome"), logo = welcome.tabs.find((t: any) => t.logo);
+      // The logo's hit area as the band draws it (PIE-1288 put the tabs on tabStrip; the logo kept its own hit).
+      const welcome = d.pane("welcome"), logo = welcome.hits.find((h: any) => h.action === "welcome.logo");
       expect(logo).toBeDefined();
       const before = welcome.logo;
       await d.dispatch.act({ action: "tile.zoom", tile: "preview", args: { reach: "full", on: true } }, USER);

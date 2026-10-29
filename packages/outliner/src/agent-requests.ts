@@ -19,6 +19,7 @@ import type { AnnotationRecord, AnnotationThread, Block, MutationProvenance } fr
 import { resourceCommentSource } from "./resource-comments";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockDisplayTitle } from "./references";
+import { isAnnotationBlock } from "./annotations";
 
 /**
  * Agents addressed while you write (PIE-501): a person writes
@@ -272,12 +273,21 @@ export class AgentRequests {
 
   /** Every `@name` line's key, whatever the name: what a later save is compared with. */
   private shapes(block: Block): string[] {
-    if (block.effectiveDeletedRootId || this.store.extensionOwner(block.id)) return [];
+    if (!this.asksInPlace(block)) return [];
     return requestLines(block.text, null).map((line) => line.requestKey);
   }
 
+  /**
+   * Whether an `@name` line in this block is answered in place, as an output region under the line. A comment or a
+   * reply is never: its thread answers it (`threadWritten`), as a reply by the agent, and the person's words stay theirs
+   * (PIE-1374). Trashed blocks and an extension's own records aren't either.
+   */
+  private asksInPlace(block: Block): boolean {
+    return !block.effectiveDeletedRootId && !this.store.extensionOwner(block.id) && !isAnnotationBlock(block);
+  }
+
   private lines(block: Block, names: ReadonlySet<string> | null = this.registry.agentNames()): RequestLine[] {
-    if (block.effectiveDeletedRootId || this.store.extensionOwner(block.id)) return [];
+    if (!this.asksInPlace(block)) return [];
     return requestLines(block.text, names);
   }
 
@@ -389,7 +399,7 @@ export class AgentRequests {
   holdWritten(blockId: string, text: string, actor: MutationProvenance | undefined, before: ReadonlySet<string>, own?: MutationProvenance, requestedBy?: MutationProvenance): { wakes: { requestKey: string; by: string; chain: InvocationChain; refund(): void }[]; recorded: string[] } {
     const out = { wakes: [] as { requestKey: string; by: string; chain: InvocationChain; refund(): void }[], recorded: [] as string[] };
     const block = this.store.get(blockId);
-    if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return out;
+    if (!block || !this.asksInPlace(block)) return out;
     const lines = requestLines(text, this.registry.agentNames());
     if (!lines.length) return out;
     const answered = new Set(this.store.agentRequests(blockId).map((row) => row.requestKey));
@@ -421,7 +431,8 @@ export class AgentRequests {
   held(): HeldAsk[] {
     return this.store.heldAgentRequests().flatMap((row) => {
       const block = this.store.get(row.blockId);
-      if (!block || block.effectiveDeletedRootId) return [];
+      // A comment's ask held before PIE-1374 has no line to run here (its thread answers it): not shown as waiting.
+      if (!block || !this.asksInPlace(block)) return [];
       const at = this.lines(block).find((candidate) => candidate.requestKey === row.requestKey)?.line ?? -1;
       return [{ blockId: row.blockId, line: at, title: blockDisplayTitle(block).slice(0, 120), agent: row.agent, extensionId: row.extensionId, request: row.request, why: (row.message ?? "").replace(/^held: /, ""), by: row.requestedBy, at: row.requestedAt }];
     });
@@ -553,7 +564,8 @@ export class AgentRequests {
   touched(blockId: string, text: string): void {
     if (this.stopped) return;
     const block = this.store.get(blockId);
-    if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return;
+    if (block && !block.effectiveDeletedRootId && isAnnotationBlock(block)) return this.notInThreads(blockId, text);
+    if (!block || !this.asksInPlace(block)) return;
     const names = this.registry.agentNames();
     for (const line of requestLines(text, null)) {
       if (!names.has(line.agent)) this.deps.changed(blockId, { line: line.text, state: "unanswered", warning: this.unanswered(line.agent) });
@@ -637,7 +649,7 @@ export class AgentRequests {
     const block = this.store.get(blockId);
     if (!block) return;
     let found = this.lines(block).find((candidate) => candidate.requestKey === requestKey);
-    if (!found && !block.effectiveDeletedRootId && !this.store.extensionOwner(blockId)) {
+    if (!found && this.asksInPlace(block)) {
       // Asked while typing (`drafts.touch`): the line is in the live draft, not saved yet.
       const draft = await this.deps.readDraft(blockId).catch(() => null);
       found = draft ? requestLines(draft.text, this.registry.agentNames()).find((candidate) => candidate.requestKey === requestKey) : undefined;
@@ -803,11 +815,28 @@ export class AgentRequests {
   threadWritten(records: readonly AnnotationRecord[], author: string | undefined): void {
     if (this.stopped || author !== "user") return;
     const names = this.registry.threadAgentNames();
-    if (!names.size) return;
     for (const record of records) {
+      this.notInThreads(record.block.id, record.body);
       const line = requestLines(record.body, names)[0];
       if (!line) continue;
       void this.answerInThread(record, line).catch(() => {});
+    }
+  }
+
+  /**
+   * The `@name` lines of a comment no agent answers there, each said on its line: a name nobody answers, or an agent
+   * that answers only in notes (no `threads`). A comment is never answered in place, so without this the ask would
+   * just go quiet.
+   */
+  private notInThreads(blockId: string, text: string): void {
+    const threads = this.registry.threadAgentNames();
+    const here = [...threads].sort().map((name) => `@${name}`).join(" ") || "none";
+    for (const line of requestLines(text, null)) {
+      if (threads.has(line.agent)) continue;
+      const warning = this.registry.agent(line.agent)
+        ? `@${line.agent} answers in notes, not in comment threads · agents that answer here: ${here}`
+        : `no agent answers @${line.agent} · agents that answer in comment threads: ${here}`;
+      this.deps.changed(blockId, { line: line.text, state: "unanswered", warning });
     }
   }
 

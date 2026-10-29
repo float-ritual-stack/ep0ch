@@ -26,6 +26,7 @@ import type { AfterRows } from "./doc";
 import { regionRows, type RegionBook } from "./output-region";
 import { BOLD, C, fg, RESET, UNBOLD } from "./style";
 import { wrap } from "./text";
+import { buttonText } from "./surface/button";
 
 /** The statuses the service sends today; a newer one is drawn generically, with its reason. */
 export type ResourceProjectionStatus = "ready" | "stale" | "not-fetched" | "not-registered" | "ambiguous" | "no-key" | "not-run" | "unavailable";
@@ -652,7 +653,7 @@ export function extensionRegion(p: ResourceProjection, w: number, now: number, l
   if (d.bare) return { rows: [...body, ...notes] };
   // Behind the mark: the line's actions (their key, if the reader leaves it to them), then run again.
   const acts = p.extension && p.kind !== "agent" ? handlerActions(p.extension.id, p.extension.handler) : [];
-  const control = (action: string, text: string) => fg(C.lcyan) + (link ? link({ role: "control", label: text, ...at(action) }, `[${text}]`) : `[${text}]`) + RESET;
+  const control = (action: string, text: string) => buttonText(text, {}, t => link ? link({ role: "control", label: text, ...at(action) }, t) : t);
   const controls = [
     ...acts.map(a => control(a.name, a.key && handlerKeyAction(extension, handler, a.key, d.hostKeys) === a ? `${a.key} ${a.id}` : a.id)),
     control(RUN_AGAIN, `${RUN_AGAIN_KEY} ${againWords(p)}`),

@@ -16,7 +16,7 @@ import type { ListSource } from "../outline-lists";
 import type { Decoration } from "../projection";
 import { figureDemo, linksDemo, fieldsDemo } from "./demo";
 import { drawProps } from "../figures/props";
-import { buttonLabel } from "../surface/home";
+import { buttonRows } from "../surface/button";
 import { presentLinks } from "../refs";
 
 export const PROP_PLACE_WORDS: Record<PropPlace, string> = { line: "on the line", note: "on the declaring note", yaml: "in the YAML" };
@@ -63,7 +63,7 @@ export function drawVariation(v: Variation, width: number, src: ListSource | nul
   const declared = v.note ? [{ id: "library-declaring-note", properties: propertyTokensInLine(v.note).map(t => ({ key: t.key, value: t.value })) }] : [];
   const headings = headingStyleRegistry([...headingStylesOf(src).styles.filter(s => s.block), ...headingStylesFromBlocks(declared).styles]);
   const callouts = calloutRegistry([...calloutsOf(src).types.filter(t => t.block), ...calloutTypesFromBlocks(declared).types]);
-  const env: DocEnv = { width: Math.max(10, width), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true, callouts, headings, linkBlocks: { data: linksDemo }, figures: { answer: figureDemo }, fieldsAnswer: fieldsDemo, button: call => [buttonLabel(call.label)] };
+  const env: DocEnv = { width: Math.max(10, width), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true, callouts, headings, linkBlocks: { data: linksDemo }, figures: { answer: figureDemo }, fieldsAnswer: fieldsDemo, button: call => buttonRows(call.label, call.look) };
   const body = v.use.split("\n");
   const decorations = ruleDecorations(v, src).decorations ?? [];
   if (decorations.length) {

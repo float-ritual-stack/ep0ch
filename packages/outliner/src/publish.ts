@@ -11,7 +11,7 @@ import { closeOpenFences } from "@ep0ch/outline-core/component-block";
 import { protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
 import type { Decoration } from "./extension-rules";
 import type { ResourceProjection, ResourceProjectionReadResult } from "./resource-projection";
-import { COMPONENT_STYLE, componentSentinel, drawComponents, drawnLine, hasResult, isComponentSentinel, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown, readImages } from "./publish-components";
+import { COMPONENT_STYLE, componentSentinel, drawComponents, drawNoteButtons, drawnLine, hasResult, isComponentSentinel, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown, readImages } from "./publish-components";
 import { boardHtml, FIGURE_STYLE, viewRowsHtml } from "./publish-figures";
 import { drawNoteComponents, drawViewLane, readViewLane, type DrawnComponent, type LiveHost } from "./publish-live";
 import { publishedValueWords, readPageValues } from "./publish-values";
@@ -58,7 +58,7 @@ import { ReaderLeases } from "./publish-reader-lease";
 import { READER_COMPOSE_STYLE } from "./publish-reader-style";
 import { PAGE_ROUTE, PageMarginalia, readerScriptPath, webmcpScriptPath, sameOrigin, type PageShare, type PageView } from "./publish-page";
 import { completeAt, SEARCH_STYLE, searchForm, searchNotes, searchResultsHtml, searchScriptPath, summaryWords, type SearchHost } from "./publish-search";
-import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE, extractAnnotationBody } from "./annotations";
+import { ANNOTATION_TYPE, extractAnnotationBody, isAnnotationBlock } from "./annotations";
 import { RECENT_REPLIES_QUERY, UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
 import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
@@ -2464,6 +2464,7 @@ export class Publisher {
         : !linked.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${base}${mediaPath(blockId, line)}` : null,
       { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec),
       (blockId, line) => artifactPages.get(`${blockId}:${line}`));
+    if ((options.format ?? "html") === "html") drawNoteButtons(rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), components, drawn);
     // HTML pages carry source-line destinations; only tailnet pages also identify blocks for presence.
     const anchors = options.anchors;
     const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, (options.format ?? "html") === "html" ? anchors : undefined, drawn, owner, (options.format ?? "html") === "html" ? steps : undefined, !!options.browse, values, unlocked);
@@ -3086,12 +3087,6 @@ function readerIndex(index: PublishedIndex): PublishedIndex {
 /** One of the outline's own views (`[system-view::trash]`, `bookmarks`): the service keeps it, nobody wrote it to read. */
 function isSystemView(block: Block): boolean {
   return isVirtualBranchDefinition(block) && !!getProperty(block.properties, "system-view");
-}
-
-/** An annotation or a reply: drawn on its passage, never listed as a row of the note. */
-function isAnnotationBlock(block: { properties?: readonly BlockProperty[] }): boolean {
-  const type = getProperty(block.properties ?? [], "type");
-  return type === ANNOTATION_TYPE || type === ANNOTATION_REPLY_TYPE;
 }
 
 /**

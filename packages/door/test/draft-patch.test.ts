@@ -14,6 +14,7 @@ import type { Key } from "../src/term";
 import { applyLocated, locateSpans } from "@ep0ch/outline-core/draft-patch-compare";
 import { outliner, Scratch, until } from "./scratch";
 import { prop } from "../src/props";
+import { loadExtensions } from "../src/extensions";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
@@ -912,6 +913,33 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
       expect(e.d.text).toContain("My next thought stays here");
       expect(e.d.writers.map(actorIdOf)).toContain("ext:marginalia");
     } finally { writeFileSync(gate, "finish"); }
+  }, 20000);
+
+  // PIE-1374: the door's Explain writes the person's comment "@margin explain this passage"; its thread answers it once,
+  // as a reply by ext:marginalia, and the comment itself is never written into. With a session set up, marginalia keeps
+  // its id on the thread (`margin-session`): that write once woke the note path too, which streamed a second answer into
+  // the person's comment under his name.
+  test("the door's Explain on a passage is answered once, as a reply, the person's comment untouched", async () => {
+    const folder = join(scratch.workspace, "extensions", "marginalia");
+    cpSync(join(outliner!, "extensions", "marginalia"), folder, { recursive: true });
+    writeFileSync(join(folder, "config.json"), JSON.stringify({ config: { answer: ["sh", "-c", "cat > /dev/null; echo 'A hand is about ten centimetres.'"], session: { start: ["{id}"], resume: ["{id}"] } } }));
+    await board.listExtensions(true);
+    await loadExtensions(board, true);
+    const id = await create("Bean rows\nSow the beans a hand apart.");
+    const s = new NoteSurface(), h = host();
+    s.show((await board.get(id))!, h);
+    const r = await NOTE_ACTIONS.run("passage.act", { action: "explain", quote: "a hand apart" }, { surface: s, host: h, standing: true }, USER) as { thread: string };
+    const thread = async () => (await board.comments(id)).find(c => c.id === r.thread)!;
+    for (const end = Date.now() + 8000; !(await thread())?.replies.length; await Bun.sleep(50)) if (Date.now() > end) throw new Error("timed out waiting for the margin's reply");
+    // Past the quiet a note's ask waits for (1.5 s) and its answer, so a second answer would have landed.
+    await Bun.sleep(3000);
+    const t = await thread();
+    expect(t.replies.map(reply => [reply.author, reply.body])).toEqual([["ext:marginalia", "A hand is about ten centimetres."]]);
+    expect(t.body).toBe("@margin explain this passage");
+    const comment = (await board.get(r.thread))!;
+    expect(prop(comment, "margin-session")).toBeTruthy();
+    expect(comment.text).not.toContain("answered");
+    s.dispose();
   }, 20000);
 
   test.each([false, true])("an ask's reply lands under its line while typing continues (rich=%s)", async rich => {

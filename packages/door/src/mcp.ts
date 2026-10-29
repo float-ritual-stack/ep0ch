@@ -721,7 +721,7 @@ function toolsFor(outlines: McpOutlines) {
     type: "object",
     properties: {
       uri: { type: "string", description: "The block's ep0ch:// URI; it names its outline (an outline that names another is refused)" },
-      ref: { type: "string", description: "The block in `outline`: its id, ((id)), [[page]] or Work ID (PIE-123), as the outline's own links name it" },
+      ref: { type: "string", description: "The block in `outline`: its id, ((id)), its first 8+ characters, [[page]] or Work ID (PIE-123), as the outline's own links name it" },
       outline: outlineProperty(outlines),
     },
     additionalProperties: false,

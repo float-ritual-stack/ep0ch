@@ -1,4 +1,5 @@
 import { actionLine } from "./action-line";
+import { nextGraphemeEnd } from "./graphemes";
 import { COMPONENT_OPEN, componentAttrs, componentBlockAt, lineWords, noteCodeFences, splitWords } from "./component-block";
 
 /** The component's name. */
@@ -22,19 +23,34 @@ export interface ButtonCall {
   act: string | null;
   /** The alternate press, when supplied. */
   alt?: string;
+  /** How it looks (PIE-1287): what the line says of glyph, tone, frame and fill; the door's button part draws it. */
+  look: ButtonLookWords;
   /** The slots the line fills itself (PIE-1298): `target=` for a `{target}` in act= or in an of= script's values, in the order written. */
   slots: ButtonSlot[];
   /** The slots with no value yet, in the order the button reads them: a press asks for each (never runs with one open). */
   empty: string[];
   /** The line couldn't be read as a button, or reads as something other than what was written: what to write. */
   problem?: string;
+  /** A look word it doesn't take (`tone=red`): what to write. It still runs; only its look falls back. */
+  lookProblem?: string;
 }
+
+/** A button's tone: a theme role, never a colour. */
+export const BUTTON_TONES = ["quiet", "primary", "danger"] as const;
+/** A button's frame: `none` is one row (a filled band with fill=on), the rest are the box glyph sets, three rows high. */
+export const BUTTON_FRAMES = ["none", "box", "round", "heavy", "double"] as const;
+export type ButtonTone = typeof BUTTON_TONES[number];
+export type ButtonFrame = typeof BUTTON_FRAMES[number];
+/** A script view's tone (default, good, warn, bad, dim, accent) as a button's: the one mapping the door and the pages draw. */
+export const viewToneAsButton = (tone: unknown): ButtonTone => (tone === "bad" ? "danger" : tone === "good" || tone === "warn" ? "primary" : "quiet");
+/** What a `::button` line says of its look; a word it can't read is left out and named in `problem`. */
+export interface ButtonLookWords { glyph?: string; tone?: ButtonTone; frame?: ButtonFrame; fill?: boolean }
 
 /** A word on the button's line that a `{key}` elsewhere on it reads. */
 export interface ButtonSlot { key: string; value: string }
 
 /** Attributes a button reads itself; every other word is a slot of the script it runs (`of=`). */
-export const BUTTON_OWN: ReadonlySet<string> = new Set(["label", "act", "of", "alt"]);
+export const BUTTON_OWN: ReadonlySet<string> = new Set(["label", "act", "of", "alt", "glyph", "tone", "frame", "fill"]);
 const OWN = BUTTON_OWN;
 
 /** The closing body line, or the opener when this button has no closed body. */
@@ -86,7 +102,7 @@ const written = (key: string, value: string) => (/^[^\s"'{}\\]+$/.test(value) ? 
 /**
  * What the line says that no button reads (PIE-1298, Evan, Oct 25: `act="tile.zoom reach="column" tile="t-a6125371"` ended
  * act= at the second quote and zoomed the focused tile): null when it reads as written, else the reason and the line to
- * write. `strays` are words the button doesn't read (not label, act, of, alt, nor a slot some `{key}` names).
+ * write. `strays` are words the button doesn't read (not BUTTON_OWN's, nor a slot some `{key}` names).
  */
 function misread(label: string | undefined, act: string, strays: readonly { key: string; value: string }[]): string | null {
   const open = !balanced(act);
@@ -159,8 +175,22 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
   if (!problem && lost.length) problem = `{${lost[0]}} has no word on the line to fill it; add ${lost[0]}= (left empty, a press asks for it)`;
   const empty = [...new Set([...steps.flatMap(s => refsOf(s.source)), ...Object.values(props).flat().flatMap(refsOf)])].filter(k => slots.some(s => s.key === k && !s.value));
   const line = problem && !steps.length ? null : steps.map(s => s.source).join("\n") || null;
-  return { line: i, endLine, steps, props, slots, empty, sequence: endLine > i || !!(act || of)?.startsWith("["), label: label || steps[0]?.source.split(/\s+/)[0] || "button", act: problem && misreadOnly(problem) ? null : line,
-    ...(get("alt") ? { alt: slotted(get("alt")!) } : {}), ...(problem ? { problem } : {}) };
+  // A look word it can't read is said, but the button still runs: only its look falls back.
+  const { look, problem: lookProblem } = lookOf(get);
+  return { line: i, endLine, steps, props, slots, empty, look, sequence: endLine > i || !!(act || of)?.startsWith("["), label: label || steps[0]?.source.split(/\s+/)[0] || "button", act: problem && misreadOnly(problem) ? null : line,
+    ...(lookProblem ? { lookProblem } : {}), ...(get("alt") ? { alt: slotted(get("alt")!) } : {}), ...(problem ? { problem } : {}) };
+}
+
+/** The look words of a button's line, read; a value it doesn't take is the problem to fix (the rest still draw). */
+function lookOf(get: (key: string) => string | undefined): { look: ButtonLookWords; problem?: string } {
+  const look: ButtonLookWords = {};
+  const glyph = get("glyph")?.trim(), tone = get("tone")?.trim().toLowerCase(), frame = get("frame")?.trim().toLowerCase(), fill = get("fill")?.trim().toLowerCase();
+  if (glyph) look.glyph = glyph.slice(0, nextGraphemeEnd(glyph, 0));
+  const bad: string[] = [];
+  if (tone) { if ((BUTTON_TONES as readonly string[]).includes(tone)) look.tone = tone as ButtonTone; else bad.push(`tone=${tone} (${BUTTON_TONES.join(", ")})`); }
+  if (frame) { if ((BUTTON_FRAMES as readonly string[]).includes(frame)) look.frame = frame as ButtonFrame; else bad.push(`frame=${frame} (${BUTTON_FRAMES.join(", ")})`); }
+  if (fill) { if (["on", "true", "off", "false"].includes(fill)) look.fill = fill === "on" || fill === "true"; else bad.push(`fill=${fill} (on, off)`); }
+  return { look, ...(bad.length ? { problem: `the button doesn't read ${bad.join(", ")}` } : {}) };
 }
 
 /** A problem that is the line reading differently than written (not a missing action, which already draws as a dead chip). */

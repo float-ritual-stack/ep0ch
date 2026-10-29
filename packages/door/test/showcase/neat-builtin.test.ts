@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { extensionList } from "../../src/extensions";
+import { barSource } from "../../src/bar/source";
 import type { Desk } from "../../src/desk/desk";
 import { USER, type Actor } from "../../src/socket";
 import { outliner, until } from "../scratch";
@@ -78,7 +79,10 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     await app.loadExtensions(true);
     await until(() => !extensionList()?.extensions.some(e => e.id === "neat"), "neat removed from the door");
     const rows = await app.dispatch.act({ action: "bar.open", args: { scope: "&", query: "neat" } }, { kind: "agent", id: "test-agent" }) as { rows: { label: string; detail?: string }[] };
-    expect(rows.rows.find(r => r.label === "install Neat")?.detail).toContain("adds the script neat");
+    expect(rows.rows.find(r => r.label === "install Neat")).toBeDefined();
+    // What it adds is the preview's (PIE-1284): the row is one line.
+    const source = barSource("extensions")!, row = (await source.rows("neat", null as never, "extensions")).find(r => r.label === "install Neat")!;
+    expect(((await source.preview(row, null as never)) as { markdown: string }).markdown).toContain("Adds the script **neat**");
     const installed = await app.dispatch.act({ action: "extensions.install", args: { id: "neat" } }, { kind: "agent", id: "test-agent" }) as { state?: string; page?: string };
     expect(installed.state).toBe("active");
     expect((await board.get(installed.page!))!.text).toContain("Script **neat**");

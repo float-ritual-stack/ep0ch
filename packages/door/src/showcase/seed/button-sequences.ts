@@ -16,3 +16,19 @@ export const BUTTON_SEQUENCES = [
   '::button{label="Nothing" of=[pick, nothing, observe]}',
   `::button{label="Sugar" act=["tile.collapse on=true tile='links'", "tile.collapse on=true tile='preview'"]}`,
 ].join("\n");
+
+/** Every tone, frame and state of the one button part (PIE-1287): Sync waits, Water fails, Turn the compost is refused now. */
+export const BUTTON_LOOKS = [
+  "Buttons that look like buttons",
+  "A tone, a glyph, a frame and a fill: each line says how its button looks. Press Sync now: it reads ◐ while the script runs and ✓ when it's done. Water fails: it says ! until it is pressed again, and the pointer over it reads why. Turn the compost can't run here (no tile is called compost-heap): it is drawn dim, and the pointer reads the refusal.",
+  "```js script=sync-beds", "await wait(1500);", "return 'beds synced';", "```",
+  "```js script=water-beds", "throw new Error('the water butt is empty');", "```",
+  '::button{label="Fold all" glyph="▤" act="status.log"}',
+  '::button{label="Ship it" glyph="▶" tone=primary act="status.log"}',
+  '::button{label="Delete" glyph="✕" tone=danger act="status.log"}',
+  '::button{label="Sync now" glyph="⟳" frame=round of=sync-beds}',
+  '::button{label="Water" frame=heavy tone=primary of=water-beds}',
+  '::button{label="Clear" frame=double tone=danger act="status.log"}',
+  '::button{label="Lift" fill=on act="status.log"}',
+  '::button{label="Turn the compost" act="tile.collapse tile=compost-heap"}',
+].join("\n");
