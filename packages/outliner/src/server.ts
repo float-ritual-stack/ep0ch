@@ -2259,15 +2259,17 @@ export class OutlinerServer {
             const candidate = (address: (typeof ranked.addresses)[number]) => ({ address, title: address.title.slice(0, 250), path: address.address, snippet: (this.store.get(address.blockId)?.text ?? "").slice(0, 1000), exact: address.exact });
             const note = ranked.context ? { note: { title: ranked.context.title, path: ranked.context.path } } : {};
             let reordered = await rankSearchWithJev(request.query, { matches: ranked.addresses.map(candidate), completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...note });
-            // `[[` by meaning (PIE-1409): when no page its words found is sure (or none was), Jev reads every addressed
-            // note, as `//` reads every note, and its finds are ranked with the rest.
+            // `[[` by meaning (PIE-1409): when no page its words found is sure (or none was), Jev reads every page, as
+            // `//` reads every note, and its finds are ranked with the rest.
             if (reordered.semantic.status === "ranked" || !ranked.addresses.length) {
-              const addressed = this.store.addressedBlockIds();
-              const found = await this.deepFinds(request.query, reordered.semantic, ranked.addresses[0]?.exact, new Set(ranked.addresses.map(a => a.blockId)), b => addressed.has(b.id));
+              const paged = this.store.pagedBlockIds();
+              const found = await this.deepFinds(request.query, reordered.semantic, ranked.addresses[0]?.exact, new Set(ranked.addresses.map(a => a.blockId)), b => paged.has(b.id));
               const added = "ids" in found ? this.store.pageAddressesFor(found.ids) : [];
               if (added.length) {
-                const again = await rankSearchWithJev(request.query, { matches: [...added.map(candidate), ...ranked.addresses.map(candidate)], completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...note });
-                reordered = { ...again, semantic: { ...again.semantic, deep: { ...(found as { deep: NonNullable<GotoSearchCollection["semantic"]["deep"]> }).deep, found: added.length } } };
+                const limit = request.limit ?? ranked.addresses.length, all = [...added.map(candidate), ...ranked.addresses.map(candidate)];
+                const again = await rankSearchWithJev(request.query, { matches: all, completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...note });
+                // Still the request's limit: the finds take the places of the weakest.
+                reordered = { ...again, matches: again.matches.slice(0, limit), completeness: all.length > limit ? { kind: "truncated", limit } : ranked.completeness, semantic: { ...again.semantic, deep: { ...(found as { deep: NonNullable<GotoSearchCollection["semantic"]["deep"]> }).deep, found: added.length } } };
               } else reordered = { ...reordered, semantic: { ...reordered.semantic, deep: "ids" in found ? { ...found.deep, found: 0 } : found } };
             }
             // A model answer cannot resurrect an address renamed or deleted while it ranked.

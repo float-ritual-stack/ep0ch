@@ -350,7 +350,7 @@ export class PowerBar {
       if (this.quick || !s.later) return;
       // The same hits re-ordered (Jev), after a pause: a row the person moved to stays lit; the top row stays the top,
       // Jev's best (PIE-1409), never the old best followed down the list.
-      turn.after(JEV_PAUSE_MS, () => void s.later!(q, rows, this.host, turn.signal)?.then(r => { if (r && alive()) { this.got.set(s.id, r.rows); if (r.said) this.said.set(s.id, r.said); this.build(this.picker.sel > 0); this.host.ctx.redraw(); } }, () => {}));
+      turn.after(JEV_PAUSE_MS, () => void s.later!(q, rows, this.host, turn.signal)?.then(r => { if (r && alive()) { this.got.set(s.id, r.rows); if (r.said) this.said.set(s.id, r.said); this.build(); this.host.ctx.redraw(); } }, () => {}));
     };
     const fail = (s: BarSource, e: unknown) => {
       if (!alive()) return;

@@ -338,6 +338,8 @@ export interface CompletionState extends CompletionLookup {
   at: { row: number; col: number; line: string };
   /** The person chose the popup with arrows, the wheel, a click, Tab or Ctrl+Space. */
   picked?: boolean;
+  /** The person moved the lit row (arrows, the wheel, a click): a re-order keeps it lit (PIE-1409). */
+  moved?: boolean;
   /** It completes a line (a filter, a property's value), whose ⏎ applies it, rather than a draft's text. */
   line?: boolean;
 }
@@ -418,9 +420,11 @@ export class Completer {
         if (!this.current(turn) || now.index !== index || now.items[index]?.insertion !== chosen || this.accepting || this.d.busy) { now.jev = undefined; this.redraw(); return; }
         // A row the person moved to stays lit wherever Jev puts it; the top row (never moved off) is Jev's best, not
         // the old best followed down the list (PIE-1409: a 0.0/3 row lit at 19/20).
-        const at = index === 0 ? 0 : r.items.findIndex(i => i.insertion === chosen);
-        if (at < 0) { now.jev = undefined; this.redraw(); return; }
-        this.state = { ...r, target, picked: now.picked, line: now.line, index: at, loading: false, at: now.at };
+        // A new page alone on the list stays lit with Jev's finds above it: Enter stays the draft's until one is chosen.
+        const follow = now.moved || !!now.items[index]?.newPage;
+        const at = follow ? r.items.findIndex(i => i.insertion === chosen) : 0;
+        if (at < 0 || !r.items.length) { now.jev = undefined; this.redraw(); return; }
+        this.state = { ...r, target, picked: now.picked, moved: now.moved, line: now.line, index: at, loading: false, at: now.at };
         this.redraw();
         void this.enrich(turn);
       } catch {
@@ -580,7 +584,7 @@ export class Completer {
     if (x < (at.col ?? 0) + (s.listCol ?? 0) || x >= (at.col ?? 0) + (s.listWidth ?? Infinity)) return true;
     const i = at.items[y - at.row];
     if (i !== null && i !== undefined && s.items[i] && !s.loading) {
-      if (s.index !== i) { s.previewTop = 0; s.previewSelection = undefined; this.previewGesture.cancel(); }
+      if (s.index !== i) { s.previewTop = 0; s.previewSelection = undefined; this.previewGesture.cancel(); s.moved = true; }
       s.index = i; s.picked = true;
       if (s.items[i]!.children && at.items[y - at.row - 1] !== i && x === (at.col ?? 0) + (s.listWidth ?? 0) - 1) {
         void COMPLETION_ACTIONS.run("complete.step", { direction: "right" }, this, USER);
@@ -653,7 +657,7 @@ export class Completer {
   moveBy(delta: number): boolean {
     const s = this.state;
     if (!s?.items.length) return false;
-    s.picked = true;
+    s.picked = true; s.moved = true;
     s.previewTop = 0; s.previewSelection = undefined;
     const picker = completionPicker(s);
     picker.sel = s.index;
@@ -862,8 +866,8 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
       if (k.kind === "right" && item?.children) { void COMPLETION_ACTIONS.run("complete.step", { direction: "right" }, c, USER); return true; }
       if (k.kind === "left" && c.hasParent) { void COMPLETION_ACTIONS.run("complete.step", { direction: "left" }, c, USER); return true; }
       if (k.kind === "up" || k.kind === "down") { c.move(k.kind === "up" ? -1 : 1); return true; }
-      // A new page alone on the list (PIE-592) is chosen only on purpose (↓ or a click): Enter and Tab stay the draft's.
-      const lone = s.items.length === 1 && !!s.items[0]!.newPage && !s.picked;
+      // A new page lit and not chosen on purpose (PIE-592: ↓, ↑ or a click; PIE-1409: Jev's finds above it): Enter and Tab stay the draft's.
+      const lone = !!s.items[s.index]?.newPage && !s.picked;
       // Tab and Enter both insert the lit row; where Enter is the field's, the footer says so (enterKeeps).
       if ((k.kind === "tab" || (k.kind === "enter" && !enterKeeps(s))) && !lone) { personRuns("complete.accept", {}, c); return true; }
     }
@@ -1045,7 +1049,7 @@ export function enterKeeps(s: CompletionState): "new line" | "applies" | null {
   const item = s.items[s.index];
   if (s.picked || !item) return null;
   const word = s.line ? "applies" : "new line";
-  if (s.items.length === 1 && item.newPage) return word;
+  if (item.newPage) return word;
   if (s.target.kind === "filter-key" || s.target.kind === "filter-value") return "applies";
   if (ENTER_ENDS_THE_LINE.has(s.target.kind)) return word;
   if (AUTO_OPENING_KINDS.has(s.target.kind) && s.target.kind !== "component" && !s.target.query.trim()) return word;

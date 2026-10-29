@@ -461,6 +461,26 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
     expect(asked.filter(a => a.semantic).map(a => a.query)).toEqual(["party"]);
   });
 
+  test("[[ naming no page yet asks Jev, which finds one by meaning; the new page stays lit and Enter stays the draft's (PIE-1409)", async () => {
+    const found = { address: "heap-rota", blockId: "p9", kind: "page", title: "Compost turning schedule" };
+    const board = serviced({
+      completePages: async (_q: string | undefined, _l: number, opts: { semantic?: boolean } = {}) => opts.semantic
+        ? { addresses: [found], completeness: { kind: "complete" }, semantic: { status: "ranked", verdict: "weak", label: "no strong match", said: "" } }
+        : { addresses: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } },
+      completeFiles: async () => [],
+      searchBlocks: async () => ({ matches: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } }),
+      blockContext: async (id: string) => ({ selected: { id, text: "x" }, ancestors: [] }),
+      workIdPrefix: async () => "HOME",
+    });
+    const d = new Draft("note-1", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "[[rotating the pile") completionKey(d, char(ch), c);
+    await until(() => c.state?.jev === "ranked", "Jev's order");
+    expect(c.state!.items.map(i => i.blockId ?? i.newPage)).toEqual(["p9", "rotating the pile"]);
+    expect(c.state!.items[c.state!.index]!.newPage).toBe("rotating the pile");
+    expect(enterKeeps(c.state!)).toBe("new line");
+  });
+
   test("a draft session that ends drops its popup, and the Jev ask waiting for its pause is never sent", async () => {
     const { board, asked } = fake();
     const { DraftSession, blockTarget } = await import("../src/draft-session");

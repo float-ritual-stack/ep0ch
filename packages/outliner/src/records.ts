@@ -121,12 +121,12 @@ async function stampRecord(board: RecordWriter, kind: RecordKind, props: Record<
     if (!cache.templates.has(name)) cache.templates.set(name, await findNote(board, `template-for=${name}${name === "deploy" ? " machine=install" : ""}`) ?? await board.request<Note>("create", { text: recordTemplate(name), parentId: root.id, ...who }));
   }
   const template = cache.templates.get(kind)!;
-  // A template made before its kind gained fields, or with a field written another way since (jev-run's cost, once
-  // words, now a chip), stamps the old shape: brought up to the code's, once.
+  // A template made before its kind gained fields, or with a field stamped another way since (jev-run's cost, once
+  // words, now a chip), stamps the old shape: brought up to the code's, once. Only the fields' own lines are compared.
   if (!(cache.checked ??= new Set()).has(kind)) {
     const stored = await board.request<{ id: string; text: string; revision: number } | null>("get", { blockId: template.id });
     let current = !!stored;
-    if (stored && recordTemplate(kind).split("\n").some(line => line && !stored.text.includes(line))) {
+    if (stored && recordTemplate(kind).split("\n").some(line => /\{\{props\.|\[form-field::/.test(line) && !stored.text.includes(line))) {
       current = await board.request("update", { blockId: stored.id, text: recordTemplate(kind), expectedRevision: stored.revision, mutation: { author: who.author, ...(who.provenance?.actorId ? { actorId: who.provenance.actorId } : {}) } }).then(() => true, () => false);
     }
     // Checked only once it is known current: a failed upgrade is tried again by the next record.

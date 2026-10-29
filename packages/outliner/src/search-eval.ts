@@ -335,6 +335,8 @@ export function reportNote(scores: readonly ModelScore[], sweeps: Record<string,
   return lines.join("\n");
 }
 
+/** The live table's headers: a page that has them is current. */
+const EVALS_FIGURE = "headers: [model, cases, hit@1, hit@5, sure, wrong, cost $]";
 /** The page every run lands under, made once: what the eval is and every run's numbers, live. */
 export const EVALS_PAGE = [
   "Search evals [page::search-evals] [system-view::search-evals]",
@@ -343,7 +345,7 @@ export const EVALS_PAGE = [
   "> - **Cases:** agents' searches and the note opened next; Evan's picks once they're kept.",
   "> - **Run it:** `ep0ch search harvest`, then `ep0ch search eval --into pie`.",
   "> - **hit@1, hit@5:** of the cases with an answer, how often it came first, and in the first five.",
-  "> - **sure, wrong:** of every search asked (the ones with nothing there too), how often it said sure, and how often that sure was wrong: the answer the thresholds are set against. **cost $** is ranking the whole set.",
+  "> - **sure, wrong:** of every search asked (the ones with nothing there too), how often it said sure, and how often that sure was wrong: the answer the thresholds are set against. **cost $** is what the run spent (a cached answer costs nothing).",
   "",
   "::graph-table",
   "---",
@@ -351,7 +353,7 @@ export const EVALS_PAGE = [
   "query: type=jev-run experiment=search-eval",
   "machinery: show",
   "columns: [model, items, agreed, hit5, quiet, different, cost]",
-  "headers: [model, cases, hit@1, hit@5, sure, wrong, cost $]",
+  EVALS_FIGURE,
   "sort: created",
   "direction: desc",
   "---",
@@ -414,8 +416,8 @@ export function otherOutlineCases(cases: readonly EvalCase[], outlines: readonly
 export async function keepRun(client: EvalClient, scores: readonly ModelScore[], runs: readonly ModelRun[], note: string, day: string): Promise<string> {
   let page = (await read(client, "system-view=search-evals"))[0];
   if (!page) { await client.request({ action: "create", text: EVALS_PAGE, parentId: null, ...EVAL }); page = (await read(client, "system-view=search-evals"))[0]; }
-  // The page is the eval's own: one made before its figure changed is brought up to it.
-  else if (page.text !== EVALS_PAGE) await client.request({ action: "update", blockId: page.id, text: EVALS_PAGE, expectedRevision: page.revision, mutation: { author: "agent", actorId: EVAL.provenance!.actorId! } });
+  // A page made before its figure read in plain words is brought up to it; one already current is left as it is.
+  else if (!page.text.includes(EVALS_FIGURE)) await client.request({ action: "update", blockId: page.id, text: EVALS_PAGE, expectedRevision: page.revision, mutation: { author: "agent", actorId: EVAL.provenance!.actorId! } });
   for (const [i, s] of scores.entries()) {
     // Scores come in the runs' order; a variant's score is named "<model> · <variant>".
     const run = runs[i]!;
@@ -426,8 +428,7 @@ export async function keepRun(client: EvalClient, scores: readonly ModelScore[],
       // five, different it said sure and was wrong (another note, or nothing there; PIE-1409).
       items: s.positives, agreed: s.hit1, agreement: s.positives ? Math.round(s.hit1 / s.positives * 100) / 100 : 0, hit5: s.hit5,
       suggested: s.quietRight + s.quietWrong, quiet: s.sureRight + s.sureWrong + s.sureNothing, different: s.sureWrong + s.sureNothing, unavailable: s.unavailable,
-      // The cost is ranking the whole set, cached answers too: what the model costs, comparable run to run.
-    }, { model: s.model, prompt: run.prompt, questions: s.asked, usage: { input: s.setIn, output: s.setOut } });
+    }, { model: s.model, prompt: run.prompt, questions: s.asked, usage: { input: s.tokensIn, output: s.tokensOut } });
   }
   const made = await client.request<{ id: string }>({ action: "create", text: note, parentId: page!.id, ...EVAL });
   return made.id;
