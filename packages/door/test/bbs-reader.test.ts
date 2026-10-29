@@ -309,4 +309,17 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     expect(top()).toBeInstanceOf(MessageReader);
     await until(() => !!top().surface.msg, "the message in the surface");
   }, 20_000);
+
+  test("n and p leave a trail: alt+← goes back to the message before, and n goes on from there (PIE-1418)", async () => {
+    const r = await open(0);
+    key(char("n"));
+    await shows("Seed swap");
+    expect(r.surface.describeHistory().back.map((s: any) => s.title)).toEqual(["Committee meeting"]);
+    key({ kind: "alt-left" });
+    await shows("Bring the kettle");
+    expect(r.surface.msg?.id).toBe(n.first.id);
+    key(char("n"));                                                  // on from where back landed: the second again
+    await shows("Seed swap");
+    expect(r.surface.msg?.id).toBe(n.second.id);
+  }, 20_000);
 });

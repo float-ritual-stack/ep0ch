@@ -10,6 +10,53 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A dropped connection leaves the terminal clean (PIE-1429)
+
+- **`ep0ch door`** carries the ssh door (`ssh ep0ch`) in this terminal and gives it back clean however it ends, a
+  dropped link included: no mouse codes over the screen, the normal screen back, and one line with the command that
+  reattaches. `ep0ch door gurgle`, `ep0ch door ep0ch fern` name another login or outline. `ep0ch --remote` does the same.
+- **A dead link ends in about a minute:** both send ssh keepalives instead of freezing until TCP gives up.
+- **"float-2 via ssh" is said once,** when a command starts the forward, not on every call (`EP0CH_VERBOSE=1`: every time).
+- **The ssh door's script is in the repository** (`packages/door/scripts/ssh-door.sh`): it logs a hangup, and resets
+  the terminal when the door client crashes.
+### The door's tests pass together as alone (PIE-1412)
+
+- **For builders:** a door test file that leaves a scratch host running or an extension list bound is named
+  (`test leak: <file> left behind: …`) and fails the run; the shared teardown between files puts the rest back. The
+  tests that failed only beside other files, or only on a loaded box, now hold: the power bar's extension actions,
+  the kitchen sink's panes and regions marks, the kettle's close click, the no-op repaint count, the copy-ref and
+  motion checks, and the drawer program's handovers.
+- **Run:** nothing.
+### Back goes back in every tile, whichever tile changed it (PIE-1426)
+
+- **A preview steps back through what it showed:** a pick in the links tile, a link opened up top into it, a source
+  tile's selection: each is a stop, so alt+← in the preview goes to the one before, in order.
+- **Browsing is one stop:** a run of j or k through a list is one stop, so Back goes to what the preview showed before
+  you started, not through every row you passed.
+- **Giving a list the keys changes nothing:** Tab or a click into the links tile (or a query tile) leaves its preview,
+  and the preview's forward, as they were (an empty preview still fills); a new selection still shows.
+- **The links tile goes back too:** after `b` (or its home moving) lists another note's links, alt+← (or `tile.travel
+  tile=links`) lists the one before; its hint says where back goes.
+- **One history a tile:** a reader's back and forward and the links tile's are one shape (`Pane.trail`), so the trail
+  lists either. The kitchen sink's "back anywhere" section is Evan's layout to try it in.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### The river at 40 columns, smoothed: floats keep the keys, words show (PIE-1418, PIE-1392)
+
+- **Esc in a float keeps the keys there** (it gave them to the hidden column under it, so `x` closed that column). With
+  nothing left to close it says `nothing to close · x closes the float`, and the float's hint row leads with `x close`.
+  Tab, a click or h/l still move the keys out. *What moves:* Esc no longer hands a float's keys to the tile under it,
+  on every screen.
+- **The power bar at 40 columns** shows a long query whole, or scrolled sideways with a `«` where its start is off the
+  line and a `»` where it goes on; home brings the start back. Every one-line field scrolls the same way.
+- **A button that can't run here says why in plain words:** a sequence whose first step names no tile on this screen is
+  drawn dim and refused before it runs (`Fold the bottom can't run here: no tile is called links on the river`); one
+  that stops midway says `Pipe stopped at step 2 of 4: …`. The person reads tiles by name, never by id; Sources keeps
+  each run step's spelling (a press refused before it runs leaves no run there).
+- **The trail follows you across columns:** from any river column it is the one chain of opens, back and ahead, and
+  forward goes to the column opened from this one. Read's `n` and `p` leave a trail too (back, alt+T).
+- **On the web:** an error page has a way back to the outline (or the share's first page), and the trail's rows read as
+  links.
 ### Nothing decided quietly disappears: the groom's cut keeps, and later gives back (PIE-1421)
 
 - **`ep0ch work groom --park`** is the cut: queued items untouched for `--older-than` (30d) go to later with
@@ -20,6 +67,7 @@ are its record. The outliner's entries from then are kept below, under
   "**Back from later, <day>:**" line naming the note. One parked against the keep rule is listed with its restore
   command. Then the groom's pass runs over what stays, so a shipped one gets its comment. `--apply` writes it.
 - **The count is a query:** `type=groom-later outcome=restored created >= -7d`, on Jev's suggestions page and for the build log.
+
 ### The keys window and the trail are tiles you resize, dock and close; ⏎ runs a key; Conflicts are real (PIE-1425)
 
 - **`?` opens the keys window as a tile beside the one you're in** (below it when that one is narrow, so both keep
@@ -32,13 +80,44 @@ are its record. The outliner's entries from then are kept below, under
   the power bar, alt+Q starting or stopping a recording, were counted as clashes).
 - **Every row reads as a whole sentence:** the action's own words, then where or when ("start recording, while
   recording"), never a fragment like "then macro.stop". The power bar's typed lines (`> share.list`) aren't listed as keys.
+- **A fourth tab, Unbound:** every action you can run that no key reaches on any screen, by where it runs, with its
+  count. `r` gives one a key (what that key does now is said first), `⏎` runs it.
 - **The trail (alt+T, `≡ trail`) is a tile beside its reader too:** dock it to the side and it follows the reader as
   you walk; `⏎` or a click on a picked stop goes there, `esc` closes it. A screen without tiles still lists it over itself.
+
 ### Undo never takes back what's saved (PIE-1414)
 
 - **ctrl+z stops at the save:** in a note you opened again after saving, the first ctrl+z keeps the saved text and says "saved · ctrl+z again undoes past the save (revision N stays in its history)"; a second press after a pause goes past it. A held key never crosses a save, and an agent's undo never does.
 - **Everywhere you type:** a reader, a float, the river and comments share the one editor, so the same holds in each.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### Your door stays quick with a board and a live query open while a bulk job runs (PIE-1413, round two)
+
+- **What you'll notice:** with a board tile and a query tile on the Desk during a backfill or an import, reading a
+  note and saving answer in tenths of a second, nothing in the door times out, and every tile shows what the
+  outline says once the job ends. Measured from the door's own side on a private copy of pie (the person's note
+  reads and saves, p95 / max, ms):
+
+  | while | before | after |
+  |---|---|---|
+  | an ordinary day | 1560 / 1560 | 77 / 77 |
+  | a backfill writes its records | 15067 / 15165 (835 requests timed out) | 156 / 419 (none) |
+  | an import writes notes | 15057 / 15057 (1,524 timed out) | 135 / 138 (none) |
+  | after the import is stopped | 15070 / 15070 | 119 / 119 |
+  | the board and query tiles match the outline after | 1 of 8 | 8 of 8 |
+
+- **Why the first fix wasn't enough:** a ping on a connection of its own stayed fast while the door's own
+  connection starved. Its board read every one of 86 lanes after each change, on one connection, and the host
+  answered that connection's requests in order, so a note read waited behind them. The activity tile's read took
+  2.4 s on pie, a records read of 200 notes took 24 s on gurgle (seen live at 14:22), and a door that went away left
+  its queue running.
+- **What changed:** a connection's whole-outline reads no longer hold its other requests; a closed connection's
+  queue is dropped; a board reads a lane once per burst of changes, one read at a time; lanes and tiles off the
+  screen read behind, one at a time; the activity read takes 15 ms and a 200-note records read 0.3–0.6 s.
+- **What's left:** a board lane off the screen can show the outline up to about 10 s late until it is drawn; one
+  whole-outline read or watch is still a single 0.1–0.4 s turn at pie's size.
+- **The harness** now runs a real door (`packages/door/scripts/bench-door-desk.ts`) and holds its own requests to
+  the bar: `bun run bench:host` in packages/outliner (`--crowd` for a heavier day).
 
 ### The status bar's last rough edges (PIE-1415, PIE-1224, PIE-1410)
 

@@ -5,12 +5,15 @@
 //
 //   bun scripts/bench-host-fairness.ts [--shape pie|small] [--copy <file.sqlite>] [--outliner <package dir>]
 //                                      [--import <n>] [--import-s 60] [--since 7d] [--limit <notes>] [--backfill-s 120]
-//                                      [--check] [--json <file>] [--log <file>] [--profile <dir>] [--keep]
+//                                      [--crowd] [--no-door] [--check] [--json <file>] [--log <file>] [--profile <dir>] [--keep]
 //
-// The clients: two doors (each watching ~16 reads, among them the Jev suggestions page's queries over the very records
-// the backfill writes, asking again when `queries.changed` says so, and re-reading held and waiting asks 400 ms after a
-// content change, as the door's ServiceLists do), a Tree that reads the tree and every saved view after each change, two
-// Details, the publisher and an MCP gateway subscribed. A probe pings every 50 ms on its own connection.
+// The clients, as Evan's day has them: a real door on the Desk (the door package's scripts/bench-door-desk.ts: its own
+// App on one connection, a board tile on the hub of saved views and a live query tile over the records the backfill
+// writes, the person reading a note's children and saving through it, every request it makes timed from its side), a
+// second door's watched reads (~17, among them the Jev suggestions page's queries over those records, asked again when
+// `queries.changed` says so, and its held and waiting asks 400 ms after a change, as the door's ServiceLists do), the
+// publisher and an MCP gateway subscribed. --crowd adds a third door, a Herdr Tree that reads the tree and every saved
+// view after each change, and two Details. A probe pings every 50 ms on its own connection.
 //
 // The phases: idle (and a few ordinary operations timed), backfill (the real `reviewBackfill` with `into`, Jev off,
 // stopped at --backfill-s if it hasn't finished),
@@ -23,7 +26,7 @@
 // stall over 1 s, every watch converged, and the ordinary operations within budget (p95: a note read and a save
 // `--ops-budget`, 200 ms; a whole-outline query `--query-budget`, 1 s).
 // Never a real outline: the outlines folder is a temp dir (a copy is copied in first), removed unless --keep.
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -35,7 +38,7 @@ import { Conn, quantile } from "./host-bench/wire";
 const { values } = parseArgs({
   options: {
     shape: { type: "string" }, copy: { type: "string" }, outliner: { type: "string" }, import: { type: "string" }, since: { type: "string" },
-    check: { type: "boolean" }, "backfill-s": { type: "string" }, "import-s": { type: "string" }, profile: { type: "string" }, log: { type: "string" }, json: { type: "string" }, keep: { type: "boolean" }, "ops-budget": { type: "string" }, "query-budget": { type: "string" }, limit: { type: "string" },
+    check: { type: "boolean" }, "backfill-s": { type: "string" }, "import-s": { type: "string" }, profile: { type: "string" }, log: { type: "string" }, "no-door": { type: "boolean" }, crowd: { type: "boolean" }, json: { type: "string" }, keep: { type: "boolean" }, "ops-budget": { type: "string" }, "query-budget": { type: "string" }, limit: { type: "string" },
   },
 });
 const outliner = resolve(values.outliner ?? join(import.meta.dir, ".."));
@@ -53,7 +56,7 @@ const paths = fixturePaths(outlines, OUTLINE);
 // ─── The outline ─────────────────────────────────────────────────────────
 
 const made = performance.now();
-let probe: string, hub: string, viewIds: string[];
+let probe: string, hub: string, viewIds: string[], boardHub: string;
 mkdirSync(paths.workspaceRoot, { recursive: true });
 if (values.copy) {
   copyFileSync(resolve(values.copy), paths.database);
@@ -63,11 +66,14 @@ if (values.copy) {
   viewIds = (db.query("SELECT block_id AS id FROM block_properties WHERE key = 'type' AND value = 'virtual-branch'").all() as { id: string }[]).map(r => r.id).slice(0, 10);
   probe = one("SELECT id FROM blocks WHERE deleted_at IS NULL ORDER BY id LIMIT 1 OFFSET 5000");
   hub = one("SELECT parent_id AS id FROM blocks WHERE parent_id IS NOT NULL AND deleted_at IS NULL GROUP BY parent_id ORDER BY count(*) DESC LIMIT 1") || probe;
+  // The board: the hub with the most saved views under it.
+  boardHub = one("SELECT b.parent_id AS id FROM blocks b JOIN block_properties p ON p.block_id = b.id AND p.key = 'type' AND p.value = 'virtual-branch' WHERE b.parent_id IS NOT NULL AND b.deleted_at IS NULL GROUP BY b.parent_id ORDER BY count(*) DESC LIMIT 1");
   db.close();
   console.log(`outline: a private copy of ${values.copy}`);
 } else {
   const fixture = makeOutline(paths.database, paths.workspaceRoot, shape);
   ({ probe, hub } = fixture);
+  boardHub = fixture.board;
   viewIds = fixture.viewIds.slice(0, 10);
   console.log(`outline: ${shape}-shaped fixture, ${fixture.notes} notes, ${fixture.views} saved views (${((performance.now() - made) / 1000).toFixed(1)} s)`);
 }
@@ -76,7 +82,18 @@ if (values.copy) {
 
 let phase = "start-up";
 const phaseAt = performance.now();
-const enter = (name: string) => { phase = name; console.error(`[${((performance.now() - phaseAt) / 1000).toFixed(0)} s] ${name}`); };
+/** The host's CPU time (user + system, ms) from /proc, to say how busy each phase kept it. */
+const cpuMs = () => { try { const f = readFileSync(`/proc/${host.pid}/stat`, "utf8").split(") ")[1]!.split(" "); return (Number(f[11]) + Number(f[12])) * 10; } catch { return NaN; } };
+const busy: Record<string, number> = {};
+let phaseCpu = 0, phaseWall = 0;
+const enter = (name: string) => {
+  const cpu = cpuMs(), wall = performance.now();
+  if (phaseWall) busy[phase] = Math.round((cpu - phaseCpu) / (wall - phaseWall) * 100);
+  phaseCpu = cpu; phaseWall = wall;
+  phase = name;
+  console.error(`[${((performance.now() - phaseAt) / 1000).toFixed(0)} s] ${name}`);
+  door?.stdin.write(`phase ${name}\n`);
+};
 const hostLog: Array<{ phase: string; line: string }> = [];
 // --profile <dir>: the host's CPU profile, as markdown, written there when it stops.
 const profile = values.profile ? ["--cpu-prof", "--cpu-prof-md", `--cpu-prof-dir=${resolve(values.profile)}`] : [];
@@ -193,11 +210,27 @@ function hashOf(result: unknown): string {
   return Bun.hash(JSON.stringify(strip(result))).toString(36);
 }
 
-const doors = [new Door("door-1"), new Door("door-2")];
+// A real door on the Desk (the door package's scripts/bench-door-desk.ts): its own App on one connection, with a board
+// tile on the hub of saved views and a live query tile over the records the backfill writes; the person's reads and
+// saves go through it. Its requests are timed from its side (PIE-1413's second round: the probe passed while this
+// connection starved). --no-door leaves it out.
+const doorScript = join(outliner, "..", "door", "scripts", "bench-door-desk.ts");
+const door = !values["no-door"] && existsSync(doorScript) ? Bun.spawn([process.execPath, doorScript, "--socket", socket, "--outline", OUTLINE, "--hub", boardHub, "--note", probe, "--query", "type=review-finding"], {
+  cwd: join(outliner, "..", "door"), stdin: "pipe", stdout: "pipe", stderr: "inherit",
+  env: { PATH: process.env.PATH ?? "", HOME: root, TMPDIR: root, EP0CH_STATE: join(root, "door-state"), EP0CH_CONTROL: join(root, "door.sock"), EP0CH_DAEMON: "0" },
+}) : null;
+if (door) await Bun.sleep(5_000);
+
+// Evan's day: the real door above, a second door's watched reads, the publisher and an MCP gateway. --crowd adds what a
+// heavier day has: a third door, a Herdr Tree reading the tree and every view after each change, two Details.
+const crowd = !!values.crowd;
+const doors = crowd ? [new Door("door-1"), new Door("door-2")] : [new Door("door-1")];
 await Promise.all(doors.map(door => door.start()));
 const readers = [
-  new Reader("tree", conn => Promise.all([conn.request({ action: "tree.index" }), ...viewIds.map(viewId => conn.request({ action: "views.read", viewId, format: "tree" }))])),
-  ...[0, 1].map(() => new Reader("detail", conn => Promise.all([conn.request({ action: "callouts.types" }), conn.request({ action: "headings.styles" }), conn.request({ action: "get", blockId: probe })]))),
+  ...(crowd ? [
+    new Reader("tree", conn => Promise.all([conn.request({ action: "tree.index" }), ...viewIds.map(viewId => conn.request({ action: "views.read", viewId, format: "tree" }))])),
+    ...[0, 1].map(() => new Reader("detail", conn => Promise.all([conn.request({ action: "callouts.types" }), conn.request({ action: "headings.styles" }), conn.request({ action: "get", blockId: probe })]))),
+  ] : []),
   new Reader("observer", async () => {}), new Reader("observer", async () => {}),
 ];
 
@@ -309,6 +342,20 @@ const opsAfter = await ops("after");
 probing = false;
 await probing$;
 for (const conn of [probeConn, ...doors.map(d => d.conn), ...readers.map(r => r.conn)]) conn.close();
+enter("report");
+type DoorTimed = { phase: string; action: string; ms: number; failed?: true; view?: string };
+let doorTimed: DoorTimed[] = [];
+let doorTiles = { tiles: 0, stale: 0 };
+if (door) {
+  door.stdin.write("report\n");
+  const out = await Promise.race([new Response(door.stdout).text(), Bun.sleep(90_000).then(() => "")]);
+  door.kill();
+  try {
+    const report = JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as { timed?: DoorTimed[]; tiles?: number; stale?: number };
+    doorTimed = report.timed ?? [];
+    doorTiles = { tiles: report.tiles ?? 0, stale: report.stale ?? 0 };
+  } catch { console.error("bench: the door gave no report"); }
+}
 host.kill("SIGTERM");
 await host.exited;
 
@@ -343,9 +390,9 @@ const rows = phases.map(name => {
     ...(heard[name] ?? { content: 0, queriesChanged: 0, asked: 0, chrome: 0 }),
   };
 });
-console.log(`\nphase            pings   p50   p95   p99    max  stall-max  stalled  content  q.changed  asked  chrome`);
+console.log(`\nphase            pings   p50   p95   p99    max  stall-max  stalled  content  q.changed  asked  chrome  host cpu`);
 for (const r of rows) {
-  console.log(`${r.phase.padEnd(15)} ${String(r.pings).padStart(6)} ${String(r.p50).padStart(5)} ${String(r.p95).padStart(5)} ${String(r.p99).padStart(5)} ${String(r.max).padStart(6)} ${String(r.longestStall).padStart(10)} ${String(r.stalledMs).padStart(8)} ${String(r.content).padStart(8)} ${String(r.queriesChanged).padStart(10)} ${String(r.asked).padStart(6)} ${String(r.chrome).padStart(7)}`);
+  console.log(`${r.phase.padEnd(15)} ${String(r.pings).padStart(6)} ${String(r.p50).padStart(5)} ${String(r.p95).padStart(5)} ${String(r.p99).padStart(5)} ${String(r.max).padStart(6)} ${String(r.longestStall).padStart(10)} ${String(r.stalledMs).padStart(8)} ${String(r.content).padStart(8)} ${String(r.queriesChanged).padStart(10)} ${String(r.asked).padStart(6)} ${String(r.chrome).padStart(7)} ${String(busy[r.phase] ?? "").padStart(8)}%`);
 }
 for (const r of rows) if (r.during) console.log(`  ${r.phase}: the longest stall ran ${r.during}`);
 for (const [at, { requests }] of Object.entries(worst)) {
@@ -353,7 +400,29 @@ for (const [at, { requests }] of Object.entries(worst)) {
 }
 const watchCount = doors.reduce((n, d) => n + d.watches.size, 0);
 console.log(`\nconvergence: ${watchCount - stale.length} of ${watchCount} watches agree with a fresh read${stale.length ? `; stale: ${stale.join(", ")}` : ""}`);
+// The door's own requests, by phase: everything it asked, and what the person did through it (a note's children, a save).
+const PERSON = new Set(["children", "update"]);
+const doorRows = phases.map(name => {
+  const of = (pick: (t: DoorTimed) => boolean) => { const list = doorTimed.filter(t => t.phase === name && pick(t)).map(t => t.ms).sort((a, b) => a - b); return { n: list.length, p95: Math.round(quantile(list, 0.95)), max: Math.round(list.at(-1) ?? 0) }; };
+  const all = of(() => true), person = of(t => PERSON.has(t.action));
+  const failed = doorTimed.filter(t => t.phase === name && t.failed).length;
+  const slowest = Object.entries(Object.groupBy(doorTimed.filter(t => t.phase === name), t => t.action)).map(([action, list]) => [action, Math.max(...list!.map(t => t.ms))] as const).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([a, ms]) => `${a} ${Math.round(ms)}`).join(", ");
+  const asked = Object.fromEntries(Object.entries(Object.groupBy(doorTimed.filter(t => t.phase === name), t => t.action)).map(([a, list]) => [a, list!.length]).sort((a, b) => b[1] - a[1]));
+  const views = new Set(doorTimed.filter(t => t.phase === name && t.view).map(t => t.view)).size;
+  return { phase: name, all, person, failed, slowest, asked, views };
+});
+if (door) {
+  console.log(`\nthe door's own requests  all: n   p95    max   person (children, save): n   p95    max   failed  slowest`);
+  console.log(`the door's query tiles (its board's lanes and the query tile): ${doorTiles.tiles - doorTiles.stale} of ${doorTiles.tiles} show what a fresh read gives`);
+  for (const r of doorRows) console.log(`${r.phase.padEnd(15)} ${String(r.all.n).padStart(12)} ${String(r.all.p95).padStart(5)} ${String(r.all.max).padStart(6)} ${String(r.person.n).padStart(30)} ${String(r.person.p95).padStart(5)} ${String(r.person.max).padStart(6)} ${String(r.failed).padStart(8)}  ${r.slowest}`);
+}
 const failures = [
+  ...doorRows.filter(r => r.person.p95 >= 200).map(r => `${r.phase}: the person's requests in the door p95 ${r.person.p95} ms`),
+  ...doorRows.filter(r => r.all.max > 5_000).map(r => `${r.phase}: a door request took ${r.all.max} ms`),
+  ...doorRows.filter(r => r.failed).map(r => `${r.phase}: ${r.failed} door requests failed`),
+  ...(doorTiles.stale ? [`${doorTiles.stale} of the door's query tiles didn't converge`] : []),
+  // A door that made no tiles (its board didn't open, the harness lost them) measured nothing: never a pass.
+  ...(door && !doorTiles.tiles ? ["the door reported no query tiles: nothing of its board was measured"] : []),
   ...rows.filter(r => r.p95 >= 200).map(r => `${r.phase}: ping p95 ${r.p95} ms`),
   ...rows.filter(r => r.longestStall > 1_000).map(r => `${r.phase}: a ${r.longestStall} ms stall`),
   ...(stale.length ? [`${stale.length} watches didn't converge`] : []),
@@ -361,7 +430,7 @@ const failures = [
     .filter(([k, v]) => v.p95 > (k === "query" ? queryBudget : opsBudget)).map(([k, v]) => `ops ${when}: ${k} p95 ${v.p95} ms`)),
 ];
 console.log(failures.length ? `\nover the bar:\n${failures.map(f => `  ✗ ${f}`).join("\n")}` : "\nwithin the bar: ping p95 < 200 ms in every phase, no stall over 1 s, every watch converged");
-if (values.json) writeFileSync(values.json, JSON.stringify({ outliner, shape: values.copy ? "copy" : shape, backfill: { ...(report ?? {}), samples: undefined, keeps, stopped, ms: Math.round(backfillMs) }, import: { created, ms: Math.round(importMs) }, rows, worst, stale, opsBefore, opsAfter, failures }, null, 2));
+if (values.json) writeFileSync(values.json, JSON.stringify({ outliner, shape: values.copy ? "copy" : shape, backfill: { ...(report ?? {}), samples: undefined, keeps, stopped, ms: Math.round(backfillMs) }, import: { created, ms: Math.round(importMs) }, rows, doorRows, doorTiles, worst, stale, opsBefore, opsAfter, failures }, null, 2));
 if (values.keep) console.log(`kept: ${root}`);
 if (values.log) writeFileSync(values.log, hostLog.map(h => `${h.phase}\t${h.line}`).join("\n"));
 else rmSync(root, { recursive: true, force: true });

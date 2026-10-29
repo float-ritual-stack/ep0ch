@@ -20,6 +20,8 @@ export interface Fixture {
   hub: string;
   /** Every saved view's id. */
   viewIds: string[];
+  /** The hub the saved views sit under: the board a door opens. */
+  board: string;
 }
 
 const projects = ["harbor", "lantern", "meadow", "quarry", "orchard", "beacon", "thistle", "copper"];
@@ -41,11 +43,12 @@ function small(store: OutlinerStore): Fixture {
   let notes = 0;
   const ids: string[] = [], viewIds: string[] = [];
   const add = (text: string, parent: string | null = null) => { notes += 1; const block = store.create(text, parent, "user"); ids.push(block.id); return block; };
-  let hub = "";
+  let hub = "", boardId = "";
   store.database.transaction(() => {
     const hubs = projects.map((name, i) => add(`Project ${name} [type::project] [owner::team-${i % 3}]`));
     hub = hubs[0]!.id;
     const board = add("Workboard [type::hub]");
+    boardId = board.id;
     for (let i = 0; i < 560; i++) {
       const project = pick(projects, i), parent = pick(hubs, i);
       const related = ids.length > 10 ? ` [related-to::((${pick(ids, i * 7)}))]` : "";
@@ -71,7 +74,7 @@ function small(store: OutlinerStore): Fixture {
       viewIds.push(add(`View ${i} [type::virtual-branch] [query::${query}] [limit::${pick([20, 50, 200], i)}]`, board.id).id);
     }
   })();
-  return { notes, views: viewIds.length, probe: ids[ids.length >> 1]!, hub, viewIds };
+  return { notes, views: viewIds.length, probe: ids[ids.length >> 1]!, hub, viewIds, board: boardId };
 }
 
 /** About 1.4 KB of made-up prose with a list, a reference now and then, and a heading in the longer ones. */
@@ -94,7 +97,7 @@ function pieShaped(store: OutlinerStore): Fixture {
   let notes = 0;
   const ids: string[] = [], viewIds: string[] = [];
   const add = (text: string, parent: string | null = null) => { notes += 1; const block = store.create(text, parent, "user"); ids.push(block.id); return block; };
-  let hub = "";
+  let hub = "", boardId = "";
   // The mix by kind, as counts (made-up notes of each).
   const kinds: Array<[kind: string, count: number, props: (i: number) => string]> = [
     ["deploy", 2470, i => `[host::box-${i % 4}] [when::2026-10-${String(1 + (i % 28)).padStart(2, "0")}] [sha::${(i * 40503 >>> 0).toString(16)}] [result::${pick(["ok", "ok", "failed"], i)}]`],
@@ -111,6 +114,7 @@ function pieShaped(store: OutlinerStore): Fixture {
     const hubs = projects.map((name, i) => add(`Project ${name} [type::project] [owner::team-${i % 3}]\n\n${body(i, ids)}`));
     hub = hubs[0]!.id;
     const board = add("Workboard [type::hub]");
+    boardId = board.id;
     let n = 0;
     for (const [kind, count, props] of kinds) {
       const folder = add(`${kind} records [type::hub] [kind-of::${kind}]`, hubs[n % hubs.length]!.id);
@@ -134,7 +138,7 @@ function pieShaped(store: OutlinerStore): Fixture {
   store.database.transaction(() => {
     for (let i = 0; i < 400; i++) { notes += 1; store.create(agentWall(i), null, "agent", { actorId: `${pick(["moss", "fern", "lichen"], i)}/claude-code@shed` }); }
   })();
-  return { notes, views: viewIds.length, probe: ids[ids.length >> 1]!, hub, viewIds };
+  return { notes, views: viewIds.length, probe: ids[ids.length >> 1]!, hub, viewIds, board: boardId };
 }
 
 /** The fixture's database path in an outlines folder, with its folder beside it. */

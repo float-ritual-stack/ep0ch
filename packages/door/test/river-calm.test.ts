@@ -167,7 +167,7 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
     draw();
     key(char("]")); key({ kind: "enter" });                     // follow its link to the log
     await until(() => focusedTitle() === "Harbour log" && V().focus > V().columns.findIndex(c => c.titleOf() === "Paint the boathouse door"), "the followed log");
-    expect(plain(draw().join("\n"))).toContain("← back · Paint the boathouse door");
+    expect(plain(draw().join("\n"))).toContain("← back · Paint the boathouse");          // its forward title shares the row now (PIE-1418)
     const before = geometry();
     key({ kind: "backspace" });
     expect(focusedTitle()).toBe("Paint the boathouse door");

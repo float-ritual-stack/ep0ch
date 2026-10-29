@@ -202,6 +202,10 @@ let mentions: RegExp | null = null;
 const boundActions = new Set<string>();
 /** The tile kinds this module registered, with what they were made from (a changed entry is registered again). */
 const boundKinds = new Map<string, string>();
+// The test run's leak check (test/preload.ts), when there is one: what a test file left bound is named between files,
+// and unbound before the next one runs (PIE-1412). Nothing outside tests sets it.
+(globalThis as { [k: symbol]: { set(what: string, left: () => string[], reset: () => void): void } | undefined })[Symbol.for("ep0ch.test.leftovers")]
+  ?.set("extensions bound", () => (current ? (current.extensions.length ? current.extensions.map(e => e.id) : ["an empty list"]) : []), () => { asking++; boundFrom = null; bindExtensions(null); });
 
 /**
  * An extension the service serves from: active, or failed but still on its last good version (it has a name).
@@ -822,6 +826,15 @@ export async function loadExtensions(board: SocketBoard, reload = false): Promis
 
 /** The board whose list is bound now (loadExtensions): only the door on it unbinds it. */
 let boundFrom: SocketBoard | null = null;
+/**
+ * What's bound now and whose it is, to bind back after a read of another board's list (drawNote's: `ep0ch show`
+ * inside a door). Bound back with its board, the door on it still unbinds it when it ends (PIE-1412).
+ */
+export const extensionBinding = () => ({ list: current, from: boundFrom });
+export function restoreExtensionBinding(b: ReturnType<typeof extensionBinding>): void {
+  boundFrom = b.from;
+  bindExtensions(b.list);
+}
 /**
  * The door on `board` ended (App.quit): what its list bound goes, and a read of it still on its way binds nothing. A list
  * another board bound since is left alone.

@@ -183,7 +183,7 @@ test("a spawned remote read uses the link with SSH unavailable and names its tra
     const note = await direct.createBlock(null, "Greenhouse journal");
     await until(() => linkStates(here.outlines).length === 1, "link ready for CLI");
     const child = Bun.spawn([process.execPath, resolve(import.meta.dir, "../src/main.ts"), "show", note.id, "--ws", "garden", "--machine", "travel", "--source"], {
-      env: { ...process.env, EP0CH_SOCKET: undefined, EP0CH_OUTLINES: here.outlines, EP0CH_SSH: "/no-such-ssh", EP0CH_STATE: join(here.outlines, "state") }, stdout: "pipe", stderr: "pipe",
+      env: { ...process.env, EP0CH_SOCKET: undefined, EP0CH_OUTLINES: here.outlines, EP0CH_SSH: "/no-such-ssh", EP0CH_STATE: join(here.outlines, "state"), EP0CH_VERBOSE: "1" }, stdout: "pipe", stderr: "pipe",
     });
     const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     expect({ code, out }).toEqual({ code: 0, out: expect.stringContaining("Greenhouse journal") });
