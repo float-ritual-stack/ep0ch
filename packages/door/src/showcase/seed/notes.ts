@@ -458,6 +458,13 @@ export function trailStopText(i: number, next: string | null): string {
   return `${title}\nStop ${i + 1} of ${TRAIL_STOPS.length}. Walk on: ((${next}|${TRAIL_STOPS[i + 1]})).`;
 }
 
+/**
+ * Back anywhere (PIE-1426): a detail up top whose opens and picks go to a preview below, a links tile beside it whose
+ * pick shows there too. The hub links two jobs; two notes link the hub; one links a job, so `b` on it lists something.
+ */
+export const backHubText = (beans: string, shed: string) => `${SEED.backHub}\nFirst ((${beans}|the beans)), then ((${shed}|the shed)). Pick a row in the links tile, open a link up here, press b in the preview: alt+← in the preview steps back through each, in order. alt+← in the links tile lists what it listed before b.`;
+export const backJobText = (title: string, body: string, link?: string) => `${title}\n${body}${link ? ` For ((${link})).` : ""}`;
+
 export const ZOOM_PLAN = [
   SEED.zoomPlan,
   "Everything the orchard needs this winter. Click in the figure, the table or a section: a ⤢ shows at its right edge; click it (or press W) and that part fills the reader. Esc, alt+← or a click on the top row comes back.",
