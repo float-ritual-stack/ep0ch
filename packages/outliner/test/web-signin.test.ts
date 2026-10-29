@@ -515,6 +515,26 @@ test("signed in on the phone, a page's steps are its owner's: each box is a butt
   expect(await tap.json()).toMatchObject({ ok: true, status: "done" });
   const after = await homeClient.request<Block>({ action: "get", blockId: plan.id });
   expect(after.text).toContain("- [x] hang the lantern");
-  expect(after.author).toBe("user");
+  // The tick is the person's own write, as from the door: what an approval hook counts (PIE-1386).
+  const saved = await homeClient.request<{ revisions: Array<{ author?: string }> }>({ action: "block.revisions", blockId: plan.id } as never);
+  expect(saved.revisions[0]!.author).toBe("user");
+  // Each box is a thumb's target on a touch screen: 44px around the drawn box, and its row as tall.
+  expect(page).toContain("button.step::after{content:\"\";position:absolute;left:50%;top:50%;width:44px;height:44px");
+  expect(page).toContain("@media (pointer:coarse){li:has(> .step:first-child)");
+});
+
+test("signed in, a Sources download is a file behind the sign-in: named, typed, and a 401 signed out (PIE-1383)", async () => {
+  const gate = gateFor();
+  const { cookie } = await signIn(gate);
+  await homeClient.request<Block>({ action: "create", parentId: survey.id, text: "Hawk-moth tally [kind::tally]", mutation: { author: "user" } } as never);
+  const table = await homeClient.request<Block>({ action: "create", parentId: survey.id, text: "Tallies\n::graph-table\n---\nquery: kind=tally\n---\n::", mutation: { author: "user" } } as never);
+  const page = await (await at(gate, `/pub/p/${table.id}`, { cookie })).text();
+  const href = /href="([^"]+_sources\/0\.json)"/.exec(page)?.[1];
+  expect(href).toBe(`/pub/p/${table.id}/_sources/0.json`);
+  const file = await at(gate, href!, { cookie, headers: { accept: "*/*" } });
+  expect(file.status).toBe(200);
+  expect(file.headers.get("content-disposition")).toBe('attachment; filename="graph-table.json"');
+  expect(JSON.stringify(await file.json())).toContain("Hawk-moth tally");
+  expect((await at(gate, href!, { headers: { accept: "application/json" } })).status).toBe(401);
 });
 

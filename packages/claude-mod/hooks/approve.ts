@@ -65,7 +65,8 @@ export function askText(tool: string, input: unknown, who: string, asked: string
 function boxes(text: string): Map<AskAnswer, string> {
   const found = new Map<AskAnswer, string>()
   for (const line of text.split('\n')) {
-    const m = /^\s*[-*+]\s+\[(.)\]\s+(.+?)\s*$/.exec(line)
+    // A step's id (`^t-…`, which a first change gives it) and any chips after its words are not its words.
+    const m = /^\s*[-*+]\s+\[(.)\]\s+(.+?)(?:\s+\^[A-Za-z0-9][\w-]*)?\s*$/.exec(line)
     if (!m) continue
     const which = (Object.keys(ASK_STEPS) as AskAnswer[]).find(k => ASK_STEPS[k] === m[2])
     if (which && !found.has(which)) found.set(which, m[1]!)

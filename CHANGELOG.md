@@ -10,6 +10,26 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Answer your agents from the phone (PIE-1235, PIE-1386, PIE-1383, PIE-926)
+
+- **Approve from the phone:** a background session's permission dialog now waits up to 10 minutes as an ask note
+  under the outline's `[[permission-asks]]` page (`[needs::sysop: …]`, so it is in Waiting on Evan): tick
+  `allow this once`, `allow for this session` or `deny` on my.ep0ch.sh (or in the door) and the session carries on.
+  Only your tick counts (an agent's does nothing); nobody ticks, and the ordinary dialog shows. Sessions you watch show
+  their dialog at once as before; `EP0CH_APPROVE_WAIT=<seconds>` sets the wait (0 is off).
+- **Ticks and comments are one tap on a phone:** a step's box ticks (to do and done swap) with Undo in the toast, and
+  a long press opens its other choices; every box is a 44px target. A tap on a list item, paragraph or table row
+  selects its words, so Comment is the next tap: the same passage comment a selection makes.
+- **Sources downloads are real files:** CSV and JSON come from `…/p/<note>/_sources/<n>.<csv|json>` with the
+  source's name, behind the note's own sign-in, lock and share; on a phone they open the share sheet (Save to Files,
+  AirDrop), where the browser has one. The page no longer carries every result twice as `data:` links.
+- **Work IDs and references in Claude's replies open the note's web page:** `my.ep0ch.sh/pub/o/<outline>/p/<PIE-n>`
+  (the origin from `EP0CH_WEB_URL`), so they work in a browser, in claude.ai and on the phone; a press in the
+  terminal still opens the note in the door or Detail.
+- **Changed:** `outline_read` (and `ep0ch agent read`) says who last wrote the note, as it always claimed, not who
+  made it.
+- **Run:** nothing beyond the next `ep0ch install --apply` (the publisher and the Claude mod pick it up).
+
 ### A deploy restarts the outline host only when the host's own code changed (PIE-1397)
 
 - **Docs- and mod-only merges leave it running:** `ep0ch install --apply` compares the code the host runs

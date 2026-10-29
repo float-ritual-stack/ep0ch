@@ -1751,7 +1751,7 @@ describe('approve from the phone (PIE-1386)', () => {
     on('classic.PermissionRequest', () => ({}))
     return { session, written: () => written, edits, polled: () => polled }
   }
-  const tick = (label: string) => (text: string) => text.replace(`- [ ] ${label}`, `- [x] ${label}`)
+  const tick = (label: string) => (text: string) => text.replace(`- [ ] ${label}`, `- [x] ${label} ^t-c03671`)
   const untouched = { text: (t: string) => t, author: 'agent' }
 
   test("the ask lands in the outline with the person's three steps; the person's tick allows the call, an agent's does nothing", async ($, on) => {
