@@ -1243,7 +1243,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(f.items.map((i: any) => i.insertion).sort()).toEqual(["[file::notes/beds/", "[file::notes/plan.md]"]);
     // The person's draft is theirs: a candidate isn't put in at their cursor (round 3, deferred), their text and cursor as they were.
     const before = [e.d.text, e.d.row, e.d.col];
-    await expect(e.s.act("complete", { insert: 1 }, e.h, AGENT)).rejects.toThrow("this draft is the person's; an agent doesn't type in it");
+    await expect(e.s.act("complete", { insert: 1 }, e.h, AGENT)).rejects.toThrow("the person is typing in this draft; an agent doesn't type in it");
     expect([e.d.text, e.d.row, e.d.col]).toEqual(before);
     expect(e.d.writers.map(w => w.kind)).toEqual(["user"]);
     // An invitation for another agent, or one made up, opens nothing.
@@ -1502,6 +1502,10 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
     app.push(b);
     try {
       await until(() => B.lanes[0]?.items?.length && B.preview.msg && !B.preview.msg.partial, "the lane and preview", 10_000);
+      // A note popped out earlier, before the person types (an agent's open beside the preview they type in would resize it, PIE-1294).
+      const run = (action: string, args: Record<string, unknown>, tile: string) => b.dispatch.act({ action, args, tile }, { kind: "agent", id: "float-maker" });
+      await run("tile.open", { kind: "reader", name: "over", where: "right" }, "preview");
+      await run("tile.float", {}, "over");
       key(char("e"));
       await until(() => !!B.preview.draft, "the draft");
       const draft: Draft = B.preview.draft;
@@ -1512,10 +1516,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       const y = lines.findIndex(l => l.includes("seeds · Seed list"));
       const x = lines[y]!.indexOf("seeds · Seed list");
       expect(y).toBeGreaterThan(0);
-      // A float drawn over the popup's rows (a note popped out earlier and dragged there).
-      const run = (action: string, args: Record<string, unknown>, tile: string) => b.dispatch.act({ action, args, tile }, { kind: "agent", id: "float-maker" });
-      await run("tile.open", { kind: "reader", name: "over", where: "right" }, "preview");
-      await run("tile.float", {}, "over");
+      // The float dragged over the popup's rows.
       await run("float.place", { col: x - 5, row: y - 2, cols: 30, rows: 6 }, "over");
       screen();                                                            // drawn before the person clicks
       key({ kind: "mouse", action: "down", button: 0, x, y });

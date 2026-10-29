@@ -3316,7 +3316,12 @@ export class NoteSurface {
     const s: DraftSession = DraftSession.open(target, { text: fresh.text, base: fresh.revision ?? 0, props: propertyListOf(fresh), by: host.actor ?? USER, position: this.position }, {
       board: host.ctx.board, redraw,
       agentDid: (by, did) => this.noteAgent(by, did, s.draft),
-      answered: (ask, by) => { void this.act("ask.beside", { ask }, host, by).catch(e => host.ctx.flash(String(e), undefined, errorDetails(e))); },
+      // The person's own `@name` line invites its answer beside their edit (as the draft rule reads it): an agent's
+      // answer tile opens there even while they type, the keys staying in the edit (PIE-1294).
+      answered: (ask, by) => {
+        const as = s.openedBy.kind === "user" && by.kind === "agent" ? { ...by, invitation: INVITES.mint("your ask", ["shape"]) } : by;
+        void this.act("ask.beside", { ask }, host, as).catch(e => host.ctx.flash(String(e), undefined, errorDetails(e)));
+      },
       closed: how => this.draftClosed(s, how, host),
     });
     s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, host); };
