@@ -9446,6 +9446,8 @@ function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<Draft
     touches: def.touches, ...(def.draft ? { draft: def.draft } : {}), replay: def.replay,
     args: info.args as ActionDef<DraftActionArgs[K], On>["args"],
     ...(def.examples ? { examples: def.examples } : {}),
+    // Who an argument makes it the person's own for, as the draft's own action says (draft.undo past=true).
+    ...(def.personWith ? { personWith: def.personWith as ActionDef<DraftActionArgs[K], On>["personWith"] } : {}),
     async run(args, { surface, host }, actor) {
       const w = surface.drafting ?? (surface.session?.mode === "compose" ? surface.session.writing : null);
       if (!w) throw new ActionRefused("nothing is being written in this reader; edit, or comment.write, opens a draft");
@@ -10018,7 +10020,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "rich.input": def({
     summary: "type or paste into a component field without changing its delimiters",
-    keys: "typing, paste, ctrl+k in rich edit", touches: "draft", draft: "type", replay: "ask",
+    keys: [{ via: "typing in rich edit" }, { keys: "paste", does: "in rich edit" }, { keys: "ctrl+k", does: "in rich edit" }], touches: "draft", draft: "type", replay: "ask",
     args: { text: { type: "string", about: "text to insert" }, cut: { type: "boolean", optional: true, about: "cut to the field's end" } },
     examples: [
       { act: 'rich.input text="3 trays"', does: "types 3 trays into the current table cell at the cursor" },
@@ -10042,7 +10044,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "rich.change": def({
     summary: "add, remove or move a row or column in the current table, as one draft undo step",
-    keys: "alt+r/d row, alt+v/x column in rich edit", touches: "draft", draft: "type", replay: "ask",
+    keys: [{ keys: "alt+r alt+d", does: "row, in rich edit" }, { keys: "alt+v alt+x", does: "column, in rich edit" }], touches: "draft", draft: "type", replay: "ask",
     args: { op: { type: "string", about: "row.add, row.remove, column.add, column.remove, row.move, column.move" }, to: { type: "number", optional: true, about: "destination row or column, from zero" } },
     examples: [
       { act: "rich.change op=row.add", does: "adds an empty row under the current row of the table" },
@@ -10132,7 +10134,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "complete": def({
     summary: "completion, as typing [[, ((, [file::, > [!, ::component, a property's [key:: or a figure's YAML offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/, [heading-pattern::, or a ::graph-meter block's lines ending in ti), or at the open draft's cursor; insert=n puts the nth into the draft (expect=<its insertion> refuses it if the list changed meanwhile); refine=^ or refine=# opens the finished ((reference)) at the draft's cursor again to search inside its note, as typing ^ or # in it does (PIE-762): a passage with no anchor gets one when inserted. Property keys and values come from the component schemas (PIE-618)",
-    keys: "[[ (( [file:: > [! ::component [key:: while writing; tab, ctrl+space · up/down, enter/tab, esc · ^ or # in a ((reference))",
+    keys: [{ via: "typing [[ (( [file:: > [! ::component or [key:: while writing" }, { keys: "tab ctrl+space", does: "open the completion" }, { keys: "↑ ↓", does: "move in it" }, { keys: "enter tab", does: "choose" }, { keys: "esc", does: "close it" }, { keys: "^ #", does: "in a ((reference))" }],
     // Looking candidates up reads; putting one in types in the draft at its cursor: an agent's only in a draft it
     // opened and alone typed in, or one the person invited it into (an @name line; the insert uses the invitation up).
     touches: "draft", draft: "type", replay: "ask",
@@ -10233,7 +10235,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "revision.restore": def({
     summary: "go back to an earlier revision of the note (PIE-621): the edit opens (or the open one is used) and that revision's text goes in as one undo step, said with when it was saved; nothing is written until it's saved (ctrl+s), and ctrl+z takes it back. Without revision=, the one before what the edit holds (run it again to go further back). The service keeps the newest 100 texts a note had (`ep0ch revisions <note>` lists them). An agent's: only in an edit it opened",
-    keys: "the tile menu's \"an earlier revision\"",
+    keys: [{ via: "the tile menu's \"an earlier revision\"" }],
     touches: "draft", draft: "replace", replay: "ask",
     menu: noteRow("an earlier revision", "", { now: ({ surface }) => (surface.session ? { hide: true } : null) }),
     args: { revision: { type: "number", optional: true, about: "the revision (`ep0ch revisions <note>` lists them); default the one before what the edit holds" } },
@@ -10309,7 +10311,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "draft.pick": def({
     summary: "insert from a picker in this reader's edit or comment: the picker (EP0CH_PICKER, default tv) opens in a terminal tile beside the reader with the person's keys (their whole terminal on a screen without tiles or a locked one) on a channel (default EP0CH_PICK_CHANNEL, else ep0ch), and what they choose goes in at the cursor, space-separated. The person's only: it takes their keys",
-    keys: "ctrl+t, a click on [insert] in the edit's, comment's or reply's title row",
+    keys: [{ keys: "ctrl+t", does: "pick" }, { keys: "click", does: "[insert] in the edit's, comment's or reply's title row" }],
     touches: "draft", draft: "type", replay: "ask",
     person: "an agent doesn't hand the person's terminal to a picker; put text in their draft with draft.patch, or in an edit it opened with edit.text",
     args: { channel: { type: "string", optional: true, about: "the picker's argument (a television channel: ep0ch, ep0ch-files …); empty for none" } },
@@ -10355,7 +10357,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "edit.follow": def({
     summary: "open the link the cursor is on in this reader's edit or comment (or ref=: a link its preview draws, ((id)), [[page]], a URL or #tag) beside it, as a reader's link opens: the edit stays open as it is and the keys stay in it (PIE-592). Opened again from the same edit, it reuses that detail",
-    keys: "ctrl+l in an edit or a comment, an alt- or ctrl-click on a link in its text, a click on a link in its preview (ctrl+p)",
+    keys: [{ keys: "ctrl+l", does: "in an edit or a comment" }, { keys: "alt-click ctrl-click", does: "on a link in its text" }, { keys: "click", does: "on a link in its preview (ctrl+p)" }],
     touches: "tile", replay: "ask", way: "an agent opens a note beside the person's edit with open id= naming no tile",
     args: { ref: { type: "string", optional: true, about: "the link to open: ((id)) or ((id^fragment)), [[page]], a URL or #tag; default the one at the cursor" } },
     examples: [
@@ -10558,7 +10560,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "page.create": def({
     summary: "make the page a [[address]] names when nothing answers it yet (address=, or the selected link's): `X [page::X]` where new notes go (the outline's placement rule: today the top of the Inbox), then open it as the link would; a page there already is opened. Following a missing [[page]] offers this first (⏎ or a click on it again). An agent's makes it, attributed and said, and opens nothing",
-    keys: "⏎ or a click on a [[missing page]] link, twice (the first offers it)",
+    keys: [{ keys: "⏎ click", does: "on a [[missing page]] link, twice (the first offers it)" }],
     touches: "nothing", replay: "ask",
     says: out => (out?.said ? `· ${out.said}` : null),
     args: { address: { type: "string", optional: true, about: "the page's address (its name); default: the selected link's" } },
@@ -10749,7 +10751,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "button.slot": def({
     summary: "write one slot of a ::button onto its line (PIE-1298): `::button{act=\"tile.zoom tile={target}\" target=}` runs once target= says a tile. The note's checked save, recorded as whoever asks; ctrl+z (sources.undo) takes it back. A tile is kept as its id (t-<uuid>, exactly that tile) or the address of its place (drawer.agent, role:<role>, <slot>@<screen>: whichever tile fills it), never a number. The person, with no value=, is asked (the wire picker for a tile: click one); an agent passes value= and never opens the picker",
-    keys: "press a button with an empty slot, then click a tile; alt+click a button with a slot to choose again", touches: "nothing", replay: "ask",
+    keys: [{ keys: "click", does: "a button with an empty slot, then click a tile" }, { keys: "alt-click", does: "a button with a slot to choose again" }], touches: "nothing", replay: "ask",
     args: {
       note: { type: "string", optional: true, about: "the note the button is written in (a block id; default the one shown)" },
       line: { type: "number", optional: true, about: "the line of the button, from 1 (the note's text; with note=)" },
@@ -10930,7 +10932,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "back": def({
     summary: "go back to the note this reader showed before it followed a link, went up, or had a note opened into it (an agent's open too), scrolled and with its [ ] position as it was. An agent's is refused on the reader the person has focused",
-    keys: "alt+←, alt+b, backspace, the mouse's back button, a click on ← back",
+    keys: [{ keys: "alt+← alt+b backspace", does: "back" }, { via: "the mouse's back button" }, { keys: "click", does: "on ← back" }],
     touches: "tile", replay: "safe", way: "back would move what they're reading · an agent goes back only in another reader (name it with tile=)",
     menu: noteRow("back", "alt+left", { busy: true, now: ({ surface }) => (surface.describeHistory().back.length ? null : { hide: true }) }),
     args: { steps: STEPS_ARG },
@@ -10939,7 +10941,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "forward": def({
     summary: "go forward again to where back came from, scrolled and with its [ ] position as it was. An agent's is refused on the reader the person has focused",
-    keys: "alt+→, alt+f, the mouse's forward button, a click on forward →",
+    keys: [{ keys: "alt+→ alt+f", does: "forward" }, { via: "the mouse's forward button" }, { keys: "click", does: "on forward →" }],
     touches: "tile", replay: "safe", way: "forward would move what they're reading · an agent goes forward only in another reader (name it with tile=)",
     menu: noteRow("forward", "alt+right", { busy: true, now: ({ surface }) => (surface.describeHistory().forward.length ? null : { hide: true }) }),
     args: { steps: STEPS_ARG },
@@ -10985,7 +10987,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "passage.select": def({
-    summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text). The person's C writes on the words they selected (as a c does); with nothing selected C writes on the whole note (comment.note, PIE-846)", keys: "C on selected words; an agent: quote=",
+    summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text). The person's C writes on the words they selected (as a c does); with nothing selected C writes on the whole note (comment.note, PIE-846)", keys: [{ keys: "C", does: "on selected words" }, { via: "an agent: quote=" }],
     touches: "draft", draft: "type", replay: "ask",
     // The menu's way to it is the person's words selected (PIE-846): with none, the menu offers the whole note instead.
     menu: noteRow("comment on the selected words", "C", { busy: true, now: on => (on.surface.selection ? null : { hide: true }) }),
@@ -11012,7 +11014,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "comment.write": def({
-    summary: "write the comment (or reply) text: on a picked passage this is Enter, then the text. An agent's replaces only a comment it opened, never one the person is writing; invited (their @name line), it rewrites the text above that line, once", keys: "enter, then typing",
+    summary: "write the comment (or reply) text: on a picked passage this is Enter, then the text. An agent's replaces only a comment it opened, never one the person is writing; invited (their @name line), it rewrites the text above that line, once", keys: [{ keys: "enter", does: "then typing" }],
     touches: "draft", draft: "text", replay: "ask",
     args: {
       body: { type: "string", about: "the comment's text" },
@@ -11081,7 +11083,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "comment.note": def({
     summary: "comment on the whole note, not a passage (PIE-846): the person's composer opens at the top of the note, where whole-note threads are (a comment put aside on the note comes back in it); body= sends it at once, as an agent's always is. Its thread sits at the top of the note, its card in the margin's first row",
-    keys: "C with nothing selected; a click on the byline's [comment]; the tile menu's \"comment on the whole note\"",
+    keys: [{ keys: "C", does: "with nothing selected" }, { keys: "click", does: "the byline's [comment]" }, { via: "the tile menu's \"comment on the whole note\"" }],
     touches: "draft", draft: "type", replay: "ask",
     menu: noteRow("comment on the whole note", "C", { busy: true }),
     args: { body: { type: "string", optional: true, about: "the comment's text, sent at once (left out, the person writes it)" } },
@@ -11112,7 +11114,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "passage.act": def({
     summary: "act on a passage (ADR 0004 contract 5): comment on it, ask the agent that answers in threads about it (its answer lands in the passage's margin thread), have it explained, or run an extension's passage action (marginalia's highlight, define, cite). The passage is exact source text: the words named with quote= (near= among repeats), else the actor's own selection (the person's for the person; an agent's own, never the person's). The service checks it before anything is written",
-    keys: "a then the choice's key while text is selected (a c comment, a a ask, a e explain, a h highlight, a d define, a k cite with marginalia), or a click on its chip on the selection's line",
+    keys: [{ keys: "a then c", does: "comment, while text is selected" }, { keys: "a then a", does: "ask" }, { keys: "a then e", does: "explain" }, { keys: "a then h", does: "highlight" }, { keys: "a then d", does: "define" }, { keys: "a then k", does: "cite with marginalia" }, { keys: "click", does: "its chip on the selection's line" }],
     touches: "draft", draft: "type", replay: "ask",
     args: {
       action: { type: "string", about: "comment, ask, explain, or an extension's passage action by its name (ext.<id>.<action>; passage.choices lists them)" },
@@ -11192,7 +11194,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "margin": def({
     summary: "the margin's cards (ADR 0004 contract 6): one row each (trim), whole with their replies (full), or off: marks only (the highlights and marks stay on the words, the byline says \"marks\"). A wide reader has them in a column beside the text; a narrow one under each passage. Reading state agents may change for the person, kept with the tile (PIE-873) and taken by a reader opened from it",
-    keys: "M cycles trim, full, off (marks only); a click on the byline's comment count",
+    keys: [{ keys: "M", does: "cycles trim, full, off (marks only)" }, { keys: "click", does: "the byline's comment count" }],
     touches: "shape", replay: "safe",
     args: { mode: { type: "string", optional: true, about: "trim, full or off; left out, the next one" } },
     examples: [
@@ -11244,7 +11246,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "placement.step": def({
-    summary: "move through the placement menu", keys: "arrows, j k, Tab in the placement menu",
+    summary: "move through the placement menu", keys: [{ keys: "← ↑ ↓ → j k tab", does: "in the placement menu" }],
     touches: "tile", person: "the placement belongs to the person", replay: "ask",
     args: { by: { type: "number", about: "rows to move" } },
     examples: [{ act: "placement.step by=1", does: "selects the next placement" }],
@@ -11263,7 +11265,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: (_, { surface, host }) => surface.closePlacement(host),
   }),
   "attachment.split": def({
-    summary: "size an attached surface split, or choose beside versus below", keys: "drag the split divider; placement menu beside/below",
+    summary: "size an attached surface split, or choose beside versus below", keys: [{ keys: "drag", does: "the split divider" }, { via: "placement menu beside/below" }],
     touches: "tile", person: "the split belongs to the person", replay: "ask",
     args: { target: { type: "string", about: "comment, sources, list-preview or edit-preview" }, direction: { type: "string", optional: true, about: "right or down" }, share: { type: "number", optional: true, about: "attachment share of the reader, .15 to .85" } },
     examples: [{ act: "attachment.split target=sources direction=down share=0.4", does: "puts the sources split below the note with forty percent of its height" }],
@@ -11285,7 +11287,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "edit.preview.place": def({
     summary: "place the edit preview below, beside, floating, popup or in a tile; kept for next time",
-    keys: "preview header placement chip; arrows and Enter in its menu",
+    keys: [{ keys: "click", does: "the preview header's placement chip" }, { keys: "← ↑ ↓ → ⏎", does: "in its menu" }],
     touches: "tile", person: "the placement belongs to the person", replay: "ask",
     args: { place: { type: "string", optional: true, about: "inline (below), split, floating, popup or tile" }, side: { type: "string", optional: true, about: "left, right, up or down for a tile" } },
     examples: [{ act: "edit.preview.place place=split", does: "places the live preview beside or below the draft" }],
@@ -11368,7 +11370,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "comment.leaving": def({
     summary: "answer \"about to leave an unsent comment\" (PIE-785), asked when the person follows a link, a comment mark, back or forward while their comment is unsent: save keeps it as unsent where it was written (opening it again brings it back) and goes on; keep goes back to writing; discard lets it go (a copy stays on disk) and goes on. The person's choice: an agent's action never asks it",
-    keys: "the power bar's rows (⏎ or a click), esc keeps writing",
+    keys: [{ keys: "⏎ click", does: "the power bar's rows" }, { keys: "esc", does: "keeps writing" }],
     touches: "draft", draft: "leave", replay: "ask", person: "leaving the person's unsent comment is their choice",
     args: { choice: { type: "string", about: "save, keep or discard" } },
     examples: [
@@ -11415,7 +11417,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "reply": def({
-    summary: "reply to a comment thread and send it. Left out body=, the person's reply opens on the thread to be written (a reply put aside there comes back); an agent's is sent at once", keys: "m, j k, r, typing, ctrl+s; [Reply] on an expanded thread",
+    summary: "reply to a comment thread and send it. Left out body=, the person's reply opens on the thread to be written (a reply put aside there comes back); an agent's is sent at once", keys: [{ keys: "m", does: "the thread list" }, { keys: "j k", does: "pick a thread" }, { keys: "r", does: "reply, then typing" }, { keys: "ctrl+s", does: "save the reply" }, { keys: "click", does: "[Reply] on an expanded thread" }],
     touches: "draft", draft: "type", replay: "ask",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", optional: true, about: "the reply's text, sent at once; left out, the person writes it" } },
     examples: [
@@ -11435,7 +11437,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "comment.edit": def({
     summary: "edit a posted comment, or one of its replies (reply=), in the same editor it was written in (PIE-763). Left out body=, the person's editor opens on its words (ctrl+s saves, esc leaves it as it was, a click away saves it as an edit does); body= saves new words at once, as an agent's always does. Checked against the revision it was read at: an edit made meanwhile is refused (ctrl+r loads it), never overwritten. Attributed to whoever edits it; it shows as edited, its earlier words kept in its revisions",
-    keys: "e in the thread list (m); [Edit] on an expanded thread, or beside one of its replies",
+    keys: [{ keys: "e", does: "in the thread list (m)" }, { keys: "click", does: "[Edit] on an expanded thread, or beside one of its replies" }],
     touches: "draft", draft: "type", replay: "ask",
     args: {
       thread: { type: "string", about: "the thread's id (or its first 6+ characters)" },
@@ -11466,7 +11468,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "resolve": def({
-    summary: "resolve a comment thread that's a ticket (a request done), or reopen it with open=true. A thread that only needed reading is seen (thread.seen), not resolved. It opens the thread list in the reader: an agent's is refused on the reader the person has", keys: "none: m then s marks one seen",
+    summary: "resolve a comment thread that's a ticket (a request done), or reopen it with open=true. A thread that only needed reading is seen (thread.seen), not resolved. It opens the thread list in the reader: an agent's is refused on the reader the person has", keys: [{ keys: "m then s", does: "marks one seen" }],
     touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent resolves it in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, open: { type: "boolean", optional: true, about: "reopen instead of resolving" } },
     examples: [
@@ -11479,7 +11481,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "thread.seen": def({
     summary: "mark a comment thread seen (PIE-791): it leaves the margin for the earlier shelf, and a new reply brings it back; back=true brings it back now. It opens the thread list in the reader",
-    keys: "s in the thread list (m); [Seen] on an expanded thread",
+    keys: [{ keys: "s", does: "in the thread list (m)" }, { keys: "click", does: "[Seen] on an expanded thread" }],
     touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent marks it in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, back: { type: "boolean", optional: true, about: "bring an earlier thread back instead" } },
     examples: [
@@ -11495,7 +11497,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "thread.keep": def({
     summary: "keep a comment thread (PIE-791): it stays in the margin whatever else is put away, and is in the outline's kept marks; again (or keep=false) unkeeps it. It opens the thread list in the reader",
-    keys: "p in the thread list (m); [Keep] on an expanded thread",
+    keys: [{ keys: "p", does: "in the thread list (m)" }, { keys: "click", does: "[Keep] on an expanded thread" }],
     touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent keeps it in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, keep: { type: "boolean", optional: true, about: "true keeps, false unkeeps; left out, it toggles" } },
     examples: [
@@ -11511,7 +11513,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "thread.tldr": def({
     summary: "a comment thread's TL;DR (PIE-791): @margin writes a short summary as a reply with [kind::tldr], which becomes the thread's face, its discussion folded behind it. body= writes it instead (yours, or an edit of @margin's). With no model set up for @margin none is written, and it says how to set one up (PIE-860). remove=true takes it away: the discussion is the face again",
-    keys: "t in the thread list (m), T takes it away; [TL;DR] on an expanded thread, [TL;DR again], [No TL;DR]",
+    keys: [{ keys: "t", does: "in the thread list (m)" }, { keys: "T", does: "takes it away" }, { keys: "click", does: "[TL;DR] on an expanded thread, [TL;DR again], [No TL;DR]" }],
     touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent asks in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", optional: true, about: "the TL;DR itself; left out, @margin writes it" }, remove: { type: "boolean", optional: true, about: "take its TL;DR away" } },
     examples: [
@@ -11594,7 +11596,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.route": def({
     summary: "route a note by the outline's routing rules (PIE-1010): the one shown, or id=. The first rule note ([type::route] [query::…] [route-to::((id))], listed in the Routing view) whose query holds for it moves it there, by the service's one move, as ext:route with you recorded as who asked, in one revision; ctrl+z puts it back (note.move.undo). dry=true says what would move where and why (which rule) and moves nothing; a note no rule holds for is said so, and a rule that can't be used is named. A note being written in a door is never moved under the person: it routes when the draft closes",
-    keys: "alt+z in a reader (alt+Z says what would move, moving nothing), the tile menu's \"route by rules\"",
+    keys: [{ keys: "alt+z", does: "in a reader" }, { keys: "alt+Z", does: "says what would move, moving nothing" }, { via: "the tile menu's \"route by rules\"" }],
     touches: "nothing", replay: "ask",
     menu: { label: "route by rules", group: "note", key: "alt+z", now: (_h, t) => (t.kind === "river.column" ? { hide: true } : null) },
     says: r => String((r as { said?: string }).said ?? "routed a note"),
@@ -11749,7 +11751,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "props.edit": def({
-    summary: "replace one property value: a properties.patch of that token, refused if the note changed since it was read", keys: "i, tab, enter or e, typing, enter",
+    summary: "replace one property value: a properties.patch of that token, refused if the note changed since it was read", keys: [{ keys: "i tab", does: "to the properties" }, { keys: "enter e", does: "edit the value, then typing" }, { keys: "enter", does: "save" }],
     touches: "draft", draft: "write", replay: "ask",
     args: {
       ...ROW_ARGS,
@@ -12073,7 +12075,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "list.preview": def({
     summary: "show this list's selected item's children in an attached preview; reading state only",
-    keys: "p fold chip; reader menu", touches: "tile", while: "typing", replay: "safe",
+    keys: [{ keys: "p", does: "fold chip" }, { via: "reader menu" }], touches: "tile", while: "typing", replay: "safe",
     menu: noteRow("preview list children", ""),
     args: { ...FOLD_ARGS, on: { type: "boolean", optional: true, about: "preview children instead of unfolding in place" } },
     examples: [{ act: 'list.preview text="Keep the beans" on=true', does: "previews the children of this list" }],
@@ -12209,7 +12211,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "select": def({
-    summary: "select text in the note as the reader draws it: text= (links read as their titles) or line= to= (1 is the subject). An agent's selection is its own, drawn in its own tint; the person's is never touched", keys: "drag, double/triple click, v then h j k l",
+    summary: "select text in the note as the reader draws it: text= (links read as their titles) or line= to= (1 is the subject). An agent's selection is its own, drawn in its own tint; the person's is never touched", keys: [{ keys: "drag", does: "select" }, { keys: "double-click", does: "selects a word" }, { via: "a triple click" }, { keys: "v then h j k l", does: "select with the keys" }],
     touches: "nothing", replay: "safe",
     args: {
       text: { type: "string", optional: true, about: "the words as they're drawn (blanks and row breaks match any blank)" },
@@ -12265,7 +12267,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.copy": def({
     summary: "copy the whole note as stored (header chips, fences and all) with each live figure's results under it as Markdown (PIE-1355: a checklist as - [ ]/- [x] steps, a table as a table, tabs a list per group, links ((id|title)); at most 50 rows a figure, a cut said with the ep0ch find command that reads the rest); source=true copies the text alone. The person's goes to their clipboard (OSC 52) and the status line says \"copied the page with N figures' results (K cut)\"; an agent's is returned to it and never touches the person's clipboard",
-    keys: "Y with nothing selected, the tile menu's \"copy note\" (and \"copy source only\")",
+    keys: [{ keys: "Y", does: "with nothing selected" }, { via: "the tile menu's \"copy note\" (and \"copy source only\")" }],
     touches: "nothing", replay: "safe",
     menu: [noteRow("copy note", "Y"), { ...noteRow("copy source only", "", {}), args: { source: true } }],
     args: { source: { type: "boolean", optional: true, about: "the note's text alone, without its figures' results" } },
@@ -12277,7 +12279,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "select.copy": def({
-    summary: "copy the selection: what's drawn, or source=true for its markup. The person's goes to their clipboard (OSC 52), and a selection they make with the mouse is copied when the button comes up (copy on select; EP0CH_COPY_ON_SELECT=0 turns it off); an agent's is returned to it and never touches the person's clipboard", keys: "y, Y, cmd+c, the [y copy] control, the release of a drag (or a double or triple click)",
+    summary: "copy the selection: what's drawn, or source=true for its markup. The person's goes to their clipboard (OSC 52), and a selection they make with the mouse is copied when the button comes up (copy on select; EP0CH_COPY_ON_SELECT=0 turns it off); an agent's is returned to it and never touches the person's clipboard", keys: [{ keys: "y Y cmd+c", does: "copy" }, { keys: "click", does: "the [y copy] control" }, { keys: "drag", does: "the release of a drag copies (or a double or triple click)" }],
     touches: "nothing", replay: "safe",
     args: { source: { type: "boolean", optional: true, about: "the note's own text (markup) instead of what's drawn" } },
     examples: [
@@ -12315,7 +12317,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "task.status": def({
     summary: "set a checklist step's status (done, todo, waiting, problem, approved, rejected: approved is the person's yes) through checklist.update, checked against the step as it was read; recorded as whoever asks (an agent by its id) and said on screen. Works on steps inside embeds: the change is to the note the step is in",
-    keys: "[ ] to a step, then ⏎ or a click on its box and x o + - w !; space toggles done / to do. With no step named, the person's: the status choice open, else the step that is the current element",
+    keys: [{ keys: "[ ]", does: "to a step" }, { keys: "⏎ click", does: "on its box opens the status choice" }, { keys: "x o + - w !", does: "set the status in the choice" }, { keys: "space", does: "toggles done / to do" }, { via: "with no step named, the person's: the status choice open, else the step that is the current element" }],
     touches: "draft", draft: "write", replay: "ask",
     args: { ...STEP_ARGS, to: { type: "string", about: "done, todo, waiting, problem, approved or rejected (or a box's mark: x, space, ~, !, ✓ or +, ✗ or -)" } },
     examples: [
@@ -12362,7 +12364,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "callout.type": def({
     summary: "change a callout's type (PIE-538): its header's [!type] rewritten through the note's save, checked against the revision read now and the header as drawn, recorded as whoever asks and said on screen; ctrl+z (callout.undo) puts it back. to= is any type the outline has (callout.list), or a new name",
-    keys: "the type choice's ⏎ (open it with ⏎ or a click on a callout's icon or type)",
+    keys: [{ keys: "⏎ click", does: "opens the type choice, on a callout's icon or type" }, { keys: "⏎", does: "in the type choice picks it" }],
     touches: "draft", draft: "write", replay: "ask",
     args: { ...CALLOUT_ARGS, to: { type: "string", about: "the type to write: a name or alias the outline has (callout.list), or a new name" } },
     examples: [
@@ -12378,7 +12380,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "callout.start": def({
     summary: "make a callout start folded (folded=true writes [!type]-) or open (folded=false writes [!type]+): the one change to the text that folding ever makes, through the note's save like callout.type. Folding it in a reader is fold or f, which never writes",
-    keys: "the type choice's - and +",
+    keys: [{ keys: "- +", does: "in the type choice" }],
     touches: "draft", draft: "write", replay: "ask",
     args: { ...CALLOUT_ARGS, folded: { type: "boolean", about: "true: it starts folded (-); false: it starts open (+)" } },
     examples: [
@@ -12566,7 +12568,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "image.look": def({
     summary: "change the note's header image's look (PIE-1361): prop= one of HERO_PROPS (height, focus.x, focus.y, fit, dim, tint, fade, blur, bleed, title, scroll) with to= a value (none takes it off the line: the built-in) or by=1|-1 a step; or focus=x,y for both halves at once. Written as that property on the hero's own line ([tint::0.5], [hero-focus::0.3,0.6]) through the note's save, checked against the line as drawn, recorded as whoever asks; ctrl+z (image.undo) puts it back. The tune's hero rows and the header's drags run this",
-    keys: "the tune's hero rows (− + × and the wheel), a drag inside the header picture (focus)",
+    keys: [{ keys: "− + ×", does: "the tune's hero rows" }, { keys: "wheel", does: "the tune's hero rows" }, { keys: "drag", does: "inside the header picture (focus)" }],
     touches: "draft", draft: "write", replay: "ask",
     args: {
       ...IMAGE_ARGS,
@@ -12614,7 +12616,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "script.stop": def({
     summary: "stop one running script by its run id (run=: the undo a script run answered with, also its run note's [script-run::…]): its remaining calls are refused and the run note says who stopped it. Writes it already made stay; ext.undo takes them back. Says so when the run isn't running",
-    keys: "none: act, or the power bar",
+    keys: [{ via: "act, or the power bar" }],
     touches: "nothing", replay: "ask",
     args: { run: { type: "string", about: "the run's id (its undo)" } },
     examples: [
@@ -12644,7 +12646,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "task.link": def({
     summary: "a step's link ((note^id)), giving the step a stable id first if it has none; the person's copies it to their clipboard, an agent's is returned. copy=false only gives the step its id (Make addressable)",
-    keys: "the status choice's y (Copy step link) and a (Make addressable)",
+    keys: [{ keys: "y", does: "in the status choice: Copy step link" }, { keys: "a", does: "in the status choice: Make addressable" }],
     touches: "draft", draft: "write", replay: "ask",
     args: { ...STEP_ARGS, copy: { type: "boolean", optional: true, about: "false: only give the step a stable id, copying nothing" } },
     examples: [
@@ -12681,7 +12683,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "sources.open": def({
     summary: "open the Sources inspector on this note (PIE-956): every generated region (handler lines, ::=, ::use, figures, ::fields, ::if, written output) with when it last read, from the service's one answer (site.sources), beside the note when the reader is wide. A page shows none of its mechanics by default; this is where \"where this comes from\" goes. An agent's call answers the same list and opens nothing in the person's reader",
-    keys: "S, the header's [sources]",
+    keys: [{ keys: "S", does: "open sources" }, { keys: "click", does: "the header's [sources]" }],
     touches: "shape", replay: "safe", says: () => "opened the sources", way: "the inspector opens beside their note · an agent reads the list in the answer, or sources.at line=",
     menu: noteRow("where this comes from (sources)", "S", { now: ({ surface }) => (!surface.msg || !isOutlineNote(surface.msg) || surface.msg.partial ? { hide: true } : null) }),
     args: {},
@@ -12689,7 +12691,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "sources.at": def({
     summary: "open the Sources inspector on the generated region that holds a line: line= (from 1), else the person's selection, `[ ]` position or reading line. The passage toolbar's \"Where from\" (a then w) is this. An agent's call answers that source's row and opens nothing in their reader",
-    keys: "select words in a generated region, then a w (or a click on [Where from])",
+    keys: [{ keys: "a then w", does: "with words selected in a generated region" }, { keys: "click", does: "[Where from]" }],
     touches: "shape", replay: "safe", way: "the inspector opens beside their note · an agent reads the source in the answer",
     args: { line: { type: "number", optional: true, about: "the note line, from 1 (default: the selection's, else the [ ] position's, else the reading line)" } },
     examples: [

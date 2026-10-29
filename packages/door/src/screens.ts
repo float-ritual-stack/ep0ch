@@ -184,6 +184,7 @@ function artWithText(ctx: Ctx, key: string, art: Art, overlays: Overlay[], at = 
 // ── logon ────────────────────────────────────────────────────────────────────
 
 export class Logon implements Screen {
+  readonly ownsQuestion = true;
   title = "logon";
   readonly noDrawer = true;
   private shown = 0;
@@ -286,6 +287,7 @@ const ITEMS: MenuItem[] = [
 export const MENU_SCREENS: [string, (ctx: Ctx) => Screen | null][] = ITEMS.map(i => [i.key, i.open]);
 
 export class MainMenu implements Screen {
+  readonly ownsQuestion = true;
   title = "main menu";
   private sel = 0;
   private readonly ptr = new Pointer();
@@ -331,11 +333,13 @@ export class MainMenu implements Screen {
     });
     // The lit item's name at the width of the longest, so the line (and every key on it) stays put as it changes.
     const lit = ` |07: |15${item.label.padEnd(Math.max(...ITEMS.map(i => i.label.length)))}`;
-    const all = [...keys, ...extras, lit];
+    // ? and H, said and clickable: the keys window and the help screen.
+    const asks: (string | [string, Key])[] = [" |08· ", ["|15? |07keys", char("?")], " ", ["|15H |07help", char("H")]];
+    const all = [...keys, ...extras, lit, ...asks];
     // Too wide for one line (80 columns): the named items go on a line of their own under the keys.
     if (width(paint(all.map(q => (typeof q === "string" ? q : q[0])).join(""))) <= ctx.t.cols) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, all, { centre: true }));
     else {
-      lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [...keys, lit], { centre: true }));
+      lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [...keys, lit, ...asks], { centre: true }));
       // The named items on as many lines as the width takes (80 columns: two), each item whole.
       const named = (q: string | [string, Key, number]) => width(paint(typeof q === "string" ? q : q[0]));
       let row: (string | [string, Key, number])[] = [];
@@ -371,7 +375,9 @@ export class MainMenu implements Screen {
     // (or a click on it). q stays the menu's own letter, the Quay.
     else if (k.kind === "esc") return nothingToClose(ctx, "G logs off");
     else if (k.kind === "char" && !k.ctrl && k.ch.toUpperCase() === "V") return shellKey("video.cycle", {}, this, ctx);
-    else if (ch(k) === "?") return shellKey("screen.help", {}, this, ctx);
+    else if (ch(k) === "?") return shellKey("keys.open", { filter: "menu" }, this, ctx);
+    // H, no item's letter: the help screen, every item and what it does (? is the keys window here as everywhere).
+    else if (k.kind === "char" && !k.ctrl && k.ch.toUpperCase() === "H") return shellKey("screen.help", {}, this, ctx);
     else if (k.kind === "char" && !k.ctrl) {
       const hit = ITEMS.findIndex(i => i.key === k.ch.toUpperCase());
       if (hit >= 0) return this.open(ITEMS[hit]!, ctx);
@@ -409,7 +415,7 @@ function openItem(item: MenuItem, ctx: Ctx): Screen | null {
 export const MENU_ACTIONS = actionSet<{ menu: MainMenu; ctx: Ctx }>()("menu", {
   "menu.select": def({
     summary: "light a menu item: name=<its key or label>, or by=<steps> (↑↓ one, ←→ a column of four); ⏎ or its letter opens it (screen.open). An agent's waits until the person is idle and is said on the status bar",
-    keys: "↑ ↓ ← → tab, the wheel, click on an item (lit as it is pressed)",
+    keys: [{ keys: "↑ ↓ ← → tab", does: "light a menu item" }, { keys: "wheel", does: "light a menu item" }, { keys: "click", does: "on an item (lit as it is pressed)" }],
     touches: "screen", replay: "safe", says: out => `· lit ${out.label} on the menu · ⏎ opens it`,
     args: { name: { type: "string", optional: true, about: "the item's key (S) or label (Stats)" }, by: { type: "number", optional: true, about: "steps from the lit item: 1 down, -1 up, 4 a column right" } },
     examples: [
@@ -684,7 +690,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.open": def({
-    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C I E + A M, or n j k r w l f s q b d g x t o c i e a m, ⏎, click on a menu item or its letter on the key line",
+    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: [{ keys: "N J K R W L F S Q B D G X T O C I E + A M n j k r w l f s q b d g x t o c i e a m", does: "the menu's letters open that screen" }, { keys: "⏎", does: "opens the lit menu item" }, { keys: "click", does: "on a menu item or its letter on the key line" }],
     touches: "screen", replay: "safe", says: out => (out?.opened ? { text: `· opened ${out.opened} · q goes back`, ms: 6000 } : null),
     // Logging off is the person's G alone, on their press too (an agent's never ends their session).
     personWith: a => ((itemNamed(a.name) ?? itemNamed(resolveScreen(a.name) ?? ""))?.key === "G" ? { always: "an agent doesn't log the person off; only G, pressed or clicked by them, does" } : null),
@@ -738,7 +744,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.back": def({
-    summary: "leave this screen for the one under it (the main menu is the top: there it stays; G logs off)", keys: "q Q, click on Q back; ⏎ on Who's online and Stats; any key (Esc too) on the help screen. Never Esc elsewhere: Esc closes the innermost temporary thing and never leaves a screen",
+    summary: "leave this screen for the one under it (the main menu is the top: there it stays; G logs off)", keys: [{ keys: "q Q", does: "leave this screen" }, { keys: "click", does: "on Q back" }, { keys: "⏎", does: "on Who's online and Stats" }, { via: "any key on the help screen" }, { keys: "esc", does: "on the help screen; elsewhere never leaves a screen: Esc closes the innermost temporary thing" }],
     touches: "screen", replay: "safe", says: out => (out?.from ? { text: `· went back from the ${out.from} to the ${out.to}`, ms: 6000 } : null),
     args: {},
     run(_, { ctx, here }, actor) {
@@ -772,7 +778,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "session.end": def({
     summary: "end the session: the door stops, with every program in its terminal tiles and the drawer, and every attached terminal is let go (unsaved drafts are copied to disk and put aside, as when the door quits). Logging off (G, ctrl+c) only detaches the terminal you're on; this is how the session ends. With programs running or a draft unsaved it asks first: again within 3s ends it. The person's only",
-    keys: "E on the main menu (or a click on End on its key line); `ep0ch session end [--ws <name>] [--yes]` from a shell (this folder's outline's session, or --ws's; --yes is force=true)",
+    keys: [{ keys: "E", does: "on the main menu" }, { keys: "click", does: "on End on the main menu's key line" }, { via: "`ep0ch session end [--ws <name>] [--yes]` from a shell (this folder's outline's session, or --ws's; --yes is force=true)" }],
     touches: "screen", replay: "ask",
     personAlways: "an agent doesn't end the person's session: it would stop the programs in their terminal tiles and let go of their terminals. A session an agent started on its own state dir it ends with `ep0ch session end` there",
     args: { force: { type: "boolean", optional: true, about: "end it even with programs running or a draft unsaved (the drafts are copied to disk and put aside); else it says what's running, and again within 3s ends it" } },
@@ -788,7 +794,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "session.upgrade": def({
     summary: "hand the session to a new daemon on the code in its checkout: the programs in its tiles keep running in the terminal host, the screens and the edits on top come back, and every attached terminal starts again on the new code and attaches by itself (clients=true: only the terminals start again). The person's only",
-    keys: "`ep0ch session upgrade [--ws <name>] [--clients] [--all]` (and `ep0ch install --apply` when the door's code changed, for every session)",
+    keys: [{ via: "`ep0ch session upgrade [--ws <name>] [--clients] [--all]`" }, { via: "`ep0ch install --apply` when the door's code changed, for every session" }],
     touches: "screen", replay: "ask",
     personAlways: "an agent doesn't restart the person's session; `ep0ch install --apply` and `ep0ch session upgrade` are the person's commands",
     args: { clients: { type: "boolean", optional: true, about: "only restart the attached terminals on the new code; the daemon goes on" } },
@@ -804,7 +810,8 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.help": def({
-    summary: "open the help screen over this one: every menu item and what it does (any key goes back); an agent's waits until the person is idle and is said on the status bar", keys: "? on the main menu",
+    summary: "open the help screen over this one: every menu item and what it does (any key goes back; ? on the menu is the keys window, keys.open); an agent's waits until the person is idle and is said on the status bar",
+    keys: [{ keys: "H h", does: "on the main menu" }, { keys: "click", does: "on H help on the main menu's key line" }],
     touches: "screen", replay: "safe", says: () => ({ text: "· opened help · any key goes back", ms: 6000 }),
     args: {},
     run(_, { ctx }) {
@@ -812,8 +819,19 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       return { opened: "help" };
     },
   }),
+  "keys.open": def({
+    summary: "open the keys window over this screen (q comes back): every key binding, filtered by filter= (a key, an action, a scope or words), each with what it does, what it takes its key from and what takes it first, and a rebind that says what it would do before it saves it in your keymap. An agent's waits until the person is idle",
+    keys: [{ keys: "?", does: "on every screen, filtered to where you are (on the desk: after ? more, when the hint row was cut)" }, { keys: "click", does: "on ? keys in the hint row" }],
+    touches: "screen", replay: "safe", says: () => ({ text: "· opened the keys window · q goes back", ms: 6000 }),
+    args: { filter: { type: "string", optional: true, about: "the words to filter by: a key (^W x), an action (tile.close), a scope (note, board) or what it does" } },
+    examples: [{ act: "keys.open filter=board", does: "opens the keys window on the board's keys" }, { act: "keys.open filter=\"^W\"", does: "opens it on the ^W keys" }],
+    async run({ filter }, { again }) {
+      if (!again) throw new ActionRefused("this screen can't open another one");
+      return again("screen.open", { name: "keys", ...(filter ? { target: filter } : {}) });
+    },
+  }),
   "video.cycle": def({
-    summary: "the next video mode: Kitty+CRT, Kitty, plain cells (the person's display: an agent's waits until they're idle and is said on the status bar)", keys: "alt+v on every screen; V on the menu, the board, the desk, the river, the showcase and the views; v in the art viewer, or click on its v video; click on the status bar's video mode",
+    summary: "the next video mode: Kitty+CRT, Kitty, plain cells (the person's display: an agent's waits until they're idle and is said on the status bar)", keys: [{ keys: "alt+v", does: "on every screen" }, { keys: "V", does: "on the menu, the board, the desk, the river, the showcase and the views" }, { keys: "v", does: "in the art viewer" }, { keys: "click", does: "on the art viewer's v video, or the status bar's video mode" }],
     touches: "screen", replay: "safe", says: out => `· switched the video to ${out.video}`,
     args: {},
     run(_, { ctx }) {
@@ -840,7 +858,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "edit.arm.set": def({
     summary: "whether the person's e (and ctrl+e) in a reader arms the edit first (edit.arm: the status bar asks, ⏎ or e again opens it) or opens it at once, and how long it waits. Kept for the next start (EP0CH_EDIT_ARM overrides it). An agent's own edit always opens at once",
-    keys: "`ep0ch act edit.arm.set on=false`",
+    keys: [{ via: "`ep0ch act edit.arm.set on=false`" }],
     touches: "screen", replay: "ask", says: out => `· ${out.armed ? `e asks first (${out.ms} ms)` : "e opens an edit at once"}`,
     args: {
       on: { type: "boolean", about: "true: e arms the edit and ⏎ opens it; false: e opens it at once" },
@@ -864,7 +882,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "keys.probe": def({
     summary: "show exactly what the next keys arrive as, and run none of them: the bytes (a Kitty keyboard report such as CSI 107;16u, or legacy bytes), the modifiers they carry (⌃⌥⇧⌘), the key the door reads them as and whether the hyper layer is on. The way to learn what a terminal, Herdr or ssh passes through: a chord that never shows up never reached the door. Esc, or the action again, ends it; clicks still work. The person's: an agent can't take their keys",
-    keys: "`ep0ch act keys.probe`, the power bar's actions scope (>)",
+    keys: [{ via: "`ep0ch act keys.probe`" }, { via: "the power bar's actions scope (>)" }],
     touches: "screen", replay: "safe", person: "the probe takes the person's next keys; an agent's `act` would swallow them",
     says: out => (out.probing ? null : "· key probe ended"),
     args: { on: { type: "boolean", optional: true, about: "true starts it, false ends it; default toggles" } },
@@ -879,7 +897,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "hyper.set": def({
     summary: "turn the hyper layer on or off (PIE-699): ⌃⌥⇧⌘ and a key reach the door's own actions from anywhere, even while typing in a draft or a terminal tile (src/hyper.ts is the keymap; the hints and the power bar show ✦). Off by default. Kept for the next start; EP0CH_HYPER=1 or 0 overrides it. Needs a terminal that sends the Kitty keyboard protocol and a Caps Lock (or key) mapped to ⌃⌥⇧⌘ (Raycast's Hyper Key, Karabiner): keys.probe shows whether the chord arrives",
-    keys: "`ep0ch act hyper.set on=true`, the power bar's actions scope (>)",
+    keys: [{ via: "`ep0ch act hyper.set on=true`" }, { via: "the power bar's actions scope (>)" }],
     touches: "screen", replay: "ask", says: out => `· hyper layer ${out.on ? "on" : "off"}`,
     args: { on: { type: "boolean", about: "true turns the layer on, false off" } },
     examples: [
@@ -897,7 +915,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "reader.hero": def({
     summary: "whether a reader's sticky header (title, summary, byline, crumbs) takes a picture of the note as a dimmed, muted background once it scrolls under (PIE-598), and which: mode=first, the note's hero ([layout::hero], else an image that is its first block); mode=follow, each picture in turn as it scrolls under, fading in over the one before. [hero-focus::x,y] on a picture's line says where its crop centres. Every reader at once, kept for the next start",
-    keys: "`ep0ch act reader.hero on=false`, `ep0ch act reader.hero on=true mode=follow`",
+    keys: [{ via: "`ep0ch act reader.hero on=false`" }, { via: "`ep0ch act reader.hero on=true mode=follow`" }],
     touches: "screen", replay: "ask", says: out => `· ${out.on ? `headers take ${out.mode === "follow" ? "each picture as it scrolls under" : "the hero image"}` : "headers stay plain"}`,
     args: {
       on: { type: "boolean", optional: true, about: "true: the header takes the picture as it scrolls under; false: headers stay plain; left out, it stays as it was" },
@@ -919,7 +937,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "reader.ruler": def({
     summary: "show the reading line as a calm block highlight, on by default; kept for the next start",
-    keys: "power bar: reader.ruler", touches: "screen", replay: "ask",
+    keys: [{ via: "power bar: reader.ruler" }], touches: "screen", replay: "ask",
     args: { on: { type: "boolean", optional: true, about: "show the reading line; omitted toggles it" } },
     examples: [
       { act: "reader.ruler on=false", does: "hides the reading line's block highlight" },
@@ -934,7 +952,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "reader.overscroll": def({
     summary: "how far readers (detail, preview, the desk's, a river column, the BBS reader) and drafts scroll past their last line (PIE-622): rows=half (the last line can come up to the middle, the default), none (it stops on the bottom edge), or a number of rows. End or G goes to the last line first, and again past it. Every reader and draft at once, kept for the next start",
-    keys: "`ep0ch act reader.overscroll rows=none`, `ep0ch act reader.overscroll rows=half`, `ep0ch act reader.overscroll rows=5`",
+    keys: [{ via: "`ep0ch act reader.overscroll rows=none`" }, { via: "`ep0ch act reader.overscroll rows=half`" }, { via: "`ep0ch act reader.overscroll rows=5`" }],
     touches: "screen", replay: "ask", says: out => `· readers scroll ${out.rows === "none" ? "to their last line" : out.rows === "half" ? "past their end to the middle" : `${out.rows} rows past their end`}`,
     args: { rows: { type: "string", about: "half, none, or a number of rows (0 to 200)" } },
     examples: [
@@ -953,7 +971,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "motion.set": def({
     summary: "how a layout change moves (PIE-958): full (tiles glide from where they were to where they are, and a script's motion=fantasia wanders), calm (a short plain glide, 200 ms, whatever was asked) or off (they snap). It caps every actor's hint, an agent's and a script's included. Movement only: nothing flashes or changes brightness. EP0CH_MOTION over it; kept for the next start. A key or a click always snaps what is in flight first",
-    keys: "`ep0ch act motion.set mode=calm`, the power bar's actions scope (>)",
+    keys: [{ via: "`ep0ch act motion.set mode=calm`" }, { via: "the power bar's actions scope (>)" }],
     touches: "screen", replay: "ask", says: out => `· motion is ${out.mode}`,
     args: { mode: { type: "string", about: MOTION_MODES.join(", ") } },
     examples: [
@@ -975,7 +993,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "composer.place": def({
     summary: `where a comment, question, explain or reply is written (PIE-770): inline (a box under its passage, in the note, which still reads and scrolls around it; the default), floating (a box over the note beside the passage), split (the reader shared: the note beside the composer), popup (a box in the middle, the passage quoted) or tile (PIE-846: a tile of its own beside the reader, which docks as tiles do; split where there are no tiles). Every reader, kept for the next start; ctrl+o (comment.place) moves the one being written`,
-    keys: "`ep0ch act composer.place place=floating`, the power bar's actions scope (>)",
+    keys: [{ via: "`ep0ch act composer.place place=floating`" }, { via: "the power bar's actions scope (>)" }],
     touches: "screen", replay: "ask", says: out => `· comments are written ${out.place === "inline" ? "at their passage" : out.place}`,
     args: { place: { type: "string", about: ATTACHED_PLACES.join(", ") } },
     examples: [
@@ -1038,7 +1056,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "look.nudge": def({
     summary: "put one look nudge in memory, unsaved, as the tune inspector's nudges are (PIE-673): target= where it applies (global, kind:<kind>, screen:<name>, page:<id>, instance:<tile id>, list:<note>:<line>), field= the token or its width variant (measure, wide.measure), value= as a style note writes it. Nothing is written; s in the inspector saves it. What a handover keeps of the inspector's unsaved nudges comes back this way (PIE-847)",
-    keys: "none: the tune inspector's + − and tune.set nudge with the inspector open",
+    keys: [{ via: "none: the tune inspector's + − and tune.set nudge with the inspector open" }],
     touches: "nothing", replay: "safe",
     args: {
       target: { type: "string", about: "the tune target" },
@@ -1142,7 +1160,7 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
     },
   }),
   "list.select": def({
-    summary: "light row n of the list (an agent's waits until the person is idle and is said on the status bar)", keys: "j k ↑↓ PgUp PgDn Home End, a click, the wheel",
+    summary: "light row n of the list (an agent's waits until the person is idle and is said on the status bar)", keys: [{ keys: "j k ↑↓ pgup pgdn home end", does: "move the lit row" }, { keys: "click", does: "on a row" }, { keys: "wheel", does: "move the lit row" }],
     touches: "screen", replay: "safe", says: out => `· lit row ${out.selected}: ${out.row.title}`,
     args: { n: { type: "number", about: "the row, from 1 (list.read numbers them)" } },
     examples: [
@@ -1983,6 +2001,7 @@ export class Stats implements Screen {
 }
 
 export class Help implements Screen {
+  readonly ownsQuestion = true;
   title = "help";
   private readonly ptr = new Pointer();
   /** `ptr`: where the item rows are recorded for the mouse (the main menu's own, when it draws this without its art). */
@@ -2029,6 +2048,7 @@ const HELP: Record<string, string> = {
 };
 
 export class Goodbye implements Screen {
+  readonly ownsQuestion = true;
   readonly title = "logoff";
   readonly noDrawer = true;
   private at = Date.now();

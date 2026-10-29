@@ -10,8 +10,8 @@
 //   - g then d: the desk                  limit: 12
 //   - ctrl+k: the command palette         ---
 //   ::                                    ::
-import { allActionSets, isKeyWord } from "../surface/actions";
-import { BOLD, ellipsize, fg, RESET, UNBOLD, width as vwidth } from "../style";
+import { allActionSets, isKeyWord, type Keys } from "../surface/actions";
+import { BOLD, C, chip, ellipsize, fg, RESET, UNBOLD, width as vwidth } from "../style";
 import { rowLines, wrap } from "../text";
 import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink } from "./palette";
 
@@ -25,6 +25,12 @@ export function keycaps(spec: string, learn = false): string {
     return parts.map(k => fg(DIM) + "[" + cap + k + fg(DIM) + "]").join("");
   }).join(" ") + RESET;
 }
+
+/**
+ * One key drawn as a keycap chip (the keys window's rows, PIE-492): its name on a raised cell, where `keycaps` draws a
+ * sheet's in brackets. A list of keys reads as caps either way; a lone `[ ]` would read as a step to tick.
+ */
+export const keycap = (cap: string) => chip(C.dark, C.white) + ` ${cap} ` + RESET;
 
 export function drawKeys(p: Props, w: number, link?: RowLink): string[] {
   const keys: Props[] = p.keys ?? [];
@@ -57,7 +63,9 @@ export function registryKeys(scopes: readonly string[], learn: readonly string[]
   const seen = new Set<string>();
   for (const set of allActionSets().filter(s => scopes.includes(s.scope))) {
     for (const a of set.list()) {
-      const key = (a.keys ?? "").split(/[,;]\s*/).map(k => k.trim()).find(k => k && !NOT_A_KEY.test(k) && k.length <= 18);
+      const key = typeof a.keys === "string" || !a.keys
+        ? (a.keys ?? "").split(/[,;]\s*/).map(k => k.trim()).find(k => k && !NOT_A_KEY.test(k) && k.length <= 18)
+        : a.keys.flatMap(r => ("keys" in r && !NOT_A_KEY.test(r.keys) ? [r.keys] : []))[0];
       if (!key || seen.has(key)) continue;
       seen.add(key);
       const what = a.summary.split(/[;(]/)[0]!.trim().replace(/[.:,]$/, "");
@@ -105,7 +113,10 @@ function alternatives(text: string): string[] {
  * `drag`), and one that names no key (`the tile menu's …`) after a dim `or`. `registryKeys` takes the first key only;
  * an action's page lists them all.
  */
-export function keyAlternatives(text: string | undefined): { keys: string; action: string }[] {
+export function keyAlternatives(keys: Keys | undefined): { keys: string; action: string }[] {
+  // Rows are the data already: a way that is no key says its words after a dim `or`.
+  if (keys !== undefined && typeof keys !== "string") return keys.map(r => ("via" in r ? { keys: "or", action: r.via } : { keys: r.keys, action: r.does }));
+  const text = keys;
   const rows: { keys: string; action: string }[] = [];
   const said = (t: string) => t.trim().replace(/^\((.*)\)$/s, "$1").replace(/ — /g, ", ").trim();
   for (const alt of alternatives(text ?? "")) {
