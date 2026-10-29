@@ -40,6 +40,7 @@ import { C, drawEllipsized, fg, pad, RESET, selectedRow, width } from "./style";
 export { ALL_LINK_GROUPS, blockGroups, isLinkGroup, LINK_BLOCK_KINDS, LINK_GROUPS, linkBlockAt, type LinkBlockKind, type LinkBlockSpec, type LinkGroupName, type LinkPreview } from "@ep0ch/outline-core/link-blocks";
 import { ALL_LINK_GROUPS, blockGroups, LINK_GROUPS, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
 import { prop } from "./props";
+import { isMarkType } from "@ep0ch/outline-core/annotation-marks";
 import { ListView, listRowLines, type ListHandle, type ListViewRow } from "./surface/list-view";
 
 // ── the model ────────────────────────────────────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ export interface ChildLink { block: Msg; facets?: AuthoredTargetFacets }
 export interface LinkData { links: Load<AuthoredLinksSnapshot>; backlinks: Load<BacklinkCollection>; children?: Load<ChildLink[]>; matches?: Load<ChildLink[]> }
 
 /** A comment or its reply is a block under the note too; it lists with Backlinks (kind Comment), never as a child. */
-export const isAnnotationBlock = (m: Msg) => prop(m, "type") === "annotation" || prop(m, "type") === "annotation-reply";
+export const isAnnotationBlock = (m: Msg) => isMarkType(prop(m, "type"));
 
 /**
  * The notes under `id` as the Children group lists them: the service's children (comments left out), each with the

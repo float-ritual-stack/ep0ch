@@ -19,6 +19,15 @@ import { RULE_TONES, type RuleTone } from "./rules";
 export const ANNOTATION_EDITED_KEY = "annotation-edited";
 
 /** The keys the annotation store writes for its own bookkeeping: never shown as an annotation's properties. */
+/**
+ * Whether a block's `type` makes it a mark: a comment (`annotation`) or a reply (`annotation-reply`). Drawn on its
+ * passage, never listed as a row of the note, and an `@name` in it is answered in its thread, never in place (PIE-1374).
+ */
+export function isMarkType(type: string | null | undefined): boolean {
+  const value = type?.trim().toLowerCase();
+  return value === "annotation" || value === "annotation-reply";
+}
+
 export const ANNOTATION_OWN_KEYS: ReadonlySet<string> = new Set(["type", "annotation-source", "annotation-status", "parent-annotation", "promoted-block", ANNOTATION_EDITED_KEY]);
 
 /** The tone a kind is drawn in when the annotation names no `color`: conventions, not a closed list. */

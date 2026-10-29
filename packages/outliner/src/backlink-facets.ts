@@ -1,4 +1,5 @@
 import { ANNOTATION_REPLY_TYPE, ANNOTATION_TYPE, parseAnnotationBlockContent } from "./annotations";
+import { isMarkType } from "@ep0ch/outline-core/annotation-marks";
 import { getProperty } from "./properties";
 import { stripPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import type { BacklinkSourceFacets, BacklinkStageBucket, Block, LinkTargetFacets } from "./types";
@@ -178,8 +179,7 @@ function commentFacet(
   blocksById: ReadonlyMap<string, Block>,
   rules: BacklinkFacetRules,
 ): BacklinkSourceFacets["comment"] {
-  const type = getProperty(source.properties, rules.typeProperty)?.trim().toLowerCase();
-  if (type !== ANNOTATION_TYPE && type !== ANNOTATION_REPLY_TYPE) return undefined;
+  if (!isMarkType(getProperty(source.properties, rules.typeProperty))) return undefined;
   const content = annotationContent(source);
   if (!content) return undefined;
   // Lifecycle belongs to the root thread; a reply follows its root.
