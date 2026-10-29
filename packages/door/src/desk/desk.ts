@@ -29,7 +29,7 @@ import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
 import { valuesOf } from "@ep0ch/outline-core/block-record";
 import { interpolate } from "@ep0ch/outline-core/interpolation";
 import { headedTitle, subject, type Msg } from "../board";
-import { BORDER_BOXES, Canvas, DOTTED_BOX, LINE_BOX, NO_BOX, overflows, shadowRects, type BoxGlyphs, type Rect } from "../canvas";
+import { BORDER_BOXES, borderGlyphs, Canvas, DOTTED_BOX, LINE_BOX, NO_BOX, overflows, shadowRects, type BoxGlyphs, type Rect } from "../canvas";
 import { TONE } from "../callouts";
 import { MOUSE_RIGHT, RowPresses, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
@@ -3837,7 +3837,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Double-lined only while the person's keys are here: not while they're in your drawer, or in another part of a frame
     // around this screen (the showcase's index beside its stage).
     // At rest, the lines its look's `border` names (auto: the screen's frame; none: blank edges, the title kept).
-    const lines = lv.border === "none" || joined ? NO_BOX : lv.border !== "auto" && lv.border !== "joined" ? BORDER_BOXES[lv.border] : this.spec.frame ? FRAMES[this.spec.frame] : undefined;
+    const lines = lv.border === "none" || joined ? NO_BOX : borderGlyphs(lv.border) ?? (this.spec.frame ? FRAMES[this.spec.frame] : undefined);
     const glyphs = nests ? NO_BOX : keys ? BORDER_BOXES.double : arrival ? LINE_BOX : lines;
     const frameInk = (cover === "peek" && !focused && !arrival ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
     const pointers = this.ctx?.agentPointers?.list(this).filter(p => p.tile === this.tileId(id)) ?? [];

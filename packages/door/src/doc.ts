@@ -28,7 +28,7 @@ import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, quoteByline, strip
 import { TONE } from "./callouts";
 import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
-import { BORDER_BOXES, stringFrame } from "./canvas";
+import { BORDER_BOXES, borderGlyphs, stringFrame } from "./canvas";
 import { dividerLine, gapSlots } from "./list-look";
 import { zebraBg } from "./surface/selection";
 import { theme } from "./theme";
@@ -547,7 +547,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       // Its surface and frame are its own too (PIE-675): a box's `bg`, `border` and `edge`; its tone and strength carry on.
       const bgRole = own.sources.bg.level === "block" ? own.values.bg : "none", accent = own.sources.edge.level === "block" ? own.values.edge : "none";
       const lineSet = own.sources.border.level === "block" ? own.values.border : "auto";
-      const glyphs = lineSet !== "auto" && lineSet !== "none" && lineSet !== "joined" ? BORDER_BOXES[lineSet] : accent === "box" ? BORDER_BOXES.line : null;
+      const glyphs = borderGlyphs(lineSet) ?? (accent === "box" ? BORDER_BOXES.line : null);
       // Margin outside the frame (or the bar, and a space after it), padding inside it; none where less than 8 columns of text would be left.
       const mx = mine("margin.x"), px = mine("pad.x"), my = mine("margin.y"), py = mine("pad.y");
       const framed = !!glyphs && W - 2 * (mx + 1 + px) >= 8, bar = !framed && accent === "bar" && W - 2 * (mx + px) - 2 >= 8;
@@ -862,8 +862,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const head = ` ${glyph}${tag(t.icon)} ${selected ? fg(C.yellow) : ""}${title}${fg(colour)} `;
       const label = typeName && bw - 3 - vwidth(head) >= vwidth(typeName) + 4 ? ` ${tag(typeName)} ` : "";
       // Its frame is the look's border when one is named (a tile's, a box's around it), else round.
-      const lines = look?.values.border;
-      const f = stringFrame(bw, { glyphs: lines === "line" || lines === "round" || lines === "heavy" || lines === "double" ? BORDER_BOXES[lines] : BORDER_BOXES.round, ink: fg(colour) });
+      const f = stringFrame(bw, { glyphs: borderGlyphs(look?.values.border) ?? BORDER_BOXES.round, ink: fg(colour) });
       if (fp2) heads.push({ key: fp2.key, row: out.length, cols: W });
       const top = out.length;
       edge(top);
@@ -1387,6 +1386,7 @@ export function codeSpans(lines: readonly string[], source: readonly number[]): 
 }
 
 function chunk(s: string, w: number): string[] {
+  w = Math.max(1, w);
   if (vwidth(s) <= w) return [s];
   const out: string[] = [];
   for (let rest = s; rest; ) { const [head, tail] = splitVisible(rest, w); out.push(head); rest = tail; }

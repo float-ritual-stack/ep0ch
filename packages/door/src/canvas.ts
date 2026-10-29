@@ -71,6 +71,8 @@ export const BORDER_BOXES: Readonly<Record<"line" | "round" | "heavy" | "double"
   heavy: { top: "━", bottom: "━", side: "┃", tl: "┏", tr: "┓", bl: "┗", br: "┛" },
   double: { top: "═", bottom: "═", side: "║", tl: "╔", tr: "╗", bl: "╚", br: "╝" },
 };
+/** The frame a look's `border` names, the one reading of it (a tile's, a `::box`'s, a callout's); none for auto, none, joined. */
+export const borderGlyphs = (border: string | undefined): BoxGlyphs | undefined => border && border in BORDER_BOXES ? BORDER_BOXES[border as keyof typeof BORDER_BOXES] : undefined;
 /** A frame that draws nothing: a tile with `border=none` keeps its title and hint on blank edges. */
 export const NO_BOX: BoxGlyphs = { top: " ", bottom: " ", side: " ", tl: " ", tr: " ", bl: " ", br: " " };
 /** The dotted frame of the ep0ch logos (WoE, 1997): dots along, colons down. */
@@ -93,7 +95,7 @@ export function stringFrame(w: number, { glyphs: g = BORDER_BOXES.round, ink = "
       const fill = g.top.repeat(Math.max(0, room - width(t)));
       return ink + g.tl + g.top + t + RESET + ink + fill + (label ? label + RESET + ink + (open ? "" : g.top) : "") + (open ? "" : g.tr) + RESET;
     },
-    row: (text: string) => open ? ink + g.side + RESET + gap + text + RESET : ink + g.side + RESET + gap + pad(text, inner) + gap + ink + g.side + RESET,
+    row: (text: string) => open ? ink + g.side + RESET + gap + text + RESET : ink + g.side + RESET + gap + pad(text, inner) + RESET + gap + ink + g.side + RESET,
     bottom(foot = ""): string {
       if (!open) return ink + g.bl + g.bottom.repeat(Math.max(0, w - 2)) + g.br + RESET;
       if (!foot) return ink + g.bl + g.bottom.repeat(Math.max(0, w - 1)) + RESET;

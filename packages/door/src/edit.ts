@@ -1181,7 +1181,10 @@ export class Draft {
         const colour = hit.findLast(k => !k.under) ?? hit.at(-1)!;
         return fg(colour.fg) + (hit.some(k => k.under) ? "\x1b[4m" : "");
       };
+      // A style changes only at a glyph's first code point, never between the parts of a joined one.
+      const cw = codePointCells(chars);
       cells.forEach((c, j) => {
+        if (cw[r.start + j] === 0 && j > 0) { line += c; return; }
         const want = j === cx ? bg(C.lcyan) + fg(C.black) : j >= s0 && j < s1 ? SELECT_BG + fg(C.white) : glow.some(g => j >= g.from && j < g.to) ? chip(C.magenta) : ink(j);
         if (want !== style) { line += RESET + fg(C.white) + want; style = want; }
         line += c;
