@@ -6898,10 +6898,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   tileMenu(sel: string | undefined, at: string | undefined, actor: Actor, q = ""): TileDone {
     const t = this.tile(sel);
-    // The tile's own operations first, then each group in the order it first appears, its rows together: sets that share
-    // a group (note.copy-ref's and a reader's own Note rows, the tile operations split by another set's) read as one
-    // heading, and a list's Note rows (the row it was opened on, PIE-1297) come right after the tile's.
-    const listed: MenuRow[] = this.dispatch.menu(this.tileId(t.id), actor), order = [...new Set(["Tile", ...listed.map(r => r.group)])];
+    // Each group's rows together under one heading, the tile's own operations first. A right-click on a spot (at=) is about
+    // the row it lands on, so its Note rows (copy it, PIE-1297) come next; the ⋯ menu is about the tile, so its kind's own
+    // groups (a reader's Shows and page lock) come before the long Note group and never fall below the fold.
+    const listed: MenuRow[] = this.dispatch.menu(this.tileId(t.id), actor), groups = listed.map(r => r.group).filter(g => g !== "Note");
+    const order = [...new Set(at ? ["Tile", "Note", ...groups] : ["Tile", ...groups, "Note"])];
     const every = order.flatMap(g => listed.filter(r => r.group === g));
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
