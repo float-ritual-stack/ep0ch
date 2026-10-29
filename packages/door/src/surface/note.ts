@@ -137,7 +137,7 @@ import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTar
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
-import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
+import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -3496,6 +3496,13 @@ export class NoteSurface {
     if (this.replyParent && ch(k) === '"' && this.selection) { void this.runKey("note.quote", {}, host); return true; }
     if (this.replyParent && (k.kind === "pgup" || k.kind === "pgdn")) { this.scrollKey(k, host); return true; }
     if (elementEdit(s.draft).key(k, (action, args = {}) => { void this.runKey(action, args, host); })) { host.redraw(); return true; }
+    // A note's own edit runs actions where the person types (PIE-1076): ctrl+k lists them, ⏎ on a / line runs it.
+    if (s.draft === this.draft && !completionOf(s.draft)?.items.length) {
+      if (k.kind === "char" && k.ctrl && k.ch === "k" && !k.shift) { void this.runKey("edit.actions", {}, host); return true; }
+      // Only a line that names an action, with the cursor at its end: `/tmp is full` is prose, and ⏎ is its new line.
+      const line = s.draft.lines[s.draft.row] ?? "", here = k.kind === "enter" && s.draft.col === line.length ? actionHereAt(line, line.length, s.draft.lines, s.draft.row) : null;
+      if (here && host.ctx.dispatch?.has(here.query.split(/\s/)[0]!)) { void this.runKey("edit.run", {}, host); return true; }
+    }
     // What ends or hands off the draft is an action (PIE-506); the rest is typing.
     s.key(k, {
       completer: this.completer(s.draft, host),
@@ -10630,6 +10637,78 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "draft", draft: "leave", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => saveDraft(surface, host, actor),
+  }),
+  "edit.actions": def({
+    words: "run an action from where you're typing",
+    summary: "list the actions that apply here at the cursor, in the edit's own completion float (PIE-1076): a `/` line under the cursor's (or the cursor's own line, when empty), then the action's arguments in place as you choose it; ⏎ runs it (edit.run). ctrl+k is the power bar's key everywhere else, and its actions here",
+    keys: [{ keys: "ctrl+k", does: "in a note's edit" }, { keys: "/", does: "first on a line of a note's edit" }], touches: "draft", draft: "type", replay: "safe",
+    args: {},
+    examples: [{ act: "edit.actions", does: "puts a / line under the cursor's line and lists the actions that apply here" }],
+    async run(_, { surface, host }, actor) {
+      const d = surface.draft;
+      if (!d) throw new ActionRefused("nothing is being edited here · e edits the note, then ctrl+k or / lists its actions");
+      if (d.busy) throw new ActionRefused("the save is still landing");
+      if (!actionHereAt((d.lines[d.row] ?? ""), d.col, d.lines, d.row)) {
+        if ((d.lines[d.row] ?? "").trim()) { d.place(d.row, (d.lines[d.row] ?? "").length); d.pasteText("\n", actor); }
+        d.pasteText("/", actor);
+      }
+      const c = surface.completer(d, host);
+      await c?.refresh(true);
+      host.redraw();
+      return { rows: c?.shown?.items.length ?? 0, line: d.row + 1 };
+    },
+  }),
+  "edit.run": def({
+    words: "run the action typed on its / line",
+    summary: "run the action on the cursor's `/` line (or line=, an act line without the /) on this note: the line is taken out, the edit saved (it leaves, as ctrl+s does) and the action run here as the power bar would run it; its result is one undo step (ctrl+z in the reader)",
+    keys: [{ keys: "enter", does: "on a / line of a note's edit, with no list open" }], touches: "draft", draft: "leave", replay: "ask",
+    args: { line: { type: "string", optional: true, about: "the act line to run (ext.structure.sort-list by=title); default the cursor's / line" } },
+    examples: [{ act: 'edit.run line="ext.structure.sort-list order=desc"', does: "saves the edit and sorts the note's list, last first" }],
+    async run({ line }, { surface, host }, actor) {
+      const d = surface.draft;
+      if (!d) throw new ActionRefused("nothing is being edited here");
+      if (d.busy) throw new ActionRefused("the save is still landing");
+      const here = line === undefined ? actionHereAt((d.lines[d.row] ?? ""), (d.lines[d.row] ?? "").length, d.lines, d.row) : null;
+      const typed = line ?? (here ? (d.lines[d.row] ?? "").slice(here.start + 1) : null);
+      if (!typed?.trim()) throw new ActionRefused("the cursor isn't on a / line · ctrl+k or / first on a line lists the actions here");
+      const req = actRequestOf(lineWords(typed.trim()));
+      const dispatch = host.ctx.dispatch, info = dispatch?.list().actions.find(a => a.name === req.action);
+      if (!dispatch || !info) throw new ActionRefused(`no action ${req.action} here · / lists the ones that apply`);
+      // What the host binds, from here: this note (an agent's run reaches it as the person's does), and that its
+      // arguments were asked in place, so what's left out takes its default instead of a form over the note.
+      const blockId = d.blockId;
+      req.args = { ...(info.args.block?.context && req.args?.block === undefined && blockId ? { block: blockId } : {}), ...(info.args.asked?.context ? { asked: true } : {}), ...req.args };
+      // The / line goes before the save: what's saved is the note as written, never the command.
+      // Checked before anything moves (a value it doesn't take, a note it can't act on): the line stays to correct.
+      const refused = dispatch.refusedNow(req, actor);
+      if (refused) throw new ActionRefused(`${refused} · the line stays: correct it and ⏎ again`);
+      const row = d.row, before = d.text, command = d.lines[row] ?? "";
+      if (here) {
+        surface.drafting!.replace(d.lines.filter((_, i) => i !== row).join("\n"), actor);
+        d.place(Math.min(row, d.lines.length - 1), 0);
+      }
+      // Capture first: a save that didn't land keeps the edit as it was typed, its / line too, with why.
+      const saved = d.dirty ? await saveDraft(surface, host, actor).catch((e: Error) => e) : (surface.closeDraftAction(false), null);
+      if (surface.draft) {
+        if (here && surface.draft === d) { surface.drafting!.replace(before, actor); d.place(row, command.length); }
+        throw new ActionRefused(saved instanceof Error ? saved.message : d.note || "the edit didn't save, so the action didn't run");
+      }
+      try {
+        const answer = await dispatch.as(actor, req);
+        host.redraw();
+        return { ran: actionLine(req), answer };
+      } catch (e) {
+        // Refused as it ran (an agent's act throws; the person's press says it): the edit opens again with the line.
+        if (here) {
+          const { draft: again } = await surface.ensureDraft(host);
+          again.place(Math.min(row, again.lines.length), 0);
+          again.pasteText(command + "\n", actor);
+          again.place(row, command.length);
+          host.redraw();
+        }
+        throw e;
+      }
+    },
   }),
   "edit.reload": def({
     summary: "after the note changed elsewhere: start over from its current text (the draft is copied to disk first)", keys: "ctrl+r",

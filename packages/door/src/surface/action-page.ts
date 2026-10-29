@@ -22,7 +22,9 @@ export interface PageExtras { refused?: string; hyper?: readonly string[]; title
  */
 export function inert(text: string, keyValues = true): string {
   const risky = keyValues ? /(?<![\w`])(?:[a-z][\w.-]*=(?:<[^>]*>|"[^"]*"|[^\s,;)<"]+)+|\S*(?:::|\[\[|\(\(|\]\]|\)\))\S*)/g : /\S*(?:::|\[\[|\(\(|\]\]|\)\))\S*/g;
-  return text.split(/(`[^`]*`)/).map((part, i) => (i % 2 ? part
+  // A component written whole (`::button{label="▲ lift" …}`) is one span, its spaces and all (PIE-1076).
+  const spans = text.split(/(`[^`]*`)/).flatMap((part, i) => (i % 2 ? [part] : part.split(/(::[\w-]+\{[^}]*\})/).map((p, j) => (j % 2 ? "`" + p + "`" : p))));
+  return spans.join("").split(/(`[^`]*`)/).map((part, i) => (i % 2 ? part
     : part.replace(risky, m => {
       // Punctuation that ends the sentence stays outside the span.
       const tail = /[.,;:]+$/.exec(m)?.[0] ?? "";
