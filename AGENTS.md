@@ -51,10 +51,14 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
   "neat: the button that wouldn't bend"). If it works, it's done. If a step fails, the failures are the tickets: fix the
   door or the service, red first, and never bend the script around a bug (a probe bent to pass hides what it found). A
   script that proves handy, narrow and flexible in daily use becomes a built-in later, not first.
-- **Privacy and sharing: what would Google Docs do?** It shares by link and never inspects what's inside. So no agent
-  flags, filters or asks about client names or work notes in Evan's outlines, their copies or what he shares: those are
-  his, like a Google Doc's link setting. The one line is the repo: fixtures, tests, docs and commits stay made up (Evan,
-  Oct 29: "this is all internal to me … why am i being forced to think about this").
+- **Two tests before any guard, prompt or filter: what would nvim do, and what would Google Docs do?**
+  - **nvim:** it runs your config and plugins as you, with no confirmations and no "are you sure". A guard, an approval
+    or a refusal aimed at Evan or his own agents needs a reason nvim would accept.
+  - **Google Docs:** it shares by link and never inspects what's inside. So no agent flags, filters or asks about client
+    names or work notes in his outlines, their copies or what he shares. The one line is the repo: fixtures, tests, docs
+    and commits stay made up.
+  - Evan, Oct 29: "this is all internal to me … built by one person for one person … why am i being forced to think
+    about this".
 - **No hardening for theoretical failures.** Before adding code for a speculative race, edge case or attack, name the
   concrete failure (who does what, and what breaks), how likely it is here (one person and his agents, on his own
   machines) and what the code costs. If it's theoretical, skip it and say so in one line. Validate an unknown value
