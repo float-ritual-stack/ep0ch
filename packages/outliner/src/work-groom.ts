@@ -15,6 +15,7 @@ import { workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { askNouls, board, chips, clip, CONFIDENT, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { itemTitle, olderFirst } from "./work-twins";
+import { deepCandidates } from "./search-deep";
 import { writeRecord } from "./records";
 import type { Block, VisibleBlockCollection } from "./types";
 
@@ -83,7 +84,7 @@ interface Candidates { shipped: Shipped[]; tickets: { id: string; workId: string
  * a duplicate filed in other words, or a change shipped under another name, shares the body's words, not the title's).
  * Pure.
  */
-export function groomCandidates(ticket: Block, shipped: readonly Shipped[], others: readonly Block[]): Candidates {
+export function groomCandidates(ticket: Block, shipped: readonly Shipped[], others: readonly Block[], meant: readonly string[] = []): Candidates {
   const title = itemTitle(ticket), named = namedIn(workIdOf(ticket) ?? "", shipped).slice(0, 3);
   const opening = clip(bodyOf(ticket), 160);
   const top = <T extends { id: string; title: string; text: string }>(docs: readonly T[], n: number) => {
@@ -100,9 +101,12 @@ export function groomCandidates(ticket: Block, shipped: readonly Shipped[], othe
   const docs = others.filter(b => b.id !== ticket.id).map(b => ({ id: b.id, title: itemTitle(b), text: b.text, block: b }));
   const stageOf = (b: Block) => propOf(b, "work-stage") ?? "unknown";
   const closed = top(docs.filter(d => ["done", "superseded"].includes(stageOf(d.block))), 3), open = top(docs.filter(d => !["done", "superseded"].includes(stageOf(d.block))), 4);
+  // Then the tickets deep search found by meaning (search-deep.ts): a duplicate filed in other words shares no word.
+  const words = new Set([...closed, ...open].map(d => d.id));
+  const byMeaning = meant.flatMap(id => { const d = docs.find(x => x.id === id); return d && !words.has(id) ? [d] : []; }).slice(0, 3);
   return {
     shipped: [...named, ...[...changelog, ...prs].filter(s => !named.includes(s))],
-    tickets: [...closed, ...open].map(d => ({ id: d.id, workId: workIdOf(d.block) ?? d.id.slice(0, 8), title: d.title, stage: stageOf(d.block), closed: ["done", "superseded"].includes(stageOf(d.block)) })),
+    tickets: [...closed, ...open, ...byMeaning].map(d => ({ id: d.id, workId: workIdOf(d.block) ?? d.id.slice(0, 8), title: d.title, stage: stageOf(d.block), closed: ["done", "superseded"].includes(stageOf(d.block)) })),
   };
 }
 
@@ -154,7 +158,8 @@ export async function groom(source: WorkJevClient, evidence: GroomEvidence, o: G
   let tokens = 0, jev = o.jev === false ? "off" : "not asked", reading: JevReading | undefined;
   for (const [n, t] of tickets.entries()) {
     const ticket = workIdOf(t) ?? t.id.slice(0, 8), title = itemTitle(t);
-    const c = groomCandidates(t, shipped, others), latest = latestLines(t.text), named = namedIn(ticket, shipped)[0];
+    const deep = o.jev === false ? null : await deepCandidates(others, `${title}\n\n${clip(bodyOf(t), 300)}`, { where: b => b.id !== t.id, limit: 3, jev: { ...o, timeoutMs: 8000 } });
+    const c = groomCandidates(t, shipped, others, deep && "candidates" in deep ? deep.candidates.map(x => x.id) : []), latest = latestLines(t.text), named = namedIn(ticket, shipped)[0];
     // With Jev off, code says what it can: named in what shipped, unless its newest lines say it isn't done.
     // Unjudged when Jev was wanted and couldn't answer; open only when nothing shipped or filed shares its words.
     const codeOnly = (why: string, judged = false): GroomRow => named && !UNFINISHED.test(latest)
