@@ -27,6 +27,20 @@ are its record. The outliner's entries from then are kept below, under
   the kitchen sink's panes and regions marks, the kettle's close click, the no-op repaint count, the copy-ref and
   motion checks, and the drawer program's handovers.
 - **Run:** nothing.
+### Back goes back in every tile, whichever tile changed it (PIE-1426)
+
+- **A preview steps back through what it showed:** a pick in the links tile, a link opened up top into it, a source
+  tile's selection: each is a stop, so alt+← in the preview goes to the one before, in order.
+- **Browsing is one stop:** a run of j or k through a list is one stop, so Back goes to what the preview showed before
+  you started, not through every row you passed.
+- **Giving a list the keys changes nothing:** Tab or a click into the links tile (or a query tile) leaves its preview,
+  and the preview's forward, as they were (an empty preview still fills); a new selection still shows.
+- **The links tile goes back too:** after `b` (or its home moving) lists another note's links, alt+← (or `tile.travel
+  tile=links`) lists the one before; its hint says where back goes.
+- **One history a tile:** a reader's back and forward and the links tile's are one shape (`Pane.trail`), so the trail
+  lists either. The kitchen sink's "back anywhere" section is Evan's layout to try it in.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### The river at 40 columns, smoothed: floats keep the keys, words show (PIE-1418, PIE-1392)
 
 - **Esc in a float keeps the keys there** (it gave them to the hidden column under it, so `x` closed that column). With
@@ -43,6 +57,17 @@ are its record. The outliner's entries from then are kept below, under
   forward goes to the column opened from this one. Read's `n` and `p` leave a trail too (back, alt+T).
 - **On the web:** an error page has a way back to the outline (or the share's first page), and the trail's rows read as
   links.
+### Nothing decided quietly disappears: the groom's cut keeps, and later gives back (PIE-1421)
+
+- **`ep0ch work groom --park`** is the cut: queued items untouched for `--older-than` (30d) go to later with
+  `[wreckage::<day>]`, except high priority, under 14 days old, or decided (a ticked `- [x]`, a decided
+  `::graph-decision`, `[decided::]`). Each kept one says why. `work stage … later` by hand warns the same way.
+- **`ep0ch work groom --later`** is the way back, weekly: a parked item someone commented on, a note made since names
+  or links (Jev reads it: asked for, or only cited?), or live work links goes back to queued with a
+  "**Back from later, <day>:**" line naming the note. One parked against the keep rule is listed with its restore
+  command. Then the groom's pass runs over what stays, so a shipped one gets its comment. `--apply` writes it.
+- **The count is a query:** `type=groom-later outcome=restored created >= -7d`, on Jev's suggestions page and for the build log.
+
 ### The keys window and the trail are tiles you resize, dock and close; ⏎ runs a key; Conflicts are real (PIE-1425)
 
 - **`?` opens the keys window as a tile beside the one you're in** (below it when that one is narrow, so both keep
@@ -55,8 +80,11 @@ are its record. The outliner's entries from then are kept below, under
   the power bar, alt+Q starting or stopping a recording, were counted as clashes).
 - **Every row reads as a whole sentence:** the action's own words, then where or when ("start recording, while
   recording"), never a fragment like "then macro.stop". The power bar's typed lines (`> share.list`) aren't listed as keys.
+- **A fourth tab, Unbound:** every action you can run that no key reaches on any screen, by where it runs, with its
+  count. `r` gives one a key (what that key does now is said first), `⏎` runs it.
 - **The trail (alt+T, `≡ trail`) is a tile beside its reader too:** dock it to the side and it follows the reader as
   you walk; `⏎` or a click on a picked stop goes there, `esc` closes it. A screen without tiles still lists it over itself.
+
 ### Undo never takes back what's saved (PIE-1414)
 
 - **ctrl+z stops at the save:** in a note you opened again after saving, the first ctrl+z keeps the saved text and says "saved · ctrl+z again undoes past the save (revision N stays in its history)"; a second press after a pause goes past it. A held key never crosses a save, and an agent's undo never does.
