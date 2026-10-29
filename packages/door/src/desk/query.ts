@@ -260,7 +260,8 @@ export class QueryPane implements Pane {
     // Not in the desk's frame lately (a lane off the board, a tab behind another, a session nobody watches): it reads
     // behind, and the desk is asked to draw, so a tile that is on the screen of an idle door reads at once when its frame
     // comes. One never read yet, and any on a desk that has never drawn (a test's, an agent's headless one), reads now.
-    const hidden = this.items !== null && desk.shows?.(this) === false;
+    // A card an action waits to see here (`want`, the board's own move or create) is read for at once too.
+    const hidden = this.items !== null && !this.want && desk.shows?.(this) === false;
     if (hidden) {
       // A frame asked once, when it first falls behind: a tile on an idle door's screen is drawn, and reads then.
       if (!this.stale && !this.redrawAsked) { this.redrawAsked = true; desk.redraw(); }

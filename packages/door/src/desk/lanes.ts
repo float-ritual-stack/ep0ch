@@ -1112,7 +1112,7 @@ export class Lanes implements SourceModel {
       lane.want = m.id; lane.wantVerb = "created";
       this.lane = this.lanes.indexOf(lane); this.toLanes();
       this.unfold(lane);
-    }
+    } else void lane.refreshNow(this.host);   // an agent's lane lists its card at once, off the screen too
     // The create's change record asks the lanes that could hold it.
     this.host.redraw();
   }
@@ -1277,6 +1277,7 @@ export class Lanes implements SourceModel {
     if (this.trashed?.id === m.id) {
       const lane = this.lanes.find(l => l.name === this.trashed!.lane);
       if (lane && actor.kind !== "agent") { lane.want = m.id; lane.wantVerb = "restored"; }   // an agent's restore never moves the person's selection
+      else if (lane) void lane.refreshNow(this.host);                                         // but its lane lists it at once, off the screen too
       this.trashed = null;
     }
     this.lastWrite = { what: "restore", id: m.id, result: "restored", ...(byOf(actor)) };
