@@ -558,4 +558,26 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect((again as any).policyAt((again as any).idNamed("library")).closable).toBe(false);
     await act("tile.close", {}, o.name);
   });
+
+  test("the river's trail (PIE-208): the columns back by title, alt+T lists them over the river, back steps=2 goes two at once", async () => {
+    focusOnReader(lib());
+    const a = (await mine("open", { id: notes.peas.id, from: lib(), fresh: true })) as { name: string };
+    await until(() => !!paneOf(a.name)?.root, "the peas column");
+    const b = (await mine("open", { id: notes.herbs.id, from: a.name, fresh: true })) as { name: string };
+    await until(() => !!paneOf(b.name)?.root, "the herbs column");
+    focusOnReader(b.name);
+    // An agent reads the trail; it opens nothing over the person's river.
+    const read = (await act("trail", {}, b.name)) as { back: { title: string }[]; forward: unknown[]; shown: boolean; keptBy: string };
+    expect(read).toMatchObject({ shown: false, keptBy: "view", forward: [] });
+    expect(read.back.map(s => s.title)).toEqual([paneOf(a.name).headName?.() ?? paneOf(a.name).title(), paneOf(lib()).headName?.() ?? paneOf(lib()).title()]);
+    // The person's alt+T: a list over the river, the column shown lit.
+    key({ kind: "alt", ch: "T" });
+    await until(() => screen().includes("trail · where this reader has been"), "the trail over the river");
+    key({ kind: "esc" });
+    await mine("back", { steps: 2 }, b.name);
+    expect(V().name(V().columns[V().focus]!)).toBe(lib());
+    expect(((await act("trail", {}, lib())) as { forward: unknown[] }).forward).toHaveLength(2);
+    await act("tile.close", {}, b.name);
+    await act("tile.close", {}, a.name);
+  });
 });
