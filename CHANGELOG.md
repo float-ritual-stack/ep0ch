@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### @loki in a comment reaches loki, and stays on its list until it answers (PIE-1404)
+
+- **Write `@loki …` (or `@daddy`, `@kitty`) in a comment on any note,** from the door, a web page on your phone or
+  another agent: that persona's live Claude sessions hear it within 30 minutes, with the note, the words and who
+  wrote it, yours first.
+- **It stays on the list** in every wake until the persona replies in the thread or the thread is resolved; a session
+  started later hears what's still open within a minute of starting.
+- Nothing to run: it ships with the Claude mod (`ep0ch install --apply`).
+
 ### The status bar keeps your buttons: narrow bars, typos and groups (PIE-1213, PIE-1227, PIE-1224)
 
 - **Your pins stay:** when the bar is narrow, built-ins shorten first (the drawer chip to `▲ shell`, then its arrow;
