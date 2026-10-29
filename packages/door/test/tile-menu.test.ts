@@ -356,4 +356,31 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     // Closing ends its program: asked twice.
     await mine("tile.close", {}, "mousy").catch(() => {}); await mine("tile.close", {}, "mousy");
   });
+
+  test("two renames, each saying what it renames (PIE-1283): \"rename this tile\" and, where a note is shown, \"rename the note it shows\"", async () => {
+    fresh();
+    const note = await board.createBlock(null, "Seed swap list [type::chirp]\nbring envelopes");
+    const opened = await mine("tile.open", { kind: "reader", mode: "held", note: note.id, name: "seeds" }) as { tile: string };
+    await until(() => D().pane("seeds")?.msg?.id === note.id, "the seeds reader shows the note");
+    const rows = (await act("tile.menu", {}, "seeds") as { rows: MenuRow[] }).rows;
+    expect(rows.find(r => r.action === "tile.title")).toMatchObject({ label: "rename this tile…", group: "Tile" });
+    expect(rows.find(r => r.action === "note.rename")).toMatchObject({ label: "rename the note it shows…", group: "Tile" });
+    // A tile that shows no note has no such row.
+    await mine("tile.open", { kind: "tree", name: "outline" });
+    expect((await act("tile.menu", {}, "outline") as { rows: MenuRow[] }).rows.some(r => r.action === "note.rename")).toBe(false);
+    // An agent's names the title; the note's properties and body stay.
+    await expect(act("note.rename", {}, "seeds")).rejects.toThrow("text=");
+    const done = await act("note.rename", { text: "Seed swap, Saturday" }, opened.tile) as { title: string };
+    expect(done.title).toBe("Seed swap, Saturday");
+    expect((await board.get(note.id))!.text).toBe("Seed swap, Saturday [type::chirp]\nbring envelopes");
+    // The tile's own name is untouched: the two renames are apart.
+    expect(D().tileInfo("seeds").name).toBe("seeds");
+    // The person's opens a prompt holding the title; what they type replaces it.
+    await mine("note.rename", {}, "seeds");
+    expect(menu()?.name).toBe("note title");
+    for (const ch of "Plum trees") key(char(ch));
+    key({ kind: "enter" });
+    let text = "";
+    await until(() => { void board.get(note.id).then(m => { text = m?.text ?? ""; }); return text === "Plum trees [type::chirp]\nbring envelopes"; }, "the person's rename lands");
+  });
 });

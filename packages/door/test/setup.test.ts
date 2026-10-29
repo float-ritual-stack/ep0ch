@@ -1109,6 +1109,18 @@ describe("the installed copies of the built-in extensions (PIE-861)", () => {
     expect(checks[1]!.detail).toContain("the built-in differs in tidy.ts");
     expect(checks[1]!.fix).toContain("shows the diff and asks");
   });
+
+  test("doctor: a copy that overrides the built-in says so, older versions by number, with the command that removes it (PIE-1283)", () => {
+    const neat = copy("neat", "forked", { differs: ["scripts/neat.js"], version: { builtIn: 2, copy: 1 } });
+    const [stale, forked, outline] = builtinChecks(withCopies([tarot, neat, tidy]));
+    expect(stale!.detail).toContain("overrides the built-in");
+    expect(stale!.fix).toContain("ep0ch ext update tarot");
+    expect(stale!.fix).toContain("ep0ch ext remove tarot");
+    expect(forked!.detail).toContain("your copy v1, the built-in v2");
+    expect(forked!.fix).toContain("ep0ch ext remove neat");
+    // An outline's own copy is removed from that outline's folder.
+    expect(outline!.fix).toContain(`ext remove tidy --outline-folder ${HOME}/outlines/pie`);
+  });
 });
 
 describe("doctor: the art packs (PIE-596)", () => {
