@@ -15,5 +15,6 @@ describe.skipIf(!outliner)("showcase: search says how sure (PIE-1198)", () => {
     const screen = h.screen();
     expect(screen).toContain("jev-1.13.0");
     expect(screen).toContain("agents read");
+    expect(screen).toContain("the note made after");
   });
 });
