@@ -49,7 +49,7 @@ import { copyNoteById, NOTE_REF_ACTIONS, ownOutline, type NoteRefOn } from "./no
 import { shellRunner } from "./drop";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
 import { Dispatcher, type TileRef } from "./surface/dispatch";
-import { SHELL_IDLE_MS } from "./whereabouts";
+import { holdsEdit, SHELL_IDLE_MS } from "./whereabouts";
 import { authorName, type Actor, type OutlineEvent } from "./socket";
 import { parseFieldKey, parseStyleValue, type FieldKey } from "@ep0ch/outline-core/style-cascade";
 import { lookFor, tuningOf, UNSET, type TuneTarget } from "./look";
@@ -543,14 +543,15 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     summary: "hand the door to your agents (on=true) or take it back (on=false); left out, it toggles. In yolo no person guard holds an agent back: not your typing, focus or idle, not a tile's limit or a lock, not the drawer. What keeps state valid (revisions, the layout's shape) still holds, and every agent action is still attributed and said. Loud on the status bar (YOLO; a click takes it back). Kept across an update of the same session; off after the door ends or crashes. Turning it on is the person's; an agent may turn it off",
     keys: "> agents.yolo in the power bar (ctrl+k); a click on the status bar's YOLO turns it off",
     touches: "nothing", replay: "ask",
-    args: { on: { type: "boolean", optional: true, about: "true hands the door to agents, false takes it back; default: toggle" } },
+    // Handing the door over is the person's alone, on their press too; taking it back (on=false) is anyone's.
+    personWith: ({ on }) => (on === false ? null : { always: "yolo is the person's to hand over: they turn it on (ctrl+k > agents.yolo); an agent takes it back with on=false" }),
+    args: { on: { type: "boolean", optional: true, about: "true hands the door to agents, false takes it back; default: toggle (an agent's says on=false)" } },
     examples: [
       { act: "agents.yolo on=true", does: "hands the door to agents, with YOLO on the status bar (the person's to turn on)" },
       { act: "agents.yolo on=false", does: "puts agents back under the person's guards" },
     ],
     run({ on }, { ctx }, actor) {
       const want = on ?? !ctx.agentsYolo;
-      if (want && actor.kind === "agent") throw new ActionRefused("yolo is the person's to hand over: they turn it on (ctrl+k > agents.yolo); ask them to");
       ctx.agentsYolo = want;
       ctx.flash(want ? "YOLO: agents act with no person guard until you take it back (click YOLO, or agents.yolo on=false)" : "agents are back under the person guards", 8000);
       ctx.redraw();
@@ -685,6 +686,8 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   "screen.open": def({
     summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C I E + A M, or n j k r w l f s q b d g x t o c i e a m, ⏎, click on a menu item or its letter on the key line",
     touches: "screen", replay: "safe", says: out => (out?.opened ? { text: `· opened ${out.opened} · q goes back`, ms: 6000 } : null),
+    // Logging off is the person's G alone, on their press too (an agent's never ends their session).
+    personWith: a => ((itemNamed(a.name) ?? itemNamed(resolveScreen(a.name) ?? ""))?.key === "G" ? { always: "an agent doesn't log the person off; only G, pressed or clicked by them, does" } : null),
     args: {
       name: { type: "string", kind: "screen", about: "the menu key (S), its label (Stats), the screen's title, a registered screen name, or the title of a screen a person made as they typed it (daily test; screen.list)" },
       target: { type: "string", optional: true, about: "what the screen opens on, where it takes one: detail's block (an id, ((ref)) or ep0ch:// URI), the board's hub" },
@@ -717,8 +720,6 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
         return { opened: s.title, screen: name, ...(value ? { target: value } : {}) };
       }
       if (given !== undefined) throw new ActionRefused(`${item.label} takes no target · ep0ch --screen ${name}`);
-      // Logging off is the person's G alone (an agent's never ends their session).
-      if (item.key === "G" && actor.kind === "agent") throw new ActionRefused("an agent doesn't log the person off; only G, pressed or clicked by them, does");
       // An item that is another action's key (the Shell's !) runs that action, through the dispatcher, as the same actor.
       if (item.action) return again ? again(item.action, {}) : Promise.reject(new ActionRefused(`${item.action} runs from the door's own dispatcher`));
       // The menu lights what it opens, so coming back it's where the person left it.
@@ -773,7 +774,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     summary: "end the session: the door stops, with every program in its terminal tiles and the drawer, and every attached terminal is let go (unsaved drafts are copied to disk and put aside, as when the door quits). Logging off (G, ctrl+c) only detaches the terminal you're on; this is how the session ends. With programs running or a draft unsaved it asks first: again within 3s ends it. The person's only",
     keys: "E on the main menu (or a click on End on its key line); `ep0ch session end [--ws <name>] [--yes]` from a shell (this folder's outline's session, or --ws's; --yes is force=true)",
     touches: "screen", replay: "ask",
-    person: "an agent doesn't end the person's session: it would stop the programs in their terminal tiles and let go of their terminals. A session an agent started on its own state dir it ends with `ep0ch session end` there",
+    personAlways: "an agent doesn't end the person's session: it would stop the programs in their terminal tiles and let go of their terminals. A session an agent started on its own state dir it ends with `ep0ch session end` there",
     args: { force: { type: "boolean", optional: true, about: "end it even with programs running or a draft unsaved (the drafts are copied to disk and put aside); else it says what's running, and again within 3s ends it" } },
     examples: [
       { act: "session.end", does: "asks first when programs run or a draft is unsaved; again within 3s ends the session" },
@@ -789,7 +790,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     summary: "hand the session to a new daemon on the code in its checkout: the programs in its tiles keep running in the terminal host, the screens and the edits on top come back, and every attached terminal starts again on the new code and attaches by itself (clients=true: only the terminals start again). The person's only",
     keys: "`ep0ch session upgrade [--ws <name>] [--clients] [--all]` (and `ep0ch install --apply` when the door's code changed, for every session)",
     touches: "screen", replay: "ask",
-    person: "an agent doesn't restart the person's session; `ep0ch install --apply` and `ep0ch session upgrade` are the person's commands",
+    personAlways: "an agent doesn't restart the person's session; `ep0ch install --apply` and `ep0ch session upgrade` are the person's commands",
     args: { clients: { type: "boolean", optional: true, about: "only restart the attached terminals on the new code; the daemon goes on" } },
     examples: [
       { act: "session.upgrade", does: "hands the session to a daemon on the checkout's code; terminals reattach" },
@@ -1541,9 +1542,11 @@ export class MessageReader implements Screen {
       ctx,
       redraw: () => ctx.redraw(),
       navigate: (m, how) => {
-        // An agent never takes the person's keys: while they're in an edit, a comment or the panel here,
-        // what it followed is named, not opened over them.
-        if (how?.by?.kind === "agent" && this.surface.holdsKeys && !ctx.agentsYolo) { ctx.flash(`not opened while you're in ${this.personIn()}: ${subject(m)}`); return; }
+        // A reader pushed over this one changes the person's screen: the actor rule's (touches screen) to say, the one
+        // answer (PIE-1294). An agent's waits while they're in an edit, a comment or the panel here, and what it
+        // followed is named, not opened over them; their press's run and yolo open it.
+        const no = how?.by ? this.dispatch.rule("screen", how.by) : null;
+        if (no) { ctx.flash(`not opened: ${subject(m)} · ${no}`); return; }
         ctx.push(new MessageReader([m], 0));
       },
       header: (m, w, info) => this.header(m, w, info),
@@ -1607,7 +1610,7 @@ export class MessageReader implements Screen {
     if (to < 0 || to >= this.list.length) throw new ActionRefused(dir > 0 ? "end of messages" : "this is the first message");
     const was = this.index;
     this.index = to;
-    if (!this.open(ctx)) { this.index = was; throw new ActionRefused(`finish ${this.personIn()} first · ${this.surface.holdingHint()}`); }
+    if (!this.open(ctx)) { this.index = was; throw new ActionRefused(`${holdsEdit("the message reader")} · ${this.surface.holdingHint()}`); }
     return { index: to + 1, of: this.list.length, id: this.msg.id };
   }
 
@@ -1701,9 +1704,12 @@ export class MessageReader implements Screen {
     return { kind: "message reader", message: { n: this.index + 1, of: this.list.length }, replies: this.replies?.n ?? null, reader: READER, ...this.surface.describe() };
   }
 
-  /** `open <id>`: the note in a new message reader above this one, unless the person is in an edit, a comment or the panel here. */
+  /**
+   * `open <id>`: the note in a new message reader above this one; what's being written here stays in this reader, under
+   * it (q comes back to it). Whether it may open now is `open`'s actor rule (touches screen), the one answer: an agent's
+   * waits while the person is in an edit, a comment or the panel here, the person's own open is theirs.
+   */
   openBlock(m: Msg) {
-    if (this.surface.holdsKeys) throw new ActionRefused(`the person is in ${this.personIn()} here; try again once they close it`);
     this.ctx?.push(new MessageReader([m], 0));
   }
 

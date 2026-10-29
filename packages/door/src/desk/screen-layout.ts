@@ -1,3 +1,4 @@
+import { holdsEdit } from "../whereabouts";
 import type { AltRule } from "./layout";
 // The screen-layout module (PIE-513): the reducer in the door's one-way data flow. A screen's layout is one value
 // (its tree of containers and tiles, its floats, the tiles folded to a spine, the zoom, the links, the tiles' names,
@@ -670,7 +671,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     if (to === undefined && !fresh && facts.follower) result.giveNewKeys = false;
     if (facts.editing || facts.holds) {
       if (to !== undefined && !request.default && !ctx.standing) {
-        result.destination = { kind: "none", reason: `${s.names.get(target)} holds an edit or a comment` };
+        result.destination = { kind: "none", reason: holdsEdit(String(s.names.get(target))) };
         return result;
       }
       const beside = fresh ? undefined : ctx.beside?.get(target);

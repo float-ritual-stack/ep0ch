@@ -23,3 +23,22 @@ test("a cell naming a note is drawn as its title and links it; the row's other c
   expect(row).toContain("<8a1c>Status tonight");
   expect(row).toContain("<1b2c>dense");
 });
+
+// PIE-1402: at 44 columns (Evan's desk tile) a table of records hid the passage, what was said and what the writer did
+// behind "+4 columns". Narrow, a row is a card: its title first, every other cell under it, labelled and wrapped.
+test("a narrow table draws each row as a card with every cell, labelled, linked as its row is", () => {
+  const link = (block: string, text: string) => `<${block.slice(0, 4)}>${text}</>`;
+  const said = "line 3 stacks 3 points in one item: a bullet is one point; make each its own item";
+  const props = `headers: [note, rubric, said, passage, writer, patch]\nrows: [["Status tonight", dense, "${said}", "The swap table went up at nine and the jars were sorted", loki, ready], ["Seed swap", context, "line 4 leans on today's context", "As discussed", kitty, none]]\nblocks: [${RECORD}, ${RECORD}]\ncellBlocks: [[${NOTE}, null, null, null, null, null], [${NOTE}, null, null, null, null, null]]`;
+  const lines = renderGraph("table", props, 44, link).map(strip);
+  const text = lines.join("\n");
+  expect(text).not.toContain("columns · widen to see");
+  expect(text).toContain("<8a1c>Status tonight");
+  for (const cell of ["rubric: dense", "said: line 3 stacks 3 points", "passage: The swap table", "writer: loki", "patch: ready", "said: line 4 leans on today's"]) expect(text).toContain(cell);
+  // Each line is its row's: the said cell links the record, its note the note.
+  expect(lines.find(l => l.includes("rubric: dense"))).toContain("<1b2c>");
+  // Nothing past the frame.
+  expect(Math.max(...lines.map(l => l.replace(/<[^>]*>/g, "").length))).toBeLessThanOrEqual(44);
+  // Wide, it is a table still.
+  expect(renderGraph("table", props, 120, link).map(strip).join("\n")).toContain(" ┊ ");
+});

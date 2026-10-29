@@ -14,7 +14,7 @@
 import type { CompletionTarget } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 280;
+export const PROTOCOL = 281;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 11;
 
@@ -799,7 +799,8 @@ export interface LokiLeaseUse { status: number; id?: string }
  */
 export interface UploadLease { id: string; name?: string; outline: string; url: string; expiresAt: string; curl: string }
 /** A device that may upload (`ep0ch device add`): its token is shown once, when it's made. */
-export interface UploadDevice { id: string; name: string; outline: string; createdAt: string; lastUsedAt?: string; revokedAt?: string }
+/** `shortcutUrl`: the sign-in page where its signed "Send to ep0ch" Shortcut waits (PIE-1408). */
+export interface UploadDevice { id: string; name: string; outline: string; createdAt: string; lastUsedAt?: string; revokedAt?: string; shortcutUrl?: string }
 /** What the host says of a request to the upload route: who it may be, or why not. A write comes with the `claim` to settle. */
 export type UploadTake =
   | { status: 200; claim?: string; who: { kind: "lease" | "device"; id: string; name?: string; outline: string; by: string; deviceName?: string }; expiresAt?: string }
@@ -875,8 +876,11 @@ export interface TwinCandidate {
   /** Jev's: the same work, and one more step of it. */
   same?: number;
   part?: number;
-  /** `same` (a twin), `part` (attach to it), `text` (a strong title match Jev didn't say no to), or `related`. */
-  verdict: "same" | "part" | "text" | "related";
+  /**
+   * `same` (a twin), `unsure` (Jev between yes and no on the same work: offered as a twin, its writer decides; PIE-1402),
+   * `part` (attach to it), `text` (a strong title match Jev didn't say no to), or `related`.
+   */
+  verdict: "same" | "unsure" | "part" | "text" | "related";
   /** `PIE-12 (doing) Title · same work, Jev 0.86`: the service's words for it. */
   said: string;
 }

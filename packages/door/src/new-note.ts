@@ -15,7 +15,6 @@ import { changedSinceRead, Refused, type NotePlacement } from "./socket";
 import { paint, width } from "./style";
 import { readState, writeState } from "./state";
 import { NEW_NOTE_OPENS, type NewNoteOpens } from "./desk/screen-spec";
-import { actorRule } from "./surface/dispatch";
 import { type Actor } from "./socket";
 import type { Key } from "./term";
 
@@ -115,7 +114,7 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
       // open puts a message reader over it, and that reader opens the edit. Only an edit on this very note counts.
       let reader: string | null = null;
       try {
-        const held = ctx.dispatch && actorRule({ touches: "screen", host: true }, actor, ctx.dispatch.where(), {});
+        const held = ctx.dispatch?.rule("screen", actor, { host: true });
         if (held) throw new ActionRefused(held);
         if (here?.editNew) reader = await here.editNew(note, { opens: opens ?? "float", context: at ?? null, actor });
         else if (ctx.press) {

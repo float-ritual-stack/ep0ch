@@ -134,6 +134,6 @@ export async function openNote(id: string, host: BarHost, how: PickHow, fragment
   const top = host.screens().at(-1), own = !!top?.dispatch?.has("open");
   // A screen with an open of its own (the desk's) takes fresh=: a new detail beside the tile with the keys; and a line's anchor.
   const args = { id, ...(how.alt && own ? { fresh: true } : {}), ...(fragment && own ? { fragment } : {}) };
-  return how.actor.kind === "agent" ? host.dispatch.act({ action: "open", args }, how.actor) : host.dispatch.press("open", args);
+  return host.dispatch.as(how.actor, { action: "open", args });
 }
 
