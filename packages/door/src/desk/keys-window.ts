@@ -167,7 +167,7 @@ export class KeysPane implements Pane {
 
   private rowLine(r: Row, on: boolean, w: number): string {
     // Narrow (a 44-column tile), the words get the room: the scope is in the detail, and the filter (`in:note`) says it.
-    const narrow = w < 60, b = r.b, cap = !b.key ? (narrow ? fg(C.brown) + ellipsize(b.scope, 9) + RESET : fg(C.dark) + "no key" + RESET) : keycap(b.cap), capW = narrow ? 9 : 12, scopeW = narrow ? 0 : Math.min(14, Math.max(6, Math.floor(w * 0.18)));
+    const narrow = w < 60, b = r.b, cap = !b.key ? (narrow ? fg(C.brown) + ellipsize(b.scope, 9) + RESET : fg(C.dark) + (b.rebind === true ? "no key" : "needs args") + RESET) : keycap(b.cap), capW = narrow ? 9 : 12, scopeW = narrow ? 0 : Math.min(14, Math.max(6, Math.floor(w * 0.18)));
     const mark = b.yours ? fg(C.lcyan) + "●" + RESET : r.head ? fg(C.yellow) + "!" + RESET : " ";
     const scope = narrow ? "" : fg(C.brown) + pad(ellipsize(b.scope, scopeW), scopeW) + RESET + " ";
     const text = mark + pad(cap, capW) + " " + scope + fg(C.grey) + ellipsize(b.does, Math.max(4, w - capW - scopeW - (narrow ? 3 : 4))) + RESET;
