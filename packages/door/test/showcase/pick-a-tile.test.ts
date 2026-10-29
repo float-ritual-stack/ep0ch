@@ -278,6 +278,23 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     h.press({ kind: "mouse", action: "down", button: 0, x: mx, y: my } as never);
     h.press({ kind: "mouse", action: "up", button: 0, x: mx, y: my } as never);
     await until(() => h.written.slice(at).join("").includes(Buffer.from(picked).toString("base64")), "the row's id on the clipboard");
-  });
+  }, 30_000);
+
+  test("a card of a mounted board: a right-click on it is its lane's menu, and copies that card", async () => {
+    await act("section", { name: "screen" });
+    const plainLines = () => h.sc.render(h.app).lines.map((l: string) => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, ""));
+    await until(() => plainLines().some((l: string) => l.includes("Fix the back gate")), "the mounted board's card");
+    const at = plainLines(), y = at.findIndex((l: string) => l.includes("Fix the back gate")), x = at[y]!.indexOf("Fix the back gate") + 2;
+    h.press({ kind: "mouse", action: "down", button: 2, x, y } as never);
+    h.press({ kind: "mouse", action: "up", button: 2, x, y } as never);
+    // The lane's own menu (not the mount's), its Note rows the card's.
+    await until(() => plainLines().some((l: string) => /Queued · t-/.test(l)), "the lane's menu");
+    // Typed, the menu narrows to the card's Note row: ⏎ copies the card's reference.
+    const before = h.written.length;
+    for (const c of "copy web link") h.ch(c);
+    h.press({ kind: "enter" });
+    await until(() => /\/p\/HOME-001/.test(Buffer.from((h.written.slice(before).join("").match(/\x1b\]52;c;([A-Za-z0-9+/=]+)/)?.[1]) ?? "", "base64").toString()), "the card's web link, by its Work ID");
+    h.press({ kind: "esc" });
+  }, 30_000);
 
 });
