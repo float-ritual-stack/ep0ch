@@ -18,6 +18,33 @@ are its record. The outliner's entries from then are kept below, under
 - **A failed button's `!` stays its own:** deleting a line no longer moves it onto the next button, and it follows its button when lines move.
 - **Right-click a note's `::button`** to pin it to the status bar: it becomes the `[ ]` position and nothing runs.
 
+### Jev's patches, round three: buried prose questions and kept chips (PIE-1419)
+
+- **A question at the bottom is buried** whether or not it names Evan: a line that ends in a question counts unless
+  Jev says firmly it asks nothing, so an unsure or unheard Jev never hides it. Its patch moves it to the top.
+- **A wall under a chip line keeps its chips as chips:** the chip line is never part of the paragraph, and the patch's
+  list starts below it.
+- **A stacked bullet of clauses** (joined by `;` or a dash) comes with a patch, one clause a bullet.
+- **The words say what's wrong:** "a paragraph of 5 sentences (keep one to 3)" or "one sentence of 612 characters";
+  a callout is "would read better as a callout", not "a callouts"; every finding leads with its fix, so
+  the 44-column suggestions page reads it.
+
+### Only the power bar answers the mouse, and it reads right at 44 and 40 columns (PIE-1407, PIE-1405)
+
+- **Nothing behind an overlay shows through it:** with the bar open over a reader, hovering the bar drew the reader's
+  byline across it. A tile's cut-short value or button now ends where the bar, a float, a menu or a toast starts, so
+  the pointer over an overlay reads only the overlay.
+- **The second click on a row runs it**, as ⏎ does: a click lights a row and shows its preview, the next click on it
+  runs it, however long between (a double click still does).
+- **A pasted link reads on the line at 40 columns**, the field scrolling sideways to the cursor instead of showing its
+  last few characters; the count takes what's left.
+- **A lit row's name stays put at 44 columns:** only its detail scrolls.
+- **Copy command copies what the row runs:** a tile's `tile.focus tile=<it>`, a screen's `screen.open`, an
+  extension's install or remove; a note's row says its menu copies its reference.
+- **Rows say themselves:** a script reads under its own name with its own words (no `ext.script-…run`, no "neat ·
+  neat:"); a pasted id that isn't here is named once, on one line; Jira's install row says what it does.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### The keys window: every binding, what it shadows, and a rebind said before it lands (PIE-492, PIE-1048)
 
 - **`?` on any screen opens it,** filtered to where you are (`in:note` in a reader); `ep0ch --screen keys`,
