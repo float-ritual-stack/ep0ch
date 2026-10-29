@@ -102,7 +102,7 @@ import {
   TUI_RESOURCE_PRESENTATION_CONTEXT,
 } from "./resource-presentation";
 import { probeSocket } from "./socket-probe";
-import { actionOf, turnKeyOf, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
+import { actionOf, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
 import { isWatchable, QueryWatches, type WatchConnection } from "./query-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
@@ -457,17 +457,19 @@ export class OutlinerServer {
    */
   private readonly own = {
     request: async <T>(input: RequestInput | ({ action: string } & Record<string, unknown>)): Promise<T> => {
-      await this.turns.next(input.action, "own");
+      // A request's own reads and writes go as its asker's (a backfill's keep as the backfill's); a timer's as `own`.
+      const key = turnOwner.getStore() ?? "own";
+      await this.turns.next(input.action, key);
       const started = performance.now();
       let sameTurn = true;
       setImmediate(() => { sameTurn = false; });
       const pending = this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
       let ms = performance.now() - started;
       const response = await pending;
-      // What it held the loop for (all of it when it never waited outside the loop): charged to the service's own jobs,
-      // and named in a stall.
+      // What it held the loop for (all of it when it never waited outside the loop): charged to whose it is, and named
+      // in a stall.
       if (sameTurn) ms = performance.now() - started;
-      this.turns.charge("own", ms);
+      this.turns.charge(key, ms);
       noteWork(`${input.action} (own)`, ms);
       if (!response.ok) throw new Error(response.error);
       return response.result as T;
@@ -4861,7 +4863,7 @@ export class OutlinerServer {
         kind: requestChangeKind(current.action),
         collect: true,
       });
-      const pending = this.store.changes.run(attribution, () => this.handleAsync(current, subscribedClient, socket));
+      const pending = this.store.changes.run(attribution, () => turnOwner.run(key, () => this.handleAsync(current, subscribedClient, socket)));
       // What ran before the handler first waited held the loop; the waits after it didn't, unless they were all in this turn.
       loopMs = performance.now() - started;
       response = await pending;

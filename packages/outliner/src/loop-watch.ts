@@ -13,6 +13,8 @@
  * And whose turn it is (`Turns`): the service gives each request its turn on the loop, the whole-outline reads last.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 export interface LoopStall {
   status: "loop_stalled";
   ms: number;
@@ -117,6 +119,9 @@ const USAGE_HALF_LIFE_MS = 1_000;
 
 /** Who a turn is for: a connection, an `actor:<id>`, the service's `own` jobs, its `watches`. */
 export type TurnKey = object | string;
+
+/** Whose request this work is for: what the service asks itself while answering one goes as that one's (`own`). */
+export const turnOwner = new AsyncLocalStorage<TurnKey>();
 
 interface Waiting { resolve: () => void; key: TurnKey; seq: number }
 
