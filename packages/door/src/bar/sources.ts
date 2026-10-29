@@ -176,7 +176,9 @@ export async function recentNotes(host: BarHost): Promise<BarRow[]> {
 async function addressedRows(to: NonNullable<ReturnType<typeof addressOf>>, host: BarHost): Promise<BarRow[]> {
   const named = "block" in to ? to.block : to.page;
   const m = await readTarget(host.ctx, to);
-  if (!m || m.deleted) return [{ key: `address:${named}`, label: to.label ?? named!, exact: true, refused: `no note ${named} in ${to.outline ?? "this outline"}` }];
+  // Named once, on one line (PIE-1405): the row is the id, what's wrong is said after it.
+  if (!m || m.deleted) return [{ key: `address:${named}`, label: to.label ?? named!, exact: true, oneLine: true,
+    refused: to.outline ? `no such note in ${to.outline}` : "no such note in this outline; one from another outline opens by its ep0ch:// or web link" }];
   const there = m.address, c = there ? await outlineBoards(host.ctx).on(there) : null;
   const key = there ? formatEp0chBlockUri({ outline: there.outline, machine: there.machine ?? c!.machine ?? (await c!.board.info()).machine!, blockId: m.id }) : m.id;
   const detail = [there?.outline, to.fragment ? `line ^${to.fragment}` : ""].filter(Boolean).join(" · ");
@@ -362,7 +364,7 @@ function actionLine(q: string, host: BarHost, command = false): BarRow | null {
   if (!info && (command || req.action.includes(".") || words.some(w => w.includes("=")))) {
     const near = closest(req.action, actions.map(a => a.name));
     if (near) { corrections.push(`did you mean ${req.action} -> ${near}`); req.action = near; info = actions.find(a => a.name === near); }
-    else return { key: `line:${q}`, label: q, fill: q, exact: true, refused: `no action ${req.action} here; > lists actions`, data: { action: req.action, args: {} } };
+    else return { key: `line:${q}`, label: q, fill: q, exact: true, refused: command ? `no action ${req.action} here; / searches the notes for it` : `no action ${req.action} here; > lists actions`, data: { action: req.action, args: {} } };
   }
   if (info) {
     const fields = formFields(info);

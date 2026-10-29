@@ -906,4 +906,40 @@ describe.skipIf(!outliner)("the power bar", () => {
     await expect(app.dispatch.act({ action: "bar.command", args: { op: "copy", n: hit } }, USER)).rejects.toThrow("its menu copies its reference");
   });
 
+  test("a click lights a row and shows its preview; a click on the lit row runs it, as enter does (PIE-1405)", async () => {
+    key(ctrlK); type("%");
+    // A tile row other than the lit first one, and another tile in focus.
+    const rows = peek().bar.rows, n = rows.findIndex((r: any, i: number) => i > 0 && r.source === "tiles" && r.detail.split(" · ")[0] !== "reader");
+    expect(n).toBeGreaterThan(0);
+    const name = rows[n].detail.split(" · ")[0];
+    desk.focusTile("reader", USER);
+    const y = frame().findIndex(l => l.includes(rows[n].label) && l.includes(`${name} ·`)), x = frame()[y]!.indexOf(rows[n].label) + 1;
+    const click = () => { key({ kind: "mouse", action: "down", x, y, button: 0 } as Key); key({ kind: "mouse", action: "up", x, y, button: 0 } as Key); };
+    click();
+    expect(peek().bar?.selected).toBe(n + 1);
+    expect(desk.focusedPane()).toBe(desk.pane("reader"));
+    // Seconds later, not a double click: the second click on the lit row is the pick.
+    await Bun.sleep(450);
+    click();
+    expect(peek().bar).toBeUndefined();
+    expect(desk.focusedPane()).toBe(desk.pane(name));
+  });
+
+  test("at 40 columns what's pasted reads on the line, and a note that isn't here is named once (PIE-1405)", async () => {
+    const link = "https://my.ep0ch.sh/pub/o/garden/p/0b5c2d11-7e4f-4a3b-9c8d-1e2f3a4b5c6d";
+    key(ctrlK); key({ kind: "paste", text: link });
+    await (app as any).bar.settled(3000).catch(() => {});
+    const line = ((app as any).bar.draw(40, 30) as { lines: string[] }).lines.map(plain).find(l => l.includes("›"))!;
+    // The line shows the link's last cells, the whole field's worth, not ten of them.
+    expect(line).toContain(link.slice(-30));
+    key({ kind: "esc" }); key({ kind: "esc" });
+    const id = "0b5c2d11-7e4f-4a3b-9c8d-1e2f3a4b5c6d";
+    key(ctrlK); key({ kind: "paste", text: id });
+    await until(() => peek().bar.rows.some((r: any) => r.refused), "the address answered", 5000);
+    const row = peek().bar.rows.find((r: any) => r.refused);
+    expect(row.label).toBe(id);
+    expect(row.refused).not.toContain("0b5c2d11");
+    expect(row.refused).toContain("this outline");
+  });
+
 });

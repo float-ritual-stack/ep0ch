@@ -116,11 +116,13 @@ export class PowerBar {
       name: "power bar", items: () => this.items,
       heading: (it, _i, w) => (!this.compact() && it.heading ? fg(C.dark) + ` ${it.heading} ${"─".repeat(Math.max(0, w - width(it.heading) - 2))}` + RESET : null),
       row: (it, _i, on, w) => this.rowText(it, on, w),
-      // ⏎ and a double click (an alt-click: the alternate) are `bar.pick`, an action, as an agent's is.
+      // ⏎, a double click and a click on the lit row (an alt-click: the alternate) are `bar.pick`, an action, as an agent's is.
       choose: (_it, i) => this.pick(i + 1, this.alt),
       closed: () => { clearPrivateForm(); this.close(); },
       keys: k => this.ownKey(k),
       clickChooses: !!this.compact(),
+      // A click lights a row and shows its preview; a click on the lit row runs it, as ⏎ does (PIE-1405).
+      litClickChooses: true,
       clicked: (x, y) => this.clicked(x, y),
       frame: a => this.frame(a),
     });
@@ -445,9 +447,9 @@ export class PowerBar {
     const count = [none ? "no matches" : `${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
     // What's typed gets the row before the count does (PIE-1405): a pasted link at 40 columns reads whole, and the count
     // takes what's left, cut short (hover reads it).
-    const status = busy || count, room = Math.max(10, w - 3);
-    const field = Math.min(room, Math.max(10, w - 3 - width(status), width(this.query) + 1));
-    const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, field)) : this.input.render(field, 1)[0]) + (room - field > 1 ? paint(" |08") + clipText(status, room - field - 1) : "");
+    const status = busy || count, room = Math.max(10, w - 2);
+    const field = Math.min(room, Math.max(10, room - 1 - width(status), width(this.query) + 1));
+    const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, field)) : this.input.render(field, 1)[0]) + (room - field > 1 ? paint(" |08") + drawEllipsized(status, room - field - 1) : "");
     const scoped = this.scope ? barSource(this.scope) : undefined;
     this.sourceHead = scoped?.head?.(w, this.host) ?? [];
     // The row menu (alt+m, a right-click): each entry a chip with its digit (1, 2… or alt+1 while the menu is open, as a

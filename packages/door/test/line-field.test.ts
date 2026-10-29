@@ -114,3 +114,20 @@ describe("a property's value is the same field (the reader's panel)", () => {
     expect(f.text).toBe("queued for autumn");
   });
 });
+
+// PIE-1405: a line wider than its field scrolls sideways, the cursor in view; it never shows only its last wrapped piece.
+test("a long line in a narrow field shows the cells up to the cursor, and a click lands on the character under it", () => {
+  const link = "https://my.ep0ch.sh/pub/o/garden/p/0b5c2d11-7e4f-4a3b-9c8d-1e2f3a4b5c6d";
+  const l = new LineField(link, false, { complete: false });
+  const shown = visible(l.render(20, 1)[0]!);
+  expect(shown).toBe(link.slice(-19) + " ");
+  // Home: the start shows again.
+  l.take({ kind: "home" });
+  expect(visible(l.render(20, 1)[0]!)).toStartWith(link.slice(0, 19));
+  // End, then a click on the field's first cell places the cursor on the character drawn there.
+  l.take({ kind: "end" });
+  l.render(20, 1);
+  l.drawnAt(0, 0, 20);
+  l.take({ kind: "mouse", action: "down", x: 0, y: 0, button: 0 } as Key);
+  expect(l.cursor).toBe(link.length - 19);
+});
