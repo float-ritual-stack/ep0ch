@@ -40,7 +40,6 @@ import { chipText, headerLine } from "@ep0ch/outline-core/header-line";
 import { isPropertyKey } from "@ep0ch/outline-core/property-grammar";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { parseOutlinerLinkUri, resolveOutlinerLinkTarget, type OutlinerLinkTarget } from "./outliner-links";
-import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle } from "./references";
 import { textRecord } from "./block-records";
 import type { SiteAnswer } from "@ep0ch/outline-core/site";
@@ -121,30 +120,17 @@ function workIdOf(block: Block): string | undefined {
 // ─── Resolve ───────────────────────────────────────────────────────────────
 
 /**
- * What an agent may name a block by: its id, `((id))` (with `^fragment` or
- * `|label`), `[[page]]`, a Work ID, or a `pi-outliner://` link. A title is
- * refused (outline_find finds one), so a write never lands on a guess.
+ * The refs the link grammar names by itself, read here: a `pi-outliner://` link, a full id, or one whole `((id))`
+ * (with `^fragment`, `|label` or another outline's name). Null for the rest, which `blocks.resolve` reads.
  */
-export function referenceTarget(ref: string): OutlinerLinkTarget {
-  const text = typeof ref === "string" ? ref.trim() : "";
-  if (!text) throw new WorkToolRefusal("Give a reference: a block id, ((id)), [[page]] or a Work ID");
+function linkTarget(text: string): OutlinerLinkTarget | null {
   if (text.startsWith("pi-outliner://")) return parseOutlinerLinkUri(text);
   if (UUID.test(text)) return { kind: "block", value: text.toLowerCase() };
   const references = blockReferenceOccurrences(text);
-  if (references.length === 1 && references[0]!.start === 0 && references[0]!.end === text.length) {
-    const { blockId, fragmentId } = references[0]!;
-    return { kind: "block", value: blockId, ...(fragmentId ? { fragmentId } : {}) };
-  }
-  const pages = pageAddressReferences(text).filter((page) => !page.nested);
-  if (pages.length === 1 && pages[0]!.start === 0 && pages[0]!.end === text.length) {
-    const address = pages[0]!.displayAddress;
-    return parseWorkId(address) ? { kind: "work", value: parseWorkId(address)!.workId } : { kind: "page", value: address };
-  }
-  const workId = parseWorkId(text);
-  if (workId) return { kind: "work", value: workId.workId };
-  throw new WorkToolRefusal(
-    `"${text}" is not a reference; give a block id, ((id)), [[page]] or a Work ID (titles aren't accepted: outline_find finds one)`,
-  );
+  if (references.length !== 1 || references[0]!.start !== 0 || references[0]!.end !== text.length) return null;
+  const { outline, blockId, fragmentId } = references[0]!;
+  if (!outline && !fragmentId && !UUID.test(blockId)) return null;
+  return { kind: "block", value: outline ? `${outline}:${blockId}` : blockId, ...(fragmentId ? { fragmentId } : {}) };
 }
 
 export interface ResolvedReference {
@@ -157,14 +143,30 @@ export interface ResolvedReference {
   deleted?: true;
 }
 
+/**
+ * The block an agent names, by the service's one resolver (`blocks.resolve`, the CLI's too) unless `linkTarget` reads
+ * it. Its refusals teach (an ambiguous prefix's candidates, a miss's nearest ids); a title is refused, so a write never
+ * lands on a guess.
+ */
 async function resolveReference(client: AgentToolsClient, ref: string): Promise<{ block: Block; fragmentId?: string }> {
-  const target = referenceTarget(ref);
-  if (target.kind === "goto" || target.kind === "resource" || target.kind === "reference") {
-    throw new WorkToolRefusal(`A ${target.kind} link doesn't name one block; give its id, [[page]] or Work ID`);
+  const text = typeof ref === "string" ? ref.trim() : "";
+  if (!text) throw new WorkToolRefusal("Give a reference: a block id, ((id)), an id's first 8+ characters, [[page]] or a Work ID");
+  const target = linkTarget(text);
+  if (target) {
+    if (target.kind === "goto" || target.kind === "resource" || target.kind === "reference") {
+      throw new WorkToolRefusal(`A ${target.kind} link doesn't name one block; give its id, [[page]] or Work ID`);
+    }
+    // Read-only: a page address that doesn't resolve is an error, never a new page.
+    const resolved = await resolveOutlinerLinkTarget(client, target, { followMissingPages: false });
+    return { block: resolved.block, ...(resolved.fragmentId ? { fragmentId: resolved.fragmentId } : {}) };
   }
-  // Read-only: a page address that doesn't resolve is an error, never a new page.
-  const resolved = await resolveOutlinerLinkTarget(client, target, { followMissingPages: false });
-  return { block: resolved.block, ...(resolved.fragmentId ? { fragmentId: resolved.fragmentId } : {}) };
+  const [answer] = (await client.request<{ resolved: { id?: string; error?: string }[] }>({ action: "blocks.resolve", refs: [text] })).resolved;
+  if (!answer?.id) {
+    const error = answer?.error ?? `No note ${text}`;
+    const named = text.startsWith("[[") || /^[0-9a-f-]{8,}$/i.test(text) || parseWorkId(text);
+    throw new WorkToolRefusal(named ? error : `${error}; titles aren't accepted: outline_find finds one`);
+  }
+  return { block: await client.request<Block>({ action: "get", blockId: answer.id }) };
 }
 
 /** A block to write to: resolved, and refused while it is in Trash. */
@@ -1089,8 +1091,8 @@ async function commentOnResource(
 }
 
 function threadId(thread: string): string {
-  const target = referenceTarget(thread);
-  if (target.kind !== "block") throw new WorkToolRefusal("Name the thread by its id (outline_comment returns it)");
+  const target = linkTarget(typeof thread === "string" ? thread.trim() : "");
+  if (target?.kind !== "block") throw new WorkToolRefusal("Name the thread by its id (outline_comment returns it)");
   return target.value;
 }
 

@@ -287,7 +287,7 @@ const clientOf = (board: WriteBoard) => ({
 
 /**
  * The block a ref names in an outline: its id, `((id))`, `[[page]]`, a Work ID (PIE-123) or a pi-outliner:// link,
- * resolved by the outliner's own `resolveRef`, the one the Claude mod's tools use. Reads only: a page that doesn't
+ * resolved by the outliner's own `resolveRef` (the service's `blocks.resolve`, so an id's first 8+ characters too), the one the Claude mod's tools use. Reads only: a page that doesn't
  * resolve is an error, never a new page. A title is refused, as there.
  */
 export async function resolveBoardRef(board: WriteBoard, ref: string): Promise<{ id: string; fragmentId?: string }> {
@@ -331,7 +331,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, options: im
 
 const REF_ADDRESS = {
   uri: { type: "string", description: "The block's ep0ch:// URI (it names its outline)" },
-  ref: { type: "string", description: "The block in `outline`: its id, ((id)), [[page]] or Work ID (PIE-123); for outline_read and outline_comment also a Resource: resource:<id> or a [file::path] token" },
+  ref: { type: "string", description: "The block in `outline`: its id, ((id)), its first 8+ characters, [[page]] or Work ID (PIE-123); for outline_read and outline_comment also a Resource: resource:<id> or a [file::path] token" },
 };
 
 /** How the gateway names the block a shared tool acts on (outline-core agent-tool-definitions' `{note}` and `{parent}`). */
