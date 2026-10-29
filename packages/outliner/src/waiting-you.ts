@@ -3,9 +3,28 @@ import type { WaitingAsk } from "@ep0ch/outline-core/protocol";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { markdownSourceTokens } from "./markdown-structure";
 import { checklistItems } from "./checklist-items";
+import { textMemo } from "./text-memo";
 
 // The waiting-on-Evan view's query: needs is a reason-bearing value, not an exact-value filter.
 const NEEDS = "needs NOT work-stage=done NOT work-stage=superseded";
+
+/**
+ * The open steps under a "Decisions for Evan" or "NEEDS A GO" heading of a capability or design note: a function of
+ * its text, kept per text (PIE-1413: every door asks after every change, and parsing pie's long notes took ~350 ms).
+ */
+const openCalls = textMemo((text: string): readonly { reason: string; line: number; at: number; label: string }[] => {
+  const headings = markdownSourceTokens(text).filter(h => h.token.type === "heading");
+  const calls = new Set<number>();
+  for (let i = 0; i < headings.length; i++) {
+    const h = headings[i]!;
+    if (h.token.type !== "heading" || !/Decisions for Evan|NEEDS A GO/i.test(h.token.text)) continue;
+    const depth = h.token.depth;
+    const end = headings.slice(i + 1).find(next => next.token.type === "heading" && next.token.depth <= depth)?.span.startLine ?? text.split("\n").length;
+    for (let line = h.span.endLine + 1; line < end; line++) calls.add(line);
+  }
+  return Object.freeze(checklistItems(text).filter(item => item.status === "todo" && calls.has(item.span.startLine))
+    .map(item => Object.freeze({ reason: item.text.replace(/^\s*[-+*]\s+\[ \]\s*/, ""), line: item.span.startLine, at: item.span.start, label: item.text })));
+}, 1_024);
 
 export function waitingAsks(store: OutlinerStore): WaitingAsk[] {
   // Every scope (PIE-1277): a `- [ ] … [needs::sysop: …]` on line 30 of a long note is an ask too, opened at its line.
@@ -27,20 +46,9 @@ export function waitingAsks(store: OutlinerStore): WaitingAsk[] {
     }
     if (values("type").includes("draft-proposal") && values("proposal-status").includes("open")) rows.push({ ...base, kind: "proposal", reason: "open proposal" });
     if (!values("type").some(v => v === "capability" || v === "design")) continue;
-    const headings = markdownSourceTokens(b.text).filter(h => h.token.type === "heading");
-    const calls = new Set<number>();
-    for (let i = 0; i < headings.length; i++) {
-      const h = headings[i]!;
-      if (h.token.type !== "heading" || !/Decisions for Evan|NEEDS A GO/i.test(h.token.text)) continue;
-      const depth = h.token.depth;
-      const end = headings.slice(i + 1).find(next => next.token.type === "heading" && next.token.depth <= depth)?.span.startLine ?? b.text.split("\n").length;
-      for (let line = h.span.endLine + 1; line < end; line++) calls.add(line);
-    }
     // A step that is already a decision row (its own [needs::sysop: …]) isn't listed twice.
     const asked = new Set(rows.filter(r => r.block === b.id && r.line !== undefined).map(r => r.line));
-    for (const item of checklistItems(b.text)) if (item.status === "todo" && calls.has(item.span.startLine) && !asked.has(item.span.startLine)) {
-      rows.push({ ...base, kind: "call", reason: item.text.replace(/^\s*[-+*]\s+\[ \]\s*/, ""), line: item.span.startLine, at: item.span.start, label: item.text });
-    }
+    for (const call of openCalls(b.text)) if (!asked.has(call.line)) rows.push({ ...base, kind: "call", ...call });
   }
   return rows.sort((a, b) => ["decision", "proposal", "call"].indexOf(a.kind) - ["decision", "proposal", "call"].indexOf(b.kind));
 }
