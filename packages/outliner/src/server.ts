@@ -174,7 +174,7 @@ import {
   type RenderedNote,
 } from "./types";
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
-import { ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
+import { fileStorage, ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
 import { dialsIn, localMachineAliases, localMachineName } from "./machine-name";
 import { ECHONET_MAIL_ACTIONS, putPacket, readBulletin, takePackets } from "./echonet-mail";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
@@ -373,7 +373,10 @@ export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "p
  * What a read-only copy answers: those reads, and the ones the web client's pages of it make (publish-remote.ts: another
  * machine's outline read from its mirror while that machine is away), with the change feed it subscribes to.
  */
-const READ_ONLY_COPY_ACTIONS: ReadonlySet<string> = new Set([...READ_ONLY_ACTIONS, "artifacts.show", "artifacts.list", "artifacts.versions", "events.subscribe", "children", "blocks.read", "transclusions.read", "callouts.types", "extensions.list"]);
+const READ_ONLY_COPY_ACTIONS: ReadonlySet<string> = new Set([...READ_ONLY_ACTIONS, "artifacts.show", "artifacts.list", "artifacts.versions", "events.subscribe", "children", "blocks.read", "transclusions.read", "callouts.types", "extensions.list",
+  // A snapshot is a read (PIE-1091): made from the copy, downloaded once from this machine's web client, listed and
+  // revoked here; and what its pages here have in front of them. Starting a share stays the outline's own machine's.
+  "outline.snapshot", "shares.snapshot.take", "shares.snapshot.finish", "shares.list", "shares.revoke", "reader.report", "reader.view"]);
 
 export class OutlinerServer {
   private readonly mentions: MentionRepository;
@@ -387,9 +390,11 @@ export class OutlinerServer {
   /** The live drafts doors hold (PIE-501), and the requests to them waiting for an answer. */
   private readonly draftHolds = new DraftHolds();
   /** Short-lived public links (share-sessions.ts), kept in the outline's metadata. */
-  private readonly shares = new ShareSessions({ read: () => this.store.readMetadata(SHARES_METADATA_KEY), write: (value) => this.store.writeMetadata(SHARES_METADATA_KEY, value) });
+  private readonly shares: ShareSessions;
   /** What each reader of the web client has in front of them (presence, in memory). */
-  private readonly readers = new ReaderPresence();
+  private readonly readers: ReaderPresence;
+  /** A read-only copy of another machine's outline: its address on the web client, and where its shares are kept. */
+  private readonly copy?: { address: string; state: string };
   private readonly snapshots: OutlineSnapshots;
   /** `shares.start` calls waiting for their tunnel's report (`shares.tunnel`), by share id. */
   private readonly tunnelWaits = new Map<string, () => void>();
@@ -493,12 +498,21 @@ export class OutlinerServer {
       /** The clock an extension's calls are told (`context.now`; tests pin a date-seeded extension's answer). */
       extensionNow?: () => number;
       /** Providers a store's own remote-entity client serves without an extension folder (a test's fixture client). */
-      resourceProviders?: readonly ResourceProviderEntry[] } = {},
+      resourceProviders?: readonly ResourceProviderEntry[];
+      /**
+       * A read-only copy of another machine's outline (outline-mirror.ts, PIE-1091): its address on this machine's web
+       * client (`float-hub@laptop`, the path a snapshot link names) and the folder beside the mirror its snapshot
+       * sessions, files and readers are kept in, shared by every process that serves the copy and every generation.
+       */
+      copy?: { address: string; state: string } } = {},
   ) {
     this.fixtureProviders = options.resourceProviders ?? [];
     this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
-    this.snapshots = new OutlineSnapshots(store, this.shares, join(this.stateDirectory, "snapshots"));
     this.readOnly = options.readOnly === true;
+    if (options.copy) this.copy = options.copy;
+    this.shares = new ShareSessions(this.copy ? fileStorage(join(this.copy.state, "shares.json")) : { read: () => this.store.readMetadata(SHARES_METADATA_KEY), write: (value) => this.store.writeMetadata(SHARES_METADATA_KEY, value) });
+    this.readers = new ReaderPresence(Date.now, this.copy ? fileStorage(join(this.copy.state, "readers.json")) : undefined);
+    this.snapshots = new OutlineSnapshots(store, this.shares, join(this.copy?.state ?? this.stateDirectory, "snapshots"), !this.readOnly);
     this.outlinesFolder = options.outlinesFolder;
     this.watches = new QueryWatches({
       answer: request => this.handle(request as unknown as OutlinerRequest),
@@ -846,8 +860,9 @@ export class OutlinerServer {
     this.stopping = false;
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
     this.hosted = true;
-    // A read-only copy runs nothing of its own: no agents answer its `@name` lines, and no extension fetches.
-    if (this.readOnly) return;
+    // A read-only copy runs nothing of its own: no agents answer its `@name` lines, and no extension fetches. Its
+    // snapshot links still end on time.
+    if (this.readOnly) { if (this.copy) this.snapshots.start(); return; }
     // The host opens each outline here, not through start(): requests a restart cut off, and `@name` lines
     // from before agent requests, are seen to the same way, once per outline.
     this.snapshots.start();
@@ -4474,8 +4489,8 @@ export class OutlinerServer {
         const address = this.publisherAddress();
         const root = address.url ? new URL(address.url).pathname.replace(/\/o\/[^/]+\/?$/, "").replace(/\/+$/, "") : "/pub";
         const publicAddress = this.publisherAddress(true);
-        const name = this.outline?.name ?? basename(this.store.database.filename, ".sqlite");
-        const origin = request.webUrl ? `${new URL(request.webUrl).origin}${root}/o/${encodeURIComponent(name)}`
+        const name = this.copy?.address ?? this.outline?.name ?? basename(this.store.database.filename, ".sqlite");
+        const origin = request.webUrl ? `${new URL(request.webUrl).origin}${root}/o/${encodeURIComponent(name).replace("%40", "@")}`
           : publicAddress.publicUrl ? publicAddress.tailnetUrl ?? publicAddress.url ?? new URL(publicAddress.publicUrl).origin
           : this.snapshotAddress?.() ?? address.tailnetUrl ?? address.url;
         const result = await this.snapshots.create(request, origin);

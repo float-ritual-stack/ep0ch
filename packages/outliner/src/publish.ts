@@ -212,7 +212,7 @@ export interface PublisherOptions {
    * takes them. `fresh`: a write is about to land, so nothing remembered from earlier answers.
    */
   writes?: (fresh: boolean) => Promise<string | null>;
-  /** Tell the service who reads which page (`reader.report`); a read-only copy can't keep it. Default true. */
+  /** Tell the service who reads which page (`reader.report`); a mirror's copy keeps it beside the mirror (outline-mirror.ts). Default true. */
   presence?: boolean;
   /** Offer `share…` on a note's page (the shares page starts it); a publisher with no public listener of its own doesn't. Default true. */
   shares?: boolean;
