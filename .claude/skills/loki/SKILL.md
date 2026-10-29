@@ -143,7 +143,7 @@ session), so no cron is set by hand. The rules are daddy's request ((5bfab6fb-75
    where any of them needs one; they merge together and deploy once. A red batch is bisected by PR, not rerun whole.
    loki's own mod, skill and changelog edits collect on one branch a day and merge as one PR with a real review
    (Oct 28–29 night: 7 separate `[skip review]` PRs, which this replaces).
-2. **Fill free builder slots, up to 3, with experiences, not tickets** (Evan, Oct 29: "instead of taking the ambitious
+2. **Fill free builder slots, up to 5 while float-box's load stays under 8 (Evan, Oct 29: quota is not the limit; the box is), with experiences, not tickets** (Evan, Oct 29: "instead of taking the ambitious
    swing to deliver a coherent experience it's getting sliced off into the smallest safe deliverables leading to a
    disjointed experience for me at the end"). Pick what he will use: Up next (the Waiting to start lane), then a
    capability note or thread, then high priority. Write the one sentence of what Evan will open and do, gather every
