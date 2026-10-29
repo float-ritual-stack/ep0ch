@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Margin comments read as comments, and a quote lands where you are (PIE-1255, PIE-1184)
+
+- **A card opens the moment you press its `[+]`,** in marks mode too: it comes into view instead of opening above
+  the window (it used to need a scroll down and back up).
+- **Whole-note comments have one `[+]` each, after the title,** never a row of them in the gutter pushing the text over.
+- **The comment count says what you see:** "short cards", "whole", "as marks", and M says
+  what each does as it changes.
+- **A comment looks like a comment:** each card on its own dark surface in its tone, jutting into the margin under its
+  passage; the side column grows with a wide tile.
+- **[Quote] asks "under this note" first** and opens the quote where your new notes open (a float beside what you read, unless `note.opens` says otherwise), lit as just arrived, in
+  your edit at the end of the quote: nothing to hunt for.
 ### The write review flags only what's really wrong (PIE-1428, PIE-1417, PIE-1427, PIE-1388)
 
 - **No false asks:** a note's own instruction ("check the water butt; write it on the shed door") is not a QA question, and a ticked checkbox (any mark: x ~ ! - ✓) is an answered one, so its patch never puts `[needs::sysop]` back on a done ticket.

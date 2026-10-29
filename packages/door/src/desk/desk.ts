@@ -48,7 +48,7 @@ import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
 import { ActionRefused, ActionSet, actionSet, actRequestOf, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
-import { newNoteOffer, type NewNoteHow } from "../new-note";
+import { newNoteOffer, newNoteOpens, type NewNoteHow } from "../new-note";
 import { layoutStanding, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
@@ -3292,6 +3292,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (id === undefined || !madeFor(p)) return;
     this.closeId(id);
     this.save(); this.redraw();
+  }
+
+  /**
+   * DeskApi.writeFrom: the person's new note made from reader `from` (a quote, PIE-1184) opened to write in where their
+   * new notes open (`newNoteOpens`, the one answer `note.new` uses too), the reader left as it was. The reader it opened
+   * in, on this desk or another (the drawer's), found by its edit.
+   */
+  async writeFrom(from: ReaderPane, m: Msg): Promise<{ tile: string; pane: ReaderPane } | null> {
+    const id = this.idOf(from);
+    if (id !== undefined && id !== this.focus) this.focusTile(this.nameOf(id), USER);
+    const tile = await this.editNew(m, { opens: newNoteOpens(this.newNoteRule()), context: from.msg?.id ?? null, actor: USER });
+    if (!tile) return null;
+    for (const d of this.relatives()) for (const p of d.panes.values()) if (p instanceof ReaderPane && p.surface.draft?.blockId === m.id) return { tile, pane: p };
+    return null;
   }
 
   /**

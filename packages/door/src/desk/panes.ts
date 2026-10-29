@@ -71,6 +71,8 @@ export interface DeskApi {
   startSession?(pane: ReaderPane, kind: SessionKind, opener?: Key): void;
   /** The tile named `name` on this screen. */
   paneNamed?(name: string): Pane | undefined;
+  /** The person's new note (a quote, PIE-1184) opened to write in where their new notes open, lit as arrived: its reader. */
+  writeFrom?(from: ReaderPane, m: Msg): Promise<{ tile: string; pane: ReaderPane } | null>;
   /** Close tile `p` as nothing was lost by it (the comment tile once its comment ended). */
   dismiss?(p: Pane): void;
   /** Reader `r`'s comment into a tile of its own beside it (`on`), or that tile closed (PIE-846). */
@@ -566,6 +568,10 @@ export class ReaderPane implements Pane {
       // Its look (PIE-673), as the desk resolved it for this tile: margin, list density, heading spacing.
       get look() { return desk.lookOf?.(pane); },
       startSession: desk.startSession ? (kind, opener) => desk.startSession!(this, kind, opener) : undefined,
+      ...(desk.writeFrom ? { writeNew: async (m: Msg) => {
+        const at = await desk.writeFrom!(this, m);
+        return at ? { tile: at.tile, surface: at.pane.surface } : null;
+      } } : {}),
       // Its comment in a tile of its own beside it (PIE-846), where the screen has tiles.
       ...(desk.answerTile ? { answerTile: (ask: string, actor: Actor, fold?: string) => desk.answerTile!(this, ask, actor, fold) } : {}),
       hasWiredPreview: () => !!desk.hasWiredPreview?.(this),
