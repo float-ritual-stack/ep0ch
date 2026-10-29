@@ -24,15 +24,15 @@ are its record. The outliner's entries from then are kept below, under
   from the line above), decision (chosen, rejected) and word-marked check rows come as patches too (PIE-1252).
 - **Mark Jev right or wrong** with the status chooser's keys (x right, `-` Reject wrong), by click too; the row
   stays where it was.
-- **Twins by meaning:** a ticket filed in other words meets its original (its body is read, and work under way is
-  read by Jev); one Jev is unsure of is offered for the writer to decide; the original is named first. The groom
+- **Twins by meaning:** a ticket filed in other words meets its original (its body is read, and deep search
+  finds it by meaning); one Jev is unsure of is offered for the writer to decide; the original is named first. The groom
   calls the newer twin the duplicate and lists every open ticket with what it was read against. A ticket's
   experience is any "Evan <does> …" sentence.
 - **The backfill finishes:** `ep0ch review backfill --into` sends each note's findings in one request as it goes (the
   service makes the records), a rerun skips notes already kept, and Jev's own page and rule are no longer reviewed.
-- **Run:** `ep0ch install --apply` (PROTOCOL changes: a twin's verdict can be `unsure`). pie's Jev's suggestions page
-  was made by hand, so it keeps its own wording: its summary and check title still say ✗.
-### Search says how sure it is, and the Jev pin moves only on evals (PIE-1198, PIE-1197)
+- **Run:** `ep0ch install --apply` (PROTOCOL changes: a twin's verdict can be `unsure`).
+
+### Search says how sure it is, finds by meaning, and the Jev pin moves only on evals (PIE-1197–1200)
 
 - **No confident wrong answer:** a ranked search (the power bar's `/`, `[[` and `((`, `ep0ch find`, `outline_find`)
   asks Jev, in the same request as its scores, whether the note wanted is among the hits; code decides. A weak top says
@@ -46,6 +46,14 @@ are its record. The outliner's entries from then are kept below, under
   gurgle's notes only); `ep0ch search eval --into pie` ranks them with each model (cached by request), and keeps a
   `jev-run` per model and a report under pie's **Search evals** page. First run: jev-1.13.0 stays pinned (jev-1.14.0
   wasn't better); the "sure" threshold (Noul 0.8) comes from it.
+- **Found even without your words (PIE-1200):** when the ranked hits hold no sure answer, `outline_find` and
+  `ep0ch find` have Jev read every note's title (windows of 250, four at a time) and find the ones the words missed;
+  in the power bar, a second `/` (`//words`) does it, and an unsure footer says so (`// reads every note`). Such a row
+  says `by meaning`. On 16 queries asked in none of their note's words, the right note came first 3 times and in the
+  top 5 4 times without it, and 7 and 15 with it.
+- **Candidates read better (PIE-1199):** a search's snippet is the passage holding the most words of the query, not the
+  first place one appears. The candidates-in-state shape and type/length facts were measured and not adopted: neither
+  beat today's hit@1 on the eval set.
 - **Costs show:** every ranked search counts on the day's `search-live` jev-run (searches, sure, no strong match,
   tokens, cost), beside the other Jev loops on Jev's suggestions page.
 - **Run:** PROTOCOL 280: `ep0ch install --apply` on float-2 and the laptop.

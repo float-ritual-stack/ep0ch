@@ -126,7 +126,7 @@ test("a ticket's candidates come from its body too; the summary lists every open
   const c = groomCandidates(ticket, [{ id: "pr:0", kind: "pr", title: "Tomato beds watered on a timer (#12)", text: "Tomato beds watered on a timer" }], [ticket, twin]);
   expect(c.tickets.map(t => t.workId)).toContain("PIE-3");
   // One sharing no word at all comes from deep search, by meaning.
-  const far = block("PIE-4", "Keep the plot's thirsty rows going", "Nothing in common with the ticket's words.");
+  const far = block("PIE-4", "Keep thirsty rows going", "Hose loops near shed.");
   expect(groomCandidates(ticket, [], [ticket, far]).tickets.map(t => t.workId)).not.toContain("PIE-4");
   expect(groomCandidates(ticket, [], [ticket, far], [far.id]).tickets.map(t => t.workId)).toContain("PIE-4");
   expect(c.shipped.map(s => s.title)).toContain("Tomato beds watered on a timer (#12)");
