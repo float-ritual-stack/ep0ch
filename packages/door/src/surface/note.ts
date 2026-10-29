@@ -9434,6 +9434,8 @@ function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<Draft
     touches: def.touches, ...(def.draft ? { draft: def.draft } : {}), replay: def.replay,
     args: info.args as ActionDef<DraftActionArgs[K], On>["args"],
     ...(def.examples ? { examples: def.examples } : {}),
+    // Who an argument makes it the person's own for, as the draft's own action says (draft.undo past=true).
+    ...(def.personWith ? { personWith: def.personWith as ActionDef<DraftActionArgs[K], On>["personWith"] } : {}),
     async run(args, { surface, host }, actor) {
       const w = surface.drafting ?? (surface.session?.mode === "compose" ? surface.session.writing : null);
       if (!w) throw new ActionRefused("nothing is being written in this reader; edit, or comment.write, opens a draft");
