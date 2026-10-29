@@ -15,7 +15,7 @@ import { loadGotoPrompt, type PromptRevision } from "./ai-prompts";
 import { askJev, type JevOptions } from "./jev";
 import { promptRevOf, setChip } from "./jev-suggestions";
 import { writeRecord, type RecordWho } from "./records";
-import { recordRun } from "./work-jev";
+import { addMissingChips, recordRun } from "./work-jev";
 import { certaintyOf, readSearchAnswers, searchRequest, SEARCH_THRESHOLDS, type SearchShape } from "./search-ranking";
 import { deepCandidates } from "./search-deep";
 import type { SearchPick } from "./search-records";
@@ -345,7 +345,7 @@ export const EVALS_PAGE = [
   "> - **Cases:** agents' searches and the note opened next; Evan's picks once they're kept.",
   "> - **Run it:** `ep0ch search harvest`, then `ep0ch search eval --into pie`.",
   "> - **hit@1, hit@5:** of the cases with an answer, how often it came first, and in the first five.",
-  "> - **sure, wrong:** of every search asked (the ones with nothing there too), how often it said sure, and how often that sure was wrong: the answer the thresholds are set against. **cost $** is what the run spent (a cached answer costs nothing).",
+  "> - **sure:** of every search asked (the ones with nothing there too), how often it said sure. **wrong:** of those sure answers, how often it was wrong: the answer the thresholds are set against. **cost $** is what the run spent (a cached answer costs nothing).",
   "",
   "::graph-table",
   "---",
@@ -353,7 +353,7 @@ export const EVALS_PAGE = [
   "query: type=jev-run experiment=search-eval",
   "machinery: show",
   EVALS_FIGURE,
-  "headers: [model, cases, hit@1, hit@5, sure, wrong, cost $]",
+  "headers: [model, with an answer, hit@1, hit@5, sure, wrong, cost $]",
   "sort: created",
   "direction: desc",
   "---",
@@ -429,12 +429,11 @@ export async function keepRun(client: EvalClient, scores: readonly ModelScore[],
       items: s.positives, agreed: s.hit1, agreement: s.positives ? Math.round(s.hit1 / s.positives * 100) / 100 : 0, hit5: s.hit5,
       suggested: s.quietRight + s.quietWrong, quiet: s.sureRight + s.sureWrong + s.sureNothing, different: s.sureWrong + s.sureNothing, unavailable: s.unavailable,
     }, { model: s.model, prompt: run.prompt, questions: s.asked, usage: { input: s.tokensIn, output: s.tokensOut } });
-    // What the page's table shows: each count out of what it counts ("7 of 12"), the eval's own chips beside the record's
+    // What the page's table shows: each count out of what it counts ("7 of 12"), added as the record's cost chip is
     // (the jev-run template holds the keys every loop shares, at its 16 fields).
     const sure = s.sureRight + s.sureWrong + s.sureNothing;
     const words = { "hit-1": `${s.hit1} of ${s.positives}`, "hit-5": `${s.hit5} of ${s.positives}`, "said-sure": `${sure} of ${s.asked}`, "sure-wrong": `${s.sureWrong + s.sureNothing} of ${sure}` };
-    const record = await client.request<Block>({ action: "get", blockId: id });
-    await client.request({ action: "update", blockId: id, text: `${record.text}\n${Object.entries(words).map(([k, v]) => `[${k}::${v}]`).join(" ")}`, expectedRevision: record.revision, mutation: { author: "agent", actorId: EVAL.provenance!.actorId! } });
+    await addMissingChips(client, id, words);
   }
   const made = await client.request<{ id: string }>({ action: "create", text: note, parentId: page!.id, ...EVAL });
   return made.id;
