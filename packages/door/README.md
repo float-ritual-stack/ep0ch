@@ -2053,14 +2053,16 @@ sentence; the detail says what it runs, its layer, what it takes the key from, w
 tile's program sees it. `⏎` runs the row in the tile you opened it from, as its key would there; one that needs
 arguments asks for them in the power bar's form. Tabs: Bindings, Conflicts (two bindings that really fight over a key:
 two rows of one key table, or one key twice in your keymap file, with which one runs; the states of one control, like
-esc clearing then closing the power bar, aren't), Yours.
+esc clearing then closing the power bar, aren't), Yours, and Unbound: every action you can run that no key reaches on
+any screen, by where it runs (read from the actions themselves), with `r` to give one a key, what that key does now
+said first, and `⏎` to run it. One that can't run without arguments says to bind its act line with them instead.
 
 | Key | Does |
 |---|---|
 | `j` `k` `↓` `↑` `pgdn` `pgup` | select a binding |
 | `⏎`, a click on the selected row | run it where you opened the window (its arguments asked in the power bar) |
 | `/` | type the filter (`⏎` done, `esc` clears) |
-| `1` `2` `3` | Bindings, Conflicts, Yours |
+| `1` `2` `3` `4` | Bindings, Conflicts, Yours, Unbound |
 | `r` | rebind: press the new key (`^W` then a key for a ^W key); what it takes is said first, `⏎` saves, `esc` drops |
 | `u` / `d` | unbind it / give it its built-in keys back |
 | `ctrl+z` | undo the last change |

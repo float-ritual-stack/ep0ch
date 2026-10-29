@@ -33,6 +33,15 @@ describe.skipIf(!outliner)("the keys section", () => {
     const tab: any = await d.dispatch.act({ action: "keys.tab", args: { tab: "conflicts" }, tile: "keys" }, AGENT);
     expect(tab.rows).toBe(0);
     await until(() => text().includes("Conflicts 0") && text().includes("no two bindings fight over a key"), "the Conflicts tab");
+    // Unbound: every action no key reaches, its count on the tab; an agent gives one a key, and it leaves the tab.
+    const un: any = await d.dispatch.act({ action: "keys.tab", args: { tab: "unbound" }, tile: "keys" }, AGENT);
+    expect(un.rows).toBeGreaterThan(0);
+    await until(() => text().includes(`Unbound ${un.rows}`), "the Unbound tab");
+    const given: any = await d.dispatch.act({ action: "keys.rebind", args: { id: "share.list", to: "alt+j" }, tile: "keys" }, AGENT);
+    expect(given).toMatchObject({ saved: true, id: "share.list", to: "alt+j" });
+    const after: any = await d.dispatch.act({ action: "keys.tab", args: { tab: "unbound" }, tile: "keys" }, AGENT);
+    expect(after.rows).toBe(un.rows - 1);
+    await d.dispatch.act({ action: "keys.undo", args: {}, tile: "keys" }, AGENT);
     // ⏎ runs a row as the person's own key would; an agent runs the action itself.
     await expect(d.dispatch.act({ action: "keys.run", args: { n: 1 }, tile: "keys" }, AGENT)).rejects.toThrow("an agent runs the action itself");
     await d.dispatch.act({ action: "keys.undo", args: {}, tile: "keys" }, AGENT);

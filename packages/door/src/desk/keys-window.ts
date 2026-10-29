@@ -8,7 +8,7 @@ import { C, chip, ellipsize, fg, pad, RESET, selectedRow, width } from "../style
 import { RowView, wheelRows } from "../scroll";
 import { keycap } from "../figures/keys";
 import { ActionRefused, actionSet, actRequestOf, allActionSets, chordName, def, keyCaption, keyName, lineWords, shownLine } from "../surface/actions";
-import { bindings, conflicts, fightOf, LAYERS, rebindEffects, shadowsOf, strayEntries, type Binding } from "../surface/key-catalog";
+import { bindings, conflicts, fightOf, LAYERS, rebindEffects, shadowsOf, strayEntries, unbound, type Binding } from "../surface/key-catalog";
 import { bindingId, entriesOf, keymapPath, keymapProblem, keymapVersion, keyTable, resetKeys, setKeys, undoKeymap } from "../surface/keymap";
 import { filterLine, type LineField } from "../surface/line";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
@@ -20,7 +20,7 @@ import { tileRegistry } from "./tile-registry";
 import type { ScreenSpec } from "./screen-spec";
 import type { KindHost, TileKind } from "./tile-kinds";
 
-export const KEYS_TABS = ["bindings", "conflicts", "yours"] as const;
+export const KEYS_TABS = ["bindings", "conflicts", "yours", "unbound"] as const;
 export type KeysTab = (typeof KEYS_TABS)[number];
 
 
@@ -31,7 +31,7 @@ export const KEYS_WINDOW_KEYS: readonly ModeKey[] = keyTable("keys window", "the
   row("k", "keys.select", "select", { by: -1 }), row("up", "keys.select", "select", { by: -1 }),
   row("pgdn", "keys.select", "page", { by: 10 }), row("pgup", "keys.select", "page", { by: -10 }),
   // Tabs by digit (the screen has no tile digits); Tab stays the desk's focus key.
-  row("/", "keys.filter", "filter"), row("1", "keys.tab", "bindings", { tab: "bindings" }), row("2", "keys.tab", "conflicts", { tab: "conflicts" }), row("3", "keys.tab", "yours", { tab: "yours" }),
+  row("/", "keys.filter", "filter"), row("1", "keys.tab", "bindings", { tab: "bindings" }), row("2", "keys.tab", "conflicts", { tab: "conflicts" }), row("3", "keys.tab", "yours", { tab: "yours" }), row("4", "keys.tab", "unbound", { tab: "unbound" }),
   row("r", "keys.rebind", "rebind"), row("u", "keys.unbind", "unbind"), row("d", "keys.reset", "built-in keys"),
   row("enter", "keys.run", "run it"), row("ctrl+z", "keys.undo", "undo"), row("esc", "keys.close", "close"), row("q", "keys.close", "close"),
 ]);
@@ -75,7 +75,7 @@ export class KeysPane implements Pane {
   private hits: Hit[] = [];
   private listRows = 0;
   private bodyAt = 0;
-  private cached: { v: number; all: Binding[] } | null = null;
+  private cached: { v: number; all: Binding[]; unbound: Binding[] } | null = null;
 
   /** It is the keys screen's own tile (q goes back to the screen under it), not a tile on a desk (q closes it). */
   readonly screen: boolean;
@@ -98,15 +98,19 @@ export class KeysPane implements Pane {
   /** Every binding now (worked out again when the keymap changes). */
   all(): Binding[] {
     const v = keymapVersion();
-    if (!this.cached || this.cached.v !== v) this.cached = { v, all: bindings() };
+    if (!this.cached || this.cached.v !== v) { const all = bindings(); this.cached = { v, all, unbound: unbound(all) }; }
     return this.cached.all;
   }
+  /** Every action no key reaches now (the Unbound tab), worked out with the bindings. */
+  unbound(): Binding[] { this.all(); return this.cached!.unbound; }
   /** The rows of the tab shown, filtered: every word of the filter in a binding's keys, action, scope or words. */
   rows(): Row[] {
     const all = listed(this.all());
     const hit = (b: Binding) => matches(b, this.filter);
     if (this.tab === "bindings") return all.filter(hit).map(b => ({ b }));
     if (this.tab === "yours") return all.filter(b => b.yours && hit(b)).map(b => ({ b }));
+    // Unbound: every action no key reaches, by where it runs (the layer, then the scope).
+    if (this.tab === "unbound") return listed(this.unbound()).filter(hit).map(b => ({ b }));
     // Conflicts: keys two bindings really fight over (one lookup, both live), the one that runs first; the person's own first.
     const groups = conflicts(all).filter(g => g.some(hit)).sort((a, b) => Number(b.some(x => x.yours)) - Number(a.some(x => x.yours)));
     return groups.flatMap(g => { const f = fightOf(g), w = g.find(b => b.id === f.wins)!; return [w, ...g.filter(b => b !== w)].map((b, i) => ({ b, ...(i === 0 ? { head: `${b.cap} · ${b.scope}: ${f.wins} runs, ${f.loses.join(", ")} never does (${f.why})` } : {}) })); });
@@ -122,20 +126,24 @@ export class KeysPane implements Pane {
     // The count sits beside the tabs where there's room, else at the end of the filter line (a narrow tile keeps every tab,
     // and the Conflicts and Yours counts: Bindings' is the filter line's "of").
     const count = `${rows.length ? this.at + 1 : 0} of ${rows.length}`, roomy = w >= 80;
-    const strip = tabStrip(KEYS_TABS.map((t, i) => ({ key: String(i + 1), label: t === "bindings" ? (w < 60 ? "Bindings" : `Bindings ${all.length}`) : t === "conflicts" ? `Conflicts ${clash}` : `Yours ${yours}`, on: t === this.tab, hit: { action: "keys.tab", args: { tab: t } } })), { width: roomy ? w - width(count) - 1 : w, overflow: "share", style: { ...chips(), gap: "" } })[0]!;
-    lines.push(roomy ? pad(strip.text, Math.max(0, w - width(count) - 1)) + " " + fg(C.dark) + count + RESET : strip.text);
-    for (const x of strip.hits) this.hits.push({ y: 0, ...x });
+    const label = (t: KeysTab) => (t === "bindings" ? (w < 60 ? "Bindings" : `Bindings ${all.length}`) : t === "conflicts" ? `Conflicts ${clash}` : t === "yours" ? `Yours ${yours}` : `Unbound ${this.unbound().length}`);
+    // Narrow, the tabs take two rows rather than cut a count.
+    const strips = tabStrip(KEYS_TABS.map((t, i) => ({ key: String(i + 1), label: label(t), on: t === this.tab, hit: { action: "keys.tab", args: { tab: t } } })), { width: roomy ? w - width(count) - 1 : w, overflow: roomy ? "share" : "wrap", style: { ...chips(), gap: "" } });
+    strips.forEach((strip, y) => {
+      lines.push(roomy && y === 0 ? pad(strip.text, Math.max(0, w - width(count) - 1)) + " " + fg(C.dark) + count + RESET : strip.text);
+      for (const x of strip.hits) this.hits.push({ y, ...x });
+    });
     const tail = roomy ? "" : " " + fg(C.dark) + count + RESET, fieldW = Math.max(4, w - 10 - (roomy ? 0 : width(count) + 1));
     const filterText = this.field ? this.field.show(fieldW) : this.filter ? fg(C.white) + ellipsize(this.filter, fieldW) + RESET : fg(C.dark) + ellipsize("keys, an action, a scope or words", fieldW) + RESET;
     lines.push(pad(fg(C.yellow) + " / " + RESET + fg(C.grey) + "filter " + RESET + filterText, Math.max(0, w - width(tail))) + tail);
-    this.hits.push({ y: 1, from: 0, to: w, action: "keys.filter" });
+    this.hits.push({ y: lines.length - 1, from: 0, to: w, action: "keys.filter" });
     const problem = keymapProblem(), stray = strayEntries();
     if (problem) lines.push(fg(C.lred) + ellipsize(` ${problem}`, w) + RESET);
     if (stray.length) lines.push(fg(C.yellow) + ellipsize(` ${keymapPath()} names actions this door doesn't have: ${stray.map(e => e.id).join(", ")}`, w) + RESET);
     const wide = w >= 96, listW = this.listW = wide ? Math.floor(w * 0.56) : w;
     const sel = rows[this.at]?.b ?? null;
     const detail = sel ? this.detail(sel, wide ? w - listW - 3 : w, all)
-      : [fg(C.dark) + ellipsize(this.filter ? ` no ${this.tab === "bindings" ? "binding" : this.tab === "yours" ? "key of yours" : "conflict"} matches "${this.filter}": / then esc clears it` : this.tab === "yours" ? " your keymap gives no keys yet: r on a binding moves one" : this.tab === "conflicts" ? " no two bindings fight over a key: wherever a key works, it runs one action" : " nothing here", wide ? w - listW - 3 : w) + RESET, ...(this.said ? ["", fg(C.lgreen) + ellipsize(this.said, wide ? w - listW - 3 : w) + RESET] : [])];
+      : [fg(C.dark) + ellipsize(this.filter ? ` no ${this.tab === "bindings" ? "binding" : this.tab === "yours" ? "key of yours" : this.tab === "unbound" ? "action without a key" : "conflict"} matches "${this.filter}": / then esc clears it` : this.tab === "yours" ? " your keymap gives no keys yet: r on a binding moves one" : this.tab === "conflicts" ? " no two bindings fight over a key: wherever a key works, it runs one action" : this.tab === "unbound" ? " every action has a key somewhere" : " nothing here", wide ? w - listW - 3 : w) + RESET, ...(this.said ? ["", fg(C.lgreen) + ellipsize(this.said, wide ? w - listW - 3 : w) + RESET] : [])];
     this.bodyAt = lines.length + 1;
     const room = Math.max(1, h - this.bodyAt - (wide ? 0 : Math.min(detail.length + 1, Math.max(4, Math.floor(h / 2)))));
     this.listRows = room;
@@ -159,7 +167,7 @@ export class KeysPane implements Pane {
 
   private rowLine(r: Row, on: boolean, w: number): string {
     // Narrow (a 44-column tile), the words get the room: the scope is in the detail, and the filter (`in:note`) says it.
-    const narrow = w < 60, b = r.b, cap = keycap(b.cap), capW = narrow ? 9 : 12, scopeW = narrow ? 0 : Math.min(14, Math.max(6, Math.floor(w * 0.18)));
+    const narrow = w < 60, b = r.b, cap = !b.key ? (narrow ? fg(C.brown) + ellipsize(b.scope, 9) + RESET : fg(C.dark) + (b.rebind === true ? "no key" : "needs args") + RESET) : keycap(b.cap), capW = narrow ? 9 : 12, scopeW = narrow ? 0 : Math.min(14, Math.max(6, Math.floor(w * 0.18)));
     const mark = b.yours ? fg(C.lcyan) + "●" + RESET : r.head ? fg(C.yellow) + "!" + RESET : " ";
     const scope = narrow ? "" : fg(C.brown) + pad(ellipsize(b.scope, scopeW), scopeW) + RESET + " ";
     const text = mark + pad(cap, capW) + " " + scope + fg(C.grey) + ellipsize(b.does, Math.max(4, w - capW - scopeW - (narrow ? 3 : 4))) + RESET;
@@ -174,14 +182,14 @@ export class KeysPane implements Pane {
     this.buttons = [];
     const out: string[] = [];
     const label = (k: string, v: string) => out.push(fg(C.dark) + pad(k, 9) + RESET + ellipsize(v, Math.max(4, w - 9)));
-    out.push(keycap(b.cap) + " " + fg(C.white) + ellipsize(b.does, Math.max(4, w - width(b.cap) - 4)) + RESET);
+    out.push((b.key ? keycap(b.cap) + " " : "") + fg(C.white) + ellipsize(b.does, Math.max(4, w - (b.key ? width(b.cap) + 4 : 1))) + RESET);
     label("runs", fg(C.yellow) + b.id + RESET + (b.about !== b.does ? fg(C.grey) + `: ${b.about}` + RESET : ""));
     label("where", `${b.scope} · ${b.layer === "yours" ? "your keymap's layer" : `the ${b.layer} layer`}`);
-    const s = shadowsOf(b, all);
+    const s = b.key ? shadowsOf(b, all) : { over: [], under: [], terminal: true };
     if (s.over.length) for (const o of s.over.slice(0, 3)) label("taken by", `${o.id} (${o.scope}): the ${o.layer} layer gets it first`);
     if (s.under.length) for (const u of s.under.slice(0, 3)) label("takes", `${u.cap} from ${u.id} (${u.scope}), wherever both are`);
-    label("terminal", s.terminal ? "in a terminal tile the program gets it" : "the door takes it even in a terminal tile");
-    label("keymap", b.yours ? `yours: ${keymapPath()}` : b.rebind === true ? "built-in: r moves it, u unbinds it" : `can't move: ${b.rebind}`);
+    if (b.key) label("terminal", s.terminal ? "in a terminal tile the program gets it" : "the door takes it even in a terminal tile");
+    label("keymap", !b.key ? (b.rebind === true ? "no key on any screen: r gives it one, ⏎ runs it" : `no key: ${b.rebind}`) : b.yours ? `yours: ${keymapPath()}` : b.rebind === true ? "built-in: r moves it, u unbinds it" : `can't move: ${b.rebind}`);
     if (this.record && this.record.b.id === b.id) {
       out.push("");
       const r = this.record;
@@ -190,7 +198,7 @@ export class KeysPane implements Pane {
         const e = rebindEffects(b, r.key, all);
         if (e.problem) out.push(fg(C.lred) + ellipsize(`${keyCaption(r.key)}: ${e.problem}`, w) + RESET);
         else {
-          out.push(fg(C.lcyan) + ellipsize(`${b.cap} → ${keyCaption(r.key)}`, w) + RESET);
+          out.push(fg(C.lcyan) + ellipsize(`${b.key ? b.cap : "no key"} → ${keyCaption(r.key)}`, w) + RESET);
           const cap = keyCaption(r.key);
           for (const t of e.takes.slice(0, 3)) out.push(fg(C.yellow) + ellipsize(`  takes ${cap} from ${t.id} (${t.does})`, w) + RESET);
           for (const o of e.over.slice(0, 2)) out.push(fg(C.grey) + ellipsize(`  ${o.id} (${o.scope}) still gets ${cap} first`, w) + RESET);
@@ -202,8 +210,8 @@ export class KeysPane implements Pane {
       this.button(out, "esc cancel", "keys.cancel", true);
     } else if (b.rebind === true) {
       out.push("");
-      this.button(out, "r rebind", "keys.rebind");
-      this.button(out, "u unbind", "keys.unbind", true);
+      this.button(out, b.key ? "r rebind" : "r give it a key", "keys.rebind");
+      if (b.key) this.button(out, "u unbind", "keys.unbind", true);
       if (entriesOf(b.action).length) this.button(out, "d built-in keys", "keys.reset", true);
     }
     if (this.said) out.push("", fg(C.lgreen) + ellipsize(this.said, w) + RESET);
@@ -236,6 +244,7 @@ export class KeysPane implements Pane {
     else if (k.kind === "esc") { this.act(desk, "keys.cancel"); return true; }
     const name = keyName(k);
     if (!name) return true;
+    if (!r.b.key && !r.first && name === "ctrl+w") { r.first = name; desk.redraw(); return true; }
     if (r.b.key.startsWith("ctrl+w ") && !r.first) { if (name === "ctrl+w") { r.first = name; desk.redraw(); } else this.said = "a ^W key: press ^W, then the key"; desk.redraw(); return true; }
     r.key = r.first ? `${r.first} ${name === "space" ? "space" : name}` : name;
     desk.redraw();
@@ -278,7 +287,7 @@ const said = (b: Binding) => ({ key: b.key, id: b.id, scope: b.scope, does: b.do
 const target = (p: KeysPane, id?: string, key?: string): Binding => {
   if (id === undefined) { const b = p.selected(); if (!b) throw new ActionRefused("no binding selected: keys.select n= or keys.filter text= first"); return b; }
   const name = idOf(id);
-  const all = p.all().filter(b => b.id === name);
+  const all = [...p.all(), ...p.unbound()].filter(b => b.id === name);
   const b = key !== undefined ? all.find(x => x.key === key || x.cap === key) : all[0];
   if (!b) throw new ActionRefused(`no binding ${id}${key ? ` on ${key}` : ""} here; keys.find text=${id.split(" ")[0]} lists its keys`);
   return b;
@@ -321,10 +330,10 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
     },
   }),
   "keys.tab": def({
-    summary: "show the keys window's Bindings, Conflicts (keys two bindings really fight over: two rows of one key table on one key, or two entries of your keymap, so one never runs) or Yours (what your keymap gives): tab=<name>, or by=1/-1",
-    keys: [{ keys: "1 2 3", does: "Bindings, Conflicts, Yours" }, { keys: "click", does: "on a tab" }],
+    summary: "show the keys window's Bindings, Conflicts (keys two bindings really fight over: two rows of one key table on one key, or two entries of your keymap, so one never runs), Yours (what your keymap gives) or Unbound (every action no key reaches on any screen, by where it runs: r gives one a key): tab=<name>, or by=1/-1",
+    keys: [{ keys: "1 2 3 4", does: "Bindings, Conflicts, Yours, Unbound" }, { keys: "click", does: "on a tab" }],
     touches: "tile", replay: "safe", way: "an agent passes tab=",
-    args: { tab: { type: "string", optional: true, choices: KEYS_TABS, about: "bindings, conflicts or yours" }, by: { type: "number", optional: true, about: "1 the next tab, -1 the previous" } },
+    args: { tab: { type: "string", optional: true, choices: KEYS_TABS, about: "bindings, conflicts, yours or unbound" }, by: { type: "number", optional: true, about: "1 the next tab, -1 the previous" } },
     examples: [{ act: "keys.tab tab=conflicts tile=keys", does: "lists the keys two bindings fight over, and which one runs" }, { act: "keys.tab by=1 tile=keys", does: "shows the next tab" }],
     run({ tab, by }, { pane }) {
       const p = paneOf(pane), i = KEYS_TABS.indexOf(p.tab);
@@ -346,7 +355,7 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
     examples: [{ act: "keys.rebind id=tile.close key=\"^W x\" to=\"ctrl+w q\" tile=keys", does: "moves closing a tile from ^W x to ^W q" }, { act: "keys.rebind to=alt+n tile=keys", does: "gives the selected binding alt+n in place of its key" }],
     run({ id, key, to }, { pane, desk }, actor) {
       const p = paneOf(pane), b = target(p, id, key);
-      if (b.rebind !== true) throw new ActionRefused(`${b.cap} can't move: ${b.rebind}`);
+      if (b.rebind !== true) throw new ActionRefused(`${b.cap || b.id} can't move: ${b.rebind}`);
       if (to === undefined) {
         if (actor.kind === "agent") throw new ActionRefused("an agent names the key: keys.rebind to=<key>");
         p.record = { b }; p.said = null;
@@ -377,7 +386,8 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
     examples: [{ act: "keys.unbind id=callouts key=z tile=keys", does: "takes z away from the reader's callouts" }],
     run({ id, key }, { pane }) {
       const p = paneOf(pane), b = target(p, id, key);
-      if (b.rebind !== true) throw new ActionRefused(`${b.cap} can't move: ${b.rebind}`);
+      if (!b.key) throw new ActionRefused(`${b.id} has no key to take away`);
+      if (b.rebind !== true) throw new ActionRefused(`${b.cap || b.id} can't move: ${b.rebind}`);
       setKeys(b.id, keysAfter(p, b, null));
       p.said = `${b.cap} unbound from ${b.id} · ctrl+z undoes`;
       return { cap: b.cap, id: b.id, file: keymapPath() };
@@ -408,8 +418,9 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
     args: { text: { type: "string", optional: true, about: "the words; left out, the window's own filter" }, limit: { type: "number", optional: true, about: "at most this many (default 40)" } },
     examples: [{ act: "keys.find text=\"tile.close\" tile=keys", does: "lists every key that closes a tile, and where" }],
     run({ text, limit }, { pane }) {
-      const p = paneOf(pane), all = p.all(), rows = listed(all).filter(b => matches(b, text ?? p.filter));
-      return { total: rows.length, bindings: rows.slice(0, limit ?? 40).map(b => ({ key: b.key, cap: b.cap, id: b.id, scope: b.scope, layer: b.layer, does: b.does, rebind: b.rebind, ...(b.yours ? { yours: true } : {}), ...(() => { const s = shadowsOf(b, all); return { takesFrom: s.under.map(u => u.id), takenBy: s.over.map(o => o.id), terminal: s.terminal ? "the program gets it" : "the door takes it" }; })() })) };
+      // Every binding, then the actions no key reaches (key "", unbound: true), so an agent finds those too.
+      const p = paneOf(pane), all = p.all(), rows = [...listed(all), ...listed(p.unbound())].filter(b => matches(b, text ?? p.filter));
+      return { total: rows.length, bindings: rows.slice(0, limit ?? 40).map(b => ({ key: b.key, cap: b.cap, id: b.id, scope: b.scope, layer: b.layer, does: b.does, rebind: b.rebind, ...(b.yours ? { yours: true } : {}), ...(!b.key ? { unbound: true } : {}), ...(() => { const s = shadowsOf(b, all); return { takesFrom: s.under.map(u => u.id), takenBy: s.over.map(o => o.id), terminal: s.terminal ? "the program gets it" : "the door takes it" }; })() })) };
     },
   }),
   "keys.run": def({
@@ -458,9 +469,9 @@ function save(p: KeysPane, b: Binding, to: string, desk: DeskApi): Record<string
   setKeys(b.id, keysAfter(p, b, to));
   p.record = null;
   const took = e.takes.map(t => t.id);
-  p.said = `${b.cap} → ${keyCaption(to)} for ${b.id}${took.length ? `; ${took.join(", ")} lost it` : ""} · ctrl+z undoes`;
+  p.said = `${b.cap || "no key"} → ${keyCaption(to)} for ${b.id}${took.length ? `; ${took.join(", ")} lost it` : ""} · ctrl+z undoes`;
   desk.redraw();
-  return { saved: true, id: b.id, from: b.cap, to: keyCaption(to), took, still: e.over.map(o => o.id), file: keymapPath() };
+  return { saved: true, id: b.id, from: b.cap || null, to: keyCaption(to), took, still: e.over.map(o => o.id), file: keymapPath() };
 }
 
 /** The keys window as a tile kind: one list, opened by the `keys` screen (`?`) or ^W o. */
