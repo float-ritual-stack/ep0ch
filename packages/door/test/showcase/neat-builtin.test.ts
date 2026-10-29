@@ -148,6 +148,8 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     } finally { app.pop(); }
   }, 30_000);
 
+  const floating = async (tile: string) => (await h.app.dispatch.act({ action: "layout.get" }, USER) as ReturnType<Desk["layoutAll"]>).tiles.find(t => t.tile === tile)?.float;
+
   test("neat from a float, and from a river column: it works or says in plain words what it couldn't do (PIE-1403)", async () => {
     const { app, board } = h;
     const shed = await board.createBlock(null, "The shed\nWhat's in it, and what it needs.");
@@ -158,7 +160,7 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
       const r = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: note.id, name: "frame" } }, USER) as { tile: string };
       await app.dispatch.act({ action: "tile.float", tile: r.tile }, USER);
       await app.dispatch.act({ action: "tile.focus", tile: r.tile }, USER);
-      expect(desk.isFloat(desk.idOf(desk.focusedPane())!)).toBe(true);
+      expect(await floating(r.tile)).toBe(true);
       const said = await fromBar();
       expect(said).not.toMatch(/t-[0-9a-f]{8}|Error:|…$/);
       expect(said).toContain("links wired");
@@ -174,7 +176,7 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
       const made = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: note.id, name: "glass" } }, USER) as { tile: string };
       await app.dispatch.act({ action: "tile.float", tile: made.tile }, USER);
       await app.dispatch.act({ action: "tile.focus", tile: made.tile }, USER);
-      expect(river.isFloat(river.idOf(river.focusedPane())!)).toBe(true);
+      expect(await floating(made.tile)).toBe(true);
       said = await fromBar();
       expect(said).not.toMatch(/t-[0-9a-f]{8}|Error:/);
       expect(made).toBeDefined();
