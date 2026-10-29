@@ -109,6 +109,11 @@ export function keysText(keys: Keys | undefined): string | undefined {
 export interface ActionDef<A, H> {
   /** What the action does, in the words `actions` and the README use. */
   summary: string;
+  /**
+   * What it does as a person reads it, a whole sentence without act's arguments (`fold this tile to a spine`, not
+   * `fold tile=<tile> to a spine`): the keys window's rows. Left out, the summary's first clause is it.
+   */
+  words?: string;
   hint?: Hint | ((args: A, host: H) => Hint | null);
   /** A mode-owned hint keeps its mode identity when an action opens it. Otherwise the action name is its id. */
   hintId?: string;

@@ -50,6 +50,8 @@ export interface DeskApi {
    * glides, PIE-958). A terminal keeps the size its program has then; it is told the one it ends at, once.
    */
   holdsSize?(p: Pane): boolean;
+  /** Whether tile `p` is in the frame drawn lately; undefined while nothing has been drawn (a headless desk). */
+  shows?(p: Pane): boolean | undefined;
   current: Msg | null;
   /** `link`, `fresh`, `agent`: how a reader opened it (OpenHow, PIE-441), for where it goes. */
   setCurrent(m: Msg | null, opts?: { reveal?: boolean; from?: Pane; to?: Pane; keys?: false } & OpenHow): void;

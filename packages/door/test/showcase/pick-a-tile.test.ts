@@ -208,6 +208,9 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await untilAsync(() => text().then(t => t.includes(`^${first.anchor}`)), "the anchor in the note");
     // Again: the same anchor, nothing written.
     expect(await act("note.copy-ref", { kind: "line", line }, "notes", AGENT)).toMatchObject({ anchor: first.anchor, created: false });
+    // The person's copy reads the reader's text, which takes the anchor's write when its event comes: on a loaded box
+    // that's after the service has it, and a copy from the older text is refused (PIE-1412).
+    await untilAsync(async () => (desk().pane("notes") as any)?.msg?.revision === (await board.get(note))!.revision, "the reader on the anchored note");
     // The person's, with nothing selected, names the part being read (the title at the top takes no anchor: the first part from there).
     const read = await act("note.copy-ref", { kind: "line" }, "notes");
     expect(read).toMatchObject({ clipboard: true });

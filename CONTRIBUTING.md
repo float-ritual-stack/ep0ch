@@ -65,6 +65,12 @@ Before a PR claims a change works:
      `TEST_EACH_JOBS` runs several at once): `bun test` loads every file into one process, so a file that only
      loads because another loaded a module first passes there and fails alone. #204's import cycle left 13 files
      unable to load alone for a day, and nobody saw.
+   - **A door test file leaves nothing for the next** (PIE-1412). Between files the door's preload
+     (`packages/door/test/preload.ts`) retires the earlier file's Apps (which unbinds the extensions they read), stops
+     its scratch hosts, puts the environment back and unbinds an extension list it bound itself; a scratch host still
+     running or an extension list still bound is named (`test leak: <file> left behind: …`) and fails the run. Stop
+     what you start in `afterAll` (`scratch.dispose()`, `bindExtensions(null)`, `app.quit()`); a part with
+     process-wide state of its own registers it with the check, as `src/extensions.ts` does.
 3. A change to what one package prints or answers that another reads is tested against the real other side,
    not a fake: the mod's readers over the real `ep0ch` (`packages/door/test/claude-mod-contract.test.ts`), the
    outliner's CLI under the mod's work tools (`packages/outliner/test/work-tools.test.ts`). Stderr another program
@@ -174,8 +180,10 @@ Every review, by the author before opening the PR and by the reviewer, goes thro
     routing, the clients' re-reads).
   - **Count:** how much of it at pie's size (about 11k notes, 86 views, two doors and the publishers): writes per run,
     reads per write.
-  - **Proof:** the host's measured impact: `bun run bench:host` in packages/outliner (ping p50, p95, p99, max and the
-    longest stall per phase, before and after), or a case in `test/host-stalls.test.ts`.
+  - **Proof:** the host's measured impact, from where the person waits: `bun run bench:host` in packages/outliner
+    (the real door's own requests, ping p50, p95, p99, max and the longest stall per phase, before and after), or a
+    case in `test/host-stalls.test.ts`. A client that reads after changes reads once per burst, one read in flight,
+    and only what is on screen (the query tile's `refresh`).
 
   The host keeps it fair by itself (work the service does for itself takes a turn per request, watch passes a watch
   per turn, a write patches the graph instead of reloading it); a job never throttles itself to stay out of the way.
@@ -231,8 +239,9 @@ how to check it (automated when possible), so it can be retired once a test or t
   `XDG_CONFIG_HOME`.*
 - **Work for nobody.** Does a session, screen or tile keep doing per-frame or per-event work (drawing, publishing a
   view, scaling images) while nobody is attached or looking? Gate it on someone watching. *Seen: #196 (a detached
-  session drew every frame of a busy terminal tile, about 30% of a core). Still to check: the media cache's
-  `nextFrame`, the live view's publish. Check: a test that a detached session draws nothing.*
+  session drew every frame of a busy terminal tile, about 30% of a core); PIE-1413 (a board's 86 lanes each re-read
+  every change, off the screen too: query tiles off the screen now read behind, `src/frames.ts`). Still to check: the
+  media cache's `nextFrame`, the live view's publish. Check: a test that a detached session draws nothing.*
 
 Keeping this list honest, at each push-review round:
 

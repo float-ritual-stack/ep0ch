@@ -164,6 +164,59 @@ describe("each path asks the host the same way", () => {
   });
 });
 
+describe("a query tile reads what changed without piling reads on the host (PIE-1413)", () => {
+  test("changes while its read is out read once more when it lands, never a second read beside it", async () => {
+    const reads: ((v: { notes: never[]; truncated: boolean }) => void)[] = [];
+    const board = { queryNotes: () => new Promise<{ notes: never[]; truncated: boolean }>(r => { reads.push(r); }) };
+    const desk = { ctx: { board, flash() {} }, redraw() {} } as unknown as DeskApi;
+    const pane = new QueryPane("v", "#garden");
+    const first = pane.refresh(desk);
+    for (let i = 0; i < 4; i++) void pane.refresh(desk);
+    expect(reads.length).toBe(1);
+    reads[0]!({ notes: [], truncated: false });
+    await until(() => reads.length === 2, "the one read after");
+    reads[1]!({ notes: [], truncated: false });
+    await first;
+    expect(reads.length).toBe(2);
+  });
+
+  test("a tile put away while a change waits to be read asks nothing more", async () => {
+    const reads: ((v: { notes: never[]; truncated: boolean }) => void)[] = [];
+    const board = { queryNotes: () => new Promise<{ notes: never[]; truncated: boolean }>(r => { reads.push(r); }) };
+    const desk = { ctx: { board, flash() {} }, redraw() {} } as unknown as DeskApi;
+    const pane = new QueryPane("v", "#garden");
+    const first = pane.refresh(desk);
+    void pane.refresh(desk);
+    pane.dispose();
+    reads[0]!({ notes: [], truncated: false });
+    await first;
+    await Bun.sleep(20);
+    expect(reads.length).toBe(1);
+  });
+
+  test("off the screen (the desk's frame doesn't hold it), it reads behind, at most every 10 s, and at once when drawn", async () => {
+    let reads = 0, shown = false, redraws = 0;
+    const board = { queryNotes: () => { reads++; return Promise.resolve({ notes: [], truncated: false }); } };
+    const desk = { ctx: { board, flash() {} }, redraw() { redraws++; }, shows: () => shown } as unknown as DeskApi;
+    const pane = new QueryPane("v", "#garden");
+    await pane.load(desk);
+    // Behind the tiles on screen: read once, in the door's one read for what's off the screen; and a frame asked for.
+    await pane.refresh(desk);
+    await until(() => reads === 2, "the read behind");
+    expect(redraws).toBeGreaterThan(0);
+    // Changed again within its 10 s: nothing asked, until it is drawn.
+    await pane.refresh(desk);
+    await Bun.sleep(150);
+    expect(reads).toBe(2);
+    shown = true;
+    pane.render(40, 10, false);
+    pane.render(40, 10, false);
+    await until(() => reads === 3, "the read when it was drawn");
+    await Bun.sleep(50);
+    expect(reads).toBe(3);
+  });
+});
+
 describe.skipIf(!outliner)("a turn's signal on the socket, on a scratch service", () => {
   const scratch = new Scratch();
   afterAll(async () => { await scratch.dispose(); });

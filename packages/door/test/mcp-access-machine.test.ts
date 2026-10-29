@@ -50,7 +50,7 @@ describe.skipIf(!outliner)("the access view reads the gateway's machine (PIE-103
   async function ep0ch(args: string[]) {
     const env = {
       ...near.env, PATH: process.env.PATH!, EP0CH_CONTROL: join(dir, "no-door.sock"), EP0CH_STATE: join(dir, "state"),
-      EP0CH_SSH: join(dir, "bin/ssh"), FAKE_SSH_HOME: join(dir, "far-home"), FAKE_SSH_OUTLINES: far.outlines, FAKE_SSH_BIN: join(dir, "bin"),
+      EP0CH_VERBOSE: "1", EP0CH_SSH: join(dir, "bin/ssh"), FAKE_SSH_HOME: join(dir, "far-home"), FAKE_SSH_OUTLINES: far.outlines, FAKE_SSH_BIN: join(dir, "bin"),
       // The far machine's `ep0ch mcp access` and host must see the far config: the fake ssh runs them with its own HOME.
     };
     const p = Bun.spawn(["bun", MAIN, ...args], { cwd: near.folder("worktree"), env, stdout: "pipe", stderr: "pipe", stdin: "ignore" });

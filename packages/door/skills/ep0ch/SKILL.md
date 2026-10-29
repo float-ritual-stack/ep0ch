@@ -310,7 +310,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
 - **The keys window** (PIE-492): what a key does and where, and the person's keymap. `keys.open filter=<words>` opens it
   (a `keys` tile beside the focused one on a screen of tiles, else a screen over theirs; waits as `screen.open` does); in it, `keys.find text=tile.close tile=keys` answers every binding of
   those words with its scope, layer, what it takes the key from (`takesFrom`), what gets it first (`takenBy`) and whether
-  it can move. `keys.rebind id=<act line> key=<its key now> to=<new key> tile=keys` saves a rebind in
+  it can move; `keys.tab tab=unbound tile=keys` lists the actions no key reaches (`rows`). `keys.rebind id=<act line> key=<its key now> to=<new key> tile=keys` saves a rebind in
   `keybindings.json` (said on screen; `keys.unbind`, `keys.reset id=`, `keys.undo`). Only when the person asks: it's
   their keyboard.
 - **The power bar** (PIE-656): the person's `ctrl+k` palette (alt+← alt+→ change scope, tab completes the line). `bar.open query=… scope=tiles|notes|actions|recent|screens`

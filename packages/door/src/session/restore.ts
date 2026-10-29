@@ -180,7 +180,7 @@ export async function reopen(steps: readonly Step[], via: (s: Step) => Pick<App[
 }
 
 /** What a restore says on the status bar. */
-export function restoredSaying(r: Restored, how: "upgrade" | "crash", adopted: number): string {
+export function restoredSaying(r: Restored, how: "upgrade" | "crash", adopted: number, untiled = 0): string {
   return [
     how === "upgrade" ? "the session was handed over to a new daemon" : "the session came back after its daemon stopped",
     r.yolo ? "YOLO kept across the update" : "",
@@ -190,6 +190,8 @@ export function restoredSaying(r: Restored, how: "upgrade" | "crash", adopted: n
     r.empty ? `${r.empty === 1 ? "a comment" : `${r.empty} comments`} opened without ${r.empty === 1 ? "its" : "their"} words: they're kept, the reader's ■ unsent line has them` : "",
     r.screens ? `${r.screens} screen${r.screens === 1 ? "" : "s"} reopened` : "",
     adopted ? `${adopted} program${adopted === 1 ? "" : "s"} kept running` : "",
+    // What the terminal host still keeps that no tile took back (PIE-1432): never dropped without a word.
+    untiled ? `${untiled} program${untiled === 1 ? "" : "s"} kept with no tile: alt+g lists ${untiled === 1 ? "it" : "them"}, ⏎ on ${untiled === 1 ? "its" : "a"} row puts ${untiled === 1 ? "it" : "one"} back` : "",
     r.reopened ? `${r.reopened} edit${r.reopened === 1 ? "" : "s"} back (e or ⏎ in it carries on)` : "",
     r.tuned ? `${r.tuned} look nudge${r.tuned === 1 ? "" : "s"} back, not saved yet` : "",
     r.held.length ? `not run again (not replay-safe): ${[...new Set(r.held)].join(", ")}` : "",

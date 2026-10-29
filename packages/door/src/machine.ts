@@ -10,9 +10,10 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { type Forward, type ForwardState, forwardState } from "@ep0ch/outline-core/machine";
 import { forwardFor, forwardOptions } from "@ep0ch/outliner/machine-forward";
-import { isMachineName, outlineLayout } from "@ep0ch/outline-core/outline-location";
+import { isMachineName, isOutlineName, outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { hostLive, outlinesDir, resolveTarget } from "./discover";
 import { readState, writeState } from "./state";
+import { GROUND_RESET, TERM_RESET } from "./term";
 
 type Env = Record<string, string | undefined>;
 
@@ -153,7 +154,51 @@ export function remoteDoorArgv(machine: string, args: readonly string[], env: En
   if (!isMachineName(machine)) throw new Error(`--remote ${JSON.stringify(machine)} isn't an ssh config name`);
   const vars = REMOTE_TERMINAL_VARS.flatMap(k => (env[k] ? [`${k}=${shellWord(env[k]!)}`] : []));
   const door = ["exec", "ep0ch", ...args].map(shellWord).join(" ");
-  return [sshBin(env), "-t", "--", machine, ["exec", "env", ...vars, `"\${SHELL:-/bin/sh}"`, "-lc", shellWord(door)].join(" ")];
+  return [sshBin(env), "-t", ...KEEPALIVE, "--", machine, ["exec", "env", ...vars, `"\${SHELL:-/bin/sh}"`, "-lc", shellWord(door)].join(" ")];
+}
+
+/**
+ * ssh's keepalives: a link that died under it (a tailnet blip) ends ssh in about a minute instead of leaving a frozen
+ * door until TCP gives up. Given before the machine, so they win over the ssh config's.
+ */
+const KEEPALIVE = ["-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"];
+
+/**
+ * `ep0ch door [<ssh-name>] [<outline>]`: this terminal on the ssh door, the ForceCommand login on another machine
+ * (`ssh ep0ch`, port 2323, whose door.sh takes only an outline name as its command). ssh-name defaults to `ep0ch`.
+ */
+export function sshDoorArgv(machine: string, outline: string | undefined, env: Env = process.env): string[] {
+  return [sshBin(env), "-t", ...KEEPALIVE, "--", machine, ...(outline ? [outline] : [])];
+}
+
+/** `ep0ch door`'s words: the ssh name (default `ep0ch`) and the outline, or why not. */
+export function sshDoorOf(args: readonly string[]): { machine: string; outline?: string; again: string } | { error: string } {
+  const [machine = "ep0ch", outline, ...more] = args;
+  if (more.length || !isMachineName(machine) || (outline !== undefined && !isOutlineName(outline)))
+    return { error: "usage: ep0ch door [<ssh-name>] [<outline>]: the ssh name of the door's login (default ep0ch), and an outline there" };
+  return { machine, ...(outline ? { outline } : {}), again: ["ep0ch", "door", ...args].map(shellWord).join(" ") };
+}
+
+/** The one line said after the door's ssh ends: how it ended, and the command that comes back. */
+export const carriedLine = (machine: string, code: number, again: string) =>
+  `ep0ch: ${code ? `the connection to ${machine} ended (exit ${code})` : `left the door on ${machine}`} · ${again} reattaches`;
+
+/**
+ * Carry a door running on another machine in this terminal until ssh ends, then give the terminal back. Once the link
+ * is gone the far side can't undo what its door turned on (the alternate screen, mouse reports, paste, the Kitty
+ * keyboard), so this side does, as the door itself does when it quits here (TERM_RESET), and says what reattaches.
+ * A door that ended cleanly (exit 0) gave the terminal back itself, so only the line is said. `again` null: a command
+ * ran there, not a door, and nothing is said.
+ */
+export async function carryDoor(machine: string, argv: readonly string[], again: string | null): Promise<number> {
+  const p = Bun.spawn([...argv], { stdio: ["inherit", "inherit", "inherit"], env: { ...process.env } });
+  const code = await p.exited;
+  if (again === null) return code;
+  if (code && process.stdout.isTTY) process.stdout.write(TERM_RESET + GROUND_RESET + "\r\n");
+  // ssh gives the terminal's line settings back on its way out; one killed outright can't, so they are made sane too.
+  if (code && process.stdin.isTTY) Bun.spawnSync(["stty", "sane"], { stdin: "inherit", stdout: "ignore", stderr: "ignore" });
+  console.error(carriedLine(machine, code, again));
+  return code;
 }
 
 /** `--remote <machine>` out of the arguments: the machine, and the rest for the door there. */
@@ -166,6 +211,9 @@ export function remoteOf(args: readonly string[]): { machine: string; rest: stri
   return { machine, rest: args.filter((_, i) => i !== at && i !== at + 1) };
 }
 
+/** Whether what goes to the machine is a command (`init`, `session list`, …) rather than the door's flags. */
+const remoteCommand = (args: readonly string[]) => args[0] !== undefined && !args[0].startsWith("-");
+
 /**
  * The door's flags as they go to the machine: the outline this folder names there (its `.ep0ch` says that machine) as
  * `--ws`, when none is given; never `--machine` naming the machine itself (it is the door's own host there). A
@@ -173,14 +221,13 @@ export function remoteOf(args: readonly string[]): { machine: string; rest: stri
  */
 export function remoteArgs(machine: string, rest: readonly string[], target: ReturnType<typeof resolveTarget>): string[] {
   const own = rest.filter((a, i) => !((a === "--machine" && rest[i + 1] === machine) || (rest[i - 1] === "--machine" && a === machine)));
-  if (own[0] !== undefined && !own[0].startsWith("-")) return own;
+  if (remoteCommand(own)) return own;
   if (own.includes("--ws") || "error" in target || !("outline" in target) || target.machine !== machine) return own;
   return ["--ws", target.outline, ...own];
 }
 
 /** Run the door there with flags `there` (remoteArgs, as nameRemoteOutline checked them), in this terminal, until it ends: ssh's exit code. */
-export async function remoteDoor(machine: string, there: readonly string[]): Promise<number> {
+export function remoteDoor(machine: string, there: readonly string[]): Promise<number> {
   rememberMachine(machine);
-  const p = Bun.spawn(remoteDoorArgv(machine, there), { stdio: ["inherit", "inherit", "inherit"], env: { ...process.env } });
-  return await p.exited;
+  return carryDoor(machine, remoteDoorArgv(machine, there), remoteCommand(there) ? null : ["ep0ch", "--remote", machine, ...there].map(shellWord).join(" "));
 }

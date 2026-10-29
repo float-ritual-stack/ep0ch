@@ -102,7 +102,7 @@ import {
   TUI_RESOURCE_PRESENTATION_CONTEXT,
 } from "./resource-presentation";
 import { probeSocket } from "./socket-probe";
-import { actionOf, thisTurn, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
+import { actionOf, thisTurn, WHOLE_OUTLINE_READS, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
 import { isWatchable, QueryWatches, type WatchConnection } from "./query-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
@@ -468,7 +468,7 @@ export class OutlinerServer {
       // What it held the loop for (all of it when it never waited outside the loop): charged to whose it is, and named
       // in a stall.
       if (sameTurn()) ms = performance.now() - started;
-      this.turns.charge(key, ms);
+      this.turns.charge(key, ms, input.action);
       noteWork(`${input.action} (own)`, ms);
       if (!response.ok) throw new Error(response.error);
       return response.result as T;
@@ -502,7 +502,7 @@ export class OutlinerServer {
     this.watches = new QueryWatches({
       answer: request => this.handle(request as unknown as OutlinerRequest),
       sequence: () => this.store.sequence,
-      timed: ms => { noteWork("queries.changed", ms); this.turns.charge("watches", ms); },
+      timed: ms => { noteWork("queries.changed", ms); this.turns.charge("watches", ms, "blocks.query"); },
       // A pass waits its turn a watch at a time, behind interactive requests (PIE-1413).
       turn: action => this.turns.next(action, "watches"),
     });
@@ -4894,7 +4894,7 @@ export class OutlinerServer {
     }
     const publishMs = performance.now() - answered;
     // Who asked is charged what its request held the loop for (Turns): the next turn goes to someone who used it less.
-    this.turns.charge(key, (loopMs ?? answered - started) + publishMs);
+    this.turns.charge(key, (loopMs ?? answered - started) + publishMs, request?.action);
     if (loopWatched()) this.timeRequest(request, received, started, answered, loopMs ?? answered - started, publishMs);
   }
 
@@ -4959,9 +4959,18 @@ export class OutlinerServer {
           // Each request waits its turn on the loop (Turns): a burst of whole-outline reads never holds it. One that waits
           // for a script run's answer (PIE-1264) lets the next go once the run has started: the run's own calls into the
           // door that asked (`scripts.answer`, and what its action then reads) come back over this connection.
-          const key = turnKeyOf(line, socket);
-          requestQueue = requestQueue.then(() => this.turns.next(actionOf(line), key)).then(() => new Promise<void>(release =>
-            void queueRelease.run(release, () => this.respond(socket, line, received, key)).finally(release)));
+          const key = turnKeyOf(line, socket), action = actionOf(line);
+          // A connection that closed has nobody to answer: what it left queued is dropped, never run (PIE-1413).
+          const answer = () => socket.destroyed ? undefined : this.respond(socket, line, received, key);
+          if (WHOLE_OUTLINE_READS.has(String(action))) {
+            // A whole-outline read starts after what the connection sent before it (so it sees those writes), and nothing
+            // waits for it: a door's 86 lane reads never hold its note read, its save or its draft behind them (PIE-1413).
+            const after = requestQueue;
+            void after.then(() => socket.destroyed ? undefined : this.turns.next(action, key).then(answer));
+          } else {
+            requestQueue = requestQueue.then(() => socket.destroyed ? undefined : this.turns.next(action, key)).then(() => new Promise<void>(release =>
+              void queueRelease.run(release, async () => answer()).finally(release)));
+          }
         }
         newline = buffer.indexOf("\n");
       }

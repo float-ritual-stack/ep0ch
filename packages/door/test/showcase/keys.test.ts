@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { Desk } from "../../src/desk/desk";
+import { openScreen } from "../../src/desk/screen-specs";
 import { wKey } from "../../src/desk/wkeys";
 import { keymapPath } from "../../src/surface/keymap";
 import { visible } from "../../src/style";
@@ -33,10 +34,35 @@ describe.skipIf(!outliner)("the keys section", () => {
     const tab: any = await d.dispatch.act({ action: "keys.tab", args: { tab: "conflicts" }, tile: "keys" }, AGENT);
     expect(tab.rows).toBe(0);
     await until(() => text().includes("Conflicts 0") && text().includes("no two bindings fight over a key"), "the Conflicts tab");
+    // Unbound: every action no key reaches, its count on the tab; an agent gives one a key, and it leaves the tab.
+    const un: any = await d.dispatch.act({ action: "keys.tab", args: { tab: "unbound" }, tile: "keys" }, AGENT);
+    expect(un.rows).toBeGreaterThan(0);
+    await until(() => text().includes(`Unbound ${un.rows}`), "the Unbound tab");
+    const given: any = await d.dispatch.act({ action: "keys.rebind", args: { id: "share.list", to: "alt+j" }, tile: "keys" }, AGENT);
+    expect(given).toMatchObject({ saved: true, id: "share.list", to: "alt+j" });
+    const after: any = await d.dispatch.act({ action: "keys.tab", args: { tab: "unbound" }, tile: "keys" }, AGENT);
+    expect(after.rows).toBe(un.rows - 1);
+    await d.dispatch.act({ action: "keys.undo", args: {}, tile: "keys" }, AGENT);
     // ⏎ runs a row as the person's own key would; an agent runs the action itself.
     await expect(d.dispatch.act({ action: "keys.run", args: { n: 1 }, tile: "keys" }, AGENT)).rejects.toThrow("an agent runs the action itself");
     await d.dispatch.act({ action: "keys.undo", args: {}, tile: "keys" }, AGENT);
     expect(wKey("x")?.action).toBe("tile.close");
     expect(existsSync(keymapPath())).toBe(true);
+  });
+
+  test("on the House board, ? opens the keys window where the board can take it; esc gives the keys back to the lanes", async () => {
+    const board = openScreen("board", { hub: h.seeded.notes.hub.id, persist: false }) as Desk;
+    h.app.push(board as never);
+    const kinds = () => [...(board as any).panes.values()].map((p: any) => p.kind) as string[];
+    await until(() => kinds().includes("query"), "the board's lanes", 15_000);
+    // The lanes have the keys, as the board opens.
+    const lane = [...(board as any).panes.entries()].find(([, p]: any) => p.kind === "query")?.[0];
+    if (lane !== undefined) await board.dispatch.act({ action: "tile.focus", args: {}, tile: (board as any).nameOf(lane) }, { kind: "user" } as never);
+    const from = (board as any).nameOf((board as any).focus);
+    h.ch("?");
+    await until(() => kinds().includes("keys") && (board as any).panes.get((board as any).focus)?.kind === "keys", "a keys tile on the board", 8000);
+    h.press({ kind: "esc" } as never);
+    await until(() => !kinds().includes("keys"), "closed");
+    expect((board as any).nameOf((board as any).focus)).toBe(from);
   });
 });

@@ -208,6 +208,8 @@ export class Scratch {
     for (const d of ["outlines", "config", "door"]) mkdirSync(join(this.root, d), { recursive: true, mode: 0o700 });
     holding()?.add(this);
   }
+  /** Its service runs (started, not stopped): one a test file leaves running is named between files (test/preload.ts). */
+  get running() { return !!this.proc; }
   /** The outlines folder the host serves. */
   get outlines() { return join(this.root, "outlines"); }
   /** The outline's own folder (`<outlines>/<name>/`): the root its relative file links resolve against. */
@@ -296,6 +298,8 @@ export class ScratchHost {
     for (const d of ["outlines", "config", "door", "folders", "home"]) mkdirSync(join(this.root, d), { recursive: true });
     holding()?.add(this);
   }
+  /** As `Scratch.running`. */
+  get running() { return !!this.proc; }
   get outlines() { return join(this.root, "outlines"); }
   get config() { return join(this.root, "config"); }
   get sock() { return join(this.outlines, ".host", "host.sock"); }

@@ -3714,7 +3714,15 @@ export class OutlinerStore {
     return JSON.stringify([block?.revision, block?.parentId, block?.position, block?.effectiveDeletedRootId, this.children(id).map(child => child.id)]);
   }
 
+  /** The outline as `refreshValueReferences` last checked it: nothing has changed since, so nothing is stale. */
+  private valueReferencesChecked?: string;
+
   private refreshValueReferences(): void {
+    // Asked for every record and every backlink read (PIE-1413: a `blocks.records` of 200 notes checked every
+    // value-reading note's deps 400 times, 24 s on gurgle): once per change to the outline is enough, since each answer
+    // is current until a write (its deps, `anyChange`) or the minute turns (`clock`).
+    const checked = `${this.sequence}:${(this.database.query("PRAGMA data_version").get() as { data_version: number }).data_version}:${Math.floor(Date.now() / 60_000)}`;
+    if (this.valueReferencesChecked === checked) return;
     this.valueReferenceIds ??= new Set((this.database.query("SELECT id, text FROM blocks WHERE text LIKE '%{{%'").all() as { id: string; text: string }[]).filter(row => valueLinkOccurrences(row.text, []).length).map(row => row.id));
     for (const id of this.valueReferenceIds) {
       const block = this.get(id);
@@ -3727,6 +3735,8 @@ export class OutlinerStore {
       replaceReferenceIndex(this.database, id, block.text, answer.values);
       this.valueReferences.set(id, { answer, versions: answer.deps.map(dep => this.valueReferenceVersion(dep)), sequence: this.sequence, minute: Math.floor(Date.now() / 60_000) });
     }
+    // Marked once the pass is done: an answer that reads backlinks asks again inside it, and must meet the cycle there.
+    this.valueReferencesChecked = checked;
   }
 
   referenceValues(id: string) {
