@@ -431,7 +431,8 @@ export class AgentRequests {
   held(): HeldAsk[] {
     return this.store.heldAgentRequests().flatMap((row) => {
       const block = this.store.get(row.blockId);
-      if (!block || block.effectiveDeletedRootId) return [];
+      // A comment's ask held before PIE-1374 has no line to run here (its thread answers it): not shown as waiting.
+      if (!block || !this.asksInPlace(block)) return [];
       const at = this.lines(block).find((candidate) => candidate.requestKey === row.requestKey)?.line ?? -1;
       return [{ blockId: row.blockId, line: at, title: blockDisplayTitle(block).slice(0, 120), agent: row.agent, extensionId: row.extensionId, request: row.request, why: (row.message ?? "").replace(/^held: /, ""), by: row.requestedBy, at: row.requestedAt }];
     });
@@ -563,6 +564,7 @@ export class AgentRequests {
   touched(blockId: string, text: string): void {
     if (this.stopped) return;
     const block = this.store.get(blockId);
+    if (block && !block.effectiveDeletedRootId && isAnnotationBlock(block)) return this.notInThreads(blockId, text);
     if (!block || !this.asksInPlace(block)) return;
     const names = this.registry.agentNames();
     for (const line of requestLines(text, null)) {
@@ -813,11 +815,28 @@ export class AgentRequests {
   threadWritten(records: readonly AnnotationRecord[], author: string | undefined): void {
     if (this.stopped || author !== "user") return;
     const names = this.registry.threadAgentNames();
-    if (!names.size) return;
     for (const record of records) {
+      this.notInThreads(record.block.id, record.body);
       const line = requestLines(record.body, names)[0];
       if (!line) continue;
       void this.answerInThread(record, line).catch(() => {});
+    }
+  }
+
+  /**
+   * The `@name` lines of a comment no agent answers there, each said on its line: a name nobody answers, or an agent
+   * that answers only in notes (no `threads`). A comment is never answered in place, so without this the ask would
+   * just go quiet.
+   */
+  private notInThreads(blockId: string, text: string): void {
+    const threads = this.registry.threadAgentNames();
+    const here = [...threads].sort().map((name) => `@${name}`).join(" ") || "none";
+    for (const line of requestLines(text, null)) {
+      if (threads.has(line.agent)) continue;
+      const warning = this.registry.agent(line.agent)
+        ? `@${line.agent} answers in notes, not in comment threads · agents that answer here: ${here}`
+        : `no agent answers @${line.agent} · agents that answer in comment threads: ${here}`;
+      this.deps.changed(blockId, { line: line.text, state: "unanswered", warning });
     }
   }
 

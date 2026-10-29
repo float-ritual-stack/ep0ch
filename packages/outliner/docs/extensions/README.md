@@ -1293,8 +1293,8 @@ lands in the note while he goes on. That needs a door that says when he types in
   `end`, `prefix`, `suffix`), `note` (its text: the block's, or the Resource's), `thread` (each comment so far) and
   the thread's `properties`; its `reply` lands in the thread as `ext:<id>`. Patches are refused there (an answer in a
   margin isn't an edit). The thread is its only answer: a comment's `@name` line never gets the note's in-place answer,
-  so the person's comment is never written into (PIE-1374). An agent without `threads` isn't asked from a comment at
-  all. Only a person's comment asks: an agent's or an extension's never does. A door's Ask (the
+  so the person's comment is never written into (PIE-1374). An agent without `threads` isn't asked from a comment: its
+  line says so (`unanswered`, naming the agents that answer there), as a name nobody answers does. Only a person's comment asks: an agent's or an extension's never does. A door's Ask (the
   passage toolbar's `a a`) opens the comment on the selection with `@name ` written, `kind: question`.
   Marginalia's `@margin` is the example (`extensions/marginalia`).
 - **Addressing.** A line that starts with `@name` (after an optional bullet), outside code, whose

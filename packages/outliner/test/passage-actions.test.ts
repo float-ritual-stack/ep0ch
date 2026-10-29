@@ -268,6 +268,19 @@ test("an @margin ask in a comment gets one answer, as a reply; the person's comm
   expect(store.get(asked.id)!.text).toBe(comment.text);
   expect(store.get(twice.replies[1]!.block.id)!.text).not.toContain("answered");
 
+  // An @name in a comment that no agent answers there is said on its line, not dropped quietly.
+  const asks: { blockId?: string; ask?: { line: string; state: string; warning?: string } }[] = [];
+  const connected = Promise.withResolvers<void>();
+  const watcher = client.watch({ client: { clientId: "margin-watch", role: "observer", contextId: "margin-watch" }, onConnect: connected.resolve, onEvent: (event: any) => { if (event.ask) asks.push(event); } });
+  await connected.promise;
+  const typo = await client.request<AnnotationBatchReceipt>({
+    action: "annotations.batch", requestId: "explain-3", author: "user",
+    operations: [{ operationId: "c", type: "block-comment", input: { blockId: note.id, expectedRevision: note.revision, body: "@margn what about frost?", source: "user", passage: { quote: "peppers", start: note.text.indexOf("peppers") } } }],
+  });
+  const said = await until("the unanswered warning", () => asks.find(e => e.blockId === typo.annotations[0]!.block.id));
+  expect(said.ask).toMatchObject({ state: "unanswered", warning: "no agent answers @margn · agents that answer in comment threads: @margin" });
+  await watcher.stop();
+
   // In a note, @margin keeps its output region.
   const own = store.create("Seedling notes", null, "user");
   await client.request({ action: "update", blockId: own.id, text: `${own.text}\n@margin what hardens them?`, expectedRevision: own.revision, mutation: { author: "user" } });
