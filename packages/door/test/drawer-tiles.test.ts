@@ -1024,7 +1024,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         expect(r).toMatchObject({ zoomed: true });
         await d.app.dispatch.press("agent.lift", {}); await settle(null, "act drops it");
         const why = await d.app.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: "drawer.nothing" }, USER).then(() => "", (e: Error) => e.message);
-        expect(why).toMatch(/no tile drawer\.nothing/);
+        expect(why).toMatch(/no tile (is called )?drawer\.nothing/);
         await board.trash(bar.id);
       } finally { d.app.quit(); }
     }, 45_000);
@@ -1285,7 +1285,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         expect([name, lifted() !== null]).toEqual([name, true]);
         await screen.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: DRAWER_TILE_ID }, USER);
         expect([name, lifted()]).toEqual([name, null]);
-        await expect(screen.dispatch.act({ action: "tile.zoom", args: {}, tile: "drawer.nothing" }, USER)).rejects.toThrow(/no tile drawer\.nothing|answers to tile\.zoom/);
+        await expect(screen.dispatch.act({ action: "tile.zoom", args: {}, tile: "drawer.nothing" }, USER)).rejects.toThrow(/no tile (is called )?drawer\.nothing|answers to tile\.zoom/);
         d.app.pop(); d.paint();
       }
     } finally { d.app.quit(); }
