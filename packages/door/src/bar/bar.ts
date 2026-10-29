@@ -24,10 +24,10 @@ import { LineField } from "../surface/line";
 import { editorLineKey } from "../surface/editor";
 import { Gesture, rowsOf, wordAt, Selection, paintRange, SELECT_BG, isCopyKey, modeKey } from "../surface/selection";
 import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note";
-import { keyCaption, keyName, keyOfName, lineWords, shownLine, ActionRefused } from "../surface/actions";
+import { keyCaption, keyName, keyOfName, lineWords, ActionRefused } from "../surface/actions";
 import { shellWord } from "../machine";
 import { RowView, wheelRows, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE } from "../scroll";
-import { C, chip, dim, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, width } from "../style";
+import { C, chip, dim, drawEllipsized, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, visible, width } from "../style";
 import { paintable, rowLines, withRowLimit, wrap } from "../text";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
@@ -116,17 +116,21 @@ export class PowerBar {
       name: "power bar", items: () => this.items,
       heading: (it, _i, w) => (!this.compact() && it.heading ? fg(C.dark) + ` ${it.heading} ${"─".repeat(Math.max(0, w - width(it.heading) - 2))}` + RESET : null),
       row: (it, _i, on, w) => this.rowText(it, on, w),
-      // ⏎ and a double click (an alt-click: the alternate) are `bar.pick`, an action, as an agent's is.
+      // ⏎, a double click and a second click on a row (an alt-click: the alternate) are `bar.pick`, an action, as an agent's is.
       choose: (_it, i) => this.pick(i + 1, this.alt),
       closed: () => { clearPrivateForm(); this.close(); },
       keys: k => this.ownKey(k),
       clickChooses: !!this.compact(),
+      // A click lights a row and shows its preview; the next click on it runs it, as ⏎ does (PIE-1405).
+      secondClickChooses: true,
       clicked: (x, y) => this.clicked(x, y),
       frame: a => this.frame(a),
     });
     this.refresh();
   }
 
+  /** The line field's cells as last drawn: a click inside them is the field's. */
+  private fieldW = 10;
   private compact() { return this.scope === "ask" ? compactQuestion() : null; }
 
   /** Put away: nothing it asked for is waited on. */
@@ -282,7 +286,7 @@ export class PowerBar {
       const compact = this.compact();
       const inputX = compact ? 2 + width(compact.title) : 3;
             // The line is the one line field's: a click places the cursor, a drag selects, a double click a word (PIE-1290).
-      if (this.input.mouse(k, { x: r.col + inputX, y: r.row + (compact ? 1 : 2), w: Math.max(10, r.cols - 32) })) { ctx.redraw(); return; }
+      if (this.input.mouse(k, { x: r.col + inputX, y: r.row + (compact ? 1 : 2), w: compact ? Math.max(10, r.cols - 32) : this.fieldW })) { ctx.redraw(); return; }
       if (k.action === "up" || k.action === "drag") return;
       this.alt = !!((k.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL)) || k.button === MOUSE_MIDDLE;
       const at = { ...k, x: k.x - r.col, y: k.y - r.row };
@@ -326,6 +330,8 @@ export class PowerBar {
       for (const s of this.sources()) if (!s.asks) { try { const r = s.rows(this.query, this.host, this.scope); if (Array.isArray(r)) this.got.set(s.id, r); } catch { /* kept as it was */ } }
       return this.build(true);
     }
+    // Other rows for what's typed now: a click on one is a first click, whatever was clicked before.
+    this.picker.view.forget();
     const turn = this.search.begin(), q = this.query, sources = this.sources();
     this.moved = false;
     // A source that asks the service keeps the rows it gave until its answer to what's typed now replaces them (PIE-1398:
@@ -338,7 +344,8 @@ export class PowerBar {
     const alive = () => turn.alive() && !this.done;
     const answer = (s: BarSource, rows: BarRow[]) => {
       if (!alive()) return;
-      this.got.set(s.id, rows); this.kept.delete(s.id); this.build(); this.host.ctx.redraw(); turn.answered(s.id);
+      // Answered before it's drawn: the line names only the sources still out (a search with no hits never stays "notes…").
+      turn.answered(s.id); this.got.set(s.id, rows); this.kept.delete(s.id); this.build(); this.host.ctx.redraw();
       // An agent's bar is read once and put away: no re-ordering asked for it.
       if (this.quick || !s.later) return;
       // The same hits re-ordered (Jev), after a pause: what's lit stays lit, as it did in the search it replaced.
@@ -346,7 +353,7 @@ export class PowerBar {
     };
     const fail = (s: BarSource, e: unknown) => {
       if (!alive()) return;
-      this.problems.set(s.id, e instanceof Error ? e.message : String(e)); this.got.delete(s.id); this.kept.delete(s.id); this.build(); this.host.ctx.redraw(); turn.answered(s.id);
+      turn.answered(s.id); this.problems.set(s.id, e instanceof Error ? e.message : String(e)); this.got.delete(s.id); this.kept.delete(s.id); this.build(); this.host.ctx.redraw();
     };
     const ask = (s: BarSource) => { try { const r = s.rows(q, this.host, this.scope, turn.signal); if (Array.isArray(r)) answer(s, r); else void r.then(rows => answer(s, rows), e => fail(s, e)); } catch (e) { fail(s, e); } };
     const later = sources.filter(s => s.asks);
@@ -406,11 +413,16 @@ export class PowerBar {
   /** A row: its indent and mark, its words, then dim what it is and its key, as wide as the list. */
   private rowText(it: BarItem, on: boolean, w: number): string[] {
     const r = it.row, head = ` ${"  ".repeat(Math.min(6, r.depth ?? 0))}${r.mark ? `${r.mark} ` : ""}`;
-    const detail = r.refused ? ` · ${r.refused}` : r.subtitle ? ` · ${r.subtitle}` : r.detail ? ` · ${r.detail}` : "";
+    const said = r.refused || r.subtitle || r.detail || "", detail = said ? ` · ${said}` : "";
     // Its kind at the right (an extension's: rule, script), once the words keep room to read (CHIP_ROOM columns).
     const kind = r.chip && w - width(r.chip) - 2 - (r.keycap ? width(keyCaption(r.keycap)) + 2 : 0) >= CHIP_ROOM ? ` ${r.chip} ` : "";
     const cap = (r.keycap ? ` ${keyCaption(r.keycap)} ` : "") + kind;
-    return rowLines(head + r.label + detail, w - width(cap), r.oneLine ? 1 : undefined, { hang: width(head) }).map((line, i) =>
+    // One line whose name fits: only what follows the name is cut short, so the lit row's marquee (PIE-1140) scrolls the
+    // detail in its own cells and the name stays where it is (PIE-1405).
+    const room = w - width(cap), named = head + r.label + " · ";
+    const lines = r.oneLine && said && width(named) < room && width(head + r.label + detail) > room ? [named + drawEllipsized(said, room - width(named))]
+      : rowLines(head + r.label + detail, room, r.oneLine ? 1 : undefined, { hang: width(head) });
+    return lines.map((line, i) =>
       pickRow(line, on, w - width(cap), r.refused ? C.dark : C.grey) + (i ? " ".repeat(width(cap)) : kind ? cap.slice(0, -kind.length) + fg(C.dark) + kind + RESET : cap));
   }
 
@@ -434,8 +446,15 @@ export class PowerBar {
     this.scopeHits = scopes!.hits;
     const busy = this.asking.size ? `${[...this.asking].map(id => barSource(id)?.title ?? id).join(", ")}…` : "";
     const said = [...this.problems].map(([id, why]) => `${barSource(id)?.title ?? id}: ${why}`).join(" · ");
-    const count = [`${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
-    const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, Math.max(10, w - 30))) : this.input.render(Math.max(10, w - 30), 1)[0]) + paint(` |08${busy || count}`);
+    // Nothing found for what's typed, said on the line itself: a narrow bar draws no preview to say it in.
+    const none = !this.items.length && !this.asking.size && this.query.trim() !== "" && !this.problems.size;
+    const count = [none ? "no matches" : `${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
+    // What's typed gets the row before the count does (PIE-1405): a pasted link at 40 columns reads whole, and the count
+    // takes what's left, cut short (hover reads it).
+    const status = busy || count, room = Math.max(10, w - 2);
+    const field = Math.min(room, Math.max(10, room - 1 - width(status), width(this.query) + 1));
+    this.fieldW = field;
+    const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, field)) : this.input.render(field, 1)[0]) + (room - field > 1 ? paint(" |08") + drawEllipsized(status, room - field - 1) : "");
     const scoped = this.scope ? barSource(this.scope) : undefined;
     this.sourceHead = scoped?.head?.(w, this.host) ?? [];
     // The row menu (alt+m, a right-click): each entry a chip with its digit (1, 2… or alt+1 while the menu is open, as a
@@ -446,7 +465,7 @@ export class PowerBar {
     const tail = said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : [];
     const it = this.items[this.picker.sel];
     const empty = !this.items.length && !this.asking.size;
-    const hint = this.scope ? barSource(this.scope)?.about ?? "" : this.query.trim() ? "nothing here matches" : "nothing open yet";
+    const hint = this.scope ? barSource(this.scope)?.about ?? "" : none ? "no matches" : this.query.trim() ? "" : "nothing open yet";
     const preview = (pw: number, ph: number) => it ? this.previewLines(it, pw, ph) : empty ? wrap(hint, pw).map(l => dim(l)) : [];
     return {
       rect, title: " power bar ",
@@ -605,12 +624,12 @@ export class PowerBar {
       return line;
     }
     const it = this.items[n - 1];
-    if (it?.source.id === "runs" || it?.row.key.startsWith("line:")) return it.row.fill!;
-    if (it?.source.id === "actions") {
-      const d = it.row.data as { action: string; args?: Record<string, unknown>; tile?: string };
-      return shownLine(d.action, d.args, d.tile);
-    }
-    return this.query;
+    if (!it) return this.query;
+    if (it.source.id === "runs" || it.row.key.startsWith("line:")) return it.row.fill!;
+    // The row's source says the line its pick runs (PIE-1405); a row with none has nothing to copy, never what's typed.
+    const line = it.source.command?.(it.row, this.host);
+    if (!line) throw new ActionRefused(`${visible(it.row.label)} runs no act line: ${it.row.note ? "its menu copies its reference" : "⏎ picks it"}`);
+    return line;
   }
 
   menuOpen = false;
@@ -625,6 +644,10 @@ export class PowerBar {
       const rows = (Array.isArray(def.menu) ? def.menu : [def.menu]).filter(e => (e.args as { kind?: string } | undefined)?.kind !== "line");
       return rows.map(e => [e.label, "note.copy-ref", { ...e.args, ref: note.id, ...(note.outline ? { outline: note.outline } : {}) }] as const);
     }
+    // A row whose source says no line for it has nothing to copy: its menu offers none (PIE-1405).
+    const it = this.items[this.picker.sel];
+    const line = () => { try { return it!.source.command?.(it!.row, this.host) ?? null; } catch { return null; } };
+    if (it && it.source.id !== "runs" && !it.row.key.startsWith("line:") && !line()) return [];
     return [["copy command", "bar.command", { op: "copy" }], ["copy button", "bar.command", { op: "button" }], ["insert button", "bar.insert", {}]];
   }
 

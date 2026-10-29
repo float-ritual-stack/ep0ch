@@ -29,7 +29,7 @@ import type { Actor, SocketBoard } from "./socket";
 import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0ch/outline-core/passage";
 import { printable } from "./text";
 import { partyOf, UndoHistory } from "./steps";
-import { ActionRefused, ActionSet, actionSet, asActor, def, type ActionDef } from "./surface/actions";
+import { ActionRefused, ActionSet, actionSet, asActor, def, shownLine, type ActionDef } from "./surface/actions";
 import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
 import type { Policy } from "./desk/screen-layout";
 import type { DeskApi } from "./desk/panes";
@@ -496,10 +496,18 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       // A `motion=` on a script's press (a button's `motion=fantasia`) is the script's to read: props.motion, and it passes it on to its own acts.
       const hint = TXN.getStore()?.motion;
       const given = { ...withArgs(w), ...givenArgs(a, rest), ...(e.script && hint ? { motion: hint } : {}) };
-      return askingFirst(on.ctx, e, a, block, given, actor, args =>
-        runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(Object.keys(args).length ? { args } : {}),
-          ...(typeof invitation === "string" && invitation ? { invitation } : {}),
-          ...(typeof via === "string" && /^[0-9a-f-]{8,}:\d+$/.test(via) ? { button: { block: via.slice(0, via.lastIndexOf(":")), line: Number(via.slice(via.lastIndexOf(":") + 1)) } } : {}) }, actor));
+      // The person's own run of a script (the power bar's row, a key, their act) invites it as their button's press does
+      // (src/surface/invite.ts, PIE-1186): it acts as them on their screen. Runs nobody pressed carry none (PIE-1403).
+      // Minted when it runs, never for a form left unanswered.
+      const invite = () => typeof invitation === "string" && invitation ? invitation : e.script && actor.kind === "user" ? INVITES.mint("you") : undefined;
+      return askingFirst(on.ctx, e, a, block, given, actor, args => {
+        const invited = invite();
+        return runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(Object.keys(args).length ? { args } : {}),
+          ...(invited ? { invitation: invited } : {}),
+          ...(typeof via === "string" && /^[0-9a-f-]{8,}:\d+$/.test(via) ? { button: { block: via.slice(0, via.lastIndexOf(":")), line: Number(via.slice(via.lastIndexOf(":") + 1)) } } : {}) }, actor)
+          // The run it started: the invitation belongs to it from here (and is spent when it ends).
+          .then(r => { if (invited && r.undo) INVITES.bind(invited, r.undo); return r; });
+      });
     },
   };
 }
@@ -665,6 +673,13 @@ function kindEntry(t: ExtensionTileKind): TileKind {
  * through `extensions.act` like any of its actions (written as `ext:<id>`, who asked recorded beside it).
  */
 function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
+  // A row's action as one request, for its pick and its copied line alike.
+  const barRequest = (r: ExtensionBarRow): { action: string; args: Record<string, unknown> } | null => {
+    if (!r.action) return null;
+    const a = extensionNamed(b.extension)?.actions.find(x => x.id === r.action);
+    if (!a) throw new ActionRefused(`${b.extension} no longer has the action ${r.action}`);
+    return { action: a.name, args: { ...(r.block ? { block: r.block } : {}), ...(r.args ? { with: JSON.stringify(r.args) } : {}) } };
+  };
   return {
     id: b.name, title: b.title, prefix, by: b.extension, asks: true,
     about: `${b.description ?? b.title} (extension ${b.extension})`,
@@ -677,15 +692,16 @@ function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
       const r = row.data as ExtensionBarRow;
       return r.preview ? { markdown: r.preview } : r.block ? { note: r.block } : { lines: [row.label, ...(r.copy ? ["", `⏎ copies ${oneLine(r.copy)}`] : r.resource ? ["", `⏎ opens ${oneLine(r.resource)}`] : [])] };
     },
+    // The line its pick runs (PIE-1405): its action's, or the open of its Resource; a note's row has none.
+    command(row) {
+      const r = row.data as ExtensionBarRow, req = barRequest(r);
+      return req ? shownLine(req.action, req.args) : r.resource && !r.block ? shownLine("open", { resource: r.resource }) : null;
+    },
     async pick(row, host, how) {
       const r = row.data as ExtensionBarRow;
       // Its action runs as any of the extension's actions does: through the dispatcher, as who picked it, its rules its own.
-      if (r.action) {
-        const a = extensionNamed(b.extension)?.actions.find(x => x.id === r.action);
-        if (!a) throw new ActionRefused(`${b.extension} no longer has the action ${r.action}`);
-        const args = { ...(r.block ? { block: r.block } : {}), ...(r.args ? { with: JSON.stringify(r.args) } : {}) };
-        return host.dispatch.as(how.actor, { action: a.name, args });
-      }
+      const req = barRequest(r);
+      if (req) return host.dispatch.as(how.actor, req);
       if (r.block) return openNote(r.block, host, how);
       // A Resource (PIE-754): opened where opens land, registered first if it must be (the desk's open resource=).
       if (r.resource) return host.dispatch.as(how.actor, { action: "open", args: { resource: r.resource } });

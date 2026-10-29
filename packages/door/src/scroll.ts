@@ -127,6 +127,11 @@ export interface RowPress {
   mods?: number; button?: number; focusing?: boolean; now?: number;
   /** The row pressed is the selected one, the person's own pick: kept as row context; being selected never turns a single click into an open. */
   selected?: boolean;
+  /**
+   * A second press on the row the last press selected opens it however long after (the power bar, PIE-1405: a click
+   * lights a row and shows its preview, the next click on it runs it). Still never the first press on a row.
+   */
+  untimed?: boolean;
 }
 
 /**
@@ -145,7 +150,7 @@ export class RowPresses {
   press(row: number, p: RowPress = {}): RowGesture {
     if ((p.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL) || p.button === MOUSE_MIDDLE) { this.last = null; return "fresh"; }
     const now = p.now ?? Date.now(), l = this.last;
-    const twice = !!l && l.row === row && now - l.at < DOUBLE_MS;
+    const twice = !!l && l.row === row && (!!p.untimed || now - l.at < DOUBLE_MS);
     // A third press starts afresh: a triple click is a double click and a single one, never two opens.
     this.last = twice ? null : { row, at: now };
     if (twice) return "open";
@@ -168,6 +173,8 @@ export class RowView {
   private max = Infinity;
   private shown: number | null = null;
   private readonly presses = new RowPresses();
+  /** Its rows changed (a new search's): the next press on one is a first press. */
+  forget() { this.presses.forget(); }
   /** The rows it was last placed in. */
   room = -1;
   /** A press on row `row` (an index into the list, not a screen row): select, open, open fresh, or only focus. */

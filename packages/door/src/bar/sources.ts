@@ -101,6 +101,9 @@ const TILES: BarSource = {
     if (p instanceof PtyPane) { const text = p.text(); while (text.length && !text.at(-1)!.trim()) text.pop(); return { lines: text.length ? text : ["(the terminal is blank)"] }; }
     return { lines: [`${t.name}: a ${t.kind} tile${t.screen ? ` on the ${t.screen.title}` : " in your drawer"}`, "", p?.title?.() ?? "", "", "⏎ goes to it · alt+⏎ zooms it"] };
   },
+  // The line its pick runs, where a line can run it: a tile on the screen shown (one in the drawer, under this screen or in
+  // a mount is gone to by the person's pick alone).
+  command(row, host) { const t = row.data as TileAt; return t.screen === host.screens().at(-1) && !t.mounts.length ? shownLine("tile.focus", {}, t.path) : null; },
   async pick(row, host, how) {
     const t = row.data as TileAt, p = t.desk.pane(t.name);
     if (!p) throw new ActionRefused(`${t.path} isn't open any more`);
@@ -175,7 +178,9 @@ export async function recentNotes(host: BarHost): Promise<BarRow[]> {
 async function addressedRows(to: NonNullable<ReturnType<typeof addressOf>>, host: BarHost): Promise<BarRow[]> {
   const named = "block" in to ? to.block : to.page;
   const m = await readTarget(host.ctx, to);
-  if (!m || m.deleted) return [{ key: `address:${named}`, label: to.label ?? named!, exact: true, refused: `no note ${named} in ${to.outline ?? "this outline"}` }];
+  // Named once, on one line (PIE-1405): the row is the id (or the reference's label, the id then said after it).
+  if (!m || m.deleted) return [{ key: `address:${named}`, label: to.label ?? named!, exact: true, oneLine: true,
+    refused: to.label ? `no note ${named} in ${to.outline ?? "this outline"}` : to.outline ? `no such note in ${to.outline}` : "no such note in this outline; one from another outline opens by its ep0ch:// or web link" }];
   const there = m.address, c = there ? await outlineBoards(host.ctx).on(there) : null;
   const key = there ? formatEp0chBlockUri({ outline: there.outline, machine: there.machine ?? c!.machine ?? (await c!.board.info()).machine!, blockId: m.id }) : m.id;
   const detail = [there?.outline, to.fragment ? `line ^${to.fragment}` : ""].filter(Boolean).join(" · ");
@@ -284,7 +289,7 @@ const ACTIONS: BarSource = {
       seen.add(a.name);
       const k = firstKey(a.keys);
       const script = scriptActions().find(s => s.action.name === a.name);
-      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${a.summary}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}${takesArgs(a) ? " · ⏎ its form" : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys, form: takesArgs(a), bare: bare(a) } });
+      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${script ? scriptSaid(script, true) : a.summary}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}${takesArgs(a) ? " · ⏎ its form" : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys, form: takesArgs(a), bare: bare(a) } });
     }
     // By name, and by what it says it does (its summary: an extension's action by its label and description).
     const found = filtered(rows, q, r => [r.label, r.fill ?? "", r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
@@ -294,10 +299,18 @@ const ACTIONS: BarSource = {
   named: (q, host) => actionLine(q, host),
   preview(row, host) {
     const d = row.data as { action: string; summary?: string; keys?: string };
-    const info = host.dispatch.list().actions.find(a => a.name === d.action);
+    const found = host.dispatch.list().actions.find(a => a.name === d.action);
+    // A script reads as itself (PIE-1405): its name, as it's typed, and its own words, never its action's id.
+    const script = scriptActions().find(s => s.action.name === d.action);
+    const info = found && script ? { ...found, name: script.extension.name ?? found.name, summary: scriptSaid(script) } : found;
     // Its page (PIE-1032): the lead, its keys as keycaps, its arguments as a properties table, its examples.
     const page: ActionInfo = info ?? { name: d.action, summary: d.summary ?? "", ...(d.keys ? { keys: d.keys } : {}), args: {}, scope: "", touches: "nothing", replay: "ask" };
     return { markdown: actionPage(page, { title: row.label, ...(row.refused ? { refused: row.refused } : {}), ...(hyperOn() ? { hyper: hyperKeysOf(d.action) } : {}) }) };
+  },
+  command(row) {
+    if (row.key.startsWith("line:")) return row.fill!;
+    const d = row.data as { action: string; args?: Record<string, unknown>; tile?: string };
+    return shownLine(d.action, d.args, d.tile);
   },
   async pick(row, host, how) {
     if (row.refused) throw new ActionRefused(row.refused);
@@ -318,6 +331,17 @@ const ACTIONS: BarSource = {
 };
 
 /**
+ * A script's row and page in its own words (PIE-1405): what it says it is (its note's title, its extension's about),
+ * then (on its page) what running it does, never its action's "<name>: Run <name>." summary said under its name again.
+ */
+function scriptSaid({ extension: e, action: a }: ReturnType<typeof scriptActions>[number], short = false): string {
+  // Its summary is what it is; a script's description says where it is written, so never that.
+  const about = (e.summary || a.label).trim().replace(/[.;:]$/, "");
+  // The row: what it is. The page: that, then what a run does (the revision it runs, what it keeps).
+  return short ? about : [about, a.description].filter(Boolean).join(". ");
+}
+
+/**
  * What's typed as an action line, as `ep0ch act` takes it (PIE-856): an action this door has, then its `key=value`
  * words, quoted as a shell quotes them (`tile.open kind=query query="#build-report"`), or the name alone of one that
  * needs arguments. Its row runs it as typed, as the person; an argument the action doesn't take, of the wrong type
@@ -326,6 +350,9 @@ const ACTIONS: BarSource = {
 function actionLine(q: string, host: BarHost, command = false): BarRow | null {
   // A note's address pasted (a web link, an ep0ch:// one) is the notes source's to open, never an action that isn't there.
   if (addressOf(q)) return null;
+  // Typed as its row reads (`run neat`): the line after `run`, so the action's row comes first, before notes it names (PIE-1403).
+  const lead = /^run\s+(?=\S)/.exec(q);
+  if (lead && !host.dispatch.has("run")) q = q.slice(lead[0].length);
   const words = lineWords(q);
   let req: ActRequest;
   try { req = actRequestOf(words); } catch (e) {
@@ -340,7 +367,7 @@ function actionLine(q: string, host: BarHost, command = false): BarRow | null {
   if (!info && (command || req.action.includes(".") || words.some(w => w.includes("=")))) {
     const near = closest(req.action, actions.map(a => a.name));
     if (near) { corrections.push(`did you mean ${req.action} -> ${near}`); req.action = near; info = actions.find(a => a.name === near); }
-    else return { key: `line:${q}`, label: q, fill: q, exact: true, refused: `no action ${req.action} here; > lists actions`, data: { action: req.action, args: {} } };
+    else return { key: `line:${q}`, label: q, fill: q, exact: true, refused: command ? `no action ${req.action} here; / searches the notes for it` : `no action ${req.action} here; > lists actions`, data: { action: req.action, args: {} } };
   }
   if (info) {
     const fields = formFields(info);
@@ -419,6 +446,7 @@ const RECENT: BarSource = {
 
 interface ScreenListed { stack: string[]; screens: { key: string; label: string; about: string }[]; named: { name: string; title?: string; made?: boolean }[] }
 
+const screenArgs = (row: BarRow) => ({ name: (row.data as { name: string }).name });
 const SCREENS: BarSource = {
   id: "screens", title: "screens", prefix: "@", by: "door",
   about: "the screens to open: the menu's and every registered one (the ones people made too); ⏎ opens it over this one (q comes back)",
@@ -430,8 +458,9 @@ const SCREENS: BarSource = {
     return filtered(rows, q, r => [r.label, r.detail ?? "", (r.data as { about: string }).about]);
   },
   preview: row => ({ markdown: `**${row.label}**\n\n${(row.data as { about: string }).about || "a screen"}\n\n⏎ opens it over this screen; q comes back.` }),
+  command: row => shownLine("screen.open", screenArgs(row)),
   pick(row, host, how) {
-    const args = { name: (row.data as { name: string }).name };
+    const args = screenArgs(row);
     return host.dispatch.as(how.actor, { action: "screen.open", args });
   },
 };
@@ -472,6 +501,10 @@ function extensionFacts(e: ExtensionEntry, then: string): string {
  * installs one, `extensions.install`), and, once a name is typed, removing one (`extensions.uninstall`), keeping its demo
  * notes or not. `&` is the door's: an extension's bar source can't take it.
  */
+/** What an install or remove row runs, for its pick and its copied line alike; the rest open a page or a form. */
+const extRequest = (d: ExtRow): [string, Record<string, unknown>] | null =>
+  d.block ? null : d.kind === "install" ? ["extensions.install", { id: d.id }] : d.kind === "remove" ? ["extensions.uninstall", { id: d.id, demo: d.demo! }] : null;
+
 const EXTENSIONS: BarSource = {
   id: "extensions", title: "extensions", prefix: "&", by: "door",
   about: "the outline's extensions: the Extensions hub, each installed one's page (⏎ opens it: its README, what it adds, its demo notes; its row says its settings: default, set, needs setup, failing), each one's settings (⏎ opens its form, drawn from its configSchema), the ones the repo has that aren't installed (⏎ installs one with its demo notes), and, with its name typed, removing one",
@@ -522,6 +555,10 @@ const EXTENSIONS: BarSource = {
     if (d.kind === "remove") return { markdown: [`**${row.label}**`, "", !d.notes ? "Its folder goes, and its lines and actions stop working. Its page goes with it." : d.demo === "keep" ? "Its folder goes, and its lines and actions stop working. Its demo notes stay under its page." : "Its folder goes, and its demo notes go to Trash: the ones nobody changed (the rest are kept, and named). Trash can restore them.", "", `The same from a shell: \`ep0ch ext remove ${d.id}${d.demo === "remove" ? " --demo remove" : ""}\``].join("\n") };
     return { lines: [row.label, "", row.refused ?? ""] };
   },
+  command(row) {
+    const req = extRequest(row.data as ExtRow);
+    return req ? shownLine(req[0], req[1]) : null;
+  },
   async pick(row, host, how) {
     const d = row.data as ExtRow;
     if (row.refused) throw new ActionRefused(row.refused);
@@ -544,7 +581,7 @@ const EXTENSIONS: BarSource = {
       return openActionForm(host, { action, args: now }, how.actor);
     }
     if (d.block) return openNote(d.block, host, how);
-    const [action, args] = d.kind === "install" ? ["extensions.install", { id: d.id }] : ["extensions.uninstall", { id: d.id, demo: d.demo! }];
+    const [action, args] = extRequest(d)!;
     return host.dispatch.as(how.actor, { action, args });
   },
 };

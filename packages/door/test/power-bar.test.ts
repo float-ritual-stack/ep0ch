@@ -102,6 +102,15 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(app.whatChanged.unseenIds()).toContain(notes.shed!.id);
   });
 
+  test("a search with no hits says so on its line once the notes have answered, never notes… (PIE-1403)", async () => {
+    key(ctrlK); type("zqxvbnw");
+    await (app as any).bar.settled();
+    await Bun.sleep(60);                                   // past a frame: what the person sees is the last paint, not a fresh one
+    const line = painted.map(plain).find(l => l.includes("› zqxvbnw"))!;
+    expect(line).toContain("no matches");
+    expect(line).not.toContain("notes…");
+  });
+
   test("typed, every source answers under its heading; a prefix and alt+← alt+→ move between scopes; esc puts it away", async () => {
     key(ctrlK); type("garden");
     await until(() => peek().bar.rows.some((r: any) => r.source === "notes"), "the notes search answered", 5000);
@@ -874,6 +883,69 @@ describe.skipIf(!outliner)("the power bar", () => {
     await running;
     expect(peek().bar.query).toBe("tile.zoom on=true");
     expect(peek().bar.runs.at(-1).line).toBe("tile.collapse tile=reader on=false");
+  });
+
+  test("a row's copy command is the line its pick runs: a tile's, a screen's; a note's row has none to copy (PIE-1405)", async () => {
+    key(ctrlK); type("%reader");
+    const n = peek().bar.rows.findIndex((r: any) => r.source === "tiles" && r.detail.startsWith("reader ·")) + 1;
+    expect(n).toBeGreaterThan(0);
+    const copied = await app.dispatch.press("bar.command", { op: "copy", n }) as { text: string };
+    expect(copied.text).toBe("ep0ch act tile.focus tile=reader");
+    // The copy runs: the line is one the door's own act takes.
+    key({ kind: "esc" }); key({ kind: "esc" });
+    desk.focusTile("tree", USER);
+    await app.dispatch.act({ action: "tile.focus", tile: "reader" }, USER);
+    expect(desk.focusedPane()).toBe(desk.pane("reader"));
+    key(ctrlK); type("@kanban");
+    await until(() => peek().bar.rows.some((r: any) => r.source === "screens"), "the screens answered");
+    expect((await app.dispatch.press("bar.command", { op: "copy" }) as { text: string }).text).toBe("ep0ch act screen.open name=K");
+    key({ kind: "esc" }); key({ kind: "esc" });
+    key(ctrlK); type("/garden");
+    await until(() => peek().bar.rows.some((r: any) => r.source === "notes"), "the notes search answered", 5000);
+    const hit = peek().bar.rows.findIndex((r: any) => r.source === "notes") + 1;
+    await expect(app.dispatch.act({ action: "bar.command", args: { op: "copy", n: hit } }, USER)).rejects.toThrow("its menu copies its reference");
+  });
+
+  test("a click lights a row and shows its preview; the next click on it runs it, as enter does (PIE-1405)", async () => {
+    key(ctrlK); type("%");
+    // The row lit when the bar opened is a first click's: one click on it previews, never runs.
+    const top = frame().findIndex(l => l.includes(peek().bar.rows[0].label));
+    const tx = frame()[top]!.indexOf(peek().bar.rows[0].label) + 1;
+    key({ kind: "mouse", action: "down", x: tx, y: top, button: 0 } as Key); key({ kind: "mouse", action: "up", x: tx, y: top, button: 0 } as Key);
+    expect(peek().bar).toBeDefined();
+    await Bun.sleep(450);
+    // A tile row other than the lit first one, and another tile in focus.
+    const rows = peek().bar.rows, n = rows.findIndex((r: any, i: number) => i > 0 && r.source === "tiles" && r.detail.split(" · ")[0] !== "reader");
+    expect(n).toBeGreaterThan(0);
+    const name = rows[n].detail.split(" · ")[0];
+    desk.focusTile("reader", USER);
+    const y = frame().findIndex(l => l.includes(rows[n].label) && l.includes(`${name} ·`)), x = frame()[y]!.indexOf(rows[n].label) + 1;
+    const click = () => { key({ kind: "mouse", action: "down", x, y, button: 0 } as Key); key({ kind: "mouse", action: "up", x, y, button: 0 } as Key); };
+    click();
+    expect(peek().bar?.selected).toBe(n + 1);
+    expect(desk.focusedPane()).toBe(desk.pane("reader"));
+    // Seconds later, not a double click: the second click on the lit row is the pick.
+    await Bun.sleep(450);
+    click();
+    expect(peek().bar).toBeUndefined();
+    expect(desk.focusedPane()).toBe(desk.pane(name));
+  });
+
+  test("at 40 columns what's pasted reads on the line, and a note that isn't here is named once (PIE-1405)", async () => {
+    const link = "https://my.ep0ch.sh/pub/o/garden/p/0b5c2d11-7e4f-4a3b-9c8d-1e2f3a4b5c6d";
+    key(ctrlK); key({ kind: "paste", text: link });
+    await (app as any).bar.settled(3000).catch(() => {});
+    const line = ((app as any).bar.draw(40, 30) as { lines: string[] }).lines.map(plain).find(l => l.includes("›"))!;
+    // The line shows the link's last cells, the whole field's worth, not ten of them.
+    expect(line).toContain(link.slice(-30));
+    key({ kind: "esc" }); key({ kind: "esc" });
+    const id = "0b5c2d11-7e4f-4a3b-9c8d-1e2f3a4b5c6d";
+    key(ctrlK); key({ kind: "paste", text: id });
+    await until(() => peek().bar.rows.some((r: any) => r.refused), "the address answered", 5000);
+    const row = peek().bar.rows.find((r: any) => r.refused);
+    expect(row.label).toBe(id);
+    expect(row.refused).not.toContain("0b5c2d11");
+    expect(row.refused).toContain("this outline");
   });
 
 });
