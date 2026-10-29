@@ -16,9 +16,10 @@ are its record. The outliner's entries from then are kept below, under
   `fix`, each finding under Evan's rubric (dense, format, buried, unclear, mixed, context, argues, qa-for-evan) with
   where it is and the smallest fix.
 - **Ready patches:** a stacked bullet split a point a line, a wall made a list, a long title cut to a name, a buried
-  question moved to the top, a count typed in prose made a live `::graph-stat`, a bare id made a reference, a list Jev
+  question moved to the top, a bare id made a reference, a list Jev
   reads as a timeline, checklist or table built into that figure from its own lines (PIE-1252). Pass them to
-  `outline_patch` as written.
+  `outline_patch` as written. A count typed in prose names the `::graph-stat` that would count it, with no patch:
+  only the writer knows whether it means the live count.
 - **Jev reads prose too:** no shape gate first; one request per write over the sections it changed, judged against the
   outline's whole kit (its component schemas) and the rubric (PIE-1313's buried question and paragraph title included).
 - **The workboard's rules where agents act:** `work_complete` with proof that names only tests, and `work_create` with

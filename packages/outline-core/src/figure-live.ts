@@ -267,7 +267,7 @@ export function keepGroups(groups: readonly QuestionGroup[] | undefined, kept: R
 }
 
 /** The props a figure's question is read from (`liveAsk`, `figureQuestion`, `done:`/`now:`, a stat's items): what a client sends to be answered. */
-const ASK_KEYS = ["query", "view", "limit", "sort", "direction", "machinery", "source", "group", "done", "now", "label", "value"] as const;
+const ASK_KEYS = ["query", "view", "limit", "sort", "direction", "machinery", "source", "group", "done", "now", "label", "value", "columns"] as const;
 export function askProps(p: Props): Props {
   const pick = (from: Props) => Object.fromEntries(ASK_KEYS.flatMap(k => from?.[k] === undefined ? [] : [[k, from[k]]]));
   // A title that reads the Site (`{{props.day}}` in a template, PIE-1362) is asked with the question, and answered read.

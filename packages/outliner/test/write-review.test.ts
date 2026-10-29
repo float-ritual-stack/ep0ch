@@ -97,7 +97,8 @@ test("an agent's wall of stacked bullets and pasted counts is answered fix, with
   const patches = review.findings.flatMap(f => f.patch ?? []);
   const patched = await agent("patch", { ref: note.id, revision: note.revision, patches });
   expect(patched.exitCode, patched.stderr).toBe(0);
-  expect(store.require(note.id).text).toContain("::graph-stat");
+  expect(store.require(note.id).text).toContain("- The labels ran out halfway, which slowed the line.");
+  // The count it was told about stays the writer's call (no patch); it's carried, not new, so the patched note ships.
   expect((patched.json.review as Review).verdict).toBe("ship");
 });
 
@@ -121,7 +122,7 @@ test("each finding the writer was told is a record with its passage and what was
   const review = made.json.review as Review;
   await agent("patch", { ref: note.id, revision: note.revision, patches: review.findings.flatMap(f => f.patch ?? []) });
   const outcomes = await records("suggestion-outcome");
-  expect(outcomes.map(o => [o.rule, o.outcome, o.patched]).sort()).toEqual([["count", "followed", "yes"], ["stacked", "followed", "yes"]]);
+  expect(outcomes.map(o => [o.rule, o.outcome, o.patched])).toEqual([["stacked", "followed", "yes"]]);
   expect(outcomes.find(o => o.rule === "stacked")!.said).toContain("3 points in one item");
   // The day's run counts the review's tokens.
   const today = new Date().toISOString().slice(0, 10);

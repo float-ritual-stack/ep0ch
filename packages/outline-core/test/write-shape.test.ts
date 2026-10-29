@@ -122,6 +122,12 @@ test("a list item stacking several points is told, and its patch makes one item 
   expect(writeShape("Swap day\n\n- one point, with a clause, and another clause.\n- Two sentences. Still fine.")).toEqual([]);
 });
 
+test("a patch keeps the passage's properties where they were", () => {
+  const note = "Shed\n\n- The roof is on [status::blocked] and leaking. The felt ran out. We stopped at six.";
+  const [found] = writeShape(note);
+  expect(found!.patch![0]!.replacement).toBe("- The roof is on [status::blocked] and leaking.\n- The felt ran out.\n- We stopped at six.");
+});
+
 test("a wall paragraph's patch is a list of its sentences", () => {
   const [found] = writeShape(`Seeds\n\n${wall}`);
   expect(found!.patch![0]!.replacement.split("\n")).toHaveLength(5);
@@ -134,8 +140,9 @@ test("a number before a value the outline holds is a count for a live figure; ot
   const found = writeShape(note, { facets });
   expect(found.map(f => f.rule)).toEqual(["count"]);
   expect(found[0]!.say).toContain(`"14 queued" is stage=queued, "3 seed packets" is type=seed-packet`);
-  expect(found[0]!.patch![0]!.replacement).toContain("::graph-stat");
-  expect(found[0]!.patch![0]!.replacement).toStartWith("queued and seed packets left");
+  // No ready patch: only the writer knows whether the count means the live one.
+  expect(found[0]!.patch).toBeUndefined();
+  expect(found[0]!.say).toContain(`::graph-stat with items: [{ label: "queued", query: "stage=queued" }`);
   expect(writeShape(note)).toEqual([]);
 });
 

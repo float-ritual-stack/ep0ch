@@ -27,6 +27,8 @@ export interface BackfillReport {
   since: string;
   /** Notes in the window, those an agent wrote last, and those reviewed (the rest left out by `limit`). */
   read: number; byAgents: number; reviewed: number;
+  /** The window held more changed notes than one read takes (1000): the newest were read; narrow `since` for the rest. */
+  truncated: boolean;
   flagged: number; passed: number; findings: number;
   /** Jev's answers: how many reviews it answered, and its tokens over the run. */
   jev: { asked: number; unavailable: number; tokensIn: number; tokensOut: number; model?: string; promptRev?: string; why?: string };
@@ -57,12 +59,13 @@ export async function reviewBackfill(source: SuggestionClient, o: BackfillOption
   if (!/^\d+[dhw]$/.test(since)) throw new Error(`since is a count of days, hours or weeks (7d, 12h, 2w), not ${JSON.stringify(o.since)}`);
   const schemas = (await source.request<{ schemas: ComponentSchema[] }>({ action: "components.schemas" }).catch(() => null))?.schemas ?? null;
   const facets = await outlineFacets(source as never);
-  const found = (await source.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `updated >= -${since} NOT type=annotation NOT type=peer-message`, sort: "updated desc", limit: 1000 } })).blocks;
+  const answer = await source.request<{ blocks: Block[]; completeness?: { kind: string } }>({ action: "blocks.query", query: { where: `updated >= -${since} NOT type=annotation NOT type=peer-message`, sort: "updated desc", limit: 1000 } });
+  const found = answer.blocks;
   // An extension's own pages (`ext:<name>`) are code's output, not an agent's writing.
   const byAgents = found.filter(b => b.author === "agent" && b.actorId && !b.actorId.startsWith("ext:") && b.text.trim());
   const notes = byAgents.slice(0, o.limit ?? 500);
   const report: BackfillReport = {
-    ...(o.outline ? { outline: o.outline } : {}), since, read: found.length, byAgents: byAgents.length, reviewed: 0, flagged: 0, passed: 0, findings: 0,
+    ...(o.outline ? { outline: o.outline } : {}), since, read: found.length, byAgents: byAgents.length, reviewed: 0, truncated: answer.completeness?.kind === "truncated" || found.length >= 1000, flagged: 0, passed: 0, findings: 0,
     jev: { asked: 0, unavailable: 0, tokensIn: 0, tokensOut: 0 },
     byRubric: Object.fromEntries(RUBRIC.map(r => [r, 0])) as Record<Rubric, number>, byRule: {}, byWriter: {},
     samples: Object.fromEntries(RUBRIC.map(r => [r, []])) as unknown as Record<Rubric, BackfillSample[]>,
@@ -117,7 +120,7 @@ async function keepRun(into: SuggestionClient, r: BackfillReport, now: Date): Pr
 export function backfillSummary(r: BackfillReport): string {
   const pct = (n: number) => (r.reviewed ? `${Math.round(n / r.reviewed * 100)}%` : "0%");
   const lines = [
-    `${r.outline ?? "outline"} · last ${r.since}: ${r.read} notes changed, ${r.byAgents} last written by an agent, ${r.reviewed} reviewed`,
+    `${r.outline ?? "outline"} · last ${r.since}: ${r.read}${r.truncated ? "+ (the newest; narrow --since for the rest)" : ""} notes changed, ${r.byAgents} last written by an agent, ${r.reviewed} reviewed${r.reviewed < r.byAgents ? ` (the newest; --limit for more)` : ""}`,
     `flagged ${r.flagged} (${pct(r.flagged)}) · passed ${r.passed} · ${r.findings} findings`,
     `jev: ${r.jev.asked} asked, ${r.jev.unavailable} unavailable${r.jev.why ? ` (${r.jev.why})` : ""} · ${r.jev.tokensIn} tokens in, ${r.jev.tokensOut} out${r.jev.model ? ` · ${r.jev.model}` : ""}`,
     "",

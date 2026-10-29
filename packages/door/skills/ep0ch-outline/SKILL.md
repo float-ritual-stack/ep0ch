@@ -413,7 +413,8 @@ where it is and the smallest fix. Code measures a title over about 70 characters
 bullet stacking several points, a note past a screen with no headings, a count typed in prose that a query keeps true,
 a bare id, a question for Evan below the top; Jev reads every section the write changed (prose too) for the rest, and
 which of the outline's components would show it. Many findings carry a `patch`: pass it to `outline_patch` as written
-(the figure built from your own lines, the bullet split a point a line, the question moved to the top). Each new
+(the figure built from your own lines, the bullet split a point a line, the question moved to the top); patches that
+would touch the same text come one per review. Each new
 finding is also a warning that starts "fix before you call this done". Every answer ends with `next`, the check to
 make: read the note as drawn (`ep0ch show <id>`, or `outline_read` it back) before you call the write done. What you
 were told and what you did next land on Jev's suggestions page. In

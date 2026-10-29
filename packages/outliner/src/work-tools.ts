@@ -224,9 +224,11 @@ export async function createWorkItem(
 async function workReview(client: WorkToolsClient, actor: WorkActor, block: Block, review: () => Promise<{ review: WriteReview; reading?: ReviewReading }>): Promise<{ review?: WriteReview; warnings?: string[] }> {
   if (actor.author !== "agent") return {};
   try {
+    // Kept as records when Jev is on, as a note's review is (agent-tools reviewOf): the tests switch it off.
+    const keeps = process.env.OUTLINER_FIGURE_FIT !== "off";
     const { review: r, reading } = await review();
     const keep = { kind: "reviewed", at: { note: block.id, revision: block.revision, actorId: actor.actorId, source: "write" }, title: headerLine(block.text).prose.trim(), review: r, ...(reading ? { reading } : {}) };
-    await Promise.race([client.request({ action: "suggestions.keep", keep } as never).catch(() => undefined), Bun.sleep(3000)]);
+    if (keeps) await Promise.race([client.request({ action: "suggestions.keep", keep } as never).catch(() => undefined), Bun.sleep(3000)]);
     return { review: r, ...(r.verdict === "fix" ? { warnings: reviewWarnings(r) } : {}) };
   } catch { return {}; }
 }

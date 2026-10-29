@@ -660,10 +660,15 @@ function facetsOf(client: AgentToolsClient): Promise<ShapeFacet[]> {
  * kept as records by the service (`suggestions.keep`). Never throws: the write has landed.
  */
 async function reviewOf(client: AgentToolsClient, text: string, before: string | undefined, at: Omit<SuggestionWrite, "source">): Promise<WriteReview> {
-  const [schemas, facets, qaRule] = await Promise.all([schemasOf(client), facetsOf(client), houseRule(client as never, "qa-for-evan")]);
-  const jev = process.env.OUTLINER_FIGURE_FIT !== "off";
-  const { review, reading } = await reviewWrite({ text, ...(before === undefined ? {} : { before }), id: at.note, schemas, facets, jev, qaRule }, { timeoutMs: REVIEW_BUDGET_MS });
-  if (jev) await keepRecords(client, { kind: "reviewed", at: { ...at, source: "write" }, title: headerLine(text).prose.trim(), review, ...(reading ? { reading } : {}) });
+  const input = { text, ...(before === undefined ? {} : { before }), id: at.note };
+  const full = async () => {
+    const [schemas, facets, qaRule] = await Promise.all([schemasOf(client), facetsOf(client), houseRule(client as never, "qa-for-evan")]);
+    return reviewWrite({ ...input, schemas, facets, jev: process.env.OUTLINER_FIGURE_FIT !== "off", qaRule }, { timeoutMs: REVIEW_BUDGET_MS });
+  };
+  // The whole review is bounded, and any failure in what it asks leaves code's measures alone: the write has landed.
+  const codeOnly = () => reviewWrite({ ...input, schemas: null, jev: false });
+  const { review, reading } = await Promise.race([full(), Bun.sleep(REVIEW_BUDGET_MS + 1500).then(codeOnly)]).catch(codeOnly);
+  if (process.env.OUTLINER_FIGURE_FIT !== "off") await keepRecords(client, { kind: "reviewed", at: { ...at, source: "write" }, title: headerLine(text).prose.trim(), review, ...(reading ? { reading } : {}) });
   return review;
 }
 

@@ -277,13 +277,21 @@ function judgeFinding(
   const rule = s.rule!, key = s.key ?? "";
   const facets = facetsOfKey(key);
   const was = writeShape(baseline, { facets }).find(f => f.key === key);
-  const patch = rule === "kit" ? (() => { const section = sectionsOf(baseline).find(x => s.line !== undefined && x.line + 1 === s.line); const made = section ? figurePatch(section.text, s.component) : null; return made && "patch" in made ? made.patch : undefined; })() : was?.patch;
+  const kitSection = rule === "kit" && s.line ? sectionsOf(baseline).find(x => x.line + 1 === s.line) : undefined;
+  const made = kitSection ? figurePatch(kitSection.text, s.component) : null;
+  const patch = rule === "kit" ? (made && "patch" in made ? made.patch : undefined) : was?.patch;
+  const section = s.line ? sectionsOf(baseline).find(x => x.line + 1 === s.line) : undefined;
+  const named = s.line ? baseline.split("\n")[s.line - 1] : undefined;
   for (const w of window) {
     if (patch?.length && patch.every(p => w.text.includes(p.replacement))) return { outcome: "followed", because: `revision ${w.revision} applied the ready patch`, patched: true };
+    // A wall or a stacked bullet is the same problem wherever its words moved: gone only when no finding of that rule is near
+    // its line (a cosmetic edit to its first words changes its key, not the problem).
+    const near = (f: { rule: string; line?: number }) => f.rule === rule && Math.abs((f.line ?? 0) - (s.line ?? was?.line ?? 0)) <= 3;
     const gone = rule === "kit" ? kitIn(w.text, schemas).has(s.component)
-      : was ? !writeShape(w.text, { facets }).some(f => f.key === key)
-      // Jev's judgment: the passage was rewritten, and the review of that write didn't say it again.
-      : (() => { const section = sectionsOf(baseline).find(x => s.line !== undefined && x.line + 1 === s.line); return !!section && !w.text.includes(section.text) && !again?.has(w.revision); })();
+      : was ? !writeShape(w.text, { facets }).some(f => (rule === "wall" || rule === "stacked" ? near(f) : f.key === key))
+      // Otherwise (Jev's judgments, a qa line, the work rules): the passage it named was rewritten, and that write's own review
+      // didn't say it again. A section by its text, a line by its words, a note without a line by any change.
+      : !again?.has(w.revision) && (section ? !w.text.includes(section.text) : named !== undefined ? !w.text.split("\n").includes(named) : w.text !== baseline);
     if (gone) return { outcome: "followed", because: rule === "kit" ? `revision ${w.revision} draws ${s.component}` : `revision ${w.revision} no longer has it` };
   }
   if (!closed) return null;
@@ -470,10 +478,14 @@ export async function keepSuggestion(client: SuggestionClient, keep: SuggestionK
       await recordSuggestion(client, keep.fit, keep.reading, keep.at);
       // A write's suggestion also settles the day-old ones; the sweep settles once, before it starts.
       return keep.at.source === "write" ? settleOpen(client, schemas) : 0;
-    case "reviewed":
+    case "reviewed": {
       await recordReview(client, keep);
-      // The note's earlier findings are judged against this write, and a day-old one anywhere settles.
-      return keep.at.source === "write" ? (await settleNote(client, keep.at.note, schemas)) + (await settleOpen(client, schemas)) : 0;
+      if (keep.at.source !== "write") return 0;
+      // The note's earlier findings are judged against this write; a review that told something new also settles the
+      // day-old ones anywhere (as a figure suggestion did), so an ordinary clean write costs one note's settling.
+      const here = await settleNote(client, keep.at.note, schemas);
+      return here + (keep.review.findings.some(f => f.new) ? await settleOpen(client, schemas) : 0);
+    }
     case "quiet":
     case "unavailable":
       await tallyAsk(client, keep.kind, keep.reading);

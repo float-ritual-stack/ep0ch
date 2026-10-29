@@ -13,8 +13,7 @@
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { shapeNext, type Rubric } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt } from "./ai-prompts";
-import { QA_RULE, REVIEW_THRESHOLDS, type ReviewFinding, type ReviewReading, type WriteReview } from "./write-review";
-import { JEV_ENDPOINT, JEV_MODEL, jevKey } from "./search-ranking";
+import { askJevQuestions, QA_RULE, REVIEW_THRESHOLDS, type ReviewFinding, type ReviewReading, type WriteReview } from "./write-review";
 
 export interface HouseRuleClient { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> }
 
@@ -45,27 +44,18 @@ export async function houseRule(client: HouseRuleClient, name: HouseRule): Promi
 }
 
 const TESTS = /\b(?:tests?|bun test|test run|passing|green|box-test|CI|suite|specs?|exit (?:code )?0|typecheck|bun run check)\b/i;
-const DROVE = /\b(?:drove|driven|driving|drive it|ran the (?:app|door)|in the door|real pane|peek|snap(?:shot)?|screenshot|walked|clicked|typed|headless|chromium|on the page|opened it|used it|in daily use|daily use|by hand)\b/i;
+const DROVE = /\b(?:drove|driven|driving|drive it|ran the (?:app|door)|in a (?:scratch )?door|real pane|screenshot|walked it|clicked|headless chromium|on the published page|opened it in|in daily use|by hand)\b/i;
 const NOT_A_FEATURE = /\b(?:refactor|test[- ]only|flak[ey]|flake|tests? (?:go|goes|went) red|red (?:test|run)|ci\b)/i;
-const SAYS_EXPERIENCE = /\b(?:evan|he|a person|the person)\s+(?:opens?|can|sees?|reads?|clicks?|types?|finds?|gets?)\b|\bdone[- ]when\b/i;
+const SAYS_EXPERIENCE = /\b(?:evan|a person|the person)\s+(?:opens?|can|sees?|reads?|clicks?|types?|finds?|gets?)\b/i;
 
-/** One Noul asked of Jev over `state`, or null when it can't be. */
-async function askNoul(state: Record<string, unknown>, question: string, env?: NodeJS.ProcessEnv): Promise<{ noul: number; reading: ReviewReading } | null> {
+/** One Noul asked of Jev over `state` (write-review's one Jev request), or null when it can't be. */
+async function askNoul(state: Record<string, unknown>, question: "proof" | "experience", env?: NodeJS.ProcessEnv): Promise<{ noul: number; reading: ReviewReading } | null> {
   if ((env ?? process.env).OUTLINER_FIGURE_FIT === "off") return null;
-  const apiKey = await jevKey(env);
-  if (!apiKey) return null;
   try {
     const prompt = await loadWriteReviewPrompt();
-    const response = await fetch((env ?? process.env).OUTLINER_JEV_ENDPOINT ?? JEV_ENDPOINT, {
-      method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, redirect: "error",
-      body: JSON.stringify({ model: JEV_MODEL, state, questions: { q: { type: "noul", instructions: prompt[question as "proof" | "experience"] } } }),
-      signal: AbortSignal.timeout(2500),
-    });
-    if (!response.ok) return null;
-    const body = await response.json() as { model?: string; usage?: { input_tokens?: number; output_tokens?: number }; answers?: { q?: { noul?: number } } };
-    const noul = body.answers?.q?.noul;
-    if (typeof noul !== "number" || noul < 0 || noul > 1) return null;
-    return { noul, reading: { model: body.model ?? JEV_MODEL, prompt: prompt.revisions, questions: 1, ...(Number.isFinite(body.usage?.input_tokens) ? { usage: { input: body.usage!.input_tokens!, output: body.usage!.output_tokens ?? 0 } } : {}) } };
+    const asked = await askJevQuestions(state, { q: { type: "noul", instructions: prompt[question] } }, env ? { env } : {});
+    const noul = "answers" in asked ? asked.answers.q?.noul : undefined;
+    return "answers" in asked && typeof noul === "number" && noul >= 0 && noul <= 1 ? { noul, reading: asked.reading } : null;
   } catch { return null; }
 }
 

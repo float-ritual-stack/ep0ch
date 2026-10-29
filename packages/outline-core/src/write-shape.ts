@@ -181,11 +181,11 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
     const sentences = sentenceCount(p.text);
     const points = p.item ? splitPoints(p.text) : [];
     if (p.item && (points.length > SHAPE_LIMITS.itemPoints || p.text.length > SHAPE_LIMITS.itemChars)) {
-      const patch = stackedPatch(lines, p, splitPoints(p.text, { clauses: false }));
+      const patch = stackedPatch(lines, p, splitPoints(rawOf(lines, p), { clauses: false }));
       found.push({
         rule: "stacked", key: `stacked:${p.text.slice(0, 24)}…${p.text.slice(-24)}`, line: p.line + 1,
         say: points.length > 1
-          ? `line ${p.line + 1} ("${excerpt(p.text, 32)}") stacks ${points.length} points in one item, ${p.text.length} characters: a bullet is one point; make each its own item (the patch does), or a figure if they share fields`
+          ? `line ${p.line + 1} ("${excerpt(p.text, 32)}") stacks ${points.length} points in one item, ${p.text.length} characters: a bullet is one point; make each its own item${patch ? " (the patch does)" : ""}, or a figure if they share fields`
           : `line ${p.line + 1} ("${excerpt(p.text, 32)}") is one item of ${p.text.length} characters: a bullet is one short point; cut it, or put the detail in nested items under a short lead`,
         ...(patch ? { patch } : {}),
       });
@@ -294,6 +294,14 @@ function leadOf(line: string): { quote: string; indent: string; marker: string }
 
 const sourceOf = (lines: readonly string[], p: Paragraph) => lines.slice(p.line, p.end + 1).join("\n");
 
+/** A unit's words as written, properties and all (a patch never drops a `[key::value]`): its lines without quote marks, indent or marker. */
+function rawOf(lines: readonly string[], p: Paragraph): string {
+  return lines.slice(p.line, p.end + 1).map((line, k) => {
+    const { quote, indent, marker } = leadOf(line);
+    return line.slice(quote.length + indent.length + (k === 0 ? marker.length : 0)).trim();
+  }).join(" ").trim();
+}
+
 /** A stacked item made into one item per point: a lead (`**Board:**`) keeps the item and its points nest under it. */
 function stackedPatch(lines: readonly string[], p: Paragraph, points: string[]): ShapePatch[] | undefined {
   if (points.length < 2) return undefined;
@@ -308,7 +316,7 @@ function stackedPatch(lines: readonly string[], p: Paragraph, points: string[]):
 
 /** A wall of sentences made into a list, one sentence a line. */
 function wallPatch(lines: readonly string[], p: Paragraph): ShapePatch[] | undefined {
-  const points = splitPoints(p.text);
+  const points = splitPoints(rawOf(lines, p), { clauses: false });
   if (points.length < 2) return undefined;
   const { quote, indent } = leadOf(lines[p.line]!);
   return [{ observed: sourceOf(lines, p), replacement: points.map(point => `${quote}${indent}- ${point}`).join("\n") }];
@@ -400,17 +408,14 @@ function countFindings(lines: readonly string[], structure: readonly number[], t
       }
     }
     if (!counts.length) return;
-    const quote = /^(?:[ \t]*>[ \t]?)*/.exec(raw)![0];
     const query = (f: ShapeFacet) => `${f.key}=${/^[\p{L}\p{N}_.\/-]+$/u.test(f.value) ? f.value : JSON.stringify(f.value)}`;
     const said = counts.map(c => `"${c.number} ${c.words}" is ${query(c.facet)}`).join(", ");
-    let rewritten = raw;
-    for (const c of [...counts].reverse()) rewritten = rewritten.slice(0, c.start) + rewritten.slice(c.end).replace(/^\s+/, "");
     const items = counts.map(c => `{ label: ${JSON.stringify(c.facet.value)}, query: ${JSON.stringify(query(c.facet))} }`).join(", ");
-    const unique = lines.filter(l => l === raw).length === 1;
     out.push({
       rule: "count", key: `count:${counts.map(c => query(c.facet)).join(",")}`, line: i + 1,
-      say: `line ${i + 1} types a count a query keeps true (${said}): a live ::graph-stat counts it, with query: ${query(counts[0]!.facet)}; drop the typed number`,
-      ...(unique && !quote ? { patch: [{ observed: raw, replacement: `${rewritten}\n\n::graph-stat\n---\nitems: [${items}]\n---\n::` }] } : {}),
+      say: `line ${i + 1} types a count a query keeps true (${said}): if it means the live count, put ::graph-stat with items: [${items}] in its place; if it's scoped or past, say so and keep it`,
+      // No ready patch: a count typed in prose is often scoped or historical ("this project had 3 queued yesterday"), and
+      // only the writer knows whether the outline-wide live count says the same. The figure to use is in what's said.
     });
   });
   return out;

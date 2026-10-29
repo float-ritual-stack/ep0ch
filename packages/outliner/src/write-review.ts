@@ -12,10 +12,10 @@
 import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
 import { componentGist, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
-import { calloutBlocks, quoteDepth, stripQuotes } from "@ep0ch/outline-core/callouts";
+import { calloutBlocks, quoteDepth } from "@ep0ch/outline-core/callouts";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { headerLine } from "@ep0ch/outline-core/header-line";
-import { FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, SHAPE_LIMITS, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
+import { asksEvan, FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, SHAPE_LIMITS, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt, type PromptRevision, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
 import { JEV_ENDPOINT, JEV_MODEL, jevKey } from "./search-ranking";
@@ -70,7 +70,8 @@ export function sectionsOf(text: string): Section[] {
   const close = () => { open.text = lines.slice(open.line, open.end + 1).join("\n").trim(); if (open.text) out.push(open); };
   lines.forEach((line, i) => {
     if (i <= title) return;
-    const h = structure[i] === -1 ? HEADING.exec(stripQuotes(line, quoteDepth(line).depth)) : null;
+    // A heading at the top level, as outline_edit's replaceSection finds one (one inside a callout is the callout's).
+    const h = structure[i] === -1 && quoteDepth(line).depth === 0 ? HEADING.exec(line) : null;
     if (h) { close(); open = { id: `s${out.length + 1}`, heading: h[1]!.trim(), line: i, end: i, text: "" }; return; }
     open.end = i;
   });
@@ -81,7 +82,7 @@ export function sectionsOf(text: string): Section[] {
 /** The lines below the top that may ask Evan something: a question mark or a decision word, outside code and components. */
 function askCandidates(text: string): number[] {
   const lines = text.split("\n"), structure = noteStructure(lines);
-  return lines.flatMap((line, i) => i >= SHAPE_LIMITS.top && structure[i] === -1 && (/\?\s*$|\?\s+\S/.test(line) || /\b(?:decide|should we|which (?:one|do)|can you|do you want)\b/i.test(line)) ? [i] : []).slice(0, MAX_ASKS);
+  return lines.flatMap((line, i) => i >= SHAPE_LIMITS.top && structure[i] === -1 && (/\?\s*$|\?\s+\S/.test(line) || /\b(?:decide|should we|which (?:one|do)|can you|do you want)\b/i.test(line)) ? [i] : []);
 }
 
 /** The components a review may name: every one the outline has in its figures, layout and site groups, each by its own description. */
@@ -99,7 +100,7 @@ export function kitIn(text: string, schemas: readonly ComponentSchema[]): Set<st
   return held;
 }
 
-interface Asked { reading: ReviewReading; answers: Record<string, { choice?: string; confidence?: number; noul?: number }> }
+export interface Asked { reading: ReviewReading; answers: Record<string, { choice?: string; confidence?: number; noul?: number }> }
 
 /** One request: the state (title, opening, the changed sections, the candidate ask lines) and every question about it. */
 export function reviewRequest(text: string, sections: readonly Section[], asks: readonly number[], options: Record<string, string>, prompt: WriteReviewPrompt, o: { title: boolean; opening: boolean }) {
@@ -134,24 +135,36 @@ export interface ReviewOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-/** Jev's answers about the parts of `text` this write changed, or why it couldn't be asked. Never throws. */
-async function askJev(text: string, sections: readonly Section[], asks: readonly number[], schemas: readonly ComponentSchema[], ask: { title: boolean; opening: boolean }, o: ReviewOptions): Promise<Asked | { unavailable: string }> {
-  const apiKey = o.apiKey ?? await jevKey(o.env);
-  if (!apiKey) return { unavailable: "Jev is not configured: with-secrets --add typesafe TYPESAFE_API_KEY" };
+/**
+ * One request to Jev (the write review's, and the work tools' in work-review.ts): the state and the questions sent, the
+ * answers and the reading (model, prompt, tokens) back, or why it couldn't be asked. Never throws.
+ */
+export async function askJevQuestions(state: Record<string, unknown>, questions: Record<string, unknown>, o: ReviewOptions = {}): Promise<Asked | { unavailable: string }> {
   try {
+    const apiKey = o.apiKey ?? await jevKey(o.env);
+    if (!apiKey) return { unavailable: "Jev is not configured: with-secrets --add typesafe TYPESAFE_API_KEY" };
     const prompt = await loadWriteReviewPrompt(o.promptDirectory);
-    const request = reviewRequest(text, sections, asks, kitOptions(schemas), prompt, ask);
     const response = await (o.fetch ?? fetch)(o.endpoint ?? (o.env ?? process.env).OUTLINER_JEV_ENDPOINT ?? JEV_ENDPOINT, {
       method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, redirect: "error",
-      body: JSON.stringify(request), signal: AbortSignal.timeout(o.timeoutMs ?? 2500),
+      body: JSON.stringify({ model: JEV_MODEL, state, questions }), signal: AbortSignal.timeout(o.timeoutMs ?? 2500),
     });
     if (!response.ok) return { unavailable: `Jev HTTP ${response.status}` };
     const body = await response.json() as { model?: string; usage?: { input_tokens?: number; output_tokens?: number }; answers?: Asked["answers"] };
-    if (!body.answers || typeof body.answers !== "object") return { unavailable: "Jev's review answer didn't read" };
+    if (!body.answers || typeof body.answers !== "object") return { unavailable: "Jev's answer didn't read" };
     const usage = Number.isFinite(body.usage?.input_tokens) && Number.isFinite(body.usage?.output_tokens) ? { input: body.usage!.input_tokens!, output: body.usage!.output_tokens! } : undefined;
-    return { answers: body.answers, reading: { model: body.model ?? JEV_MODEL, prompt: prompt.revisions, questions: Object.keys(request.questions).length, ...(usage ? { usage } : {}) } };
+    return { answers: body.answers, reading: { model: body.model ?? JEV_MODEL, prompt: prompt.revisions, questions: Object.keys(questions).length, ...(usage ? { usage } : {}) } };
   } catch (e) {
     return { unavailable: (e as Error).name === "TimeoutError" ? "Jev didn't answer in time" : `Jev: ${(e as Error).message}` };
+  }
+}
+
+/** Jev's answers about the parts of `text` this write changed, or why it couldn't be asked. Never throws. */
+async function askJev(text: string, sections: readonly Section[], asks: readonly number[], schemas: readonly ComponentSchema[], ask: { title: boolean; opening: boolean }, o: ReviewOptions): Promise<Asked | { unavailable: string }> {
+  try {
+    const request = reviewRequest(text, sections, asks, kitOptions(schemas), await loadWriteReviewPrompt(o.promptDirectory), ask);
+    return await askJevQuestions(request.state, request.questions, o);
+  } catch (e) {
+    return { unavailable: `Jev: ${(e as Error).message}` };
   }
 }
 
@@ -223,14 +236,15 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   const lines = text.split("\n");
   const changed = before === undefined ? sectionsOf(text) : sectionsOf(text).filter(s => !before.includes(s.text));
   const titleNow = headerLine(text).prose.trim(), titleWas = before === undefined ? undefined : headerLine(before).prose.trim();
-  const asks = askCandidates(text).filter(i => before === undefined || !before.split("\n").includes(lines[i]!));
+  const asks = askCandidates(text).filter(i => before === undefined || !before.split("\n").includes(lines[i]!)).slice(0, MAX_ASKS);
   const ask = { title: titleNow !== titleWas && splitPoints(titleNow).length > 1, opening: before === undefined || changed.some(s => s.id === "s0") };
   let asked: Asked | { unavailable: string } | null = null;
   const sections = changed.filter(s => s.text.split("\n").filter(l => l.trim()).length >= 1).slice(0, MAX_SECTIONS);
   if (input.jev && input.schemas && (sections.length || asks.length || ask.title)) asked = await askJev(text, sections, asks, input.schemas, ask, o);
   const answers = asked && "answers" in asked ? asked.answers : undefined;
   const judged = answers ? {
-    asks: new Set(askCandidates(text).filter(i => (answers[`asks::L${i}`]?.noul ?? 0) >= REVIEW_THRESHOLDS.yes)),
+    // Jev's yes where it was asked; the word heuristic for a line it wasn't asked about.
+    asks: new Set(lines.flatMap((line, i) => (answers[`asks::L${i}`] ? (answers[`asks::L${i}`]!.noul ?? 0) >= REVIEW_THRESHOLDS.yes : asksEvan(line)) ? [i] : [])),
     ...(unit(answers.title?.noul) ? { titleIsContent: answers.title!.noul! >= REVIEW_THRESHOLDS.yes } : {}),
   } : {};
   const shape = { facets: input.facets, ...judged };
@@ -244,7 +258,7 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   const qaRule = input.qaRule ?? QA_RULE;
   code.push(...qaFindings(text, before, qaRule));
   const jev = answers ? jevFindings(text, sections, asked as Asked, input.schemas ?? [], code, qaRule) : [];
-  const findings = [...code, ...jev];
+  const findings = withoutOverlaps(text, [...code, ...jev]);
   const review: WriteReview = {
     verdict: findings.some(f => f.new) ? "fix" : "ship",
     findings,
@@ -268,6 +282,23 @@ function qaFindings(text: string, before: string | undefined, qaRule: string): R
     rule: "qa-for-evan", rubric: "qa-for-evan" as Rubric, key: `qa:${clip(line, 40)}`, line: i + 1, passage: clip(line), new: !had.has(line), by: "code" as const,
     say: `line ${i + 1} asks Evan to try or check something: ${qaRule}`,
   }] : []);
+}
+
+/**
+ * The findings with patches that can all be applied together: one whose patch touches the text another's already
+ * touches (a stacked bullet that also types a count, a list a kit figure would replace) keeps its finding and says to
+ * review again after the first is applied, so "apply every patch as written" always works.
+ */
+function withoutOverlaps(text: string, findings: ReviewFinding[]): ReviewFinding[] {
+  const taken: [number, number][] = [];
+  return findings.map(f => {
+    if (!f.patch || !f.new) return f;
+    const spans = f.patch.map(p => { const at = text.indexOf(p.observed); return [at, at + p.observed.length] as [number, number]; });
+    const clashes = spans.some(([a, b]) => a < 0 || taken.some(([c, d]) => a < d && c < b));
+    if (clashes) { const { patch: _, ...rest } = f; return { ...rest, say: `${f.say} (after the other patches: its own comes with the next review)` }; }
+    taken.push(...spans);
+    return f;
+  });
 }
 
 /** A review's new findings as the write answer's warnings, each worded as a gate. */
