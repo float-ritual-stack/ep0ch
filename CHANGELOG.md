@@ -78,6 +78,10 @@ are its record. The outliner's entries from then are kept below, under
   only the writer knows whether it means the live count.
 - **Jev reads prose too:** no shape gate first; one request per write over the sections it changed, judged against the
   outline's whole kit (its component schemas) and the rubric (PIE-1313's buried question and paragraph title included).
+- **Jev is heard on a big outline, and an answer without Jev says why** (#1019): each read the review makes has its
+  own limit and the slow facets read runs beside Jev, not before it, so pie's writes come back `jev: asked`; one that
+  wasn't heard says why (`not heard: the review ran past 6.0 s`, the error, or `Jev is not configured`), never a bare
+  `off`. A ticket's `PIE-n — ` lead is not counted in its title's length, and no patch moves a ticket's title down.
 - **The workboard's rules where agents act:** `work_complete` with proof that names only tests, and `work_create` with
   no sentence of what Evan will open and do, are answered fix; a note asking Evan to try or check things is
   `qa-for-evan`. A note carrying `[house-rule::<name>]` (validation, experience, qa-for-evan) words each rule.
