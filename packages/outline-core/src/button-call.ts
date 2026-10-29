@@ -33,6 +33,11 @@ export interface ButtonCall {
   problem?: string;
   /** A look word it doesn't take (`tone=red`): what to write. It still runs; only its look falls back. */
   lookProblem?: string;
+  /**
+   * The container's marks before it on its line, as written (`- `, `  1. `, `> `, `> - `), when it sits in a list item or a
+   * quote (PIE-1224); a button at the start of its line has none.
+   */
+  prefix?: string;
 }
 
 /** A button's tone: a theme role, never a colour. */
@@ -117,8 +122,47 @@ function misread(label: string | undefined, act: string, strays: readonly { key:
   return `${what}: write ${fixed}`;
 }
 
-/** The `::button` starting at line `i`, or null. The body uses the shared component closing rule. */
+/** A list item's marker, or quote bars and then one, before a component on its line: `- `, `  1. `, `> `, `> > - `. */
+const CONTAINER = /^((?:[ \t]*>[ \t]?)*)([ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+)?/;
+
+/**
+ * The lines of a button inside a container (PIE-1224), from its own: its line without the marks, and each line after it
+ * without the quote bars and the list item's indent it continues with; a line that doesn't continue the container is
+ * blank there, so a body ends at it. Null when line `i` is no `::` after a container's marks.
+ */
+function contained(lines: readonly string[], i: number): { prefix: string; inner: string[] } | null {
+  const line = (lines[i] ?? "").replace(/\r$/, "");
+  const m = CONTAINER.exec(line)!, prefix = m[0];
+  if (!prefix.trim() || !line.slice(prefix.length).startsWith("::")) return null;
+  const quotes = (m[1] ?? "").split(">").length - 1, indent = m[2] ? (m[2].length) : 0;
+  const strip = (l: string): string => {
+    let rest = l.replace(/\r$/, "");
+    for (let q = 0; q < quotes; q++) {
+      const bar = /^[ \t]*>[ \t]?/.exec(rest);
+      if (!bar) return "";
+      rest = rest.slice(bar[0].length);
+    }
+    if (!indent) return rest;
+    const lead = /^[ \t]*/.exec(rest)![0].length;
+    return lead >= indent ? rest.slice(indent) : "";
+  };
+  return { prefix, inner: [line.slice(prefix.length), ...lines.slice(i + 1).map(strip)] };
+}
+
+/**
+ * The `::button` starting at line `i`, or null. The body uses the shared component closing rule. A button in a list item
+ * or a quote (`- ::button{…}`, `> ::button{…}`) is one too, said by its `prefix`: one reading for the reader, a press, the
+ * publisher and the status bar (PIE-1224).
+ */
 export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | null {
+  const plain = buttonCallOwn(lines, i);
+  if (plain || !(lines[i] ?? "").includes("::button")) return plain;
+  const c = contained(lines, i), call = c ? buttonCallOwn(c.inner, 0) : null;
+  return c && call ? { ...call, line: i, endLine: i + call.endLine, prefix: c.prefix } : null;
+}
+
+/** A `::button` at the start of line `i` (up to three spaces before it). */
+function buttonCallOwn(lines: readonly string[], i: number): ButtonCall | null {
   const open = COMPONENT_OPEN.exec((lines[i] ?? "").replace(/\r$/, ""));
   if (!open || open[1] !== BUTTON_NAME) return null;
   const pairs = open[3] ? componentAttrs(open[3].slice(1, -1)).pairs : open[2] ? componentAttrs(open[2]).pairs : [];
@@ -261,6 +305,8 @@ export function slotArgs(call: ButtonCall, key: string): { step: number; action:
  * can't be written on one line (a newline, or a `{` or `}`: the braces end at the first, quoted or not).
  */
 export function withButtonSlot(line: string, key: string, value: string): string | null {
+  const c = COMPONENT_OPEN.test(line.replace(/\r$/, "")) ? null : contained([line], 0);
+  if (c) { const inner = withButtonSlot(line.slice(c.prefix.length), key, value); return inner === null ? null : c.prefix + inner; }
   const open = COMPONENT_OPEN.exec(line.replace(/\r$/, ""));
   if (!open || open[1] !== BUTTON_NAME || !open[3] || /[\n{}]/.test(value)) return null;
   const inner = open[3].slice(1, -1), at = line.indexOf(open[3]) + 1;
