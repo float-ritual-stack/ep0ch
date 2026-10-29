@@ -10676,7 +10676,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "pin to status bar: append this note's selected ::button to your [status-bar::true] note; label= picks a button by its exact label, or a note with one button needs no selection",
     touches: "nothing", replay: "ask",
     args: { label: { type: "string", optional: true, about: "the exact label of the ::button to pin; default: selected button, or the note's only one" } },
-    keys: "a right-click on a button (it becomes the [ ] position, unpressed), then pin to status bar in the tile menu",
+    keys: [{ via: "a right-click on a button (it becomes the [ ] position, unpressed), then pin to status bar in the tile menu" }],
     examples: [{ act: 'button.pin label="Collapse"', does: "pins the Collapse button from this note to your status bar" }],
     menu: noteRow("pin to status bar", "", { now: ({ surface }) => surface.statusButtonLine() ? null : { hide: true } }),
     async run({ label }, { surface, host }, actor) {
