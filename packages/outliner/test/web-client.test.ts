@@ -408,6 +408,8 @@ test("the page says what's on screen and the service keeps it with what the read
   // Only this page's blocks are said to be on screen.
   expect(opened.view).toMatchObject({ blockId: survey.id, title: "Moth survey", visible: [survey.id], scroll: { y: 120, max: 900 } });
   expect(opened.journal.at(-1)).toMatchObject({ kind: "page", blockId: survey.id, title: "Moth survey" });
+  // The page's ≡ trail (PIE-208): the notes this tab opened, newest first, by title.
+  expect((opened as unknown as { trail: { blockId: string; title: string }[] }).trail.slice(0, 2)).toMatchObject([{ blockId: survey.id, title: "Moth survey" }, { blockId: swap.id }]);
   const since = opened.journal.at(-1)!.n;
 
   const words = { quote: "elephant hawk-moths", prefix: "The night-scented stock drew ", suffix: " after dusk." };

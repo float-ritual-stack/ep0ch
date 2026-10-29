@@ -228,6 +228,9 @@ const READER_CONTEXT_MAX = 200;
 /** A reader not heard from for this long is no longer reading. */
 const READER_STALE_MS = 12 * 60 * 60_000;
 
+/** A stop on a web reader's trail (PIE-208): a note its tab opened, by the title it had then, and when. */
+export interface ReaderStop { blockId: string; title: string; at: string }
+
 /** At most this many of what readers did are kept (the journal), newest last. */
 export const READER_JOURNAL_MAX = 200;
 
@@ -250,7 +253,7 @@ export class ReaderPresence {
    * browser tab, a random id the page keeps) goes in the journal. Answers the view and the journal the page may see:
    * the tailnet's (the person's own), or on a share only this visitor's, since anyone with the link reads as the share.
    */
-  report(input: Record<string, unknown>): { view: ReaderView; journal: ReaderEvent[] } {
+  report(input: Record<string, unknown>): { view: ReaderView; journal: ReaderEvent[]; trail: ReaderStop[] } {
     const text = (value: unknown, max: number) => (typeof value === "string" ? value.slice(0, max) : "");
     const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.round(value)) : undefined);
     const reader = text(input.reader, 64);
@@ -299,7 +302,22 @@ export class ReaderPresence {
     this.last.delete(key);
     this.last.set(key, view);
     if (this.last.size > READER_JOURNAL_MAX) this.last.delete(this.last.keys().next().value!);
-    return { view, journal: this.journal(reader, 0, reader === "tailnet" ? undefined : visitor) };
+    return { view, journal: this.journal(reader, 0, reader === "tailnet" ? undefined : visitor), trail: this.trail(reader, visitor) };
+  }
+
+  /**
+   * The notes one tab (`visitor`) opened, newest first, each once at its latest visit (PIE-208): the trail its page
+   * lists, read from the journal's page events, so it is as long as the journal still holds them.
+   */
+  trail(reader: string, visitor: string): ReaderStop[] {
+    const out: ReaderStop[] = [], seen = new Set<string>();
+    for (let at = this.events.length - 1; at >= 0; at -= 1) {
+      const event = this.events[at]!;
+      if (event.kind !== "page" || event.reader !== reader || event.visitor !== visitor || !event.blockId || seen.has(event.blockId)) continue;
+      seen.add(event.blockId);
+      out.push({ blockId: event.blockId, title: event.title ?? "", at: event.at });
+    }
+    return out;
   }
 
   /** The reader seen most recently (or `reader`'s), every reader seen lately (newest first), and its journal. */
