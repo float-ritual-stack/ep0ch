@@ -621,6 +621,39 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(columns()).toEqual(before);                                     // no column closed
   });
 
+  test("a button that can't run in the river says why in plain words: drawn dim, refused, or stopped at its step (PIE-1418)", async () => {
+    const text = [
+      "Fold the cold frame", "Two buttons written for a desk with a pots tile.",
+      "```js script=pick-pots", "return [2, 3];", "```",
+      '::button{label="Fold the bottom"}', "tile.collapse on=true tile=pots", "tile.collapse on=true tile=preview", "::",
+      '::button{label="Pipe"}', "((pick-pots))", "tile.collapse on=true tile=pots", "::",
+    ].join("\n");
+    const n = await create(null, text);
+    await app.loadExtensions(true);
+    for (const f of (river as any).describe().floats ?? []) await mine("tile.close", {}, f.name);   // the floats earlier tests left
+    const o = (await mine("open", { id: n.id, from: lib(), fresh: true })) as { name: string };
+    await until(() => !!paneOf(o.name)?.root, "the note's column");
+    readOnReader(o.name);
+    await until(() => screen().includes("(Fold the bottom)"), "Fold the bottom drawn dim: it can't run here").catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    const press = (label: string) => river.dispatch.act({ action: "button.press", args: { note: n.id, label }, tile: o.name }, USER);
+    const jargon = /Step \d|tile\.collapse|tile=|t-[0-9a-f]{8}|Finished:/;
+    // What the person hears of a press (the status bar's messages): the refusal, or the run's end.
+    const heard = async (label: string) => {
+      const before = new Set(app.describe().messages.map(r => r.id));
+      await press(label).catch(() => {});
+      const said = () => app.describe().messages.find(r => !before.has(r.id) && r.message.includes(label));
+      await until(() => !!said(), `what ${label} said`, 10_000).catch(e => { throw new Error(`${e.message}; ${JSON.stringify(app.describe().messages.slice(-3))}`); });
+      return said()!.message;
+    };
+    const refused = await heard("Fold the bottom");
+    expect(refused).toContain("Fold the bottom can't run here: no tile is called pots on the river");
+    expect(refused).not.toMatch(jargon);
+    const stopped = await heard("Pipe");
+    expect(stopped).toContain("Pipe stopped at step 2 of 2: no tile is called pots on the river");
+    expect(stopped).not.toMatch(jargon);
+    await mine("tile.close", {}, o.name);
+  }, 30_000);
+
   test("the river's trail (PIE-208): the columns back by title, alt+T lists them over the river, back steps=2 goes two at once", async () => {
     focusOnReader(lib());
     const a = (await mine("open", { id: notes.peas.id, from: lib(), fresh: true })) as { name: string };

@@ -313,6 +313,8 @@ export class ScriptRuns {
       this.sequences.set(`${request.blockId}:${sequence!.line}`, { text: trace.query.text, source: trace });
     }
     let effects: string[] = [], actionAnswer: unknown, sequenceAct = sequence !== undefined;
+    // What the presser hears when a step stops the sequence, in their words (PIE-1418); Sources keeps each step's spelling.
+    let stoppedSaid: string | undefined;
     const step = (s: HostStep) => {
       if (trace && s.phase === "done" && s.writes) effects.push(`${s.tool}: ${JSON.stringify(s.result)}`);
       if (s.phase === "start") return;
@@ -429,7 +431,11 @@ export class ScriptRuns {
               trace!.result.table!.push([String(index + 1), spelling, show(before), show(value), item.kind === "act" ? show(actionAnswer) : value === undefined ? "returned nothing" : show(value), effects.join("\n")]);
               trace!.result.rows++;
             } catch (error) {
-              const why = `Step ${index + 1} (${spelling}): ${error instanceof Error ? error.message : String(error)}`;
+              // An action step runs as a one-line actions script, whose error leads with `Line 1 (<action>): `: the step says it already.
+              const raw = error instanceof Error ? error.message : String(error);
+              const said = item.kind === "act" ? raw.replace(/^Line 1 \([^)]*\): /, "") : raw;
+              const why = `Step ${index + 1} (${spelling}): ${said}`;
+              stoppedSaid = `${sequence.label} stopped at step ${index + 1} of ${sequence.steps.length}: ${said}${index ? ` (${index === 1 ? "the step" : `the ${index} steps`} before it ran)` : ""}`;
               trace!.problem = why;
               trace!.result.table!.push([String(index + 1), spelling, show(before), "failed", why, effects.join("\n")]);
               trace!.result.rows++;
@@ -483,7 +489,7 @@ export class ScriptRuns {
           this.captures.delete(undo);
           this.running.delete(controller);
           this.runs.delete(undo);
-          result.message = failure !== undefined ? `${failure || "Script failed"} · check the script and run it again`
+          result.message = failure !== undefined ? stoppedSaid ?? `${failure || "Script failed"} · check the script and run it again`
             : reason === "done" ? message : "Script stopped; run it again when ready";
           result.state = reason;
           if (returned !== undefined && returned !== result.message) result.answer = returned;
