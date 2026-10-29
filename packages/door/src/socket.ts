@@ -460,7 +460,7 @@ export interface SearchHits {
   semantic: { status: "lexical" | "ranked" | "unavailable"; message?: string };
 }
 /** How a search is asked: `semantic` has Jev re-order the candidates; `near` is the note it's asked from. */
-export interface SearchOptions { semantic?: boolean; near?: string; limit?: number }
+export interface SearchOptions { semantic?: boolean; near?: string; limit?: number; signal?: AbortSignal }
 
 /** What the service says of a selection's facets (SocketBoard.facetList). */
 export interface FacetAnswer {
@@ -517,16 +517,24 @@ export class SocketBoard implements Board {
   /** A replayed action is not another physical command to record in a macro. */
   get inScriptRun(): boolean { return this.scriptRun.getStore() !== undefined; }
 
-  request<T = any>(action: string, params: Record<string, unknown> = {}, timeoutMs = this.timeoutMs): Promise<T> {
+  /**
+   * `signal` (a search turn's, src/search-schedule.ts): aborted, the request stops waiting and fails with an AbortError.
+   * The host still answers it; the answer is dropped.
+   */
+  request<T = any>(action: string, params: Record<string, unknown> = {}, timeoutMs = this.timeoutMs, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
     const id = `d${++this.seq}`;
     if (this.sent.length > 5000) this.sent.splice(0, 2500);
     this.sent.push(action);
+    const stop = () => { const w = this.waiting.get(id); if (w) { clearTimeout(w.timer); this.waiting.delete(id); w.reject(signal!.reason); } };
     return traced(new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error(`${action} timed out`)); }, timeoutMs);
       const sock = this.conn();
       this.waiting.set(id, { resolve, reject, timer, sock });
+      // Taken off the turn's signal once the request settles, however it does.
+      signal?.addEventListener("abort", stop, { once: true });
       sock.write(jsonLine({ id, action, ...params, ...(this.scriptRun.getStore() ? { scriptRun: this.scriptRun.getStore() } : {}), ...(this.outline ? { outline: this.outline } : {}) }));
-    }));
+    }).finally(() => signal?.removeEventListener("abort", stop)));
   }
 
   /** A file's text, read by the service (`files.read`): a relative path is the outline's own folder (an artifact's card, PIE-793). */
@@ -635,8 +643,8 @@ export class SocketBoard implements Board {
    * opening a block, running one of the extension's actions or copying text. It writes nothing. `near` is the note
    * in front of the person, which the call sees as its context.
    */
-  barRows(extension: string, source: string, query: string, o: { near?: string; limit?: number } = {}): Promise<ExtensionBarResult> {
-    return this.request<ExtensionBarResult>("extensions.bar", { extension, source, query, ...(o.near ? { near: o.near } : {}), ...(o.limit ? { limit: o.limit } : {}) });
+  barRows(extension: string, source: string, query: string, o: { near?: string; limit?: number; signal?: AbortSignal } = {}): Promise<ExtensionBarResult> {
+    return this.request<ExtensionBarResult>("extensions.bar", { extension, source, query, ...(o.near ? { near: o.near } : {}), ...(o.limit ? { limit: o.limit } : {}) }, undefined, o.signal);
   }
 
   /**
@@ -916,14 +924,15 @@ export class SocketBoard implements Board {
    * `text` lists what's linked and edited around it.
    */
   searchBlocks(text: string, opts: SearchOptions = {}): Promise<SearchHits> {
-    return this.request<SearchHits>("tree.search", { query: text, ...(opts.limit !== undefined ? { limit: opts.limit } : {}), ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) });
+    return this.request<SearchHits>("tree.search", { query: text, ...(opts.limit !== undefined ? { limit: opts.limit } : {}), ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) }, undefined, opts.signal);
   }
 
   /** `searchBlocks`, at most `limit` hits read whole for a preview, with what Jev did (`semantic`). */
   async search(text: string, limit: number, opts: SearchOptions = {}): Promise<Msg[] & { semantic?: SearchHits["semantic"] }> {
     const r = await this.searchBlocks(text, opts);
     const ids = r.matches.slice(0, Math.min(1000, limit)).map(m => m.block.id);
-    const by = new Map((ids.length ? (await this.readBlocks(ids)).blocks : []).map(m => [m.id, m]));
+    // A search replaced meanwhile (its signal aborted) stops reading its hits.
+    const by = new Map((ids.length ? (await this.readBlocks(ids, opts.signal)).blocks : []).map(m => [m.id, m]));
     return Object.assign(ids.flatMap(id => by.get(id) ?? []), { semantic: r.semantic });
   }
 
@@ -996,8 +1005,8 @@ export class SocketBoard implements Board {
    * there were more than `limit`. `machinery` (outline-core `machinery.ts`): the service leaves out what tools stamped
    * `[machine::…]` unless this says `show` (or `only`).
    */
-  async queryNotes(expression: string, limit = 200, machinery?: MachineryMode): Promise<{ notes: Msg[]; truncated: boolean }> {
-    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string } }>("blocks.query", { query: { where: expression, limit: Math.min(1000, limit), ...(machinery ? { machinery } : {}) }, ...this.listFields(true) });
+  async queryNotes(expression: string, limit = 200, machinery?: MachineryMode, signal?: AbortSignal): Promise<{ notes: Msg[]; truncated: boolean }> {
+    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string } }>("blocks.query", { query: { where: expression, limit: Math.min(1000, limit), ...(machinery ? { machinery } : {}) }, ...this.listFields(true) }, undefined, signal);
     return { notes: r.blocks.map(b => toMsg(b)), truncated: r.completeness?.kind === "truncated" };
   }
 
@@ -1037,16 +1046,16 @@ export class SocketBoard implements Board {
    * Whole blocks, text included, in one `blocks.read` (PIE-400), with the ids that are missing or in
    * Trash.
    */
-  async readBlocks(ids: string[]): Promise<{ blocks: Msg[]; unavailable: { id: string; status: "missing" | "trashed" }[] }> {
-    const r = await this.request<{ blocks: WireBlock[]; unavailable?: { id: string; status: "missing" | "trashed" }[] }>("blocks.read", { ids, fields: [...LIST_FIELDS, "text"] });
+  async readBlocks(ids: string[], signal?: AbortSignal): Promise<{ blocks: Msg[]; unavailable: { id: string; status: "missing" | "trashed" }[] }> {
+    const r = await this.request<{ blocks: WireBlock[]; unavailable?: { id: string; status: "missing" | "trashed" }[] }>("blocks.read", { ids, fields: [...LIST_FIELDS, "text"] }, undefined, signal);
     return { blocks: r.blocks.map(b => toMsg(b)), unavailable: r.unavailable ?? [] };
   }
 
   /**
    * A saved view's members as the service evaluates them (PIE-397 `views.read`), as list rows.
    */
-  async readSavedView(viewId: string, page: { limit?: number; offset?: number } = {}): Promise<SavedViewRead> {
-    const r = await this.request<Omit<SavedViewRead, "blocks"> & { blocks: WireBlock[] }>("views.read", { viewId, format: "tree", ...page });
+  async readSavedView(viewId: string, page: { limit?: number; offset?: number } = {}, signal?: AbortSignal): Promise<SavedViewRead> {
+    const r = await this.request<Omit<SavedViewRead, "blocks"> & { blocks: WireBlock[] }>("views.read", { viewId, format: "tree", ...page }, undefined, signal);
     return { ...r, blocks: r.blocks.map(b => toMsg(b)) };
   }
 
@@ -1627,8 +1636,8 @@ export class SocketBoard implements Board {
    * extensions' sources, each on outline-core's row contract, with the trigger's picks; the completer merges them with
    * its own sources' rows.
    */
-  completionRows(input: CompletionRowsRequest): Promise<CompletionRowsResult> {
-    return this.request<CompletionRowsResult>("completion.rows", { ...input });
+  completionRows(input: CompletionRowsRequest, signal?: AbortSignal): Promise<CompletionRowsResult> {
+    return this.request<CompletionRowsResult>("completion.rows", { ...input }, undefined, signal);
   }
 
   /** A completion row was chosen: the host counts the pick, so it ranks higher next time on every client. */

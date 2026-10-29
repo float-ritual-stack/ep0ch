@@ -39,8 +39,13 @@ async function keepReview(board: SocketBoard, note: Msg): Promise<Msg> {
   const { review } = await reviewWrite({ text: note.text, id: note.id, schemas, facets: await outlineFacets(client), jev: false });
   await board.request("suggestions.keep", { keep: { kind: "reviewed", at: { note: note.id, revision: note.revision ?? 1, actorId: "moss/claude-code@showcase", source: "write" }, title: SEED.writeReview, review } });
   const [page] = (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "system-view=jev-suggestions" } })).blocks;
-  // Beside the note, under the showcase's root, as every seeded note is.
-  await board.move(page!.id, note.parentId ?? null, USER);
+  // Beside the note, under the showcase's root, as every seeded note is: the page, the Records page its records went
+  // under, and the rule that reads them (each made at the outline's top, which the tree lists above the showcase).
+  const made = await Promise.all(["system-view=jev-suggestions", "system-records=true", "rule-name=review-records"].map(async where =>
+    (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where, machinery: "show" } })).blocks[0]?.id));
+  // At the end of the root's children: first, they'd push the notes other sections reveal out of the tree's view.
+  const parent = note.parentId ?? null;
+  for (const id of made) if (id) await board.move(id, parent, USER, parent ? (await board.children(parent)).filter(c => c.id !== id).length : 0);
   return (await board.get(page!.id))!;
 }
 import { ECHO_COPIES, ECHO_NODELIST, ECHO_POSTS, ECHO_SEEN_BY, ECHO_TOSSER, ECHO_TOSSES } from "./seed/echonet";
@@ -126,7 +131,9 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     await orchard.info();
     const neighbour = await orchard.createBlock(null, "Pear tree [page::pear-tree]\nWater deeply on dry days.");
     const journal = await orchard.createBlock(null, `Orchard journal\nWater the pear tree. See [[pear-tree]] or ((${neighbour.id}|the tree)).`);
-    notes.crossOutline = await make(notes.root.id, `${SEED.crossOutline} [foreign-note::${journal.id}]\nThe reader beside this one holds a note in showcase-orchard. Edit or comment there: the save belongs to that outline. Its tinted frame names the outline.\n[Open the orchard journal](https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id})\n[web::https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id}]\nQualified page: [[showcase-orchard:pear-tree]]. Qualified note: ((showcase-orchard:${journal.id}|the journal)). Bare UUID: ((${neighbour.id})).\n!((showcase-orchard:${neighbour.id}))\nPress / and type outline:showcase-orchard pear to search that outline without leaving this screen.`);
+    // A reply under the journal: its links tile lists that outline's notes (PIE-1297: copied as that outline's).
+    await orchard.createBlock(journal.id, "Pruned the pear\nTook out the crossing branches.");
+    notes.crossOutline = await make(notes.root.id, `${SEED.crossOutline} [foreign-note::${journal.id}]\nThe reader beside this one holds a note in showcase-orchard. Edit or comment there: the save belongs to that outline. Its tinted frame names the outline.\n[Open the orchard journal](https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id})\n[web::https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id}]\nQualified page: [[showcase-orchard:pear-tree]]. Qualified note: ((showcase-orchard:${journal.id}|the journal)). Bare UUID: ((${neighbour.id})).\n!((showcase-orchard:${neighbour.id}))\nPress / and type outline:showcase-orchard pear to search that outline without leaving this screen; alt+m on a hit copies its reference as that outline's. b in the orchard reader lists that outline's notes (the journal's reply): a row's menu copy reference gives ((showcase-orchard:…|…)), copy web link its /pub/o/showcase-orchard/ address.`);
   } finally { orchard.close(); }
 
   // The workboard's allocator needs a Work-ID prefix and the project's one active work queue.

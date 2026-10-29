@@ -93,6 +93,10 @@ export interface ExtensionEntry {
   schedules?: ExtensionScheduleEntry[];
   /** Its settings (PIE-1343): config.json's path on the host, each field its configSchema declares and its state. */
   settings?: ExtensionSettings;
+  /** A copy of one of the repo's built-ins (PIE-1283): the built-in's folder and this copy's state; this copy is what runs. */
+  builtIn?: { directory: string; state: "current" | "stale" | "forked" };
+  /** A script an extension ships: that extension's id (lists fold it under it). */
+  partOf?: string;
 }
 export interface ExtensionScheduleEntry {
   entry: string; every?: string; cron?: string; next: string; running?: boolean;
@@ -665,8 +669,8 @@ function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
     id: b.name, title: b.title, prefix, by: b.extension, asks: true,
     about: `${b.description ?? b.title} (extension ${b.extension})`,
     main: { empty: b.main, typed: b.main, most: 6 },
-    async rows(q, host) {
-      const r = await host.ctx.board.barRows(b.extension, b.id, q, { near: host.near() ?? undefined });
+    async rows(q, host, _scope, signal) {
+      const r = await host.ctx.board.barRows(b.extension, b.id, q, { near: host.near() ?? undefined, signal });
       return r.rows.map(row => ({ key: oneLine(row.id), label: oneLine(row.label), ...(row.detail ? { detail: oneLine(row.detail) } : {}), data: row }));
     },
     preview(row) {

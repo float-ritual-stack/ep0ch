@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import { runExtCommand } from "../src/extension-install";
+import { formatExtensionsList, runExtCommand } from "../src/extension-install";
 import type { ExtensionsListResult } from "../src/extension-registry";
 import type { ResourceProjection, ResourceProjectionReadResult } from "../src/resource-projection";
 import type { Block } from "../src/types";
@@ -543,4 +543,46 @@ test("a script extension names missing files and opt-in headers, and exposes onl
   expect(listed.extensions.find(e => e.script && e.name === "water")?.state).toBe("active");
   expect(listed.extensions.some(e => e.script && e.name === "steps")).toBe(false);
   expect(listed.extensions.some(e => e.script && e.name === "unused")).toBe(false);
+});
+
+test("a user copy of a built-in lists once, its shipped script folded under it, and says it overrides the built-in (PIE-1283)", async () => {
+  const { list } = await setup({ userInstall: ["neat"] });
+  const listed = await list(true);
+  const neat = listed.extensions.find(e => e.id === "neat")!;
+  expect(neat.builtIn).toEqual({ directory: join(REPO_EXTENSIONS, "neat"), state: "current" });
+  // The script it ships is still served (so @neat binds), named as part of neat, and gets no page of its own.
+  const script = listed.extensions.find(e => e.script && e.name === "neat")!;
+  expect(script.partOf).toBe("neat");
+  expect(script.builtIn).toBeUndefined();
+  const pages = await until("neat's page", async () => { const l = await list() as ExtensionsListResult & { pages?: Record<string, string> }; return l.pages?.neat ? l.pages : undefined; });
+  expect(Object.keys(pages)).not.toContain(script.id);
+  // ext ls: one row, saying whose copy runs and where the built-in is.
+  const lines = formatExtensionsList(listed, true);
+  expect(lines.filter(line => line.startsWith("neat "))).toHaveLength(2); // its row, and its --long folder line
+  expect(lines.some(line => line.includes(script.id))).toBe(false);
+  expect(lines.find(line => line.startsWith("neat "))).toContain("your copy overrides the built-in");
+  expect(lines.join("\n")).toContain(`built-in: ${join(REPO_EXTENSIONS, "neat")}`);
+});
+
+test("a shipped script's refusal is said on its extension's row, since the script's own row is folded (PIE-1283)", async () => {
+  const { create, list } = await setup({ userInstall: ["neat"] });
+  await create("My neat [script::neat]\n```js\nreturn 'mine';\n```");
+  const listed = await list(true);
+  expect(listed.extensions.find(e => e.id === "neat")!.error).toContain("script neat: agent @neat is already answered by");
+  expect(formatExtensionsList(listed).find(line => line.startsWith("neat "))).toContain("script neat: agent @neat");
+});
+
+test("a copy of a built-in changed here says it overrides the built-in, changed here (PIE-1283)", async () => {
+  const { root, list } = await setup({ userInstall: ["neat"] });
+  writeFileSync(join(root, "user-extensions", "neat", "scripts", "neat.js"), `${readFileSync(join(REPO_EXTENSIONS, "neat", "scripts", "neat.js"), "utf8")}// my own tweak\n`);
+  const listed = await list(true);
+  expect(listed.extensions.find(e => e.id === "neat")!.builtIn).toEqual({ directory: join(REPO_EXTENSIONS, "neat"), state: "forked" });
+  expect(formatExtensionsList(listed).find(line => line.startsWith("neat "))).toContain("your copy overrides the built-in (changed here)");
+});
+
+test("an extension of your own that isn't a built-in's copy carries no built-in mark (PIE-1283)", async () => {
+  const { extensionsFolder, list } = await setup();
+  writeExtension(extensionsFolder, "garden", {});
+  const listed = await list(true);
+  expect(listed.extensions.find(e => e.id === "garden")!.builtIn).toBeUndefined();
 });

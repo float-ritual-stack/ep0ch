@@ -26,7 +26,14 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     const listed = await h.board.listExtensions(true);
     const neat = listed.extensions.find(e => e.name === "neat" && e.script)!;
     expect(neat).toBeDefined();
-    expect((await h.board.get(listed.pages![neat.id]!))!.text).toContain("Follow the script");
+    // The script is neat's (PIE-1283): one page, the extension's, and one row in the & list.
+    expect(neat.partOf).toBe("neat");
+    expect(listed.pages![neat.id]).toBeUndefined();
+    expect((await h.board.get(listed.pages!.neat!))!.text).toContain("Follow the script");
+    await app.loadExtensions(true);
+    const rows = await app.dispatch.act({ action: "bar.open", args: { scope: "&", query: "neat" } }, { kind: "agent", id: "test-agent" }) as { rows: { label: string; detail?: string }[] };
+    expect(rows.rows.filter(r => /^neat$/i.test(r.label))).toHaveLength(1);
+    expect(rows.rows.find(r => r.label === "Neat")?.detail).toContain("your copy overrides the built-in");
     const parked = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: seeded.notes.scriptTarget.id, name: "parked" } }, USER) as { tile: string };
     await app.dispatch.act({ action: "tile.drawer", tile: parked.tile, args: { on: true } }, USER);
     await press(seeded.notes.neat.id);

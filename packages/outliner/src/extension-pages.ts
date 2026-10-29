@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { namesDemoIds, readDemo, rewriteDemoReferences, type Demo } from "./extension-demo";
 import { loadExtensionManifest, manifestSources, type ExtensionManifest, type LoadedExtension } from "./extension-manifest";
 import { cleanExtensionText, extensionActorId } from "./extension-records";
-import type { ExtensionEntry, ExtensionRegistry } from "./extension-registry";
+import { overrideWords, type ExtensionEntry, type ExtensionRegistry } from "./extension-registry";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance } from "./types";
 
@@ -324,7 +324,7 @@ export class ExtensionPages {
   }
 
   private async syncOnce(): Promise<void> {
-    const listed = this.registry.list().extensions.filter((entry) => entry.state !== "shadowed");
+    const listed = this.registry.list().extensions.filter((entry) => entry.state !== "shadowed" && !entry.partOf);
     this.available = this.readAvailable(new Set(listed.map((entry) => entry.id)));
     const state = this.read();
     const installed = listed.map((entry) => ({ entry, loaded: this.registry.loaded(entry.id) }));
@@ -489,6 +489,7 @@ export class ExtensionPages {
     const lines = [`${name} [ext.page::${entry.id}] [page::ext-${entry.id}]`];
     if (loaded?.description ?? entry.description) lines.push(words(loaded?.description ?? entry.description));
     lines.push(`\`${entry.id}\` · version ${loaded?.version ?? entry.version ?? "?"} · ${STATE_WORDS(entry)} · ${entry.origin === "outline" ? "this outline's own" : "for every outline this host serves"}`);
+    if (entry.builtIn) lines.push(overrideWords(entry.id, entry.builtIn));
     const directory = loaded?.directory ?? entry.directory;
     const readme = readText(join(directory, "README.md"));
     if (readme?.trim()) lines.push("", readmeBody(readme));

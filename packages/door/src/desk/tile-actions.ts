@@ -36,6 +36,8 @@ export interface TileNow {
   shuts: boolean;
   /** The program running in it (a terminal tile), whose close ends it. */
   running: string | null;
+  /** The note it shows (a reader, not a list), and whether it is being edited there; null when it shows none. */
+  note: { id: string; editing: boolean } | null;
   refused(op: "close" | "float" | "zoom" | "collapse" | "pin" | "drawer" | "widen" | "hold"): string | null;
 }
 /** The tile menu's group for the tile operations. */
@@ -52,7 +54,7 @@ export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file
  * An agent's change is said on screen with who made it (each def's `says`); the person's own isn't (they see it
  * happen), unless it `confirms`: something the screen doesn't show (a layout saved, where a drag put a tile).
  */
-interface On { d: Desk; reader?: string }
+interface On { d: Desk; reader?: string; standing?: boolean }
 
 /** The tile menu's group for saving and loading the screen. */
 const SCREEN = "Screen";
@@ -516,7 +518,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.title": def({
     summary: "rename a tile: a name (letters, digits, . - _) becomes its name, what tile= and paths resolve (unique in its layer: a taken name is refused) and is the title it shows; any other text (spaces, {{this.title}}) is a title written on it, the name staying, and a tile with a title written like that keeps taking text as a title (text= clears it first). Written titles support {{this.title}}, {{this.<property>}}, {{tile.kind}} and {{tile.n}}; text= clears a written title. Without text the person gets the rename prompt. Renaming the note a tile shows is the note's own edit",
-    keys: "^W n; double click a frame title or tab; \"rename this tile\" in the tile menu",
+    keys: "^W n; double click a frame title or tab; \"rename this tile\" in the tile menu (\"rename this note\" beside it is note.rename)",
     touches: "nothing", replay: "safe",
     says: r => r.prompt ? null : `${r.name}: ${r.title}`,
     menu: { label: "rename this tile…", group: TILE, key: "ctrl+w n" },
@@ -527,6 +529,25 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "tile.title text=", does: "clears the written title, back to the system one" },
     ],
     run({ text }, { d, reader }, actor) { return d.titleTile(reader, text, false, actor); },
+  }),
+  "note.rename": def({
+    summary: "rename the note tile=<tile> shows (PIE-1283): text= replaces its title, the words of its first line; that line's properties, hashtags and the body stay, and it is saved at once as the actor's write, checked against the note as the service has it. Without text the person gets a prompt holding the title. tile.title renames the tile itself, never the note",
+    keys: "\"rename this note\" in the tile menu",
+    touches: "nothing", replay: "ask",
+    says: r => r.prompt ? null : `renamed the note: ${r.title}`,
+    menu: { label: "rename this note…", group: TILE, key: "", now: ({ d, reader }, _t, actor) => {
+      const shown = d.tileNow(reader, actor).note;
+      return !shown ? { hide: true } : shown.editing ? { refused: "this reader is editing the note: change its title in the edit" } : null;
+    } },
+    args: {
+      text: { type: "string", optional: true, about: "the note's new title; its first line's properties and the body stay" },
+      note: { type: "string", optional: true, kind: "note", about: "the note you read the title from: refused when the tile shows another now" },
+      revision: { type: "number", optional: true, about: "the revision you read it at: refused when the note changed since" },
+    },
+    examples: [
+      { act: "note.rename tile=reader text=\"Seed swap, Saturday\"", does: "retitles the note the reader shows; [type::chirp] on its first line and its body stay" },
+    ],
+    run({ text, note, revision }, { d, reader }, actor) { return d.renameNote(reader, text, actor, { note, revision }); },
   }),
   "tile.title.mode": def({
     summary: "toggle between the written tile title and the system title without losing the written title",
@@ -553,9 +574,16 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.info": def({
     answer: { tile: { type: "string", kind: "tile", about: "the tile's stable id" }, name: { type: "string", about: "its displayed name" }, kind: { type: "string", about: "what it shows" } },
-    summary: "one tile as data: its kind, name, rect, link, dock state; a terminal's command, file, process and screen text; a reader's note; follows= and opens=: what it follows and where its opens land, in the words ^W P says them (reader.follow, tile.hold and tile.link change them)",
+    summary: "one tile as data: its kind, name, rect, link, dock state; a terminal's command, file, process and screen text; a reader's note; follows= and opens=: what it follows and where its opens land, in the words ^W P says them (reader.follow, tile.hold and tile.link change them). With card=true (^W ,, the tile menu's row) the person's shows it in a card by the tile, with copy id and copy reference on it",
+    keys: "^W , ; the tile menu's \"about this tile\"",
     touches: "nothing", replay: "safe",
-    args: {},
+    menu: { label: "about this tile", group: TILE, key: "ctrl+w ,", args: { card: true } },
+    hint: ({ card }, { d, reader, standing }) => (card && standing ? d.tileInfoHint(reader) : null),
+    args: { card: { type: "boolean", optional: true, about: "the person's: show it in a card by the tile too (^W , and the menu's row do)" } },
+    examples: [
+      { act: "tile.info tile=reader", does: "answers the reader's id, kind, note, what it follows and where its opens land" },
+      { act: "tile.info tile=reader card=true", does: "the person's: the same, shown in a card by the reader with copy id and copy reference" },
+    ],
     run(_, { d, reader }) { return d.tileInfo(reader); },
   }),
   "tile.copy-ref": def({

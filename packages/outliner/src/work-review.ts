@@ -53,7 +53,8 @@ async function askNoul(state: Record<string, unknown>, question: "proof" | "expe
   if ((env ?? process.env).OUTLINER_FIGURE_FIT === "off") return null;
   try {
     const prompt = await loadWriteReviewPrompt();
-    const asked = await askJevQuestions(state, { q: { type: "noul", instructions: prompt[question] } }, env ? { env } : {});
+    // A work tool's answer waits for Jev at most this long; past it, code's words decide.
+    const asked = await askJevQuestions(state, { q: { type: "noul", instructions: prompt[question] } }, { timeoutMs: 1500, ...(env ? { env } : {}) });
     const noul = "answers" in asked ? asked.answers.q?.noul : undefined;
     return "answers" in asked && typeof noul === "number" && noul >= 0 && noul <= 1 ? { noul, reading: asked.reading } : null;
   } catch { return null; }

@@ -11,7 +11,7 @@ import { Mirror } from "../src/mirror";
 import { groundSeq, setTheme, THEMES, luminance } from "../src/theme";
 import { rowBytes } from "../src/term";
 import { emphasis } from "../src/inline";
-import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../src/open";
+import { destinationOf, external, externalOpenCommand, fileOpenCommand, notePageUrl } from "../src/open";
 import { presentLinks } from "../src/refs";
 import { MessageReader } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -262,5 +262,13 @@ describe("link schemes", () => {
     expect(destinationOf("HTTPS://example.org/allotment")).toEqual({ web: "https://example.org/allotment" });
     expect(destinationOf("Http://example.org")).toEqual({ web: "http://example.org/" });
     expect(destinationOf("ftp://example.org")).toMatchObject({ refused: expect.any(String) });
+  });
+
+  // PIE-1297: note.copy-ref kind=link writes a note's web address; another outline's opens back in the door.
+  test("a note's web link names its outline (/pub/o/<name>/p/), on the web client's origin; none known, /pub/p/", () => {
+    const id = "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34";
+    expect(notePageUrl("PIE-12", undefined, {})).toBe("https://my.ep0ch.sh/pub/p/PIE-12");
+    expect(notePageUrl(id, "orchard", { EP0CH_WEB_URL: "https://web.example.org/, https://other.example.org" })).toBe(`https://web.example.org/pub/o/orchard/p/${id}`);
+    expect(destinationOf(notePageUrl(id, "orchard", {}))).toEqual({ target: { outline: "orchard", block: id } });
   });
 });

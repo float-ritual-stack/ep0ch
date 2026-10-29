@@ -138,7 +138,8 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     const outliner = async (args: string[], stdin?: string) => {
       const p = Bun.spawn(["bun", OUTLINER_CLI, ...args], {
         cwd: scratch.workspace, stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin), stdout: "pipe", stderr: "pipe",
-        env: { ...clean, ...env, FORCE_COLOR: "3", OUTLINER_WORKSPACE_ROOT: scratch.workspace },
+        // No test asks the real Jev: a write's review answers from code alone.
+        env: { ...clean, OUTLINER_FIGURE_FIT: "off", ...env, FORCE_COLOR: "3", OUTLINER_WORKSPACE_ROOT: scratch.workspace },
       });
       const [stdout, stderr, exitCode] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
       return { exitCode, stdout, stderr };

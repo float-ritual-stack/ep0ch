@@ -12,7 +12,7 @@ import { FRAME_GLYPHS, FRAME_LEGEND } from "./frame-controls";
 import { HintCard, hintStatus, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
 import { revealOn, type Reveal } from "../reveal";
 import { rowLines, withRowLimit } from "../text";
-import { readNote, outlineBoards } from "./outline-boards";
+import { readNote, outlineBoards, type NoteAddress } from "./outline-boards";
 import { MIN_ROWS, SPINES, type AltRule } from "./layout";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 // The desk: the door owns the whole canvas, and the canvas is tiles (PIE-413). A tile is a view (the outline
@@ -34,11 +34,15 @@ import { BORDER_BOXES, borderGlyphs, Canvas, DOTTED_BOX, LINE_BOX, NO_BOX, overf
 import { TONE } from "../callouts";
 import { MOUSE_RIGHT, RowPresses, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
+import { agentRefusal as draftRefusal } from "../draft-session";
+import { retitle, titleWords } from "@ep0ch/outline-core/header-line";
+import { outlineChanged } from "../refs";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
 import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { lastTrashed } from "../note-trash";
+import { copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
 import { LayoutHistory, type LayoutEntry } from "./layout-history";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
@@ -2789,6 +2793,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // (or a tile renamed since) can never send it to another tile. A place word (`new`) is not a tile and goes as written.
       { set: HINT_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: tileSel(at) }) },
       { set: DESK_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: at.place ?? tileSel(at) }) },
+      { set: NOTE_REF_ACTIONS, takes: "screen", on: (at): NoteRefOn => { const sel = at.place ?? tileSel(at); return { copy: (a, actor) => this.copyNoteRef(sel, a.kind, actor, a.ref, a.line, a.outline), has: line => this.noteRefOf(sel, line) }; } },
       { set: TILE_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: at.place ?? tileSel(at) }) },
       { set: PANE_ACTIONS, takes: "screen", on: at => ({ h: this, reader: tileSel(at) }) },
       // Built from the registry each time: an extension's kind comes and goes while the door runs.
@@ -4145,6 +4150,40 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(id)!, k = kindOf(p)?.word ?? p.kind, n = this.nameOf(id);
     // A held reader the desk named a detail (detail, detail2: the glossary's word, PIE-705) is named for what it is too.
     return n === k || new RegExp(`^${k}\\d+$`).test(n) || (p instanceof ReaderPane && p.kind === "reader" && /^detail\d*$/.test(n));
+  }
+
+  /**
+   * `note.rename` (PIE-1283): the title of the note tile `sel` shows, replaced. Only the prose of its header line changes
+   * (outline-core's headerLine): the chips and hashtags after it and the body stay. Saved at once, checked against the
+   * revision the service has now. Without text the person gets a prompt holding the title.
+   */
+  async renameNote(sel: string | undefined, text: string | undefined, actor: Actor, expect: { note?: string; revision?: number } = {}): Promise<TileDone> {
+    const t = this.tile(sel), p = this.panes.get(t.id);
+    const shown = this.noteOf(t.id);
+    if (!shown) throw new ActionRefused(`${t.name} shows no note · tile.title renames the tile`);
+    if (p instanceof ReaderPane && p.surface.draft) throw new ActionRefused("this reader is editing the note: change its title in the edit");
+    const now = await this.ctx.board.get(shown.id);
+    if (!now || now.revision === undefined) throw new ActionRefused("that note isn't there any more");
+    // What the prompt (or an agent) read: the same note, at the same revision, or nothing is written.
+    if (expect.note !== undefined && expect.note !== now.id) throw new ActionRefused(`${t.name} shows another note now; nothing was renamed · ${text ?? ""}`.trimEnd());
+    if (expect.revision !== undefined && expect.revision !== now.revision) throw new ActionRefused(`the note changed since its title was read (revision ${expect.revision}, now ${now.revision}); nothing was renamed · ${text ?? ""}`.trimEnd());
+    if (text === undefined) {
+      if (actor.kind !== "user") throw new ActionRefused("note.rename needs text=<the note's new title>");
+      this.overlay(linePrompt<Desk>({ name: "note title", title: "Rename this note", text: titleWords(now.text), prefilled: true,
+        doing: t => `⏎ renames the note to “${t}” · its properties and body stay`,
+        done: (title, d) => { d.run("note.rename", { text: title, note: now.id, revision: now.revision }, d.tileId(t.id)); },
+      }));
+      return { ...this.tileAnswer(t.id), prompt: true };
+    }
+    const title = text.trim();
+    if (!title || title.includes("\n")) throw new ActionRefused("a note's title is one line of words · text=<the new title>");
+    const no = draftRefusal(actor, { board: this.ctx.board, blockId: now.id });
+    if (no) throw new ActionRefused(no);
+    const next = retitle(now.text, title);
+    const saved = await this.ctx.board.update(now.id, next, now.revision, actor);
+    outlineChanged([now.id]);
+    this.redraw();
+    return { ...this.tileAnswer(t.id), note: now.id, title, revision: saved.revision ?? null };
   }
 
   private noteOf(id: number): Msg | null {
@@ -6150,14 +6189,50 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!refs) throw new ActionRefused(`${this.nameOf(t.id)} isn't reachable from here to name`);
     const text = kind === "ref" ? refs.place ?? refs.id : refs.id;
     const answer = { ...this.tileAnswer(t.id), kind, text, id: refs.id, ...(refs.place ? { place: refs.place } : {}) };
-    const what = kind === "ref" && !refs.place ? `${text} (nothing else names ${refs.name} alone, so its id)` : text;
-    if (actor.kind === "user") {
-      if (this.ctx.copy?.(text) === false) throw new ActionRefused("the clipboard refused it");
-      this.ctx.flash(`copied ${what}`);
-      return { ...answer, clipboard: true };
+    const what = `${refs.name}'s ${kind === "ref" ? `reference${refs.place ? "" : ` (nothing else names ${refs.name} alone, so its id)`}` : "id"}`;
+    return { ...answer, ...deliverCopy(this.ctx, actor, text, what) };
+  }
+
+  /** The note tile `sel` points at for `note.copy-ref`, with its outline when it's another's (`Pane.noteAt`, else `Pane.subject`). */
+  private noteAtTile(sel: string | undefined): { id: string; address?: NoteAddress } | null {
+    const pane = this.panes.get(this.tile(sel).id), at = pane?.noteAt?.();
+    if (at !== undefined) return at;
+    const id = pane?.subject?.();
+    return id ? { id } : null;
+  }
+
+  /**
+   * Whether tile `sel` points at a note `note.copy-ref` can copy; `line`: and draws it in a reader, where a line can be
+   * named. Nothing is read: the menu asks it as it opens.
+   */
+  noteRefOf(sel: string | undefined, line = false): boolean {
+    const pane = this.panes.get(this.tile(sel).id), at = this.noteAtTile(sel);
+    return !!at && (!line || (pane instanceof ReaderPane && pane.msg?.id === at.id && !pane.surface.editing));
+  }
+
+  /**
+   * `note.copy-ref` (PIE-1297): the address of the note tile `sel` points at, or of `ref` (in `outline`). A reader's own
+   * note is the reader's to copy (`NoteSurface.copyNoteRef`: another outline's note, a line and its anchor); any other
+   * is read where it lives (`copyNoteById`).
+   */
+  async copyNoteRef(sel: string | undefined, kind: NoteRefKind, actor: Actor, ref?: string, line?: number, outline?: string) {
+    const t = this.tile(sel), pane = this.panes.get(t.id), at = ref ? { id: ref, ...(outline ? { address: { outline } } : {}) } : this.noteAtTile(sel);
+    if (!at) throw new ActionRefused(`${this.nameOf(t.id)} points at no note; ref=<a block id> names one`);
+    if (pane instanceof ReaderPane && pane.msg?.id === at.id && (!outline || pane.msg.address?.outline === outline)) {
+      return { ...this.tileAnswer(t.id), ...(await pane.surface.copyNoteRef(kind, pane.host(this), actor, await ownOutline(this.ctx), line)) };
     }
-    this.ctx.flash(`@${actor.id ?? "agent"} copied ${refs.name}'s ${kind === "ref" ? "reference" : "id"} for itself · your clipboard is untouched`);
-    return { ...answer, clipboard: false };
+    if (kind === "line") throw new ActionRefused(`a line's reference is a reader's: open the note in one and put the cursor on the line (${this.nameOf(t.id)} lists notes)`);
+    return { ...this.tileAnswer(t.id), ...(await copyNoteById(this.ctx, actor, kind, at.id, at.address)) };
+  }
+
+  /** The person's `tile.info` (^W ,), as a card by the tile: its answer's own fields as they come, and its copy rows. */
+  tileInfoHint(sel: string | undefined): Hint {
+    const t = this.tile(sel), tile = this.tileId(t.id), place = this.tileAddressesOf(this.panes.get(t.id)!)?.place;
+    const said = Object.entries({ ...this.tileInfo(sel), ...(place ? { place } : {}) }).filter(([, v]) => typeof v === "string" || typeof v === "number");
+    return { id: "tile.info", title: `${this.nameOf(t.id)} · ${shortTileId(tile)}`, lines: said.map(([k, v]) => `${k}: ${v}`), choices: [
+      { label: "copy id", act: { action: "tile.copy-ref", tile, args: { kind: "id" } } },
+      { label: "copy reference", act: { action: "tile.copy-ref", tile, args: { kind: "ref" } } },
+    ] };
   }
 
   /** `tile.info`: the tile as `layout.get` lists it, with what it follows and where its opens land in plain words (PIE-855, ^W P's rows). */
@@ -6860,7 +6935,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   tileMenu(sel: string | undefined, at: string | undefined, actor: Actor, q = ""): TileDone {
     const t = this.tile(sel);
-    const every: MenuRow[] = this.dispatch.menu(this.tileId(t.id), actor);
+    // Each group's rows together under one heading, the tile's own operations first. A right-click on a spot (at=) is about
+    // the row it lands on, so its Note rows (copy it, PIE-1297) come next; the ⋯ menu is about the tile, so its kind's own
+    // groups (a reader's Shows and page lock) come before the long Note group and never fall below the fold.
+    const listed: MenuRow[] = this.dispatch.menu(this.tileId(t.id), actor), groups = listed.map(r => r.group).filter(g => g !== "Note");
+    const order = [...new Set(at ? ["Tile", "Note", ...groups] : ["Tile", ...groups, "Note"])];
+    const every = order.flatMap(g => listed.filter(r => r.group === g));
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
     if (!this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };
@@ -6893,6 +6973,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       held: !!flow?.held?.some(h => columnOf(flow, h) === columnOf(flow, id)),
       listHeld: p && kindOf(p)?.hold ? kindOf(p)!.hold!.held(p) : null,
       running: p instanceof PtyPane && p.running ? p.title() : null,
+      note: (() => { const m = this.noteOf(id); return m ? { id: m.id, editing: p instanceof ReaderPane && !!p.surface.draft } : null; })(),
       refused: op => {
         switch (op) {
           case "close": return ask({ op: "close", tile: id });
@@ -7730,8 +7811,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // A right-click in a tile opens its menu at the pointer (tile.menu), unless what's under it takes it itself (a
       // program that asked for the mouse, a step's box: their own choice opens). The tile gets the keys first.
       if (k.button === MOUSE_RIGHT && hit && !this.ownsRightClick(hit[0], hit[1], k.x, k.y)) {
-        const id = hit[0];
+        const [id, r] = hit, pane = this.panes.get(id);
         if (id !== this.focus) this.run("tile.focus", {}, this.nameOf(id));
+        // On a list's row the menu is that row's (PIE-1297: its Note rows copy it): the row is picked first, as the press
+        // that gives a tile the keys picks one (`focusing`: it selects, never opens or folds).
+        if ((pane?.subject || pane?.noteAt) && pane.mouse && this.inBody(id, r, k.x, k.y)) {
+          const { x, y } = this.local(id, r, k.x, k.y), how: RowPress = { mods: 0, button: 0, focusing: true };
+          pane.mouse({ ...k, button: 0, action: "down" }, x, y, this, how);
+          pane.mouse({ ...k, button: 0, action: "up" }, x, y, this, how);
+        }
         return this.run("tile.menu", { at: `${k.x},${k.y}` }, this.nameOf(id));
       }
       // What a header draws to be clicked, before its row is a grip, a border or a float's title to drag: a mark's
