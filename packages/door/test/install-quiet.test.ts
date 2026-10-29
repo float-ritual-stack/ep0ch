@@ -150,7 +150,10 @@ describe.skipIf(!linux)("ep0ch install restarts the host and hands a session ove
     expect(docs.steps.find(s => s.id === "session")).toMatchObject({ status: "skip", why: expect.stringContaining(`session unchanged: no handover (${oldHead.slice(0, 7)} → ${docsHead.slice(0, 7)}`) });
     expect(await sessionPid()).toBe(session);
 
-    // The outliner's own code: restarted, from the commit the host still runs, naming the file.
+    // The outliner's own code: restarted, from the commit the host still runs, naming the file. Backups are named to
+    // the second, so the second install waits for the next one (on a fast box both landed in one second and the backup
+    // refused to overwrite).
+    await Bun.sleep(1100);
     const code = await install();
     const host = code.steps.find(s => s.id === "host")!;
     expect(host.status).toBe("do");
