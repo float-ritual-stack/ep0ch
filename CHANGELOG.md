@@ -63,6 +63,34 @@ are its record. The outliner's entries from then are kept below, under
 - **Everywhere you type:** a reader, a float, the river and comments share the one editor, so the same holds in each.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
 
+### Your door stays quick with a board and a live query open while a bulk job runs (PIE-1413, round two)
+
+- **What you'll notice:** with a board tile and a query tile on the Desk during a backfill or an import, reading a
+  note and saving answer in tenths of a second, nothing in the door times out, and every tile shows what the
+  outline says once the job ends. Measured from the door's own side on a private copy of pie (the person's note
+  reads and saves, p95 / max, ms):
+
+  | while | before | after |
+  |---|---|---|
+  | an ordinary day | 1560 / 1560 | 77 / 77 |
+  | a backfill writes its records | 15067 / 15165 (835 requests timed out) | 156 / 419 (none) |
+  | an import writes notes | 15057 / 15057 (1,524 timed out) | 135 / 138 (none) |
+  | after the import is stopped | 15070 / 15070 | 119 / 119 |
+  | the board and query tiles match the outline after | 1 of 8 | 8 of 8 |
+
+- **Why the first fix wasn't enough:** a ping on a connection of its own stayed fast while the door's own
+  connection starved. Its board read every one of 86 lanes after each change, on one connection, and the host
+  answered that connection's requests in order, so a note read waited behind them. The activity tile's read took
+  2.4 s on pie, a records read of 200 notes took 24 s on gurgle (seen live at 14:22), and a door that went away left
+  its queue running.
+- **What changed:** a connection's whole-outline reads no longer hold its other requests; a closed connection's
+  queue is dropped; a board reads a lane once per burst of changes, one read at a time; lanes and tiles off the
+  screen read behind, one at a time; the activity read takes 15 ms and a 200-note records read 0.3–0.6 s.
+- **What's left:** a board lane off the screen can show the outline up to about 10 s late until it is drawn; one
+  whole-outline read or watch is still a single 0.1–0.4 s turn at pie's size.
+- **The harness** now runs a real door (`packages/door/scripts/bench-door-desk.ts`) and holds its own requests to
+  the bar: `bun run bench:host` in packages/outliner (`--crowd` for a heavier day).
+
 ### The status bar's last rough edges (PIE-1415, PIE-1224, PIE-1410)
 
 - **A group inside a group opens where you clicked:** More inside Tools opens over Tools, not at the left edge.
