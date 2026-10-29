@@ -283,12 +283,16 @@ test("acceptance: a short, clear, self-contained note ships, pushed into no comp
 // Live on pie (Oct 29): every answer said jev "off". The outline's facets took 5 s, the whole review ran past its budget,
 // and the code-only answer hid why. Jev is never held up by the facets, and an answer without Jev says why.
 test("a slow facets read never keeps Jev from answering; an answer without Jev says why, never 'off'", async () => {
-  const { agent } = await setup((id) => (id === "argues" ? { type: "noul", noul: 0.95 } : undefined), { facetsDelayMs: 2800, jevDelayMs: 1500 });
+  const { agent, store } = await setup((id) => (id === "argues" ? { type: "noul", noul: 0.95 } : undefined), { facetsDelayMs: 2800, jevDelayMs: 1500 });
   const made = await agent("create", { parent: "root", text: "Why the beds moved\n\nTo understand it, go back to the spring: 3 queued then." });
   expect(made.exitCode, made.stderr).toBe(0);
   const review = made.json.review as Review & { jev: string };
   expect(review.jev).toBe("asked");
   expect(review.findings.map(f => f.rule)).toContain("argues");
+  // A patch's review is the same review: Jev heard there too (loki saw a create say asked and a patch say off).
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: [{ observed: "go back to the spring", replacement: "go back to the wet spring" }] });
+  expect((patched.json.review as { jev: string }).jev).toBe("asked");
 });
 
 test("with no Jev key the answer says so", async () => {
