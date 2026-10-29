@@ -1,5 +1,5 @@
 // PIE-509: the hint row on a narrow screen (120 columns), found by walking the door in a real pane. A row too long
-// for the screen ends "? more", and ? (or a click on it) shows every part in a box above it; a ^W chord's row
+// for the screen ends "? more", and a click on it shows every part in a box above it (? is the keys window); a ^W chord's row
 // shows the box at once (^W o lists every tile kind). The keys a row names work on that screen: a float on the
 // desk goes back with ^W f (o and x are the board's), and a preset (the brief) doesn't offer alt+d. Moving the board's
 // outline across with S keeps its width. Scratch services and fictional notes only.
@@ -75,14 +75,15 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR"]) delete process.env[k];
   });
 
-  test("the desk's row is cut between parts and ends ? more; ? shows the rest in a box above it, and the next key puts it away", async () => {
+  test("the desk's row is cut between parts and ends ? more; a click on it shows the rest in a box above it (? is the keys window), and the next key puts it away", async () => {
     const desk = new Desk(undefined, { layout: "daily" });
     app.push(desk);
     const row = hintRow();
     expect(row).toContain("Tab/1-9 focus");
     expect(row).toMatch(/· \? more\s/);
     expect(row).not.toContain("q menu");
-    key(char("?"));
+    const more = () => { const at = hintRow().indexOf("? more"); key({ kind: "mouse", action: "down", button: 0, x: at + 1, y: ROWS - 2 }); };
+    more();
     let all = lines();
     const box = all.findIndex(l => l.includes("─ keys "));
     expect(box).toBeGreaterThan(ROWS - 10);
@@ -101,12 +102,12 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     expect(lines().some(l => l.includes("─ keys "))).toBe(false);
     // Another key puts it away and does its own job (Tab moves the keys on); a click elsewhere puts it away too.
     const d = screen() as any;
-    key(char("?"));
+    more();
     const was = d.focus;
     key({ kind: "tab" });
     expect(lines().some(l => l.includes("─ keys "))).toBe(false);
     expect(d.focus).not.toBe(was);
-    key(char("?"));
+    more();
     const r = d.layoutGet().tiles.find((t: any) => t.name === "now").rect;                  // a reader, not a terminal
     key({ kind: "mouse", action: "down", button: 0, x: r.col + 3, y: r.row + 3 });
     key({ kind: "mouse", action: "up", button: 0, x: r.col + 3, y: r.row + 3 });

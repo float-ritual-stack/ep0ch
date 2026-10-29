@@ -740,6 +740,7 @@ export const ECHO_READER_ACTIONS = actionSet<KindHost>()("echo", {
     },
   }),
   "echo.quote": def({
+    words: "reply quoting the message",
     summary: "quote-reply: the composer opens on the passage quoted with > before each line (quote= the words; the person's selection, else the whole message), the reply written under it. An agent says quote= and body=, sent at once",
     keys: "q",
     touches: "draft", draft: "type", replay: "ask",

@@ -10072,7 +10072,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "rich.change": def({
     summary: "add, remove or move a row or column in the current table, as one draft undo step",
-    keys: [{ keys: "alt+r alt+d", does: "row, in rich edit" }, { keys: "alt+v alt+x", does: "column, in rich edit" }], touches: "draft", draft: "type", replay: "ask",
+    keys: [{ keys: "alt+r", does: "add a row under this one, in rich edit" }, { keys: "alt+d", does: "remove this row, in rich edit" }, { keys: "alt+v", does: "add a column, in rich edit" }, { keys: "alt+x", does: "remove this column, in rich edit" }], touches: "draft", draft: "type", replay: "ask",
     args: { op: { type: "string", about: "row.add, row.remove, column.add, column.remove, row.move, column.move" }, to: { type: "number", optional: true, about: "destination row or column, from zero" } },
     examples: [
       { act: "rich.change op=row.add", does: "adds an empty row under the current row of the table" },
@@ -10161,6 +10161,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "complete": def({
+    words: "complete what you're typing: a page, a reference, a file, a callout or a property",
     summary: "completion, as typing [[, ((, [file::, > [!, ::component, a property's [key:: or a figure's YAML offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/, [heading-pattern::, or a ::graph-meter block's lines ending in ti), or at the open draft's cursor; insert=n puts the nth into the draft (expect=<its insertion> refuses it if the list changed meanwhile); refine=^ or refine=# opens the finished ((reference)) at the draft's cursor again to search inside its note, as typing ^ or # in it does (PIE-762): a passage with no anchor gets one when inserted. Property keys and values come from the component schemas (PIE-618)",
     keys: [{ via: "typing [[ (( [file:: > [! ::component or [key:: while writing" }, { keys: "tab ctrl+space", does: "open the completion" }, { keys: "↑ ↓", does: "move in it" }, { keys: "enter tab", does: "choose" }, { keys: "esc", does: "close it" }, { keys: "^ #", does: "in a ((reference))" }],
     // Looking candidates up reads; putting one in types in the draft at its cursor: an agent's only in a draft it
@@ -10779,6 +10780,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "button.slot": def({
+    words: "write one slot of a button's sequence",
     summary: "write one slot of a ::button onto its line (PIE-1298): `::button{act=\"tile.zoom tile={target}\" target=}` runs once target= says a tile. The note's checked save, recorded as whoever asks; ctrl+z (sources.undo) takes it back. A tile is kept as its id (t-<uuid>, exactly that tile) or the address of its place (drawer.agent, role:<role>, <slot>@<screen>: whichever tile fills it), never a number. The person, with no value=, is asked (the wire picker for a tile: click one); an agent passes value= and never opens the picker",
     keys: [{ keys: "click", does: "a button with an empty slot, then click a tile" }, { keys: "alt-click", does: "a button with a slot to choose again" }], touches: "nothing", replay: "ask",
     args: {
@@ -11976,6 +11978,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "fold.select": def({
+    words: "move the ( ) fold selection to the next or previous heading, list item or callout",
     summary: "put the person's ( ) fold selection on the next (by=1) or previous (by=-1) heading, list item or callout drawn; f or enter then folds it. The person's reading state: an agent's is refused (fold, unfold and fold.toggle name a fold point)", keys: "( )",
     touches: "tile", replay: "safe", person: "the ( ) selection is the person's; fold, unfold and fold.toggle name a fold point (folds lists them)",
     args: { by: { type: "number", about: "1 the next fold point, -1 the previous one" } },
@@ -12688,6 +12691,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "use.fill": def({
+    words: "fill in what a ::use template asks for",
     summary: "give a ::use the props its template needs (PIE-533): the person is asked for each in the power bar, in the picker of its kind (a choice's options, a note found by its words), then the answers are written onto the call's line through the note's save, checked against the line as drawn, recorded as whoever asks; ctrl+z (use.undo) takes them back. An agent names them: with='{\"owner\":\"ada\"}' (it is never asked, and its fill never takes the person's focus). line= which ::use (from 1; default: the only one)",
     keys: "⏎ or a click on a ::use's “needs …” line",
     touches: "draft", draft: "write", replay: "ask",
@@ -12881,6 +12885,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: (_, { surface, host }, actor) => surface.undoUse(host, actor),
   }),
   "fields.anchor": def({
+    words: "give the line an anchor other notes can link to",
     summary: "give the line a ::fields row opens an anchor, so ((note^anchor)) links to that line for good (it works on the web too); the person's copies the link, an agent's is returned. The only thing a ::fields writes, and only when asked: key= which ::fields (its key; default the only one the note draws), n= its row (from 1)",
     keys: "⏎ or a click on a ::fields row's ¶",
     touches: "draft", draft: "write", replay: "ask",

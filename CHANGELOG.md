@@ -55,6 +55,8 @@ are its record. The outliner's entries from then are kept below, under
   the power bar, alt+Q starting or stopping a recording, were counted as clashes).
 - **Every row reads as a whole sentence:** the action's own words, then where or when ("start recording, while
   recording"), never a fragment like "then macro.stop". The power bar's typed lines (`> share.list`) aren't listed as keys.
+- **A fourth tab, Unbound:** every action you can run that no key reaches on any screen, by where it runs, with its
+  count. `r` gives one a key (what that key does now is said first), `⏎` runs it.
 - **The trail (alt+T, `≡ trail`) is a tile beside its reader too:** dock it to the side and it follows the reader as
   you walk; `⏎` or a click on a picked stop goes there, `esc` closes it. A screen without tiles still lists it over itself.
 ### Undo never takes back what's saved (PIE-1414)

@@ -1102,7 +1102,7 @@ Checked against every screen's keys (§4 F4, the board's, the river's, the BBS r
 | `^W g` | what an agent may do to the focused tile: cycles free, edit only, hands off (`tile.agent`, PIE-639); the chip on its frame, a click on it and the `⋯` menu row do the same | none: `^W` bound no `g` (the chord's keys in use: `h j k l H J K L o O m t T < > - + z = x v V p c f W [ ] a A . P r w ! d s`; `g` inside `^W o` and `^W O` is the add-a-tile prompt's own, a different mode); the board binds `g` plain, which a chord's prefix does not reach | new, under `^W` |
 | `alt+k` | the power bar (`bar.open`), ctrl+k's twin (PIE-1346): it was the lock (PIE-505), a modifier away from ctrl+k, and Evan locked his drawer reaching for the bar; the lock has no key now (its chips, the bar's row, `^W P`) | the lock moves off it (no new home: it's rare); inside the bar alt+k still scrolls its docs (the bar has the keys); in a terminal tile the person is typing in, it's the program's, as ctrl+k is | changed (Oct 26) |
 | a click on `□ lock` / `▣ screen locked` / `▣ drawer locked` (the hint row's end), or the drawer frame's `▣ drawer locked` | lock or unlock that layout (`layout.lock` on its own tile, wherever the keys are) | none: the hint row's end held only the dock handles | new, after the handles; the drawer's chip PIE-1346 |
-| `?` on the desk and the screens built on it (the board, the brief, Waiting), a click on `? more` | when the hint row was too long for the screen it ends `? more`: `?` shows every part in a box above it (`keys.more`, PIE-509); the next key puts it away (`Esc` only that). A `^W` chord's row (`^W`, `^W o`, `^W O`) shows its box at once and ends `…` | none on the desk or the board (the river's `?` is its own key list; the menu's is help); typed as text in a draft, a filter, the search, the composer and a terminal, where it is never taken | new |
+| a click on `? more` on the desk and the screens built on it (the board, the brief, Waiting) | when the hint row was too long for the screen it ends `? more`: a click on it shows every part in a box above it (`keys.more`, PIE-509; `?` itself is the keys window since PIE-1425); the next key puts it away (`Esc` only that). A `^W` chord's row (`^W`, `^W o`, `^W O`) shows its box at once and ends `…` | none on the desk or the board (the river's `?` is its own key list; the menu's is help); typed as text in a draft, a filter, the search, the composer and a terminal, where it is never taken | new |
 | a click on a key in the hint row or its `? more` box (`q menu`, `/ search`, `alt+l link`, a chord's `m move`) | that key, as typed, wherever the keys are (`hintSpots`): a part that starts with one key drawn as a key; never a subject, a status, an edit's own grey hint, a part naming several keys, or `? more` itself | Who's Online, Last Callers, Waiting and the brief couldn't be left by mouse (their only way out was the hint's `q`) | new: a press, as the hint row's other chips (the lock, the dock handles) |
 | a header dragged onto a dock's handle | the tile is docked there, into that dock (`layout.move where=tabs` into what it shows; `handleDrop` in `src/desk/drop.ts`); the drag says `docked here: stays on this screen` | none: the hint row took no drops | new |
 | a drag or border the policy refuses | the ghost turns red and says why (`Drop.refused`); a refused border says why on the press and doesn't follow the pointer | none | new |
@@ -1217,11 +1217,15 @@ desk's, until `^W e` goes in: then every key is the mount's, its `^W` too, and `
   entries of the keymap file (the App presses the last). An action set's own keys are one key, one meaning at a time
   (its code picks by state: esc clears the bar, then closes it), and a key in two layers is a shadow said on each row.
   A row of an action's keys reads as a whole sentence: the action's words, then the row's where or when.
+- **Unbound** (the fourth tab): every action of every action set that no binding reaches (`unbound` in the catalog,
+  read from `allActionSets`, never a list), by layer and scope; its `r` is the same rebind, through the App's keymap
+  layer (`layerEntry`) for one key or the ^W table's `wNow` for a chord, so it says first what that key does now.
 - **Not yet rebindable alone:** a table binding several keys under one name with different meanings (^W h j k l, the
   hyper digits) and a key after another key (`a then c`): the window says why on the row.
 
-**Key clash audit (`?`):** the desk's `?` keeps its two meanings (on a frame control: the hint card; with the hint row
-cut: `keys.more`) and adds a third after them: the keys window, filtered to the focused tile. The main menu's `?` was
+**Key clash audit (`?`):** the desk's `?` with the pointer on a frame is that frame's hint card; anywhere else it is
+the keys window, filtered to the focused tile, at once (PIE-1425: with the hint row cut, a first `?` used to show only
+the rest of the row, and read as `?` doing nothing; `keys.more` is the `? more` chip's click now). The main menu's `?` was
 the help screen and is now the keys window; help moved to `H` there (a letter no menu item has), and the menu's key line says `? keys H help`. Every other screen had no
 `?`; the App opens the window there. `^W ?` (the ^W list) and `ctrl+] ?` (x-ray) don't move. In a filter, a draft or a
 terminal tile `?` is typed, as before.
@@ -1279,7 +1283,7 @@ laptop are not verified here: run `keys.probe` and press the chord to see what y
 | `layout.gather` | `side=left\|right\|centre\|sides`, optional `node=<container id>`; default: tile's row/flow. Sets spines=start/end/centre/book | `^W { } \|`, Container menu, `^W P` |
 | `layout.policy` | `node`, the policy's fields, `clear`; nothing: a read | `^W P`, `⏎` or a click on a row |
 | `tile.agent` | `tile=<tile>`, `policy` (free, edit, off, inherit; none cycles) | `^W g`, a click on the tile's agents chip, the tile's `⋯` menu row; the screen's default is `layout.policy agents=` and a row in `^W P` |
-| `keys.more` | none (the person's view; an agent's is refused) | `?`, a click on the hint row's `? more` |
+| `keys.more` | none (the person's view; an agent's is refused) | a click on the hint row's `? more` |
 | `keys.probe` | `on` (default toggles); the person's: an agent's is refused | the power bar's `>` scope, a click on the hint row's `✦ hyper` chip, `act` |
 | `hyper.set` | `on` | `ep0ch act hyper.set on=true`, the power bar's `>` scope; `EP0CH_HYPER=1` wins |
 | `tile.preview` | `tile=<tile>`, `where` (right, down, left, up; default by `splitAxis`) | `^W v` beside, `^W V` below, `O` in a reader; a click on `v` or `V` in the `^W` chord's row |

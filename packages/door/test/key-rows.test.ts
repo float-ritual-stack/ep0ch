@@ -53,3 +53,18 @@ test("every row of the keys window reads as a whole sentence: the action's own w
   }
   expect(wrong).toEqual([]);
 });
+
+test("a row says what it does in a person's words: no act arguments, no cut-off clause, and keys that do different things read differently", async () => {
+  const { bindings, unbound } = await import("../src/surface/key-catalog");
+  const all = bindings(), wrong: string[] = [];
+  for (const b of [...all, ...unbound(all)]) {
+    if (b.from === "table") continue;
+    // `tile=<tile>`, `by=<rows>`: act's grammar, not words; a clause cut before its object ("put the person's").
+    if (/=<|<\w[\w ]*>/.test(b.about) || /\b(the person's|a|the)$/.test(b.about) || b.about.split(/\s+/).length < 2 || /,,|, ,/.test(b.does))
+      wrong.push(`${b.cap || "(no key)"} ${b.id}: "${b.about}": give its ActionDef words (what it does, as a person reads it)`);
+  }
+  expect([...new Set(wrong)]).toEqual([]);
+  // A table's four keys each say their own operation.
+  const rich = all.filter(b => b.action === "rich.change").map(b => b.does);
+  expect(new Set(rich).size).toBe(rich.length);
+});
