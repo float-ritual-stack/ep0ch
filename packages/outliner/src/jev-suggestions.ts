@@ -105,8 +105,7 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
     // A note that was read whole and said nothing is kept too: findable on the suggestions page (PIE-1388), and a
     // backfill rerun skips it rather than ask Jev again. One Jev couldn't read isn't, so a rerun tries it again.
     if (!told.length && (asked || /^not asked/.test(keep.review.jev))) {
-      // The page brought up to date apart: a page that can't be is never why the record is lost.
-      await suggestionsPage(client).catch(() => undefined);
+      await suggestionsPage(client);
       await writeRecord(board(client), "review-quiet", clean({ day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), source: keep.at.source }), JEV, { title: `quiet: ${keep.title || "untitled"}`.slice(0, 120), cache });
     }
     if (keep.at.source === "backfill") return;
@@ -279,7 +278,8 @@ async function suggestionsPage(client: SuggestionClient): Promise<void> {
   if (!has.length) await client.request({ action: "create", text: SUGGESTIONS_PAGE, parentId: null, author: JEV.author, provenance: JEV.provenance } as RequestInput);
   else {
     const page = has[0]!, text = upgradeSuggestionsPage(page.text);
-    if (text !== page.text) await client.request({ action: "update", blockId: page.id, text, expectedRevision: page.revision, mutation: { author: "agent", actorId: "jev/figure-fit" } } as RequestInput);
+    // An upgrade that can't be made now (the page changed meanwhile) is never why a record is lost: the next review tries again.
+    if (text !== page.text) await client.request({ action: "update", blockId: page.id, text, expectedRevision: page.revision, mutation: { author: "agent", actorId: "jev/figure-fit" } } as RequestInput).catch(() => undefined);
   }
   if (!(await read(client, "rule-name=review-records", 1)).length) await client.request({ action: "create", text: REVIEW_RECORDS_RULE, parentId: null, author: JEV.author, provenance: JEV.provenance } as RequestInput);
 }

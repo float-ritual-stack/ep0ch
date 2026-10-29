@@ -11,6 +11,7 @@
 
 import { calloutBlocks, quoteDepth, stripQuotes } from "./callouts";
 import { componentBlocks, noteStructure } from "./component-block";
+import { boxStatus, STEP_BOX } from "./checklist-marks";
 import { figureRow } from "./figure-markdown";
 import { headerLine } from "./header-line";
 import { blockReferenceOccurrences } from "./link-syntax";
@@ -531,15 +532,16 @@ function futureTimes(lines: readonly string[], title: number, now: Date): ShapeF
   const day = lines.slice(title, last + 1).flatMap(l => parsePropertyRecords(l)).find(p => p.key === "day")?.value.trim();
   const at = day ? /^(\d{4}-\d{2}-\d{2})(?:[T ](.+))?$/.exec(day) : null;
   const today = dayOf(now), nowMinutes = now.getHours() * 60 + now.getMinutes();
-  if (!at || at[1] !== today) return [];
+  if (!at) return [];
+  // A zoned time (`T13:00:00Z`, as toISOString writes) is an instant: its day and time are read where the note is reviewed.
+  const zoned = at[2] !== undefined && /(?:Z|[+-]\d{2}:?\d{2})$/i.test(at[2]) ? Date.parse(day!) : NaN;
+  if ((Number.isFinite(zoned) ? dayOf(new Date(zoned)) : at[1]) !== today) return [];
   const told = (line: number, time: string): ShapeFinding => ({
     rule: "time", key: `time:${time}`, line: line + 1,
     say: `line ${line + 1} says ${time} on today's note, but it's ${clockOf(nowMinutes)} now: write the time it happened, once it has (a row still to come is marked *next*)`,
   });
   const out: ShapeFinding[] = [];
-  // `10:30 AM` as written, or an ISO time's hours and minutes (`T10:30:00`).
-  // `10:30 AM` as written, or an ISO time: with a zone it is an instant (`T13:00:00Z`), compared as one.
-  const zoned = at[2] !== undefined && /(?:Z|[+-]\d{2}:?\d{2})$/i.test(at[2]) ? Date.parse(day!) : NaN;
+  // `10:30 AM` as written, an unzoned ISO time's hours and minutes (`T10:30:00`), or a zoned instant still to come.
   const own = at[2] === undefined ? undefined : Number.isFinite(zoned) ? (zoned > now.getTime() ? new Date(zoned).getHours() * 60 + new Date(zoned).getMinutes() : undefined)
     : clockMinutes(at[2]) ?? clockMinutes(/^\d{1,2}:\d{2}/.exec(at[2])?.[0] ?? "");
   const ownLine = lines.slice(title, last + 1).findIndex(l => /\[day::/.test(l)) + title;
@@ -640,7 +642,11 @@ export function asksAt(lines: readonly string[], i: number, jev?: "yes" | "no"):
 }
 
 /** A ticked checkbox (`- [x] Does it save?`, any mark but the open one): a question already answered, never an ask. */
-export const answeredBox = (line: string): boolean => /\[[^\] ]\]/.test(leadOf(line).marker);
+export const answeredBox = (line: string): boolean => {
+  // Every mark the checklist grammar knows (`x`, `~`, `!`, `-`…): any but the open box is answered.
+  const box = new RegExp(`^(?:[ \\t]*>[ \\t]?)*[ \\t]*(?:[-*+]|\\d+[.)])[ \\t]+(${STEP_BOX})`).exec(line)?.[1];
+  return !!box && boxStatus(box) !== "todo";
+};
 
 /** A line that asks Evan: names him and has a question mark or a decision word. A heuristic until PIE-1251's judgment replaces it. */
 export function asksEvan(line: string): boolean {
