@@ -219,11 +219,56 @@
       if (!response.ok || !answer.ok) throw new Error(answer.error || `the publisher answered ${response.status}`);
       said = body;
       seen = answer;
+      drawTrail(answer.trail);
       return seen;
     });
     reporting = run.catch(() => {});
     return run;
   }
+  /**
+   * The trail (PIE-208): the notes this tab opened, newest first, as the service's journal keeps them. A `≡ trail` link
+   * at the end of the breadcrumbs opens the list under them, each stop a link back to its page; the page shown is lit.
+   */
+  let trailList = null, trailDrawn = "";
+  function drawTrail(stops) {
+    const crumbs = main.querySelector("nav.crumbs");
+    if (!crumbs || !Array.isArray(stops)) return;
+    // Drawn again only when the stops changed: a report on every scroll never takes focus out of the open list.
+    const drawn = JSON.stringify(stops.map((stop) => [stop.blockId, stop.title]));
+    if (drawn === trailDrawn) return;
+    trailDrawn = drawn;
+    if (!trailList) {
+      const toggle = document.createElement("a");
+      toggle.href = "#mg-trail"; toggle.className = "mg-trail"; toggle.textContent = "≡ trail";
+      toggle.setAttribute("aria-controls", "mg-trail"); toggle.setAttribute("aria-expanded", "false");
+      trailList = document.createElement("section");
+      trailList.id = "mg-trail"; trailList.className = "inside"; trailList.hidden = true;
+      toggle.addEventListener("click", (event) => {
+        event.preventDefault();
+        trailList.hidden = !trailList.hidden;
+        toggle.setAttribute("aria-expanded", String(!trailList.hidden));
+      });
+      crumbs.append(" · ", toggle);
+      crumbs.after(trailList);
+    }
+    const toggle = crumbs.querySelector("a.mg-trail");
+    toggle.hidden = stops.length < 2;
+    if (toggle.previousSibling && toggle.previousSibling.nodeType === Node.TEXT_NODE) toggle.previousSibling.textContent = stops.length < 2 ? "" : " · ";
+    const heading = document.createElement("h2");
+    heading.textContent = "Where you've been";
+    const list = document.createElement("ul");
+    list.className = "kids";
+    for (const stop of stops) {
+      const item = document.createElement("li"), link = document.createElement("a");
+      link.href = `${pageBase}/p/${encodeURIComponent(stop.blockId)}`;
+      link.textContent = stop.blockId === noteId ? `● ${stop.title || "this page"} · here` : stop.title || stop.blockId;
+      if (stop.blockId === noteId) link.setAttribute("aria-current", "page");
+      item.append(link);
+      list.append(item);
+    }
+    trailList.replaceChildren(heading, list);
+  }
+
   function present() {
     clearTimeout(sayTimer);
     sayTimer = setTimeout(() => { if (!document.hidden) report().catch(() => {}); }, 600);
@@ -1392,6 +1437,16 @@
       inputSchema: { type: "object", properties: { since: { type: "number", description: "Only events after this one (`next` from the last answer); 0 or left out for all that's kept" } }, additionalProperties: false },
       did: () => "an agent is reading what you did lately",
       run: ({ since }) => journal(since),
+    },
+    {
+      name: "trail", args: [],
+      description: "Where this tab has been: the notes it opened, newest first, each once (blockId, title, at), the list the breadcrumbs' ≡ trail opens. Never writes.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      did: () => "an agent is reading where you've been",
+      run: async () => {
+        try { await report(); } catch { /* the trail as the page last had it */ }
+        return { stops: (seen && seen.trail) || [] };
+      },
     },
   ];
 

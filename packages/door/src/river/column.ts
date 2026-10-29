@@ -17,7 +17,7 @@ import { bodyLinesOf, headedTitle, subject, type Msg } from "../board";
 import { authorName, USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { actorHandle } from "@ep0ch/outline-core/attribution";
 import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
-import { COPY_ROWS, historyRow, IN_TRASH, type Link } from "../surface/note";
+import { COPY_ROWS, historyAction, historyRow, IN_TRASH, type Link, type TrailDir } from "../surface/note";
 import { inWindow, type Placement } from "../kitty";
 import { Gesture, isCopyKey, lineAt, modeKey, paintRange, putCell, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks } from "../refs";
@@ -35,7 +35,7 @@ import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } 
 import { askInBar } from "../bar/ask";
 import type { WriteBoard } from "../mcp-writes";
 import { ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
-import type { ScreenSpec } from "../desk/screen-spec";
+import { CLOSE_KEY, type ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import type { TileSpec } from "../desk/tiles";
 import { LineField } from "../surface/line";
@@ -57,7 +57,7 @@ export type Source = { kind: "roots" } | { kind: "block"; id: string } | { kind:
 interface Clause { key: string; value: string; exclude: boolean }
 interface Row { m: Msg; depth: number }
 /** A row as drawn: its card (-1: none), whether it's the replies toggle, the links on it, the history row's parts. */
-type HitRow = { card: number; replies: boolean; copy?: { from: number; to: number; n: number }[]; linksHead?: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: -1 | 1 }[]; fold?: { to: number; n: number } };
+type HitRow = { card: number; replies: boolean; copy?: { from: number; to: number; n: number }[]; linksHead?: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: TrailDir }[]; fold?: { to: number; n: number } };
 
 /** A source as a tile spec writes it: `roots`, `block:<id>`, `tag:<key>=<value>`. */
 export const sourceText = (s: Source) => (s.kind === "roots" ? "roots" : s.kind === "block" ? `block:${s.id}` : `tag:${s.key}=${s.value}`);
@@ -513,7 +513,14 @@ export class RiverColumn extends ReaderPane {
     // Back and forward are the flow's (its trail): the surface's own history keys and actions go there.
     h.history = {
       peek: dir => desk.travelPeek?.(this, dir) ?? null,
-      go: async (dir, actor) => { await desk.perform?.("tile.travel", { dir: dir < 0 ? "back" : "forward" }, actor, this); return null; },
+      trail: () => desk.travelTrail?.(this) ?? { back: [], forward: [] },
+      // Several stops (the trail's choice, PIE-208): each from the column the last one landed on, which has the keys.
+      go: async (dir, actor, steps = 1) => {
+        const want = desk.travelTrail?.(this)?.[dir < 0 ? "back" : "forward"].length ?? 0;
+        if (steps > 1 && steps > want) return `only ${want} ${dir < 0 ? "back" : "ahead"}: steps=${want} at most (trail lists them)`;
+        for (let i = 0; i < steps; i++) await desk.perform?.("tile.travel", { dir: dir < 0 ? "back" : "forward" }, actor, i ? undefined : this);
+        return null;
+      },
       agentRefusal: "back and forward in the river move the person's keys between columns; an agent opens beside (open, link.follow) instead",
     };
     return h;
@@ -716,7 +723,7 @@ export class RiverColumn extends ReaderPane {
     const row = y >= this.headRows ? this.rows[y - this.headRows] : this.sticky[y - (this.headRows - this.sticky.length)];
     if (row?.linksHead) { this.run(desk, "column.links"); return true; }
     const back = row?.history?.find(h => x >= h.from && x < h.to);
-    if (back) { void desk.perform?.(back.dir < 0 ? "back" : "forward", {}, USER, this); return true; }
+    if (back) { void desk.perform?.(historyAction(back.dir), {}, USER, this); return true; }
     const copy = row?.copy?.find(c => x >= c.from && x < c.to);
     if (copy) { this.run(desk, "column.block", { n: copy.n + 1 }); return true; }
     const link = row?.links?.find(l => x >= l.from && x < l.to);
@@ -1106,5 +1113,7 @@ export function riverSpec(): ScreenSpec {
     // The Library is what the river is made around: it doesn't close (closable off, held by its tab set of one, as the
     // board's preview's is), so a saved river always comes back with it.
     layout: { focus: "library", root: { t: "flow", key: "river", held: [0], kids: [{ t: "tabs", tabs: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" } as TileSpec], active: 0, policy: { closable: false } }] } },
+    // x closes a reader floating over the river (a new note's float) as it closes a column, and as the board's x does (PIE-1403).
+    keys: [CLOSE_KEY],
   };
 }

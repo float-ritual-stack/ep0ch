@@ -52,7 +52,7 @@ import { newNoteOffer, type NewNoteHow } from "../new-note";
 import { layoutStanding, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
-import { armsEdit, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
+import { armsEdit, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList, type TrailStop } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRows, pickRow } from "../surface/picker";
@@ -2458,6 +2458,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Each reader the change makes stale re-reads its note (NoteSurface.staleOn, .reread; a draft is only marked).
     for (const r of readers) if (r.surface.staleOn(e)) r.reread(this);
     if (e.action === "reconnected") for (const r of readers) r.retry(this);   // a note whose read failed while away
+    this.rereadCurrent(e);
+  }
+
+  /**
+   * The current note changed (a float's new note saved, PIE-1403): read it again, so an open that finds it here
+   * (`onScreenBlock`) never shows the text it had when it became current. Only while it is still the current note.
+   */
+  private rereadCurrent(e: OutlineEvent) {
+    const m = this.current, c = e.change;
+    // A change to its text only (a draft's, a presence's events carry none), at a revision it doesn't have yet.
+    if (!m || !c || !this.ctx || e.blockId !== m.id || m.address || m.id.includes(":")) return;
+    if (c.revision !== undefined && (m.revision ?? -1) >= c.revision && !m.partial) return;
+    // An older answer arriving last never replaces a newer one.
+    void readNote(this.ctx, m.id).then(fresh => { if (fresh && this.current?.id === fresh.id && (fresh.revision ?? -1) >= (this.current.revision ?? -1)) this.current = fresh; }, () => {});
   }
 
   /**
@@ -3135,10 +3149,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...landed.desk.tileAnswer(landed.id), id: m.id, ...(landed.why ? { why: landed.why } : {}) };
   }
 
-  /** Block `id` as a tile here shows it now (the current note, a reader's), if one does. */
+  /**
+   * The newest copy of note `id` on this screen (the current note, a tile's), or null (PIE-1403): a whole note beats a list
+   * row's partial one, then the higher revision wins, a tile's on a tie (the one that saved it has it first).
+   */
   private onScreenBlock(id: string): Msg | null {
-    if (this.current?.id === id) return this.current;
-    return [...this.panes.values()].map(p => this.showing(p)).find(m => m?.id === id) ?? null;
+    const copies = [this.current, ...[...this.panes.values()].map(p => this.showing(p))].filter((m): m is Msg => m?.id === id);
+    return copies.reduce<Msg | null>((best, m) => !best || (best.partial && !m.partial) || (!!best.partial === !!m.partial && (m.revision ?? -1) >= (best.revision ?? -1)) ? m : best, null);
   }
   /** The screen's opens land in a container (its policy's `opensInto` names one): `open tile=detail|new-detail|float` are places. */
   hasPlaces(): boolean { const k = this.layout.policy.opensInto; return !!k && this.idNamed(k) === undefined; }
@@ -3162,12 +3179,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** `current` as a reader shows it now: a save since it opened (a new note's first) changes its title. */
   private currentNow(): Msg | null {
-    const c = this.current;
-    if (!c) return null;
-    // The newest any reader holds: the one that saved it has it first, before the change reaches the others.
-    let best: Msg = c;
-    for (const p of this.panes.values()) if (p instanceof ReaderPane && p.msg?.id === c.id && (p.msg.revision ?? -1) >= (best.revision ?? -1)) best = p.msg;
-    return best;
+    return this.current ? this.onScreenBlock(this.current.id) : null;
   }
 
   /**
@@ -7125,11 +7137,26 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** DeskApi.travelPeek: the title of the column back (-1) or forward (1) from tile `p`'s column goes to, if any. */
   travelPeek(p: Pane, dir: -1 | 1): string | null {
+    return this.travelTrail(p)?.[dir < 0 ? "back" : "forward"][0]?.title ?? null;
+  }
+
+  /** DeskApi.travelTrail (PIE-208): the columns back and forward of tile `p`'s along its flow's trail, nearest first; travelPeek reads its first step. */
+  travelTrail(p: Pane): { back: TrailStop[]; forward: TrailStop[] } | null {
     const id = this.idOf(p), flow = id === undefined ? undefined : chainOf(this.root, id).find((c): c is Flow<number> => c.t === "flow");
     if (!flow || id === undefined) return null;
-    const ci = columnOf(flow, id), to = travelTarget(flow, ci, dir), t = to < 0 ? undefined : tileOfColumn(flow, to);
-    const q = t === undefined ? undefined : this.panes.get(t);
-    return q ? q.headName?.() ?? q.title() : null;
+    const walk = (dir: -1 | 1) => {
+      const out: TrailStop[] = [], seen = new Set<number>();
+      // Each column once: a trail that comes round to a column it passed ends there.
+      for (let ci = columnOf(flow, id), to = travelTarget(flow, ci, dir); to >= 0 && !seen.has(to); ci = to, to = travelTarget(flow, ci, dir)) {
+        seen.add(ci).add(to);
+        const t = tileOfColumn(flow, to), q = t === undefined ? undefined : this.panes.get(t);
+        if (!q) break;
+        const m = q instanceof ReaderPane ? q.surface.msg : null;
+        out.push({ ...(m ? { id: m.id } : {}), title: q.headName?.() ?? q.title() });
+      }
+      return out;
+    };
+    return { back: walk(-1), forward: walk(1) };
   }
 
   /** `tile.travel`: back (-1) or forward (1) in tile `sel`'s flow, the column it was opened from or the one back left. The person's keys. */

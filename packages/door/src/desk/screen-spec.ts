@@ -34,6 +34,9 @@ export interface KeyBinding {
   only?: string[];
 }
 
+/** x closes a reader or a preview where the screen lets it close (a detail, a float): the board's and the river's one key (PIE-1403). */
+export const CLOSE_KEY: KeyBinding = { key: "x", label: "close", action: "tile.close", only: ["preview", "reader"] };
+
 /**
  * Where a new note opens (PIE-591): `float`, a draft floating over the screen (each one more, cascaded); `tab`, a new tab
  * on the focused tile; `drawer`, a tab in your drawer; `lands`, where the screen's opens land (a reader beside the one

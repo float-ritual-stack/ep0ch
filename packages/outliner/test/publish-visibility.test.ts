@@ -429,7 +429,10 @@ test("a host that doesn't answer in time fails the page as busy, and a publisher
   const { store, tailnet } = await setup(() => stalled ? "timeout" : false);
   store.create("Compost notes [publish::public:compost]");
   stalled = true;
-  expect(await tailnet("compost")).toBe(`${HOST_BUSY}\n`);
+  // A browser gets the dark page with the words (PIE-1386): never a white one.
+  const busy = await tailnet("compost");
+  expect(busy).toContain(`<h1>${HOST_BUSY}</h1>`);
+  expect(busy).toContain("color-scheme:dark");
   stalled = false;
   expect(await tailnet("compost")).toContain("Compost notes");
   // Starting while the host is busy: said on the log and tried again, never an exit.

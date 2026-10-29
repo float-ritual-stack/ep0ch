@@ -384,6 +384,22 @@ describe("review fixes (PR #13)", () => {
     } finally { board.close(); await scratch.dispose(); }
   });
 
+  // PIE-1403: at 38 columns the ▾ drawn at the heading's words was no click target; only the gutter's was.
+  test("7: a click on the ▾ beside a heading's words folds it, wrapped or not, as the gutter's does", () => {
+    const text = "Beds for the winter\nIntro line.\n\n## The long border by the eastern fence and the gate\nLeeks and kale go here.";
+    for (const w of [38, 60]) {
+      const s = new NoteSurface(), h = host();
+      s.show(note(text), h);
+      const lines = s.render(w, 20, h).lines.map(plain);
+      const row = lines.findIndex(l => l.includes("## The long border"));
+      const x = [...lines[row]!].findIndex((c, i) => i > 0 && c === "▾");
+      expect(x).toBeGreaterThan(0);
+      expect(s.click(x, row, h)).toBe(true);
+      expect(s.describe().folds!.folded).toEqual(["## The long border by the eastern fence and the gate"]);
+      expect(s.render(w, 20, h).lines.map(plain).join("\n")).not.toContain("Leeks and kale");
+    }
+  });
+
   // PIE-1349: a heading that wraps is one heading: its disclosure is every row of it, and what a fold hides is said inside the tile.
   test("6: at 40 columns a wrapped heading folds from any of its rows, and its count stays inside", () => {
     const text = "Seeds\n## Order the seed trays for the raised beds before the frost\nunder it\nand more";
