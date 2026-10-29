@@ -1561,7 +1561,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const to = n.policy?.opensInto, id = to ? this.idNamed(to) : undefined;
       if (id !== undefined) n.policy = { ...n.policy, opensInto: this.tileId(id) };
     }
-    // `records`: this layout's tiles are in the registry's words (a leaf's `role` is what it is for, `slot` its place): scripts/migrations/tile-roles.ts leaves it alone.
+    // `records`: this layout's tiles are in the registry's words (a leaf's `role` is what it is for, `slot` its place).
     return { ...saved, records: 1 };
   }
   /** The layout as saved: tile specs in the tree of containers (each with its policy), the focus, the open rule, the screen's policy. */

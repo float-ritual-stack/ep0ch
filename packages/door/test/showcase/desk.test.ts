@@ -11,7 +11,8 @@ import { App } from "../../src/app";
 import { Desk } from "../../src/desk/desk";
 import { WhatChangedPane } from "../../src/desk/what-changed";
 import { seedRace, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, type Seeded } from "../../src/showcase/seed";
-import { gardenRound, Showcase } from "../../src/showcase/showcase";
+import { gardenRound, SECTIONS, Showcase } from "../../src/showcase/showcase";
+import { localPtys, usePtyBackend, type PtyBackend } from "../../src/desk/pty-backend";
 import { SocketBoard } from "../../src/socket";
 import { subject } from "../../src/board";
 import type { ReaderPane } from "../../src/desk/panes";
@@ -464,6 +465,35 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await drawer.dispatch.act({ action: "tile.drawer", tile: "kettle", args: { on: false } }, user);
   });
 
+  // PIE-1432: the drawer section's word for a program kept with no tile, driven on the showcase's door: a terminal host
+  // (a fake here: the showcase's programs are this process's) keeps one; the panel lists it, a puts it back, the same pid.
+  test("the drawer section says what a program kept with no tile is, and agents.drawer puts one back: the same process (PIE-1432)", async () => {
+    expect(SECTIONS.find(x => x.key === "drawer")!.aside).toContain("alt+g lists it as a row saying no tile");
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
+    await until(() => marks.drawer!.every(m => screen().includes(m)), "the drawer section");
+    let kept = true, adopted = 0;
+    const proc = { pid: 4321, exited: new Promise<number>(() => {}), write() {}, resize() {}, kill() {}, close() {} };
+    usePtyBackend({
+      kind: "host", spawn: () => { throw new Error("adopted, never started"); },
+      adopt: (key: string) => (kept && key === "drawer.json#2:drawer.agent" ? (kept = false, adopted++, { proc, replay: Buffer.from("claude: where were we\r\n"), cols: 60, rows: 8, argv: ["claude"], meta: { cmd: ["claude"] }, exited: null }) : null),
+      meta() {}, holds: (key: string) => kept && key === "drawer.json#2:drawer.agent",
+      kept: () => (kept ? [{ key: "drawer.json#2:drawer.agent", cmd: ["claude"], pid: 4321, at: Date.now() - 30 * 60_000 }] : []),
+    } as PtyBackend);
+    try {
+      const list = async () => ((await app.act({ action: "agents.list", args: {}, as: "test-agent" })) as any).sessions as any[];
+      const row = (await list()).find(r => r.pid === 4321);
+      expect(row).toMatchObject({ program: "claude", how: "kept", shown: { in: "no tile", key: "drawer.json#2:drawer.agent" }, where: "no tile · wrote 30m ago" });
+      const back = await app.act({ action: "agents.drawer", args: { session: row.id }, as: "test-agent" }) as any;
+      expect(back).toMatchObject({ pid: 4321, inDrawer: true });
+      expect(adopted).toBe(1);
+      // In a drawer tab now, adopted (a fake pid: no /proc says it's claude, so it's a terminal there, not a row).
+      expect((app.drawer.desk!.pane(back.tile) as any).pid).toBe(4321);
+      expect((await list()).some(r => r.shown.in === "no tile")).toBe(false);
+      await app.act({ action: "tile.close", tile: back.tile, args: { force: true }, as: "test-agent" }).catch(() => null);
+    } finally { usePtyBackend(localPtys); }
+  });
+
   test("the drawer section folds: a terminal on the screen to a spine, a lone drawer tile to a strip of the drawer, both opened as they were (PIE-1254)", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
@@ -780,19 +810,19 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const listed = (await app.act({ action: "agents.list", args: {}, as: "test-agent" }) as any).sessions;
     expect(listed.filter((r: any) => r.program === "demo-agent").map((r: any) => [r.persona, r.how])).toEqual([["fern", "started"], ["moss", "started"]]);
     // A turn with moss, here.
-    const moss = of("moss").pane, pid = moss.pid;
+    const moss = of("moss").pane!, pid = moss.pid ?? null;
     await app.act({ action: "tile.type", tile: "moss", args: { text: "which bed for the leeks\\n" }, as: "test-agent" });
     await until(() => moss.text().join("\n").includes("moss · turn 1: which bed for the leeks"), "turn 1", 8000);
     // Into your drawer (a on its row): the same process, and the next turn is turn 2.
     await app.act({ action: "agents.drawer", args: { session: of("moss").id }, as: "test-agent" });
     expect(of("moss").shown).toMatchObject({ in: "drawer" });
-    expect(of("moss").pane.pid).toBe(pid);
+    expect(of("moss").pid).toBe(pid);
     await app.act({ action: "tile.type", tile: "moss", args: { text: "and the onions\\n" }, as: "test-agent" });
     await until(() => moss.text().join("\n").includes("moss · turn 2: and the onions"), "turn 2, in the drawer", 8000);
     // And back, docked here (d on its row).
     await app.act({ action: "agents.dock", args: { session: of("moss").id }, as: "test-agent" });
     expect(of("moss").shown).toMatchObject({ in: "screen", here: true });
-    expect(of("moss").pane.pid).toBe(pid);
+    expect(of("moss").pid).toBe(pid);
     // Jumping to one is the person's: an agent's is refused, nothing moved.
     await expect(app.act({ action: "agents.go", args: { session: of("fern").id }, as: "test-agent" })).rejects.toThrow();
   }, 30_000);

@@ -60,7 +60,15 @@ export interface PtyBackend {
   meta(key: string, meta: PtyMeta): void;
   /** A program is kept under `key` for a tile to adopt (it runs, and no tile has it yet). */
   holds(key: string): boolean;
+  /**
+   * Every program kept for a tile that no tile has (PIE-1432): the agent panel lists each as "no tile", and putting it
+   * back in a tile adopts it by its key. A local backend keeps none.
+   */
+  kept?(): KeptProgram[];
 }
+
+/** A program the terminal host keeps that no tile has: its key, the tile's command, its pid and when it last wrote. */
+export interface KeptProgram { key: string; cmd: string[]; pid: number | null; at: number | null }
 
 /** This process's own ptys: a program ends when the door does (PtyPane's exit hook). */
 export const localPtys: PtyBackend = {
@@ -86,6 +94,7 @@ export const localPtys: PtyBackend = {
   adopt: () => null,
   meta: () => {},
   holds: () => false,
+  kept: () => [],
 };
 
 let backend: PtyBackend = localPtys;

@@ -108,6 +108,15 @@ describe("one env list for terminal tiles (F6)", () => {
     expect(tileEnv({ EP0CH_CONTROL: "/elsewhere.sock" }, "x", null).EP0CH_CONTROL).toBe("/elsewhere.sock");
   });
 
+  // PIE-1432: a door started from inside a Claude session (a background one's Bash) handed every tile that Claude's
+  // identity, so a drawer Claude was a child of it: transcripts off, and listed as a second copy of the outer session.
+  test("a tile's program is its own Claude session: the identity of a Claude the door was started from never reaches it (PIE-1432)", () => {
+    const outer = { CLAUDECODE: "1", CLAUDE_CODE_SESSION_ID: "5f0e-outer", CLAUDE_CODE_CHILD_SESSION: "1", CLAUDE_CODE_MESSAGING_SOCKET: "/tmp/outer.sock", CLAUDE_CODE_ENTRYPOINT: "cli", CLAUDE_PID: "4242", CLAUDE_JOB_DIR: "/tmp/jobs/abc", AI_AGENT: "claude-code" };
+    const env = tileEnv({ PATH: "/bin", CLAUDE_CONFIG_DIR: "/home/someone/.claude-alt", ...outer }, "claude", "/c/door.sock");
+    for (const k of Object.keys(outer)) expect(env[k]).toBeUndefined();
+    expect(env).toMatchObject({ PATH: "/bin", CLAUDE_CONFIG_DIR: "/home/someone/.claude-alt" });
+  });
+
   test("the tile's id replaces an inherited one, and a tile with no id passes none on (PIE-491)", () => {
     expect(tileEnv({ EP0CH_TILE_ID: "t9" }, "editor", null, "t2").EP0CH_TILE_ID).toBe("t2");
     expect(tileEnv({ EP0CH_TILE_ID: "t9" }, "editor", null).EP0CH_TILE_ID).toBeUndefined();

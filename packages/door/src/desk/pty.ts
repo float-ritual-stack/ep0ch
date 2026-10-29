@@ -22,7 +22,7 @@ import type { DeskApi, Pane, PaneView } from "./panes";
 import { NvimClient, nvimSocketPath, type NvimView } from "./nvim";
 import { controlPath, controlPlace } from "../control";
 import { appendNest, doorLayer, doorNest } from "../nest";
-import { agentVars, DOOR_START_VARS, PLACE_VAR } from "./agent-env";
+import { agentVars, DOOR_START_VARS, outerClaudeVar, PLACE_VAR } from "./agent-env";
 import { KbdModes, keyBytes, translateReports } from "../kbd";
 import { type Clip, COPY_MAX, cellsOf, Gesture, lineAt, Osc52Reader, paintRange, SELECT_BG, Selection, type SelectRows, TILE_COPY_RECENT_MS, wordAt } from "../surface/selection";
 import { localPtys, ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend";
@@ -111,7 +111,8 @@ export { DOOR_START_VARS };
 
 /**
  * A terminal tile's environment: the person's own (a shell in a tile is their shell, keys and all), without
- * the door's Herdr pane and tab and without how this door was started; with the terminal it runs in and
+ * the door's Herdr pane and tab, without how this door was started and without the identity of a Claude it was started
+ * from (`outerClaudeVar`, PIE-1432); with the terminal it runs in and
  * the agent variables (`agentVars`, src/desk/agent-env.ts: the one place they're made, for the Herdr
  * launcher's pane too): EP0CH_CONTROL, EP0CH_TILE, EP0CH_TILE_ID, EP0CH_NEST, EP0CH_IN_DOOR=1. Everything else passes through on
  * purpose, EP0CH_STATE and EP0CH_SOCKET included, so a door opened in a tile uses the same state and outline.
@@ -125,7 +126,7 @@ export { DOOR_START_VARS };
 export function tileEnv(env: Record<string, string | undefined>, tile: string, control: string | null, tileId?: string | null, place?: string | null, pid = process.pid, session: string | null = controlPlace(control)): Record<string, string> {
   const out: Record<string, string> = {};
   const drop = new Set<string>([...HERDR_PANE_VARS, ...DOOR_START_VARS, "EP0CH_TILE_ID", PLACE_VAR]);
-  for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k)) out[k] = v;
+  for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k) && !outerClaudeVar(k)) out[k] = v;
   // EP0CH_IN_DOOR: a shell in a tile is already in the door, so a login shell's landing guard (float-2's
   // ~/.bashrc starts the door on an interactive ssh login) doesn't open a second door in it.
   // supports-hyperlinks (including Claude Code) reads this advertisement instead of guessing from TERM.
