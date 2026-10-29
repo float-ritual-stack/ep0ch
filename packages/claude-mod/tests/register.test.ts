@@ -1989,6 +1989,7 @@ describe('what became of a proposal reaches its session once (PIE-1086)', () => 
     const asked: { argv: readonly string[]; stdin?: string }[] = []
     const session = sessionIn(on, WORKSPACE, run => {
       if (run.argv[0] === 'ep0ch' && run.argv[1] === 'where') return result(0, JSON.stringify({ inDoor: false, here: { machine: 'garden-host', folder: WORKSPACE, ...(persona ? { persona: { name: persona, source: 'file', file: `${WORKSPACE}/.ep0ch` } } : {}) } }), '')
+      if (run.argv.includes('agent') && run.argv.includes('patch')) return result(0, JSON.stringify({ outcome: 'proposed', reason: 'the note is open in a draft', proposalId: P, beside: NOTE }), '')
       if (run.argv.includes('agent') && run.argv.includes('proposals')) {
         asked.push({ argv: run.argv, stdin: run.init?.stdin as string | undefined })
         return result(0, JSON.stringify({ actor: 'x', outcomes, cursor: outcomes.at(-1)?.at ?? '2026-10-29T12:00:00.000Z', complete: true }), '')
@@ -2028,10 +2029,14 @@ describe('what became of a proposal reaches its session once (PIE-1086)', () => 
     expect(later.some(c => c.startsWith('<ep0ch-proposals>'))).toBe(false)
   })
 
-  test('a session with no persona is never woken: its next prompt carries the stale one', async ($, on) => {
+  test('a session with no persona looks only once its own write was proposed, is never woken, and its next prompt carries the stale one', async ($, on) => {
     const s = heardSession(on, null)
     await s.session.clock.set(Date.parse('2026-10-29T12:00:00Z'))
     await s.session.begin(() => $.session.start(START))
+    await s.session.clock.advance(2 * MIN + 1000)
+    expect(s.asked).toEqual([])
+    const patched = await $.tool.call({ tool: 'mcp__ep0ch__outline_patch', ref: NOTE, revision: 1, patches: [{ observed: 'Mondays', replacement: 'Tuesdays' }] })
+    expect(JSON.stringify(patched)).toContain('proposed')
     s.outcomes.push({ proposal: P, note: NOTE, title: 'Bean rota', state: 'stale', at: at(1), revision: 2, by: 'user', reason: 'the note changed since it was proposed' })
     await s.session.clock.advance(2 * MIN + 1000)
     expect(s.wakes).toEqual([])

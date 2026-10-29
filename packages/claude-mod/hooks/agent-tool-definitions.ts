@@ -86,6 +86,9 @@ const COMMENT_RULES =
  */
 export const UP_FRONT_TOOLS: readonly string[] = ["list_outlines", "outline_find", "outline_query", "outline_read", "outline_components", "outline_edit", "outline_create", "outline_patch"];
 
+/** Evan's reading width, a desk tile's (write-shape's readingWidth): what outline_read's view is drawn at when none is asked. */
+export const READING_WIDTH = 44;
+
 const REF: ToolSchema = {
   type: "string",
   description: "The block: its id, ((id)), its first 8+ characters, [[page]] or a Work ID (PIE-123). Never a title: find it with outline_find first.",
@@ -129,12 +132,12 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "edit: outline_edit and outline_patch need the revision this returns. A Resource (`resource:<id>`, or a " +
       "`[file::path]` token) reads as its stored text with the comment threads that are open on it: read a file " +
       "that has threads before you rewrite it. `view: true` adds `view`: the note as the door draws it (its live figures, " +
-      "views and components answered, at `width` columns, 44 when left out: Evan's reading width), as `ep0ch show` prints it: what to look at " +
+      "views and components answered, at `width` columns, " + READING_WIDTH + " when left out: Evan's reading width), as `ep0ch show` prints it: what to look at " +
       "before saying a write is done.",
     properties: {
       ref: REF, depth: { type: "integer", minimum: 0, maximum: 6 }, limit: { type: "integer", minimum: 0, maximum: 500 },
       view: { type: "boolean", description: "Also the note as drawn (`view`, lines of text), as ep0ch show prints it" },
-      width: { type: "integer", minimum: 30, maximum: 200, description: "With view: the columns it is drawn at (44 when left out)" },
+      width: { type: "integer", minimum: 30, maximum: 200, description: `With view: the columns it is drawn at (${READING_WIDTH} when left out)` },
     },
     required: ["ref"],
     command(input) {

@@ -695,9 +695,11 @@ export function register(on: On, options: PluginOptions): void {
         const viewed = viewedNoteOf(tool.name, written, input)
         if (viewed) {
           const ran = await $.process.run(viewArgv(viewed.id, viewed.width), { cwd: workspace.root, env: envFor(workspace), timeoutMs: DRAW_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: 1, stdout: '', stderr: String(error) }))
-          if (ran.exitCode !== 0) return { deny: `The note was read but not drawn: ${failureReasonOf(ran.stderr) || ran.stderr.trim() || 'ep0ch show failed'}` }
-          return { result: droppedNote(tool, checked.dropped) + withView(written, ran.stdout) }
+          // A drawing that fails still answers the read: its text and revision, and why there is no view.
+          return { result: droppedNote(tool, checked.dropped) + withView(written, ran.exitCode === 0 ? ran.stdout : { error: failureReasonOf(ran.stderr) || ran.stderr.trim() || 'ep0ch show failed' }) }
         }
+        // A write that became a proposal starts this session's look at what becomes of its proposals.
+        if (/"outcome":"proposed"/.test(written)) heardArmed = true
         return { result: droppedNote(tool, checked.dropped) + withDrawing(written, drawing) }
       } catch (error) {
         return { deny: error instanceof Error ? error.message : String(error) }
@@ -2181,6 +2183,8 @@ let heardTimer: { cancel: () => void } | undefined
 let heardRunning = false
 /** Where the next look starts: the newest outcome heard, else when the session (or a /clear) started. */
 let heardCursor: string | undefined
+/** Whether this session looks: a persona's always (it hears every client it writes through), else once one of its own writes was proposed. */
+let heardArmed = false
 /** Outcomes looked up and not told yet: the next prompt carries them. */
 const heardPending: Outcome[] = []
 const heardTold = new Set<string>()
@@ -2192,12 +2196,14 @@ function heardToast($: EngineInterface, text: string): void {
   $.ui.toast(`Your proposals: ${text}`, { timeoutMs: 8000 })
 }
 
-/** Starts the look for a session: from now on, every HEARD_EVERY_MS. Never throws. */
+/** Starts the look for a session: from now on, every HEARD_EVERY_MS, once it is armed (`heardArmed`). Never throws. */
 function startHeard($: EngineInterface, option: PluginOptions): void {
   heardTimer?.cancel()
   heardPending.splice(0)
   heardTold.clear()
   heardCursor = undefined
+  heardArmed = false
+  void sessionPersona($).then(persona => { if (persona) heardArmed = true }, () => {})
   void $.clock.now().then(now => {
     heardCursor = new Date(now).toISOString()
     heardTimer = $.clock.every(HEARD_EVERY_MS, () => void runHeard($, option))
@@ -2210,7 +2216,7 @@ function startHeard($: EngineInterface, option: PluginOptions): void {
  * (hooks/addressed.ts); a session with no persona hears it at its next prompt.
  */
 async function runHeard($: EngineInterface, option: PluginOptions): Promise<void> {
-  if (heardRunning || !heardCursor) return
+  if (heardRunning || !heardCursor || !heardArmed) return
   heardRunning = true
   try {
     if (!references?.workspace) await loadReferences($, option)

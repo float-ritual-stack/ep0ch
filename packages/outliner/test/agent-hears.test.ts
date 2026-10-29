@@ -66,3 +66,36 @@ test("script-run gives the script `this` and its slots, as a press in that note 
   expect(bare.message).toContain("this run has no note");
   await expect(runAgentOperation(client, "script-run", { ref: script.id, slots: { card: ["a"] } }, { actorId: WREN.actorId })).rejects.toThrow("one line of text");
 });
+
+test("a persona answers for its own clients only; a principal is only itself", async () => {
+  const { proposalAuthoredBy } = await import("../src/proposal-outcomes");
+  expect(proposalAuthoredBy("mcp:wren/claude.ai", "wren")).toBe(true);
+  expect(proposalAuthoredBy("wren/claude-code@scratch-box", "mcp:wren/claude.ai")).toBe(true);
+  expect(proposalAuthoredBy("claude-code@scratch-box", "claude-code")).toBe(false);
+  expect(proposalAuthoredBy("claude-code@scratch-box", "claude-code@other-box")).toBe(false);
+  expect(proposalAuthoredBy("claude-code@scratch-box", "claude-code@scratch-box")).toBe(true);
+});
+
+test("a cut page never splits one save's outcomes: what shares the last time comes next, none lost", async () => {
+  const { client, create, store } = await setup();
+  const note = create("Pond jobs\nNet the leaves.\nTop up the water.\nCheck the pump.");
+  for (const [observed, replacement] of [["Net the leaves.", "Net the leaves weekly."], ["Top up the water.", "Top up with rain water."], ["Check the pump.", "Clean the pump."]]) {
+    const now = store.require(note.id);
+    await client.request<DraftPatchResult>({ action: "draft.patch", propose: true, blockId: note.id, revision: now.revision, patches: [{ observed: observed!, replacement: replacement! }], mutation: WREN });
+  }
+  const first = await runAgentOperation(client, "proposals", {}, { actorId: WREN.actorId }) as ProposalOutcomesPage;
+  await Bun.sleep(5);
+  const now = store.require(note.id);
+  // One save makes all three stale, in one go.
+  await client.request({ action: "update", blockId: note.id, text: `${now.text}\nFeed the fish.`, expectedRevision: now.revision, mutation: { author: "user" } });
+  await until("all three stale", () => runAgentOperation(client, "proposals", { since: first.cursor }, { actorId: WREN.actorId }).then(p => (p as ProposalOutcomesPage).outcomes.length === 3));
+  const seen: string[] = [];
+  let since = first.cursor;
+  for (let i = 0; i < 5; i++) {
+    const page = await runAgentOperation(client, "proposals", { since, limit: 2 }, { actorId: WREN.actorId }) as ProposalOutcomesPage;
+    seen.push(...page.outcomes.map(o => `${o.proposal}@${o.revision}`));
+    since = page.cursor;
+    if (page.complete) break;
+  }
+  expect(new Set(seen).size).toBe(3);
+});

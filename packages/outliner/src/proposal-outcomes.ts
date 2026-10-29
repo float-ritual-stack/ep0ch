@@ -1,5 +1,6 @@
-import { actorHandle, parseActor } from "@ep0ch/outline-core/attribution";
-import { DRAFT_PROPOSAL_TYPE, parseProposal } from "./draft-patch";
+import { parseActor } from "@ep0ch/outline-core/attribution";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { DRAFT_PROPOSAL_TYPE, parseProposal, proposalStatus } from "./draft-patch";
 import { blockDisplayTitle } from "./references";
 import type { OutlinerStore } from "./store";
 
@@ -52,13 +53,14 @@ export function proposalAuthoredBy(recorded: string | undefined, asked: string):
   const want = asked.trim().toLowerCase();
   if (recorded.trim().toLowerCase() === want) return true;
   const persona = /[/@:]/.test(want) ? parseActor(asked).persona?.toLowerCase() : want;
-  return !!persona && actorHandle(recorded) === persona;
+  // Only a recorded persona answers to a persona: `claude-code` is no persona, and isn't every builder's principal.
+  return !!persona && parseActor(recorded).persona?.toLowerCase() === persona;
 }
 
-/** Where a proposal is, from one revision's first line. */
+/** Where a proposal is at one revision: its own properties, read by the one property grammar, as the router reads them. */
 function stateOf(text: string): { status: string; stale: boolean } {
-  const head = text.split("\n", 1)[0] ?? "";
-  return { status: /\[proposal-status::([a-z-]+)\]/.exec(head)?.[1] ?? "open", stale: /\[stale::true\]/.test(head) };
+  const properties = parsePropertyRecords(text).filter(p => p.scope === "block");
+  return { status: proposalStatus(properties), stale: properties.some(p => p.key === "stale" && p.value === "true") };
 }
 
 const SETTLED: ReadonlySet<string> = new Set(["applied", "dismissed", "resolved"]);
@@ -118,6 +120,12 @@ export function proposalOutcomes(store: OutlinerStore, input: { actor: string; s
     outcomes.push(...outcomesOf(store, id).filter(o => Date.parse(o.at) > after));
   }
   outcomes.sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.revision - b.revision);
-  const page = outcomes.slice(0, limit);
-  return { actor, outcomes: page, cursor: page.at(-1)?.at ?? since, complete: outcomes.length <= limit };
+  let page = outcomes.slice(0, limit);
+  // The next page starts after the cursor's time, so a cut page never ends inside one millisecond (one save that made
+  // several proposals stale): it stops before that time, or, when the whole page is that time, takes all of it.
+  if (outcomes.length > limit) {
+    const last = page.at(-1)!.at, before = page.filter(o => o.at !== last);
+    page = before.length ? before : outcomes.filter(o => o.at === last);
+  }
+  return { actor, outcomes: page, cursor: page.at(-1)?.at ?? since, complete: outcomes.length <= page.length };
 }

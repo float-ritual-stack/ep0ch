@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 import { boardFor, canonicalLocalMachineName, drawNote, everyNote, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
 import { visible } from "./style";
-import { agentToolDefinition } from "@ep0ch/outline-core/agent-tool-definitions";
+import { agentToolDefinition, READING_WIDTH } from "@ep0ch/outline-core/agent-tool-definitions";
 import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource, type SearchHits } from "./socket";
 import { matchFacts, MCP_ACCESS_LEVELS, PROPERTY_QUERY_SCOPES, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type OutlineSnapshot } from "@ep0ch/outline-core/protocol";
 import { actorLabel, mintCallId, parseSessionId } from "@ep0ch/outline-core/attribution";
@@ -356,8 +356,8 @@ async function resourceBoard(outlines: McpOutlines, args: Record<string, unknown
   return target;
 }
 
-/** The width outline_read's view is drawn at when none is asked: Evan's reading width, a desk tile's (write-shape's readingWidth). */
-export const READ_VIEW_WIDTH = 44;
+/** The width outline_read's view is drawn at when none is asked: the shared definition's (Evan's reading width). */
+export const READ_VIEW_WIDTH = READING_WIDTH;
 
 /** The note as the door draws it, plain text a line each, by the door's own drawNote (what `ep0ch show` prints); a refusal when the width is unusable. */
 async function readView(board: Board, id: string, width: unknown): Promise<string[] | string> {
@@ -423,7 +423,10 @@ async function proposalsTool(outlines: McpOutlines, args: Record<string, unknown
   if (!actor && !(typeof args.actor === "string" && args.actor.trim())) return toolError("Give actor: whose proposals (an actor id, or a persona such as loki).");
   const { outline: _outline, persona: _persona, call: _call, ...input } = args;
   try {
-    const page = await proposalOutcomesOn(target.board, input, (actor ? { actorId: actor.actorId } : undefined) as never);
+    // Whose: the caller as its writes are recorded (its persona, this call's or the connection's). With no persona, a
+    // conversation that names its call hears that call's proposals only (its writes' sessionId); one that names none, the principal's.
+    const own = actor && caller?.call && !caller.freshCall ? { actorId: actor.actorId, sessionId: actor.sessionId } : actor ? { actorId: actor.actorId } : undefined;
+    const page = await proposalOutcomesOn(target.board, input, own as never);
     const outcomes = Array.isArray(page.outcomes) ? (page.outcomes as Array<Record<string, unknown>>).map(o => ({ ...o, uri: blockUri(target.board, String(o.proposal)), noteUri: blockUri(target.board, String(o.note)) })) : page.outcomes;
     return toolText({ outline: target.board.address.outline, machine: target.board.address.machine, ...page, outcomes });
   } catch (e) { return toolError((e as Error).message); }

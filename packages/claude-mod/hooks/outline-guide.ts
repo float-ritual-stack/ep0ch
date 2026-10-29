@@ -1,3 +1,4 @@
+import { READING_WIDTH } from './agent-tool-definitions'
 /**
  * What the session's outline can hold, in front of the model (PIE-721), so it reaches for figures, views, callouts and
  * rules without the person reminding it:
@@ -36,7 +37,7 @@ export function guideText(stdout: string): string | null {
 /** The write tools whose result is drawn back when what they wrote holds a figure. */
 export const DRAWN_BACK: readonly string[] = ['outline_edit', 'outline_create', 'outline_patch']
 /** The drawing's size: Evan's reading width (a 44-column desk tile, write-shape's readingWidth), and the note's first rows. */
-const DRAW_WIDTH = 44
+const DRAW_WIDTH = READING_WIDTH
 const DRAW_ROWS = 40
 export const DRAW_TIMEOUT_MS = 8000
 
@@ -84,11 +85,11 @@ export function viewedNoteOf(tool: string, resultText: string, input: Record<str
 /** `ep0ch show` for a read's view: the whole note, at the width asked. */
 export const viewArgv = (id: string, width: number): string[] => ['ep0ch', 'show', id, '--width', String(width)]
 
-/** The read's result with `view` in it: the drawing a line each, as the gateway's outline_read answers it. */
-export function withView(resultText: string, drawn: string): string {
+/** The read's result with `view` in it: the drawing a line each, as the gateway's outline_read answers it; or `viewError`, why it couldn't be drawn. */
+export function withView(resultText: string, drawn: string | { error: string }): string {
   try {
     const parsed = JSON.parse(resultText) as Record<string, unknown>
-    return JSON.stringify({ ...parsed, view: drawn.replace(/\s+$/, '').split('\n') })
+    return JSON.stringify({ ...parsed, ...(typeof drawn === 'string' ? { view: drawn.replace(/\s+$/, '').split('\n') } : { viewError: drawn.error }) })
   } catch {
     return resultText
   }
