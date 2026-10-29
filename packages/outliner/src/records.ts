@@ -86,7 +86,7 @@ export async function recordsRoot(board: RecordWriter, who: RecordWho): Promise<
  * What a run of records looks up once, not per record (PIE-1402: a backfill's keep looked every kind's template up again
  * for each record, ~1 s a record on pie, and stalled the host): the Records page, and each kind's template, checked.
  */
-export interface RecordCache { root?: Note; deploys?: Note; templates?: Map<string, Note>; checked?: Set<string>; pageMade?: boolean }
+export interface RecordCache { root?: Note; deploys?: Note; templates?: Map<string, Note>; checked?: Set<string> }
 
 export async function writeRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, o: { title?: string; cache?: RecordCache } = {}): Promise<{ id: string; warnings: string[] }> {
   if (!o.cache) return stampRecord(board, kind, props, who, o.title, {});
@@ -99,6 +99,11 @@ export async function writeRecord(board: RecordWriter, kind: RecordKind, props: 
 }
 
 async function stampRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, title: string | undefined, cache: RecordCache): Promise<{ id: string; warnings: string[] }> {
+  // What a long-lived cache kept may have been trashed since (a tidy pass): checked each call, looked up again if so.
+  if (cache.root) {
+    const root = await board.request<{ deletedAt?: string | null; effectiveDeletedRootId?: string | null } | null>("get", { blockId: cache.root.id }).catch(() => null);
+    if (!root || root.deletedAt || root.effectiveDeletedRootId) for (const key of Object.keys(cache) as (keyof RecordCache)[]) delete cache[key];
+  }
   const deploy = kind === "deploy";
   let root = deploy ? cache.deploys ??= await findNote(board, "system-view=deploys") : cache.root ??= await recordsRoot(board, who);
   if (!root) root = cache.deploys = await board.request<Note>("create", { text: DEPLOYS_NOTE, parentId: null, ...who });
@@ -106,7 +111,7 @@ async function stampRecord(board: RecordWriter, kind: RecordKind, props: Record<
   cache.templates ??= new Map((await board.request<{ blocks: { id: string; text: string }[] }>("blocks.query", { query: { where: "type=template", machinery: "show", limit: 1000 } })).blocks.flatMap(b => {
     const of = /\[template-for::([^\]]+)\]/.exec(b.text)?.[1];
     return of && (of !== "deploy" || /\[machine::install\]/.test(b.text)) ? [[of, b] as const] : [];
-  }));
+  }).reverse());
   for (const name of (deploy ? ["deploy"] : Object.keys(RECORD_FIELDS).filter(name => name !== "deploy")) as RecordKind[]) {
     if (!cache.templates.has(name)) cache.templates.set(name, await board.request<Note>("create", { text: recordTemplate(name), parentId: root.id, ...who }));
   }

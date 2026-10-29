@@ -355,7 +355,10 @@ function wallPatch(lines: readonly string[], p: Paragraph): ShapePatch[] | undef
 /** The first sentence of a unit too long for a bullet, said so the writer knows which to cut. */
 function tooLong(lines: readonly string[], p: Paragraph): string {
   const long = splitPoints(rawOf(lines, p), { clauses: false }).find(point => !fitsBullet(point));
-  return long ? `; "${excerpt(long, 32)}" is ${long.length} characters, too long for one bullet: cut it, no patch can` : "";
+  if (!long) return "";
+  return long.length > SHAPE_LIMITS.itemChars
+    ? `; "${excerpt(long, 32)}" is ${long.length} characters, too long for one bullet: cut it, no patch can`
+    : `; "${excerpt(long, 32)}" joins ${splitPoints(long).length} points with semicolons or dashes: make them sentences, no patch can`;
 }
 
 /**

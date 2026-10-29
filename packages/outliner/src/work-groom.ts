@@ -14,7 +14,7 @@ import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { askNouls, board, chips, clip, CONFIDENT, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
-import { itemTitle, olderFirst, twinVerdict } from "./work-twins";
+import { itemTitle, olderFirst, sameWork } from "./work-twins";
 import { deepCandidates } from "./search-deep";
 import { writeRecord } from "./records";
 import type { Block, VisibleBlockCollection } from "./types";
@@ -122,14 +122,14 @@ export function groomVerdict(c: Candidates, answers: Record<string, number | und
   if (replaces && replaces.p >= CONFIDENT) return { verdict: "superseded", confidence: replaces.p, evidence: describe(c.shipped[replaces.i]!) };
   // The filing's own judgment (work-twins.ts twinVerdict, its same-work question): one judgment, one answer, whether a
   // twin is met at filing or at the groom (PIE-1402: the groom said 0.28 open of a pair filing called maybe the same).
-  const twin = dup ? twinVerdict({ match: "some-terms", same: dup.p }) : undefined;
+  const twin = sameWork(dup?.p);
   if (dup && twin === "same") {
     const t = c.tickets[dup.i]!;
     return { verdict: "duplicate", confidence: dup.p, evidence: `${t.workId} (${t.stage}): ${t.title}`, of: t.workId };
   }
   if (dup && twin === "unsure" && !(ships && ships.p >= YES) && !(replaces && replaces.p >= YES)) {
     const t = c.tickets[dup.i]!;
-    return { verdict: "open", confidence: dup.p, evidence: `maybe the same work as ${t.workId} (${t.stage}): ${t.title}, Jev unsure (${dup.p.toFixed(2)})` };
+    return { verdict: "open", confidence: Math.round((1 - dup.p) * 100) / 100, evidence: `maybe the same work as ${t.workId} (${t.stage}): ${t.title}, Jev unsure (${dup.p.toFixed(2)})` };
   }
   const top = Math.max(ships?.p ?? 0, replaces?.p ?? 0, dup?.p ?? 0);
   const near = top >= YES ? [ships, replaces].some(x => x?.p === top) ? describe(c.shipped[(top === ships?.p ? ships : replaces)!.i]!) : `${c.tickets[dup!.i]!.workId}: ${c.tickets[dup!.i]!.title}` : "nothing shipped or filed does it";
@@ -262,7 +262,8 @@ export function groomSummary(report: GroomReport): string {
   }
   // Every open ticket too, each with what it was read against (PIE-1402: a pass that judged everything open printed only
   // counts): the close calls first, then the rest; so a person sees what to look at, not just a total.
-  const open = report.rows.filter(r => r.verdict === "open" || r.verdict === "unjudged").sort((a, b) => Number(b.evidence.startsWith("close but")) - Number(a.evidence.startsWith("close but")) || a.confidence - b.confidence);
+  const close = (r: GroomRow) => /^(?:close but|maybe the same)/.test(r.evidence);
+  const open = report.rows.filter(r => r.verdict === "open" || r.verdict === "unjudged").sort((a, b) => Number(close(b)) - Number(close(a)) || a.confidence - b.confidence);
   if (open.length) {
     lines.push("", "open (what each was read against):");
     for (const r of open) lines.push(`  ${r.ticket} ${r.verdict === "unjudged" ? "unjudged" : r.confidence.toFixed(2)} ${clip(r.title, 70)} · ${clip(r.evidence, 120)}`);

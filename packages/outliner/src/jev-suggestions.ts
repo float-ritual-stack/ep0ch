@@ -84,7 +84,7 @@ export async function recordSuggestion(client: SuggestionClient, fit: FigureFit,
 export async function recordReview(client: SuggestionClient, keep: Extract<SuggestionKeep, { kind: "reviewed" }>, now = new Date(), cache: RecordCache = {}): Promise<void> {
   try {
     const day = dayOf(now), told = keep.review.findings.filter(f => f.new);
-    if (told.length && !cache.pageMade) { await suggestionsPage(client); cache.pageMade = true; }
+    if (told.length) await suggestionsPage(client);
     // Each finding is told once (PIE-1402: a repeat patch wrote the same one four times): one the note's records hold is skipped.
     const had = told.length && keep.at.source !== "backfill" ? await toldKeys(client, keep.at.note) : new Set<string>();
     // One lookup of the Records page and the templates for every record (the service keeps it across keeps).
@@ -105,7 +105,7 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
     if (keep.at.source === "backfill") {
       // A note that was read whole and said nothing is kept too: a rerun skips it rather than ask Jev again. One Jev
       // couldn't read isn't, so a rerun tries it again.
-      if (!told.length && !unavailable) {
+      if (!told.length && (asked || /^not asked/.test(keep.review.jev))) {
         await writeRecord(board(client), "review-quiet", clean({ day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), source: "backfill" }), JEV, { title: `quiet: ${keep.title || "untitled"}`.slice(0, 120), cache });
       }
       return;
