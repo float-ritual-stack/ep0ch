@@ -1,1 +1,1 @@
-Gmail [type::virtual-branch] [query::notify.source=gmail] [sort::notify.received] [direction::desc]
+Gmail [type::virtual-branch] [query::notify.source=gmail] [machinery::show] [sort::notify.received] [direction::desc]

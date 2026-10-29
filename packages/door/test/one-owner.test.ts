@@ -47,6 +47,15 @@ const FAMILIES: Family[] = [
     },
   },
   {
+    question: "why an agent is held back by the person's typing (its words)",
+    // Seen in use Oct 29: four forms ("the person is typing in r1; …", "r1 is where the person is typing; …", "this
+    // draft is the person's; …", "…; not moved"). ActionDef summaries saying when one is refused aren't refusals.
+    pattern: /is where the person is typing|draft is the person's|; not moved|`the person is typing in \$\{[^`]*`;|an agent doesn't \$\{what\}/g,
+    allowed: {
+      "whereabouts.ts": { n: 1, why: "the owner: heldBack and typingIn, the one shape" },
+    },
+  },
+  {
     question: "is yolo on (agents hold the door)",
     pattern: /\bagentsYolo\b/g,
     allowed: {

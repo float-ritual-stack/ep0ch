@@ -141,7 +141,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     key(char("e"));
     await until(() => !!S().draft, "the draft");
     // Moving their keys while they type is refused (the actor rule), even onto the column they're in.
-    await expect(act("tile.focus", {}, beansR)).rejects.toThrow(/not moved/);
+    await expect(act("tile.focus", {}, beansR)).rejects.toThrow(/an agent doesn't move the screen or their keys now/);
     key({ kind: "end" }); type("Q");                             // still the person's edit: typed, not a river key
     expect(S().draft.text).toContain("Q");
     expect(V().focus).toBe(at);
@@ -230,7 +230,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     key(char("x"));                                              // in it: x is typed
     expect(surfaceOf(2).draft.text).toContain("x");
     // An agent doesn't move their keys out of their edit (the actor rule); the person's own move does.
-    await expect(act("tile.focus", {}, lib())).rejects.toThrow(/not moved/);
+    await expect(act("tile.focus", {}, lib())).rejects.toThrow(/an agent doesn't move the screen or their keys now/);
     await mine("tile.focus", {}, lib());
     expect(V().focus).toBe(0);
     key(char("l"));
