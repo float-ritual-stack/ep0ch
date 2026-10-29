@@ -1514,6 +1514,11 @@ export interface BlockSearchQuery {
    * of the store directly, left out means unfiltered.
    */
   machinery?: import("@ep0ch/outline-core/machinery").MachineryMode;
+  /**
+   * `true`: with `machinery: hide`, the answer's `machineryLeftOut` counts every stamped note the same question would
+   * have held, by producer, and says so in words (PIE-1427): a recent-activity read reports what it left out.
+   */
+  countMachinery?: boolean;
 }
 
 /** A watched read (outline-core `WATCHABLE_ACTIONS`): kept on the connection under `watch`; `generation` is answered from what's kept. */
@@ -1546,6 +1551,8 @@ export interface VisibleBlockCollection extends QuestionAnswerFields {
   completeness: BlockCollectionCompleteness;
   /** How many notes `machinery: hide` left out of the answer (at most 50: then there are more), when it left any (PIE-867). */
   machineryHidden?: number;
+  /** With `countMachinery`: every note `machinery: hide` left out, by producer, and the sentence (outline-core `machineryLeftOut`, PIE-1427). */
+  machineryLeftOut?: import("@ep0ch/outline-core/machinery").MachineryLeftOut;
 }
 
 /** Fields a projected block read can return; `id` is always included. */

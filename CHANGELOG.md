@@ -24,6 +24,12 @@ are its record. The outliner's entries from then are kept below, under
   lists either. The kitchen sink's "back anywhere" section is Evan's layout to try it in.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
 
+### Undo never takes back what's saved (PIE-1414)
+
+- **ctrl+z stops at the save:** in a note you opened again after saving, the first ctrl+z keeps the saved text and says "saved · ctrl+z again undoes past the save (revision N stays in its history)"; a second press after a pause goes past it. A held key never crosses a save, and an agent's undo never does.
+- **Everywhere you type:** a reader, a float, the river and comments share the one editor, so the same holds in each.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### The status bar's last rough edges (PIE-1415, PIE-1224, PIE-1410)
 
 - **A group inside a group opens where you clicked:** More inside Tools opens over Tools, not at the left edge.
@@ -58,6 +64,17 @@ are its record. The outliner's entries from then are kept below, under
 - **Rows say themselves:** a script reads under its own name with its own words (no `ext.script-…run`, no "neat ·
   neat:"); a pasted id that isn't here is named once, on one line; Jira's install row says what it does.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### A chat's "what changed lately" is real work, and says what it left out (PIE-1427)
+
+- **Fetched notifications are machinery:** the notifications hub stamps each one `[machine::notification]`, so lists,
+  `ep0ch find` and a chat's orient read leave them out; its boards say `[machinery::show]` and keep their cards.
+- **The count:** `outline_query` (claude.ai, ChatGPT, Grok) and the mod's `outline_find` answer a recent-activity
+  read (`updated >= -1d`) with `machineryOmitted`: "212 notifications and bookkeeping notes left out", by producer.
+- **One word brings them back:** `machinery: "show"` on `outline_query` (new) or `outline_find`; `"only"` with
+  `machine=notification` asks for just the notifications.
+- **Run once per outline that has the hub,** on its machine: `ep0ch machinery backfill --ws <name> --apply` stamps
+  the notes and boards an earlier version wrote.
 
 ### The keys window: every binding, what it shadows, and a rebind said before it lands (PIE-492, PIE-1048)
 

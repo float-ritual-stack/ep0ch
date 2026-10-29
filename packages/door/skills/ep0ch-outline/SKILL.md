@@ -71,6 +71,9 @@ Arriving cold, read the outline's recent changes, not a context store. Per outli
    `fold: true` (or the outline's saved orient view, by `view`: its own `[sort::]` orders it). The service sorts; a
    projected row is a title, never a body. With `fold`, a note's proposals, comments and deliveries are one row with
    `changes` ("4 changes (1 proposal, 2 comments, 1 delivery)"). `under` limits it to a note's subtree.
+   Fetched notifications and tools' bookkeeping (`[machine::…]`) are left out, and the answer counts them:
+   `machineryOmitted` ("212 notifications and bookkeeping notes left out"). Report the real work and that count;
+   `machinery: "show"` brings them back, `"only"` with `machine=notification` asks for just the notifications.
 2. `outline_read` (by `ref`) only the rows that are new to you. A proposal or a comment reads as a pointer
    (`target: id@revision`, the diff or the anchored span), not a copy of its note; `raw: true` gives it as stored.
 3. On every later read, query or find, pass `seen: ["<id>@<revision>", …]` for what you already hold. A block still at
@@ -265,7 +268,7 @@ one.
   ticked. The scope widens what puts a note in; a `NOT` clause still asks the note's own header, so a body line's
   `[work-stage::done]` never hides it. A comparison (`cost < 10`) names the chip that holds. `outline_find` and `outline_query` take `propertyScope: "all"`, and
   `ep0ch find --query … --property-scope all`; each row then names its matched lines.
-  A view, a find and an agent's feed leave out the notes tools stamped `[machine::<producer>]` (file touches, EchoNet's
+  A view, a find and an agent's feed leave out the notes tools stamped `[machine::<producer>]` (fetched notifications, file touches, EchoNet's
   logs, deliveries, backup runs) unless `machinery` says `show` or `only`; `by:user` or `by:agent` and `revision >= 2`
   ask who wrote a note last and how often it was saved. Stamp your own tool's bookkeeping notes `[machine::<tool>]`.
   The service evaluates it: `AND`, `OR`, `NOT`, parentheses, `updated >= -7d`, comparisons on any property (`due <= +3d`, `wait-until <= today`, `rating > 3`, `release-window = today` for a span `2026-10-20..2026-10-24`: dates as people write them, `Oct 20`, `10/20`, `20 Oct`; a value with a space is quoted, `due <= "Oct 20"`) and the atoms `#tag`, `links:[[page]]` (or `((id))`, `PIE-123`), `linkedfrom:[[page]]` (what it links to), `under:[[page]]` (the subtree), `parent:[[page]]` (its children), `this` as any of their targets in a figure or a `::links` query (the note it sits in: `links:this NOT linkedfrom:this` is what mentions the note that it doesn't link back), `call:<id or handle>` (what one MCP call last wrote), `title~text` / `text~text` (caseless substrings; quote spaces), `thread:me` and `unread:me` (the threads you started or wrote in, and what you haven't read: Recent replies is `type=annotation-reply AND thread:me AND NOT annotation-source=user`), and `child:key=value` with a count, `child>=2:type=virtual-branch` (every hub, tagged or not). `under:[[orient]] NOT links:[[archive]]` replaces a list of types to exclude. Live figures and board lanes take them unchanged; a `::graph-tabs` or `::graph-rank` `group:` takes any property, or a date bucket of any property (`group: due:week`, day, week, month or year), grouped and counted by the service. A note that waits for a day is a saved view, not a reminder: `wait-until <= today` on Welcome or a board lane fills itself that morning. Its rows are the canonical

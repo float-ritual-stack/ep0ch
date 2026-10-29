@@ -7,12 +7,13 @@ and Gmail, Jira and Slack come from made-up files behind the same shape until a 
 Notifications [page::notifications] [notify.synced.github::…]      ← written by ext:notify's pull
   └─ Fix the build [notify.key::github:101] [notify.source::github] [notify.kind::PullRequest] [notify.from::org/repo]
        [notify.state::unread] [notify.received::2026-10-09T08:15:00Z] [notify.url::https://github.com/org/repo/pull/12]
+       [machine::notification]
 
 Extensions › Notifications hub                                     ← its page, with these demo notes (yours once written)
   ├─ Start here: your notifications on two boards
   ├─ Notifications by read state [page::notifications-state]       ← a hub: the lanes are views
-  │    ├─ Unread [type::virtual-branch] [query::notify.state=unread]
-  │    └─ Read   [type::virtual-branch] [query::notify.state=read]
+  │    ├─ Unread [type::virtual-branch] [query::notify.state=unread] [machinery::show]
+  │    └─ Read   [type::virtual-branch] [query::notify.state=read] [machinery::show]
   └─ Notifications by source [page::notifications-source]          ← a lane per source
 ```
 
@@ -20,6 +21,10 @@ Extensions › Notifications hub                                     ← its pag
   changed, so a second pull writes nothing. Properties: `notify.source`, `notify.kind`, `notify.from`,
   `notify.state` (`unread` or `read`), `notify.received`, `notify.url`. Query them like any: `notify.source=github AND
   notify.state=unread`.
+- **Notifications are machinery** (`[machine::notification]`, PIE-1427): what a tool fetched, not what anyone wrote
+  here. Lists, `ep0ch find` and a chat's "what changed lately" (`outline_query`) leave them out and say how many;
+  `machinery: show` brings them back, `machinery: only` with `machine=notification` asks for just them. The boards say
+  `[machinery::show]`. Notes fetched before version 4 get the stamp from `ep0ch machinery backfill --apply`.
 - **Read stays read.** Mark one read by editing `[notify.state::read]` or by dragging its card to the Read lane (the
   lane's query is the patch). A pull never turns `read` back into `unread`, whatever the source says; it turns
   `unread` into `read` when the source says it was read there (GitHub is fetched with `all=true` for that).

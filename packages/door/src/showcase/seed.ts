@@ -707,7 +707,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.formRepairs = await make(notes.root.id, FORM_REPAIRS);
   // The gallery (PIE-827): its cards first, so the line's first run draws them.
   // Machinery (PIE-867): one question asked twice, of what people wrote and of what tools stamped for their own bookkeeping.
-  const MACHINERY_QUERY = "[query::type=chore OR type=toss OR type=backup-run OR type=file-touch]";
+  const MACHINERY_QUERY = "[query::type=chore OR type=toss OR type=backup-run OR type=file-touch OR notify.key]";
   notes.machineryPeople = await make(notes.root.id, `${SEED.machineryPeople} [type::virtual-branch] ${MACHINERY_QUERY}`);
   notes.machineryTools = await make(notes.root.id, `${SEED.machineryTools} [type::virtual-branch] ${MACHINERY_QUERY} [machinery::only]`);
   // Line chips (PIE-1277): an ask buried on a step of long minutes, one ticked already; one query, asked of the header and of every line.
