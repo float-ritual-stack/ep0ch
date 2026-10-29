@@ -567,7 +567,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     (app as any).paint();
     // The frame's × at the header's end: the tab's title is its program's (on a box whose shell names its host, "boxd@…"
     // has an x of its own, PIE-1412).
-    const row = app.drawer.rect!.row + 1, header = plain(h.painted[row] ?? ""), col = header.lastIndexOf("x┐");
+    const row = app.drawer.rect!.row + 1, header = plain(h.painted[row] ?? ""), col = Math.max(header.lastIndexOf("x┐"), header.lastIndexOf("x╗"));
     expect(col).toBeGreaterThan(0);
     for (const action of ["down", "up"] as const) press({ kind: "mouse", action, button: 0, x: col, y: row });
     // The header row with it: a miss says what was clicked.

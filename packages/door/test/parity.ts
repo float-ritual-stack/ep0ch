@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
+import { DOUBLE_MS } from "../src/scroll";
 import { declaredKeys, hintKeys, keyName, keysText, traceActions, type ActionRun } from "../src/surface/actions";
 import { rewriteRequests, traceRequests, type RunRequest } from "../src/surface/dispatch";
 import { SHELL_ACTIONS, MENU_SCREENS, MainMenu, MessageReader, StatusMessages } from "../src/screens";
@@ -381,8 +382,10 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   // Two clicks on one row within DOUBLE_MS (src/scroll.ts) are a double click (a tile's title row: tile.title), and the walk's
   // clicks come that fast when a click changes nothing and the screen isn't built again: whether the one before was on the
   // same row is the layout's (on boxd, home base's row 9 is a title, PIE-1412). An action whose keys say "double-click" names it.
+  const pressedAt = new WeakMap<Key, number>();
   const doubleClicked = (runs: ActionRun[], k: Key, before?: Key | null) => !!before && k.kind === "mouse" && before.kind === "mouse"
     && k.action === "down" && before.action === "down" && k.y === before.y && k.button === before.button
+    && (pressedAt.get(k) ?? 0) - (pressedAt.get(before) ?? -Infinity) < DOUBLE_MS
     && runs.every(r => /\bdouble-click\b/.test(keysText(r.keys) ?? ""));
   /** What the declared keys must name for this probe: the key's name, or for the mouse its gesture. */
   const declares = (t: Set<string>, k: Key, prefix?: Key) =>
@@ -406,6 +409,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   /** A probe's key: pressed, then waited out. Where the time goes (the door handling it, then painting and settling) is counted for the log. */
   const go = async (k: Key) => {
     const t0 = performance.now();
+    pressedAt.set(k, Date.now());
     push(k);
     const t1 = performance.now();
     await settle();
