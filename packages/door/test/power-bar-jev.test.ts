@@ -28,7 +28,8 @@ describe.skipIf(!outliner)("the power bar says how sure a search is", () => {
   });
   const scratch = new Scratch();
   scratch.hostEnv = { OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` };
-  let board: SocketBoard, app: App, painted: string[] = [], key: (k: Key) => void = () => {};
+  let board: SocketBoard, app: App, painted: string[] = [], key: (k: Key) => void = () => {}, resized: () => void = () => {};
+  let info = { cols: 140, rows: 44, cellW: 9, cellH: 16, kitty: false };
   const saved: Record<string, string | undefined> = {};
   const frame = () => { (app as any).paint(); return painted.map(plain); };
   const type = (s: string) => { for (const c of s) key({ kind: "char", ch: c }); };
@@ -42,8 +43,8 @@ describe.skipIf(!outliner)("the power bar says how sure a search is", () => {
     compost = (await board.createBlock(null, "Compost turning schedule\nturn the heap every two weeks")).id;
     await board.createBlock(null, "Compost bin repairs\nthe lid hinge");
     const term: any = {
-      info: { cols: 140, rows: 44, cellW: 9, cellH: 16, kitty: false }, write() {}, paint(l: string[]) { painted = l; }, paintRow(r: number, l: string) { painted[r] = l; },
-      invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {},
+      get info() { return info; }, write() {}, paint(l: string[]) { painted = l; }, paintRow(r: number, l: string) { painted[r] = l; },
+      invalidate() {}, onKey(f: any) { key = f; }, onResize(f: any) { resized = f; }, stop() {}, resume() {},
     };
     app = new App(term, board, Date.now(), () => {});
     app.push(openScreen("desk") as Desk);
@@ -68,12 +69,40 @@ describe.skipIf(!outliner)("the power bar says how sure a search is", () => {
   });
 
   test("a second / reads every note: a note none of whose words were typed is found by meaning", async () => {
-    exists = 0.1;
+    exists = 0.6;
     key({ kind: "char", ch: "k", ctrl: true });
     type("//rotating the pile");
     await until(() => frame().some(l => l.includes("found by meaning")), "the deep search's footer", 15_000);
     expect(frame().some(l => l.includes("Compost turning schedule") && l.includes("by meaning"))).toBe(true);
+    // PIE-1409: a right #1 found by meaning, scored a match (2.6) with "is it among these?" unsettled (0.6), says
+    // "not sure", never "no strong match".
+    expect(frame().some(l => l.includes("jev ranked · not sure"))).toBe(true);
+    expect(frame().some(l => l.includes("no strong match"))).toBe(false);
     key({ kind: "esc" }); key({ kind: "esc" });
+  });
+
+  test("the top row stays the top as Jev re-orders: its best lit, not the old best wherever it sank (PIE-1409)", async () => {
+    exists = 0.1;
+    key({ kind: "char", ch: "k", ctrl: true });
+    type("/compost bin");
+    const bar = () => (app as any).bar.describe();
+    await until(() => !!bar().rows?.length && bar().rows[0].label.includes("Compost bin repairs"), "the words' order", 10_000);
+    await until(() => Object.values(bar().said ?? {}).some(s => String(s).includes("jev ranked")), "Jev's order", 10_000);
+    expect(bar().rows[0].label).toContain("Compost turning schedule");
+    expect(bar().selected).toBe(1);
+    key({ kind: "esc" }); key({ kind: "esc" });
+  });
+
+  test("at 40 columns the verdict reads whole, on a row of its own when the query leaves no room (PIE-1409)", async () => {
+    exists = 0.1;
+    info = { ...info, cols: 40 }; resized();
+    try {
+      key({ kind: "char", ch: "k", ctrl: true });
+      type("/compost tea for tomatoes");
+      await until(() => frame().some(l => l.includes("no strong match")), "the verdict at 40 columns", 10_000);
+      expect(frame().some(l => l.includes("jev ranked · no strong match"))).toBe(true);
+      key({ kind: "esc" }); key({ kind: "esc" });
+    } finally { info = { ...info, cols: 140 }; resized(); }
   });
 
   test("a top it backs says sure, and the person's pick is kept with the words", async () => {

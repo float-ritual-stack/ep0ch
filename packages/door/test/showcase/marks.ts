@@ -24,7 +24,7 @@ export const marks: Record<string, string[]> = {
   sources: ["Which issue is the swap, see [[seed", "issue"],
   twins: ["Fix the back gate latch", "Queued"],
   "write-review": ["Shed status tonight", "Jev's suggestions", "Each finding, newest first"],
-  "search-sure": ["Search evals", "EVERY RUN, PER MODEL", "Cases by source"],
+  "search-sure": ["Search evals", "EVERY RUN, NEWEST FIRST", "Cases by source"],
   // Four readers on one note, each writing a comment in another place (PIE-770).
   composer: ["Writing in the margin", "[inline ▸]", "[floating ▸]", "[split ▸]", "[popup ▸]"],
   // A comment on the whole note in its own tile beside the reader (PIE-846); the note's whole-note thread in the margin.
