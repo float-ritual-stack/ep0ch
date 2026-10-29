@@ -7841,6 +7841,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           const { x, y } = this.local(id, r, k.x, k.y), how: RowPress = { mods: 0, button: 0, focusing: true };
           pane.mouse({ ...k, button: 0, action: "down" }, x, y, this, how);
           pane.mouse({ ...k, button: 0, action: "up" }, x, y, this, how);
+        } else if (pane?.pointAt && this.inBody(id, r, k.x, k.y)) {
+          // On a reader's button its menu is that button's (PIE-1415: pin to status bar): it is the [ ] position, unpressed.
+          const { x, y } = this.local(id, r, k.x, k.y);
+          if (pane.pointAt(x, y)) this.redraw();
         }
         return this.run("tile.menu", { at: `${k.x},${k.y}` }, this.nameOf(id));
       }

@@ -451,6 +451,64 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       await until(() => app.video !== again, "the nested button pressed by act");
     } finally { await board.trash(note.id, USER); }
   });
+
+  test("a group inside a group opens its menu where the click was, under its outer group, not at column 1 (PIE-1415)", async () => {
+    // On the right of the bar, so column 1 is far from the click.
+    const note = await board.createBlock(null, 'Nested status [status-bar::true]\n- brand\n- clock\n- Tools\n  - theme\n  - More\n    - ::button{label="Video" act="video.cycle"}');
+    try {
+      for (const cols of [177, 70, 44]) {
+        size.cols = cols;
+        app.flash("");
+        await until(() => bar().includes("Tools ▲"), "the group on the right of the bar");
+        const tools = bar().indexOf("Tools");
+        click("Tools");
+        await until(() => painted.slice(0, -1).some(l => visible(l).includes("More ▲")), "the outer menu");
+        const row = painted.findIndex(l => visible(l).includes("More ▲")), col = visible(painted[row]!).indexOf("More ▲");
+        press({ kind: "mouse", action: "down", button: 0, x: col, y: row });
+        press({ kind: "mouse", action: "up", button: 0, x: col, y: row });
+        await until(() => painted.slice(0, -1).some(l => visible(l).includes("[Video]")), "the inner menu");
+        const inner = painted.findIndex(l => visible(l).includes("[Video]")), at = visible(painted[inner]!).indexOf("[Video]");
+        // Where the outer menu stood (it opened above Tools), never pulled to the left edge.
+        expect(Math.abs(at - col)).toBeLessThanOrEqual(4);
+        expect(tools).toBeGreaterThan(cols / 2);
+        press({ kind: "esc" });
+      }
+    } finally { await board.trash(note.id, USER); size.cols = 220; }
+  });
+
+  test("a message on a full bar leaves no hit box where nothing is drawn: every clickable item is on the bar as drawn (PIE-1410, PIE-1415)", async () => {
+    const note = await board.createBlock(null, 'Full status [status-bar::true]\n- brand\n- screen\n- machine\n::button{label="Collapse" act="status.log"}\n::button{label="yolo" act="status.log"}\n::button{label="neat" act="status.log"}\nbogus\n- theme\n- video\n- uptime\n- clock');
+    try {
+      await until(() => bar().includes("neat") && bar().includes("! line 8"), "the full bar");
+      // Every width from 177 down: the one where what the message keeps fills its room exactly was the invisible +N.
+      for (let cols = 177; cols >= 36; cols--) {
+        size.cols = cols;
+        app.flash("a long message about something that just happened, long enough to push the location off the bar".repeat(2));
+        const line = bar();
+        const items = (await app.dispatch.act({ action: "status.bar.items" }, USER) as any).items.filter((i: any) => i.from !== undefined);
+        for (const i of items) expect(line.slice(i.from, i.to)).toBe(visible(i.text));
+        // The bar's own +N and ! outlast the message: drawn, or the ! in the +N's menu when the bar has no room for it.
+        const hidden = (await app.dispatch.act({ action: "status.bar.menu", args: { overflow: true } }, { kind: "agent", id: "test" } as any) as any).rows.map((r: any) => r.label);
+        if (hidden.length > 1) expect(line).toMatch(/\+\d/);
+        expect(line.includes("! line 8") || hidden.includes("! line 8")).toBe(true);
+      }
+    } finally { await board.trash(note.id, USER); size.cols = 220; app.flash(""); }
+  });
+
+  test("a failed button's ! stays on that button when a line above it or the button itself goes (PIE-1415)", async () => {
+    const note = await board.createBlock(null, 'Marks status [status-bar::true]\n- brand\n::button{label="Broken" act="no.such.action"}\n::button{label="Fine" act="status.log"}\n- clock');
+    try {
+      await until(() => bar().includes("[Fine]"), "the two buttons");
+      await app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Broken" } }, USER).catch(() => null);
+      const text = (id: string) => bar() && visible((app as any).statusBoxes.find((h: any) => visible(h.item.text).includes(id))?.item.text ?? "");
+      await until(() => text("Broken").includes("!"), "the failed mark on Broken");
+      expect(text("Fine")).not.toContain("!");
+      const now = (await board.get(note.id))!;
+      await board.update(note.id, now.text.replace('::button{label="Broken" act="no.such.action"}\n', ""), now.revision!);
+      await until(() => !bar().includes("Broken"), "Broken gone from the bar");
+      expect(text("Fine")).not.toContain("!");
+    } finally { await board.trash(note.id, USER); }
+  });
 });
 
 
