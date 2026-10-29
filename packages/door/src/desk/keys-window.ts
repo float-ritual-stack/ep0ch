@@ -158,9 +158,11 @@ export class KeysPane implements Pane {
   }
 
   private rowLine(r: Row, on: boolean, w: number): string {
-    const b = r.b, cap = keycap(b.cap), capW = 12, scopeW = Math.min(14, Math.max(6, Math.floor(w * 0.18)));
+    // Narrow (a 44-column tile), the words get the room: the scope is in the detail, and the filter (`in:note`) says it.
+    const narrow = w < 60, b = r.b, cap = keycap(b.cap), capW = narrow ? 9 : 12, scopeW = narrow ? 0 : Math.min(14, Math.max(6, Math.floor(w * 0.18)));
     const mark = b.yours ? fg(C.lcyan) + "●" + RESET : r.head ? fg(C.yellow) + "!" + RESET : " ";
-    const text = mark + pad(cap, capW) + " " + fg(C.brown) + pad(ellipsize(b.scope, scopeW), scopeW) + RESET + " " + fg(C.grey) + ellipsize(b.does, Math.max(4, w - capW - scopeW - 4)) + RESET;
+    const scope = narrow ? "" : fg(C.brown) + pad(ellipsize(b.scope, scopeW), scopeW) + RESET + " ";
+    const text = mark + pad(cap, capW) + " " + scope + fg(C.grey) + ellipsize(b.does, Math.max(4, w - capW - scopeW - (narrow ? 3 : 4))) + RESET;
     return on ? selectedRow(text, w) : text;
   }
 
@@ -313,7 +315,8 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
       const p = paneOf(pane);
       if (text !== undefined) { p.filter = text; p.at = 0; if (p.field) p.field = null; }
       if (done) p.field = null;
-      else if (text === undefined && actor.kind !== "agent") p.field = filterLine(p.filter);
+      // Typing goes on after the words it was opened with (`in:note `), never into them.
+      else if (text === undefined && actor.kind !== "agent") p.field = filterLine(p.filter && !p.filter.endsWith(" ") ? `${p.filter} ` : p.filter);
       return { filter: p.filter, rows: p.rows().length };
     },
   }),

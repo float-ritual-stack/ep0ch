@@ -430,10 +430,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.save(); this.redraw();
     return { ...this.tileAnswer(id), side: this.commentSide };
   }
-  private openPair(at: number, pane: Pane, name: string, keys: boolean, actor: Actor): number {
+  private openPair(at: number, pane: Pane, name: string, keys: boolean, actor: Actor, dir: Dir = this.commentSide): number {
     const id = this.nextId;
     const ok = this.ask({ op: "open", tile: id, kind: pane.kind, name: this.autoName(name),
-      at: { kind: "split", target: at, dir: this.commentSide, pair: true, weight: this.attachedShare[name] ?? 0.45 },
+      at: { kind: "split", target: at, dir, pair: true, weight: this.attachedShare[name] ?? 0.45 },
       ...(keys ? {} : { keys: false as const }) }, actor);
     if (!ok.ok) throw new ActionRefused(ok.refused);
     this.put(pane); this.commit(ok); this.startTile(id); this.openedBy(id, at);
@@ -452,7 +452,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const have = [...this.panes].find(([, p]) => p instanceof TrailPane && p.source === source)?.[0];
     let id: number;
     if (have !== undefined) id = have;
-    else try { id = this.openPair(at, new TrailPane(source), "trail", true, USER); } catch { return null; }
+    else {
+      const made = this.sides(at).reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source), "trail", true, USER, dir); } catch { return null; } }, null);
+      if (made === null) return null;
+      id = made;
+    }
     this.keysTo(id);
     this.save(); this.redraw();
     return this.tileAnswer(id);
@@ -4577,6 +4581,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
+   * Where a tile opened beside tile `at` for it goes, best first (the keys window, the trail): to its right where it's
+   * wide enough to share, else below it, so a 44-column tile keeps its width and the new one has all of it too.
+   */
+  private sides(at: number): ["right", "down"] | ["down", "right"] {
+    return (this.placed.rects.get(at)?.cols ?? 0) >= 100 ? ["right", "down"] : ["down", "right"];
+  }
+
+  /**
    * The keys window as a tile (PIE-1425): beside the focused tile, filtered to where you are, so it resizes, docks and
    * closes like any; the one already on this screen gets the person's keys back with the new filter.
    */
@@ -4584,7 +4596,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const words = filter ?? this.keysFilter();
     const have = this.all().find(id => this.panes.get(id) instanceof KeysPane);
     if (have === undefined) {
-      const at = this.focus, done = await this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), "right", actor);
+      const at = this.focus, [first, then] = this.sides(at);
+      const done = await this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), first, actor).catch(e => { if (e instanceof ActionRefused) return this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), then, actor); throw e; });
       // Closed (esc, q, ^W x), it gives the keys back to the tile it opened beside.
       const made = this.all().find(id => this.panes.get(id) instanceof KeysPane);
       if (made !== undefined) this.openedBy(made, at);
