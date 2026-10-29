@@ -323,7 +323,8 @@ export function droppedNote(tool: ToolWithSchema, dropped: readonly string[]): s
 }
 
 /** What a plugin tool event carries besides the tool's arguments. */
-const EVENT_KEYS = ['tool', 'tool_use_id', 'toolUseId', 'type', 'hook_event_name', 'session_id', 'cwd', 'agentId', 'agent_id', 'agentType', 'agent_type'] as const
+/** The keys an event carries beside a tool's own arguments (the envelope), never the tool's input. */
+export const EVENT_KEYS = ['tool', 'tool_use_id', 'toolUseId', 'type', 'hook_event_name', 'session_id', 'cwd', 'agentId', 'agent_id', 'agentType', 'agent_type'] as const
 
 /** `show`: opens a note for the person (the mod's own handler, hooks/register.ts). */
 export const SHOW_TOOL: ToolWithSchema & { description: string } = {

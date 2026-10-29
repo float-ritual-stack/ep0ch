@@ -447,6 +447,17 @@ export const SHED_PAD = [
  * The zoom section (PIE-780): a long note whose figure, table and heading's section each zoom to fill the reader, by W,
  * a click on the ⤢ at its right edge, or act; back returns.
  */
+/**
+ * The trail (PIE-208): a walk round the garden, five notes each linking the next, so a reader that follows them has a
+ * trail to list. `next` is the following stop's id; the last has none.
+ */
+export const TRAIL_STOPS = ["the gate", "the pond", "the orchard", "the shed", "the compost heap"] as const;
+export function trailStopText(i: number, next: string | null): string {
+  const title = `Garden walk: ${TRAIL_STOPS[i]}`;
+  if (!next) return `${title}\nThe end of the walk.\n\n- **alt+T** (or the ≡ trail beside ← back, or the tile menu): every stop you've passed, by title.\n- Pick one and the reader goes straight there; ← back and forward → walk the same trail.`;
+  return `${title}\nStop ${i + 1} of ${TRAIL_STOPS.length}. Walk on: ((${next}|${TRAIL_STOPS[i + 1]})).`;
+}
+
 export const ZOOM_PLAN = [
   SEED.zoomPlan,
   "Everything the orchard needs this winter. Click in the figure, the table or a section: a ⤢ shows at its right edge; click it (or press W) and that part fills the reader. Esc, alt+← or a click on the top row comes back.",

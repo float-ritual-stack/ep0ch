@@ -75,11 +75,17 @@ export function twinCandidates(open: readonly Block[], title: string, limit = TW
   }));
 }
 
+/** Jev's same-work Noul, read: the one reading twins at filing and the groom both use. Pure. */
+export function sameWork(p: number | undefined): "same" | "unsure" | "no" | undefined {
+  return p === undefined ? undefined : p >= YES ? "same" : p >= UNSURE ? "unsure" : p < NO ? "no" : undefined;
+}
+
 /** Code's call over Jev's answers (or none): the truth table, in one place. Pure. */
 export function twinVerdict(c: Pick<TwinCandidate, "match" | "same" | "part"> & { inTitle?: number }): TwinCandidate["verdict"] {
-  if (c.same !== undefined && c.same >= YES) return "same";
+  const same = sameWork(c.same);
+  if (same === "same") return "same";
   // Between yes and no (a paraphrase whose words differ, PIE-1402): the state doesn't settle it, so the writer does.
-  if (c.same !== undefined && c.same >= UNSURE) return "unsure";
+  if (same === "unsure") return "unsure";
   if (c.part !== undefined && c.part >= YES) return "part";
   // Jev read it and said no to both: a title that shares words is no twin.
   if (c.same !== undefined && c.same < NO && (c.part ?? 0) < NO) return "related";

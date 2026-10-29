@@ -6,7 +6,7 @@
 // over its preview) is a dock on the left, the backlinks (the list beside its preview) a dock at the bottom; a
 // close in either shuts its dock (`shuts`). Every key here names an action: the desk's, the backlinks kind's, the
 // board's.
-import type { ScreenSpec } from "./screen-spec";
+import { CLOSE_KEY, type ScreenSpec } from "./screen-spec";
 import type { SavedTree, TileSpec } from "./tiles";
 
 const T = (kind: string, name: string, more: Partial<TileSpec> = {}): TileSpec => ({ t: "leaf", kind, name, ...more });
@@ -55,7 +55,7 @@ export function boardSpec(args: { hub?: unknown } = {}): ScreenSpec {
       { key: "B", label: "dock backlinks", action: "tile.dock", tile: "backlinks" },
       { key: "alt+c", label: "unfold all", action: "tile.collapse", tile: "all", args: { on: false } },
       { key: "c", label: "fold", action: "tile.collapse", only: ["preview", "reader"] },
-      { key: "x", label: "close", action: "tile.close", only: ["preview", "reader"] },
+      CLOSE_KEY,
       { key: "<", label: "narrower", action: "tile.resize", args: { axis: "row", by: -1 }, unless: ["backlinks"] },
       { key: ">", label: "wider", action: "tile.resize", args: { axis: "row", by: 1 }, unless: ["backlinks"] },
     ],

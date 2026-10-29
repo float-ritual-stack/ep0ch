@@ -558,4 +558,68 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect((again as any).policyAt((again as any).idNamed("library")).closable).toBe(false);
     await act("tile.close", {}, o.name);
   });
+
+  test("a note written in a float over the river, closed, and opened again from the power bar shows what was written (PIE-1403)", async () => {
+    await mine("tile.focus", {}, lib());
+    const writing = () => (river as any).describe().floats?.find((f: any) => f.newNote && f.writing);
+    const write = async (title: string, body: string) => {
+      key(ctrl("n"));
+      await until(() => !!writing(), "the new note's float", 8000);
+      const made = writing();
+      await until(() => (river as any).newNoteWhileTyping(), "the keys in its edit", 5000);
+      type(title); key({ kind: "enter" }); type(body);
+      key(ctrl("s"));
+      for (let i = 0; i < 100 && (await current(made.id))?.text !== `${title}\n${body}`; i++) await Bun.sleep(50);
+      expect((await current(made.id))?.text).toBe(`${title}\n${body}`);
+      await until(() => !surfaceOf(1) || !(river as any).panes.get((river as any).idNamed(made.tile))?.surface?.draft, "the edit closed", 5000);
+      return made;
+    };
+    const fromBar = async (title: string, id: string) => {
+      key(ctrl("k"));
+      expect((app as any).bar).toBeTruthy();
+      type(title);
+      await until(() => JSON.stringify((app as any).bar?.describe?.() ?? {}).includes(id), "the note among the bar's hits", 8000);
+      await (app as any).dispatch.press("open", { id });            // the notes row's ⏎ (openNote in src/bar/source.ts)
+      await (app as any).dispatch.press("bar.close", {}).catch(() => {});
+    };
+    // Closed, then opened again: its column has what was written.
+    const a = await write("Mulch the rhubarb", "Straw, a hand deep.");
+    key(char("x"));                                               // x closes the float, as it closes a column
+    await until(() => !(river as any).describe().floats?.some((f: any) => f.id === a.id), "its float closed");
+    await mine("tile.focus", {}, lib());
+    await fromBar("Mulch the rhubarb", a.id);
+    await until(() => !!V().byNote(a.id)?.root, "the note's column", 8000);
+    await Bun.sleep(300);
+    expect(V().byNote(a.id)!.surface.msg?.text).toBe("Mulch the rhubarb\nStraw, a hand deep.");
+    // Still open (its float stays), opened again from the bar: the float it's in keeps what was written.
+    const b = await write("Net the currants", "Before the birds find them.");
+    await mine("tile.focus", {}, lib());
+    await fromBar("Net the currants", b.id);
+    await Bun.sleep(300);
+    const shown = [...(river as any).panes.values()].filter((p: any) => p.surface?.msg?.id === b.id).map((p: any) => p.surface.msg.text);
+    expect(shown.length).toBeGreaterThan(0);
+    for (const t of shown) expect(t).toBe("Net the currants\nBefore the birds find them.");
+  });
+
+  test("the river's trail (PIE-208): the columns back by title, alt+T lists them over the river, back steps=2 goes two at once", async () => {
+    focusOnReader(lib());
+    const a = (await mine("open", { id: notes.peas.id, from: lib(), fresh: true })) as { name: string };
+    await until(() => !!paneOf(a.name)?.root, "the peas column");
+    const b = (await mine("open", { id: notes.herbs.id, from: a.name, fresh: true })) as { name: string };
+    await until(() => !!paneOf(b.name)?.root, "the herbs column");
+    focusOnReader(b.name);
+    // An agent reads the trail; it opens nothing over the person's river.
+    const read = (await act("trail", {}, b.name)) as { back: { title: string }[]; forward: unknown[]; shown: boolean; keptBy: string };
+    expect(read).toMatchObject({ shown: false, keptBy: "view", forward: [] });
+    expect(read.back.map(s => s.title)).toEqual([paneOf(a.name).headName?.() ?? paneOf(a.name).title(), paneOf(lib()).headName?.() ?? paneOf(lib()).title()]);
+    // The person's alt+T: a list over the river, the column shown lit.
+    key({ kind: "alt", ch: "T" });
+    await until(() => screen().includes("trail · where this reader has been"), "the trail over the river");
+    key({ kind: "esc" });
+    await mine("back", { steps: 2 }, b.name);
+    expect(V().name(V().columns[V().focus]!)).toBe(lib());
+    expect(((await act("trail", {}, lib())) as { forward: unknown[] }).forward).toHaveLength(2);
+    await act("tile.close", {}, b.name);
+    await act("tile.close", {}, a.name);
+  });
 });
