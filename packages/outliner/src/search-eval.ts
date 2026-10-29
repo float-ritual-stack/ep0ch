@@ -11,10 +11,11 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadGotoPrompt } from "./ai-prompts";
+import { loadGotoPrompt, type PromptRevision } from "./ai-prompts";
 import { askJev, type JevOptions } from "./jev";
 import { promptRevOf, setChip } from "./jev-suggestions";
 import { writeRecord, type RecordWho } from "./records";
+import { recordRun } from "./work-jev";
 import { certaintyOf, readSearchAnswers, searchRequest, SEARCH_THRESHOLDS } from "./search-ranking";
 import type { SearchPick } from "./search-records";
 import type { GotoSearchCollection, VisibleBlockCollection } from "./types";
@@ -158,7 +159,7 @@ export interface CaseResult {
   usage?: { input: number; output: number };
 }
 
-export interface ModelRun { model: string; results: CaseResult[]; promptRev: string }
+export interface ModelRun { model: string; results: CaseResult[]; promptRev: string; prompt: PromptRevision[] }
 
 export interface EvalClient { request<T>(input: { action: string } & Record<string, unknown>): Promise<T> }
 
@@ -196,7 +197,7 @@ export async function runModel(model: string, cases: readonly { case: EvalCase; 
       } catch (e) { results[i] = { case: c, lexical, unavailable: (e as Error).message }; }
     }
   }));
-  return { model, results, promptRev: promptRevOf({ prompt: prompt.revisions }) };
+  return { model, results, promptRev: promptRevOf({ prompt: prompt.revisions }), prompt: prompt.revisions };
 }
 
 const hitAt = (order: readonly string[] | undefined, expect: readonly string[], n: number) => !!order && order.slice(0, n).some(id => expect.includes(id));
@@ -209,8 +210,12 @@ export interface ModelScore {
   hit1: number; hit5: number; lexHit1: number; lexHit5: number;
   /** The Noul on cases whose answer is among the candidates, and on those where it isn't (none, or not reached). */
   existsAnswered: number | null; existsNot: number | null;
-  /** At SEARCH_THRESHOLDS: said sure and right, said sure and wrong, said "no strong match" when nothing was there, and when the top was right. */
-  sureRight: number; sureWrong: number; quietRight: number; quietWrong: number;
+  /**
+   * At SEARCH_THRESHOLDS: said sure over the right top (`sureRight`), over another note when one was wanted
+   * (`sureWrong`), and when nothing was there (`sureNothing`, the confident wrong answer this is for); said "no strong
+   * match" over a wrong top or nothing (`quietRight`) and over the right one (`quietWrong`).
+   */
+  sureRight: number; sureWrong: number; sureNothing: number; quietRight: number; quietWrong: number;
   tokensIn: number; tokensOut: number;
 }
 
@@ -221,12 +226,12 @@ export function scoreRun(run: ModelRun, t = SEARCH_THRESHOLDS): ModelScore {
   const expectOf = (x: CaseResult) => x.case.expect === "none" ? [] : x.case.expect;
   const reach = pos.filter(x => x.lexical.some(id => expectOf(x).includes(id)));
   const order = (x: CaseResult) => x.ranked ?? x.lexical;
-  let sureRight = 0, sureWrong = 0, quietRight = 0, quietWrong = 0;
+  let sureRight = 0, sureWrong = 0, sureNothing = 0, quietRight = 0, quietWrong = 0;
   for (const x of r) {
     if (!x.ranked) continue;
     const right = hitAt(x.ranked, expectOf(x), 1);
     const verdict = certaintyOf({ title: "", score: x.top! }, x.exists, t).verdict;
-    if (verdict === "strong") right ? sureRight++ : sureWrong++;
+    if (verdict === "strong") x.case.expect === "none" ? sureNothing++ : right ? sureRight++ : sureWrong++;
     else right ? quietWrong++ : quietRight++;
   }
   const answered = r.filter(x => x.ranked && x.exists !== undefined && reach.includes(x)).map(x => x.exists!);
@@ -237,17 +242,17 @@ export function scoreRun(run: ModelRun, t = SEARCH_THRESHOLDS): ModelScore {
     hit1: pos.filter(x => hitAt(order(x), expectOf(x), 1)).length, hit5: pos.filter(x => hitAt(order(x), expectOf(x), 5)).length,
     lexHit1: pos.filter(x => hitAt(x.lexical, expectOf(x), 1)).length, lexHit5: pos.filter(x => hitAt(x.lexical, expectOf(x), 5)).length,
     existsAnswered: avg(answered), existsNot: avg(not),
-    sureRight, sureWrong, quietRight, quietWrong,
+    sureRight, sureWrong, sureNothing, quietRight, quietWrong,
     tokensIn: r.reduce((a, x) => a + (x.cached ? 0 : x.usage?.input ?? 0), 0), tokensOut: r.reduce((a, x) => a + (x.cached ? 0 : x.usage?.output ?? 0), 0),
   };
 }
 
 /** Thresholds tried over the cached answers (no request): how often each would be sure and right, sure and wrong. */
-export function sweep(run: ModelRun): { exists: number; strong: number; sureRight: number; sureWrong: number; quietWrong: number }[] {
+export function sweep(run: ModelRun): { exists: number; strong: number; sureRight: number; sureWrong: number; sureNothing: number; quietWrong: number }[] {
   const rows = [];
   for (const exists of [0.5, 0.6, 0.7, 0.8, 0.9]) for (const strong of [1.5, 2, 2.5]) {
     const s = scoreRun(run, { ...SEARCH_THRESHOLDS, exists: { ...SEARCH_THRESHOLDS.exists, yes: exists }, strong });
-    rows.push({ exists, strong, sureRight: s.sureRight, sureWrong: s.sureWrong, quietWrong: s.quietWrong });
+    rows.push({ exists, strong, sureRight: s.sureRight, sureWrong: s.sureWrong, sureNothing: s.sureNothing, quietWrong: s.quietWrong });
   }
   return rows;
 }
@@ -269,15 +274,15 @@ export function reportNote(scores: readonly ModelScore[], sweeps: Record<string,
     row("text order hit@1 · hit@5", s => `${s.lexHit1} · ${s.lexHit5}`),
     row("answer among candidates", s => `${s.reachable}/${s.positives}`),
     row("Noul when it's there · when it isn't", s => `${s.existsAnswered ?? "—"} · ${s.existsNot ?? "—"}`),
-    row("sure and right · sure and wrong", s => `${s.sureRight} · ${s.sureWrong}`),
+    row("sure: right · another note · nothing there", s => `${s.sureRight} · ${s.sureWrong} · ${s.sureNothing}`),
     row("\"no strong match\" right · wrong", s => `${s.quietRight} · ${s.quietWrong}`),
     row("tokens in (new this run)", s => String(s.tokensIn)),
     "",
     `## Thresholds tried on ${meta.current}`,
     "Over the cached answers: when search would say it's sure, and when it would say \"no strong match\" over a right top.",
-    "| Noul yes | top Score | sure, right | sure, wrong | \"no strong match\", top right |",
-    "|---|---|---|---|---|",
-    ...(sweeps[meta.current] ?? []).map(r => `| ${r.exists} | ${r.strong} | ${r.sureRight} | ${r.sureWrong} | ${r.quietWrong} |`),
+    "| Noul yes | top Score | sure, right | sure, another note | sure, nothing there | \"no strong match\", top right |",
+    "|---|---|---|---|---|---|",
+    ...(sweeps[meta.current] ?? []).map(r => `| ${r.exists} | ${r.strong} | ${r.sureRight} | ${r.sureWrong} | ${r.sureNothing} | ${r.quietWrong} |`),
     "",
     `In use: Noul yes ${SEARCH_THRESHOLDS.exists.yes}, no ${SEARCH_THRESHOLDS.exists.no}, top Score ${SEARCH_THRESHOLDS.strong} (search-ranking.ts \`SEARCH_THRESHOLDS\`).`,
   ];
@@ -357,17 +362,14 @@ export function otherOutlineCases(cases: readonly EvalCase[], outlines: readonly
 
 /** The run kept in `into`: the page (once), a `jev-run` per model, and the report under the page. */
 export async function keepRun(client: EvalClient, scores: readonly ModelScore[], runs: readonly ModelRun[], note: string, day: string): Promise<string> {
-  const board = { request: (action: string, params?: Record<string, unknown>) => client.request({ action, ...params } as never) };
   let page = (await read(client, "system-view=search-evals"))[0];
   if (!page) { await client.request({ action: "create", text: EVALS_PAGE, parentId: null, ...EVAL }); page = (await read(client, "system-view=search-evals"))[0]; }
   for (const s of scores) {
     const run = runs.find(r => r.model === s.model)!;
-    await writeRecord(board as never, "jev-run", {
-      experiment: EVAL_EXPERIMENT, run: day, model: s.model, "prompt-rev": run.promptRev, items: String(s.positives),
-      agreed: String(s.hit1), agreement: String(s.positives ? Math.round(s.hit1 / s.positives * 100) / 100 : 0),
-      suggested: String(s.quietRight + s.quietWrong), quiet: String(s.sureRight + s.sureWrong), different: String(s.hit5),
-      ignored: String(s.negatives), unavailable: String(s.unavailable), "tokens-in": String(s.tokensIn), "tokens-out": String(s.tokensOut),
-    }, EVAL, { title: `search eval ${day} ${s.model}` });
+    await recordRun(client, EVAL_EXPERIMENT, day, {
+      items: s.positives, agreed: s.hit1, agreement: s.positives ? Math.round(s.hit1 / s.positives * 100) / 100 : 0, different: s.hit5,
+      suggested: s.quietRight + s.quietWrong, quiet: s.sureRight + s.sureWrong + s.sureNothing, ignored: s.negatives, unavailable: s.unavailable,
+    }, { model: s.model, prompt: run.prompt, questions: s.asked, usage: { input: s.tokensIn, output: s.tokensOut } });
   }
   const made = await client.request<{ id: string }>({ action: "create", text: note, parentId: page!.id, ...EVAL });
   return made.id;

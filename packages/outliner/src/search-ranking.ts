@@ -12,11 +12,12 @@ export interface SearchCollection<T extends SearchExcerpt> {matches:T[];complete
 
 /**
  * What a ranked search says, decided in code over Jev's answers (the truth table in `certaintyOf`). Set from the search
- * eval's run on Evan's and his agents' real queries (pie's "Search evals" note, `type=jev-run experiment=search-eval`):
- * `exists` is the Noul's yes and no (between them it isn't settled); `strong` the top Score (0–3) a sure answer needs;
- * under `floor` the top isn't a match at all, whatever the Noul says.
+ * eval (pie's Search evals page, `type=jev-run experiment=search-eval`; `ep0ch search eval` runs it again): on 168 real
+ * queries, a Noul yes at 0.8 rather than the skill's 0.7 cut the searches called sure with nothing there from 10 to 4,
+ * for 3 fewer sure right answers. `exists` is the Noul's yes and no (between them it isn't settled); `strong` the top
+ * Score (0–3) a sure answer needs; under `floor` the top isn't a match at all, whatever the Noul says.
  */
-export const SEARCH_THRESHOLDS = { exists: { yes: 0.7, no: 0.3 }, strong: 2, floor: 1 };
+export const SEARCH_THRESHOLDS = { exists: { yes: 0.8, no: 0.3 }, strong: 2, floor: 1 };
 /** The Noul reads the first candidates, each cut short: enough to judge "is it among these", not the whole of each. */
 export const EXISTS_CANDIDATES = 30, EXISTS_SNIPPET = 240;
 
