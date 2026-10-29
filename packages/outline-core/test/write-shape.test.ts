@@ -323,3 +323,22 @@ test("a question at the bottom is buried whether or not it names Evan; one answe
   expect(writeShape(`Notes\n\n${filler}\n\n## Why move them?\n\nThe wind.`)).toEqual([]);
   expect(writeShape(`Notes\n\n${filler}\n\n- [x] Order the grit now or in spring?`)).toEqual([]);
 });
+
+test("review findings on round three: a callout keeps its list, an aside between dashes is never cut, a bold question with its answer under it isn't buried", () => {
+  const callout = `Seeds\n\n> [!tip] Sorting\n> ${wall}`;
+  const inCallout = writeShape(callout).find(f => f.rule === "wall")!;
+  if (inCallout.patch) expect(apply(callout, inCallout.patch)).not.toContain("[!tip] Sorting\n\n");
+  const aside = "Hosts\n\nThe host — the one in the shed by the north fence, past the water butts and the compost — restarts every night at two, and nobody needs to touch it after that. The second host stays up. The third one sleeps. The fourth was retired.";
+  const cut = writeShape(aside).find(f => f.rule === "wall")!;
+  expect(cut.patch?.[0]?.replacement ?? "").not.toContain("- the one in the shed");
+  const filler = Array.from({ length: SHAPE_LIMITS.top }, (_, i) => `- point ${i}`).join("\n");
+  expect(writeShape(`Why one gate\n\n${filler}\n\n**Why one test gate?**\nTwo gates cost twice the CI.`)).toEqual([]);
+  expect(writeShape(`Why one gate\n\n${filler}\n\nWhy one test gate?\nTwo gates cost twice the CI.`)).toEqual([]);
+});
+
+test("a long item of two points is told its length, not that it stacks", () => {
+  const item = `- Board: ${"the first sentence runs on about the beds and the fence and the water ".repeat(2).trim()}. ${"The second sentence runs on about the shed and the tools ".repeat(2).trim()}.`;
+  const found = writeShape(`Notes\n\n${item}`).find(f => f.rule === "stacked")!;
+  expect(found.say).toContain(`is one item of ${item.length - 2} characters`);
+  expect(found.say).not.toContain("stacks 2 points");
+});

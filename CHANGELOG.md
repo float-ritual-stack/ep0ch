@@ -18,7 +18,7 @@ are its record. The outliner's entries from then are kept below, under
   list starts below it.
 - **A stacked bullet of clauses** (joined by `;` or a dash) comes with a patch, one clause a bullet.
 - **The words say what's wrong:** "a paragraph of 5 sentences (keep one to 3)" or "one sentence of 612 characters";
-  a callout is "would read better as a callout", not "a callouts"; the buried question's fix leads in plain words, so
+  a callout is "would read better as a callout", not "a callouts"; every finding leads with its fix, so
   the 44-column suggestions page reads it.
 
 ### Send to ep0ch from your phone in one tap (PIE-1408)

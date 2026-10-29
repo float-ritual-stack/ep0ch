@@ -196,9 +196,9 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
       const patch = stackedPatch(lines, p, patchPoints(rawOf(lines, p)));
       found.push({
         rule: "stacked", key: `stacked:${p.text.slice(0, 24)}…${p.text.slice(-24)}`, line: p.line + 1,
-        say: points.length > 1
+        say: points.length > SHAPE_LIMITS.itemPoints
           ? `line ${p.line + 1} stacks ${points.length} points in one item: a bullet is one point, so make each its own item, or a figure if they share fields${patch ? " (the patch makes the items)" : tooLong(lines, p)}`
-          : `line ${p.line + 1} ("${excerpt(p.text, 32)}") is one item of ${p.text.length} characters: a bullet is one short point; cut it, or put the detail in nested items under a short lead`,
+          : `line ${p.line + 1} is one item of ${p.text.length} characters: a bullet is one short point; cut it, or put the detail in nested items under a short lead${patch ? " (the patch makes the items)" : ""}`,
         ...(patch ? { patch } : {}),
       });
     } else if (!p.item && (sentences > SHAPE_LIMITS.sentences || p.text.length > SHAPE_LIMITS.paragraphChars)) {
@@ -245,7 +245,7 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
       // At the top: a "- [ ]" in the first lines, or the first sentence of the first line. Anything else is buried.
       const atTop = (i: number, sentence: string) => (top.has(i) && /^[ \t>]*[-*+][ \t]+\[ \][ \t]/.test(lines[i]!)) ||
         (i === body[0] && splitPoints(lines[i]!.replace(/^[ \t>]*(?:[-*+]|\d+[.)])?[ \t]*/, ""), { clauses: false })[0]?.trim() === sentence.trim());
-      const buried = lines.findIndex((line, i) => i !== header?.line && structure[i] === -1 && (o.asks ? o.asks.has(i) : asksEvan(line) || endsAsking(line)) && !atTop(i, askedSentence(line, o.asks !== undefined)));
+      const buried = lines.findIndex((line, i) => i !== header?.line && structure[i] === -1 && (o.asks ? o.asks.has(i) : asksAt(lines, i)) && !atTop(i, askedSentence(line, o.asks !== undefined)));
       if (buried >= 0) {
         const sentence = askedSentence(lines[buried]!, o.asks !== undefined);
         const patch = questionPatch(lines, buried, header?.line ?? 0, sentence);
@@ -286,7 +286,7 @@ function masked(text: string): string {
 
 /**
  * The points one prose unit makes, in its own words: its sentences, and (unless `clauses: false`) the clauses a `;` or a
- * spaced dash joins. Counting takes both; a patch cuts at sentences only, so no item starts mid-sentence.
+ * spaced dash joins. Counting takes both; a patch's cuts are `patchPoints`'s.
  */
 export function splitPoints(text: string, o: { clauses?: boolean } = {}): string[] {
   const m = masked(text);
@@ -336,7 +336,11 @@ const fitsBullet = (point: string) => point.length <= SHAPE_LIMITS.itemChars && 
  * `;` or a spaced dash) cut at those, the joiner dropped. Every piece must fit a bullet, or the unit gets no patch.
  */
 function patchPoints(raw: string): string[] {
-  return splitPoints(raw, { clauses: false }).flatMap(sentence => fitsBullet(sentence) ? [sentence] : splitPoints(sentence).map(clause => clause.replace(/;$/, "")));
+  return splitPoints(raw, { clauses: false }).flatMap(sentence => {
+    // An aside between two dashes ("the host — the one in the shed — restarts") is one point: never cut, so no patch.
+    if (fitsBullet(sentence) || (masked(sentence).match(/\s(?:—|–|--)\s/g) ?? []).length > 1) return [sentence];
+    return splitPoints(sentence).map(clause => clause.replace(/;$/, ""));
+  });
 }
 
 /** A stacked item made into one item per point: a lead (`**Board:**`) keeps the item and its points nest under it. */
@@ -360,7 +364,7 @@ function wallPatch(lines: readonly string[], p: Paragraph): ShapePatch[] | undef
   if (points.length < 2 || !points.every(fitsBullet)) return undefined;
   const { quote, indent } = leadOf(lines[p.line]!);
   // A list right under a line of chips gets a blank line between: the chips stay the note's, never the first item's.
-  const gap = p.line > 0 && lines[p.line - 1]!.trim() ? "\n" : "";
+  const gap = !quote && p.line > 0 && chipsOnly(lines[p.line - 1]!) ? "\n" : "";
   return keepsEverything(sourceOf(lines, p), gap + points.map(point => `${quote}${indent}- ${point}`).join("\n"));
 }
 
@@ -537,15 +541,28 @@ function countFindings(lines: readonly string[], structure: readonly number[], t
 }
 
 /**
- * A line whose last sentence is a question, outside a heading, a table row and a ticked box: in a note an agent writes
- * for Evan, a question nobody answers after it asks him, whether or not it names him (PIE-1419). A question answered in
- * the same line ("Why the move? The wind.") isn't.
+ * Line `i` ends its paragraph with a question, outside a heading, a table row and a ticked box: in a note an agent writes
+ * for Evan, a question nobody answers after it asks him, whether or not it names him (PIE-1419). One answered after it
+ * (later in its line, or on the next line of its paragraph) isn't, and nor is a bold or italic line, a heading by another name.
  */
-export function endsAsking(line: string): boolean {
-  const content = stripQuotes(line, quoteDepth(line).depth);
-  if (HEADING.test(content) || TABLE_ROW.test(content) || /^[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[[^\] ]\]/.test(content)) return false;
-  const words = content.replace(/^[ \t]*(?:[-*+]|\d+[.)])?[ \t]*(?:\[ \][ \t]*)?/, "").replace(PROPERTY_CHIP, " ").trim();
-  return !!words && /\?["'”)*_]*$/.test(splitPoints(words, { clauses: false }).at(-1)!.trim());
+function endsAsking(lines: readonly string[], i: number): boolean {
+  const line = lines[i]!, { quote, indent, marker } = leadOf(line);
+  const content = line.slice(quote.length);
+  if (HEADING.test(content) || TABLE_ROW.test(content) || /\[[^\] ]\]/.test(marker)) return false;
+  const words = line.slice(quote.length + indent.length + marker.length).replace(PROPERTY_CHIP, " ").trim();
+  if (!words || /^(\*\*|__|\*|_)[^*_].*\1$/.test(words)) return false;
+  const next = lines[i + 1];
+  if (next !== undefined && next.slice(leadOf(next).quote.length).trim() && !leadOf(next).marker && !HEADING.test(next)) return false;
+  return /\?["'”)*_]*$/.test(splitPoints(words, { clauses: false }).at(-1)!.trim());
+}
+
+/**
+ * Whether line `i` asks Evan: the one answer, the review's and code's alone. Jev's judgment, when it was asked, is
+ * `yes` (an ask whatever the words), `no` (said firmly: a question that asks nothing) or unsure; a line that names Evan
+ * and asks, or ends its paragraph with a question, is an ask unless Jev said no to the question (PIE-1402, PIE-1419).
+ */
+export function asksAt(lines: readonly string[], i: number, jev?: "yes" | "no"): boolean {
+  return asksEvan(lines[i]!) || jev === "yes" || (jev !== "no" && endsAsking(lines, i));
 }
 
 /** A line that asks Evan: names him and has a question mark or a decision word. A heuristic until PIE-1251's judgment replaces it. */

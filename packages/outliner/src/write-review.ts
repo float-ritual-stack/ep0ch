@@ -15,7 +15,7 @@ import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import { calloutBlocks, quoteDepth } from "@ep0ch/outline-core/callouts";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { headerLine } from "@ep0ch/outline-core/header-line";
-import { asksEvan, endsAsking, FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
+import { asksAt, FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
 import { chipValue } from "./records";
@@ -297,24 +297,15 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   const sections = changed.filter(s => s.text.split("\n").filter(l => l.trim()).length >= 1).slice(0, MAX_SECTIONS);
   if (input.jev && input.schemas && (sections.length || asks.length || ask.title)) asked = await askJev(text, sections, asks, input.schemas, ask, o);
   const answers = asked && "answers" in asked ? asked.answers : undefined;
-  const asksOf = (line: string, i: number) => {
-    const noul = answers?.[`asks::L${i}`]?.noul;
-    // Jev's yes where it was asked, and the word heuristic's (Evan named, with a question or a decision word) either way:
-    // a line that names Evan and asks is an ask whatever Jev said (PIE-1402: "Should Evan pick up…?" went unflagged).
-    // A line ending in a question is one too unless Jev says firmly it isn't: an unsure Jev never hides it (PIE-1419).
-    return asksEvan(line) || (unit(noul) && noul >= REVIEW_THRESHOLDS.yes) || (endsAsking(line) && !(unit(noul) && noul <= REVIEW_THRESHOLDS.no));
-  };
-  const judged: { asks?: Set<number>; titleIsContent?: boolean } = answers ? {
-    asks: new Set(lines.flatMap((line, i) => asksOf(line, i) ? [i] : [])),
+  // Jev's word on each line it was asked about, read by the threshold; write-shape's asksAt decides what it means.
+  const jevSays = (i: number) => { const n = answers?.[`asks::L${i}`]?.noul; return !unit(n) ? undefined : n >= REVIEW_THRESHOLDS.yes ? "yes" as const : n <= REVIEW_THRESHOLDS.no ? "no" as const : undefined; };
+  const judged = answers ? {
+    asks: new Set(lines.flatMap((_, i) => asksAt(lines, i, jevSays(i)) ? [i] : [])),
     ...(unit(answers.title?.noul) ? { titleIsContent: answers.title!.noul! >= REVIEW_THRESHOLDS.yes } : {}),
   } : {};
   const shape = { facets: await input.facets, ...judged };
-  // The note before this write is measured with the same judgments, found by a line's words (its lines are numbered
-  // differently): a line that asks now asked then.
-  const askedLines = new Set(judged.asks ? [...judged.asks].map(i => lines[i]!) : []);
-  const beforeShape = judged.asks && before !== undefined ? { ...shape, asks: new Set(before.split("\n").flatMap((line, i) => askedLines.has(line) ? [i] : [])) } : shape;
   const had = new Map<string, number>();
-  for (const f of before === undefined ? [] : writeShape(before, beforeShape)) had.set(f.key, (had.get(f.key) ?? 0) + 1);
+  for (const f of before === undefined ? [] : writeShape(before, shape)) had.set(f.key, (had.get(f.key) ?? 0) + 1);
   const code: ReviewFinding[] = writeShape(text, shape).map(f => {
     const n = had.get(f.key) ?? 0;
     if (n) had.set(f.key, n - 1);
