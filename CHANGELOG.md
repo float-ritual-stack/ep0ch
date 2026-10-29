@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### @loki in a comment reaches loki, and stays on its list until it answers (PIE-1404)
+
+- **Write `@loki …` (or `@daddy`, `@kitty`) in a comment on any note,** from the door, a web page on your phone or
+  another agent: that persona's live Claude sessions hear it within 30 minutes, with the note, the words and who
+  wrote it, yours first.
+- **It stays on the list** in every wake until the persona replies in the thread or the thread is resolved; a session
+  started later hears what's still open within a minute of starting.
+- Nothing to run: it ships with the Claude mod (`ep0ch install --apply`).
 ### A bulk job never freezes the host: your door answers at once while thousands of records are written (PIE-1413)
 
 - **What you'll notice:** a write-review backfill, an import or an agent's bulk writes no longer stall the outline
