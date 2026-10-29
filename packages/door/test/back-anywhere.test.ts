@@ -12,9 +12,23 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
+import { historyRow } from "../src/surface/note";
+const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "");
 
 const leaf = (kind: string, name: string, more: Record<string, unknown> = {}) => ({ t: "leaf", kind, name, ...more });
 const char = (ch: string): Key => ({ kind: "char", ch } as Key);
+
+test("a narrow reader's back row drops the title, then the words, never cutting back or forward short", () => {
+  for (let w = 4; w <= 44; w++) {
+    const row = historyRow(w, "Paint the potting shed", "Weekend jobs")!;
+    const text = plain(row.line);
+    expect(text).toContain("←");
+    expect(text).toContain("→");
+    expect(text).not.toMatch(/← ba?c?k?…|f?o?r?w?a?r?d?… →|…→/);
+    expect(row.hits.map(h => h.dir)).toEqual(w >= 40 ? [-1, 0, 1] : [-1, 1]);
+  }
+  expect(plain(historyRow(20, "Paint the potting shed", null)!.line)).toContain("← back · Paint");
+});
 
 describe.skipIf(!outliner)("Back goes back in every tile, whichever tile changed it (PIE-1426)", () => {
   const scratch = new Scratch();
@@ -99,6 +113,31 @@ describe.skipIf(!outliner)("Back goes back in every tile, whichever tile changed
     await Bun.sleep(300);
     expect(r("preview").msg?.id).toBe(n.seeds.id);
     expect(r("preview").surface.describeHistory().forward.map((s: any) => s.title)).toEqual(["Rain gauge"]);
+  }, 30_000);
+
+  test("forward onto the detail's own note shows it in the preview: the layout and the wires stay", async () => {
+    await build();
+    const tiles = () => (D().layoutAll().tiles as any[]).map(t => t.name).sort();
+    const wires = () => JSON.stringify({ tree: D().layout.tree, wires: D().layout.wires });
+    const before = { tiles: tiles(), wires: wires() };
+    // A pick of the shed up top shows it in the preview; b there lists the shed's links, whose first pick is the hub.
+    await mine("tile.focus", {}, "detail");
+    for (let i = 0; i < 20 && !String(r("detail").surface.describe().elements?.current?.label ?? "").startsWith("Paint the shed"); i++) { key(char("]")); render(); }
+    key({ kind: "enter" } as Key);
+    await whole("preview", n.shed.id);
+    await mine("tile.focus", {}, "preview");
+    key(char("b"));
+    await until(() => L().target?.id === n.shed.id && !!L().data, "the links tile lists the shed's links");
+    await whole("preview", n.hub.id);
+    await mine("tile.focus", {}, "preview");
+    key({ kind: "alt-left" } as Key);
+    await whole("preview", n.shed.id);
+    key({ kind: "alt-right" } as Key);
+    await whole("preview", n.hub.id);
+    render();
+    expect(tiles()).toEqual(before.tiles);
+    expect(wires()).toBe(before.wires);
+    expect(D().nameOf(D().focus)).toBe("preview");
   }, 30_000);
 
   afterAll(async () => { D()?.dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });

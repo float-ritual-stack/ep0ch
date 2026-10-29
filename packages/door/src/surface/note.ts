@@ -405,11 +405,20 @@ export function historyKey(k: Key): -1 | 1 | 0 {
  * `<title> · forward →` on the right, each a click (`hits`, in the row's cells). Null with nowhere to go.
  */
 export function historyRow(w: number, back: string | null, forward: string | null, trail = true): { line: string; hits: { from: number; to: number; dir: TrailDir }[] } | null {
-  if ((!back && !forward) || w < 12) return null;
+  if ((!back && !forward) || w < 4) return null;
   // The trail's chip (PIE-208) after back, where the row has room for it beside both titles.
   const chip = trail && w >= TRAIL_CHIP_MIN ? TRAIL_CHIP : "", chipW = chip ? width(chip) + 2 : 0;
   const room = back && forward ? Math.floor((w - 3 - chipW) / 2) : w - 2 - chipW;
-  const b = back ? drawEllipsized(`${fg(C.lcyan)}← back${fg(C.dark)} · ${printable(back)}`, room) : "", f = forward ? drawEllipsized(`${fg(C.dark)}${printable(forward)} · ${fg(C.lcyan)}forward →`, room) : "";
+  // Narrow (a preview at 40 columns, PIE-1426): the title goes before the words do, and the words before the arrow,
+  // so the row always says which way each click goes, never "← ba…".
+  const side = (word: string, title: string, arrow: string, before: boolean) => {
+    if (room >= width(word) + 6) {
+      const t = `${fg(C.dark)}${drawEllipsized(printable(title), room - width(word) - 3)}`;
+      return before ? `${fg(C.lcyan)}${word}${fg(C.dark)} · ${t}` : `${t}${fg(C.dark)} · ${fg(C.lcyan)}${word}`;
+    }
+    return `${fg(C.lcyan)}${room >= width(word) ? word : arrow}`;
+  };
+  const b = back ? side("← back", back, "←", true) : "", f = forward ? side("forward →", forward, "→", false) : "";
   const hits: { from: number; to: number; dir: TrailDir }[] = [];
   let line = "", at = 0;
   if (b) { line += " " + b + RESET; hits.push({ from: 0, to: 1 + width(b), dir: -1 }); at = 1 + width(b); }
