@@ -46,8 +46,8 @@ import { centred, ListPicker, pickRows, pickRow } from "./surface/picker";
 import { spawn as spawnDetached } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { Desk, type MovedTile } from "./desk/desk";
-import { ptyBackend } from "./desk/pty-backend";
+import { Desk, savedLayoutNames, type MovedTile } from "./desk/desk";
+import { ptyBackend, type KeptProgram } from "./desk/pty-backend";
 import type { Pane } from "./desk/panes";
 import type { ScreenSpec } from "./desk/screen-spec";
 import type { TileDone, Where } from "./desk/tile-actions";
@@ -459,17 +459,24 @@ export class AgentDrawer {
       return [{ ...s, ...st, shown: this.shownOf(p), pid: p.pid ?? null }];
     });
     // What the terminal host keeps with no tile (PIE-1432): every program, an agent or not, so none is dropped unseen.
-    for (const k of ptyBackend().kept?.() ?? []) {
+    for (const k of this.untiled()) {
       const live = k.pid ? agentIn(k.pid) : null;
       rows.push({
-        program: agentOf(k.cmd) ?? live?.program ?? programName(k.cmd), folder: live?.cwd ?? cwdOf(k.pid) ?? process.cwd(), persona: live?.persona ?? null, config: null, how: "kept",
-        ...(k.at && now - k.at < 1500 ? { state: "working" as const, word: "working" } : { state: "idle" as const, word: "idle" }), shown: { in: "no tile", key: k.key, at: k.at }, pane: null, pid: k.pid,
+        program: k.session?.program ?? agentOf(k.cmd) ?? live?.program ?? programName(k.cmd), folder: live?.cwd ?? k.cwd ?? cwdOf(k.pid) ?? process.cwd(),
+        persona: k.session?.persona ?? live?.persona ?? null, config: k.session?.config ?? null, how: "kept",
+        ...stateOf({ status: { urgent: () => null } as never, lastOutput: k.at ?? 0 }, now), shown: { in: "no tile", key: k.key, at: k.at }, pane: null, pid: k.pid,
       });
     }
     // Your drawer's first, then the screen shown, then the rest, then what has no tile; each in the order its tiles were made.
     const rank = (x: Shown) => (x.in === "drawer" ? 0 : x.in === "screen" && x.here ? 1 : x.in === "no tile" ? 3 : 2);
     return withIds(rows.sort((a, b) => rank(a.shown) - rank(b.shown)));
   }
+
+  /**
+   * What the terminal host keeps with no tile and no saved layout to come back to (PIE-1432): a program a screen not
+   * opened since the restart will adopt isn't one (`savedLayoutNames`); the rest are the agent panel's "no tile" rows.
+   */
+  untiled(): KeptProgram[] { return (ptyBackend().kept?.() ?? []).filter(k => !(this.persist && savedLayoutNames(k.key))); }
 
   /** Where terminal `p` is shown now: your drawer, the screen shown, a screen under it or kept, or nowhere. */
   shownOf(p: Pane): Shown {
@@ -570,10 +577,11 @@ export class AgentDrawer {
     const d = this.desk;
     if (!d) throw new ActionRefused("the drawer isn't ready (no screen is shown yet)");
     if (s.shown.in !== "no tile") throw new ActionRefused(`${s.id} has a tile already`);
-    const key = s.shown.key, kept = (ptyBackend().kept?.() ?? []).find(k => k.key === key);
+    const key = s.shown.key, kept = this.untiled().find(k => k.key === key);
     if (!kept) throw new ActionRefused(`${s.id} isn't kept any more (it ended, or a tile took it) · agents.list says what runs`);
-    const agent = !!agentOf(kept.cmd);
-    const p = new PtyPane({ cmd: kept.cmd, cwd: s.folder, label: s.program, ...(agent ? { agent: true, inShell: true } : {}) });
+    // An agent (by its command, or started as a session) runs in the person's login shell, its session mark kept.
+    const agent = !!agentOf(kept.cmd) || !!kept.session;
+    const p = new PtyPane({ cmd: kept.cmd, cwd: kept.cwd ?? s.folder, label: s.program, ...(agent ? { agent: true, inShell: true } : {}), ...(kept.session ? { session: kept.session } : {}) });
     // Its first start is the adopt: the key it is kept under, and the command it was kept with.
     p.keptKey = key;
     if (agent) tileRegistry.setRole(p, ROLE_AGENT);

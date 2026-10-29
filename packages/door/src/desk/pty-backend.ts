@@ -4,6 +4,8 @@
 // restarted, the new one adopts the programs it left (`adopt`), with what they wrote meanwhile, and nothing a tile
 // runs notices. PtyPane (src/desk/pty.ts) draws the program either way; only this seam knows which.
 
+import type { SessionMark } from "./agent-sessions";
+
 /** A running program in a pty, as the tile drives it. */
 export interface PtyProc {
   /** Its process id, once known (a host's spawn says it a moment later). */
@@ -30,6 +32,9 @@ export interface PtyMeta {
   toldId?: string | null;
   /** The Herdr pane an attach shows (`tile.herdr`). */
   herdr?: { pane: string; name?: string } | null;
+  /** The folder it was started in, and the agent session it was started as: what a tile that puts it back needs (PIE-1432). */
+  cwd?: string;
+  session?: SessionMark;
 }
 
 export interface PtyStart {
@@ -67,8 +72,8 @@ export interface PtyBackend {
   kept?(): KeptProgram[];
 }
 
-/** A program the terminal host keeps that no tile has: its key, the tile's command, its pid and when it last wrote. */
-export interface KeptProgram { key: string; cmd: string[]; pid: number | null; at: number | null }
+/** A program the terminal host keeps that no tile has: its key, the tile's command, its pid, when it last wrote, its tile's folder and session mark. */
+export interface KeptProgram { key: string; cmd: string[]; pid: number | null; at: number | null; cwd?: string; session?: SessionMark }
 
 /** This process's own ptys: a program ends when the door does (PtyPane's exit hook). */
 export const localPtys: PtyBackend = {

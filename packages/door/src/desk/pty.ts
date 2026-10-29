@@ -536,7 +536,7 @@ export class PtyPane implements Pane {
   /** Start the emulator over from what the program wrote (a host's resync). */
   private resync: ((replay: Uint8Array) => void) | null = null;
   /** What the terminal host keeps with the program for the next daemon: its command, nvim's socket, a Herdr attach. */
-  private meta(): PtyMeta { return { cmd: this.run.cmd, socket: this.socket, herdr: this.herdrPane, toldId: this.toldId }; }
+  private meta(): PtyMeta { return { cmd: this.run.cmd, socket: this.socket, herdr: this.herdrPane, toldId: this.toldId, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.session ? { session: this.run.session } : {}) }; }
   private remember() { const k = this.keptAs; if (k && this.running) ptyBackend().meta(k, this.meta()); }
 
   /** Connect to nvim's socket and ask it to report its view. A failure leaves the tile a plain terminal. */

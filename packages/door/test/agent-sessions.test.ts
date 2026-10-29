@@ -15,6 +15,7 @@ import type { Key } from "../src/term";
 import { agentIn, agentOf, agentOfApp, asSession, claudeProjectDir, configsOf, hasConversation, piSessionDir, pickSession, resumeArgs, sessionCommand, tildeOf, withIds } from "../src/desk/agent-sessions";
 import { agentArgs } from "../src/agent-cli";
 import { ensurePtyHost, ptyHostSocket } from "../src/session/pty-host";
+import { outlineState } from "../src/state";
 import { outliner, Scratch, until } from "./scratch";
 
 const USER = { kind: "user" } as const;
@@ -448,6 +449,8 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
       const outs = { a: "", b: "", c: "" };
       const a = first.spawn({ key: "drawer.json#2:drawer.agent", argv: [claude], cwd: join(work, "garden-shed"), env, cols: 60, rows: 10, meta: { cmd: [claude] } }, d => { outs.a += Buffer.from(d).toString(); });
       const b = first.spawn({ key: "desk.json:t77", argv: [join(work, "fern-agent")], cwd: join(work, "potting-bench"), env, cols: 60, rows: 10, meta: { cmd: [join(work, "fern-agent")] } }, d => { outs.b += Buffer.from(d).toString(); });
+      // A fourth waits for its screen (board.json still names its tile t8): not "no tile", its screen adopts it.
+      const w = first.spawn({ key: "board.json:t8", argv: [claude], cwd: join(work, "potting-bench"), env, cols: 60, rows: 10, meta: { cmd: [claude] } }, () => {});
       const c = first.spawn({ key: "river.json:t3", argv: [claude], cwd: join(work, "potting-bench"), env, cols: 60, rows: 10, meta: { cmd: [claude] } }, d => { outs.c += Buffer.from(d).toString(); });
       a.write("the beans need water\n");
       await until(() => outs.a.includes("turn 1: the beans") && outs.b.includes("fake agent in") && outs.c.includes("fake agent in") && !!a.pid && !!b.pid && !!c.pid, "the kept programs running");
@@ -455,10 +458,12 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
       const { host: next } = await ensurePtyHost(dir);
       usePtyBackend(next);
       process.env.EP0CH_STATE = state;
+      writeFileSync(join(outlineState(), "board.json"), JSON.stringify({ root: { t: "leaf", kind: "pty", name: "bench", id: "t8", cmd: [claude] } }));
       const d = await door();
       try {
         const rows = await d.list();
         expect(rows.map(r => [r.program, r.shown.in, r.pid])).toEqual([["claude", "no tile", a.pid], ["fern-agent", "no tile", b.pid], ["claude", "no tile", c.pid]]);
+        expect(rows.some(r => r.pid === w.pid)).toBe(false);
         expect(rows[0]).toMatchObject({ shown: { in: "no tile", key: "drawer.json#2:drawer.agent" }, where: expect.stringMatching(/^no tile/) });
         // The panel says it too.
         await d.app.act({ action: "agents.open", args: {}, as: AS });
@@ -489,7 +494,7 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
         d.key({ kind: "enter" });
         await until(() => d.app.drawer.sessions().find(s => s.pid === c.pid)?.shown.in === "drawer", "put back by ⏎");
         expect(d.app.drawer.desk!.pane(d.app.drawer.desk!.focusedName()!)).toBe(d.app.drawer.sessions().find(s => s.pid === c.pid)!.pane!);
-        expect(next.unadopted()).toEqual([]);
+        expect(next.unadopted().map(u => u.key)).toEqual(["board.json:t8"]);
       } finally { end(d.app); }
     } finally {
       usePtyBackend(localPtys);

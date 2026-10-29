@@ -336,7 +336,7 @@ export class HostPtys implements PtyBackend {
   /** Programs the host keeps that no tile has adopted (yet): `session list` says them. */
   unadopted(): HostPty[] { return [...this.entries.values()].filter(e => !e.adopted && e.exited === null).map(({ id, key, argv, cols, rows, meta, pid, exited, at }) => ({ id, key, argv, cols, rows, meta, ...(pid ? { pid } : {}), exited, ...(at ? { at } : {}) })); }
 
-  kept(): KeptProgram[] { return this.unadopted().flatMap(p => (p.key ? [{ key: p.key, cmd: p.meta.cmd ?? p.argv, pid: p.pid ?? null, at: p.at ?? null }] : [])); }
+  kept(): KeptProgram[] { return this.unadopted().flatMap(p => (p.key ? [{ key: p.key, cmd: p.meta.cmd ?? p.argv, pid: p.pid ?? null, at: p.at ?? null, ...(p.meta.cwd ? { cwd: p.meta.cwd } : {}), ...(p.meta.session ? { session: p.meta.session } : {}) }] : [])); }
 
   /** End every program and the host (the session ends). */
   endAll(): void { if (!this.sock.destroyed) this.sock.end(frame("q", 0)); }
