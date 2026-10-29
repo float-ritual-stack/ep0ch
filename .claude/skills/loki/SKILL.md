@@ -51,6 +51,7 @@ After a merge to main (yours, or a sha an agent hands you):
    it is often off by work policy: that is normal, never work around it. A step only Evan can do goes on the build
    log's **Needs you** with the exact command.
 8. Write it up: a line in today's build log, patch notes on the requests it answers, and the release notes (below).
+   A build-log line's time comes from `date` (local time, Toronto) or the event's own stamp (`gh pr view <n> --json mergedAt`), never from memory or an estimate: on Oct 29 estimated times ran two hours ahead and a reader caught it.
 
 Never deploy over someone else's half-finished migration, and never kill the outline host or a publisher you didn't
 start except through its service.
