@@ -46,8 +46,8 @@ import { centred, ListPicker, pickRows, pickRow } from "./surface/picker";
 import { spawn as spawnDetached } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { Desk, type MovedTile } from "./desk/desk";
-import { ptyBackend } from "./desk/pty-backend";
+import { Desk, savedLayoutNames, type MovedTile } from "./desk/desk";
+import { ptyBackend, type KeptProgram } from "./desk/pty-backend";
 import type { Pane } from "./desk/panes";
 import type { ScreenSpec } from "./desk/screen-spec";
 import type { TileDone, Where } from "./desk/tile-actions";
@@ -58,7 +58,7 @@ import { rowFacts, WAITING_YOU_KIND_NAME } from "./desk/waiting-you";
 import { ACCESS_MATRIX_KIND_NAME, sourceOf } from "./desk/access-matrix";
 import { gatherMatrix } from "./mcp-access-matrix";
 import { AGENTS_KIND_NAME } from "./desk/agents-panel";
-import { agentOf, asSession, configsOf, pickSession, sessionCommand, sessionFacts, shownWords, stateOf, tildeOf, untilde, withIds, type AgentConfig, type AgentSession, type Shown } from "./desk/agent-sessions";
+import { agentIn, agentOf, asSession, configsOf, cwdOf, pickSession, sessionCommand, sessionFacts, shownWords, stateOf, tildeOf, untilde, withIds, type AgentConfig, type AgentSession, type Shown } from "./desk/agent-sessions";
 import { existsSync, statSync } from "node:fs";
 import { basename, resolve as resolvePath } from "node:path";
 import { words } from "./text";
@@ -90,38 +90,6 @@ export function hostSpec(persist = true): ScreenSpec {
     name: "drawer", title: "drawer", digits: false, layouts: true, ...(persist ? { saves: "drawer-tiles.json" } : {}),
     layout: { root: { t: "tabs", tabs: [], active: 0 } as never },
   };
-}
-/**
- * A drawer saved by an older door (before PIE-1331) holds its own program as a `drawer.own` leaf, known only by the key it
- * runs under (`drawer.json#<gen>:drawer.agent`): read once as an ordinary agent tab adopting that key, so a handover onto
- * this code keeps the program. While that program was out on a screen the leaf only held its place: it goes. Delete this
- * once pie and float-hub have handed over (PIE-1332).
- */
-export function oldOwnLeaves(saved: unknown, drawer: { gen?: unknown; out?: unknown } | null): { value: unknown; changed: number } {
-  const gen = typeof drawer?.gen === "number" && Number.isInteger(drawer.gen) && drawer.gen > 0 ? drawer.gen : 0;
-  const key = `drawer.json${gen ? `#${gen}` : ""}:${DRAWER_TILE_ID}`, out = !!drawer?.out;
-  let changed = 0;
-  const old = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && (x as { t?: unknown }).t === "leaf" && (x as { kind?: unknown }).kind === "drawer.own";
-  const walk = (x: unknown): unknown => {
-    if (Array.isArray(x)) return x.map(walk);
-    if (!x || typeof x !== "object") return x;
-    // While its program was out, the leaf only held its place: it leaves its tab set, the tab shown staying the one shown.
-    const t = x as { t?: unknown; tabs?: unknown; active?: unknown };
-    if (out && t.t === "tabs" && Array.isArray(t.tabs) && t.tabs.some(old)) {
-      const tabs = t.tabs as unknown[], gone = tabs.filter(old).length, at = typeof t.active === "number" ? t.active : 0;
-      changed += gone;
-      const before = tabs.slice(0, at).filter(old).length, active = Math.max(0, Math.min(at - before, tabs.length - gone - 1));
-      return walk({ ...t, tabs: tabs.filter(y => !old(y)), active });
-    }
-    if (old(x)) {
-      changed++;
-      const { slot: _slot, ...rest } = x;
-      const cmd = Array.isArray(x.cmd) ? x.cmd as string[] : [];
-      return { ...rest, kind: "pty", role: ROLE_AGENT, name: x.name === DRAWER_TILE_ID ? programName(cmd) || "agent" : x.name, kept: typeof x.kept === "string" && x.kept ? x.kept : key };
-    }
-    return Object.fromEntries(Object.entries(x).map(([k, y]) => [k, walk(y)]));
-  };
-  return { value: walk(saved), changed };
 }
 /** What a drop on the chip or the open drawer says while dragging: the tile goes into your drawer, and travels with you. */
 export const DRAWER_DROP = "into your drawer: travels with you";
@@ -216,11 +184,6 @@ export class AgentDrawer {
     const share = s && typeof s.share === "number" && Number.isFinite(s.share) ? clamp(s.share) : 0.5;
     this.layer = hostLayer({ tabs: [HOST_TILES], names: new Map([[HOST_TILES, HOST_TILES]]), share, open });
     this.prog = this.program();
-    // An older door's drawer (its own program a drawer.own leaf): read once as an agent tab (PIE-1332 deletes this).
-    if (persist) {
-      const tiles = readState<unknown>("drawer-tiles.json", outlineState()), was = oldOwnLeaves(tiles, s as { gen?: unknown; out?: unknown } | null);
-      if (tiles && was.changed) writeState("drawer-tiles.json", was.value, outlineState());
-    }
   }
 
   /** What a new agent tab runs and its folder, for the outline the door is on. */
@@ -488,17 +451,32 @@ export class AgentDrawer {
    */
   sessions(now = Date.now()): AgentSession[] {
     const panes = livePrograms().filter(p => p.door === this);
-    const rows = panes.flatMap(p => {
+    const rows: Omit<AgentSession, "id">[] = panes.flatMap(p => {
       const own = tileRegistry.roleOf(p) === ROLE_AGENT;
       const s = asSession(p, { own, now });
       if (!s) return [];
       const st = own && p.herdr ? ((x: AgentState) => ({ state: x === "blocked" ? "waiting" as const : x === "failed" ? "failed" as const : x === "working" ? "working" as const : x === "done" ? "done" as const : "idle" as const, word: x === "blocked" ? "needs you" : x }))(this.paneState(p, now)) : stateOf(p, now);
-      return [{ ...s, ...st, shown: this.shownOf(p) }];
+      return [{ ...s, ...st, shown: this.shownOf(p), pid: p.pid ?? null }];
     });
-    // Your drawer's first, then the screen shown, then the rest; each in the order its tiles were made.
-    const rank = (x: Shown) => (x.in === "drawer" ? 0 : x.in === "screen" && x.here ? 1 : 2);
+    // What the terminal host keeps with no tile (PIE-1432): every program, an agent or not, so none is dropped unseen.
+    for (const k of this.untiled()) {
+      const live = k.pid ? agentIn(k.pid) : null;
+      rows.push({
+        program: k.session?.program ?? agentOf(k.cmd) ?? live?.program ?? programName(k.cmd), folder: live?.cwd ?? k.cwd ?? cwdOf(k.pid) ?? process.cwd(),
+        persona: k.session?.persona ?? live?.persona ?? null, config: k.session?.config ?? null, how: "kept",
+        ...stateOf({ status: { urgent: () => null } as never, lastOutput: k.at ?? 0 }, now), shown: { in: "no tile", key: k.key, at: k.at }, pane: null, pid: k.pid,
+      });
+    }
+    // Your drawer's first, then the screen shown, then the rest, then what has no tile; each in the order its tiles were made.
+    const rank = (x: Shown) => (x.in === "drawer" ? 0 : x.in === "screen" && x.here ? 1 : x.in === "no tile" ? 3 : 2);
     return withIds(rows.sort((a, b) => rank(a.shown) - rank(b.shown)));
   }
+
+  /**
+   * What the terminal host keeps with no tile and no saved layout to come back to (PIE-1432): a program a screen not
+   * opened since the restart will adopt isn't one (`savedLayoutNames`); the rest are the agent panel's "no tile" rows.
+   */
+  untiled(): KeptProgram[] { return (ptyBackend().kept?.() ?? []).filter(k => !(this.persist && savedLayoutNames(k.key))); }
 
   /** Where terminal `p` is shown now: your drawer, the screen shown, a screen under it or kept, or nowhere. */
   shownOf(p: Pane): Shown {
@@ -559,7 +537,9 @@ export class AgentDrawer {
     if (!o.fresh) {
       const had = this.sessions().find(s => s.program === program && s.folder === folder);
       if (had) {
-        const went = person ? this.goTo(had.pane, actor) : null;
+        // Kept with no tile (PIE-1432): attaching puts it back in a drawer tab, the same process.
+        const pane = had.pane ?? this.putBack(had, actor).pane;
+        const went = person ? this.goTo(pane, actor) : null;
         return { attached: true, started: false, ...sessionFacts(had), ...(went ? { went: went.in } : {}) };
       }
     }
@@ -583,13 +563,39 @@ export class AgentDrawer {
   /** Jump to session `sel`: where it's shown, the keys in it (the person's only). */
   goSession(sel: string | number | undefined, actor: Actor) {
     const s = this.sessionOf(sel);
-    const went = this.goTo(s.pane, actor);
+    // A person's only (agents.go), so it takes the keys: one with no tile comes back in a drawer tab first.
+    const pane = s.pane ?? this.putBack(s, actor).pane;
+    const went = this.goTo(pane, actor);
     return { session: s.id, ...went };
+  }
+
+  /**
+   * A program the terminal host keeps with no tile (PIE-1432), back in a tile: a new agent tab in your drawer, behind the
+   * tab shown, that adopts it by its key (its command as the host keeps it, so the adopt takes it: never a second start).
+   */
+  private putBack(s: AgentSession, actor: Actor): { pane: PtyPane; tile: string; name: string } {
+    const d = this.desk;
+    if (!d) throw new ActionRefused("the drawer isn't ready (no screen is shown yet)");
+    if (s.shown.in !== "no tile") throw new ActionRefused(`${s.id} has a tile already`);
+    const key = s.shown.key, kept = this.untiled().find(k => k.key === key);
+    if (!kept) throw new ActionRefused(`${s.id} isn't kept any more (it ended, or a tile took it) · agents.list says what runs`);
+    // An agent (by its command, or started as a session) runs in the person's login shell, its session mark kept.
+    const agent = !!agentOf(kept.cmd) || !!kept.session;
+    const p = new PtyPane({ cmd: kept.cmd, cwd: kept.cwd ?? s.folder, label: s.program, ...(agent ? { agent: true, inShell: true } : {}), ...(kept.session ? { session: kept.session } : {}) });
+    // Its first start is the adopt: the key it is kept under, and the command it was kept with.
+    p.keptKey = key;
+    if (agent) tileRegistry.setRole(p, ROLE_AGENT);
+    const tile = d.bringIn({ pane: p, name: freeName(d, s.program.replace(/[^\w-]/g, "-") || "agent"), spec: { t: "leaf", kind: "pty" }, from: "drawer", typing: false }, this.tabBase(d), "tabs", actor);
+    p.startNow(...this.termSize());
+    if (p.pid !== kept.pid) this.host.flash(`${s.id} couldn't be adopted: a new one started in ${String(tile.name)}`, 8000);
+    this.host.redraw();
+    return { pane: p, tile: tile.tile, name: String(tile.name) };
   }
 
   /** Pull session `sel` into your drawer, from the screen it's on: the same process, the conversation kept. */
   pullSession(sel: string | number | undefined, actor: Actor): Record<string, unknown> {
     const s = this.sessionOf(sel);
+    if (s.shown.in === "no tile") { const back = this.putBack(s, actor); return { session: s.id, pid: back.pane.pid ?? null, tile: back.tile, name: back.name, inDrawer: true }; }
     if (s.shown.in === "drawer") throw new ActionRefused(`${s.id} is in your drawer already (${s.shown.name}) · d docks it on this screen`);
     if (s.shown.in === "nowhere") throw new ActionRefused(`${s.id} isn't on a screen this door shows`);
     const ctx = this.host.ctx?.(), top = this.host.screen?.(), address = s.shown.tile;
@@ -597,18 +603,20 @@ export class AgentDrawer {
     const from = tilesOf(sc);
     if (!from) throw new ActionRefused(`${s.id} isn't on a screen this door shows`);
     const done = this.put(from, s.shown.tile, actor);
-    return { session: s.id, pid: s.pane.pid ?? null, ...done };
+    return { session: s.id, pid: s.pid, ...done };
   }
 
   /** Dock session `sel` on the screen shown, from your drawer or another screen: the same process, the conversation kept. */
   dockSession(sel: string | number | undefined, actor: Actor): Record<string, unknown> {
     let s = this.sessionOf(sel);
+    // With no tile: back in a drawer tab first, then out onto the screen like any other.
+    if (s.shown.in === "no tile") { const back = this.putBack(s, actor); return { session: s.id, pid: back.pane.pid ?? null, ...this.take(back.tile, undefined, undefined, actor) }; }
     if (s.shown.in === "screen" && s.shown.here) throw new ActionRefused(`${s.id} is on this screen already (${s.shown.name})`);
     // On another screen: through your drawer, whole.
     if (s.shown.in === "screen") { this.pullSession(s.id, actor); s = this.sessions().find(x => x.pane === s.pane) ?? s; }
     if (s.shown.in !== "drawer") throw new ActionRefused(`${s.id} isn't on a screen this door shows`);
     const done = this.take(s.shown.tile, undefined, undefined, actor);
-    return { session: s.id, pid: s.pane.pid ?? null, ...done };
+    return { session: s.id, pid: s.pid, ...done };
   }
 
   /**
@@ -1219,7 +1227,7 @@ export class AgentDrawer {
   liftPick(): { pane: PtyPane; tile: string; own: boolean; inDrawer: boolean } | null {
     const roles = this.agentTabs(this.desks()).map(t => ({ pane: t.pane, tile: t.id, own: true, inDrawer: t.screen === "drawer" }));
     const tabs = this.sessions().filter(s => !roles.some(r => r.pane === s.pane) && (s.shown.in === "drawer" || (s.shown.in === "screen" && s.shown.here)));
-    const all = [...roles, ...tabs.map(s => ({ pane: s.pane, tile: (s.shown as { tile: string }).tile, own: false, inDrawer: s.shown.in === "drawer" }))];
+    const all = [...roles, ...tabs.map(s => ({ pane: s.pane!, tile: (s.shown as { tile: string }).tile, own: false, inDrawer: s.shown.in === "drawer" }))];
     const lifted = all.find(a => this.desks().some(d => d.liftsPane(a.pane)));
     if (lifted) return lifted;
     return all.reduce<(typeof all)[number] | null>((best, a) => (!best || a.pane.usedAt > best.pane.usedAt ? a : best), null);

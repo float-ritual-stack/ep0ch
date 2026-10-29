@@ -1689,6 +1689,11 @@ it's the same process and the same conversation.
   folder, persona, what it's doing (working, waiting on you, idle) and where it's shown. `j k` pick, `⏎` or a click
   jumps to it, `a` pulls it into your drawer, `d` docks it on the screen you're on, `n` starts a new one.
   `act agents.list` reads the same rows (`peek` has them under `drawer.sessions`).
+- **Nothing kept is lost.** A program the session's terminal host still keeps with no tile (a restart that lost its
+  place) is a row saying `no tile` and when it last wrote, and the restart's status line counts it: `⏎`, `a` or `d`
+  puts it back in a tile, the same process. A door started from inside a Claude session passes none of that
+  session's identity (`CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_PID`, `CLAUDE_JOB_DIR`, `AI_AGENT`) to its session, its
+  terminal host or a tile, so a Claude in a tile is a session of its own (PIE-1432).
 - **Never stranded.** Every session starts inside your login shell: when the agent exits, its tile is that shell,
   in the same folder. `alt+s` opens a plain shell in the drawer from anywhere.
 - **Restart a Claude Code session from anywhere.** `ep0ch agent ls [--machine <ssh-name>]` lists the machine's Claude

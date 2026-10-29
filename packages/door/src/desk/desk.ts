@@ -57,6 +57,8 @@ import { keepEditFile } from "../surface/editor";
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRows, pickRow } from "../surface/picker";
 import { outlineState, readState, writeState } from "../state";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { hyperOn } from "../hyper";
 import { containerKeys, leafNames, slotNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
@@ -122,6 +124,24 @@ export interface DeskOpts {
   outward?: (m: Msg, by: Actor, fresh: boolean) => Promise<{ tile: string | null; name?: string; id: string }>;
 }
 export interface SavedDesk { root: SavedTree; focus: string | number; rule?: OpenRule; layout?: string; rev?: number; next?: { tile?: number; node?: number }; policy?: Policy; floats?: SavedFloat[]; models?: Record<string, unknown>; zoom?: string }
+/**
+ * A saved layout in the outline's folder still names the terminal kept under `key` (PIE-1432): a leaf that saved it as
+ * its `kept` (`specOf`, the one place a save decides it), or a leaf with its id in the file the key names
+ * (`<home>:…:<id>`, a group's inner tiles in its outer file). Its screen adopts it when it next opens, so the agent
+ * panel doesn't offer it as "no tile": putting it in a tile first would leave that screen's tile to start another.
+ */
+export function savedLayoutNames(key: string, dir = outlineState()): boolean {
+  const home = key.slice(0, key.indexOf(":")), id = key.slice(key.lastIndexOf(":") + 1);
+  let files: string[] = [];
+  try { files = readdirSync(dir).filter(f => f.endsWith(".json")); } catch { return false; }
+  const kept = `"kept":${JSON.stringify(key)}`, own = `"id":${JSON.stringify(id)}`;
+  return files.some(f => {
+    let text = "";
+    try { text = readFileSync(join(dir, f), "utf8"); } catch { return false; }
+    return text.includes(kept) || (f === home && text.includes(own));
+  });
+}
+
 /** The desk's own spec (PIE-515): the desk as it has always opened, kept in desk.json, and the screen that loads named layouts. */
 export function deskSpec(): ScreenSpec {
   // A layout saved under the name "desk" is the desk's own.
@@ -1566,7 +1586,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const to = n.policy?.opensInto, id = to ? this.idNamed(to) : undefined;
       if (id !== undefined) n.policy = { ...n.policy, opensInto: this.tileId(id) };
     }
-    // `records`: this layout's tiles are in the registry's words (a leaf's `role` is what it is for, `slot` its place): scripts/migrations/tile-roles.ts leaves it alone.
+    // `records`: this layout's tiles are in the registry's words (a leaf's `role` is what it is for, `slot` its place).
     return { ...saved, records: 1 };
   }
   /** The layout as saved: tile specs in the tree of containers (each with its policy), the focus, the open rule, the screen's policy. */
