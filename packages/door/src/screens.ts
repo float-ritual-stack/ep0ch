@@ -1568,6 +1568,8 @@ export class MessageReader implements Screen {
         ctx.push(new MessageReader([m], 0));
       },
       header: (m, w, info) => this.header(m, w, info),
+      // Back or forward along the trail landed on a message of the list: n and p go on from there.
+      historyLanded: () => { const i = this.list.findIndex(x => x.id === this.surface.msg?.id); if (i >= 0) this.index = i; },
       // A new note opened over a reader, trashed still empty: this reader was for it alone.
       gone: id => { if (this.list.length === 1 && this.msg.id === id && ctx.screens?.().at(-1) === this) ctx.pop(); },
       // What the surface doesn't take is the BBS reader's: next, previous, the thread, back.
@@ -1628,7 +1630,8 @@ export class MessageReader implements Screen {
     if (to < 0 || to >= this.list.length) throw new ActionRefused(dir > 0 ? "end of messages" : "this is the first message");
     const was = this.index;
     this.index = to;
-    if (!this.open(ctx)) { this.index = was; throw new ActionRefused(`${holdsEdit("the message reader")} · ${this.surface.holdingHint()}`); }
+    // A step is a navigation (PIE-1418): the message left goes on the reader's trail, so back and alt+T reach it.
+    if (!this.surface.track(() => this.open(ctx))) { this.index = was; throw new ActionRefused(`${holdsEdit("the message reader")} · ${this.surface.holdingHint()}`); }
     return { index: to + 1, of: this.list.length, id: this.msg.id };
   }
 

@@ -56,6 +56,9 @@ that script in the button's Site. Each script sees the last return as `input`. A
 Sources and the previous value continues. A script returning nothing replaces the value with `undefined` (Sources
 says "returned nothing"). `act=["action one", "action two"]` and `of=[first, second]` are one-line sugar for the
 same steps. A press is one undo group, stops at its first failure, and reports completed steps and remaining effects.
+The presser hears it plainly (PIE-1418): `<label> stopped at step 2 of 4: <why>`; Sources keeps each step's spelling. A
+sequence whose first step is an action refused now (a `tile=` naming no tile there) is drawn dim and its press says
+`<label> can't run here: <why>` before anything runs.
 Only a `::button{...}` without `act=` or `of=` has a body: its steps begin on the next line and close with `::` before any blank line.
 Script steps keep their own slots (`((fold tile=links))` fills `{{props.tile}}` in an `actions` fence).
 A render script stays read-only as a step and can pass its return to the next step.

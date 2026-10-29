@@ -588,6 +588,7 @@ test("every error page a browser opens is dark (he is photosensitive): a missing
     expect(body).toContain("color-scheme:dark");
     expect(body).toContain("background:var(--bg)");
     expect(body).toContain("Not found");
+    expect(body).toContain('<a href="/pub/">← back to the outline</a>');   // a way back (PIE-1418)
   }
   const fetched = await get("/pub/p/PIE-9999", { accept: "*/*" });
   expect(fetched.status).toBe(404);

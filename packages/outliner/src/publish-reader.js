@@ -261,7 +261,11 @@
     for (const stop of stops) {
       const item = document.createElement("li"), link = document.createElement("a");
       link.href = `${pageBase}/p/${encodeURIComponent(stop.blockId)}`;
-      link.textContent = stop.blockId === noteId ? `● ${stop.title || "this page"} · here` : stop.title || stop.blockId;
+      // Each stop reads as the site's other rows do (PIE-1418): its title in the link colour; the page shown is lit, not a link look.
+      const title = document.createElement("span");
+      title.className = "t";
+      title.textContent = stop.blockId === noteId ? `● ${stop.title || "this page"} · here` : stop.title || stop.blockId;
+      link.append(title);
       if (stop.blockId === noteId) link.setAttribute("aria-current", "page");
       item.append(link);
       list.append(item);

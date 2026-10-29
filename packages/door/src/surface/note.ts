@@ -343,6 +343,15 @@ const placeOf = (s: SavedPlace): Place => ({
   position: structuredClone(s.position), cur: s.cur, link: s.link, folded: s.folded, previewLists: s.previewLists ?? [], previewOpen: s.previewOpen ?? [], expanded: s.expanded, foldedThreads: s.foldedThreads, seen: s.seen, figures: s.figures, zoom: s.zoom ?? null,
 });
 const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
+/**
+ * A sequence's first step when it is an action (its refusal now is exact: nothing has run before it), else null: a script
+ * first, or a slot still to fill, can change what the later steps find.
+ */
+function sequenceStart(call: ButtonCall): string | null {
+  const first = call.steps[0];
+  return call.sequence && first?.kind === "act" && !first.source.includes("{") ? first.source : null;
+}
+
 function readPlace(x: any): SavedPlace | null {
   if (!x || typeof x.id !== "string" || !x.id || typeof x.title !== "string") return null;
   const int = (n: unknown, d: number) => (typeof n === "number" && Number.isFinite(n) ? Math.max(d < 0 ? -1 : 0, Math.floor(n)) : d);
@@ -2813,7 +2822,7 @@ export class NoteSurface {
     const buttonHook = (block: string, lines: readonly number[]): DocEnv["button"] => (call, i) => {
       const line = lines[i] ?? -1, label = printable(call.label);
       if (call.act === null || line < 0) return [fg(C.yellow) + `[${label}] ${call.problem ?? ""}` + RESET];
-      const pressed = pressState(block, line), refused = pressed.state || call.empty.length || call.sequence ? null : this.refusedPress(call.act);
+      const pressed = pressState(block, line), start = call.sequence ? sequenceStart(call) : call.act, refused = pressed.state || call.empty.length || !start ? null : this.refusedPress(start);
       return buttonRows(label, { ...call.look, ...pressed, ...(refused ? { state: "disabled", why: refused } : {}) },
         t => tagged(drawn, { role: "control", label, press: { act: call.act!, steps: call.steps, ...(call.alt ? { alt: call.alt } : {}), block, line } }, t));
     };
@@ -4759,6 +4768,9 @@ export class NoteSurface {
       if (button?.problem && button.act === null) throw new ActionRefused(`the ::button on line ${button.line + 1} runs nothing: ${button.problem}`);
       if (button && note && (button.empty.length || (repick && button.slots.length))) return this.askSlots(note.id, button, repick ? button.slots.map(s => s.key) : button.empty, host, actor, !repick);
       if (button?.sequence && p.act === button.act) {
+        // Its first step refused now (no tile it names, PIE-1418): said before anything runs, in the presser's words.
+        const first = sequenceStart(button), no = first ? d.refusedNow(actRequestOf(lineWords(first)), actor) : null;
+        if (no) throw new ActionRefused(`${button.label} can't run here: ${no}`);
         const invitation = actor.kind === "user" ? INVITES.mint("you") : undefined;
         const r = await host.ctx.board.request<import("../extensions").ExtensionActResult>("scripts.sequence", {
           blockId: note!.id, line: p.line, clientId: host.ctx.board.clientId, invitation, mutation: mutationFor(actor),

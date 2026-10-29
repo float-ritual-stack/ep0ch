@@ -286,7 +286,7 @@ export class PowerBar {
       const compact = this.compact();
       const inputX = compact ? 2 + width(compact.title) : 3;
             // The line is the one line field's: a click places the cursor, a drag selects, a double click a word (PIE-1290).
-      if (this.input.mouse(k, { x: r.col + inputX, y: r.row + (compact ? 1 : 2), w: compact ? Math.max(10, r.cols - 32) : this.fieldW })) { ctx.redraw(); return; }
+      if (this.input.mouse(k, { x: r.col + inputX, y: r.row + (compact ? 1 : 2), w: this.fieldW })) { ctx.redraw(); return; }
       if (k.action === "up" || k.action === "drag") return;
       this.alt = !!((k.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL)) || k.button === MOUSE_MIDDLE;
       const at = { ...k, x: k.x - r.col, y: k.y - r.row };
@@ -433,7 +433,8 @@ export class PowerBar {
     if (compact) {
       this.scopeHits = []; this.sourceHead = [];
       const label = clipText(compact.title, Math.max(1, w - 12));
-      const input = this.scope === "ask" && maskedQuestion() ? "·".repeat(Math.min(this.query.length, Math.max(1, w - width(label) - 2))) + "█" : this.input.render(Math.max(1, w - width(label) - 2), 1)[0];
+      this.fieldW = Math.max(1, w - width(label) - 2);
+      const input = this.scope === "ask" && maskedQuestion() ? "·".repeat(Math.min(this.query.length, this.fieldW)) + "█" : this.input.render(this.fieldW, 1)[0];
       return { rect, title: "", foot: compact.choice ? "click or j k ⏎ choose · esc cancel" : "⏎ run · esc cancel",
         head: [fg(C.lcyan) + ` ${label} ` + RESET + (compact.choice ? "" : input)] };
     }
@@ -449,8 +450,8 @@ export class PowerBar {
     // Nothing found for what's typed, said on the line itself: a narrow bar draws no preview to say it in.
     const none = !this.items.length && !this.asking.size && this.query.trim() !== "" && !this.problems.size;
     const count = [none ? "no matches" : `${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
-    // What's typed gets the row before the count does (PIE-1405): a pasted link at 40 columns reads whole, and the count
-    // takes what's left, cut short (hover reads it).
+    // What's typed gets the row before the count does (PIE-1405, PIE-1418): a long query at 40 columns reads whole or
+    // scrolled with its ‹ ›, and the count takes what's left, cut short (hover reads it).
     const status = busy || count, room = Math.max(10, w - 2);
     const field = Math.min(room, Math.max(10, room - 1 - width(status), width(this.query) + 1));
     this.fieldW = field;

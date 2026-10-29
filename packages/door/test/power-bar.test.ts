@@ -111,6 +111,23 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(line).not.toContain("notes…");
   });
 
+  test("at 40 columns a long query reads whole, or scrolled with a ‹ where its start is off the line (PIE-1418)", async () => {
+    const info = (app as any).term.info, was = info.cols;
+    info.cols = 40;
+    try {
+      key(ctrlK); type("Gutter swap for the shed");
+      await (app as any).bar.settled();
+      expect(frame().find(l => l.includes("› Gutter"))).toContain("› Gutter swap for the shed");
+      type(" and the porch roof, before the frost");
+      await (app as any).bar.settled();
+      const line = frame().find(l => /› ‹/.test(l));
+      expect(line).toBeDefined();
+      expect(line).toContain("before the frost");
+      key({ kind: "home" });
+      expect(frame().find(l => l.includes("› Gutter"))).toMatch(/› Gutter swap for the shed.*›/);
+    } finally { key({ kind: "esc" }); key({ kind: "esc" }); info.cols = was; }
+  });
+
   test("typed, every source answers under its heading; a prefix and alt+← alt+→ move between scopes; esc puts it away", async () => {
     key(ctrlK); type("garden");
     await until(() => peek().bar.rows.some((r: any) => r.source === "notes"), "the notes search answered", 5000);

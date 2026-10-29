@@ -274,14 +274,16 @@ describe("the dispatcher, on a fake screen", () => {
     await d.act({ action: "go.nothing", tile: "focused" }, USER);
     await d.act({ action: "go.nothing" }, USER);                                     // none named: the action's own default
     expect(ran.map(r => r.tile)).toEqual(["middle", "middle", undefined]);
-    await expect(d.act({ action: "go.nothing", tile: "nope" }, USER)).rejects.toThrow("no tile nope on the fake; tiles: #1 tree (t1), #2 middle (t2), #3 side (t3), focused, or a block id");
+    // To an agent the tiles by number, name and id; to the person by the names they see (PIE-1418).
+    await expect(d.act({ action: "go.nothing", tile: "nope" }, { kind: "agent", id: "fake-agent" })).rejects.toThrow("no tile nope on the fake; tiles: #1 tree (t1), #2 middle (t2), #3 side (t3), focused, or a block id");
+    await expect(d.act({ action: "go.nothing", tile: "nope" }, USER)).rejects.toThrow("no tile is called nope on the fake; its tiles: tree, middle, side");
     // A place word the action takes instead of a tile (the board's new-detail), passed as it is.
     await d.act({ action: "go.nothing", tile: "new" }, USER);
     expect(ran.at(-1)).toMatchObject({ place: "new" });
     // An argument that names a tile is read the same way.
     await d.act({ action: "go.nothing", args: { to: "#1" } }, USER);
     expect(ran.at(-1)!.name).toBe("nothing→tree");
-    await expect(d.act({ action: "go.nothing", args: { to: "t9" } }, USER)).rejects.toThrow("no tile t9 on the fake");
+    await expect(d.act({ action: "go.nothing", args: { to: "t9" } }, USER)).rejects.toThrow("no tile is called t9 on the fake");
   });
 
   test("an action in one kind of tile: the focused one, else the first; another kind is refused saying what it is", async () => {
