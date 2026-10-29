@@ -127,10 +127,14 @@ export function setFrom<I>(f: Flow<I>, i: number, from: I | undefined) {
   if (t) { if (from === undefined) delete t.from; else t.from = from; }
   else if (from !== undefined) (f.trail ??= []).push({ tile, from });
 }
-/** The column back (-1) or forward (1) goes to from column `i`, or -1. */
+/**
+ * The column back (-1) or forward (1) goes to from column `i`, or -1. Forward is where back last left, else the column
+ * last opened from this one (PIE-1418): the trail is one chain of opens, so it reads the same from any column the person
+ * moves to, not only from the one they opened last.
+ */
 export function travelTarget<I>(f: Flow<I>, i: number, dir: -1 | 1): number {
-  const t = trailOf(f, i);
-  const to = dir < 0 ? t?.from : t?.ahead;
+  const t = trailOf(f, i), here = f.kids[i] ? leaves(f.kids[i]!) : [];
+  const to = dir < 0 ? t?.from : t?.ahead ?? (f.trail ?? []).findLast(x => x.from !== undefined && here.includes(x.from))?.tile;
   return to === undefined ? -1 : columnOf(f, to);
 }
 /** Back from column `i` to column `to`: forward from there returns to `i`. */

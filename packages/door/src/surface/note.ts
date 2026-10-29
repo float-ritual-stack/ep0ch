@@ -238,6 +238,8 @@ export interface SurfaceHost {
   editPreviewTile?(on: boolean, side?: AttachedSide): Promise<unknown>;
   hasSourcesTile?(): boolean;
   sourcesTile?(on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
+  /** Its trail (PIE-208) in a tile of its own beside it (PIE-1425), where the screen has tiles; null when the layout can't place one. */
+  trailTile?(): Promise<unknown>;
   composerTile?(on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** The comment's own tile is open now (composerTile's): false once it was closed by hand. */
   hasComposerTile?(): boolean;
@@ -343,6 +345,15 @@ const placeOf = (s: SavedPlace): Place => ({
   position: structuredClone(s.position), cur: s.cur, link: s.link, folded: s.folded, previewLists: s.previewLists ?? [], previewOpen: s.previewOpen ?? [], expanded: s.expanded, foldedThreads: s.foldedThreads, seen: s.seen, figures: s.figures, zoom: s.zoom ?? null,
 });
 const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
+/**
+ * A sequence's first step when it is an action (its refusal now is exact: nothing has run before it), else null: a script
+ * first, or a slot still to fill, can change what the later steps find.
+ */
+function sequenceStart(call: ButtonCall): string | null {
+  const first = call.steps[0];
+  return call.sequence && first?.kind === "act" && !first.source.includes("{") ? first.source : null;
+}
+
 function readPlace(x: any): SavedPlace | null {
   if (!x || typeof x.id !== "string" || !x.id || typeof x.title !== "string") return null;
   const int = (n: unknown, d: number) => (typeof n === "number" && Number.isFinite(n) ? Math.max(d < 0 ? -1 : 0, Math.floor(n)) : d);
@@ -425,6 +436,17 @@ export const TRAIL_CHIP = "≡ trail";
 const TRAIL_CHIP_MIN = 40;
 /** One stop on a reader's trail (PIE-208): the note there, by its title as it was when the reader was there. */
 export interface TrailStop { id?: string; title: string; address?: Msg["address"] }
+/** A reader's trail as the trail answers it: the note shown, the stops back and forward, nearest first. */
+export interface Trail { here: { id: string; title: string } | null; back: TrailStop[]; forward: TrailStop[]; keptBy?: string }
+/** One row of the trail as its list and its tile draw it: the stops ahead (→) above the note shown (●), the ones back (←) below. */
+export interface TrailRow { dir: -1 | 0 | 1; steps: number; title: string }
+export const trailRows = (t: Trail): TrailRow[] => [
+  ...t.forward.map((s, i) => ({ dir: 1 as const, steps: i + 1, title: s.title })).reverse(),
+  { dir: 0, steps: 0, title: t.here?.title ?? "(nothing shown)" },
+  ...t.back.map((s, i) => ({ dir: -1 as const, steps: i + 1, title: s.title })),
+];
+/** A trail row's words: `← title · 2 back`, `● title · here`. */
+export const trailLine = (r: TrailRow) => ` ${r.dir < 0 ? "←" : r.dir > 0 ? "→" : "●"} ${printable(r.title)}${r.dir ? ` · ${r.steps} ${r.dir < 0 ? "back" : "ahead"}` : " · here"}`;
 
 /** What a host's header can say that only the surface knows: where the note sits, its comments and properties. */
 export interface HeaderInfo {
@@ -2813,7 +2835,7 @@ export class NoteSurface {
     const buttonHook = (block: string, lines: readonly number[]): DocEnv["button"] => (call, i) => {
       const line = lines[i] ?? -1, label = printable(call.label);
       if (call.act === null || line < 0) return [fg(C.yellow) + `[${label}] ${call.problem ?? ""}` + RESET];
-      const pressed = pressState(block, line, call.label), refused = pressed.state || call.empty.length || call.sequence ? null : this.refusedPress(call.act);
+      const pressed = pressState(block, line, call.label), start = call.sequence ? sequenceStart(call) : call.act, refused = pressed.state || call.empty.length || !start ? null : this.refusedPress(start);
       return buttonRows(label, { ...call.look, ...pressed, ...(refused ? { state: "disabled", why: refused } : {}) },
         t => tagged(drawn, { role: "control", label, press: { act: call.act!, steps: call.steps, ...(call.alt ? { alt: call.alt } : {}), block, line, label: call.label } }, t));
     };
@@ -4774,6 +4796,9 @@ export class NoteSurface {
       if (button?.problem && button.act === null) throw new ActionRefused(`the ::button on line ${button.line + 1} runs nothing: ${button.problem}`);
       if (button && note && (button.empty.length || (repick && button.slots.length))) return this.askSlots(note.id, button, repick ? button.slots.map(s => s.key) : button.empty, host, actor, !repick);
       if (button?.sequence && p.act === button.act) {
+        // Its first step refused now (no tile it names, PIE-1418): said before anything runs, in the presser's words.
+        const first = sequenceStart(button), no = first ? d.refusedNow(actRequestOf(lineWords(first)), actor) : null;
+        if (no) throw new ActionRefused(`${button.label} can't run here: ${no}`);
         const invitation = actor.kind === "user" ? INVITES.mint("you") : undefined;
         const r = await host.ctx.board.request<import("../extensions").ExtensionActResult>("scripts.sequence", {
           blockId: note!.id, line: p.line, clientId: host.ctx.board.clientId, invitation, mutation: mutationFor(actor),
@@ -8246,25 +8271,25 @@ export class NoteSurface {
    * note shown lit between the stops ahead (above) and back (below); a choice is back or forward that many steps.
    * An agent's answers the stops and opens nothing.
    */
-  trail(host: SurfaceHost, standing: boolean) {
+  trailOf(): Trail {
     const h = this.describeHistory(), m = this.msg;
     // A view that keeps its trail without listing it says only the next title each way.
     const stops = (ss: readonly unknown[]): TrailStop[] => ss.flatMap(s => (typeof s === "string" ? [{ title: s }] : s ? [s as TrailStop] : []));
-    const back = stops(h.back), forward = stops(h.forward);
-    const answer = { here: m ? { id: m.id, title: subject(m) } : null, back, forward, ...(h.keptBy ? { keptBy: h.keptBy } : {}) };
+    return { here: m ? { id: m.id, title: subject(m) } : null, back: stops(h.back), forward: stops(h.forward), ...(h.keptBy ? { keptBy: h.keptBy } : {}) };
+  }
+  async trail(host: SurfaceHost, standing: boolean) {
+    const answer = this.trailOf(), { back, forward } = answer;
     if (!standing) return { ...answer, shown: false };
     if (!back.length && !forward.length) throw new ActionRefused("no trail yet: this reader hasn't followed a link (follow one, then alt+T)");
+    // A screen of tiles: a trail tile beside the reader, docked, resized and closed like any (PIE-1425); else the list over it.
+    const tile = host.trailTile ? await host.trailTile() : null;
+    if (tile) return { ...answer, shown: true, tile };
     if (!host.overlay) throw new ActionRefused(`this screen can't list the trail over it · ${back.length ? `back steps=${back.length} goes to ${back.at(-1)!.title}` : "forward goes on"}`);
-    type Row = { dir: -1 | 0 | 1; steps: number; title: string };
-    const rows: Row[] = [
-      ...forward.map((s, i) => ({ dir: 1 as const, steps: i + 1, title: s.title })).reverse(),
-      { dir: 0, steps: 0, title: answer.here?.title ?? "(nothing shown)" },
-      ...back.map((s, i) => ({ dir: -1 as const, steps: i + 1, title: s.title })),
-    ];
-    const list = new ListPicker<Row, unknown>({
+    const rows = trailRows(answer);
+    const list = new ListPicker<TrailRow, unknown>({
       name: "trail", items: () => rows, clickChooses: true,
       // One row a stop, so the box is as tall as the trail; a title cut short reads in full on hover (Overflow).
-      row: (r, _i, on, w) => [pickRow(` ${r.dir < 0 ? "←" : r.dir > 0 ? "→" : "●"} ${printable(r.title)}${r.dir ? ` · ${r.steps} ${r.dir < 0 ? "back" : "ahead"}` : " · here"}`, on, w)],
+      row: (r, _i, on, w) => [pickRow(trailLine(r), on, w)],
       choose: r => { if (r.dir) void this.runKey(r.dir < 0 ? "back" : "forward", { steps: r.steps }, host); },
       frame: (a, n) => ({ rect: centred(a, Math.min(64, a.cols - 2), Math.min(n + 2, a.rows)), title: "trail · where this reader has been" }),
     });
@@ -10676,7 +10701,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "pin to status bar: append this note's selected ::button to your [status-bar::true] note; label= picks a button by its exact label, or a note with one button needs no selection",
     touches: "nothing", replay: "ask",
     args: { label: { type: "string", optional: true, about: "the exact label of the ::button to pin; default: selected button, or the note's only one" } },
-    keys: "a right-click on a button (it becomes the [ ] position, unpressed), then pin to status bar in the tile menu",
+    keys: [{ via: "a right-click on a button (it becomes the [ ] position, unpressed), then pin to status bar in the tile menu" }],
     examples: [{ act: 'button.pin label="Collapse"', does: "pins the Collapse button from this note to your status bar" }],
     menu: noteRow("pin to status bar", "", { now: ({ surface }) => surface.statusButtonLine() ? null : { hide: true } }),
     async run({ label }, { surface, host }, actor) {
@@ -10953,7 +10978,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: ({ steps }, on, actor) => travelAction(1, on, actor, steps),
   }),
   "trail": def({
-    summary: "the trail of where this reader has been (PIE-208): every stop back and forward by its title, nearest first, the note shown between them. The person's opens it as a list over the screen: ⏎ or a click on a stop goes there (back or forward that many steps, as back steps= does), esc puts it away. An agent's answers the stops and opens nothing",
+    summary: "the trail of where this reader has been (PIE-208): every stop back and forward by its title, nearest first, the note shown between them. The person's opens it as a trail tile beside the reader (PIE-1425: docked, resized and closed like any tile; alt+T again goes back to it), or a list over a screen without tiles: ⏎ or a click on a stop goes there (back or forward that many steps, as back steps= does), esc closes it. An agent's answers the stops and opens nothing",
     keys: "alt+T, a click on ≡ trail beside ← back",
     touches: "nothing", replay: "safe",
     menu: noteRow("trail: where it's been", "alt+T", { busy: true, now: ({ surface }) => { const h = surface.describeHistory(); return h.back.length || h.forward.length ? null : { hide: true }; } }),

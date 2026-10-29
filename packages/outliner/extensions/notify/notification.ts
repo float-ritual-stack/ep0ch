@@ -26,6 +26,12 @@ export interface Source {
 
 export const KEY = "notify.key";
 export const STATE = "notify.state";
+/**
+ * Every notification is stamped as machinery of its own kind (outline-core `machinery.ts`, PIE-1427): a reader's list
+ * and a chat's "what changed lately" leave fetched notifications out unless asked (`machinery: show`, or `only` with
+ * `machine=notification`), and the boards here say `[machinery::show]`.
+ */
+export const STAMP = "[machine::notification]";
 
 /** Imported words stay words: no `[key::value]`, no `[[page]]`, no `((ref))`, no leading `word::` handler line. */
 export const inert = (text: string): string => text.replace(/\r/g, "").replace(/\s*\n\s*/g, " ").trim()
@@ -46,7 +52,7 @@ export function noteText(n: Notification, state: "unread" | "read"): string {
     [KEY, keyOf(n)], ["notify.source", n.source], ["notify.kind", n.kind], ["notify.from", n.from],
     [STATE, state], ["notify.received", n.received], ...(n.url ? [["notify.url", n.url]] : []),
   ].map(([k, v]) => `[${k}::${value(v!)}]`).join(" ");
-  return `${inert(n.title)} ${tokens}${n.snippet ? `\n\n${inert(n.snippet)}` : ""}`;
+  return `${inert(n.title)} ${tokens} ${STAMP}${n.snippet ? `\n\n${inert(n.snippet)}` : ""}`;
 }
 
 /** A note as the service returns it: its text and its block-scope properties, every occurrence (never a first-line scan). */
@@ -63,10 +69,10 @@ export function merged(n: Notification, current?: Existing): string {
   if (!current) return noteText(n, n.unread ? "unread" : "read");
   const was = valueOf(current, STATE) === "read" ? "read" : "unread";
   const [first = "", ...rest] = current.text.split("\n");
-  // The extension owns the title and the notify.* tokens of the first line; anything a person added there (their own
+  // The extension owns the title, the notify.* tokens and the machine stamp of the first line; anything a person added there (their own
   // properties) and every line after it stay as they are.
   const mine = noteText(n, was === "read" || !n.unread ? "read" : "unread").split("\n")[0]!;
-  const theirs = [...first.slice(Math.max(0, first.indexOf(`[${KEY}::`))).matchAll(/\s?\[(?!notify\.)[A-Za-z][\w.-]*::[^\]\n]*\]/g)].map((m) => m[0].trim());
+  const theirs = [...first.slice(Math.max(0, first.indexOf(`[${KEY}::`))).matchAll(/\s?\[(?!notify\.|machine::)[A-Za-z][\w.-]*::[^\]\n]*\]/g)].map((m) => m[0].trim());
   return [theirs.length ? `${mine} ${theirs.join(" ")}` : mine, ...rest].join("\n");
 }
 

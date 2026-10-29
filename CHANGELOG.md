@@ -19,6 +19,41 @@ are its record. The outliner's entries from then are kept below, under
 - **"float-2 via ssh" is said once,** when a command starts the forward, not on every call (`EP0CH_VERBOSE=1`: every time).
 - **The ssh door's script is in the repository** (`packages/door/scripts/ssh-door.sh`): it logs a hangup, and resets
   the terminal when the door client crashes.
+### The river at 40 columns, smoothed: floats keep the keys, words show (PIE-1418, PIE-1392)
+
+- **Esc in a float keeps the keys there** (it gave them to the hidden column under it, so `x` closed that column). With
+  nothing left to close it says `nothing to close · x closes the float`, and the float's hint row leads with `x close`.
+  Tab, a click or h/l still move the keys out. *What moves:* Esc no longer hands a float's keys to the tile under it,
+  on every screen.
+- **The power bar at 40 columns** shows a long query whole, or scrolled sideways with a `«` where its start is off the
+  line and a `»` where it goes on; home brings the start back. Every one-line field scrolls the same way.
+- **A button that can't run here says why in plain words:** a sequence whose first step names no tile on this screen is
+  drawn dim and refused before it runs (`Fold the bottom can't run here: no tile is called links on the river`); one
+  that stops midway says `Pipe stopped at step 2 of 4: …`. The person reads tiles by name, never by id; Sources keeps
+  each run step's spelling (a press refused before it runs leaves no run there).
+- **The trail follows you across columns:** from any river column it is the one chain of opens, back and ahead, and
+  forward goes to the column opened from this one. Read's `n` and `p` leave a trail too (back, alt+T).
+- **On the web:** an error page has a way back to the outline (or the share's first page), and the trail's rows read as
+  links.
+### The keys window and the trail are tiles you resize, dock and close; ⏎ runs a key; Conflicts are real (PIE-1425)
+
+- **`?` opens the keys window as a tile beside the one you're in** (below it when that one is narrow, so both keep
+  their width) on the desk, the board and the river: drag its
+  border, dock it, `esc` or `q` closes it and the keys go back where they were. `?` again goes back to it.
+- **`⏎` runs the selected row** where you opened the window, as its key would there (a second click on the row too).
+  One that needs arguments (`^W o` opens a tile, which kind?) asks for them in the power bar's form.
+- **Conflicts lists only keys that really fight:** two rows of one key table on one key, or one key given twice in your
+  `keybindings.json`, each saying which one runs. Today's built-in keys have none (it said 176: esc clearing then closing
+  the power bar, alt+Q starting or stopping a recording, were counted as clashes).
+- **Every row reads as a whole sentence:** the action's own words, then where or when ("start recording, while
+  recording"), never a fragment like "then macro.stop". The power bar's typed lines (`> share.list`) aren't listed as keys.
+- **The trail (alt+T, `≡ trail`) is a tile beside its reader too:** dock it to the side and it follows the reader as
+  you walk; `⏎` or a click on a picked stop goes there, `esc` closes it. A screen without tiles still lists it over itself.
+### Undo never takes back what's saved (PIE-1414)
+
+- **ctrl+z stops at the save:** in a note you opened again after saving, the first ctrl+z keeps the saved text and says "saved · ctrl+z again undoes past the save (revision N stays in its history)"; a second press after a pause goes past it. A held key never crosses a save, and an agent's undo never does.
+- **Everywhere you type:** a reader, a float, the river and comments share the one editor, so the same holds in each.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
 
 ### The status bar's last rough edges (PIE-1415, PIE-1224, PIE-1410)
 
@@ -54,6 +89,17 @@ are its record. The outliner's entries from then are kept below, under
 - **Rows say themselves:** a script reads under its own name with its own words (no `ext.script-…run`, no "neat ·
   neat:"); a pasted id that isn't here is named once, on one line; Jira's install row says what it does.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### A chat's "what changed lately" is real work, and says what it left out (PIE-1427)
+
+- **Fetched notifications are machinery:** the notifications hub stamps each one `[machine::notification]`, so lists,
+  `ep0ch find` and a chat's orient read leave them out; its boards say `[machinery::show]` and keep their cards.
+- **The count:** `outline_query` (claude.ai, ChatGPT, Grok) and the mod's `outline_find` answer a recent-activity
+  read (`updated >= -1d`) with `machineryOmitted`: "212 notifications and bookkeeping notes left out", by producer.
+- **One word brings them back:** `machinery: "show"` on `outline_query` (new) or `outline_find`; `"only"` with
+  `machine=notification` asks for just the notifications.
+- **Run once per outline that has the hub,** on its machine: `ep0ch machinery backfill --ws <name> --apply` stamps
+  the notes and boards an earlier version wrote.
 
 ### The keys window: every binding, what it shadows, and a rebind said before it lands (PIE-492, PIE-1048)
 

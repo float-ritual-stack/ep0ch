@@ -85,6 +85,8 @@ import { isOutlineNote, openResource, resourceRefTarget } from "../authored";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileNow, type Where } from "./tile-actions";
 import { tileMenu } from "./tile-menu";
+import { KeysPane } from "./keys-window";
+import { TrailPane } from "./trail-tile";
 import { filtered } from "../bar/filter";
 import { ScreenTile } from "./screen-tile";
 import { QueryPane } from "./query";
@@ -428,14 +430,36 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.save(); this.redraw();
     return { ...this.tileAnswer(id), side: this.commentSide };
   }
-  private openPair(at: number, pane: Pane, name: string, keys: boolean, actor: Actor): number {
+  private openPair(at: number, pane: Pane, name: string, keys: boolean, actor: Actor, dir: Dir = this.commentSide): number {
     const id = this.nextId;
     const ok = this.ask({ op: "open", tile: id, kind: pane.kind, name: this.autoName(name),
-      at: { kind: "split", target: at, dir: this.commentSide, pair: true, weight: this.attachedShare[name] ?? 0.45 },
+      at: { kind: "split", target: at, dir, pair: true, weight: this.attachedShare[name] ?? 0.45 },
       ...(keys ? {} : { keys: false as const }) }, actor);
     if (!ok.ok) throw new ActionRefused(ok.refused);
     this.put(pane); this.commit(ok); this.startTile(id); this.openedBy(id, at);
     return id;
+  }
+
+  /**
+   * Reader `r`'s trail (PIE-208) in a tile of its own beside it (PIE-1425): docked, resized and closed like any tile, the
+   * person's keys in it and back in the reader when it closes. The one already open for `r` gets the keys back; null when
+   * the layout won't place one there (the trail then lists over the screen).
+   */
+  async trailTile(r: ReaderPane): Promise<unknown> {
+    const at = [...this.panes].find(([, p]) => p === r)?.[0];
+    if (at === undefined) return null;
+    const source = this.nameOf(at);
+    const have = [...this.panes].find(([, p]) => p instanceof TrailPane && p.source === source)?.[0];
+    let id: number;
+    if (have !== undefined) id = have;
+    else {
+      const made = this.sides(at).reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source), "trail", true, USER, dir); } catch (e) { if (e instanceof ActionRefused) return null; throw e; } }, null);
+      if (made === null) return null;
+      id = made;
+    }
+    this.keysTo(id);
+    this.save(); this.redraw();
+    return this.tileAnswer(id);
   }
 
   async answerTile(reader: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown> {
@@ -4505,7 +4529,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** A float's frame hint, with this screen's keys for putting it back and closing it (the board has its own o and x). */
-  private floatHint(): string { return "drag title · drag ◢ · H J K L move · ^W f back in · ^W x close · ^N another · its title onto a header or edge docks it"; }
+  /** A float's hint row: the screen's own keys for it first (the river's and the board's x close, PIE-1418), then the float's. */
+  private floatHint(): string {
+    const own = this.spec.hint === undefined ? this.screenKeyHint() : "";
+    return [own, `drag title · drag ◢ · H J K L move · ^W f back in${this.xClosesFloat() ? "" : " · ^W x close"} · ^N another · its title onto a header or edge docks it`].filter(Boolean).join(" · ");
+  }
 
   /**
    * The hint row (the outermost screen's alone, PIE-1305): the keys of the focused tile, wherever it is nested, in this
@@ -4554,6 +4582,38 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return pad(t, room) + tail;
     };
     return line(this.hintDesk().hintText());
+  }
+
+  /**
+   * Where a list that wants width (the keys window, the trail) opens beside tile `at`, best first: the layout's one rule
+   * (`splitAxis`, wide), so a 44-column tile keeps its width and the list has all of it too.
+   */
+  private sides(at: number): ["right", "down"] | ["down", "right"] {
+    const r = this.placed.rects.get(at);
+    return r && splitAxis(r, true) === "row" ? ["right", "down"] : ["down", "right"];
+  }
+
+  /**
+   * The keys window as a tile (PIE-1425): beside the focused tile, filtered to where you are, so it resizes, docks and
+   * closes like any; the one already on this screen gets the person's keys back with the new filter.
+   */
+  async openKeys(filter: string | undefined, actor: Actor): Promise<unknown> {
+    const words = filter ?? this.keysFilter();
+    const have = this.all().find(id => this.panes.get(id) instanceof KeysPane);
+    if (have === undefined) {
+      // From a float: beside the tile under it, as tile.open does.
+      const at = this.isFloat(this.focus) ? this.grounded() ?? this.focus : this.focus, [first, then] = this.sides(at);
+      const done = await this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), first, actor).catch(e => { if (e instanceof ActionRefused) return this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), then, actor); throw e; });
+      // Closed (esc, q, ^W x), it gives the keys back to the tile it opened beside.
+      const made = this.all().find(id => this.panes.get(id) instanceof KeysPane);
+      if (made !== undefined) this.openedBy(made, at);
+      return done;
+    }
+    const p = this.panes.get(have) as KeysPane;
+    p.filter = words; p.at = 0; p.field = null; p.record = null;
+    if (this.dispatch.standing(actor)) await this.dispatch.press("tile.focus", {}, this.tileId(have));
+    this.redraw();
+    return { ...this.tileAnswer(have), kind: "keys" };
   }
 
   /**
@@ -5007,14 +5067,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // everywhere).
     if (k.kind === "esc" || (c0 === "q" && this.spec.home !== undefined)) {
       if (this.closeStep(k.kind === "esc")) return;
-      if (k.kind === "esc") return nothingToClose(this.ctx);
+      if (k.kind === "esc") return nothingToClose(this.ctx, this.floatCloseWord() ?? undefined);
       this.pending = null; return this.shell("screen.back");
     }
   }
 
   /**
    * The screen's own next step out, as an action: out of a zoom, a dock the keys are in shuts, the keys go home (the
-   * spec's), a dock sliding over shuts; for Esc, a float gives the keys back to the tile under it. False: none left.
+   * spec's), a dock sliding over shuts. False: none left. A float keeps the keys (PIE-1418): given back to the tile
+   * under it, they went somewhere the float hid (the river at 40 columns, a new note's float), and x then closed that.
    */
   private closeStep(esc: boolean): boolean {
     const step = (name: string, args: Record<string, unknown>, tile: string) => { this.run(name, args, tile); return true; };
@@ -5029,13 +5090,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (home !== undefined && !this.atHome()) return step("tile.focus", {}, this.nameOf(home));
     const open = this.spec.home !== undefined ? docks(this.root).find(x => shuts(x) && leaves(x.kid).length) : undefined;
     if (open) return step("tile.slide", { open: false, container: open.id }, this.nameOf(leaves(open.kid)[0]!));
-    const ground = esc && this.isFloat(this.focus) ? this.grounded() : undefined;
-    if (ground !== undefined) return step("tile.focus", {}, this.nameOf(ground));
     return false;
   }
 
+  /** In a float with nothing left to close, what Esc says closes it: the screen's own x (the river's, the board's), else ^W x. */
+  private floatCloseWord(): string | null {
+    return this.isFloat(this.focus) ? `${this.xClosesFloat() ? "x" : "^W x"} closes the float` : null;
+  }
+  /** The screen's own x closes the focused tile (the river's and the board's CLOSE_KEY): the hint and Esc's words both ask this. */
+  private xClosesFloat(): boolean { return this.screenKeys().some(b => b.key === "x" && b.action === "tile.close"); }
+
   /** DeskApi.escaped: Esc found nothing left to close in a tile's own screen (a screen tile): the desk's next step, or nothing. */
-  escaped() { if (!this.closeStep(true)) nothingToClose(this.ctx); }
+  escaped() { if (!this.closeStep(true)) nothingToClose(this.ctx, this.floatCloseWord() ?? undefined); }
 
   /** Every desk consults the screen's one pending wire, including the drawer. */
   linkingFrom(): Pane | null { const p = this.linking; return p ? p.desk.panes.get(p.from) ?? null : null; }
@@ -5487,7 +5553,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const under = at === undefined && this.isFloat(this.focus) ? this.grounded() : undefined;
     const empty = !this.all().length;
     const base = empty ? { id: this.focus, name: "home" } : this.tile(under !== undefined ? this.nameOf(under) : at);
-    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...this.mountFields(t) };
+    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...(t.state ? { state: t.state } : {}), ...this.mountFields(t) };
     // The kind checks its fields (a preview's source) and fills what it starts with (it follows `at`).
     const wrong = k.check?.(spec);
     // Short of what it needs (a query tile with no view): the person picks it from the kind's choices, then it opens.
@@ -5835,7 +5901,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** The tile last given the keys in each columns container (by its id): its place for Tab and home. */
   private lastIn = new Map<string, number>();
-  /** The last tile the keys were in that isn't a float: where esc in a float gives them back. */
+  /** The last tile the keys were in that isn't a float: where an open from a float lands beside. */
   private lastGrounded: number | undefined;
   private notedFocus: number | undefined;
   private grounded(): number | undefined {

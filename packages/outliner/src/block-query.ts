@@ -1268,6 +1268,7 @@ export function normalizeBlockSearchQuery(
     ...(filters.length > 0 ? { filters } : {}),
     ...(predicate ? { predicate } : {}),
     ...(machinery ? { machinery } : {}),
+    ...(machinery === "hide" && query.countMachinery === true ? { countMachinery: true } : {}),
     ...(text ? { text } : {}),
     ...(subtreeRootId ? { subtreeRootId } : {}),
     ...(rankViewId ? { rankViewId } : {}),
