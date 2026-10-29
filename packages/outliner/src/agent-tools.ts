@@ -17,7 +17,7 @@ import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-cor
 import { parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
-import { shapeNext, shapeWarnings, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
+import { hasCountCandidate, shapeNext, shapeWarnings, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
 import { outlineFacets, reviewWarnings, reviewWrite, type WriteReview } from "./write-review";
 import { houseRule } from "./work-review";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
@@ -661,14 +661,24 @@ function facetsOf(client: AgentToolsClient): Promise<ShapeFacet[]> {
  */
 async function reviewOf(client: AgentToolsClient, text: string, before: string | undefined, at: Omit<SuggestionWrite, "source">): Promise<WriteReview> {
   const input = { text, ...(before === undefined ? {} : { before }), id: at.note };
+  const off = process.env.OUTLINER_FIGURE_FIT === "off";
+  const within = <T,>(work: Promise<T>, fallback: T) => Promise.race([work.catch(() => fallback), Bun.sleep(REVIEW_BUDGET_MS).then(() => fallback)]);
+  const started = Date.now();
   const full = async () => {
-    const [schemas, facets, qaRule] = await Promise.all([schemasOf(client), facetsOf(client), houseRule(client as never, "qa-for-evan")]);
-    return reviewWrite({ ...input, schemas, facets, jev: process.env.OUTLINER_FIGURE_FIT !== "off", qaRule }, { timeoutMs: REVIEW_BUDGET_MS });
+    // Each read is bounded on its own; the outline's facets (seconds on a big outline: pie took 2 to 7 s) are read while
+    // Jev answers, and only when the text types a number before a word, so they never hold Jev up.
+    // The host answers a connection's requests in turn, so the quick reads go first and the facets after them.
+    const [schemas, qaRule] = await Promise.all([within(schemasOf(client), null), within(houseRule(client as never, "qa-for-evan"), undefined)]);
+    const facets = hasCountCandidate(text) ? within(facetsOf(client), []) : Promise.resolve([]);
+    return reviewWrite({ ...input, schemas, facets, jev: !off, ...(qaRule ? { qaRule } : {}) }, { timeoutMs: REVIEW_BUDGET_MS });
   };
-  // The whole review is bounded, and any failure in what it asks leaves code's measures alone: the write has landed.
-  const codeOnly = () => reviewWrite({ ...input, schemas: null, jev: false });
-  const { review, reading } = await Promise.race([full(), Bun.sleep(REVIEW_BUDGET_MS + 1500).then(codeOnly)]).catch(codeOnly);
-  if (process.env.OUTLINER_FIGURE_FIT !== "off") await keepRecords(client, { kind: "reviewed", at: { ...at, source: "write" }, title: headerLine(text).prose.trim(), review, ...(reading ? { reading } : {}) });
+  // The whole review is bounded, and any failure leaves code's measures alone, saying why Jev wasn't heard: the write has landed.
+  const codeOnly = (why: string) => reviewWrite({ ...input, schemas: null, jev: false, jevWhy: why });
+  const { review, reading } = await Promise.race([
+    full(),
+    Bun.sleep(REVIEW_BUDGET_MS * 2 + 1000).then(() => codeOnly(`not heard: the review ran past ${((REVIEW_BUDGET_MS * 2 + 1000) / 1000).toFixed(1)} s`)),
+  ]).catch((e: unknown) => codeOnly(`not heard: ${(e as Error)?.message ?? String(e)} (after ${((Date.now() - started) / 1000).toFixed(1)} s)`));
+  if (!off) await keepRecords(client, { kind: "reviewed", at: { ...at, source: "write" }, title: headerLine(text).prose.trim(), review, ...(reading ? { reading } : {}) });
   return review;
 }
 

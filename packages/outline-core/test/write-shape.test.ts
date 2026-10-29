@@ -187,3 +187,13 @@ test("an id in a labelled ep0ch:// link or any URL isn't a bare id", () => {
   expect(writeShape("Links\n\nSee [the plan](ep0ch://pie@float-2/b/8a1c2b3d-1111-4222-8333-444455556666) for it.")).toEqual([]);
   expect(writeShape("Links\n\nSee ep0ch://pie@float-2/b/8a1c2b3d-1111-4222-8333-444455556666 for it.")).toEqual([]);
 });
+
+// Live on pie (loki, Oct 29): a roadmap item's title patch moved its name into the body, leaving "PIE-1397 [type::…]".
+test("a work item's title is measured after its Work ID and never moved down", () => {
+  const item = "PIE-1397 — A deploy restarts the outline host only when the code it runs changed [type::roadmap-item] [work-id::PIE-1397]\n\nBody.";
+  expect(writeShape(item)).toEqual([]);
+  const long = "PIE-1398 — A deploy restarts the outline host only when the code it runs has changed since the last deploy, and says so [type::roadmap-item]\n\nBody.";
+  const [found] = writeShape(long);
+  expect(found).toMatchObject({ rule: "title" });
+  expect(found!.patch).toBeUndefined();
+});

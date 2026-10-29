@@ -230,7 +230,10 @@ export interface ReviewInput {
   /** The note written: the next check names it. */
   id: string;
   schemas: readonly ComponentSchema[] | null;
-  facets?: readonly ShapeFacet[];
+  /** The outline's property values for the count rule; a promise is awaited only after Jev is asked, so a slow read never holds Jev up. */
+  facets?: readonly ShapeFacet[] | Promise<readonly ShapeFacet[]>;
+  /** Why Jev isn't asked, said in the answer's `jev` (a review answered without it); `off` only when the setting says so. */
+  jevWhy?: string;
   /** Whether Jev is asked at all (OUTLINER_FIGURE_FIT=off, the tests' default, says no). */
   jev: boolean;
   /** How the outline words its validation rule (work-review.ts houseRule), for a finding that asks Evan to check things. */
@@ -257,7 +260,7 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
     asks: new Set(lines.flatMap((line, i) => (answers[`asks::L${i}`] ? (answers[`asks::L${i}`]!.noul ?? 0) >= REVIEW_THRESHOLDS.yes : asksEvan(line)) ? [i] : [])),
     ...(unit(answers.title?.noul) ? { titleIsContent: answers.title!.noul! >= REVIEW_THRESHOLDS.yes } : {}),
   } : {};
-  const shape = { facets: input.facets, ...judged };
+  const shape = { facets: await input.facets, ...judged };
   const had = new Map<string, number>();
   for (const f of before === undefined ? [] : writeShape(before, shape)) had.set(f.key, (had.get(f.key) ?? 0) + 1);
   const code: ReviewFinding[] = writeShape(text, shape).map(f => {
@@ -272,7 +275,7 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   const review: WriteReview = {
     verdict: findings.some(f => f.new) ? "fix" : "ship",
     findings,
-    jev: !input.jev ? "off" : asked === null ? "not asked: nothing it judges changed" : "answers" in asked ? "asked" : asked.unavailable,
+    jev: !input.jev ? input.jevWhy ?? "off" : asked === null ? "not asked: nothing it judges changed" : "answers" in asked ? "asked" : asked.unavailable,
     next: findings.some(f => f.new && f.patch)
       ? `apply the patches with outline_patch (each finding's patch, as written), fix the rest, then ${shapeNext(input.id)}`
       : shapeNext(input.id),

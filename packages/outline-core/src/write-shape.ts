@@ -169,10 +169,14 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
   const header = comment ? null : headerLine(text);
 
   if (header && header.line >= 0) {
-    const title = header.prose.trim();
+    // A work item's title is drawn after its Work ID ("PIE-1397 — A deploy restarts…"): the lead isn't measured, and the
+    // title is never moved down (it's the item's name wherever it's drawn), so the finding comes with no patch.
+    const lead = /^[A-Z][A-Z0-9]*-\d+\s*(?:—|–|-|:)\s*/.exec(header.prose.trim());
+    const workItem = !!lead || /\[work-id::/.test(lines[header.line]!);
+    const title = header.prose.trim().slice(lead?.[0].length ?? 0);
     const clauses = splitPoints(title).length;
     if (title.length > SHAPE_LIMITS.title || (o.titleIsContent && clauses > 1)) {
-      const patch = titlePatch(lines[header.line]!, title);
+      const patch = workItem ? undefined : titlePatch(lines[header.line]!, title);
       found.push({
         rule: "title", key: "title", line: header.line + 1,
         say: title.length > SHAPE_LIMITS.title
@@ -409,6 +413,9 @@ function bareIds(lines: readonly string[], structure: readonly number[], title: 
   });
   return out;
 }
+
+/** Whether the text types a number before a word anywhere: the count rule asks the outline's facets only then. */
+export const hasCountCandidate = (text: string) => /(?<![\w#$€£.\/:-])\d{1,5}(?![\w.:\/%-]|\.\d)\s+\p{L}/u.test(text);
 
 // ── Counts typed in prose ────────────────────────────────────────────────────
 

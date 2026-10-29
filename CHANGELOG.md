@@ -29,6 +29,12 @@ are its record. The outliner's entries from then are kept below, under
   `cost` in dollars; Jev's suggestions page has a section for the loops. All wording is in `prompts/work-jev.json`.
 - **What to run:** `PROTOCOL` is 279 (`roadmap.items.similar`, `roadmap.items.attach`, `new` on
   `roadmap.items.create`): `ep0ch install --apply` on float-2, float-box and the laptop.
+### A script's empty slots ask in order, in the kind the script declares (PIE-1298)
+
+- **In the order written:** a button that runs a script (neat's "two up") asks for page 1, then page 2, as the line
+  writes them, in the note picker.
+- **The script says what a slot is:** `[form-field::page note]` on the script's note, or in a file's opening comments,
+  makes the question a note picker; each pick is written on the line as the note's id.
 
 ### Every agent write is reviewed, ship or fix, and Evan sees each review (PIE-1388)
 
