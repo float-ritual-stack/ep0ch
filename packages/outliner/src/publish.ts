@@ -452,6 +452,8 @@ main.browse{max-width:42rem;padding:1rem 1rem 6rem}
 nav.crumbs{font:14px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--dim);border-bottom:1px solid var(--rule);padding-bottom:.4rem;margin-bottom:1.25rem;overflow-wrap:anywhere}
 nav.crumbs a{color:var(--dim);text-decoration:none;display:inline-block;padding:.45rem 0}
 nav.crumbs a:hover{color:var(--fg)}
+nav.crumbs a.mg-trail{color:var(--fg)}
+section#mg-trail{margin:-.75rem 0 1.25rem}section#mg-trail h2{margin-top:0}
 main.browse article{overflow-wrap:anywhere}
 section.inside h2{font:600 12px/1.4 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:2.5rem 0 .4rem}
 ul.kids{list-style:none;margin:0;padding:0;border-top:1px solid var(--rule)}

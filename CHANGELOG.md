@@ -38,6 +38,13 @@ are its record. The outliner's entries from then are kept below, under
 - **Every error page is dark:** a 404 (`/pub/p/PIE-9999`), a 502 or a busy 503 that a browser opens is the dark page
   with the same words; a page's own fetches still get plain text.
 - **Run:** nothing beyond the next `ep0ch install --apply` (the publisher and the Claude mod pick it up).
+### The trail: where a reader has been, and straight back to any stop (PIE-208)
+
+- **In a reader or the river:** `alt+T`, the `≡ trail` beside `← back`, or the tile menu lists every stop back and
+  forward by title, the note shown lit. ⏎ or a click goes straight there; `← back` and `forward →` walk the same trail.
+- **On the web page:** `≡ trail` at the end of the breadcrumbs lists the notes this tab opened, newest first.
+- **Agents:** `act trail` reads the stops (it opens nothing); `act back steps=2` goes two at once; `ep0ch.trail()` on a page.
+- **Run:** nothing extra; `ep0ch install --apply` as usual (no protocol or schema change).
 
 ### Agents work in your door while you type, and every refusal says the same thing (PIE-1294)
 
