@@ -123,7 +123,10 @@ describe.skipIf(!outliner)("the desk draws a layout change as motion, and the se
     expect(desk.tick()).toBe(false);
     // The settled frame is the layout's own, drawn as if nothing had moved.
     D().settle();
-    expect(frame()).toBe(landed);
+    // An activity row's age is the wall clock's ("0s system …"), not the motion's: a second can turn over between two
+    // frames on a loaded box (boxd, PIE-1412). The ages aside, the frames are the same.
+    const ages = (f: string) => f.replace(/\b\d+[smhd](?= )/g, "·s");
+    expect(ages(frame())).toBe(ages(landed));
     void settledRects;
     // Undo puts the tile back, with motion too.
     await act("layout.undo");

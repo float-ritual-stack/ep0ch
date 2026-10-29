@@ -38,7 +38,9 @@ export const marks: Record<string, string[]> = {
   // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
   undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
   hints: ["source: select wire", "select wire", "HintCard"],
-  panes: ["outline", "children", "Visitors", "Kitchen sink"],
+  // The tree's row for the note it follows: the outline is scrolled to show it (the root, above, is off a 60-row screen
+  // once the seed has more top-level notes than the dock has rows).
+  panes: ["outline", "children", "Visitors", "▸ Allotment notebook"],
   "book-spines": ["Bike shed", "Allotment notebook", "spines"],
   folds: ["outline", "children", "◂", "▾"],
   screens: ["Daily brief", "2026-03-11", "Needs you"],

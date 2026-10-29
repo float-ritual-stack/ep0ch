@@ -142,8 +142,8 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
       expect(Math.abs(plain(inner).indexOf("┌─ More") - at)).toBeLessThanOrEqual(4);
       press({ kind: "esc" });
       // The guide's own list-item button presses in the reader, by act.
-      await app.dispatch.act({ action: "button.press", tile: "notes", args: { label: "Fold from a list" } }, { kind: "user" });
-      await untilAsync(collapsed, "the list-item button in the guide");
+      const pressed = await app.dispatch.act({ action: "button.press", tile: "notes", args: { label: "Fold from a list" } }, { kind: "user" });
+      await untilAsync(collapsed, `the list-item button in the guide (it answered ${JSON.stringify(pressed)})`);
       await unfold();
     } finally {
       await board.trash(note.id);
@@ -617,10 +617,13 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     // A tab in the drawer has its × (tile.close): the kettle's program runs, so a click asks first and closes nothing yet.
     await app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "kettle" }, { kind: "user" });
     (app as any).paint();
-    const row = app.drawer.rect!.row + 1, header = plain(h.painted[row] ?? ""), col = header.indexOf("x", header.indexOf("kettle"));
+    // The frame's × at the header's end: the tab's title is its program's (on a box whose shell names its host, "boxd@…"
+    // has an x of its own, PIE-1412).
+    const row = app.drawer.rect!.row + 1, header = plain(h.painted[row] ?? ""), col = Math.max(header.lastIndexOf("x┐"), header.lastIndexOf("x╗"));
     expect(col).toBeGreaterThan(0);
     for (const action of ["down", "up"] as const) press({ kind: "mouse", action, button: 0, x: col, y: row });
-    expect((app as any).message).toContain("closing ends it");
+    // The header row with it: a miss says what was clicked.
+    expect({ message: (app as any).message, header, col }).toMatchObject({ message: expect.stringContaining("closing ends it") });
     expect(app.drawer.tabs().map(t => t.name)).toContain("kettle");
     press({ kind: "char", ch: "]", ctrl: true });
     (app as any).lastInput = 0;
