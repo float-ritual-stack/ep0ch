@@ -229,6 +229,22 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     await until(() => focusedKind() !== "keys", "closed");
   });
 
+  test("the first ? opens the keys window, even with the hint row cut or after a click inside a tile; a frame's card needs the pointer on the frame", async () => {
+    cols = 90; rows = 40;
+    try {
+      desk().render(desk().ctx);
+      expect(desk().hintFull).toBeTruthy();
+      const r = desk().rectOf(desk().panes.get(desk().focus));
+      const x = r.col + Math.floor(r.cols / 2), y = r.row + Math.floor(r.rows / 2);
+      key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
+      key(char("?"));
+      await until(() => focusedKind() === "keys", "the keys window on the first ?", 8000);
+      expect(desk().hintCards().length).toBe(0);
+      key({ kind: "esc" });
+      await until(() => focusedKind() !== "keys", "closed");
+    } finally { cols = 177; rows = 60; }
+  });
+
   test("Conflicts says how many keys really fight, and none of the built-in ones do", async () => {
     key(char("?"));
     await until(() => focusedKind() === "keys", "the keys tile");

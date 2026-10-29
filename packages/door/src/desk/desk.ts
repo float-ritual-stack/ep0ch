@@ -4560,7 +4560,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (hyper) tail += `${fg(C.magenta)}${hyper}${RESET} `;
     const room = Math.max(0, cols - hw);
     // Too long for the row (dock handles take its end): cut between its parts, never inside a key's, and say
-    // "? more": ? (or a click on it) shows the whole row above it (keys.more). A ^W chord's row shows it at once.
+    // "? more": a click on it shows the whole row above it (keys.more), and ? the keys window. A ^W chord's row shows it at once.
     this.hintFull = null; this.moreChip = null; this.hintPanel = null;
     const fit = (s: string) => {
       const f = fitHint(s, room, MORE);
@@ -4599,7 +4599,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (have === undefined) {
       // From a float: beside the tile under it, as tile.open does.
       const at = this.isFloat(this.focus) ? this.grounded() ?? this.focus : this.focus, [first, then] = this.sides(at);
-      const done = await this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), first, actor).catch(e => { if (e instanceof ActionRefused) return this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), then, actor); throw e; });
+      // Beside it, else below or beside the other way, else along the screen's right edge: a container that takes only
+      // its own kind (the board's lanes) refuses the first two, never the edge.
+      let done: unknown;
+      for (const where of [first, then, "edge-right"] as const) {
+        try { done = await this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), where, actor); break; }
+        catch (e) { if (!(e instanceof ActionRefused) || where === "edge-right") throw e; }
+      }
       // Closed (esc, q, ^W x), it gives the keys back to the tile it opened beside.
       const made = this.all().find(id => this.panes.get(id) instanceof KeysPane);
       if (made !== undefined) this.openedBy(made, at);
@@ -4838,7 +4844,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
     if (ch(k) === "?" && this.hintPointer && !this.holdsKeys()) {
       const at = this.hits.find(([, r]) => this.hintPointer!.y === r.row && this.hintPointer!.x >= r.col && this.hintPointer!.x < r.col + r.cols);
-      if (at) { this.run("hint.show", {}, this.nameOf(at[0])); return; }
+      // Only on a frame (UI-GRAMMAR, "? while the pointer is on a frame"): anywhere else in a tile, ? is the keys window.
+      if (at && this.onFrame(at[0], this.hintPointer.x, this.hintPointer.y)) { this.run("hint.show", {}, this.nameOf(at[0])); return; }
     }
     // A key or a click first settles a transition in flight, so it lands where the tile is (PIE-958).
     if (this.moving) { this.settle(); this.render(ctx); }
@@ -4865,10 +4872,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       else this.ctx.flash("no new note here: this screen isn't given the door's actions · ctrl+n from the door's own screens");
       return;
     }
-    // ? shows the whole hint row when it was cut (never while the person is typing: a draft, a filter, a
-    // terminal, a ^W chord); the next key or click puts it away again and does what it does, but Esc only that.
-    // ? again, with the whole row shown (or a row that fits): the keys window, filtered to the focused tile (keys.open).
-    if (ch(k) === "?" && this.hintFull && !this.hintMoreOpen && !this.holdsKeys()) { this.run("keys.more"); return; }
+    // ? is the keys window, filtered to the focused tile (keys.open), at once: it lists every key the cut hint row
+    // would (PIE-1425: a first ? that only showed the rest of the row read as ? doing nothing). The row's "? more"
+    // chip still shows the whole row (keys.more). Never while the person is typing: a draft, a filter, a terminal, a ^W chord.
     if (ch(k) === "?" && !this.holdsKeys() && !this.prefix && this.ctx.press && this.panes.get(this.focus)?.kind !== "keys") { this.hintMoreOpen = false; void this.ctx.press("keys.open", { filter: this.keysFilter() }); return; }
     if (this.hintMoreOpen) {
       const chip = k.kind === "mouse" && this.moreChip && k.y === this.hintRow && k.x >= this.moreChip.from && k.x < this.moreChip.to;
@@ -8334,7 +8340,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   }),
   "keys.more": def({
     summary: "show the whole hint row in a box above it, when the screen is too narrow for it and it was cut (it ends \"? more\"); again, or the next key, puts it away. The person's view: an agent's is refused (peek and actions say every key already)",
-    keys: "?, a click on ? more",
+    keys: [{ keys: "click", does: "on ? more at the end of a cut hint row" }],
     touches: "screen", replay: "safe", person: "keys.more is the person's view of their hint row; `actions` lists every key",
     args: {},
     run(_, { d }) { return d.keysMore(); },
