@@ -1304,7 +1304,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `W` in a reader, a click on a part's `⤢` | zoom into part of the note (PIE-780): the figure, table or heading's section the `[ ]` position (or the reading line) is in fills the reader, interactive at full size; the `⤢` at a figure's, a table's or a heading's right edge does it by mouse. Esc, `alt+←`, `⌫` or a click on the zoom's top row comes back to the whole note as it was; `alt+→` zooms in again (`element.zoom`). The part is the one `alt+D` would detach, as the service finds it (`fragments.at`); nothing is written |
 | `alt+r` | show the focused reader's note in the outline (a click on its crumbs does too); nothing else moves (`reader.reveal`) |
 | `alt+z`, `alt+Z` in a reader | route the note shown by the outline's routing rules (`note.route`, PIE-1010): the first rule note (`[type::route] [query::…] [route-to::((id))]`, listed in the Routing view) whose query holds for it moves it there, as `ext:route`, in one revision; the status bar says which rule; `ctrl+z` puts it back. `alt+Z` says what would move, moving nothing. The tile menu's "route by rules" is the same. A note being written is never moved under you: it routes when the draft closes. `ep0ch route <note>` and `ep0ch route --all [--dry-run]` do the same from a shell |
-| `?`, a click on `? more` | when the hint row is too long for the screen (it ends `? more`), show all of it in a box above it (`keys.more`, the person's); a `^W` chord's row shows it at once |
+| a click on `? more` | when the hint row is too long for the screen (it ends `? more`), show all of it in a box above it (`keys.more`, the person's); a `^W` chord's row shows it at once. `?` itself opens the keys window |
 | Hold `Ctrl`; `Ctrl+]` then `?` | Show every tile's hint card (x-ray). Release Ctrl or toggle again to hide. Bare Ctrl needs Kitty modifier reports; press-only reports toggle. |
 | Click or hover a frame's controls chip; `?` over a frame | Show that tile's controls without taking its keys. Choices use the tile menu's actions; wheel scrolls a long card. `[pin]` keeps it, `[dismiss]` or Esc closes it. |
 | `Ctrl+W` then `g` | what an agent may do to this tile: free, edit only (its note, not navigating, closing or retargeting it), hands off (peek only); cycles (`tile.agent`) |
@@ -2058,14 +2058,16 @@ sentence; the detail says what it runs, its layer, what it takes the key from, w
 tile's program sees it. `⏎` runs the row in the tile you opened it from, as its key would there; one that needs
 arguments asks for them in the power bar's form. Tabs: Bindings, Conflicts (two bindings that really fight over a key:
 two rows of one key table, or one key twice in your keymap file, with which one runs; the states of one control, like
-esc clearing then closing the power bar, aren't), Yours.
+esc clearing then closing the power bar, aren't), Yours, and Unbound: every action you can run that no key reaches on
+any screen, by where it runs (read from the actions themselves), with `r` to give one a key, what that key does now
+said first, and `⏎` to run it. One that can't run without arguments says to bind its act line with them instead.
 
 | Key | Does |
 |---|---|
 | `j` `k` `↓` `↑` `pgdn` `pgup` | select a binding |
 | `⏎`, a click on the selected row | run it where you opened the window (its arguments asked in the power bar) |
 | `/` | type the filter (`⏎` done, `esc` clears) |
-| `1` `2` `3` | Bindings, Conflicts, Yours |
+| `1` `2` `3` `4` | Bindings, Conflicts, Yours, Unbound |
 | `r` | rebind: press the new key (`^W` then a key for a ^W key); what it takes is said first, `⏎` saves, `esc` drops |
 | `u` / `d` | unbind it / give it its built-in keys back |
 | `ctrl+z` | undo the last change |

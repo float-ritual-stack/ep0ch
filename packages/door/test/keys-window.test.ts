@@ -10,7 +10,8 @@ import { openScreen } from "../src/desk/screen-specs";
 import { wKey, wRows } from "../src/desk/wkeys";
 import { SocketBoard, USER } from "../src/socket";
 import { visible } from "../src/style";
-import { bindings, conflicts, fightOf, rebindEffects, type Binding } from "../src/surface/key-catalog";
+import { bindings, conflicts, fightOf, rebindEffects, unbound, type Binding } from "../src/surface/key-catalog";
+import { allActionSets } from "../src/surface/actions";
 import { declaredOf, effective, keymapEntries, keymapProblem, resetKeys, keymapPath, moved, asTyped, parse, reloadKeymap, setKeys, undoKeymap } from "../src/surface/keymap";
 import type { Key } from "../src/term";
 import { traceActions } from "../src/surface/actions";
@@ -97,6 +98,26 @@ describe("the keymap file", () => {
     expect(fightOf(fights[0]!)).toMatchObject({ wins: "tile.close", loses: ["note.new"] });
   });
 
+  test("Unbound is every action no key reaches, read from the action sets; a key given to one is said first and moves it out", () => {
+    const all = bindings(), un = unbound(all), keyed = new Set(all.map(b => b.action));
+    // Every action the door has is on a key or in Unbound, never both and never neither.
+    const names = new Set(allActionSets().flatMap(s => s.names()));
+    expect([...names].filter(n => keyed.has(n) === un.some(b => b.action === n))).toEqual([]);
+    // share.list is reached only by a line typed in the power bar: no key.
+    const row = un.find(b => b.action === "share.list")!;
+    expect(row).toMatchObject({ key: "", from: "unbound", rebind: true });
+    // Giving it a key says first what that key does now, then the key is its, and it leaves Unbound.
+    const e = rebindEffects(row, "alt+j", all);
+    expect(e.problem).toBeNull();
+    setKeys("share.list", ["alt+j"]);
+    const now = bindings();
+    expect(now.some(b => b.action === "share.list" && b.key === "alt+j" && b.yours)).toBe(true);
+    expect(unbound(now).some(b => b.action === "share.list")).toBe(false);
+    // An action that can't run without arguments isn't given a bare key: the window says to bind its act line.
+    const needs = un.find(b => b.rebind !== true);
+    if (needs) expect(String(needs.rebind)).toContain("needs");
+  });
+
   test("resetting one binding by name leaves the action's other entries alone", () => {
     setKeys("element.select by=1", ["n"]);
     setKeys("element.select by=-1", ["p"]);
@@ -180,6 +201,50 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     expect(focusedName()).toBe(opener);
   });
 
+  test("the Unbound tab: its count in the label, filtered like the others, r gives a row a key with what it takes said first", async () => {
+    key(char("?"));
+    await until(() => focusedKind() === "keys", "the keys tile");
+    await act("keys.filter", { text: "" });
+    await act("keys.tab", { tab: "unbound" });
+    const total = keysWin().rows as number;
+    expect(total).toBeGreaterThan(0);
+    expect(keysPane().render(90, 30, true, desk()).lines.map(visible).join("\n")).toContain(`Unbound ${total}`);
+    await act("keys.filter", { text: "share.list" });
+    expect(keysWin().selected).toMatchObject({ id: "share.list", key: "" });
+    // r, then the new key: what alt+j does now is said before it saves.
+    key(char("r"));
+    await until(() => keysWin().record?.id === "share.list", "waiting for the key");
+    key({ kind: "alt", ch: "j" });
+    await until(() => keysWin().record?.key === "alt+j", "the new key read");
+    key({ kind: "enter" });
+    await until(() => file()["share.list"]?.includes("alt+j"), "saved in the keymap");
+    expect(keysWin().rows).toBe(0);
+    await act("keys.reset", { id: "share.list" });
+    expect(keysWin().rows).toBe(1);
+    // At 40 columns the four tabs and their counts still show (two rows when they don't fit one).
+    const narrow = keysPane().render(40, 30, true, desk()).lines.map(visible).join("\n");
+    expect(narrow).toContain("Unbound");
+    expect(narrow).toContain("Conflicts 0");
+    key({ kind: "esc" });
+    await until(() => focusedKind() !== "keys", "closed");
+  });
+
+  test("the first ? opens the keys window, even with the hint row cut or after a click inside a tile; a frame's card needs the pointer on the frame", async () => {
+    cols = 90; rows = 40;
+    try {
+      desk().render(desk().ctx);
+      expect(desk().hintFull).toBeTruthy();
+      const r = desk().rectOf(desk().panes.get(desk().focus));
+      const x = r.col + Math.floor(r.cols / 2), y = r.row + Math.floor(r.rows / 2);
+      key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
+      key(char("?"));
+      await until(() => focusedKind() === "keys", "the keys window on the first ?", 8000);
+      expect(desk().hintCards().length).toBe(0);
+      key({ kind: "esc" });
+      await until(() => focusedKind() !== "keys", "closed");
+    } finally { cols = 177; rows = 60; }
+  });
+
   test("Conflicts says how many keys really fight, and none of the built-in ones do", async () => {
     key(char("?"));
     await until(() => focusedKind() === "keys", "the keys tile");
@@ -210,7 +275,7 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     key(char("w", true)); key(char("q"));
     await until(() => keysWin().record?.key === "ctrl+w q", "the new key read");
     expect(lines().join("\n")).toContain("^W x → ^W q");
-    expect(existsSync(keymapPath())).toBe(false);
+    expect(existsSync(keymapPath()) && file()["tile.close"]).toBeFalsy();
     key({ kind: "enter" });
     await until(() => existsSync(keymapPath()) && file()["tile.close"]?.includes("ctrl+w q"), "saved in the keymap");
     expect(keysWin().said).toContain("^W x → ^W q");
@@ -280,8 +345,20 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
       const l = keysPane().render(40, 30, true, desk()).lines.map(visible) as string[];
       expect(l[0]).toContain("Bindings");
       expect(l.join("\n")).toContain("runs");
-      expect(l[0]).toContain("Conflicts 0");
+      expect(l.slice(0, 2).join(" ")).toContain("Conflicts 0");
       expect(Math.max(...l.map(x => x.length))).toBeLessThanOrEqual(40);
+      // No tab label and no key is cut mid-word: the tabs wrap, the key column is as wide as its widest key.
+      expect(l.slice(0, 2).join(" ")).not.toContain("…");
+      const p = keysPane();
+      for (const words of ["shift+tab", "ctrl+space", "delete"]) {
+        p.filter = words; p.at = 0;
+        const rows = p.render(40, 30, true, desk()).lines.map(visible) as string[];
+        const caps = rows.slice(4).filter(x => /^[║│]?.?\S/.test(x)).map(x => x.slice(0, 14));
+        expect(caps.filter(c => c.includes("…"))).toEqual([]);
+      }
+      p.filter = "";
+      // A mouse gesture with a modifier (ctrl+wheel) is a gesture, never a key row.
+      expect(bindings().some(b => /wheel|click|drag/.test(b.key))).toBe(false);
     } finally { cols = 177; rows = 60; }
     key({ kind: "esc" });
     await until(() => focusedKind() !== "keys", "closed");
