@@ -13,6 +13,11 @@ interface Groom {
   keepGroom(into: Client, report: unknown): Promise<{ verdicts: number; comments: number; run: string }>;
   groomSummary(report: unknown): string;
 }
+interface Later {
+  park(source: Client, o: { where?: string; limit?: number; apply?: boolean; olderThanDays?: number; actor?: string }): Promise<{ rows: { id: string; outcome: string }[] }>;
+  revive(source: Client, o: { where?: string; limit?: number; apply?: boolean; jev?: boolean; actor?: string; progress?: (line: string) => void }): Promise<{ rows: { id: string; ticket: string; outcome: string }[] }>;
+  laterSummary(report: unknown): string;
+}
 interface Try {
   planTries(tickets: unknown[], actions: { name: string; summary: string; keys?: string; examples?: readonly { act: string; does: string }[] }[], o: { jev: boolean }): Promise<{ jev: string; tokens: number }>;
   keepTries(into: Client, report: unknown): Promise<{ note: string; run: string }>;
@@ -20,6 +25,7 @@ interface Try {
 }
 const GROOM = "@ep0ch/outliner/work-groom";
 const TRY = "@ep0ch/outliner/work-try";
+const LATER = "@ep0ch/outliner/work-later";
 
 export const WORK_USAGE = `  ep0ch work groom [--ws <name>] [--repo <dir>] [--since 120d] [--where <query>] [--limit <n>] [--into <name>] [--no-jev] [--json]
                                    Jev's first pass over the queued tickets: each against the CHANGELOG and merged pull
@@ -27,14 +33,25 @@ export const WORK_USAGE = `  ep0ch work groom [--ws <name>] [--repo <dir>] [--si
                                    duplicate or open, with confidence and evidence. Reads only; --into keeps the verdicts,
                                    a comment on each confident "solved" for the verifier, the "Jev thinks these are done"
                                    view and the run's tokens and cost. Jev never closes a ticket.
+  ep0ch work groom --park [--older-than 30d] [--where <query>] [--apply] [--as <name>] [--json]
+                                   the cut (PIE-1421): queued items untouched that long go to later with
+                                   [wreckage::<day>], except what a groom keeps: high priority, under 14 days old, or
+                                   decided (a ticked - [x], a decided figure, [decided::]); each kept one says why.
+  ep0ch work groom --later [--where <query>] [--apply] [--as <name>] [--no-jev] [--into <name>] [--json]
+                                   the way back, weekly: each parked item a comment, a new note or live work asked for
+                                   again (Jev reads the note: wanted, or only cited?), or one parked against the keep
+                                   rule, goes back to queued with a line saying why; then the groom's pass over what
+                                   stays, so one that shipped gets its comment (kept in --into, else with --apply).
+                                   --apply writes it, with a groom-later record each (type=groom-later
+                                   outcome=restored counts what came back). --limit caps the items read.
   ep0ch work try <PIE-n>… [--ws <name>] [--into <name>] [--no-jev] [--json]
                                    what a validator would try for merged tickets: the door's actions and each ticket's
                                    lines Jev picks, as journeys (where, which keys or act call, what should show).
                                    --into keeps it as a [type::validation-plan] note for the verifier's brief.
   ep0ch work create|stage|set|deliver|complete|body|link …   the outliner's work command (ep0ch work help)`;
 
-const SOLO = ["--json", "--no-jev", "--here"];
-const VALUED = ["--repo", "--since", "--where", "--limit", "--into", "--into-machine", "--ws", "--machine"];
+const SOLO = ["--json", "--no-jev", "--here", "--park", "--later", "--apply"];
+const VALUED = ["--repo", "--since", "--where", "--limit", "--into", "--into-machine", "--ws", "--machine", "--older-than", "--as"];
 
 const clientOf = (board: Board): Client => ({ request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.request<T>(action, params, 60_000); } });
 
@@ -84,6 +101,33 @@ export async function workCommand(args: string[], io = { out: (s: string) => con
   if (into && "error" in into) { source.close(); io.err(`ep0ch work ${op}: --into: ${into.error}`); return 1; }
   const jev = !rest.includes("--no-jev");
   try {
+    if (op === "groom" && (rest.includes("--park") || rest.includes("--later"))) {
+      const l = await import(LATER) as Later, json = rest.includes("--json"), apply = rest.includes("--apply");
+      const common = { ...(opts["--where"] ? { where: opts["--where"] } : {}), ...(limit ? { limit } : {}), apply, ...(opts["--as"] ? { actor: opts["--as"] } : {}) };
+      if (rest.includes("--park")) {
+        const days = /^(\d+)d$/.exec(opts["--older-than"] ?? "30d")?.[1];
+        if (!days) { io.err("ep0ch work groom --park: --older-than takes days, like 30d"); return 2; }
+        const report = await l.park(clientOf(source), { ...common, olderThanDays: Number(days) });
+        io.out(json ? JSON.stringify(report, null, 2) : l.laterSummary(report));
+        return 0;
+      }
+      const report = await l.revive(clientOf(source), { ...common, jev, progress: line => { if (!json) process.stderr.write(`\r${line}\x1b[K`); } });
+      if (!json) process.stderr.write("\r\x1b[K");
+      // Then the groom's own pass over what stays parked, only those: one that shipped gets its comment for the
+      // verifier, kept in --into, else (with --apply) in the outline it read.
+      const stays = report.rows.filter(r => r.outcome === "stays").map(r => r.ticket);
+      const repo = opts["--repo"] ?? join(import.meta.dir, "../../..");
+      const changelog = await Bun.file(join(repo, "CHANGELOG.md")).text().catch(() => "");
+      const m = await import(GROOM) as Groom;
+      const shipped = stays.length && changelog
+        ? await m.groom(clientOf(source), { changelog, prs: await mergedPullRequests(repo, opts["--since"] ?? "120d") }, { jev, where: `type=roadmap-item (${stays.map(t => `work-id=${t}`).join(" OR ")})` })
+        : undefined;
+      const keepIn = into ?? (apply ? source : undefined);
+      const kept = shipped && keepIn ? await m.keepGroom(clientOf(keepIn), shipped) : undefined;
+      io.out(json ? JSON.stringify({ ...report, ...(shipped ? { groom: shipped } : {}), ...(kept ? { kept } : {}) }, null, 2)
+        : `${l.laterSummary(report)}${shipped ? `\n\nwhat stays, against what shipped:\n${m.groomSummary(shipped)}` : ""}${kept ? `\n\nkept: ${kept.verdicts} verdicts, ${kept.comments} comments for the verifier` : ""}`);
+      return 0;
+    }
     if (op === "groom") {
       const repo = opts["--repo"] ?? join(import.meta.dir, "../../..");
       const changelog = await Bun.file(join(repo, "CHANGELOG.md")).text().catch(() => { throw new Error(`no CHANGELOG.md in ${repo}: --repo names the checkout`); });

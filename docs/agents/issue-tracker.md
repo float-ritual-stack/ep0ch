@@ -49,6 +49,13 @@ If there is none, `work_create` and give back the Work ID and its `((ref))`; it 
   and the other items: solved, superseded, duplicate or open, with confidence and evidence. Read only; `--into pie`
   keeps the verdicts, a comment on each confident "solved" and the "Jev thinks these are done" view. Merged and then
   found wrong in use (the item's newest lines say so) is open. Jev never closes anything.
+- **`ep0ch work groom --park --ws pie --machine float-2`**: the only bulk cut (PIE-1421). Queued items untouched for
+  30 days go to later with `[wreckage::<day>]`; high priority, under 14 days old or decided (`- [x]`, a decided
+  figure, `[decided::]`) stay queued, each saying why. Read only until `--apply`.
+- **`ep0ch work groom --later --ws pie --machine float-2 --apply --as loki`**, weekly: what's parked and wanted
+  again (a comment on it, a note made since that names it and Jev reads as asking, live work linking it) goes back to
+  queued with a line saying why; the rest gets the groom's shipped check, its comments kept with `--apply`. `type=groom-later outcome=restored` counts
+  what came back.
 - **`ep0ch work try PIE-a PIE-b … [--into pie]`**: what a validator tries for a batch of merged items: the door's
   actions Jev picks for each, with keys and `act` call, and the item's lines that say what should show. The
   verifier's brief starts from it.

@@ -21,6 +21,7 @@ const kinds = () => tileKinds().map(k => k.kind).join(", ");
 
 export const PANE_ACTIONS = actionSet<On>()("pane", {
   "pane.split": def({
+    words: "open a tile beside this one",
     get summary() { return `open a tile beside tile=<tile> (default the focused one), along its longer side: kind=<kind> (default reader; ${kinds()}), dir=row (beside) or col (below). The person's focus stays where it is. tile.open does the same with where= and to=. The board's details open with a note: open tile=new-detail`; },
     keys: [{ keys: "^W o", does: "on the desk, then a <kind>" }, { keys: "alt+⏎", does: "on the board" }],
     touches: "shape", landing: true, replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind ?? "reader", r.pane)}`,

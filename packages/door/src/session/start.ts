@@ -8,6 +8,7 @@ import { sessionLog } from "./place";
 import { connect } from "node:net";
 import { privateDir, stateDir } from "../state";
 import { encode, Frames, type DaemonMsg } from "./protocol";
+import { outerClaudeVar } from "../desk/agent-env";
 
 /** The session's socket, file (who it is), lock and log: in its outline's folder (src/session/place.ts). */
 export { sessionFile, sessionLock, sessionLog, sessionSocket } from "./place";
@@ -27,11 +28,14 @@ export const TERMINAL_VARS = ["HERDR_PANE_ID", "HERDR_TAB_ID", "EP0CH_NEST", "SS
  */
 export const INSIDE_DOOR_VARS = ["EP0CH_CONTROL", "EP0CH_TILE", "EP0CH_TILE_ID", "EP0CH_IN_DOOR", "EP0CH_PLACE"] as const;
 
-/** What a session starts with: this environment, without the terminal's (and an outer door's) variables. */
+/**
+ * What a session starts with: this environment, without the terminal's (and an outer door's) variables, nor a Claude
+ * session's it was started from (`outerClaudeVar`, PIE-1432).
+ */
 export function sessionEnv(env: Record<string, string | undefined> = process.env): Record<string, string> {
   const drop = new Set<string>([...TERMINAL_VARS, ...(env.EP0CH_IN_DOOR ? INSIDE_DOOR_VARS : [])]);
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k)) out[k] = v;
+  for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k) && !outerClaudeVar(k)) out[k] = v;
   return out;
 }
 

@@ -204,7 +204,7 @@ export async function serve(args: string[]): Promise<never> {
   // Said once the screens have been drawn (their tiles adopt their programs as they are).
   if (restored || keptPrograms) setTimeout(() => {
     const adopted = keptPrograms - host.unadopted().length;
-    app.flash(restoredSaying(restored ?? { screens: 0, held: [], reopened: 0, errors: [] }, handedOver ? "upgrade" : "crash", adopted), 15_000);
+    app.flash(restoredSaying(restored ?? { screens: 0, held: [], reopened: 0, errors: [] }, handedOver ? "upgrade" : "crash", adopted, app.drawer.untiled().length), 15_000);
   }, 400);
 
   /** Every terminal starts again on the code in the checkout and attaches again: the session goes on as it is. */

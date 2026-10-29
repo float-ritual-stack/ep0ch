@@ -1,6 +1,6 @@
-// The trail tile (PIE-1425): a reader's trail (PIE-208) docked beside it, resized and closed like any tile. It reads the
-// reader's own back and forward stacks every frame (NoteSurface.trailOf, the one history), so it follows the reader as it
-// walks; a stop chosen is back or forward that many steps in the reader, as back steps= does. Opened by alt+T, the ≡
+// The trail tile (PIE-1425): a tile's trail (PIE-208) docked beside it, resized and closed like any tile. It reads its
+// source's own back and forward every frame (Pane.trail, PIE-1426: a reader's stacks, the links tile's notes listed), so it
+// follows as the tile walks; a stop chosen is back or forward that many steps there, as back steps= does. Opened by alt+T, the ≡
 // trail chip or the tile menu's trail row on a screen of tiles (Desk.trailTile); a screen without tiles lists the trail
 // over itself instead.
 import { C, fg, pad, RESET } from "../style";
@@ -11,7 +11,7 @@ import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
 import { trailLine, trailRows, type TrailRow } from "../surface/note";
 import { pickRow } from "../surface/picker";
 import type { Key } from "../term";
-import { ReaderPane, type DeskApi, type Pane, type PaneView } from "./panes";
+import type { DeskApi, Pane, PaneView } from "./panes";
 import { TILE_ACTIONS } from "./tile-actions";
 import type { KindHost, TileKind } from "./tile-kinds";
 
@@ -29,7 +29,7 @@ export class TrailPane implements Pane {
   /** The row picked, from 0; null is the note shown (the trail's ●). */
   at: number | null = null;
   readonly view = new RowView();
-  /** `source`: the reader whose trail it lists, by name. */
+  /** `source`: the tile whose trail it lists (a reader, the links tile), by name. */
   constructor(public source: string) {}
 
   title() { return `trail · ${this.source}`; }
@@ -37,9 +37,10 @@ export class TrailPane implements Pane {
   hint() { return `${modeHint(TRAIL_KEYS, a => (TRAIL_ACTIONS.def(a) ?? TILE_ACTIONS.def(a)))} · click picks, again goes`; }
   spec() { return { source: `tile:${this.source}` }; }
 
-  reader(desk: DeskApi): ReaderPane | null { const p = desk.paneNamed?.(this.source); return p instanceof ReaderPane ? p : null; }
-  /** Its rows now, from the reader's own trail. */
-  rows(desk: DeskApi): TrailRow[] { const r = this.reader(desk); return r ? trailRows(r.surface.trailOf()) : []; }
+  /** The tile whose trail it lists, while it's here and keeps one (Pane.trail). */
+  reader(desk: DeskApi): (Pane & { trail: NonNullable<Pane["trail"]> }) | null { const p = desk.paneNamed?.(this.source); return p?.trail ? p as Pane & { trail: NonNullable<Pane["trail"]> } : null; }
+  /** Its rows now, from the source's own trail. */
+  rows(desk: DeskApi): TrailRow[] { const r = this.reader(desk); return r ? trailRows(r.trail.stops()) : []; }
   /** The row picked, clamped to the rows there are; the note shown when none was picked. */
   picked(rows: readonly TrailRow[]): number { const here = rows.findIndex(r => r.dir === 0); return Math.max(0, Math.min(rows.length - 1, this.at ?? here)); }
 
@@ -105,7 +106,8 @@ export const TRAIL_ACTIONS = actionSet<KindHost>()("trail", {
       const stop = rows[n !== undefined ? Math.max(0, Math.min(rows.length - 1, n - 1)) : p.picked(rows)]!;
       p.at = null;
       if (!stop.dir) return { here: stop.title };
-      await desk.within?.(stop.dir < 0 ? "back" : "forward", { steps: stop.steps }, actor, r);
+      const why = await r.trail.go(stop.dir, stop.steps, desk, actor);
+      if (why) throw new ActionRefused(why);
       return { went: stop.title, [stop.dir < 0 ? "back" : "forward"]: stop.steps };
     },
   }),

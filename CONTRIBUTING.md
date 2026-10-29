@@ -180,8 +180,10 @@ Every review, by the author before opening the PR and by the reviewer, goes thro
     routing, the clients' re-reads).
   - **Count:** how much of it at pie's size (about 11k notes, 86 views, two doors and the publishers): writes per run,
     reads per write.
-  - **Proof:** the host's measured impact: `bun run bench:host` in packages/outliner (ping p50, p95, p99, max and the
-    longest stall per phase, before and after), or a case in `test/host-stalls.test.ts`.
+  - **Proof:** the host's measured impact, from where the person waits: `bun run bench:host` in packages/outliner
+    (the real door's own requests, ping p50, p95, p99, max and the longest stall per phase, before and after), or a
+    case in `test/host-stalls.test.ts`. A client that reads after changes reads once per burst, one read in flight,
+    and only what is on screen (the query tile's `refresh`).
 
   The host keeps it fair by itself (work the service does for itself takes a turn per request, watch passes a watch
   per turn, a write patches the graph instead of reloading it); a job never throttles itself to stay out of the way.
@@ -237,8 +239,9 @@ how to check it (automated when possible), so it can be retired once a test or t
   `XDG_CONFIG_HOME`.*
 - **Work for nobody.** Does a session, screen or tile keep doing per-frame or per-event work (drawing, publishing a
   view, scaling images) while nobody is attached or looking? Gate it on someone watching. *Seen: #196 (a detached
-  session drew every frame of a busy terminal tile, about 30% of a core). Still to check: the media cache's
-  `nextFrame`, the live view's publish. Check: a test that a detached session draws nothing.*
+  session drew every frame of a busy terminal tile, about 30% of a core); PIE-1413 (a board's 86 lanes each re-read
+  every change, off the screen too: query tiles off the screen now read behind, `src/frames.ts`). Still to check: the
+  media cache's `nextFrame`, the live view's publish. Check: a test that a detached session draws nothing.*
 
 Keeping this list honest, at each push-review round:
 

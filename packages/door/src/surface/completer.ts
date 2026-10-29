@@ -745,6 +745,7 @@ export const COMPLETION_ACCEPT = {
   examples: [{ act: "complete.accept", does: "inserts the lit row" }, { act: "complete.accept n=3", does: "inserts the third row" }],
 } as const;
 export const COMPLETION_ASK = {
+  words: "open the completion list where you're typing",
   summary: "open (or ask again) the completion list for the token at the cursor, as a deliberate choice: ⏎ then inserts its lit row",
   keys: "tab, ctrl+space in a [[, ((, ::, > [! or [key:: token", touches: "draft", draft: "type", replay: "safe", args: {},
   examples: [{ act: "complete.ask", does: "lists the candidates for the token at the draft's cursor, in the popup" }],
