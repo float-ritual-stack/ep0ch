@@ -126,3 +126,15 @@ export function screenKeys(s: { title: string; keys?(): ScreenKeys; holdsKeys?()
  * (test/one-owner.test.ts) fails when a screen words it again.
  */
 export const holdsEdit = (label: string, what = "an edit or a comment"): string => `${label} holds ${what}; it stays on its note until that's saved or closed`;
+
+/** What an agent does instead of interrupting the person: the tail most typing refusals end with. */
+export const MARK_THEM = "block.mark gets their attention";
+/**
+ * Why an agent is held back by what the person is doing (`why`: "the person is typing in r1", or the screen's own
+ * whereabouts sentence): `<why>; an agent doesn't <what> · <way>`. The one shape every typing refusal is said in
+ * (PIE-1294: the layout's guards, the actor rule, the draft rule); the guard test (test/one-owner.test.ts) fails when
+ * a file words one itself.
+ */
+export const heldBack = (why: string, what: string, way: string | null = MARK_THEM): string => `${why}; an agent doesn't ${what}${way ? ` · ${way}` : ""}`;
+/** `heldBack` for the tile, draft or passage the person is typing in (`label`: its name, or "this draft"). */
+export const typingIn = (label: string, what: string, way: string | null = MARK_THEM): string => heldBack(`the person is typing in ${label}`, what, way);
