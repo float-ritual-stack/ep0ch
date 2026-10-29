@@ -763,7 +763,9 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   `properties` carry them), and a note's own address isn't among its links or backlinks. `record.links` and
   `record.backlinks` are each other's inverse: a property naming a block's id (`[source-block::<id>]`) is a
   `property` link, as the backlink relation counts it. `outline_find`'s `completeness` is `{kind, limit, more}` for
-  the limit asked, its `search` says whether the ranking was lexical or semantic (`semantic: true` asks) and why, and a
+  the limit asked, its `search` says whether the ranking was lexical or semantic (Jev ranks by default; `semantic:
+  false` doesn't ask) and how sure it is: `verdict` `strong`, or `weak`/`none` with `said` "no strong match: …", and
+  `exists`, Jev's "is it among these?"; each match carries its `score` (0 to 3) (PIE-1198); and a
   top-level note's `path` is `(root)`. `outline_links` cuts its links, resources and backlinks at `limit` each, and
   its `completeness` gives each group `{complete, shown, total, more}`. A `limit` outside 1 to the tool's maximum is
   refused, naming the default and the maximum.
@@ -1980,7 +1982,8 @@ The board's new-card composer is the same control too.
   Quick Capture do it, from the same service lookups, so the door keeps no index: `[[` offers pages,
   aliases and Work IDs (`pages.complete`), `((` blocks by the one search (`tree.search`, Goto's forgiving ranker),
   both asked from the draft's note and, after a 300 ms pause, re-ordered by Jev where the host has a key (the footer
-  says `jev ranked`; the picked candidate stays picked), `((note#heading` or
+  says `jev ranked`, or `no strong match` when the service isn't sure of the top, PIE-1198; each row its score; the
+  picked candidate stays picked), `((note#heading` or
   `((note^id` fragments across every note (`fragments.candidates`, by the service's fragment rules; the
   door has none of its own), and `[file::` workspace paths (`files.complete`). The selected candidate
   shows where it sits and how it starts (`blocks.context`). A Work ID inserts `[[WORK-ID|title]]` (or
