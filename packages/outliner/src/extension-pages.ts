@@ -489,7 +489,8 @@ export class ExtensionPages {
     const lines = [`${name} [ext.page::${entry.id}] [page::ext-${entry.id}]`];
     if (loaded?.description ?? entry.description) lines.push(words(loaded?.description ?? entry.description));
     lines.push(`\`${entry.id}\` · version ${loaded?.version ?? entry.version ?? "?"} · ${STATE_WORDS(entry)} · ${entry.origin === "outline" ? "this outline's own" : "for every outline this host serves"}`);
-    if (entry.builtIn) lines.push(overrideWords(entry.id, entry.builtIn));
+    const override = entry.builtIn && overrideWords(entry.id, entry.builtIn);
+    if (override) lines.push(override);
     const directory = loaded?.directory ?? entry.directory;
     const readme = readText(join(directory, "README.md"));
     if (readme?.trim()) lines.push("", readmeBody(readme));

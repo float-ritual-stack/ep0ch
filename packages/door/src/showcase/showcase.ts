@@ -1377,7 +1377,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "pick-a-tile", need: "choose a tile by clicking it instead of typing its id, copy any tile's or note's address from where you see it, and see a button read as you type it", part: "the wire picker (tile.link's link mode, now tile.pick), a button's {slot} read by outline-core's button-call and written by sources.set's line save (button.slot), the action's own argument kind, Desk.tileAddressesOf over the tile registry (a tile's id, and the role or slot that names its place), and note.copy-ref over the tile's subject (Pane.subject), outline-core's blockRefText and the service's fragments.at and fragments.ensure", files: "outline-core/src/button-call.ts, src/button-check.ts, src/desk/desk.ts, src/surface/note.ts, src/edit.ts",
-    aside: "Press pop it: its target= is empty, so the door asks (click the links tile, or press its number); a tile whose place has a name of its own asks: this tile exactly, or whichever fills its place · the line becomes target=t-…; press again and it lifts above the drawer, again and it drops · ctrl+z takes the choice back; alt+click chooses again · the misread button runs nothing and says the line to write · an agent passes the tile itself: button.slot label=\"pop it\" key=target value=links (kept as its id) · the ⋯ menu's copy id and copy reference under Tile; under Note copy id, copy reference, copy web link and copy a reference to this line (an ^anchor added once) · a list's, the tree's or a lane's menu copies its selected row · ^W y copies the reference, ^W , shows the tile's card · act note.copy-ref kind=id|ref|link|line · e, then write a ::button: the editor colours it and marks what won't run",
+    aside: "Press pop it: its target= is empty, so the door asks (click the links tile, or press its number); a tile whose place has a name of its own asks: this tile exactly, or whichever fills its place · the line becomes target=t-…; press again and it lifts above the drawer, again and it drops · ctrl+z takes the choice back; alt+click chooses again · the misread button runs nothing and says the line to write · an agent passes the tile itself: button.slot label=\"pop it\" key=target value=links (kept as its id) · the ⋯ menu's Copy group, first: copy note id, copy note reference, copy note web link and copy line reference (an ^anchor added once), then copy tile id and copy tile reference · a list's, the tree's or a lane's menu copies its selected row · any of them pasted into the power bar is that note's row, ⏎ opens it · ^W y copies the reference, ^W , shows the tile's card · act note.copy-ref kind=id|ref|link|line · e, then write a ::button: the editor colours it and marks what won't run",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane();
       return deskOf({ title: "showcase · pick a tile", panes: [a, b, c], names: ["notes", "links", "preview"],
@@ -1524,6 +1524,16 @@ export const SECTIONS: Section[] = [
         title: "showcase · nested mounts", panes: [tree, reader, calls], names: ["tree", "reader", "calls"],
         layout: ([t, r, c]) => pair("row", 0.2, leaf(t!), pair("row", 0.22, leaf(r!), leaf(c!))),
       }, show, [[reader, n.notebook]]);
+    },
+  },
+  {
+    key: "search-sure", need: "see how sure a search is: each hit's Jev score, and \"no strong match\" under a weak top instead of a confident wrong answer; and the eval that set where sure starts, the current model beside the next (PIE-1198, PIE-1197)",
+    part: "ranked search (outliner src/search-ranking.ts: one Jev request, a Score per candidate and the \"is it among these?\" Noul; certaintyOf decides strong, weak or none; SEARCH_THRESHOLDS from the eval), said by every search: the power bar's / (its footer and each row's score), [[ and (( (the completer's footer), ep0ch find (a score column and the verdict line), outline_find (the mod's and the gateway's search field); counted on the day's search-live jev-run (work-jev.ts tallyRun); the person's picks kept (search.picked) as the eval's labels; ep0ch search harvest|eval (src/search-eval.ts) keeping cases, a jev-run per model and the report under this page",
+    files: "outliner src/search-ranking.ts, src/jev.ts, src/search-records.ts, src/search-eval.ts, src/agent-tools.ts (findBlocks), src/completion-sources.ts, door src/bar/sources.ts, src/surface/completer.ts, src/notes-cli.ts (find), src/mcp.ts (outline_find), src/search-cli.ts",
+    aside: "the Search evals page: every run per model, live (hit@1 is agreed), and the labelled set by source; under it each run.s report, both models side by side and the thresholds tried · the numbers here are made up; ep0ch search eval --into <name> keeps a real run · with Jev set up, / and [[ say \"no strong match\" in their footer when the top isn't a sure answer, and ep0ch find prints each row's score",
+    stage(n, show) {
+      const page = new ReaderPane();
+      return deskOf({ title: "showcase · search says how sure", panes: [page], names: ["page"] }, show, [[page, n.searchEvals]]);
     },
   },
 ];

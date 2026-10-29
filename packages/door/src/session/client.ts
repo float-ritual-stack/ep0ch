@@ -390,10 +390,12 @@ export function handoverMessage(h: Handover): string {
  * Every session on this state dir onto the checkout's code (`session upgrade --all`, `ep0ch install`), one by one. One
  * already on this code is left as it is (its terminals aren't restarted) unless `clients` or `handoff` asks for that.
  */
-export async function upgradeAll(o: { clients?: boolean; handoff?: boolean } = {}): Promise<UpgradeResult[]> {
+export async function upgradeAll(o: { clients?: boolean; handoff?: boolean; only?: (info: SessionInfo) => boolean } = {}): Promise<UpgradeResult[]> {
   const out: UpgradeResult[] = [];
   const { commit: here, dir: checkout } = codeVersion();
   for (const r of await runningSessions()) {
+    // install leaves out the sessions its plan keeps (`only`); it says those itself.
+    if (o.only && !o.only(r.info)) continue;
     const place = { ...r.info.place, dir: r.dir };
     // Another checkout's session is that checkout's to upgrade (doctor says so).
     if (resolve(r.info.code.dir) !== resolve(checkout)) out.push({ ok: true, message: `${placeLabel(place)}: runs another checkout's door (${r.info.code.dir}), left as it is · run its \`ep0ch session upgrade ${sessionFlags({ place })}\`` });

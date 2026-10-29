@@ -14,7 +14,7 @@
 import type { CompletionTarget } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 279;
+export const PROTOCOL = 280;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 11;
 
@@ -736,7 +736,22 @@ export interface CompletionSourceAnswer extends SourceAnswer {
   heading?: string;
   jev?: "ranked";
   jevOff?: boolean;
+  /** How sure a ranked list is (PIE-1198): said under it when it isn't a strong match. */
+  sure?: SearchCertainty;
 }
+
+/**
+ * How sure a ranked search is (PIE-1198), decided by the service over Jev's answers (search-ranking.ts `certaintyOf`)
+ * and only said by clients: `strong` when the top note answers it, `weak` when the closest is named but not claimed,
+ * `none` when nothing here does. `said` is the sentence; `exists` Jev's "is it among these?" (0–1), `top` its best Score (0–3).
+ */
+export interface SearchCertainty { verdict: "strong" | "weak" | "none"; said: string; exists?: number; top?: number; /** The short form a footer or a row draws: `sure` or `no strong match`. */ label?: string }
+
+/**
+ * `search.picked`: the person opened a search's row (the power bar, `[[`, Tree's goto). Kept with the query and the row's
+ * place, so the search eval can label a query with what was wanted (scripts/evals/search.ts reads them).
+ */
+export interface SearchPickedRequest { query: string; blockId: string; rank: number; surface: string }
 
 export interface CompletionRowsResult {
   answers: CompletionSourceAnswer[];

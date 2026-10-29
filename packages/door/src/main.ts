@@ -2,6 +2,7 @@
 import { RECORD_USAGE } from "./record-cli";
 import { REVIEW_USAGE } from "./review-cli";
 import { WORK_USAGE } from "./work-cli";
+import { SEARCH_USAGE } from "./search-cli";
 // ep0ch-door: a BBS door into a pi-herdr-outliner outline, over its socket.
 import { join } from "node:path";
 import { SocketBoard } from "./socket";
@@ -144,6 +145,7 @@ ${NOTES_USAGE}
 ${RECORD_USAGE}
 ${REVIEW_USAGE}
 ${WORK_USAGE}
+${SEARCH_USAGE}
 ${NEW_USAGE}
 ${VIEW_USAGE}
   ep0ch artifact put <file-or-folder> [--name <name>] [--machine <ssh-name>]
@@ -285,6 +287,7 @@ if (tryArgs) {
 if (args[0] === "record") process.exit(await (await import("./record-cli")).recordCommand(args));
 if (args[0] === "review") process.exit(await (await import("./review-cli")).reviewCommand(args));
 if (args[0] === "work") process.exit(await (await import("./work-cli")).workCommand(args));
+if (args[0] === "search") process.exit(await (await import("./search-cli")).searchCommand(args));
 if (args[0] === "find") process.exit(await findCommand(args));
 if (args[0] === "show") process.exit(await showCommand(args));
 if (args[0] === "revisions") process.exit(await revisionsCommand(args));

@@ -30,6 +30,47 @@ are its record. The outliner's entries from then are kept below, under
 - **Changed:** `outline_read` (and `ep0ch agent read`) says who last wrote the note, as it always claimed, not who
   made it.
 - **Run:** nothing beyond the next `ep0ch install --apply` (the publisher and the Claude mod pick it up).
+### Search says how sure it is, finds by meaning, and the Jev pin moves only on evals (PIE-1197–1200)
+
+- **No confident wrong answer:** a ranked search (the power bar's `/`, `[[` and `((`, `ep0ch find`, `outline_find`)
+  asks Jev, in the same request as its scores, whether the note wanted is among the hits; code decides. A weak top says
+  **no strong match** (in the bar's and the completer's footer, under `ep0ch find`'s rows, and in `outline_find`'s
+  `search`) instead of reading as the answer; a sure one says so. Each hit carries its Score (`2.6/3`).
+- **`ep0ch find <words>` and the gateway's `outline_find` ask Jev by default** (`--lexical`, `semantic: false` don't);
+  the mod's `outline_find` with text alone is the same ranked search (with a property, query or subtree, text stays a
+  filter).
+- **Evals before the pin moves:** `ep0ch search harvest` turns agents' real searches (Claude Code's session logs, read
+  only) and the note opened next, and your picks from a search, into `search-eval-case` records in pie (pie's and
+  gurgle's notes only); `ep0ch search eval --into pie` ranks them with each model (cached by request), and keeps a
+  `jev-run` per model and a report under pie's **Search evals** page. First run: jev-1.13.0 stays pinned (jev-1.14.0
+  wasn't better); the "sure" threshold (Noul 0.8) comes from it.
+- **Found even without your words (PIE-1200):** when the ranked hits hold no sure answer, `outline_find` and
+  `ep0ch find` have Jev read every note's title (windows of 250, four at a time) and find the ones the words missed;
+  in the power bar, a second `/` (`//words`) does it, and an unsure footer says so (`// reads every note`). Such a row
+  says `by meaning`. On 16 queries asked in none of their note's words, the right note came first 3 times and in the
+  top 5 4 times without it, and 7 and 15 with it.
+- **Candidates read better (PIE-1199):** a search's snippet is the passage holding the most words of the query, not the
+  first place one appears. The candidates-in-state shape and type/length facts were measured and not adopted: neither
+  beat today's hit@1 on the eval set.
+- **Costs show:** every ranked search counts on the day's `search-live` jev-run (searches, sure, no strong match,
+  tokens, cost), beside the other Jev loops on Jev's suggestions page.
+- **Run:** PROTOCOL 280: `ep0ch install --apply` on float-2 and the laptop.
+
+### Paste a note's address into the power bar and it opens; copy rows first in the tile menu (PIE-1398, PIE-1399, PIE-1284)
+
+- **Any address opens:** paste an id, `((id|label))`, another outline's `((outline:id|…))`, a line's `((id^anchor|…))`,
+  an `ep0ch://` address or a note's web link into the power bar: that note is the first row, lit, and ⏎ opens it (a
+  line's at that line, another outline's in its own outline). A note that isn't there says so on the row. In a note, a
+  reference opens as before, and a Markdown link to a note's web link now opens the note in its `/pub/p/` form and on
+  the web client's own origin too (a bare URL in a note isn't a link yet).
+- **The list holds still:** typing no longer empties the bar between keys; the rows stay until the next answer replaces them.
+- **The row menu by its digits:** alt+m (or a right-click) on a hit shows `1 copy note id`, `2 copy note reference`…;
+  press the digit (alt+digit works too). The chips wrap onto a second row in a narrow tile instead of being cut.
+- **Copy rows first:** the tile menu opens with its Copy group (the note's id, reference, web link and line reference,
+  then the tile's id and reference), so they're in reach in a short tile and typing "copy" finds them together.
+- **Installed reads as installed:** an extension installed as it ships (neat) no longer says "your copy overrides the
+  built-in"; only a copy you changed here, or one behind the built-in, does. The status line names what was added
+  (`extensions: Neat added`), never a script id.
 
 ### A deploy restarts the outline host only when the host's own code changed (PIE-1397)
 
@@ -99,6 +140,10 @@ are its record. The outliner's entries from then are kept below, under
   only the writer knows whether it means the live count.
 - **Jev reads prose too:** no shape gate first; one request per write over the sections it changed, judged against the
   outline's whole kit (its component schemas) and the rubric (PIE-1313's buried question and paragraph title included).
+- **Jev is heard on a big outline, and an answer without Jev says why** (#1019): each read the review makes has its
+  own limit and the slow facets read runs beside Jev, not before it, so pie's writes come back `jev: asked`; one that
+  wasn't heard says why (`not heard: the review ran past 6.0 s`, the error, or `Jev is not configured`), never a bare
+  `off`. A ticket's `PIE-n — ` lead is not counted in its title's length, and no patch moves a ticket's title down.
 - **The workboard's rules where agents act:** `work_complete` with proof that names only tests, and `work_create` with
   no sentence of what Evan will open and do, are answered fix; a note asking Evan to try or check things is
   `qa-for-evan`. A note carrying `[house-rule::<name>]` (validation, experience, qa-for-evan) words each rule.

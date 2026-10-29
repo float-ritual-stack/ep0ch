@@ -10,7 +10,7 @@ import { calloutBlocks, stripQuotes } from "@ep0ch/outline-core/callouts";
 import { componentGist, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import { loadFigureFitPrompt, type PromptRevision } from "./ai-prompts";
-import { JEV_ENDPOINT, JEV_MODEL, jevKey } from "./search-ranking";
+import { JEV_ENDPOINT, JEV_MODEL, jevKey } from "./jev";
 
 /** Where a suggestion is made: the gate (the mean of the two Noul answers, prose inverted) and the choice's confidence. */
 export interface FigureFitThresholds { gate: number; confidence: number }

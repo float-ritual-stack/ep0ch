@@ -41,7 +41,7 @@ import { STATUS_FAMILY_PROPERTY, facetRulesFromBlocks, linkTargetFacets, type Ba
 import { rankBlockFocusMatches } from "./block-focus";
 import { rankTextSearchMatches, searchTextTerms } from "@ep0ch/outline-core/search-match";
 import { normalizeBlockReadFields, normalizeBlockReadIds, projectBlock } from "./block-projection";
-import { gotoCandidates } from "./goto-search";
+import { gotoCandidates, gotoMatch } from "./goto-search";
 import { contextList, searchContext, sortByContext, type SearchContext } from "./search-context";
 import {
   BOOKMARKS_SYSTEM_VIEW,
@@ -150,6 +150,7 @@ import type {
   PageAddressMatch,
   BlockCollectionCompleteness,
   GotoSearchCollection,
+  GotoSearchMatch,
   PageAddressRecord,
   PageAddressRemoval,
   PageAddressResolution,
@@ -4724,6 +4725,19 @@ export class OutlinerStore {
   }
 
   /** Goto's candidates for `query`; `contextBlockId` is the note it is asked from (see `search.context`). */
+  /** Every live note, for deep search's pool (search-deep.ts narrows it). */
+  searchPool(): Block[] {
+    return this.database.transaction(() => [...this.loadGraph().byId.values()]).deferred();
+  }
+
+  /** Notes deep search found, as search rows (their path, snippet and facts), in the order given; gone ones left out. */
+  searchMatches(ids: readonly string[], query: string): GotoSearchMatch[] {
+    return this.database.transaction(() => {
+      const byId = this.loadGraph().byId, terms = searchTextTerms(query).filter(term => term.length >= 3);
+      return ids.flatMap(id => { const b = byId.get(id); return b && !b.deletedAt && !b.effectiveDeletedRootId ? [{ ...gotoMatch(b, byId, terms), deep: true as const }] : []; });
+    }).deferred();
+  }
+
   searchTree(query: string, contextBlockId?: string, machinery: MachineryMode = "show", limit?: number) {
     return this.database.transaction(() => {
       const normalized = typeof query === "string" ? tryNormalizePageAddress(query) : null;

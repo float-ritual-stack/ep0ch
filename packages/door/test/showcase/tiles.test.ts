@@ -97,6 +97,18 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
       await until(() => d.pane("another-orchard")?.msg?.id === note.id, "act tile.open in orchard");
       const rows = await app.act({ action: "bar.open", args: { scope: "notes", query: "outline:showcase-orchard pear" }, as: "test-agent" }) as any;
       expect(rows.rows.some((r: any) => r.label.includes("Pear tree"))).toBe(true);
+      // PIE-1398: the orchard note's reference and web link, as copy note reference and copy note web link give them, pasted
+      // into the bar: that note's row, in its own outline (its words never searched in this one), and ⏎ opens it.
+      const orchardUri = formatEp0chBlockUri({ outline: "showcase-orchard", machine: (await foreign.info()).machine!, blockId: note.id });
+      for (const pasted of [`((showcase-orchard:${note.id}|Orchard journal))`, `((showcase-orchard:${note.id}|zzz))`, `https://my.ep0ch.sh/pub/o/showcase-orchard/p/${note.id}`, orchardUri]) {
+        const named = await app.act({ action: "bar.open", args: { query: pasted }, as: "test-agent" }) as any;
+        expect({ pasted, row: named.rows[0] }).toMatchObject({ pasted, row: { source: "notes", label: expect.stringContaining("Orchard journal"), key: orchardUri } });
+      }
+      await app.dispatch.act({ action: "bar.open", args: { query: `((showcase-orchard:${note.id}|zzz))` } }, { kind: "user" });
+      await until(() => (app.describe() as any).bar?.rows[0]?.key === orchardUri, "the person's bar names the orchard note");
+      for (const p of d.panes.values()) if (p.msg?.address?.outline === "showcase-orchard") await d.dispatch.press("tile.collapse", { on: true }, d.nameOfPane(p));
+      await app.dispatch.act({ action: "bar.pick", args: { n: 1 } }, { kind: "user" });
+      await until(() => [...d.panes.values()].some((p: any) => p.msg?.id === note.id && p.msg?.address?.outline === "showcase-orchard" && !d.layoutGet().tiles.find((t: any) => t.name === d.nameOfPane(p)).collapsed), "the orchard note opened from the bar", 5000);
       const ctl = await startControl({ app, mirror: new Mirror(200, 60), info: () => app.t }, join(scratch.root, "foreign.sock"));
       try {
         const uri = formatEp0chBlockUri({ outline: "showcase-orchard", machine: (await foreign.info()).machine!, blockId: note.id });

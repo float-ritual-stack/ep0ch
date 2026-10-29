@@ -1,4 +1,5 @@
 import { canonSpec } from "./tiles";
+import { COPY_GROUP } from "../note-ref";
 import { HYPER_KEYS } from "../hyper";
 import { W_KEYS, wCaption, ZOOM_WHEEL } from "./wkeys";
 import { FRAME_GLYPHS } from "./frame-controls";
@@ -588,9 +589,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.copy-ref": def({
     summary: "copy the tile's address (PIE-1297): kind=id its id (t-<uuid>, exactly this tile, kept through moves, saves and restarts), kind=ref the address of its place in the tile grammar (drawer.agent, role:<role>, <slot>@<screen>: whichever tile fills it), or its id when nothing else names it alone. The person's goes to their clipboard; an agent's is returned to it and never touches the clipboard",
-    keys: "the tile menu's \"copy id\" and \"copy reference\"",
+    keys: "the tile menu's \"copy tile id\" and \"copy tile reference\" (its Copy group, beside the note's)",
     touches: "nothing", replay: "safe",
-    menu: [{ label: "copy id", group: TILE, args: { kind: "id" } }, { label: "copy reference", group: TILE, args: { kind: "ref" } }],
+    menu: [{ label: "copy tile id", group: COPY_GROUP, args: { kind: "id" } }, { label: "copy tile reference", group: COPY_GROUP, args: { kind: "ref" } }],
     args: { kind: { type: "string", optional: true, choices: ["id", "ref"], about: "id (default): the tile's t-<uuid>; ref: the address of its place, which a restarted tile answers to" } },
     examples: [{ act: "tile.copy-ref kind=ref tile=drawer.agent", does: "answers drawer.agent and the program's t-<uuid>, for a button's tile= or a script" }],
     run({ kind }, { d, reader }, actor) { return d.copyTileRef(reader, (kind ?? "id") as "id" | "ref", actor); },

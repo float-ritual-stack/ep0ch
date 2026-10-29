@@ -763,7 +763,11 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   `properties` carry them), and a note's own address isn't among its links or backlinks. `record.links` and
   `record.backlinks` are each other's inverse: a property naming a block's id (`[source-block::<id>]`) is a
   `property` link, as the backlink relation counts it. `outline_find`'s `completeness` is `{kind, limit, more}` for
-  the limit asked, its `search` says whether the ranking was lexical or semantic (`semantic: true` asks) and why, and a
+  the limit asked, its `search` says whether the ranking was lexical or semantic (Jev ranks by default; `semantic:
+  false` doesn't ask) and how sure it is: `verdict` `strong`, or `weak`/`none` with `said` "no strong match: …", and
+  `exists`, Jev's "is it among these?"; each match carries its `score` (0 to 3) (PIE-1198); when none is sure, Jev
+  reads every note's title for ones the words missed (`deep`, PIE-1200: `byMeaning: true` on those rows, `search.deep`
+  what it found and cost; `deep: false` skips it); and a
   top-level note's `path` is `(root)`. `outline_links` cuts its links, resources and backlinks at `limit` each, and
   its `completeness` gives each group `{complete, shown, total, more}`. A `limit` outside 1 to the tool's maximum is
   refused, naming the default and the maximum.
@@ -1270,7 +1274,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | click the `⧉` before a float's title | put it back in the layout (`tile.float`, as `^W f` and the board's `o`); the cell either side of it counts |
 | click the `⧉` in the focused tile's top right corner | float it (`tile.float`, as `^W f`) |
 | click the `⋯` in a tile's top right corner, or right-click anywhere in the tile | its menu (`tile.menu`, as `^W .`): the tile's actions, grouped (Tile: close, zoom, float, dock, spine, drawer, preview; then its kind's: a reader's Note and Reader rows, a terminal's, a board lane's), each with its key as a keycap. One click, `⏎` or the row's own key runs it as you; a dimmed row says in the menu's foot why it can't run now; `esc` or a click outside puts it away. A terminal whose program asked for the mouse (vim's `mouse=a`, claude) keeps its right-clicks, and its `⋯` still opens the menu; so does a step's box, whose right-click opens its status choice |
-| `^W y`, or the menu's Note rows (a right-click on a row is that row's) | copy the note the tile points at (a reader's note, a list's, the tree's or a lane's selected row; a power-bar hit through alt+m or a right-click on it; another outline's note as that outline's): copy id, copy reference (`((id|title))`, as `^W y`), copy web link (`https://my.ep0ch.sh/pub/o/<outline>/p/<id or PIE-n>`), and in a reader copy a reference to this line (`((id^anchor|words))`, the anchor added once); `note.copy-ref kind=id\|ref\|link\|line` |
+| `^W y`, or the menu's Copy group, first in it (a right-click on a row is that row's) | copy the note the tile points at (a reader's note, a list's, the tree's or a lane's selected row; a power-bar hit through alt+m or a right-click on it, then its digit; another outline's note as that outline's): copy note id, copy note reference (`((id|title))`, as `^W y`), copy note web link (`https://my.ep0ch.sh/pub/o/<outline>/p/<id or PIE-n>`), and in a reader copy line reference (`((id^anchor|words))`, the anchor added once); `note.copy-ref kind=id\|ref\|link\|line`. The group's copy tile id and copy tile reference are the tile's own. Any of them pasted into the power bar is that note's row: ⏎ opens it |
 | `^W ,`, or the menu's "about this tile" | the tile's id, place, kind and wires in a card by it, with copy id and copy reference (`tile.info card=true`) |
 | click the `×` in a tile's top right corner | close it (`tile.close`, as `^W x`), your keys staying where they are; a tile with a running program asks twice. A tile its container keeps (the board's lanes, the river's library) has none, and a dock's tile closes by the dock's `[×]` |
 | drag a tile's header onto the status bar's drawer chip (`▲ claude`) or the open drawer | put it in your drawer: it joins the drawer as a tab and travels with you across screens (`tile.drawer`); the chip lights up `into your drawer: travels with you` while you're over it |
@@ -1980,7 +1984,8 @@ The board's new-card composer is the same control too.
   Quick Capture do it, from the same service lookups, so the door keeps no index: `[[` offers pages,
   aliases and Work IDs (`pages.complete`), `((` blocks by the one search (`tree.search`, Goto's forgiving ranker),
   both asked from the draft's note and, after a 300 ms pause, re-ordered by Jev where the host has a key (the footer
-  says `jev ranked`; the picked candidate stays picked), `((note#heading` or
+  says `jev ranked`, or `no strong match` when the service isn't sure of the top, PIE-1198; each row its score; the
+  picked candidate stays picked), `((note#heading` or
   `((note^id` fragments across every note (`fragments.candidates`, by the service's fragment rules; the
   door has none of its own), and `[file::` workspace paths (`files.complete`). The selected candidate
   shows where it sits and how it starts (`blocks.context`). A Work ID inserts `[[WORK-ID|title]]` (or

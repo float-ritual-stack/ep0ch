@@ -344,10 +344,13 @@ export const removeCommand = (copy: { id: string; where: string; dir: string }) 
 export const versionWords = (copy: Pick<InstalledCopy, "version">) =>
   copy.version.copy !== copy.version.builtIn ? `, your copy v${copy.version.copy ?? "?"}, the built-in v${copy.version.builtIn ?? "?"}` : "";
 
-/** What a copy of a built-in says on its row (PIE-1283): that it is what runs, and how it stands against the built-in. */
-export function overrideWords(id: string, builtIn: { readonly state: CopyState }): string {
-  const how = builtIn.state === "current" ? "the same files" : builtIn.state === "stale" ? `behind it: ep0ch ext update ${id}` : "changed here";
-  return `your copy overrides the built-in (${how})`;
+/**
+ * What a copy of a built-in says on its row (PIE-1283): that it is what runs, and how it stands against the built-in.
+ * A copy with the built-in's own files is how installing one works (PIE-1399), so it says nothing: it is installed.
+ */
+export function overrideWords(id: string, builtIn: { readonly state: CopyState }): string | null {
+  if (builtIn.state === "current") return null;
+  return `your copy overrides the built-in (${builtIn.state === "stale" ? `behind it: ep0ch ext update ${id}` : "changed here"})`;
 }
 
 /** One line for a copy's state, with what to run when there is something to take. */

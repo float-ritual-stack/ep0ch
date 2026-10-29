@@ -1,8 +1,10 @@
-// `ep0ch install --apply` restarts the outline host only when the host's own code changed (PIE-1397), end to end on
-// a scratch machine: a copy of this repo as the checkout, its scratch origin two commits ahead (the first touches only
-// docs and the Claude mod, the second the outliner), a scratch HOME whose systemd user unit runs the outline host from
-// it (a fake `systemctl` on PATH starts and stops it). The journey: an install to the docs commit keeps the host's pid
-// and says "host unchanged: no restart"; the next install, to the outliner commit, restarts it. Linux only (the fake is
+// `ep0ch install --apply` restarts the outline host only when the host's own code changed (PIE-1397), and hands a door
+// session over only when the door's code did (PIE-1400), end to end on a scratch machine: a copy of this repo as the
+// checkout, its scratch origin two commits ahead (the first touches only docs and the Claude mod, the second the
+// outliner and the door), a scratch HOME whose systemd user unit runs the outline host from it (a fake `systemctl` on
+// PATH starts and stops it) and a door session on it. The journey: an install to the docs commit keeps the host's and
+// the session's pids and says "host unchanged: no restart" and "session unchanged: no handover"; the next install, to
+// the code commit, restarts the host and hands the session over. Linux only (the fake is
 // systemd's). Nothing here touches a real outline, unit, door or checkout: every path is under the scratch folder, and
 // the environment is written out whole.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -74,8 +76,9 @@ beforeAll(async () => {
   appendFileSync(join(repo, "packages/outliner/test/scratch-outline.ts"), "\n// trellis\n");
   git("add", "-A"); git("commit", "-qm", "docs: dawn");
   docsHead = git("rev-parse", "HEAD");
-  // One it does: the outliner's own code.
+  // One it does: the outliner's own code, and the door's.
   appendFileSync(join(repo, "packages/outliner/src/host-main.ts"), "\n// the gate is oiled\n");
+  appendFileSync(join(repo, "packages/door/src/session/start.ts"), "\n// the gate is oiled\n");
   git("add", "-A"); git("commit", "-qm", "outliner: the gate");
   codeHead = git("rev-parse", "HEAD");
   git("push", "-q", "origin", "main"); git("reset", "-q", "--hard", oldHead);
@@ -106,21 +109,36 @@ esac
   await until(() => existsSync(sock), "the scratch host's socket", 20_000);
   for (let i = 0; !(await hostLive(sock, 1000)); i++) { if (i > 100) throw new Error("the scratch host didn't answer"); await Bun.sleep(100); }
   await hostRequest(sock, "outlines.create", { name: "allotment" });
+
+  // A door session on allotment, on the old code: started the way `ep0ch` starts one, from the checkout's own modules.
+  const starter = join(root, "start-session.ts");
+  writeFileSync(starter, `import { startSession } from "${repo}/packages/door/src/session/start";
+import { placeFor, type Place } from "${repo}/packages/door/src/session/place";
+const r = await startSession((placeFor([]) as Place).dir, []);
+console.log(JSON.stringify(r));
+process.exit(r.ok ? 0 : 1);
+`);
+  const started = Bun.spawnSync([bun, starter], { cwd: home, env: { ...env, EP0CH_DAILY_AGENT: "sh" }, stdout: "pipe", stderr: "pipe", timeout: 60_000 });
+  if (started.exitCode !== 0) throw new Error(`the session didn't start: ${started.stdout}${started.stderr}`);
 }, 600_000);
 
-afterAll(() => {
-  if (linux) { try { sh([join(bin, "systemctl"), "--user", "stop", UNIT]); } catch { /* gone */ } stopUnder(root); }
+const sessionPid = async () => (JSON.parse((await ep0ch("session", "list", "--json")).out) as { pid: number }[])[0]?.pid ?? 0;
+
+afterAll(async () => {
+  if (linux) { await ep0ch("session", "end", "--all", "--yes").catch(() => undefined); try { sh([join(bin, "systemctl"), "--user", "stop", UNIT]); } catch { /* gone */ } stopUnder(root); }
   rmSync(root, { recursive: true, force: true });
 }, 60_000);
 
-describe.skipIf(!linux)("ep0ch install restarts the host only when its code changed (PIE-1397)", () => {
-  test("a docs-only update keeps the host's pid and says so; an outliner change restarts it", async () => {
-    const pid = hostPid();
+describe.skipIf(!linux)("ep0ch install restarts the host and hands a session over only when their code changed (PIE-1397, PIE-1400)", () => {
+  test("a docs-only update keeps the host's and the session's pids and says so; a code change restarts and hands over", async () => {
+    const pid = hostPid(), session = await sessionPid();
+    expect(session).toBeGreaterThan(0);
 
     // The dry run already says it.
     const plan = await ep0ch("install", "--sha", docsHead);
     expect(plan.code).toBe(0);
     expect(plan.out).toContain("host unchanged: no restart");
+    expect(plan.out).toContain("session unchanged: no handover");
 
     // Docs, the Claude mod and an outliner test: the checkout moves, the host keeps running on the same process.
     const docs = await install("--sha", docsHead);
@@ -129,13 +147,22 @@ describe.skipIf(!linux)("ep0ch install restarts the host only when its code chan
     expect(git("rev-parse", "HEAD")).toBe(docsHead);
     expect(hostPid()).toBe(pid);
     expect(await hostRequest(sock, "ping", { outline: "allotment" })).toMatchObject({ protocolVersion: expect.any(Number) });
+    expect(docs.steps.find(s => s.id === "session")).toMatchObject({ status: "skip", why: expect.stringContaining(`session unchanged: no handover (${oldHead.slice(0, 7)} → ${docsHead.slice(0, 7)}`) });
+    expect(await sessionPid()).toBe(session);
 
-    // The outliner's own code: restarted, from the commit the host still runs, naming the file.
+    // The outliner's own code: restarted, from the commit the host still runs, naming the file. Backups are named to
+    // the second, so the second install waits for the next one (on a fast box both landed in one second and the backup
+    // refused to overwrite).
+    await Bun.sleep(1100);
     const code = await install();
     const host = code.steps.find(s => s.id === "host")!;
     expect(host.status).toBe("do");
     expect(host.why).toContain(`1 file it runs changed from ${oldHead.slice(0, 7)} to ${codeHead.slice(0, 7)} (packages/outliner/src/host-main.ts)`);
     expect(hostPid()).not.toBe(pid);
     expect(await hostRequest(sock, "ping", { outline: "allotment" })).toMatchObject({ protocolVersion: expect.any(Number) });
+    // The door's code moved under the session (start.ts, host-main.ts): a new daemon takes it over.
+    const handed = code.steps.find(s => s.id === "session")!;
+    expect(handed.status).toBe("do");
+    expect(await sessionPid()).not.toBe(session);
   }, 600_000);
 });
