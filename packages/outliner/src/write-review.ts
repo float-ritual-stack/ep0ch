@@ -15,7 +15,7 @@ import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import { calloutBlocks, quoteDepth } from "@ep0ch/outline-core/callouts";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { headerLine } from "@ep0ch/outline-core/header-line";
-import { asksEvan, FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
+import { asksEvan, endsAsking, FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
 import { chipValue } from "./records";
@@ -224,7 +224,9 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
           // One kit nudge a section (its key names the section, not the component): a rewrite that makes Jev name another
           // component is the same nudge, carried, not a new one each write.
           ...base, rule: "kit", rubric: "format", key: `kit:${clip(s.heading, 24)}`, component: schema.id,
-          say: `${where} reads as a ${(schema.title.replace(/\s*\(.*$/, "").trim() || schema.id).toLowerCase()}: ${name ? `::${name}` : schema.id} would show it (${componentGist(schema)}); ${patch ? "the patch draws it" : `if it fits, outline_components ${schema.id} gives its properties and an example`}`,
+          // Named as it's written: a `::` component by its line, one with none (a callout, a table) by its id in words.
+          // What to do first, what the component is after: a 44-column page cuts the end (PIE-1419).
+          say: `${where} would read better as ${name ? `::${name}` : `a ${schema.id.replace(/-/g, " ")}`}: ${patch ? "the patch draws it" : `if it fits, outline_components ${schema.id} gives its properties and an example`} (${componentGist(schema)})`,
           ...(patch ? { patch } : { advice: true as const }),
         });
       }
@@ -295,15 +297,24 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   const sections = changed.filter(s => s.text.split("\n").filter(l => l.trim()).length >= 1).slice(0, MAX_SECTIONS);
   if (input.jev && input.schemas && (sections.length || asks.length || ask.title)) asked = await askJev(text, sections, asks, input.schemas, ask, o);
   const answers = asked && "answers" in asked ? asked.answers : undefined;
-  const judged = answers ? {
+  const asksOf = (line: string, i: number) => {
+    const noul = answers?.[`asks::L${i}`]?.noul;
     // Jev's yes where it was asked, and the word heuristic's (Evan named, with a question or a decision word) either way:
     // a line that names Evan and asks is an ask whatever Jev said (PIE-1402: "Should Evan pick up…?" went unflagged).
-    asks: new Set(lines.flatMap((line, i) => asksEvan(line) || (answers[`asks::L${i}`]?.noul ?? 0) >= REVIEW_THRESHOLDS.yes ? [i] : [])),
+    // A line ending in a question is one too unless Jev says firmly it isn't: an unsure Jev never hides it (PIE-1419).
+    return asksEvan(line) || (unit(noul) && noul >= REVIEW_THRESHOLDS.yes) || (endsAsking(line) && !(unit(noul) && noul <= REVIEW_THRESHOLDS.no));
+  };
+  const judged: { asks?: Set<number>; titleIsContent?: boolean } = answers ? {
+    asks: new Set(lines.flatMap((line, i) => asksOf(line, i) ? [i] : [])),
     ...(unit(answers.title?.noul) ? { titleIsContent: answers.title!.noul! >= REVIEW_THRESHOLDS.yes } : {}),
   } : {};
   const shape = { facets: await input.facets, ...judged };
+  // The note before this write is measured with the same judgments, found by a line's words (its lines are numbered
+  // differently): a line that asks now asked then.
+  const askedLines = new Set(judged.asks ? [...judged.asks].map(i => lines[i]!) : []);
+  const beforeShape = judged.asks && before !== undefined ? { ...shape, asks: new Set(before.split("\n").flatMap((line, i) => askedLines.has(line) ? [i] : [])) } : shape;
   const had = new Map<string, number>();
-  for (const f of before === undefined ? [] : writeShape(before, shape)) had.set(f.key, (had.get(f.key) ?? 0) + 1);
+  for (const f of before === undefined ? [] : writeShape(before, beforeShape)) had.set(f.key, (had.get(f.key) ?? 0) + 1);
   const code: ReviewFinding[] = writeShape(text, shape).map(f => {
     const n = had.get(f.key) ?? 0;
     if (n) had.set(f.key, n - 1);
