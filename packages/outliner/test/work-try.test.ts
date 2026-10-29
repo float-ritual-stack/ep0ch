@@ -73,6 +73,11 @@ test("places: the ones that link the ticket first, then the matcher's by their w
   expect(byWords).not.toContain("p-shed");
   // A page deep search found by meaning shares no word; it still gets a place, the matcher's weakest giving way.
   expect(placeCandidates(WATER, [LOG, SHED, MINE], new Set(), ["p-shed"]).map(c => c.place.id)).toContain("p-shed");
+  const many = Array.from({ length: 8 }, (_, i) => place(`p-w${i}`, `Garden board watered beds ${i}`));
+  const full = placeCandidates(WATER, [...many, SHED], new Set(["p-w7"]), ["p-shed"]).map(c => c.place.id);
+  expect(full).toHaveLength(6);
+  expect(full[0]).toBe("p-w7");
+  expect(full).toContain("p-shed");
 });
 
 test("Jev picks the pages to open, and a ticket with only a place to open is no longer a finding", async () => {
@@ -82,7 +87,7 @@ test("Jev picks the pages to open, and a ticket with only a place to open is no 
     return Response.json({ model: "jev-1.13.0", answers, usage: { input_tokens: 300, output_tokens: 0 } });
   } });
   fakes.push(fake);
-  const open = { name: "screen.open", summary: "open a screen by name" };
+  const open = { name: "screen.open", summary: "open a screen by name", examples: [{ act: "screen.open name=Stats", does: "opens stats" }, { act: "screen.open name=detail target=7d9a1f40", does: "opens the detail screen on that note" }] };
   const report = await planTries([SEEDS], ACTIONS, { apiKey: "fake", endpoint: `http://127.0.0.1:${fake.port}/v1/systemone`, places: [LOG, SHED, MINE], links: { [SEEDS.id]: ["p-mine"] }, open });
   const md = tryMarkdown(report);
   expect(md).toContain("- [ ] **Open:** ((p-mine|Garden checks)) · a view · it links the ticket · `ep0ch act screen.open name=detail target=p-mine`");

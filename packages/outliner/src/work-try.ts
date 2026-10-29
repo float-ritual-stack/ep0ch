@@ -80,9 +80,9 @@ export function placeCandidates(ticket: Pick<Block, "id" | "text" | "properties"
   const docs = own.filter(p => !links.has(p.id)).map(place => ({ id: place.id, title: placeTitle(place), text: place.text, place }));
   const matched = rankTextSearchMatches(docs, itemTitle(ticket)).filter(m => !WEAK.has(m.kind)).map(m => ({ place: m.document.place, title: m.document.title, links: false }));
   const byMeaning = meant.flatMap(id => { const d = docs.find(x => x.id === id); return d ? [{ place: d.place, title: d.title, links: false }] : []; });
-  const room = Math.max(MAX_PLACES - linked.length - byMeaning.length, Math.ceil(MAX_PLACES / 2));
-  const words = matched.filter(m => !meant.includes(m.place.id)).slice(0, room);
-  return [...linked, ...words, ...byMeaning].slice(0, MAX_PLACES);
+  const kept = byMeaning.slice(0, Math.max(0, MAX_PLACES - linked.length));
+  const words = matched.filter(m => !meant.includes(m.place.id)).slice(0, Math.max(0, MAX_PLACES - linked.length - kept.length));
+  return [...linked, ...words, ...kept];
 }
 
 export interface TryOptions {
@@ -136,6 +136,8 @@ export async function planTries(tickets: readonly Block[], actions: readonly Try
 /** The plan as a note's body (Blockdown): a heading per ticket, a box per journey, what should show under it. */
 export function tryMarkdown(report: TryReport): string {
   const out: string[] = [];
+  // The open action's own example of opening a note (screen.open name=detail target=…), its target this place's id.
+  const opener = report.open?.examples?.find(e => /\btarget=/.test(e.act))?.act;
   for (const p of report.plans) {
     out.push(`## [[${p.ticket}]] ${p.title}`);
     if (!p.journeys.length && !p.shows.length && !p.opens.length) {
@@ -149,7 +151,7 @@ export function tryMarkdown(report: TryReport): string {
     }
     for (const o of p.opens) {
       const page = o.place.properties.find(q => q.key === "page")?.value;
-      out.push(`- [ ] **Open:** ((${o.place.id}|${o.title.replace(/[|)]/g, " ")}))${page ? ` · [[${page}]]` : " · a view"}${o.links ? " · it links the ticket" : ""}${o.p !== undefined && o.p < YES && !(o.links && o.p >= 0.5) ? " (Jev unsure: look, then say)" : ""}${report.open ? ` · \`ep0ch act ${report.open.name} name=detail target=${o.place.id}\`` : ""}`);
+      out.push(`- [ ] **Open:** ((${o.place.id}|${o.title.replace(/[|)]/g, " ")}))${page ? ` · [[${page}]]` : " · a view"}${o.links ? " · it links the ticket" : ""}${o.p !== undefined && o.p < YES && !(o.links && o.p >= 0.5) ? " (Jev unsure: look, then say)" : ""}${opener ? ` · \`ep0ch act ${opener.replace(/\btarget=\S+/, `target=${o.place.id}`)}\`` : ""}`);
     }
     if (!p.journeys.length && !p.opens.length) out.push("- [ ] **Try:** no action or page reads like it; open what the line below names, by mouse and by keys");
     for (const s of p.shows) out.push(`  - **Should show:** ${s.line}`);
