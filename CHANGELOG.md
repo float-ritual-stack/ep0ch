@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The status bar's last rough edges (PIE-1415, PIE-1224, PIE-1410)
+
+- **A group inside a group opens where you clicked:** More inside Tools opens over Tools, not at the left edge.
+- **A message never leaves an invisible button:** the pins, `!` and `+N` kept beside it are the ones drawn, and a click
+  on the bar finds only those; pins give way first, `+N` last.
+- **A failed button's `!` stays its own:** deleting a line no longer moves it onto the next button, and it follows its button when lines move.
+- **Right-click a note's `::button`** to pin it to the status bar: it becomes the `[ ]` position and nothing runs.
+
 ### Jev's patches, round three: buried prose questions and kept chips (PIE-1419)
 
 - **A question at the bottom is buried** whether or not it names Evan: a line that ends in a question counts unless
@@ -184,6 +192,14 @@ are its record. The outliner's entries from then are kept below, under
   action's page says so. An agent turns yolo off with `on=false`.
 - **One record:** a save you and an agent both wrote says what was stored ("yours, naming …"), as the revision
   records it; a trash receipt and a share say who was recorded the same way (`recorded()` in the door's socket.ts).
+- **Your tile keeps its size** (seen in use, Oct 29): an agent's `open` while you type lands in another reader or
+  beside another tile, never splitting the one you type in; its `tile.open` beside that tile is refused, naming `to=`.
+  Any agent step that would change your tile's size on screen (a fold beside it, a move along its edge, neat's
+  steps) is refused the same way and waits until you're done. Your own `@name` ask still opens its answer beside
+  your edit: you asked for it, and the keys stay where you type.
+- **Every typing refusal reads one way:** "the person is typing in <tile>; an agent doesn't <what> · <what to do>",
+  from the layout, the action rule and the draft rule alike (four forms before).
+- **A short id opens:** `ep0ch open 221caa3c` (or `open id=PIE-1294`) resolves as `show` and `find` do.
 - **Kitchen sink:** `ep0ch --showcase`, section while-typing.
 ### Jev's review and twins read right where Evan looks (PIE-1402)
 
