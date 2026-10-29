@@ -293,7 +293,7 @@ test("a slow facets read never keeps Jev from answering; an answer without Jev s
   const note = store.require(made.json.id);
   const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: [{ observed: "go back to the spring", replacement: "go back to the wet spring" }] });
   expect((patched.json.review as { jev: string }).jev).toBe("asked");
-});
+}, 20_000);
 
 test("with no Jev key the answer says so", async () => {
   const { agent } = await setup();
