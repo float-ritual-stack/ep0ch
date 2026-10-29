@@ -212,6 +212,8 @@ const SHOWN_LATELY_MS = 2_000;
 const WALK_MS = 1000;
 /** The narrowest a trail tile opens (Desk.trailTile): a stop's title and its arrow still read; narrower, it lists over the screen. */
 const TRAIL_MIN_COLS = 18;
+/** The narrowest a list that wants width (the keys window, the trail) is opened beside a tile: narrower, below it (sides). */
+const LIST_COLS = 40;
 
 export class Desk implements Screen, DeskApi, ColumnsHost {
   readonly ownsQuestion = true;
@@ -4660,11 +4662,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /**
    * Where a list that wants width (the keys window, the trail) opens beside tile `at`, best first: the layout's one rule
-   * (`splitAxis`, wide), so a 44-column tile keeps its width and the list has all of it too.
+   * (`splitAxis`, wide), so a 44-column tile keeps its width and the list has all of it too. A tile too narrow to halve
+   * into a readable list (at 40 columns, PIE-1425) opens it below, never as a 20-column strip beside.
    */
   private sides(at: number): ["right", "down"] | ["down", "right"] {
     const r = this.placed.rects.get(at);
-    return r && splitAxis(r, true) === "row" ? ["right", "down"] : ["down", "right"];
+    return r && splitAxis(r, true) === "row" && Math.floor(r.cols / 2) >= LIST_COLS ? ["right", "down"] : ["down", "right"];
   }
 
   /**
@@ -4678,11 +4681,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // From a float: beside the tile under it, as tile.open does.
       const at = this.isFloat(this.focus) ? this.grounded() ?? this.focus : this.focus, [first, then] = this.sides(at);
       // Beside it, else below or beside the other way, else along the screen's right edge: a container that takes only
-      // its own kind (the board's lanes) refuses the first two, never the edge.
+      // its own kind (the board's lanes) refuses the first two, never the edge. Narrow, never a strip beside: below a tile
+      // that halves too thin, along the bottom edge (the screen's width) under one already thinner than a list.
       let done: unknown;
-      for (const where of [first, then, "edge-right"] as const) {
+      const cols = this.placed.rects.get(at)?.cols ?? Infinity;
+      const order = cols < LIST_COLS ? (["edge-down", "down", "right"] as const) : Math.floor(cols / 2) < LIST_COLS ? (["down", "edge-down", "right"] as const) : ([first, then, "edge-right"] as const);
+      for (const [i, where] of order.entries()) {
         try { done = await this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), where, actor); break; }
-        catch (e) { if (!(e instanceof ActionRefused) || where === "edge-right") throw e; }
+        catch (e) { if (!(e instanceof ActionRefused) || i === order.length - 1) throw e; }
       }
       // Closed (esc, q, ^W x), it gives the keys back to the tile it opened beside.
       const made = this.all().find(id => this.panes.get(id) instanceof KeysPane);
@@ -4697,12 +4703,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
-   * The words `?` opens the keys window with: the scope of the focused tile's own actions (a reader's are NOTE_ACTIONS',
-   * `note`; another kind's, its set's), else nothing (every binding).
+   * The words `?` opens the keys window with: the scope the focused tile says its keys run in now (Pane.keysScope: a
+   * reader's NOTE_ACTIONS', `note`; a river list's, `river`), else its kind's set's, else nothing (every binding).
    */
   private keysFilter(): string {
     const p = this.panes.get(this.focus);
-    const scope = p instanceof ReaderPane ? NOTE_ACTIONS.scope : p ? kindOf(p)?.actions?.scope : undefined;
+    const scope = p ? p.keysScope?.() ?? kindOf(p)?.actions?.scope : undefined;
     return scope ? `in:${scope}` : "";
   }
 

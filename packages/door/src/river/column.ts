@@ -230,6 +230,8 @@ export class RiverColumn extends ReaderPane {
   /** Its header: its title (the Library, a note, #value), then how many it lists and what it holds. */
   headName() { return this.titleOf(); }
   headLabel() { const st = this.surface.state(); return `${fg(C.dark)}${this.items ? this.listed() : ""}${st ? `${fg(C.yellow)} · ${st}` : ""}${RESET}`; }
+  /** Its keys are the river's (COLUMN_ACTIONS, the column tables), but an edit's or a comment's while one is open. */
+  override keysScope(): string { return this.surface.editing ? super.keysScope() : COLUMN_ACTIONS.scope; }
   override hint() {
     // Typing a filter or choosing a property: the hint row is its prompt (the screen's row shows a typing tile's own).
     if (this.mode === "filter") return completionOf(this.input)?.items.length ? paint(`|08${popupHint(completionOf(this.input)!)}`) : paint(`|14/ filter this column: |15${this.input.plain()}|08 · type:hub -status:done author:codex word · |15⏎|08 apply · |15esc|08 cancel`);

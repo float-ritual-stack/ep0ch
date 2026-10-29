@@ -363,4 +363,29 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     key({ kind: "esc" });
     await until(() => focusedKind() !== "keys", "closed");
   });
+
+  test("at 40 columns ? opens the keys tile below, the screen's width, never a strip beside (PIE-1425)", async () => {
+    cols = 40; rows = 50;
+    try {
+      lines();
+      const before = tiles();
+      key(char("?"));
+      await until(() => tiles() === before + 1 && focusedKind() === "keys", "the keys tile", 8000);
+      lines();
+      const id = [...desk().panes.entries()].find(([, p]: any) => p.kind === "keys")![0];
+      expect(desk().placed.rects.get(id).cols).toBeGreaterThanOrEqual(36);
+      key({ kind: "esc" });
+      await until(() => tiles() === before, "esc closed it");
+    } finally { cols = 177; rows = 60; lines(); }
+  });
+});
+
+test("? on a river column opens on the river's keys, its h l x p among them; in an edit, the note's (PIE-1425)", async () => {
+  const { RiverColumn } = await import("../src/river/column");
+  const { matches } = await import("../src/desk/keys-window");
+  const library = new RiverColumn({ kind: "roots" } as any);
+  expect(library.keysScope()).toBe("river");
+  const shown = bindings().filter(b => matches(b, `in:${library.keysScope()}`));
+  for (const action of ["tile.focus", "tile.close", "tile.hold"]) expect(shown.some(b => b.action === action && b.scope === "river column")).toBe(true);
+  expect(shown.some(b => b.scope === "note")).toBe(false);
 });

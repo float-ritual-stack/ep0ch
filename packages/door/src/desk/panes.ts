@@ -226,6 +226,8 @@ export interface Pane {
    * stacks (PIE-453); the links tile's, the notes it listed. `tile.travel` walks it, the trail lists it.
    */
   readonly trail?: TileTrail;
+  /** The scope its keys run in now (`?` opens the keys window on `in:<it>`, PIE-1425); left out, its kind's action set's. */
+  keysScope?(): string;
   /** `typing`: the person is typing in it (a terminal shows its cursor then). */
   render(w: number, h: number, focused: boolean, desk: DeskApi, typing?: boolean): PaneView;
   /** Return true when the pane used the key. */
@@ -485,6 +487,8 @@ export class ReaderPane implements Pane {
     return this.msg ? ["detail", st].filter(Boolean).join(" · ") : "detail · empty";
   }
   hint() { return this.surface.hint(this.follows ? (this.holding ? "p follow · " : "p hold · ") : ""); }
+  /** A reader's keys are its note's (NOTE_ACTIONS). */
+  keysScope(): string { return NOTE_ACTIONS.scope; }
   /**
    * The frame and policy panel share the words for the reader's state.
    */
