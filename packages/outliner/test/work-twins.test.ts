@@ -114,7 +114,10 @@ test("the truth table: Jev's no outranks a shared title; a step of it is attach,
   expect(twinVerdict({ match: "title-terms", same: 0.1, part: 0.1 })).toBe("related");
   expect(twinVerdict({ match: "some-terms", same: 0.75 })).toBe("same");
   expect(twinVerdict({ match: "some-terms", same: 0.4, part: 0.8 })).toBe("part");
-  expect(twinVerdict({ match: "title-terms", same: 0.5 })).toBe("text");
+  // Between yes and no Jev hasn't settled it (PIE-1402: a paraphrase scored 0.53): offered, for the writer to decide.
+  expect(twinVerdict({ match: "title-terms", same: 0.5 })).toBe("unsure");
+  expect(twinVerdict({ match: "some-terms", same: 0.53, part: 0.66 })).toBe("unsure");
+  expect(twinVerdict({ match: "title-terms", same: 0.35 })).toBe("text");
   expect(twinVerdict({ match: "partial-terms", inTitle: 0.8 })).toBe("text");
   expect(twinVerdict({ match: "partial-terms", inTitle: 0.5 })).toBe("related");
   const open = [{ id: "a", text: "PIE-9 — Paint the shed [work-id::PIE-9] [work-stage::later]", properties: [{ key: "work-id", value: "PIE-9" }, { key: "work-stage", value: "later" }] }] as Block[];

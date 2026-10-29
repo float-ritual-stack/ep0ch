@@ -30,6 +30,8 @@ const LOOP = "work-twins";
 const STRONG: ReadonlySet<string> = new Set<SearchMatchKind>(["exact-title", "title-prefix", "title-contains", "title-terms"]);
 /** The stages of work under way, where a twin filed in other words most likely sits. */
 const ACTIVE: ReadonlySet<string> = new Set(["doing", "review", "validate", "queued"]);
+/** At or over this (and under YES) Jev hasn't settled whether it's the same work: offered, for the writer to say. */
+export const UNSURE = 0.45;
 /** Kinds that are evidence at all; the fuzzy ones match letters, not words. */
 const WEAK: ReadonlySet<SearchMatchKind> = new Set(["title-fuzzy", "text-fuzzy"]);
 
@@ -71,6 +73,8 @@ export function twinCandidates(open: readonly Block[], title: string, limit = TW
 /** Code's call over Jev's answers (or none): the truth table, in one place. Pure. */
 export function twinVerdict(c: Pick<TwinCandidate, "match" | "same" | "part"> & { inTitle?: number }): TwinCandidate["verdict"] {
   if (c.same !== undefined && c.same >= YES) return "same";
+  // Between yes and no (a paraphrase whose words differ, PIE-1402): the state doesn't settle it, so the writer does.
+  if (c.same !== undefined && c.same >= UNSURE) return "unsure";
   if (c.part !== undefined && c.part >= YES) return "part";
   // Jev read it and said no to both: a title that shares words is no twin.
   if (c.same !== undefined && c.same < NO && (c.part ?? 0) < NO) return "related";
@@ -103,25 +107,28 @@ export async function findTwins(client: WorkJevClient, input: { title: string; b
     // A pool filler that shares no words is a candidate only when Jev reads it as the same work, or a step of it.
     return filler && judged.verdict === "related" ? [] : [{ ...judged, said: twinLine(judged) }];
   });
-  const order = (v: TwinCandidate["verdict"]) => ["same", "text", "part", "related"].indexOf(v);
+  const order = (v: TwinCandidate["verdict"]) => ["same", "text", "unsure", "part", "related"].indexOf(v);
   // Twins oldest first (PIE-1402: a near-duplicate named the newer twin, which was itself filed beside the original):
   // the original is the one to attach to; the rest by Jev's confidence.
-  const twin = (c: TwinCandidate) => c.verdict === "same" || c.verdict === "text";
+  const twin = (c: TwinCandidate) => TWIN.has(c.verdict);
   candidates.sort((a, b) => Number(twin(b)) - Number(twin(a)) || (twin(a) ? ageOf(a) - ageOf(b) : 0) || order(a.verdict) - order(b.verdict) || (b.same ?? 0) - (a.same ?? 0));
   return {
     candidates,
-    twins: candidates.filter(c => c.verdict === "same" || c.verdict === "text").map(c => c.workId),
+    twins: candidates.filter(twin).map(c => c.workId),
     jev: "answers" in asked ? "asked" : asked.unavailable,
     ...("reading" in asked ? { reading: asked.reading } : {}),
   };
 }
+
+/** The verdicts an agent's create is refused over: a twin, sure or not, is the writer's to attach to or file beside. */
+const TWIN: ReadonlySet<TwinCandidate["verdict"]> = new Set(["same", "text", "unsure"]);
 
 /** How old an item is, by its Work ID's number (PIE-12 before PIE-120); an item with none sorts last. */
 const ageOf = (c: Pick<TwinCandidate, "workId">) => Number(/-(\d+)$/.exec(c.workId)?.[1] ?? Infinity);
 
 /** One candidate as an agent or a hint row reads it: `PIE-12 (doing) Title · same work 0.86`. */
 export function twinLine(c: Omit<TwinCandidate, "said">): string {
-  const why = c.verdict === "same" ? `same work, Jev ${c.same!.toFixed(2)}` : c.verdict === "part" ? `a step of it, Jev ${c.part!.toFixed(2)}`
+  const why = c.verdict === "same" ? `same work, Jev ${c.same!.toFixed(2)}` : c.verdict === "unsure" ? `maybe the same work, Jev unsure (${c.same!.toFixed(2)})` : c.verdict === "part" ? `a step of it, Jev ${c.part!.toFixed(2)}`
     : c.verdict === "text" ? `the title matches${c.same === undefined ? " (text match; Jev not asked)" : ` (Jev unsure, ${c.same.toFixed(2)})`}` : "shares words";
   return `${c.workId} (${c.stage}) ${c.title} · ${why}`;
 }

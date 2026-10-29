@@ -860,8 +860,11 @@ export interface TwinCandidate {
   /** Jev's: the same work, and one more step of it. */
   same?: number;
   part?: number;
-  /** `same` (a twin), `part` (attach to it), `text` (a strong title match Jev didn't say no to), or `related`. */
-  verdict: "same" | "part" | "text" | "related";
+  /**
+   * `same` (a twin), `unsure` (Jev between yes and no on the same work: offered as a twin, its writer decides; PIE-1402),
+   * `part` (attach to it), `text` (a strong title match Jev didn't say no to), or `related`.
+   */
+  verdict: "same" | "unsure" | "part" | "text" | "related";
   /** `PIE-12 (doing) Title · same work, Jev 0.86`: the service's words for it. */
   said: string;
 }
