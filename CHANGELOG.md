@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Facets answer in under a second on pie, and a docs-only deploy keeps door sessions (PIE-1396, PIE-1400)
+
+- **Facets:** the facets read made one pass per key over every note; it now reads each note once, for the keys it
+  carries, with the same answer. On pie it went from 2–7.6 s to 116–218 ms on float-2's live host, so the facets tile,
+  filters and the write review's count rule answer at once, and nothing queued behind them on the connection waits.
+- **Docs-only deploys keep your door:** `ep0ch install --apply` hands a door session over only when the door code it
+  runs changed, and says `session unchanged: no handover (a → b changed N files, none it runs)` otherwise.
+- **Run:** nothing extra; `ep0ch install --apply` as usual.
 ### Answer your agents from the phone (PIE-1235, PIE-1386, PIE-1383, PIE-926)
 
 - **Approve from the phone:** a background session's permission dialog now waits up to 10 minutes as an ask note
