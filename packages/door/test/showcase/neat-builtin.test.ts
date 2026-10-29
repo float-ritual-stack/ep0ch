@@ -164,6 +164,23 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     } finally { h.press({ kind: "esc" }); h.press({ kind: "esc" }); }
   }, 30_000);
 
+  test("neat's row and page read as neat: its own words, never its action's id or its name twice (PIE-1405)", async () => {
+    const { app } = h;
+    await app.loadExtensions(true);
+    h.press({ kind: "char", ch: "k", ctrl: true });
+    try {
+      for (const c of ">neat") h.ch(c);
+      await app.bar!.settled();
+      const it = app.bar!.items.find(i => i.source.id === "actions" && i.row.label === "neat")!;
+      expect(it).toBeDefined();
+      expect(it.row.detail).not.toMatch(/^neat:/i);
+      const page = await it.source.preview(it.row, (app.bar as any).host) as { markdown: string };
+      const head = page.markdown.split("\n")[0]!;
+      expect(head).toStartWith("**neat** · ");
+      expect(head).not.toMatch(/ext\.script-|· neat ·/);
+    } finally { h.press({ kind: "esc" }); h.press({ kind: "esc" }); }
+  }, 30_000);
+
   test("neat from a float, and from a river column: it works or says in plain words what it couldn't do (PIE-1403)", async () => {
     const { app, board } = h;
     const shed = await board.createBlock(null, "The shed\nWhat's in it, and what it needs.");

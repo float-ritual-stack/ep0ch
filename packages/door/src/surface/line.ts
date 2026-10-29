@@ -5,7 +5,7 @@
 // ctrl+y (undo, redo), cmd+c (copy), and the mouse: a click places the cursor, a drag selects, a double click a word,
 // a triple the line. Enter, esc, tab, ↑ ↓ and the rest stay the caller's (`take` answers false for them).
 import { Draft } from "../edit";
-import { INPUT_CURSOR, paint, bg, C, fg, RESET } from "../style";
+import { INPUT_CURSOR, paint, bg, C, fg, headOf, RESET, tailFrom, width } from "../style";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
 import { USER } from "../socket";
@@ -120,6 +120,30 @@ export class LineField extends Draft {
     if (k.action === "up") { if (this.gesture.release(k.x, k.y).copy) { const t = this.selectedText(); if (t) this.copy(t); } return true; }
     return false;
   }
+
+  /** The first cell of the line drawn, when it's wider than its field: the line scrolls sideways, never wraps. */
+  private scrollX = 0;
+
+  /**
+   * One row: the line laid out whole, then the `w` cells around the cursor (PIE-1405). Wrapped, a pasted link at 40
+   * columns drew only its last wrapped piece ("› 442"); this keeps as much as fits, the cursor in view, and a click
+   * lands on the character under it. More rows: the draft's own wrapping.
+   */
+  override render(w: number, h: number): string[] {
+    if (h !== 1) { this.scrollX = 0; return super.render(w, h); }
+    const whole = Math.max(4, w, width(this.text) + 2);
+    const line = super.render(whole, 1)[0] ?? "";
+    const room = Math.max(1, w), cursor = this.cursorCol;
+    if (width(this.text) + 1 <= room) this.scrollX = 0;
+    else if (cursor < this.scrollX) this.scrollX = cursor;
+    else if (cursor >= this.scrollX + room) this.scrollX = cursor - room + 1;
+    this.scrollX = Math.max(0, Math.min(this.scrollX, width(this.text) + 1 - room));
+    this.cursorCol = cursor - this.scrollX;
+    return [width(this.text) + 1 <= room ? line : headOf(tailFrom(line, this.scrollX), room) + RESET];
+  }
+
+  /** The source place under a cell as last drawn: on one row, counted from the first cell shown (every caller's click). */
+  override posAt(x: number, y: number): { row: number; col: number } { return super.posAt(x + this.scrollX, y); }
 
   /** The text with ▌ where the cursor is, uncoloured (a status line's part). */
   plain(): string { return this.text.slice(0, this.col) + INPUT_CURSOR + this.text.slice(this.col); }
