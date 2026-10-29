@@ -185,9 +185,12 @@ exists() { bx machine get "$1" >/dev/null; }
 
 # ── the golden box: the repo at origin/main, bun install done; stopped between runs (a stopped box costs nothing) ──
 build_golden() {
-  say "building $golden ($vcpu vCPU): clone and bun install"
+  say "building $golden ($vcpu vCPU): poppler, clone and bun install"
   exists "$golden" && bx machine rm "$golden" -y >/dev/null
   bx new "$golden" --vcpu "$vcpu" >/dev/null || { echo "box-test: couldn't create $golden (boxd new $golden --vcpu $vcpu)" >&2; exit 1; }
+  # pdftoppm draws a PDF's first page (artifact arrivals, PIE-1370), so its tests run that path here as on float-2.
+  inbox "$golden" "command -v pdftoppm >/dev/null || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq poppler-utils; } >/dev/null 2>&1; command -v pdftoppm" >&2 \
+    || say "$golden has no pdftoppm; the PDF tests take their no-pdftoppm branch"
   # A half-built golden box is removed, never left running.
   if ! inbox "$golden" "git clone -q $origin_url ep0ch && cd ep0ch && bun install --frozen-lockfile >/dev/null 2>&1 && git log --oneline -1" >&2; then
     bx machine rm "$golden" -y >/dev/null
