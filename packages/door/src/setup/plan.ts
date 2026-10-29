@@ -3,8 +3,8 @@ import { linkInstallStep } from "./link";
 // Pure: the dry run prints it, `--apply` runs it (apply.ts), the tests check it against described machines.
 //
 // One checkout (the ep0ch repo) is fast-forwarded, its workspace installed, `ep0ch` linked, the Herdr plugin
-// checked to be that checkout's packages/outliner, and the outline host, the MCP gateway, the publishers and the
-// machine link restarted through their units only when the code each one runs changed (RUNS in model.ts). Every `<outlines>/*.sqlite` is backed up first. Units and Herdr's config are never edited:
+// checked to be that checkout's packages/outliner, and the outline host, the MCP gateway and the publishers restarted
+// through their units only when the code each one runs changed (RUNS in model.ts). Every `<outlines>/*.sqlite` is backed up first. Units and Herdr's config are never edited:
 // what they need is said.
 import { basename, dirname, join, resolve } from "node:path";
 import { copyName } from "@ep0ch/outliner/extension-update";
@@ -304,14 +304,6 @@ export function unchangedSaid(m: CodeMove | null, who: string): string | null {
   return `${who} unchanged: no restart (${short(m.from)} → ${short(m.to)} changed ${m.all} file${m.all === 1 ? "" : "s"}, none it runs)`;
 }
 
-/** The checkout moves in this run and the door's code with it (or that can't be told): what the machine link restarts on. */
-export const doorCodeUpdates = (f: Facts, updates: boolean) => {
-  if (!updates) return false;
-  // Its start commit isn't looked up: what this update moves, from HEAD.
-  const m = codeMoved(f, f.repo.checkout.head, true, RUNS.door);
-  return !m || m.files.length > 0;
-};
-
 /**
  * The outline host (one process serving every outline by name) runs this checkout's code as it was when it
  * started. When that code changed (RUNS.host, between the commit it started on and the one this run ends on), or it
@@ -509,8 +501,8 @@ export function publishersStep(f: Facts, codeUpdates: boolean): Step | null {
   if (!running.length) return { id: "publishers", title, status: "skip", why: `${mine.map(p => p.unit.name).join(", ")}: not running; install doesn't start them`, commands: [] };
   const restart = publishersToRestart(f, codeUpdates);
   const quiet = running.filter(p => !restart.some(r => r.unit === p)).map(p => {
-    const said = unchangedSaid(codeMoved(f, p.runs, codeUpdates, RUNS.host), "publisher");
-    return `${p.unit.name}: ${said ?? "runs the current code"}`;
+    const moved = codeMoved(f, p.runs, codeUpdates, RUNS.host);
+    return `${p.unit.name}: ${unchangedSaid(moved, "publisher") ?? (moved ? "runs the current code" : `whether it runs the current code can't be told (no start time or reflog); ${publisherRestartCommand(p)} if it doesn't`)}`;
   });
   if (!restart.length) return { id: "publishers", title, status: "skip", why: quiet.join("; "), commands: [] };
   return { id: "publishers", title, status: "do", why: [...restart.map(r => r.why), ...quiet].join("; ") + `; ${restart.length === 1 ? "its unit restarts it" : "their units restart them"}`,
@@ -691,8 +683,8 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   // The MCP gateway after the host it talks to.
   const mcp = f.mcp ? [mcpStep(f, updates)] : [];
   const publishers = publishersStep(f, updates);
-  // The link runs the door: restarted only when the door's code moves (PIE-1397).
-  const machineLink = linkInstallStep(f, doorCodeUpdates(f, updates));
+  // The link restarts on every update: in connect mode it tells the other side the commit it started on (link.ts).
+  const machineLink = linkInstallStep(f, updates);
   // After the update (it reads the new built-ins), with the optional steps at the end: one that fails stops nothing else.
   const builtins = builtinsStep(f, updates);
   const session = sessionStep(f, repo);

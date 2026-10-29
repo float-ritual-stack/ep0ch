@@ -101,7 +101,7 @@ export interface RepoFacts {
  * `test/` folder doesn't count. The host reads its whole package at runtime (docs/scripts.md, the bundled extensions'
  * READMEs), so docs inside it count; PROTOCOL (outline-core) and SCHEMA_VERSION (outliner/src/schema.ts) are inside
  * these folders. The publishers' web door starts a fresh door process per visitor, so door code isn't theirs. The MCP
- * gateway and the machine link run the door, which imports both.
+ * gateway runs the door, which imports both.
  */
 export const RUNS = {
   host: ["packages/outliner/", "packages/outline-core/", "package.json", "bun.lock", "bunfig.toml"],
@@ -152,7 +152,6 @@ export interface McpFacts {
 export interface PublisherFacts {
   unit: { kind: "systemd" | "launchd"; path: string; name: string; state?: UnitState };
   outliner: string | null;
-  startedAt?: number;
   runs?: string | null;
 }
 

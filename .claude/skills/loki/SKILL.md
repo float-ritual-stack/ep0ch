@@ -30,8 +30,8 @@ After a merge to main (yours, or a sha an agent hands you):
    said to deploy: the handover to the new code once cost Evan his comment layout mid-draft.
 3. Deploy both legs with one command: `ssh float-2 'cd ~/projects/ep0ch && ep0ch install --apply'`.
    The host's `ep0ch install` shows the plan first when needed. Install backs up the outlines, fast-forwards the
-   checkout, migrates, and restarts the host, the MCP gateway, the publishers (`publish serve`, the artifact
-   services) and the machine link only when the code each runs changed ("host unchanged: no restart" otherwise; PIE-1397),
+   checkout, migrates, and restarts the host, the MCP gateway and the publishers (`publish serve`, the artifact
+   services) only when the code each runs changed ("host unchanged: no restart" otherwise; PIE-1397),
    then updates its `.host/clients` sequentially over ssh. Register
    float-box once on float-2 with `ep0ch install --apply --add-client float-box`; `--remove-client <ssh-name>`
    removes one. Read every leg's ✓ or !: a failed client leaves the host successful and prints the exact command

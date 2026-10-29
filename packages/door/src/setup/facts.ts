@@ -363,7 +363,8 @@ export async function publisherFacts(platform: Facts["platform"], home: string, 
     const label = kind === "launchd" ? /<key>\s*Label\s*<\/key>\s*<string>([^<]+)<\/string>/.exec(text)?.[1]?.trim() : undefined;
     const name = label || (kind === "launchd" ? file.replace(/\.plist$/, "") : file);
     return [{ kind, path: join(dir, file), name, command, wd }];
-  });
+  // Only a unit whose file names a src/*.ts script is asked systemd about (a drop-in may replace its ExecStart).
+  }).filter(x => /src\/[\w.-]+\.ts/.test(x.command ?? ""));
   const all = await Promise.all(found.map(async x => {
     let command = x.command, wd = x.wd;
     if (x.kind === "systemd") {

@@ -20,7 +20,7 @@ are its record. The outliner's entries from then are kept below, under
 - **A restart names what changed:** `1 file it runs changed from <from> to <to> (packages/outliner/src/server.ts)`. A
   PROTOCOL bump (outline-core) and a schema step still restart it; when what changed can't be listed, an update
   restarts it as before.
-- **The same rule for the MCP gateway and the machine link** (they run the door, so door code counts too), and for the
+- **The same rule for the MCP gateway** (it runs the door, so door code counts too), and for the
   **publishers**: install now restarts `outliner publish serve` and the artifact services itself (a unit running a
   script of this checkout's packages/outliner/src), after the host, only when the outliner's code changed. The
   deployer's by-hand restart of them after every deploy is gone.

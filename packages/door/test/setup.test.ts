@@ -1681,15 +1681,5 @@ describe("restarts only on a change to the code each service runs (PIE-1397)", (
     ]);
   });
 
-  test("the machine link runs the door: a docs-only update doesn't restart it; door code does", () => {
-    const linkHome = join(scratch, "link-home");
-    mkdirSync(join(linkHome, ".config/systemd/user"), { recursive: true });
-    const linkConfig = { mode: "serve", machines: ["float-box"] } as unknown as Facts["linkConfig"];
-    const linked = (to: string, files: string[]) => at(to, files, { home: linkHome, linkConfig, linkState: { loaded: true, running: true, enabled: true }, bun: { path: "/home/evan/.bun/bin/bun", version: "1.4.2" } });
-    // The unit as install writes it is what's there, so only the code decides.
-    const w = step(linked(CODE, door), "machine-link").writes![0]!;
-    writeFileSync(w.path, w.text);
-    expect(step(linked(DOCS, docsOnly), "machine-link")).toMatchObject({ status: "skip", why: "already installed and running" });
-    expect(step(linked(CODE, door), "machine-link")).toMatchObject({ status: "do", commands: expect.arrayContaining(["systemctl --user restart ep0ch-link"]) });
-  });
+
 });
