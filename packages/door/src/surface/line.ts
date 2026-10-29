@@ -125,8 +125,9 @@ export class LineField extends Draft {
   private scrollX = 0;
 
   /**
-   * One row (PIE-1405, PIE-1418): the line laid out whole, then the `w` cells around the cursor, reading as scrolled: a `‹`
-   * in the first cell where words are off to the left, a `›` in the last where they go on past the right. The start stays
+   * One row (PIE-1405, PIE-1418): the line laid out whole, then the `w` cells around the cursor, reading as scrolled: a `«`
+   * in the first cell where words are off to the left, a `»` in the last where they go on past the right (CP437's, in the
+   * VGA font). The start stays
    * in view while the cursor allows, and a click lands on the character under it. Wrapped, a long query at 40 columns drew
    * only its last wrapped piece ("› swap"). More rows: the draft's own wrapping.
    */
@@ -136,7 +137,7 @@ export class LineField extends Draft {
     const line = super.render(Math.max(4, w, tw + 2), 1)[0] ?? "";
     if (tw + 1 <= room || room < 3) { this.scrollX = 0; return [room < 3 ? headOf(line, room) + RESET : line]; }
     const cursor = this.cursorCol, last = tw + 1 - room;
-    // The cursor in a cell no mark covers: the start while it fits before the › cell, else just inside the marks.
+    // The cursor in a cell no mark covers: the start while it fits before the » cell, else just inside the marks.
     if (cursor <= room - 2) this.scrollX = 0;
     else if (cursor < this.scrollX + 1) this.scrollX = cursor - 1;
     else if (cursor > this.scrollX + room - 2) this.scrollX = cursor - room + 2;
@@ -145,7 +146,7 @@ export class LineField extends Draft {
     const cells = headOf(tailFrom(line, this.scrollX), room) + RESET;
     const left = this.scrollX > 0, right = this.scrollX < last, mark = (m: string) => fg(C.dark) + m + RESET;
     const body = headOf(left ? tailFrom(cells, 1) : cells, room - (left ? 1 : 0) - (right ? 1 : 0)) + RESET;
-    return [(left ? mark("‹") : "") + body + (right ? mark("›") : "")];
+    return [(left ? mark("«") : "") + body + (right ? mark("»") : "")];
   }
 
   /** The source place under a cell as last drawn: on one row, counted from the first cell shown (every caller's click). */

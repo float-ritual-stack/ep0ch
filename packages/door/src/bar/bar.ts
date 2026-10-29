@@ -451,7 +451,7 @@ export class PowerBar {
     const none = !this.items.length && !this.asking.size && this.query.trim() !== "" && !this.problems.size;
     const count = [none ? "no matches" : `${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
     // What's typed gets the row before the count does (PIE-1405, PIE-1418): a long query at 40 columns reads whole or
-    // scrolled with its ‹ ›, and the count takes what's left, cut short (hover reads it).
+    // scrolled with its « », and the count takes what's left, cut short (hover reads it).
     const status = busy || count, room = Math.max(10, w - 2);
     const field = Math.min(room, Math.max(10, room - 1 - width(status), width(this.query) + 1));
     this.fieldW = field;

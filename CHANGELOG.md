@@ -16,8 +16,8 @@ are its record. The outliner's entries from then are kept below, under
   nothing left to close it says `nothing to close · x closes the float`, and the float's hint row leads with `x close`.
   Tab, a click or h/l still move the keys out. *What moves:* Esc no longer hands a float's keys to the tile under it,
   on every screen.
-- **The power bar at 40 columns** shows a long query whole, or scrolled sideways with a `‹` where its start is off the
-  line and a `›` where it goes on; home brings the start back. Every one-line field scrolls the same way.
+- **The power bar at 40 columns** shows a long query whole, or scrolled sideways with a `«` where its start is off the
+  line and a `»` where it goes on; home brings the start back. Every one-line field scrolls the same way.
 - **A button that can't run here says why in plain words:** a sequence whose first step names no tile on this screen is
   drawn dim and refused before it runs (`Fold the bottom can't run here: no tile is called links on the river`); one
   that stops midway says `Pipe stopped at step 2 of 4: …`. The person reads tiles by name, never by id; Sources keeps

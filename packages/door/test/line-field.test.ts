@@ -115,21 +115,21 @@ describe("a property's value is the same field (the reader's panel)", () => {
   });
 });
 
-// PIE-1418: a line wider than its field scrolls sideways and says so: ‹ where words are off to the left, › where they go
+// PIE-1418: a line wider than its field scrolls sideways and says so: « where words are off to the left, » where they go
 // on past the right, and the start kept in view while the cursor allows. It never shows only its last wrapped piece.
-test("a long line in a narrow field reads as scrolled: its start while the cursor allows, a ‹ or › where words are off it", () => {
+test("a long line in a narrow field reads as scrolled: its start while the cursor allows, a « or » where words are off it", () => {
   const query = "Gutter swap for the north shed and the porch";
   const l = new LineField(query, false, { complete: false });
-  // Typed to the end: the cursor's end of it, with ‹ saying the start is off to the left.
+  // Typed to the end: the cursor's end of it, with « saying the start is off to the left.
   const end = visible(l.render(20, 1)[0]!);
-  expect(end).toStartWith("‹");
+  expect(end).toStartWith("«");
   expect(end).toContain("the porch");
-  expect(end).not.toContain("›");
-  // Home: the start, with › saying it goes on.
+  expect(end).not.toContain("»");
+  // Home: the start, with » saying it goes on.
   l.take({ kind: "home" });
   const start = visible(l.render(20, 1)[0]!);
   expect(start).toStartWith("Gutter swap");
-  expect(start).toEndWith("›");
+  expect(start).toEndWith("»");
   // A step back from the end, while the cursor still fits in the start's view, keeps the start.
   const short = new LineField("Gutter swap shed", false, { complete: false });
   short.take({ kind: "home" }); for (let i = 0; i < 6; i++) short.take({ kind: "right" });
@@ -143,20 +143,20 @@ test("a long line in a narrow field reads as scrolled: its start while the curso
   l.take({ kind: "mouse", action: "up", x, y: 0, button: 0 } as Key);
   expect(l.cursor).toBe(query.indexOf("porch"));
   // A line that fits draws no marks.
-  expect(visible(new LineField("shed", false, { complete: false }).render(20, 1)[0]!)).not.toMatch(/[‹›]/);
+  expect(visible(new LineField("shed", false, { complete: false }).render(20, 1)[0]!)).not.toMatch(/[«»]/);
 });
 
 // PIE-1405: a line wider than its field scrolls sideways, the cursor in view; it never shows only its last wrapped piece.
 test("a long line in a narrow field shows the cells up to the cursor, and a click lands on the character under it", () => {
   const link = "https://my.ep0ch.sh/pub/o/garden/p/0b5c2d11-7e4f-4a3b-9c8d-1e2f3a4b5c6d";
   const l = new LineField(link, false, { complete: false });
-  // The ‹ in the first cell says the start is off to the left (PIE-1418).
+  // The « in the first cell says the start is off to the left (PIE-1418).
   const shown = visible(l.render(20, 1)[0]!);
-  expect(shown).toBe("‹" + link.slice(-18) + " ");
-  // Home: the start shows again, a › saying it goes on.
+  expect(shown).toBe("«" + link.slice(-18) + " ");
+  // Home: the start shows again, a » saying it goes on.
   l.take({ kind: "home" });
-  expect(visible(l.render(20, 1)[0]!)).toBe(link.slice(0, 19) + "›");
-  // End, then a click on the first cell after the ‹ places the cursor on the character drawn there.
+  expect(visible(l.render(20, 1)[0]!)).toBe(link.slice(0, 19) + "»");
+  // End, then a click on the first cell after the « places the cursor on the character drawn there.
   l.take({ kind: "end" });
   l.render(20, 1);
   // Every caller's click mapping (a form's box places by posAt) counts from the first cell shown.

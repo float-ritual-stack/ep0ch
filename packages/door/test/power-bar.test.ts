@@ -111,7 +111,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(line).not.toContain("notes…");
   });
 
-  test("at 40 columns a long query reads whole, or scrolled with a ‹ where its start is off the line (PIE-1418)", async () => {
+  test("at 40 columns a long query reads whole, or scrolled with a « where its start is off the line (PIE-1418)", async () => {
     const info = (app as any).term.info, was = info.cols;
     info.cols = 40;
     try {
@@ -120,11 +120,11 @@ describe.skipIf(!outliner)("the power bar", () => {
       expect(frame().find(l => l.includes("› Gutter"))).toContain("› Gutter swap for the shed");
       type(" and the porch roof, before the frost");
       await (app as any).bar.settled();
-      const line = frame().find(l => /› ‹/.test(l));
+      const line = frame().find(l => /› «/.test(l));
       expect(line).toBeDefined();
       expect(line).toContain("before the frost");
       key({ kind: "home" });
-      expect(frame().find(l => l.includes("› Gutter"))).toMatch(/› Gutter swap for the shed.*›/);
+      expect(frame().find(l => l.includes("› Gutter"))).toMatch(/› Gutter swap for the shed.*»/);
     } finally { key({ kind: "esc" }); key({ kind: "esc" }); info.cols = was; }
   });
 
