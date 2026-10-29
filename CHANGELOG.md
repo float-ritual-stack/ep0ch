@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Send to ep0ch from your phone in one tap (PIE-1408)
+
+- **One link, one tap:** open the Send to ep0ch page on my.ep0ch.sh on your iPhone, tap Add Shortcut, and "Send to ep0ch" is in your share sheet; a PDF or photo you share to it lands as a card in today's note. The Shortcut is signed and carries its own device link, so there is nothing to copy or edit.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### A patch applied as written leaves nothing to fix, and a backfill rerun costs nothing twice (PIE-1402)
 
 - **The buried question's patch:** its box is its own paragraph, the text under it stays out of it, and on a note whose
