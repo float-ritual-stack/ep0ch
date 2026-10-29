@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One tab strip for every tab set (PIE-1288)
+
+- **The power bar's scopes are actions:** alt+← alt+→ (alt+b alt+f), a prefix and a click on a scope run
+  `bar.open by=±1` or `bar.open scope=<s> keep=true`, keeping what's typed; an agent can do the same.
+- **Six tab sets, one strip:** the power bar's scopes, a tile's tab set, `::graph-tabs`, the library, Welcome and Tune
+  draw through `tabStrip`, each in its own look. A one-row strip that doesn't fit shares the room evenly, then puts the
+  rest into "… N more", never the lit tab (the power bar's scopes no longer run off the edge).
+
 ### Wide text keeps to its frame (PIE-1291)
 
 - **CJK and emoji fit:** a callout title, a code fence, an artifact card and an extension's box with wide glyphs stay

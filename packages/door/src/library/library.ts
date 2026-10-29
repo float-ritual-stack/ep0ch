@@ -1,4 +1,4 @@
-import { chipRows } from "../surface/chip-rows";
+import { tabStrip } from "../surface/chip-rows";
 // The component library (PIE-618): a design-system page per component, generated from its schema (outline-core's
 // component-schema.ts, the service's `components.schemas`), never written per component. A page has four parts: an
 // overview (what it is, where it goes, the minimal example, the properties table), one property at a time (each value
@@ -141,9 +141,9 @@ export class LibraryPane implements Pane {
   layout(W: number, desk: DeskApi | null = this.desk): { head: Row[]; body: Row[]; shown: Variation[] } {
     const src = this.src(desk), all = this.schemas(desk), s = this.schema(desk);
     const head: Row[] = [];
-    head.push(...chipRows(all.map(c => ({ label: shortTitle(c) + (c.origin && c.origin !== "built-in" ? " ·ext" : ""), on: c.id === s.id, hit: { action: "library.component", args: { name: c.id } } })), W));
-    const parts = chipRows(PARTS.map(p => ({ label: `${p.key} ${p.label}`, on: p.part === this.part, hit: { action: "library.part", args: { part: p.part } } })), W);
-    const widths = chipRows([...WIDTHS.map(n => ({ label: String(n), on: !this.allWidths && n === this.width, hit: { action: "library.width", args: { cols: n } } })), { label: "all", on: this.allWidths, hit: { action: "library.width", args: { all: true } } }], W, fg(C.dark) + "width" + RESET);
+    head.push(...tabStrip(all.map(c => ({ label: shortTitle(c) + (c.origin && c.origin !== "built-in" ? " ·ext" : ""), on: c.id === s.id, hit: { action: "library.component", args: { name: c.id } } })), { width: W }));
+    const parts = tabStrip(PARTS.map(p => ({ label: `${p.key} ${p.label}`, on: p.part === this.part, hit: { action: "library.part", args: { part: p.part } } })), { width: W });
+    const widths = tabStrip([...WIDTHS.map(n => ({ label: String(n), on: !this.allWidths && n === this.width, hit: { action: "library.width", args: { cols: n } } })), { label: "all", on: this.allWidths, hit: { action: "library.width", args: { all: true } } }], { width: W, lead: fg(C.dark) + "width" + RESET });
     // The widths at the right of the parts' row when they fit, else under it.
     const last = parts[parts.length - 1]!, room = W - width(last.text) - width(widths[0]!.text) - 1;
     if (widths.length === 1 && room >= 1) {
@@ -172,7 +172,7 @@ export class LibraryPane implements Pane {
         .forEach(l => body.push({ text: l }));
     } else if (this.part === "property") {
       const axis = s.sweep[Math.min(this.axis, s.sweep.length - 1)];
-      head.push(...chipRows(s.sweep.map((k, i) => ({ label: k, on: k === axis, hit: { action: "library.axis", args: { key: k } } })), W));
+      head.push(...tabStrip(s.sweep.map((k, i) => ({ label: k, on: k === axis, hit: { action: "library.axis", args: { key: k } } })), { width: W }));
       const p = s.props.find(x => x.key === axis);
       if (!axis || !p) text("this component marks no property to show one value at a time", C.dark);
       else {
@@ -181,7 +181,7 @@ export class LibraryPane implements Pane {
       }
     } else if (this.part === "grid") {
       const g = s.grids[Math.min(this.gridAt, s.grids.length - 1)];
-      head.push(...chipRows(s.grids.map(([a, b], i) => ({ label: `${a} × ${b}`, on: i === Math.min(this.gridAt, s.grids.length - 1), hit: { action: "library.grid", args: { n: i + 1 } } })), W));
+      head.push(...tabStrip(s.grids.map(([a, b], i) => ({ label: `${a} × ${b}`, on: i === Math.min(this.gridAt, s.grids.length - 1), hit: { action: "library.grid", args: { n: i + 1 } } })), { width: W }));
       if (!g) text("this component marks no two properties to draw as a grid", C.dark);
       else {
         const [a, b] = g, laid = grid(s, a, b);
@@ -213,7 +213,7 @@ export class LibraryPane implements Pane {
       axes.forEach((a, r) => {
         const picked = this.filter[a.key] ?? [];
         const lead = (r === this.cursor.row ? fg(C.white) + "› " : "  ") + fg(C.lcyan) + pad(a.key, lw) + RESET + " ";
-        head.push(...chipRows(a.values.map((v, j) => ({ label: v, on: picked.includes(v), cursor: r === this.cursor.row && j === this.cursor.value, hit: { action: "library.pick", args: { axis: a.key, value: v } } })), W, lead));
+        head.push(...tabStrip(a.values.map((v, j) => ({ label: v, on: picked.includes(v), cursor: r === this.cursor.row && j === this.cursor.value, hit: { action: "library.pick", args: { axis: a.key, value: v } } })), { width: W, lead: lead }));
       });
       const filter: SpaceFilter = this.filter, size = spaceSize(s, filter);
       const from = Math.min(this.page * SPACE_PAGE, Math.max(0, size.matching - 1));

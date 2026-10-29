@@ -1,5 +1,5 @@
 import { declaredHints, HINT_SETTINGS } from "../surface/hints";
-import { chipRows } from "../surface/chip-rows";
+import { tabStrip, type TabRow } from "../surface/chip-rows";
 import { wrap, rowLines } from "../text";
 // The tune inspector (PIE-673, PIE-675): a tile under the one it tunes, like devtools' computed styles. It lists the
 // look's values for that tile (or, in a reader, the `::box` its `[ ]` is in), each with where it comes from, and nudges
@@ -109,6 +109,10 @@ interface Armed { action: "tune.resetlevel" | "tune.revert"; words: string; targ
 
 /** The label of the outline's layer a target writes (look.ts's layers): `global`, `tile detail`, `page`, `style lab`. */
 const layerLabel = (target: TuneTarget) => (target === "global" ? "global" : target.startsWith("page:") ? "page" : target.startsWith("instance:") ? "this tile" : target.startsWith("list:") ? "this list" : target.includes(":") ? target.replace(":", " ") : `style ${target}`);
+/** A hint's settings: the one it has green, the rest cyan, as Hints always drew them. */
+const HINT_LOOK = { on: fg(C.lgreen), off: fg(C.cyan), gap: " " };
+/** A strip row's tabs as the inspector's click targets on line `y`. */
+const controlsOf = (row: TabRow, y: number) => row.hits.map(h => ({ y, x: h.from, cols: h.to - h.from, action: h.action, args: h.args ?? {} }));
 /** The save level a source's target is, for the level picker: named styles are written "where it's set" (auto). */
 const levelOfSource = (src: StyleSource): TuneLevel => (src.level === "global" || src.level === "tile" || src.level === "screen" || src.level === "instance" ? src.level : src.level === "page" && src.label === "page" ? "page" : src.label === "this list" ? "list" : "auto");
 
@@ -271,23 +275,23 @@ export class TunePane implements Pane {
       const body = `${n === this.hintSel ? ">" : " "} ${r.id}  ${r.setting}${r.own ? " (yours)" : " (default)"}`;
       lines.push(...rowLines(body, w).map(l => n === this.hintSel ? selectedRow(l, w, focused) : fg(C.grey) + l + RESET));
       lines.push(...rowLines(r.trigger, Math.max(1, w - 2)).map(l => "  " + fg(C.dark) + l + RESET));
-      const y = lines.length;
-      let x = 2;
-      for (const to of HINT_SETTINGS) {
-        const text = `[${to}]`;
-        hits.push({ y, x, cols: text.length, action: "hints.set", args: { id: r.id, to } });
-        x += text.length + 1;
-      }
-      lines.push("  " + HINT_SETTINGS.map(to => fg(to === r.setting ? C.lgreen : C.cyan) + `[${to}]` + RESET).join(" "));
-      for (let row = start; row < y; row++) hits.push({ y: row, x: 0, cols: w, action: "tune.hint.pick", args: { id: r.id } });
+      for (let row = start; row < lines.length; row++) hits.push({ y: row, x: 0, cols: w, action: "tune.hint.pick", args: { id: r.id } });
+      const settings = tabStrip(HINT_SETTINGS.map(to => ({ label: `[${to}]`, on: to === r.setting, hit: { action: "hints.set", args: { id: r.id, to } } })), { width: w, lead: "  ", style: HINT_LOOK });
+      for (const row of settings) { hits.push(...controlsOf(row, lines.length)); lines.push(row.text); }
     });
-    const top = this.view.place(this.hintSel, lines.length, Math.max(1, h - 2), [starts[this.hintSel] ?? 0, (starts[this.hintSel + 1] ?? lines.length) - 1]);
+    const section = this.sectionTabs(w), head = section.length + 1;
+    const top = this.view.place(this.hintSel, lines.length, Math.max(1, h - head), [starts[this.hintSel] ?? 0, (starts[this.hintSel + 1] ?? lines.length) - 1]);
     this.controls = [
-      { y: 0, x: 0, cols: 8, action: "tune.section", args: { section: "values" } },
-      { y: 1, x: 0, cols: 11, action: "hints.reset", args: {} },
-      ...hits.filter(c => c.y >= top && c.y < top + h - 2).map(c => ({ ...c, y: c.y - top + 2 })),
+      ...section.flatMap((row, y) => controlsOf(row, y)),
+      { y: head - 1, x: 0, cols: 11, action: "hints.reset", args: {} },
+      ...hits.filter(c => c.y >= top && c.y < top + h - head).map(c => ({ ...c, y: c.y - top + head })),
     ];
-    return { lines: [fg(C.cyan) + "[values] Hints" + RESET, fg(C.cyan) + "[reset all]" + RESET, ...lines.slice(top, top + h - 2)] };
+    return { lines: [...section.map(r => r.text), fg(C.cyan) + "[reset all]" + RESET, ...lines.slice(top, top + h - head)] };
+  }
+
+  /** Values or Hints: the inspector's two sections, `H` between them. */
+  private sectionTabs(w: number): TabRow[] {
+    return tabStrip([{ label: "[values]", on: this.section !== "hints", hit: { action: "tune.section", args: { section: "values" } } }, { label: "[Hints] H", on: this.section === "hints", hit: { action: "tune.section", args: { section: "hints" } } }], { width: w });
   }
 
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
@@ -302,14 +306,11 @@ export class TunePane implements Pane {
     if (!t) return { lines: [fg(C.dark) + pad(`tile ${this.source} isn't on this screen · tune.aim target=<name>, or alt+y in the tile to tune`, w) + RESET] };
     const tuning = tuningOf(desk.ctx.board), unsaved = tuning.unsavedCount();
     const lines: string[] = [];
-    const chips = (items: { label: string; on?: boolean; action: string; args?: Record<string, unknown>; hint?: string }[], lead = "") => {
-      for (const row of chipRows(items.map(it => ({ label: it.label, on: it.on ?? false, hint: it.hint, hit: { action: it.action, args: it.args } })), w, lead)) {
-        for (const hit of row.hits ?? []) this.controls.push({ y: lines.length, x: hit.from, cols: hit.to - hit.from, action: hit.action, args: hit.args ?? {} });
-        lines.push(row.text);
-      }
-    };
+    const put = (rows: TabRow[]) => { for (const row of rows) { this.controls.push(...controlsOf(row, lines.length)); lines.push(row.text); } };
+    const chips = (items: { label: string; on?: boolean; action: string; args?: Record<string, unknown>; hint?: string }[], lead = "") =>
+      put(tabStrip(items.map(it => ({ label: it.label, on: it.on ?? false, hint: it.hint, hit: { action: it.action, args: it.args } })), { width: w, lead }));
     const words = (text: string, colour: number = C.dark) => lines.push(...wrap(text, w).map(l => fg(colour) + l + RESET));
-    chips([{ label: "[values]", on: true, action: "tune.section", args: { section: "values" } }, { label: "[Hints] H", action: "tune.section", args: { section: "hints" } }]);
+    put(this.sectionTabs(w));
     if (this.besideShort) words("too short to split; inspector beside it", C.yellow);
     else words(`${t.kind}${t.title !== t.kind ? ` ${t.title}` : ""} · ${t.cols} cols · ${widthWords(t.look)}${t.box ? " · in a box" : ""}`, C.grey);
     chips(TUNE_LEVELS.map(l => {

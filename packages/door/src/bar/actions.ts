@@ -47,21 +47,29 @@ const scopes = () => barSources().map(s => ({ scope: s.id, prefix: s.prefix, tit
 export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", {
   "bar.open": def({
     summary: "the power bar: one palette over every screen. With nothing typed it lists the tiles open on every screen and in your drawer (indented as each screen's layout tree, with the note each shows), then what others changed since you looked; typed, the tiles, the outline's notes (the service's one search), the actions you can do here (with their keys), what changed and the screens, each under its heading; scope=tiles|notes|actions|recent|screens|extensions or an extension's (or its prefix: % / > + @ &, ~ and so on) lists one. The person's opens it with their keys in it (query= typed in); an agent's answers the rows it would list (numbered from 1, with scope=, query=) and opens nothing",
-    keys: "ctrl+k, cmd+k (where the terminal sends it), alt+k (PIE-1346), ✦p (hyper, also while typing; ✦g in its screens scope), a click on the status bar's ^K, on every screen and in your drawer (not while typing, in a terminal tile or the drawer's program); / on the desk and the screens on it, g in a river column (the notes scope); ^W ? on the desk (the actions scope on the ^W keys, to filter and press one)",
+    keys: "ctrl+k, cmd+k (where the terminal sends it), alt+k (PIE-1346), alt+left alt+right (alt+b alt+f) and a click on a scope in the open bar, a prefix on its empty line, ✦p (hyper, also while typing; ✦g in its screens scope), a click on the status bar's ^K, on every screen and in your drawer (not while typing, in a terminal tile or the drawer's program); / on the desk and the screens on it, g in a river column (the notes scope); ^W ? on the desk (the actions scope on the ^W keys, to filter and press one)",
     touches: "nothing", replay: "safe",
     args: {
       query: { type: "string", optional: true, about: "what's typed in it" },
       scope: { type: "string", optional: true, about: "one source: tiles, notes, actions, recent, screens, extensions, an extension's (ext.<id>.<source>), or its prefix; all (the default) lists every one" },
+      by: { type: "number", optional: true, about: "the person's open bar: the next scope (1) or the one before (-1), round again, keeping what's typed" },
+      keep: { type: "boolean", optional: true, about: "the person's open bar: change only its scope, keeping what's typed (its scope tabs and prefixes)" },
     },
     examples: [
       { act: "bar.open scope=notes query=garden", does: "answers the notes that match garden, numbered for bar.pick; nothing opens" },
       { act: "bar.open query=zoom", does: "answers every source's rows for zoom: tiles, notes, actions, screens" },
     ],
-    async run({ query, scope }, { on, standing }, actor: Actor) {
+    async run({ query, scope, by, keep }, { on, standing }, actor: Actor) {
       const s = scopeArg(scope);
       if (!standing) { const b = await on.unseen({ query, scope: s }); try { return { ...b.describe(), scopes: scopes() }; } finally { b.close(); } }
       const held = actorRule({ touches: "screen", host: true }, actor, on.host().dispatch.where(), {});
       if (held) throw new ActionRefused(held);
+      const open = on.bar();
+      if ((by !== undefined || keep) && open && !open.ended()) {
+        const all = open.scopes();
+        open.setScope(by !== undefined ? all[((all.indexOf(open.scope) + Math.sign(by)) % all.length + all.length) % all.length]! : s);
+        return { open: true, scope: open.scope ?? "all", query: open.describe().query };
+      }
       const b = on.open({ query, scope: s });
       return { open: true, scope: b.scope ?? "all", query: b.query };
     },

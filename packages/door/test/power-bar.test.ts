@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { buttonCallsOf } from "@ep0ch/outline-core/button-call";
 import { shellWord } from "../src/machine";
 import { lineWords } from "../src/surface/actions";
+import { traceRequests } from "../src/surface/dispatch";
 import { ReaderPane } from "../src/desk/panes";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
@@ -126,6 +127,22 @@ describe.skipIf(!outliner)("the power bar", () => {
     key({ kind: "esc" });
     expect(peek().bar).toBeUndefined();
     expect(app.person().busy).toBe(false as boolean);
+  });
+
+  test("a scope key, a prefix and a click on a scope run bar.open, keeping what's typed (PIE-1288)", () => {
+    const runs: { action: string; args: Record<string, unknown> }[] = [];
+    const stop = traceRequests(r => runs.push({ action: r.action, args: r.args }));
+    try {
+      key(ctrlK); key(ch("/"));
+      key({ kind: "alt-right" }); key({ kind: "alt", ch: "b" });
+      type("beans");
+      const y = frame().findIndex(l => l.includes("%tiles"));
+      const x = frame()[y]!.indexOf("%tiles") + 1;
+      key({ kind: "mouse", action: "down", x, y, button: 0 } as Key);
+      key({ kind: "mouse", action: "up", x, y, button: 0 } as Key);
+      expect(peek().bar).toMatchObject({ scope: "tiles", query: "beans" });
+    } finally { stop(); }
+    expect(runs.filter(r => r.action === "bar.open").map(r => r.args)).toEqual([{}, { scope: "notes", keep: true }, { by: 1 }, { by: -1 }, { scope: "tiles", keep: true }]);
   });
 
   test("backspacing past an empty action query keeps its scope until an explicit exit", () => {

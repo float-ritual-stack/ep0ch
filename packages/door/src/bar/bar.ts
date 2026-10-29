@@ -33,6 +33,8 @@ import type { Key } from "../term";
 import type { Actor } from "../socket";
 import { barSource, barSources, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
 import "./sources";
+import { tabKeys, tabStrip, type TabRow } from "../surface/chip-rows";
+import { modeBinding } from "../surface/modes";
 import { compactQuestion, formOpen, formLine, maskedQuestion, clearPrivateForm } from "./ask";
 
 /** One row of the list, with the source it's from and the heading drawn above it (a source's title, a tile's screen). */
@@ -52,6 +54,10 @@ export function barRect(cols: number, rows: number): Rect {
 }
 
 /** The bar's line: plain words for every source (the service's search, a filter over rows), so no outline-text completion. */
+
+/** The bar's scopes: alt+← alt+→, and alt+b alt+f (Option+arrows some terminals send as word jumps), step through them. */
+const SCOPE_KEYS = tabKeys("bar.open", { prev: ["alt+left", "alt+b"], next: ["alt+right", "alt+f"], label: "scope" });
+const SCOPE_LOOK = { on: chip(C.cyan, C.black), off: fg(C.grey), pad: " " };
 
 export class PowerBar {
   /** The source it's scoped to, or null: the main list. */
@@ -76,7 +82,7 @@ export class PowerBar {
   private done = false;
   /** Where it was drawn last (mouse reports are made relative to it), and its tabs. */
   rect: Rect | null = null;
-  private tabSpots: { from: number; to: number; scope: string | null }[] = [];
+  private scopeHits: TabRow["hits"] = [];
   /** The preview's reader and the notes it read. */
   private readonly surface = new NoteSurface();
   private readonly docsView = new RowView();
@@ -115,7 +121,7 @@ export class PowerBar {
       closed: () => { clearPrivateForm(); this.close(); },
       keys: k => this.ownKey(k),
       clickChooses: !!this.compact(),
-      clicked: (x, y) => this.clickTab(x, y),
+      clicked: (x, y) => this.clicked(x, y),
       frame: a => this.frame(a),
     });
     this.refresh();
@@ -160,13 +166,8 @@ export class PowerBar {
    */
   private ownKey(k: Key): boolean {
     if (this.compact()?.choice && k.kind === "char" && !k.ctrl && (k.ch === "j" || k.ch === "k")) return false;
-    // Terminals that send Option+←/→ as word jumps (ESC b, ESC f) reach the same scopes.
-    const step = k.kind === "alt-left" || (k.kind === "alt" && k.ch === "b") ? -1 : k.kind === "alt-right" || (k.kind === "alt" && k.ch === "f") ? 1 : 0;
-    if (step) {
-      const all = this.scopes(), at = all.indexOf(this.scope);
-      this.setScope(all[(at + step + all.length) % all.length]!);
-      return true;
-    }
+    const scoping = modeBinding(SCOPE_KEYS, k);
+    if (scoping) { void this.host.dispatch.press(scoping.action, scoping.args); return true; }
     // In an action's form (PIE-1031) shift+tab, and backspace on an empty line, go back a field.
     const form = this.scope === "ask" && formOpen();
     if (form && (k.kind === "backtab" || (k.kind === "backspace" && !this.input.text))) { void this.host.dispatch.press("bar.form", { op: "back" }); return true; }
@@ -182,7 +183,7 @@ export class PowerBar {
     }
     if (k.kind === "char" && !k.ctrl && !this.input.text && !this.scope) {
       const s = barSources().find(x => x.prefix === k.ch);
-      if (s) { this.setScope(s.id); return true; }
+      if (s) { void this.host.dispatch.press("bar.open", { scope: s.id, keep: true }); return true; }
     }
     if (k.kind === "up" && this.scope !== "ask" && !this.query && this.host.runs.length) { void this.host.dispatch.press("bar.command", { op: "recall" }); return true; }
     if (k.kind === "alt" && ["o", "y", "i", "m"].includes(k.ch)) { void this.host.dispatch.press(k.ch === "i" ? "bar.insert" : "bar.command", k.ch === "i" ? {} : { op: k.ch === "o" ? "copy" : k.ch === "y" ? "button" : "menu" }); return true; }
@@ -290,7 +291,7 @@ export class PowerBar {
   /** What the source it's scoped to draws above its rows (an action's form), as drawn last. */
   private sourceHead: string[] = [];
 
-  private clickTab(x: number, y: number): boolean {
+  private clicked(x: number, y: number): boolean {
     if (this.menuOpen && y === 3) {
       const hit = this.menuSpots.find(s => x >= s.from && x < s.to);
       if (hit) { void this.host.dispatch.press(hit.action, hit.args); return true; }
@@ -298,8 +299,8 @@ export class PowerBar {
     // A line of the scoped source's head (a form's field, its act line): under the bar's line.
     if (y >= 3 + Number(this.menuOpen) && y < 3 + Number(this.menuOpen) + this.sourceHead.length) { const s = this.scope ? barSource(this.scope) : undefined; return !!s?.headClick?.(y - 3 - Number(this.menuOpen), this.host); }
     if (y !== 1) return false;
-    const t = this.tabSpots.find(s => x >= s.from && x < s.to);
-    if (t) this.setScope(t.scope);
+    const t = this.scopeHits.find(s => x >= s.from && x < s.to);
+    if (t) void this.host.dispatch.press(t.action, t.args);
     return !!t;
   }
 
@@ -402,22 +403,19 @@ export class PowerBar {
     const rect: Rect = { col: 0, row: 0, cols: a.cols, rows: a.rows }, w = rect.cols - 2;
     const compact = this.compact();
     if (compact) {
-      this.tabSpots = []; this.sourceHead = [];
+      this.scopeHits = []; this.sourceHead = [];
       const label = clipText(compact.title, Math.max(1, w - 12));
       const input = this.scope === "ask" && maskedQuestion() ? "·".repeat(Math.min(this.query.length, Math.max(1, w - width(label) - 2))) + "█" : this.input.render(Math.max(1, w - width(label) - 2), 1)[0];
       return { rect, title: "", foot: compact.choice ? "click or j k ⏎ choose · esc cancel" : "⏎ run · esc cancel",
         head: [fg(C.lcyan) + ` ${label} ` + RESET + (compact.choice ? "" : input)] };
     }
-    // The scopes, the one shown lit; their spots for a click.
-    let x = 1, tabs = "";
-    this.tabSpots = [];
-    for (const s of this.scopes()) {
-      const src = s ? barSource(s) : null, word = src ? `${src.prefix}${src.title}` : "all";
-      const lit = s === this.scope;
-      this.tabSpots.push({ from: x + 1, to: x + 1 + width(word), scope: s });
-      tabs += (lit ? chip(C.cyan, C.black) : fg(C.grey)) + ` ${word} ` + RESET;
-      x += width(word) + 2;
-    }
+    // The scopes, the one shown lit; a click is bar.open scope= as the keys are.
+    const [scopes] = tabStrip(this.scopes().map(s => {
+      const src = s ? barSource(s) : null;
+      return { label: src ? `${src.prefix}${src.title}` : "all", on: s === this.scope, hit: { action: "bar.open", args: { scope: s ?? "all", keep: true } } };
+    }), { width: w, at: 1, overflow: "share", style: SCOPE_LOOK });
+    const tabs = scopes!.text;
+    this.scopeHits = scopes!.hits;
     const busy = this.asking.size ? `${[...this.asking].map(id => barSource(id)?.title ?? id).join(", ")}…` : "";
     const said = [...this.problems].map(([id, why]) => `${barSource(id)?.title ?? id}: ${why}`).join(" · ");
     const count = [`${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");

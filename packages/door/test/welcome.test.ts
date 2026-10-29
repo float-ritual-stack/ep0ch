@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Art, Cell } from "../src/ansi";
 import { App, type Screen } from "../src/app";
 import type { Msg } from "../src/board";
-import { densest, logoCells, orderWelcome, WELCOME_VIEW_TEXT, tabKey, type WelcomeDetail, type WelcomeList, type WelcomePreview } from "../src/hub/welcome";
+import { densest, logoCells, orderWelcome, WELCOME_VIEW_TEXT, type WelcomeDetail, type WelcomeList, type WelcomePreview } from "../src/hub/welcome";
 import { BacklinksPane } from "../src/desk/backlinks-pane";
 import { Desk } from "../src/desk/desk";
 import { ReaderPane } from "../src/desk/panes";
@@ -14,6 +14,7 @@ import { landingOf, startScreens, type ScreenRequest } from "../src/start";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 import { prop } from "../src/props";
+import { traceRequests } from "../src/surface/dispatch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const row = (id: string, welcome: string, title = id, createdAt = 0): Msg =>
@@ -30,9 +31,6 @@ describe("which notes are welcome notes, in what order", () => {
     expect(orderWelcome(list, ["one", "two", "ten"]).map(m => m.id)).toEqual(["one", "two", "ten", "a", "z"]);
     // With no Welcome view: by title, whatever the values are (a number is no longer a place).
     expect(orderWelcome(list).map(m => m.id)).toEqual(["a", "two", "ten", "one", "z"]);
-  });
-  test("the keys: 1-9 then 0 for the tenth; none after", () => {
-    expect([0, 8, 9, 10].map(tabKey)).toEqual(["1", "9", "0", null]);
   });
 });
 
@@ -342,9 +340,11 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     await until(() => screen().includes("… 3 more"), "the more tab");
     ch("0");
     await until(() => list().at === 9, "0: the tenth");
-    const more = at("… 3 more");
-    mouse(more.x + 1, more.y);
-    await until(() => focus() === "welcome", "… more: the list has the keys");
+    const more = at("… 3 more"), ran: { action: string; tile?: string }[] = [];
+    const stop = traceRequests(r => ran.push({ action: r.action, tile: r.tile?.name }));
+    try { mouse(more.x + 1, more.y); await until(() => focus() === "welcome", "… more: the list has the keys"); } finally { stop(); }
+    // Through tile.focus, as any click that gives a tile the keys (PIE-1288).
+    expect(ran).toContainEqual({ action: "tile.focus", tile: "welcome" });
     expect(screen()).toMatch(/… 3 more/);
   });
 

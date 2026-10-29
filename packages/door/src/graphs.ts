@@ -5,6 +5,7 @@ import { clipText } from "./overflow";
 //   ```+--- [ TITLE ] ---+  the official fenced ASCII an agent pastes, re-framed to fit the pane
 import { BOLD, C, drawEllipsized, fg, pad, RESET, sparkGlyphs, UNBOLD, visible, width as vwidth } from "./style";
 import { rowLines, withRowLimit, wrap } from "./text";
+import { tabStrip } from "./surface/chip-rows";
 import { childRows, resolveLive, setLiveSource, liveSource, type LiveSite } from "./live";
 import { asksPerItem, liveProps } from "@ep0ch/outline-core/figure-live";
 import { figureResultsMarkdown, resultsHead, type FigureResults, type ResultsContext } from "@ep0ch/outline-core/figure-results";
@@ -324,18 +325,10 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       return [...wrap(bar, w).map(l => fg(INK) + l + RESET), ...tabs.flatMap(t => ["", fg(ACCENT) + BOLD + `▸ ${t.value.toUpperCase()} · ${t.count}${plus}` + UNBOLD + RESET, ...table(t)])];
     }
     // The bar: each label its value and count, the chosen one lit and underlined; a bar wider than the figure wraps.
-    const bars: { text: string; under: string }[] = [];
-    let text = "", under = "", at = 0;
-    for (const t of tabs) {
-      const label = `${t.value} ${t.count}${plus}`, lw = vwidth(label), on = t === sel;
-      if (at && at + 3 + lw > w) { bars.push({ text, under }); text = ""; under = ""; at = 0; }
-      if (at) { text += fg(DIM) + " · "; under += "   "; at += 3; }
-      const drawn = (on ? fg(ACCENT) + BOLD : fg(INK)) + label + (on ? UNBOLD : "") + RESET;
-      text += ui?.tag ? ui.tag({ figure: ui.key, tab: t.value }, drawn) : drawn;
-      under += on ? fg(ACCENT) + rep("▀", lw) + RESET : rep(" ", lw);
-      at += lw;
-    }
-    bars.push({ text, under });
+    const bars = tabStrip(tabs.map(t => ({ label: `${t.value} ${t.count}${plus}`, on: t === sel })), {
+      width: w, overflow: "wrap", style: { on: fg(ACCENT) + BOLD, off: fg(INK), sep: fg(DIM) + " · ", under: fg(ACCENT) },
+      ...(ui?.tag ? { tag: (drawn: string, i: number) => ui.tag!({ figure: ui.key, tab: tabs[i]!.value }, drawn) } : {}),
+    }).map(b => ({ text: b.text, under: b.under ?? "" }));
     if (p.truncated) bars.push({ text: fg(DIM) + "more results than one question answers: counts are at least these" + RESET, under: "" });
     return [...bars.flatMap(b => [b.text + RESET, b.under]), ...table({ ...sel, limit: p.limit, titleColumn: (sel as Props).titleColumn, density: p.density })];
   },
