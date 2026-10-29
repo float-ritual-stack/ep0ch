@@ -853,6 +853,8 @@ export interface ScriptSource {
   readonly fence?: { name: string; occurrence: number };
   readonly effects: "read" | "write";
   readonly keys?: readonly string[];
+  /** A note script's `[form-field::…]` values: the slots it declares (a file script's are in its opening comments). */
+  readonly fields?: readonly string[];
   readonly format?: "actions";
   /** `[mode::render]`: the script is a handler (`name::` lines) that draws what it returns in place and writes nothing. */
   readonly render?: true;

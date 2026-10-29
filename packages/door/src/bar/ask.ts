@@ -287,6 +287,9 @@ const ASK_SOURCE: BarSource = {
         .map(f => ({ key: `answer:${f.value}`, label: f.label ?? f.value, ...(f.detail ? { detail: f.detail } : {}), group: head, data: f.value }))];
       return Promise.resolve(q.suggest(query)).then(rows, () => rows([]));
     }
+    // A question of a kind (a note, a screen, a file) lists that kind's values, as the same field in a form does (PIE-1298: a
+    // button's empty slot is asked alone, outside a form).
+    if (q.kind) return fieldRows(q, query, host, head);
     if (q.type === "text" || q.type === "number") {
       const value = typed || q.value;
       if (value !== undefined) return [{ key: q.masked ? "private-answer" : `answer:${value}`, label: q.masked ? "********" : value, detail: head, group: head, data: value }];

@@ -96,6 +96,17 @@ test("of= scripts: {slot} values fill from the line, the slots are not forwarded
   expect(filled.props).toEqual({ page: ["[[a]]", "[[b]]"] });
 });
 
+// The validate sweep's repro (Oct 28): both slots empty asked page2 first, and slotArgs found no argument for a script step.
+test("of= scripts: empty slots are asked in the order written, each read by the script's own slot", () => {
+  const call = buttonCallAt(['::button{label="two up" of="neat" page={page1} page={page2} page1= page2=}'], 0)!;
+  expect(call.empty).toEqual(["page1", "page2"]);
+  expect(slotArgs(call, "page1")).toEqual([{ step: 0, action: "neat", arg: "page", script: true }]);
+  expect(slotArgs(call, "page2")).toEqual([{ step: 0, action: "neat", arg: "page", script: true }]);
+  // A body's ((script)) step reads its slot through the slot of that name.
+  const body = buttonCallAt(['::button{label="f" t=}', "((fold tile={t}))", "::"], 0)!;
+  expect(slotArgs(body, "t")).toEqual([{ step: 0, action: "fold", arg: "tile", script: true }]);
+});
+
 test("a script's slot value is the value itself, spaces and all; an action line quotes it once", () => {
   const call = buttonCallAt(['::button{of=say message={text} text="hello world"}'], 0)!;
   expect(call.props).toEqual({ message: ["hello world"] });

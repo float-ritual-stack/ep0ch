@@ -79,3 +79,18 @@ test("a file script's header names its mode and effects, and anything else is re
   expect(refused?.error).toContain("mode=render");
   expect(refused?.error).toContain("effects=write");
 });
+
+// PIE-1298: what a slot names is the script's own word, in the form grammar, so a button's empty slot is asked in that kind.
+test("a script declares its slots' kinds with [form-field::…]: a file in its opening comments, a note on itself", async () => {
+  const { root, client, create } = await setup();
+  const folder = join(root, "outline/extensions/garden");
+  mkdirSync(join(folder, "scripts"), { recursive: true });
+  writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id: "garden", name: "garden", version: 1, scripts: [{ name: "pair", file: "scripts/pair.js", about: "two beds" }] }));
+  writeFileSync(join(folder, "scripts", "pair.js"), "// ep0ch-script\n// [form-field::bed note] [form-field::size choice small|large]\nconst x = '[form-field::later number]';\nreturn props.bed?.[0] + props.size?.[0] + props.extra?.[0];\n");
+  create("Sow [script::sow]\n[form-field::when choice spring|autumn]\n```js\nreturn props.when?.[0] + props.row?.[0];\n```");
+  const listed = (await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true })).extensions;
+  const args = (name: string) => listed.find(e => e.script && e.name === name)!.actions.find(a => a.id === "run")!.args;
+  // Declared first, then what the code reads that it doesn't declare, as text; a chip past the comments is code, not a declaration.
+  expect(args("pair")).toEqual([{ name: "bed", type: "note" }, { name: "size", type: "choice", options: ["small", "large"] }, { name: "extra", type: "text" }]);
+  expect(args("sow")).toEqual([{ name: "when", type: "choice", options: ["spring", "autumn"] }, { name: "row", type: "text" }]);
+});

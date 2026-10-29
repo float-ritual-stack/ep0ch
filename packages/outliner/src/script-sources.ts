@@ -3,10 +3,11 @@ import { codeBlocks, codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/cod
 import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { scriptHeader, SCRIPT_HEADER_WORDS, durationMs, MAX_DEADLINE_MS, type LoadedExtension, type ManifestSource, type ScriptSource, type ExtensionOrigin } from "./extension-manifest";
+import { scriptHeader, SCRIPT_HEADER_WORDS, durationMs, MAX_DEADLINE_MS, type LoadedExtension, type ManifestSource, type ScriptSource, type ExtensionOrigin, type ExtensionActionArg } from "./extension-manifest";
 import type { OutlinerStore } from "./store";
 import type { ExtensionEntry } from "./extension-registry";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { FORM_FIELD_KEY, FORM_FIELD_TYPES, formFields } from "@ep0ch/outline-core/form-fields";
 import { bind } from "./site-answer";
 import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
 
@@ -52,6 +53,30 @@ export function propsUsed(code: string): string[] {
   return [...new Set([...code.matchAll(/\bprops(?:\.([A-Za-z_][\w-]*)|\[\s*["']([^"'\]]+)["']\s*\])/g)].map(m => (m[1] ?? m[2])!))];
 }
 
+/**
+ * The slots a script declares (PIE-1298), in the grammar a note's form uses: `[form-field::page note]` on a script's note, or
+ * in a file script's opening `//` comment lines. What a slot names (a note, a choice, a number) is the script's own word, so a
+ * button's empty slot is asked in that kind and the power bar lists it the same way.
+ */
+export function declaredSlots(script: Pick<ScriptSource, "code" | "fields" | "file">): ExtensionActionArg[] {
+  const values = script.fields ?? (script.file ? parsePropertyRecords(leadingComments(script.code)).filter(p => p.key === FORM_FIELD_KEY).map(p => p.value) : []);
+  // A script's slot may be any name (`tile`, `block`): its props are its own, not an action request's.
+  return formFields(values, new Set()).fields.map(f => ({ name: f.name, type: (FORM_FIELD_TYPES as readonly string[]).includes(f.type) ? f.type as ExtensionActionArg["type"] : "property",
+    ...(f.options ? { options: f.options } : {}), ...(f.required ? { required: true } : {}), ...(f.default !== undefined ? { default: f.default } : {}) }));
+}
+const leadingComments = (code: string) => {
+  const lines = code.split(/\r?\n/);
+  const end = lines.findIndex(line => !/^\s*\/\//.test(line));
+  return (end < 0 ? lines : lines.slice(0, end)).join("\n");
+};
+
+/** A run action's arguments: the slots the script declares, then the ones its code reads that it doesn't declare, as text. */
+function runArgs(script: ScriptSource): ExtensionActionArg[] {
+  const declared = declaredSlots(script);
+  const read = script.format === "actions" ? actionSlots(script.code).map(slot => ({ name: slot.name, type: "text" as const, ...(slot.required ? { required: true } : {}) })) : propsUsed(script.code).map(name => ({ name, type: "text" as const }));
+  return [...declared, ...read.filter(r => !declared.some(d => d.name === r.name))];
+}
+
 /** What identifies a script's source: its code and settings, never its note's revision (a script may write into its own note). */
 /** `reads` is the version of what a render records of the notes it read: a change draws every render script again. */
 const scriptStamp = (script: ScriptSource) => hash(JSON.stringify({ ...script, revision: undefined, author: undefined, reads: 2 }));
@@ -71,7 +96,7 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
         // Render mode: the script is a handler, its line (`name::`) draws what it returns under the line.
         ...(script.render ? { handlers: [{ key: name, kind: "output", effects: "read", description: `Draws what ${name} returns, in place`, argument: { name: "slots", description: "name=value words the script reads as props" } }] } : {}),
         actions: [{ id: "run", label: `Run ${name}`, description: `Runs saved revision ${script.revision} as script:${name}; returns an answer, keeping content or a requested [results::keep] record`, on: "outline", effects: script.effects,
-          args: (script.format === "actions" ? actionSlots(script.code).map(slot => ({ name: slot.name, type: "text", ...(slot.required ? { required: true } : {}) })) : propsUsed(script.code).map(name => ({ name, type: "text" }))) }] }),
+          args: runArgs(script) }] }),
       configRaw: "{}", scriptName: name, script, stamp: scriptStamp(script),
     });
   };
@@ -103,7 +128,7 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
         ? `Script ${name} is defined more than once in this note, at lines ${duplicates.map(f => f.start + 1).join(", ")}; give each fence a different script name`
         : undefined;
       add(isNamed ? `${block.id}:${name}:${definition!.occurrence}` : block.id, name,
-        { code, keys: (attrs.keys === undefined ? noteValues("keys") : [attrs.keys]).flatMap(value => value.split(",").map(k => k.trim()).filter(Boolean)), ...(language === "actions" ? { format: "actions" as const } : {}), blockId: block.id, ...(isNamed ? { line: fence!.start, fence: definition } : {}), revision: block.revision,
+        { code, fields: noteValues(FORM_FIELD_KEY), keys: (attrs.keys === undefined ? noteValues("keys") : [attrs.keys]).flatMap(value => value.split(",").map(k => k.trim()).filter(Boolean)), ...(language === "actions" ? { format: "actions" as const } : {}), blockId: block.id, ...(isNamed ? { line: fence!.start, fence: definition } : {}), revision: block.revision,
           ...(render ? { render: true as const } : {}), ...(deadline ? { deadlineMs: Math.min(deadline, MAX_DEADLINE_MS) } : {}),
           effects, author: { author: revision.author ?? block.author, ...(revision.actorId ? { actorId: revision.actorId } : {}) } }, problem);
     }
