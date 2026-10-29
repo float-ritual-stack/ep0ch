@@ -24,6 +24,21 @@ are its record. The outliner's entries from then are kept below, under
   (`status.bar.menu group=Tools` by act).
 - **A list item holds a button,** in any note: `- ::button{…}` draws after its bullet and presses; the publisher shows
   its label, and `button.press` finds buttons in list items and quotes too.
+### Approve from the phone grants what it says, and leaves the list when answered anywhere (PIE-1386)
+
+- **The session step says what it grants:** ``allow every `touch` command for this session`` adds that one rule for this session,
+  never the dialog's accept-edits mode (a tap on `touch` used to let the next `rm` run unasked), a folder or a standing
+  rule. An `rm` gets only its exact command; a call no rule names exactly (`a && b`, a `*`) offers only once and deny.
+- **Answered at the terminal, gone from the list:** the dialog shows in the session at once, beside the ask; answer it
+  there and the note leaves Waiting on Evan within 3 s, saying it was answered in the session and whether it ran (it
+  used to wait 10 minutes and then say nobody ticked). After 600 s with no answer the note leaves the list and says
+  the dialog still waits in the session.
+- **Which list:** pie's Waiting on Evan holds every session's asks beside pie's own `needs` notes; a `needs` note in
+  gurgle or float-hub stays on that outline's list, and the ask page says so.
+- **Every error page is dark:** a 404 (`/pub/p/PIE-9999`), a 502 or a busy 503 that a browser opens is the dark page
+  with the same words; a page's own fetches still get plain text.
+- **Run:** nothing beyond the next `ep0ch install --apply` (the publisher and the Claude mod pick it up).
+
 ### Agents work in your door while you type, and every refusal says the same thing (PIE-1294)
 
 - **Your edit is yours:** an agent's open never replaces the note you're editing, on any screen; on Welcome your own
