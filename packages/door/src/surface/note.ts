@@ -11736,7 +11736,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "props": def({
-    summary: "open the property panel: every property token (repeats and block/line/inline scope kept), with the summary line's keys", keys: [{ keys: "i", does: "open the property panel" }, { keys: "I", does: "full", says: "open the property panel with every property in full" }],
+    summary: "open the property panel: every property token (repeats and block/line/inline scope kept), with the summary line's keys", keys: [{ keys: "i", does: "open the property panel" }, { keys: "I", does: "full", says: "open the property panel filling the reader" }],
     touches: "nothing", replay: "safe",
     menu: noteRow("properties", "i", { busy: true }),
     args: { full: { type: "boolean", optional: true, about: "fill the reader instead of sitting above the note" } },

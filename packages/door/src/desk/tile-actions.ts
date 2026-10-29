@@ -400,9 +400,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.hold": def({
-    words: "hold this column open in its flow",
+    words: "hold this column or list where it is",
     summary: "hold tile=<tile>: an alt reader leaves the pile and stays open. For a flow or list (on=false lets it go; default toggles). A river column: its column stays full in its flow so it resists compression, the river's p; refused outside a flow and where its flow is locked. A #tag's list (PIE-855): it keeps its tag and stops being its reader's list, so the next tag opens a list of its own; its opens still land in that reader. Let go, it is the reader's list again, refused while another list is",
-    keys: [{ keys: "p", does: "in a river column, or a #tag's list" }, { via: "the frame card's hold row" }],
+    keys: [{ keys: "p", does: "in a river column, or a #tag's list", says: "hold this column open in its flow, or keep a #tag's list on its tag" }, { via: "the frame card's hold row" }],
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.held ? "held" : "let go of"} ${r.name ?? r.tile}`),
     menu: {
       label: "hold it full", group: TILE, key: "p",
