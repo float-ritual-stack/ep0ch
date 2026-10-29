@@ -22,6 +22,8 @@ describe.skipIf(!outliner)("showcase: twins at filing (PIE-1258)", () => {
     await h.app.act({ action: "section", args: { name: "twins" }, as: "test-agent" });
     await until(() => !!model()?.lanes?.length && model().lanes.every((l: any) => l.items), "the board's lanes", 15_000);
     await until(() => marks.twins!.every(m => h.screen().includes(m)), "the twins section", 15_000);
+    // A test that failed leaves its composer open; put it aside so the next one starts clean.
+    if (model().composer) await (h.app as any).dispatch.act({ action: "composer.close", args: { discard: true } }, USER).catch(() => undefined);
   };
 
   test("an agent's near-duplicate is refused naming the twin; card.attach adds its words there", async () => {
@@ -48,6 +50,37 @@ describe.skipIf(!outliner)("showcase: twins at filing (PIE-1258)", () => {
     h.ch("a");
     await untilAsync(async () => /\(by Evan\): Fix the back gate latch for good$/.test((await latch())!.text), "the words under the twin");
     await until(() => !h.screen().includes("[attach here]"), "the composer closed", 10_000);
+  });
+
+  // Seen in use, Oct 29: the offer came only once the card had its priority, arc and track chips, two round trips.
+  test("the title alone is offered its twin as it's typed, before any chips or ctrl+s; ctrl+s with chips then files it once", async () => {
+    await open();
+    await (h.app as any).dispatch.act({ action: "card.new", args: { lane: "Queued" } }, USER);
+    await until(() => h.screen().includes("new card in Queued"), "the composer", 10_000);
+    h.S().focus = "stage";
+    for (const c of "Fix the back gate latch bolt") h.ch(c);
+    await until(() => h.screen().includes("[attach here] [file new]"), "the twin row on the title", 15_000).catch(e => { console.log(h.screen()); throw e; });
+    expect(h.screen()).toContain("looks like HOME-");
+    // It was seen, so the chips and one ctrl+s file it: never a second offer for the same twin.
+    for (const c of " [priority::low] [arc::garden] [track::allotment]") h.ch(c);
+    h.press({ kind: "char", ch: "s", ctrl: true });
+    const filed = async () => (await h.board.query("type=roadmap-item", 100)).find(m => m.text.includes("Fix the back gate latch bolt"));
+    await untilAsync(async () => !!(await filed()), "the card filed on one ctrl+s", 15_000).catch(e => { console.log(h.screen()); throw e; });
+    expect((await filed())!.text).toMatch(/Filed beside \[\[HOME-\d+\]\]/);
+  });
+
+  test("ctrl+s on the title alone offers the twin first, not the missing chips; [attach here] needs none", async () => {
+    await open();
+    await (h.app as any).dispatch.act({ action: "card.new", args: { lane: "Queued" } }, USER);
+    await until(() => h.screen().includes("new card in Queued"), "the composer", 10_000);
+    h.S().focus = "stage";
+    for (const c of "Fix the back gate latch peg") h.ch(c);
+    h.press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => h.screen().includes("[attach here] [file new]"), "the twin row", 15_000).catch(e => { console.log(h.screen()); throw e; });
+    expect(h.screen()).not.toContain("which needs prio");
+    h.press({ kind: "char", ch: "x", ctrl: true });
+    h.ch("a");
+    await untilAsync(async () => /\(by Evan\): Fix the back gate latch peg$/.test((await latch())!.text), "the words under the twin");
   });
 
   test("ctrl+s again on the same text files it new, said in the card as filed beside its twin", async () => {

@@ -189,7 +189,7 @@ export async function loadWriteReviewPrompt(directory?: string): Promise<WriteRe
 }
 
 /** The questions the workboard's Jev loops ask (work-jev.ts): twins at filing, the groom, what to try. `{candidate}` is the item asked about. */
-export const WORK_JEV_QUESTIONS = ["same", "part", "ships", "replaces", "duplicate", "unfinished", "tries", "shows", "wanted"] as const;
+export const WORK_JEV_QUESTIONS = ["same", "part", "ships", "replaces", "duplicate", "unfinished", "tries", "shows", "opens", "wanted"] as const;
 export type WorkJevPrompt = Record<typeof WORK_JEV_QUESTIONS[number], string> & { revisions: PromptRevision[] };
 
 /** work-jev.json: every question the workboard's loops ask Jev, in one file, read as loadWriteReviewPrompt reads its own. */

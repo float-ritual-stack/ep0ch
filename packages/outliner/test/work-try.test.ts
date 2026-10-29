@@ -56,3 +56,38 @@ test("with Jev off, the matcher's best are the plan, said as text matches", asyn
   expect(tryMarkdown(report)).toContain("`ep0ch act board.open name=garden`");
   expect(tryMarkdown(report)).toContain("(text matches: Jev wasn't asked)");
 });
+
+// Seen in use, Oct 29: "no action reads like it" while a page was the place to look. Pages and views are candidates:
+// the ones that link the ticket first, then the matcher's by their words.
+const place = (id: string, text: string, page?: string) => ({ id, text, properties: page ? [{ key: "page", value: page }] : [{ key: "type", value: "virtual-branch" }] }) as unknown as Block;
+const LOG = place("p-log", "Watering log [page::watering-log]\n\nWhich beds were watered each day.", "watering-log");
+const SHED = place("p-shed", "Shed paint colours [page::shed]\n\nSamples on the shed door.", "shed");
+const MINE = place("p-mine", "Garden checks [for::GDN-9]\n\nWhat to look at in the garden.");
+const SEEDS = ticket("GDN-9", "Seedlings get a reminder before frost", "Internal: the frost job reads the forecast.");
+
+test("places: the ones that link the ticket first, then the matcher's by their words; the rest left out", async () => {
+  const { placeCandidates } = await import("../src/work-try");
+  expect(placeCandidates(SEEDS, [LOG, SHED, MINE], new Set(["p-mine"])).map(c => [c.place.id, c.links])).toEqual([["p-mine", true]]);
+  const byWords = placeCandidates(WATER, [LOG, SHED, MINE]).map(c => c.place.id);
+  expect(byWords[0]).toBe("p-log");
+  expect(byWords).not.toContain("p-shed");
+  // A page deep search found by meaning shares no word; it still gets a place, the matcher's weakest giving way.
+  expect(placeCandidates(WATER, [LOG, SHED, MINE], new Set(), ["p-shed"]).map(c => c.place.id)).toContain("p-shed");
+});
+
+test("Jev picks the pages to open, and a ticket with only a place to open is no longer a finding", async () => {
+  const fake = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(r) {
+    const body = await r.json() as { questions: Record<string, { instructions: string }> };
+    const answers = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => [id, { type: "noul", noul: id.startsWith("opens::") && (q.instructions.includes("Garden checks") || q.instructions.includes("Watering log")) ? 0.85 : 0.1 }]));
+    return Response.json({ model: "jev-1.13.0", answers, usage: { input_tokens: 300, output_tokens: 0 } });
+  } });
+  fakes.push(fake);
+  const open = { name: "screen.open", summary: "open a screen by name" };
+  const report = await planTries([SEEDS], ACTIONS, { apiKey: "fake", endpoint: `http://127.0.0.1:${fake.port}/v1/systemone`, places: [LOG, SHED, MINE], links: { [SEEDS.id]: ["p-mine"] }, open });
+  const md = tryMarkdown(report);
+  expect(md).toContain("- [ ] **Open:** ((p-mine|Garden checks)) · a view · it links the ticket · `ep0ch act screen.open name=detail target=p-mine`");
+  expect(md).not.toContain("**Finding:**");
+  // With Jev off, the linked place and the matcher's are the plan.
+  const off = tryMarkdown(await planTries([WATER], ACTIONS, { jev: false, places: [LOG, SHED] }));
+  expect(off).toContain("**Open:** ((p-log|Watering log)) · [[watering-log]]");
+});
