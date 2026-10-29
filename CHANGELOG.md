@@ -10,6 +10,56 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A patch applied as written leaves nothing to fix, and a backfill rerun costs nothing twice (PIE-1402)
+
+- **The buried question's patch:** its box is its own paragraph, the text under it stays out of it, and on a note whose
+  chips sit on the line under the title, the box goes below them.
+- **A wall's or a stacked bullet's patch** splits at sentences, never commas; a sentence too long for one bullet comes
+  with no patch, and the finding names it.
+- **Twins and the groom give one answer:** the groom asks the filing's same-work question and reads it the same way
+  ("maybe the same work as PIE-n" in the band where Jev is unsure).
+- **A live check's chooser says what each choice writes** (`Mark done · jev::right`, `Reject · jev::rejected`).
+- **The backfill:** a note Jev read and said nothing of is kept as quiet, so a rerun asks only about what's new; a
+  run keeps one row; its records look the Records page and templates up once. The host's own load under a backfill
+  is PIE-1413's.
+### A note written in the river opens with its text, and neat speaks plainly (PIE-1403)
+
+- **Reopened, it shows what you wrote:** a note written in a float over the river, saved and opened again from the
+  power bar showed "(empty)" until the door restarted. An open now takes the newest copy on screen, and the screen's
+  current note is read again when it changes.
+- **x closes a float over the river**, as it closes a column there and a float on the board.
+- **The power bar says "no matches"** when nothing matches what you typed, and never stays on "notes…" once the
+  search has answered.
+- **neat from the power bar works** as it does from its button: your own run of a script acts as you, the way a
+  press does. From a float it puts other floats back and folds them; a step it can't do is said whole, in the
+  door's words, and its line names your notes, never tile ids. Typed as its row reads, `run neat` lists the run
+  row first, before any note named Neat.
+- **The ▾ at a heading's words folds it** on a click, as the gutter's ▾ does, at 38 columns too.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### The trail: where a reader has been, and straight back to any stop (PIE-208)
+
+- **In a reader or the river:** `alt+T`, the `≡ trail` beside `← back`, or the tile menu lists every stop back and
+  forward by title, the note shown lit. ⏎ or a click goes straight there; `← back` and `forward →` walk the same trail.
+- **On the web page:** `≡ trail` at the end of the breadcrumbs lists the notes this tab opened, newest first.
+- **Agents:** `act trail` reads the stops (it opens nothing); `act back steps=2` goes two at once; `ep0ch.trail()` on a page.
+- **Run:** nothing extra; `ep0ch install --apply` as usual (no protocol or schema change).
+
+### Approve from the phone grants what it says, and leaves the list when answered anywhere (PIE-1386)
+
+- **The session step says what it grants:** ``allow every `touch` command for this session`` adds that one rule for this session,
+  never the dialog's accept-edits mode (a tap on `touch` used to let the next `rm` run unasked), a folder or a standing
+  rule. An `rm` gets only its exact command; a call no rule names exactly (`a && b`, a `*`) offers only once and deny.
+- **Answered at the terminal, gone from the list:** the dialog shows in the session at once, beside the ask; answer it
+  there and the note leaves Waiting on Evan within 3 s, saying it was answered in the session and whether it ran (it
+  used to wait 10 minutes and then say nobody ticked). After 600 s with no answer the note leaves the list and says
+  the dialog still waits in the session.
+- **Which list:** pie's Waiting on Evan holds every session's asks beside pie's own `needs` notes; a `needs` note in
+  gurgle or float-hub stays on that outline's list, and the ask page says so.
+- **Every error page is dark:** a 404 (`/pub/p/PIE-9999`), a 502 or a busy 503 that a browser opens is the dark page
+  with the same words; a page's own fetches still get plain text.
+- **Run:** nothing beyond the next `ep0ch install --apply` (the publisher and the Claude mod pick it up).
+
 ### The status bar keeps your buttons: narrow bars, typos and groups (PIE-1213, PIE-1227, PIE-1224)
 
 - **Your pins stay:** when the bar is narrow, built-ins shorten first (the drawer chip to `▲ shell`, then its arrow;

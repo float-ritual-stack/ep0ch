@@ -20,7 +20,7 @@ import { writeShape, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { figuresIn, type FigureFit, type FigureFitReading } from "./figure-fit";
 import { jevScope, kitIn, sectionsOf, type ReviewReading, type WriteReview } from "./write-review";
-import { chips, chipValue, writeRecord, type RecordWho, type RecordWriter } from "./records";
+import { chips, chipValue, writeRecord, type RecordCache, type RecordWho, type RecordWriter } from "./records";
 import { LOOPS_SECTION } from "./work-jev";
 import type { AnnotationThread, Block, VisibleBlockCollection } from "./types";
 
@@ -81,12 +81,13 @@ export async function recordSuggestion(client: SuggestionClient, fit: FigureFit,
  * rule, Evan's rubric item, the passage, what was said and whether a ready patch came with it; the day's run counts the
  * review's tokens. A review with nothing new is a quiet ask on the run. Never throws.
  */
-export async function recordReview(client: SuggestionClient, keep: Extract<SuggestionKeep, { kind: "reviewed" }>, now = new Date()): Promise<void> {
+export async function recordReview(client: SuggestionClient, keep: Extract<SuggestionKeep, { kind: "reviewed" }>, now = new Date(), cache: RecordCache = {}): Promise<void> {
   try {
     const day = dayOf(now), told = keep.review.findings.filter(f => f.new);
     if (told.length) await suggestionsPage(client);
     // Each finding is told once (PIE-1402: a repeat patch wrote the same one four times): one the note's records hold is skipped.
     const had = told.length && keep.at.source !== "backfill" ? await toldKeys(client, keep.at.note) : new Set<string>();
+    // One lookup of the Records page and the templates for every record (the service keeps it across keeps).
     for (const f of told) {
       if (had.has(chipValue(f.key))) continue;
       had.add(chipValue(f.key));
@@ -97,11 +98,18 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
           passage: f.passage, said: f.say, patch: f.patch ? "ready" : "none",
         }),
         fix: fixText(f.patch),
-      }, JEV, { title: `${f.advice ? "consider" : "fix"}: ${f.rubric} in ${keep.title || "untitled"}`.slice(0, 120) });
+      }, JEV, { title: `${f.advice ? "consider" : "fix"}: ${f.rubric} in ${keep.title || "untitled"}`.slice(0, 120), cache });
     }
     const asked = keep.review.jev === "asked";
     const unavailable = !asked && !/^(?:off|not asked)/.test(keep.review.jev);
-    if (keep.at.source === "backfill") return;
+    if (keep.at.source === "backfill") {
+      // A note that was read whole and said nothing is kept too: a rerun skips it rather than ask Jev again. One Jev
+      // couldn't read isn't, so a rerun tries it again.
+      if (!told.length && (asked || /^not asked/.test(keep.review.jev))) {
+        await writeRecord(board(client), "review-quiet", clean({ day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), source: "backfill" }), JEV, { title: `quiet: ${keep.title || "untitled"}`.slice(0, 120), cache });
+      }
+      return;
+    }
     await updateRun(client, day, { ...(told.length ? {} : asked ? { quiet: 1 } : {}), ...(unavailable ? { unavailable: 1 } : {}), ...(keep.reading ? { reading: keep.reading } : {}) });
   } catch { /* the write has landed; a record that can't be made is not its failure */ }
 }
@@ -535,14 +543,14 @@ export function readKeep(value: unknown): SuggestionKeep {
  * the next time Jev speaks); a quiet or unavailable ask counted on the day's run; or the settling alone. Returns the
  * outcomes it wrote. Never throws.
  */
-export async function keepSuggestion(client: SuggestionClient, keep: SuggestionKeep, schemas: readonly ComponentSchema[]): Promise<number> {
+export async function keepSuggestion(client: SuggestionClient, keep: SuggestionKeep, schemas: readonly ComponentSchema[], cache?: RecordCache): Promise<number> {
   switch (keep.kind) {
     case "suggested":
       await recordSuggestion(client, keep.fit, keep.reading, keep.at);
       // A write's suggestion also settles the day-old ones; the sweep settles once, before it starts.
       return keep.at.source === "write" ? settleOpen(client, schemas) : 0;
     case "reviewed": {
-      await recordReview(client, keep);
+      await recordReview(client, keep, new Date(), cache);
       if (keep.at.source !== "write") return 0;
       // The note's earlier findings are judged against this write; a review that told something new also settles the
       // day-old ones anywhere (as a figure suggestion did), so an ordinary clean write costs one note's settling.

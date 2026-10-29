@@ -15,6 +15,8 @@ export const RECORD_FIELDS = {
   // chips in a code fence its writer adds (the fix offered, as the card shows it, and how a later write is checked for it; PIE-1402).
   // (A template holds at most 16 fields; the review's verdict is the record's title.)
   "review-finding": ["day", "note", "revision", "writer", "harness", "rule", "rubric", "component", "key", "line", "title", "passage", "said", "patch", "source", "fix"],
+  // A backfill's note reviewed with nothing to say (PIE-1402): kept, so a rerun doesn't ask Jev about it again.
+  "review-quiet": ["day", "note", "revision", "writer", "harness", "source"],
   "suggestion-outcome": ["day", "suggestion", "note", "outcome", "component", "writer", "harness", "because", "rule", "rubric", "title", "passage", "said", "patched"],
   // PIE-1197: a real query and the note(s) that should come first (`expect`: ids, or `none` when nothing should), and who
   // said so (`source`: an agent's read after its search, the note it made, or Evan's pick). The search eval reads them.
@@ -80,24 +82,53 @@ export async function recordsRoot(board: RecordWriter, who: RecordWho): Promise<
     ?? await board.request<Note>("create", { text: "Records [page::Records] [machine::record] [system-records::true]", parentId: null, ...who });
 }
 
-export async function writeRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, o: { title?: string } = {}) {
-  const find = (where: string) => findNote(board, where);
-  const deploy = kind === "deploy";
-  let root = deploy ? await find("system-view=deploys") : await recordsRoot(board, who);
-  if (!root) root = await board.request<Note>("create", { text: DEPLOYS_NOTE, parentId: null, ...who });
-  let template: Note | undefined;
-  for (const name of (deploy ? ["deploy"] : Object.keys(RECORD_FIELDS).filter(name => name !== "deploy")) as RecordKind[]) {
-    let found = await find(`template-for=${name}${name === "deploy" ? " machine=install" : ""}`);
-    if (!found) found = await board.request<Note>("create", { text: recordTemplate(name), parentId: root.id, ...who });
-    if (name === kind) template = found;
+/**
+ * What a run of records looks up once, not per record (PIE-1402: a backfill's keep looked every kind's template up again
+ * for each record, ~1 s a record on pie, and stalled the host): the Records page, and each kind's template, checked.
+ */
+export interface RecordCache { root?: Note; deploys?: Note; templates?: Map<string, Note>; checked?: Set<string> }
+
+export async function writeRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, o: { title?: string; cache?: RecordCache } = {}): Promise<{ id: string; warnings: string[] }> {
+  if (!o.cache) return stampRecord(board, kind, props, who, o.title, {});
+  try { return await stampRecord(board, kind, props, who, o.title, o.cache); }
+  catch {
+    // What was kept may be gone (the Records page or a template trashed): looked up again, once.
+    for (const key of Object.keys(o.cache) as (keyof RecordCache)[]) delete o.cache[key];
+    return stampRecord(board, kind, props, who, o.title, o.cache);
   }
+}
+
+async function stampRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, title: string | undefined, cache: RecordCache): Promise<{ id: string; warnings: string[] }> {
+  // What a long-lived cache kept may have been trashed since (a tidy pass): checked each call, looked up again if so.
+  if (cache.root) {
+    const root = await board.request<{ deletedAt?: string | null; effectiveDeletedRootId?: string | null } | null>("get", { blockId: cache.root.id }).catch(() => null);
+    if (!root || root.deletedAt || root.effectiveDeletedRootId) for (const key of Object.keys(cache) as (keyof RecordCache)[]) delete cache[key];
+  }
+  const deploy = kind === "deploy";
+  let root = deploy ? cache.deploys ??= await findNote(board, "system-view=deploys") : cache.root ??= await recordsRoot(board, who);
+  if (!root) root = cache.deploys = await board.request<Note>("create", { text: DEPLOYS_NOTE, parentId: null, ...who });
+  // Every template in one question, then each kind's made where it's missing (the deploy template is the install's).
+  cache.templates ??= new Map((await board.request<{ blocks: { id: string; text: string }[] }>("blocks.query", { query: { where: "type=template", machinery: "show", limit: 1000 } })).blocks.flatMap(b => {
+    const of = /\[template-for::([^\]]+)\]/.exec(b.text)?.[1];
+    return of && (of !== "deploy" || /\[machine::install\]/.test(b.text)) ? [[of, b] as const] : [];
+  }).reverse());
+  for (const name of (deploy ? ["deploy"] : Object.keys(RECORD_FIELDS).filter(name => name !== "deploy")) as RecordKind[]) {
+    // Missing from the one question (it reads at most 1000 templates): asked by name before one is made.
+    if (!cache.templates.has(name)) cache.templates.set(name, await findNote(board, `template-for=${name}${name === "deploy" ? " machine=install" : ""}`) ?? await board.request<Note>("create", { text: recordTemplate(name), parentId: root.id, ...who }));
+  }
+  const template = cache.templates.get(kind)!;
   // A template made before its kind gained fields stamps without them: brought up to the fields in code, once.
-  const stored = await board.request<{ id: string; text: string; revision: number } | null>("get", { blockId: template!.id });
-  if (stored && RECORD_FIELDS[kind].some(key => !stored.text.includes(`[form-field::${key} `))) {
-    await board.request("update", { blockId: stored.id, text: recordTemplate(kind), expectedRevision: stored.revision, mutation: { author: who.author, ...(who.provenance?.actorId ? { actorId: who.provenance.actorId } : {}) } }).catch(() => undefined);
+  if (!(cache.checked ??= new Set()).has(kind)) {
+    const stored = await board.request<{ id: string; text: string; revision: number } | null>("get", { blockId: template.id });
+    let current = !!stored;
+    if (stored && RECORD_FIELDS[kind].some(key => !stored.text.includes(`[form-field::${key} `))) {
+      current = await board.request("update", { blockId: stored.id, text: recordTemplate(kind), expectedRevision: stored.revision, mutation: { author: who.author, ...(who.provenance?.actorId ? { actorId: who.provenance.actorId } : {}) } }).then(() => true, () => false);
+    }
+    // Checked only once it is known current: a failed upgrade is tried again by the next record.
+    if (current) cache.checked.add(kind);
   }
   const result = await board.request<{ stamped: Note[]; warnings: string[] }>("template.stamp", {
-    of: template!.id, parent: root.id, title: o.title ?? (deploy ? `Deploy ${props.when ?? new Date().toISOString()} on ${props.host ?? "unknown"}` : `${kind} ${new Date().toISOString()}`), props, ...who,
+    of: template.id, parent: root.id, title: title ?? (deploy ? `Deploy ${props.when ?? new Date().toISOString()} on ${props.host ?? "unknown"}` : `${kind} ${new Date().toISOString()}`), props, ...who,
   });
   return { id: result.stamped[0]!.id, warnings: result.warnings };
 }
