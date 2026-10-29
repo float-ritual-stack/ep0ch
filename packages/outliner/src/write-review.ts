@@ -168,7 +168,9 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
     const kit = a[`kit::${s.id}`], structured = a[`structured::${s.id}`]?.noul, prose = a[`prose::${s.id}`]?.noul;
     if (kit?.choice && unit(kit.confidence) && unit(structured) && unit(prose) && (structured + (1 - prose)) / 2 >= t.gate && kit.confidence >= t.confidence) {
       const schema = schemas.find(x => x.id === kit.choice);
-      if (schema && !kitIn(s.text, schemas).has(schema.id)) {
+      // A section that draws a figure already chose one: it isn't told about another.
+      const held = kitIn(s.text, schemas);
+      if (schema && !held.has(schema.id) && ![...held].some(id => schemas.some(x => x.id === id && x.group === "figures"))) {
         const name = blockNameOf(schema);
         const made = figurePatch(s.text, schema.id);
         const patch = "patch" in made && made.patch.every(p => text.split(p.observed).length === 2) ? made.patch : undefined;

@@ -338,7 +338,7 @@ function bareIds(lines: readonly string[], structure: readonly number[], title: 
     const shown = [...raw];
     for (const ref of blockReferenceOccurrences(raw, [])) for (let k = ref.start; k < ref.end; k++) shown[k] = " ";
     for (const m of raw.matchAll(/\[[\w-]+::[^\]]*\]|`[^`]*`|https?:\/\/\S+|\[\[[^\]]*\]\]/g)) for (let k = m.index!; k < m.index! + m[0].length; k++) shown[k] = " ";
-    const ids = [...shown.join("").matchAll(/(?<![\w-])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\w-])/g)];
+    const ids = [...shown.join("").matchAll(/(?<![\w-]|\(\()[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\w-])/g)];
     if (!ids.length) return;
     let fixed = raw;
     for (const m of [...ids].reverse()) fixed = `${fixed.slice(0, m.index!)}((${m[0]}))${fixed.slice(m.index! + m[0].length)}`;

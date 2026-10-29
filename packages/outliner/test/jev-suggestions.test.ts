@@ -24,10 +24,14 @@ const CHECK = `${SEASON}\n::graph-check\n- [ ] sow\n::`;
 async function setup(o: { hostDelayMs?: number } = {}) {
   const fake = Bun.serve({
     port: 0, hostname: "127.0.0.1",
-    fetch: () => Response.json({ model: "jev-1.13.0", answers: {
-      which: { type: "choice", choice: "graph-timeline", confidence: 0.85, probabilities: {} },
-      "gate::structured": { type: "noul", noul: 0.92 }, "gate::prose": { type: "noul", noul: 0.05 },
-    }, usage: { input_tokens: 120, output_tokens: 12 } }),
+    // Jev as a write's review asks it (write-review.ts): every section a timeline, surely; every other judgment a no.
+    async fetch(request) {
+      const { questions } = await request.json() as { questions: Record<string, { type: string }> };
+      const answers = Object.fromEntries(Object.entries(questions).map(([id]) => [id,
+        id.startsWith("kit::") ? { type: "choice", choice: "graph-timeline", confidence: 0.85, probabilities: {} }
+          : { type: "noul", noul: id.startsWith("structured::") ? 0.92 : id.startsWith("prose::") ? 0.05 : 0.1 }]));
+      return Response.json({ model: "jev-1.13.0", answers, usage: { input_tokens: 120, output_tokens: 12 } });
+    },
   });
   const root = mkdtempSync(join(tmpdir(), "outliner-jev-records-"));
   const { env, ...paths } = scratchOutline(root);
@@ -63,13 +67,12 @@ test("a write that gets a suggestion leaves a record, and later writes decide wh
   const { store, agent, records, client } = await setup();
   const first = await agent("create", { parent: "root", text: SEASON });
   expect(first.exitCode, first.stderr).toBe(0);
-  const [fact] = await records("suggestion");
-  expect(fact).toMatchObject({ note: first.json.id, revision: "1", writer: "loki", harness: "claude-code", component: "graph-timeline", gate: "0.94", confidence: "0.85", callout: "none", source: "write" });
-  expect(fact!["prompt-rev"]).toContain("figure-fit.json:");
-  expect(fact!.model).toBe("jev-1.13.0");
+  const [fact] = await records("review-finding");
+  expect(fact).toMatchObject({ note: first.json.id, revision: "1", writer: "loki", harness: "claude-code", component: "graph-timeline", rule: "kit", rubric: "format", patch: "ready", source: "write" });
   // The day's run counts it: one ask, suggested, nothing settled yet, and Jev's tokens.
   const today = new Date().toISOString().slice(0, 10);
   expect((await records("jev-run")).find(r => r.run === today)).toMatchObject({ experiment: "figure-fit-live", model: "jev-1.13.0", items: "1", suggested: "1", agreed: "0", "tokens-in": "120", "tokens-out": "12" });
+  expect((await records("jev-run")).find(r => r.run === today)!["prompt-rev"]).toContain("write-review.json:");
   // Nothing is judged yet: the note hasn't been written again.
   expect(await records("suggestion-outcome")).toEqual([]);
 
@@ -141,7 +144,7 @@ test("an actor id with property brackets cannot add properties to the record", a
   const { agent, records } = await setup();
   const made = await agent("create", { parent: "root", text: SEASON }, "eve] [publish::public] [x::y/cli");
   expect(made.exitCode, made.stderr).toBe(0);
-  const [fact] = await records("suggestion");
+  const [fact] = await records("review-finding");
   expect(fact).toBeDefined();
   expect(fact!.publish).toBeUndefined();
 });
@@ -168,9 +171,9 @@ test("a write on a slow host leaves its record and the day's run after the one-s
   const made = await agent("create", { parent: "root", text: SEASON });
   expect(made.exitCode, made.stderr).toBe(0);
   expect(made.json.warnings.some((w: string) => w.includes("graph-timeline")), "the writer was told").toBe(true);
-  const landed = await until(async () => (await records("suggestion")).length === 1 && (await records("jev-run")).some(r => r.run === today && r.suggested === "1"));
-  expect(landed, "the suggestion and the day's run").toBe(true);
-  expect(await records("suggestion")).toEqual([expect.objectContaining({ note: made.json.id, writer: "loki", harness: "claude-code", component: "graph-timeline" })]);
+  const landed = await until(async () => (await records("review-finding")).length === 1 && (await records("jev-run")).some(r => r.run === today && r.suggested === "1"));
+  expect(landed, "the finding and the day's run").toBe(true);
+  expect(await records("review-finding")).toEqual([expect.objectContaining({ note: made.json.id, writer: "loki", harness: "claude-code", component: "graph-timeline" })]);
 }, 40_000);
 
 // The MCP gateway runs in the host's machine and stays up, but a write through it reaches the same place: `applyWrite`
@@ -188,8 +191,8 @@ test("a write through the MCP gateway's entry leaves the same record, with the w
     const outcome = await applyWrite(board as never, { tool: "outline_create", blockId: (await client.request<{ id: string }>({ action: "create", text: "Garden", parentId: null, author: "user" })).id, input: { text: SEASON } },
       { level: "full", actor: { actorId: "mcp:loki/claude.ai", author: "agent" } as never, uri: id => `ep0ch://scratch/${id}` });
     expect(outcome.outcome).toBe("applied");
-    expect(await until(async () => (await records("suggestion")).length === 1)).toBe(true);
-    expect(await records("suggestion")).toEqual([expect.objectContaining({ writer: "mcp:loki", harness: "claude.ai", component: "graph-timeline", source: "write" })]);
+    expect(await until(async () => (await records("review-finding")).length === 1)).toBe(true);
+    expect(await records("review-finding")).toEqual([expect.objectContaining({ writer: "mcp:loki", harness: "claude.ai", component: "graph-timeline", source: "write" })]);
   } finally {
     for (const key of Object.keys(env)) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; }
   }
@@ -202,6 +205,6 @@ test("two writers' first suggestions of the day at once leave one run for the da
     agent("create", { parent: "root", text: SEASON.replace("Garden year", "Bed rotation") }),
   ]);
   expect([one.exitCode, two.exitCode], `${one.stderr}${two.stderr}`).toEqual([0, 0]);
-  expect(await until(async () => (await records("suggestion")).length === 2 && (await records("jev-run")).some(r => r.suggested === "2"))).toBe(true);
+  expect(await until(async () => (await records("review-finding")).length === 2 && (await records("jev-run")).some(r => r.suggested === "2"))).toBe(true);
   expect(await records("jev-run")).toHaveLength(1);
 }, 40_000);

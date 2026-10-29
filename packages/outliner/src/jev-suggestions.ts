@@ -191,7 +191,15 @@ function judgeFinding(
       : (() => { const section = sectionsOf(baseline).find(x => s.line !== undefined && x.line + 1 === s.line); return !!section && !w.text.includes(section.text); })();
     if (gone) return { outcome: "followed", because: rule === "kit" ? `revision ${w.revision} draws ${s.component}` : `revision ${w.revision} no longer has it` };
   }
-  return closed ? { outcome: "ignored", because: `${window.length} later write${window.length === 1 ? "" : "s"} within a day left it as it was` } : null;
+  if (!closed) return null;
+  if (rule === "kit") {
+    const had = kitIn(baseline, schemas);
+    for (const w of window) {
+      const other = [...kitIn(w.text, schemas)].find(id => !had.has(id) && schemas.some(x => x.id === id && x.group === "figures"));
+      if (other) return { outcome: "different", because: `revision ${w.revision} draws ${other} instead` };
+    }
+  }
+  return { outcome: "ignored", because: `${window.length} later write${window.length === 1 ? "" : "s"} within a day left it as it was` };
 }
 
 /**
