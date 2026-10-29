@@ -9,6 +9,7 @@ import { HOME_KIND, homeSpec } from "../home";
 import { boardSpec } from "./delivery";
 import { BLANK_KIND, blankSpec } from "./blank";
 import { LIBRARY_KIND, librarySpec } from "../library/library";
+import { KEYS_KIND, keysSpec } from "./keys-window";
 import { echoKinds, echonetSpec } from "../echonet/screen";
 import { riverSpec } from "../river/column";
 import { Desk, deskSpec, type DeskOpts } from "./desk";
@@ -19,7 +20,7 @@ import { registerTileKind, tileKind } from "./tile-kinds";
 
 /** The built-in screens' kinds and specs (once: every module that opens a screen asks). */
 export function registerBuiltinScreens(): void {
-  for (const k of [WAITING_KIND, ...welcomeKinds(), briefKind(), pinnedKind(), HOME_KIND, BLANK_KIND, LIBRARY_KIND, ...echoKinds()]) if (!tileKind(k.kind)) registerTileKind(k);
+  for (const k of [WAITING_KIND, ...welcomeKinds(), briefKind(), pinnedKind(), HOME_KIND, BLANK_KIND, LIBRARY_KIND, KEYS_KIND, ...echoKinds()]) if (!tileKind(k.kind)) registerTileKind(k);
   const have = new Set(screenNames());
   const add = (name: string, of: Parameters<typeof registerScreen>[1], target?: string) => { if (!have.has(name)) registerScreen(name, of, target ? { target } : {}); };
   add("desk", () => deskSpec());
@@ -35,6 +36,8 @@ export function registerBuiltinScreens(): void {
   add("blank", () => blankSpec());
   // The component library (PIE-618): a page per component schema; its args say which component and part it opens on.
   add("library", args => librarySpec(args ?? {}), "component");
+  // The keys window (PIE-492): every binding, filtered by the words it was opened with (`?` passes where you are).
+  add("keys", args => keysSpec(args ?? {}), "filter");
   add("detail", args => {
     const note = typeof args?.note === "string" ? args.note : "";
     return {

@@ -1,4 +1,4 @@
-import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
+import { modeBinding, modeHint, partsHint, type HintPart, type ModeKey } from "../surface/modes";
 import { tabStrip } from "../surface/chip-rows";
 import { ZOOM_WHEEL } from "./wkeys";
 import type { ZoomReach } from "./screen-layout";
@@ -91,7 +91,8 @@ import { QueryPane } from "./query";
 import { tileRegistry } from "./tile-registry";
 import { AGENT_ALIAS, matches, parseTileAddress, resolveAddress, resolveRelative, ROLE_AGENT, shortTileId, type AddressCandidate, type ResolveOpts } from "./tile-address";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
-import { W_KEYS, wKey, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
+import { W_KEYS, wKey, wNow, wPanel, wRows, type WRow, type WSpecialKey } from "./wkeys";
+import { effective as withKeymap, movedInTable } from "../surface/keymap";
 import { panelFoot, panelLines, panelPauseMs, tileKeys, type PanelGroup } from "./key-panel";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 import { prop } from "../props";
@@ -142,6 +143,18 @@ const RESIZE_ALIAS: Record<string, string> = { h: "<", l: ">", k: "-", j: "+" };
 const RESIZE_IDLE_MS = 4000;
 /** Bare keys that fold and unfold the focused tile (PIE-699), when nothing takes them: `-` folds it; `+` and `=` (the same key unshifted) open it. */
 const FOLD_KEYS = new Set(["-", "+", "="]);
+/**
+ * The desk's own hint row, part by part (PIE-492): each names its action and its built-in key, and draws the key the
+ * person's keymap gives it (`partsHint`), so a rebind shows here; test/keys-window.test.ts holds each key to its def.
+ */
+export const FOCUS_PART: HintPart = { action: "tile.focus", key: "tab", also: "1-9", label: "focus" };
+export const WINDOW_PART: HintPart = { action: "keys.panel", key: "ctrl+w", label: "window" };
+export const LINK_PART: HintPart = { action: "tile.link", key: "alt+l", label: "link", args: { ask: true } };
+export const NEW_PART: HintPart = { action: "note.new", key: "ctrl+n", label: "new" };
+export const SEARCH_PART: HintPart = { action: "search", key: "/", label: "search" };
+export const MENU_PART: HintPart = { action: "screen.back", key: "q", label: "menu" };
+export const KEYS_PART: HintPart = { action: "keys.open", key: "?", label: "keys" };
+const modeKeyParts = (rows: readonly ModeKey[]): HintPart[] => withKeymap(rows).map(r => ({ action: r.action, key: r.key, label: r.label ?? r.action, ...(r.args ? { args: r.args } : {}) }));
 const DAILY_LAYOUT_KEYS: readonly ModeKey[] = [{ key: "alt+d", action: "layout.load", args: { name: "daily" }, label: "daily" }];
 
 type Prefix = "" | "wm" | "add" | "addtab" | "move" | "tab" | "resize";
@@ -172,6 +185,7 @@ export interface Wire { says: string; short?: string; /** The tile on this desk 
  * subclass. What a screen does beyond its layout is its tiles' kinds' and their actions.
  */
 export class Desk implements Screen, DeskApi, ColumnsHost {
+  readonly ownsQuestion = true;
   title: string;
   /** What the screen is: its spec's name (`desk`, `welcome`), or the name a blank screen was saved under (PIE-565). */
   get name(): string { return this.madeAs ?? this.spec.name; }
@@ -2755,8 +2769,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       keys: () => d.keys(),
       bindings: () => [
         ...DAILY_LAYOUT_KEYS,
-        ...W_KEYS.map(row => ({ ...row, key: `ctrl+w ${row.key === " " ? "space" : row.key}` })),
-        ...d.spec.keys ?? [],
+        ...wNow().map(row => ({ ...row, key: `ctrl+w ${row.key === " " ? "space" : row.key}` })),
+        ...withKeymap(d.spec.keys ?? []),
         ...[...d.panes.values()].flatMap(p => p.bindings ?? []),
         ...d.overlays.top()?.bindings ?? [],
       ],
@@ -3601,7 +3615,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const p = this.focusedPane(), values = p ? this.lookAt(p, cols).values : lookFor(this.lookSrc, { screen: this.name }, cols).values;
       withRowLimit(values["rows.lines"], () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 }, values));
       placements = [];
-      const box = o.drawn();
+      const box = o.drawn?.();
       if (box) this.raised.menus.push(box);
     }
     // A screen mounted in a tile has no hint row of its own: the outermost screen's says the focused tile's keys (PIE-1305).
@@ -3737,7 +3751,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   private screenKeys() {
     const kind = this.focusedKind();
-    return (this.spec.keys ?? []).filter(x => !(kind && x.unless?.includes(kind)) && (!x.only || (!!kind && x.only.includes(kind))));
+    return withKeymap(this.spec.keys ?? []).filter(x => !(kind && x.unless?.includes(kind)) && (!x.only || (!!kind && x.only.includes(kind))));
   }
 
   private screenKeyHint(): string {
@@ -4542,6 +4556,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return line(this.hintDesk().hintText());
   }
 
+  /**
+   * The words `?` opens the keys window with: the scope of the focused tile's own actions (a reader's are NOTE_ACTIONS',
+   * `note`; another kind's, its set's), else nothing (every binding).
+   */
+  private keysFilter(): string {
+    const p = this.panes.get(this.focus);
+    const scope = p instanceof ReaderPane ? NOTE_ACTIONS.scope : p ? kindOf(p)?.actions?.scope : undefined;
+    return scope ? `in:${scope}` : "";
+  }
+
   /** The desk the hint row speaks for: this one, or the one down through mounts where the focus is, unless a mode of its own (a chord, a drag, a link) is going on. */
   private hintDesk(): Desk {
     let d: Desk = this;
@@ -4585,7 +4609,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (rd.surface.sourcesMode || rd.surface.replyLinks || rd.surface.session?.mode === "compose" || rd.surface.draft?.preview) return line(paint(`|14 ${where}`));
       return line(this.entered.in(rd)
         ? paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET
-        : paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)}${rd.surface.scrolls() ? " · |15j k|08 scroll" : ""} · |15Tab/1-9|08 focus · |15^W|08 window`));
+        : paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)}${rd.surface.scrolls() ? " · |15j k|08 scroll" : ""} · ${partsHint([FOCUS_PART, WINDOW_PART, KEYS_PART])}`));
     }
     if (!this.prefix && !this.all().length) return line("");
     const leaving = this.prefix === "wm" && !!this.personIn()?.editing ? `|14${sessionName(this.personIn()!)}: the next key leaves it (saved, or kept as unsent) · |07esc |08stays · ` : "";
@@ -4594,7 +4618,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
-        : this.specHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.spec.layouts ? `|15${keyCaption(DAILY_LAYOUT_KEYS[0]!.key)}|08 ${DAILY_LAYOUT_KEYS[0]!.label} · ` : ""}|15^N|08 new · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.currentNow()!)}` : ""}`;
+        : this.specHint() ?? `|08 ${partsHint([FOCUS_PART, WINDOW_PART])} · |15drag|08 a title moves, a border resizes · ${partsHint([LINK_PART, ...(this.spec.layouts ? modeKeyParts(DAILY_LAYOUT_KEYS) : []), NEW_PART, SEARCH_PART, MENU_PART, KEYS_PART])}${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.currentNow()!)}` : ""}`;
     return line(paint(s));
   }
 
@@ -4787,7 +4811,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     // ? shows the whole hint row when it was cut (never while the person is typing: a draft, a filter, a
     // terminal, a ^W chord); the next key or click puts it away again and does what it does, but Esc only that.
-    if (ch(k) === "?" && this.hintFull && !this.holdsKeys()) { this.run("keys.more"); return; }
+    // ? again, with the whole row shown (or a row that fits): the keys window, filtered to the focused tile (keys.open).
+    if (ch(k) === "?" && this.hintFull && !this.hintMoreOpen && !this.holdsKeys()) { this.run("keys.more"); return; }
+    if (ch(k) === "?" && !this.holdsKeys() && !this.prefix && this.ctx.press && this.panes.get(this.focus)?.kind !== "keys") { this.hintMoreOpen = false; void this.ctx.press("keys.open", { filter: this.keysFilter() }); return; }
     if (this.hintMoreOpen) {
       const chip = k.kind === "mouse" && this.moreChip && k.y === this.hintRow && k.x >= this.moreChip.from && k.x < this.moreChip.to;
       if (k.kind !== "mouse" || (k.action === "down" && !chip)) { this.hintMoreOpen = false; this.redraw(); if (k.kind === "esc") return; }
@@ -5170,7 +5196,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return this.run("layout.move", n === null ? { where: `edge-${dir}` } : { to: this.nameOf(n), where: dir }, me);
     }
     const e = wKey(c);
-    if (!e) return this.redraw();
+    if (!e) { const why = movedInTable(W_KEYS, "ctrl+w ", c); return why ? flash(why) : this.redraw(); }
     switch (e.how.k) {
       case "focus": return dir && n !== null ? this.run("tile.focus", {}, this.nameOf(n)) : this.redraw();
       case "edge": return this.run("layout.move", { where: `edge-${TO_EDGE[c]}` }, me);
@@ -8207,7 +8233,7 @@ export const HINT_ACTIONS = actionSet<DeskOn>()("hint", {
 export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   "edit.recover": def({
     summary: "recover typing kept when an edit failed to open: copy it, or open a fresh edit with it inserted; a disk copy stays until the normal draft-copy cleanup",
-    keys: "tile menu: recover typed text", touches: "draft", replay: "ask",
+    keys: [{ via: "the tile menu: recover typed text" }], touches: "draft", replay: "ask",
     person: "only the person recovers their held typing",
     menu: { label: "recover typed text", group: "Note", now: ({ d, reader }) => d.hasFailedEdit(reader) ? null : { hide: true } },
     args: { op: { type: "string", optional: true, choices: ["copy", "open"], about: "copy the typed text or open the edit with it; absent offers both" } },
@@ -8234,7 +8260,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   }),
   "keys.panel": def({
     summary: "open the panel of the keys that follow a prefix (PIE-1304): every key, grouped, each a click away, with the words of the action it runs; ^W's first group is the focused tile's own keys (PIE-1338: this tile: <name>, its ⋯ menu's rows with a key, each with its action; typed once the panel is closed, a click runs the row there). A prefix opens it by itself after a short pause. An agent gets the groups as data; nothing moves",
-    keys: "^W, then a pause; ^W o, ^W O",
+    keys: [{ keys: "^W", does: "then a pause shows the panel" }, { keys: "^W o", does: "open it" }, { keys: "^W O", does: "open it" }],
     // An agent's moves nothing (it gets the groups); the person's opens their own view and arms ^W (or ^W o): their
     // next key is the chord's, so a replay asks.
     touches: "nothing", replay: "ask",
@@ -8255,7 +8281,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   "tile.arrival.clear": def({ summary: "clear the new arrival accent when you touch a tile", keys: "click, wheel, j, k, ↑, ↓, shift+up, shift+down, PgUp, PgDn", touches: "nothing", replay: "safe", args: {}, run(_, { d, reader }) { return d.clearArrival(reader); } }),
   "search": def({
     summary: "find notes by text (the service's search): query= answers the hits, numbered from 1, each with its id and title; nothing on screen moves. The person's (/) opens the power bar in its notes scope (bar.open scope=notes), where ⏎ opens the hit (`open`) and alt+⏎ opens it in a new detail",
-    keys: "/; river column: g",
+    keys: [{ keys: "/", does: "search" }, { keys: "g", does: "in a river column" }],
     touches: "nothing", replay: "safe",
     args: { query: { type: "string", optional: true, about: "the text to find (at least 2 characters)" }, limit: { type: "number", optional: true, about: "how many hits (default 30, at most 100)" } },
     examples: [

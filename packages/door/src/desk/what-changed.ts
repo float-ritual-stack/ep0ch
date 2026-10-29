@@ -354,7 +354,7 @@ const GROUP = "What changed";
 export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
   "changes.pick": def({
     summary: "pick a row of the what-changed list (n from 1, or id=<the note's id>)",
-    keys: "j k ↑ ↓, the wheel, a click",
+    keys: [{ keys: "j k ↑ ↓", does: "pick a row" }, { keys: "wheel", does: "pick a row" }, { keys: "click", does: "on a row" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's row (peek lists the rows)",
     args: which,
     examples: [

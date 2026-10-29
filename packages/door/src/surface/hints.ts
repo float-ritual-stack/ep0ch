@@ -1,5 +1,5 @@
 import { readState, writeState } from "../state";
-import { ActionRefused, allActionSets } from "./actions";
+import { ActionRefused, allActionSets, keysText } from "./actions";
 import { MODE_HINTS } from "./hint-card";
 
 export type HintSetting = "card" | "status" | "off";
@@ -13,7 +13,7 @@ export function declaredHints(global: string) {
   const rows = new Map<string, { id: string; trigger: string }>();
   for (const set of allActionSets()) for (const id of set.names()) {
     const def = set.def(id)!;
-    if (def.hint) rows.set(def.hintId ?? id, { id: def.hintId ?? id, trigger: `${id}${def.keys ? ` (${def.keys})` : ""}: ${def.summary}` });
+    if (def.hint) rows.set(def.hintId ?? id, { id: def.hintId ?? id, trigger: `${id}${def.keys ? ` (${keysText(def.keys)})` : ""}: ${def.summary}` });
   }
   for (const [id, hint] of Object.entries(MODE_HINTS)) rows.set(id, { id, trigger: hint.trigger });
   const own = hintOverrides();

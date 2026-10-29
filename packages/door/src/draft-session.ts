@@ -161,7 +161,7 @@ export class DraftSession {
     if (by.kind !== "agent" && !s.restore()) {
       // The last draft written here, on the text this one starts from: its history carries on (PIE-621).
       const h = histories.get(target.place);
-      if (h && h.revision === s.draft.base) s.draft.adopt(h.steps);
+      if (h && h.revision === s.draft.base) s.draft.adopt(h.steps, h.revision);
     }
     if (init.position) {
       if (s.draft.restored !== null) Object.assign(init.position, s.draft.position);
@@ -216,7 +216,8 @@ export class DraftSession {
     if (why) return { ok: false, why };
     const r = await this.target.submit(this, recordAs(d, actor), { asked: actor, away });
     if (r.ok) {
-      // Undo survives the save: an edit of this note opened again on what was written takes up its history.
+      // Undo survives the save: an edit of this note opened again on what was written takes up its history, stopping
+      // at the save to ask before it takes saved text back (PIE-1414).
       if (r.revision !== undefined && d.undos.length) keepHistory(this.target.place, r.revision, d.undos);
       if (this.open) this.end("written");
       return r;

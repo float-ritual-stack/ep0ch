@@ -1,7 +1,7 @@
 // `outliner ext add` (wave A): copies a built-in into the user folder and seeds config.json from an
 // existing resource-extensions.json entry. Made-up paths and names only.
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addExtension } from "../src/extension-install";
@@ -111,4 +111,12 @@ test("ext add refuses two script names for one file and names both declarations"
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// PIE-1405: the power bar's "install <name>" row reads the extension's own description; one without any read "install Jira".
+test("every extension the repo offers says what it is, for the row that installs it", () => {
+  const folder = join(import.meta.dir, "..", "extensions");
+  const missing = readdirSync(folder).filter(id => existsSync(join(folder, id, "extension.json")))
+    .filter(id => !String(JSON.parse(readFileSync(join(folder, id, "extension.json"), "utf8")).description ?? "").trim());
+  expect(missing).toEqual([]);
 });

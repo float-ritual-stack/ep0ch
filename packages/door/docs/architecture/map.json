@@ -360,11 +360,11 @@
     {
       "id": "door.actions", "name": "Action registry", "group": "door", "chapter": "actions", "ladder": "provisional", "dependsOn": [],
       "does": "An action: a name, typed arguments, an actor, a refusal with a reason. The same code for the person's key, a click and an agent's act.",
-      "built": "ActionDef and ActionSet in surface/actions.ts. ActionDef.keys is a display string: nothing binds a key to an action. Each def declares what it touches of the person's (touches: nothing, tile, shape, draft, screen; person: the person's only) and whether a restarted door may run it again (replay: safe or ask), and what an agent's run says (says) (PIE-514).",
+      "built": "ActionDef and ActionSet in surface/actions.ts. ActionDef.keys is rows of keys and what each does (KeyRow, PIE-1048); the key tables (^W, the modes', hyper) and the person's keymap file (surface/keymap.ts, keybindings.json) bind keys to actions, and the keys window (desk/keys-window.ts) lists them all; keys matched in code still exist (the reader's), followed by the App's keymap layer. Each def declares what it touches of the person's (touches: nothing, tile, shape, draft, screen; person: the person's only) and whether a restarted door may run it again (replay: safe or ask), and what an agent's run says (says) (PIE-514).",
       "refs": [
         { "r": "door", "p": "src/surface/actions.ts", "l": 94, "m": "export interface ActionDef" },
         { "r": "door", "p": "src/surface/actions.ts", "l": 79, "m": "export type Touches" },
-        { "r": "door", "p": "src/surface/actions.ts", "l": 101, "m": "keys?: string" },
+        { "r": "door", "p": "src/surface/actions.ts", "l": 119, "m": "keys?: Keys" },
         { "r": "door", "p": "src/surface/actions.ts", "l": 244, "m": "export class ActionSet" }
       ],
       "questions": [
