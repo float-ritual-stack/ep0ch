@@ -52,6 +52,32 @@ describe.skipIf(!outliner)("one set of rows for :: [key [key:: and > [! (PIE-134
     });
   }
 
+  // A figure's values and a component's attributes (PIE-1366): the service answers them too, so Detail offers what the door does.
+  const FIGURE = ["Planting notes [crop::kale]", "::graph-tabs", "---", "query: type=roadmap-item"];
+  for (const lines of [[...FIGURE, "density: c"], [...FIGURE, "density: "], [...FIGURE, "group: "], [...FIGURE.slice(0, 3), "query: se"], ["::box{list.divider="], ["::box{list.divider=\"d"], ["::box{li"]]) {
+    test(`${JSON.stringify(lines.at(-1))} in ${lines.length > 1 ? "a figure" : "an attribute"}: the door and Detail list the same values`, async () => {
+      const row = lines.length - 1, line = lines[row]!;
+      const target = completionTargetAtCursor(line, line.length, lines, row)!;
+      expect(target).not.toBeNull();
+      const draft = { blockId: draftId, text: lines.join("\n") };
+      const [door, mine] = await Promise.all([
+        lookupCompletion(board, target, draft, { near: draftId }),
+        lookupReferenceCompletion(detail(), target, draft),
+      ]);
+      expect(door.items.length).toBeGreaterThan(0);
+      expect(mine.items.map(i => i.insertion)).toEqual(door.items.map(i => i.insertion));
+    });
+  }
+
+  test("a filter's keys and values are the service's: completion.rows answers what the door lists", async () => {
+    for (const target of [{ kind: "filter-key", query: "se" }, { kind: "filter-value", query: "", key: "season", words: true }] as const) {
+      const door = await lookupCompletion(board, { ...target, start: 0, end: 0 });
+      const answered = await board.request("completion.rows", { target }) as { answers: { rows: { insert: unknown }[] }[] };
+      expect(door.items.length).toBeGreaterThan(0);
+      expect(answered.answers.flatMap(a => a.rows.map(r => r.insert))).toEqual(door.items.map(i => i.insertion));
+    }
+  });
+
   test("the rows are the outline's: its keys and values, its own callout type; the door draws what a row says to", async () => {
     const at = (line: string) => lookupCompletion(board, completionTargetAtCursor(line, line.length)!, undefined, {});
     expect((await at("[se")).items.map(i => i.insertion)).toContain("[season::");

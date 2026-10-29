@@ -58,7 +58,8 @@ function snippet(text:string):string {
 }
 
 export async function lookupReferenceCompletion(provider:ReferenceCompletionProvider,target:CompletionTarget,draft?:CompletionDraft):Promise<ReferenceCompletionState> {
-  const r=await provider.completionRows({target:{kind:target.kind,query:target.query,...(target.key?{key:target.key}:{}),...(target.component?{component:target.component}:{}),...(target.headingShort?{headingShort:true}:{})},limit:LIMIT,...(draft?{near:draft.blockId,draft}:{})});
+  const {start:_s,end:_e,...asked}=target;
+  const r=await provider.completionRows({target:asked,limit:LIMIT,...(draft?{near:draft.blockId,draft}:{})});
   // What a row draws (its example, its variations) is the door's: Detail lists the row's words.
   const items:ReferenceCompletionItem[]=mergeSourceAnswers(r.answers,target.query,{picks:r.picks}).map(({insert,from:_f,tier:_t,example:_e,variations:_v,...row})=>{
     const selection=insertSelection(insert);

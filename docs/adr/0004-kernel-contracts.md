@@ -357,7 +357,7 @@ SourceRow = ListRow                        // contract 3's row: id, label, detai
 SourceDecl = {
   id: string, title: string, description?: string,
   prefix?: string,                          // the bar: one character that scopes it
-  triggers?: ("[[" | "((" | "@" | "::" | "[key" | "key::" | "yaml-key" | "yaml-value" | "[file::" | "> [!")[],
+  triggers?: ("[[" | "((" | "@" | "::" | "[key" | "key::" | "yaml-key" | "yaml-value" | "attribute" | "attribute-value" | "filter-key" | "filter-value" | "[file::" | "> [!")[],
   main?: boolean,                           // its rows join the bar's main list
   deadline?: string
 }
@@ -388,8 +388,9 @@ value = { rows: SourceRow[] }               // ≤ 50, checked: text cleaned, on
 - **Built-in sources, on the same row contract:**
   - in the service: `pages` (`[[`), `blocks` (`((`), `fragments` (`((note#`, `((note^`), `files` (`[file::`), `notes`
     (the bar's `/`);
-  - declarative, from schemas and the outline's lists: `properties` (`[key`, `key::`, YAML keys), `callouts` (`> [!`),
-    `components` (`::`);
+  - declarative, from schemas and the outline's lists, in the service too (PIE-1344, PIE-1366): `properties` (`[key`,
+    `key::`, YAML keys), `filters` (a filter's keys and values), `attributes` (a component's props and a prop's or a
+    YAML key's values, by its type), `callouts` (`> [!`), `components` (`::`);
   - in the door: `tiles` (`%`), `actions` (`>`), `recent` (`+`), `screens` (`@` in the bar; the bar's prefixes and
     completion's triggers are separate namespaces). They are written on the same contract an extension uses, reading
     `context.door`, so an extension can do what they do; moving them into an extension folder later is a move, not a

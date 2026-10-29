@@ -19,10 +19,11 @@ import { Canvas, type Rect } from "../canvas";
 // and links it, as one choice. `((Meeting^` searches inside the notes `((Meeting` listed, in the same order.
 //
 // Sources (PIE-1340, ADR 0004 §4): the triggers are outline-core's (completion-triggers.ts, the one detector Detail
-// asks too); pages, blocks and fragments, files, agents and the extensions' sources answer through the service
-// (`completion.rows`, outliner completion-sources.ts); the door's own (components, properties, callouts, filters, a
-// fence's settings, a button's steps) are DOOR_SOURCES below; outline-core's mergeSourceAnswers ranks them all with
-// the one matcher, recent and frequent picks first among equals.
+// asks too); pages, blocks and fragments, files, agents, components, properties and filters, a component's attributes
+// and a figure's values, callouts and the extensions' sources answer through the service (`completion.rows`, outliner
+// completion-sources.ts, PIE-1344, PIE-1366); only what the door alone knows (its actions, a fence's settings, a
+// button's steps) is DOOR_SOURCES below; outline-core's mergeSourceAnswers ranks them all with the one matcher, recent
+// and frequent picks first among equals.
 import { ListPicker, pickRow } from "./picker";
 import { ActionRefused, actionSet, declaredKeys, def, keyCaption } from "./actions";
 import { listPreview } from "../bar/list-preview";
@@ -42,15 +43,13 @@ import { rowLines, printable } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { blockReferenceOccurrences, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
-import { keyCandidates, valueCandidates, variation, axisValues, yamlScalar, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
+import { yamlScalar, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { componentsReady } from "../component-schemas";
 import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import type { ListSource } from "../outline-lists";
 import { drawVariation, drawComponentProps } from "../library/draw";
-import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { openNote, barSource, type BarHost } from "../bar/source";
 import { commandCandidates } from "../bar/command";
-import { querySuggestions } from "./settings-card";
 import { Gesture, Selection, rowsOf, paintRange, selectText, SELECT_BG } from "./selection";
 import { visible, width as cells, ellipsize } from "../style";
 
@@ -64,7 +63,7 @@ export const jevOff = new WeakSet<object>();
 export const COMPLETION_ROWS = 14;
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage" | "listExtensions" | "templateProps"> & Partial<Pick<SocketBoard, "completionRows" | "completionPicked">>;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "followPage" | "listExtensions"> & Partial<Pick<SocketBoard, "completionRows" | "completionPicked">>;
 
 /**
  * Anything outline text is written in (PIE-626): a `Draft`, or a `LineField` (a property's value, a filter). The completer
@@ -135,10 +134,10 @@ interface DoorAsk { board: CompletionBoard; target: CompletionTarget; own?: OwnN
 /** A door source's answer: its rows, and what to say when it has none. */
 interface DoorAnswer { rows: CompletionItem[]; empty?: string }
 /**
- * A completion source the door answers itself (PIE-1340): the declarative ones (component schemas, the outline's
- * callout types and property catalog) and the door's own (its actions for a button's steps, a fence's settings, a
- * filter's words). Each answers on outline-core's contract (`SourceDecl`, rows a `SourceRow` and more); the pages,
- * blocks, files, agents and the extensions' sources are the service's (`completion.rows`). `lookupCompletion` asks
+ * A completion source the door answers itself (PIE-1340): only what the door alone knows (its actions, for a button's
+ * steps and an action-typed prop; a fence's settings). Each answers on outline-core's contract (`SourceDecl`, rows a
+ * `SourceRow` and more); everything about the outline (its notes, pages, files, agents, properties, components and
+ * their values, callouts, the extensions' sources) is the service's (`completion.rows`). `lookupCompletion` asks
  * every source for the token and merges them with outline-core's one matcher: nothing below switches on a kind.
  */
 interface DoorSource { decl: SourceDecl; kinds: readonly CompletionKind[]; rows(ask: DoorAsk): Promise<DoorAnswer> }
@@ -164,13 +163,17 @@ const DOOR_SOURCES: readonly DoorSource[] = [
   { decl: door("fence", "settings"), kinds: ["fence-setting"], async rows() {
     return { rows: SCRIPT_FENCE.settings.map(s => ({ label: `${s.key}=`, insertion: `${s.key}=`, docs: s.meaning, kind: "setting" })) };
   } },
-  { decl: door("filters", "properties", true), kinds: ["filter-key", "filter-value"], async rows({ board, target }) {
-    return { rows: await filterCandidates(board, target), empty: target.kind === "filter-key" ? "" : `no ${target.key} value starts ${JSON.stringify(target.query)}` };
-  } },
-  { decl: door("attributes", "attributes", true), kinds: ["attribute", "attribute-value", "yaml-value"], async rows({ board, target, own, opts }) {
+  // A prop whose values are the door's own actions (a rule's `run`, PIE-1366): the service answers every other prop's.
+  { decl: door("actions", "values", true), kinds: ["attribute-value", "yaml-value"], async rows({ board, target, opts }) {
+    const host = hostOf(board, opts);
+    if (!host) return { rows: [] };
     const schemas = await componentsReady({ board, redraw: () => {} });
     const schema = schemas.find(s => COMPONENT_OPEN.exec(s.source.use.split("\n")[0]!)?.[1] === target.component);
-    return { rows: schema ? await attributeCandidates(board, schema, target, own, { ...opts, host: hostOf(board, opts) }) : [] };
+    if (schema?.props.find(p => p.key === target.key)?.type !== "action") return { rows: [] };
+    const q = target.query, write = (v: string) => target.kind === "yaml-value" ? yamlScalar(v)
+      : target.quote ? v.replaceAll("\\", "\\\\").replaceAll(target.quote, `\\${target.quote}`) + target.quote : JSON.stringify(v);
+    const args = await commandCandidates(q, host), rows = await barSource("actions")!.rows(q, host, "actions");
+    return { rows: [...args.map(v => ({ label: v, insertion: write(v), kind: "value" })), ...rows.map(r => ({ label: r.label, insertion: write(r.fill ?? r.label), docs: r.detail, kind: "value" }))] };
   } },
 ];
 
@@ -204,10 +207,11 @@ const rowOf = (item: CompletionItem): CompletionItem & SourceRow => ({ ...item, 
 
 /** The service's answer to `completion.rows`, or none (a test double, a service without it): its sources answer nothing. */
 async function serviceRows(board: CompletionBoard, target: CompletionTarget, own: OwnNote | undefined, opts: LookupOptions): Promise<CompletionRowsResult & { failed?: string }> {
-  // A token no service or extension source can answer (a filter's word, a fence's settings, a button's step) asks nothing.
+  // A token no service or extension source can answer (a fence's settings, a button's step) asks nothing.
   if (typeof board.completionRows !== "function" || !triggerOf(target.kind)) return { answers: [], picks: {} };
+  const { start: _s, end: _e, ...asked } = target;
   return board.completionRows({
-    target: { kind: target.kind, query: target.query, ...(target.key ? { key: target.key } : {}), ...(target.component ? { component: target.component } : {}), ...(target.headingShort ? { headingShort: true } : {}) },
+    target: asked,
     ...(opts.near ? { near: opts.near } : {}), ...(own ? { draft: own } : {}), ...(opts.limit ? { limit: opts.limit } : {}),
     ...(opts.offset ? { offset: opts.offset } : {}), ...(opts.semantic ? { semantic: true } : {}),
   }).catch((e: Error) => ({ answers: [], picks: {}, failed: `lookup failed: ${e.message}` }));
@@ -239,7 +243,7 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   const heading = all.map(a => a.heading).find(Boolean);
   return {
     items, truncated, message, ...(all.some(a => a.jev === "ranked") ? { jev: "ranked" as const } : {}), ...(all.some(a => a.jevOff) ? { jevOff: true } : {}),
-    // Only a token the service answers has picks kept for it (a filter's word, a fence's settings don't: nothing reads them).
+    // Only a token the service answers has picks kept for it (a fence's settings, a button's steps don't: nothing reads them).
     ...(heading ? { heading } : {}), ...(triggerOf(target.kind) ? { pickKey: pickKey({ trigger: triggerOf(target.kind), kind: target.kind, key: target.key }) } : {}),
   };
 }
@@ -258,94 +262,6 @@ export function reopenReference(d: CompletionField, ch: string, by: Actor = USER
   if (!ref) return false;
   d.splice(ref.start, ref.end - 2, `((${ref.blockId}${ch}${ch === "^" ? ref.fragmentId ?? "" : ""}`, {}, by);
   return true;
-}
-
-async function scopedKeys(board: CompletionBoard, target: CompletionTarget, own?: OwnNote, near?: string): Promise<string[]> {
-  const of = target.attrs?.find(a => a.key === "of")?.value;
-  let text = own?.text;
-  if (of) {
-    const ref = blockReferenceOccurrences(of)[0];
-    const id = ref?.blockId ?? (of.startsWith("[[") ? (await board.completePages(of.slice(2, -2), COMPLETION_LIMIT)).addresses.find(a => a.address === of.slice(2, -2))?.blockId : of);
-    text = own && id === own.blockId ? own.text : id ? (await board.blockContext(id)).selected?.text : undefined;
-  } else if (!own && near) text = (await board.blockContext(near)).selected?.text;
-  return [...new Set(parsePropertyRecords(text ?? "").map(p => p.key))];
-}
-
-async function attributeCandidates(board: CompletionBoard, schema: ComponentSchema, target: CompletionTarget, own: OwnNote | undefined, opts: LookupOptions): Promise<CompletionItem[]> {
-  const producer = target.attrs?.find(a => a.key === schema.propsFrom)?.value;
-  const spec = producer ? (await board.templateProps(producer)).spec : {};
-  const props: PropSchema[] = [...schema.props, ...Object.entries(spec).map(([key, p]) => ({ key, where: "line" as const,
-    type: p.kind === "property" || p.kind.startsWith("property:") ? p.kind as PropSchema["type"] : p.kind === "note" ? "ref" as const : p.kind === "choice" ? "enum" as const : "text" as const,
-    meaning: `a prop of ${producer}`, values: p.choices?.map(value => ({ value, meaning: value })),
-  }))];
-  const used = new Set(target.attrs?.map(a => a.key));
-  if (target.kind === "attribute") return props.filter(p => !used.has(p.key) && p.key.startsWith(target.query)).map(p => ({
-    label: p.key, detail: p.type, docs: p.meaning, insertion: target.existingValue ? p.key : `${p.key}=""`, ...(target.existingValue ? {} : { selection: { start: p.key.length + 2, end: p.key.length + 2 } }), kind: "property",
-  }));
-  const prop = props.find(p => p.key === target.key);
-  if (!prop) return [];
-  const q = target.query;
-  let values: { label: string; value: string; detail?: string }[] = [];
-  if (prop.complete === "query") {
-    values = (await querySuggestions(q, { catalog: (key, prefix) => board.propertyCatalog(key, prefix, 100) })).map(r => ({ label: r.value, value: r.value, detail: r.detail }));
-  } else if (prop.type === "property") {
-    const keys = await scopedKeys(board, { ...target, attrs: target.attrs?.filter(a => a.key !== schema.propsFrom) }, own, opts.near);
-    values = (keys.length ? keys : axisValues(prop)).filter(key => key.startsWith(q)).map(key => ({ label: key, value: key }));
-  } else if (prop.type.startsWith("property:")) {
-    values = (await board.propertyCatalog(prop.type.slice("property:".length), q, 100)).map(f => ({ label: f.value, value: f.value }));
-  } else if (prop.type === "script") {
-    const listed = await board.listExtensions(false, own ? { blockId: own.blockId, draft: { text: own.text } } : {});
-    values = listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed") && e.name?.startsWith(q))
-      .map(e => ({ label: e.name!, value: e.name!, detail: e.description }));
-  } else if (prop.type === "ref") {
-    const refs = await lookupCompletion(board, { kind: "block", start: 0, end: q.length, query: q }, own, opts);
-    values = refs.items.map(i => ({ label: i.label, value: i.insertion, detail: i.docs }));
-  } else if (prop.type === "action" && opts.host) {
-    const completed = await commandCandidates(q, opts.host);
-    values.push(...completed.map(value => ({ label: value, value })));
-    const rows = await barSource("actions")!.rows(q, opts.host, "actions");
-    values.push(...rows.map(r => ({ label: r.label, value: r.fill ?? r.label, detail: r.detail })));
-  } else {
-    values = axisValues(prop).filter(v => v.toLowerCase().startsWith(q.toLowerCase())).map(value => ({ label: value, value, detail: prop.values?.find(v => v.value === value)?.meaning }));
-  }
-  return values.map(v => target.kind === "yaml-value"
-    ? propertyItem(schema, { component: schema.id, key: prop.key, value: v.value, label: v.label, insertion: yamlScalar(v.value), detail: v.detail ?? prop.meaning }, { board, redraw: () => {} })
-    : { label: v.label, docs: v.detail ?? prop.meaning, kind: "value",
-      insertion: target.quote ? v.value.replaceAll("\\", "\\\\").replaceAll(target.quote, `\\${target.quote}`) + target.quote : JSON.stringify(v.value),
-    });
-}
-
-/**
- * A filter's keys or a property's values, from the outline's property index (`properties.catalog`: what its notes carry,
- * most used first) and then the component schemas (what a key can hold, used or not): the same two sources the
- * outliner's filter completion and the service's `[key::` source reads (completion-sources.ts), never a list of its own.
- */
-async function filterCandidates(board: CompletionBoard, target: CompletionTarget): Promise<CompletionItem[]> {
-  const value = target.kind === "filter-value", q = target.query.trim().toLowerCase();
-  const [catalog, schemas] = await Promise.all([
-    board.propertyCatalog(value ? target.key : undefined, q, 100, !value).catch(() => []),
-    componentsReady({ board, redraw: () => {} }).catch(() => []),
-  ]);
-  const out: CompletionItem[] = [], seen = new Set<string>();
-  if (!value) {
-    const counts = new Map<string, number>();
-    for (const c of catalog) counts.set(c.key, (counts.get(c.key) ?? 0) + c.count);
-    for (const [key, n] of [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) { seen.add(key); out.push({ label: `${key} (${n})`, insertion: `${key}:`, kind: "property", docs: `${n} block${n === 1 ? "" : "s"} carry it` }); }
-    for (const c of keyCandidates(schemas, q)) if (!seen.has(c.key) && c.key.toLowerCase().startsWith(q)) { seen.add(c.key); out.push({ label: c.key, insertion: `${c.key}:`, kind: "property", docs: c.detail }); }
-  } else {
-    // A filter's word has no spaces to hold: a value with one is left out there (a field's value may have them).
-    const fits = (v: string) => !target.words || !/\s/.test(v);
-    for (const c of catalog) if (!seen.has(c.value) && fits(c.value)) { seen.add(c.value); out.push({ label: `${c.value} (${c.count})`, insertion: c.value, kind: "value", docs: `${c.count} block${c.count === 1 ? "" : "s"} have ${target.key}:${c.value}` }); }
-    for (const c of valueCandidates(schemas, target.key ?? "", q, false)) if (!seen.has(c.label) && fits(c.label) && c.label.toLowerCase().startsWith(q)) { seen.add(c.label); out.push({ label: c.label, insertion: c.insertion, kind: "value", docs: c.detail }); }
-  }
-  return out.slice(0, COMPLETION_LIMIT);
-}
-
-/** A component's YAML value (`::graph-stat`'s `tone:`) as a row: its meaning, and what it draws beside and after it. */
-function propertyItem(schema: ComponentSchema, c: PropertyCandidate, src: ListSource | null): CompletionItem {
-  const v = variation(schema, { [c.key]: c.value! }, c.key), glimpse = exampleGlimpse(v, src);
-  return { label: glimpse ? `${c.label}  ${glimpse}` : c.label, insertion: c.insertion, kind: "value", docs: c.detail,
-    preview: (w: number, h: number) => drawVariation(v, w, src).slice(0, h) };
 }
 
 /** One row of what an example draws, at most 24 columns: the row with the most shades and blocks, else its first with anything on it. */

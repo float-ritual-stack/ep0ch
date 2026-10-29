@@ -39,6 +39,14 @@ are its record. The outliner's entries from then are kept below, under
 - **Counts, not seconds:** the EchoNet scenarios fail on more looks, paints or host round trips than they make today, not
   on time.
 
+### A figure's values complete in Detail too (PIE-1366)
+
+- **Detail offers what the door offers:** a figure's YAML values (`density: `, `group: `, `query: `) and a
+  component's attributes (`::box{li`, `::button{of=`) list the same rows in both, from the service.
+- **One owner for property completion:** a filter's keys and values come from the service's catalog and schemas,
+  never merged again in the door. A value you picked before rises among equals, as it does for `[key::`.
+- **What to run:** the wire changed (PROTOCOL); `ep0ch install --apply` on float-2 and the laptop.
+
 ### Buttons look like buttons, and the power bar's extensions read at a glance (PIE-1287, PIE-1284)
 
 - **A button says how it looks:** `::button{… glyph="▶" tone=primary frame=round fill=on}`. Tones are quiet, primary
