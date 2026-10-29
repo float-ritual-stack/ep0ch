@@ -147,9 +147,11 @@ session), so no cron is set by hand. The rules are daddy's request ((5bfab6fb-75
    Skip `[needs::sysop]` and one-way doors (infrastructure, deletion, a protocol bump: a one-line heads-up first).
    Absence is a green light: Evan offline means fill every free slot.
 3. **Validate on the clock** (daddy's request ((826d6a88-f888-42d4-a787-34c406ebb2f8|Loki's validate sweep goes on the clock))):
-   when no verifier is out, one `ep0ch-verifier` that built none of them takes the oldest validate items. Proof is
-   driving it on a scratch door or the test that covers it; each closes with `work_complete`, a finding goes back to
-   queued with its repro on the ticket, and Evan is asked only for taste or hands (`[needs::sysop]`).
+   when no verifier is out, one `ep0ch-verifier` that built none of them takes the oldest validate items and runs the
+   app the way Evan would: a scratch door, real keys and mouse, the ticket's own journey. A passing test is not
+   validation (Evan, Oct 29: "an agent who didn't build it runs the app to try and verify it"). Each closes with
+   `work_complete` on what the agent saw, a finding goes back to queued with its repro on the ticket, and Evan is asked
+   only for taste or hands (`[needs::sysop]`).
 4. **Once a day, while Evan has written nothing in pie, gurgle or float-hub for about 2 hours, sweep:** queued more than
    5 days is picked up, re-ranked with a one-line reason, or closed with the reason; an item with no definition of done
    gets one written from its note and links.
