@@ -502,3 +502,19 @@ test.skipIf(!Bun.which("docker") || Bun.spawnSync(["docker", "image", "inspect",
     await docker("rm", "-f", container);
   }
 }, 120_000);
+
+test("signed in on the phone, a page's steps are its owner's: each box is a button, and a tap lands as the person's (PIE-1235)", async () => {
+  const gate = gateFor();
+  const { cookie } = await signIn(gate);
+  const plan = (await homeClient.request<Block>({ action: "create", parentId: survey.id, text: "Lantern plan\n- [ ] hang the lantern\n- [ ] trim the wick", mutation: { author: "user" } } as never));
+  const page = await (await at(gate, `/pub/p/${plan.id}`, { cookie })).text();
+  const boxes = [...page.matchAll(/<button type="button" class="step s-todo"[^>]*data-step-start="(\d+)"[^>]*data-step-evidence="([0-9a-f]+)"/g)];
+  expect(boxes).toHaveLength(2);
+  const [, start, evidence] = boxes[0]!;
+  const tap = await at(gate, "/pub/_marginalia/write", { method: "POST", cookie, body: JSON.stringify({ page: plan.id, action: "step", status: "done", block: plan.id, start: Number(start), revision: plan.revision, evidence }), headers: { "content-type": "application/json", origin: ORIGIN } });
+  expect(await tap.json()).toMatchObject({ ok: true, status: "done" });
+  const after = await homeClient.request<Block>({ action: "get", blockId: plan.id });
+  expect(after.text).toContain("- [x] hang the lantern");
+  expect(after.author).toBe("user");
+});
+

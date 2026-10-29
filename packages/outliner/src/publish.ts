@@ -1,7 +1,7 @@
 import { ageSince } from "@ep0ch/outline-core/age";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { type ArtifactInfo, type ArtifactReader } from "@ep0ch/outline-core/artifacts";
-import { pageSources, SOURCES_STYLE } from "./publish-sources";
+import { pageSources, SOURCE_ROUTE, sourceFile, SOURCES_STYLE, visibleSources } from "./publish-sources";
 import type { SiteAnswer, SiteAnswerRequest, SiteLink } from "@ep0ch/outline-core/site";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 import { blockTags, metadataLines } from "@ep0ch/outline-core/block-tags";
@@ -1266,6 +1266,8 @@ export class Publisher {
       if (media) return await this.serveMedia(request, media[1]!.toLowerCase(), Number(media[2]), audience, undefined, media[3] === undefined ? undefined : Number(media[3]));
       const artifact = ARTIFACT_PATH.exec(path);
       if (artifact) return await this.serveArtifact(artifact[1]!.toLowerCase(), Number(artifact[2]), url.searchParams.get("view"), audience);
+      const source = SOURCE_ROUTE.exec(path);
+      if (source) return await this.serveSource(request, source[1]!.toLowerCase(), Number(source[2]), source[3] as "csv" | "json", audience);
       let slug: string;
       try {
         slug = decodeURIComponent(path.slice(3)).replace(/\/+$/, "");
@@ -1380,6 +1382,8 @@ export class Publisher {
     if (media) return this.serveMedia(request, media[1]!.toLowerCase(), Number(media[2]), "tailnet", share, media[3] === undefined ? undefined : Number(media[3]));
     const artifact = ARTIFACT_PATH.exec(rest);
     if (artifact) return this.serveArtifact(artifact[1]!.toLowerCase(), Number(artifact[2]), new URL(request.url).searchParams.get("view"), "tailnet", share);
+    const source = SOURCE_ROUTE.exec(rest);
+    if (source) return this.serveSource(request, source[1]!.toLowerCase(), Number(source[2]), source[3] as "csv" | "json", "tailnet", share);
     if (rest === "/search" || rest === "/search/") return this.serveSearch(request, share);
     const index = await this.shareIndex(share);
     const url = new URL(request.url);
@@ -1655,7 +1659,7 @@ export class Publisher {
       // A step's box changes from the owner's own page (PIE-811); a share's and a public page's are drawn, read-only.
       const article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(drawSubtitle(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.subtitle), rendered.components), rendered.marks, browse), rendered.anchors), rendered.steps, owner), rendered.index, base);
       const sourceText = (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text;
-      const sources = await pageSources(this.liveHost(audience, index, base, share), entry.blockId, this.outlineName ?? "this outline", sourceText, rendered.drawn.get(entry.blockId) ?? new Map());
+      const sources = await pageSources(this.liveHost(audience, index, base, share), entry.blockId, this.outlineName ?? "this outline", sourceText, rendered.drawn.get(entry.blockId) ?? new Map(), base);
       if (!browse) return renderedHtml(this.page(entry, sources + article, audience, skin), 200, sources ? READER_CSP : RENDERED_CSP);
       const crumbs = await this.crumbs(entry, index, true, share);
       return renderedHtml(htmlPage(entry.title, `${sources}<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share), search: { base, near: entry.blockId }, skin }), 200, READER_CSP);
@@ -1729,7 +1733,7 @@ export class Publisher {
       : "";
     const bookmarks = system.find((block) => getProperty(block.properties, "system-view")?.toLowerCase() === "bookmarks");
     const top = share ? "" : `<footer>${bookmarks ? `<a href="${escapeHtml(`${base}/p/${bookmarks.id}`)}">bookmarks</a> · ` : ""}<a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a> · <a href="${escapeHtml(`${this.webRoot}/o/`)}">outlines</a> · <a href="${escapeHtml(`${base}/sessions`)}">sessions</a></footer>`;
-    const sources = entry ? await pageSources(host, entry.blockId, this.outlineName ?? "this outline", (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text, sourceRegions) : "";
+    const sources = entry ? await pageSources(host, entry.blockId, this.outlineName ?? "this outline", (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text, sourceRegions, base) : "";
     const body = `${sources}<article>\n${article}</article>\n${lanes}${inside}${entry ? this.pageFooter(entry, false, share) : ""}${!entry || home ? top : ""}`;
     // The front page names the outline, with every root note one link away; it is still its note's page below.
     const crumbs = home
@@ -2074,6 +2078,39 @@ export class Publisher {
    * types only); the URL never carries one. With `image`, it is the `image`th image primitive of the component line
    * `line` draws (PIE-827), read again from its kept view.
    */
+  /**
+   * A Sources panel's download (PIE-1383): the page's `index`th source, as the panel drew it (the same visibility cut,
+   * read now), as a file: `Content-Disposition: attachment` with the source's name, so a phone saves or shares it. Behind
+   * whatever the note's page is behind: the lock, a share's scope, public only when the page is.
+   */
+  private async serveSource(request: Request, blockId: string, at: number, format: "csv" | "json", audience: PublishAudience, share?: PageShare): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
+    if ((await this.lockedIds([blockId])).size) return notFound();
+    if (share && !(await this.inScope([blockId], share)).has(blockId)) return notFound();
+    const index = share ? await this.shareIndex(share) : audienceIndex(await this.readIndex(), audience);
+    const entry = await this.entryAt(blockId, index, audience);
+    if (!entry || entry.blockId !== blockId) return notFound();
+    if (audience === "public" && !(await this.stillPublic(blockId))) return notFound();
+    const base = share?.base ?? this.basePathFor(audience);
+    // The page's own cuts, drawn as its page draws them: a folder page on the tailnet (and a share), the whole page in public.
+    const page = { ...entry, type: "block" as const };
+    const whole = audience === "tailnet" ? await this.noteWithAnnotations(blockId, !share || share.comments) : undefined;
+    if (audience === "tailnet" && !whole) return notFound();
+    const rendered = await this.blockMarkdown(page, index, audience, !share || share.comments, audience === "tailnet"
+      ? { whole, browse: true, owner: !share, anchors: [], ...(share ? { share } : {}) }
+      : { browse: false, owner: false, anchors: [] });
+    const sources = await visibleSources(this.liveHost(audience, index, base, share), blockId, rendered.drawn.get(blockId) ?? new Map());
+    const chosen = sources?.sources[at];
+    if (!chosen) return notFound();
+    const file = sourceFile(chosen, format);
+    return new Response(request.method === "HEAD" ? null : file.body, {
+      headers: {
+        ...COMMON_HEADERS, "content-type": file.type, "cache-control": "no-store",
+        "content-disposition": `attachment; filename="${file.filename}"`,
+      },
+    });
+  }
+
   private async serveMedia(request: Request, blockId: string, line: number, audience: PublishAudience, share?: PageShare, image?: number): Promise<Response> {
     const policy = this.requirePolicy();
     if (policy.remoteService) return notFound();
