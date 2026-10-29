@@ -169,6 +169,10 @@ describe('the formatter: one row per tool', () => {
     expect(words(toolRowOf(done('outline_read', { ref: 'PIE-12' }, { title: 'Bare', revision: 1, properties: [], children: [] })))).toBe('⌕ read PIE-12 · rev 1')
     expect(words(toolRowOf(done('outline_find', { text: 'dropdown menu' }, { blocks: [{ id: NOTE, title: 'Menus' }], complete: false }))))
       .toBe('⌕ find "dropdown menu" · 1 hit+')
+    // A ranked find that isn't sure of its top says so beside the count (PIE-1198), each hit its score.
+    const unsure = toolRowOf(done('outline_find', { text: 'pond liner' }, { blocks: [{ id: NOTE, title: 'Pond pump', score: 1.4 }], complete: true, search: { status: 'ranked', verdict: 'weak', said: 'no strong match: the closest is “Pond pump” (1.4 of 3)' } }))
+    expect(words(unsure)).toBe('⌕ find "pond liner" · 1 hit · no strong match')
+    expect(unsure!.detail).toContain('Pond pump · 1.4/3')
     expect(words(toolRowOf(done('outline_find', { property: 'crop=leek', under: 'PIE-12' }, { blocks: [], complete: true }))))
       .toBe('⌕ find property crop=leek under PIE-12 · 0 hits')
     expect(words(toolRowOf(done('outline_changes', { since: '2026-03-01T00:00:00Z', actor: 'garden-agent' }, { entries: [{ id: NOTE, title: 'Seed swap plan', kind: 'text', author: 'agent' }], cursor: 9, complete: true }))))
