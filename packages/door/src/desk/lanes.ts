@@ -19,6 +19,7 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { applyMove, describeChanges, NO_PLAN, planMoves, type MovePlan } from "../move";
 import { PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
+import { headerLine } from "@ep0ch/outline-core/header-line";
 import { renamedPagesNote, type PageRename } from "@ep0ch/outline-core/protocol";
 import { clamp, sideways, SidewaysWheel, wheelRows, type RowPress } from "../scroll";
 import { DRAFT_ACTIONS } from "../edit";
@@ -887,10 +888,11 @@ export class Lanes implements SourceModel {
     const C0: Extract<Composer, { kind: "card" }> = { kind: "card", lane, planning: true, born: [], defaults: [], needs: [], parent: null, session };
     this.composer = C0;
     this.host.redraw();
-    this.cardPlan(lane).then(plan => {
+    C0.planned = this.cardPlan(lane).then(plan => {
       if (this.composer !== C0 || C0.kind !== "card") return;
       const pick = plan.parent;
       Object.assign(C0, { planning: false, born: plan.born, defaults: plan.defaults, needs: plan.needs, parent: pick ? { ...pick, title: pick.id.slice(0, 8) } : null });
+      this.watchTwin();
       this.host.redraw();
       if (pick) this.host.ctx.board.get(pick.id).then(parent => {
         if (this.composer !== C0 || C0.kind !== "card" || !C0.parent) return;
@@ -927,8 +929,68 @@ export class Lanes implements SourceModel {
   private composerKey(k: Key) {
     const s = this.composer!.session;
     // Reference completion ([[ (( [file::), as in every draft: the editing component's, from this board's connection.
+    const before = s.draft.text;
     s.key(k, { completer: completerFor(s.draft, this.host.ctx.board, () => this.host.redraw()), run: cmd => this.composerCommand(cmd) });
+    if (s.draft.text !== before) this.watchTwin();
     this.host.redraw();
+  }
+
+  /**
+   * Open work the new roadmap item looks like, asked on its title as it's typed (PIE-1258, seen in use Oct 29: the offer
+   * came only once the chips were in, two round trips). Once the title has settled for a moment the service's
+   * `roadmap.items.similar` is asked, never on every key; the answer is dropped when the title moved on meanwhile.
+   */
+  private watchTwin() {
+    const C0 = this.composer;
+    if (C0?.kind !== "card" || C0.planning || C0.parent) return;
+    const title = draftTitle(C0.session.draft.text);
+    clearTimeout(C0.twinTimer);
+    // A title cut too short to ask about takes the offer off the row; a changed one keeps it until its own answer lands.
+    if (!asksTwin(title)) { C0.twin = undefined; C0.session.draft.attachChord = false; return; }
+    if (C0.asked?.title === title) return;
+    C0.twinTimer = setTimeout(() => {
+      if (this.composer !== C0 || draftTitle(C0.session.draft.text) !== title) return;
+      void this.askTwin(C0, title).then(asked => { this.keepTwin(C0, asked); this.host.redraw(); });
+    }, TWIN_SETTLE_MS);
+  }
+
+  /** The service's twins for `title`: the first one it calls a twin, or none. Null when it didn't answer. */
+  private async askTwin(C0: Extract<Composer, { kind: "card" }>, title: string, body?: string): Promise<TwinAsked | null> {
+    const asked = await this.twinOf(title, body);
+    return asked && this.composer === C0 ? asked : null;
+  }
+
+  /** Open work a new item looks like, by the service (`roadmap.items.similar`): its first twin, or none; null unanswered. */
+  private async twinOf(title: string, body?: string): Promise<TwinAsked | null> {
+    const answer = await this.host.ctx.board.similarItems({ title, ...(body ? { body } : {}) }).catch(() => null);
+    if (!answer) return null;
+    const found = answer.candidates.find(c => answer.twins.includes(c.workId));
+    return { title, ...(found ? { twin: { title, workId: found.workId, said: `looks like ${found.said}` } } : {}) };
+  }
+
+  /** An answer kept on the composer, and drawn on its row, while its title is still the draft's. */
+  private keepTwin(C0: Extract<Composer, { kind: "card" }>, asked: TwinAsked | null) {
+    if (!asked || this.composer !== C0 || draftTitle(C0.session.draft.text) !== asked.title) return;
+    C0.asked = asked;
+    C0.twin = asked.twin;
+    C0.session.draft.attachChord = !!asked.twin;
+  }
+
+  /**
+   * Ctrl+S on a new roadmap item: its twin, asked beside the plan and said before what the plan says of its chips
+   * (attaching needs none). A twin already on the composer's row was seen, so this press files it new; one first found
+   * now is shown, and refused once.
+   */
+  private async twinAtSave(C0: Extract<Composer, { kind: "card" }>, lane: Lane, parent: string | undefined, body: string): Promise<{ plan: CardPlan; fileNew: boolean }> {
+    const shown = C0.twin, title = draftTitle(body);
+    clearTimeout(C0.twinTimer);
+    const rest = body.split("\n").slice(headerLine(body).line + 1).join("\n").trim();
+    const [asked, planned] = await Promise.all([C0.asked?.title === title ? C0.asked : this.askTwin(C0, title, rest || undefined), this.cardPlan(lane, parent, body).then(plan => ({ plan }), (e: unknown) => ({ refused: e }))]);
+    this.keepTwin(C0, asked);
+    const twin = asked?.twin;
+    if (twin && shown?.workId !== twin.workId) throw new ActionRefused(`open work looks like it: ctrl+s again files it new · [attach here] or ctrl+x a adds it to ${twin.workId}`);
+    if ("refused" in planned) throw planned.refused;
+    return { plan: planned.plan, fileNew: !!twin };
   }
 
   private composerCommand(cmd: DraftCommand) {
@@ -976,7 +1038,7 @@ export class Lanes implements SourceModel {
     if (!C0) throw new ActionRefused("no new card or note is being written");
     const d = C0.session.draft;
     if (d.busy) throw new ActionRefused("the new card is being created");
-    void openInEditor(this.host.ctx, d, () => this.composer?.session.draft === d).then(() => this.host.redraw());
+    void openInEditor(this.host.ctx, d, () => this.composer?.session.draft === d).then(() => { this.watchTwin(); this.host.redraw(); });
     return { external: true };
   }
 
@@ -1011,6 +1073,16 @@ export class Lanes implements SourceModel {
   async createCard(lane: Lane, text: string, actor: Actor, parent?: string, fileNew = false): Promise<{ id: string; workId?: string; lane: string; parent: string; text: string; bornWith: string[]; recordedAs: string }> {
     const body = text.replace(/\s+$/, "");
     if (!body.trim()) throw new ActionRefused("type the card's title first");
+    // A person's new roadmap item in its composer: the twin is asked on the title beside the plan, and said first.
+    // Only the composer's own text: a person's card.create of other words is answered by createItem, as without one.
+    const C0 = this.composer?.kind === "card" && this.composer.lane === lane && draftTitle(this.composer.session.draft.text) === draftTitle(body) ? this.composer : null;
+    const person = isPerson(actor);
+    // Pressed before the lane's plan arrived: wait for it, so a roadmap lane's twin is still said first.
+    if (C0?.planning) await C0.planned?.catch(() => undefined);
+    if (C0 && !C0.planning && !C0.parent && person && !fileNew) {
+      const saved = await this.twinAtSave(C0, lane, parent, body);
+      return this.createItem(lane, actor, saved.plan, saved.fileNew, true);
+    }
     const plan = await this.cardPlan(lane, parent, body);
     if (!plan.parent) return this.createItem(lane, actor, plan, fileNew);
     const composed = plan.plan.text;
@@ -1028,32 +1100,23 @@ export class Lanes implements SourceModel {
    * default), already checked against the lane's whole query. Not retried: a lost answer is looked for
    * among the project's newest items.
    */
-  private async createItem(lane: Lane, actor: Actor, plan: CardPlan, fileNew = false) {
+  private async createItem(lane: Lane, actor: Actor, plan: CardPlan, fileNew = false, twinAsked = false) {
     const board = this.host.ctx.board;
     let input = plan.plan.item;
     if (!input) throw new ActionRefused(`the outline planned no roadmap item for ${lane.name}`);
-    // Open work it looks like (PIE-1258): the person sees it on a row of the composer and is never blocked; ctrl+s
-    // again on the same text files it new, [attach here] (ctrl+x a, card.attach) adds it there. An agent's create is
-    // the service's to refuse, with the twins named.
-    const C0 = this.composer?.kind === "card" && this.composer.lane === lane ? this.composer : null;
-    const person = actor.kind !== "agent" && !actor.with?.length;
-    if (C0?.twin && C0.twin.text === C0.session.draft.text) fileNew = true;
-    if (person && !fileNew) {
-      const answer = await board.similarItems({ title: input.title, ...(input.body ? { body: input.body } : {}) }).catch(() => null);
-      const twin = answer?.candidates.find(c => answer.twins.includes(c.workId));
-      if (twin) {
-        const said = `looks like ${twin.said}`;
-        if (C0) { C0.twin = { text: C0.session.draft.text, workId: twin.workId, said }; C0.session.draft.attachChord = true; }
-        // The composer's row names the twin; its note says only what to do.
-        throw new ActionRefused(C0 ? `open work looks like it: ctrl+s again files it new · [attach here] or ctrl+x a adds it to ${twin.workId}` : `${said} · card.create … new=true files it anyway, card.attach twin=${twin.workId} text=… adds it there`);
-      }
+    // Open work it looks like (PIE-1258): the person is never blocked. The composer's own card was asked on its title
+    // (watchTwin, twinAtSave: ctrl+s once it's shown files it new, [attach here] adds it there); a person's card.create
+    // of other words is asked here, the same twinOf. An agent's create is the service's to refuse, with the twins named.
+    if (isPerson(actor) && !fileNew && !twinAsked) {
+      const twin = (await this.twinOf(input.title, input.body))?.twin;
+      if (twin) throw new ActionRefused(`${twin.said} · card.create … new=true files it anyway, card.attach twin=${twin.workId} text=… adds it there`);
     }
     if (fileNew) input = { ...input, new: true };
     const since = Date.now();
     let made: { workId: string; workQueueId: string; block: Msg };
     try { made = await board.createRoadmapItem(input, actor); }
     catch (e) {
-      if (e instanceof Refused) throw new ActionRefused(e.message.startsWith("not filed:") && !person ? `${e.message}\nIn the door: card.create … new=true files it anyway; card.attach twin=<Work ID> text=… adds it there.` : e.message);
+      if (e instanceof Refused) throw new ActionRefused(e.message.startsWith("not filed:") && !isPerson(actor) ? `${e.message}\nIn the door: card.create … new=true files it anyway; card.attach twin=<Work ID> text=… adds it there.` : e.message);
       const found = await this.findItem(input.project, input.title, since).catch(() => null);
       if (!found) throw new ActionRefused(`the outline didn't answer (${e instanceof Error ? e.message : String(e)}) and no such item is there yet; the outcome is unknown, so look before creating it again`);
       made = { workId: prop(found, "work-id") ?? "", workQueueId: found.parentId ?? "", block: found };
@@ -1450,10 +1513,27 @@ const roadmapHint = (C0: { born: { key: string }[]; defaults: { key: string }[] 
   ["project", "priority", "arc", "track"].filter(k => !C0.born.some(p => p.key === k) && !C0.defaults.some(p => p.key === k))
     .map(k => k === "priority" ? "[priority::high|medium|low]" : `[${k}::…]`).join(" ");
 
+/** Open work a new item looks like: the title it was asked for, its Work ID and the service's words for it. */
+interface CardTwin { title: string; workId: string; said: string }
+/** The service's answer for one title: its twin, if it named one. */
+type TwinAsked = { title: string; twin?: CardTwin };
+/** A person's own act, not an agent's or one an agent is carrying out for them. */
+const isPerson = (actor: Actor) => actor.kind !== "agent" && !actor.with?.length;
+/** A new card's title: its header line's prose, the chips left out (outline-core's header grammar), and a chip still being typed. */
+const draftTitle = (text: string) => headerLine(text).prose.replace(/\s*\[[^\]]*$/, "").trim();
+/** How long the title rests before its twins are asked, and how much of it there must be: two words of three letters. */
+const TWIN_SETTLE_MS = 700;
+const asksTwin = (title: string) => title.length >= 10 && title.split(/\s+/).filter(w => w.length >= 3).length >= 2;
+
 type Composer =
   | { kind: "card"; lane: Lane; planning: boolean; born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: (ParentPick & { title: string }) | null; session: DraftSession;
-      /** Open work the new item looks like (PIE-1258), offered at the last ctrl+s with the text it was offered for: ctrl+s again on that text files it new. */
-      twin?: { text: string; workId: string; said: string };
+      /** Open work the new item looks like (PIE-1258), on the composer's row: once shown, ctrl+s files it new. */
+      twin?: CardTwin;
+      /** The last title the service was asked about, and its answer; the pending ask while the title settles. */
+      asked?: TwinAsked;
+      twinTimer?: ReturnType<typeof setTimeout>;
+      /** The lane's plan for it, asked when it opened (planning until it lands). */
+      planned?: Promise<void>;
       /** Set by card.attach: the next submit adds the draft under this item instead of creating one. */
       attachTo?: string }
   | { kind: "child"; parent: Msg; session: DraftSession };

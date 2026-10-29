@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A new ticket's twin shows on its title, and `work try` points at pages (PIE-1258)
+
+- **On the title:** a new card in a roadmap lane asks for open work like it as soon as its title settles, before any
+  priority, arc or track: the composer's row says `looks like PIE-n … [attach here] [file new]`. Attaching needs no
+  chips; once the row has shown, ctrl+s with the chips files it new, never a second offer.
+- **Pressed early:** ctrl+s on a title alone says the twin first, not the missing chips.
+- **`ep0ch work try` opens pages too:** besides actions, it names the outline's pages and views to open, each with its
+  `screen.open` call: those that link the ticket first, then by words and by meaning (Jev). PIE-1388 and PIE-1252
+  now point at Jev's suggestions.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### One completer: an action and its arguments complete where you type (PIE-1076)
 
 - **In a note's edit, ctrl+k** (or `/` first on a line) lists the actions that apply here at the cursor, in the edit's
