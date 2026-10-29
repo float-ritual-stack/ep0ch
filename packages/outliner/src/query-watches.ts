@@ -15,6 +15,12 @@
 // - A question can name the day (`wait-until <= today`, `due <= +3d`, PIE-769): when the machine's day turns, every
 //   watch is evaluated again with no change at all, so a view of what's waiting until today fills at midnight.
 //
+// - Fair to everyone else (PIE-1413): with `turn`, a pass is evaluated a watch at a time, each waiting its turn on the
+//   loop like a client's request, so a pass over hundreds of watches never holds the loop (a backfill's 441 ms passes
+//   once a second did). One pass runs at a time; what changes meanwhile is evaluated by the next. A question watched
+//   on several connections (two doors on one page) is answered once a pass. Its changes are told at the pass's end, or
+//   every TELL_EVERY_MS while a long one goes on.
+//
 // It doesn't know what it watches: the server passes how to answer a request (its own `handle`), so `blocks.query`,
 // `views.read`, `blocks.authored-links`, `references.backlinks` and `query.matches` are watched alike (outline-core WATCHABLE_ACTIONS).
 import { QUERIES_CHANGED, WATCHABLE_ACTIONS, WATCH_LIMITS, type OutlinerResponse, type QueryChange } from "@ep0ch/outline-core/protocol";
@@ -57,6 +63,9 @@ function depsOf(response: OutlinerResponse): ReadonlySet<string> | undefined {
 /** The notes a committed change touched: the changed note, and its parent before and after. */
 export interface ChangedNotes { blockId?: string; parentId?: string | null; previousParentId?: string | null }
 
+/** In a pass taking longer than this, what changed so far is told without waiting for the rest. */
+const TELL_EVERY_MS = 100;
+
 export const isWatchable = (action: string): boolean => (WATCHABLE_ACTIONS as readonly string[]).includes(action);
 
 /** An answer's identity: everything in it but the service's sequence, which moves on every write. */
@@ -89,8 +98,10 @@ export interface QueryWatchOptions {
   maxWaitMs?: number;
   perConnection?: number;
   perService?: number;
-  /** Told how long an evaluation pass took and how many watches it read (the host's timing). */
+  /** Told how long evaluating took on the loop and how many watches it read (the host's timing). */
   timed?(ms: number, watches: number): void;
+  /** Wait for a turn on the loop before evaluating a watch (the host's Turns); without it a pass runs at once. */
+  turn?(action: string): Promise<void>;
 }
 
 export class QueryWatches {
@@ -105,6 +116,8 @@ export class QueryWatches {
   /** What changed since the last evaluation: every note named, or everything (a change that names no note). */
   private pendingIds = new Set<string>();
   private pendingAll = false;
+  /** A pass is being evaluated in turns: a flush now leaves its changes to the next. */
+  private passing = false;
   private readonly settleMs: number;
   private readonly minuteMs: number;
   private readonly maxWaitMs: number;
@@ -222,34 +235,89 @@ export class QueryWatches {
   flush(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    // The pass in progress flushes again when it ends, with everything noted since.
+    if (this.passing) return;
     // A flush with nothing noted (a caller flushing by hand) evaluates everything, as before.
     const all = this.pendingAll || this.pendingIds.size === 0, touched = this.pendingIds;
     this.pendingAll = false;
     this.pendingIds = new Set();
-    this.evaluate(() => true, touched, all);
+    this.evaluate(() => true, touched, all, true);
   }
 
-  private evaluate(select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean): void {
-    const started = performance.now();
-    const changes = new Map<WatchConnection, QueryChange[]>();
-    for (const watch of this.all.values()) {
-      if (watch.connection.destroyed || !select(watch)) continue;
-      if (!all && watch.deps && ![...touched].some(id => watch.deps!.has(id))) continue;
-      const response = this.options.answer({ ...watch.request, id: "watch" } as Request);
-      const hash = hashOf(response);
-      const deps = depsOf(response);
-      if (deps) watch.deps = deps; else delete watch.deps;
-      if (isMinute(response)) watch.minute = true; else delete watch.minute;
-      if (hash === watch.hash) continue;
-      watch.generation += 1;
-      watch.hash = hash;
-      watch.response = response;
-      const list = changes.get(watch.connection) ?? [];
-      list.push({ key: watch.key, generation: watch.generation });
-      changes.set(watch.connection, list);
+  /** Evaluate the selected watches: at once, or (with `turn`) a watch a turn; `pass` marks the change-driven pass. */
+  private evaluate(select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean, pass = false): void {
+    if (!this.options.turn) {
+      const started = performance.now();
+      const changes = new Map<WatchConnection, QueryChange[]>();
+      for (const watch of this.all.values()) {
+        const change = this.wanted(watch, select, touched, all) && this.update(watch, this.options.answer({ ...watch.request, id: "watch" } as Request));
+        if (!change) continue;
+        const list = changes.get(watch.connection) ?? [];
+        list.push(change);
+        changes.set(watch.connection, list);
+      }
+      for (const [connection, list] of changes) this.send(connection, list);
+      this.options.timed?.(performance.now() - started, this.all.size);
+      return;
     }
-    for (const [connection, list] of changes) this.send(connection, list);
-    this.options.timed?.(performance.now() - started, this.all.size);
+    if (pass) this.passing = true;
+    void this.inTurns(select, touched, all).finally(() => {
+      if (!pass) return;
+      this.passing = false;
+      if (!this.pendingAll && this.pendingIds.size === 0) return;
+      // What changed during the pass: the next one, once it settles.
+      if (this.timer) clearTimeout(this.timer);
+      this.timer = setTimeout(() => this.flush(), this.settleMs);
+    });
+  }
+
+  private async inTurns(select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean): Promise<void> {
+    // One answer per question a pass: the same read watched on two connections is evaluated once.
+    const answered = new Map<string, OutlinerResponse>();
+    // What changed, told each connection in one event: at the end of the pass, or sooner in a long one.
+    const told = new Map<WatchConnection, QueryChange[]>();
+    let toldAt = performance.now();
+    const tell = () => {
+      for (const [connection, list] of told) this.send(connection, list);
+      told.clear();
+      toldAt = performance.now();
+    };
+    for (const [slot, watch] of [...this.all]) {
+      if (!this.wanted(watch, select, touched, all)) continue;
+      let response = answered.get(watch.signature);
+      if (!response) {
+        await this.options.turn!(String(watch.request.action));
+        // Replaced, dropped or closed while it waited.
+        if (this.all.get(slot) !== watch || watch.connection.destroyed) continue;
+        const started = performance.now();
+        try { response = this.options.answer({ ...watch.request, id: "watch" } as Request); }
+        catch (error) { response = { id: "watch", ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.options.sequence() }; }
+        this.options.timed?.(performance.now() - started, 1);
+        answered.set(watch.signature, response);
+      }
+      const change = this.update(watch, response);
+      if (change) told.set(watch.connection, [...(told.get(watch.connection) ?? []), change]);
+      if (told.size && performance.now() - toldAt > TELL_EVERY_MS) tell();
+    }
+    tell();
+  }
+
+  private wanted(watch: Watch, select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean): boolean {
+    if (watch.connection.destroyed || !select(watch)) return false;
+    return all || !watch.deps || [...touched].some(id => watch.deps!.has(id));
+  }
+
+  /** Keep a watch's new answer; its change when the answer is different. */
+  private update(watch: Watch, response: OutlinerResponse): QueryChange | undefined {
+    const hash = hashOf(response);
+    const deps = depsOf(response);
+    if (deps) watch.deps = deps; else delete watch.deps;
+    if (isMinute(response)) watch.minute = true; else delete watch.minute;
+    if (hash === watch.hash) return undefined;
+    watch.generation += 1;
+    watch.hash = hash;
+    watch.response = response;
+    return { key: watch.key, generation: watch.generation };
   }
 
   private send(connection: WatchConnection, changes: QueryChange[]): void {

@@ -104,21 +104,69 @@ export const WHOLE_OUTLINE_READS: ReadonlySet<string> = new Set([
  * requests go before the whole-outline reads. A turn ends where its request first waits (I/O, a child process); the
  * order within one connection is kept by its own queue. A whole-outline read still gets one turn in LAST_EVERY + 1 while
  * other requests keep coming.
+ *
+ * And fair between who asks (PIE-1413): each turn names who it is for (a connection, an agent by its actor id, the
+ * service's own jobs), each is charged the loop time its turns took (`charge`, halved every second), and of those
+ * waiting in a lane the one that has used the loop least goes first. A ping or a note read between an import's
+ * thousands of writes waits for one of them at most, never behind every one already in line; the import still gets
+ * every turn nobody else wants. No job is throttled: only who goes next changes.
  */
 const LAST_EVERY = 8;
+/** How fast what someone used of the loop is forgotten: halved each this long. */
+const USAGE_HALF_LIFE_MS = 1_000;
+
+/** Who a turn is for: a connection, an `actor:<id>`, the service's `own` jobs, its `watches`. */
+export type TurnKey = object | string;
+
+interface Waiting { resolve: () => void; key: TurnKey; seq: number }
 
 export class Turns {
-  private readonly first: Array<() => void> = [];
-  private readonly last: Array<() => void> = [];
+  private readonly first: Waiting[] = [];
+  private readonly last: Waiting[] = [];
   private scheduled = false;
   /** Turns given in a row to other requests while a whole-outline read waited. */
   private passedOver = 0;
+  private seq = 0;
+  private charges = 0;
+  /** What each one asking used of the loop lately, decayed, with when it was last brought up to date. */
+  private readonly usage = new Map<TurnKey, { ms: number; at: number }>();
 
-  next(action: unknown): Promise<void> {
+  constructor(private readonly now: () => number = () => performance.now()) {}
+
+  next(action: unknown, key: TurnKey = "anonymous"): Promise<void> {
     return new Promise(resolve => {
-      (WHOLE_OUTLINE_READS.has(String(action)) ? this.last : this.first).push(resolve);
+      (WHOLE_OUTLINE_READS.has(String(action)) ? this.last : this.first).push({ resolve, key, seq: this.seq++ });
       this.schedule();
     });
+  }
+
+  /** `key`'s turn took `ms` of the loop (its handling and what it set off). */
+  charge(key: TurnKey, ms: number): void {
+    if (!(ms > 0)) return;
+    const used = this.used(key);
+    this.usage.set(key, { ms: used + ms, at: this.now() });
+    // Those who stopped asking are forgotten (a closed connection is let go).
+    if (++this.charges % 512 === 0) for (const known of [...this.usage.keys()]) this.used(known);
+  }
+
+  /** What `key` has used of the loop, forgetting as it goes. */
+  used(key: TurnKey): number {
+    const entry = this.usage.get(key);
+    if (!entry) return 0;
+    const ms = entry.ms * 2 ** (-(this.now() - entry.at) / USAGE_HALF_LIFE_MS);
+    if (ms < 0.01) { this.usage.delete(key); return 0; }
+    return ms;
+  }
+
+  /** The one waiting in `lane` that has used the loop least (the longest waiting among equals). */
+  private take(lane: Waiting[]): Waiting | undefined {
+    if (lane.length <= 1) return lane.shift();
+    let best = 0, bestUsed = this.used(lane[0]!.key);
+    for (let i = 1; i < lane.length; i++) {
+      const used = this.used(lane[i]!.key);
+      if (used < bestUsed) { best = i; bestUsed = used; }
+    }
+    return lane.splice(best, 1)[0];
   }
 
   private schedule(): void {
@@ -129,10 +177,16 @@ export class Turns {
       // Never starved: after LAST_EVERY turns to other requests, a whole-outline read gets one.
       const fromLast = this.last.length > 0 && (this.first.length === 0 || this.passedOver >= LAST_EVERY);
       this.passedOver = fromLast || this.last.length === 0 ? 0 : this.passedOver + 1;
-      (fromLast ? this.last.shift() : this.first.shift())?.();
+      this.take(fromLast ? this.last : this.first)?.resolve();
       if (this.first.length || this.last.length) this.schedule();
     });
   }
+}
+
+/** Who a request line is for, for its turn: the agent it names (`actorId`), else the connection it came on. */
+export function turnKeyOf(line: string, connection: object): TurnKey {
+  const actor = /"actorId"\s*:\s*"([^"]{1,120})"/.exec(line)?.[1];
+  return actor ? `actor:${actor}` : connection;
 }
 
 /** The action a request line names, read without parsing the line (it is parsed once, when its turn comes). */
