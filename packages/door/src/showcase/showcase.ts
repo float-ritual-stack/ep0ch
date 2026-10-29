@@ -382,6 +382,19 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "while-typing", need: "let agents work in the door while the person types: nothing an agent does replaces the note being edited, takes the person's keys or moves their focus, and a refusal says why in the same words on every screen",
+    aside: "the left reader is in the person's edit, keys and all · try, as an agent: act open id=<the shed note's id> --as fern lands beside it (the edit stays on its note); act link.follow tile=1 --as fern and act reader.mode tile=1 --as fern are refused in the words every screen says it; act comment.add tile=2 … --as fern comments on the right reader's note and the keys stay put; act access.apply --as fern is the person's alone, on their press too · a button the person presses runs as them: their keystroke (PIE-1186)",
+    part: "the one owners (PIE-1294): the actor rule (actorRule, checked by the dispatcher and Dispatcher.rule for a step), placement() for where an open lands, ReaderPane.keepsOff and holdsEdit for a reader that keeps its note, recorded() for who a write is recorded as, ActionDef.person and personAlways for what's the person's; test/one-owner.test.ts fails when a screen decides one itself",
+    files: "src/surface/dispatch.ts, src/desk/screen-layout.ts, src/desk/panes.ts, src/whereabouts.ts, src/socket.ts, test/one-owner.test.ts",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · while you type", panes: [a, b], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.whiteboard], [b, n.notebook]], d => {
+        // The person's own key would do this: through the stage's dispatcher, in the left reader.
+        void d.press(a, NOTE_ACTIONS, "edit");
+      });
+    },
+  },
+  {
     key: "kept", need: "see what an unsent edit changes against a note that has moved on, and add it, keep it or let it go", part: "the kept edit's three-way comparison (compareDraft: its base from the draft or the note's history, the draft, the note now): each of the edit's own changes is already in the note, still new or changed differently since; the reader's line says so in one sentence and offers [show them]/[compare] [add them] [keep as a note] [let it go] (unsent.*); an edit the note already has settles quietly, and an old one folds to a chip", files: "src/unsent-compare.ts, src/unsent.ts, src/draft-session.ts, src/surface/note.ts",
     aside: "left: an edit with a line the note lacks (the note changed once since, in another place): [show them] marks only the edit's own change, [add them] puts it into an edit as one patch (ctrl+z takes it back) · middle: an edit the note already has: it settled by itself when this reader opened, kept as a copy, one dim line · right: an edit from five days ago folds to \"1 old edit\"; [show] opens it: the line it rewrote was rewritten differently since, and [compare] shows both versions (src/unsent-compare.ts)",
     stage(n, show) {

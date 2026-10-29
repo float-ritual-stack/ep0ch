@@ -330,6 +330,13 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     await expect(app.act({ action: "welcome.select", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing on the welcome/);
     ch("2");                                                                         // typed into the edit, not a pick
     expect(tileOf<WelcomeDetail>("detail").msg?.id).toBe(n.start.id);
+    // Where a pick lands while the detail holds the edit is placement's, as on any desk (PIE-1294): the person's own
+    // pick (their press, from the power bar) opens beside it and the edit stays; it was refused here before.
+    const before = top().layoutGet().tiles.length;
+    await top().dispatch.press("welcome.select", { n: 2, read: true });
+    await until(() => top().layoutGet().tiles.some(t => t.name !== "detail" && (t as any).note === n.rules.id) || top().layoutGet().tiles.length > before, "the pick opened beside the edit");
+    expect(tileOf<WelcomeDetail>("detail").msg?.id).toBe(n.start.id);
+    expect(tileOf<WelcomeDetail>("detail").draft).toBeTruthy();
     press({ kind: "esc" }); press({ kind: "esc" });
     await until(() => !tileOf<WelcomeDetail>("detail").draft, "the edit closed");
   });
