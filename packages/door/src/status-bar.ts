@@ -195,7 +195,7 @@ export class StatusBarNote {
   private itemOf(entry: StatusEntry, builtins: StatusItem[], place: "left" | "right", path: string[]): StatusItem | null {
     const after = place === "right" ? RIGHT_AFTER : " │ ";
     if (entry.kind === "builtin") { const b = builtins.find(x => x.id === entry.id); return b ? { ...b, rank: RANK.listed } : null; }
-    if (entry.kind === "group") return { id: `group:${entry.line}`, text: `${entry.label} ${fg(C.yellow)}▴${fg(C.lcyan)}`, place, after, rank: RANK.pinned, click: { action: "status.bar.menu", args: { group: [...path, entry.label].join("/") } } };
+    if (entry.kind === "group") return { id: `group:${entry.line}`, text: `${entry.label} ${fg(C.yellow)}▲${fg(C.lcyan)}`, place, after, rank: RANK.pinned, click: { action: "status.bar.menu", args: { group: [...path, entry.label].join("/") } } };
     const b = entry.call, line = entry.line, note = this.note!.id;
     const text = buttonText(b.label, { ...b.look, ...pressState(note, line) }) + STATUS_INK;
     return { id: `button:${line}`, text, place, after, rank: RANK.pinned, button: { look: b.look, line },
@@ -303,6 +303,10 @@ export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
     keys: "right-click or alt+click an empty part of the status bar; a click on its ! item; the power bar's status bar: edit",
     touches: "nothing", replay: "ask",
     args: { line: { type: "number", optional: true, about: "the note's line to open it at (1 is the title): the bar's ! item gives its first skipped line" } },
+    examples: [
+      { act: "status.bar.edit", does: "opens your status-bar note, making it with today's built-ins if it's new" },
+      { act: "status.bar.edit line=21", does: "opens it at line 21, the line the bar's ! item names" },
+    ],
     async run({ line }, on, actor) {
       const note = await on.note.ensure(on.builtins(), actor);
       const lines = note.text.split("\n"), n = line && line >= 1 && line <= lines.length ? line - 1 : null;

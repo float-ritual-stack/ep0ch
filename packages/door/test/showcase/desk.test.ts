@@ -77,7 +77,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const collapsed = async () => ((await app.dispatch.act({ action: "layout.get" }, { kind: "user" })) as { tiles: { name: string; collapsed?: boolean }[] }).tiles.find(t => t.name === "extra")?.collapsed === true;
     const unfold = () => app.dispatch.act({ action: "tile.collapse", tile: "extra", args: { on: false } }, { kind: "user" });
     try {
-      await until(() => bar().includes("Tiles ▴") && bar().includes("! line 6"), "the group and the skipped line");
+      await until(() => bar().includes("Tiles ▲") && bar().includes("! line 6"), "the group and the skipped line");
       expect(bar()).toContain("ep0ch");
       const rows = (await app.dispatch.act({ action: "status.bar.menu", args: { group: "Tiles" } }, { kind: "agent", id: "test-agent" }) as any).rows;
       expect(rows.map((r: any) => r.label)).toEqual(["[Fold extra]", expect.any(String)]);

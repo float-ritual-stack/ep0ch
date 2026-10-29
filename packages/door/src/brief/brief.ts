@@ -136,14 +136,15 @@ export class BriefReader extends ReaderPane {
   }
   override dispose() { if (this.reload) clearTimeout(this.reload); super.dispose?.(); }
 
-  /** Show the brief at `i` (oldest is 0). False when the reader holds an edit or a comment on another note. */
-  private showAt(i: number, desk: DeskApi): boolean {
+  /** Show the brief at `i` (oldest is 0): null, or why not (the reader holds an edit or a comment on another note: ReaderPane.keepsOff). */
+  private showAt(i: number, desk: DeskApi): string | null {
     const list = this.briefs ?? [];
     const m = list[i];
-    if (!m) { this.at = -1; this.show(null, desk); return true; }
-    if (this.msg?.id !== m.id && !this.show(m, desk)) return false;
+    if (!m) { this.at = -1; this.show(null, desk); return null; }
+    const no = this.msg?.id !== m.id ? this.showOr(m, desk, "the brief's reader") : null;
+    if (no) return no;
     this.at = i;
-    return true;
+    return null;
   }
 
   /** Where `m` is among the briefs, or -1. */
@@ -193,7 +194,8 @@ export class BriefReader extends ReaderPane {
 
   /** Show the brief at `i` (BRIEF_ACTIONS say an agent's on screen, once the actor rule let it). */
   go(i: number, desk: DeskApi): Stepped {
-    if (!this.showAt(i, desk)) throw new ActionRefused("the brief's reader holds an edit or a comment on another note; save or close it first");
+    const no = this.showAt(i, desk);
+    if (no) throw new ActionRefused(no);
     desk.redraw();
     return this.shown!;
   }

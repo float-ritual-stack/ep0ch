@@ -11,8 +11,10 @@ export const RECORD_FIELDS = {
   suggestion: ["day", "note", "revision", "writer", "harness", "component", "gate", "confidence", "callout", "model", "prompt-rev", "source", "thread"],
   // PIE-1388: what a write's review told its writer, a fact per finding: its rule, Evan's rubric item, the passage, what was
   // said and whether a ready patch came with it (model and tokens are the day's run). Settled by the same outcome record,
-  // which repeats the passage and what was said, so one row reads whole. (A template holds at most 16 fields.)
-  "review-finding": ["day", "note", "revision", "writer", "harness", "rule", "rubric", "component", "key", "line", "title", "passage", "said", "verdict", "patch", "source"],
+  // which repeats the passage and what was said, so one row reads whole. `fix` is the ready patch's new text, under the
+  // chips in a code fence its writer adds (the fix offered, as the card shows it, and how a later write is checked for it; PIE-1402).
+  // (A template holds at most 16 fields; the review's verdict is the record's title.)
+  "review-finding": ["day", "note", "revision", "writer", "harness", "rule", "rubric", "component", "key", "line", "title", "passage", "said", "patch", "source", "fix"],
   "suggestion-outcome": ["day", "suggestion", "note", "outcome", "component", "writer", "harness", "because", "rule", "rubric", "title", "passage", "said", "patched"],
   // PIE-1197: a real query and the note(s) that should come first (`expect`: ids, or `none` when nothing should), and who
   // said so (`source`: an agent's read after its search, the note it made, or Evan's pick). The search eval reads them.
@@ -24,6 +26,22 @@ export const RECORD_FIELDS = {
   "work-twin": ["day", "title", "twin", "same", "outcome", "item", "writer", "by"],
 } as const;
 export type RecordKind = keyof typeof RECORD_FIELDS;
+
+/**
+ * A value as a record's chip holds it, the writer's words kept (PIE-1402: `[needs::sysop]` read back as `needs:sysop`):
+ * one line; a bracketed run (`[needs::sysop: …]`) quoted as code, which a chip's value may hold whole; a stray bracket,
+ * which would end the chip, dropped. `::` is fine inside a value.
+ */
+export function chipValue(v: string, max = 400): string {
+  const quoted = v.replace(/[\r\n]+/g, " ").split(/(`[^`]*`)/).map((part, i) => i % 2 ? part : part.replace(/\[[^\[\]`]*\]/g, m => `\`${m}\``)).join("");
+  const kept = quoted.split(/(`[^`]*`)/).map((part, i) => i % 2 ? part : part.replace(/[\[\]]/g, " ")).join("").replace(/\s{2,}/g, " ").trim();
+  // Cut outside a code span, so a quoted chip never loses its closing tick.
+  if (kept.length <= max) return kept || "none";
+  let cut = kept.slice(0, max - 1);
+  if ((cut.match(/`/g) ?? []).length % 2) cut = cut.slice(0, cut.lastIndexOf("`"));
+  return `${cut.trimEnd()}…`;
+}
+export const chips = (props: Record<string, string>) => Object.fromEntries(Object.entries(props).map(([k, v]) => [k, chipValue(v)]));
 interface Note { id: string }
 
 const DEPLOYS_NOTE = [
@@ -45,6 +63,7 @@ function recordTemplate(kind: RecordKind): string {
       ? `\n${key === "clients" ? "Client legs" : key[0]!.toUpperCase() + key.slice(1)}: {{props.${key}}}`
       : ["run", "finding", "previous"].includes(key) && kind !== "jev-run"
       ? `[${key}::(({{props.${key}}}))]`
+      : key === "fix" ? `\nfix:\n{{props.fix}}`
       : ["clients", "local", "summary", "report", "failure", "likelihood", "cost", "dismissed", "sessions", "failed", "details"].includes(key)
         ? `\n${key}:\n{{props.${key}}}` : `[${key}::{{props.${key}}}]`),
   ].join("\n");

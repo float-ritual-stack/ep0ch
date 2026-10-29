@@ -433,7 +433,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
   test("a nested list is a group: its label on the bar opens its items as a menu, by click and by act, and a nested button presses (PIE-1224)", async () => {
     const note = await board.createBlock(null, 'Group status [status-bar::true]\n- brand\n- Tools\n  - ::button{label="Video" act="video.cycle"}\n  - theme\n- clock');
     try {
-      await until(() => bar().includes("Tools ▴"), "the group on the bar");
+      await until(() => bar().includes("Tools ▲"), "the group on the bar");
       const asked = await app.dispatch.act({ action: "status.bar.menu", args: { group: "Tools" } }, { kind: "agent", id: "test" } as any) as any;
       expect(asked.rows.map((r: any) => [r.label, r.action])).toEqual([["[Video]", "button.press"], [theme().name, "theme.cycle"]]);
       await expect(app.dispatch.act({ action: "status.bar.menu", args: { group: "Tool" } }, USER)).rejects.toThrow(/no group "Tool".*Tools/);

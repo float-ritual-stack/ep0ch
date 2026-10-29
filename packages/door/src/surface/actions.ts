@@ -137,8 +137,23 @@ export interface ActionDef<A, H> {
    * level check: `tile.agent` lets an agent tighten a limited tile, and the layout module refuses it loosening one.
    */
   ownGate?: true;
-  /** The person's own: an agent's is refused with this, which says why and what an agent does instead. */
+  /**
+   * The person's own: an agent's is refused with this, which says why and what an agent does instead. Their press of a
+   * script invites its run (src/surface/invite.ts), and a pressed run is their keystroke (PIE-1186), so an invitation
+   * lifts it; yolo never does.
+   */
   person?: string;
+  /**
+   * The person's alone, never lifted (PIE-1294): not by their press's invitation, not by yolo. For what is theirs to
+   * decide rather than their keys (what agents may reach, handing the door over, ending their session): a script an
+   * agent wrote, pressed by them, is refused it too. Said on the action's page.
+   */
+  personAlways?: string;
+  /**
+   * `person` or `personAlways` that its arguments decide (yolo on= is theirs alone, off= anyone's; a form's own fields
+   * are theirs, op=open an agent's too): a reason is `person`'s, `{ always }` never lifted, null not theirs.
+   */
+  personWith?(args: A): string | { always: string } | null;
   /** `touches: "tile"`: what an agent does instead, said when it's refused in the person's tile. */
   way?: string;
   /**
@@ -234,7 +249,7 @@ export const actionSet = <H>() => <M extends { [K in keyof M]: object }>(scope: 
  * An action as `ep0ch-door actions` lists it: `touches`, `replay` and `person` are its declarations (what it touches
  * of the person's, whether a restarted door may run it again, the person's only).
  */
-export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; person?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** What it says about repainting (`repaints`): whether a run changed what's shown, or `answer` when its answer says; left out, by what it touches. */ repaints?: boolean | "answer"; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[] }
+export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; /** The person's own (ActionDef.person): why, as an agent is told. */ person?: string; /** The person's alone, never lifted (ActionDef.personAlways): why. */ personAlways?: string; /** Its arguments decide whether it is the person's own (ActionDef.personWith). */ personVaries?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** What it says about repainting (`repaints`): whether a run changed what's shown, or `answer` when its answer says; left out, by what it touches. */ repaints?: boolean | "answer"; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[] }
 
 /**
  * A set of actions over one kind of host. `M` maps each action name to its argument object (derived from each
@@ -273,7 +288,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
   list(): ActionInfo[] {
     return (Object.keys(this.defs) as (keyof M & string)[]).map(name => {
       const d = this.defs[name];
-      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.repaints === undefined ? {} : { repaints: typeof d.repaints === "function" ? "answer" as const : d.repaints }), ...(d.examples?.length ? { examples: d.examples } : {}) };
+      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: d.person } : {}), ...(d.personAlways ? { personAlways: d.personAlways } : {}), ...(d.personWith ? { personVaries: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.repaints === undefined ? {} : { repaints: typeof d.repaints === "function" ? "answer" as const : d.repaints }), ...(d.examples?.length ? { examples: d.examples } : {}) };
     });
   }
 

@@ -5,7 +5,6 @@
 // `bar.pick` lists them for itself and picks one, which runs through the source's shared path as the agent, so every
 // rule an action has for an agent (never their keys, focus or screen) is that path's own.
 import { ActionRefused, actionSet, actRequestOf, def, lineWords, type ActRequest } from "../surface/actions";
-import { actorRule } from "../surface/dispatch";
 import type { Actor } from "../socket";
 import type { PowerBar } from "./bar";
 import { clearPrivateForm, formFocus, formLine, formOpen, formRun, formSet, formState } from "./ask";
@@ -62,8 +61,6 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
     async run({ query, scope, by, keep }, { on, standing }, actor: Actor) {
       const s = scopeArg(scope);
       if (!standing) { const b = await on.unseen({ query, scope: s }); try { return { ...b.describe(), scopes: scopes() }; } finally { b.close(); } }
-      const held = actorRule({ touches: "screen", host: true }, actor, on.host().dispatch.where(), {});
-      if (held) throw new ActionRefused(held);
       const open = on.bar();
       if ((by !== undefined || keep) && open && !open.ended()) {
         const all = open.scopes();
@@ -98,8 +95,6 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
           return await b.pickRow(at, !!alt, actor);
         } catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); } finally { b.close(); }
       }
-      const held = actorRule({ touches: "screen", host: true }, actor, on.host().dispatch.where(), {});
-      if (held) throw new ActionRefused(held);
       const b = on.bar();
       if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
       if (query !== undefined || scope !== undefined) throw new ActionRefused("the person's pick is from the bar as they see it: query= and scope= are an agent's");
@@ -127,8 +122,6 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
     ],
     async run({ op, text, from, to, query, scope }, { on, standing }, actor: Actor) {
       if (!["clear", "complete", "paste", "select", "cut", "delete-word", "undo"].includes(op)) throw new ActionRefused("choose clear, complete, paste, select, cut, delete-word or undo");
-      const held = standing && actorRule({ touches: "screen", host: true }, actor, on.host().dispatch.where(), {});
-      if (held) throw new ActionRefused(held);
       const b = !standing ? await on.unseen({ query, scope: scopeArg(scope) }) : on.bar();
       if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
       try { await b.edit(op, { text, from, to }, actor.kind === "user"); return { query: b.query, selected: b.input.selectedText() }; }
@@ -175,6 +168,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
     summary: "an action's form in the power bar (PIE-1031): a field per argument (the ones it needs first, then tile= when it runs on a tile, then the rest), each with what it means; the field in focus lists its values, the things in the system it can name (a tile, a note, a page, a screen, a saved view, a property's key or value, a tile kind), its choices, or true and false, typing filtering them; the act line it will run under them, and its examples, a pick of one filling the form. op=open action=<name> (or line=<an act line> to start from some of its arguments) opens it; op=focus field=<name> (run: the act line) moves to a field; op=set field= value= answers one and goes on; op=clear field= leaves one out; op=back goes back a field; op=copy copies the act line; op=run runs it as the person, through the dispatcher. An agent's op=open answers the fields (their kinds, choices and defaults) and opens nothing; an agent runs the action itself",
     keys: "enter on an action that takes arguments in the power bar's actions (alt+enter runs one that needs none as it is); in the form: enter picks a value and goes on, alt+enter picks and runs, shift+tab or backspace on an empty line goes back a field, a click on a field or the act line",
     touches: "nothing", replay: "ask",
+    personWith: a => (a.op === "open" ? null : "the form open in the power bar is the person's; an agent runs the action itself (ep0ch act <action> …, op=open answers its fields)"),
     args: {
       op: { type: "string", choices: FORM_OPS, about: "open, focus, set, clear, back, copy or run" },
       action: { type: "string", optional: true, about: "op=open: the action whose form it is" },
@@ -193,7 +187,6 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
         await openActionForm(on.host(), req, actor);
         return formState();
       }
-      if (actor.kind === "agent") throw new ActionRefused("the form open in the power bar is the person's; an agent runs the action itself (ep0ch act <action> …, op=open answers its fields)");
       if (!formOpen()) throw new ActionRefused("no form is open · pick an action that takes arguments in the power bar (ctrl+k then >)");
       const need = () => { if (field === undefined) throw new ActionRefused(`op=${op} names field=`); return field; };
       if (op === "run") { const why = formState()?.refused; if (typeof why === "string") throw new ActionRefused(why); on.close(); return formRun(); }

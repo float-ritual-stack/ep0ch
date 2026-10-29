@@ -91,7 +91,7 @@ import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_
 import { TONE_INDEX, surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject } from "../socket";
+import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
@@ -107,7 +107,7 @@ import type { FragmentKind, ShareSession } from "@ep0ch/outline-core/protocol";
 import { startsTable, tableCells } from "@ep0ch/outline-core/table-shape";
 import { ActionRefused, actionSet, boundNow, def, keyCaption, agentLabel, agentWords, asActor, type ActionDef, type ActionSet, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
-import { NOBODY } from "../whereabouts";
+import { holdsEdit, NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, previewRows, wheelTarget, writtenBy, type EditFrame } from "./editor";
 import { composerBody, composerBox, placeBox, type ComposerBox } from "./composer";
 import { AttachedTile, attachedAt, attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedTileHost, type AttachedSide, type AttachedPlace, type AttachedSplit, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, nextPlace, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
@@ -3566,7 +3566,7 @@ export class NoteSurface {
     // The service decides which [key::value] tokens are properties (a token followed by more text on
     // its line is plain text), so say plainly when a save changed them: a card can leave its lane.
     this.notice = change ? `properties changed: ${change}` : "";
-    const whose = sameParty(by, asked) && !by.with?.length ? "" : ` · recorded as ${recordedAs(by)}`;
+    const whose = sameParty(by, asked) && !by.with?.length ? "" : ` · recorded as ${recorded(by).says}`;
     host.ctx.flash(`saved · revision ${m.revision}${change ? ` · properties changed: ${change}` : ""}${whose}`);
     // Saved first; then a reference that leads nowhere is said, with what it may have meant (PIE-761), never refused.
     void savedReferenceWarning(host.ctx.board, m.text, m.id).then(async said => {
@@ -7332,7 +7332,6 @@ export class NoteSurface {
       this.noteAgent(actor, `read the sources of this note`);
       return { ...this.sourcesRead(a), ...(i >= 0 ? { at: i + 1 } : {}), opened: false };
     }
-    if (actor.kind === "agent" && !INVITES.covers(actor.invitation, "tile", actor.run) && this.holdsKeys) throw new ActionRefused("the person is typing here; the Sources inspector does not take their keys");
     let mode = this.sourcesMode;
     if (!mode || mode.panel.block !== m.id) { mode = this.sourcesModeOf(newPanel(m.id, ""), host); this.modes.push(mode); }
     mode.reveal = true;
@@ -8121,7 +8120,7 @@ export class NoteSurface {
     const here = this.place();
     const note = fresh ?? to.msg;
     if (host.contextFor) host = { ...host, ctx: host.contextFor(note) };
-    if (!this.show(note, host)) return "the reader is holding an edit or a comment";
+    if (!this.show(note, host)) return holdsEdit("the reader");
     stack.pop();
     if (here) (dir < 0 ? this.aheads : this.backs).push(here);
     this.restorePlace(to);
@@ -8848,6 +8847,8 @@ export class NoteSurface {
     this.use(host);
     // The property panel is the person's (only their `i` opens it); an agent doesn't start an edit or a
     // comment under it, where the panel would take the keys meant for the agent's session (the mode stack's own rule).
+    // A state rule, not a guard yolo lifts (the panel would take the keys meant for the agent's session); the person's
+    // press's run is theirs (PIE-1186).
     if (actor.kind === "agent" && !INVITES.covers(actor.invitation, "tile", actor.run) && this.sessionMode()?.name === "panel" && STARTS_SESSION.has(name))
       return Promise.reject(new ActionRefused("the person has the property panel open on this note; try again once they close it"));
     const h: SurfaceHost = actor.kind === "agent" ? { ...host, ctx: asActor(host.ctx, actor), redraw: () => host.redraw(), navigate: (m, how) => host.navigate(m, { ...how, by: actor, standing }),
@@ -9346,11 +9347,6 @@ const describeRow = (r: PropRow, src: Source | null, text: string) => ({
   ordinal: r.ordinal, ...(r.target ? { target: r.target, reads: printable(valueView(r, src, text)) } : {}),
 });
 
-/** "yours", "an agent (x)'s", with anyone else who wrote part of it: how a save was recorded. */
-function recordedAs(by: Actor): string {
-  const whose = by.kind === "agent" ? `${agentLabel(by)}'s` : "yours";
-  return by.with?.length ? `${whose}, naming ${recordedActorId(by)}` : whose;
-}
 
 
 /** A draft action (src/edit.ts, DRAFT_ACTIONS) run on the reader's edit or comment being written. */
@@ -10127,13 +10123,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "open the note for editing (its whole text, at the revision the service has now); external=true opens it in $EDITOR (a reader's ctrl+e; in an open edit, or a comment or reply being written, edit.external, ctrl+x ctrl+e, hands that over). The person's e arms it first (edit.arm) and ⏎ or e again opens it; a click on an edit control opens it at once", keys: "e then ⏎/e, ctrl+e then ⏎/ctrl+e (e or ctrl+e alone with edit.arm.set on=false)",
     touches: "draft", draft: "write", replay: "ask",
     menu: noteRow("edit", "e", { now: ({ surface }) => (surface.draft ? { hide: true } : null) }),
+    personWith: a => (a.external ? "the $EDITOR handoff takes over the person's terminal; send the text with edit.text" : null),
     args: { external: { type: "boolean", optional: true, about: "hand the draft to $EDITOR (the person's keys only)" } },
     examples: [
       { act: "edit", does: "opens the note's whole text for editing, at the revision the service has now" },
       { act: "edit external=true", does: "opens the note in $EDITOR in a terminal tile beside the reader" },
     ],
     async run({ external }, { surface, host }, actor) {
-      if (external && actor.kind === "agent") throw new ActionRefused("the $EDITOR handoff takes over the person's terminal; send the text with edit.text");
       // Already writing here: that draft, or the comment or reply, goes to $EDITOR (edit.external's).
       if (external && (surface.draft || writingIn(surface))) return handToEditor(surface, host);
       if (surface.draft) return { already: true, id: surface.draft.blockId, baseRevision: surface.draft.base };

@@ -117,6 +117,10 @@ describe('freshness helpers', () => {
     expect(bashReadRefusal('ep0ch find --ws pie --query "type=build-log" --json | head -50')).toBeNull()
     expect(bashReadRefusal('systemctl --user list-units --all 2>/dev/null')).toBeNull()
     expect(bashReadRefusal("ssh laptop 'ep0ch status'")).toBeNull()
+    // The float-2 checks the sweep is asked for (Oct 29: both were refused, so the sweep never saw float-2).
+    expect(bashReadRefusal("ssh float-2 'systemctl --user --failed'")).toBeNull()
+    expect(bashReadRefusal("ssh float-2 'cd ~/projects/ep0ch && git rev-parse HEAD'")).toBeNull()
+    expect(bashReadRefusal("ssh float-2 'systemctl --user restart outliner-host'")).toContain('changes something')
     expect(bashReadRefusal('git log --oneline -5 > /tmp/x')).toContain('redirection')
     expect(bashReadRefusal('sed -i s/a/b/ CHANGELOG.md')).toContain('`sed`')
     expect(bashReadRefusal('ep0ch install --apply')).toContain('changes something')

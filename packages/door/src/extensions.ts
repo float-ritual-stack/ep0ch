@@ -684,11 +684,11 @@ function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
         const a = extensionNamed(b.extension)?.actions.find(x => x.id === r.action);
         if (!a) throw new ActionRefused(`${b.extension} no longer has the action ${r.action}`);
         const args = { ...(r.block ? { block: r.block } : {}), ...(r.args ? { with: JSON.stringify(r.args) } : {}) };
-        return how.actor.kind === "agent" ? host.dispatch.act({ action: a.name, args }, how.actor) : host.dispatch.press(a.name, args);
+        return host.dispatch.as(how.actor, { action: a.name, args });
       }
       if (r.block) return openNote(r.block, host, how);
       // A Resource (PIE-754): opened where opens land, registered first if it must be (the desk's open resource=).
-      if (r.resource) return how.actor.kind === "agent" ? host.dispatch.act({ action: "open", args: { resource: r.resource } }, how.actor) : host.dispatch.press("open", { resource: r.resource });
+      if (r.resource) return host.dispatch.as(how.actor, { action: "open", args: { resource: r.resource } });
       // A copy is the person's clipboard; an agent gets the text back.
       if (r.copy !== undefined) { if (how.actor.kind !== "agent") host.ctx.copy?.(r.copy); return { copied: r.copy }; }
       throw new ActionRefused("that row does nothing when picked");

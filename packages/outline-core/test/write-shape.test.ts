@@ -197,3 +197,51 @@ test("a work item's title is measured after its Work ID and never moved down", (
   expect(found).toMatchObject({ rule: "title" });
   expect(found!.patch).toBeUndefined();
 });
+
+// PIE-1402, found in use: the buried question's patch cut its chip mid-word, left "…, and" behind, and glued the
+// checkbox to the first paragraph; the wall's patch left bullets of 250–600 characters. Every patch applied as written
+// must leave a note the next review has nothing to say about.
+const apply = (text: string, patch: readonly { observed: string; replacement: string }[]) => patch.reduce((t, p) => t.replace(p.observed, p.replacement), text);
+
+test("the wall with its ask in the last sentence: both patches, as written, leave nothing to fix", () => {
+  const note = [
+    "Shed roof notes",
+    "",
+    "The felt went on this morning and the roof over the potting bench no longer drips onto the seed trays, which means the trays can stay where they are through the winter, and the bucket that caught the leak is back with the compost, though the far corner still lets in a little light where the batten split last spring. We checked it twice after the rain and both times the bench stayed dry, so the felt is doing its job. The gutter came down for cleaning and went back up. The ladder went back to the shed. Evan, should we replace the split batten now, which means a second trip to the timber yard, or leave it until the spring sweep?",
+  ].join("\n");
+  let text = note;
+  const question = writeShape(text).find(f => f.rule === "question")!;
+  text = apply(text, question.patch!);
+  // The chip holds the whole ask, cut only at a word, and the checkbox is its own paragraph.
+  expect(text.split("\n")[0]).toMatch(/^Shed roof notes \[needs::sysop: Evan, should we replace the split batten now, which means a second trip to the…\]$/);
+  expect(text.split("\n").slice(1, 4)).toEqual(["", expect.stringMatching(/^- \[ \] Evan, should we replace .* spring sweep\?$/), ""]);
+  const wall = writeShape(text).find(f => f.rule === "wall")!;
+  text = apply(text, wall.patch!);
+  // A sentence too long for a bullet nests its clauses under the first.
+  expect(text).toContain("- The felt went on this morning and the roof over the potting bench no longer drips onto the seed trays,\n  - which means the trays can stay where they are through the winter,");
+  expect(writeShape(text)).toEqual([]);
+});
+
+test("a buried ask whose line holds little else moves whole; one under a title with no blank line stays its own paragraph", () => {
+  const filler = Array.from({ length: SHAPE_LIMITS.top }, (_, i) => `- point ${i}`).join("\n");
+  const note = `Notes\nFirst line of the body.\n\n${filler}\n\nSo, Evan, should we book the long table?`;
+  const [q] = writeShape(note);
+  const moved = apply(note, q!.patch!);
+  expect(moved).toStartWith("Notes [needs::sysop: So, Evan, should we book the long table?]\n\n- [ ] So, Evan, should we book the long table?\n\nFirst line of the body.");
+  expect(moved).not.toContain("\nSo,\n");
+  expect(writeShape(moved)).toEqual([]);
+});
+
+test("a stacked item whose one sentence is too long nests its clauses", () => {
+  const item = "- The new shelves hold every jar from the old cupboard and the two crates from the shed, which means the floor by the door is clear again, and the labels face out so a jar can be found without lifting the others, though the top shelf is still too high to reach without the step.";
+  const [found] = writeShape(`Pantry\n\n${item}`);
+  expect(found).toMatchObject({ rule: "stacked" });
+  const fixed = apply(`Pantry\n\n${item}`, found!.patch!);
+  expect(fixed.split("\n").slice(2)).toEqual([
+    "- The new shelves hold every jar from the old cupboard and the two crates from the shed,",
+    "  - which means the floor by the door is clear again,",
+    "  - and the labels face out so a jar can be found without lifting the others,",
+    "  - though the top shelf is still too high to reach without the step.",
+  ]);
+  expect(writeShape(fixed)).toEqual([]);
+});
