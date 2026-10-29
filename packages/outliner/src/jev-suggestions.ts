@@ -102,14 +102,13 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
     }
     const asked = keep.review.jev === "asked";
     const unavailable = !asked && !/^(?:off|not asked)/.test(keep.review.jev);
-    if (keep.at.source === "backfill") {
-      // A note that was read whole and said nothing is kept too: a rerun skips it rather than ask Jev again. One Jev
-      // couldn't read isn't, so a rerun tries it again.
-      if (!told.length && (asked || /^not asked/.test(keep.review.jev))) {
-        await writeRecord(board(client), "review-quiet", clean({ day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), source: "backfill" }), JEV, { title: `quiet: ${keep.title || "untitled"}`.slice(0, 120), cache });
-      }
-      return;
+    // A note that was read whole and said nothing is kept too: findable on the suggestions page (PIE-1388), and a
+    // backfill rerun skips it rather than ask Jev again. One Jev couldn't read isn't, so a rerun tries it again.
+    if (!told.length && (asked || /^not asked/.test(keep.review.jev))) {
+      await suggestionsPage(client);
+      await writeRecord(board(client), "review-quiet", clean({ day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), source: keep.at.source }), JEV, { title: `quiet: ${keep.title || "untitled"}`.slice(0, 120), cache });
     }
+    if (keep.at.source === "backfill") return;
     await updateRun(client, day, { ...(told.length ? {} : asked ? { quiet: 1 } : {}), ...(unavailable ? { unavailable: 1 } : {}), ...(keep.reading ? { reading: keep.reading } : {}) });
   } catch { /* the write has landed; a record that can't be made is not its failure */ }
 }
@@ -144,8 +143,10 @@ export function fixOf(recordText: string): string[] {
  * finding to mark Jev right (x) or wrong (`-`, Reject: the status chooser's keys), which writes `jev::right` or
  * `jev::rejected` on the record; and the
  * backfill's stats by rubric and writer. Every number is a live figure. An outline that already has a page by this
- * address (pie's, made by hand) keeps its own.
+ * address (pie's, made by hand) keeps its own, gaining only what a later version added (`upgradeSuggestionsPage`).
  */
+const QUIET_HEADING = "## Reviewed, nothing to fix";
+
 export const SUGGESTIONS_PAGE = [
   "Jev's suggestions [page::jevs-suggestions] [system-view::jev-suggestions]",
   "",
@@ -167,6 +168,20 @@ export const SUGGESTIONS_PAGE = [
   "query: type=review-finding NOT source=backfill",
   "machinery: show",
   "columns: [note, said, passage, rubric, patch, writer]",
+  "link: note",
+  "sort: created",
+  "direction: desc",
+  "limit: 30",
+  "---",
+  "::",
+  "",
+  QUIET_HEADING,
+  "::graph-table",
+  "---",
+  "title: writes the review passed",
+  "query: type=review-quiet NOT source=backfill",
+  "machinery: show",
+  "columns: [note, writer, revision, created]",
   "link: note",
   "sort: created",
   "direction: desc",
@@ -237,9 +252,30 @@ export const REVIEW_RECORDS_RULE =
   "Review records read [rule-name::review-records] [rule-match::type=review-finding OR type=suggestion OR type=suggestion-outcome] " +
   "[rule-decorate::card] [rule-place::prepend] [rule-fields::note, rubric, component, verdict, said, passage, outcome, because, writer]";
 
+/**
+ * An existing suggestions page with what a later version added and it lacks (PIE-1388): the quiet writes' section, with
+ * when each was written. Only added, never rewritten, so a page shaped by hand keeps its order and words; a page that
+ * has it is returned as it is.
+ */
+export function upgradeSuggestionsPage(text: string): string {
+  let lines = text.split("\n");
+  if (!lines.some(l => l.includes("query: type=review-quiet"))) {
+    const section = SUGGESTIONS_PAGE.split("\n"), from = section.indexOf(QUIET_HEADING);
+    const quiet = section.slice(from, section.indexOf("", from) + 1);
+    const before = lines.findIndex(l => l.trim() === "## What the writer did");
+    lines = before < 0 ? [...lines, "", ...quiet.slice(0, -1)] : [...lines.slice(0, before), ...quiet, ...lines.slice(before)];
+  }
+  return lines.join("\n");
+}
+
 async function suggestionsPage(client: SuggestionClient): Promise<void> {
   const has = await read(client, "system-view=jev-suggestions OR page=jevs-suggestions", 1);
   if (!has.length) await client.request({ action: "create", text: SUGGESTIONS_PAGE, parentId: null, author: JEV.author, provenance: JEV.provenance } as RequestInput);
+  else {
+    const page = has[0]!, text = upgradeSuggestionsPage(page.text);
+    // An upgrade that can't be made now (the page changed meanwhile) is never why a record is lost: the next review tries again.
+    if (text !== page.text) await client.request({ action: "update", blockId: page.id, text, expectedRevision: page.revision, mutation: { author: "agent", actorId: "jev/figure-fit" } } as RequestInput).catch(() => undefined);
+  }
   if (!(await read(client, "rule-name=review-records", 1)).length) await client.request({ action: "create", text: REVIEW_RECORDS_RULE, parentId: null, author: JEV.author, provenance: JEV.provenance } as RequestInput);
 }
 
@@ -343,8 +379,12 @@ function judgeFinding(
   let rewrittenUnread: number | undefined;
   const section = s.line ? sectionsOf(baseline).find(x => x.line + 1 === s.line) : undefined;
   const named = s.line ? baseline.split("\n")[s.line - 1] : undefined;
+  // A kit finding is about its section: the component drawn there, its patch applied there, not anywhere in the note
+  // (PIE-1388: two sections told graph-compare, one patched, and both read followed). Found again by its heading; a
+  // heading renamed or gone reads the whole note.
+  const within = (text: string) => kitSection ? sectionsOf(text).find(x => x.heading === kitSection.heading)?.text ?? text : text;
   for (const w of window) {
-    if (pieces?.length && pieces.every(p => w.text.includes(p))) return { outcome: "followed", because: `revision ${w.revision} applied the ready patch`, patched: true };
+    if (pieces?.length && pieces.every(p => within(w.text).includes(p))) return { outcome: "followed", because: `revision ${w.revision} applied the ready patch`, patched: true };
     // Jev's own judgment: followed only when Jev read the rewrite and didn't say it again; said again, it stands.
     const review = heard?.get(w.revision);
     if (review?.said.has(key) || review?.said.has(chipValue(key))) continue;
@@ -360,7 +400,7 @@ function judgeFinding(
     // A wall or a stacked bullet is the same problem wherever its words moved: gone only when no finding of that rule is near
     // its line (a cosmetic edit to its first words changes its key, not the problem).
     const near = (f: { rule: string; line?: number }) => f.rule === rule && Math.abs((f.line ?? 0) - (s.line ?? was?.line ?? 0)) <= 3;
-    const gone = rule === "kit" ? kitIn(w.text, schemas).has(s.component)
+    const gone = rule === "kit" ? kitIn(within(w.text), schemas).has(s.component)
       : was ? !writeShape(w.text, { facets }).some(f => (rule === "wall" || rule === "stacked" ? near(f) : f.key === key))
       // Otherwise (the work rules): the passage it named was rewritten. A section by its text, a line by its words, a
       // note without a line by any change.

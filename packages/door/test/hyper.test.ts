@@ -280,7 +280,7 @@ describe.skipIf(!outliner)("bare - + = on the desk, and the hyper layer, against
     await (app as any).dispatch.press("agent.lift", { on: false });
     expect(drawer.made.lifted).toBeNull();
     // An agent's lift never takes the person's keys: refused while they're in the drawer, said why.
-    await expect((app as any).act({ action: "agent.lift" })).rejects.toThrow(/typing in the drawer/);
+    await expect((app as any).act({ action: "agent.lift" })).rejects.toThrow(/typing in shell in the drawer/);
     await (app as any).dispatch.press("host.toggle", { open: false });
     await until(() => !drawer.open, "the drawer put away");
   });

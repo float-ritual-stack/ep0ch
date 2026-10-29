@@ -2551,7 +2551,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "extensions.undo"; undo: string; mutation?: MutationProvenance }
   | { id: string; action: "scripts.sequence"; blockId: string; line: number; clientId: string; invitation?: string; mutation: MutationProvenance }
   | { id: string; action: "scripts.stop"; run: string; mutation?: MutationProvenance }
-  | { id: string; action: "scripts.run"; blockId: string; access: import("@ep0ch/outline-core/protocol").McpAccessLevel; mutation: MutationProvenance; /** The door a script's `act` goes to (PIE-957); with none, the only door here, else a refusal naming them. */ door?: string }
+  | { id: string; action: "scripts.run"; blockId: string; /** The note the run is about: the script's `this`, as a press in that note gives it (PIE-1272). */ this?: string; /** The slots' values, the script's props, as a button's line would fill them. */ slots?: Record<string, string>; access: import("@ep0ch/outline-core/protocol").McpAccessLevel; mutation: MutationProvenance; /** The door a script's `act` goes to (PIE-957); with none, the only door here, else a refusal naming them. */ door?: string }
   | { id: string; action: "scripts.answer"; requestId: string; clientId: string; result?: unknown; error?: string }
   /**
    * What an action asks for (its declared `args`, PIE-784), each with the choices it has on `blockId` and its value
@@ -2620,6 +2620,8 @@ export type OutlinerRequestAction =
    * text. Going back is an ordinary `update` with that text, recorded as whoever writes it.
    */
   | { id: string; action: "block.revisions"; blockId: string; revision?: number; latest?: boolean }
+  /** What became of an agent's proposals (PIE-1086, proposal-outcomes.ts): `actor` an actor id or a persona, `since` an ISO time. */
+  | { id: string; action: "proposals.outcomes"; actor: string; session?: string; since?: string; limit?: number }
   | { id: string; action: "trash.purge"; blockId: string; confirmation: string }
   | {
       id: string;

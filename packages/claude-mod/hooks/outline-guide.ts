@@ -1,3 +1,4 @@
+import { READING_WIDTH } from './agent-tool-definitions'
 /**
  * What the session's outline can hold, in front of the model (PIE-721), so it reaches for figures, views, callouts and
  * rules without the person reminding it:
@@ -36,7 +37,7 @@ export function guideText(stdout: string): string | null {
 /** The write tools whose result is drawn back when what they wrote holds a figure. */
 export const DRAWN_BACK: readonly string[] = ['outline_edit', 'outline_create', 'outline_patch']
 /** The drawing's size: Evan's reading width (a 44-column desk tile, write-shape's readingWidth), and the note's first rows. */
-const DRAW_WIDTH = 44
+const DRAW_WIDTH = READING_WIDTH
 const DRAW_ROWS = 40
 export const DRAW_TIMEOUT_MS = 8000
 
@@ -68,6 +69,31 @@ export function drawnNoteOf(tool: string, resultText: string, input: Record<stri
 
 /** `ep0ch show` for the note, at the door's width and capped in rows. */
 export const drawArgv = (id: string): string[] => ['ep0ch', 'show', id, '--width', String(DRAW_WIDTH), '--rows', String(DRAW_ROWS)]
+
+/**
+ * outline_read with `view: true` (PIE-1272): the note it read and the width to draw it at (Evan's reading width when
+ * none is asked), or null. The id is the read's own (`id`), never the ref the agent gave.
+ */
+export function viewedNoteOf(tool: string, resultText: string, input: Record<string, unknown>): { id: string; width: number } | null {
+  if (tool !== 'outline_read' || input.view !== true) return null
+  let parsed: Record<string, unknown>
+  try { parsed = JSON.parse(resultText) as Record<string, unknown> } catch { return null }
+  const id = typeof parsed.id === 'string' && /^[0-9a-f-]{36}$/i.test(parsed.id) ? parsed.id : null
+  return id ? { id, width: typeof input.width === 'number' ? input.width : DRAW_WIDTH } : null
+}
+
+/** `ep0ch show` for a read's view: the whole note, at the width asked. */
+export const viewArgv = (id: string, width: number): string[] => ['ep0ch', 'show', id, '--width', String(width)]
+
+/** The read's result with `view` in it: the drawing a line each, as the gateway's outline_read answers it; or `viewError`, why it couldn't be drawn. */
+export function withView(resultText: string, drawn: string | { error: string }): string {
+  try {
+    const parsed = JSON.parse(resultText) as Record<string, unknown>
+    return JSON.stringify({ ...parsed, ...(typeof drawn === 'string' ? { view: drawn.replace(/\s+$/, '').split('\n') } : { viewError: drawn.error }) })
+  } catch {
+    return resultText
+  }
+}
 
 /**
  * The write's result with the note's drawing before it (the result's JSON stays last, where the tool rows read it:

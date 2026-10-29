@@ -139,3 +139,11 @@ test("marking one read in the outline stays read; a notification read at the sou
   expect(kept.split("\n")[0]).toStartWith("Fix the build [notify.key");
   expect(state("github:102")).toBe("read");
 });
+
+// PIE-1427: a page an earlier version made carried no stamp; the next pull stamps it, empty or not.
+test("an unstamped notifications page from an earlier version is stamped by the next pull", async () => {
+  const { store, pull } = await setup();
+  const old = store.create("Notifications [page::notifications]", null, "agent", { actorId: "ext:notify" });
+  expect(await pull()).toStartWith("notifications: 7 new");
+  expect(store.require(old.id).properties.find((p) => p.key === "machine")?.value).toBe("notify");
+});

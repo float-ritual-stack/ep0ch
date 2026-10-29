@@ -23,7 +23,7 @@ import { TXN, takeReserved } from "./txn";
 import type { KeyBinding } from "../desk/screen-spec";
 import { Offline, USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
-import { heldBack, NOBODY, SHELL_IDLE_MS, typingIn, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
+import { heldBack, keysIn, NOBODY, SHELL_IDLE_MS, typingIn, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
 import { agentRefusal, type AgentLevel } from "./agent-level";
 import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, chordName, declaredKeys, isKeyName, keyCaption, type ActionDef, type Keys, type KeyRow, type ActionInfo, type Touches, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
@@ -101,6 +101,8 @@ export interface MenuRow {
   action: string; args: Record<string, unknown>; tile: string; label: string; group: string; key?: string; refused?: string;
   /** The tile's own row: its set runs in the tile itself (its kind's, a reader's note and list actions), not the screen's every-tile rows. */
   own?: true;
+  /** It opens a menu of its own beside this one (a status-bar group in a group): the menu stays open under it (PIE-1428). */
+  submenu?: true;
 }
 /**
  * An action's keys as they are now: its def's, with the person's keymap applied (keysNow), and the screen's own bindings
@@ -304,8 +306,7 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       const typing = where.typingIn === t.name;
       const theirs = def.while === "typing" ? typing : typing || (!standing && where.focus === t.name);
       if (!theirs) return null;
-      const why = typing ? `the person is typing in ${label}` : `${label} has the person's keys`;
-      return def.way ? `${why}; ${def.way}` : heldBack(why, "act there");
+      return def.way ? `${typing ? `the person is typing in ${label}` : `${label} has the person's keys`}; ${def.way}` : keysIn(label, "act there", typing);
     }
     case "screen": {
       const what = at.what ?? "move the screen or their keys now";
