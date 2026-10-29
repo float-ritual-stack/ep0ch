@@ -1087,8 +1087,9 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
       await d.dispatch.act({ action: "tile.drawer", tile: g }, USER);
       (app as any).paint(true);
       await expect(open(three!.id)).rejects.toThrow(/no reader takes this open; tile.open kind=reader/);
-      if (app.drawer.made?.pane(g)) await app.drawer.made.dispatch.act({ action: "tile.drawer", tile: g }, USER);
     } finally {
+      const carried = app.drawer.made?.layoutGet().tiles.find((t: any) => t.mount?.group)?.name;
+      if (carried) await app.drawer.made!.dispatch.act({ action: "tile.drawer", tile: carried }, USER);
       for (const pane of d.panes.values()) pane.dispose?.();
       d.build(original, false);
       await app.dispatch.press("host.toggle", { open: false });

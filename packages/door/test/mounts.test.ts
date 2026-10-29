@@ -395,19 +395,22 @@ describe.skipIf(!outliner)("an open naming no tile reaches the readers inside mo
     await act("tile.open", { kind: "activity", name: "a-1306" }, "activity");
     await act("tile.open", { kind: "activity", name: "b-1306" }, "a-1306");
     const g = await act("tile.group", { with: "b-1306" }, "a-1306");
-    await settle();
-    await expect(act("open", { id: seeded.cards[0]!.id })).rejects.toThrow(/no reader takes this open/);
-    await act("tile.group", { on: false }, g.tile);
-    for (const t of ["a-1306", "b-1306"]) await act("tile.close", {}, t);
+    try {
+      await settle();
+      await expect(act("open", { id: seeded.cards[0]!.id })).rejects.toThrow(/no reader takes this open/);
+    } finally {
+      await act("tile.group", { on: false }, g.tile);
+      for (const t of ["a-1306", "b-1306"]) await act("tile.close", {}, t);
+    }
   }, 20_000);
 
-  test("the welcome screen mounted beside the activity tile: its reader takes it, the keys stay", async () => {
+  test("the welcome screen mounted beside the activity tile: it lands where welcome's own opens do, the keys stay", async () => {
     const focus = get().focus;
     const m = await act("tile.open", { kind: "screen", screen: "welcome" }, "activity");
     await settle();
     const card = seeded.cards[0]!;
     const r = await act("open", { id: card.id });
-    expect(r.tile).toMatch(/^t-/);
+    expect(r.name).toBe("preview");                              // where the welcome screen's own opens land (its lands)
     expect(await shows(r.tile)).toBe(card.id);
     // In the mount: no tile of the screen around it, and named by its path through the mount.
     expect(get().tiles.some((t: any) => t.tile === r.tile)).toBe(false);
