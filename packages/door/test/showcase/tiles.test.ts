@@ -60,6 +60,18 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
         return shown.msg;
       };
       await until(() => d.pane("orchard-note")?.msg?.id === note.id, "the foreign note", 2000);
+      // PIE-1297: the orchard reader's links tile lists that outline's notes (the journal's reply); a row copies as that outline's.
+      await app.act({ action: "links", tile: "orchard-note", as: "test-agent" });
+      const orchardLinks = () => [...d.panes.values()].find((p: any) => p.kind === "backlinks" && p.target?.address?.outline === "showcase-orchard") as any;
+      await until(() => !!orchardLinks()?.rows().some((r: any) => r.kind === "child"), "the journal's reply listed", 4000);
+      const lt = d.nameOfPane(orchardLinks()), at = orchardLinks().rows().findIndex((r: any) => r.kind === "child");
+      orchardLinks().sel = at;
+      const reply = orchardLinks().subject();
+      expect(await app.act({ action: "note.copy-ref", tile: lt, args: { kind: "ref" }, as: "test-agent" })).toMatchObject({ text: `((showcase-orchard:${reply}|Pruned the pear))`, clipboard: false });
+      expect(((await app.act({ action: "note.copy-ref", tile: lt, args: { kind: "link" }, as: "test-agent" })) as any).text).toEndWith(`/pub/o/showcase-orchard/p/${reply}`);
+      await d.dispatch.press("tile.close", {}, lt);
+      // The reader's own note too: another outline's, named.
+      expect(await app.act({ action: "note.copy-ref", tile: "orchard-note", args: { kind: "ref" }, as: "test-agent" })).toMatchObject({ text: `((showcase-orchard:${note.id}|Orchard journal))` });
       expect(d.pane("orchard-note").msg.text).toContain("Water the pear tree.");
       await app.act({ action: "edit", tile: "orchard-note", as: "test-agent" });
       await app.act({ action: "draft.paste", tile: "orchard-note", args: { text: "Watered today. " }, as: "test-agent" });

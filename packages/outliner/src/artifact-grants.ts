@@ -78,6 +78,9 @@ export function parseGrant(key: Buffer | undefined, parts: string[], now = Date.
 /** The web client's mount on its origin (`publish serve --base-path`, `/pub` everywhere it runs). */
 export const WEB_ROOT = "/pub";
 
+/** Where the web client is reached when EP0CH_WEB_URL names nowhere: the signed-in origin. */
+export const DEFAULT_WEB_ORIGIN = "https://my.ep0ch.sh";
+
 /** The web client's address with its base path (`https://my.ep0ch.sh/pub`), from EP0CH_WEB_URL (its first origin), or none. */
 export function webBase(env: Record<string, string | undefined> = process.env): string | undefined {
   const first = env.EP0CH_WEB_URL?.split(",").map(origin => origin.trim()).find(Boolean);

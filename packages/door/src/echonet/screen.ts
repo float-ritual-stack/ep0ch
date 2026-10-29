@@ -368,6 +368,8 @@ export class EchoMessages implements Pane {
   private top = 0;
   /** Counts the lists asked for: an answer for one asked before the last is let go. */
   private asked = 0;
+  /** The lit message, in its area's outline (note.copy-ref copies its address from there). */
+  noteAt() { const m = this.items?.[this.at]?.msg; return m && this.area ? { id: m.id, address: { outline: this.area.outline } } : null; }
 
   title() {
     if (!this.area) return "messages";

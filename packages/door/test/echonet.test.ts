@@ -246,6 +246,16 @@ describe.skipIf(!hostOutliner)("the message areas screen", () => {
     expect(await unread(cafe, "type=cafe-post")).toEqual([ids.cafePost]);
   });
 
+  // PIE-1297: a message listed from another outline copies as that outline's note.
+  test("a message of another outline's area copies as that outline's: ((cafe:id|title)) and its /pub/o/cafe/ link", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "echo.area", args: { n: 3 }, as: "test-agent" });
+    await until(() => list().area?.outline === "cafe" && list().items?.length === 1, "cafe's own area listed");
+    list().at = 0;
+    expect(await app.act({ action: "note.copy-ref", tile: "messages", args: { kind: "ref" }, as: "test-agent" })).toMatchObject({ text: `((cafe:${ids.cafePost}|Open mic on Friday))`, clipboard: false });
+    expect(((await app.act({ action: "note.copy-ref", tile: "messages", args: { kind: "link" }, as: "test-agent" })) as any).text).toEndWith(`/pub/o/cafe/p/${ids.cafePost}`);
+  });
+
   test("a copy's SEEN-BY names the nodes marked on its original, read from the origin on the same host", async () => {
     const here = areas().machine, post = (await cafe.get(ids.cafePost))!;
     await cafe.request("annotations.batch", {

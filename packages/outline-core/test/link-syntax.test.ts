@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { propertyValueLinks } from "../src/property-grammar";
 import {
+  blockRefText,
   blockReferenceOccurrences,
   embedOccurrences,
   embeddedPageAddress,
@@ -109,4 +110,12 @@ test("a page link points into its page with ^anchor, and ![[…]] embeds it, as 
   ]);
   expect(embeds.map(e => embeddedPageAddress(e.target))).toEqual(["Spring plan", null]);
   expect(linkOccurrences(line, "inline").filter(l => l.kind === "page").map(l => [l.kind === "page" && l.embed, line[l.start]])).toEqual([[true, "!"], [false, "["]]);
+});
+
+test("blockRefText writes what the scan reads back: another outline's prefix, a line's anchor and a label that can't end it early", () => {
+  expect(blockRefText(PAINT_ID, "Paint (the shed)|first")).toBe(`((${PAINT_ID}|Paint the shed first))`);
+  const written = blockRefText(PAINT_ID, "Paint the shed", { outline: "orchard", fragment: "coats" });
+  expect(written).toBe(`((orchard:${PAINT_ID}^coats|Paint the shed))`);
+  expect(referencedBlock(written)).toEqual({ blockId: PAINT_ID, outline: "orchard", fragment: "coats", label: "Paint the shed" });
+  expect(referencedBlock(blockRefText(PAINT_ID, "", { fragment: "coats" }))).toEqual({ blockId: PAINT_ID, fragment: "coats" });
 });
