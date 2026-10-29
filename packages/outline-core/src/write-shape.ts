@@ -151,7 +151,8 @@ function paragraphs(text: string, comment: boolean): Paragraph[] {
     if (structure[i]! !== -1 || i === title) { close(); return; }
     const { depth } = quoteDepth(raw);
     const content = stripQuotes(raw, depth).replace(/\r$/, "");
-    if (!content.trim() || HEADING.test(content) || TABLE_ROW.test(content) || RULE_LINE.test(content) || CALLOUT_OPEN.test(content.trim())) { close(); return; }
+    // A line of chips alone (`[type::note] [area::garden]` under the title) is properties, never the start of a paragraph.
+    if (!content.trim() || HEADING.test(content) || TABLE_ROW.test(content) || RULE_LINE.test(content) || CALLOUT_OPEN.test(content.trim()) || chipsOnly(content)) { close(); return; }
     if (LIST_ITEM.test(content)) { close(); open = { line: i, end: i, text: content.replace(LIST_ITEM, ""), lines: 1, depth, item: true }; return; }
     if (open && open.depth === depth) { open.text += ` ${content.trim()}`; open.lines++; open.end = i; return; }
     close();
@@ -192,19 +193,19 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
     const sentences = sentenceCount(p.text);
     const points = p.item ? splitPoints(p.text) : [];
     if (p.item && (points.length > SHAPE_LIMITS.itemPoints || p.text.length > SHAPE_LIMITS.itemChars)) {
-      const patch = stackedPatch(lines, p, splitPoints(rawOf(lines, p), { clauses: false }));
+      const patch = stackedPatch(lines, p, patchPoints(rawOf(lines, p)));
       found.push({
         rule: "stacked", key: `stacked:${p.text.slice(0, 24)}…${p.text.slice(-24)}`, line: p.line + 1,
-        say: points.length > 1
-          ? `line ${p.line + 1} ("${excerpt(p.text, 32)}") stacks ${points.length} points in one item, ${p.text.length} characters: a bullet is one point; make each its own item${patch ? " (the patch does)" : tooLong(lines, p)}, or a figure if they share fields`
-          : `line ${p.line + 1} ("${excerpt(p.text, 32)}") is one item of ${p.text.length} characters: a bullet is one short point; cut it, or put the detail in nested items under a short lead`,
+        say: points.length > SHAPE_LIMITS.itemPoints
+          ? `line ${p.line + 1} stacks ${points.length} points in one item: a bullet is one point, so make each its own item, or a figure if they share fields${patch ? " (the patch makes the items)" : tooLong(lines, p)}`
+          : `line ${p.line + 1} is one item of ${p.text.length} characters: a bullet is one short point; cut it, or put the detail in nested items under a short lead${patch ? " (the patch makes the items)" : ""}`,
         ...(patch ? { patch } : {}),
       });
     } else if (!p.item && (sentences > SHAPE_LIMITS.sentences || p.text.length > SHAPE_LIMITS.paragraphChars)) {
       const patch = wallPatch(lines, p);
       found.push({
         rule: "wall", key: `wall:${p.text.slice(0, 24)}…${p.text.slice(-24)}`, line: p.line + 1,
-        say: `line ${p.line + 1} ("${excerpt(p.text, 32)}") is ${sentences} sentences, ${p.text.length} characters: a paragraph is at most ${SHAPE_LIMITS.sentences} sentences; split it, or make it a list, a callout or a figure${patch ? " (the patch makes it a list)" : tooLong(lines, p)}`,
+        say: `line ${p.line + 1} is ${sentences > SHAPE_LIMITS.sentences ? `a paragraph of ${sentences} sentences (keep one to ${SHAPE_LIMITS.sentences})` : `${sentences === 1 ? "one sentence" : `a paragraph of ${sentences} sentences`} of ${p.text.length} characters (keep a paragraph under ${SHAPE_LIMITS.paragraphChars})`}: split it, or make it a list, a callout or a figure${patch ? " (the patch makes it a list)" : tooLong(lines, p)}`,
         ...(patch ? { patch } : {}),
       });
     }
@@ -244,13 +245,13 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
       // At the top: a "- [ ]" in the first lines, or the first sentence of the first line. Anything else is buried.
       const atTop = (i: number, sentence: string) => (top.has(i) && /^[ \t>]*[-*+][ \t]+\[ \][ \t]/.test(lines[i]!)) ||
         (i === body[0] && splitPoints(lines[i]!.replace(/^[ \t>]*(?:[-*+]|\d+[.)])?[ \t]*/, ""), { clauses: false })[0]?.trim() === sentence.trim());
-      const buried = lines.findIndex((line, i) => i !== header?.line && structure[i] === -1 && (o.asks ? o.asks.has(i) : asksEvan(line)) && !atTop(i, askedSentence(line, o.asks !== undefined)));
+      const buried = lines.findIndex((line, i) => i !== header?.line && structure[i] === -1 && (o.asks ? o.asks.has(i) : asksAt(lines, i)) && !atTop(i, askedSentence(line, o.asks !== undefined)));
       if (buried >= 0) {
         const sentence = askedSentence(lines[buried]!, o.asks !== undefined);
         const patch = questionPatch(lines, buried, header?.line ?? 0, sentence);
         found.push({
           rule: "question", key: `question:${excerpt(sentence, 40)}`, line: buried + 1, passage: sentence,
-          say: `line ${buried + 1} asks Evan something below the top ("${excerpt(sentence, 60)}"): put the question first as one "- [ ]" line and mark the note [needs::sysop: the decision]${patch ? " (the patch does)" : ""}`,
+          say: `line ${buried + 1} asks Evan something below the top: move it there as an open checkbox, \`- [ ] …\`, and mark the note \`[needs::sysop: …]\`${patch ? " (the patch does)" : ""}`,
           ...(patch ? { patch } : {}),
         });
       }
@@ -285,7 +286,7 @@ function masked(text: string): string {
 
 /**
  * The points one prose unit makes, in its own words: its sentences, and (unless `clauses: false`) the clauses a `;` or a
- * spaced dash joins. Counting takes both; a patch cuts at sentences only, so no item starts mid-sentence.
+ * spaced dash joins. Counting takes both; a patch's cuts are `patchPoints`'s.
  */
 export function splitPoints(text: string, o: { clauses?: boolean } = {}): string[] {
   const m = masked(text);
@@ -330,6 +331,18 @@ function rawOf(lines: readonly string[], p: Paragraph): string {
 /** A point fit for its own bullet: no longer than an item may be, and one point (PIE-1402: a patch's output passes the same review). */
 const fitsBullet = (point: string) => point.length <= SHAPE_LIMITS.itemChars && splitPoints(point).length <= SHAPE_LIMITS.itemPoints;
 
+/**
+ * The points a patch cuts a unit into: its sentences, and a sentence that is still several points (clauses joined by
+ * `;` or a spaced dash) cut at those, the joiner dropped. Every piece must fit a bullet, or the unit gets no patch.
+ */
+function patchPoints(raw: string): string[] {
+  return splitPoints(raw, { clauses: false }).flatMap(sentence => {
+    // An aside between two dashes ("the host — the one in the shed — restarts") is one point: never cut, so no patch.
+    if (fitsBullet(sentence) || (masked(sentence).match(/\s(?:—|–|--)\s/g) ?? []).length > 1) return [sentence];
+    return splitPoints(sentence).map(clause => clause.replace(/;$/, ""));
+  });
+}
+
 /** A stacked item made into one item per point: a lead (`**Board:**`) keeps the item and its points nest under it. */
 function stackedPatch(lines: readonly string[], p: Paragraph, points: string[]): ShapePatch[] | undefined {
   if (points.length < 2) return undefined;
@@ -347,19 +360,19 @@ function stackedPatch(lines: readonly string[], p: Paragraph, points: string[]):
 
 /** A wall of sentences made into a list, one sentence a line; none when a sentence is too long for a bullet. */
 function wallPatch(lines: readonly string[], p: Paragraph): ShapePatch[] | undefined {
-  const points = splitPoints(rawOf(lines, p), { clauses: false });
+  const points = patchPoints(rawOf(lines, p));
   if (points.length < 2 || !points.every(fitsBullet)) return undefined;
   const { quote, indent } = leadOf(lines[p.line]!);
-  return keepsEverything(sourceOf(lines, p), points.map(point => `${quote}${indent}- ${point}`).join("\n"));
+  // A list right under a line of chips gets a blank line between: the chips stay the note's, never the first item's.
+  const gap = !quote && p.line > 0 && chipsOnly(lines[p.line - 1]!) ? "\n" : "";
+  return keepsEverything(sourceOf(lines, p), gap + points.map(point => `${quote}${indent}- ${point}`).join("\n"));
 }
 
-/** The first sentence of a unit too long for a bullet, said so the writer knows which to cut. */
+/** The first piece of a unit too long for a bullet, said so the writer knows which to cut (no patch can). */
 function tooLong(lines: readonly string[], p: Paragraph): string {
-  const long = splitPoints(rawOf(lines, p), { clauses: false }).find(point => !fitsBullet(point));
+  const long = patchPoints(rawOf(lines, p)).find(point => !fitsBullet(point));
   if (!long) return "";
-  return long.length > SHAPE_LIMITS.itemChars
-    ? `; "${excerpt(long, 32)}" is ${long.length} characters, too long for one bullet: cut it, no patch can`
-    : `; "${excerpt(long, 32)}" joins ${splitPoints(long).length} points with semicolons or dashes: make them sentences, no patch can`;
+  return `; no patch, because "${excerpt(long, 32)}" is ${long.length} characters, too long for one bullet: shorten it by hand`;
 }
 
 /**
@@ -367,7 +380,8 @@ function tooLong(lines: readonly string[], p: Paragraph): string {
  * aside): a ready patch that could drop a word, a code span or a property is worse than none.
  */
 function keepsEverything(observed: string, replacement: string): ShapePatch[] | undefined {
-  const words = (text: string) => text.replace(/^[ \t>]*(?:[-*+]|\d+[.)])[ \t]+/gm, "").replace(/\s+/g, "");
+  // A clause's joiner (`;`, a spaced dash) may become a bullet break; every other character stays.
+  const words = (text: string) => text.replace(/^[ \t>]*(?:[-*+]|\d+[.)])[ \t]+/gm, "").replace(/;(?=\s)|\s(?:—|–|--)(?=\s)/g, " ").replace(/\s+/g, "");
   return words(observed) === words(replacement) ? [{ observed, replacement }] : undefined;
 }
 
@@ -524,6 +538,31 @@ function countFindings(lines: readonly string[], structure: readonly number[], t
     });
   });
   return out;
+}
+
+/**
+ * Line `i` ends its paragraph with a question, outside a heading, a table row and a ticked box: in a note an agent writes
+ * for Evan, a question nobody answers after it asks him, whether or not it names him (PIE-1419). One answered after it
+ * (later in its line, or on the next line of its paragraph) isn't, and nor is a bold or italic line, a heading by another name.
+ */
+function endsAsking(lines: readonly string[], i: number): boolean {
+  const line = lines[i]!, { quote, indent, marker } = leadOf(line);
+  const content = line.slice(quote.length);
+  if (HEADING.test(content) || TABLE_ROW.test(content) || /\[[^\] ]\]/.test(marker)) return false;
+  const words = line.slice(quote.length + indent.length + marker.length).replace(PROPERTY_CHIP, " ").trim();
+  if (!words || /^(\*\*|__|\*|_)[^*_].*\1$/.test(words)) return false;
+  const next = lines[i + 1];
+  if (next !== undefined && next.slice(leadOf(next).quote.length).trim() && !leadOf(next).marker && !HEADING.test(next)) return false;
+  return /\?["'”)*_]*$/.test(splitPoints(words, { clauses: false }).at(-1)!.trim());
+}
+
+/**
+ * Whether line `i` asks Evan: the one answer, the review's and code's alone. Jev's judgment, when it was asked, is
+ * `yes` (an ask whatever the words), `no` (said firmly: a question that asks nothing) or unsure; a line that names Evan
+ * and asks, or ends its paragraph with a question, is an ask unless Jev said no to the question (PIE-1402, PIE-1419).
+ */
+export function asksAt(lines: readonly string[], i: number, jev?: "yes" | "no"): boolean {
+  return asksEvan(lines[i]!) || jev === "yes" || (jev !== "no" && endsAsking(lines, i));
 }
 
 /** A line that asks Evan: names him and has a question mark or a decision word. A heuristic until PIE-1251's judgment replaces it. */

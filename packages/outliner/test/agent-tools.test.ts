@@ -757,7 +757,7 @@ test("a write measures the note: a 200-character title and a wall each answer a 
   const fixes = (made.json.warnings as string[]).filter(w => w.startsWith("fix before you call this done: "));
   expect(fixes).toHaveLength(2);
   expect(fixes[0]).toContain("title line is");
-  expect(fixes[1]).toContain("is 5 sentences");
+  expect(fixes[1]).toContain("is a paragraph of 5 sentences");
   expect(made.json.next).toContain(`ep0ch show ${made.json.id}`);
 
   const tidy = await agent("create", { parent: "root", text: "Seed swap, Saturday\n\n- [ ] Which table does Evan want?\n\n> [!tip] Bring labels\n> Jars are provided." });
@@ -772,7 +772,7 @@ test("a write measures the note: a 200-character title and a wall each answer a 
   expect(appended.json.next).toContain(old.id);
   const clean = store.require(tidy.json.id);
   const walled = await agent("edit", { ref: clean.id, expectedRevision: clean.revision, append: wall });
-  expect(walled.json.warnings).toEqual([expect.stringContaining("fix before you call this done: line 8 (\"The borlotti")]);
+  expect(walled.json.warnings).toEqual([expect.stringContaining("fix before you call this done: line 8 is a paragraph")]);
 
   // A patch and a comment are measured the same way; a property set is not the note's words.
   const patched = await agent("patch", { ref: clean.id, revision: store.require(clean.id).revision, patches: [{ observed: "Jars are provided.", replacement: wall }] });
@@ -845,7 +845,7 @@ test("a written figure is confirmed in components; a typo in its name or a key, 
 // property set ask nothing; an edit asks only about the sections it changed.
 /** The kit finding in a write's warnings (said as something to fix, not a suggestion), or undefined. */
 // A figure code can build comes as a gate with its patch; one it can't, as advice (PIE-1402): either way it is said.
-const figureGate = (json: { warnings?: string[] }) => json.warnings?.find(w => (w.startsWith("fix before you call this done: ") || w.startsWith("consider: ")) && w.includes(" would show it"));
+const figureGate = (json: { warnings?: string[] }) => json.warnings?.find(w => (w.startsWith("fix before you call this done: ") || w.startsWith("consider: ")) && w.includes(" would read better as "));
 
 /** A fake Jev answering a review: a section of dated lines is surely a timeline, anything else prose; every other judgment a no. */
 function reviewingJev(asked: { state: { sections?: Record<string, { text: string }> } }[], pick: (text: string) => { component: string; data: boolean } = text => ({ component: /^- \d{4}-\d{2}/m.test(text) ? "graph-timeline" : "graph-check", data: /^- \d{4}-\d{2}/m.test(text) })) {
@@ -876,7 +876,7 @@ test("every write is reviewed, prose included: a timeline's lines are told once;
   const season = ["Garden year", "- 2026-03: seeds sown", "- 2026-05: first flowers", "- 2026-08: open garden"].join("\n");
   const made = await agent("create", { parent: "root", text: season });
   expect(made.exitCode, made.stderr).toBe(0);
-  expect(figureGate(made.json)).toStartWith("fix before you call this done: the top of the note reads as a timeline: ::graph-timeline would show it");
+  expect(figureGate(made.json)).toStartWith("fix before you call this done: the top of the note would read better as ::graph-timeline");
   expect(made.json.review.verdict).toBe("fix");
 
   // Prose is read too, and told nothing when Jev finds nothing; a note that draws its figure isn't told another.
@@ -899,7 +899,7 @@ test("every write is reviewed, prose included: a timeline's lines are told once;
   // Prose that an edit turns into dated lines is told.
   const musing = store.require(prose.json.id);
   const turned = await agent("edit", { ref: musing.id, expectedRevision: musing.revision, text: season.replace("Garden year", "Bed rotation") });
-  expect(figureGate(turned.json)).toContain("::graph-timeline would show it");
+  expect(figureGate(turned.json)).toContain("would read better as ::graph-timeline");
   expect(asked).toHaveLength(4);
 });
 

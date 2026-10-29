@@ -342,3 +342,45 @@ test("with no Jev key the answer says so", async () => {
   const made = await agent("create", { parent: "root", text: "Bean rows\n\n- Sown." }, undefined, { TYPESAFE_API_KEY: "", WITH_SECRETS_DIR: "/nonexistent" });
   expect((made.json.review as { jev: string }).jev).toMatch(/^Jev is not configured/);
 });
+
+// PIE-1419: a verifier's walk (Oct 29), every patch applied as written. A question at the bottom that doesn't name Evan
+// is buried unless Jev says firmly it asks nothing; the wall under a chip line keeps its chips; a callout is named as one.
+test("a prose question at the bottom is buried while Jev is unsure, and not when Jev says it asks nothing", async () => {
+  const unsure = "Compost bins, unsure", firm = "Compost bins, rhetorical";
+  const { agent, store } = await setup((id, _q, state) => {
+    if (!id.startsWith("asks::")) return undefined;
+    return { type: "noul", noul: String(state.title) === firm ? 0.05 : 0.5 };
+  });
+  const body = ["", "The three bins now sit behind the shed, out of the wind.", "", "The old spot by the fence is bare and can take the new bed. The ground is heavy, so it wants grit first. Do we order the grit this week or wait for spring?"].join("\n");
+  const made = await agent("create", { parent: "root", text: unsure + body });
+  const review = made.json.review as Review;
+  expect(review.verdict).toBe("fix");
+  const question = review.findings.find(f => f.rule === "question")!;
+  expect(question.passage).toBe("Do we order the grit this week or wait for spring?");
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: question.patch });
+  expect(store.require(note.id).text.split("\n").slice(0, 3)).toEqual([`${unsure} [needs::sysop: Do we order the grit this week or wait for spring?]`, "", "- [ ] Do we order the grit this week or wait for spring?"]);
+  expect((patched.json.review as Review).findings.filter(f => f.new && f.rule === "question")).toEqual([]);
+  const rhetorical = await agent("create", { parent: "root", text: firm + body });
+  expect((rhetorical.json.review as Review).findings.map(f => f.rule)).not.toContain("question");
+});
+
+test("a wall under a chip line, patched as written, keeps its chips as chips and ships; a callout is named as one", async () => {
+  const { agent, store } = await setup((id) => {
+    if (id.startsWith("kit::")) return { type: "choice", choice: "callout", confidence: 0.9, probabilities: {} };
+    if (id.startsWith("structured::")) return { type: "noul", noul: 0.9 };
+    if (id.startsWith("prose::")) return { type: "noul", noul: 0.1 };
+    return undefined;
+  });
+  const text = ["Seed swap recap", "[type::note] [area::garden]", "The swap opened at nine and the tables filled within the hour. Most people brought beans and squash. The labels ran out halfway, which slowed the line. Then the second box arrived from the library and nothing was lost, though the queue had reached the gate by then. Next year we start with two boxes, a sign-up sheet at the door and a second table for the rare tomatoes, which drew the longest queue of the morning."].join("\n");
+  const made = await agent("create", { parent: "root", text });
+  const review = made.json.review as Review;
+  const kit = review.findings.find(f => f.rule === "kit");
+  expect(kit?.say).toContain("would read better as a callout: ");
+  const note = store.require(made.json.id);
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: review.findings.flatMap(f => f.new ? f.patch ?? [] : []) });
+  const now = store.require(note.id);
+  expect(now.text.split("\n").slice(0, 3)).toEqual(["Seed swap recap", "[type::note] [area::garden]", ""]);
+  expect(now.properties.map(p => p.key)).toEqual(expect.arrayContaining(["type", "area"]));
+  expect((patched.json.review as Review).verdict).toBe("ship");
+});

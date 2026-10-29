@@ -278,3 +278,67 @@ test("a wall's patch splits at sentences only; one with a sentence too long for 
   expect(w2!.patch).toBeUndefined();
   expect(w2!.say).toContain("too long for one bullet");
 });
+
+// PIE-1419, found by a verifier walking five notes with every patch applied as written (Oct 29): the patched note keeps
+// its chips as chips, a stacked item of clauses has a patch, the words say what's wrong, and a question at the bottom
+// is buried whether or not it names Evan.
+test("a wall under a chip line: the patch leaves the chips on their own line, and the patched note is quiet", () => {
+  const note = ["Seed swap recap", "[type::note] [area::garden]", "The swap opened at nine and the tables filled within the hour. Most people brought beans and squash. The labels ran out halfway. Then the second box arrived and nothing was lost."].join("\n");
+  const wall = writeShape(note).find(f => f.rule === "wall")!;
+  expect(wall.patch![0]!.observed).not.toContain("[type::note]");
+  const fixed = apply(note, wall.patch!);
+  expect(fixed.split("\n").slice(0, 4)).toEqual(["Seed swap recap", "[type::note] [area::garden]", "", "- The swap opened at nine and the tables filled within the hour."]);
+  expect(writeShape(fixed)).toEqual([]);
+});
+
+test("a stacked item of clauses joined by semicolons and dashes comes with a patch, one clause a bullet, and the patched note is quiet", () => {
+  const note = ["Shed tidy", "", "- Tools: the spades are back on the north wall; the forks are in the barrel by the door; the hoses are coiled under the bench — and the broken rake is in the skip.", "- Done by noon."].join("\n");
+  const stacked = writeShape(note).find(f => f.rule === "stacked")!;
+  expect(stacked.say).toContain("(the patch makes the items)");
+  const fixed = apply(note, stacked.patch!);
+  expect(fixed.split("\n").slice(2)).toEqual(["- Tools:", "  - the spades are back on the north wall", "  - the forks are in the barrel by the door", "  - the hoses are coiled under the bench", "  - and the broken rake is in the skip.", "- Done by noon."]);
+  expect(writeShape(fixed)).toEqual([]);
+});
+
+test("a wall's words say what's wrong with it: its sentences when there are too many, its length when it's long", () => {
+  const many = writeShape(`Seeds\n\n${wall}`).find(f => f.rule === "wall")!;
+  expect(many.say).toContain("is a paragraph of 5 sentences (keep one to 3)");
+  const one = "The trays went out at nine and the frame stayed shut all morning while the sun came round onto the bench, " + "and the seedlings warmed slowly while the watering can stood full by the door, ".repeat(5) + "until lunch.";
+  const long = writeShape(`Seedlings\n\n${one}`).find(f => f.rule === "wall")!;
+  expect(long.say).not.toMatch(/\b1 sentences\b/);
+  expect(long.say).toContain(`is one sentence of ${one.length} characters (keep a paragraph under ${SHAPE_LIMITS.paragraphChars})`);
+  expect(long.say).toContain("too long for one bullet: shorten it by hand");
+});
+
+test("a question at the bottom is buried whether or not it names Evan; one answered in its own line, or in a table, isn't", () => {
+  const note = ["Compost bins moved", "", "The three bins now sit behind the shed, out of the wind.", "", "The old spot by the fence is bare and can take the new bed. The ground is heavy, so it wants grit first. Do we order the grit this week or wait for spring?"].join("\n");
+  const q = writeShape(note).find(f => f.rule === "question")!;
+  expect(q.passage).toBe("Do we order the grit this week or wait for spring?");
+  const fixed = apply(note, q.patch!);
+  expect(fixed.split("\n").slice(0, 3)).toEqual(["Compost bins moved [needs::sysop: Do we order the grit this week or wait for spring?]", "", "- [ ] Do we order the grit this week or wait for spring?"]);
+  expect(writeShape(fixed)).toEqual([]);
+  const filler = Array.from({ length: SHAPE_LIMITS.top }, (_, i) => `- point ${i}`).join("\n");
+  expect(writeShape(`Notes\n\n${filler}\n\nWhy did the bins move? The wind took the lids twice.`)).toEqual([]);
+  expect(writeShape(`Notes\n\n${filler}\n\n| Moved? | yes |\n| --- | --- |`)).toEqual([]);
+  expect(writeShape(`Notes\n\n${filler}\n\n## Why move them?\n\nThe wind.`)).toEqual([]);
+  expect(writeShape(`Notes\n\n${filler}\n\n- [x] Order the grit now or in spring?`)).toEqual([]);
+});
+
+test("review findings on round three: a callout keeps its list, an aside between dashes is never cut, a bold question with its answer under it isn't buried", () => {
+  const callout = `Seeds\n\n> [!tip] Sorting\n> ${wall}`;
+  const inCallout = writeShape(callout).find(f => f.rule === "wall")!;
+  if (inCallout.patch) expect(apply(callout, inCallout.patch)).not.toContain("[!tip] Sorting\n\n");
+  const aside = "Hosts\n\nThe host — the one in the shed by the north fence, past the water butts and the compost — restarts every night at two, and nobody needs to touch it after that. The second host stays up. The third one sleeps. The fourth was retired.";
+  const cut = writeShape(aside).find(f => f.rule === "wall")!;
+  expect(cut.patch?.[0]?.replacement ?? "").not.toContain("- the one in the shed");
+  const filler = Array.from({ length: SHAPE_LIMITS.top }, (_, i) => `- point ${i}`).join("\n");
+  expect(writeShape(`Why one gate\n\n${filler}\n\n**Why one test gate?**\nTwo gates cost twice the CI.`)).toEqual([]);
+  expect(writeShape(`Why one gate\n\n${filler}\n\nWhy one test gate?\nTwo gates cost twice the CI.`)).toEqual([]);
+});
+
+test("a long item of two points is told its length, not that it stacks", () => {
+  const item = `- Board: ${"the first sentence runs on about the beds and the fence and the water ".repeat(2).trim()}. ${"The second sentence runs on about the shed and the tools ".repeat(2).trim()}.`;
+  const found = writeShape(`Notes\n\n${item}`).find(f => f.rule === "stacked")!;
+  expect(found.say).toContain(`is one item of ${item.length - 2} characters`);
+  expect(found.say).not.toContain("stacks 2 points");
+});
