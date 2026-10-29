@@ -1230,8 +1230,10 @@ export class App implements Ctx {
         // A group in a group opens beside its parent's menu, still open under it (PIE-1428); the outermost, above its bar item.
         const parent = group?.includes("/") ? this.statusMenus.get(group.slice(0, group.lastIndexOf("/"))) : undefined, box = parent && !parent.ended() ? parent.drawn() : null;
         const at = box ? { col: box.col + box.cols, row: box.row } : { col: hit?.from ?? 0, row: Math.max(0, this.term.info.rows - 2) };
-        const menu = tileMenu({ title, rows, at, ...(box ? { beside: box } : {}), ...(group ? { name: `tile menu ${group}` } : {}), host: { dispatch: { press: (a, args, tile) => this.dispatch.press(a, args, tile) }, ctx: this } });
+        const menu = tileMenu({ title, rows, at, ...(box ? { beside: box } : {}), ...(group ? { name: `tile menu ${group}` } : {}), host: { dispatch: { press: (a, args, tile) => { if (a !== "status.bar.menu" || args?.overflow) this.closeStatusMenus(here); return this.dispatch.press(a, args, tile); } }, ctx: this } });
+        // A row that runs something (not a nested group's) closes the whole chain, as one choice from one menu did.
         if (group !== undefined) this.statusMenus.set(group, menu);
+        else this.statusMenus.set("", menu);
         here.overlay(menu);
         this.redraw();
         return true;
@@ -1550,11 +1552,15 @@ export class App implements Ctx {
     top?.key(k, this);
   }
 
+  /** Every status-bar menu the person opened (a group, its nested groups, the +N) closes: a row in one ran. */
+  private closeStatusMenus(here: Desk) { for (const m of this.statusMenus.values()) if (!m.ended()) m.close(here); this.statusMenus.clear(); this.redraw(); }
   /** A menu or picker over the screen while the person types in the drawer (a status-bar group's): the keys are its until it closes. */
   private overDrawer(): boolean {
     if (!this.drawer.entered) return false;
-    const over = tilesOf(this.stack.at(-1));
-    return !!over && over !== this.drawer.made && over.overlayOpen();
+    // Only a menu the bar opened over the screen (a status-bar group's, +N): one left open on the screen before the person
+    // went into the drawer is the screen's, and their keys stay the drawer's.
+    const top = tilesOf(this.stack.at(-1));
+    return !!top && top !== this.drawer.made && top.overlaid() && [...this.statusMenus.values()].some(m => !m.ended());
   }
   /** The person's keys are a terminal program's (a terminal tile's, the drawer's agent's), whatever is open over it. */
   private typingInProgram(): boolean {
@@ -1572,13 +1578,13 @@ export class App implements Ctx {
   private escSpentAt = -Infinity;
   /** An Esc right after one closed something over the program: held back, and said (PIE-1431). */
   private heldEsc(): boolean {
+    // A fixed window from the Esc that closed something: a held one doesn't extend it, so tapping Esc gets through soon.
     if (this.now() - this.escSpentAt >= ESC_SPENT_MS) return false;
-    this.escSpentAt = this.now();
     this.flash("nothing to close · pause, then esc is the program's", 2500);
     return true;
   }
   /** Raw bytes that are an Esc (legacy, or a Kitty report), held back as heldEsc says. */
-  private escSpent(bytes: string): boolean { return (/^\x1b+$/.test(bytes) || rawKey(bytes)?.kind === "esc") && this.heldEsc(); }
+  private escSpent(bytes: string): boolean { return this.now() - this.escSpentAt < ESC_SPENT_MS && (/^\x1b+$/.test(bytes) || rawKey(bytes)?.kind === "esc") && this.heldEsc(); }
 
   private probing = false;
   probeKeys(on = !this.probing): boolean {

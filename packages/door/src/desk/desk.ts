@@ -3812,19 +3812,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
   }
   /** The desk's own overlay is open (its search, the layout picker, the policy panel): it takes every key and click. */
-  /** A menu or picker of the desk's is open over its tiles: the keys are its. */
-  overlayOpen(): boolean { return !!this.overlays.top(); }
+  private overlayOpen(): boolean { return !!this.overlays.top(); }
   /** The desk the person's keys are in: this one, or the focused group's or mounted screen's (its focused tile has them). */
-  private keysDesk(): Desk { const f = this.panes.get(this.focus); return f instanceof ScreenTile && f.inner ? f.inner.keysDesk() : this; }
+  private keysDesk(): Desk { const f = this.panes.get(this.focus); return f instanceof ScreenTile && f.inner && !this.contentCover(this.focus).fold ? f.inner.keysDesk() : this; }
   /**
    * Where the person types in a program, as Esc asks it (PIE-1431): `typing`, a terminal tile has their keys here or in a
    * group they went into; `over`, a menu or picker is open over it on the way (this desk's, or the group's).
    */
   programKeys(): { typing: boolean; over: boolean } {
     const inner = this.keysDesk();
-    let over = false;
-    for (let d: Desk = this; ; ) { over ||= d.overlayOpen(); if (d === inner) break; const f = d.panes.get(d.focus) as ScreenTile; d = f.inner!; }
-    return { typing: inner.rawKeys(), over };
+    if (inner === this) return { typing: this.rawKeys(), over: this.overlayOpen() };
+    const deeper = (this.panes.get(this.focus) as ScreenTile).inner!.programKeys();
+    return { typing: deeper.typing, over: deeper.over || this.overlayOpen() };
   }
 
   /**

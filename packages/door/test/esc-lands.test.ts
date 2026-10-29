@@ -151,6 +151,17 @@ describe.skipIf(!outliner)("Esc lands where it was meant (PIE-1431)", () => {
     } finally { d.quit(); }
   });
 
+  test("a menu left open on the screen before going into the drawer keeps no hold on the person's keys there", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.press("tile.menu", {}, "kettle");
+      await d.app.dispatch.press("host.toggle", { open: true });
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's agent runs");
+      await d.feed("seed trays");
+      await until(() => ((d.app.drawer.tile as PtyPane).text() ?? []).join("\n").includes("seed trays"), "typed into the agent");
+    } finally { d.quit(); }
+  });
+
   test("typing in the drawer's agent at 40 columns: the status bar's +N menu takes Esc, never the agent", async () => {
     const d = await door(40, 30);
     try {

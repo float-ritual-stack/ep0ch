@@ -662,7 +662,7 @@ export class PowerBar {
     // Each word shell-quoted, so a value like "$HOME" or `cmd` pastes as written, never expanded.
     const text = op === "button" ? commandButton(line) : ["ep0ch", "act", ...lineWords(line)].map(shellWord).join(" ");
     // Said on the status line and in its log too (PIE-1428): the toast is gone in a moment.
-    if (this.host.ctx.copy?.(text) !== false) this.host.ctx.flash(`copied ${op === "button" ? "as a note button" : "the command"}: ${text}`);
+    if (this.host.ctx.copy?.(text) === true) this.host.ctx.flash(`copied ${op === "button" ? "as a note button" : "the command"}: ${text}`);
     return { text };
   }
 

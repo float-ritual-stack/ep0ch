@@ -480,6 +480,16 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
         press({ kind: "esc" });
         await until(() => !painted.slice(0, -1).some(l => visible(l).includes("More ▲")), "the outer menu closed");
       }
+      // A row in the inner menu runs, and both menus close: one choice, as from one menu.
+      click("Tools");
+      await until(() => painted.slice(0, -1).some(l => visible(l).includes("More ▲")), "the outer menu again");
+      const mr = painted.findIndex(l => visible(l).includes("More ▲")), mc = visible(painted[mr]!).indexOf("More ▲");
+      press({ kind: "mouse", action: "down", button: 0, x: mc, y: mr }); press({ kind: "mouse", action: "up", button: 0, x: mc, y: mr });
+      await until(() => painted.slice(0, -1).some(l => visible(l).includes("[Video]")), "the inner menu again");
+      const vr = painted.findIndex(l => visible(l).includes("[Video]")), vc = visible(painted[vr]!).indexOf("[Video]"), video = app.video;
+      press({ kind: "mouse", action: "down", button: 0, x: vc, y: vr }); press({ kind: "mouse", action: "up", button: 0, x: vc, y: vr });
+      await until(() => app.video !== video, "Video pressed from the inner menu");
+      await until(() => !painted.slice(0, -1).some(l => visible(l).includes("More ▲") || visible(l).includes("[Video]")), "both menus closed");
     } finally { await board.trash(note.id, USER); size.cols = 220; }
   });
 
