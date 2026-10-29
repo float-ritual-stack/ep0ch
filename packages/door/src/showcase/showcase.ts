@@ -328,16 +328,6 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "search-sure", need: "see how sure a search is: each hit's Jev score, and \"no strong match\" under a weak top instead of a confident wrong answer; and the eval that set where sure starts, the current model beside the next (PIE-1198, PIE-1197)",
-    part: "ranked search (outliner src/search-ranking.ts: one Jev request, a Score per candidate and the \"is it among these?\" Noul; certaintyOf decides strong, weak or none; SEARCH_THRESHOLDS from the eval), said by every search: the power bar's / (its footer and each row's score), [[ and (( (the completer's footer), ep0ch find (a score column and the verdict line), outline_find (the mod's and the gateway's search field); counted on the day's search-live jev-run (work-jev.ts tallyRun); the person's picks kept (search.picked) as the eval's labels; ep0ch search harvest|eval (src/search-eval.ts) keeping cases, a jev-run per model and the report under this page",
-    files: "outliner src/search-ranking.ts, src/jev.ts, src/search-records.ts, src/search-eval.ts, src/agent-tools.ts (findBlocks), src/completion-sources.ts, door src/bar/sources.ts, src/surface/completer.ts, src/notes-cli.ts (find), src/mcp.ts (outline_find), src/search-cli.ts",
-    aside: "the Search evals page: every run per model, live (hit@1 is agreed), and the labelled set by source; under it each run.s report, both models side by side and the thresholds tried · the numbers here are made up; ep0ch search eval --into <name> keeps a real run · with Jev set up, / and [[ say \"no strong match\" in their footer when the top isn't a sure answer, and ep0ch find prints each row's score",
-    stage(n, show) {
-      const page = new ReaderPane();
-      return deskOf({ title: "showcase · search says how sure", panes: [page], names: ["page"] }, show, [[page, n.searchEvals]]);
-    },
-  },
-  {
     key: "composer", need: "write a comment, question or reply where the person is reading: at the passage, floating beside it, split beside the note or in a popup",
     part: "the composer's placements (PIE-770, src/surface/composer.ts): the comment session's draft (CommentSession, one DraftSession, the one edit control: renderEditor) drawn in the reader's own note, a box of rows under the passage (inline), laid over it (floating, popup) or sharing the reader's rect (split); composer.place is the setting, comment.place (ctrl+o, the box's chip) moves the one being written; PIE-785: the comment stays open when the keys go to another tile (Desk.leaveSession, keepsOnFocusAway) and is the person's again when they come back, a floating box drags and sizes (comment.move: its top edge, its ◢ corner, ctrl+g's comment.grip mode) for this sitting only (CommentSession.float), and following a link with it unsent asks in the power bar (askInBar, src/bar/ask.ts; comment.leaving answers: save and continue keeps it unsent through its DraftSession, discard lets it go); a posted thread and the preview draw references and embeds through the reader's renderer (NoteSurface.snippet)",
     files: "src/surface/composer.ts, src/comment.ts (composerFrame), src/surface/note.ts (layOut, overComposer, renderSplit, comment.place, comment.move, comment.grip, comment.leaving, askLeave), src/surface/editor.ts, src/screens.ts (composer.place), src/desk/desk.ts (leaveSession, reenter)",
@@ -1534,6 +1524,16 @@ export const SECTIONS: Section[] = [
         title: "showcase · nested mounts", panes: [tree, reader, calls], names: ["tree", "reader", "calls"],
         layout: ([t, r, c]) => pair("row", 0.2, leaf(t!), pair("row", 0.22, leaf(r!), leaf(c!))),
       }, show, [[reader, n.notebook]]);
+    },
+  },
+  {
+    key: "search-sure", need: "see how sure a search is: each hit's Jev score, and \"no strong match\" under a weak top instead of a confident wrong answer; and the eval that set where sure starts, the current model beside the next (PIE-1198, PIE-1197)",
+    part: "ranked search (outliner src/search-ranking.ts: one Jev request, a Score per candidate and the \"is it among these?\" Noul; certaintyOf decides strong, weak or none; SEARCH_THRESHOLDS from the eval), said by every search: the power bar's / (its footer and each row's score), [[ and (( (the completer's footer), ep0ch find (a score column and the verdict line), outline_find (the mod's and the gateway's search field); counted on the day's search-live jev-run (work-jev.ts tallyRun); the person's picks kept (search.picked) as the eval's labels; ep0ch search harvest|eval (src/search-eval.ts) keeping cases, a jev-run per model and the report under this page",
+    files: "outliner src/search-ranking.ts, src/jev.ts, src/search-records.ts, src/search-eval.ts, src/agent-tools.ts (findBlocks), src/completion-sources.ts, door src/bar/sources.ts, src/surface/completer.ts, src/notes-cli.ts (find), src/mcp.ts (outline_find), src/search-cli.ts",
+    aside: "the Search evals page: every run per model, live (hit@1 is agreed), and the labelled set by source; under it each run.s report, both models side by side and the thresholds tried · the numbers here are made up; ep0ch search eval --into <name> keeps a real run · with Jev set up, / and [[ say \"no strong match\" in their footer when the top isn't a sure answer, and ep0ch find prints each row's score",
+    stage(n, show) {
+      const page = new ReaderPane();
+      return deskOf({ title: "showcase · search says how sure", panes: [page], names: ["page"] }, show, [[page, n.searchEvals]]);
     },
   },
 ];
