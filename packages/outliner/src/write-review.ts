@@ -30,7 +30,7 @@ export const REVIEW_THRESHOLDS = { yes: 0.7, no: 0.3, ...FIGURE_FIT_THRESHOLDS }
  * is never pushed into a component or called dense, whatever Jev says. A component needs rows to draw (or a wall of
  * prose it could replace); dense and mixed need room to be either.
  */
-export const REVIEW_SIZES = { kitRows: 3, kitProse: 400, dense: 300, mixed: 400 };
+export const REVIEW_SIZES = { kitRows: 3, kitProse: 400, dense: 300, denseUnit: 200, mixed: 400 };
 /** Sections a review asks Jev about, and how much of each it sends. */
 const MAX_SECTIONS = 8, MAX_SECTION = 1500, MAX_ASKS = 8;
 
@@ -50,6 +50,11 @@ export interface ReviewFinding {
   by: "code" | "jev";
   /** A kit finding's component. */
   component?: string;
+  /**
+   * Advice, not a gate: a component Jev would draw the section with that code can't build (no ready patch). Said and
+   * recorded, never what makes the verdict `fix` (PIE-1402: a short status note was told "fix" to become a timeline).
+   */
+  advice?: true;
   patch?: ShapePatch[];
 }
 
@@ -204,7 +209,7 @@ export function jevScope(key: string): string {
   const unclear = /^unclear:(.*)$/s.exec(key);
   if (unclear) return `line:${unclear[1]}`;
   const parts = key.split(":");
-  return `section:${(parts[0] === "kit" ? parts.slice(2) : parts.slice(1)).join(":")}`;
+  return `section:${parts.slice(1).join(":")}`;
 }
 
 /** Jev's findings from its answers: code's truth table over them, one finding per judgment that holds. */
@@ -229,13 +234,17 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
         const made = figurePatch(s.text, schema.id);
         const patch = "patch" in made && made.patch.every(p => text.split(p.observed).length === 2) ? made.patch : undefined;
         out.push({
-          ...base, rule: "kit", rubric: "format", key: `kit:${schema.id}:${clip(s.heading, 24)}`, component: schema.id,
-          say: `${where} reads as a ${(schema.title.replace(/\s*\(.*$/, "").trim() || schema.id).toLowerCase()}: ${name ? `::${name}` : schema.id} would show it (${componentGist(schema)}); ${patch ? "the patch draws it" : `outline_components ${schema.id} gives its properties and an example`}`,
-          ...(patch ? { patch } : {}),
+          // One kit nudge a section (its key names the section, not the component): a rewrite that makes Jev name another
+          // component is the same nudge, carried, not a new one each write.
+          ...base, rule: "kit", rubric: "format", key: `kit:${clip(s.heading, 24)}`, component: schema.id,
+          say: `${where} reads as a ${(schema.title.replace(/\s*\(.*$/, "").trim() || schema.id).toLowerCase()}: ${name ? `::${name}` : schema.id} would show it (${componentGist(schema)}); ${patch ? "the patch draws it" : `if it fits, outline_components ${schema.id} gives its properties and an example`}`,
+          ...(patch ? { patch } : { advice: true as const }),
         });
       }
     }
-    if (yes(`dense::${s.id}`) && roomy(REVIEW_SIZES.dense) && !codeIn(s, "dense")) out.push({ ...base, rule: "dense", rubric: "dense", key: `dense:${clip(s.heading, 24)}`, say: `${where} packs several points into one paragraph or item: one point per line, a heading over each part` });
+    // Dense needs a unit long enough to be: a section of short items (a wall's patch, a list) is never told it.
+    const longest = Math.max(0, ...s.text.split(/\n\s*\n|\n(?=[ \t>]*(?:[-*+]|\d+[.)])[ \t])/).map(u => u.replace(/\s+/g, " ").trim().length));
+    if (yes(`dense::${s.id}`) && roomy(REVIEW_SIZES.dense) && longest > REVIEW_SIZES.denseUnit && !codeIn(s, "dense")) out.push({ ...base, rule: "dense", rubric: "dense", key: `dense:${clip(s.heading, 24)}`, say: `${where} packs several points into one paragraph or item: one point per line, a heading over each part` });
     if (yes(`mixed::${s.id}`) && roomy(REVIEW_SIZES.mixed)) out.push({ ...base, rule: "mixed", rubric: "mixed", key: `mixed:${clip(s.heading, 24)}`, say: `${where} mixes what's true, what was decided and what's still open: give each its own section, decisions in a ::graph-decision` });
     if (yes(`qa::${s.id}`) && !codeIn(s, "qa-for-evan")) out.push({ ...base, rule: "qa-for-evan", rubric: "qa-for-evan", key: `qa:${clip(s.heading, 24)}`, say: `${where} asks Evan to try or check something himself: ${qaRule}` });
     if (yes(`context::${s.id}`) && !codeIn(s, "context")) {
@@ -300,8 +309,9 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   if (input.jev && input.schemas && (sections.length || asks.length || ask.title)) asked = await askJev(text, sections, asks, input.schemas, ask, o);
   const answers = asked && "answers" in asked ? asked.answers : undefined;
   const judged = answers ? {
-    // Jev's yes where it was asked; the word heuristic for a line it wasn't asked about.
-    asks: new Set(lines.flatMap((line, i) => (answers[`asks::L${i}`] ? (answers[`asks::L${i}`]!.noul ?? 0) >= REVIEW_THRESHOLDS.yes : asksEvan(line)) ? [i] : [])),
+    // Jev's yes where it was asked, and the word heuristic's (Evan named, with a question or a decision word) either way:
+    // a line that names Evan and asks is an ask whatever Jev said (PIE-1402: "Should Evan pick up…?" went unflagged).
+    asks: new Set(lines.flatMap((line, i) => asksEvan(line) || (answers[`asks::L${i}`]?.noul ?? 0) >= REVIEW_THRESHOLDS.yes ? [i] : [])),
     ...(unit(answers.title?.noul) ? { titleIsContent: answers.title!.noul! >= REVIEW_THRESHOLDS.yes } : {}),
   } : {};
   const shape = { facets: await input.facets, ...judged };
@@ -317,7 +327,7 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   const jev = (answers ? jevFindings(text, sections, asked as Asked, input.schemas ?? [], code, qaRule) : []).map(f => toldOf(input.told, f.key) ? { ...f, new: false } : f);
   const findings = withoutOverlaps(text, [...code, ...jev]);
   const review: WriteReview = {
-    verdict: findings.some(f => f.new) ? "fix" : "ship",
+    verdict: findings.some(f => f.new && !f.advice) ? "fix" : "ship",
     findings,
     ...(answers ? { judged: [...sections.map(s => `section:${clip(s.heading, 24)}`), ...asks.map(i => `line:${clip(lines[i] ?? "", 40)}`), ...(ask.opening ? ["argues"] : [])] } : {}),
     jev: !input.jev ? input.jevWhy ?? "off" : asked === null ? "not asked: nothing it judges changed" : "answers" in asked ? "asked" : asked.unavailable,
@@ -367,8 +377,8 @@ function withoutOverlaps(text: string, findings: ReviewFinding[]): ReviewFinding
   }
 }
 
-/** A review's new findings as the write answer's warnings, each worded as a gate. */
-export const reviewWarnings = (review: WriteReview) => review.findings.filter(f => f.new).map(f => FIX_BEFORE_DONE + f.say);
+/** A review's new findings as the write answer's warnings, each worded as a gate; advice as advice. */
+export const reviewWarnings = (review: WriteReview) => review.findings.filter(f => f.new).map(f => (f.advice ? "consider: " : FIX_BEFORE_DONE) + f.say);
 
 /**
  * The outline's property values, for the count-in-prose rule: a number typed before one of them is a count a query
