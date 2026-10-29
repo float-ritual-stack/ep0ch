@@ -74,7 +74,10 @@ const figure = (n: number) => (Math.round(n * 10) / 10).toFixed(1);
 /**
  * The truth table: Jev's top Score and its Noul in, what the search says out. Sure only when both agree; nothing here
  * when the Noul says no or the top is no match; otherwise the closest is named and not claimed. A Noul that didn't come
- * back leaves the Score to decide alone.
+ * back leaves the Score to decide alone. A top Jev scores as a match whose Noul isn't settled is "not sure", never "no
+ * strong match" (PIE-1409: a right #1 found by meaning, 2.4 of 3 at a Noul of 0.79, read as if nothing matched).
+ * Measured, Oct 29 (204 cases): of those, 13 in 113 were the note wanted, so they stay unclaimed; the deep pass's own
+ * window Noul taken as a second yes said sure 2 more times rightly and 11 more times wrongly, so it isn't one.
  */
 export function certaintyOf(top: { title: string; score: number } | undefined, exists: number | undefined, t = SEARCH_THRESHOLDS): SearchCertainty {
   const sure = exists === undefined || exists >= t.exists.yes;
@@ -83,6 +86,9 @@ export function certaintyOf(top: { title: string; score: number } | undefined, e
   }
   if (top.score >= t.strong && sure) {
     return { verdict: "strong", label: "sure", said: `strong match: ${quoted(top.title)} (${figure(top.score)} of 3${exists !== undefined ? `, sure ${figure(exists)}` : ""})`, ...(exists !== undefined ? { exists } : {}), top: top.score };
+  }
+  if (top.score >= t.strong) {
+    return { verdict: "weak", label: "not sure", said: `not sure it's the one: ${quoted(top.title)} (${figure(top.score)} of 3${exists !== undefined ? `, sure ${figure(exists)}` : ""})`, ...(exists !== undefined ? { exists } : {}), top: top.score };
   }
   return { verdict: "weak", label: "no strong match", said: `no strong match: the closest is ${quoted(top.title)} (${figure(top.score)} of 3)`, ...(exists !== undefined ? { exists } : {}), top: top.score };
 }

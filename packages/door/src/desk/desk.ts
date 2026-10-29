@@ -42,13 +42,13 @@ import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
 import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { lastTrashed } from "../note-trash";
-import { COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
+import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
 import { LayoutHistory, type LayoutEntry } from "./layout-history";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
 import { ActionRefused, ActionSet, actionSet, actRequestOf, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
-import { newNoteOffer, type NewNoteHow } from "../new-note";
+import { newNoteOffer, newNoteOpens, type NewNoteHow } from "../new-note";
 import { layoutStanding, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
@@ -210,6 +210,8 @@ export interface Wire { says: string; short?: string; /** The tile on this desk 
 const SHOWN_LATELY_MS = 2_000;
 /** A selection walk's steps (PIE-1426): one within this of the last, from the same list, joins its stop. */
 const WALK_MS = 1000;
+/** The narrowest a trail tile opens (Desk.trailTile): a stop's title and its arrow still read; narrower, it lists over the screen. */
+const TRAIL_MIN_COLS = 18;
 
 export class Desk implements Screen, DeskApi, ColumnsHost {
   readonly ownsQuestion = true;
@@ -482,6 +484,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     else {
       const made = this.sides(at).reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source), "trail", true, USER, dir); } catch (e) { if (e instanceof ActionRefused) return null; throw e; } }, null);
       if (made === null) return null;
+      // Too narrow to read (a squeezed river column at 40 columns, PIE-1428): no one-letter-a-row spine taking the keys
+      // unseen; the trail lists over the screen instead.
+      const w = this.rectsNow().get(made)?.cols ?? 0;
+      if (w < TRAIL_MIN_COLS) { this.closeTile(this.nameOf(made), USER); this.redraw(); return null; }
       id = made;
     }
     this.keysTo(id);
@@ -3092,7 +3098,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const busy = this.holdsKeys();
     const inner = f instanceof ScreenTile && !this.contentCover(this.focus).fold ? f.inner?.keys() : null;
     const address = inner?.address ?? (f ? this.tileId(this.focus) : null);
-    const why = !busy ? undefined : this.rawKeys() ? `the person is typing in ${name}, a terminal tile on the ${this.title}`
+    const why = !busy ? undefined : this.rawKeys() ? `the person is typing in ${name} on the ${this.title}`
       : `the person is typing on the ${this.title}: in an edit, a comment or the property panel (or a filter, a picker, a ^W command)`;
     return { focus: name, address, typingIn: typing ? name : null, busy, ...(why ? { why } : {}) };
   }
@@ -3289,6 +3295,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
+   * DeskApi.writeFrom: the person's new note made from reader `from` (a quote, PIE-1184) opened to write in where their
+   * new notes open (`newNoteOpens`, the one answer `note.new` uses too), the reader left as it was. The reader it opened
+   * in, on this desk or another (the drawer's), found by its edit.
+   */
+  async writeFrom(from: ReaderPane, m: Msg): Promise<{ tile: string; pane: ReaderPane } | null> {
+    const id = this.idOf(from);
+    if (id !== undefined && id !== this.focus) this.focusTile(this.nameOf(id), USER);
+    const tile = await this.editNew(m, { opens: newNoteOpens(this.newNoteRule()), context: from.msg?.id ?? null, actor: USER });
+    if (!tile) return null;
+    for (const d of this.relatives()) for (const p of d.panes.values()) if (p instanceof ReaderPane && p.surface.draft?.blockId === m.id) return { tile, pane: p };
+    return null;
+  }
+
+  /**
    * A new note for the person to write (PIE-544, PIE-591): in a tile of its own where `how` says (a float over the
    * screen, a new tab on the tile they're in, their drawer), or where the focused tile's opens land (`lands`: its link,
    * the screen's readers row, the next river column, else a reader beside it); an empty reader they're in (^W o d) takes
@@ -3418,6 +3438,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (from !== undefined && p.msg) this.placeNote(p.msg, { from, note: p.msg.id, history: true, keep: false }, by);
   }
   layoutUndoSeq(): number | undefined { return this.history.newest()?.seq; }
+  untrash(board: object): boolean {
+    if (board !== this.ctx.board) return false;
+    this.run("note.untrash", {}, this.nameOf(this.focus));
+    return true;
+  }
   keepPlace() { this.save(); }
   keepDrafts() { return [...this.drafts().flatMap(p => p.keepDrafts?.() ?? []), ...[...this.models.values()].flatMap(m => m.keepDrafts?.() ?? [])]; }
   /** The edits open here, by tile: what a session's next daemon opens again (src/session/restore.ts). */
@@ -3813,6 +3838,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** The desk's own overlay is open (its search, the layout picker, the policy panel): it takes every key and click. */
   private overlayOpen(): boolean { return !!this.overlays.top(); }
+  /** The desk the person's keys are in: this one, or the focused group's or mounted screen's (its focused tile has them). */
+  private keysDesk(): Desk { const f = this.panes.get(this.focus); return f instanceof ScreenTile && f.inner && !this.contentCover(this.focus).fold ? f.inner.keysDesk() : this; }
+  /**
+   * Where the person types in a program, as Esc asks it (PIE-1431): `typing`, a terminal tile has their keys here or in a
+   * group they went into; `over`, a menu or picker is open over it on the way (this desk's, or the group's).
+   */
+  programKeys(): { typing: boolean; over: boolean } {
+    const inner = this.keysDesk();
+    if (inner === this) return { typing: this.rawKeys(), over: this.overlayOpen() };
+    const deeper = (this.panes.get(this.focus) as ScreenTile).inner!.programKeys();
+    return { typing: deeper.typing, over: deeper.over || this.overlayOpen() };
+  }
 
   /**
    * The screen's key map (its spec's `keys`): a key there runs its action as the person, before the focused tile's own
@@ -7100,7 +7137,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // on, so its Note rows come next; the ⋯ menu is about the tile, so its kind's own groups (a reader's Shows and page
     // lock) come before the long Note group and never fall below the fold.
     const listed: MenuRow[] = this.dispatch.menu(this.tileId(t.id), actor), groups = listed.map(r => r.group).filter(g => g !== "Note");
-    const order = [...new Set(at ? [COPY_GROUP, "Tile", "Note", ...groups] : [COPY_GROUP, "Tile", ...groups, "Note"])];
+    // A button's own rows (pin to status bar, shown only when one is the [ ] position) come before all of them (PIE-1428).
+    const order = [...new Set(at ? [BUTTON_GROUP, COPY_GROUP, "Tile", "Note", ...groups] : [BUTTON_GROUP, COPY_GROUP, "Tile", ...groups, "Note"])];
     const every = order.flatMap(g => listed.filter(r => r.group === g));
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;

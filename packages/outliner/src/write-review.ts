@@ -15,7 +15,7 @@ import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import { calloutBlocks, quoteDepth } from "@ep0ch/outline-core/callouts";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { headerLine } from "@ep0ch/outline-core/header-line";
-import { asksAt, FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
+import { answeredBox, asksAt, FIX_BEFORE_DONE, pointsPatch, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
 import { chipValue } from "./records";
@@ -97,10 +97,10 @@ export function sectionsOf(text: string): Section[] {
   return out.map((s, k) => ({ ...s, id: `s${k}` }));
 }
 
-/** The lines below the top that may ask Evan something: a question mark or a decision word, outside code and components. */
+/** The lines below the top that may ask Evan something: a question mark or a decision word, outside code and components; never a ticked box (answered). */
 function askCandidates(text: string): number[] {
   const lines = text.split("\n"), structure = noteStructure(lines), title = headerLine(text).line;
-  return lines.flatMap((line, i) => i > title && structure[i] === -1 && (/\?/.test(line) || /\b(?:evan|you|your|decide|decision|should|please|let me know|approve|confirm|pick|choose|sign off)\b/i.test(line)) ? [i] : []);
+  return lines.flatMap((line, i) => i > title && structure[i] === -1 && !answeredBox(line) && (/\?/.test(line) || /\b(?:evan|you|your|decide|decision|should|please|let me know|approve|confirm|pick|choose|sign off)\b/i.test(line)) ? [i] : []);
 }
 
 /** The components a review may name: every one the outline has in its figures, layout and site groups, each by its own description. */
@@ -233,9 +233,15 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
     }
     // Dense needs a unit long enough to be: a section of short items (a wall's patch, a list) is never told it.
     const longest = Math.max(0, ...s.text.split(/\n\s*\n|\n(?=[ \t>]*(?:[-*+]|\d+[.)])[ \t])/).map(u => u.replace(/\s+/g, " ").trim().length));
-    if (yes(`dense::${s.id}`) && roomy(REVIEW_SIZES.dense) && longest > REVIEW_SIZES.denseUnit && !codeIn(s, "dense")) out.push({ ...base, rule: "dense", rubric: "dense", key: `dense:${clip(s.heading, 24)}`, say: `${where} packs several points into one paragraph or item: one point per line, a heading over each part` });
+    if (yes(`dense::${s.id}`) && roomy(REVIEW_SIZES.dense) && longest > REVIEW_SIZES.denseUnit && !codeIn(s, "dense")) {
+      // The fix, when code can make it: the longest unit one point a line (PIE-1428: a dense finding with no patch kept a
+      // note that code passed from ever shipping).
+      const made = pointsPatch(text, s.line, s.end);
+      const patch = made?.every(p => text.split(p.observed).length === 2) ? made : undefined;
+      out.push({ ...base, rule: "dense", rubric: "dense", key: `dense:${clip(s.heading, 24)}`, say: `${where} packs several points into one paragraph or item: one point per line, a heading over each part${patch ? " (the patch makes it one point a line)" : ""}`, ...(patch ? { patch } : {}) });
+    }
     if (yes(`mixed::${s.id}`) && roomy(REVIEW_SIZES.mixed)) out.push({ ...base, rule: "mixed", rubric: "mixed", key: `mixed:${clip(s.heading, 24)}`, say: `${where} mixes what's true, what was decided and what's still open: give each its own section, decisions in a ::graph-decision` });
-    if (yes(`qa::${s.id}`) && !codeIn(s, "qa-for-evan")) out.push({ ...base, rule: "qa-for-evan", rubric: "qa-for-evan", key: `qa:${clip(s.heading, 24)}`, say: `${where} asks Evan to try or check something himself: ${qaRule}` });
+    if (yes(`qa::${s.id}`) && ADDRESSED.test(s.text) && !codeIn(s, "qa-for-evan")) out.push({ ...base, rule: "qa-for-evan", rubric: "qa-for-evan", key: `qa:${clip(s.heading, 24)}`, say: `${where} asks Evan to try or check something himself: ${qaRule}` });
     if (yes(`context::${s.id}`) && !codeIn(s, "context")) {
       // The phrase it leans on, quoted where code finds one; else the section's opening, said as such.
       const cue = contextCue(s, lines);
@@ -280,6 +286,8 @@ export interface ReviewInput {
    * so a write that fixed everything else can ship (PIE-1402: Jev's findings were new on every write).
    */
   told?: ReadonlySet<string>;
+  /** The clock a time written as past is read against (PIE-1417); now when left out. */
+  now?: Date;
 }
 
 /**
@@ -303,17 +311,19 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
     asks: new Set(lines.flatMap((_, i) => asksAt(lines, i, jevSays(i)) ? [i] : [])),
     ...(unit(answers.title?.noul) ? { titleIsContent: answers.title!.noul! >= REVIEW_THRESHOLDS.yes } : {}),
   } : {};
-  const shape = { facets: await input.facets, ...judged };
+  const shape = { facets: await input.facets, now: input.now ?? new Date(), ...judged };
   const had = new Map<string, number>();
   for (const f of before === undefined ? [] : writeShape(before, shape)) had.set(f.key, (had.get(f.key) ?? 0) + 1);
   const code: ReviewFinding[] = writeShape(text, shape).map(f => {
     const n = had.get(f.key) ?? 0;
     if (n) had.set(f.key, n - 1);
-    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.passage ?? (f.line ? lines[f.line - 1] ?? "" : text)), new: !n && !toldOf(input.told, f.key), by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
+    // A ready patch the writer was told and hasn't applied is still theirs to apply: the verdict says fix while the list
+    // holds it (PIE-1388: two walls, one patched, answered ship with both listed). Told without a patch, it's carried.
+    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.passage ?? (f.line ? lines[f.line - 1] ?? "" : text)), new: (!n && !toldOf(input.told, f.key)) || owed(input.told, f.key, !!f.patch), by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
   });
   const qaRule = input.qaRule ?? QA_RULE;
   code.push(...qaFindings(text, before, qaRule).map(f => toldOf(input.told, f.key) ? { ...f, new: false } : f));
-  const jev = (answers ? jevFindings(text, sections, asked as Asked, input.schemas ?? [], code, qaRule) : []).map(f => toldOf(input.told, f.key) ? { ...f, new: false } : f);
+  const jev = (answers ? jevFindings(text, sections, asked as Asked, input.schemas ?? [], code, qaRule) : []).map(f => toldOf(input.told, f.key) ? { ...f, new: owed(input.told, f.key, !!f.patch) } : f);
   const findings = withoutOverlaps(text, [...code, ...jev]);
   const review: WriteReview = {
     verdict: findings.some(f => f.new && !f.advice) ? "fix" : "ship",
@@ -327,11 +337,24 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   return { review, ...(asked && "reading" in asked ? { reading: asked.reading } : {}) };
 }
 
+/**
+ * Whether a told finding is still the writer's to fix: told, it is carried, except one with a ready patch still
+ * unapplied, which keeps the verdict at fix while the list holds it (PIE-1388: two walls, one patched, answered ship
+ * with both listed). The one answer for code's findings and Jev's alike.
+ */
+const owed = (told: ReadonlySet<string> | undefined, key: string, patch: boolean) => toldOf(told, key) && patch;
+
 /** Whether a key was told: its record holds it as a chip holds it (records.ts chipValue). */
 const toldOf = (told: ReadonlySet<string> | undefined, key: string) => !!told && (told.has(key) || told.has(chipValue(key)));
 
 /** What a finding that asks Evan to validate says, unless the outline words it (house rules, work-review.ts). */
 export const QA_RULE = "validation is the agents' job, never Evan's: drive it yourself (a scratch door, a headless page) and tell him what you saw";
+
+/**
+ * Words that address someone: a QA ask is put to Evan (or "you", "me"), never a bare instruction the note gives its
+ * reader ("Check the water butt level", PIE-1428). Code's half of Jev's `qa` judgment.
+ */
+const ADDRESSED = /\b(?:evan|you|your|yourself|please|let me know|tell me|show me|ping me|before I)\b/i;
 
 const ASKS_QA = /\b(?:can you|could you|please|would you|evan[,:]?)\s+(?:try|test|verify|check|confirm)\b|\bneeds? evan to\s+(?:try|test|verify|check|confirm)\b/i;
 
@@ -360,7 +383,7 @@ function withoutOverlaps(text: string, findings: ReviewFinding[]): ReviewFinding
     if (!f.patch || !f.new) return f;
     const spans = f.patch.map(p => { const at = text.indexOf(p.observed); return [at, at + p.observed.length] as [number, number]; });
     const clashes = spans.some(([a, b]) => a < 0 || taken.some(([c, d]) => a < d && c < b));
-    if (clashes) { const { patch: _, ...rest } = f; return { ...rest, say: `${f.say} (after the other patches: its own comes with the next review)` }; }
+    if (clashes) { const { patch: _, ...rest } = f; return { ...rest, say: `${f.say.replace(/ \(the patch [^)]*\)/, "")} (after the other patches: its own comes with the next review)` }; }
     taken.push(...spans);
     return f;
   }

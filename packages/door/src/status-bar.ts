@@ -279,10 +279,10 @@ const pathOf = (p: string) => p.split("/").map(x => x.trim()).join("/").toLowerC
 const opensFrom = (bar: string, path: string) => { const a = pathOf(bar), b = pathOf(path); return a === b || b.startsWith(`${a}/`); };
 
 /** A bar item as a menu row: its words, and what a click on it runs. */
-export function menuRowOf(item: StatusItem, group: string): MenuRow {
+export function menuRowOf(item: StatusItem, group: string, nests = true): MenuRow {
   const label = visible(item.text).trim() || item.id;
   return item.click
-    ? { action: item.click.action, args: item.click.args ?? {}, tile: item.click.tile ?? "", label, group }
+    ? { action: item.click.action, args: item.click.args ?? {}, tile: item.click.tile ?? "", label, group, ...(nests && item.click.action === "status.bar.menu" && item.click.args?.group !== undefined ? { submenu: true as const } : {}) }
     : { action: "status.log", args: {}, tile: "", label, group, refused: `${label} does nothing on a click` };
 }
 
@@ -293,8 +293,11 @@ interface StatusOn {
   /** What the bar had no room for, in its order (the `+N` chip's). */
   hidden(): StatusItem[];
   open(id: string, actor: Actor, reveal?: Reveal): Promise<unknown>;
-  /** Show the person a menu of `rows` over the screen, above the bar's item `anchor` picks; false when no screen can hold one. */
-  menu(title: string, rows: MenuRow[], anchor: (item: StatusItem) => boolean): boolean;
+  /**
+   * Show the person a menu of `rows` over the screen, above the bar's item `anchor` picks; false when no screen can hold one.
+   * `group`: the group's path (Tools/More): a nested group's menu opens beside its parent's, which stays open (PIE-1428).
+   */
+  menu(title: string, rows: MenuRow[], anchor: (item: StatusItem) => boolean, group?: string): boolean;
   flash(text: string): void;
 }
 export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
@@ -335,12 +338,13 @@ export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
     ],
     run({ group, overflow }, on, actor) {
       const g = overflow ? { label: "not shown: no room", items: on.hidden() } : on.note.group(group ?? "", on.builtins());
-      const rows = g.items.map(i => menuRowOf(i, g.label));
+      // A group's group opens beside it; one the +N lists opens on its own (the +N menu has no group to stand beside).
+      const rows = g.items.map(i => menuRowOf(i, g.label, !overflow));
       // The overflow also opens the note, where the bar is arranged.
       if (overflow) rows.push({ action: "status.bar.edit", args: {}, tile: "", label: "edit the status bar", group: "the bar" });
       const title = overflow ? "status bar" : g.label, answer = { title, rows: rows.map(({ tile: _t, group: _g, ...r }) => r) };
       if (actor.kind === "agent") return answer;
-      if (!on.menu(title, rows, i => (overflow ? i.id === "overflow" : i.click?.action === "status.bar.menu" && opensFrom(String(i.click.args?.group ?? ""), group ?? "")))) on.flash(`${title}: ${rows.map(r => r.label).join(" · ")}`);
+      if (!on.menu(title, rows, i => (overflow ? i.id === "overflow" : i.click?.action === "status.bar.menu" && opensFrom(String(i.click.args?.group ?? ""), group ?? "")), overflow ? undefined : pathOf(group ?? ""))) on.flash(`${title}: ${rows.map(r => r.label).join(" · ")}`);
       return answer;
     },
   }),

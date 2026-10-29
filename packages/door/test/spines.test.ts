@@ -327,7 +327,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     key({ kind: "tab" });
     key(char("i"));
     expect(B().preview.surface.panel).not.toBeNull();
-    await expect(act("tile.collapse", { on: true }, "preview")).rejects.toThrow(/preview has the person's keys; an agent doesn't fold it/);
+    await expect(act("tile.collapse", { on: true }, "preview")).rejects.toThrow(/the person is typing in preview; an agent doesn't fold it/);
     expect(!!folded(B().preview)).toBe(false);
     key({ kind: "esc" });
     await act("tile.collapse", { on: true }, "detail1");

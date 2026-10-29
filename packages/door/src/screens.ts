@@ -1,5 +1,5 @@
 import { LIST_MOVE_KEYS } from "./surface/attached-keys";
-import { modeBinding, modeHint, modeActionKeys } from "./surface/modes";
+import { modeBinding, modeHint, modeActionKeys, Modes } from "./surface/modes";
 import { clipText } from "./overflow";
 import { errorDetails } from "./status-log";
 import { matchesSearchText } from "@ep0ch/outline-core/search-match";
@@ -32,7 +32,8 @@ import { RowView, RowPresses, overscroll, overscrollOf, useOverscroll } from "./
 import { composerPlace, useComposerPlace } from "./surface/composer";
 import { attachedPlaceOf } from "./surface/attached";
 import { ATTACHED_PLACES } from "./surface/attached";
-import { overflows, scrollPct } from "./canvas";
+import { Canvas, overflows, scrollPct } from "./canvas";
+import type { ListPicker } from "./surface/picker";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
@@ -1523,6 +1524,8 @@ export class MessageReader implements Screen {
   private replies: { for: string; n: number | null } | null = null;
   private shown = false;
   private ctx: Ctx | null = null;
+  /** Lists over the reader (the trail, alt+T, PIE-208): the first takes every key and click. */
+  private readonly overlays = new Modes<MessageReader, ListPicker<any, MessageReader>>();
   constructor(private readonly list: Msg[], private index: number) {}
 
   private get msg() { return this.list[this.index]!; }
@@ -1575,6 +1578,7 @@ export class MessageReader implements Screen {
       gone: id => { if (this.list.length === 1 && this.msg.id === id && ctx.screens?.().at(-1) === this) ctx.pop(); },
       // What the surface doesn't take is the BBS reader's: next, previous, the thread, back.
       ownKeys: "nNpPtTqQU",
+      overlay: p => { this.overlays.push(p); ctx.redraw(); },
       // Its own keys and clicks run its note actions through the reader's dispatcher.
       press: (name, args, quiet, given) => this.dispatch.pressIn(NOTE_ACTIONS, name, args, READER, quiet, given),
       pressSet: (set, name, args, quiet, given) => this.dispatch.pressIn(set, name, args, READER, quiet, given),
@@ -1588,11 +1592,13 @@ export class MessageReader implements Screen {
     const c = info.comments;
     const comments = c?.total ? ` |08· ${c.open ? `|14■ ${c.open} open comment${c.open === 1 ? "" : "s"}` : `■ ${c.total} resolved`} |08(m)` : "";
     const props = info.properties ? ` |08· i ${info.properties} propert${info.properties === 1 ? "y" : "ies"}` : "";
+    // Two fields a row where they fit; at 40 columns each on its own, so none is cut short (PIE-1428).
+    const two = (a: string, b: string) => (width(a) + width(b) <= w ? [a + b] : [a.trimEnd(), b]);
     return [
-      paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}|09Number: |15${prop(m, "work-id") ?? clipText(m.id, 8)} |08(${this.index + 1} of ${this.list.length})`),
+      ...two(paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}`), paint(`|09Number: |15${prop(m, "work-id") ?? clipText(m.id, 8)} |08(${this.index + 1} of ${this.list.length})`)),
       // Addressed with a `to::` property, else to everyone, as a BBS message is.
-      paint(`|09  To: |07${pad(prop(m, "to")?.trim() || "ALL", 24)}|09Refer#: |07${m.parentId ? clipText(m.parentId, 8) : "none"}`),
-      paint(`|09From: |14${pad(authorName(m.author), 23)} |09Reply: |07${replies === null ? "…" : replies}`),
+      ...two(paint(`|09  To: |07${pad(prop(m, "to")?.trim() || "ALL", 24)}`), paint(`|09Refer#: |07${m.parentId ? clipText(m.parentId, 8) : "none"}`)),
+      ...two(paint(`|09From: |14${pad(authorName(m.author), 23)} `), paint(`|09Reply: |07${replies === null ? "…" : replies}`)),
       // An edit armed here (e, src/arm.ts): the subject asks in the edit's colour until ⏎ opens it or a key lets it go.
       this.ctx?.armed?.()?.of === this.surface
         ? paint(`|09Subj: |14✎ edit? ${clipText(subject(m), Math.max(1, w - 14))} |06⏎ opens it`)
@@ -1656,7 +1662,12 @@ export class MessageReader implements Screen {
     const lines = v.lines.slice(0, h - 1);
     while (lines.length < h - 1) lines.push("");
     lines.push(this.hint(v.scroll, w));
-    return { lines, placements: v.placements };
+    if (!this.overlays.top()) return { lines, placements: v.placements };
+    const canvas = new Canvas(w, lines.length);
+    lines.forEach((l, row) => canvas.text(0, row, l, w));
+    const values = lookFor(ctx, { screen: this.title }, w).values;
+    for (const o of [...this.overlays.all()].reverse()) o.draw(canvas, { col: 0, row: 0, cols: w, rows: lines.length }, values);
+    return { lines: canvas.lines() };
   }
 
   /**
@@ -1672,6 +1683,7 @@ export class MessageReader implements Screen {
   key(k: Key, ctx: Ctx) {
     this.ctx = ctx;
     const host = this.host(ctx);
+    if (this.overlays.key(k, this) !== null) { ctx.redraw(); return; }
     if (k.kind === "mouse") return this.mouse(k, ctx, host);
     // An edit, a comment or the property panel takes every key, q and esc included, until it closes.
     if (this.surface.holdsKeys || this.surface.choosing) { this.surface.key(k, host); return; }
@@ -1715,7 +1727,7 @@ export class MessageReader implements Screen {
   /** Screen.dispose: the reader is closed; its draft's hold on the service is let go (PIE-501). */
   dispose() { this.surface.dispose(); }
   /** Screen.holdsKeys: an edit, a comment or the panel the person is in, or a step's status choice (as on the desk and the river). */
-  holdsKeys() { return this.surface.holdsKeys || this.surface.choosing; }
+  holdsKeys() { return this.surface.holdsKeys || this.surface.choosing || !!this.overlays.top(); }
   /** Screen.keys: the one reader has the person's focus; they type in it while it holds their keys. */
   keys() {
     const busy = this.holdsKeys();

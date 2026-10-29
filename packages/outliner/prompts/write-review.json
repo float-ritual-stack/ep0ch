@@ -9,7 +9,7 @@
   "title": "Is `title` the note's content itself, a sentence saying what happened or what to do, rather than a short name for what follows?",
   "asks": "Does `{line}` ask Evan, the outline's owner, for a decision or an answer?",
   "unclear": "Could someone reading only `{line}` say in one sentence what Evan is asked to decide or do?",
-  "qa": "Does `{section}` ask Evan to try, test, verify or check something himself?",
+  "qa": "Does `{section}` ask Evan, the outline's owner, to try, test, verify or check work someone did (a change, a fix, a build) himself? The note's own instructions, steps and chores for whoever reads it (a recipe, a runbook, a to-do list) are not such an ask.",
   "proof": "Does `proof` show someone using the change in the running application (opening it, driving it or looking at what it draws), rather than only tests passing?",
   "experience": "Does `ticket` say what Evan will do, or see happen, in the app once it is done?"
 }

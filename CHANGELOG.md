@@ -26,7 +26,44 @@ are its record. The outliner's entries from then are kept below, under
   else. The cut stays in one-line fields (the bar, a filter); in an edit, shift+End then ctrl+x does it.
 - **The keys card keeps a `::button{…}` example whole** (`ep0ch actions --doc agent.lift`).
 - **Run:** nothing.
+### Margin comments read as comments, and a quote lands where you are (PIE-1255, PIE-1184)
 
+- **A card opens the moment you press its `[+]`,** in marks mode too: it comes into view instead of opening above
+  the window (it used to need a scroll down and back up).
+- **Whole-note comments have one `[+]` each, after the title,** never a row of them in the gutter pushing the text over.
+- **The comment count says what you see:** "short cards", "whole", "as marks", and M says
+  what each does as it changes.
+- **A comment looks like a comment:** each card on its own dark surface in its tone, jutting into the margin under its
+  passage; the side column grows with a wide tile.
+- **[Quote] asks "under this note" first** and opens the quote where your new notes open (a float beside what you read, unless `note.opens` says otherwise), lit as just arrived, in
+  your edit at the end of the quote: nothing to hunt for.
+### The write review flags only what's really wrong (PIE-1428, PIE-1417, PIE-1427, PIE-1388)
+
+- **No false asks:** a note's own instruction ("check the water butt; write it on the shed door") is not a QA question, and a ticked checkbox (any mark: x ~ ! - ✓) is an answered one, so its patch never puts `[needs::sysop]` back on a done ticket.
+- **Patches ship:** once a finding's patch is applied the note can ship; a told patch keeps the verdict at fix until what it named is fixed, and the checkbox patch leaves no double blank line.
+- **No future times:** a build-log line stamped later than now is a finding when it's written (a row still to come is marked *next*).
+- **Jev's record reads true:** a figure suggestion counts as followed only when its own section changed; reviews where Jev had nothing to say are recorded live, in a "Reviewed, nothing to fix" table with when.
+- **Quieter recent activity:** notify's pull page carries `[machine::notify]`, so a chat's "what changed lately" leaves it out; extension pages stay in search and the bar.
+- **Run:** nothing beyond the usual `ep0ch install --apply`; pie's suggestions page adds its new table at the next review.
+
+### Esc closes what's in front of you, never the Claude tile by mistake (PIE-1431, PIE-1428)
+
+- **Esc over a terminal you type in** (a terminal tile, the drawer's agent) closes the power bar or the menu over it,
+  whichever opened it: a click on the status bar's ^K, a status-bar group, a tile's ⋯. It never reaches the program.
+- **A second Esc right after** goes nowhere and says so on the status line; a moment later (0.6 s) Esc is the program's
+  again. Under the Kitty keyboard protocol too.
+- **A status-bar group in a group** opens its menu beside its parent's, which stays open: Esc closes the inner, then the outer.
+- **"pin to status bar"** is the tile menu's first row when you right-click a button.
+- **alt+o in the power bar** says what it copied on the status line and in the log, not only in the toast.
+- **At 40 columns,** a pasted link's explanation and the undo ask at a save read whole. A message the status bar cuts
+  short (a Pipe or Fold refusal) is said whole just above it while it's up. The BBS reader's Number, Refer# and Reply
+  take a row of their own, and a figure's warning wraps.
+- **alt+T in the BBS reader** lists the trail over it, as its footer says. In the river at 40 columns, alt+T on a
+  squeezed column lists the trail over the screen, not in a one-letter-wide tile.
+- **For agents:** a refusal about the tile the person types in reads one way: "the person is typing in <tile>; an
+  agent doesn't <what> · <what to do>", never `drawer.tiles`. `button.press note=` takes the 8-character short id,
+  a Work ID or a [[page]], as `open id=` does.
+- **Run:** nothing.
 ### A drawer Claude is its own session, and a program with no tile is listed and put back (PIE-1432)
 
 - **Its own name:** the door drops the Claude settings it inherited (`CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_PID`, `CLAUDE_JOB_DIR`, `AI_AGENT`) when it starts its terminal host and every tile, so a Claude started in your drawer shows its own name and saves its transcript.

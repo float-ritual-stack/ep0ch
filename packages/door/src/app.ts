@@ -37,7 +37,7 @@ import { TEMPLATE_ACTIONS } from "./template-stamp";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
 import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
 import { isBarKey } from "./shell-keys";
-import { printable, withRowLimit } from "./text";
+import { printable, withRowLimit, wrap } from "./text";
 import { SpeedMeter } from "./speed";
 import { CLAUDE_SPLIT_ACTIONS, SplitWatch } from "./claude-splits";
 import { realFleetIO } from "./agent-fleet";
@@ -68,6 +68,8 @@ import { describeKey } from "./key-probe";
 import { WhatChanged } from "./desk/what-changed";
 import { overBar, PowerBar } from "./bar/bar";
 import { tilesOf } from "./bar/sources";
+import { rawKey } from "./kbd";
+import type { ListPicker } from "./surface/picker";
 import { BAR_ACTIONS, type BarOn } from "./bar/actions";
 import { onBarSources, type BarHost } from "./bar/source";
 import type { Msg } from "./board";
@@ -450,6 +452,8 @@ export function agentActor(as?: string): Actor {
 
 /** A frame: no screen paints more often than this, and no hover report is handled more often (App.redraw, App.key). */
 const FRAME_MS = 16;
+/** After an Esc that closed something over a terminal the person types in, a second Esc this soon is that one again, never the program's (PIE-1431). */
+export const ESC_SPENT_MS = 600;
 
 export class App implements Ctx {
   readonly overflow = new Overflow();
@@ -606,6 +610,10 @@ export class App implements Ctx {
     host: () => this.barHost(),
   };
   private statusBoxes: StatusHit[] = [];
+  /** The status bar's message didn't fit its row as last drawn: it's said whole above the bar (withWhole). */
+  private messageCut = false;
+  /** The status-bar groups' menus the person opened, by the group's path: a nested group's opens beside its parent's. */
+  private readonly statusMenus = new Map<string, ListPicker<MenuRow, unknown>>();
   /** What the narrow bar put in its `+N` chip, in the bar's order (`status.bar.menu overflow=true` lists them). */
   private statusHidden: StatusItem[] = [];
   private readonly statusButtons = new NoteSurface();
@@ -642,9 +650,11 @@ export class App implements Ctx {
     // Raw input while the person types in the drawer or a terminal tile: the drawer first, then the
     // screen says where it goes (Term keeps mouse and ctrl+]).
     // In the drawer, the person's bytes are the drawer's alone (a picker, a reader tab): never the screen's terminal under it.
+    // Nothing over it: the power bar, or a menu over the screen while the person is in the drawer, has the keys first (PIE-1431).
     (term as { rawSink?: unknown }).rawSink = () => {
-      const sink = this.probing ? null : this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
+      const sink = this.probing || this.bar || this.overDrawer() ? null : this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
       return sink ? (bytes: string) => {
+        if (this.escSpent(bytes)) return;
         this.drawer.desks().map(d => d.liftedDesk).find(Boolean)?.dropLiftElsewhere();
         sink(bytes);
       } : null;
@@ -1214,12 +1224,19 @@ export class App implements Ctx {
       flash: (text: string) => this.flash(text, 12_000),
       // A group's or the overflow's menu (PIE-1224, PIE-1213): the tile menu over the screen, above the bar item it opens from,
       // its rows run on this dispatcher (they are the bar's own clicks).
-      menu: (title: string, rows: MenuRow[], anchor: (item: StatusItem) => boolean) => {
+      menu: (title: string, rows: MenuRow[], anchor: (item: StatusItem) => boolean, group?: string) => {
         // Only over the screen the person sees: a desk under another screen would hold a menu nobody sees.
         const here = this.screenDesk();
         if (!here || here !== tilesOf(this.stack.at(-1))) return false;
         const hit = this.statusBoxes.find(h => anchor(h.item));
-        here.overlay(tileMenu({ title, rows, at: { col: hit?.from ?? 0, row: Math.max(0, this.term.info.rows - 2) }, host: { dispatch: { press: (a, args, tile) => this.dispatch.press(a, args, tile) }, ctx: this } }));
+        // A group in a group opens beside its parent's menu, still open under it (PIE-1428); the outermost, above its bar item.
+        const parent = group?.includes("/") ? this.statusMenus.get(group.slice(0, group.lastIndexOf("/"))) : undefined, box = parent && !parent.ended() ? parent.drawn() : null;
+        const at = box ? { col: box.col + box.cols, row: box.row } : { col: hit?.from ?? 0, row: Math.max(0, this.term.info.rows - 2) };
+        const menu = tileMenu({ title, rows, at, ...(box ? { beside: box } : {}), ...(group ? { name: `tile menu ${group}` } : {}), host: { dispatch: { press: (a, args, tile) => { if (a !== "status.bar.menu" || args?.overflow) this.closeStatusMenus(here); return this.dispatch.press(a, args, tile); } }, ctx: this } });
+        // A row that runs something (not a nested group's) closes the whole chain, as one choice from one menu did.
+        if (group !== undefined) this.statusMenus.set(group, menu);
+        else this.statusMenus.set("", menu);
+        here.overlay(menu);
         this.redraw();
         return true;
       },
@@ -1384,6 +1401,13 @@ export class App implements Ctx {
     // An Option character standing for an alt key is that key everywhere after this, the drawer's alt+a too.
     const k = this.optionAsAlt(typed);
     this.pressed(k);
+    // An Esc the door reads while the person types in a program: one for something over it (the bar, a menu) is spent
+    // there; one right after it is that one again, never the program's (PIE-1431). A screen that hands its terminal decoded
+    // keys (the showcase's stage) meets it here; raw bytes meet it in the raw sink (escSpent).
+    if (k.kind === "esc" && this.typingInProgram()) {
+      if (!this.overProgram() && this.heldEsc()) return;
+      if (this.overProgram()) this.escSpentAt = this.now();
+    }
     // The key typed, by its one name, while it's handled: an action it no longer runs (the person's keymap moved it) says so.
     try { asTyped(k.kind === "mouse" || k.kind === "paste" ? null : keyName(k), () => this.route(k)); }
     finally {
@@ -1449,6 +1473,9 @@ export class App implements Ctx {
     // The hyper layer (PIE-699): ⌃⌥⇧⌘ and a key, before any tile's own keys (a draft's and a terminal tile's too). Each chord
     // presses an action that has other keys and a click (src/hyper.ts); the layer is off unless turned on.
     if (k.kind === "hyper") { this.hyper(k.ch); return; }
+    // A menu opened over the screen while the person is in the drawer (a status-bar group's) has the keys before the drawer
+    // and a tile of it lifted over the screen: Esc closes it, never the agent's (PIE-1431).
+    if (k.kind !== "mouse" && this.overDrawer()) { this.stack.at(-1)!.key(k, this); return; }
     const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
     if (lifted?.liftInput(k, () => {
       if (this.drawer.made?.liftedDesk === lifted) this.drawerRun("host.enter", {});
@@ -1526,6 +1553,40 @@ export class App implements Ctx {
     }
     top?.key(k, this);
   }
+
+  /** Every status-bar menu the person opened (a group, its nested groups, the +N) closes: a row in one ran. */
+  private closeStatusMenus(here: Desk) { for (const m of this.statusMenus.values()) if (!m.ended()) m.close(here); this.statusMenus.clear(); this.redraw(); }
+  /** A menu or picker over the screen while the person types in the drawer (a status-bar group's): the keys are its until it closes. */
+  private overDrawer(): boolean {
+    if (!this.drawer.entered) return false;
+    // Only a menu the bar opened over the screen (a status-bar group's, +N): one left open on the screen before the person
+    // went into the drawer is the screen's, and their keys stay the drawer's.
+    const top = tilesOf(this.stack.at(-1));
+    return !!top && top !== this.drawer.made && top.overlaid() && [...this.statusMenus.values()].some(m => !m.ended());
+  }
+  /** The person's keys are a terminal program's (a terminal tile's, the drawer's agent's), whatever is open over it. */
+  private typingInProgram(): boolean {
+    const top = this.stack.at(-1), d = this.drawer.entered ? this.drawer.desk : tilesOf(top);
+    if (!d) return !!top?.rawKeys?.();
+    // A screen that frames a desk (the showcase's stage) says whether the keys are in it at all.
+    return d.programKeys().typing && (this.drawer.entered || d === top || !!top?.rawKeys?.());
+  }
+  /** Something over the program the person types in has their keys: the power bar, or a menu or picker over its tiles. */
+  private overProgram(): boolean {
+    if (this.bar || this.overDrawer()) return true;
+    return !!(this.drawer.entered ? this.drawer.desk : tilesOf(this.stack.at(-1)))?.programKeys().over;
+  }
+  /** When an Esc last closed something over a terminal the person types in, or was held back for it. */
+  private escSpentAt = -Infinity;
+  /** An Esc right after one closed something over the program: held back, and said (PIE-1431). */
+  private heldEsc(): boolean {
+    // A fixed window from the Esc that closed something: a held one doesn't extend it, so tapping Esc gets through soon.
+    if (this.now() - this.escSpentAt >= ESC_SPENT_MS) return false;
+    this.flash("nothing to close · pause, then esc is the program's", 2500);
+    return true;
+  }
+  /** Raw bytes that are an Esc (legacy, or a Kitty report), held back as heldEsc says. */
+  private escSpent(bytes: string): boolean { return this.now() - this.escSpentAt < ESC_SPENT_MS && (/^\x1b+$/.test(bytes) || rawKey(bytes)?.kind === "esc") && this.heldEsc(); }
 
   private probing = false;
   probeKeys(on = !this.probing): boolean {
@@ -1730,7 +1791,10 @@ export class App implements Ctx {
       placements = uncover(placements, r);
     }
     if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
-    lines.push(this.statusBar(s, cols));
+    const bar = this.statusBar(s, cols);
+    // What the bar cuts short (a refusal at 40 columns) is said whole just above it while it's up (PIE-1428).
+    if (this.messageCut && this.message) lines = withWhole(lines, this.message, cols, this.messageWarning);
+    lines.push(bar);
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     const readable = this.overflow.draw(lines, cols, Date.now());
     if (readable.overlay) placements = uncover(placements, readable.overlay);
@@ -1844,6 +1908,7 @@ export class App implements Ctx {
       held = held.toSpliced(last >= 0 ? last : Math.max(0, held.findIndex(i => i.id === "problems")), 1);
     }
     const kept = separated(held, "left"), keep = statusText(kept);
+    this.messageCut = !!this.message && width((displaced ? keep : left) + middle) > room;
     this.statusBoxes = [
       ...statusHits(displaced ? kept : leftItems, 0, displaced ? room : room - (width(left) > room ? 1 : 0)),
       ...statusHits(rightItems, Math.max(3, cols - width(right)), cols),
@@ -1878,6 +1943,13 @@ export function withToast(lines: string[], text: string, cols: number, ok = true
   const out = [...lines];
   const line = out[row] ?? "";
   out[row] = headOf(line, at) + RESET + chip(ok ? C.cyan : C.red) + pad(t, w) + RESET + tailFrom(line, at + w);
+  return out;
+}
+
+/** A message the status bar cut short, wrapped whole over the rows just above it (at most four), in the bar's ink. */
+export function withWhole(lines: string[], text: string, cols: number, warning = false): string[] {
+  const rows = wrap(printable(text, " "), Math.max(1, cols - 2)).slice(0, 4), out = [...lines];
+  rows.forEach((r, i) => { const at = out.length - rows.length + i; if (at >= 0) out[at] = STATUS_INK + fg(warning ? C.yellow : C.lcyan) + pad(` ${r}`, cols) + RESET; });
   return out;
 }
 

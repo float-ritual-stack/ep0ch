@@ -452,7 +452,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { await board.trash(note.id, USER); }
   });
 
-  test("a group inside a group opens its menu where the click was, under its outer group, not at column 1 (PIE-1415)", async () => {
+  test("a group inside a group opens its menu beside its outer group's, which stays open, never at column 1 (PIE-1415, PIE-1428)", async () => {
     // On the right of the bar, so column 1 is far from the click.
     const note = await board.createBlock(null, 'Nested status [status-bar::true]\n- brand\n- clock\n- Tools\n  - theme\n  - More\n    - ::button{label="Video" act="video.cycle"}');
     try {
@@ -468,12 +468,41 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
         press({ kind: "mouse", action: "up", button: 0, x: col, y: row });
         await until(() => painted.slice(0, -1).some(l => visible(l).includes("[Video]")), "the inner menu");
         const inner = painted.findIndex(l => visible(l).includes("[Video]")), at = visible(painted[inner]!).indexOf("[Video]");
-        // Where the outer menu stood (it opened above Tools), never pulled to the left edge.
-        expect(Math.abs(at - col)).toBeLessThanOrEqual(4);
+        // Beside the outer menu (to its right, or its left at the bar's right end), which stays open and in sight (PIE-1428),
+        // never pulled to the left edge; Esc closes it, then the outer.
+        // (At 44 columns two menus don't fit side by side: the inner is drawn over the outer, which is there again after Esc.)
+        if (cols >= 70) expect(painted.slice(0, -1).some(l => visible(l).includes("More ▲"))).toBe(true);
+        expect(at).toBeGreaterThan(1);
         expect(tools).toBeGreaterThan(cols / 2);
         press({ kind: "esc" });
+        await until(() => !painted.slice(0, -1).some(l => visible(l).includes("[Video]")), "the inner menu closed");
+        expect(painted.slice(0, -1).some(l => visible(l).includes("More ▲"))).toBe(true);
+        press({ kind: "esc" });
+        await until(() => !painted.slice(0, -1).some(l => visible(l).includes("More ▲")), "the outer menu closed");
       }
+      // A row in the inner menu runs, and both menus close: one choice, as from one menu.
+      click("Tools");
+      await until(() => painted.slice(0, -1).some(l => visible(l).includes("More ▲")), "the outer menu again");
+      const mr = painted.findIndex(l => visible(l).includes("More ▲")), mc = visible(painted[mr]!).indexOf("More ▲");
+      press({ kind: "mouse", action: "down", button: 0, x: mc, y: mr }); press({ kind: "mouse", action: "up", button: 0, x: mc, y: mr });
+      await until(() => painted.slice(0, -1).some(l => visible(l).includes("[Video]")), "the inner menu again");
+      const vr = painted.findIndex(l => visible(l).includes("[Video]")), vc = visible(painted[vr]!).indexOf("[Video]"), video = app.video;
+      press({ kind: "mouse", action: "down", button: 0, x: vc, y: vr }); press({ kind: "mouse", action: "up", button: 0, x: vc, y: vr });
+      await until(() => app.video !== video, "Video pressed from the inner menu");
+      await until(() => !painted.slice(0, -1).some(l => visible(l).includes("More ▲") || visible(l).includes("[Video]")), "both menus closed");
     } finally { await board.trash(note.id, USER); size.cols = 220; }
+  });
+
+  test("at 40 columns a message the bar cuts short is said whole just above it while it's up (PIE-1428)", async () => {
+    size.cols = 40;
+    try {
+      const said = "Pipe stopped at step 2 of 3: no note named Seed swap; the step before it ran";
+      app.flash(said, 4000, { kind: "warning" });
+      await until(() => { app.flush(); return painted.slice(-6, -1).map(l => visible(l).trim()).join(" ").replace(/\s+/g, " ").includes(said); }, "the whole sentence above the bar");
+      app.flash("short");
+      app.flush();
+      expect(painted.slice(-6, -1).map(l => visible(l)).join(" ")).not.toContain("Pipe stopped");
+    } finally { size.cols = 220; app.flash(""); }
   });
 
   test("a message on a full bar leaves no hit box where nothing is drawn: every clickable item is on the bar as drawn (PIE-1410, PIE-1415)", async () => {

@@ -699,4 +699,26 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await act("tile.close", {}, b.name);
     await act("tile.close", {}, a.name);
   });
+
+  test("at 40 columns alt+T on a squeezed column lists the trail where it reads, never a one-letter spine (PIE-1428)", async () => {
+    const info = (app as any).term.info, was = info.cols;
+    info.cols = 40;
+    try {
+      focusOnReader(lib());
+      const a = (await mine("open", { id: notes.peas.id, from: lib(), fresh: true })) as { name: string };
+      await until(() => !!paneOf(a.name)?.root, "the peas column");
+      const b = (await mine("open", { id: notes.herbs.id, from: a.name, fresh: true })) as { name: string };
+      await until(() => !!paneOf(b.name)?.root, "the herbs column");
+      focusOnReader(a.name);
+      screen();                                                       // drawn at 40 columns: the peas column squeezed
+      key({ kind: "alt", ch: "T" });
+      await until(() => screen().includes("trail · "), "the trail shown");
+      const { TrailPane } = await import("../src/desk/trail-tile");
+      const rects = (river as any).rectsNow() as Map<number, { cols: number }>;
+      for (const [id, p] of (river as any).panes as Map<number, unknown>) if (p instanceof TrailPane) expect(rects.get(id)?.cols ?? 0).toBeGreaterThanOrEqual(18);
+      key({ kind: "esc" });
+      await mine("tile.close", {}, b.name);
+      await mine("tile.close", {}, a.name);
+    } finally { info.cols = was; screen(); }
+  });
 });

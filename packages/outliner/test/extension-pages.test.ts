@@ -88,7 +88,7 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
   expect(hub.text.split("\n")[0]).toBe("Extensions [page::extensions]");
   expect(hub).toMatchObject({ author: "agent", actorId: "ext:extension-pages" });
   // The hub: each installed one a link to its page; what the repo has that isn't installed, with how to install it.
-  expect(hub.text).toContain(`((${listed.pages.notify}|Notifications hub)) \`notify\` v4`);
+  expect(hub.text).toContain(`((${listed.pages.notify}|Notifications hub)) \`notify\` v5`);
   expect(listed.available.map((entry) => entry.id)).toContain("moon");
   expect(listed.available.map((entry) => entry.id)).not.toContain("notify");
   expect(hub.text).toMatch(/\*\*Moon\*\* `moon` v\d/);
