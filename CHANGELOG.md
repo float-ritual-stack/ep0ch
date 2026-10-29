@@ -129,7 +129,8 @@ are its record. The outliner's entries from then are kept below, under
 - **Your tile keeps its size** (seen in use, Oct 29): an agent's `open` while you type lands in another reader or
   beside another tile, never splitting the one you type in; its `tile.open` beside that tile is refused, naming `to=`.
   Any agent step that would change your tile's size on screen (a fold beside it, a move along its edge, neat's
-  steps) is refused the same way and waits until you're done.
+  steps) is refused the same way and waits until you're done. Your own `@name` ask still opens its answer beside
+  your edit: you asked for it, and the keys stay where you type.
 - **Every typing refusal reads one way:** "the person is typing in <tile>; an agent doesn't <what> · <what to do>",
   from the layout, the action rule and the draft rule alike (four forms before).
 - **A short id opens:** `ep0ch open 221caa3c` (or `open id=PIE-1294`) resolves as `show` and `find` do.

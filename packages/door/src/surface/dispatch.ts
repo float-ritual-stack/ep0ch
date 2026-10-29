@@ -230,12 +230,13 @@ export function stepRule(touches: "tile" | "screen", actor: Actor, where: Wherea
 
 /**
  * What a layout context reads of who acts (the desk's and the host layer's each build one): whether `actor` stands as the
- * person for the layout's shape, whether the person's typing is protected from it, and why a screen move is held now.
- * The one answer (PIE-1294), so the two contexts can't drift apart.
+ * person for the layout's shape, whether the person's typing is protected from it, and why a screen move is held now
+ * (`held`, given what the step would do: "shut the dock they have"). The one answer (PIE-1294), so the two contexts
+ * can't drift apart.
  */
-export function layoutStanding(actor: Actor, where: Whereabouts, o: { host?: true; action?: string } = {}): { standing: boolean; protectTyping: boolean; held: string | null } {
+export function layoutStanding(actor: Actor, where: Whereabouts, o: { host?: true; action?: string } = {}): { standing: boolean; protectTyping: boolean; held: (what: string) => string | null } {
   const standing = standsAsPerson(actor, where, "shape");
-  return { standing, protectTyping: actor.kind === "agent" && !standing, held: actorRule({ touches: "screen", ...(o.host ? { host: true as const } : {}) }, actor, where, o.action ? { action: o.action } : {}) };
+  return { standing, protectTyping: actor.kind === "agent" && !standing, held: what => actorRule({ touches: "screen", ...(o.host ? { host: true as const } : {}) }, actor, where, { what, ...(o.action ? { action: o.action } : {}) }) };
 }
 
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */
@@ -250,6 +251,8 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   invited?: boolean;
   /** The action asked for, by name: a press's invitation lifts a hold on navigation for layout and tile actions only, never for leaving the section. */
   action?: string;
+  /** What a held screen move would have done, as its refusal says it ("shut the dock they have"). */
+  what?: string;
 }): string | null {
   if (actor.kind !== "agent") return null;
   // The person's alone: nothing lifts it, an invitation or yolo (ActionDef.personAlways).
@@ -291,14 +294,15 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       return def.way ? `${why}; ${def.way}` : heldBack(why, "act there");
     }
     case "screen": {
-      if (where.away) return heldBack(where.away, "move the screen or their keys now", null);
+      const what = at.what ?? "move the screen or their keys now";
+      if (where.away) return heldBack(where.away, what, null);
       // Typing in the drawer (the host layer) is never in the way of a screen change: the drawer stays over every
       // screen, so the person's text and keys stay where they are (Evan, Oct 17: "typing in the chat door shouldn't be
       // a hard block on being able to move other parts of the screen"). An action that changes the drawer itself
       // (`host`, putting it away) still waits for them.
       if (where.keys === "host" && !def.host) return null;
       // (A hold on navigation only, as the showcase's sections, is lifted by an invitation too.)
-      if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && standing)) return heldBack(where.why ?? "the person is typing", "move the screen or their keys now");
+      if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && standing)) return heldBack(where.why ?? "the person is typing", what);
       if (standing) return null;
       if (where.idle < SHELL_IDLE_MS) return `the person is at the keys (last key ${(where.idle / 1000).toFixed(1)}s ago); try again once they've been idle ${SHELL_IDLE_MS / 1000}s`;
       return null;

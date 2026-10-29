@@ -152,9 +152,9 @@ export interface Person<I = number> {
   here?: boolean;
   /**
    * Why an agent may not move their keys now, as the shell's one rule says it (`actorRule` for `touches: "screen"`:
-   * busy, away, or at the keys in the last 2s), or null. Left out, being busy is the rule.
+   * busy, away, or at the keys in the last 2s), given what the step would do, or null. Left out, being busy is the rule.
    */
-  held?: string | null;
+  held?: (what: string) => string | null;
   /** Agents are in yolo (Whereabouts.yolo): an agent acts here as the person would. */
   yolo?: boolean;
 }
@@ -884,7 +884,7 @@ class Step<I> {
   /** An agent doesn't move the person's keys while they type. */
   private mayMoveKeys(what: string) {
     const p = this.ctx.person;
-    refuse(!this.ctx.protectTyping ? null : p.held !== undefined ? (p.held || null) : p.busy ? heldBack("the person is typing", what) : null);
+    refuse(!this.ctx.protectTyping ? null : p.held !== undefined ? p.held(what) : p.busy ? heldBack("the person is typing", what) : null);
   }
   /** Tile `id` can't leave where it is: locked, or its container keeps its tiles (draggable off). */
   private drag(id: I) {
