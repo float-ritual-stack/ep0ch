@@ -69,7 +69,7 @@ export type StatusEntry =
 /** A line the reader skipped: its line (from 0) and what's wrong with it, with what to write instead. */
 export interface StatusProblem { line: number; message: string }
 
-const LIST_ITEM = /^(\s*)[-*+]\s+(.*?)\s*$/;
+const LIST_ITEM = /^(\s*)(?:[-*+]|\d{1,9}[.)])\s+(.*?)\s*$/;
 const indentOf = (line: string) => /^\s*/.exec(line)![0].length;
 
 /**
@@ -81,18 +81,21 @@ export function readStatusNote(text: string, builtinIds: readonly string[]): { e
   const lines = text.split("\n");
   const skip = new Set<number>();
   for (const f of noteCodeFences(lines)) for (let i = f.start; i <= f.end; i++) skip.add(i);
-  // An HTML comment (the made note's commented example) is no line of the bar, over as many lines as it runs.
+  const problems: StatusProblem[] = [];
+  // An HTML comment (the made note's commented example) is no line of the bar, over as many lines as it runs; one that
+  // never closes hides only its own line, and says so (the lines after it stay on the bar).
   for (let i = 1; i < lines.length; i++) {
     if (skip.has(i) || !lines[i]!.trimStart().startsWith("<!--")) continue;
     let j = i;
-    while (j < lines.length - 1 && !lines[j]!.includes("-->")) j++;
+    while (j < lines.length && !lines[j]!.includes("-->")) j++;
+    if (j === lines.length) { skip.add(i); problems.push({ line: i, message: "this <!-- comment never closes: end it with --> (the lines after it are read)" }); continue; }
     for (let k = i; k <= j; k++) skip.add(k);
     i = j;
   }
   const buttons = new Map(buttonCallsOf(text).map(b => [b.line, b]));
   const content = (i: number) => !skip.has(i) && !!lines[i]!.trim();
-  const problems: StatusProblem[] = [], entries: StatusEntry[] = [];
-  const labels = new Map<string, number>();
+  const entries: StatusEntry[] = [];
+  const labels = new Map<string, number>(), listed = new Map<string, number>();
   // The open groups, innermost last: an item goes into the last one it is indented under.
   const stack: { indent: number; children: StatusEntry[] }[] = [{ indent: -1, children: entries }];
   const place = (indent: number, entry: StatusEntry) => {
@@ -124,8 +127,12 @@ export function readStatusNote(text: string, builtinIds: readonly string[]): { e
         const group: StatusEntry = { kind: "group", label: word, line: i, children: [] };
         place(indent, group);
         stack.push({ indent, children: group.children });
-      } else if (builtinIds.includes(word)) place(indent, { kind: "builtin", id: word, line: i });
-      else {
+      } else if (builtinIds.includes(word)) {
+        // One place each: the bar knows a built-in by its id.
+        const first = listed.get(word);
+        if (first !== undefined) problem(i, `- ${word} is already on line ${first + 1}; a built-in sits in one place`);
+        else { listed.set(word, i); place(indent, { kind: "builtin", id: word, line: i }); }
+      } else {
         const near = closest(word, builtinIds);
         problem(i, near ? `no built-in "${word}"; did you mean - ${near}?` : `no built-in "${word}"; status.bar.items lists their ids, or nest items under it for a group`);
       }
@@ -134,7 +141,7 @@ export function readStatusNote(text: string, builtinIds: readonly string[]): { e
     const bare = line.trim(), near = builtinIds.includes(bare) ? bare : closest(bare, builtinIds);
     problem(i, near ? `"${bare}" isn't a list item; did you mean - ${near}?` : 'use - <built-in id>, a ::button{label="Collapse" act="tile.collapse tile=screen"}, or nested items for a group');
   }
-  return { entries, problems };
+  return { entries, problems: problems.sort((a, b) => a.line - b.line) };
 }
 
 /** Ranks on the bar (PIE-1213): what the person pinned outlasts a built-in they listed, which outlasts one nobody listed. */
@@ -218,17 +225,23 @@ export class StatusBarNote {
   /** The group at `path` (its labels from the bar, `/` between): its children as items, for its menu. */
   group(path: string, builtins: StatusItem[]): { label: string; items: StatusItem[] } {
     const names = path.split("/").map(n => n.trim()).filter(Boolean);
+    if (!names.length) throw new ActionRefused("name a group: group=<its label>, or overflow=true for what the bar has no room for");
     let entries = this.read?.entries ?? [], label = "";
-    for (const [n, name] of names.entries()) {
-      const g = entries.find((e): e is Extract<StatusEntry, { kind: "group" }> => e.kind === "group" && e.label.toLowerCase() === name.toLowerCase());
+    const labels: string[] = [];
+    for (let n = 0; n < names.length;) {
+      // A label may hold a `/` itself (`- Build/Test`): the longest run of names that is one group's label wins.
+      let k = names.length, g: Extract<StatusEntry, { kind: "group" }> | undefined;
+      for (; k > n && !g; k--) {
+        const want = names.slice(n, k).join("/").toLowerCase();
+        g = entries.find((e): e is Extract<StatusEntry, { kind: "group" }> => e.kind === "group" && e.label.split("/").map(x => x.trim()).join("/").toLowerCase() === want);
+      }
       if (!g) {
         const here = entries.filter(e => e.kind === "group").map(e => (e as { label: string }).label);
-        throw new ActionRefused(`no group "${name}"${n ? ` in ${names.slice(0, n).join("/")}` : " on the status bar"}${here.length ? `; its groups: ${here.join(", ")}` : ""}`);
+        throw new ActionRefused(`no group "${names[n]}"${n ? ` in ${labels.join("/")}` : " on the status bar"}${here.length ? `; its groups: ${here.join(", ")}` : ""}`);
       }
-      entries = g.children; label = g.label;
+      entries = g.children; label = g.label; labels.push(g.label); n = k + 1;
     }
-    if (!names.length) throw new ActionRefused("name a group: group=<its label>, or overflow=true for what the bar has no room for");
-    return { label, items: entries.flatMap(e => this.itemOf(e, builtins, "left", names) ?? []) };
+    return { label, items: entries.flatMap(e => this.itemOf(e, builtins, "left", labels) ?? []) };
   }
 
   async ensure(builtins: StatusItem[], actor: Actor): Promise<Msg> {
@@ -256,6 +269,9 @@ export class StatusBarNote {
     return { note: updated.id };
   }
 }
+
+/** Two group paths name the same group: case and the spaces around a `/` aside. */
+const same = (a: string, b: string) => a.split("/").map(x => x.trim()).join("/").toLowerCase() === b.split("/").map(x => x.trim()).join("/").toLowerCase();
 
 /** A bar item as a menu row: its words, and what a click on it runs. */
 export function menuRowOf(item: StatusItem, group: string): MenuRow {
@@ -315,7 +331,7 @@ export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
       if (overflow) rows.push({ action: "status.bar.edit", args: {}, tile: "", label: "edit the status bar", group: "the bar" });
       const title = overflow ? "status bar" : g.label, answer = { title, rows: rows.map(({ tile: _t, group: _g, ...r }) => r) };
       if (actor.kind === "agent") return answer;
-      if (!on.menu(title, rows, i => (overflow ? i.id === "overflow" : i.click?.action === "status.bar.menu" && i.click.args?.group === group))) on.flash(`${title}: ${rows.map(r => r.label).join(" · ")}`);
+      if (!on.menu(title, rows, i => (overflow ? i.id === "overflow" : i.click?.action === "status.bar.menu" && same(String(i.click.args?.group ?? ""), group ?? "")))) on.flash(`${title}: ${rows.map(r => r.label).join(" · ")}`);
       return answer;
     },
   }),

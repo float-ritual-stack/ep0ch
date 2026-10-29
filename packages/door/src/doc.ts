@@ -631,7 +631,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
 
     // A heading or a list item the reader can fold: its disclosure, and nothing it hides when folded.
     const fp = at.get(i);
-    if (fp && env.folds && fp.kind !== "callout") {
+    // A list item that is a button (PIE-1224) draws as the button below; its nested items stay drawn under it.
+    if (fp && env.folds && fp.kind !== "callout" && !(fp.kind !== "heading" && env.button && buttonCallAt(src, i))) {
       const folded = env.folds.folded.has(fp.key), selected = env.folds.selected === fp.key;
       const disclosure = { folded, selected, hidden: fp.hidden, preview: env.folds.preview?.has(fp.key) };
       const styled = fp.kind === "heading" ? headingRows(line, W, env, lit(i), disclosure) : null;

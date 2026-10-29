@@ -1098,7 +1098,7 @@ export class App implements Ctx {
       // Where the pointer rests on a cut-short value, and whether that value is being read in full (the pointer is the person's: this only says).
       hover: this.overflow.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
-      layout: this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d))?.layoutAll() ?? this.drawer.made?.layoutAll(),
+      layout: this.screenDesk()?.layoutAll() ?? this.drawer.made?.layoutAll(),
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
       ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.() ?? null };
   }
@@ -1204,8 +1204,9 @@ export class App implements Ctx {
       // A group's or the overflow's menu (PIE-1224, PIE-1213): the tile menu over the screen, above the bar item it opens from,
       // its rows run on this dispatcher (they are the bar's own clicks).
       menu: (title: string, rows: MenuRow[], anchor: (item: StatusItem) => boolean) => {
-        const here = (this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d)) ?? this.stack.at(-1)) as { overlay?(p: unknown): void } | undefined;
-        if (typeof here?.overlay !== "function") return false;
+        // Only over the screen the person sees: a desk under another screen would hold a menu nobody sees.
+        const here = this.screenDesk();
+        if (!here || here !== tilesOf(this.stack.at(-1))) return false;
         const hit = this.statusBoxes.find(h => anchor(h.item));
         here.overlay(tileMenu({ title, rows, at: { col: hit?.from ?? 0, row: Math.max(0, this.term.info.rows - 2) }, host: { dispatch: { press: (a, args, tile) => this.dispatch.press(a, args, tile) }, ctx: this } }));
         this.redraw();
@@ -1227,7 +1228,7 @@ export class App implements Ctx {
     }) },
     { set: CLAUDE_SPLIT_ACTIONS, takes: "none", on: (_, how) => {
       // The screen's desk, where tile.open lands too (a stage inside the showcase, a desk's own screen).
-      const here = (this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d)) ?? this.stack.at(-1)) as { overlay?(p: unknown): void } | undefined;
+      const here = (this.screenDesk() ?? this.stack.at(-1)) as { overlay?(p: unknown): void } | undefined;
       return {
         splits: this.splits, flash: (m: string, ms?: number) => how.ctx.flash(m, ms), redraw: () => this.redraw(),
         press: (action: string, args: Record<string, unknown>) => this.dispatch.press(action, args),
@@ -1237,7 +1238,7 @@ export class App implements Ctx {
     } },
     { set: EXTENSION_INSTALL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
     { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.tile !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
-    { claims: req => req.action.startsWith("layout.") || req.action.startsWith("tile."), delegate: () => (this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d)) ?? this.hostLayer.desks()[0])?.dispatch },
+    { claims: req => req.action.startsWith("layout.") || req.action.startsWith("tile."), delegate: () => (this.screenDesk() ?? this.hostLayer.desks()[0])?.dispatch },
     { delegate: () => this.stack.at(-1)?.dispatch },
     { set: POINTER_ACTIONS, takes: "screen", on: at => ({ dispatcher: this.dispatch, at }) },
   ]);
@@ -1730,6 +1731,7 @@ export class App implements Ctx {
     const slow = this.speed.slow();
     const split = this.splits.chip();
     const count = this.whatChanged.count();
+    const chip = this.drawer.active ? this.drawer.chips() : null;
     const waiting = waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() });
     const items: StatusItem[] = [
       { id: "brand", text: `${fg(C.white)}ep0ch`, place: "left", before: " ", after: " ", click: { action: "status.log" } },
@@ -1739,8 +1741,8 @@ export class App implements Ctx {
       { id: "machine", text: this.location, place: "left", click: { action: "status.log" } },
       right("dance", s?.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD}` : "", "layout.stop"),
       right("yolo", this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD}` : "", "agents.yolo", { on: false }),
-      { ...right("drawer", this.drawer.active ? this.drawer.chip() : "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}), ...(this.drawer.active ? { short: this.drawer.chip(Date.now(), "short"), tiny: this.drawer.chip(Date.now(), "tiny") } : {}) },
-      { ...right("waiting", waiting.styled, "host.waiting"), ...(waiting.styled ? { short: waiting.styled.replace(/ on you$/, "") } : {}) },
+      { ...right("drawer", chip?.whole ?? "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}), ...(chip ? { short: chip.short, tiny: chip.tiny } : {}) },
+      { ...right("waiting", waiting.styled, "host.waiting"), ...(waiting.short ? { short: waiting.short } : {}) },
       right("split", split ? `${fg(C.lred)}${split}` : "", "claude.splits"),
       right("offline", this.offline ? `${fg(C.lred)}offline` : "", "status.log"),
       right("slow", slow ? `${fg(C.yellow)}${slow}` : "", "status.speed"),
@@ -1754,6 +1756,9 @@ export class App implements Ctx {
     ];
     return items;
   }
+
+  /** The screen's desk (a stage inside the showcase, a desk's own screen), not the drawer's: where tile.open lands too. */
+  private screenDesk(): Desk | undefined { return this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d)); }
 
   private describeStatusItems() {
     const actions = this.dispatch.list().actions;
@@ -1818,11 +1823,13 @@ export class App implements Ctx {
  * The status bar's waiting-on-you count (OSC 7501): `◆1 ✗1 ✓2 on you`, blocked, failed and done in their colours;
  * `plain` is "" when nothing waits.
  */
-export function waitingText(n: { blocked: number; error: number; done: number; held?: number; asks?: number }): { plain: string; styled: string } {
+export function waitingText(n: { blocked: number; error: number; done: number; held?: number; asks?: number }): { plain: string; styled: string; short: string } {
   // `‼`: requests an agent or an extension wrote that wait for the person's r (held asks, PIE-888).
   const parts = ([["◆", n.blocked, C.lmagenta], ["✗", n.error, C.lred], ["✓", n.done, C.lgreen], ["‼", n.held ?? 0, C.yellow], ["?", n.asks ?? 0, C.yellow]] as const).filter(p => p[1] > 0);
-  if (!parts.length) return { plain: "", styled: "" };
-  return { plain: `${parts.map(p => `${p[0]}${p[1]}`).join(" ")} on you`, styled: `${parts.map(p => `${fg(p[2])}${p[0]}${p[1]}`).join(" ")}${fg(C.lcyan)} on you` };
+  if (!parts.length) return { plain: "", styled: "", short: "" };
+  // `short`: the counts alone, for a narrow bar (PIE-1213).
+  const counts = `${parts.map(p => `${fg(p[2])}${p[0]}${p[1]}`).join(" ")}${fg(C.lcyan)}`;
+  return { plain: `${parts.map(p => `${p[0]}${p[1]}`).join(" ")} on you`, styled: `${counts} on you`, short: counts };
 }
 
 /** How long the "copied to clipboard" toast stays. */

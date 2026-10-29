@@ -428,6 +428,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       const asked = await app.dispatch.act({ action: "status.bar.menu", args: { group: "Tools" } }, { kind: "agent", id: "test" } as any) as any;
       expect(asked.rows.map((r: any) => [r.label, r.action])).toEqual([["[Video]", "button.press"], [theme().name, "theme.cycle"]]);
       await expect(app.dispatch.act({ action: "status.bar.menu", args: { group: "Tool" } }, USER)).rejects.toThrow(/no group "Tool".*Tools/);
+      expect((await app.dispatch.act({ action: "status.bar.menu", args: { group: " tools " } }, { kind: "agent", id: "test" } as any) as any).title).toBe("Tools");
       app.flash("");
       click("Tools");
       await until(() => painted.some(l => visible(l).includes("[Video]")), "the group's menu over the screen");
@@ -455,6 +456,12 @@ describe("reading the status-bar note: a list, capture first (PIE-1227, PIE-1224
     expect(problems[0]!.message).toContain("did you mean - drawer?");
     expect(problems[1]!.message).toContain("did you mean - drawer?");
     expect(problems[2]!.message).toContain("::button needs");
+  });
+
+  test("an unclosed comment hides only its own line, a built-in listed twice keeps its first place, numbered items read as items", () => {
+    const { entries, problems } = readStatusNote(['Bar', '<!-- todo', '1. brand', '2. ::button{label="Go" act="status.log"}', '- brand', '- clock'].join("\n"), ids);
+    expect(entries.map((e: any) => e.kind === "builtin" ? e.id : e.call.label)).toEqual(["brand", "Go", "clock"]);
+    expect(problems.map(p => [p.line + 1, p.message.split(":")[0]])).toEqual([[2, "this <!-- comment never closes"], [5, "- brand is already on line 3; a built-in sits in one place"]]);
   });
 });
 
