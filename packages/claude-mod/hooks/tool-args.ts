@@ -5,6 +5,8 @@
  * copy everything from the marker down.
  */
 
+import { referencedBlock } from './link-grammar.js'
+
 // --- tool-args shared code below this line ---
 
 export interface ToolSchema {
@@ -239,8 +241,8 @@ export function checkToolArgs(spec: ToolArgsSpec, input: unknown): ToolArgsResul
 function refKey(value: unknown): { id: string; where?: string } {
   if (typeof value !== "string") return { id: JSON.stringify(value) };
   let text = value.trim();
-  const block = /^\(\(([^|)^]+)(?:[|^][^)]*)?\)\)$/.exec(text);
-  if (block) text = block[1]!.trim();
+  const block = referencedBlock(text);
+  if (block) text = block.outline ? `${block.outline}:${block.blockId}` : block.blockId;
   const uri = /^ep0ch:\/\/([^/]+)\/b\/([0-9a-f-]{36})$/i.exec(text);
   if (uri) return { id: uri[2]!.toLowerCase(), where: uri[1]!.toLowerCase() };
   return { id: /^[0-9a-f-]{36}$/i.test(text) ? text.toLowerCase() : text };

@@ -66,7 +66,7 @@ test("brackets are counted: a page link holding another is one link to its whole
 });
 
 test("referencedBlock unwraps an id or one reference as written (the scan's grammar), and nothing else", () => {
-  expect(referencedBlock(` ((${PAINT_ID}|${PAREN_LABEL})) `)).toEqual({ blockId: PAINT_ID });
+  expect(referencedBlock(` ((${PAINT_ID}|${PAREN_LABEL})) `)).toEqual({ blockId: PAINT_ID, label: PAREN_LABEL });
   expect(referencedBlock(`((${PAINT_ID}^beds))`)).toEqual({ blockId: PAINT_ID, fragment: "beds" });
   // An id's first 8+ characters, as the store and the CLI take them.
   expect(referencedBlock("((dddddddd))")).toEqual({ blockId: "dddddddd" });

@@ -9,6 +9,7 @@
 // naming it. The service writes them (outliner `place.ts`), the door and Detail draw them by this one grammar.
 // Pure: no I/O.
 import { codeBlocks } from "./code-fence";
+import { referencedBlock } from "./link-syntax";
 
 /** The callout types that make a region: what a script wrote, and what an `@name` agent answered. */
 export const OUTPUT_TYPES = ["output", "answer"] as const;
@@ -80,7 +81,7 @@ export function outputHeader(line: string): { type: OutputType; label: string; p
   let rest = m[3]!;
   const anchor = ANCHOR_END.exec(rest)?.[1];
   if (anchor) rest = rest.replace(ANCHOR_END, "");
-  const producer = /\[output-of::\(\(([A-Za-z0-9_-]+)(?:\|[^)]*)?\)\)\]/.exec(rest)?.[1];
+  const producer = referencedBlock(/\[output-of::([^\]]*)\]/.exec(rest)?.[1] ?? "")?.blockId;
   const hash = /\[output-hash::([A-Za-z0-9]+)\]/.exec(rest)?.[1];
   const label = rest.replace(/\[(?:output-of|output-hash)::[^\]]*\]/g, "").trim();
   return { type: m[2] as OutputType, label, ...(producer ? { producer } : {}), ...(hash ? { hash } : {}), ...(anchor ? { anchor } : {}) };

@@ -103,16 +103,23 @@ export function blockReferenceOccurrences(text: string, code?: CodeScope): Block
 /**
  * The block `input` names, when it is a block id or one block reference written whole (`((id))`, `((id^fragment))`,
  * `((id|label))`, blanks around it ignored), or null: what a value, a field or an argument naming a block unwraps
- * with, by the same scan that finds references in a note, so an id's first 8+ characters work as they do there.
+ * with, by the same scan that finds references in a note, so an id's first 8+ characters work as they do there, and a
+ * label is the one that scan reads (`((id|Rough edges (x)))` is labelled "Rough edges (x)"). The one place that unwraps
+ * a reference written as a value (PIE-1292): a site with its own `\(\(` pattern is a copy that drifts.
  * An exact address (a URI, an MCP argument, a stored reference) that must be a full UUID is addressable-resource.ts's
  * `parseBlockRef`, which refuses anything else.
  */
-export function referencedBlock(input: string): { blockId: string; fragment?: string; outline?: string } | null {
+export function referencedBlock(input: string): { blockId: string; fragment?: string; outline?: string; label?: string } | null {
   const text = input.trim();
   if (BLOCK_ID_PATTERN.test(text)) return { blockId: text };
   const [ref] = blockReferenceOccurrences(text);
   if (!ref || ref.start !== 0 || ref.end !== text.length) return null;
-  return { blockId: ref.blockId, ...(ref.outline ? { outline: ref.outline } : {}), ...(ref.fragmentId ? { fragment: ref.fragmentId } : {}) };
+  return {
+    blockId: ref.blockId,
+    ...(ref.outline ? { outline: ref.outline } : {}),
+    ...(ref.fragmentId ? { fragment: ref.fragmentId } : {}),
+    ...(ref.label !== undefined ? { label: ref.label } : {}),
+  };
 }
 
 /** `((id|label))`: a reference to a note with a label that can't end it early (no `|` or parentheses). */

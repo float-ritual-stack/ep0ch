@@ -1,6 +1,7 @@
 import type { MarkdownProps, RenderElement, RenderSurface, TextProps } from 'claude-code'
 
 import type { ToolRowsPrefs } from '../types'
+import { BLOCK_ID_PATTERN, labelBar, pageAddressText, pageLinkSpans, referencedBlock } from './link-grammar.js'
 
 /**
  * The mod's own outline and workboard tool calls, redrawn in the transcript as
@@ -96,7 +97,6 @@ export type ToolRow = {
 /** A block id's title, when register.ts has looked it up. */
 export type TitleOf = (id: string) => string | undefined
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const WORK_ID = /^[A-Z][A-Z0-9]*-\d+$/
 
 /** The tool's short name (`outline_edit`) for one of the mod's rows drawn here, else null. */
@@ -108,9 +108,16 @@ export function modToolOf(tool: string): string | null {
 
 /** The block id a reference names (`uuid`, `((uuid))`, `((uuid|label))`), lowercased; null for a Work ID or page. */
 export function blockIdOfRef(ref: string): string | null {
-  const text = ref.trim()
-  const inner = /^\(\(([^|)]+)(?:\|[^)]*)?\)\)$/.exec(text)?.[1] ?? text
-  return UUID.test(inner) ? inner.toLowerCase() : null
+  const block = referencedBlock(ref)
+  return block && !block.outline && BLOCK_ID_PATTERN.test(block.blockId) ? block.blockId.toLowerCase() : null
+}
+
+/** A page link written whole (`[[address]]`, `[[address|label]]`): the label a reader sees, by outline-core's bracket count. */
+function pageLabelOf(text: string): string | null {
+  const [span] = pageLinkSpans(text)
+  if (!span || span.start !== 0 || span.end !== text.length) return null
+  const inside = text.slice(2, -2), bar = labelBar(inside)
+  return (bar >= 0 ? inside.slice(bar + 1) : pageAddressText(inside)).trim()
 }
 
 /** A reference as the person reads it: a Work ID, a page's name, a block's title (or its short id until looked up). */
@@ -118,11 +125,11 @@ export function targetOf(ref: unknown, titleOf: TitleOf = () => undefined): RowT
   if (typeof ref !== 'string' || !ref.trim()) return null
   const text = ref.trim()
   if (WORK_ID.test(text)) return { label: text, ref: text }
-  const page = /^\[\[([^\]|]+)(?:\|([^\]]+))?\]\]$/.exec(text)
-  if (page) return { label: (page[2] ?? page[1]!).trim(), ref: text }
+  const page = pageLabelOf(text)
+  if (page) return { label: page, ref: text }
   const id = blockIdOfRef(text)
   if (id) {
-    const labelled = /^\(\([^|)]+\|([^)]+)\)\)$/.exec(text)?.[1]?.trim()
+    const labelled = referencedBlock(text)?.label?.trim()
     return { label: clip(labelled || titleOf(id) || `((${id.slice(0, 8)}…))`, QUOTE_CHARS), ref: id }
   }
   // A page address given bare, as `outlinerUriFor` reads it.

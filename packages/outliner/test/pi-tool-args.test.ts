@@ -9,6 +9,7 @@ import outlinerExtension from "../pi-extension/index";
 import { OutlinerClient, type RequestInput } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
+import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { PI_REF_TOOLS } from "../src/pi-tool-args";
 import type { Block } from "../src/types";
 
@@ -41,7 +42,8 @@ test("two aliases for different blocks are refused, the same block spelt two way
     expect(() => tool.prepareArguments!({ ...example, id: "00000000-0000-4000-8000-000000000001" }), name).toThrow(/Ambiguous.*pass one `ref`[\s\S]*Example: /);
     const ref = example.ref as string;
     expect(tool.prepareArguments!({ ...example, id: ref }), name).toEqual(example);
-    expect(tool.prepareArguments!({ ...example, ref: `((${ref}))`, id: ref }), name).toEqual({ ...example, ref: `((${ref}))` });
+    // A block id wrapped is the same block; `((PIE-123))` is no reference at all (the link grammar's, PIE-1292).
+    if (BLOCK_ID_PATTERN.test(ref)) expect(tool.prepareArguments!({ ...example, ref: `((${ref}))`, id: ref }), name).toEqual({ ...example, ref: `((${ref}))` });
   }
   const typo = (() => { try { tools.get("outliner_move")!.prepareArguments!({ refe: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", expectedRevision: 3, parentId: null }); } catch (e) { return String((e as Error).message); } return ""; })();
   expect(typo).toContain("`refe` is not an argument of outliner_move; did you mean `ref`?");

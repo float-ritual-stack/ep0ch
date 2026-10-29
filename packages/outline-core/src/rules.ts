@@ -5,8 +5,10 @@
 // (heading, callout, list, rule, image), a text pattern's hits outside code and literal regions, the kind grammar,
 // a built-in decoration's spec, the templates its words are written in, and a rule note read into a rule. Pure: no I/O.
 
+import { BLOCK_ID_PATTERN } from "./addressable-resource";
 import { calloutBlocks } from "./callouts";
 import { codeSpanRanges, literalLines } from "./code-ranges";
+import { referencedBlock } from "./link-syntax";
 import { noteStructure } from "./component-block";
 import { BAND_ALIGNS as ALIGNS, BAND_PATTERNS, HEADING_STYLE_NAME, type BandAlign as Align, type BandPattern } from "./heading-styles";
 import { unsafePatternReason } from "./pattern-safety";
@@ -341,8 +343,11 @@ export function ruleWriter(actor: { author?: string; actorId?: string } | undefi
 /** A note that might declare a rule: its id and its block properties. */
 export interface RuleDeclaringBlock { id: string; properties: readonly { key: string; value: string }[] }
 
-/** `((id))`, `((id|label))` or a bare id: the id. */
-const blockRef = (raw: string) => /^\(\(([0-9a-f-]{36})(?:\|[^)]*)?\)\)$/i.exec(raw.trim())?.[1] ?? (/^[0-9a-f-]{36}$/i.test(raw.trim()) ? raw.trim() : null);
+/** `((id))`, `((id|label))` or a bare id: the full id (`referencedBlock`), which a rule's scope compares against notes' ids. */
+const blockRef = (raw: string) => {
+  const block = referencedBlock(raw);
+  return block && !block.outline && BLOCK_ID_PATTERN.test(block.blockId) ? block.blockId : null;
+};
 
 /**
  * The rules an outline's notes declare. A note with `[rule-name::name]` declares one; on the same note:

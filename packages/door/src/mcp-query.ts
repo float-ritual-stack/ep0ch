@@ -3,6 +3,7 @@
 // The service answers it (`blocks.query`, `views.read`), through the same selection `ep0ch find --query/--view` runs
 // (notes-cli.ts's selectNotes): this file pages that answer and turns the ids into block records. No second engine.
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
+import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { pathsOf, selectNotes, type NotesBoard } from "./notes-cli";
 import type { PropertyMatch } from "@ep0ch/outline-core/protocol";
 import { callRegistry, callShown } from "./mcp-calls";
@@ -33,8 +34,11 @@ export interface QueryAnswer {
   rows: QueryRow[];
 }
 
-/** The view id from an id or `((id))`. */
-export const viewIdOf = (v: string) => v.trim().replace(/^\(\((.+?)(\|.*)?\)\)$/, "$1");
+/** The view id from an id or `((id))` (outline-core's `referencedBlock`); one in another outline as given, for the service to name. */
+export const viewIdOf = (v: string) => {
+  const block = referencedBlock(v);
+  return block && !block.outline ? block.blockId : v.trim();
+};
 
 export interface QueryAsk {
   query?: string; view?: string; limit: number; offset: number;

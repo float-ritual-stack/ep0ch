@@ -30,6 +30,7 @@
 import { valuesOf, type BlockRecord } from "./block-record";
 import { stepClosed } from "./checklist-marks";
 import { isoDay, readDateBound, wallClock } from "./dates";
+import { blockReferenceOccurrences, pageLinkRanges } from "./link-syntax";
 import { splitPropertyValue } from "./property-grammar";
 import { parsePropertyRecords, stripProperties } from "./property-parse";
 import { createContextResolver, type ContextBlock, type ContextKeyMatcher } from "./scope-walk";
@@ -111,8 +112,8 @@ export type PathAnswer =
 
 type Failed = Extract<PathAnswer, { ok: false }>;
 
-/** A head: a name, or a reference to another note (`((id))`, `[[page]]`, a Work ID such as `PIE-533`). */
-const HEAD = /^(?:\(\([^()\n]+\)\)|\[\[[^\[\]\n]+\]\]|[A-Z][A-Z0-9]*-\d+(?![\w-])|[A-Za-z_][\w-]*)/;
+/** A head: a name or a Work ID such as `PIE-533`; a link head (`((id))`, `[[page]]`) is the link grammar's (`linkTokens`). */
+const HEAD = /^(?:[A-Z][A-Z0-9]*-\d+(?![\w-])|[A-Za-z_][\w-]*)/;
 const KEY_STEP = /^\.([A-Za-z_$][\w+-]*)/;
 const QUOTED_STEP = /^\[(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')\]/;
 const INDEX_STEP = /^\[(\d+)\]/;
@@ -137,7 +138,8 @@ export function parseSteps(text: string): PathStep[] | null {
 /** `this.tasks[0].title` → head `this`, steps. Null when the text isn't a path. */
 export function parsePath(path: string): ParsedPath | null {
   const text = path.trim();
-  const head = HEAD.exec(text)?.[0];
+  const link = linkTokens(text)[0];
+  const head = link?.start === 0 ? text.slice(0, link.end) : HEAD.exec(text)?.[0];
   if (!head) return null;
   const steps = parseSteps(text.slice(head.length));
   return steps ? { head, steps } : null;
@@ -201,8 +203,10 @@ const short = (id: string) => id.slice(0, 8);
 
 // --- links ---
 
-const LINK_ONLY = /^(?:\(\([^()\n]+\)\)|\[\[[^\[\]\n]+\]\])$/;
-const LINK_TOKEN = /\(\([^()\n]+\)\)|\[\[[^\[\]\n]+\]\]/g;
+/** The block references and outermost page links in `text`, by outline-core's link grammar, in order. */
+function linkTokens(text: string): { start: number; end: number }[] {
+  return [...blockReferenceOccurrences(text, []), ...pageLinkRanges(text)].sort((a, b) => a.start - b.start);
+}
 const WORK_ID = /^[A-Z][A-Z0-9]*-\d+$/;
 /** 8 or more hex characters and dashes: the shortest id prefix the service resolves. */
 const ID_LIKE = /^[0-9a-f][0-9a-f-]{7,}$/i;
@@ -210,10 +214,9 @@ const ID_LIKE = /^[0-9a-f][0-9a-f-]{7,}$/i;
 /** The reference a value is, contains or looks like; null when it isn't one. `written`: it was written as a link. */
 export function linkTokenOf(value: string): { token: string; written: boolean } | null {
   const v = value.trim();
-  if (LINK_ONLY.test(v)) return { token: v, written: true };
   if (WORK_ID.test(v) || ID_LIKE.test(v)) return { token: v, written: false };
-  const tokens = v.match(LINK_TOKEN);
-  return tokens?.length === 1 ? { token: tokens[0]!, written: true } : null;
+  const tokens = linkTokens(v);
+  return tokens.length === 1 ? { token: v.slice(tokens[0]!.start, tokens[0]!.end), written: true } : null;
 }
 
 /** The notes a list of values names, and why the others weren't. */

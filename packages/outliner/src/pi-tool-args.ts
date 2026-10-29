@@ -4,6 +4,7 @@
  * the corrective error of @ep0ch/outline-core/tool-args instead of the validator's bare one. It runs as the tool's
  * `prepareArguments`, which Pi calls before its schema validation.
  */
+import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { checkToolArgs, type ToolSchema } from "@ep0ch/outline-core/tool-args";
 
 export interface PiRefTool {
@@ -13,10 +14,13 @@ export interface PiRefTool {
   example: Record<string, unknown>;
 }
 
-/** `((id))`, `((id|label))` and `((id^fragment))` as the bare id these tools' service calls take; anything else as given. */
+/**
+ * `((id))`, `((id|label))` and `((id^fragment))` as the bare id these tools' service calls take (outline-core's
+ * `referencedBlock`); a reference into another outline (`((org:id))`) and anything else as given, so the service names it.
+ */
 export function bareBlockRef(ref: string): string {
-  const wrapped = /^\(\(([^|)^]+)(?:[|^][^)]*)?\)\)$/.exec(ref.trim());
-  return wrapped ? wrapped[1]!.trim() : ref;
+  const block = referencedBlock(ref);
+  return block && !block.outline ? block.blockId : ref;
 }
 
 type ToolDefinitionLike = {

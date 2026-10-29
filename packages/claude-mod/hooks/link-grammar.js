@@ -967,6 +967,20 @@ function blockReferenceMatches(text) {
 function blockReferenceOccurrences(text, code) {
   return outsideCode(text, blockReferenceMatches(text).filter((match) => match.label === undefined || match.label.trim()), code);
 }
+function referencedBlock(input) {
+  const text = input.trim();
+  if (BLOCK_ID_PATTERN.test(text))
+    return { blockId: text };
+  const [ref] = blockReferenceOccurrences(text);
+  if (!ref || ref.start !== 0 || ref.end !== text.length)
+    return null;
+  return {
+    blockId: ref.blockId,
+    ...ref.outline ? { outline: ref.outline } : {},
+    ...ref.fragmentId ? { fragment: ref.fragmentId } : {},
+    ...ref.label !== undefined ? { label: ref.label } : {}
+  };
+}
 function blockReferenceEnvelopeRanges(text) {
   const ranges = [];
   const references = text.includes("((") ? blockReferenceMatches(text).map((reference) => reference.start) : [];
@@ -1056,6 +1070,9 @@ function bracketsClose(address) {
   }
   return true;
 }
+function pageAddressText(address) {
+  return address.includes("[[") ? address.replace(/\[\[|\]\]/g, "") : address;
+}
 var PAGE_ADDRESS_MAX_LENGTH = 512;
 var PAGE_FRAGMENT = new RegExp(String.raw`\s*\^(${FRAGMENT_ID_SOURCE})\s*$`);
 function normalizePageAddress(input) {
@@ -1133,9 +1150,14 @@ function linkOccurrences(text, code) {
   return outsideCode(text, out, codeRanges).sort((a, b) => a.start - b.start);
 }
 export {
+  BLOCK_ID_PATTERN,
   COMPONENT_OPEN,
   componentBlocks,
   formatEp0chBlockUri,
+  labelBar,
   linkOccurrences,
-  qualifiedReference
+  pageAddressText,
+  pageLinkSpans,
+  qualifiedReference,
+  referencedBlock
 };
