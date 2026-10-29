@@ -46,14 +46,22 @@ describe("--machine: an outline on another machine, through the forward", () => 
     const target = resolveTarget(["--machine", "box-a", "--ws", "garden"]);
     expect(target).toMatchObject({ outline: "garden", machine: "box-a", remote: true, path: join(here, "outlines", ".remote", "box-a.sock") });
     const { connectTarget } = await import("../src/door");
-    const first = await connectTarget(["--machine", "box-a", "--ws", "garden"]);
+    // The routing note is said on stderr when this process starts the forward, never again for one that's up (PIE-1429:
+    // it once filled an agent's drawer pane, once per ep0ch call).
+    const said: string[] = [], error = console.error;
+    console.error = (...a: unknown[]) => { said.push(a.join(" ")); };
+    let first: Awaited<ReturnType<typeof connectTarget>>, second: typeof first;
+    try {
+      first = await connectTarget(["--machine", "box-a", "--ws", "garden"]);
+      second = await connectTarget(["--machine", "box-a", "--ws", "garden"]);
+    } finally { console.error = error; }
+    expect(said.filter(l => l.includes("via ssh"))).toEqual(["box-a via ssh"]);
     if ("error" in first) throw new Error(first.error);
     expect(first.service.outline).toBe("garden");
     expect(first.notice).toBe("box-a via ssh");
     // It asked the machine (ep0ch status --json in a login shell there) before forwarding what it said.
     expect(log().some(a => a.at(-1)?.includes("ep0ch status --json"))).toBe(true);
     expect(log().find(a => a.includes("-L"))).toContain(`${join(here, "outlines", ".remote", "box-a.sock")}:${host.sock}`);
-    const second = await connectTarget(["--machine", "box-a", "--ws", "garden"]);
     if ("error" in second) throw new Error(second.error);
     expect(second.notice).toBe("box-a via ssh");
     expect(forwards()).toBe(1);
@@ -288,7 +296,7 @@ describe("--remote: this terminal on the door session running on another machine
   test("ssh -t to the machine, ep0ch there in a login shell with this terminal's variables", async () => {
     const { remoteDoorArgv } = await import("../src/machine");
     const argv = remoteDoorArgv("box-a", ["--ws", "garden", "--screen", "board"], { EP0CH_SSH: "ssh", TERM: "xterm-kitty", COLORTERM: "truecolor", EP0CH_KITTY: "1" });
-    expect(argv).toEqual(["ssh", "-t", "--", "box-a", `exec env TERM=xterm-kitty COLORTERM=truecolor EP0CH_KITTY=1 "\${SHELL:-/bin/sh}" -lc 'exec ep0ch --ws garden --screen board'`]);
+    expect(argv).toEqual(["ssh", "-t", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", "--", "box-a", `exec env TERM=xterm-kitty COLORTERM=truecolor EP0CH_KITTY=1 "\${SHELL:-/bin/sh}" -lc 'exec ep0ch --ws garden --screen board'`]);
     // The outline this folder names on that machine goes as --ws; --machine naming the machine itself doesn't go.
     const { remoteArgs } = await import("../src/machine");
     const named = { path: "/x", outline: "garden", attach: true as const, remote: true, machine: "box-a", why: "" };
@@ -306,7 +314,9 @@ describe("--remote: this terminal on the door session running on another machine
     // Run through the fake ssh: what runs there is that machine's ep0ch, its answer comes back here.
     const r = Bun.spawnSync([process.execPath, "src/main.ts", "--remote", "box-a", "status", "--json"], { cwd: DOOR, env: process.env as Record<string, string> });
     expect(JSON.parse(r.stdout.toString()).socket).toBe(host.sock);
-    expect(log().at(-1)!.slice(0, 4)).toEqual(["-t", "--", "box-a", log().at(-1)![3]!]);
+    expect(log().at(-1)!.slice(0, 7)).toEqual(["-t", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", "--", "box-a"]);
+    // A command there is no door: nothing is said about reattaching.
+    expect(r.stderr.toString()).not.toContain("reattaches");
     const bad = Bun.spawnSync([process.execPath, "src/main.ts", "--remote", "sam@box"], { cwd: DOOR, env: process.env as Record<string, string> });
     expect(bad.stderr.toString()).toContain(`--remote "sam@box" isn't an ssh config name`);
   }, 30_000);

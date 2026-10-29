@@ -44,6 +44,15 @@ are its record. The outliner's entries from then are kept below, under
 - **ctrl+z stops at the save:** in a note you opened again after saving, the first ctrl+z keeps the saved text and says "saved · ctrl+z again undoes past the save (revision N stays in its history)"; a second press after a pause goes past it. A held key never crosses a save, and an agent's undo never does.
 - **Everywhere you type:** a reader, a float, the river and comments share the one editor, so the same holds in each.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
+### A dropped connection leaves the terminal clean (PIE-1429)
+
+- **`ep0ch door`** carries the ssh door (`ssh ep0ch`) in this terminal and gives it back clean however it ends, a
+  dropped link included: no mouse codes over the screen, the normal screen back, and one line with the command that
+  reattaches. `ep0ch door gurgle`, `ep0ch door ep0ch fern` name another login or outline. `ep0ch --remote` does the same.
+- **A dead link ends in about a minute:** both send ssh keepalives instead of freezing until TCP gives up.
+- **"float-2 via ssh" is said once,** when a command starts the forward, not on every call (`EP0CH_VERBOSE=1`: every time).
+- **The ssh door's script is in the repository** (`packages/door/scripts/ssh-door.sh`): it logs a hangup, and resets
+  the terminal when the door client crashes.
 
 ### The status bar's last rough edges (PIE-1415, PIE-1224, PIE-1410)
 
