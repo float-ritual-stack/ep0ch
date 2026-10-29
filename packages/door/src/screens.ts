@@ -45,6 +45,7 @@ import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { bbsDate, printable, rowLines, rule, wrap } from "./text";
 import { LISTVIEW_ACTIONS } from "./surface/list-actions";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
+import { copyNoteById, NOTE_REF_ACTIONS, ownOutline, type NoteRefOn } from "./note-ref";
 import { shellRunner } from "./drop";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
 import { Dispatcher, type TileRef } from "./surface/dispatch";
@@ -1721,6 +1722,15 @@ export class MessageReader implements Screen {
     draftOf: () => ({ board: this.ctx?.board, blockId: this.surface.msg?.id ?? null, session: this.surface.draftSession() }),
   }, [
     { set: MESSAGE_ACTIONS, takes: "screen", on: (_, how) => ({ r: this, ctx: how.ctx, actor: how.actor }) },
+    // note.copy-ref (PIE-1297): the message read here, as a desk's reader copies its note; ref= another.
+    { set: NOTE_REF_ACTIONS, takes: "screen", on: (): NoteRefOn => ({
+      copy: async (a, actor) => {
+        const ctx = this.ctxShown(), m = this.surface.msg;
+        if (!a.ref && !m) throw new ActionRefused("no message is shown to copy");
+        return !a.ref || (a.ref === m?.id && !a.outline) ? this.surface.copyNoteRef(a.kind, this.host(ctx), actor, await ownOutline(ctx), a.line) : copyNoteById(ctx, actor, a.kind, a.ref, a.outline ? { outline: a.outline } : undefined);
+      },
+      has: () => !!this.surface.msg,
+    }) },
     {
       set: NOTE_ACTIONS, takes: "tile", noun: "a reader",
       on: (_, how) => ({ surface: this.surface, standing: how.standing, host: (how.given as SurfaceHost | undefined) ?? this.host(this.ctxShown()) }),

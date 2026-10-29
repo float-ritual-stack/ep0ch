@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  fieldChips, frontMatter, frontMatterLines, headerFields, headerLine, joinHeaderLine, bodyOffset, noteFile, readFrontMatter, readNoteFile, textFromHeader, withoutHeaderDashes,
+  fieldChips, frontMatter, frontMatterLines, headerFields, headerLine, joinHeaderLine, bodyOffset, noteFile, readFrontMatter, readNoteFile, retitle, textFromHeader, titleWords, withoutHeaderDashes,
 } from "../src/header-line";
 
 // Fictional notes.
@@ -160,4 +160,13 @@ describe("front matter ends at a rule or a list item that isn't a property line 
     expect(lines(`${head}\n[x::y]\n#a #b\n\nbody`)).toEqual([0, 1, 2]);
     expect(lines(`\n${head}\nprose\n\nbody`)).toEqual([1, 2]);
   });
+});
+
+test("retitle replaces only a title's words: its marker, a property among them, the trailing chips and the body stay (PIE-1283)", () => {
+  expect(retitle("Seed swap list [type::chirp]\nbring envelopes", "Seed swap, Saturday")).toBe("Seed swap, Saturday [type::chirp]\nbring envelopes");
+  expect(retitle("## [type::chirp] Pond notes #garden\nfrogs", "Frog log")).toBe("## Frog log [type::chirp] #garden\nfrogs");
+  expect(retitle("- [ ] Water the beans", "Water the peas")).toBe("- [ ] Water the peas");
+  expect(retitle("#garden", "Beds")).toBe("Beds #garden");
+  expect(retitle("", "Fresh")).toBe("Fresh");
+  expect(titleWords("## [type::chirp] Pond notes #garden\nfrogs")).toBe("Pond notes");
 });

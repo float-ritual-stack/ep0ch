@@ -35,6 +35,7 @@
     "./plain-stderr": "./src/plain-stderr.ts",
     "./program-status-emit": "./src/program-status-emit.ts",
     "./link": "./src/link.ts",
+    "./artifact-grants": "./src/artifact-grants.ts",
     "./link-config": "./src/link-config.ts",
     "./extension-secrets": "./src/extension-secrets.ts",
     "./keychain": "./src/keychain.ts"

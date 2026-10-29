@@ -20,8 +20,8 @@ export interface ViewRead {
 
 const DEFAULT_LIMIT = 200;
 
-export async function readView(board: SocketBoard, def: Msg, page: { limit?: number; offset?: number } = {}): Promise<ViewRead> {
-  const served = await board.readSavedView(def.id, page).catch((e: Error) => ({ failed: e.message }));
+export async function readView(board: SocketBoard, def: Msg, page: { limit?: number; offset?: number } = {}, signal?: AbortSignal): Promise<ViewRead> {
+  const served = await board.readSavedView(def.id, page, signal).catch((e: Error) => ({ failed: e.message }));
   if ("failed" in served) return { status: "failed", items: [], limit: DEFAULT_LIMIT, truncated: false, errors: [served.failed] };
   return viewReadOf(served);
 }

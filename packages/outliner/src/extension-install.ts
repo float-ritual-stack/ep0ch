@@ -9,7 +9,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { readExtensionFolder } from "./extension-manifest";
 import { cleanExtensionText } from "./extension-records";
-import { BUILT_IN_EXTENSIONS, extensionRoots, type ExtensionsListResult } from "./extension-registry";
+import { BUILT_IN_EXTENSIONS, extensionRoots, overrideWords, type ExtensionsListResult } from "./extension-registry";
 import { type CopyUpdate, copyLine, copyRoots, INSTALL_RECORD, installedCopies, type InstalledCopy, newsWords, whereWords, writeInstallRecord } from "./extension-update";
 import { outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { defaultRegistryPath, userExtensionsDirectory, userExtensionsFolderInUse } from "./resource-extensions";
@@ -303,17 +303,20 @@ function problem(entry: ExtensionsListResult["extensions"][number]): string {
 export function formatExtensionsList(list: ExtensionsListResult, long = false): string[] {
   const lines: string[] = [];
   for (const root of list.roots) lines.push(`${root.origin} folder: ${root.path}${root.exists ? "" : " (not created yet)"}`);
+  // A script an extension ships is that extension's row ("script <name>" in what it serves), not one of its own (PIE-1283).
+  list = { ...list, extensions: list.extensions.filter((entry) => !entry.partOf) };
   if (!list.extensions.length) lines.push("no extensions installed");
   else {
     lines.push("");
     lines.push(...columns([
       ["EXTENSION", "STATE", "FROM", "VERSION", "SERVES / PROBLEM"],
       ...list.extensions.map((entry) => [entry.id, entry.state, entry.origin, entry.version !== undefined ? `v${entry.version}` : "",
-        [serves(entry).join(", "), entry.script ? entry.description : undefined, problem(entry)].filter(Boolean).join("  |  ")]),
+        [serves(entry).join(", "), entry.script ? entry.description : undefined, entry.builtIn ? overrideWords(entry.id, entry.builtIn) : undefined, problem(entry)].filter(Boolean).join("  |  ")]),
     ]));
   }
   if (long) for (const entry of list.extensions) {
     lines.push("", `${entry.id}  ${entry.directory}`);
+    if (entry.builtIn) lines.push(`  built-in: ${entry.builtIn.directory} (never run in place; this copy runs)`);
     const what = [
       ...entry.handlers.map((handler) => `${handler.key}:: (${handler.kind}, ${handler.effects})`),
       ...entry.tiles.map((tile) => `tile ${tile.kind}`),

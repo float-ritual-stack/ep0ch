@@ -179,6 +179,8 @@ export class BacklinksPane implements Pane {
   private get childrenOnly() { return this.groups.length === 1 && this.groups[0] === "children"; }
 
   subject() { const r = this.rows()[this.sel]; return r?.kind === "backlink" ? r.source.blockId : r?.kind === "child" ? r.child.block.id : null; }
+  /** Its rows are the target's outline's: another outline's note lists that outline's links and replies. */
+  noteAt() { const id = this.subject(); return id ? { id, ...(this.target?.address ? { address: this.target.address } : {}) } : null; }
   get titleNote() { return this.target; }
   title() {
     const word = this.childrenOnly ? "children" : this.every ? "links" : `links (${this.groups.join(", ")})`;

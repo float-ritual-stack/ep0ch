@@ -197,6 +197,24 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     expect(top()).toBe(r);
   }, 20_000);
 
+  // PIE-1297: a message read outside a desk copies its address as a desk's reader does (the power bar's actions run it there).
+  test("note.copy-ref: the message's reference, web link and a line's reference; the person's to the clipboard", async () => {
+    await open();
+    const act = (args: Record<string, unknown>, as?: string) => (as ? app.act({ action: "note.copy-ref", args, as }) : app.dispatch.act({ action: "note.copy-ref", args }, { kind: "user" } as any)) as Promise<any>;
+    expect(await act({ kind: "ref" }, AS)).toMatchObject({ text: `((${n.first.id}|Committee meeting))`, clipboard: false });
+    expect((await act({ kind: "link" }, AS)).text).toMatch(new RegExp(`/pub/o/[^/]+/p/${n.first.id}$`));
+    const line = n.first.text.split("\n").indexOf("## Agenda") + 1;
+    const anchored = await act({ kind: "line", line }, AS);
+    expect(anchored.text).toBe(`((${n.first.id}^${anchored.anchor}|Agenda))`);
+    // Another note by ref=, and the person's goes to the clipboard.
+    written.length = 0;
+    expect(await act({ kind: "id", ref: n.kettle.id })).toMatchObject({ text: n.kettle.id, clipboard: true });
+    expect(written.join("")).toContain(Buffer.from(n.kettle.id).toString("base64"));
+    // The main menu has no note of its own: ref= still copies.
+    while (stack() > 1) app.pop();
+    expect(await act({ kind: "ref", ref: n.second.id }, AS)).toMatchObject({ text: `((${n.second.id}|Seed swap))` });
+  });
+
   test("editing: e opens the edit control, typed q and n are text, ctrl+s saves to the outline", async () => {
     const r = await open(1);
     key(char("e"));
