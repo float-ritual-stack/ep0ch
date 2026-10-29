@@ -106,7 +106,9 @@ export class ArtifactStore {
     const generated = join(this.root, "generated", name);
     const index = join(folder, "index.html");
     if (existsSync(index) && (!existsSync(generated) || readFileSync(generated, "utf8") !== new Bun.CryptoHasher("sha256").update(readFileSync(index)).digest("hex"))) return;
-    const files = artifactFiles(folder).filter(p => p !== "index.html" && p !== FIRST_PAGE);
+    const all = artifactFiles(folder).filter(p => p !== "index.html");
+    // A PDF's drawn first page sits beside it; any other file of that name is the sender's own.
+    const files = all.length === 2 && all.includes(FIRST_PAGE) && all.some(p => /\.pdf$/i.test(p)) ? all.filter(p => p !== FIRST_PAGE) : all;
     if (files.length !== 1 || !/\.(jsx|tsx|mermaid|mmd|md|markdown|pdf|png|jpe?g|gif|webp)$/i.test(files[0]!)) return;
     const extension = extname(files[0]!).toLowerCase();
     // A lone PDF or image has nothing to run: its page shows it, a PDF by its first page, and links the file (PIE-1370).

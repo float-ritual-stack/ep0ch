@@ -193,11 +193,11 @@ test("a lone PDF arrives as a document: a page drawn by its first page and linki
   expect(answer.said).toContain("a document");
   // It has a page now: the frame that was an empty box shows the first page and links the PDF.
   const page = readFileSync(join(live("lantern-deck"), "index.html"), "utf8");
-  expect(page).toContain('href="Lantern-Deck.pdf"');
+  expect(page).toContain('href="./Lantern-Deck.pdf"');
   if (hasPdftoppm) {
     expect(readFileSync(join(live("lantern-deck"), "first-page.png")).subarray(1, 4).toString()).toBe("PNG");
-    expect(page).toContain('src="first-page.png"');
-  } else expect(page).toContain('<object data="Lantern-Deck.pdf"');
+    expect(page).toContain('src="./first-page.png"');
+  } else expect(page).toContain('<object data="./Lantern-Deck.pdf"');
   expect(existsSync(join(live("lantern-deck"), "Lantern-Deck.pdf"))).toBe(true);
   // The card: what it is and who sent it on its title line, the artifact line under it as before.
   const card = (await childrenOf("garden", day())).find(block => block.text.includes("[artifact::lantern-deck]"));
@@ -212,7 +212,7 @@ test("a lone image arrives as an image, its page showing it", async () => {
   const answer = await sent.json();
   expect(sent.status, JSON.stringify(answer)).toBe(201);
   expect(answer).toMatchObject({ name: "moth", kind: "image", title: "moth.png" });
-  expect(readFileSync(join(live("moth"), "index.html"), "utf8")).toContain('<img src="moth.png"');
+  expect(readFileSync(join(live("moth"), "index.html"), "utf8")).toContain('<img src="./moth.png"');
   expect((await childrenOf("garden", day())).map(block => block.text)).toContain("moth.png [arrival::new] [arrival-kind::image] [sent-by::you]\n[artifact::moth]");
 });
 

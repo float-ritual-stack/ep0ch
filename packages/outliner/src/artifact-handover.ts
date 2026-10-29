@@ -41,7 +41,9 @@ export function pageTitle(html: string): string | undefined {
  * under it draws it. The properties sit on the title line: an artifact line takes only its own.
  */
 export function arrivalCard(meta: Pick<DropMeta, "by">, installed: NonNullable<Arrival["installed"]>): string {
-  return `${oneLine(installed.title ?? installed.name)} [arrival::new] [arrival-kind::${installed.kind}] [sent-by::${oneLine(meta.by, 80)}]\n[artifact::${installed.name}]`;
+  // A title that opens a fence would make the whole card literal code.
+  const title = oneLine(installed.title ?? installed.name).replace(/^[`~]{3,}\s*/, "") || installed.name;
+  return `${title} [arrival::new] [arrival-kind::${installed.kind}] [sent-by::${oneLine(meta.by, 80)}]\n[artifact::${installed.name}]`;
 }
 
 /**
