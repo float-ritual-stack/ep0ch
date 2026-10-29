@@ -804,8 +804,13 @@ export class AgentDrawer {
    * The person is in the drawer: every key but ctrl+], alt+a, alt+A, alt+s and alt+g is the drawer's tab's. Never set by an
    * agent. With the drawer down, that's the tile of it they went into lifted (PIE-1359), while that lift lasts.
    */
-  get entered(): boolean {
-    if (this.keys === HOST_SCREEN || this.mode === "none") return false;
+  get entered(): boolean { return this.mode !== "none" && this.keysIn; }
+  /**
+   * The person's keys are the drawer's, shown or not: a screen with no drawer (the message log) hides it over them, and
+   * closing that screen hands them back to the drawer's tab (PIE-1431: an Esc there is that screen's, never the agent's).
+   */
+  get keysIn(): boolean {
+    if (this.keys === HOST_SCREEN) return false;
     return this.liftIn !== null ? this.inLift() : this.open;
   }
   /** The drawer's lift the person went into with the drawer down (put away or folded), else null. */

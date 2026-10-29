@@ -1404,9 +1404,10 @@ export class App implements Ctx {
     // An Esc the door reads while the person types in a program: one for something over it (the bar, a menu) is spent
     // there; one right after it is that one again, never the program's (PIE-1431). A screen that hands its terminal decoded
     // keys (the showcase's stage) meets it here; raw bytes meet it in the raw sink (escSpent).
-    if (k.kind === "esc" && this.typingInProgram()) {
-      if (!this.overProgram() && this.heldEsc()) return;
-      if (this.overProgram()) this.escSpentAt = this.now();
+    const program = k.kind === "esc" ? this.program() : null;
+    if (program?.typing) {
+      if (!program.over && this.heldEsc()) return;
+      if (program.over) this.escSpentAt = this.now();
     }
     // The key typed, by its one name, while it's handled: an action it no longer runs (the person's keymap moved it) says so.
     try { asTyped(k.kind === "mouse" || k.kind === "paste" ? null : keyName(k), () => this.route(k)); }
@@ -1564,17 +1565,28 @@ export class App implements Ctx {
     const top = tilesOf(this.stack.at(-1));
     return !!top && top !== this.drawer.made && top.overlaid() && [...this.statusMenus.values()].some(m => !m.ended());
   }
-  /** The person's keys are a terminal program's (a terminal tile's, the drawer's agent's), whatever is open over it. */
-  private typingInProgram(): boolean {
-    const top = this.stack.at(-1), d = this.drawer.entered ? this.drawer.desk : tilesOf(top);
-    if (!d) return !!top?.rawKeys?.();
-    // A screen that frames a desk (the showcase's stage) says whether the keys are in it at all.
-    return d.programKeys().typing && (this.drawer.entered || d === top || !!top?.rawKeys?.());
-  }
-  /** Something over the program the person types in has their keys: the power bar, or a menu or picker over its tiles. */
-  private overProgram(): boolean {
-    if (this.bar || this.overDrawer()) return true;
-    return !!(this.drawer.entered ? this.drawer.desk : tilesOf(this.stack.at(-1)))?.programKeys().over;
+  /**
+   * Where the person types in a program, as Esc asks it (PIE-1431), one answer for every layer: `typing`, a terminal (a
+   * terminal tile's, the drawer's agent's) has their keys under whatever is open; `over`, something is open over it that
+   * an Esc closes first. What can be over it is one list, layer by layer from the top: the key probe, the power bar, a menu
+   * the bar opened over the screen, a screen pushed over the desk or the drawer (the message log, a picker) and a menu or picker on the
+   * desk or a group in it. A new overlay is over the program by being one of these, never by a list of kinds.
+   */
+  private program(): { typing: boolean; over: boolean } {
+    const chrome = this.probing || !!this.bar || this.overDrawer();
+    // The drawer's tab, shown or hidden by a screen over it that has no drawer (the message log).
+    if (this.drawer.keysIn) {
+      const p = this.drawer.desk?.programKeys();
+      return { typing: !!p?.typing, over: chrome || !this.drawer.entered || !!p?.over };
+    }
+    for (let i = this.stack.length - 1; i >= 0; i--) {
+      const s = this.stack[i], d = tilesOf(s), above = chrome || i < this.stack.length - 1;
+      if (!d) { if (s.rawKeys?.()) return { typing: true, over: above }; continue; }
+      const p = d.programKeys();
+      // A screen that frames a desk (the showcase's stage) says whether the keys are in it at all.
+      return { typing: p.typing && (d === s || !!s.rawKeys?.()), over: above || p.over };
+    }
+    return { typing: false, over: false };
   }
   /** When an Esc last closed something over a terminal the person types in, or was held back for it. */
   private escSpentAt = -Infinity;
