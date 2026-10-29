@@ -1185,6 +1185,7 @@ script. `window.ep0ch` on every web client page (tailnet and share):
 | `ep0ch.view()` | What's in front of the reader: `blockId`, `title`, `url`; `selection` (`text`, `before`, `after`, `blockId`, `offsets: {start, end}` in that block's source at `revision`); `visible` (the block ids on screen, in page order); `scroll` (`y` of `max` pixels). The same object `reader.view` keeps. |
 | `ep0ch.reveal('((id))')` | Scrolls to the block and outlines it for five seconds (a still outline: nothing flashes). Takes an id (at least 8 characters), `((id))` or `((id\|label))`. A block not on the page is refused with its own page's address; it never navigates. |
 | `ep0ch.journal(since)` | What the reader did after event `since`, oldest first: `{ events, next }`. Pass `next` back to get only what's new. |
+| `ep0ch.trail()` | Where this tab has been (PIE-208): `{ stops }`, the notes it opened, newest first, each once (`blockId`, `title`, `at`), read from the journal. The breadcrumbs' `≡ trail` lists the same. |
 
 Each returns a promise. From a desktop-pane agent's JavaScript tool:
 
@@ -1196,7 +1197,7 @@ await ep0ch.journal(0)                      // everything kept; then journal(nex
 
 They only read and point: none writes. A change to the outline still goes through the MCP (`outline_patch`,
 `outline_comment`, …), attributed. The page says on screen when an agent calls one ("an agent is pointing at …").
-The same helpers are **WebMCP tools** (`ep0ch_help`, `ep0ch_view`, `ep0ch_reveal`, `ep0ch_journal`, read-only) on
+The same helpers are **WebMCP tools** (`ep0ch_help`, `ep0ch_view`, `ep0ch_reveal`, `ep0ch_journal`, `ep0ch_trail`, read-only) on
 `navigator.modelContext`, from the same definitions, so the catalog, the tools and `window.ep0ch` can't drift. Where
 the browser has no WebMCP yet, the publisher serves the `@mcp-b/global` polyfill (pinned in package.json) from this
 origin at `<base>/_marginalia/webmcp.js`, after the reader script: `navigator.modelContext.listTools()` lists them, and

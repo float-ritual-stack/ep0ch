@@ -147,7 +147,7 @@ import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { MOUSE_ALT, RowPresses } from "../scroll";
 import { readState, writeState } from "../state";
 import { menuRow } from "../desk/tile-menu";
-import { centred, ListPicker, pickRows } from "./picker";
+import { centred, ListPicker, pickRow } from "./picker";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
 import { calloutBlocks, rewriteCalloutHeader, stripQuotes, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
@@ -8236,7 +8236,8 @@ export class NoteSurface {
     ];
     const list = new ListPicker<Row, unknown>({
       name: "trail", items: () => rows, clickChooses: true,
-      row: (r, _i, on, w) => pickRows(` ${r.dir < 0 ? "←" : r.dir > 0 ? "→" : "●"} ${printable(r.title)}${r.dir ? ` · ${r.steps} ${r.dir < 0 ? "back" : "ahead"}` : " · here"}`, on, w),
+      // One row a stop, so the box is as tall as the trail; a title cut short reads in full on hover (Overflow).
+      row: (r, _i, on, w) => [pickRow(` ${r.dir < 0 ? "←" : r.dir > 0 ? "→" : "●"} ${printable(r.title)}${r.dir ? ` · ${r.steps} ${r.dir < 0 ? "back" : "ahead"}` : " · here"}`, on, w)],
       choose: r => { if (r.dir) void this.runKey(r.dir < 0 ? "back" : "forward", { steps: r.steps }, host); },
       frame: (a, n) => ({ rect: centred(a, Math.min(64, a.cols - 2), Math.min(n + 2, a.rows)), title: "trail · where this reader has been" }),
     });
@@ -10917,13 +10918,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "tile", replay: "safe", way: "forward would move what they're reading · an agent goes forward only in another reader (name it with tile=)",
     menu: noteRow("forward", "alt+right", { busy: true, now: ({ surface }) => (surface.describeHistory().forward.length ? null : { hide: true }) }),
     args: { steps: STEPS_ARG },
+    examples: [{ act: "forward steps=2", does: "goes forward two stops on the trail at once" }],
     run: ({ steps }, on, actor) => travelAction(1, on, actor, steps),
   }),
   "trail": def({
     summary: "the trail of where this reader has been (PIE-208): every stop back and forward by its title, nearest first, the note shown between them. The person's opens it as a list over the screen: ⏎ or a click on a stop goes there (back or forward that many steps, as back steps= does), esc puts it away. An agent's answers the stops and opens nothing",
     keys: "alt+T, a click on ≡ trail beside ← back",
     touches: "nothing", replay: "safe",
-    menu: noteRow("the trail: where it's been", "alt+T", { busy: true, now: ({ surface }) => { const h = surface.describeHistory(); return h.back.length || h.forward.length ? null : { hide: true }; } }),
+    menu: noteRow("trail: where it's been", "alt+T", { busy: true, now: ({ surface }) => { const h = surface.describeHistory(); return h.back.length || h.forward.length ? null : { hide: true }; } }),
     args: {},
     examples: [{ act: "trail", does: "lists the stops back and forward; back steps=2 then goes to the second one back" }],
     run: (_, { surface, host, standing }) => surface.trail(host, standing),
