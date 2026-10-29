@@ -281,7 +281,7 @@ export class Draft {
     // Saved text is never taken back silently (PIE-1414): the first ctrl+z at a save says so, the next goes past it.
     if (s.saved && !past) {
       this.undoArmed = true;
-      return this.note = `that's saved text: what's here is what the note holds · ctrl+z again takes back ${s.what === "typing" ? "typing" : s.what} from before the save (the saved revision stays in its history)`;
+      return this.note = `saved · ctrl+z again undoes past the save (${s.what}; revision ${this.base} stays in its history)`;
     }
     this.undos.pop();
     s.open = false;

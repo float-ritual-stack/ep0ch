@@ -810,6 +810,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
   }, 30_000);
 
   test("undo never takes back what's saved (PIE-1414): write, save, open it again, ctrl+z stops at the save and says so; ctrl+z again goes past it, and the note keeps what was saved", async () => {
+    (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "undo" }, as: "test-agent" });
     const stage = () => S().stages.get(S().sel).top;
     const draft = () => stage().pane("reader").surface.draft;
@@ -831,10 +832,10 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     // Opened again: ctrl+z says the text is saved and leaves it.
     await edit();
     press({ kind: "char", ch: "z", ctrl: true });
-    await until(() => draft()!.note.includes("that's saved text"), "ctrl+z asks at the save");
+    await until(() => draft()!.note.includes("saved · ctrl+z again"), "ctrl+z asks at the save");
     expect(draft()!.text).toBe(saved);
     expect(draft()!.dirty).toBe(false);
-    expect(screen()).toContain("that's saved text");
+    expect(screen()).toContain("saved · ctrl+z again");
     // Through act the same: it asks, and past=true is the answer.
     expect(await stage().dispatch.act({ action: "draft.undo", tile: "reader" }, USER)).toMatchObject({ asks: expect.stringContaining("saved") });
     await expect(app.act({ action: "draft.undo", tile: "reader", as: "test-agent" })).rejects.toThrow("already saved");
