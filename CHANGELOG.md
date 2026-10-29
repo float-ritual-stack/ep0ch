@@ -37,6 +37,14 @@ are its record. The outliner's entries from then are kept below, under
 - **The harness:** `bun run bench:host` in packages/outliner measures it (ping p50, p95, p99, max and the longest
   stall per phase); `scripts/box-test host-bench` runs it on float-box, and CONTRIBUTING's review checklist asks a
   bulk or subscription change for its fan-out, its count at pie's size and that measured proof.
+### @loki in a comment reaches loki, and stays on its list until it answers (PIE-1404)
+
+- **Write `@loki …` (or `@daddy`, `@kitty`) in a comment on any note,** from the door, a web page on your phone or
+  another agent: that persona's live Claude sessions hear it within 30 minutes, with the note, the words and who
+  wrote it, yours first.
+- **It stays on the list** in every wake until the persona replies in the thread or the thread is resolved; a session
+  started later hears what's still open within a minute of starting.
+- Nothing to run: it ships with the Claude mod (`ep0ch install --apply`).
 
 ### A patch applied as written leaves nothing to fix, and a backfill rerun costs nothing twice (PIE-1402)
 
