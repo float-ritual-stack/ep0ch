@@ -3467,8 +3467,11 @@ export class OutlinerStore {
       if (/^[0-9a-f]{8}/.test(low)) nearest = this.nearestIdsFromCurrentRead(low);
     }
     let page: PageAddressResolution | null = null;
-    // A Work ID by any spelling of its number (PIE-12 is PIE-012).
-    try { page = this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(parseWorkId(text)?.workId ?? text)); } catch { /* not an address: said below */ }
+    // As written, then a Work ID by its canonical number (PIE-12 is PIE-012).
+    for (const address of new Set([text, parseWorkId(text)?.workId ?? text])) {
+      if (page && page.status !== "missing") break;
+      try { page = this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(address)); } catch { /* not an address: said below */ }
+    }
     if (page?.status === "resolved" && page.block) return { kind: "found", block: page.block, how: parseWorkId(text) ? "Work ID" : "page address" };
     if (page?.status === "deleted") return trashed(page.block?.id);
     if (ref.trim().startsWith("[[")) {
