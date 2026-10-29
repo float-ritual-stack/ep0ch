@@ -237,6 +237,29 @@ function cleanSettings(x: ExtensionSettings): ExtensionSettings {
 /** The last list read (null before it's read, or from a service without extensions). */
 export const extensionList = (): ExtensionList | null => current;
 
+/** What an extension adds, by kind, in the order its group is chosen by (the first it has): a list a row, a preview, a hub read. */
+export const PART_KINDS = ["rules", "components", "scripts", "programs", "sources", "agents", "tiles", "records", "actions"] as const;
+export type PartKind = typeof PART_KINDS[number];
+
+/**
+ * What extension `e` adds, read from its own declarations (`extensions.list`): its rules, its component and output lines,
+ * its scripts, its schedules (programs), its bar sources, agents, tile kinds, record lines and actions, each by name.
+ */
+export function extensionParts(e: ExtensionEntry, l: ExtensionList | null = current): { kind: PartKind; name: string; about?: string }[] {
+  const of = (kind: PartKind, items: readonly { name: string; about?: string | undefined }[]) => items.map(i => ({ kind, name: i.name, ...(i.about ? { about: i.about } : {}) }));
+  return [
+    ...of("rules", (l?.rules ?? []).filter(r => r.source.kind === "extension" && r.source.extension === e.id).map(r => ({ name: r.name, about: r.description }))),
+    ...of("components", e.handlers.filter(h => h.kind === "component" || h.kind === "output").map(h => ({ name: `${h.key}::`, about: h.description }))),
+    ...of("scripts", [...(e.scripts ?? []).map(s => ({ name: s.name, about: s.about })), ...(e.script ? [{ name: e.name ?? e.id, about: e.description }] : [])]),
+    ...of("programs", (e.schedules ?? []).map(s => ({ name: s.entry, about: s.every ? `every ${s.every}` : s.cron }))),
+    ...of("sources", (l?.barSources ?? []).filter(b => b.extension === e.id).map(b => ({ name: b.title }))),
+    ...of("agents", (e.agents ?? []).map(a => ({ name: `@${a.name}`, about: a.description }))),
+    ...of("tiles", (l?.tileKinds ?? []).filter(t => t.extension === e.id).map(t => ({ name: t.name, about: t.description }))),
+    ...of("records", e.handlers.filter(h => h.kind === "resource" || h.kind === "data").map(h => ({ name: `${h.key}::`, about: h.description }))),
+    ...of("actions", e.actions.filter(a => !e.script || a.id !== "run").map(a => ({ name: a.label, about: a.description }))),
+  ];
+}
+
 /**
  * What to run when a script isn't installed here but an extension the repo offers adds it (`extensions.list`'s `available`):
  * its install, as the refusal says it, or null when no extension adds a script of that name.

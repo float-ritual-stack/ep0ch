@@ -88,6 +88,8 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
 
   // A `::button` that runs nothing (PIE-957): drawn as its label with the reason.
   for (const call of buttonCallsOf(text)) if (call.problem) out.push({ kind: "component", line: call.line, message: `the ::button on line ${call.line + 1} runs nothing: ${call.problem.replace(/^::button needs /, "write ")}` });
+  // A look word it doesn't take (PIE-1287): it runs, drawn plain.
+  for (const call of buttonCallsOf(text)) if (call.lookProblem) out.push({ kind: "component", line: call.line, message: `the ::button on line ${call.line + 1} runs but is drawn plain: ${call.lookProblem}` });
 
   // A `::use` that names no template (PIE-533 S4): drawn as nothing, so it says so. (The template's props are the service's to check.)
   for (const call of useCallsOf(text)) if (call.problem) out.push({ kind: "component", line: call.line, message: `the ::use on line ${call.line + 1} names no template: ${call.problem.replace(/^::use needs /, "write ")}` });

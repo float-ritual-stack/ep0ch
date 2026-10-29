@@ -3,6 +3,9 @@
 // service's (`extensions.render`, its own HTML kept to the page's markup); it rides through the Markdown renderer as a
 // private-use sentinel on a line of its own and is put in its place after (drawComponents), as marginalia's marks do.
 // A line with nothing to draw yet shows its source as code: never dropped.
+import { buttonCallsOf } from "@ep0ch/outline-core/button-call";
+import { buttonHtml } from "./component-primitives";
+import type { DrawnComponent } from "./publish-live";
 import type { ResourceProjection } from "./resource-projection";
 
 /** At most this many components on one page: each takes one private-use sentinel character. */
@@ -26,7 +29,24 @@ export const COMPONENT_STYLE = `
 .ext-badge{font:12px/1.4 ui-monospace,Menlo,monospace;border:1px solid var(--rule);border-radius:.25rem;padding:0 .35rem}
 .ext-good{color:#8fc79a}.ext-warn{color:#d9b46a}.ext-bad{color:#dd8a80}.ext-dim{color:var(--dim)}.ext-accent{color:var(--link)}
 .ext-source code{color:var(--dim)}
+.ep-button{display:inline-block;font:14px/1.4 ui-monospace,Menlo,monospace;font-weight:600;padding:.15rem .6rem;border-radius:.3rem;color:var(--link);border:1px solid transparent}
+.ep-button.tone-primary{color:#e0c060}.ep-button.tone-danger{color:#dd8a80}
+.ep-button[class*=frame-]{border-color:currentColor}.ep-button.frame-box{border-radius:0}.ep-button.frame-heavy{border-width:2px}.ep-button.frame-double{border-style:double;border-width:3px}
+.ep-button.fill{background:#1c2a44;color:#e8e6df}.ep-button.fill.tone-primary{background:#3a3014;color:#e0c060}.ep-button.fill.tone-danger{background:#3f1d1a;color:#e8e6df}
 `;
+
+/** Each note's one-line `::button`s in their lines' place (`drawn`), as components; a line already drawn keeps its drawing. */
+export function drawNoteButtons(notes: readonly { id: string; text: string }[], components: string[], drawn: Map<string, Map<number, DrawnComponent>>): void {
+  for (const note of notes) {
+    const own = drawn.get(note.id) ?? new Map<number, DrawnComponent>();
+    for (const b of buttonCallsOf(note.text)) {
+      if (b.endLine !== b.line || own.has(b.line) || components.length >= MAX_PUBLISHED_COMPONENTS) continue;
+      components.push(buttonHtml(b.label, b.look));
+      own.set(b.line, { end: b.line + 1, markdown: componentSentinel(components.length - 1) });
+    }
+    if (own.size) drawn.set(note.id, own);
+  }
+}
 
 export const componentSentinel = (index: number) => `${MARK}${String.fromCharCode(BASE + index)}${MARK}`;
 /** Whether `text` is one component's sentinel and nothing else. */

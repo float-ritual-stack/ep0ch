@@ -182,6 +182,7 @@ export const marks: Record<string, string[]> = {
   "scripts-in-place": ["Scripts in place", "beds-table"],
   press: ["Noughts and crosses", "ttt-board"],
   "status-bar": ["Your buttons on the status bar", "[Collapse]"],
+  buttons: ["Buttons that look like buttons", "[▤ Fold all]", "╭", "⟳ Sync now"],
   "split-brain": ["A Claude session running twice", "Click the chip"],
   "message-log": ["Message log", "garden gate needs attention"],
   motion: ["Tiles that move", "Shuffle the tiles"],

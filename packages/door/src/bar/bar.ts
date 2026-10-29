@@ -394,7 +394,7 @@ export class PowerBar {
     const r = it.row, head = ` ${"  ".repeat(Math.min(6, r.depth ?? 0))}${r.mark ? `${r.mark} ` : ""}`;
     const detail = r.refused ? ` · ${r.refused}` : r.subtitle ? ` · ${r.subtitle}` : r.detail ? ` · ${r.detail}` : "";
     const cap = r.keycap ? ` ${keyCaption(r.keycap)} ` : "";
-    return rowLines(head + r.label + detail, w - width(cap), undefined, { hang: width(head) }).map((line, i) =>
+    return rowLines(head + r.label + detail, w - width(cap), r.oneLine ? 1 : undefined, { hang: width(head) }).map((line, i) =>
       pickRow(line, on, w - width(cap), r.refused ? C.dark : C.grey) + (i ? " ".repeat(width(cap)) : cap));
   }
 

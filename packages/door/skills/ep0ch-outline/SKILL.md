@@ -666,6 +666,12 @@ A press is one undo group over reversible effects. A failure stops there and rep
 effects in the message log and Sources. Completion inside the body offers actions and `((` offers scripts.
 The kitchen sink's **One button, two tiles** section demonstrates both forms and the pipe.
 
+**How a button looks** (PIE-1287): `glyph="▶"` (one character before the label), `tone=quiet|primary|danger` (theme roles,
+never a colour), `frame=none|box|round|heavy|double` (none, the default, is one row; a frame is three) and `fill=on` (the tone
+as background; with no frame a filled band). A press says its state where the button is: ◐ while a slow one runs, ✓ after,
+`!` when it failed (the pointer reads why, until the next press); one whose action would be refused now is drawn dim, in
+parentheses. A button with no glyph says running and done by colour only. The kitchen sink's **buttons** section has each.
+
 **Buttons on the status bar** (PIE-1121). A note with `[status-bar::true]` configures the door's bar live:
 `- <built-in id>` lines order the built-ins (omitted ids are hidden), and `::button{label="Collapse" act="tile.collapse tile=screen"}`
 lines place buttons there. Closed button bodies and list sugar work there too; pinning preserves the whole body. `alt="theme.cycle"` names a button's alternate click. The shared `button.press note=<id> label=...`

@@ -1,5 +1,6 @@
 import { renderDoc } from "../doc";
-import { BOLD, C, fg, RESET, width } from "../style";
+import { width } from "../style";
+import { buttonRows } from "./button";
 import type { Key } from "../term";
 
 /** Empty places use the document's buttons and keys figure, without inventing a note in the outline. */
@@ -18,7 +19,7 @@ export class HomeSurface {
     ].join('\n');
     const doc = renderDoc(body, {
       width: cols, cellW: 9, cellH: 16, graphics: false, maxImageRows: 0, unfold: true,
-      button: call => [buttonLabel(call.label)],
+      button: call => buttonRows(call.label, call.look),
     });
     this.controls = buttons.flatMap(([label, action]) => {
       const row = doc.lines.findIndex(l => l.includes(`[${label}]`));
@@ -36,5 +37,3 @@ export class HomeSurface {
     return true;
   }
 }
-
-export const buttonLabel = (label: string) => fg(C.lcyan) + BOLD + `[${label}]` + RESET;

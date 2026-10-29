@@ -689,8 +689,23 @@ export class Dispatcher {
     return this.runIn(r, { ...req, args }, actor, typed);
   }
 
-  /** Run a request with the set that owns it: the tile read, the actor rule checked, the action run, its answer said. */
-  private runIn(reg: Registration, req: ActRequest, actor: Actor, typed: boolean, given?: unknown): unknown {
+  /**
+   * Why `req` would be refused for `actor` now, or null: the resolution and rules a run checks (`checked`), with nothing run.
+   * A button drawn disabled says it (PIE-1287). An action no set here has (a script's name) is null: the press finds out.
+   */
+  refusedNow(req: ActRequest, actor: Actor): string | null {
+    try {
+      req = this.mountedRequest(this.pointed(rewritten(req, actor), actor));
+      const r = this.owner(req, actor);
+      if (!r) return null;
+      if (!("set" in r)) { const d = r.delegate(req); return d ? d.refusedNow(r.request ? r.request(req) : req, actor) : null; }
+      this.checked(r, req, actor, false);
+      return null;
+    } catch (e) { return e instanceof ActionRefused ? e.message : null; }
+  }
+
+  /** What a run checks before it runs: the def, the person's-own rule, the tile read, the arguments and the actor rule; refused with why. */
+  private checked(reg: Registration, req: ActRequest, actor: Actor, typed: boolean) {
     const def = reg.set.def(req.action);
     if (!def) throw new ActionRefused(`no action ${req.action} here; try: ${reg.set.names().join(", ")}`);
     // The person's own: refused to an agent before anything is read.
@@ -703,6 +718,12 @@ export class Dispatcher {
     const seen = reg.set.defArgs(req.action, args, typed);
     const no = this.refusal(reg, def, req.action, at, args, seen, actor);
     if (no) throw new ActionRefused(no);
+    return { def, at, args, seen };
+  }
+
+  /** Run a request with the set that owns it: the tile read, the actor rule checked, the action run, its answer said. */
+  private runIn(reg: Registration, req: ActRequest, actor: Actor, typed: boolean, given?: unknown): unknown {
+    const { def, at, args, seen } = this.checked(reg, req, actor, typed);
     for (const t of requestTracers) t({ action: req.action, args: seen, ...(at.tile ? { tile: { id: at.tile.id, name: at.tile.name, ...(at.tile.role ? { role: at.tile.role } : {}) } } : {}), named: req.tile !== undefined, takes: reg.takes, replay: def.replay, scope: reg.set.scope, actor, typed });
     const hooked = this.host.beforeAction?.(req.action);
     if (hooked) { const shown = pressShown.getStore(); if (shown) shown.changed = true; }

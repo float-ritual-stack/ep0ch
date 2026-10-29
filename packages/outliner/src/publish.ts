@@ -10,7 +10,7 @@ import { closeOpenFences } from "@ep0ch/outline-core/component-block";
 import { protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
 import type { Decoration } from "./extension-rules";
 import type { ResourceProjection, ResourceProjectionReadResult } from "./resource-projection";
-import { COMPONENT_STYLE, componentSentinel, drawComponents, drawnLine, hasResult, isComponentSentinel, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown, readImages } from "./publish-components";
+import { COMPONENT_STYLE, componentSentinel, drawComponents, drawNoteButtons, drawnLine, hasResult, isComponentSentinel, lineSource, MAX_PUBLISHED_COMPONENTS, readBlockdown, readImages } from "./publish-components";
 import { boardHtml, FIGURE_STYLE, viewRowsHtml } from "./publish-figures";
 import { drawNoteComponents, drawViewLane, readViewLane, type DrawnComponent, type LiveHost } from "./publish-live";
 import { publishedValueWords, readPageValues } from "./publish-values";
@@ -2467,6 +2467,7 @@ export class Publisher {
         : !linked.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${base}${mediaPath(blockId, line)}` : null,
       { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec),
       (blockId, line) => artifactPages.get(`${blockId}:${line}`));
+    if ((options.format ?? "html") === "html") drawNoteButtons(rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), components, drawn);
     // HTML pages carry source-line destinations; only tailnet pages also identify blocks for presence.
     const anchors = options.anchors;
     const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, (options.format ?? "html") === "html" ? anchors : undefined, drawn, owner, (options.format ?? "html") === "html" ? steps : undefined, !!options.browse, values, unlocked);
