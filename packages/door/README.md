@@ -817,6 +817,16 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   revision it made. A read that falls back to the mirror lays the caller's own such writes over the note (`pending`)
   until the copy reaches that revision, says `staleSince` (the revision, when, and what it means) when the copy is older
   than a write made through this server, and `list_outlines` carries `staleSince` for the outline.
+- **Snapshots and reader view of an away outline (PIE-1091).** `outline_snapshot` on another machine's outline is made
+  from its copy here, even while that machine answers, so the link is this machine's web client's
+  (`EP0CH_WEB_URL`, else `https://my.ep0ch.sh`: `…/pub/o/float-hub@laptop/s/<token>/snapshot.sqlite`), works once and
+  expires as any snapshot does. The answer carries the copy's `source`, `asOf`, `copy`, `stale` and `note`, and `said`
+  begins with them. `reader_view` served from the copy says what this machine's web pages of the copy have in front of
+  them (the copy's pages report presence too), with the same fields. The links, their files and that presence are kept
+  in `<EP0CH_MCP_MIRROR_DIR>/.shares/<machine>/<name>/`, shared by the gateway and the web client, which each serve the
+  copy from a host of their own; a copy writes no snapshot note (its session is the record). `share_start`,
+  `share_list` and `share_revoke` stay refused for an outline served from its copy (a share is live and takes comments),
+  saying the `ep0ch share …` command to run on its machine and that `outline_snapshot` and `outline_read` read it now.
 - **Revoking.** `ep0ch mcp access none --ws <name>` (or `read`) stops reads (or writes) at once; a write already queued
   for another machine is dropped when it arrives, if its outline no longer takes writes there. Removing a subject from
   `EP0CH_MCP_ALLOWED_SUBJECTS` (or a client from `EP0CH_MCP_ALLOWED_CLIENTS`) and restarting stops that person (or

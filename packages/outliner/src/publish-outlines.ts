@@ -62,6 +62,8 @@ export class OutlinePublishers {
     // forms for its own pages, so the outlines do too.
     const below = root && (pathname === root || pathname.startsWith(`${root}/`)) ? pathname.slice(root.length) : pathname;
     if (below === "/o" || below === "/o/") return this.list(request);
+    // Another machine's snapshot link is its copy's here, whether or not the machine answers now (PIE-1091).
+    if (this.options.remotes?.length && /^\/o\/[^/]+\/s\/[^/]+\/snapshot\.sqlite$/.test(below)) return this.snapshot(request, root);
     const named = below === null ? null : OUTLINE_PATH.exec(below);
     if (!named) return this.options.home.handle(request, audience, undefined, signedIn);
     let name: string;
@@ -113,6 +115,12 @@ export class OutlinePublishers {
     let name: string | undefined;
     try { name = match?.[1] ? decodeURIComponent(match[1]) : this.options.homeName; }
     catch { return new Response("Not found", { status: 404 }); }
+    // Another machine's outline: its copy here minted the link (the gateway's outline_snapshot), never its own host.
+    const remote = this.options.remotes?.find((candidate) => candidate.address === name);
+    if (match && remote) {
+      const copy = await remote.copyPublisher();
+      return "error" in copy ? new Response("Not found", { status: 404 }) : copy.snapshotDownload(request, match[2]!);
+    }
     if (!match || !name || !isOutlineName(name) || !(await this.options.names()).includes(name)) return new Response("Not found", { status: 404 });
     const publisher = name === this.options.homeName ? this.options.home : await this.publisher(name);
     return publisher.snapshotDownload(request, match[2]!);

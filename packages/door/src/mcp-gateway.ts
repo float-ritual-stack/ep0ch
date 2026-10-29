@@ -208,6 +208,14 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       ? { at: wrote.at, revision: wrote.revision, uri: wrote.uri, said: `a write made live through this server at ${wrote.at}${wrote.revision ? ` (revision ${wrote.revision})` : ""} is newer than this copy` } : null;
     return named({ ...copy, served: { ...copy.served, note: `${why}; ${copy.served.note ?? ""}`.trim(), liveTried: { at: checkedAt, why, ...(command ? { command } : {}) }, ...(staleSince ? { staleSince } : {}) } });
   };
+  /** The mirror's copy, whether or not its machine answers (`board`'s `copy`), named as answers name it. */
+  const copyOf = async (mirror: OutlineMirror): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
+    const r = await mirrorRead(mirror);
+    if ("error" in r) return r;
+    r.board.address = { outline: mirror.outline, machine: nameOf(mirror) };
+    usedBoards.add(r.board);
+    return r;
+  };
   /** Whether writes wait for this mirror's outline (the store opened only when there is one). */
   const waitingFor = (mirror: OutlineMirror): boolean => {
     if (!netmailAt) return false;
@@ -304,12 +312,12 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     ...(admin ? { admin } : {}),
     ...(defaultOutline ? { defaultOutline } : {}),
     internalError(e: Error) { log(`mcp gateway: internal error: ${e.message}`); return "internal error (the gateway's log has it)"; },
-    async board(named?: NamedOutline, how?: { write?: boolean }) {
+    async board(named?: NamedOutline, how?: { write?: boolean; copy?: boolean }) {
       const name = named?.outline ?? defaultOutline;
       if (!name) return { error: `Name the outline: an outline on ${machine}${mirrors.length ? ` or a mirror (${mirrored()})` : ""}.` };
       if (!OUTLINE_NAME.test(name)) return { error: `${JSON.stringify(name)} isn't an outline name.` };
       const mirror = mirrors.find(m => m.outline === name && (!named?.machine || named.machine === m.machine || named.machine === m.homeName()));
-      if (mirror) return how?.write ? routedForWrite(mirror) : routed(mirror);
+      if (mirror) return how?.copy ? copyOf(mirror) : how?.write ? routedForWrite(mirror) : routed(mirror);
       if (named?.machine && named.machine !== machine) return { error: `${name}@${named.machine} is on another machine; this gateway reads outlines on ${machine}${mirrors.length ? ` and mirrors of ${mirrored()}` : ""}.` };
       return local(name);
     },

@@ -23,6 +23,7 @@ import { docResource, docResources } from "./docs";
 import { gatewayInstructions, gatewaySkills, skillPrompt, skillPrompts, skillResource, skillResources, withLoadHint, writeReading } from "./mcp-guide";
 import { inboxThreads, notesWithThreads, threadRows, threadSummary } from "./mcp-threads";
 import { noAnswer, QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
+import { DEFAULT_WEB_ORIGIN, webBase } from "@ep0ch/outliner/artifact-grants";
 import { listShares, readerLine, readerView, revokeShares, shareLine, startShare } from "./share-cli";
 import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeStatusDefinition, type ProposalSeen } from "./mcp-receipts";
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
@@ -138,8 +139,12 @@ export interface McpQueue {
 export interface McpOutlines {
   kind: "local" | "remote";
   machine: string;
-  /** `write`: for a write, which tries another machine's host again even inside the backoff of a failed try. */
-  board(named?: NamedOutline, how?: { write?: boolean }): Promise<McpBoard | { error: string }>;
+  /**
+   * `write`: for a write, which tries another machine's host again even inside the backoff of a failed try. `copy`: an
+   * outline of another machine read from its copy here even while that machine answers (a snapshot: its link is this
+   * machine's web client's, PIE-1091); this machine's own outlines are read as ever.
+   */
+  board(named?: NamedOutline, how?: { write?: boolean; copy?: boolean }): Promise<McpBoard | { error: string }>;
   /** A request to another machine's host got no answer: it is served from its mirror until it answers again. */
   lost?(machine: string, outline: string, why: string): void;
   list(caller?: McpCaller): Promise<McpOutlineListing[]>;
@@ -873,7 +878,7 @@ function toolsFor(outlines: McpOutlines) {
     {
       name: "reader_view",
       description: `What the person's web client shows now in ${which} (a tailnet page or a share link's): the page's note, title and address, the words they have selected with the text either side, the note row they're in and their offsets in its source, the blocks on screen and the scroll position, as the page last said (presence; when is \`at\`), and journal: what they did lately (pages opened, words selected, folds). ` +
-        `Read it to answer "what am I looking at" or "this paragraph" without fetching or navigating anything. readers lists every reader seen lately. An agent that sees the page itself calls the same through the page's helpers (ep0ch.view(), ep0ch.reveal(ref), ep0ch.journal(since)). A share link's address is given without its secret. Requires ${grant}.`,
+        `Read it to answer "what am I looking at" or "this paragraph" without fetching or navigating anything. readers lists every reader seen lately. An agent that sees the page itself calls the same through the page's helpers (ep0ch.view(), ep0ch.reveal(ref), ep0ch.journal(since)). A share link's address is given without its secret. An outline served from a read-only copy answers what this server's web pages of the copy show, with the copy's source, asOf and note. Requires ${grant}.`,
       inputSchema: { type: "object", properties: { outline: outlineProperty(outlines) }, additionalProperties: false },
     },
   ];
@@ -881,7 +886,7 @@ function toolsFor(outlines: McpOutlines) {
 
 const snapshotDefinition = (outline: Record<string, unknown>) => ({
   name: "outline_snapshot",
-  description: "Download a consistent, integrity-checked SQLite copy for read-only analysis. Requires read access or higher. Returns url, expiresAt, bytes, sha256, schema, asOf and a one-line curl command. The share link works once, expires in 15 minutes (ttl up to 24h), and is revocable through share_revoke or ep0ch share revoke. Add ?gz=1 for gzip; bytes and sha256 describe the uncompressed SQLite file. Includes the entire database, including private notes. The file stays out of chat. Show the curl command and URL only inside a fenced code block, never as a clickable link: chat clients may preview links and interrupt the download.",
+  description: "Download a consistent, integrity-checked SQLite copy for read-only analysis. Requires read access or higher. Returns url, expiresAt, bytes, sha256, schema, asOf and a one-line curl command. The share link works once, expires in 15 minutes (ttl up to 24h), and is revocable through share_revoke or ep0ch share revoke. Add ?gz=1 for gzip; bytes and sha256 describe the uncompressed SQLite file. Includes the entire database, including private notes. An outline of another machine is snapshotted from this server's read-only copy of it: the answer's source, asOf, stale and note say how fresh the copy is. The file stays out of chat. Show the curl command and URL only inside a fenced code block, never as a clickable link: chat clients may preview links and interrupt the download.",
   inputSchema: { type: "object", properties: { outline, ttl: { type: "string", description: "15m by default, 1m to 24h" } }, additionalProperties: false },
 });
 
@@ -923,24 +928,28 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
   const which = namedOutline(args.outline);
   if (which && "error" in which) return toolError(which.error);
   if (!which && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
-  const target = await outlines.board(which);
+  // A snapshot of another machine's outline is made from its copy here, so this machine's web client serves the link.
+  const target = await outlines.board(which, { copy: name === "outline_snapshot" });
   if ("error" in target) return toolError(target.error);
   const { board } = target;
   const status = withLevel(await board.mcpAccessStatus(), caller, board.address);
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
-  if (target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: its web client and its shares are there.`);
+  // Shares are live and writable: they are the outline's own machine's (PIE-1091).
+  if (target.home && name !== "outline_snapshot" && name !== "reader_view") return toolError(awayShareRefusal(outlines, target, name, args));
   try {
     if (name === "outline_snapshot") {
       const snapshot = await board.request<OutlineSnapshot>("outline.snapshot", {
         ...(args.ttl !== undefined ? { ttl: args.ttl } : {}),
-        ...(caller?.sub !== STDIO_SUBJECT && process.env.EP0CH_WEB_URL ? { webUrl: process.env.EP0CH_WEB_URL.split(",")[0]!.trim() } : {}),
+        // A copy has no web client of its own: its link is this machine's web client's, the signed-in one unless EP0CH_WEB_URL names another.
+        ...(target.home ? { webUrl: webBase() ?? DEFAULT_WEB_ORIGIN } : caller?.sub !== STDIO_SUBJECT && process.env.EP0CH_WEB_URL ? { webUrl: process.env.EP0CH_WEB_URL.split(",")[0]!.trim() } : {}),
         mutation: caller ? { author: "agent", ...actorOf(caller) } : { author: "agent", actorId: "mcp" },
       }, 120_000);
-      return toolText({ ...snapshot, said: "Show the curl command with its URL inside a fenced code block, never as a clickable link, to avoid chat link previews." });
+      const how = "Show the curl command with its URL inside a fenced code block, never as a clickable link, to avoid chat link previews.";
+      return toolText({ ...snapshot, ...copyFields(target), said: target.home ? `${copyLine(target, "A snapshot of")} ${how}` : how });
     }
     if (name === "reader_view") {
       const seen = await readerView(board);
-      return toolText({ ...seen, said: readerLine(seen.view) });
+      return toolText({ ...seen, ...copyFields(target), said: target.home ? `${readerLine(seen.view)}\n${copyLine(target, "This machine's web pages of")}` : readerLine(seen.view) });
     }
     if (!caller || !writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
     if (name === "share_start") {
@@ -961,6 +970,22 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
     return toolText({ revoked: revoked.map(s => s.id), said: revoked.length ? `ended ${revoked.map(s => s.id).join(", ")}: the links open nothing now (410 on the outline's host; a Cloudflare tunnel is stopped)` : "no share was open" });
   } catch (e) { return toolError((e as Error).message); }
 }
+
+/** Where a read of another machine's outline came from: its copy here (`source`, `asOf`, `copy`, `stale`, `note`), as reads say it. */
+const copyFields = (target: McpBoard) => target.home ? target.served : {};
+
+/** One line for an answer from a copy: as of when, and how fresh, in the words reads use (the mirror's note, which says a stale copy is). */
+const copyLine = ({ board, served }: McpBoard, what: string) => `${what} ${board.address.outline} as of ${served.asOf}: ${served.note ?? "read-only copy"}.`;
+
+/** A share of an outline served from its copy: refused, with why and the two ways out. */
+const awayShareRefusal = (outlines: McpOutlines, { board, served, home }: McpBoard, name: ShareTool, args: Record<string, unknown>) => {
+  const on = `on ${home!.machine}`;
+  const command = name === "share_start" ? `ep0ch share start ${typeof args.ref === "string" ? args.ref : "<ref>"} --ws ${board.address.outline}`
+    : name === "share_list" ? `ep0ch share list --ws ${board.address.outline}` : `ep0ch share revoke ${typeof args.id === "string" ? args.id : "<id>"} --ws ${board.address.outline}`;
+  return `${board.address.outline} lives on ${home!.machine}, which isn't reached from here now; ${outlines.machine} reads only its read-only copy (as of ${served.asOf}). ` +
+    `A share is live and takes comments, so it is made by the outline's own host: ${on}, run \`${command}\` (or ${name} again once ${home!.machine} answers). ` +
+    `To read it now: outline_snapshot gives a download of the copy, and outline_read and outline_find read it.`;
+};
 
 const lokiDefinition = { name: "loki_lease", description: "Mint an hour-long read-only Loki query URL for curl/scripts. Requires read access or higher to a local outline on this host. Keep it in LOKI_URL; do not publish it. A host restart ends leases too.", inputSchema: { type: "object", properties: { ttl: { type: "string", description: "Duration, default 1h (1m to 24h)" } }, additionalProperties: false } };
 
