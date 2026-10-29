@@ -781,7 +781,7 @@ arrived and who sent it, `[arrival::new] [arrival-kind::page|site|document|image
 `arrival=new`, connects each one (links it from its thread, makes a deck a poster) and clears the chip. **A deck or a PDF
 meant to be read is not an artifact:** it goes on the wall as a poster (a note of its pages as images), not through a
 lease; one sent anyway lands as a document drawn by its first page. A phone sends with its own token
-(`ep0ch device add <name>`), which the person makes.
+(`ep0ch device add <name> --shortcut` prints one sign-in link that adds a signed "Send to ep0ch" Shortcut), which the person makes.
 See the outliner README's **Artifacts** section for import, limits and deployment.
 
 ## Keys and secrets (for an extension that needs one)

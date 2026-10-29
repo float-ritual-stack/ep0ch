@@ -1984,6 +1984,9 @@ export type OutlinerRequestAction =
   | { id: string; action: "devices.add"; name: string; outline: string }
   | { id: string; action: "devices.list" }
   | { id: string; action: "devices.revoke"; device: string }
+  /** A device's signed "Send to ep0ch" Shortcut (PIE-1408): kept by the host (base64), and read back for the sign-in route. */
+  | { id: string; action: "devices.shortcut.put"; device: string; data: string }
+  | { id: string; action: "devices.shortcut.get"; device: string }
   /**
    * The signed-in web client's sessions (web-sessions.ts), answered by the outline host for every outline: `start` after
    * a sign-in (answers the cookie's token once), `resolve` a cookie's token on each request (renewing it), `list`, and

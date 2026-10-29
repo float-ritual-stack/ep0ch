@@ -3,7 +3,7 @@
 // outline host serves two made-up outlines; the sign-in gate fronts the route as my.ep0ch.sh does (its token is the
 // credential, so no Clerk is needed); every zip, tar and page is made up.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
@@ -14,6 +14,8 @@ import { OutlinerClient } from "../src/client";
 import { runDeviceCommand } from "../src/device-cli";
 import { OutlineHost } from "../src/outline-host";
 import { publishUpload } from "../src/publish-upload";
+import { shortcutResponse } from "../src/send-to-ep0ch-shortcut";
+import { createPdfFixture } from "./pdf-fixture";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
 import { UploadTokens, UPLOAD_LEASE_TTL_MS } from "../src/upload-tokens";
@@ -54,6 +56,7 @@ beforeAll(async () => {
     request: input => client.request(input as Parameters<typeof client.request>[0]),
     serve: async () => new Response("signed in"),
     upload: request => publishUpload(request, client, { outlines: layout.root, log: line => logged.push(line), waitMs: 20_000 }),
+    shortcut: deviceId => shortcutResponse(client, deviceId),
     log: line => logged.push(line),
   });
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => gate.handle(request) });
@@ -381,4 +384,87 @@ test("a zip dropped in the synced inbox is unpacked the same way", async () => {
     while (!existsSync(join(live("dropped-site"), "style.css")) && Date.now() < end) await Bun.sleep(50);
     expect(readFileSync(join(live("dropped-site"), "index.html"), "utf8")).toContain("Dropped");
   } finally { await second.close(); }
+});
+
+test("device add --shortcut signs a Send to ep0ch Shortcut, serves it only signed in, and the request it sends lands as cards", async () => {
+  // A made-up Mac: the "ssh" that reaches it signs by putting the signed file's magic in front of the plist it reads.
+  const bin = join(root, "fake-mac");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "ssh"), "#!/bin/sh\nprintf AEA1\ncat\n");
+  chmodSync(join(bin, "ssh"), 0o755);
+  const lines: string[] = [], errors: string[] = [];
+  const io = { out: (line: string) => lines.push(line), err: (line: string) => errors.push(line) };
+  const env = { ...process.env, EP0CH_SOCKET: outlineLayout(outlines).socket, EP0CH_OUTLINES: outlines, EP0CH_SSH: join(bin, "ssh"), EP0CH_SHORTCUT_SIGNER: "fictional-mac" };
+  expect(await runDeviceCommand(["add", "Fictional's Phone", "--ws", "garden", "--shortcut"], io, env), errors.join("\n")).toBe(0);
+  const said = lines.join("\n");
+  // It prints the sign-in page that serves the Shortcut, and never the upload link inside it.
+  const page = said.match(/https:\/\/\S+\/_shortcut\/[0-9a-f]{8}\/Send%20to%20ep0ch\.shortcut/)![0];
+  expect(said).not.toContain("/_upload/");
+  expect(said).toContain("tap Add Shortcut");
+  const at = (cookie?: string) => fetch(local(page), { headers: { host: HOST, accept: "text/html", ...(cookie ? { cookie } : {}) }, redirect: "manual" });
+
+  // Signed out, it is the sign-in page, which comes back to it.
+  const signedOut = await at();
+  expect(signedOut.status).toBe(401);
+  expect(await signedOut.text()).toContain(encodeURIComponent(new URL(page).pathname));
+  const { token } = await client.request<{ token: string }>({ action: "web.sessions.start", subject: "user_fictional0001" });
+  const cookie = `__Host-ep0ch_session=${token}`;
+  const served = await at(cookie);
+  expect(served.status).toBe(200);
+  expect(served.headers.get("content-disposition")).toBe('attachment; filename="Send to ep0ch.shortcut"');
+  const signed = Buffer.from(await served.arrayBuffer());
+  expect(signed.subarray(0, 4).toString("latin1")).toBe("AEA1");
+
+  // The workflow inside: the share sheet, no questions, the guide's steps in order, and the device's link.
+  const plist = signed.subarray(4).toString("utf8");
+  expect(plist).toContain("<string>ActionExtension</string>");
+  expect(plist).toContain("<string>WFPDFContentItem</string>");
+  expect(plist).not.toContain("is.workflow.actions.ask");
+  expect([...plist.matchAll(/<string>is\.workflow\.actions\.([a-z.]+)<\/string>/g)].map(m => m[1])).toEqual(["repeat.each", "gettext", "urlencode", "downloadurl", "notification", "repeat.each"]);
+  const link = /<string>(https:\/\/[^<]+\/_upload\/[A-Za-z0-9_-]+)\/\ufffc\?reply=text<\/string>/.exec(plist)![1]!;
+  expect(plist).toContain("<string>POST</string>");
+  expect(plist).toContain("<key>WFHTTPBodyType</key>\n\t\t\t\t<string>File</string>");
+
+  // The request the Shortcut makes for a PDF from Files: its encoded "<Name>.<File Extension>", the file as the body.
+  const pdf = createPdfFixture([{ width: 300, height: 200, lines: [{ text: "Allotment plan", x: 20, y: 150 }] }]);
+  const shared = await fetch(`${local(link)}/${encodeURIComponent("Allotment plan.pdf")}?reply=text`, { method: "POST", body: pdf as BodyInit, headers: { host: HOST, "content-type": "application/pdf" } });
+  const answer = await shared.text();
+  expect(shared.status, answer).toBe(201);
+  expect(shared.headers.get("content-type")).toStartWith("text/plain");
+  expect(answer).toStartWith("Installed allotment-plan version 1");
+  // A photo whose name came without an extension and with no type: its bytes say what it is.
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, ...Buffer.from("fictional photo")]);
+  const photo = await fetch(`${local(link)}/${encodeURIComponent("IMG_0001.")}?reply=text`, { method: "POST", body: jpeg, headers: { host: HOST } });
+  expect(photo.status, await photo.clone().text()).toBe(201);
+  const cards = (await childrenOf("garden", day())).map(card => card.text);
+  expect(cards.some(card => card.includes("[arrival-kind::document]") && card.includes("[sent-by::Fictional's Phone]"))).toBe(true);
+  expect(cards.some(card => card.startsWith("IMG_0001.jpg") && card.includes("[arrival-kind::image]"))).toBe(true);
+  // An iPhone photo is HEIC: kept as a JPEG where ImageMagick reads it, otherwise refused saying what it needs.
+  const heic = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from("ftypheic"), Buffer.alloc(16)]);
+  const live = await fetch(`${local(link)}/${encodeURIComponent("IMG_0002.HEIC")}?reply=text`, { method: "POST", body: heic, headers: { host: HOST } });
+  expect(live.status).toBe(422);
+  expect(await live.text()).toMatch(/^Refused: .*(HEIC|ImageMagick)/);
+
+  lines.length = 0;
+  expect(await runDeviceCommand(["ls"], io, env)).toBe(0);
+  expect(lines.join("\n")).toContain(`its Shortcut: ${page}`);
+  // Revoked, the link and the Shortcut that carries it both open nothing.
+  expect(await runDeviceCommand(["revoke", "Fictional's Phone"], io, env)).toBe(0);
+  expect((await at(cookie)).status).toBe(404);
+  expect(logged.join("\n")).not.toContain(link.split("/_upload/")[1]!);
+});
+
+test("a Shortcut that can't be signed leaves no device behind, so the same name can try again", async () => {
+  const bin = join(root, "no-mac");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "ssh"), "#!/bin/sh\necho 'shortcuts: command not found' >&2\nexit 127\n");
+  chmodSync(join(bin, "ssh"), 0o755);
+  const errors: string[] = [];
+  const io = { out: () => {}, err: (line: string) => errors.push(line) };
+  const env = { ...process.env, EP0CH_SOCKET: outlineLayout(outlines).socket, EP0CH_OUTLINES: outlines, EP0CH_SSH: join(bin, "ssh"), EP0CH_SHORTCUT_SIGNER: "fictional-linux" };
+  expect(await runDeviceCommand(["add", "Spare Phone", "--ws", "garden", "--shortcut"], io, env)).toBe(1);
+  expect(errors.join("\n")).toContain("on fictional-linux failed (exit 127): shortcuts: command not found");
+  expect(errors.join("\n")).toContain('try again: ep0ch device add "Spare Phone" --ws garden --shortcut');
+  const { devices } = await client.request<{ devices: { name: string; revokedAt?: string }[] }>({ action: "devices.list" });
+  expect(devices.filter(d => d.name === "Spare Phone" && !d.revokedAt)).toEqual([]);
 });
