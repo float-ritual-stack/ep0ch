@@ -247,6 +247,8 @@ export type LinkTarget = {
   resource?: AuthoredResourceLink;
   /** A Resource an extension's view links to (PIE-754): `file:/path`, `web:https://…` or `resource:<id>`. */
   resourceRef?: string;
+  /** With `block`: open it at this revision, beside how it is now (PIE-1433; a live table's `at:` row). */
+  revision?: number;
   block?: string; fragment?: string; at?: number; atLabel?: string; /** With `at`: what the lit line is (a `::fields` row's: "the line it was written on"). */ atSays?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout" | "figure" | "image" | "picture"; reason?: string;
   /**
    * A live figure's control (role "figure"): one of a tabs figure's tabs, or its density; on a row (role "row"), the

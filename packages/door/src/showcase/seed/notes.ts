@@ -350,6 +350,16 @@ export const WRITE_REVIEW = [
   "- Board: 2 queued and 1 in review, with more coming tomorrow.",
 ].join("\n");
 
+/** The same note once its writer split the stacked bullet (PIE-1433's at-revision section opens revision 1 beside it). */
+export const WRITE_REVIEW_FIXED = [
+  SEED.writeReview,
+  "",
+  "- **Roof on** at nine; the felt was cut to size.",
+  "- **Tacks ran out** halfway; the second box came.",
+  "- **Nothing leaked.**",
+  "- Board: 2 queued and 1 in review, with more coming tomorrow.",
+].join("\n");
+
 /**
  * The search section (PIE-1197, PIE-1198): a made-up eval run, both models side by side, as `ep0ch search eval` scores
  * one (search-eval.ts ModelScore). The numbers are invented; the page around them is the real one.

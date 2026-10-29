@@ -58,6 +58,17 @@ export const REPLIES_KEYS: readonly ModeKey[] = keyTable("replies", "a note's re
 ]);
 export const REPLIES_FOLD_KEYS: readonly ModeKey[] = REPLIES_KEYS.map(row => row.action === "note.thread.open" ? { ...row, action: "note.thread.unfold", args: undefined, label: "unfold", says: "show the posts a fold row hides" } : row);
 
+/** The controls on a revision compare's header row, in order (PIE-1433): each is a click on the action its key runs. */
+export const REVISION_CONTROLS = ["revision.older", "revision.newer", "revision.against", "revision.close"] as const;
+export const REVISION_KEYS: readonly ModeKey[] = keyTable("revision", "a note at a revision, beside how it is now (the tile menu's history)", [
+  row("esc", "revision.close", "back to the note"), row("q", "revision.close", "back to the note"),
+  row("left", "revision.older", "older"), row("h", "revision.older", "older"), row("right", "revision.newer", "newer"), row("l", "revision.newer", "newer"),
+  row("n", "revision.against", "against now"),
+  row("j", "revision.scroll", "scroll", { by: 1 }), row("down", "revision.scroll", "scroll", { by: 1 }), row("k", "revision.scroll", "scroll", { by: -1 }), row("up", "revision.scroll", "scroll", { by: -1 }),
+  row("pgdn", "revision.scroll", "scroll", { by: 10 }), row("space", "revision.scroll", "scroll", { by: 10 }), row("pgup", "revision.scroll", "scroll", { by: -10 }),
+  ...REVISION_CONTROLS.map(action => row("click", action, "")), row("wheel", "revision.scroll", ""),
+]);
+
 export const COMMENT_KEYS: readonly ModeKey[] = keyTable("comment", "a comment being written", [
   row("esc", "comment.escape", "close comment"), row("ctrl+s", "comment.send", "send"),
   say(row("ctrl+o", "comment.place", "placement"), "choose where the comment being written sits"), row("ctrl+g", "comment.grip", "move"), row("ctrl+r", "comment.reload", "find quote"), row("click", "comment.place", ""),
@@ -72,4 +83,4 @@ export const EDIT_PREVIEW_KEYS: readonly ModeKey[] = keyTable("edit preview", "a
 
 export const EDIT_PREVIEW_READER_KEYS = EDIT_PREVIEW_KEYS.filter(row => row.action === "draft.preview");
 
-export const ATTACHED_KEYS = [SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, COMMENT_KEYS, EDIT_PREVIEW_KEYS];
+export const ATTACHED_KEYS = [SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REVISION_KEYS, COMMENT_KEYS, EDIT_PREVIEW_KEYS];

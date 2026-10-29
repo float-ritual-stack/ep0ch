@@ -16,7 +16,7 @@ export { ordered, records } from "@ep0ch/outline-core/figure-props";
  * key of the figure the row is in, so the figure's keys (tabs, density) work while the row is the current element.
  * `query` opens a list instead of a block, for a day representing more than one note.
  */
-export type RowLink = (block: string, text: string, figure?: string, query?: string) => string;
+export type RowLink = (block: string, text: string, figure?: string, query?: string, at?: number) => string;
 export const rowLink = (link: RowLink | undefined, block: unknown, text: string, figure?: string) => (link && typeof block === "string" ? link(block, text, figure) : text);
 
 // rowLinks splits what `link` returns around a placeholder: a RowLink only wraps its text in tags, never records it.
@@ -24,9 +24,9 @@ export const rowLink = (link: RowLink | undefined, block: unknown, text: string,
  * Every line of a row that stands for one note, tagged as that one link: a row a density wraps over two or three
  * lines is one element, opened from any of them.
  */
-export function rowLinks(link: RowLink | undefined, block: unknown, lines: string[], figure?: string, query?: string): string[] {
+export function rowLinks(link: RowLink | undefined, block: unknown, lines: string[], figure?: string, query?: string, at?: number): string[] {
   if (!link || typeof block !== "string") return lines;
-  const [open, close] = link(block, "\u0000", figure, query).split("\u0000");
+  const [open, close] = link(block, "\u0000", figure, query, at).split("\u0000");
   return lines.map(l => open + l + close);
 }
 

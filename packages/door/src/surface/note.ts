@@ -1,6 +1,6 @@
 import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
-import { READER_MOVE_KEYS, ZOOM_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
+import { READER_MOVE_KEYS, ZOOM_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
 import { modeBinding, modeHint, modeActionKeys } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
@@ -96,6 +96,8 @@ import { lastTrashed } from "../note-trash";
 import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { BUTTON_GROUP, deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
 import { markReveal, revealOn } from "../reveal";
+import { drawRevision, openingRow, revisionFacts, type RevisionAgainst, type RevisionView } from "./revision-compare";
+import { revisionDiff } from "../desk/what-changed";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
 import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
 import { fieldsDrawn, type FieldsDrawing } from "../site-blocks";
@@ -764,6 +766,8 @@ export { leaveSaid, propertyChange, type LeaveResult };
 interface Choice { id: string; label: string; key: string }
 interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, SurfaceHost>; note: string; busy: boolean; types?: CalloutRegistry }
 /** The reader's four modes (src/surface/modes.ts), each with what it's about. */
+/** A note at a revision, beside how it is now (PIE-1433): the compare's view, its header's controls and where it was drawn. */
+type RevisionMode = ReaderMode<SurfaceHost> & { blockId: string; view: RevisionView; controls: { from: number; to: number; action: (typeof REVISION_CONTROLS)[number] }[]; body: number; rect: { x: number; y: number; w: number; h: number } };
 type ReplyLinksMode = ReaderMode<SurfaceHost> & { controls: { from: number; to: number; action: (typeof REPLIES_CONTROLS)[number] }[]; dragFrom?: { block: Msg; y: number }; truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; top: number; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[]; drawnItems: number[] };
 type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; reply?: Msg; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
@@ -1107,6 +1111,7 @@ export class NoteSurface {
   get drafting(): DraftSession | null { return (this.modes.get("draft") as DraftMode | null)?.session ?? null; }
   /** The edit's text (the session's draft). */
   get replyLinks(): ReplyLinksMode | null { return this.modes.get("replies") as ReplyLinksMode | null; }
+  get revisionMode(): RevisionMode | null { return this.modes.get("revision") as RevisionMode | null; }
   get replyParent(): Msg | null { return (this.modes.get("draft") as DraftMode | null)?.reply ?? null; }
   get draft(): Draft | null { return this.drafting?.draft ?? null; }
   /** The draft session the reader holds: its edit's, else its comment's text (the draft rule asks it, PIE-514). */
@@ -1480,6 +1485,14 @@ export class NoteSurface {
         return { from, to: width(title), action };
       });
       return { lines: [pad(title + (mode.truncated ? " · cut short" : ""), cols), ...shown.map(r => r.text)] };
+    });
+    // A revision compare (PIE-1433): beside the note as THREAD is (the attached surface's split), the note as it is now beside it.
+    const rv = this.revisionMode;
+    if (rv && rv.blockId === this.msg?.id) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
+      rv.rect = { x: col, y: row, w: cols, h: rows };
+      const d = drawRevision(rv.view, cols, rows);
+      rv.controls = d.controls; rv.body = d.body;
+      return { lines: d.lines };
     });
     const sm = this.sourcesMode;
     if (sm?.place === "inline") return this.renderComment(w, h, host);
@@ -2673,7 +2686,7 @@ export class NoteSurface {
       // An artifact's card (PIE-793): its file read through the service, the card drawn again once it's read.
       ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: name => src.board.request<ArtifactInfo>("artifacts.show", { name }), changed: () => src.redraw() }) } : {}),
       folds: { points, folded: this.effectiveFolds(m), selected: this.foldSel, preview: new Set(points.filter(p => this.previews(p)).map(p => p.key)) },
-      link: (block, x, figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
+      link: (block, x, figure, query, at) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
       figures: this.printed ? { all: true, seen: f => figures.push(f) } : {
         ui: key => this.figureUI.get(key),
         tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.tab ?? `≡ density ${this.figureUI.get(c.figure)?.density ?? ""}`.trim() }, x),
@@ -2838,7 +2851,7 @@ export class NoteSurface {
           const ps = projected.get(line)?.filter(({ p }) => p.output?.component?.placement !== "replace");
           return ps ? { rows: ps.flatMap(({ p }) => extensionRegion(p, width, Date.now(), (to, text) => tagged(drawn, to, text), { note: target.id, markdown: inert, row: (block, text) => tagged(drawn, { block, role: "row" }, text) }).rows) } : [];
         },
-        link: (block, t, figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row", ...(figure ? { figure: { figure } } : {}) }, t),
+        link: (block, t, figure, query, at) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}) }, t),
         // The template is the definition (`self`); the chain says the host is `this`, so a figure over `{{this.project}}` reads the host.
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
@@ -2858,7 +2871,7 @@ export class NoteSurface {
       const call: SiteCall = { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) };
       return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
         ...childEnv(env, { off: 0, end: lines.length, width }), heroLine: -1, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined, regions: undefined, outputs: undefined,
-        link: (block, t, figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row", ...(figure ? { figure: { figure } } : {}) }, t),
+        link: (block, t, figure, query, at) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}) }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
         use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1),
@@ -3393,6 +3406,47 @@ export class NoteSurface {
   }
 
   closeReplyLinks() { this.modes.drop("replies"); }
+  closeRevision() { this.modes.drop("revision"); }
+
+  /**
+   * Open (or move) the revision compare (PIE-1433): revision `revision` of this note (left out: the one before the
+   * note now) against the next one kept, or against the note now; scrolled to `passage` when given, else the first change.
+   */
+  async openRevision(host: SurfaceHost, revision: number | undefined, against: RevisionAgainst, passage?: string) {
+    const m = this.requireNote(), board = host.ctx.board;
+    const list = await board.revisions(m.id);
+    const from = revision ?? list.revisions.find(r => r.revision < list.revision)?.revision;
+    if (from === undefined) throw new ActionRefused(`no earlier text is kept for this note (it is at revision ${list.revision}; the outline keeps a note's newest 100 texts)`);
+    const diff = await revisionDiff(board, m.id, from, against === "now" ? list.revision : undefined, list);
+    if (this.msg?.id !== m.id) return diff;
+    const view: RevisionView = { diff, against, top: openingRow(diff.rows, passage), ...(passage ? { passage } : {}) };
+    const had = this.revisionMode;
+    if (had && had.blockId === m.id) { had.view = view; host.redraw(); return diff; }
+    const run = (action: string, args: Record<string, unknown> = {}) => { void this.runKey(action as Parameters<NoteSurface["runKey"]>[0], args, host); };
+    const mode: RevisionMode = {
+      // It takes only its own keys (REVISION_KEYS): the desk's still work, and Esc closes it once its tile has the keys.
+      name: "revision", of: view, word: "revision", noun: "the revision compare", holdsKeys: false, keys: REVISION_KEYS,
+      blockId: m.id, view, controls: [], body: 2, rect: { x: 0, y: 0, w: 0, h: 0 },
+      editing: () => false, covers: () => false,
+      key: k => { const b = modeBinding(REVISION_KEYS, k); if (b) run(b.action, b.args); return !!b; },
+      click: (x, y) => {
+        y += this.drawn?.heroRows ?? 0;
+        const r = mode.rect;
+        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return undefined;
+        if (y === r.y + mode.body - 1) { const c = mode.controls.find(hit => x - r.x >= hit.from && x - r.x < hit.to); if (c) run(c.action); }
+        return true;
+      },
+      wheel: (dir, _host, at) => { if (at && (at.x < mode.rect.x || at.y < mode.rect.y)) return false; run("revision.scroll", { by: dir * 3 }); return true; },
+      rows: () => null, leave: async () => { this.modes.drop("revision"); return { left: "nothing" }; },
+      hint: () => modeHint(REVISION_KEYS, action => NOTE_ACTIONS.def(action)), state: () => "revision",
+      describe: () => revisionFacts(mode.view),
+      // The note was saved meanwhile: a compare against the note now reads it again.
+      changed: () => { if (mode.view.against === "now" || mode.view.diff.to.revision === mode.view.diff.current) void this.openRevision(host, mode.view.diff.from.revision, mode.view.against, mode.view.passage).catch(() => {}); },
+    };
+    this.modes.push(mode);
+    host.redraw();
+    return diff;
+  }
 
   async openReplyLinks(host: SurfaceHost, actor: Actor, refresh = false) {
     if (actor.kind === "user" && this.editing) throw new ActionRefused("finish the draft before opening its thread");
@@ -6676,7 +6730,7 @@ export class NoteSurface {
     }
     if (!target) { host.ctx.flash(`nothing answers at ${l.block ?? `[[${l.page}]]`}`); return null; }
     // `((id^fragment))` (PIE-425): the reader the note opens in scrolls to the fragment and marks it.
-    markReveal(target, { ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at, ...(l.atLabel ? { label: l.atLabel } : {}), ...(l.atSays ? { says: l.atSays } : l.value ? { says: `the line ${l.value.expression} reads` } : {}) } : {}) }, host.actor ?? USER);
+    markReveal(target, { ...(l.revision !== undefined ? { revision: l.revision } : {}), ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at, ...(l.atLabel ? { label: l.atLabel } : {}), ...(l.atSays ? { says: l.atSays } : l.value ? { says: `the line ${l.value.expression} reads` } : {}) } : {}) }, host.actor ?? USER);
     this.track(() => host.navigate(target, how));
     // A host that kept the note in this reader without showing it again (it already showed it).
     if (this.msg?.id === target.id) this.takeReveal(target, host);
@@ -6734,7 +6788,8 @@ export class NoteSurface {
     // Every surface that shows the note takes it once (a preview following the list and the detail it opens in): the mark stays on the note.
     if (this.revealed === r) return;
     this.revealed = r;
-    if (r.fragment) void this.revealFragment(r.fragment, host, r.by);
+    if (r.revision !== undefined) void this.openRevision(host, r.revision, "next", r.passage).catch((e: Error) => host.ctx.flash(`revision ${r.revision}: ${e.message}`));
+    else if (r.fragment) void this.revealFragment(r.fragment, host, r.by);
     else if (r.at !== undefined) void this.revealAt(r.at, host, r.by, r.label, r.says);
   }
 
@@ -10371,6 +10426,106 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       surface.noteAgent(actor, `put revision ${want}'s text into the edit`);
       host.redraw();
       return { revision: want, current: list.revision, savedAt: r.savedAt, chars: r.chars, earlier: list.revisions.filter(x => x.revision < want).map(x => x.revision) };
+    },
+  }),
+  "revision.compare": def({
+    summary: "this note at an earlier revision, beside how it is now (PIE-1433): revision's text marked against the next revision kept (- was there, + came next), or against=now the note as it is now; ← → older and newer, Esc back to the note. Without revision=, the one before the note now. A suggestions page row (a table with at:) and the history list open it",
+    keys: [{ via: "a table row with at: (the suggestions page)" }, { via: "the tile menu's \"history\"" }],
+    touches: "tile", replay: "safe",
+    args: { revision: { type: "number", optional: true, about: "the revision (revision.history or `ep0ch revisions <note>` lists them); default the one before the note now" },
+      against: { type: "string", optional: true, about: "next (the default: the next revision kept) or now (the note as it is now)" },
+      passage: { type: "string", optional: true, about: "text to scroll to (a review's passage); default the first change" } },
+    examples: [
+      { act: "revision.compare", does: "shows the last change: the revision before the note now, marked against it" },
+      { act: "revision.compare revision=3", does: "shows revision 3 beside the note, marked against revision 4" },
+      { act: "revision.compare revision=3 against=now", does: "shows revision 3 marked against the note as it is now" },
+    ],
+    async run({ revision, against, passage }, { surface, host, standing }) {
+      if (against !== undefined && against !== "next" && against !== "now") throw new ActionRefused("against is next or now");
+      const m = surface.requireNote();
+      if (!standing) {
+        const list = await host.ctx.board.revisions(m.id);
+        const from = revision ?? list.revisions.find(r => r.revision < list.revision)?.revision;
+        if (from === undefined) throw new ActionRefused(`no earlier text is kept for this note (it is at revision ${list.revision})`);
+        const diff = await revisionDiff(host.ctx.board, m.id, from, against === "now" ? list.revision : undefined, list);
+        return { ...revisionFacts({ diff, against: against ?? "next", top: 0 }), shown: false };
+      }
+      await surface.openRevision(host, revision, against ?? "next", passage);
+      return { ...revisionFacts(surface.revisionMode!.view), shown: true };
+    },
+  }),
+  "revision.older": def({
+    summary: "in the revision compare, the revision before the one shown (still against the next, or now)", keys: modeActionKeys(ATTACHED_KEYS, "revision.older"),
+    touches: "tile", replay: "safe", args: {},
+    async run(_, { surface, host }) {
+      const v = surface.revisionMode?.view;
+      if (!v) throw new ActionRefused("open the revision compare first (revision.compare)");
+      const older = v.diff.list.revisions.find(r => r.revision < v.diff.from.revision);
+      if (!older) throw new ActionRefused(`revision ${v.diff.from.revision} is the oldest kept for this note`);
+      await surface.openRevision(host, older.revision, v.against);
+      return revisionFacts(surface.revisionMode!.view);
+    },
+  }),
+  "revision.newer": def({
+    summary: "in the revision compare, the revision after the one shown", keys: modeActionKeys(ATTACHED_KEYS, "revision.newer"),
+    touches: "tile", replay: "safe", args: {},
+    async run(_, { surface, host }) {
+      const v = surface.revisionMode?.view;
+      if (!v) throw new ActionRefused("open the revision compare first (revision.compare)");
+      const newer = [...v.diff.list.revisions].reverse().find(r => r.revision > v.diff.from.revision && r.revision < v.diff.current);
+      if (!newer) throw new ActionRefused(`revision ${v.diff.from.revision} is the last before the note now`);
+      await surface.openRevision(host, newer.revision, v.against);
+      return revisionFacts(surface.revisionMode!.view);
+    },
+  }),
+  "revision.against": def({
+    summary: "in the revision compare, mark the revision against the note as it is now, or (again) against the next revision", keys: modeActionKeys(ATTACHED_KEYS, "revision.against"),
+    touches: "tile", replay: "safe", args: { to: { type: "string", optional: true, about: "now or next; left out, the other one" } },
+    async run({ to }, { surface, host }) {
+      const v = surface.revisionMode?.view;
+      if (!v) throw new ActionRefused("open the revision compare first (revision.compare)");
+      if (to !== undefined && to !== "now" && to !== "next") throw new ActionRefused("to is now or next");
+      await surface.openRevision(host, v.diff.from.revision, (to ?? (v.against === "now" ? "next" : "now")) as RevisionAgainst, v.passage);
+      return revisionFacts(surface.revisionMode!.view);
+    },
+  }),
+  "revision.scroll": def({
+    summary: "scroll the revision compare's rows", keys: modeActionKeys(ATTACHED_KEYS, "revision.scroll"),
+    touches: "tile", replay: "safe", args: { by: { type: "number", about: "rows, down when positive" } },
+    run({ by }, { surface, host }) {
+      const mode = surface.revisionMode;
+      if (!mode) throw new ActionRefused("open the revision compare first (revision.compare)");
+      mode.view.top = Math.max(0, mode.view.top + by);
+      host.redraw();
+      return { top: mode.view.top };
+    },
+  }),
+  "revision.close": def({
+    summary: "close the revision compare: back to the note as it is now", keys: modeActionKeys(ATTACHED_KEYS, "revision.close"), confirms: true, says: () => "closed the revision compare",
+    touches: "tile", replay: "safe", args: {},
+    run(_, { surface, host }) { const open = !!surface.revisionMode; surface.closeRevision(); host.redraw(); return { closed: open }; },
+  }),
+  "revision.history": def({
+    summary: "the note's history (PIE-1433): its revisions newest first, each with when, who and its first line; choosing one opens it beside how the note is now (revision.compare). An agent gets the list",
+    keys: [{ via: "the tile menu's \"history\"" }],
+    touches: "tile", replay: "safe",
+    menu: noteRow("history", "", { now: ({ surface }) => (surface.session ? { hide: true } : null) }),
+    args: {},
+    async run(_, { surface, host, standing }) {
+      const m = surface.requireNote(), list = await host.ctx.board.revisions(m.id);
+      const rows = list.revisions.filter(r => r.revision < list.revision);
+      if (!standing) return { ...list, shown: false };
+      if (!rows.length) throw new ActionRefused(`no earlier text is kept for this note (it is at revision ${list.revision})`);
+      if (!host.overlay) throw new ActionRefused(`this screen can't list the history over it · revision.compare revision=${rows[0]!.revision} opens the last change`);
+      const line = (r: (typeof rows)[number]) => `${String(r.revision).padStart(4)}  ${whenPut(Date.parse(r.savedAt)).padEnd(12)} ${revisionByline(r) || "·"}  ${r.firstLine}`;
+      const picker = new ListPicker<(typeof rows)[number], unknown>({
+        name: "history", items: () => rows, clickChooses: true,
+        row: (r, _i, on, w) => [pickRow(line(r), on, w)],
+        choose: r => { void surface.runKey("revision.compare", { revision: r.revision }, host); },
+        frame: (a, n) => ({ rect: centred(a, Math.min(80, a.cols - 2), Math.min(n + 2, a.rows)), title: `history · ${subject(m)} · now revision ${list.revision}` }),
+      });
+      host.overlay(picker);
+      return { ...list, shown: true };
     },
   }),
   "revisions": def({
