@@ -246,12 +246,25 @@ test("the backfill reviews what agents already wrote, read only, and keeps its s
   const keeps: string[] = [];
   const counting = { request: (input: { action: string }, t?: number) => { keeps.push(input.action); return client.request(input as never, t); } };
   const again = await reviewBackfill(client as never, { since: "7d", jev: false, into: counting as never, outline: "scratch" });
+  // Jev was off, so the quiet notes weren't kept as read: they're read again, with the new one; the flagged note isn't.
   expect(again).toMatchObject({ reviewed: 3, skipped: 1, flagged: 1 });
+  expect(await records("review-quiet")).toHaveLength(0);
   // One request for the note with findings, and no record stamped from the client: the service makes them.
-  expect(keeps.filter(a => a === "suggestions.keep")).toHaveLength(1);
+  expect(keeps.filter(a => a === "suggestions.keep")).toHaveLength(3);
   expect((await records("review-finding")).filter(r => r.writer === "kitty")).not.toHaveLength(0);
-  // The only record stamped from here is the run's own.
-  expect(keeps.filter(a => a === "template.stamp")).toHaveLength(1);
+  // Nothing stamped from here: the run's row was already there.
+  expect(keeps.filter(a => a === "template.stamp")).toHaveLength(0);
+  const runs = (await records("jev-run")).filter(r => r.experiment === "write-review-backfill");
+  expect(runs).toHaveLength(1);
+  expect(runs[0]).toMatchObject({ items: "6", suggested: "2" });
+  // A note Jev read and said nothing of is kept as quiet (PIE-1402), so a rerun doesn't ask Jev again; edited, it's new.
+  const quiet = store.create("Pea rows\n\n- Sown on Monday.", null, "agent", by("kitty/claude-code@float-box"));
+  await client.request({ action: "suggestions.keep", keep: { kind: "reviewed", at: { note: quiet.id, revision: quiet.revision, actorId: "kitty/claude-code@float-box", source: "backfill" }, title: "Pea rows", review: { verdict: "ship", findings: [], jev: "asked", next: "" } } } as never);
+  expect((await records("review-quiet")).map(r => r.note)).toEqual([quiet.id]);
+  const third = await reviewBackfill(client as never, { since: "7d", jev: false, into: client as never, outline: "scratch" });
+  expect(third.skipped).toBe(3);
+  store.update(quiet.id, "Pea rows\n\n- Sown on Monday.\n- Netted on Tuesday.", quiet.revision, { author: "agent", actorId: "kitty/claude-code@float-box" } as never);
+  expect((await reviewBackfill(client as never, { since: "7d", jev: false, outline: "scratch", into: client as never })).skipped).toBe(2);
 });
 
 test("a note asking Evan to try something himself is told validation is the agents' job", async () => {

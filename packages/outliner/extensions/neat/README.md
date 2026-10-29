@@ -1,6 +1,6 @@
 # neat: a worked layout script
 
-`neat` puts two notes side by side, folds the other shown main-screen tiles to spines, and opens the left note's links in the drawer. Selecting or opening a link targets the right reader; alt-open targets the left.
+`neat` puts two notes side by side, folds the other shown main-screen tiles to spines (a float is put back in the layout first), and opens the left note's links in the drawer. Selecting or opening a link targets the right reader; alt-open targets the left.
 
 Install from the power bar: ctrl+k, type `&neat`, and pick **install Neat** (Enter or a double click).
 An agent runs `ep0ch act extensions.install id=neat`. Then run `neat` from the power bar, or press a button in a note:

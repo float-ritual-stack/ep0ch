@@ -58,6 +58,7 @@ import { placeOutput } from "./place";
 import { quoteInto, readQuoteInput } from "./quote-into";
 import { stampTemplateInto, stampTemplate, type TemplateStampResult } from "./template-stamp";
 import { keepSuggestion, readKeep } from "./jev-suggestions";
+import type { RecordCache } from "./records";
 import { parseWorkId } from "@ep0ch/outline-core/work-ids";
 import { attachText, findTwins, recordTwin, tallyTwins, twinRefusal, writerName } from "./work-twins";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
@@ -1463,6 +1464,8 @@ export class OutlinerServer {
 
   /** The `suggestions.keep` in progress (PIE-1251): the next waits for it. */
   private suggestionKeeps: Promise<void> = Promise.resolve();
+  /** What the records' writer looked up (records.ts RecordCache): the Records page and templates, kept across keeps. */
+  private recordCache: RecordCache = {};
   /**
    * A ranked search (or one Jev couldn't answer) counted on the day's `jev-run` (search-records.ts), after the answer
    * has gone: one at a time, on the same turn as Jev's other records, so the day's run is made once.
@@ -2395,7 +2398,8 @@ export class OutlinerServer {
           return response.result as T;
         } };
         // One at a time: the day's run is found, made and counted by each, and two at once would make it twice.
-        const turn = this.suggestionKeeps.then(() => keepSuggestion(own, keep, this.componentSchemas().schemas));
+        // The Records page and templates are looked up once and kept (records.ts writeRecord looks again when one is gone).
+        const turn = this.suggestionKeeps.then(() => keepSuggestion(own, keep, this.componentSchemas().schemas, this.recordCache));
         this.suggestionKeeps = turn.then(() => undefined, () => undefined);
         const settled = await turn;
         return { id: request.id, ok: true, result: { settled }, sequence: this.store.sequence };

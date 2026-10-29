@@ -17,7 +17,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { WEB_SESSION_TTL_MS, type WebSession } from "@ep0ch/outline-core/protocol";
 import { allowedSubjects, ALLOWED_SUBJECTS_ENV, issuerFromPublishableKey, originOfHost } from "@ep0ch/outline-core/signin";
-import { escapeHtml, plainPage, redactSharePath, type SignedIn } from "./publish";
+import { darkError, escapeHtml, plainPage, redactSharePath, type SignedIn } from "./publish";
 import { hostBusy } from "./client";
 
 export const SESSION_COOKIE = "__Host-ep0ch_session";
@@ -166,7 +166,12 @@ export class SignInGate {
     return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${origin.startsWith("https:") ? "; Secure" : ""}`;
   }
 
+  /** One request through the sign-in; an error a browser opens is a dark page. */
   async handle(request: Request): Promise<Response> {
+    return darkError(request, await this.route(request));
+  }
+
+  private async route(request: Request): Promise<Response> {
     // Only its own origins' names: a page that rebinds its own name to this listener gets nothing.
     const origin = originOfHost(this.origins, request.headers.get("host"));
     if (!origin) return withGateHeaders(new Response("Host not allowed\n", { status: 421 }));
