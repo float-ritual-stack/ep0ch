@@ -170,6 +170,11 @@ export type SiteProduced =
     title?: string;
     /** A `stat`/`kpi` whose items ask for themselves: each item's results (a page counts the ones it shows) or its problem, in the items' order. */
     counts?: { ids: string[]; truncated: boolean; error?: string }[];
+    /**
+     * A table's (or tabs') cells whose value names a note by its id: each such note's title, by id (PIE-1388), so a
+     * record table draws "Status tonight", linked, where its `note::` holds a uuid. Only ids of notes that exist.
+     */
+    titles?: Record<string, string>;
   }
   | { kind: "children"; blocks: unknown[] }
   | { kind: "fields"; key: string; /** The note read (its id) and its revision. */ from: string; revision: number; rows: FieldRow[]; problem?: SiteProblem }

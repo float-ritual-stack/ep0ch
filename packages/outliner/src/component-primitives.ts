@@ -631,6 +631,8 @@ function markdownLines(node: Primitive, draw: MarkdownDraw = {}): string[] {
       if (draw.row) return [...draw.row(node.children.map((child) => tidy(inner(child))), node), ""];
       // Side by side where each child is one line (badges, short text): a board's squares stay a row in Markdown.
       const parts = node.children.map((child) => tidy(inner(child)));
+      // A row of stats (a card's fields) is a list, one a line: joined, a record's said and passage ran into one bullet.
+      if (node.children.every((child) => child.type === "stat")) return [...node.children.flatMap(inner), ""];
       return parts.every((part) => part && !part.includes("\n")) ? [parts.join(" "), ""] : node.children.flatMap(inner);
     }
     // A band is its heading wherever a target can't draw tracks; a track is a thematic break.

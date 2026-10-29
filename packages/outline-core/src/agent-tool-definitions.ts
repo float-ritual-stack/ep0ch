@@ -80,8 +80,9 @@ const WRITE_RULES =
   "and a paragraph is at most three sentences; a number a query can count goes in a live figure, never in prose. A question for Evan " +
   "goes first as one `- [ ]` line, and the note gets `[needs::sysop: the decision]`. A fragment of an idea still forming is " +
   "`[type::chirp]`; a request is only something ready to work on. Before you finish, check: no paragraph over three sentences, no count typed " +
-  "in prose. The answer measures what you wrote and the rows each live figure returned: every `warnings` entry that starts " +
-  "\"fix before you call this done\" (a figure suggestion and a figure with 0 rows too) is yours to fix, and `next` says how to check it.";
+  "in prose; one point per bullet; headings over a note past a screen. The answer reviews what you wrote: `review.verdict` is ship or " +
+  "fix, each finding says where and the smallest fix, many with a ready `patch` to pass to outline_patch as written; every `warnings` " +
+  "entry that starts \"fix before you call this done\" is yours to fix, and `next` says how to look at the note as drawn before you say done.";
 
 /** The same for a margin comment: no title, nothing to mark, the same wall rule and the same answer. */
 const COMMENT_RULES =

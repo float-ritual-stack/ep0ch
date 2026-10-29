@@ -17,6 +17,35 @@ are its record. The outliner's entries from then are kept below, under
 - **The script says what a slot is:** `[form-field::page note]` on the script's note, or in a file's opening comments,
   makes the question a note picker; each pick is written on the line as the note's id.
 
+### Every agent write is reviewed, ship or fix, and Evan sees each review (PIE-1388)
+
+- **A verdict on every write:** `outline_create`, `outline_edit` and `outline_patch` answer with `review`: `ship` or
+  `fix`, each finding under Evan's rubric (dense, format, buried, unclear, mixed, context, argues, qa-for-evan) with
+  where it is and the smallest fix.
+- **Ready patches:** a stacked bullet split a point a line, a wall made a list, a long title cut to a name, a buried
+  question moved to the top, a bare id made a reference, a list Jev
+  reads as a timeline, checklist or table built into that figure from its own lines (PIE-1252). Pass them to
+  `outline_patch` as written. A count typed in prose names the `::graph-stat` that would count it, with no patch:
+  only the writer knows whether it means the live count.
+- **Jev reads prose too:** no shape gate first; one request per write over the sections it changed, judged against the
+  outline's whole kit (its component schemas) and the rubric (PIE-1313's buried question and paragraph title included).
+- **The workboard's rules where agents act:** `work_complete` with proof that names only tests, and `work_create` with
+  no sentence of what Evan will open and do, are answered fix; a note asking Evan to try or check things is
+  `qa-for-evan`. A note carrying `[house-rule::<name>]` (validation, experience, qa-for-evan) words each rule.
+- **Jev's suggestions page:** made with an outline's first finding: each finding with its note, what was said and the
+  passage; what the writer did (followed, patched, ignored); a box to mark Jev right (x) or wrong (✗).
+- **A table cell naming a note draws its title, linked,** in every `::graph-table` and on the web page; `link: <property>`
+  makes a row open the note its property names (the page's rows open the note a finding is about).
+- **A record reads when it's opened:** a review's records are titled as a sentence ("fix: buried in Garden beds"), and
+  a rule note made with the page draws a card of what each says (its note by title, the passage, what was said), for
+  the records written before it too. A card leaves out fields its block doesn't have, and its fields read one a line
+  on the web.
+- **Buried means anywhere but the top:** an ask in the last sentence of a paragraph is buried; its patch moves that
+  sentence alone to a top `- [ ]`. A short, clear note ships: Jev's judgment needs a section with room for the problem
+  (rows for a figure, length for dense and mixed).
+- **`ep0ch review backfill --ws <name> [--since 7d] [--into <name>]`** reviews what agents already wrote, read only,
+  counted by rubric, rule and writer with samples and Jev's tokens; `--into` keeps it as records for the page.
+- **What to run:** `GRAMMAR` is 11; an older renderer warns once until `ep0ch install --apply`.
 ### A copy of a built-in extension lists once and says it overrides the built-in (PIE-1283)
 
 - **One row:** a copy of neat (or any built-in) in your extensions folder is one row in `ep0ch ext ls`, the power

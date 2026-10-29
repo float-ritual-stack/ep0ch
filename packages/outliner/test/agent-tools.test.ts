@@ -836,84 +836,77 @@ test("a written figure is confirmed in components; a typo in its name or a key, 
   expect(broken.json.warnings[0]).toStartWith("the ::graph-stat on line 2 doesn't draw: bad YAML");
 });
 
-// PIE-721: a create or an edit that gives a note a figure's shape, with none of its own, says which figure would draw
-// it, when Jev is sure; prose gets nothing, and a note is told once. Jev is a fake here (OUTLINER_JEV_ENDPOINT),
-// answering by the note it is sent.
-/** The figure-fit gate in a write's warnings (PIE-1270: said as something to fix, not a suggestion): the entry naming the figure, or undefined. */
-const figureGate = (json: { warnings?: string[] }) => json.warnings?.find(w => w.startsWith("fix before you call this done: ") && w.includes("would draw it"));
+// PIE-1388 (was PIE-721's figure-fit gate): every create, edit and patch is reviewed, prose included: no shape decides
+// before Jev reads. Jev is a fake here (OUTLINER_JEV_ENDPOINT), answering each section by what it holds. A comment and a
+// property set ask nothing; an edit asks only about the sections it changed.
+/** The kit finding in a write's warnings (said as something to fix, not a suggestion), or undefined. */
+const figureGate = (json: { warnings?: string[] }) => json.warnings?.find(w => w.startsWith("fix before you call this done: ") && w.includes(" would show it"));
 
-test("a written note shaped like a timeline answers with a gate to fix, once; prose, a figure, a comment and a property set ask nothing", async () => {
-  const asked: string[] = [];
-  const fake = Bun.serve({
+/** A fake Jev answering a review: a section of dated lines is surely a timeline, anything else prose; every other judgment a no. */
+function reviewingJev(asked: { state: { sections?: Record<string, { text: string }> } }[], pick: (text: string) => { component: string; data: boolean } = text => ({ component: /^- \d{4}-\d{2}/m.test(text) ? "graph-timeline" : "graph-check", data: /^- \d{4}-\d{2}/m.test(text) })) {
+  return Bun.serve({
     port: 0, hostname: "127.0.0.1",
     async fetch(request) {
-      const body = await request.json() as { state: { text: string } };
-      asked.push(body.state.text);
-      const dated = /^- \d{4}-\d{2}/m.test(body.state.text);
-      return Response.json({ model: "jev-1.13.0", answers: {
-        which: { type: "choice", choice: dated ? "graph-timeline" : "graph-check", confidence: dated ? 0.85 : 0.2, probabilities: {} },
-        "gate::structured": { type: "noul", noul: dated ? 0.92 : 0.2 },
-        "gate::prose": { type: "noul", noul: dated ? 0.05 : 0.9 },
-      } });
+      const body = await request.json() as { state: { sections?: Record<string, { text: string }> }; questions: Record<string, unknown> };
+      asked.push(body);
+      const answers = Object.fromEntries(Object.keys(body.questions).map(id => {
+        const section = body.state.sections?.[id.split("::")[1] ?? ""]?.text ?? "";
+        const { component, data } = pick(section);
+        if (id.startsWith("kit::")) return [id, { type: "choice", choice: component, confidence: data ? 0.85 : 0.2, probabilities: {} }];
+        if (id.startsWith("structured::")) return [id, { type: "noul", noul: data ? 0.92 : 0.2 }];
+        if (id.startsWith("prose::")) return [id, { type: "noul", noul: data ? 0.05 : 0.9 }];
+        return [id, { type: "noul", noul: 0.1 }];
+      }));
+      return Response.json({ model: "jev-1.13.0", answers });
     },
   });
+}
+
+test("every write is reviewed, prose included: a timeline's lines are told once; a figure, a comment and a property set aren't", async () => {
+  const asked: { state: { sections?: Record<string, { text: string }> } }[] = [];
+  const fake = reviewingJev(asked);
   cleanups.push(async () => { fake.stop(true); });
   const { store, agent } = await setup({ OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` });
 
   const season = ["Garden year", "- 2026-03: seeds sown", "- 2026-05: first flowers", "- 2026-08: open garden"].join("\n");
   const made = await agent("create", { parent: "root", text: season });
   expect(made.exitCode, made.stderr).toBe(0);
-  expect(figureGate(made.json)).toStartWith("fix before you call this done: this reads as a timeline: ::graph-timeline would draw it");
-  expect(made.json.suggestion).toBeUndefined();
+  expect(figureGate(made.json)).toStartWith("fix before you call this done: the top of the note reads as a timeline: ::graph-timeline would show it");
+  expect(made.json.review.verdict).toBe("fix");
 
+  // Prose is read too, and told nothing when Jev finds nothing; a note that draws its figure isn't told another.
   const prose = await agent("create", { parent: "root", text: "Why the beds face south\n\nThe light lands there first." });
   expect(figureGate(prose.json)).toBeUndefined();
+  expect(prose.json.review.verdict).toBe("ship");
   const chosen = await agent("create", { parent: "root", text: `${season}\n::graph-timeline\n---\n---\n- 2026-10: seed collecting\n::` });
   expect(figureGate(chosen.json)).toBeUndefined();
-  // Only the shaped note without a figure was sent.
-  expect(asked).toEqual([season]);
+  expect(asked).toHaveLength(3);
 
-  // Told once: a later edit, a property set or a comment on a shaped note asks nothing.
+  // A property set or a comment asks nothing; an edit that leaves the lines as they were asks nothing about them.
   const year = store.require(made.json.id);
-  const grown = await agent("edit", { ref: year.id, expectedRevision: year.revision, text: `${season}\n- 2026-10: seed collecting` });
-  expect(grown.exitCode, grown.stderr).toBe(0);
-  expect(figureGate(grown.json)).toBeUndefined();
-  const set = await agent("set-property", { ref: year.id, revision: store.require(year.id).revision, key: "status", value: "draft" });
+  const set = await agent("set-property", { ref: year.id, revision: year.revision, key: "status", value: "draft" });
   expect(set.exitCode, set.stderr).toBe(0);
   const commented = await agent("comment", { ref: year.id, whole: true, body: "- 2026-03: early\n- 2026-05: late\n- 2026-08: on time" });
   expect(commented.exitCode, commented.stderr).toBe(0);
   expect(figureGate(commented.json)).toBeUndefined();
-  expect(asked).toHaveLength(1);
+  expect(asked).toHaveLength(3);
 
   // Prose that an edit turns into dated lines is told.
   const musing = store.require(prose.json.id);
   const turned = await agent("edit", { ref: musing.id, expectedRevision: musing.revision, text: season.replace("Garden year", "Bed rotation") });
-  expect(figureGate(turned.json)).toContain("::graph-timeline would draw it");
-  expect(asked).toHaveLength(2);
+  expect(figureGate(turned.json)).toContain("::graph-timeline would show it");
+  expect(asked).toHaveLength(4);
 });
 
 test.each([...REFERENCE_CASES, ...CALLOUT_CASES])("callout-shaped write: $title", async c => {
-  const fake = Bun.serve({
-    port: 0, hostname: "127.0.0.1",
-    fetch() {
-      return Response.json({ model: "jev-1.13.0", answers: {
-        which: { type: "choice", choice: c.component === "none" ? "graph-check" : c.component, confidence: 0.9, probabilities: {} },
-        "gate::structured": { type: "noul", noul: 0.95 },
-        "gate::prose": { type: "noul", noul: 0.05 },
-      } });
-    },
-  });
+  const fake = reviewingJev([], () => ({ component: c.component === "none" ? "graph-check" : c.component, data: c.component !== "none" }));
   cleanups.push(async () => { fake.stop(true); });
   const { store, agent } = await setup({ OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` });
   const saved = await agent("create", { parent: "root", text: c.text });
   expect(saved.exitCode, saved.stderr).toBe(0);
   expect(store.require(saved.json.id).text).toBe(c.text);
   if (c.component === "none") expect(figureGate(saved.json)).toBeUndefined();
-  else {
-    expect(figureGate(saved.json), c.title).toContain(`::${c.component}`);
-    const callout = /^> \[![^\]]+\][+-]? ?(.*)$/m.exec(c.text);
-    expect(figureGate(saved.json)).toContain(callout ? `the callout "${callout[1]}"` : "this reads as");
-  }
+  else expect(figureGate(saved.json), c.title).toContain(`::${c.component}`);
 });
 
 // PIE-721: the tidy pass's figure check: the notes under a note that read as a figure get one margin thread each, by

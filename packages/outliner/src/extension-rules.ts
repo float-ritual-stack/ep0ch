@@ -1,3 +1,5 @@
+import { cellBlockId } from "@ep0ch/outline-core/figure-live";
+import { displayTitleOfText } from "./references";
 import { createHash } from "node:crypto";
 import {
   builtInSpec,
@@ -464,7 +466,7 @@ export class ExtensionRules {
         const place = rule.decorate!.place ?? defaultPlace(rule.decorate!.builtIn?.use ?? null, hit.at);
         const base = { rule: rule.key, name: rule.name, source: rule.source, hit, place };
         if (rule.decorate!.builtIn) {
-          const view = builtInView(rule.decorate!.builtIn, hit, block);
+          const view = builtInView(rule.decorate!.builtIn, hit, block, id => { const named = this.store.get(id); return named && !named.effectiveDeletedRootId ? displayTitleOfText(named.text) : undefined; });
           out.push({ ...base, status: "ready", view, markdown: renderComponent({ data: null, view }, "markdown").body });
           continue;
         }
@@ -888,7 +890,7 @@ function ruleRecord(block: Block): BlockRecord {
 }
 
 /** A built-in decoration's view for one hit: the no-code tier, composed from the same primitives a code rule returns. */
-export function builtInView(spec: BuiltInSpec, hit: RuleHit, block: Block): Primitive {
+export function builtInView(spec: BuiltInSpec, hit: RuleHit, block: Block, titleOf?: (id: string) => string | undefined): Primitive {
   const record = ruleRecord(block);
   // The matched block is the rule's `this`, and what matched is its `match` (a pattern's capture 1, else 0, is its text).
   const site: Site = {
@@ -916,8 +918,12 @@ export function builtInView(spec: BuiltInSpec, hit: RuleHit, block: Block): Prim
     case "box":
       return validatePrimitive({ type: "box", title: words(""), children: [] });
     case "card": {
-      const fields = (spec.fields ?? []).map((key) => ({ type: "stat", label: key, value: noteValues(record, key).join(", ") || "—" }));
-      return validatePrimitive({ type: "card", title: words("{{this.title}}"), ...(fields.length ? { children: [{ type: "row", children: fields }] } : {}) });
+      // A value naming a note (a record's `note::<uuid>`) reads as that note's title, and the card opens the first such note.
+      let link: string | undefined;
+      const value = (v: string) => { const id = cellBlockId(v), title = id ? titleOf?.(id) : undefined; if (id && title) { link ??= id; return title; } return v; };
+      // A field the block doesn't have is left out, so one rule reads every kind of record it matches.
+      const fields = (spec.fields ?? []).flatMap((key) => { const v = noteValues(record, key).map(value).join(", "); return v ? [{ type: "stat", label: key, value: v }] : []; });
+      return validatePrimitive({ type: "card", title: words("{{this.title}}"), ...(link ? { link } : {}), ...(fields.length ? { children: [{ type: "row", children: fields }] } : {}) });
     }
   }
 }
