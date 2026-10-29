@@ -17,7 +17,7 @@ import { tileKinds } from "../desk/tile-kinds";
 import { wCaption, type WRow } from "../desk/wkeys";
 import { ScreenTile } from "../desk/screen-tile";
 import { notConfigured, jevOff } from "../surface/completer";
-import { ActionRefused, actRequestOf, coerceActionArgs, declaredKeys, lineWords, shownLine, type ActionInfo, type ActRequest } from "../surface/actions";
+import { ActionRefused, actRequestOf, coerceActionArgs, declaredKeys, lineWords, type Keys, shownLine, type ActionInfo, type ActRequest } from "../surface/actions";
 import { authorName, USER } from "../socket";
 import { ago } from "../text";
 import { filtered } from "./filter";
@@ -227,7 +227,7 @@ const NOTES: BarSource = {
 };
 
 /** An action's first plain key (not a gesture, not a chord), for its keycap. */
-const firstKey = (keys: string | undefined) => [...declaredKeys(keys)].find(k => k !== "click" && k !== "drag" && k !== "wheel" && !k.includes(" "));
+const firstKey = (keys: Keys | undefined) => [...declaredKeys(keys)].find(k => k !== "click" && k !== "drag" && k !== "wheel" && !k.includes(" "));
 /** An action anyone can run with no arguments, from the bar (the bar's own aren't listed). */
 const bare = (a: ActionInfo) => !a.name.startsWith("bar.") && Object.values(a.args).every(s => s.optional);
 /** An action the bar lists: any but its own; one that takes arguments opens its form (PIE-1031). */

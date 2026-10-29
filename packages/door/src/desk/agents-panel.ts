@@ -109,7 +109,7 @@ export class AgentsPane implements Pane {
 export const AGENTS_ACTIONS = actionSet<KindHost>()("agents", {
   "agents.pick": def({
     summary: "pick a row of the agent panel (n from 1; agents.list names them)",
-    keys: "j k ↑ ↓, the wheel, a click",
+    keys: [{ keys: "j k ↑ ↓", does: "pick a row" }, { keys: "wheel", does: "pick a row" }, { keys: "click", does: "on a row" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's row (agents.list reads the rows)",
     args: { n: { type: "number", about: "its place in the list, from 1" } },
     examples: [

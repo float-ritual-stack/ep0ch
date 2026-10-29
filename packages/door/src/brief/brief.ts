@@ -244,7 +244,7 @@ export const BRIEF_ACTIONS = actionSet<KindHost>()("brief", {
   }),
   "brief.show": def({
     summary: "show a brief by its block id (a link to another day's brief, followed in it, or an agent's `open` of one, steps there)",
-    keys: "⏎ or a click on a link to another brief, an \"Earlier briefs\" row",
+    keys: [{ keys: "⏎", does: "on a link to another brief" }, { keys: "click", does: "on a link to another brief, or an \"Earlier briefs\" row" }],
     touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
     args: { id: { type: "string", about: "the brief's block id" } },
     examples: [

@@ -6,6 +6,7 @@
 // tests find (test/wkeys.test.ts): add it here, with the action it runs.
 import type { ActionDef } from "../surface/actions";
 import { keyCaption } from "../surface/actions";
+import { effective, keyTable } from "../surface/keymap";
 import type { PanelGroup } from "./key-panel";
 
 /** The groups the panel and the popup show them under, in order. */
@@ -43,7 +44,7 @@ export interface WKey {
 const run = (action: string, args?: Record<string, unknown>, tile?: "n" | "-"): WHow => ({ k: "run", action, ...(args ? { args } : {}), ...(tile ? { tile } : {}) });
 
 /** Every key after ^W, in the order the popup lists them under each group. */
-export const W_KEYS = [
+const W_TABLE = [
   { key: "h", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile to the left" },
   { key: "j", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile below" },
   { key: "k", group: "focus & move", action: "tile.focus", how: { k: "focus" }, label: "focus the tile above" },
@@ -106,13 +107,19 @@ export const W_KEYS = [
   { key: "!", group: "layouts & more", action: "screen.shell", how: { k: "special" }, label: "drop to your shell" },
   { key: "?", group: "layouts & more", action: "bar.open", how: { k: "special" }, label: "all the ^W keys: a list you can filter" },
 ] as const satisfies readonly WKey[];
+export const W_KEYS = keyTable("^W", "the desk's window keys, after ^W", W_TABLE, "ctrl+w ") as typeof W_TABLE;
 
-type Entry = (typeof W_KEYS)[number];
+type Entry = (typeof W_TABLE)[number];
 /** The keys the desk handles itself: it must have a handler for each (Desk's `WSPECIAL`, typed by this). */
 export type WSpecialKey = Extract<Entry, { how: { k: "special" } }>["key"];
 
 /** The entry for the key typed after ^W, or undefined: the one place a ^W binding is read. */
-export const wKey = (key: string): WKey | undefined => (W_KEYS as readonly WKey[]).find(e => e.key === key);
+export const wKey = (key: string): WKey | undefined => wNow().find(e => e.key === key);
+/**
+ * The ^W keys with the person's keymap applied (src/surface/keymap.ts): a key the file moves is found at its new key, and
+ * a `ctrl+w <key>` the file gives any action is a row that runs it, in "yours".
+ */
+export const wNow = (): readonly WKey[] => effective(W_KEYS as readonly WKey[], "ctrl+w ", (e, key) => W_KEYS.some(w => w.action === e.action && w.how.k !== "run") ? null : { key, group: "layouts & more", action: e.action, how: run(e.action, e.args), label: undefined } as WKey);
 
 /** A key as it is shown after ^W. */
 export const wCaption = (key: string): string => `^W ${key === " " ? "space" : key}`;
@@ -140,7 +147,7 @@ export interface WRow {
  * the summary's first clause; the same def the menu and `actions` read.
  */
 export function wRows(defOf: (action: string) => ActionDef<any, any> | undefined): WRow[] {
-  return (W_KEYS as readonly WKey[]).map(e => {
+  return wNow().map(e => {
     const def = defOf(e.action), chord = `ctrl+w ${e.key === " " ? "space" : e.key}`;
     const entries = def?.menu === undefined ? [] : Array.isArray(def.menu) ? def.menu : [def.menu];
     const menu = entries.find(m => m.key === chord);
