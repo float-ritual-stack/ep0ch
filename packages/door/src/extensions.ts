@@ -480,19 +480,21 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
   const key = k && handler && !READER_OWN_KEYS.has(k) ? k : undefined;
   const unbound = a.key && !key ? ` Its key ${a.key} isn't bound here (${!keyOf(a.key) ? "the door binds one printable character" : "the reader keeps it"}): a click on its control, or act.` : "";
   return {
+    words: a.label,
     summary: `${e.name ?? e.id}: ${a.label}${a.description ? `. ${a.description}` : ""}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : bar ? " (a row of its power bar source runs it: with=<its args as JSON>)" : outline ? " (on the outline: no block)" : " (on block=<id>)"}. The service runs it and attributes its writes${a.effects === "write" ? "" : " (it only answers)"}.${a.fieldsFrom === "block" ? ` It also asks for the fields the note writes as [form-field::<name> <type> …] (read the note for them): give them as with='{"<field>":"<value>"}'.` : ""}${unbound}`,
     ...(e.script?.keys.length ? { keys: `${e.script.keys.join(", ")}, click` } : key ? { keys: `${key}, click` } : { keys: "click" }),
     // The service runs it and writes as the extension: nothing of the person's moves. Replaying it writes again.
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     args: {
-      block: { type: "string", optional: true, about: handler ? `the note with the ${handler}:: line` : e.script ? "the note the script is about, its `this` (the person's: default the note in front of them)" : `the block it acts on${!bar && !outline ? " (the person's: default the note in front of them)" : ""}` },
-      line: { type: "number", optional: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
-      with: { type: "string", optional: true, about: "the arguments a power bar row passes on, as JSON (names to text)" },
-      invitation: { type: "string", optional: true, about: "the one-run invitation a person's press minted (src/surface/invite.ts): a script this starts may move their tiles, with it" },
-      via: { type: "string", optional: true, about: "the button that pressed it, <note id>:<line>: the run's note records it with the button's author" },
+      block: { type: "string", optional: true, context: true, about: handler ? `the note with the ${handler}:: line` : e.script ? "the note the script is about, its `this` (the person's: default the note in front of them)" : `the block it acts on${!bar && !outline ? " (the person's: default the note in front of them)" : ""}` },
+      line: { type: "number", optional: true, context: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
+      with: { type: "string", optional: true, context: true, about: "the arguments a power bar row passes on, as JSON (names to text)" },
+      invitation: { type: "string", optional: true, context: true, about: "the one-run invitation a person's press minted (src/surface/invite.ts): a script this starts may move their tiles, with it" },
+      via: { type: "string", optional: true, context: true, about: "the button that pressed it, <note id>:<line>: the run's note records it with the button's author" },
+      asked: { type: "boolean", optional: true, context: true, about: "its arguments were completed where the person typed (a / line in an edit, PIE-1076): what they left out takes its default, and nothing is asked again in the power bar" },
       ...declaredArgs(a),
     } as ActionDef<ExtArgs, ExtOn>["args"],
-    run({ block: named, line, with: w, invitation, via, ...rest }, on, actor) {
+    run({ block: named, line, with: w, invitation, via, asked, ...rest }, on, actor) {
       // The person's run on a block names none: the note in front of them. An agent always names its block.
       // A script is an action on the outline that is still about a note: the one in front of the person is its `this`.
       const block = named ?? (actor.kind === "user" && !handler && !bar && (!outline || !!e.script) ? on.ctx.noteInFront?.() ?? undefined : undefined);
@@ -511,18 +513,22 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
           ...(typeof via === "string" && /^[0-9a-f-]{8,}:\d+$/.test(via) ? { button: { block: via.slice(0, via.lastIndexOf(":")), line: Number(via.slice(via.lastIndexOf(":") + 1)) } } : {}) }, actor)
           // The run it started: the invitation belongs to it from here (and is spent when it ends).
           .then(r => { if (invited && r.undo) INVITES.bind(invited, r.undo); return r; });
-      });
+      }, !!asked);
     },
   };
 }
 
 /** An action's declared arguments as its def's (PIE-784): `act ext.<id>.<action> by=price`, listed with their choices. */
-function declaredArgs(a: ExtensionAction): Record<string, { type: string; optional: true; about: string; kind?: "note" }> {
+function declaredArgs(a: ExtensionAction): Record<string, { type: string; optional: true; about: string; kind?: "note" | "key"; choices?: readonly string[] }> {
   return Object.fromEntries((a.args ?? []).map(x => [x.name, {
     type: x.type === "number" ? "number" : "string", optional: true,
-    // What it names, as declared (a script's `[form-field::page note]`): a note is picked from the notes. A choice's options stay
-    // in `about` (the service checks and defaults them; as choices here an empty or spaced value would be refused before it).
+    // What it names, as declared (a script's `[form-field::page note]`): a note is picked from the notes. A choice's options
+    // stay in `about` too; single-word ones are its choices as well (PIE-1076), so they complete where they're typed (a
+    // spaced or empty option would be refused here before the service, which checks and defaults them, saw it).
     ...(x.type === "note" ? { kind: "note" as const } : {}),
+    // Completed where they're typed (PIE-1076): a choice's single-word options as its choices, a property by the outline's keys.
+    ...(x.type === "choice" && x.options?.length && x.options.every(o => /^\S+$/.test(o)) ? { choices: x.options } : {}),
+    ...(x.type === "property" ? { kind: "key" as const } : {}),
     about: `${x.label ?? x.name}${x.description ? `: ${x.description}` : ""}${x.options ? ` (${x.type === "property" ? `${x.options.join(", ")}, or a property${x.from ? ` the ${x.from === "outline" ? "outline has" : x.from === "children" ? "children have" : "block has"}` : ""}` : x.options.join(", ")})` : x.type === "property" ? " (a property's name)" : ""}${x.default !== undefined ? `; default ${x.default}` : ""}${x.defaultProperty ? `, or the block's own [${x.defaultProperty}::]` : ""}${x.required ? "; needed" : ""}`,
   }]));
 }
@@ -545,8 +551,8 @@ const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "prope
  * (src/bar/ask.ts), its choices from the service (`extensions.args`: a property's from the rows it would act on) and its
  * value now lit, then the action runs with them. An agent is never asked: what it leaves out takes its default, or is refused.
  */
-export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: ExtensionAction, block: string | undefined, given: Record<string, string>, actor: Actor, run: (args: Record<string, string>) => Promise<R>): Promise<R | { asking: string; action: string }> {
-  if (actor.kind !== "user" || !ctx.dispatch) return run(given);
+export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: ExtensionAction, block: string | undefined, given: Record<string, string>, actor: Actor, run: (args: Record<string, string>) => Promise<R>, asked = false): Promise<R | { asking: string; action: string }> {
+  if (actor.kind !== "user" || !ctx.dispatch || asked) return run(given);
   // A form from the note (PIE-828): what it asks is the note's, so the service says it (a form it can't read is refused there).
   if (a.fieldsFrom === "block") {
     let specs: ExtensionArgChoice[];
@@ -571,15 +577,16 @@ export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: Ex
  */
 function passageAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs & { quote?: string; near?: number }, ExtOn> {
   return {
+    words: a.label,
     summary: `${e.name ?? e.id}: ${a.label}${a.description ? `. ${a.description}` : ""} (on a passage: block=<the note's id> quote=<its exact words>, near=<an offset> among repeats; in a reader, its selection through passage.act). The service checks the passage, then runs it; what it writes is attributed ext:${e.id}${a.effects === "write" ? "" : " (it only answers)"}.`,
     keys: "a then its key, or a click on its chip, while text is selected in a reader",
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     args: {
-      block: { type: "string", optional: true, about: "the note the words are in" },
-      quote: { type: "string", optional: true, about: "the exact words, as stored" },
-      near: { type: "number", optional: true, about: "when the words occur more than once: the offset to be nearest" },
-      line: { type: "number", optional: true, about: "unused on a passage" },
-      with: { type: "string", optional: true, about: "arguments, as JSON (names to text)" },
+      block: { type: "string", optional: true, context: true, about: "the note the words are in" },
+      quote: { type: "string", optional: true, context: true, about: "the exact words, as stored" },
+      near: { type: "number", optional: true, context: true, about: "when the words occur more than once: the offset to be nearest" },
+      line: { type: "number", optional: true, context: true, about: "unused on a passage" },
+      with: { type: "string", optional: true, context: true, about: "arguments, as JSON (names to text)" },
       ...declaredArgs(a),
     },
     async run({ block, quote, near, with: w, line: _line, ...rest }, on, actor) {

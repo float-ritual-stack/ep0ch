@@ -31,6 +31,22 @@ are its record. The outliner's entries from then are kept below, under
 - **At 40 columns:** the keys tile opens below, at the screen's width, instead of a 20-column strip beside.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
 
+### One completer: an action and its arguments complete where you type (PIE-1076)
+
+- **In a note's edit, ctrl+k** (or `/` first on a line) lists the actions that apply here at the cursor, in the edit's
+  own completion float, never the power bar over the note. `sort list` finds "Sort the list in this block"; ⏎ or tab
+  takes it and lists its arguments next; ⏎ on the line runs it: the line goes, the note saves, ctrl+z in the reader
+  takes the result back. What you leave out takes its default; nothing is asked again in the bar.
+- **On the power bar's line,** an action's arguments complete in place in the same float: `tile.zoom t`, tab gives
+  `tile=`, then this screen's tiles by the names `tile=` takes (`drawer.agent`), each with its preview; `reach=` lists
+  `screen column full`. ↑↓ move, tab and ⏎ take the lit row, esc closes the list and leaves the line.
+- **A sigil first in a value names its kind:** `%` tiles, `/` notes, `[[` pages, `:` screens.
+- **A note's `::button` step** completes from the same rows: values labelled as values, never whole lines.
+- **What the door fills (block=, quote=, with=) is never offered** in a form or a completion; `act` still takes it.
+- **ctrl+k in a note's edit was cut to the line's end;** it is now the actions here, as it is the power bar everywhere
+  else. The cut stays in one-line fields (the bar, a filter); in an edit, shift+End then ctrl+x does it.
+- **The keys card keeps a `::button{…}` example whole** (`ep0ch actions --doc agent.lift`).
+- **Run:** nothing.
 ### Margin comments read as comments, and a quote lands where you are (PIE-1255, PIE-1184)
 
 - **A card opens the moment you press its `[+]`,** in marks mode too: it comes into view instead of opening above
