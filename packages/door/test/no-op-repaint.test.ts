@@ -23,12 +23,14 @@ describe.skipIf(!outliner)("what repaints after the person's action (PIE-1301)",
   /** `n` presses of an action, each answered and let go; the frames they painted. */
   // The status bar's clock, uptime and slow chip turning over paint a frame of their own (the idle door keeps time): a
   // hundred presses take 4 s, so a minute turning over or a loaded box's slow chip landed in that window and counted as
-  // a press's frame (PIE-1412). They're held still while presses are counted.
+  // a press's frame (PIE-1412). Those three are held at what the last paint showed while presses are counted; the rest of
+  // the status row (what changed, asks, the link) stays live, so a no-op that changes it still paints.
   async function painted(action: string, n = 1): Promise<number> {
     await settle();
     const timeShown = A().timeShown;
-    const held = timeShown.call(app);
-    A().timeShown = () => held;
+    const shown = String(A().shownTime).split("|");
+    // timeShown's fields: uptime, clock, drawer chip, backup alert, slow chip, …
+    A().timeShown = () => timeShown.call(app).split("|").map((f: string, i: number) => (i === 0 || i === 1 || i === 4 ? shown[i] ?? f : f)).join("|");
     try {
       const before = frames();
       for (let i = 0; i < n; i++) { await app.dispatch.press(action); await settle(); }
