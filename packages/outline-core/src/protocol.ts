@@ -11,10 +11,10 @@
 // uses component source bounds. Component presentation, figures, property display, heading display, styles,
 // search and dates are GRAMMAR-owned. Never use a GRAMMAR-only parse to choose a write range.
 // A newer host's grammar warns once and never refuses capture; the host's parsing owns saved content.
-import type { CompletionKind } from "./completion-triggers";
+import type { CompletionTarget } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 277;
+export const PROTOCOL = 278;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 10;
 
@@ -710,8 +710,12 @@ export interface ExtensionsConfigured {
  * own sources' answers (`mergeSourceAnswers`): the door and Detail merge the same way, so they show the same rows.
  */
 export interface CompletionRowsRequest {
-  /** `headingShort`: the `# Title [hea…` shorthand, whose value is written as a whole `[heading::…` token. */
-  target: { kind: CompletionKind; query: string; key?: string; component?: string; headingShort?: boolean };
+  /**
+   * The token at the cursor as outline-core's detector found it, without where it sits on the line: `headingShort` (the
+   * `# Title [hea…` shorthand, written as a whole `[heading::…` token), a component's `attrs` (the props already written:
+   * which one names a template's props, which are used), an attribute's `quote` and `existingValue`, a filter's `words`.
+   */
+  target: Omit<CompletionTarget, "start" | "end">;
   /** The note the draft writes in, or is about: nearer notes first, and its own text for `((#heading`. */
   near?: string;
   draft?: { blockId: string; text: string };

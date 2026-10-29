@@ -5,7 +5,7 @@ import { Compile } from "typebox/compile";
 import { cleanExtensionText } from "./extension-records";
 import { ALIGNS, BAND_PATTERNS, BUILT_IN_DECORATIONS, compileRulePattern, parseKindSpec, PLACES, RULE_TONES } from "@ep0ch/outline-core/rules";
 import { componentSchemaProblem } from "@ep0ch/outline-core/component-schema";
-import { SOURCE_TRIGGERS, type SourceTrigger } from "@ep0ch/outline-core/completion-source";
+import { EXTENSION_TRIGGERS, type SourceTrigger } from "@ep0ch/outline-core/completion-source";
 import { FORM_FIELD_LIMITS, FORM_FIELD_NAME, FORM_FIELD_TYPES, RESERVED_ARG_NAMES, type FormFieldType } from "@ep0ch/outline-core/form-fields";
 import { cronProblem } from "./extension-schedule";
 import { SECRET_GROUP_PATTERN, SECRET_KEY_PATTERN } from "./extension-secrets";
@@ -287,8 +287,8 @@ const sourceFields = {
  */
 const SourceSchema = Type.Object({
   ...sourceFields,
-  /** The completion triggers it answers: only these, never a sigil of its own (outline-core SOURCE_TRIGGERS). */
-  triggers: Type.Optional(Type.Array(Type.Union(SOURCE_TRIGGERS.map((t) => Type.Literal(t as SourceTrigger))), { minItems: 1, maxItems: 10, uniqueItems: true })),
+  /** The completion triggers it answers: only these, never a sigil of its own (outline-core EXTENSION_TRIGGERS). */
+  triggers: Type.Optional(Type.Array(Type.Union(EXTENSION_TRIGGERS.map((t) => Type.Literal(t as SourceTrigger))), { minItems: 1, maxItems: 10, uniqueItems: true })),
   /** For `key::`: the property keys whose values it offers (`issue`). */
   keys: Type.Optional(Type.Array(Type.String({ pattern: "^[a-z][a-z0-9_.-]{0,63}$" }), { minItems: 1, maxItems: 8, uniqueItems: true })),
 }, { additionalProperties: false });

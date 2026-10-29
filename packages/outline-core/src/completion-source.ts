@@ -11,14 +11,22 @@ import type { CompletionKind } from "./completion-triggers";
  * The triggers a source can join, as an extension's manifest writes them. No source adds a sigil of its own: these are
  * the ones the detector knows (`key::` is a property's value, narrowed by the source's `keys`).
  */
-export const SOURCE_TRIGGERS = ["[[", "((", "@", "::", "[key", "key::", "yaml-key", "yaml-value", "[file::", "> [!"] as const;
+export const EXTENSION_TRIGGERS = ["[[", "((", "@", "::", "[key", "key::", "yaml-key", "yaml-value", "[file::", "> [!"] as const;
+/**
+ * Every trigger the sources answer: the extensions', and those only the service's built-ins answer (a component's
+ * attributes and a filter's words, PIE-1366), whose insert needs what the ask carries (the quote, the filter's words).
+ */
+export const SOURCE_TRIGGERS = [...EXTENSION_TRIGGERS, "attribute", "attribute-value", "filter-key", "filter-value"] as const;
 export type SourceTrigger = (typeof SOURCE_TRIGGERS)[number];
 
 const TRIGGER_OF: Partial<Record<CompletionKind, SourceTrigger>> = {
-  page: "[[", block: "((", agent: "@", component: "::", key: "[key", value: "key::", "yaml-key": "yaml-key", "yaml-value": "yaml-value", file: "[file::", callout: "> [!",
+  page: "[[", block: "((", agent: "@", component: "::", key: "[key", value: "key::", "yaml-key": "yaml-key", "yaml-value": "yaml-value",
+  attribute: "attribute", "attribute-value": "attribute-value", "filter-key": "filter-key", "filter-value": "filter-value", file: "[file::", callout: "> [!",
 };
+/** The triggers that complete one property's (or one prop's) value: a source's `keys` narrow them, and picks are kept per key. */
+export const VALUE_TRIGGERS: ReadonlySet<SourceTrigger | null> = new Set(["key::", "yaml-value", "attribute-value", "filter-value"]);
 
-/** The trigger a detected target is, or null for one only a built-in answers (a filter's word, a fence's settings, a button's step). */
+/** The trigger a detected target is, or null for one only the door answers (a fence's settings, a button's step). */
 export const triggerOf = (kind: CompletionKind): SourceTrigger | null => TRIGGER_OF[kind] ?? null;
 
 /** What choosing a row writes in place of the token: text, or a snippet whose `select` span is selected once it's in. */
@@ -80,7 +88,7 @@ export interface SourceDecl {
   title: string;
   description?: string;
   triggers: readonly SourceTrigger[];
-  /** For `key::` (and `yaml-value`): only these property keys; every key when absent. */
+  /** For a value (`key::`, `yaml-value`, `attribute-value`, `filter-value`): only these property keys; every key when absent. */
   keys?: readonly string[];
   /** Higher first among rows that match equally well and were picked as often; built-ins 10, extensions 0. */
   priority?: number;
@@ -105,7 +113,7 @@ export interface SourceAsk {
 /** Whether a source answers this ask: its trigger, and for a value its keys. */
 export function sourceAnswers(decl: Pick<SourceDecl, "triggers" | "keys">, ask: Pick<SourceAsk, "trigger" | "key">): boolean {
   if (!ask.trigger || !decl.triggers.includes(ask.trigger)) return false;
-  if ((ask.trigger === "key::" || ask.trigger === "yaml-value") && decl.keys?.length) return !!ask.key && decl.keys.includes(ask.key.toLowerCase());
+  if (VALUE_TRIGGERS.has(ask.trigger) && decl.keys?.length) return !!ask.key && decl.keys.includes(ask.key.toLowerCase());
   return true;
 }
 
@@ -124,7 +132,7 @@ export type Picks = Record<string, Record<string, PickRecord>>;
 
 /** The key picks are kept under for an ask: the trigger, and for a value its property key. */
 export const pickKey = (ask: Pick<SourceAsk, "trigger" | "kind" | "key">): string =>
-  `${ask.trigger ?? ask.kind}${ask.key && (ask.trigger === "key::" || ask.trigger === "yaml-value" || !ask.trigger) ? ask.key : ""}`;
+  `${ask.trigger ?? ask.kind}${ask.key && (VALUE_TRIGGERS.has(ask.trigger) || !ask.trigger) ? ask.key : ""}`;
 
 /** The text an insert writes. */
 export const insertText = (insert: SourceInsert): string => typeof insert === "string" ? insert : insert.snippet;

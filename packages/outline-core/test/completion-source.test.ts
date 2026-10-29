@@ -61,7 +61,8 @@ test("a source answers its triggers, and a value only for its keys; picks are ke
   expect(sourceAnswers({ triggers: ["[["] }, { trigger: "[[" })).toBe(true);
   expect(sourceAnswers({ triggers: ["key::"], keys: ["issue"] }, { trigger: "key::", key: "status" })).toBe(false);
   expect(sourceAnswers({ triggers: ["key::"], keys: ["issue"] }, { trigger: "key::", key: "Issue" })).toBe(true);
-  expect(triggerOf("filter-key")).toBeNull();
+  expect(triggerOf("filter-key")).toBe("filter-key");
+  expect(triggerOf("fence-setting")).toBeNull();
   expect(pickKey({ trigger: "key::", kind: "value", key: "issue" })).toBe("key::issue");
   expect(pickKey({ trigger: "[[", kind: "page" })).toBe("[[");
 });

@@ -19,7 +19,9 @@ export function serviced<B extends Fake>(board: B): B & { completionRows: (r: an
       case "components.schemas": return (board.componentSchemas ? await board.componentSchemas() : { schemas: BUILTIN_COMPONENT_SCHEMAS }) as T;
       case "components.usage": return (board.componentUsage ? await board.componentUsage() : {}) as T;
       case "callouts.types": return (board.calloutTypes ? await board.calloutTypes() : { types: [] }) as T;
-      case "properties.catalog": return (board.propertyCatalog ? await board.propertyCatalog(input.key, input.prefix, input.limit) : []) as T;
+      case "properties.catalog": return (board.propertyCatalog ? await board.propertyCatalog(input.key, input.prefix, input.limit, !!input.keys) : []) as T;
+      case "template.props": return await board.templateProps(input.of) as T;
+      case "pages.resolve": return (board.resolvePage ? await board.resolvePage(input.address) : { status: "missing" }) as T;
       case "blocks.context": { const c = await board.blockContext(input.blockId); return { selected: c.selected && { ...c.selected, title: c.selected.text?.split("\n")[0] }, ancestors: c.ancestors } as T; }
     }
     throw new Error(`the fake has no ${action}`);

@@ -2,7 +2,8 @@
 // power bar, built from the outline's own properties (here a made-up catalog). Fictional notes and values.
 import { describe, expect, test } from "bun:test";
 import { BUILTIN_COMPONENT_SCHEMAS, componentSchemaProblem } from "@ep0ch/outline-core/component-schema";
-import { listSuggestions, querySuggestions, settingFields, settingProblem, settingQuestion, settingsSchema, settingsSchemas, settingValue, type SettingSources } from "../src/surface/settings-card";
+import { querySuggestions } from "@ep0ch/outline-core/query-suggestions";
+import { listSuggestions, settingFields, settingProblem, settingQuestion, settingsSchema, settingsSchemas, settingValue, type SettingSources } from "../src/surface/settings-card";
 
 const CATALOG = [
   { key: "type", value: "request", count: 4 }, { key: "type", value: "chore", count: 9 }, { key: "triage", value: "done", count: 2 },
@@ -41,14 +42,14 @@ describe("the settings card", () => {
   });
 
   test("a query is built from the outline's own properties and values; writers from the extensions installed", async () => {
-    expect((await querySuggestions("type=re", src)).map(s => s.value)).toEqual(["type=request"]);
-    expect((await querySuggestions("type=request AND tri", src)).map(s => s.value)).toEqual(["type=request AND triage=done"]);
-    expect((await querySuggestions("type=request OR child:tri", src)).map(s => s.value)).toEqual(["type=request OR child:triage=done"]);
+    expect((await querySuggestions("type=re", src.catalog)).map(s => s.value)).toEqual(["type=request"]);
+    expect((await querySuggestions("type=request AND tri", src.catalog)).map(s => s.value)).toEqual(["type=request AND triage=done"]);
+    expect((await querySuggestions("type=request OR child:tri", src.catalog)).map(s => s.value)).toEqual(["type=request OR child:triage=done"]);
     // A key that starts with "not" is a key, never a NOT; a real NOT is a word of its own.
     const notes = { ...src, catalog: async (key: string | undefined, prefix: string) => [{ key: "notice", value: "posted", count: 1 }].filter(r => (key ? r.key === key && r.value.startsWith(prefix) : r.key.startsWith(prefix))) };
-    expect((await querySuggestions("noti", notes)).map(s => s.value)).toEqual(["notice=posted"]);
-    expect((await querySuggestions("type=request AND NOT noti", notes)).map(s => s.value)).toEqual(["type=request AND NOT notice=posted"]);
-    expect((await querySuggestions("(notice=po", notes)).map(s => s.value)).toEqual(["(notice=posted"]);
+    expect((await querySuggestions("noti", notes.catalog)).map(s => s.value)).toEqual(["notice=posted"]);
+    expect((await querySuggestions("type=request AND NOT noti", notes.catalog)).map(s => s.value)).toEqual(["type=request AND NOT notice=posted"]);
+    expect((await querySuggestions("(notice=po", notes.catalog)).map(s => s.value)).toEqual(["(notice=posted"]);
     expect(listSuggestions("user, ", ["user", "agent", "ext:echonet"]).map(s => s.value)).toEqual(["user, agent", "user, ext:echonet"]);
     expect(listSuggestions("user, ext:", ["user", "agent", "ext:echonet"]).map(s => s.value)).toEqual(["user, ext:echonet"]);
   });

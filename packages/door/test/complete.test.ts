@@ -633,16 +633,23 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     await until(() => e.d.text.endsWith('of="water-plants"'), "the script name inserted");
   });
 
+  test("a button's act offers the schema's samples from the service; the door's own actions join them where it has a host (PIE-1366)", async () => {
+    const e = await editing(await create("Act practice\n"));
+    e.type('::button{act=layout');
+    expect((await e.settled()).items.map(i => i.insertion)).toContain('"layout.load name=review"');
+  });
+
   test("a script fence offers its settings and its button completes local names first", async () => {
-    await create('Far script [script::water-far]\n```js\nreturn "far";\n```');
+    // Names no earlier test picked: a value picked before rises among equals (completion.picked, PIE-1366).
+    await create('Far script [script::sprout-far]\n```js\nreturn "far";\n```');
     const id = await create('Local practice\n');
     await board.listExtensions(true);
     const e = await editing(id);
-    e.s.key({ kind: 'paste', text: '```js script=water-near\nreturn "near";\n```\n' }, e.h);
-    e.type('::button{of=water');
-    expect((await e.settled()).items[0]!.insertion).toBe('"water-near"');
+    e.s.key({ kind: 'paste', text: '```js script=sprout-near\nreturn "near";\n```\n' }, e.h);
+    e.type('::button{of=sprout');
+    expect((await e.settled()).items[0]!.insertion).toBe('"sprout-near"');
     e.press(K("tab"));
-    await until(() => e.d.text.endsWith('of="water-near"'), "the local name inserted");
+    await until(() => e.d.text.endsWith('of="sprout-near"'), "the local name inserted");
     const fence = await editing(await create("Fence practice\n"));
     fence.type("```js ");
     const settings = await fence.settled();

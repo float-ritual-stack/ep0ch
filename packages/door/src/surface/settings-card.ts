@@ -10,6 +10,7 @@
 // keys into intents; the surface runs the `settings.*` actions.
 import { checkValue as schemaCheck, type ComponentSchema, type PropSchema } from "@ep0ch/outline-core/component-schema";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
+import { querySuggestions } from "@ep0ch/outline-core/query-suggestions";
 import type { BarQuestion, BarSuggestion } from "../bar/ask";
 import { printable } from "../props";
 import { RowView } from "../scroll";
@@ -79,30 +80,6 @@ export interface SettingSources {
 
 const BUILT_IN_WRITERS = ["user", "agent"];
 
-/**
- * A query being built: the words typed, the last clause offered as the outline's own properties and values
- * (`type=request`, `child:triage=done`), the rest kept. Never a list in code: whatever keys the notes have.
- */
-export async function querySuggestions(typed: string, src: Pick<SettingSources, "catalog">): Promise<BarSuggestion[]> {
-  const m = /^(.*?)(\S*)$/s.exec(typed)!;
-  const before = m[1]!, token = m[2]!;
-  // NOT, AND and OR are words of their own (kept in `before`); a clause may open a group and be a child's.
-  const rel = /^(\(*(?:child(?:>=\d+)?:)?)(.*)$/i.exec(token)!;
-  const lead = rel[1]!, clause = rel[2]!;
-  const eq = clause.indexOf("=");
-  const rows = eq >= 0
-    ? await src.catalog(clause.slice(0, eq), clause.slice(eq + 1))
-    : await src.catalog(undefined, clause);
-  const seen = new Set<string>();
-  const out: BarSuggestion[] = [];
-  for (const r of rows) {
-    const value = `${before}${lead}${r.key}=${r.value}`;
-    if (seen.has(value)) continue;
-    seen.add(value);
-    out.push({ value, detail: `${r.count} note${r.count === 1 ? "" : "s"}` });
-  }
-  return out;
-}
 
 /** A comma-separated list being built (writers): the last name offered from `names`, the ones already listed kept. */
 export function listSuggestions(typed: string, names: readonly string[]): BarSuggestion[] {
@@ -125,7 +102,7 @@ export function settingQuestion(field: SettingField, src: SettingSources): BarQu
     case "enum":
       return { ...base, type: "choice", choices: (p.values ?? []).map(v => v.value), says: Object.fromEntries((p.values ?? []).map(v => [v.value, `${v.value} · ${v.meaning}`])) };
     case "query":
-      return { ...base, type: "text", free: true, suggest: typed => querySuggestions(typed, src) };
+      return { ...base, type: "text", free: true, suggest: typed => querySuggestions(typed, (key, prefix) => src.catalog(key, prefix)) };
     case "property":
       return { ...base, type: "text", free: true, suggest: async typed => {
         const keys = [...new Set([...samples(typed).map(s => s.value), ...(await src.catalog(undefined, typed.trim())).map(r => r.key)])];

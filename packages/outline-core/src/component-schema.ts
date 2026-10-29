@@ -439,6 +439,11 @@ export function checkValue(p: PropSchema, value: string): string | null {
 export interface Variation { values: Record<string, string>; note?: string; use: string }
 
 /** A YAML scalar as written: quoted only when YAML would read it as something else. */
+/** A value written as a component's attribute: closing the quote already typed (escaped), else quoted whole. */
+export function attributeScalar(v: string, quote?: string): string {
+  return quote ? v.replaceAll("\\", "\\\\").replaceAll(quote, `\\${quote}`) + quote : JSON.stringify(v);
+}
+
 export function yamlScalar(v: string): string {
   if (/^\[.*\]$/.test(v) || /^-?\d+(\.\d+)?$/.test(v)) return v;
   return /^[\s*&!%@`'"|>{}#,?-]|: | #|^$|\s$/.test(v) ? JSON.stringify(v) : v;

@@ -2,7 +2,7 @@ import type {Block} from '../../src/types';
 import {runHerdrScenario} from './herdr-runner';
 
 // Components, properties and callout types complete in Detail (PIE-1344): `::`, `[key`, `[key::` and `> [!` list the
-// service's rows, the ones the door lists; a component chosen writes all its lines.
+// service's rows, the ones the door lists; a component chosen writes all its lines; a figure's values too (PIE-1366).
 const result=await runHerdrScenario({name:'detail-property-completion',async prepare(){},async run(s){
   await s.client.request<Block>({action:'create',text:'Greenhouse log [season::spring] [crop::beans]'});
   const note=await s.client.request<Block>({action:'create',text:'PLANTING NOTES\n\nWhat goes where.'});
@@ -20,5 +20,9 @@ const result=await runHerdrScenario({name:'detail-property-completion',async pre
   await s.checkpoint('04-values');
   await s.keys(s.panes.detail,'escape');await s.text(s.panes.detail,'\n> [!ti');await s.waitVisible(s.panes.detail,'Callout types');
   await s.checkpoint('05-callouts');
+  // A figure's values (PIE-1366): the service answers them, so Detail offers what the door does.
+  await s.keys(s.panes.detail,'escape');await s.text(s.panes.detail,'\n::graph-tabs');await s.keys(s.panes.detail,'escape');
+  await s.text(s.panes.detail,'\n---\ndensity: c');await s.waitVisible(s.panes.detail,'comfortable');
+  await s.checkpoint('06-figure-values');
   await s.keys(s.panes.detail,'escape','escape');
 }});console.log(JSON.stringify(result));if(result.status!=='passed')process.exitCode=1;
