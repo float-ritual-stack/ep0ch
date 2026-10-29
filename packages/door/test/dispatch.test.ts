@@ -24,6 +24,7 @@ import { ActionRefused, ActionSet, allActionSets, type ActionDef, type Touches }
 import { actorRule, Dispatcher, type TileRef } from "../src/surface/dispatch";
 import { DraftSession, draftRule } from "../src/draft-session";
 import { NOBODY, SHELL_IDLE_MS, type Whereabouts } from "../src/whereabouts";
+import { INVITES } from "../src/surface/invite";
 import { outliner, Scratch, until } from "./scratch";
 
 const AGENT: Actor = { kind: "agent", id: "table-agent-514" };
@@ -42,6 +43,7 @@ const STATES: Record<"typing" | "at the keys" | "idle", Whereabouts> = {
  */
 function promised(def: ActionDef<unknown, unknown>, actor: Actor, state: keyof typeof STATES): RegExp | string | null {
   if (actor.kind !== "agent") return null;
+  if (def.personAlways) return def.personAlways;
   if (def.person) return def.person;
   const t: Touches = def.touches;
   if (t === "nothing" || t === "shape") return null;
@@ -93,6 +95,28 @@ describe("the actor rule, for every action (PIE-514)", () => {
     }
     expect(rows).toEqual([]);
     expect(checked).toBeGreaterThan(1000);
+  });
+
+  test("the person's alone is never lifted: not by their press's invitation, not by yolo; the person's own is lifted by a press only (PIE-1294)", () => {
+    const invited: Actor = { kind: "agent", id: "table-agent-514", invitation: INVITES.mint("you") };
+    const yolo: Whereabouts = { ...STATES.idle, yolo: true };
+    const rows: string[] = [];
+    for (const { set, name, def } of actions()) {
+      if (def.personAlways) {
+        for (const [who, actor, where] of [["invited", invited, STATES.idle], ["yolo", AGENT, yolo]] as const) {
+          if (actorRule(def, actor, where, {}) !== def.personAlways) rows.push(`${set.scope}:${name} · ${who}: ran`);
+        }
+      } else if (def.person) {
+        if (actorRule(def, invited, STATES.idle, {}) !== null) rows.push(`${set.scope}:${name} · invited: refused`);
+        if (actorRule(def, AGENT, yolo, {}) !== def.person) rows.push(`${set.scope}:${name} · yolo: ran`);
+      }
+    }
+    expect(rows).toEqual([]);
+    INVITES.spend(invited.kind === "agent" ? invited.invitation! : "");
+    // What only the person decides is declared so (its page says it); a few take it from their arguments.
+    const of = (name: string) => allActionSets().find(s => s.has(name))!.def(name)!;
+    for (const n of ["access.apply", "held.send", "session.end", "session.upgrade"]) expect({ n, always: !!of(n).personAlways }).toEqual({ n, always: true });
+    expect([of("agents.yolo").personWith!({ on: true }), of("agents.yolo").personWith!({}), of("agents.yolo").personWith!({ on: false })].map(x => (x === null ? null : typeof x))).toEqual(["object", "object", null]);
   });
 
   test("an action in a tile the person isn't in runs for an agent, whatever it touches there", () => {

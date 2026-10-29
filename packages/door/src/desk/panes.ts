@@ -1,3 +1,4 @@
+import { holdsEdit } from "../whereabouts";
 import type { LineField } from "../surface/line";
 import type { ModeKey } from "../surface/modes";
 import { outlineBoards, type NoteAddress } from "./outline-boards";
@@ -124,7 +125,7 @@ export interface DeskApi {
   /** The tile `p`'s opens land in (its link, or its container's opens-into), if any. */
   linked?(p: Pane): Pane | undefined;
   /** The actor rule for a step that moves the person's screen on the way (an open that steps the brief): why not, or null. */
-  ruleFor?(touches: "tile" | "screen", actor: Actor): string | null;
+  ruleFor?(touches: "tile" | "screen", actor: Actor, at?: { tile?: string; label?: string; way?: string; host?: true; action?: string }): string | null;
   /** The keys to tile `p`, as `tile.focus` gives them; an agent's never moves them. */
   focusPane?(p: Pane, actor: Actor): void;
   /** The person's keys are held here right now (typing, a picker, a ^W chord): a screen's own key waits. */
@@ -396,7 +397,7 @@ export class ReaderPane implements Pane {
    */
   async setMode(mode: FollowMode | undefined, desk: DeskApi, page?: string): Promise<{ mode: FollowMode; page?: string; held: boolean }> {
     if (!this.follows) throw new ActionRefused("this reader keeps its own way of showing a note; it has no mode to switch");
-    if (this.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
+    if (this.editing) throw new ActionRefused(holdsEdit("the reader"));
     const next = mode ?? (this.followMode === "follows" && !desk.followSource?.(this) ? "held" : "follows");
     const gen = ++this.modeGen;
     // A mode chosen is the reader's own way again: a tile it followed (reader.follow source=<tile>) lets go of it, once
@@ -407,7 +408,7 @@ export class ReaderPane implements Pane {
       if (!name) throw new ActionRefused(`${this.msg ? "that note has no page to pin to" : "nothing to pin yet"} · name one: act reader.mode mode=pinned page=<name>`);
       const r = await this.context(desk).board.resolvePage(name);
       if (r.status !== "resolved" || !r.block) throw new ActionRefused(`no page ${name} in this outline to pin to`);
-      if (this.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
+      if (this.editing) throw new ActionRefused(holdsEdit("the reader"));
       if (gen !== this.modeGen) throw new ActionRefused("the reader's mode changed again while the page was looked up; nothing was pinned");
       letGo();
       this.held = this.follows; this.pinPage = name; this.pageNote = r.block.id;
@@ -562,8 +563,22 @@ export class ReaderPane implements Pane {
   refresh(m: Msg) { this.surface.refresh(m); }
   /** Read its note again (NoteSurface.reread: one read at a time, a draft only marked). */
   reread(desk: DeskApi) { this.surface.reread(this.host(desk)); }
+  /**
+   * Why it won't take note `m` now: it holds an edit or a comment on another (PIE-761). The one answer (PIE-1294): every
+   * screen that shows a note in a reader asks this, or `showOr`, and says these words; null when it would.
+   */
+  keepsOff(m: Msg | null, label = this.detailLabel() ?? "the reader"): string | null {
+    return this.editing && m?.id !== this.msg?.id ? holdsEdit(label) : null;
+  }
+  /** Show `m`, or say why not (`keepsOff`). */
+  showOr(m: Msg | null, desk: DeskApi, label?: string): string | null {
+    const no = this.keepsOff(m, label);
+    if (no) return no;
+    this.show(m, desk);
+    return null;
+  }
   show(m: Msg | null, desk: DeskApi) {
-    if (this.editing && m?.id !== this.msg?.id) return false;
+    if (this.keepsOff(m)) return false;
     const host = this.host(desk);
     const shown = this.surface.show(m, { ...host, ctx: host.contextFor!(m) });
     // The history a saved layout brought (PIE-643) is taken up with the note it was saved on (`wantNote`).
@@ -985,7 +1000,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
     summary: "what a reader (tile=<its name>) follows: source=current (the current note, as it changes), source=<tile> (a tile with a selection: the tree, a links tile, another reader; a link with the preview role, alt+l's, saved with the layout) or source=none (held on its note). Left out, opens the policy panel: Shows changes between shows the current note and stays put; a lock pins it to a page",
     keys: "P or a click on the state chip opens the policy panel",
     touches: "tile", replay: "safe", way: "an agent sets what a reader follows when the person isn't in it", says: r => (r.asked ? null : r.source === "current" ? "set the reader: shows the current note" : r.source === "none" ? "set the reader: stays put" : `set the reader to show ${r.source}'s selection`),
-    menu: { label: "shows…", group: "Reader", key: "P", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : null) },
+    menu: { label: "shows…", group: "Reader", key: "P", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: holdsEdit("the reader") } : null) },
     args: { source: { type: "string", optional: true, kind: "tile", choices: ["current", "none"], about: "current, none, or a tile's name (a tree, a links tile, a reader); left out, the policy panel (the person's)" } },
     examples: [
       { act: "reader.follow tile=reader source=tree", does: "the reader shows whatever the tree's selection is on" },
@@ -1003,7 +1018,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
         return { source };
       }
       if (!desk.followFrom) throw new ActionRefused("this screen has no tiles to follow");
-      if (pane.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
+      if (pane.editing) throw new ActionRefused(holdsEdit("the reader"));
       // Checked before anything changes: a refused source leaves the reader as it was.
       const why = desk.followRefusal?.(pane, source, actor);
       if (why) throw new ActionRefused(why);
@@ -1016,7 +1031,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
     summary: "set how a reader (tile=<its name>, any reader, a detail too) shows notes: mode=follows (the current note, as it changes), held (the note it shows; the current note doesn't move it) or pinned (a page's note, shown again each time it starts; page=<name>, left out the page the shown note has); left out, p's toggle: follows to held, anything else back to following. Said on screen when an agent does it",
     keys: "p; P then enter or space on Shows changes the state, or click its row; the page lock pins it",
     touches: "tile", replay: "safe", way: "an agent sets a reader's mode when the person isn't in it", says: r => `${r.mode === "follows" ? "set the reader: shows the current note" : r.mode === "pinned" ? `locked the reader: stays put on [[${r.page}]]` : "set the reader: stays put"}`,
-    menu: { label: "stays put on this note", group: "Reader", key: "p", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : pane.followMode !== "follows" ? { label: "shows the current note" } : null) },
+    menu: { label: "stays put on this note", group: "Reader", key: "p", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: holdsEdit("the reader") } : pane.followMode !== "follows" ? { label: "shows the current note" } : null) },
     args: {
       mode: { type: "string", optional: true, choices: FOLLOW_MODES, about: "follows, held or pinned; left out, the other of follows and held" },
       page: { type: "string", optional: true, implies: [{ mode: "pinned" }], about: "mode=pinned: the page's name (`[[name]]`); left out, the shown note's own page" },

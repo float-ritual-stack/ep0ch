@@ -844,7 +844,8 @@ test("a written figure is confirmed in components; a typo in its name or a key, 
 // before Jev reads. Jev is a fake here (OUTLINER_JEV_ENDPOINT), answering each section by what it holds. A comment and a
 // property set ask nothing; an edit asks only about the sections it changed.
 /** The kit finding in a write's warnings (said as something to fix, not a suggestion), or undefined. */
-const figureGate = (json: { warnings?: string[] }) => json.warnings?.find(w => w.startsWith("fix before you call this done: ") && w.includes(" would show it"));
+// A figure code can build comes as a gate with its patch; one it can't, as advice (PIE-1402): either way it is said.
+const figureGate = (json: { warnings?: string[] }) => json.warnings?.find(w => (w.startsWith("fix before you call this done: ") || w.startsWith("consider: ")) && w.includes(" would show it"));
 
 /** A fake Jev answering a review: a section of dated lines is surely a timeline, anything else prose; every other judgment a no. */
 function reviewingJev(asked: { state: { sections?: Record<string, { text: string }> } }[], pick: (text: string) => { component: string; data: boolean } = text => ({ component: /^- \d{4}-\d{2}/m.test(text) ? "graph-timeline" : "graph-check", data: /^- \d{4}-\d{2}/m.test(text) })) {
