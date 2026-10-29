@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Back and forward keep your layout; the keys window speaks where you are (PIE-1426, PIE-1425)
+
+- **Your layout stays:** back or forward in a preview onto the note its detail shows (after `b`, say) shows it there; the preview no longer closes and the detail's wires stay.
+- **Narrow back row:** at 40 columns a reader's back row keeps `← back` and `forward →` whole, dropping the title first.
+- **The keys window where you are:** `?` in the river's Library opens on the river's keys (`in:river`), not a note's editing keys.
+- **Whole sentences:** every row reads as one ("give your keys to the column on the left", not "…, columns"; "close this tile", not "close tile=<tile>").
+- **At 40 columns:** the keys tile opens below, at the screen's width, instead of a 20-column strip beside.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### The write review flags only what's really wrong (PIE-1428, PIE-1417, PIE-1427, PIE-1388)
 
 - **No false asks:** a note's own instruction ("check the water butt; write it on the shed door") is not a QA question, and a ticked checkbox (any mark: x ~ ! - ✓) is an answered one, so its patch never puts `[needs::sysop]` back on a done ticket.
