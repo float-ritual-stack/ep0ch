@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { parseTileAddress, type ResolveOpts } from "../desk/tile-address";
 import { fromPress } from "../session/session-term";
-import { modeActionKeys } from "./modes";
+import { effective, keyNow, keysNow } from "./keymap";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { actionFailure, messageContext, type MessageDetails } from "../status-log";
 import type { Hint } from "./hint-card";
@@ -25,7 +25,7 @@ import { Offline, USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
 import { NOBODY, SHELL_IDLE_MS, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
 import { agentRefusal, type AgentLevel } from "./agent-level";
-import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, declaredKeys, isKeyName, type ActionDef, type ActionInfo, type Touches, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
+import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, chordName, declaredKeys, isKeyName, keyCaption, type ActionDef, type Keys, type KeyRow, type ActionInfo, type Touches, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
 /** A tile as `tile=` reads it: the names it answers to, and what it shows (for a block id). */
 /** `tile=<mount>/<tile>`: a tile of a screen mounted in a tile (PIE-651); names never hold a `/`. */
@@ -102,6 +102,20 @@ export interface MenuRow {
   /** The tile's own row: its set runs in the tile itself (its kind's, a reader's note and list actions), not the screen's every-tile rows. */
   own?: true;
 }
+/**
+ * An action's keys as they are now: its def's, with the person's keymap applied (keysNow), and the screen's own bindings
+ * of it (a spec's keys, the ^W table; `bound`, the keymap already applied) as rows of their own, each saying it's the screen's.
+ */
+function withBound(name: string, keys: Keys | undefined, bound: readonly KeyBinding[]): Keys | undefined {
+  const now = keysNow(name, keys);
+  const extra = bound.filter(b => b.action === name).map(b => keyCaption(b.key)).filter(k => !declaredKeys(now).has(chordName(k) ?? k));
+  if (!extra.length) return now;
+  const rows: KeyRow[] = typeof now === "string" ? [{ keys: now, does: "" }] : [...(now ?? [])];
+  return [...rows, ...extra.map(k => ({ keys: k, does: "on this screen" }))];
+}
+/** A menu row's keycap with the keymap applied: the file's first key for that binding when it names one (none when it unbinds it). */
+const menuKey = (action: string, args: Record<string, unknown>, key: string | undefined): string | undefined => keyNow(action, args, key) ?? undefined;
+
 /** Keys a menu row's keycap doesn't take from a def's `keys` (mouse gestures, the ^W prefix alone). */
 const MENU_NOT_KEYS = new Set(["click", "drag", "wheel", "ctrl+w"]);
 
@@ -431,8 +445,7 @@ export class Dispatcher {
     const req = { action: name };
     const r = this.owner(req);
     const def = r ? "set" in r ? r.set.def(name) : r.delegate(req)?.defOf(name) : undefined;
-    const keys = modeActionKeys([this.host.bindings?.() ?? []], name);
-    return def && keys ? { ...def, keys: [...new Set([def.keys, keys].filter(Boolean))].join("; ") } : def;
+    return def ? { ...def, keys: withBound(name, def.keys, effective(this.host.bindings?.() ?? [])) } : def;
   }
 
   unknownAction(name: string): string {
@@ -449,7 +462,8 @@ export class Dispatcher {
   }
   private listIn(): { actions: ActionInfo[]; tiles: string[] } {
     const seen = new Set<string>(), out: ActionInfo[] = [];
-    const bindings = this.host.bindings?.() ?? [];
+    // The screen's bindings with the keymap applied, once for the whole listing.
+    const bindings = effective(this.host.bindings?.() ?? []);
     // The layout host can also be the screen delegate; describe it once per listing.
     const delegated = new Map<Dispatcher, ActionInfo[]>();
     for (const r of this.regs) {
@@ -458,8 +472,7 @@ export class Dispatcher {
       const infos = "set" in r ? r.set.list() : target ? delegated.get(target)! : [];
       for (const a of infos) {
         if (seen.has(a.name) || (r.claims && !r.claims({ action: a.name }))) continue;
-        const keys = modeActionKeys([bindings], a.name);
-        out.push(keys ? { ...a, keys: [...new Set([a.keys, keys].filter(Boolean))].join("; ") } : a);
+        out.push({ ...a, keys: withBound(a.name, a.keys, bindings) });
         seen.add(a.name);
       }
     }
@@ -839,7 +852,7 @@ export class Dispatcher {
           if (now?.hide) continue;
           const args = { ...(e.args ?? {}), ...(now?.args ?? {}) } as Record<string, unknown>;
           const why = this.refusal(r, def, name, at, args, args, actor, where) ?? now?.refused ?? null;
-          const key = e.key ?? [...declaredKeys(def.keys)].find(k => !MENU_NOT_KEYS.has(k) && !k.includes(" "));
+          const key = menuKey(name, args, e.key ?? [...declaredKeys(def.keys)].find(k => !MENU_NOT_KEYS.has(k) && !k.includes(" ")));
           out.push({ action: name, args, tile: at.tile.id ?? at.tile.name, label: now?.label ?? e.label, group: e.group, ...(key ? { key } : {}), ...(why ? { refused: why } : {}), ...(r.takes === "tile" ? { own: true as const } : {}) });
         }
       }

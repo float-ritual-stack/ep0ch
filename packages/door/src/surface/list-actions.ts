@@ -112,7 +112,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.step": def({
     summary: "move the pick `by` rows (1 the next, -1 the one before) among the rows that can be picked, as j and k do; list= which list. The person's moves their selection and the [ ] position; an agent's is its own, in its tint",
-    keys: "j k ↑ ↓ Home End in the list, the wheel over a links tile",
+    keys: [{ keys: "j k ↑ ↓ Home End", does: "in the list" }, { keys: "wheel", does: "over a links tile" }],
     touches: "nothing", replay: "safe", says: r => (r.moved ? null : `stepped to row ${r.row} of ${r.title}`),
     args: {
       list: LIST_ARG,
@@ -130,7 +130,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.open": def({
     summary: "open a row of a list for real: n= its number, id= its block, default the picked one; list= which list. where=home (default) opens it where the host's opens land, as ⏎ does (a reader's link, else the reader itself, kept in its history); where=new in a new detail beside, as alt+⏎. A row's activation runs as you, under your rules: an agent's is refused where it would move what the person is reading, and never moves their keys",
-    keys: "⏎ on a row or in the list, a double click (home) · alt+⏎, an alt-, ctrl- or middle-click (new); the click that gives the list the keys only selects",
+    keys: [{ keys: "⏎", does: "on a row or in the list" }, { keys: "double-click", does: "opens it (home)" }, { keys: "alt+⏎ alt-click ctrl-click middle-click", does: "opens it in a new tile" }, { keys: "click", does: "only selects; the click that gives the list the keys" }],
     // In a reader this is the most it touches (an agent's open there would move what the person reads); a links tile's lowers it (Registration.touchesAt).
     touches: "tile", replay: "ask", way: "opening a row there would move what they're reading · an agent opens the row's note with open id= (list.blocks gives it), naming no tile",
     args: {
@@ -179,7 +179,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.enter": def({
     summary: "go into a list (on=true, the default), or come out of it (on=false): in it, j k Home End move its selection (the preview follows), ⏎ opens, alt+⏎ opens in a new detail, / filters its rows, esc comes out, and any other key leaves it and does what it does in the reader. list= which list. The person's: an agent reads it with list.blocks, picks with list.pick and opens a row with list.open",
-    keys: "⏎ or a click on the frame's ⏎ in; esc, or a click outside it, comes out",
+    keys: [{ keys: "⏎", does: "enter the list" }, { keys: "click", does: "the frame's ⏎ in" }, { keys: "esc", does: "come out" }, { keys: "click", does: "outside the frame comes out" }],
     touches: "tile", replay: "safe", person: "going into a list is the person's; an agent reads it with list.blocks, picks with list.pick and opens a row with list.open",
     args: {
       list: LIST_ARG,
