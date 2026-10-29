@@ -208,3 +208,14 @@ test("two writers' first suggestions of the day at once leave one run for the da
   expect(await until(async () => (await records("review-finding")).length === 2 && (await records("jev-run")).some(r => r.suggested === "2"))).toBe(true);
   expect(await records("jev-run")).toHaveLength(1);
 }, 40_000);
+
+// PIE-1388, a verifier on main (Oct 29): two sections both told to become a checklist; applying the patch in one listed
+// the other followed too, because the rule read the component anywhere in the note.
+test("a kit finding is followed only when its own section draws the component", () => {
+  const baseline = ["Plot plan", "", "## Jobs", "- [ ] dig", "- [ ] sow", "- [x] mulch", "", "## Compare", "- [ ] old bed", "- [ ] new bed", "- [x] path"].join("\n");
+  const checkedCompare = baseline.replace("## Compare\n- [ ] old bed\n- [ ] new bed\n- [x] path", "## Compare\n::graph-check\n- [ ] old bed\n- [ ] new bed\n- [x] path\n::");
+  const jobs = { component: "graph-check", at, rule: "kit", key: "kit:Jobs", line: 3 };
+  const compare = { component: "graph-check", at, rule: "kit", key: "kit:Compare", line: 8 };
+  expect(judgeSuggestion(compare, baseline, [later(1, checkedCompare)], schemas, at + 2 * 3600_000)).toMatchObject({ outcome: "followed" });
+  expect(judgeSuggestion(jobs, baseline, [later(1, checkedCompare)], schemas, at + 2 * 3600_000)).toBeNull();
+});

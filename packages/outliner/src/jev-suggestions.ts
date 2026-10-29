@@ -102,14 +102,13 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
     }
     const asked = keep.review.jev === "asked";
     const unavailable = !asked && !/^(?:off|not asked)/.test(keep.review.jev);
-    if (keep.at.source === "backfill") {
-      // A note that was read whole and said nothing is kept too: a rerun skips it rather than ask Jev again. One Jev
-      // couldn't read isn't, so a rerun tries it again.
-      if (!told.length && (asked || /^not asked/.test(keep.review.jev))) {
-        await writeRecord(board(client), "review-quiet", clean({ day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), source: "backfill" }), JEV, { title: `quiet: ${keep.title || "untitled"}`.slice(0, 120), cache });
-      }
-      return;
+    // A note that was read whole and said nothing is kept too: findable on the suggestions page (PIE-1388), and a
+    // backfill rerun skips it rather than ask Jev again. One Jev couldn't read isn't, so a rerun tries it again.
+    if (!told.length && (asked || /^not asked/.test(keep.review.jev))) {
+      await suggestionsPage(client);
+      await writeRecord(board(client), "review-quiet", clean({ day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), source: keep.at.source }), JEV, { title: `quiet: ${keep.title || "untitled"}`.slice(0, 120), cache });
     }
+    if (keep.at.source === "backfill") return;
     await updateRun(client, day, { ...(told.length ? {} : asked ? { quiet: 1 } : {}), ...(unavailable ? { unavailable: 1 } : {}), ...(keep.reading ? { reading: keep.reading } : {}) });
   } catch { /* the write has landed; a record that can't be made is not its failure */ }
 }
@@ -166,7 +165,21 @@ export const SUGGESTIONS_PAGE = [
   "title: what each writer was told",
   "query: type=review-finding NOT source=backfill",
   "machinery: show",
-  "columns: [note, said, passage, rubric, patch, writer]",
+  "columns: [note, said, passage, rubric, patch, writer, created]",
+  "link: note",
+  "sort: created",
+  "direction: desc",
+  "limit: 30",
+  "---",
+  "::",
+  "",
+  "## Reviewed, nothing to fix",
+  "::graph-table",
+  "---",
+  "title: writes the review passed",
+  "query: type=review-quiet NOT source=backfill",
+  "machinery: show",
+  "columns: [note, writer, revision, created]",
   "link: note",
   "sort: created",
   "direction: desc",
@@ -360,7 +373,10 @@ function judgeFinding(
     // A wall or a stacked bullet is the same problem wherever its words moved: gone only when no finding of that rule is near
     // its line (a cosmetic edit to its first words changes its key, not the problem).
     const near = (f: { rule: string; line?: number }) => f.rule === rule && Math.abs((f.line ?? 0) - (s.line ?? was?.line ?? 0)) <= 3;
-    const gone = rule === "kit" ? kitIn(w.text, schemas).has(s.component)
+    // A kit finding is about its section: the component drawn there, not anywhere in the note (PIE-1388: two sections
+    // told graph-compare, one patched, and both read followed). Found again by its heading; none named, the whole note.
+    const there = kitSection ? sectionsOf(w.text).find(x => x.heading === kitSection.heading)?.text ?? "" : w.text;
+    const gone = rule === "kit" ? kitIn(there, schemas).has(s.component)
       : was ? !writeShape(w.text, { facets }).some(f => (rule === "wall" || rule === "stacked" ? near(f) : f.key === key))
       // Otherwise (the work rules): the passage it named was rewritten. A section by its text, a line by its words, a
       // note without a line by any change.

@@ -317,7 +317,10 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   const code: ReviewFinding[] = writeShape(text, shape).map(f => {
     const n = had.get(f.key) ?? 0;
     if (n) had.set(f.key, n - 1);
-    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.passage ?? (f.line ? lines[f.line - 1] ?? "" : text)), new: !n && !toldOf(input.told, f.key), by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
+    // A ready patch the writer was told and hasn't applied is still theirs to apply: the verdict says fix while the list
+    // holds it (PIE-1388: two walls, one patched, answered ship with both listed). Told without a patch, it's carried.
+    const told = toldOf(input.told, f.key);
+    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.passage ?? (f.line ? lines[f.line - 1] ?? "" : text)), new: (!n && !told) || (told && !!f.patch), by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
   });
   const qaRule = input.qaRule ?? QA_RULE;
   code.push(...qaFindings(text, before, qaRule).map(f => toldOf(input.told, f.key) ? { ...f, new: false } : f));

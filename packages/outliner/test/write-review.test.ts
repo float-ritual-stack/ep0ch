@@ -445,3 +445,33 @@ test("a build log's timeline row ten minutes ahead is a finding with the time no
   const back = (await agent("create", { parent: "root", text: log(shift(-10)) }, undefined, { TZ })).json.review as Review;
   expect(back.findings.filter(f => f.rule === "time").map(f => f.say)).toEqual([]);
 });
+
+// PIE-1388, a verifier on main (Oct 29): two long walls, one patched, answered ship while it still listed both.
+test("a ready patch the writer was told and hasn't applied keeps the verdict fix: the verdict and the list agree", async () => {
+  const { agent, store } = await setup();
+  const wall = (w: string) => Array.from({ length: 8 }, (_, i) => `The ${w} row ${i + 1} was weeded on Sunday and the beds along the fence were mulched with straw before the rain.`).join(" ");
+  const made = await agent("create", { parent: "root", text: `Allotment walls\n\n${wall("bean")}\n\n${wall("pea")}` });
+  let review = made.json.review as Review;
+  expect(review.findings.filter(f => f.rule === "wall" && f.patch)).toHaveLength(2);
+  const note = store.require(made.json.id);
+  review = (await agent("patch", { ref: note.id, revision: note.revision, patches: review.findings.find(f => f.rule === "wall")!.patch })).json.review as Review;
+  const left = review.findings.filter(f => f.rule === "wall");
+  expect(left).toHaveLength(1);
+  expect([review.verdict, left[0]!.new]).toEqual(["fix", true]);
+  const now = store.require(note.id);
+  review = (await agent("patch", { ref: now.id, revision: now.revision, patches: left[0]!.patch })).json.review as Review;
+  expect(review.verdict).toBe("ship");
+});
+
+// PIE-1388: a live write the review passed left nothing to find it by; only the backfill kept its quiet notes.
+test("a live write that ships is kept as quiet, findable on the suggestions page with when", async () => {
+  const { agent, records } = await setup();
+  await agent("create", { parent: "root", text: "Bean rows [type::note]\n\n- Sown on Monday.\n- Netted on Tuesday." });
+  const sore = await agent("create", { parent: "root", text: "Seed list sorted\n\n- Evan, can you check the order on your phone?" });
+  const quiet = await records("review-quiet");
+  expect(quiet.map(q => [q.source, q.writer])).toEqual([["write", "loki"]]);
+  expect(quiet[0]!.note).not.toBe(sore.json.id);
+  const { SUGGESTIONS_PAGE } = await import("../src/jev-suggestions");
+  expect(SUGGESTIONS_PAGE).toContain("query: type=review-quiet NOT source=backfill");
+  expect(SUGGESTIONS_PAGE).toContain("columns: [note, said, passage, rubric, patch, writer, created]");
+});
