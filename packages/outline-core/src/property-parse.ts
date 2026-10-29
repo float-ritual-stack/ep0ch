@@ -367,28 +367,40 @@ export function titlePropertyRanges(text: string): SourceRange[] {
   return withHeaderDashes(text, parsePropertyRecords(text).filter(property => property.syntax !== "hashtag" || tags.has(property.start)));
 }
 
-export function firstLineWithoutPropertyTokens(text: string): string | undefined {
+/**
+ * A note's title and the line it is on: the first line with text once its property tokens are taken out (the header's
+ * chips with their ` - `, a bare `key:: value` line too), skipping literal-region marker lines; a mark's title is its own
+ * words. `line` is the first non-blank line, and `text` "", when no line has text. The one place that decides a note's
+ * title (PIE-1292): the service's, the door's list rows and the extensions' all read this.
+ */
+export function noteTitleLine(text: string): { line: number; text: string } {
   // A mark's title is its own words, not its generated heading (outline-core's annotation-marks.ts).
   const mark = markTitleLine(text);
-  if (mark) return mark.text;
+  if (mark) return mark;
   // The header's chips go with the ` - ` between and before them: `Seed order - [a::1] - [b::2]` is "Seed order".
   const tokens = titlePropertyRanges(text);
   // Matched literal-region markers are hidden in Detail, so they are never the title.
   const markerStarts = literalMarkerLineStarts(text);
-  let tokenIndex = 0;
+  let tokenIndex = 0, index = -1, first = -1;
   for (const line of sourceLines(text)) {
+    index += 1;
     const firstLineToken = tokenIndex;
     while (tokenIndex < tokens.length && tokens[tokenIndex]!.start < line.end) tokenIndex += 1;
     if (markerStarts.has(line.start)) continue;
+    if (first < 0 && text.slice(line.start, line.contentEnd).trim()) first = index;
     const lineWithoutProperties = removeRanges(
       text,
       tokens.slice(firstLineToken, tokenIndex),
       line.start,
       line.contentEnd,
-    );
-    if (lineWithoutProperties.trim()) return lineWithoutProperties;
+    ).trim();
+    if (lineWithoutProperties) return { line: index, text: lineWithoutProperties };
   }
-  return undefined;
+  return { line: first, text: "" };
+}
+
+export function firstLineWithoutPropertyTokens(text: string): string | undefined {
+  return noteTitleLine(text).text || undefined;
 }
 
 export function stripProperties(text: string): string {

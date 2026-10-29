@@ -12,6 +12,7 @@
 import { calloutBlocks, quoteDepth, stripQuotes } from "./callouts";
 import { componentBlocks, noteStructure } from "./component-block";
 import { headerLine } from "./header-line";
+import { blockReferenceOccurrences } from "./link-syntax";
 
 /** The limits the rules measure against, said once: the tool descriptions and the findings quote them. */
 export const SHAPE_LIMITS = {
@@ -55,10 +56,13 @@ const excerpt = (text: string, max = 48) => {
 
 /** Sentences in a paragraph: a terminator followed by a space and a capital or digit, or ending it; code, links, properties and abbreviations aren't ends. */
 export function sentenceCount(paragraph: string): number {
-  const flat = paragraph
+  // A block reference is one word, label and all (`((id|Rough edges (x)))`), by the link grammar's own scan.
+  const refs = blockReferenceOccurrences(paragraph, []);
+  const linked = refs.reduceRight((text, ref) => text.slice(0, ref.start) + "x" + text.slice(ref.end), paragraph);
+  const flat = linked
     .replace(/\[[\w-]+::[^\]]*\]/g, " ")
     .replace(/`[^`]*`/g, "x")
-    .replace(/\(\([^)]*\)\)|\[\[[^\]]*\]\]|\[[^\]]*\]\([^)]*\)/g, "x")
+    .replace(/\[\[[^\]]*\]\]|\[[^\]]*\]\([^)]*\)/g, "x")
     .replace(/https?:\/\/\S*[^\s.,;:!?)]/g, "x")
     .replace(/\b(?:e\.g|i\.e|etc|vs|approx|fig|no|cf|dr|mr|mrs|ms|prof|st|jr|sr)\./gi, "x")
     .replace(/(\d)\.(\d)/g, "$1$2")

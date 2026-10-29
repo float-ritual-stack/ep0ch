@@ -1,5 +1,6 @@
 import { runbookPlan } from "./runbook";
 import { runnableFences, isRunbook } from "@ep0ch/outline-core/runbook";
+import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { parseProposal } from "./draft-patch";
 import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
 import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
@@ -292,10 +293,6 @@ const storedInputs = (row: ExtensionOutputRow): string | undefined => {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error);
-}
-
-function title(text: string): string {
-  return text.split("\n", 1)[0]!.trim();
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -1073,7 +1070,7 @@ export class ExtensionCalls {
       ...fetching,
       status: failed ? "stale" : "ready",
       ...(failed ? { reason: `the last run failed: ${failed}; showing the one from ${row.ranAt}`, fetchError: failed } : {}),
-      summary: cleanExtensionText(result.title ?? title(markdown) ?? ""),
+      summary: cleanExtensionText(result.title ?? firstLineWithoutPropertyTokens(markdown) ?? ""),
       fetchedAt: row.ranAt!,
       output,
     };
@@ -1100,7 +1097,7 @@ export class ExtensionCalls {
       fields: shown,
       status: state?.error ? "stale" : "ready",
       ...(state?.error ? { reason: state.error, fetchError: state.error } : {}),
-      summary: record ? title(record.text) : key,
+      summary: (record && firstLineWithoutPropertyTokens(record.text)) ?? key,
       fetchedAt: row.syncedAt,
       record: { blockId: row.blockId, pageBlockId: row.parentBlockId, syncedAt: row.syncedAt, commentBlockIds: [] },
     };

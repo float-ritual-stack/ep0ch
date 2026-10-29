@@ -4,7 +4,7 @@
  * neither can be told not to. So in a terminal the lines that hold a reference are drawn by the mod, one pressable
  * label per reference; every other line stays the engine's Markdown, in runs. Pure: the elements come from register.ts.
  */
-import { codeBlocks } from './code-fence'
+import { codeBlocks } from './link-grammar.js'
 import { outlinerUriOf } from './references'
 
 /** One drawn piece of a line: prose with its inline style, or a reference to press. */

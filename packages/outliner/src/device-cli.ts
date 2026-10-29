@@ -1,6 +1,7 @@
 // `device add <name>`, `device ls` and `device revoke <name|id>` (`ep0ch device …`, PIE-1267): the phones and other
 // devices that may send a file to the artifacts inbox with a token of their own (upload-tokens.ts), asked of this
 // machine's outline host. The token opens the upload route and nothing else; revoking one ends it from the next request.
+import { ageSince } from "@ep0ch/outline-core/age";
 import type { UploadDevice } from "@ep0ch/outline-core/protocol";
 import { outlineHostClient } from "./outline-host-client";
 import { resolveClientPaths } from "./paths";
@@ -9,11 +10,7 @@ export const DEVICE_USAGE = `device add <name> [--ws <outline>] [--json]   set u
   device ls [--json]                          the devices, when each last sent something, and which are revoked
   device revoke <name|id> [--json]            end a device's link now (a lost phone)`;
 
-const ago = (iso: string | undefined, now: number) => {
-  if (!iso) return "never";
-  const minutes = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000));
-  return minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : minutes < 48 * 60 ? `${Math.round(minutes / 60)} h ago` : `${Math.round(minutes / 1440)} days ago`;
-};
+const ago = (iso: string | undefined, now: number) => (iso ? ageSince(iso, now, "ago") : "never");
 
 export const deviceLine = (device: UploadDevice, now = Date.now()) =>
   `${device.id}  ${device.name}  (cards go to ${device.outline})\n    ${device.revokedAt ? `revoked ${ago(device.revokedAt, now)}` : `last sent ${ago(device.lastUsedAt, now)}`} · made ${device.createdAt.slice(0, 10)}`;

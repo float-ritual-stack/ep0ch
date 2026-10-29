@@ -564,6 +564,81 @@ function stripQuotes(line, n) {
 var PROPERTY_KEY_SOURCE = "[A-Za-z][A-Za-z0-9_.-]*";
 var PROPERTY_HEAD_SOURCE = String.raw`\[(${PROPERTY_KEY_SOURCE})::`;
 var PROPERTY_KEY_PATTERN = new RegExp(`^${PROPERTY_KEY_SOURCE}$`);
+var HASHTAG_VALUE_PATTERN = /[\p{L}\p{N}_][\p{L}\p{M}\p{N}_-]*(?:\/[\p{L}\p{N}_][\p{L}\p{M}\p{N}_-]*)*/u;
+var isHexColour = (value) => /^(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value) && (value.length >= 6 || /\d/.test(value) || /^(.)\1+$/i.test(value));
+function propertyValueEnd(text, from) {
+  let lineEnd = from;
+  while (lineEnd < text.length && text[lineEnd] !== `
+` && text[lineEnd] !== "\r")
+    lineEnd += 1;
+  const line = text.slice(from, lineEnd);
+  const first = line.indexOf("]");
+  if (first < 1)
+    return -1;
+  if (!line.includes("[") && !line.includes("(("))
+    return from + first;
+  const references = new Map(blockReferenceOccurrences(line, []).map((reference) => [reference.start, reference.end]));
+  let depth = 1;
+  let quote = "";
+  for (let at = 0;at < line.length; at += 1) {
+    const character = line[at];
+    if (quote) {
+      if (character === quote && !isEscapedAt(line, at))
+        quote = "";
+      continue;
+    }
+    if (depth > 1 && (character === "'" || character === '"') && /[\[,]\s*$/.test(line.slice(0, at))) {
+      quote = character;
+      continue;
+    }
+    const skip = references.get(at);
+    if (skip !== undefined) {
+      at = skip - 1;
+      continue;
+    }
+    if (character === "[")
+      depth += 1;
+    else if (character === "]" && --depth === 0)
+      return at > 0 ? from + at : -1;
+  }
+  const head = new RegExp(PROPERTY_HEAD_SOURCE, "g").exec(line);
+  if (head && head.index < first || line.slice(0, first).includes("[["))
+    return -1;
+  return from + first;
+}
+function propertyTokenMatches(text) {
+  const out = [];
+  const head = new RegExp(PROPERTY_HEAD_SOURCE, "g");
+  for (let match = head.exec(text);match; match = head.exec(text)) {
+    const valueStart = match.index + match[0].length;
+    const close = propertyValueEnd(text, valueStart);
+    if (close < 0)
+      continue;
+    const end = close + 1;
+    out.push({ key: match[1], value: text.slice(valueStart, close), raw: text.slice(match.index, end), start: match.index, end });
+    head.lastIndex = end;
+  }
+  return out;
+}
+function isEscapedAt(text, offset) {
+  let cursor = offset;
+  while (cursor > 0 && text[cursor - 1] === "\\")
+    cursor -= 1;
+  return (offset - cursor) % 2 === 1;
+}
+function propertyTokensInLine(line) {
+  const code = line.includes("`") ? codeSpanRanges(line) : [];
+  return propertyTokenMatches(line).filter((token) => !isEscapedAt(line, token.start) && !codeHides(token, code)).map((token) => ({ key: token.key.toLowerCase(), value: token.value.trim(), raw: token.raw, start: token.start, end: token.end }));
+}
+function withoutPropertyTokens(line) {
+  let out = "";
+  let cursor = 0;
+  for (const token of propertyTokensInLine(line)) {
+    out += line.slice(cursor, token.start);
+    cursor = token.end;
+  }
+  return out + line.slice(cursor);
+}
 var ADDRESS_KEYS = new Set(["page", "work-id"]);
 var QUERY_KEYS = new Set(["query"]);
 
@@ -781,6 +856,49 @@ function sourceLines(text) {
     lines.push({ start: 0, end: 0, contentEnd: 0 });
   return lines;
 }
+function fencedRangesOf(text, lines) {
+  return codeBlocks(lines.map((line) => text.slice(line.start, line.contentEnd))).fences.map((block) => ({ start: lines[block.start].start, end: lines[block.end].end }));
+}
+function offsetInRanges(offset, ranges) {
+  return ranges.some((range) => offset >= range.start && offset < range.end);
+}
+function inlineLiteralRanges(text, blockRanges) {
+  return codeSpanRanges(text).filter((span) => !offsetInRanges(span.start, blockRanges));
+}
+var LITERAL_REGION_OPEN = /^ {0,3}<!--[ \t]*literal[ \t]*-->[ \t]*$/i;
+var LITERAL_REGION_CLOSE = /^ {0,3}<!--[ \t]*\/literal[ \t]*-->[ \t]*$/i;
+function literalRegionsFromLines(text, lines, fences) {
+  const outsideFence = (line) => !offsetInRanges(line.start, fences);
+  const matches = (line, pattern) => outsideFence(line) && pattern.test(text.slice(line.start, line.contentEnd));
+  const regions = [];
+  for (let index = 0;index < lines.length; index += 1) {
+    const opening = lines[index];
+    if (!matches(opening, LITERAL_REGION_OPEN))
+      continue;
+    let closing = index + 1;
+    while (closing < lines.length && !matches(lines[closing], LITERAL_REGION_CLOSE))
+      closing += 1;
+    if (closing >= lines.length) {
+      return { regions, unterminated: { start: opening.start, end: opening.contentEnd } };
+    }
+    const closer = lines[closing];
+    regions.push({
+      start: opening.start,
+      end: closer.end,
+      opener: { start: opening.start, end: opening.contentEnd },
+      closer: { start: closer.start, end: closer.contentEnd }
+    });
+    index = closing;
+  }
+  return { regions, unterminated: null };
+}
+function scanLiteralRegions(text) {
+  const lines = sourceLines(text);
+  return literalRegionsFromLines(text, lines, fencedRangesOf(text, lines));
+}
+function literalMarkerLineStarts(text) {
+  return new Set(scanLiteralRegions(text).regions.flatMap((region) => [region.opener.start, region.closer.start]));
+}
 var YAML_FENCE_LINE = /^ {0,3}---[ \t]*$/;
 function structuralLiteralLines(lines, yaml = true) {
   const spans = [];
@@ -832,6 +950,25 @@ function quotedFenceLines(lines) {
 function structuralLiteralRanges(text, lines, withBreak = true, yaml = true) {
   const texts = lines.map((line) => text.slice(line.start, line.contentEnd));
   return structuralLiteralLines(texts, yaml).map((span) => ({ start: lines[span.start].start, end: withBreak ? lines[span.end].end : lines[span.end].contentEnd }));
+}
+function mergeRanges(ranges) {
+  const merged = [];
+  for (const range of [...ranges].sort((left, right) => left.start - right.start)) {
+    const last = merged.at(-1);
+    if (last && range.start <= last.end)
+      last.end = Math.max(last.end, range.end);
+    else
+      merged.push({ ...range });
+  }
+  return merged;
+}
+function scanPropertyLiteralRanges(text) {
+  const lines = sourceLines(text);
+  const fences = fencedRangesOf(text, lines);
+  const { regions } = literalRegionsFromLines(text, lines, fences);
+  const blockRanges = mergeRanges([...fences, ...regions, ...structuralLiteralRanges(text, lines)]);
+  const inlineLiterals = inlineLiteralRanges(text, blockRanges);
+  return mergeRanges([...blockRanges, ...inlineLiterals]);
 }
 function protectedCodeRanges(text, yaml = true) {
   const lines = text.split(`
@@ -939,6 +1076,20 @@ function blockReferenceMatches(text) {
 function blockReferenceOccurrences(text, code) {
   return outsideCode(text, blockReferenceMatches(text).filter((match) => match.label === undefined || match.label.trim()), code);
 }
+function referencedBlock(input) {
+  const text = input.trim();
+  if (BLOCK_ID_PATTERN.test(text))
+    return { blockId: text };
+  const [ref] = blockReferenceOccurrences(text);
+  if (!ref || ref.start !== 0 || ref.end !== text.length)
+    return null;
+  return {
+    blockId: ref.blockId,
+    ...ref.outline ? { outline: ref.outline } : {},
+    ...ref.fragmentId ? { fragment: ref.fragmentId } : {},
+    ...ref.label !== undefined ? { label: ref.label } : {}
+  };
+}
 function blockReferenceEnvelopeRanges(text) {
   const ranges = [];
   const references = text.includes("((") ? blockReferenceMatches(text).map((reference) => reference.start) : [];
@@ -996,6 +1147,9 @@ function pageLinkSpans(text, code = []) {
     ends.push(span.end);
   }
   return spans;
+}
+function pageLinkRanges(text) {
+  return pageLinkSpans(text).filter((span) => span.depth === 0).map(({ start, end }) => ({ start, end }));
 }
 function labelBar(authored) {
   let depth = 0;
@@ -1107,9 +1261,683 @@ function linkOccurrences(text, code) {
   }
   return outsideCode(text, out, codeRanges).sort((a, b) => a.start - b.start);
 }
+// packages/outline-core/src/output-region.ts
+var HEADER = /^(\s*)>\s*\[!(output|answer)\][+-]?\s*(.*)$/;
+var ANCHOR_END = /\s\^([A-Za-z0-9][A-Za-z0-9_-]{0,63})\s*$/;
+function digest(text) {
+  let h1 = 3735928559, h2 = 1103547991;
+  for (let i = 0;i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ h1 >>> 16, 2246822507) ^ Math.imul(h2 ^ h2 >>> 13, 3266489909);
+  h2 = Math.imul(h2 ^ h2 >>> 16, 2246822507) ^ Math.imul(h1 ^ h1 >>> 13, 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+}
+var outputHash = (body) => {
+  const lines = body.replace(/\r\n?/g, `
+`).split(`
+`).map((l) => l.trimEnd());
+  while (lines.length && !lines[0])
+    lines.shift();
+  while (lines.length && !lines.at(-1))
+    lines.pop();
+  return digest(lines.join(`
+`)).slice(0, 12);
+};
+function outputHeader(line) {
+  const m = HEADER.exec(line);
+  if (!m)
+    return null;
+  let rest = m[3];
+  const anchor = ANCHOR_END.exec(rest)?.[1];
+  if (anchor)
+    rest = rest.replace(ANCHOR_END, "");
+  const producer = referencedBlock(/\[output-of::([^\]]*)\]/.exec(rest)?.[1] ?? "")?.blockId;
+  const hash = /\[output-hash::([A-Za-z0-9]+)\]/.exec(rest)?.[1];
+  const label = rest.replace(/\[(?:output-of|output-hash)::[^\]]*\]/g, "").trim();
+  return { type: m[2], label, ...producer ? { producer } : {}, ...hash ? { hash } : {}, ...anchor ? { anchor } : {} };
+}
+function findOutputRegions(text) {
+  const lines = text.split(`
+`);
+  const regions = [];
+  let offset = 0;
+  const starts = lines.map((l) => {
+    const at = offset;
+    offset += l.length + 1;
+    return at;
+  });
+  const fenced = new Set;
+  for (const f of codeBlocks(lines).fences)
+    for (let j = f.start;j <= f.end; j++)
+      fenced.add(j);
+  for (let i = 0;i < lines.length; i++) {
+    if (fenced.has(i))
+      continue;
+    const head = outputHeader(lines[i]);
+    if (!head)
+      continue;
+    let last = i;
+    while (last + 1 < lines.length && /^\s*>/.test(lines[last + 1]) && !outputHeader(lines[last + 1]))
+      last++;
+    const body = lines.slice(i + 1, last + 1).map((l) => l.replace(/^\s*>\s?/, "")).join(`
+`);
+    const end = starts[last] + lines[last].length;
+    regions.push({
+      ...head,
+      start: starts[i],
+      end,
+      startLine: i,
+      endLine: last,
+      body,
+      edited: head.hash !== undefined && head.hash !== outputHash(body)
+    });
+    i = last;
+  }
+  return regions;
+}
+function maskOutputRegions(text) {
+  if (!text.includes("[!output]") && !text.includes("[!answer]"))
+    return text;
+  let out = text;
+  for (const r of findOutputRegions(text))
+    out = out.slice(0, r.start) + out.slice(r.start, r.end).replace(/[^\n]/g, " ") + out.slice(r.end);
+  return out;
+}
+
+// packages/outline-core/src/header-line.ts
+var SEPARATOR = /^(?:[ \t]*|[ \t]+-[ \t]+)$/;
+var HASHTAG = new RegExp(`(?<=^|[ \\t])#(?=[^ \\t]*\\p{L})(?:${HASHTAG_VALUE_PATTERN.source})(?=[ \\t\\r]|$)`, "gu");
+var PROSE_TAIL = /(?:[ \t]+-)?[ \t]+$/;
+function headerLine(text, literal = []) {
+  const lines = text.split(`
+`);
+  const line = lines.findIndex((l) => l.trim() !== "");
+  if (line < 0)
+    return { line: -1, offset: 0, end: 0, kept: 0, prose: "", dashes: [], chips: [], tags: [], body: "" };
+  let offset = 0;
+  for (let i = 0;i < line; i++)
+    offset += lines[i].length + 1;
+  const source = lines[line];
+  const inLiteral = (at) => literal.some((r) => r.start <= at && at < r.end);
+  const tokens = propertyTokensInLine(source).filter((t) => !inLiteral(offset + t.start));
+  const tagged = [...source.matchAll(HASHTAG)].filter((m) => !isHexColour(m[0].slice(1)) && !inLiteral(offset + m.index) && !isEscapedAt(source, m.index) && !tokens.some((t) => t.start <= m.index && m.index < t.end)).map((m) => ({ start: m.index, end: m.index + m[0].length }));
+  const pieces = [...tokens, ...tagged].sort((a, b) => a.start - b.start);
+  let end = source.trimEnd().length;
+  const run = [];
+  const dashes = [];
+  for (const piece of [...pieces].reverse()) {
+    const gap = source.slice(piece.end, end);
+    if (run.length ? !SEPARATOR.test(gap) : gap.trim() !== "")
+      break;
+    if (gap.includes("-"))
+      dashes.push({ start: offset + piece.end, end: offset + piece.end + gap.indexOf("-") + 1 });
+    run.unshift(piece);
+    end = piece.start;
+  }
+  const before = run.length ? source.slice(0, end).replace(PROSE_TAIL, "") : source.trimEnd();
+  if (source.slice(before.length, end).includes("-"))
+    dashes.push({ start: offset + before.length, end: offset + source.slice(0, end).lastIndexOf("-") + 1 });
+  dashes.sort((a, b) => a.start - b.start);
+  const starts = new Set(run.map((t) => t.start));
+  const chips = tokens.filter((t) => starts.has(t.start)).map((t) => ({ key: t.raw.slice(1, t.raw.indexOf("::")), value: t.value, start: offset + t.start, end: offset + t.end }));
+  const tags = tagged.filter((t) => starts.has(t.start)).map((t) => ({ start: offset + t.start, end: offset + t.end }));
+  const bodyTitle = [before, ...tags.map((t) => text.slice(t.start, t.end))].filter(Boolean).join(" ");
+  return { line, offset, end: offset + source.length, kept: before.length, prose: before, dashes, chips, tags, body: [bodyTitle, ...lines.slice(line + 1)].join(`
+`) };
+}
+var RULE_LINE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t\r]*$/;
+var LIST_LINE = /^[ \t]*[-*+][ \t]+/;
+var BARE_PROPERTY = new RegExp(String.raw`^(?:${PROPERTY_KEY_SOURCE})::`);
+var listProperty = (line) => {
+  const rest = line.replace(LIST_LINE, "");
+  return propertyTokensInLine(rest).length > 0 || BARE_PROPERTY.test(rest);
+};
+function frontMatterLines(text) {
+  const lines = text.split(`
+`);
+  const start = lines.findIndex((line) => line.trim() !== "");
+  const found = new Set;
+  for (let i = start;i >= 0 && i < lines.length && lines[i].trim(); i++) {
+    const line = lines[i];
+    if (i > start && (RULE_LINE.test(line) || LIST_LINE.test(line) && !listProperty(line)))
+      break;
+    found.add(i);
+  }
+  return found;
+}
+
+// packages/outline-core/src/artifacts.ts
+function artifactReference(value) {
+  const match = /^([a-zA-Z0-9][a-zA-Z0-9._-]*)(?:@([1-9][0-9]*))?$/.exec(value);
+  return match ? { name: match[1], ...match[2] ? { version: Number(match[2]) } : {} } : null;
+}
+var isArtifactName = (value) => artifactReference(value) !== null;
+
+// packages/outline-core/src/media-line.ts
+var ALIGNS = ["left", "center", "right"];
+var MEDIA_KEY = /^(img|image|video|artifact)$/i;
+var MEDIA_ATTRS = ["size", "height", "align", "layout", "fit", "dim", "hero-focus", "alt", "blur", "bleed", "tint", "fade", "title", "scroll"];
+var ATTRS = new Set(MEDIA_ATTRS);
+var LEAD = /^\s*(?:[-*]\s+)?/;
+var ANCHOR = /\s+\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/;
+function scanTokens(rest) {
+  const toks = [];
+  let i = 0;
+  while (i < rest.length) {
+    const head = /^\[([A-Za-z][\w-]*)::/.exec(rest.slice(i));
+    if (!head)
+      return null;
+    let j = i + head[0].length, depth = 0;
+    for (;j < rest.length; j++) {
+      if (rest[j] === "[")
+        depth++;
+      else if (rest[j] === "]") {
+        if (depth === 0)
+          break;
+        depth--;
+      }
+    }
+    if (j >= rest.length)
+      return null;
+    toks.push({ key: head[1], value: rest.slice(i + head[0].length, j).trim() });
+    i = j + 1;
+    const gap = /^\s*/.exec(rest.slice(i))[0].length;
+    if (gap === 0 && i < rest.length)
+      return null;
+    i += gap;
+  }
+  return toks;
+}
+function tokens(line) {
+  const anchor = ANCHOR.exec(line)?.[0] ?? "";
+  const body = anchor ? line.slice(0, -anchor.length) : line.trimEnd();
+  const lead = LEAD.exec(body)[0], rest = body.slice(lead.length);
+  const blockForm = /^(img|image|video|artifact)::\s*(.*)$/i.exec(rest);
+  if (blockForm) {
+    const tail = /(?:^|\s)(\[(?:size|height|align|layout|fit|dim|hero-focus|alt|blur|bleed|tint|fade|title|scroll)::.*)$/i.exec(blockForm[2]);
+    const path = (tail ? blockForm[2].slice(0, tail.index) : blockForm[2]).trim();
+    const more = tail ? scanTokens(tail[1]) : [];
+    if (!path || path.startsWith("[") || !more)
+      return null;
+    return { lead, toks: [{ key: blockForm[1], value: path }, ...more], block: true, anchor };
+  }
+  const toks = rest ? scanTokens(rest) : null;
+  return toks ? { lead, toks, block: false, anchor } : null;
+}
+var isMediaLine = (line) => parseMediaLine(line) !== null;
+function parseMediaLine(line) {
+  const t = tokens(line);
+  if (!t)
+    return null;
+  const media = t.toks.filter((x) => MEDIA_KEY.test(x.key));
+  if (media.length !== 1 || !media[0].value || t.toks.some((x) => !MEDIA_KEY.test(x.key) && !ATTRS.has(x.key.toLowerCase())))
+    return null;
+  const key = media[0].key.toLowerCase();
+  const spec = { kind: key === "video" ? "video" : key === "artifact" ? "artifact" : "img", path: media[0].value, problems: [] };
+  if (spec.kind === "artifact" && !artifactKind(spec.path) && !isArtifactName(spec.path))
+    spec.problems.push(`${fileName(spec.path)} isn't an artifact (${ARTIFACT_EXTENSIONS})`);
+  const seen = new Set;
+  for (const { key, value } of t.toks) {
+    const k = key.toLowerCase(), v = value.trim().toLowerCase();
+    if (MEDIA_KEY.test(k))
+      continue;
+    if (spec.kind === "artifact" && !ARTIFACT_ATTRS.has(k)) {
+      spec.problems.push(`${k}:: is an image's: an artifact takes size, height, align and alt`);
+      continue;
+    }
+    if (seen.has(k)) {
+      spec.problems.push(`${k} is written twice: the first counts`);
+      continue;
+    }
+    seen.add(k);
+    if (k === "size") {
+      const size = parseSize(v);
+      if (size)
+        spec.size = size;
+      else
+        spec.problems.push(`size::${value} isn't a size (cells, N% or full)`);
+    } else if (k === "height") {
+      if (/^\d{1,2}%$/.test(v) && parseInt(v) > 0 && parseInt(v) <= 50)
+        spec.heightShare = parseInt(v) / 100;
+      else if (/^\d{1,3}$/.test(v) && +v > 0)
+        spec.height = +v;
+      else
+        spec.problems.push(`height::${value} isn't a number of rows`);
+    } else if (k === "align") {
+      if (ALIGNS.includes(v))
+        spec.align = v;
+      else
+        spec.problems.push(`align::${value} isn't left, center or right`);
+    } else if (k === "layout") {
+      if (v === "hero")
+        spec.layout = "hero";
+      else
+        spec.problems.push(`layout::${value} isn't a layout (hero)`);
+    } else if (k === "fit") {
+      if (v === "cover" || v === "contain")
+        spec.fit = v;
+      else
+        spec.problems.push(`fit::${value} isn't cover or contain`);
+    } else if (k === "dim") {
+      const d = parseDim(v);
+      if (d !== null)
+        spec.dim = d;
+      else
+        spec.problems.push(`dim::${value} isn't a number from 0 to 1`);
+    } else if (k === "blur") {
+      if (/^\d+$/.test(v) && +v <= 24)
+        spec.blur = +v;
+      else
+        spec.problems.push(`blur::${value} must be 0 to 24`);
+    } else if (k === "tint" || k === "fade") {
+      const n = parseDim(v);
+      if (n !== null)
+        spec[k] = n;
+      else
+        spec.problems.push(`${k}::${value} must be 0 to 1`);
+    } else if (k === "bleed") {
+      if (v === "full" || v === "measure")
+        spec.bleed = v;
+      else
+        spec.problems.push(`bleed::${value} must be full or measure`);
+    } else if (k === "title") {
+      if (v === "below" || v === "over")
+        spec.title = v;
+      else
+        spec.problems.push(`title::${value} must be below or over`);
+    } else if (k === "scroll") {
+      if (v === "scroll" || v === "pinned")
+        spec.scroll = v;
+      else
+        spec.problems.push(`scroll::${value} must be scroll or pinned`);
+    } else if (k === "hero-focus") {
+      const f = parseFocus(v);
+      if (f)
+        spec.focus = f;
+      else
+        spec.problems.push(`hero-focus::${value} isn't a point (x,y: 0 to 1, or percents)`);
+    } else if (k === "alt")
+      spec.alt = value.trim();
+  }
+  return spec;
+}
+var ARTIFACT_ATTRS = new Set(["size", "height", "align", "alt"]);
+var ARTIFACT_KINDS = {
+  ".jsx": "react",
+  ".tsx": "react",
+  ".html": "html",
+  ".htm": "html",
+  ".svg": "svg",
+  ".mermaid": "mermaid",
+  ".mmd": "mermaid"
+};
+var ARTIFACT_EXTENSIONS = ".jsx, .tsx, .html, .svg or .mermaid";
+var fileName = (path) => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "file";
+function artifactKind(path) {
+  const ext = /\.[A-Za-z0-9]+$/.exec(fileName(path))?.[0]?.toLowerCase();
+  return ext && ARTIFACT_KINDS[ext] || null;
+}
+function parseSize(v) {
+  const s = v.trim().toLowerCase();
+  if (s === "full")
+    return "full";
+  const pc = /^(\d{1,3})%$/.exec(s);
+  if (pc && +pc[1] > 0 && +pc[1] <= 100)
+    return { percent: +pc[1] };
+  if (/^\d{1,4}$/.test(s) && +s > 0)
+    return { cells: +s };
+  return null;
+}
+function parseDim(v) {
+  const s = v.trim();
+  return /^(0|1|0?\.\d+|1\.0+)$/.test(s) ? Number(s) : null;
+}
+function parseFocus(v) {
+  const parts = v.split(",").map((x) => x.trim());
+  if (parts.length !== 2)
+    return null;
+  const [x, y] = parts.map((p) => {
+    const pc = /^(\d{1,3}(?:\.\d+)?)%$/.exec(p);
+    return pc ? +pc[1] / 100 : parseDim(p);
+  });
+  return x !== null && x !== undefined && y !== null && y !== undefined && x <= 1 && y <= 1 ? { x, y } : null;
+}
+var tenths = Array.from({ length: 11 }, (_, i) => String(i / 10));
+var HERO_PROPS = {
+  height: { attr: "height", what: "the header's rows (a number), or a share of the reader (25%), at most half of it", none: "a third", steps: Array.from({ length: 19 }, (_, i) => String(4 + i * 2)) },
+  "focus.x": { attr: "hero-focus", what: "the point the crop keeps in view, across (0 left … 1 right)", none: "0.5", steps: tenths },
+  "focus.y": { attr: "hero-focus", what: "the point the crop keeps in view, down (0 top … 1 bottom)", none: "0.5", steps: tenths },
+  fit: { attr: "fit", what: "cover crops it to fill; contain shows it whole", none: "cover", steps: ["none", "contain"] },
+  dim: { attr: "dim", what: "darken it, 0 (as it is) to 1 (black)", none: "auto", steps: ["none", "0", "0.2", "0.4", "0.6", "0.8", "1"] },
+  tint: { attr: "tint", what: "duotone toward the tile's tone, 0 (as it is) to 1", none: "0", steps: ["none", "0.25", "0.5", "0.75", "1"] },
+  fade: { attr: "fade", what: "the share of its bottom that fades into the reader, 0 to 1", none: "0", steps: ["none", "0.25", "0.5", "0.75", "1"] },
+  blur: { attr: "blur", what: "soften it, 0 (sharp) to 24", none: "0", steps: ["none", "1", "2", "4", "8", "12", "16", "24"] },
+  bleed: { attr: "bleed", what: "full spans the tile; measure follows the text column", none: "full", steps: ["none", "measure"] },
+  title: { attr: "title", what: "the title below the picture, or over its bottom", none: "below", steps: ["none", "over"] },
+  scroll: { attr: "scroll", what: "scroll away with the note, or stay pinned above it", none: "scroll", steps: ["none", "pinned"] }
+};
+var HERO_PROP_NAMES = Object.keys(HERO_PROPS);
+
+// packages/outline-core/src/heading-styles.ts
+var style = (name, s) => ({
+  name,
+  pattern: "stack",
+  rows: 3,
+  align: "center",
+  row: "middle",
+  padding: { rows: 0, cols: 2 },
+  margin: { top: 0, cols: 0, bottom: 0 },
+  tone: "neutral",
+  letters: "plain",
+  defaults: [],
+  ...s
+});
+var BUILTIN_HEADING_STYLES = [
+  style("band", { letters: "spaced" }),
+  style("tab", { align: "left", row: "top", letters: "upper", padding: { rows: 0, cols: 1 } }),
+  style("waffle", { pattern: "waffle" }),
+  style("uptime", { pattern: "uptime", rows: 2, align: "left", row: "bottom" }),
+  style("dots", { pattern: "dots", align: "left" }),
+  style("rule", { pattern: "rule", letters: "upper" }),
+  style("fade", { rows: 1 })
+];
+function headingStyleRegistry(custom = []) {
+  const styles = BUILTIN_HEADING_STYLES.map((s) => ({ ...s }));
+  for (const c of custom) {
+    const at = styles.findIndex((s) => s.name === c.name);
+    if (at >= 0)
+      styles[at] = c;
+    else
+      styles.push(c);
+  }
+  const by = new Map(styles.map((s) => [s.name, s]));
+  const defaults = new Map;
+  for (const s of styles)
+    for (const d of s.defaults)
+      defaults.set(d, s);
+  return {
+    styles,
+    style: (name) => by.get(name.trim().toLowerCase()) ?? null,
+    forLevel: (level) => defaults.get(level) ?? null,
+    forRule: () => defaults.get("rule") ?? null
+  };
+}
+var BUILTIN_HEADING_STYLE_REGISTRY = headingStyleRegistry();
+var HEADING_FIELD_KEYS = ["heading-pattern", "heading-rows", "heading-align", "heading-row", "heading-padding", "heading-margin", "heading-tone", "heading-letters"];
+var FIELD_KEYS = new Set(HEADING_FIELD_KEYS);
+var BASE_HEADING_STYLE = style("", {});
+// packages/outline-core/src/annotation-marks.ts
+var ANNOTATION_EDITED_KEY = "annotation-edited";
+var ANNOTATION_OWN_KEYS = new Set(["type", "annotation-source", "annotation-status", "parent-annotation", "promoted-block", ANNOTATION_EDITED_KEY]);
+var MARK_HEADING = /^(?:Comment on |[A-Z][a-z-]{0,23}(?: on “|$))/;
+var MARK_TYPES = new Set(["annotation", "annotation-reply"]);
+function markTitleLine(text) {
+  const lines = text.split(`
+`);
+  if (!MARK_HEADING.test(lines[0]))
+    return null;
+  const meta = lines[1] ?? "";
+  if (!propertyTokensInLine(meta).some((token) => token.key.toLowerCase() === "type" && MARK_TYPES.has(token.value.trim())))
+    return null;
+  for (let i = 2;i < lines.length; i++) {
+    const words = withoutPropertyTokens(lines[i]).replace(/\s+/g, " ").trim();
+    if (words)
+      return { line: i, text: words };
+  }
+  return { line: 0, text: lines[0].replace(/\*\*|__|`+/g, "").replace(/\s+/g, " ").trim() };
+}
+
+// packages/outline-core/src/property-parse.ts
+var BARE_PROPERTY_PATTERN = new RegExp(String.raw`^([ \t]*(?:[-*+][ \t]+)?)(${PROPERTY_KEY_SOURCE})::[ \t]*`);
+var DIRECTIVE_LINE_PATTERN = new RegExp(String.raw`^([ \t]*)(?:([-*+])[ \t]+)?(${PROPERTY_KEY_SOURCE})::`);
+function containsNonWhitespace(text, start, end) {
+  for (let cursor = start;cursor < end; cursor += 1) {
+    if (!/\s/.test(text[cursor]))
+      return true;
+  }
+  return false;
+}
+function removeRanges(text, ranges, start = 0, end = text.length) {
+  if (ranges.length === 0)
+    return text.slice(start, end);
+  const parts = [];
+  let cursor = start;
+  for (const range of ranges) {
+    if (range.end <= cursor)
+      continue;
+    if (range.start >= end)
+      break;
+    if (cursor < range.start)
+      parts.push(text.slice(cursor, range.start));
+    cursor = Math.min(Math.max(cursor, range.end), end);
+  }
+  if (cursor < end)
+    parts.push(text.slice(cursor, end));
+  return parts.join("");
+}
+function propertyCandidateLines(candidates) {
+  const byLine = new Map;
+  for (const candidate of candidates) {
+    const lineCandidates = byLine.get(candidate.line);
+    if (lineCandidates)
+      lineCandidates.push(candidate);
+    else
+      byLine.set(candidate.line, [candidate]);
+  }
+  return byLine;
+}
+function lineContainsOnlyProperties(text, line, candidates) {
+  if (candidates.length === 0)
+    return false;
+  let cursor = line.start;
+  for (const candidate of candidates) {
+    if (!/^[ \t]*(?:[-*+][ \t]+)?$/.test(text.slice(cursor, candidate.start)))
+      return false;
+    cursor = candidate.end;
+  }
+  return !containsNonWhitespace(text, cursor, line.contentEnd);
+}
+function parseBarePropertyCandidate(text, line, lineIndex, literalRanges, bracketCandidates) {
+  const content = text.slice(line.start, line.contentEnd);
+  const match = BARE_PROPERTY_PATTERN.exec(content);
+  if (!match)
+    return null;
+  const start = line.start + match[1].length;
+  if (offsetInRanges(start, literalRanges))
+    return null;
+  const valueStart = line.start + match[0].length;
+  const firstBracket = bracketCandidates.find((candidate) => candidate.start >= valueStart);
+  let end = firstBracket?.start ?? line.contentEnd;
+  while (end > valueStart && /[ \t]/.test(text[end - 1]))
+    end -= 1;
+  const value = text.slice(valueStart, end).trim();
+  if (!value)
+    return null;
+  return {
+    key: match[2].toLowerCase(),
+    value,
+    raw: text.slice(start, end),
+    start,
+    end,
+    line: lineIndex,
+    column: start - line.start,
+    placement: "metadata-line",
+    syntax: "bare"
+  };
+}
+function hashtagCandidates(text, lines, literalRanges, properties) {
+  if (!text.includes("#"))
+    return [];
+  const excluded = [...literalRanges, ...protectedCodeRanges(text), ...properties, ...blockReferenceEnvelopeRanges(text)];
+  for (const token of propertyTokenMatches(text))
+    excluded.push({ start: token.start, end: token.end });
+  excluded.push(...pageLinkRanges(text));
+  for (const pattern of [
+    /!?\[[^\]\r\n]*\]\((?:\\.|[^\\)\r\n])*\)/g,
+    /^[ \t]{0,3}\[[^\]\r\n]+\]:[^\r\n]*/gm,
+    /\b(?:[a-z][a-z0-9+.-]*:\/\/|www\.)[^\s<>]+/gi
+  ]) {
+    for (const match of text.matchAll(pattern)) {
+      excluded.push({ start: match.index, end: match.index + match[0].length });
+    }
+  }
+  const candidates = [];
+  let lineIndex = 0;
+  for (const match of text.matchAll(new RegExp(`#(${HASHTAG_VALUE_PATTERN.source})`, "gu"))) {
+    const start = match.index;
+    if (!/\p{L}/u.test(match[1]) || isHexColour(match[1]) || isEscapedAt(text, start) || offsetInRanges(start, excluded))
+      continue;
+    let boundary = start;
+    while (boundary > 0 && text[boundary - 1] === "\\")
+      boundary -= 1;
+    if (boundary > 0 && !/[\s([{"'“‘]/u.test(text[boundary - 1]))
+      continue;
+    while (lineIndex + 1 < lines.length && lines[lineIndex].end <= start)
+      lineIndex += 1;
+    candidates.push({
+      key: "tag",
+      value: match[1],
+      raw: match[0],
+      start,
+      end: start + match[0].length,
+      line: lineIndex,
+      column: start - lines[lineIndex].start,
+      placement: "inline",
+      syntax: "hashtag"
+    });
+  }
+  return candidates;
+}
+function parsePropertyRecords(source) {
+  const text = maskOutputRegions(source);
+  const literalRanges = scanPropertyLiteralRanges(text);
+  const matches = [];
+  let literalIndex = 0;
+  for (const match of propertyTokenMatches(text)) {
+    const start = match.start;
+    while (literalIndex < literalRanges.length && literalRanges[literalIndex].end <= start) {
+      literalIndex += 1;
+    }
+    let isLiteral = false;
+    for (let i = literalIndex;i < literalRanges.length && literalRanges[i].start < match.end && !isLiteral; i += 1) {
+      isLiteral = codeHides(match, [literalRanges[i]]);
+    }
+    if (!isLiteral && !isEscapedAt(text, start))
+      matches.push({ match, start });
+  }
+  const lines = sourceLines(text);
+  const bracketCandidates = [];
+  for (let lineIndex = 0, matchIndex = 0;lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
+    const lineMatches = [];
+    while (matchIndex < matches.length && matches[matchIndex].start < line.end) {
+      lineMatches.push(matches[matchIndex]);
+      matchIndex += 1;
+    }
+    if (lineMatches.length === 0)
+      continue;
+    for (let index = 0;index < lineMatches.length; index += 1) {
+      const { match, start } = lineMatches[index];
+      const raw = match.raw;
+      bracketCandidates.push({
+        key: match.key.toLowerCase(),
+        value: match.value.trim(),
+        raw,
+        start,
+        end: start + raw.length,
+        line: lineIndex,
+        column: start - line.start,
+        placement: "inline",
+        syntax: "bracket"
+      });
+    }
+  }
+  const bracketCandidatesByLine = propertyCandidateLines(bracketCandidates);
+  const bareCandidates = lines.flatMap((line, lineIndex) => {
+    const candidate = parseBarePropertyCandidate(text, line, lineIndex, literalRanges, bracketCandidatesByLine.get(lineIndex) ?? []);
+    return candidate ? [candidate] : [];
+  });
+  const explicitCandidates = [...bracketCandidates, ...bareCandidates];
+  const candidates = [
+    ...explicitCandidates,
+    ...hashtagCandidates(text, lines, literalRanges, explicitCandidates)
+  ].sort((left, right) => left.start - right.start);
+  const candidatesByLine = propertyCandidateLines(candidates);
+  const mediaLine = (lineIndex) => isMediaLine(text.slice(lines[lineIndex].start, lines[lineIndex].contentEnd));
+  for (const [lineIndex, lineCandidates] of candidatesByLine) {
+    const media = mediaLine(lineIndex);
+    const metadataLine = !media && lineContainsOnlyProperties(text, lines[lineIndex], lineCandidates);
+    let trailing = true;
+    let end = lines[lineIndex].contentEnd;
+    for (let index = lineCandidates.length - 1;index >= 0; index -= 1) {
+      const candidate = lineCandidates[index];
+      trailing &&= !containsNonWhitespace(text, candidate.end, end);
+      if (candidate.syntax !== "bare") {
+        candidate.placement = metadataLine ? "metadata-line" : trailing ? "trailing-metadata" : "inline";
+      }
+      end = candidate.start;
+    }
+  }
+  const front = frontMatterLines(text);
+  const header = new Set(headerLine(text, literalRanges).chips.map((chip) => chip.start));
+  for (const candidate of candidates) {
+    if (header.has(candidate.start) && candidate.placement === "inline")
+      candidate.placement = "trailing-metadata";
+  }
+  return candidates.map((candidate, ordinal) => {
+    let scope;
+    if (candidate.syntax === "hashtag") {
+      scope = "block";
+    } else if (front.has(candidate.line) && !mediaLine(candidate.line)) {
+      scope = "block";
+    } else if (candidate.syntax === "bracket" && header.has(candidate.start)) {
+      scope = "block";
+    } else {
+      scope = candidate.syntax === "bare" ? "line" : "inline";
+    }
+    return { ...candidate, ordinal, scope };
+  });
+}
+function withHeaderDashes(text, ranges) {
+  const dashes = headerLine(text, scanPropertyLiteralRanges(text)).dashes;
+  return dashes.length ? [...ranges, ...dashes].sort((left, right) => left.start - right.start) : [...ranges];
+}
+function titlePropertyRanges(text) {
+  const tags = new Set(headerLine(text, scanPropertyLiteralRanges(text)).tags.map((tag) => tag.start));
+  return withHeaderDashes(text, parsePropertyRecords(text).filter((property) => property.syntax !== "hashtag" || tags.has(property.start)));
+}
+function noteTitleLine(text) {
+  const mark = markTitleLine(text);
+  if (mark)
+    return mark;
+  const tokens = titlePropertyRanges(text);
+  const markerStarts = literalMarkerLineStarts(text);
+  let tokenIndex = 0, index = -1, first = -1;
+  for (const line of sourceLines(text)) {
+    index += 1;
+    const firstLineToken = tokenIndex;
+    while (tokenIndex < tokens.length && tokens[tokenIndex].start < line.end)
+      tokenIndex += 1;
+    if (markerStarts.has(line.start))
+      continue;
+    if (first < 0 && text.slice(line.start, line.contentEnd).trim())
+      first = index;
+    const lineWithoutProperties = removeRanges(text, tokens.slice(firstLineToken, tokenIndex), line.start, line.contentEnd).trim();
+    if (lineWithoutProperties)
+      return { line: index, text: lineWithoutProperties };
+  }
+  return { line: first, text: "" };
+}
+function firstLineWithoutPropertyTokens(text) {
+  return noteTitleLine(text).text || undefined;
+}
 export {
   BLOCK_ID_PATTERN,
   codeRangesOf,
+  firstLineWithoutPropertyTokens,
   linkOccurrences,
   pageAddressReferences,
   pageAddressText

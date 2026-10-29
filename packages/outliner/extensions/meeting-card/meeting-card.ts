@@ -10,14 +10,15 @@ interface Request {
   input: {
     rule: string;
     hit: { at: "block" | "construct" | "text"; line: number; text: string };
-    context: { block: { id: string; text: string; title?: string; properties: Property[] }; children: { id: string; text: string }[] };
+    context: { block: { id: string; text: string; title: string; properties: Property[] }; children: { id: string; text: string }[] };
   };
 }
 
 const request = (await Bun.stdin.json()) as Request;
 const { block, children } = request.input.context;
 const values = (key: string) => block.properties.filter((p) => p.key === key).flatMap((p) => p.values ?? (p.value === undefined ? [] : [p.value])).map((v) => v.trim()).filter(Boolean);
-const title = (block.title ?? block.text.split("\n", 1)[0]!.replace(/\[[^\]\n]*::[^\]\n]*\]/g, "")).trim();
+// The title the service read (outline-core's note title), never a second reading of the text.
+const title = block.title.trim();
 const who = values("attendees");
 const when = values("when")[0] ?? "no time set";
 const where = values("where")[0];

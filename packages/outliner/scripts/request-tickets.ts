@@ -12,6 +12,7 @@ import { parseArgs } from "node:util";
 import { createOutlinerClient } from "../src/client";
 import { resolveClientPaths } from "../src/paths";
 import { workIdReferences } from "../src/work-ids";
+import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import type { AnnotationThread, Block } from "../src/types";
 
 const { values } = parseArgs({
@@ -37,7 +38,7 @@ for (const item of items) {
 interface Row { id: string; title: string; ticket: string | null; candidates: Array<{ workId: string; from: string }> }
 const rows: Row[] = [];
 for (const copy of await query("type=request")) {
-  const title = (copy.text.split("\n")[0] ?? "").replace(/\s*\[[^\]]*::[^\]]*\]/g, "").trim().slice(0, 90);
+  const title = (firstLineWithoutPropertyTokens(copy.text) ?? "").slice(0, 90);
   const ticket = prop(copy, "ticket")[0] ?? null;
   if (ticket) { rows.push({ id: copy.id, title, ticket, candidates: [] }); continue; }
   const threads = await client.request<AnnotationThread[]>({

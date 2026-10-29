@@ -807,7 +807,7 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     const body = screen().split("\n").slice(stage.row + r.row + 1, stage.row + r.row + r.rows - 1)
       .map(line => line.slice(stage.col + r.col + 1, stage.col + r.col + r.cols - 1)).join("\n");
     expect(body).not.toContain("\u2261");
-    expect(body).not.toMatch(/ran (just now|\d+ min ago)|\[keep\]|run again|\[!output\]|╭─ ▾ .*output/);
+    expect(body).not.toMatch(/ran (just now|\d+ s ago|\d+ min ago)|\[keep\]|run again|\[!output\]|╭─ ▾ .*output/);
     // The way in: the header's [sources], S, or a selection's "Where from" opens the Sources inspector beside the note.
     expect(screen()).toContain("[sources]");
     const opened = await app.act({ action: "sources.open", args: {}, tile: "notes", as: "test-agent" }) as { opened?: boolean; sources?: { name: string }[] };

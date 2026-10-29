@@ -11,6 +11,7 @@
 // The door and the service speak one PROTOCOL (outline-core), so there is no capability to check: without an
 // outline connection, or in a note whose text names no Resource (mayHaveProjections), nothing is read and nothing
 // extra is drawn.
+import { ageSince } from "@ep0ch/outline-core/age";
 import { subject, type Msg } from "./board";
 import { shade } from "./embeds";
 import { printable, type Source } from "./props";
@@ -151,18 +152,6 @@ export function localTime(iso: string): string {
   return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} ${p(date.getHours())}:${p(date.getMinutes())}`;
 }
 
-/** Detail's `relativeAge`: "12 min ago", painted when drawn, never kept. */
-export function relativeAge(fromIso: string, now: number): string {
-  const elapsed = now - Date.parse(fromIso);
-  if (!Number.isFinite(elapsed)) return "";
-  const minutes = Math.max(0, Math.floor(elapsed / 60_000));
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours} h ago`;
-  return `${Math.floor(hours / 24)} d ago`;
-}
-
 const STATUS_LABELS: Readonly<Record<string, string>> = {
   "not-fetched": "not fetched yet",
   "not-registered": "not registered",
@@ -295,7 +284,7 @@ function excerpt(record: Msg, rows: number): string[] {
 /** What the age line says: fetching, why it can't, or how old the copy is, with `r` to refresh. */
 function ageLine(p: ResourceProjection, now: number): { text: string; bad: boolean } {
   const when = p.fetchedAt ?? p.record?.syncedAt;
-  const age = when ? `fetched ${relativeAge(when, now)}` : "";
+  const age = when ? `fetched ${ageSince(when, now, "ago")}` : "";
   if (p.fetching) return { text: [age, "fetching…"].filter(Boolean).join(" · "), bad: false };
   if (p.fetchError) return { text: `can't fetch: ${drawnInline(p.fetchError.replace(/^Resource extension: /, ""))}${age ? ` · ${age}` : ""}`, bad: true };
   return { text: `${age || "not fetched"}${p.freshness === "stale" ? " · stale" : ""} · r refresh`, bad: false };
@@ -377,7 +366,7 @@ export function ticketBlocksOf(p: ResourceProjection, src: Source | null | undef
 /** The layout with the age painted after the fetched time, as Detail's reader paints it. */
 export function projectionText(p: ResourceProjection, now: number): string[] {
   const l = projectionLayout(p);
-  const age = p.fetchedAt && l.fetchedLine !== undefined ? relativeAge(p.fetchedAt, now) : "";
+  const age = p.fetchedAt && l.fetchedLine !== undefined ? ageSince(p.fetchedAt, now, "ago") : "";
   return l.lines.map((line, i) => (age && i === l.fetchedLine ? `${line} (${age})` : line));
 }
 
@@ -640,7 +629,7 @@ export function extensionRegion(p: ResourceProjection, w: number, now: number, l
   const ready = (p.status === "ready" || p.status === "stale") && (p.output || p.summary !== undefined);
   const bad = !ready && p.status !== "not-run" && p.status !== "not-fetched";
   const when = p.output?.ranAt ?? p.fetchedAt;
-  const age = when ? relativeAge(when, now) : "";
+  const age = when ? ageSince(when, now, "ago") : "";
   const status = p.kind === "agent"
     ? [p.agent?.status ? drawnInline(p.agent.status) : "", p.summary && p.summary !== p.agent?.status ? drawnInline(p.summary) : ""].filter(Boolean).join(" · ")
     : ready ? (p.output ? `ran ${age || localTime(p.output.ranAt)}` : drawnInline(p.summary ?? "")) : (STATUS_LABELS[p.status] ?? drawnInline(String(p.status)));

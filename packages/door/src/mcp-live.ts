@@ -12,6 +12,7 @@
 // A write tries again inside the backoff (`fresh`, PIE-1351): a queued write costs far more than a 2 s wait, and a link
 // that dropped for a minute is often back. A write that then gets no answer marks the machine away (`lost`), so the
 // next calls don't wait on it too.
+import { age } from "@ep0ch/outline-core/age";
 import { meetRules } from "@ep0ch/outliner/client-code";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { forwardTo } from "./machine";
@@ -48,7 +49,6 @@ export interface LiveOptions {
   log?: (line: string) => void;
 }
 
-const ago = (ms: number) => ms < 1500 ? "just now" : `${Math.round(ms / 1000)}s ago`;
 const firstLine = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0]!;
 
 /**
@@ -85,7 +85,7 @@ export class LiveMachines {
   }
 
   private said(machine: string, v: Extract<Verdict, { up: false }>) {
-    return `${machine} didn't answer over link or ssh (tried ${ago(this.now() - v.at)}): ${v.why}`;
+    return `${machine} didn't answer over link or ssh (tried ${age(this.now() - v.at, "ago")}): ${v.why}`;
   }
 
   private away(machine: string, v: Extract<Verdict, { up: false }>): LiveAnswer {

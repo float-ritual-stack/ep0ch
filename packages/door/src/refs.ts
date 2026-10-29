@@ -19,6 +19,7 @@ import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } 
 import { resourceProviderKeys } from "./resource-providers";
 import { codeHides, codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
 import { blockReferenceOccurrences, linkOccurrences, qualifiedReference, pageAddressText } from "@ep0ch/outline-core/link-syntax";
+import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, pairValues, problemWords, readerWords } from "@ep0ch/outline-core/site-values";
 import type { SiteAnswer, SiteLink, SiteValue } from "@ep0ch/outline-core/site";
@@ -396,7 +397,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   for (const block of componentBlocks(lines)) {
     if (block.name !== "if") continue;
     const body = lines.slice(block.start + 1, block.end);
-    if (body.some(l => COMPONENT_OPEN.test(l) || /^\s*(```|~~~|---\s*$)/.test(l))) continue;
+    if (body.some(l => COMPONENT_OPEN.test(l) || /^\s*---\s*$/.test(l)) || codeBlocks(body).fences.length) continue;
     for (let j = block.start + 1; j < block.end; j++) if (typed[j] === block.start) typed[j] = -1;
   }
   // A `{{ }}` as the reader draws it: tagged as an element of its own, never in a link's colour unless it is a URL.

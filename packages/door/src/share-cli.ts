@@ -2,6 +2,7 @@
 // whole outline, or to one artifact on its own, served by the publisher's public listener; and what the person's web client shows now (`reader.view`).
 // One set of verbs everywhere: `ep0ch share`, the MCP's share tools and the door's share actions all call these, and the
 // tailnet's `/pub/shares` page lists the same sessions. Starting one is the one approval it needs: nothing asks again.
+import { ageSince } from "@ep0ch/outline-core/age";
 import { boardFor, type Out } from "./notes-cli";
 import { resolveBoardRef } from "./mcp-writes";
 import { USER, type Actor } from "./socket";
@@ -93,8 +94,7 @@ export function shareLine(share: ShareSession, now = Date.now()): string {
 /** What the reader shows, in words an agent can say back. */
 export function readerLine(view: ReaderView | null, now = Date.now()): string {
   if (!view) return "no web client page has said what it shows (open a note's page on the tailnet, or a share link)";
-  const ago = Math.max(0, Math.round((now - Date.parse(view.at)) / 1000));
-  const when = ago < 60 ? `${ago}s ago` : `${Math.round(ago / 60)} min ago`;
+  const when = ageSince(view.at, now, "ago");
   const where = `${view.title || "(untitled)"}${view.blockId ? ` ((${view.blockId}))` : ""} · ${view.url} · ${view.reader} · ${when}`;
   if (!view.selection) return `${where}\n  nothing selected`;
   return `${where}\n  selected${view.selection.blockId && view.selection.blockId !== view.blockId ? ` in ((${view.selection.blockId}))` : ""}: “${view.selection.text}”${view.selection.truncated ? " (cut at 2,000 characters)" : ""}`;

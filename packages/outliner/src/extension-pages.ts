@@ -2,6 +2,7 @@ import { commandLine } from "@ep0ch/outline-core/component-block";
 import { extensionKeyLines, keyLineWords } from "./secret-keys";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
+import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { namesDemoIds, readDemo, rewriteDemoReferences, type Demo } from "./extension-demo";
@@ -455,7 +456,7 @@ export class ExtensionPages {
     this.store.changes.run(this.store.changes.attribution({ action: "extensions.uninstall", actor: SYSTEM, ...(requestedBy ? { requestedBy } : {}) }), () => {
       for (const { block } of records) {
         if (!clean(block.id)) {
-          if (block.revision !== revisionOf.get(block.id)) kept.push(block.text.split("\n")[0]!.replace(/\s*\[[^\]]*::[^\]]*\]/g, "").trim() || block.id);
+          if (block.revision !== revisionOf.get(block.id)) kept.push(firstLineWithoutPropertyTokens(block.text) ?? block.id);
           continue;
         }
         // Only the top of a clean subtree goes to Trash; what's under it goes with it (and comes back with a restore).

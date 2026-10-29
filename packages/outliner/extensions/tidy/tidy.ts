@@ -1,6 +1,7 @@
 // draft.patch owns attribution, conflict handling and undo.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { codeFenceLines } from "./link-grammar.js";
 import { LIST_ITEM, tidyPassage } from "./tidy-line";
 
 interface Request {
@@ -12,9 +13,9 @@ interface Request {
 const request = (await Bun.stdin.json()) as Request;
 const ok = (value: unknown) => process.stdout.write(JSON.stringify({ ok: true, value }));
 
-function listStart(lines: string[], from: number, to: number): number | null {
+function listStart(lines: string[], fenced: readonly number[], from: number, to: number): number | null {
   for (let at = from; at <= to; at++) {
-    if (/^\s*(?:`{3,}|~{3,})/.test(lines[at]!)) return null;
+    if (fenced[at]! >= 0) return null;
     if (LIST_ITEM.test(lines[at]!)) return at;
   }
   return null;
@@ -79,12 +80,14 @@ async function respond() {
   // Adjacent asks are about the passage, never about each other's instructions.
   while (end >= 1 && (!lines[end]!.trim() || /^\s*(?:[-*+]\s+)?@[a-z][a-z0-9-]*(?:\s|$)/.test(lines[end]!))) end--;
   let start = end;
+  // The note's fences, read once over the whole note: a passage can start inside one.
+  const fenced = codeFenceLines(lines);
   const instruction = request.input.request.trim();
   const all = /^all$/i.test(instruction);
   if (all) start = 1;
   else while (start > 1 && lines[start - 1]!.trim() && !/^\s*(?:[-*+]\s+)?@/.test(lines[start - 1]!)) start--;
   start = Math.max(start, 1);
-  if (!all) start = listStart(lines, start, end) ?? start;
+  if (!all) start = listStart(lines, fenced, start, end) ?? start;
   // Blank lines and continuation paragraphs belong to the list; an earlier ask is a boundary.
   if (!all && (LIST_ITEM.test(lines[start] ?? "") || /^\s+\S/.test(lines[start] ?? ""))) {
     let scan = start;
@@ -94,7 +97,7 @@ async function respond() {
       if (/^\s*(?:[-*+]\s+)?@/.test(lines[previous]!)) break;
       let from = previous;
       while (from > 1 && lines[from - 1]!.trim() && !/^\s*(?:[-*+]\s+)?@/.test(lines[from - 1]!)) from--;
-      const item = listStart(lines, from, previous);
+      const item = listStart(lines, fenced, from, previous);
       if (item !== null) {
         start = item;
         if (item > from) break;
@@ -108,7 +111,7 @@ async function respond() {
   if (!observed.trim()) return { message: "nothing to tidy above" };
   let replacement: string, message: string;
   if (!instruction || all) {
-    ({ replacement, message } = tidyPassage(passage));
+    ({ replacement, message } = tidyPassage(passage, fenced.slice(start, end + 1)));
   } else {
     // The same stdin/stdout command contract as marginalia's config.answer; Haiku is pie's cheap text model.
     const command = answerCommand();

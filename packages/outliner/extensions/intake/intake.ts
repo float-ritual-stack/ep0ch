@@ -15,6 +15,7 @@
 // Self-contained on purpose: an extension folder is copied anywhere, so it imports nothing from the outline's code.
 import { hostname } from "node:os";
 import { outline, type Route } from "./outline";
+import { BLOCK_ID_PATTERN, blockReferenceOccurrences, firstLineWithoutPropertyTokens } from "./link-grammar.js";
 
 interface Block { id: string; text: string; revision: number; parentId?: string | null }
 interface Match { block: { id: string; revision: number }; title: string; path?: string; snippet?: string }
@@ -34,8 +35,8 @@ const NOTE_LINE = `${NOTE_TITLE} [type::prior-art] [machine::intake]`;
 const LOOKING = "Looking in ";
 const STOP = new Set("a an and are as at be but by can do does for from has have how i if in into is it its not of on or our so that the their them then there these this to too was we were what when where which who why will with would you your again also any just more need needs should some still want".split(" "));
 
-/** A note's title: its first line without property tokens. */
-const titleOf = (text: string) => text.split("\n", 1)[0]!.replace(/\[[A-Za-z][\w.-]*::[^\]\n]*\]/g, "").replace(/\s+/g, " ").trim();
+/** A note's title: outline-core's, through the bundled grammar. */
+const titleOf = (text: string) => firstLineWithoutPropertyTokens(text)?.replace(/\s+/g, " ") ?? "";
 /** Words worth searching for, most telling first (longer, then first written). */
 const words = (title: string) => [...new Set(title.toLowerCase().match(/[a-z0-9][a-z0-9'-]{2,}/g) ?? [])].filter((w) => !STOP.has(w));
 const keywords = (title: string) => words(title).map((w, at) => ({ w, at })).sort((a, b) => b.w.length - a.w.length || a.at - b.at).slice(0, 4).map((x) => x.w);
@@ -71,7 +72,7 @@ async function searchOutline(title: string, skip: ReadonlySet<string>, route: Ro
   }
   const where = route?.outline ? (route.machine ? `${route.outline} on ${route.machine}` : route.outline) : "this outline";
   return [...scored.values()].map(({ match, n }) => {
-    const t = titleOf(match.title) || "a note";
+    const t = match.title.trim() || "a note";
     const link = route?.outline
       ? `[${label(t)}](ep0ch://${route.outline}@${route.machine ?? here()}/b/${match.block.id})`
       : `((${match.block.id}|${label(t)}))`;
@@ -174,7 +175,7 @@ if (request.operation === "act" && request.input.action === "prior-art") {
 } else if (request.operation === "respond" && request.input.agent === "prior-art") {
   const input = request.input;
   const note = input.note as { id: string; text: string };
-  const ref = /\(\(([0-9a-f-]{36})/i.exec(String(input.request ?? ""))?.[1];
+  const ref = blockReferenceOccurrences(String(input.request ?? ""), []).map((r) => r.blockId).find((id) => BLOCK_ID_PATTERN.test(id));
   const target = ref ? await outline<Block>({ action: "get", blockId: ref }).catch(() => null) : { ...note, revision: 0 };
   const capability = "I find earlier related notes using this ask and the note's text.";
   if (!target || (!ref && /^(?:when|why|how)\b.*\btrigger(?:ed)?\b/i.test(input.request.trim()))) {

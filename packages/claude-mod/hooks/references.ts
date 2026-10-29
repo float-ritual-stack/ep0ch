@@ -5,8 +5,8 @@
  * click the plugin does not take goes nowhere. The plugin maps it back to the
  * `pi-outliner://` URI the Outliner's own link navigation takes.
  */
-import { codeBlocks } from './code-fence'
-import { linkOccurrences, qualifiedReference } from './link-grammar.js'
+import { codeBlocks } from './link-grammar.js'
+import { linkOccurrences, pageLinkSpans, qualifiedReference, referencedBlock } from './link-grammar.js'
 
 const STAND_IN = 'https://pi-outliner.invalid/'
 
@@ -17,7 +17,7 @@ const FRAGMENT = '[A-Za-z0-9][A-Za-z0-9_-]{0,63}'
 
 /**
  * Inline code, existing links and URLs: never rewritten. Code blocks (fenced and indented) are found by the one fence
- * rule, `code-fence.ts`, so a four-backtick fence isn't closed by three.
+ * rule (`codeBlocks`, from the bundle), so a four-backtick fence isn't closed by three.
  */
 const PROTECTED = /`[^`\n]*`|!?\[[^\]\n]*\]\([^)\n]*\)|<[a-z][a-z0-9+.-]*:[^>\s]*>|\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]+/gi
 
@@ -171,7 +171,9 @@ export function outlinerUriFor(reference: string): string | null {
   if (new RegExp(`^${UUID}$`).test(text)) return `pi-outliner://block/${text.toLowerCase()}`
   if (/^[A-Z][A-Z0-9]*-\d+$/.test(text)) return `pi-outliner://work/${text}`
   const { hrefs } = linkifyReferences(text, [])
-  if (hrefs.length === 1 && /^(\[\[[^\]]+\]\]|\(\([^)]+\)\))$/.test(text)) return outlinerUriOf(hrefs[0]!)
+  // One link written whole, by outline-core's grammar: `((id|Rough edges (x)))` and `[[[[2026-10-06]] - notes]]` too.
+  const [page] = pageLinkSpans(text)
+  if (hrefs.length === 1 && (referencedBlock(text) || (page?.start === 0 && page.end === text.length))) return outlinerUriOf(hrefs[0]!)
   return `pi-outliner://page/${encodeURIComponent(text)}`
 }
 

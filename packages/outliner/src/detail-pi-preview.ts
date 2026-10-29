@@ -42,7 +42,7 @@ import {
 } from "./detail-callouts";
 import type { DetailCalloutTheme } from "./detail-callout-theme";
 import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
-import { relativeAge } from "./detail-embeds";
+import { ageSince } from "@ep0ch/outline-core/age";
 import { embedMatches } from "./transclusions";
 import { linkOutlinerDocument, linkOutlinerMarkdown, outlinerLinkUri, resourceOccurrenceLink, resourceOccurrenceLinks } from "./outliner-links";
 import {
@@ -113,7 +113,7 @@ function embedSourceLines(text: string): number[] {
 
 function projectionAge(range: DetailState["embedRanges"][number], now: number): string {
   const resource = range.resource;
-  return resource?.fetchedAt && resource.fetchedLine !== undefined ? relativeAge(resource.fetchedAt, now) : "";
+  return resource?.fetchedAt && resource.fetchedLine !== undefined ? ageSince(resource.fetchedAt, now, "ago") : "";
 }
 
 /**

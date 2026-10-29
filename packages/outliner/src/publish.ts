@@ -1,3 +1,4 @@
+import { ageSince } from "@ep0ch/outline-core/age";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { type ArtifactInfo, type ArtifactReader } from "@ep0ch/outline-core/artifacts";
 import { pageSources, SOURCES_STYLE } from "./publish-sources";
@@ -1492,14 +1493,10 @@ export class Publisher {
     if (request.method !== "GET" && request.method !== "HEAD") return respond("Use GET or POST\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD, POST" });
     if (path !== "/sessions" && path !== "/sessions/") return notFound();
     const { sessions } = await this.client.request<{ sessions: WebSession[] }>({ action: "web.sessions.list" });
-    const ago = (iso: string) => {
-      const minutes = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
-      return minutes < 1 ? "just now" : minutes < 60 ? `${minutes} min ago` : minutes < 48 * 60 ? `${Math.round(minutes / 60)} h ago` : `${Math.round(minutes / 1440)} days ago`;
-    };
     const rows = sessions.map((session) => {
       const here = session.id === signedIn?.sessionId;
       return `<tr><td>${escapeHtml(session.device)}${here ? ` <strong>(this browser)</strong>` : ""}<div class="dim">${escapeHtml(session.id)} · ${escapeHtml(session.name ? `${session.name} (${session.subject})` : session.subject)} · signed in ${escapeHtml(session.createdAt.slice(0, 10))}</div></td>` +
-        `<td>${escapeHtml(ago(session.lastSeenAt))}</td><td>${escapeHtml(session.expiresAt.slice(0, 10))}</td>` +
+        `<td>${escapeHtml(ageSince(session.lastSeenAt, Date.now(), "ago"))}</td><td>${escapeHtml(session.expiresAt.slice(0, 10))}</td>` +
         `<td><form method="post" action="${escapeHtml(`${base}/sessions/revoke`)}"><input type="hidden" name="id" value="${escapeHtml(session.id)}"><button type="submit">${here ? "Sign out" : "Revoke"}</button></form></td></tr>`;
     }).join("\n");
     const list = sessions.length

@@ -287,10 +287,10 @@
     {
       "id": "door.grammar", "name": "The shared grammar", "group": "door", "chapter": "socket", "ladder": "shared", "was": "accidental", "dependsOn": ["svc.grammar"],
       "does": "Finds [key::value] tokens at paint time (titles, digests, colour) by the service's own rule, so the door and Detail agree on every note.",
-      "built": "The door imports @ep0ch/outline-core/property-grammar, the file the service parses with; test/grammar.test.ts checks titles against the service's parser. It replaced nine local regexes, then a vendored copy.",
+      "built": "The door imports @ep0ch/outline-core/property-grammar, the file the service parses with; a title is its noteTitleLine (PIE-1292), and test/grammar.test.ts checks titles against the service's parser. It replaced nine local regexes, then a vendored copy.",
       "refs": [
         { "r": "door", "p": "src/text.ts", "l": 7, "m": "@ep0ch/outline-core/property-grammar" },
-        { "r": "door", "p": "src/board.ts", "l": 6, "m": "@ep0ch/outline-core/property-grammar" }
+        { "r": "door", "p": "src/board.ts", "l": 4, "m": "@ep0ch/outline-core/property-parse" }
       ]
     },
     {

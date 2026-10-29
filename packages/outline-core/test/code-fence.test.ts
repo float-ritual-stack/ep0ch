@@ -63,12 +63,6 @@ test("a fence under a bullet counts from the item's content column; outside a li
   expect(codeFenceLines(["- a", "  ```", "  code", "after the list", "```"])).toEqual([-1, 1, 1, -1, 4]);
 });
 
-test("the Claude mod's copy is outline-core's code-fence.ts, word for word", async () => {
-  const read = (path: string) => Bun.file(new URL(path, import.meta.url)).text();
-  const [own, copy] = await Promise.all([read("../src/code-fence.ts"), read("../../claude-mod/hooks/code-fence.ts")]);
-  expect(copy.slice(copy.indexOf("\n") + 1)).toBe(own);
-});
-
 test("a component's YAML and a fence inside a quote are literal; an unclosed component is not (PIE-690)", () => {
   const text = "a\n::graph-stat\n---\nq: #x\n---\n::\n> ```\n> #y\n> ```\nz";
   for (const ranges of [scanPropertyLiteralRanges(text), protectedCodeRanges(text)]) {

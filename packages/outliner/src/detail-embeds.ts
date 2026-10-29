@@ -476,17 +476,6 @@ function generatedInline(value: string): string {
     .trim();
 }
 
-/** "12 min ago": painted by the reader, never stored in projected text. */
-export function relativeAge(fromIso: string, now: number): string {
-  const elapsed = now - Date.parse(fromIso);
-  if (!Number.isFinite(elapsed)) return "";
-  const minutes = Math.max(0, Math.floor(elapsed / 60_000));
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours} h ago`;
-  return `${Math.floor(hours / 24)} d ago`;
-}
 
 function localTime(iso: string): string {
   const date = new Date(iso);

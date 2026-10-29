@@ -1,6 +1,7 @@
 import {sourceTable,type TableNode} from './document-tables';
 import {Marked,type Token,type Tokens,type Links} from 'marked';
 import {decodeHTMLStrict} from 'entities';
+import {codeFenceLines} from '@ep0ch/outline-core/code-fence';
 import {sanitizeReaderDocument} from './document-presentation';
 import {sanitizeDynamicText} from './terminal';
 import {sliceByColumn,stripTerminalSequences,visibleWidth,type Component,type MarkdownTheme} from '@earendil-works/pi-tui';
@@ -281,14 +282,11 @@ function rowColumns(body:MappedDocument,path:string,definitions:Links|undefined)
   const columns:LayoutNode[][]=[];let start=0,offset=0;
   const lines=body.text.split('\n');
   const close=(end:number)=>{const nodes=compileBlocks(sliceDocument(body,start,end),`${path}/column:${columns.length}`,definitions);if(!nodes)return false;columns.push(nodes);return true;};
-  // A break inside a child's own fence (a row in a row, a code block) is that child's.
-  let fence:string|null=null;
+  // A break inside a child's own fence (a row in a row, a code block) is that child's, by outline-core's fence grammar.
+  const fenced=codeFenceLines(lines);
   for(const [index,line] of lines.entries()) {
     const next=offset+line.length+(index<lines.length-1?1:0);
-    const marker=/^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    if(marker&&fence===null)fence=marker[1]!;
-    else if(marker&&fence!==null&&marker[1]![0]===fence[0]&&marker[1]!.length>=fence.length&&!marker[2]!.trim())fence=null;
-    else if(line===COLUMN_BREAK&&fence===null){if(!close(Math.max(start,offset-1)))return null;start=next;}
+    if(line===COLUMN_BREAK&&fenced[index]!<0){if(!close(Math.max(start,offset-1)))return null;start=next;}
     offset=next;
   }
   return close(body.text.length)?columns:null;

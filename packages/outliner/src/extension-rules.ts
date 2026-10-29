@@ -28,7 +28,7 @@ import { DEFAULT_DEADLINE_MS, durationMs, type ExtensionRule, type LoadedExtensi
 import { cleanExtensionText, inertBlockdown } from "./extension-records";
 import { blockCallContext, type ExtensionActRequest, type ExtensionActResult } from "./extension-calls";
 import type { ExtensionRegistry } from "./extension-registry";
-import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { firstLineWithoutPropertyTokens, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockRecord, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import { interpolateWith } from "@ep0ch/outline-core/interpolation";
@@ -155,7 +155,6 @@ const MAX_RUNNING = 4;
 const MAX_DECORATIONS = 48;
 const RETRY_FAILED_MS = 60_000;
 
-const title = (text: string) => text.split("\n", 1)[0]!.replace(/\[[A-Za-z][A-Za-z0-9_.-]*::[^\]\n]*\]/g, "").replace(/\s+/g, " ").trim();
 const message = (error: unknown) => (error instanceof Error ? error.message.replace(/^Resource extension: /, "") : String(error));
 const VIA = new RegExp(`\\[${VIA_TRIGGER}::`, "i");
 const durationText = (ms: number) => ms % 3_600_000 === 0 ? `${ms / 3_600_000}h` : ms % 60_000 === 0 ? `${ms / 60_000}m` : `${Math.round(ms / 100) / 10}s`;
@@ -884,7 +883,7 @@ function ruleRecord(block: Block): BlockRecord {
   const properties = parsePropertyRecords(text).filter((property) => !(RULE_KEYS as readonly string[]).includes(property.key));
   return blockRecord({
     block: { id: block.id ?? "", parentId: block.parentId ?? null, text, revision: block.revision ?? 0, author: block.author ?? "user", ...(block.actorId ? { actorId: block.actorId } : {}), createdAt: block.createdAt ?? "1970-01-01T00:00:00.000Z", updatedAt: block.updatedAt ?? "1970-01-01T00:00:00.000Z" },
-    title: title(text), properties, literal: scanPropertyLiteralRanges(text), children: [], tasks: [], links: [], backlinks: [], resources: [],
+    title: firstLineWithoutPropertyTokens(text)?.replace(/\s+/g, " ") ?? "", properties, literal: scanPropertyLiteralRanges(text), children: [], tasks: [], links: [], backlinks: [], resources: [],
   });
 }
 
