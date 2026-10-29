@@ -87,12 +87,11 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
   try {
     const day = dayOf(now), told = keep.review.findings.filter(f => f.new);
     for (const f of told) {
-      await writeRecord(board(client), "suggestion", clean({
+      await writeRecord(board(client), "review-finding", clean({
         day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), component: f.component ?? f.rule,
-        gate: "none", confidence: "none", callout: "none", model: keep.reading?.model ?? "none", "prompt-rev": keep.reading ? promptRevOf(keep.reading) : "none",
-        source: keep.at.source, thread: "none", rule: f.rule, rubric: f.rubric, key: f.key, line: String(f.line ?? 0), title: keep.title || "untitled",
+        source: keep.at.source, rule: f.rule, rubric: f.rubric, key: f.key, line: String(f.line ?? 0), title: keep.title || "untitled",
         passage: f.passage, said: f.say, verdict: keep.review.verdict, patch: f.patch ? "ready" : "none",
-      }), JEV);
+      }), JEV, { title: `${f.rubric}: ${keep.title || "untitled"}`.slice(0, 120) });
     }
     const asked = keep.review.jev === "asked";
     const unavailable = !asked && !/^(?:off|not asked)/.test(keep.review.jev);
@@ -134,7 +133,7 @@ async function updateRun(client: SuggestionClient, day: string, change: { quiet?
     run = await find();
     if (!run) return;
   }
-  const suggested = (await countOf(client, `type=suggestion day=${day} NOT source=backfill`, "day"))[day] ?? 0;
+  const suggested = ((await countOf(client, `type=suggestion day=${day}`, "day"))[day] ?? 0) + ((await countOf(client, `type=review-finding day=${day} NOT source=backfill`, "day"))[day] ?? 0);
   const outcomes = await countOf(client, `type=suggestion-outcome day=${day}`, "outcome");
   const quiet = chipNumber(run.text, "quiet") + (change.quiet ?? 0);
   let text = run.text;
@@ -259,7 +258,7 @@ type OpenWithWho = OpenSuggestion & { writer?: string; harness?: string; day?: s
  */
 export async function settleNote(client: SuggestionClient, note: string, schemas: readonly ComponentSchema[], now = Date.now()): Promise<number> {
   try {
-    const open = openOf(await read(client, `type=suggestion note=${note}`, 50), await read(client, `type=suggestion-outcome note=${note}`, 100)) as OpenWithWho[];
+    const open = openOf(await read(client, `(type=suggestion OR type=review-finding) note=${note}`, 50), await read(client, `type=suggestion-outcome note=${note}`, 100)) as OpenWithWho[];
     return await settle(client, note, open, schemas, now);
   } catch { return 0; }
 }
@@ -301,7 +300,7 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
  */
 export async function settleOpen(client: SuggestionClient, schemas: readonly ComponentSchema[], now = Date.now()): Promise<number> {
   try {
-    const open = openOf(await read(client, "type=suggestion created >= -30d"), await read(client, "type=suggestion-outcome created >= -30d")) as OpenWithWho[];
+    const open = openOf(await read(client, "(type=suggestion OR type=review-finding) created >= -30d"), await read(client, "type=suggestion-outcome created >= -30d")) as OpenWithWho[];
     const byNote = new Map<string, OpenWithWho[]>();
     for (const s of open) byNote.set(s.note, [...(byNote.get(s.note) ?? []), s]);
     let written = 0;

@@ -100,3 +100,71 @@ test("an agent's wall of stacked bullets and pasted counts is answered fix, with
   expect(store.require(note.id).text).toContain("::graph-stat");
   expect((patched.json.review as Review).verdict).toBe("ship");
 });
+
+test("each finding the writer was told is a record with its passage and what was said, and applying its patch settles it followed", async () => {
+  const { store, agent, records } = await setup();
+  seedBoard(store);
+  const made = await agent("create", { parent: "root", text: WALL });
+  const told = await records("review-finding");
+  expect(told.map(r => r.rule).sort()).toEqual(["count", "stacked"]);
+  const stacked = told.find(r => r.rule === "stacked")!;
+  expect(stacked).toMatchObject({ note: made.json.id, rubric: "dense", title: "Status tonight", patch: "ready", verdict: "fix", writer: "loki", source: "write" });
+  expect(stacked.passage).toContain("The swap table went up at nine");
+  expect(stacked.said).toContain("3 points in one item");
+
+  const note = store.require(made.json.id);
+  const review = made.json.review as Review;
+  await agent("patch", { ref: note.id, revision: note.revision, patches: review.findings.flatMap(f => f.patch ?? []) });
+  const outcomes = await records("suggestion-outcome");
+  expect(outcomes.map(o => [o.rule, o.outcome, o.patched]).sort()).toEqual([["count", "followed", "yes"], ["stacked", "followed", "yes"]]);
+  expect(outcomes.find(o => o.rule === "stacked")!.said).toContain("3 points in one item");
+  // The day's run counts the review's tokens.
+  const today = new Date().toISOString().slice(0, 10);
+  expect(Number((await records("jev-run")).find(r => r.run === today)!["tokens-in"])).toBeGreaterThan(0);
+});
+
+test("prose reaches Jev with no shape gate: the rubric's judgments are findings of their own, a clean note ships", async () => {
+  const argue = "Prose that argues";
+  const { agent, asked } = await setup((id, _q, state) => {
+    const title = String(state.title);
+    if (title !== argue) return undefined;
+    if (id === "argues" || id.startsWith("mixed::") || id.startsWith("context::")) return { type: "noul", noul: 0.9 };
+    return undefined;
+  });
+  const essay = [argue, "", "To understand why the beds moved, it helps to go back to the spring. The light was poor and the soil heavy.", "", "As discussed, the issue above is settled now."].join("\n");
+  const made = await agent("create", { parent: "root", text: essay });
+  expect(made.exitCode, made.stderr).toBe(0);
+  const review = made.json.review as Review & { jev: string };
+  expect(review.jev).toBe("asked");
+  expect(review.verdict).toBe("fix");
+  expect(review.findings.map(f => f.rule).sort()).toEqual(["argues", "context", "mixed"]);
+  // Prose was asked about, every rubric question in one request over one state.
+  expect(asked).toHaveLength(1);
+  expect(Object.keys(asked[0]!.questions)).toEqual(expect.arrayContaining(["argues", "kit::s0", "dense::s0", "mixed::s0", "context::s0"]));
+
+  const clean = await agent("create", { parent: "root", text: "Bean rows\n\n- Three rows sown on Saturday.\n- Watered at nine." });
+  expect((clean.json.review as Review).verdict).toBe("ship");
+});
+
+test("a list Jev reads as a timeline comes with the figure built from its lines, and an unchanged section isn't asked again", async () => {
+  const { store, agent, asked } = await setup((id, q) => {
+    if (id.startsWith("kit::")) return { type: "choice", choice: "graph-timeline", confidence: 0.8, probabilities: {} };
+    if (id.startsWith("structured::")) return { type: "noul", noul: 0.9 };
+    if (id.startsWith("prose::")) return { type: "noul", noul: 0.1 };
+    return q.type === "noul" ? { type: "noul", noul: 0.1 } : undefined;
+  });
+  const season = ["Garden year", "", "- 2026-03: seeds sown", "- 2026-05: first flowers", "- 2026-08: open garden"].join("\n");
+  const made = await agent("create", { parent: "root", text: season });
+  const kit = (made.json.review as Review).findings.find(f => f.rule === "kit")!;
+  expect(kit.say).toContain("::graph-timeline");
+  expect(kit.patch![0]!.replacement).toBe(["::graph-timeline", "---", "---", "- 2026-03: seeds sown", "- 2026-05: first flowers", "- 2026-08: open garden", "::"].join("\n"));
+  const note = store.require(made.json.id);
+  const applied = await agent("patch", { ref: note.id, revision: note.revision, patches: kit.patch });
+  expect(applied.exitCode, applied.stderr).toBe(0);
+  expect(store.require(note.id).text).toContain("::graph-timeline");
+  // An append under a heading asks about the new section only.
+  const later = store.require(note.id);
+  await agent("edit", { ref: later.id, expectedRevision: later.revision, append: "## Next year\n\nMore beans." });
+  const last = asked.at(-1)!;
+  expect(Object.keys((last.state.sections ?? {}) as object)).toEqual(["s1"]);
+});

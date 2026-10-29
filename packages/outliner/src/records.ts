@@ -8,9 +8,11 @@ export const RECORD_FIELDS = {
   "finding-closed": ["finding", "fixed", "dismissed"],
   // Jev's figure suggestions (PIE-1251, jev-suggestions.ts): a fact per suggestion, a fact per settled outcome, and the day's
   // run (`jev-run`, the keys kitty's lab runs share, so one query reads both): asks, agreement, tokens.
-  // PIE-1388: a review's findings are suggestions too, each with its rule, Evan's rubric item, the passage, what was said
-  // and whether a ready patch came with it; the outcome repeats the passage and what was said, so one row reads whole.
-  suggestion: ["day", "note", "revision", "writer", "harness", "component", "gate", "confidence", "callout", "model", "prompt-rev", "source", "thread", "rule", "rubric", "key", "line", "title", "passage", "said", "verdict", "patch"],
+  suggestion: ["day", "note", "revision", "writer", "harness", "component", "gate", "confidence", "callout", "model", "prompt-rev", "source", "thread"],
+  // PIE-1388: what a write's review told its writer, a fact per finding: its rule, Evan's rubric item, the passage, what was
+  // said and whether a ready patch came with it (model and tokens are the day's run). Settled by the same outcome record,
+  // which repeats the passage and what was said, so one row reads whole. (A template holds at most 16 fields.)
+  "review-finding": ["day", "note", "revision", "writer", "harness", "rule", "rubric", "component", "key", "line", "title", "passage", "said", "verdict", "patch", "source"],
   "suggestion-outcome": ["day", "suggestion", "note", "outcome", "component", "writer", "harness", "because", "rule", "rubric", "title", "passage", "said", "patched"],
   "jev-run": ["experiment", "run", "model", "prompt-rev", "items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out"],
 } as const;
