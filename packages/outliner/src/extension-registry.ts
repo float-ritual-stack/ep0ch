@@ -140,6 +140,8 @@ export interface ExtensionEntry {
   readonly name?: string;
   readonly version?: number;
   readonly description?: string;
+  /** A script's own words (its note's title, the about its extension declares), when `description` says where it is written. */
+  readonly summary?: string;
   readonly origin: ExtensionOrigin;
   readonly directory: string;
   readonly state: ExtensionState;

@@ -78,6 +78,8 @@ export interface ExtensionEntry {
   script?: { keys: readonly string[]; line?: number; blockId?: string; file?: string; code: string };
   /** `name` and `version` are absent for a folder that never loaded (it serves nothing; `error` says why). */
   id: string; name?: string; version?: number; description?: string; origin?: string;
+  /** A script's own words (its note's title, its extension's about); its `description` says where it is written. */
+  summary?: string;
   /** `active`, `failed` (it may still serve its last good version), `disabled` or `shadowed`. */
   state: string;
   directory?: string;

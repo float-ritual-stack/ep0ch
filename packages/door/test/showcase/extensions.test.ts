@@ -89,25 +89,38 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 
-  test("the power bar's extensions read at a glance (PIE-1284): one line each at 120 columns, grouped by what each adds, its own words in the preview", async () => {
-    const rows = await app.act({ action: "bar.open", args: { scope: "&" }, as: "test-agent" }) as { rows: { label: string; detail?: string; group?: string }[] };
+  test("the power bar's extensions read at a glance (PIE-1284): one line each at 120 and 80 columns, grouped by what each adds under installed, a kind chip, its own words in the preview", async () => {
+    const rows = await app.act({ action: "bar.open", args: { scope: "&" }, as: "test-agent" }) as { rows: { label: string; detail?: string; group?: string; chip?: string }[] };
     const groups = [...new Set(rows.rows.map(r => r.group).filter(Boolean))] as string[];
-    // Each kind's group says its count; the installed come first, then what the repo has that isn't.
-    expect(groups.some(g => /^(rules|components|scripts|programs|sources|agents|tiles|records|actions) · \d+$/.test(g))).toBe(true);
-    expect(groups.findIndex(g => g.startsWith("not installed"))).toBeGreaterThan(groups.findIndex(g => g === "installed"));
+    const KIND = /^installed · (rules|components|scripts|programs|sources|agents|tiles|records|actions) · \d+$/;
+    // Each kind's group sits under installed and says its count; settings counts too; then what the repo has that isn't.
+    expect(groups.filter(g => KIND.test(g)).length).toBeGreaterThan(1);
+    expect(groups.find(g => g.startsWith("settings"))).toMatch(/^settings · \d+$/);
+    expect(groups.findIndex(g => g.startsWith("not installed"))).toBeGreaterThan(groups.findIndex(g => KIND.test(g)));
     expect(rows.rows.find(r => r.label === "Extensions")?.detail).toMatch(/\d+ of \d+ installed/);
-    // No ids, versions or paths on a row: those are the preview's.
-    for (const r of rows.rows.filter(r => /^(rules|components|scripts|programs|sources|agents|tiles|records|actions|not installed) · /.test(r.group ?? ""))) expect(r.detail ?? "").not.toMatch(/ v\d|\/|script-[0-9a-f]{6}/);
+    const listed = rows.rows.filter(r => KIND.test(r.group ?? "") || /^(settings|not installed) · /.test(r.group ?? ""));
+    // No ids, versions or paths on a row, settings' included: those are the preview's.
+    for (const r of listed) expect(r.detail ?? "").not.toMatch(/ v\d|\/|script-[0-9a-f]{6}/);
+    // Each row's words are its own (its manifest's summary, its note's first line, what it adds): never empty, never one phrase for every script.
+    const kinds = rows.rows.filter(r => KIND.test(r.group ?? ""));
+    for (const r of kinds) expect(`${r.label}: ${r.detail ?? ""}`).not.toMatch(/: $/);
+    expect(kinds.some(r => /a script in a note/.test(r.detail ?? ""))).toBe(false);
+    // A kind chip says what each one is, read from what it adds (with the groups gone when a name is typed, it is the kind's only word).
+    for (const r of kinds) expect(r.chip).toBe(r.group!.split(" · ")[1]!.replace(/s$/, ""));
     await app.dispatch.press("bar.open", { scope: "&" });
     try {
       const bar = app.bar!;
       await bar.settled();
-      const drawn = bar.draw(120, 40).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
-      for (const r of rows.rows.filter(r => r.group?.startsWith("not installed"))) {
-        const at = drawn.findIndex(l => l.includes(r.label));
-        if (at < 0) continue;
-        // One line: the row under it is the next row or a heading, never its words wrapped.
-        expect(drawn[at + 1] ?? "").not.toMatch(/^\s*│?\s{3,}[a-z]/);
+      for (const cols of [120, 80]) {
+        const drawn = bar.draw(cols, 200).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
+        for (const r of listed) {
+          const at = drawn.findIndex(l => l.includes(` ${r.label} `) || l.includes(` ${r.label}…`) || l.endsWith(` ${r.label}`));
+          if (at < 0) continue;
+          // One line: the row under it is the next row or a heading, never its words wrapped.
+          expect(`${cols}: ${drawn[at + 1] ?? ""}`).not.toMatch(/^\d+: \s*│?\s{3,}[a-z]/);
+        }
+        // The chip shows where the width allows.
+        if (cols === 120) expect(drawn.some(l => / rule\s*│?\s*$/.test(l) || / rule /.test(l))).toBe(true);
       }
     } finally { press({ kind: "esc" }); }
   }, 20_000);
@@ -577,11 +590,11 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await until(() => screen().includes("Bare @tidy"), "tidy's page", 10_000)
       .catch(e => { throw new Error(`${e.message}\n${screen()}`); });
     const rowOf = async (query: string) => (await app.act({ action: "bar.open", args: { scope: "&", query }, as: "test-agent" }) as { rows: { label: string; detail: string }[] }).rows;
-    // Its default is said from its schema; the file is the one on the host.
+    // Its default is said from its schema; the file is the one on the host, in the preview, not on the row (PIE-1284).
     await app.act({ action: "ext.tidy.settings", args: { answer: "" }, as: "test-agent" });
     const before = (await rowOf("settings tidy")).find(r => r.label === "settings Tidy")!;
-    expect(before.detail).toContain('default: claude -p --model haiku --tools ""');
-    const file = before.detail.split(" · ")[1]!;
+    expect(before.detail).toBe('default: claude -p --model haiku --tools ""');
+    const file = extensionNamed("tidy")!.settings!.file;
     expect(file).toEndWith("/tidy/config.json");
     // An agent sets it by name; the file says so and the row moves to set.
     await app.act({ action: "ext.tidy.settings", args: { answer: "claude -p --model sonnet" }, as: "test-agent" });

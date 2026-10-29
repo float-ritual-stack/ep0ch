@@ -56,6 +56,8 @@ export function barRect(cols: number, rows: number): Rect {
 
 /** The bar's scopes: alt+← alt+→, and alt+b alt+f (Option+arrows some terminals send as word jumps), step through them. */
 const SCOPE_KEYS = tabKeys("bar.open", { prev: ["alt+left", "alt+b"], next: ["alt+right", "alt+f"], label: "scope" });
+/** The columns a row's words keep before its kind chip is drawn beside them. */
+const CHIP_ROOM = 32;
 const SCOPE_LOOK = { on: chip(C.cyan, C.black), off: fg(C.grey), pad: " " };
 
 export class PowerBar {
@@ -419,9 +421,11 @@ export class PowerBar {
   private rowText(it: BarItem, on: boolean, w: number): string[] {
     const r = it.row, head = ` ${"  ".repeat(Math.min(6, r.depth ?? 0))}${r.mark ? `${r.mark} ` : ""}`;
     const detail = r.refused ? ` · ${r.refused}` : r.subtitle ? ` · ${r.subtitle}` : r.detail ? ` · ${r.detail}` : "";
-    const cap = r.keycap ? ` ${keyCaption(r.keycap)} ` : "";
+    // Its kind at the right (an extension's: rule, script), once the words keep room to read (CHIP_ROOM columns).
+    const kind = r.chip && w - width(r.chip) - 2 - (r.keycap ? width(keyCaption(r.keycap)) + 2 : 0) >= CHIP_ROOM ? ` ${r.chip} ` : "";
+    const cap = (r.keycap ? ` ${keyCaption(r.keycap)} ` : "") + kind;
     return rowLines(head + r.label + detail, w - width(cap), r.oneLine ? 1 : undefined, { hang: width(head) }).map((line, i) =>
-      pickRow(line, on, w - width(cap), r.refused ? C.dark : C.grey) + (i ? " ".repeat(width(cap)) : cap));
+      pickRow(line, on, w - width(cap), r.refused ? C.dark : C.grey) + (i ? " ".repeat(width(cap)) : kind ? cap.slice(0, -kind.length) + fg(C.dark) + kind + RESET : cap));
   }
 
   /** Its frame over `a`: the scopes, the line, the rows and (wide enough) the lit row's preview. */
@@ -669,7 +673,7 @@ export class PowerBar {
 /** A row as an agent and `peek` read it. */
 export function rowFacts(it: BarItem, n: number): Record<string, unknown> {
   const r = it.row;
-  return { n, source: it.source.id, key: r.key, label: r.label, ...(r.detail ? { detail: r.detail } : {}), ...(r.depth ? { depth: r.depth } : {}), ...(r.group ? { group: r.group } : {}), ...(r.keycap ? { keycap: r.keycap } : {}), ...(r.refused ? { refused: r.refused } : {}) };
+  return { n, source: it.source.id, key: r.key, label: r.label, ...(r.detail ? { detail: r.detail } : {}), ...(r.depth ? { depth: r.depth } : {}), ...(r.group ? { group: r.group } : {}), ...(r.keycap ? { keycap: r.keycap } : {}), ...(r.chip ? { chip: r.chip } : {}), ...(r.refused ? { refused: r.refused } : {}) };
 }
 
 /** The bar's rows laid over a screen's `lines` (without the status bar). */
