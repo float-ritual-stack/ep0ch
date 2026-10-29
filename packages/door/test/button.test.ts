@@ -45,3 +45,15 @@ describe("the button part", () => {
     expect(visible(lit)).toBe(visible(row).replace(/\x1b\[[\d;]*m/g, ""));
   });
 });
+
+describe("a button in a list item (PIE-1224)", () => {
+  test("draws after the item's bullet, a framed one's other rows under the button, and the hook gets the note's line", async () => {
+    const { renderDoc } = await import("../src/doc");
+    const seen: number[] = [];
+    const doc = renderDoc('Shelf\n- one\n- ::button{label="Tidy" act="status.log"}\n  - ::button{label="Sync" act="status.log" frame=round}', {
+      width: 40, button: (call, i, w) => { seen.push(i); if (i === 3) expect(w).toBeLessThan(40); return buttonRows(call.label, { ...call.look }); },
+    } as Parameters<typeof renderDoc>[1]);
+    expect(seen).toEqual([2, 3]);
+    expect(plain(doc.lines)).toEqual(["Shelf", "∙ one", "∙ [Tidy]", "  ∙ ╭──────╮", "    │ Sync │", "    ╰──────╯"]);
+  });
+});

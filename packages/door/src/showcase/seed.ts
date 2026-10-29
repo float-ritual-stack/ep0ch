@@ -333,8 +333,19 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     'The same lift, said with an address that does not depend on a name: an agent tab is a tile with role agent (tile=role:agent names the one you used last), kept with the tile through a restart, a handover and a restore. t-<id> names one exact tile, <slot>@<screen> a place and ^ the tile that opened this one.',
     '::button{label="pop it" act="tile.zoom tile=role:agent reach=column"}',
     'Right-click or alt+click an empty part of the bar, or ^K status bar: edit. The first edit makes a note seeded with today\'s built-ins. Order them with - <id> lines; leave an id out to hide it. A ::button line puts the same button on the bar, and alt="theme.cycle" gives it an alternate click.',
-    'At 80 columns, pin eight differently named buttons: later items give way to +N, which opens this bar note. The clock and drawer chip stay whole. A duplicate label is refused when pinned; if written into the note, the first button stays and the later line is warned about once in the message log.',
-    'status.bar.items describes the built-ins and their actions. Changes are live; malformed lines stay saved, say why in the message log, and keep the default bar until fixed.',
+    'A narrow bar keeps your buttons: built-ins shorten first (the drawer chip to ▼ shell +1, +3 machine to +3, then to its arrow), then built-ins drop, and only then the last pins give way to +N. A click on +N lists what it hid by name; alt+click opens the bar note. A duplicate label is refused when pinned; written into the note, the later line is skipped.',
+    'A list item holds a button too, in any note, and in the bar note an item with items nested under it is a group: its label on the bar opens them as a menu (status.bar.menu group=Tiles by act).',
+    '- ::button{label="Fold from a list" act="tile.collapse tile=extra"}',
+    'A bar note with a group and a typo (write it in your bar note to try it):',
+    '```text',
+    'Your status bar [status-bar::true]',
+    '- brand',
+    '- Tiles',
+    '  - ::button{label="Fold extra" act="tile.collapse tile=extra"}',
+    '  - theme',
+    'clock',
+    '```',
+    'A line the bar can\'t read (clock above, missing its - ) is skipped: the rest stays, and a ! line 6 item says it once with a did-you-mean; its click opens the note at that line. status.bar.items describes the built-ins and their actions. Changes are live.',
   ].join("\n"));
   // A Claude session running twice (PIE-1369): the section hands the door's watch made-up processes on garden-box.
   notes.splitBrain = await make(notes.root.id, [
