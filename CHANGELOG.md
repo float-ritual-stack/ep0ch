@@ -26,6 +26,27 @@ are its record. The outliner's entries from then are kept below, under
   else. The cut stays in one-line fields (the bar, a filter); in an edit, shift+End then ctrl+x does it.
 - **The keys card keeps a `::button{…}` example whole** (`ep0ch actions --doc agent.lift`).
 - **Run:** nothing.
+### Back and forward keep your layout; the keys window speaks where you are (PIE-1426, PIE-1425)
+
+- **Your layout stays:** back or forward in a preview onto the note its detail shows (after `b`, say) shows it there; the preview no longer closes and the detail's wires stay.
+- **Narrow back row:** at 40 columns a reader's back row keeps `← back` and `forward →` whole, dropping the title first.
+- **The keys window where you are:** `?` in the river's Library opens on the river's keys (`in:river`), not a note's editing keys.
+- **Whole sentences:** every row reads as one ("give your keys to the column on the left", not "…, columns"; "close this tile", not "close tile=<tile>").
+- **At 40 columns:** the keys tile opens below, at the screen's width, instead of a 20-column strip beside.
+### Search reads right wherever you search (PIE-1409)
+
+- **How sure, in plain words:** a right first result Jev isn't certain of says "not sure" instead of "no strong match" (the 0.8 line stays: measured on 204 cases).
+- **`[[` by meaning:** page completion finds pages by meaning too, as `((` does; after the re-rank the cursor stays on the row you were on.
+- **At 40 columns** the search footer reads whole; **on the phone** Sources' download buttons are 70×46 px.
+- **The search evals page** shows hit@1, hit@5 and cost in plain words (`ep0ch search eval --into pie` refreshes it).
+- **Still open:** daily digests can outrank real notes; it stays on the ticket.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### ctrl+z in a reader undoes that note's last change (PIE-1435)
+
+- **Your change first:** ctrl+z in a reader undoes its own last change (your edit, or an extension's or agent's write you can see), never a tile move you made somewhere else afterwards; the layout's undo gets the key only when the reader has nothing of its own. A trash newer than the reader's change still comes back first.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### Margin comments read as comments, and a quote lands where you are (PIE-1255, PIE-1184)
 
 - **A card opens the moment you press its `[+]`,** in marks mode too: it comes into view instead of opening above

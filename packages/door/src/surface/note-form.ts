@@ -14,7 +14,7 @@ import type { Key } from "../term";
 
 export const FORM_KEYS: readonly ModeKey[] = keyTable("form", "a note form being filled", [
   { key: "tab", action: "form.move", args: { by: 1 }, label: "next field" },
-  { key: "shift+tab", action: "form.move", args: { by: -1 }, label: "previous" },
+  { key: "shift+tab", action: "form.move", args: { by: -1 }, label: "previous", says: "move to the form's previous field" },
   { key: "enter", action: "form.submit", label: "submit" },
   { key: "esc", action: "form.leave", label: "leave" },
 ]);

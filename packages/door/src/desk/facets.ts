@@ -423,7 +423,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.set": def({
     summary: "include a key (any value) or a value (the notes must carry it), exclude it (they must not), or drop it: key= (value= narrows it; a tag is key=tag), n (its row), or the row the cursor is on; mode= include, exclude or off, left out it steps include → exclude → off. Several included values of a facet are ORed, whole keys and facets are ANDed; a value with values below it (a path) includes them too",
-    keys: [{ keys: "⏎ space click", does: "steps the facet value" }, { keys: "+", does: "include" }, { keys: "-", does: "exclude" }, { keys: "0 backspace", does: "drop" }, { keys: "alt-click ctrl-click", does: "excludes" }],
+    keys: [{ keys: "⏎ space click", does: "steps the facet value" }, { keys: "+", does: "include" }, { keys: "-", does: "exclude", says: "exclude the key or value: notes must not carry it" }, { keys: "0 backspace", does: "drop", says: "drop the key or value from the selection" }, { keys: "alt-click ctrl-click", does: "excludes" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent picks by key=, with value= to narrow it: the person's selection moves with it",
     says: r => `${r.mode === "off" ? "dropped" : r.mode === "include" ? "included" : "excluded"} ${r.clause}`,
     args: {
@@ -481,7 +481,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.open": def({
     summary: "open a note the selection leaves, as ⏎ does in a list (the desk's open rule: the tile's link, or its container's): n (its row, from 1), id, or the row the cursor is on; fresh opens a new detail beside",
-    keys: "⏎ on a note, double click, alt+⏎ (fresh)",
+    keys: [{ keys: "⏎", does: "on a note" }, { keys: "double-click", does: "a note" }, { keys: "alt+⏎", does: "fresh", says: "open the selected note in a new detail beside" }],
     touches: "nothing", replay: "safe", says: r => `opened "${String(r.title)}"`,
     args: {
       n: { type: "number", optional: true, about: "its row, from 1" },
@@ -503,7 +503,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.query": def({
     summary: "set the selection as text in the views' grammar (`project=x/* type=meeting #yomama NOT week=3`): it replaces the picks; the service evaluates it and the facets and notes follow. Empty clears. The person types it with e",
-    keys: [{ keys: "e", does: "then typing edits the query" }, { keys: "⏎", does: "applies" }, { keys: "esc", does: "undoes" }], touches: "tile", while: "typing", replay: "safe", way: "an agent passes text=<query>: the person's selection moves with it",
+    keys: [{ keys: "e", does: "then typing edits the query" }, { keys: "⏎", does: "applies", says: "apply the typed query as the selection" }, { keys: "esc", does: "undoes", says: "undo the typed query" }], touches: "tile", while: "typing", replay: "safe", way: "an agent passes text=<query>: the person's selection moves with it",
     args: { text: { type: "string", about: "the query; empty clears the selection" } },
     examples: [
       { act: "facets.query text=\"#garden NOT type=meeting\" tile=facets", does: "selects notes tagged #garden that are not meetings, replacing the picks" },
@@ -586,7 +586,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.resize": def({
     summary: "resize the matching notes' share of the tile: share= (0.15 to 0.85), or by= (a change in share)",
-    keys: [{ keys: "[", does: "less" }, { keys: "]", does: "more" }, { via: "the Matches less/more buttons" }, { keys: "drag", does: "its divider" }],
+    keys: [{ keys: "[", does: "less", says: "give the matching notes less of the tile" }, { keys: "]", does: "more", says: "give the matching notes more of the tile" }, { via: "the Matches less/more buttons" }, { keys: "drag", does: "its divider" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent names share= or by=",
     args: {
       share: { type: "number", optional: true, about: "the matching notes' share, 0.15 to 0.85" },

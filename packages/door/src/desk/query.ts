@@ -388,7 +388,7 @@ export interface QueryOn { pane: QueryPane; desk: DeskApi; standing: boolean }
 export const QUERY_ACTIONS = actionSet<QueryOn>()("query", {
   "query.pick": def({
     summary: "pick a card in a query tile (tile=<its name>): n (from 1), id, or by=<cards> from the selected one; it becomes what the tile shows (a preview following it shows it; a tile beside a reader, its home, only previews: the current note stays), open=true opens it as ⏎ does (in its home, replacing its note), fresh=true as alt+⏎ (a new detail beside its home). An agent's pick is its own: the person's cursor stays (open=true opens it where the tile's opens go). On the board, card.select is the lanes' own",
-    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "pick" }, { keys: "click wheel", does: "pick" }, { keys: "⏎ double-click", does: "open" }, { keys: "alt+⏎ alt-click ctrl-click middle-click", does: "open fresh" }],
+    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "pick" }, { keys: "click wheel", does: "pick" }, { keys: "⏎ double-click", does: "open", says: "open the picked card where this tile's opens land" }, { keys: "alt+⏎ alt-click ctrl-click middle-click", does: "open fresh", says: "open the picked card in a new detail beside" }],
     touches: "nothing", replay: "safe", says: (r, a) => `${a.open ? "opened" : "picked"} "${r.title}"`,
     args: {
       n: { type: "number", optional: true, about: "the card, from 1" },

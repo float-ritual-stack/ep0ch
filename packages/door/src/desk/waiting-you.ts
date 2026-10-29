@@ -247,7 +247,7 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     },
   }),
   "ask.open": def({
-    summary: "open an outline ask where this tile's opens land", keys: "⏎ alt+⏎ double click",
+    summary: "open an outline ask where this tile's opens land", keys: [{ keys: "⏎ alt+⏎ double-click", does: "open", says: "open the ask where this tile's opens land" }],
     touches: "nothing", replay: "safe",
     args: { n: { type: "number", optional: true, about: "row number from peek" }, fresh: { type: "boolean", optional: true, about: "use the alt wire" } },
     examples: [{ act: "ask.open n=1", does: "opens the first outline ask where this tile opens notes" }],

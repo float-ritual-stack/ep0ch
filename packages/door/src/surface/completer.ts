@@ -789,7 +789,7 @@ export const COMPLETION_PREVIEW = {
 
 export const COMPLETION_STEP = {
   summary: "show a component's variations and arguments, or return to components",
-  keys: "right or click >; left returns", touches: "nothing", replay: "safe",
+  keys: [{ keys: "right", does: "into a component's variations" }, { keys: "click", does: "on >" }, { keys: "left", does: "returns", says: "return from a component's variations to the components" }], touches: "nothing", replay: "safe",
   args: { direction: { type: "string", choices: ["right", "left"], about: "right opens variations; left returns" } },
   examples: [{ act: "complete.step direction=right", does: "shows the selected component's variations and arguments" }],
 } as const;
@@ -810,6 +810,7 @@ export const COMPLETION_MOVE = {
   examples: [{ act: "complete.move by=2", does: "lights the row two below the lit one" }],
 } as const;
 export const COMPLETION_ACCEPT = {
+  words: "insert the lit completion row",
   summary: "insert the lit row of the open completion list, or row n= (from 1), as tab or enter does: checked with the service first, one undo step",
   keys: "tab, enter (unless the footer says it's a new line), double click", touches: "draft", draft: "type", replay: "ask",
   args: { n: { type: "number", optional: true, about: "the row to insert (from 1); default the lit one" } },

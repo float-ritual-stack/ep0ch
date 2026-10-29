@@ -24,7 +24,7 @@ export interface PanelGroup { title: string; keys: PanelKey[]; accent?: true }
  */
 export const PANEL_KEYS: readonly ModeKey[] = keyTable("key panel", "the panel a prefix opens", [
   { key: "click", action: "keys.panel", label: "a row runs its key" },
-  { key: "esc", action: "keys.panel", label: "close" },
+  { key: "esc", action: "keys.panel", label: "close", says: "close the panel of the keys that follow a prefix" },
 ]);
 /**
  * Esc's words when the panel lists the tile's own keys (PIE-1338): after ^W the next key is ^W's (x closes the tile), so

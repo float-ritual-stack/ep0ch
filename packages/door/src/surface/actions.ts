@@ -102,7 +102,11 @@ export type DraftUse = "type" | "leave" | "write" | "safe" | "text" | "replace";
  * `j k`), or a mouse gesture (`click`, `double-click`, `drag`, `wheel`); `does`, what this way does, in a few words
  * (`on a spine opens it`). `via`, instead of keys: a way that is no key at all (the tile menu's "fold", the power bar).
  */
-export type KeyRow = { keys: string; does: string } | { via: string };
+/**
+ * One row of an action's keys: the keys and what they do under the action's heading (its page, `::graph-keys`), and
+ * `says`, the whole sentence the keys window lists where `does` would read as a fragment after the action's words (PIE-1425).
+ */
+export type KeyRow = { keys: string; does: string; says?: string } | { via: string };
 /** An action's keys: rows (KeyRow), or one line that reads cleanly as them (declaredKeys, keyRows). */
 export type Keys = string | readonly KeyRow[];
 /** An action's keys as one line, for a listing (`actions`, a flash): each row's keys and what it does. */
