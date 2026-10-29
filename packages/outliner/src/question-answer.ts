@@ -79,10 +79,11 @@ export function questionFacets(matches: readonly Block[], keys: true | readonly 
     let read: Iterable<string> = named ?? carried[at]!;
     if (tagged && carried[at]!.has("tags") && !carried[at]!.has("tag")) read = [...carried[at]!, "tag"];
     for (const key of read) {
-      const values = new Set(valuesOf(block, key).map(v => v.trim()).filter(Boolean));
-      if (!values.size) continue;
+      // A key a match carries answers even when none of its values are words (`[area::[]]`), with a count of 0.
       let facet = tally.get(key);
       if (!facet) tally.set(key, facet = { count: 0, counts: new Map() });
+      const values = new Set(valuesOf(block, key).map(v => v.trim()).filter(Boolean));
+      if (!values.size) continue;
       facet.count += 1;
       for (const value of values) {
         const seen = facet.counts.get(value);

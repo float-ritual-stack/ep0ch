@@ -164,6 +164,8 @@ describe("groups, sorts, facets and hints", () => {
     expect(facets.find(f => f.key === "tags")).toMatchObject({ count: 200 });
     expect(facets.length).toBe(203);
     expect(facets.slice(0, 2).map(f => f.key)).toEqual(["tag", "type"]);
+    // A key carried with no value still answers, with a count of 0, as it did before.
+    expect(questionFacets([{ id: "e", updatedAt: "2026-10-01", keys: ["area"] } as unknown as Fake], true, () => [], block => (block as Fake).keys)).toEqual([{ key: "area", count: 0, values: [] }]);
   });
 
   test("a key nobody carries is a hint with the nearest keys; a known key with no matches isn't", () => {
