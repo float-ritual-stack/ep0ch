@@ -244,6 +244,8 @@ export class QueryPane implements Pane {
   disposed = false;
   readAt = 0;
   stale = false;
+  /** A frame was asked for since it was last read: asking again would only draw the same screen. */
+  private redrawAsked = false;
   desk: DeskApi | null = null;
   /**
    * Read again because the outline changed: one read at a time, and changes while it is out read once more when it
@@ -259,13 +261,18 @@ export class QueryPane implements Pane {
     // behind, and the desk is asked to draw, so a tile that is on the screen of an idle door reads at once when its frame
     // comes. One never read yet, and any on a desk that has never drawn (a test's, an agent's headless one), reads now.
     const hidden = this.items !== null && desk.shows?.(this) === false;
-    if (hidden) { this.stale = true; behind(this); desk.redraw(); return Promise.resolve(); }
+    if (hidden) {
+      // A frame asked once, when it first falls behind: a tile on an idle door's screen is drawn, and reads then.
+      if (!this.stale && !this.redrawAsked) { this.redrawAsked = true; desk.redraw(); }
+      this.stale = true; behind(this); return Promise.resolve();
+    }
     return this.refreshNow(desk);
   }
 
   /** Read what changed now: one read at a time, once more if more changed while it was out. */
   refreshNow(desk: DeskApi): Promise<void> {
     this.stale = false;
+    this.redrawAsked = false;
     this.readAt = Date.now();
     if (this.disposed) return Promise.resolve();
     if (this.refreshing) { this.again = true; return this.refreshing; }

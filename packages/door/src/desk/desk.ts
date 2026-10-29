@@ -3011,7 +3011,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   shows(p: Pane): boolean | undefined {
     if (!this.hitsAt) return undefined;
     const id = this.idOf(p);
-    return id !== undefined && Date.now() - this.hitsAt < SHOWN_LATELY_MS && this.hits.some(([t]) => t === id);
+    // Laid out with room for its rows: a tile squeezed to a sliver or folded to its spine shows none of its cards.
+    return id !== undefined && Date.now() - this.hitsAt < SHOWN_LATELY_MS && this.hits.some(([t, r]) => t === id && r.cols > 2 && r.rows > 1) && !this.folded(p);
   }
 
   /** Where tile `name` (or the container with that key) was last drawn. */
