@@ -215,11 +215,11 @@ test("the wall with its ask in the last sentence: both patches, as written, leav
   // The chip holds the whole ask, cut only at a word, and the checkbox is its own paragraph.
   expect(text.split("\n")[0]).toMatch(/^Shed roof notes \[needs::sysop: Evan, should we replace the split batten now, which means a second trip to the…\]$/);
   expect(text.split("\n").slice(1, 4)).toEqual(["", expect.stringMatching(/^- \[ \] Evan, should we replace .* spring sweep\?$/), ""]);
+  // The wall's first sentence is too long for any bullet: no patch, and the finding names it (a patch that left a
+  // 280-character bullet would be told again, PIE-1402).
   const wall = writeShape(text).find(f => f.rule === "wall")!;
-  text = apply(text, wall.patch!);
-  // A sentence too long for a bullet nests its clauses under the first.
-  expect(text).toContain("- The felt went on this morning and the roof over the potting bench no longer drips onto the seed trays,\n  - which means the trays can stay where they are through the winter,");
-  expect(writeShape(text)).toEqual([]);
+  expect(wall.patch).toBeUndefined();
+  expect(wall.say).toContain("too long for one bullet");
 });
 
 test("a buried ask whose line holds little else moves whole; one under a title with no blank line stays its own paragraph", () => {
@@ -232,16 +232,42 @@ test("a buried ask whose line holds little else moves whole; one under a title w
   expect(writeShape(moved)).toEqual([]);
 });
 
-test("a stacked item whose one sentence is too long nests its clauses", () => {
+test("a stacked item whose one sentence is too long comes with no patch, and says which to cut", () => {
   const item = "- The new shelves hold every jar from the old cupboard and the two crates from the shed, which means the floor by the door is clear again, and the labels face out so a jar can be found without lifting the others, though the top shelf is still too high to reach without the step.";
   const [found] = writeShape(`Pantry\n\n${item}`);
   expect(found).toMatchObject({ rule: "stacked" });
-  const fixed = apply(`Pantry\n\n${item}`, found!.patch!);
-  expect(fixed.split("\n").slice(2)).toEqual([
-    "- The new shelves hold every jar from the old cupboard and the two crates from the shed,",
-    "  - which means the floor by the door is clear again,",
-    "  - and the labels face out so a jar can be found without lifting the others,",
-    "  - though the top shelf is still too high to reach without the step.",
-  ]);
+  expect(found!.patch).toBeUndefined();
+  expect(found!.say).toContain("is one item of 276 characters: a bullet is one short point; cut it");
+});
+
+// Found by a verifier using #1025 (Oct 29): each patch, applied as written, must leave a note the next review is quiet on.
+test("a question in the paragraph right under the title moves out without swallowing the rest of it", () => {
+  const filler = Array.from({ length: 4 }, (_, i) => `The gutter on the north side sagged at joint ${i} after the storm.`).join(" ");
+  const note = `Gutter repair update [type::note]\n${filler} Evan, should we replace the whole run or patch the two joints?`;
+  const q = writeShape(note).find(f => f.rule === "question")!;
+  const fixed = apply(note, q.patch!);
+  const lines = fixed.split("\n");
+  expect(lines[0]).toStartWith("Gutter repair update [type::note] [needs::sysop:");
+  expect(lines.slice(1, 4)).toEqual(["", expect.stringMatching(/^- \[ \] Evan, should we replace/), ""]);
+  expect(writeShape(fixed).filter(f => f.rule === "stacked")).toEqual([]);
+});
+
+test("a title whose chips are on the line under it keeps them there: the box goes below the chips", () => {
+  const filler = Array.from({ length: SHAPE_LIMITS.top }, (_, i) => `- point ${i}`).join("\n");
+  const note = `Gutter repair update\n[type::note] [area::north]\n\n${filler}\n\nEvan, should we replace the whole run?`;
+  const q = writeShape(note).find(f => f.rule === "question")!;
+  const fixed = apply(note, q.patch!);
+  expect(fixed.split("\n").slice(0, 4)).toEqual(["Gutter repair update [needs::sysop: Evan, should we replace the whole run?]", "[type::note] [area::north]", "", "- [ ] Evan, should we replace the whole run?"]);
+});
+
+test("a wall's patch splits at sentences only; one with a sentence too long for a bullet comes with no patch", () => {
+  const ok = `Seedlings\n\n${"The trays went out at nine. The frame stayed shut. The cat stayed off. The watering can was refilled. Nobody tripped."}`;
+  const [wall] = writeShape(ok);
+  const fixed = apply(ok, wall!.patch!);
+  expect(fixed).not.toMatch(/^[ \t]+- /m);
   expect(writeShape(fixed)).toEqual([]);
+  const long = `Seedlings\n\nThe trays went out at nine and the frame stayed shut all morning while the sun came round onto the bench, which meant the seedlings warmed slowly, and somebody had left the watering can full by the door so nobody needed to go back to the tap before the second round of potting began after lunch. The frame stayed shut. The cat stayed off. Nobody tripped.`;
+  const [w2] = writeShape(long);
+  expect(w2!.patch).toBeUndefined();
+  expect(w2!.say).toContain("too long for one bullet");
 });

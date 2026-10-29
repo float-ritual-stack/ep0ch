@@ -195,7 +195,7 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
       found.push({
         rule: "stacked", key: `stacked:${p.text.slice(0, 24)}…${p.text.slice(-24)}`, line: p.line + 1,
         say: points.length > 1
-          ? `line ${p.line + 1} ("${excerpt(p.text, 32)}") stacks ${points.length} points in one item, ${p.text.length} characters: a bullet is one point; make each its own item${patch ? " (the patch does)" : ""}, or a figure if they share fields`
+          ? `line ${p.line + 1} ("${excerpt(p.text, 32)}") stacks ${points.length} points in one item, ${p.text.length} characters: a bullet is one point; make each its own item${patch ? " (the patch does)" : tooLong(lines, p)}, or a figure if they share fields`
           : `line ${p.line + 1} ("${excerpt(p.text, 32)}") is one item of ${p.text.length} characters: a bullet is one short point; cut it, or put the detail in nested items under a short lead`,
         ...(patch ? { patch } : {}),
       });
@@ -203,7 +203,7 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
       const patch = wallPatch(lines, p);
       found.push({
         rule: "wall", key: `wall:${p.text.slice(0, 24)}…${p.text.slice(-24)}`, line: p.line + 1,
-        say: `line ${p.line + 1} ("${excerpt(p.text, 32)}") is ${sentences} sentences, ${p.text.length} characters: a paragraph is at most ${SHAPE_LIMITS.sentences} sentences; split it, or make it a list, a callout or a figure`,
+        say: `line ${p.line + 1} ("${excerpt(p.text, 32)}") is ${sentences} sentences, ${p.text.length} characters: a paragraph is at most ${SHAPE_LIMITS.sentences} sentences; split it, or make it a list, a callout or a figure${patch ? " (the patch makes it a list)" : tooLong(lines, p)}`,
         ...(patch ? { patch } : {}),
       });
     }
@@ -326,56 +326,36 @@ function rawOf(lines: readonly string[], p: Paragraph): string {
   }).join(" ").trim();
 }
 
-/**
- * A point too long for one bullet (past `itemChars`), cut where a clause starts: after a `;`, at a spaced dash, or
- * before a comma's joining word (", which", ", and", ", though"). The cuts keep every character; a point that has no
- * such place stays whole. Pure.
- */
-export function clausesOf(point: string): string[] {
-  if (point.length <= SHAPE_LIMITS.itemChars) return [point];
-  const m = masked(point);
-  const cuts = [
-    ...[...m.matchAll(/;\s+/g)].map(x => x.index! + 1),
-    ...[...m.matchAll(/,\s+(?=(?:which|and|but|though|although|so|because|while|whereas|meaning|since|then)\b)/g)].map(x => x.index! + 1),
-    ...[...m.matchAll(/\s+(?=(?:—|–|--)\s+)/g)].map(x => x.index!),
-  ].sort((a, b) => a - b);
-  const out: string[] = [];
-  let from = 0;
-  for (const at of cuts) {
-    const piece = point.slice(from, at).trim();
-    // A clause is worth its own line only when it says something (four words or more).
-    if (piece.split(/\s+/).length >= 4) { out.push(piece); from = at; }
-  }
-  const rest = point.slice(from).trim();
-  if (rest) { if (out.length && rest.split(/\s+/).length < 4) out[out.length - 1] += ` ${rest}`; else out.push(rest); }
-  return out.length > 1 ? out : [point];
-}
-
-/** One point as list lines: itself, or (too long for a bullet) its first clause with the rest nested under it. */
-const pointRows = (point: string, head: string, nested: string): string[] => {
-  const [first, ...more] = clausesOf(point);
-  return [`${head}${first}`, ...more.map(c => `${nested}${c}`)];
-};
+/** A point fit for its own bullet: no longer than an item may be, and one point (PIE-1402: a patch's output passes the same review). */
+const fitsBullet = (point: string) => point.length <= SHAPE_LIMITS.itemChars && splitPoints(point).length <= SHAPE_LIMITS.itemPoints;
 
 /** A stacked item made into one item per point: a lead (`**Board:**`) keeps the item and its points nest under it. */
 function stackedPatch(lines: readonly string[], p: Paragraph, points: string[]): ShapePatch[] | undefined {
-  if (points.length < 2 && clausesOf(points[0] ?? "").length < 2) return undefined;
+  if (points.length < 2) return undefined;
   const { quote, indent, marker } = leadOf(lines[p.line]!);
   const bullet = /^\d/.test(marker) ? "- " : marker.replace(/\[[ xX]\][ \t]+/, "");
   const lead = /^(\*\*[^*]{1,40}\*\*:?|[^\s:][^:]{0,38}:)\s+(.+)$/s.exec(points[0]!);
-  const under = `${quote}${indent}  `;
+  const items = lead ? [lead[2]!, ...points.slice(1)] : points;
+  // A sentence too long for a bullet stays the writer's to cut: a patch that leaves one would be told again.
+  if (!items.every(fitsBullet)) return undefined;
   const rows = lead
-    ? [`${quote}${indent}${marker}${lead[1]}`, ...[lead[2]!, ...points.slice(1)].flatMap(point => pointRows(point, `${under}${bullet}`, `${under}  ${bullet}`))]
-    : [...pointRows(points[0]!, `${quote}${indent}${marker}`, `${under}${bullet}`), ...points.slice(1).flatMap(point => pointRows(point, `${quote}${indent}${bullet}`, `${under}${bullet}`))];
+    ? [`${quote}${indent}${marker}${lead[1]}`, ...items.map(point => `${quote}${indent}  ${bullet}${point}`)]
+    : [`${quote}${indent}${marker}${points[0]}`, ...points.slice(1).map(point => `${quote}${indent}${bullet}${point}`)];
   return keepsEverything(sourceOf(lines, p), rows.join("\n"));
 }
 
-/** A wall of sentences made into a list, one sentence a line; a sentence too long for a bullet nests its clauses. */
+/** A wall of sentences made into a list, one sentence a line; none when a sentence is too long for a bullet. */
 function wallPatch(lines: readonly string[], p: Paragraph): ShapePatch[] | undefined {
   const points = splitPoints(rawOf(lines, p), { clauses: false });
-  if (points.length < 2 && clausesOf(points[0] ?? "").length < 2) return undefined;
+  if (points.length < 2 || !points.every(fitsBullet)) return undefined;
   const { quote, indent } = leadOf(lines[p.line]!);
-  return keepsEverything(sourceOf(lines, p), points.flatMap(point => pointRows(point, `${quote}${indent}- `, `${quote}${indent}  - `)).join("\n"));
+  return keepsEverything(sourceOf(lines, p), points.map(point => `${quote}${indent}- ${point}`).join("\n"));
+}
+
+/** The first sentence of a unit too long for a bullet, said so the writer knows which to cut. */
+function tooLong(lines: readonly string[], p: Paragraph): string {
+  const long = splitPoints(rawOf(lines, p), { clauses: false }).find(point => !fitsBullet(point));
+  return long ? `; "${excerpt(long, 32)}" is ${long.length} characters, too long for one bullet: cut it, no patch can` : "";
 }
 
 /**
@@ -411,7 +391,13 @@ function chipWords(text: string, max = 80): string {
 /** What is left of a line once its ask moves out: trailing joiners dropped ("…, and" ends nothing). */
 const remainderOf = (line: string, ask: string) => line.replace(ask, "").replace(/\s{2,}/g, " ").replace(/(?:[\s,;:—–-]|\b(?:and|but|so|or|then)\b)+$/i, "").trimEnd();
 
-/** A buried question moved to the top, as one `- [ ]` under the title, and the note marked `[needs::sysop: …]`. */
+/** A line that holds only property chips (`[type::note] [area::north]`): the title's, when it sits under the title. */
+const CHIPS_ONLY = /^[ \t]*(?:\[[\w-]+::[^\]]*\][ \t]*)+$/;
+
+/**
+ * A buried question moved to the top, as one `- [ ]` under the title (and under the chip lines right under it, which
+ * are the title's), its own paragraph, and the note marked `[needs::sysop: …]` on the title line.
+ */
 function questionPatch(lines: readonly string[], at: number, title: number, sentence: string): ShapePatch[] | undefined {
   const line = lines[at]!;
   if (lines.filter(l => l === line).length !== 1 || lines.filter(l => l === lines[title]).length !== 1 || at <= title) return undefined;
@@ -425,11 +411,19 @@ function questionPatch(lines: readonly string[], at: number, title: number, sent
     const left = rest.replace(/^(?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])?[ \t]*/, "").trim();
     if (left.split(/\s+/).filter(w => /\p{L}/u.test(w)).length < 3) { rest = null; ask = words; }
   }
-  // The checkbox is its own paragraph: a blank line after it when the body starts right under the title.
-  const after = lines[title + 1]?.trim() && title + 1 !== at ? "\n" : "";
+  // Where the box goes: after the title, and after the chip lines right under it.
+  let anchor = title;
+  while (anchor + 1 < at && CHIPS_ONLY.test(lines[anchor + 1]!)) anchor++;
+  if (anchor !== title && lines.filter(l => l === lines[anchor]).length !== 1) return undefined;
+  // What comes after the box once the ask has moved: a blank line keeps it out of the box's item.
+  const next = anchor + 1 === at ? (rest ?? lines[at + 1]) : lines[anchor + 1];
+  const box = `\n\n- [ ] ${ask}${next?.trim() ? "\n" : ""}`;
+  const chip = `${lines[title]!.trimEnd()} [needs::sysop: ${chipWords(ask)}]`;
   return [
     rest === null ? { observed: `\n${line}`, replacement: "" } : { observed: line, replacement: rest },
-    { observed: lines[title]!, replacement: `${lines[title]!.trimEnd()} [needs::sysop: ${chipWords(ask)}]\n\n- [ ] ${ask}${after}` },
+    ...(anchor === title
+      ? [{ observed: lines[title]!, replacement: `${chip}${box}` }]
+      : [{ observed: lines[title]!, replacement: chip }, { observed: lines[anchor]!, replacement: `${lines[anchor]!.trimEnd()}${box}` }]),
   ];
 }
 
