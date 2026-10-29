@@ -56,6 +56,8 @@ import { placeOutput } from "./place";
 import { quoteInto, readQuoteInput } from "./quote-into";
 import { stampTemplateInto, stampTemplate, type TemplateStampResult } from "./template-stamp";
 import { keepSuggestion, readKeep } from "./jev-suggestions";
+import { parseWorkId } from "@ep0ch/outline-core/work-ids";
+import { attachText, findTwins, recordTwin, twinRefusal, writerName } from "./work-twins";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSyncs } from "./extension-sync";
 import { resourceProviderEntries } from "./extension-registry";
@@ -137,6 +139,7 @@ import {
   type OutlinerChange,
   type OutlinerChangeKind,
   type MutationProvenance,
+  type VisibleBlockCollection,
   type OutlinerNavigationDispatch,
   type InternResourceReceipt,
   type OutlinerNavigationIntent,
@@ -2252,6 +2255,59 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
+    if (request.action === "roadmap.items.similar" || request.action === "roadmap.items.attach" || (request.action === "roadmap.items.create" && (request.author === "agent" || request.input?.new !== undefined))) {
+      // Twins at filing (PIE-1258, work-twins.ts): code finds open items like the new one, Jev reads them, code decides.
+      // An agent's create with twins is refused with the two calls; a person's never is (the door shows a hint).
+      try {
+        const own = { request: async <T>(input: { action: string } & Record<string, unknown>): Promise<T> => {
+          const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
+          if (!response.ok) throw new Error(response.error);
+          return response.result as T;
+        } };
+        const jev = { promptDirectory: this.promptDirectory };
+        if (request.action === "roadmap.items.similar") {
+          const input = request.input;
+          if (!input || typeof input.title !== "string" || !input.title.trim()) throw new Error("roadmap.items.similar needs input: { title, body? }");
+          if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 10)) throw new Error("limit must be a whole number from 1 to 10");
+          const { reading, ...answer } = await findTwins(own, { title: input.title, ...(typeof input.body === "string" ? { body: input.body } : {}) }, { ...jev, ...(request.limit ? { limit: request.limit } : {}) });
+          return { id: request.id, ok: true, result: { ...answer, ...(reading?.usage ? { tokens: reading.usage.input } : {}) }, sequence: this.store.sequence };
+        }
+        if (this.readOnly) throw new Error("This outline is read-only.");
+        if (request.action === "roadmap.items.attach") {
+          const input = request.input;
+          if (!input || typeof input.item !== "string" || typeof input.title !== "string" || !input.title.trim()) throw new Error("roadmap.items.attach needs input: { item: <Work ID or block id>, title, body?, sourceBlockId? }");
+          const item = (parseWorkId(input.item.trim()) ? (await own.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=roadmap-item work-id=${input.item.trim()}`, limit: 1 } })).blocks[0] : this.store.get(input.item.trim()))
+            ?? (() => { throw new Error(`no roadmap item ${input.item}: attach names an open item by its Work ID (PIE-12) or block id`); })();
+          const stage = item.properties.find(p => p.key === "work-stage")?.value;
+          if (stage === "done" || stage === "superseded") throw new Error(`${input.item} is ${stage}: attach adds to open work, never reopens it; file it with new: true and say what it follows`);
+          const mutation = { author: request.author ?? "user", ...(request.provenance?.actorId ? { actorId: request.provenance.actorId } : {}) } as MutationProvenance;
+          let updated: Block | undefined;
+          for (let attempt = 0; attempt < 2 && !updated; attempt++) {
+            const now = this.store.require(item.id);
+            try { updated = await own.request<Block>({ action: "update", blockId: now.id, text: attachText(now.text, input, writerName(request.author, request.provenance)), expectedRevision: now.revision, mutation }); }
+            catch (error) { if (attempt) throw error; }
+          }
+          const workId = item.properties.find(p => p.key === "work-id")?.value ?? item.id;
+          await recordTwin(own, { candidates: [], twins: [workId], jev: "not asked: attached" }, { title: input.title, outcome: "attached", item: workId, ...(request.provenance?.actorId ? { actorId: request.provenance.actorId } : {}), twin: workId });
+          return { id: request.id, ok: true, result: { attached: workId, block: updated! }, sequence: this.store.sequence };
+        }
+        const { new: fileAnyway, ...input } = request.input;
+        const answer = await findTwins(own, { title: input.title, ...(input.body ? { body: input.body } : {}) }, jev);
+        const actorId = request.provenance?.actorId;
+        if (answer.twins.length && !fileAnyway && request.author === "agent") {
+          await recordTwin(own, answer, { title: input.title, outcome: "offered", ...(actorId ? { actorId } : {}) });
+          throw new Error(twinRefusal(answer, input.title));
+        }
+        const beside = fileAnyway ? answer.twins : [];
+        const filed = beside.length ? { ...input, relatedTo: [...new Set([...(input.relatedTo ?? []), ...answer.candidates.filter(c => beside.includes(c.workId)).map(c => c.id)])], body: `${input.body?.trim() ? `${input.body.trim()}\n\n` : ""}Filed beside ${beside.map(w => `[[${w}]]`).join(", ")}: open work that looked like the same, filed anyway.` } : input;
+        const response = this.handle({ ...request, input: filed }, subscribedClient);
+        if (response.ok && beside.length) await recordTwin(own, answer, { title: input.title, outcome: "filed-anyway", item: (response.result as RoadmapItemCreateReceipt).workId, ...(actorId ? { actorId } : {}) });
+        return response;
+      } catch (error) {
+        if (isSqliteBusy(error)) throw error;
+        return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
+      }
+    }
     if (request.action === "suggestions.keep") {
       // PIE-1251: the records of what Jev said are made here, in this process, so a writer that exits after one request
       // (the Claude mod's CLI) leaves them as complete as one that waits. The records are Jev's own writes.
@@ -3722,6 +3778,9 @@ export class OutlinerServer {
           throw new Error("Artifact requests require asynchronous dispatch.");
         case "suggestions.keep":
           throw new Error("suggestions.keep requires asynchronous dispatch.");
+        case "roadmap.items.similar":
+        case "roadmap.items.attach":
+          throw new Error(`${request.action} requires asynchronous dispatch.`);
         case "completion.rows":
         case "completion.picked":
         case "quote":

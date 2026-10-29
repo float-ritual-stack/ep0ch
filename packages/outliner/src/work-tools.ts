@@ -233,6 +233,19 @@ async function workReview(client: WorkToolsClient, actor: WorkActor, block: Bloc
   } catch { return {}; }
 }
 
+/**
+ * A new ask added under an open item instead of a ticket of its own (PIE-1258): its title and body, in its writer's
+ * words and dated, at the end of the item (the service's `roadmap.items.attach`). What a refused create's answer names.
+ */
+export async function attachToItem(
+  client: WorkToolsClient,
+  input: { item: string; title: string; body?: string; sourceBlockId?: string },
+  actor: WorkActor,
+): Promise<{ attached: string; ref: BlockRef }> {
+  const receipt = await client.request<{ attached: string; block: Block }>({ action: "roadmap.items.attach", input, author: actor.author, provenance: provenanceOf(actor) });
+  return { attached: receipt.attached, ref: blockRef(receipt.block) };
+}
+
 // ─── Properties ────────────────────────────────────────────────────────────
 
 export interface WorkSetResult extends WorkItemRef {

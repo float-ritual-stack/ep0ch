@@ -1,0 +1,9 @@
+{
+  "same": "Is the work `new` asks for the same work as this open ticket, so that doing one would do the other? Ticket: {candidate}",
+  "part": "Would `new` fit inside this open ticket as one more step or ask of it, rather than as work of its own? Ticket: {candidate}",
+  "ships": "Does this shipped change already do what `ticket` asks for? Shipped change: {candidate}",
+  "replaces": "Does this shipped change make `ticket` unnecessary by solving its problem a different way? Shipped change: {candidate}",
+  "duplicate": "Is `ticket` asking for the same work as this other ticket, so that doing one would do the other? Other ticket: {candidate}",
+  "tries": "Would a person checking that `ticket`'s change works in the app use this action while trying it? Action: {candidate}",
+  "shows": "Does this line from `ticket` say what a person should see or be able to do once the change works? Line: {candidate}"
+}
