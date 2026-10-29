@@ -2801,6 +2801,8 @@ export class OutlinerServer {
         case "devices.add":
         case "devices.list":
         case "devices.revoke":
+        case "devices.shortcut.put":
+        case "devices.shortcut.get":
         case "web.sessions.start":
         case "web.sessions.resolve":
         case "web.sessions.list":

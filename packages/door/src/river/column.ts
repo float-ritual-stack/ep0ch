@@ -1,6 +1,6 @@
 import { standsAsPerson } from "../surface/dispatch";
 import { keyTable } from "../surface/keymap";
-import { NOBODY } from "../whereabouts";
+import { holdsEdit, NOBODY } from "../whereabouts";
 import { COLUMN_MOVE_KEYS } from "../surface/attached-keys";
 import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "../surface/modes";
 import { errorDetails } from "../status-log";
@@ -1090,7 +1090,7 @@ export function riverColumnKind(): TileKind {
     // A swipe sideways steps to the column beside, as h and l do.
     sideways: (_p, dir) => modeBinding(FLOW_KEYS, { kind: dir < 0 ? "left" : "right" }) ?? null,
     accepts: { notes: true },
-    take: (p, m, desk) => { const c = p as RiverColumn; if (c.holdsKeys || c.editing) return "holds an edit or a comment"; c.hold(m, desk); return null; },
+    take: (p, m, desk) => { const c = p as RiverColumn; if (c.holdsKeys || c.editing) return holdsEdit("the column"); c.hold(m, desk); return null; },
     holdsWork: p => (p as RiverColumn).unsaved() || (p as RiverColumn).editing,
     shows: p => (p as RiverColumn).noteOf() ?? null,
     opensNext: (_p, m) => ({ t: "leaf", kind: "river.column", source: `block:${m.id}` } as TileSpec),

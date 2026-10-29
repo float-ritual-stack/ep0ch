@@ -235,8 +235,25 @@ export function standsAsPerson(actor: Actor, where: Whereabouts, touch: InviteSc
   return actor.kind === "user" || !!where.yolo || INVITES.covers(actor.invitation, touch, actor.run);
 }
 
+/** Where a step reaches (Dispatcher.rule): the tile, how a refusal names it, what an agent does instead, and `host`. */
+export interface StepAt { tile?: string; label?: string; way?: string; host?: true; action?: string }
+/** The actor rule for a step, against whereabouts `where`: Dispatcher.rule's, for a host with no dispatcher in reach (the drawer's raise). */
+export function stepRule(touches: "tile" | "screen", actor: Actor, where: Whereabouts, at: StepAt = {}): string | null {
+  return actorRule({ touches, ...(at.way ? { way: at.way } : {}), ...(at.host ? { host: true as const } : {}) }, actor, where, { tile: at.tile !== undefined ? { name: at.tile, ...(at.label ? { label: at.label } : {}) } : null, ...(at.action ? { action: at.action } : {}) });
+}
+
+/**
+ * What a layout context reads of who acts (the desk's and the host layer's each build one): whether `actor` stands as the
+ * person for the layout's shape, whether the person's typing is protected from it, and why a screen move is held now.
+ * The one answer (PIE-1294), so the two contexts can't drift apart.
+ */
+export function layoutStanding(actor: Actor, where: Whereabouts, o: { host?: true; action?: string } = {}): { standing: boolean; protectTyping: boolean; held: string | null } {
+  const standing = standsAsPerson(actor, where, "shape");
+  return { standing, protectTyping: actor.kind === "agent" && !standing, held: actorRule({ touches: "screen", ...(o.host ? { host: true as const } : {}) }, actor, where, o.action ? { action: o.action } : {}) };
+}
+
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */
-export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "while" | "draft" | "person" | "way" | "ownGate" | "host"> & { replay?: ActionDef<unknown, unknown>["replay"] }, actor: Actor, where: Whereabouts, at: {
+export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "while" | "draft" | "person" | "personAlways" | "way" | "ownGate" | "host"> & { replay?: ActionDef<unknown, unknown>["replay"] }, actor: Actor, where: Whereabouts, at: {
   /** The tile it runs in (by name, and how a refusal says it). */
   tile?: { name: string; label?: string } | null;
   /** The action's name and what the tile it acts on lets an agent do (PIE-639): checked before anything else of the tile. */
@@ -249,6 +266,8 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   action?: string;
 }): string | null {
   if (actor.kind !== "agent") return null;
+  // The person's alone: nothing lifts it, an invitation or yolo (ActionDef.personAlways).
+  if (def.personAlways) return def.personAlways;
   if (INVITES.covers(actor.invitation, def.touches === "screen" || def.touches === "shape" ? def.touches : "tile", actor.run)) return null;
   if (def.person) return def.person;
   const standing = standsAsPerson(actor, where, def.touches === "screen" || def.touches === "shape" ? def.touches : "tile");
@@ -462,17 +481,20 @@ export class Dispatcher {
 
   /**
    * The actor rule for a step that isn't an action of its own but moves something of the person's on the way (a link
-   * an agent followed that steps the brief to another day): what `touches` would say, or null.
+   * an agent followed that steps the brief to another day, a layout change a drawer or a bar makes): what `touches`
+   * would say, or null. The one place a step asks it (PIE-1294): `host` is the declaration's (it changes the drawer
+   * itself, so typing there is in its way), `tile` the tile it reaches (`label` how a refusal names it), `way` what an
+   * agent does instead. The guard test (test/one-owner.test.ts) fails when a caller builds `actorRule` itself.
    */
-  rule(touches: "tile" | "screen", actor: Actor, tile?: string, way?: string): string | null {
-    return actorRule({ touches, ...(way ? { way } : {}) }, actor, this.where(), { tile: tile !== undefined ? { name: tile } : null });
+  rule(touches: "tile" | "screen", actor: Actor, at: StepAt = {}): string | null {
+    return stepRule(touches, actor, this.where(), at);
   }
   /**
    * The same rule, thrown: for a step inside an action that reaches a tile its declaration doesn't name (the board's
    * dock shut by its own tile, a preview's copy floated), so it says the dispatcher's words, not its own.
    */
-  check(touches: "tile" | "screen", actor: Actor, tile?: string, way?: string): void {
-    const no = this.rule(touches, actor, tile, way);
+  check(touches: "tile" | "screen", actor: Actor, at: Parameters<Dispatcher["rule"]>[2] = {}): void {
+    const no = this.rule(touches, actor, at);
     if (no) throw new ActionRefused(no);
   }
 
@@ -583,6 +605,15 @@ export class Dispatcher {
    */
   press(name: string, args: Record<string, unknown> = {}, tile?: string): Promise<unknown> {
     return messageContext.run({ action: name, ...(tile ? { tile } : {}) }, () => this.asPerson(() => this.run({ action: name, args, ...(tile !== undefined ? { tile } : {}) }, USER, true)));
+  }
+
+  /**
+   * Run `req` as `actor`, the way that actor's runs go (PIE-1294): the person's is a `press` (a refusal said where they
+   * look, never thrown), an agent's an `act` (a refusal thrown to it, its run said on screen). The one place that picks
+   * between them for a caller that runs for either (a power-bar row, a form, an extension's row, a desk's perform).
+   */
+  as(actor: Actor, req: ActRequest): Promise<unknown> {
+    return actor.kind === "agent" ? this.act(req, actor) : this.press(req.action, req.args ?? {}, req.tile);
   }
 
   /** A person's authored press, including parsing it: failures keep the action and its source in the log. */
@@ -722,7 +753,7 @@ export class Dispatcher {
     const def = reg.set.def(req.action);
     if (!def) throw new ActionRefused(`no action ${req.action} here; try: ${reg.set.names().join(", ")}`);
     // The person's own: refused to an agent before anything is read.
-    const personOnly = def.person ? actorRule(def, actor, this.where(), {}) : null;
+    const personOnly = def.person || def.personAlways ? actorRule(def, actor, this.where(), {}) : null;
     if (personOnly) throw new ActionRefused(personOnly);
     const tiles = this.tilesNow();
     const at = this.target(reg, def, req, actor, tiles);
@@ -781,7 +812,10 @@ export class Dispatcher {
     const invitation = reg.set.argsOf(name)?.invitation && typeof args.invitation === "string" ? args.invitation : undefined;
     // A tile the action acts on (its kind's, or one named) limits an agent; the screen's own action, given none, only reads the focus.
     const agents = at.tile?.agents && (reg.takes === "tile" || at.name !== undefined) ? at.tile.agents : undefined;
-    return actorRule({ ...def, touches }, actor, where, { tile: at.tile ?? null, action: name, ...(agents ? { gate: { action: name, agents } } : {}), invited: invitation !== undefined, draft: () => this.draftAnswer(def, actor, reg.draftOf ? reg.draftOf(at, args, actor) : reg.takes === "tile" && at.tile ? this.host.draftOf?.(at.tile) ?? null : null, invitation) });
+    // Who it is the person's own for, as these arguments make it (ActionDef.personWith): the declaration's, else the arguments'.
+    const said = actor.kind === "agent" ? def.personWith?.(seen as never) ?? null : null;
+    const person = def.person ?? (typeof said === "string" ? said : undefined), personAlways = def.personAlways ?? (said && typeof said === "object" ? said.always : undefined);
+    return actorRule({ ...def, touches, ...(person ? { person } : {}), ...(personAlways ? { personAlways } : {}) }, actor, where, { tile: at.tile ?? null, action: name, ...(agents ? { gate: { action: name, agents } } : {}), invited: invitation !== undefined, draft: () => this.draftAnswer(def, actor, reg.draftOf ? reg.draftOf(at, args, actor) : reg.takes === "tile" && at.tile ? this.host.draftOf?.(at.tile) ?? null : null, invitation) });
   }
 
   /**

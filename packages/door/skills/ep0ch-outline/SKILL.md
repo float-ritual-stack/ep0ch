@@ -417,7 +417,9 @@ a bare id, a question for Evan below the top; Jev reads every section the write 
 which of the outline's components would show it. Many findings carry a `patch`: pass it to `outline_patch` as written
 (the figure built from your own lines, the bullet split a point a line, the question moved to the top); patches that
 would touch the same text come one per review. Each new
-finding is also a warning that starts "fix before you call this done". Every answer ends with `next`, the check to
+finding is also a warning that starts "fix before you call this done"; a component Jev would draw a section with that
+code can't build comes as advice ("consider: …"), never a fix. You hear each finding once: one you were told on an
+earlier write is carried, so a note whose patches you applied ships. Every answer ends with `next`, the check to
 make: read the note as drawn (`ep0ch show <id>`, or `outline_read` it back) before you call the write done. What you
 were told and what you did next land on Jev's suggestions page. In
 the Claude mod a note that holds a figure comes back drawn already. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
@@ -489,7 +491,8 @@ items:
 | `annotate` | static only | `code`, `notes` (or a fence with `# (1)` markers and a `1.` list) |
 
 **Width.** Every kind follows one rule (`tier`: narrow under 48 columns, cozy under 90, wide): a table in a narrow
-column keeps its title column and one more and says `+n columns`; stat tiles wrap into rows; a timeline's or
+column with three or more columns draws each row as a card (its title, then every other cell as `header: value`), and
+on a phone page the same; stat tiles wrap into rows; a timeline's or
 decision's side note goes under its row; `compare` stacks; `matrix` cuts its heads; `quadrant` shows dots and a
 legend. Write for the content, not the pane: the figure fits itself.
 
@@ -684,8 +687,12 @@ parentheses. A button with no glyph says running and done by colour only. The ki
 lines place buttons there. Closed button bodies and list sugar work there too; pinning preserves the whole body. `alt="theme.cycle"` names a button's alternate click. The shared `button.press note=<id> label=...`
 presses it without moving focus. `status.bar.items` describes the ids and their declared actions; `status.bar.edit` opens
 or creates the config note, also reached by right-click or alt+click on empty bar space and the power bar's `status bar: edit`.
-A note button's menu offers **pin to status bar** (`button.pin label="Collapse"`). Missing or broken config keeps the default
-bar and says malformed lines in the message log. Keep edits as ordinary Blockdown, through the service with revision checks.
+A note button's menu offers **pin to status bar** (`button.pin label="Collapse"`). The note is a list (PIE-1224): a
+`- ::button{…}` item is a button, and an item with items indented under it is a **group**, its label on the bar opening
+them as a menu (`status.bar.menu group=Tools`, `Tools/More` for a nested one; an agent's answers the rows). A line the bar
+can't read is skipped, never the whole bar (PIE-1227): the rest stays, a `! line N` item opens the note at it, and the
+message log says it once with a did-you-mean. A narrow bar shortens built-ins, then drops them, before a pinned button goes
+into `+N` (PIE-1213), whose click lists what it hid. Keep edits as ordinary Blockdown, through the service with revision checks.
 
 **Heading styles and rules** (PIE-599; outline-core's `src/heading-styles.ts`, drawn by the door's
 `src/figures/banner.ts`). To divide a page more strongly than a plain heading, give the heading a style. Don't use
@@ -774,7 +781,7 @@ arrived and who sent it, `[arrival::new] [arrival-kind::page|site|document|image
 `arrival=new`, connects each one (links it from its thread, makes a deck a poster) and clears the chip. **A deck or a PDF
 meant to be read is not an artifact:** it goes on the wall as a poster (a note of its pages as images), not through a
 lease; one sent anyway lands as a document drawn by its first page. A phone sends with its own token
-(`ep0ch device add <name>`), which the person makes.
+(`ep0ch device add <name> --shortcut` prints one sign-in link that adds a signed "Send to ep0ch" Shortcut), which the person makes.
 See the outliner README's **Artifacts** section for import, limits and deployment.
 
 ## Keys and secrets (for an extension that needs one)

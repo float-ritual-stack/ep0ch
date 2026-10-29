@@ -9,7 +9,7 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { lookFor } from "../look";
 import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
-import { byOf, recordedActorId, USER, type Actor, type Change, type OutlineEvent } from "../socket";
+import { byOf, recorded, USER, type Actor, type Change, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def, agentLabel, agentWords, asActor } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { armsEdit, draftPreviewDoc, leaveSaid, sessionStart } from "../surface/note";
@@ -986,7 +986,7 @@ export class Lanes implements SourceModel {
     const m = await this.landCreate(plan.parent.id, composed, actor);
     const bornWith = plan.plan.bornWith ?? [];
     this.created(lane, m, actor, `created in ${lane.name} · ${titleOf(m)}${bornWith.length ? ` · born with ${bornWith.map(p => `${p.key}=${p.value}`).join(" ")}` : ""}`, `created in ${lane.name} under ${plan.parent.id.slice(0, 8)}`);
-    return { id: m.id, lane: lane.name, parent: plan.parent.id, text: m.text, bornWith: bornWith.map(p => `${p.key}=${p.value}`), recordedAs: recordedAs(actor) };
+    return { id: m.id, lane: lane.name, parent: plan.parent.id, text: m.text, bornWith: bornWith.map(p => `${p.key}=${p.value}`), recordedAs: recorded(actor, "new").says };
   }
 
   /**
@@ -1032,7 +1032,7 @@ export class Lanes implements SourceModel {
     // What the allocator gave it, read off the block it made (its stage rule is the service's, not ours).
     const props = m.properties;
     const bornWith = ["type", "priority", "work-stage", "work-batch", "project", "arc", "track"].flatMap(k => props.filter(p => p.key === k).map(p => `${k}=${p.value}`));
-    return { id: m.id, workId: made.workId, lane: lane.name, parent: made.workQueueId, text: m.text, bornWith, recordedAs: recordedAs(actor) };
+    return { id: m.id, workId: made.workId, lane: lane.name, parent: made.workQueueId, text: m.text, bornWith, recordedAs: recorded(actor, "new").says };
   }
 
   /**
@@ -1043,8 +1043,6 @@ export class Lanes implements SourceModel {
     const C0 = this.composer?.kind === "card" ? this.composer : null;
     if (text === undefined) {
       if (!C0) throw new ActionRefused("no new card is being written; card.attach twin=PIE-n text=… adds an ask under that item");
-      // The card being written is the person's: an agent attaches its own words.
-      if (actor.kind === "agent") throw new ActionRefused("the new card being written is the person's; an agent passes its own text= (card.attach twin=PIE-n text=…)");
       const to = twin ?? C0.twin?.workId;
       if (!to) throw new ActionRefused("the new card hasn't been offered open work yet: ctrl+s asks, or name it with twin=PIE-n");
       C0.attachTo = to;
@@ -1061,7 +1059,7 @@ export class Lanes implements SourceModel {
     catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); }
     this.host.ctx.flash(`added under ${r.attached} · ${title}${actor.kind === "agent" ? ` · by ${agentLabel(actor)}` : ""}`);
     this.host.redraw();
-    return { attached: r.attached, recordedAs: recordedAs(actor) };
+    return { attached: r.attached, recordedAs: recorded(actor, "new").says };
   }
 
   /** After an allocator create whose answer was lost: the project's item with that title, made since. */
@@ -1233,7 +1231,7 @@ export class Lanes implements SourceModel {
     this.lastWrite = { what: "trash", id: card.id, result: `trashed from ${lane}`, ...by };
     asActor(this.host.ctx, actor).flash(`trashed "${titleOf(card)}"${fresh.childIds.length ? ` and ${fresh.childIds.length} note${fresh.childIds.length === 1 ? "" : "s"} under it` : ""} · u restores it${lost}`);
     this.host.redraw();
-    return { trashed: card.id, title: titleOf(card), lane, notesUnder: fresh.childIds.length, restore: `card.restore id=${card.id}`, recordedAs: actor.kind === "agent" ? `agent ${actor.id}` : "the person" };
+    return { trashed: card.id, title: titleOf(card), lane, notesUnder: fresh.childIds.length, restore: `card.restore id=${card.id}`, recordedAs: recorded(actor).says };
   }
 
   /** `u`: bring back the card trashed last (or `id`), where it was. */
@@ -1418,8 +1416,6 @@ interface CardPlan { born: { key: string; value: string }[]; defaults: { key: st
 const roadmapHint = (C0: { born: { key: string }[]; defaults: { key: string }[] }) =>
   ["project", "priority", "arc", "track"].filter(k => !C0.born.some(p => p.key === k) && !C0.defaults.some(p => p.key === k))
     .map(k => k === "priority" ? "[priority::high|medium|low]" : `[${k}::…]`).join(" ");
-/** What a card write recorded, as the service stored it (socket.ts `recordedActorId`): the person alone, or an agent, or the person naming who wrote with them. */
-export const recordedAs = (actor: Actor) => actor.kind === "agent" || actor.with?.length ? `agent ${recordedActorId(actor)}` : "you";
 
 type Composer =
   | { kind: "card"; lane: Lane; planning: boolean; born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: (ParentPick & { title: string }) | null; session: DraftSession;
@@ -1475,6 +1471,8 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     summary: "which board this is: with no id, the hubs it can show (every block with two or more virtual-branch lanes), and for the person the picker to choose one; with id=<hub block id>, show that board. An agent's switch is refused while the person is typing, and is said on the status bar",
     keys: [{ keys: "g", does: "opens the board picker" }, { keys: "j k ↑ ↓", does: "move in the picker" }, { keys: "⏎ click", does: "on a board" }, { keys: "esc q click", does: "puts the picker away (click outside it; q with no board shown yet leaves the screen; esc stays on it)" }],
     touches: "screen", touchesWith: a => (a.id !== undefined ? "screen" : "nothing"), replay: "safe", says: r => (r.hub ? `showed the board ${r.title}` : null),
+    // Putting the picker away is the person's own (only their g opens it).
+    personWith: a => (a.close ? "the hub picker is the person's; an agent shows a board with board.hub id=<hub>" : null),
     menu: { label: "another board", group: BOARD, key: "g" },
     args: { id: { type: "string", optional: true, about: "the hub's block id (or its first 8+ characters)" }, close: { type: "boolean", optional: true, about: "put the picker away (the person's own)" }, leave: { type: "boolean", optional: true, about: "with close and no board shown yet, leave the screen too (the picker's q)" } },
     examples: [
@@ -1482,8 +1480,6 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
       { act: "board.hub id=2b7f5e90", does: "shows the board whose hub block starts with 2b7f5e90" },
     ],
     run({ id, close, leave }, { model }, actor) {
-      // Putting the picker away is the person's own (only their g opens it).
-      if (close && actor.kind === "agent") throw new ActionRefused("the hub picker is the person's; an agent shows a board with board.hub id=<hub>");
       return close ? lanesOf({ model }).closePicker(!!leave) : lanesOf({ model }).chooseHub(id, actor);
     },
   }),
@@ -1602,6 +1598,8 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   "card.attach": def({
     summary: "add a new ask under open work it repeats instead of filing it (PIE-1258): its title and body, in its writer's words and dated, at the end of that roadmap item. With no text, the new card being written goes there: the composer's [attach here] when it says what the card looks like", keys: "ctrl+x a, click [attach here]",
     touches: "nothing", replay: "ask",
+    // The card being written is the person's: an agent attaches its own words.
+    personWith: a => (a.text === undefined ? "the new card being written is the person's; an agent passes its own text= (card.attach twin=PIE-n text=…)" : null),
     args: {
       twin: { type: "string", optional: true, about: "the open item's Work ID (PIE-12); default the one the composer offered" },
       text: { type: "string", optional: true, about: "title line and body; default the new card being written" },

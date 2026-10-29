@@ -349,14 +349,16 @@ export class WelcomeList implements Pane {
   readHere(m: Msg, actor: Actor, desk: DeskApi, focus = true): Shown {
     const d = this.detail;
     if (!d) throw new ActionRefused("the welcome screen has no detail to read it in");
-    if (d.holdsKeys || d.editing) throw new ActionRefused("the detail holds an edit or a comment; save or close it first");
+    // Where it lands is placement's (PIE-1294): a detail holding an edit or a comment stays on its note, so the person's
+    // pick opens beside it as anywhere on the desk (PIE-592), and an agent's is refused in placement's words.
     // Another note read by the person: what the preview showed came from the one before (its link, its backlink),
     // so it empties rather than show something the detail no longer points at. An agent's leaves what the person
     // may be reading there. Either way the preview never repeats the note read.
     const other = d.msg?.id !== m.id, pv = this.preview(desk), standing = standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile");
     if (other) desk.setCurrent(m, { from: this, to: d, by: actor, ...(focus ? {} : { keys: false as const }) });
-    if (pv && (pv.msg?.id === m.id || (other && standing))) pv.show(null, desk);
-    if (focus && standing && !desk.holdsKeys?.()) desk.focusPane?.(d, actor);
+    const here = d.msg?.id === m.id;
+    if (pv && (pv.msg?.id === m.id || (other && standing && here))) pv.show(null, desk);
+    if (here && focus && standing && !desk.holdsKeys?.()) desk.focusPane?.(d, actor);
     const items = this.items ?? [], i = items.findIndex(x => x.id === m.id);
     const s: Shown = { id: m.id, title: subject(m), welcome: prop(m, WELCOME_KEY) ?? null, n: i >= 0 ? i + 1 : null, of: items.length };
     desk.redraw();

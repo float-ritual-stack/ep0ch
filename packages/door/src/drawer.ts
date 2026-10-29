@@ -1,4 +1,3 @@
-import { INVITES } from "./surface/invite";
 import type { Reveal } from "./reveal";
 // The host layer and its drawer (PIE-513; PIE-498): what stays with the person on every screen, above the screen layer
 // that is swapped per screen. It is a layout on the one layout engine (`hostLayer` in src/desk/screen-layout.ts): a
@@ -70,7 +69,7 @@ import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, layerOrder, lay
 import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, preset, agentLabel, type ActRequest, type Again } from "./surface/actions";
-import { standsAsPerson, actorRule, type Dispatcher, type TileRef } from "./surface/dispatch";
+import { layoutStanding, standsAsPerson, stepRule, type Dispatcher, type TileRef } from "./surface/dispatch";
 import { HOST_AGENT, NOBODY, type Whereabouts } from "./whereabouts";
 import { bg, C, chip as chipStyle, fg, pad, RESET, width } from "./style";
 import type { Key } from "./term";
@@ -465,7 +464,7 @@ export class AgentDrawer {
       if (!under) throw new ActionRefused(`${what} isn't on any screen this door shows, nor in your drawer · agents.list says where each agent is`);
       if (!ctx?.raise) throw new ActionRefused(`${what} isn't on this screen or in your drawer: it's on the ${under.title}, under this one (q goes back to it)`);
       if (!this.ctx(actor).standing) throw new ActionRefused(`${what} is on the ${under.title}, under this screen: an agent doesn't move the person's screen to it (screen.open names a screen, as the person's idle allows)`);
-      const held = actorRule({ touches: "screen", host: true }, actor, this.host.person?.() ?? NOBODY, {});
+      const held = stepRule("screen", actor, this.host.person?.() ?? NOBODY, { host: true });
       if (held) throw new ActionRefused(held);
       ctx.raise(under);
       raised = under.title;
@@ -817,9 +816,10 @@ export class AgentDrawer {
   }
   /** Who acts, and where the person is (the shell's one answer): in the agent, or busy on the screen. */
   private ctx(actor: Actor, rows = 30, cols = 100): LayoutCtx<string> {
+    const where = this.host.person?.() ?? NOBODY, who = layoutStanding(actor, where, { host: true });
     return {
-      actor, standing: standsAsPerson(actor, this.host.person?.() ?? NOBODY, "shape"), protectTyping: actor.kind === "agent" && !this.host.person?.().yolo && !INVITES.covers(actor.invitation, "shape", actor.run), area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
-      person: { focus: this.liftIn !== null && !this.inLift() ? HOST_SCREEN : this.keys, typingIn: this.entered ? HOST_TILES : null, busy: this.entered || !!this.host.person?.().busy, ...(this.host.person ? { held: actorRule({ touches: "screen", host: true }, actor, this.host.person(), {}) } : {}) },
+      actor, standing: who.standing, protectTyping: who.protectTyping, area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
+      person: { focus: this.liftIn !== null && !this.inLift() ? HOST_SCREEN : this.keys, typingIn: this.entered ? HOST_TILES : null, busy: this.entered || where.busy, ...(this.host.person ? { held: who.held } : {}) },
     };
   }
   /** One operation on the host layer, for `actor`: its new state and where the keys are now, or the refusal thrown. */
@@ -1027,13 +1027,21 @@ export class AgentDrawer {
     this.changed();
     return this.restarting;
   }
-  /** The chip as drawn on the status bar (its colour says the state). */
-  chip(now = Date.now()): string {
+  /**
+   * The chip as drawn on the status bar (its colour says the state). `short`: for a narrow bar (PIE-1213), only which
+   * program and how many more (`▼ shell +1`); `tiny`: its arrow alone. Its colour still says the state.
+   */
+  chip(now = Date.now(), size: "whole" | "short" | "tiny" = "whole"): string { return this.chips(now)[size]; }
+  /** The chip in its three sizes, read once (the status bar takes all three each frame). */
+  chips(now = Date.now()): { whole: string; short: string; tiny: string } {
     const s = this.state(now);
     const c = s === "working" ? C.yellow : s === "blocked" ? C.lmagenta : s === "done" ? C.lgreen : s === "exited" || s === "failed" ? C.lred : s === "watching" ? C.lcyan : C.white;
-    const { head, knows } = this.chipParts(now);
-    if (this.dropHover) return `${chipStyle(C.yellow, C.black)}${head}${bg(C.blue)}${fg(C.lcyan)}`;
-    return `${bg(this.open ? C.cyan : C.blue)}${fg(c)}${head}${knows && this.offersRestart ? fg(C.yellow) : ""}${knows}${bg(C.blue)}${fg(C.lcyan)}`;
+    const parts = this.chipParts(now);
+    // Short: the program and its count, without where its name came from or what it's doing.
+    const of = (head: string, knows: string) => this.dropHover
+      ? `${chipStyle(C.yellow, C.black)}${parts.head}${bg(C.blue)}${fg(C.lcyan)}`
+      : `${bg(this.open ? C.cyan : C.blue)}${fg(c)}${head}${knows && this.offersRestart ? fg(C.yellow) : ""}${knows}${bg(C.blue)}${fg(C.lcyan)}`;
+    return { whole: of(parts.head, parts.knows), short: of(parts.head.split(" · ")[0]!.replace(/ \(from [^)]*\)/, ""), ""), tiny: of(parts.head.slice(0, 1), "") };
   }
   /** A tile dragged over the drawer (its chip, its drawer): what a release there does (the chip and the drawer light up). */
   private dropHover: string | null = null;
@@ -1968,9 +1976,10 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     args: {},
     async run(_, { drawer, ctx }, actor) {
       const p = drawer.tile;
-      // The agent's own window: the person who typed into it lately may be about to again.
+      // The agent's own window: the person who typed into it lately may be about to again. Who it holds back is the
+      // actor rule's standing (their press's run and yolo stand as them), only the window is this program's own.
       const idle = Date.now() - (p?.personKeyAt ?? 0);
-      if (actor.kind === "agent" && p && idle < RESTART_IDLE_MS && !ctx.agentsYolo) throw new ActionRefused(`the person typed into the agent ${(idle / 1000).toFixed(1)}s ago; try again once they've left it ${RESTART_IDLE_MS / 1000}s`);
+      if (p && idle < RESTART_IDLE_MS && !standsAsPerson(actor, ctx.person?.() ?? NOBODY, "tile")) throw new ActionRefused(`the person typed into the agent ${(idle / 1000).toFixed(1)}s ago; try again once they've left it ${RESTART_IDLE_MS / 1000}s`);
       const name = p ? drawer.agentName() : drawer.name;
       ctx.flash(`restarting ${name}${p?.herdr ? ` in Herdr (${p.herdr.pane})` : ""} · the conversation is kept`, 6000);
       return drawer.restart().then(r => ({ ...r, name }));

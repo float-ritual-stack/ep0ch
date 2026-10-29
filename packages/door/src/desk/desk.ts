@@ -49,8 +49,7 @@ import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
 import { ActionRefused, ActionSet, actionSet, actRequestOf, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
-import { INVITES } from "../surface/invite";
-import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
+import { layoutStanding, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
 import { armsEdit, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
@@ -747,15 +746,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Set while a frame is drawn: the person's layout context for it (layoutCtx). */
   private drawing: { layout?: LayoutState<number>; focus?: number; ctx?: LayoutCtx<number> } | null = null;
   private makeLayoutCtx(actor: Actor): LayoutCtx<number> {
-    const w = this.dispatch.where();
+    const w = this.dispatch.where(), who = layoutStanding(actor, w, { action: "layout.change" });
     const typing = w.typingIn !== null ? this.idNamed(w.typingIn) ?? null : null;
     // Each tile's facts once for this answer (the layout module asks them again for every tile it weighs): nothing changes while it runs.
     const facts = new Map<number, TileFacts>();
     return {
       ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : {}), self: this.layoutSelf(),
       beside: this.besides, opened: this.opened, inside: id => this.inside(id, actor), outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
-      actor, standing: this.dispatch.standing(actor, "shape"), protectTyping: actor.kind === "agent" && !w.yolo && !INVITES.covers(actor.invitation, "shape", actor.run), area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
-      person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, { action: "layout.change" }), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}) },
+      actor, standing: who.standing, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
+      person: { focus: this.focus, typingIn: typing, busy: w.busy, held: who.held, here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };
   }
@@ -2261,7 +2260,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * reader becomes its home, its dock slides open, and the keys go to it. Resolves once the service has answered.
    */
   async aimBacklinks(L: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void> }, m: Msg | null, given?: ReaderPane, actor: Actor = USER): Promise<void> {
-    const held = actorRule({ touches: "screen", host: true }, actor, this.dispatch.where(), {});
+    const held = this.dispatch.rule("screen", actor, { host: true });
     if (held) throw new ActionRefused(held);
     const lid = this.idOf(L);
     if (lid === undefined) throw new ActionRefused("that backlinks tile isn't on this screen");
@@ -2315,7 +2314,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       opened = true;
     }
     if (person) {
-      const held = actorRule({ touches: "screen", host: true }, actor, this.dispatch.where(), {});
+      const held = this.dispatch.rule("screen", actor, { host: true });
       if (held) throw new ActionRefused(held);
       await owner.aimBacklinks(L, m, r as ReaderPane, actor);
     }
@@ -2364,8 +2363,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   async openQuery(r: Pane, query: string, actor: Actor, standing = this.dispatch.standing(actor)): Promise<TagList> {
     const rid = this.idOf(r);
     if (rid === undefined) throw new ActionRefused("that reader isn't on this screen");
-    const held = standing ? actorRule({ touches: "screen", host: true }, actor, this.dispatch.where(), {}) : null;
-    if (held) throw new ActionRefused(held);
     const home = this.nameOf(rid);
     let id = this.all().find(i => { const p = this.panes.get(i); return p instanceof QueryPane && p.query !== null && this.homeName(i) === this.pathTo(r) && !p.held; });
     const opened = id === undefined;
@@ -3021,8 +3018,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   perform(action: string, args: Record<string, unknown>, by: Actor = USER, tile?: Pane | string): Promise<unknown> {
     const id = typeof tile === "object" ? this.idOf(tile) : tile === undefined ? undefined : this.idNamed(tile);
     const name = id !== undefined ? this.tileId(id) : typeof tile === "string" ? tile : undefined;
-    if (by.kind !== "agent") return this.dispatch.press(action, args, name);
-    return this.dispatch.act({ action, args, ...(name !== undefined ? { tile: name } : {}) }, by).catch(e => { this.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); return undefined; });
+    const run = this.dispatch.as(by, { action, args, ...(name !== undefined ? { tile: name } : {}) });
+    return by.kind !== "agent" ? run : run.catch(e => { this.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); return undefined; });
   }
   /** ColumnsHost.within: another action run inside one (lane.collapse runs tile.collapse), its refusal thrown. */
   within(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown> {
@@ -3036,7 +3033,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return to === undefined ? (id === undefined ? undefined : this.extTarget(id)?.pane) : this.panes.get(to);
   }
   /** The actor rule for a step that moves something of the person's on the way (an open that steps the brief): why not, or null. */
-  ruleFor(touches: "tile" | "screen", actor: Actor): string | null { return this.dispatch.rule(touches, actor); }
+  ruleFor(touches: "tile" | "screen", actor: Actor, at?: Parameters<Dispatcher["rule"]>[2]): string | null { return this.dispatch.rule(touches, actor, at); }
   /** The keys to tile `p`, as `tile.focus` gives them (an agent's never moves them). */
   focusPane(p: Pane, actor: Actor) { const id = this.idOf(p); if (id !== undefined) this.focusTile(this.nameOf(id), actor); }
   /** A tile's list picker over the screen (the home base's choices): on the desk's own overlay stack, first to take keys and clicks. */
@@ -3209,7 +3206,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   async editNew(m: Msg, how: NewNoteHow = { opens: "lands", context: null }): Promise<string | null> {
     const actor = how.actor ?? USER;
-    const held = actorRule({ touches: "screen", host: true }, actor, this.dispatch.where(), {});
+    const held = this.dispatch.rule("screen", actor, { host: true });
     if (held) throw new ActionRefused(held);
     if (!this.all().length) {
       const placed = this.placeNote(m, { from: this.focus, at: { kind: "edge", dir: "right" }, note: m.id }, actor);
@@ -5775,7 +5772,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * The person's keys in it are theirs too: an agent doesn't.
    */
   private shutDockOf(t: { name: string; id: number }, actor: Actor): TileDone {
-    this.dispatch.check("tile", actor, t.name, "an agent doesn't close it");
+    this.dispatch.check("tile", actor, { tile: t.name, way: "an agent doesn't close it" });
     const holder = chainOf(this.root, t.id).find(c => c.policy?.shuts)!;
     const had = this.focus, inside = leaves(holder).includes(had);
     if (!dockOf(this.root, t.id) && holder.id) this.apply({ op: "pin", tile: t.id, on: false, container: holder.id }, actor);
@@ -6925,8 +6922,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A float opened into a container (the board's readers row) goes back into it, as its last tile there; a full one
     // gives way, never a tile holding an edit or a comment, nor (for an agent) the one the person has.
     if (this.isFloat(t.id) && key !== undefined && c) {
-      const held = actorRule({ touches: "screen", host: true }, actor, this.dispatch.where(), { action: "tile.float" });
-      if (this.dispatch.standing(actor) && held) throw new ActionRefused(held);
       const at: At<number> = { kind: "in", key, weight: this.weightIn(key) };
       const asked = this.ask({ op: "float", tile: t.id, at }, actor);
       if (!asked.ok) throw new ActionRefused(asked.refused);
@@ -6941,7 +6936,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const into = this.opensIntoKey();
     if (!this.isFloat(t.id) && into && p instanceof ReaderPane && kindOf(p)?.follower) {
       if (!p.msg) throw new ActionRefused(`${t.name} shows nothing to float yet`);
-      this.dispatch.check("tile", actor, t.name, "an agent doesn't float it");
+      this.dispatch.check("tile", actor, { tile: t.name, way: "an agent doesn't float it" });
       const landed = this.placeNote(p.msg, { from: t.id, container: into, at: { kind: "float", near: t.id }, note: p.msg.id }, actor);
       if (!landed) throw new ActionRefused("not floated");
       const fid = landed.id;
@@ -6970,7 +6965,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
     if (!this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };
-    const held = actorRule({ touches: "screen", host: true }, actor, this.dispatch.where(), { action: "tile.menu" });
+    const held = this.dispatch.rule("screen", actor, { host: true, action: "tile.menu" });
     if (held) throw new ActionRefused(held);
     let anchor: { col: number; row: number; right?: boolean };
     if (at !== undefined) {

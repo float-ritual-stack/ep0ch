@@ -30,6 +30,55 @@ are its record. The outliner's entries from then are kept below, under
   meanings under one name (^W h j k l) or after another key (`a then c`) can't be moved alone, and the window says so.
 - **Run:** nothing; no protocol or schema change.
 
+### The status bar keeps your buttons: narrow bars, typos and groups (PIE-1213, PIE-1227, PIE-1224)
+
+- **Your pins stay:** when the bar is narrow, built-ins shorten first (the drawer chip to `▲ shell`, then its arrow;
+  `+3 machine` to `+3`), then built-ins drop, and only then your last pinned buttons go into `+N`. A click on `+N`
+  lists what it hid by name; alt+click opens the bar note.
+- **A typo costs one line:** a line of your `[status-bar::true]` note the bar can't read is skipped, not the whole bar.
+  A `! line N` item says so (a click opens the note at that line), and the message log says it once with a did-you-mean
+  (`drawer` → `- drawer`). Fixing the line clears it.
+- **A message leaves them** (PIE-1410): a long message on the bar replaces the location, never `+N`, `!` or a pin
+  on the left; they stay drawn and clickable while it shows.
+- **Groups:** nest items under a list item and the bar shows its label; a click opens them as a menu
+  (`status.bar.menu group=Tools` by act).
+- **A list item holds a button,** in any note: `- ::button{…}` draws after its bullet and presses; the publisher shows
+  its label, and `button.press` finds buttons in list items and quotes too.
+### Agents work in your door while you type, and every refusal says the same thing (PIE-1294)
+
+- **Your edit is yours:** an agent's open never replaces the note you're editing, on any screen; on Welcome your own
+  pick while the detail holds an edit now opens beside it, as the desk does (it was refused). `ep0ch where` says
+  "typing" while you're in an edit in a reader, not only in a terminal.
+- **One wording:** a reader keeping its note says "<reader> holds an edit or a comment; it stays on its note until
+  that's saved or closed" on the desk, Welcome, the brief, EchoNet, the river and the message reader.
+- **What's yours alone stays yours:** access changes, handing over yolo, logging off, ending or upgrading the
+  session and sending a held request are refused to an agent even on a script you pressed (`personAlways`); the
+  action's page says so. An agent turns yolo off with `on=false`.
+- **One record:** a save you and an agent both wrote says what was stored ("yours, naming …"), as the revision
+  records it; a trash receipt and a share say who was recorded the same way (`recorded()` in the door's socket.ts).
+- **Kitchen sink:** `ep0ch --showcase`, section while-typing.
+### Jev's review and twins read right where Evan looks (PIE-1402)
+
+- **Jev's suggestions at 44 columns:** a table of three or more columns in a narrow tile draws each row as a card, its
+  title then every cell as `header: value`, three cards to a scroll; the web page does the same at phone width. Each
+  finding shows the passage, what was said and what the writer did, once.
+- **A finding is told once:** a writer who heard a finding on an earlier write hears it carried, so a note whose
+  patches were applied ships; the record keeps the writer's words (`[needs::sysop]` stays, quoted) and the fix
+  offered. "Followed" means Jev read the rewrite and didn't say it again, and a patch applied as written reads
+  patched. A component code can't build is advice, never a fix; a context finding quotes the phrase it leans on.
+- **Patches that leave nothing to fix:** the buried question's moves whole sentences, its chip cut at a word, its box
+  its own paragraph; a wall's or a stacked bullet's long sentence nests its clauses. Compare (`label: A | B`, columns
+  from the line above), decision (chosen, rejected) and word-marked check rows come as patches too (PIE-1252).
+- **Mark Jev right or wrong** with the status chooser's keys (x right, `-` Reject wrong), by click too; the row
+  stays where it was.
+- **Twins by meaning:** a ticket filed in other words meets its original (its body is read, and deep search
+  finds it by meaning); one Jev is unsure of is offered for the writer to decide; the original is named first. The groom
+  calls the newer twin the duplicate and lists every open ticket with what it was read against. A ticket's
+  experience is any "Evan <does> …" sentence.
+- **The backfill finishes:** `ep0ch review backfill --into` sends each note's findings in one request as it goes (the
+  service makes the records), a rerun skips notes already kept, and Jev's own page and rule are no longer reviewed.
+- **Run:** `ep0ch install --apply` (PROTOCOL changes: a twin's verdict can be `unsure`).
+
 ### Facets answer in under a second on pie, and a docs-only deploy keeps door sessions (PIE-1396, PIE-1400)
 
 - **Facets:** the facets read made one pass per key over every note; it now reads each note once, for the keys it

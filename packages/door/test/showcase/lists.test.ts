@@ -96,7 +96,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     // The restore receipt precedes the links tile's subscription refresh.
     await until(() => tiles().find(t => t.name === "links").backlinks.rows.some((r: { id?: string }) => r.id === lid.id), "the restored lid in the links tile");
     await expect(app.act({ action: "note.trash", tile: "links", args: { ref: lid.id }, as: "test-agent" })).rejects.toThrow("confirm=");
-    expect(await app.act({ action: "note.trash", tile: "links", args: { ref: lid.id, confirm: lid.id }, as: "test-agent" })).toMatchObject({ trashed: lid.id, recordedAs: "agent test-agent" });
+    expect(await app.act({ action: "note.trash", tile: "links", args: { ref: lid.id, confirm: lid.id }, as: "test-agent" })).toMatchObject({ trashed: lid.id, recordedAs: "an agent (test-agent)'s" });
     expect(await deleted(lid.id)).toBe(true);
     expect(await app.act({ action: "note.untrash", tile: "links", as: "test-agent" })).toMatchObject({ restored: lid.id });
     expect(await deleted(lid.id)).toBe(false);

@@ -349,7 +349,7 @@ for a page, a zip or a tar: one upload, one hour, checked and installed as the n
 the outline's note for today that says what arrived (page, site, document, image) and who sent it, and carries
 `[arrival::new]` for a tidy pass to clear (PIE-1370). A deck or PDF meant to be read goes on the wall as a poster; one sent
 anyway is drawn by its first page. `ep0ch device add <name>` / `ls` / `revoke <name|id>` make a phone's Shortcut token for the
-same route. Details: the outliner README, "Handing a file over from outside". The showcase's `upload` section drives a real
+same route; `device add <name> --shortcut` signs the whole Shortcut and prints the one sign-in link the phone opens. Details: the outliner README, "Handing a file over from outside". The showcase's `upload` section drives a real
 lease, a zip and the card.
 
 **SQLite snapshots (PIE-931):** `ep0ch outline snapshot <name> --out <file>` writes a consistent,

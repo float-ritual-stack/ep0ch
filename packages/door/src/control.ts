@@ -351,7 +351,7 @@ export async function controlClient(args: string[]): Promise<number> {
     console.log(`${a.screen ?? "?"}${a.note ? ` · ${a.note}` : ""}${a.tiles?.length ? ` · tiles: ${a.tiles.join(", ")}` : ""}`);
     for (const x of a.actions) {
       const args = Object.entries(x.args as Record<string, { type: string; optional?: boolean }>).map(([k, v]) => `${k}=<${v.type}>${v.optional ? "?" : ""}`).join(" ");
-      console.log(`  ${x.name}${args ? " " + args : ""}${x.keys ? `   [${keysText(x.keys)}]` : ""}\n      ${x.summary}${x.touches ? `\n      touches ${x.touches}${x.person ? " (the person's only)" : ""} · replay ${x.replay}` : ""}`);
+      console.log(`  ${x.name}${args ? " " + args : ""}${x.keys ? `   [${keysText(x.keys)}]` : ""}\n      ${x.summary}${x.touches ? `\n      touches ${x.touches}${x.personAlways ? " (the person's alone, on their press too)" : x.person ? " (the person's own)" : x.personVaries ? " (partly the person's own: some arguments)" : ""} · replay ${x.replay}` : ""}`);
       if (x.answer) console.log(`      answer: ${Object.entries(x.answer as Record<string, { type: string; about: string }>).map(([key, field]) => `${key}: ${field.type} (${field.about})`).join("; ")}`);
     }
   }

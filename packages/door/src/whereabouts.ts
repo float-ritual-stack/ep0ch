@@ -118,3 +118,11 @@ export function screenKeys(s: { title: string; keys?(): ScreenKeys; holdsKeys?()
   const raw = !!s.rawKeys?.(), held = raw || !!s.holdsKeys?.();
   return { focus: null, typingIn: null, busy: held, ...(held ? { why: raw ? `the person is typing in a terminal tile on the ${s.title}` : `the person is in an edit, a comment or the property panel on the ${s.title} (or typing a filter, or choosing)` } : {}) };
 }
+
+/**
+ * Why a reader won't take another note: it holds an edit or a comment there (PIE-761), so it stays on its note. The one
+ * wording every screen says it in (PIE-1294): placement()'s refusal, ReaderPane.keepsOff (the welcome detail, the brief,
+ * EchoNet's reader, a river column, the reader's own mode and follow), MessageReader's open. The guard test
+ * (test/one-owner.test.ts) fails when a screen words it again.
+ */
+export const holdsEdit = (label: string, what = "an edit or a comment"): string => `${label} holds ${what}; it stays on its note until that's saved or closed`;

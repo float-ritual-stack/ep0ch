@@ -256,14 +256,12 @@ export const ACCESS_MATRIX_ACTIONS = actionSet<KindHost>()("access-matrix", {
     summary: "make the change planned: write the outline's grant and/or the path's cap, and say the commands that ran. With caller, outline and level it plans and applies in one step; with none it applies what the tile has planned. The person's only: access is the person's to change (agents are gated by it, ADR 0005)",
     keys: [{ keys: "⏎", does: "on a planned change" }, { via: "the [⏎ apply] chip" }],
     touches: "nothing", replay: "ask", says: (r: { ran: string[] }) => `ran ${r.ran.join(" and ")}`,
-    person: "what agents may reach is the person's to set: an agent reads the matrix and asks access.plan what a change would do, and the person applies it",
+    personAlways: "what agents may reach is the person's to set: an agent reads the matrix and asks access.plan what a change would do, and the person applies it",
     args: { level: { type: "string", optional: true, about: "none, read, propose or full (left out: the change the tile has planned)" }, ...cellArgs },
     examples: [
       { act: "access.apply", does: "applies the change the tile has planned (the person only)" },
     ],
     async run(a, { pane, desk }, actor) {
-      // `person` is checked by the dispatcher, but not while yolo lifts the agent gate: access is never lifted with it.
-      if (actor.kind === "agent") throw new ActionRefused("what agents may reach is the person's to set: an agent reads the matrix and asks access.plan what a change would do");
       const p = pane as AccessMatrixPane;
       let plan = p.staged;
       if (a.level !== undefined || !plan) {

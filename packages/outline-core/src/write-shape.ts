@@ -326,24 +326,56 @@ function rawOf(lines: readonly string[], p: Paragraph): string {
   }).join(" ").trim();
 }
 
+/**
+ * A point too long for one bullet (past `itemChars`), cut where a clause starts: after a `;`, at a spaced dash, or
+ * before a comma's joining word (", which", ", and", ", though"). The cuts keep every character; a point that has no
+ * such place stays whole. Pure.
+ */
+export function clausesOf(point: string): string[] {
+  if (point.length <= SHAPE_LIMITS.itemChars) return [point];
+  const m = masked(point);
+  const cuts = [
+    ...[...m.matchAll(/;\s+/g)].map(x => x.index! + 1),
+    ...[...m.matchAll(/,\s+(?=(?:which|and|but|though|although|so|because|while|whereas|meaning|since|then)\b)/g)].map(x => x.index! + 1),
+    ...[...m.matchAll(/\s+(?=(?:—|–|--)\s+)/g)].map(x => x.index!),
+  ].sort((a, b) => a - b);
+  const out: string[] = [];
+  let from = 0;
+  for (const at of cuts) {
+    const piece = point.slice(from, at).trim();
+    // A clause is worth its own line only when it says something (four words or more).
+    if (piece.split(/\s+/).length >= 4) { out.push(piece); from = at; }
+  }
+  const rest = point.slice(from).trim();
+  if (rest) { if (out.length && rest.split(/\s+/).length < 4) out[out.length - 1] += ` ${rest}`; else out.push(rest); }
+  return out.length > 1 ? out : [point];
+}
+
+/** One point as list lines: itself, or (too long for a bullet) its first clause with the rest nested under it. */
+const pointRows = (point: string, head: string, nested: string): string[] => {
+  const [first, ...more] = clausesOf(point);
+  return [`${head}${first}`, ...more.map(c => `${nested}${c}`)];
+};
+
 /** A stacked item made into one item per point: a lead (`**Board:**`) keeps the item and its points nest under it. */
 function stackedPatch(lines: readonly string[], p: Paragraph, points: string[]): ShapePatch[] | undefined {
-  if (points.length < 2) return undefined;
+  if (points.length < 2 && clausesOf(points[0] ?? "").length < 2) return undefined;
   const { quote, indent, marker } = leadOf(lines[p.line]!);
   const bullet = /^\d/.test(marker) ? "- " : marker.replace(/\[[ xX]\][ \t]+/, "");
   const lead = /^(\*\*[^*]{1,40}\*\*:?|[^\s:][^:]{0,38}:)\s+(.+)$/s.exec(points[0]!);
+  const under = `${quote}${indent}  `;
   const rows = lead
-    ? [`${quote}${indent}${marker}${lead[1]}`, ...[lead[2]!, ...points.slice(1)].map(point => `${quote}${indent}  ${bullet}${point}`)]
-    : [`${quote}${indent}${marker}${points[0]}`, ...points.slice(1).map(point => `${quote}${indent}${bullet}${point}`)];
+    ? [`${quote}${indent}${marker}${lead[1]}`, ...[lead[2]!, ...points.slice(1)].flatMap(point => pointRows(point, `${under}${bullet}`, `${under}  ${bullet}`))]
+    : [...pointRows(points[0]!, `${quote}${indent}${marker}`, `${under}${bullet}`), ...points.slice(1).flatMap(point => pointRows(point, `${quote}${indent}${bullet}`, `${under}${bullet}`))];
   return keepsEverything(sourceOf(lines, p), rows.join("\n"));
 }
 
-/** A wall of sentences made into a list, one sentence a line. */
+/** A wall of sentences made into a list, one sentence a line; a sentence too long for a bullet nests its clauses. */
 function wallPatch(lines: readonly string[], p: Paragraph): ShapePatch[] | undefined {
   const points = splitPoints(rawOf(lines, p), { clauses: false });
-  if (points.length < 2) return undefined;
+  if (points.length < 2 && clausesOf(points[0] ?? "").length < 2) return undefined;
   const { quote, indent } = leadOf(lines[p.line]!);
-  return keepsEverything(sourceOf(lines, p), points.map(point => `${quote}${indent}- ${point}`).join("\n"));
+  return keepsEverything(sourceOf(lines, p), points.flatMap(point => pointRows(point, `${quote}${indent}- `, `${quote}${indent}  - `)).join("\n"));
 }
 
 /**
@@ -367,19 +399,37 @@ function titlePatch(line: string, title: string): ShapePatch[] | undefined {
   return [{ observed: line, replacement: `${line.slice(0, at)}${name}${after}\n\n${rest[0]!.toUpperCase()}${rest.slice(1)}` }];
 }
 
+/** A chip's words cut at a word boundary under `max`, with an ellipsis when cut: never mid-word. */
+function chipWords(text: string, max = 80): string {
+  const flat = text.replace(/[\[\]]/g, "").replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/(?:[\s,;:—–-]|\b(?:and|but|so|or|then)\b)+$/i, "")}…`;
+}
+
+/** What is left of a line once its ask moves out: trailing joiners dropped ("…, and" ends nothing). */
+const remainderOf = (line: string, ask: string) => line.replace(ask, "").replace(/\s{2,}/g, " ").replace(/(?:[\s,;:—–-]|\b(?:and|but|so|or|then)\b)+$/i, "").trimEnd();
+
 /** A buried question moved to the top, as one `- [ ]` under the title, and the note marked `[needs::sysop: …]`. */
 function questionPatch(lines: readonly string[], at: number, title: number, sentence: string): ShapePatch[] | undefined {
   const line = lines[at]!;
   if (lines.filter(l => l === line).length !== 1 || lines.filter(l => l === lines[title]).length !== 1 || at <= title) return undefined;
   const words = line.replace(/^(?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])?[ \t]*(?:\[[ xX]\][ \t]*)?/, "").trim();
-  const ask = sentence.trim();
-  const decision = ask.replace(/[\[\]]/g, "").slice(0, 60);
-  // The ask alone moves: a sentence out of its paragraph (the rest stays), or the whole line when it's only the ask.
-  const rest = words === ask ? null : line.replace(ask, "").replace(/\s{2,}/g, " ").trimEnd();
+  let ask = sentence.trim();
+  // The ask alone moves: a sentence out of its paragraph (the rest stays), or the whole line when it's only the ask, or
+  // when what would stay is a fragment (a few words, or no sentence left in it).
+  let rest: string | null = words === ask ? null : remainderOf(line, ask);
   if (rest !== null && rest === line) return undefined;
+  if (rest !== null) {
+    const left = rest.replace(/^(?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])?[ \t]*/, "").trim();
+    if (left.split(/\s+/).filter(w => /\p{L}/u.test(w)).length < 3) { rest = null; ask = words; }
+  }
+  // The checkbox is its own paragraph: a blank line after it when the body starts right under the title.
+  const after = lines[title + 1]?.trim() && title + 1 !== at ? "\n" : "";
   return [
     rest === null ? { observed: `\n${line}`, replacement: "" } : { observed: line, replacement: rest },
-    { observed: lines[title]!, replacement: `${lines[title]!.trimEnd()} [needs::sysop: ${decision}]\n\n- [ ] ${ask}` },
+    { observed: lines[title]!, replacement: `${lines[title]!.trimEnd()} [needs::sysop: ${chipWords(ask)}]\n\n- [ ] ${ask}${after}` },
   ];
 }
 

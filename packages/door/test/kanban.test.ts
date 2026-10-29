@@ -10,11 +10,10 @@ import type { Msg } from "../src/board";
 import { startControl } from "../src/control";
 import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
-import { recordedAs } from "../src/desk/lanes";
 import { pickParent } from "../src/desk/writes";
 import { Mirror } from "../src/mirror";
 import { MainMenu } from "../src/screens";
-import { recordedActorId, SocketBoard, type Actor } from "../src/socket";
+import { recorded, recordedActorId, SocketBoard, type Actor } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 import * as BV from "./board-view";
@@ -196,7 +195,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
   test("a typed project in the lane's OR group wins over its create:: default (B3); one outside it is refused", async () => {
     await settled();
     const r: any = await act("card.create", { lane: "Queued", text: "Tune the piano [project::pi-outliner] [priority::low] [arc::music] [track::keys]" });
-    expect(r).toMatchObject({ lane: "Queued", parent: queue2.id, workId: expect.stringMatching(/^HOME-\d+$/), recordedAs: `agent ${AS}` });
+    expect(r).toMatchObject({ lane: "Queued", parent: queue2.id, workId: expect.stringMatching(/^HOME-\d+$/), recordedAs: `an agent (${AS})'s` });
     const m = await current(r.id);
     expect(m.properties.filter((p: any) => p.key === "project").map((p: any) => p.value)).toEqual(["pi-outliner"]);
     expect(await createdBy(r.id)).toEqual(["agent", AS]);
@@ -325,7 +324,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().composer.session.draft.text).toBe("Paint the railings");
     type(" too");
     const r: any = await act("card.create", { lane: "Doing", text: "Sweep the chimney [project::ep0ch-door] [priority::high] [arc::home] [track::roof]" });
-    expect(r).toMatchObject({ lane: "Doing", parent: queue.id, recordedAs: `agent ${AS}` });
+    expect(r).toMatchObject({ lane: "Doing", parent: queue.id, recordedAs: `an agent (${AS})'s` });
     expect(B().composer.session.draft.text).toBe("Paint the railings too");
     expect(await createdBy(r.id)).toEqual(["agent", AS]);
     expect(message()).toBe(`an agent (${AS}) · created ${r.workId} in Doing · Sweep the chimney · priority=high arc=home track=roof project=ep0ch-door`);
@@ -510,7 +509,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect((await current(cards.bulb.id)).deletedAt).toBeUndefined();
     await until(() => B().lanes[laneIndex("Doing")].items.find((m: Msg) => m.id === cards.bulb.id)?.revision === shown.revision + 1, "the lane to catch up", 8000);
     const r: any = await act("card.trash", { card: cards.bulb.id, confirm: cards.bulb.id.slice(0, 8) });
-    expect(r).toMatchObject({ trashed: cards.bulb.id, lane: "Doing", recordedAs: `agent ${AS}` });
+    expect(r).toMatchObject({ trashed: cards.bulb.id, lane: "Doing", recordedAs: `an agent (${AS})'s` });
     expect((await current(cards.bulb.id)).deletedAt).toBeDefined();
     expect(hints()).toContain(`TRASHED "Swap the porch bulb" by an agent (${AS}) · u restores`);
     expect(await act("card.restore")).toMatchObject({ restored: cards.bulb.id });
@@ -561,12 +560,16 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
   });
 });
 
-describe("a card's receipt says what the service recorded", () => {
-  test("the person alone, an agent, and the person writing with an agent (their actor id joined by +)", () => {
-    expect(recordedAs({ kind: "user" })).toBe("you");
-    expect(recordedAs({ kind: "agent", id: "helper-7" })).toBe("agent helper-7");
+describe("a receipt says what the service recorded: one answer, recorded() (PIE-1294)", () => {
+  test("the person alone, an agent, and the person writing with an agent (their actor id joined by +), for a new block and a revision", () => {
+    expect(recorded({ kind: "user" }, "new").says).toBe("yours");
+    expect(recorded({ kind: "agent", id: "helper-7" }, "new").says).toBe("an agent (helper-7)'s");
     const together: Actor = { kind: "user", with: ["helper-7"] };
-    expect(recordedAs(together)).toBe(`agent ${recordedActorId(together)}`);
-    expect(recordedAs(together)).toMatch(/^agent ep0ch-door:.+\+helper-7$/);
+    // A new block a person and an agent wrote is the agent-authored block the service stores, naming both.
+    expect(recorded(together, "new")).toMatchObject({ block: { author: "agent", provenance: { actorId: recordedActorId(together) } }, says: `an agent's, naming ${recordedActorId(together)}` });
+    expect(recorded(together, "new").says).toMatch(/^an agent's, naming ep0ch-door:.+\+helper-7$/);
+    // A revision is the saver's, naming who wrote with them: what the mutation stores and what the sentence says agree.
+    expect(recorded(together)).toMatchObject({ mutation: { author: "user", actorId: recordedActorId(together) }, says: `yours, naming ${recordedActorId(together)}` });
+    expect(recorded({ kind: "agent", id: "helper-7", with: ["ext:tidy"] })).toMatchObject({ mutation: { author: "agent", actorId: "helper-7+ext:tidy" }, says: "an agent (helper-7+ext:tidy)'s" });
   });
 });

@@ -1,7 +1,7 @@
 import { Canvas, type Rect } from "./canvas";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { pressEnded } from "./surface/button";
-import { StatusBarNote, STATUS_BAR_ACTIONS, STATUS_INK, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
+import { RANK, StatusBarNote, STATUS_BAR_ACTIONS, STATUS_INK, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
 import { OSC8, OSC8_CLOSE } from "./hyperlink";
 import { fullPlainText } from "./overflow";
 import { Overflow } from "./overflow";
@@ -25,7 +25,9 @@ import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEven
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
 import { asTyped, layerEntry } from "./surface/keymap";
 import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref";
-import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type TileRef } from "./surface/dispatch";
+import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type MenuRow, type TileRef } from "./surface/dispatch";
+import { tileMenu } from "./desk/tile-menu";
+import type { Reveal } from "./reveal";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { lineCompletionHooks } from "./surface/line-hooks";
 import { AgentPointers, screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
@@ -602,6 +604,8 @@ export class App implements Ctx {
     host: () => this.barHost(),
   };
   private statusBoxes: StatusHit[] = [];
+  /** What the narrow bar put in its `+N` chip, in the bar's order (`status.bar.menu overflow=true` lists them). */
+  private statusHidden: StatusItem[] = [];
   private readonly statusButtons = new NoteSurface();
   readonly statusNote: StatusBarNote;
   private drawerRun: DrawerRun;
@@ -1097,7 +1101,7 @@ export class App implements Ctx {
       // Where the pointer rests on a cut-short value, and whether that value is being read in full (the pointer is the person's: this only says).
       hover: this.overflow.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
-      layout: this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d))?.layoutAll() ?? this.drawer.made?.layoutAll(),
+      layout: this.screenDesk()?.layoutAll() ?? this.drawer.made?.layoutAll(),
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
       ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.() ?? null };
   }
@@ -1197,7 +1201,20 @@ export class App implements Ctx {
       on: (_, how) => ({ surface: this.statusButtons, standing: how.standing, host: { ctx: this, redraw: () => this.redraw(), navigate() {} } }) },
     { set: STATUS_BAR_ACTIONS, takes: "none", on: () => ({
       note: this.statusNote, builtins: () => this.statusItems(), items: () => this.describeStatusItems(),
-      open: (id: string, actor: Actor) => this.hostLayer.openOnScreen(id, true, actor),
+      open: (id: string, actor: Actor, reveal?: Reveal) => this.hostLayer.openOnScreen(id, true, actor, undefined, reveal),
+      hidden: () => this.statusHidden,
+      flash: (text: string) => this.flash(text, 12_000),
+      // A group's or the overflow's menu (PIE-1224, PIE-1213): the tile menu over the screen, above the bar item it opens from,
+      // its rows run on this dispatcher (they are the bar's own clicks).
+      menu: (title: string, rows: MenuRow[], anchor: (item: StatusItem) => boolean) => {
+        // Only over the screen the person sees: a desk under another screen would hold a menu nobody sees.
+        const here = this.screenDesk();
+        if (!here || here !== tilesOf(this.stack.at(-1))) return false;
+        const hit = this.statusBoxes.find(h => anchor(h.item));
+        here.overlay(tileMenu({ title, rows, at: { col: hit?.from ?? 0, row: Math.max(0, this.term.info.rows - 2) }, host: { dispatch: { press: (a, args, tile) => this.dispatch.press(a, args, tile) }, ctx: this } }));
+        this.redraw();
+        return true;
+      },
     }) },
     { set: BAR_ACTIONS, takes: "none", on: (_, how) => ({ on: this.barOn, standing: how.standing }) },
     { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
@@ -1214,7 +1231,7 @@ export class App implements Ctx {
     }) },
     { set: CLAUDE_SPLIT_ACTIONS, takes: "none", on: (_, how) => {
       // The screen's desk, where tile.open lands too (a stage inside the showcase, a desk's own screen).
-      const here = (this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d)) ?? this.stack.at(-1)) as { overlay?(p: unknown): void } | undefined;
+      const here = (this.screenDesk() ?? this.stack.at(-1)) as { overlay?(p: unknown): void } | undefined;
       return {
         splits: this.splits, flash: (m: string, ms?: number) => how.ctx.flash(m, ms), redraw: () => this.redraw(),
         press: (action: string, args: Record<string, unknown>) => this.dispatch.press(action, args),
@@ -1224,7 +1241,7 @@ export class App implements Ctx {
     } },
     { set: EXTENSION_INSTALL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
     { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.tile !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
-    { claims: req => req.action.startsWith("layout.") || req.action.startsWith("tile."), delegate: () => (this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d)) ?? this.hostLayer.desks()[0])?.dispatch },
+    { claims: req => req.action.startsWith("layout.") || req.action.startsWith("tile."), delegate: () => (this.screenDesk() ?? this.hostLayer.desks()[0])?.dispatch },
     { delegate: () => this.stack.at(-1)?.dispatch },
     { set: POINTER_ACTIONS, takes: "screen", on: at => ({ dispatcher: this.dispatch, at }) },
   ]);
@@ -1727,6 +1744,7 @@ export class App implements Ctx {
     const slow = this.speed.slow();
     const split = this.splits.chip();
     const count = this.whatChanged.count();
+    const chip = this.drawer.active ? this.drawer.chips() : null;
     const waiting = waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() });
     const items: StatusItem[] = [
       { id: "brand", text: `${fg(C.white)}ep0ch`, place: "left", before: " ", after: " ", click: { action: "status.log" } },
@@ -1736,45 +1754,68 @@ export class App implements Ctx {
       { id: "machine", text: this.location, place: "left", click: { action: "status.log" } },
       right("dance", s?.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD}` : "", "layout.stop"),
       right("yolo", this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD}` : "", "agents.yolo", { on: false }),
-      { ...right("drawer", this.drawer.active ? this.drawer.chip() : "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}) },
-      right("waiting", waiting.styled, "host.waiting"),
+      { ...right("drawer", chip?.whole ?? "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}), ...(chip ? { short: chip.short, tiny: chip.tiny } : {}) },
+      { ...right("waiting", waiting.styled, "host.waiting"), ...(waiting.short ? { short: waiting.short } : {}) },
       right("split", split ? `${fg(C.lred)}${split}` : "", "claude.splits"),
       right("offline", this.offline ? `${fg(C.lred)}offline` : "", "status.log"),
       right("slow", slow ? `${fg(C.yellow)}${slow}` : "", "status.speed"),
       right("backup", backup ? `${fg(backup.status ? C.dark : C.lred)}${backup.text}` : "", "backups.alert"),
       right("new", count ? `${fg(C.yellow)}+${count} new` : "", "changes.open"),
-      right("machinery", ext ? `${fg(C.dark)}${ext}` : "", "changes.machinery"),
+      { ...right("machinery", ext ? `${fg(C.dark)}${ext}` : "", "changes.machinery"), ...(held ? { short: `${fg(C.dark)}+${held}` } : {}) },
       right("video", this.video, "video.cycle"),
       right("theme", theme().name, "theme.cycle"),
-      right("uptime", `on ${mins}m`, "status.log"),
+      { ...right("uptime", `on ${mins}m`, "status.log"), short: `${mins}m` },
       { ...right("clock", clock ?? "", "status.log"), after: " " },
     ];
     return items;
   }
+
+  /** The screen's desk (a stage inside the showcase, a desk's own screen), not the drawer's: where tile.open lands too. */
+  private screenDesk(): Desk | undefined { return this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d)); }
 
   private describeStatusItems() {
     const actions = this.dispatch.list().actions;
     return { note: this.statusNote.note?.id ?? null, builtins: this.statusItems().map(i => i.id), items: [...this.statusNote.items(this.statusItems()), ...this.statusBoxes.filter(h => h.item.id === "overflow").map(h => h.item)].map(item => {
       const hit = this.statusBoxes.find(h => h.item.id === item.id);
       const describe = (req: ActRequest | undefined) => req ? { ...req, definition: actions.find(a => a.name === req.action) } : undefined;
-      return { ...item, click: describe(item.click), alt: describe(item.alt), lastCell: describe(item.lastCell), ...(hit ? { from: hit.from, to: hit.to } : {}) };
+      // As drawn: a narrow bar's short words (PIE-1213), and whether it went into the +N chip.
+      return { ...item, ...(hit ? { text: hit.item.text } : {}), click: describe(item.click), alt: describe(item.alt), lastCell: describe(item.lastCell), ...(hit ? { from: hit.from, to: hit.to } : {}), ...(this.statusHidden.some(h => h.id === item.id) ? { overflowed: true } : {}) };
     }) };
   }
 
   private statusBar(s: Screen, cols: number): string {
     this.shownTime = this.timeShown();
-    const items = this.statusNote.items(this.statusItems(s)).filter(i => width(i.text));
-    let hidden = 0;
-    const overflow = (): StatusItem => ({ id: "overflow", text: `+${hidden}`, place: "left", after: " │ ", click: { action: "status.bar.edit" } });
-    // Keep the clock and drawer whole; later note lines yield their space first.
-    while (width(statusText(items)) + (hidden ? width(statusText([overflow()])) : 0) + 3 > cols) {
-      let last = items.length - 1;
-      while (last >= 0 && (items[last]!.id === "clock" || items[last]!.id === "drawer")) last--;
-      if (last < 0) break;
-      items.splice(last, 1);
-      hidden++;
+    const items = this.statusNote.items(this.statusItems(s)).filter(i => width(i.text)), ids = items.map(i => i.id), whole = new Map(items.map(i => [i.id, i]));
+    const hidden: StatusItem[] = [];
+    const overflow = (): StatusItem => ({ id: "overflow", text: `+${hidden.length}`, place: "left", after: " │ ", click: { action: "status.bar.menu", args: { overflow: true } }, alt: { action: "status.bar.edit" } });
+    // Measured as drawn: each side with its separators, the overflow chip last on the left, and the │ between the sides.
+    const drawn = (list: StatusItem[]) => width(statusText(separated(list.filter(i => i.place === "left"), "left"))) + width(statusText(separated(list.filter(i => i.place === "right"), "right")));
+    const over = () => drawn(hidden.length ? [...items, overflow()] : items) + 3 > cols;
+    // A narrow bar (PIE-1213): built-ins shorten first, from the end, the clock last; then the lowest rank goes into the
+    // overflow (built-ins nobody listed, then listed ones, then what the person pinned), each from the end. The drawer
+    // chip (down to its arrow) and the clock stay: the way into the drawer and the time are never in the overflow.
+    const order = [...items.keys()].reverse().sort((a, b) => Number(items[a]!.id === "clock") - Number(items[b]!.id === "clock"));
+    for (const j of order) {
+      if (!over()) break;
+      const it = items[j]!;
+      if (it.short !== undefined && width(it.short) < width(it.text)) items[j] = { ...it, text: it.short };
     }
-    if (hidden) items.push(overflow());
+    for (const rank of [RANK.builtin, RANK.listed, RANK.pinned]) {
+      // Before a pin goes, the drawer chip is its arrow alone (its colour still says the state).
+      if (rank === RANK.pinned) {
+        for (const [j, it] of items.entries()) if (over() && it.tiny !== undefined) items[j] = { ...it, text: it.tiny };
+      }
+      while (over()) {
+        const last = items.findLastIndex(i => (i.rank ?? RANK.builtin) === rank && i.id !== "clock" && i.id !== "drawer");
+        if (last < 0) break;
+        hidden.unshift(...items.splice(last, 1));
+      }
+    }
+    // In the bar's own order: the menu lists them as they would stand.
+    hidden.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+    // Its menu names each in its whole words (`+3 machine`, not the `+3` it was shortened to before it went).
+    this.statusHidden = hidden.map(h => whole.get(h.id) ?? h);
+    if (hidden.length) items.push(overflow());
     const leftItems = separated(items.filter(i => i.place === "left"), "left"), rightItems = separated(items.filter(i => i.place === "right"), "right");
     const left = statusText(leftItems), right = statusText(rightItems);
     // A loud refusal (the same key refused again) is bold here too; the focused tile's frame says it in its place.
@@ -1783,11 +1824,14 @@ export class App implements Ctx {
     const middle = message ? ` ${fg(this.messageWarning ? C.yellow : C.lcyan)}${loud ? BOLD : ""}${message}${loud ? UNBOLD : ""}${fg(C.lcyan)}` : "";
     const room = Math.max(0, cols - width(right) - 3);
     const displaced = !!middle && width(left + middle) > room;
+    // A message that displaces the left side leaves what the person put there and the bar's own `+N` and `!` (PIE-1410).
+    const kept = displaced ? separated(leftItems.filter(i => i.id === "overflow" || (i.rank ?? RANK.builtin) >= RANK.pinned), "left") : [];
+    const keep = statusText(kept);
     this.statusBoxes = [
-      ...(!displaced ? statusHits(leftItems, 0, room - (width(left) > room ? 1 : 0)) : []),
+      ...statusHits(displaced ? kept : leftItems, 0, displaced ? room : room - (width(left) > room ? 1 : 0)),
       ...statusHits(rightItems, Math.max(3, cols - width(right)), cols),
     ];
-    return statusLine(left, middle, right, cols);
+    return statusLine(left, middle, right, cols, keep);
   }
 }
 
@@ -1795,11 +1839,13 @@ export class App implements Ctx {
  * The status bar's waiting-on-you count (OSC 7501): `◆1 ✗1 ✓2 on you`, blocked, failed and done in their colours;
  * `plain` is "" when nothing waits.
  */
-export function waitingText(n: { blocked: number; error: number; done: number; held?: number; asks?: number }): { plain: string; styled: string } {
+export function waitingText(n: { blocked: number; error: number; done: number; held?: number; asks?: number }): { plain: string; styled: string; short: string } {
   // `‼`: requests an agent or an extension wrote that wait for the person's r (held asks, PIE-888).
   const parts = ([["◆", n.blocked, C.lmagenta], ["✗", n.error, C.lred], ["✓", n.done, C.lgreen], ["‼", n.held ?? 0, C.yellow], ["?", n.asks ?? 0, C.yellow]] as const).filter(p => p[1] > 0);
-  if (!parts.length) return { plain: "", styled: "" };
-  return { plain: `${parts.map(p => `${p[0]}${p[1]}`).join(" ")} on you`, styled: `${parts.map(p => `${fg(p[2])}${p[0]}${p[1]}`).join(" ")}${fg(C.lcyan)} on you` };
+  if (!parts.length) return { plain: "", styled: "", short: "" };
+  // `short`: the counts alone, for a narrow bar (PIE-1213).
+  const counts = `${parts.map(p => `${fg(p[2])}${p[0]}${p[1]}`).join(" ")}${fg(C.lcyan)}`;
+  return { plain: `${parts.map(p => `${p[0]}${p[1]}`).join(" ")} on you`, styled: `${counts} on you`, short: counts };
 }
 
 /** How long the "copied to clipboard" toast stays. */
@@ -1821,12 +1867,13 @@ export function withToast(lines: string[], text: string, cols: number, ok = true
 /**
  * The status bar's three parts in `cols` cells: the right part (video, uptime, clock) always shows whole,
  * with a `│` between it and the rest, even when the rest fills its room exactly or is cut short. A
- * message outranks the location: in a narrow pane it replaces it rather than being cut off.
+ * message outranks the location: in a narrow pane it replaces it rather than being cut off (`keep` stays before it).
  */
-export function statusLine(left: string, middle: string, right: string, cols: number): string {
+export function statusLine(left: string, middle: string, right: string, cols: number, keep = ""): string {
   const sep = " │ ";
   const room = Math.max(0, cols - width(right) - sep.length);
-  const body = pad(middle && width(left + middle) > room ? middle : left + middle, room);
+  // `keep`: the left items a message never displaces (the overflow, a skipped line's `!`, the person's pins).
+  const body = pad(middle && width(left + middle) > room ? (keep && width(keep) < room ? keep + middle : middle) : left + middle, room);
   // A cut can drop the message's link terminator; RESET restores colours but cannot end a hyperlink.
   const endLink = OSC8.test(body) ? OSC8_CLOSE : "";
   return STATUS_INK + body + endLink + STATUS_INK + sep + right + RESET;

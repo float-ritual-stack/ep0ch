@@ -43,9 +43,10 @@ export function menuRow(r: { label: string; key?: string; refused?: string }, on
  * screen. Typing filters the rows (PIE-879) with the power bar's matcher (`filtered`, src/bar/filter.ts): the query shows
  * on the box's top row, matched letters are lit, a group with no row left goes, ⏎ or a click runs one, backspace widens
  * and esc clears the query before it puts the menu away. A row's key that is a chord (ctrl+w x, alt+h, ctrl+z) still
- * runs it; a bare letter is for the query. `q`: a query to start with.
+ * runs it; a bare letter is for the query. `q`: a query to start with. `host`: what runs a row when it isn't the screen the
+ * menu is drawn over (the status bar's, PIE-1224: its rows are the door's actions, run on the App's dispatcher).
  */
-export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]; at: { col: number; row: number; right?: boolean }; q?: string; look?: (width: number) => StyleValues }): ListPicker<MenuRow, H> {
+export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]; at: { col: number; row: number; right?: boolean }; q?: string; look?: (width: number) => StyleValues; host?: MenuHost }): ListPicker<MenuRow, H> {
   const all = o.rows;
   const input = new LineField(o.q ?? "", false, { complete: false });
   const shown = () => filtered(all, input.text, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]);
@@ -56,7 +57,7 @@ export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]
   const capW = Math.max(0, ...caps(all).map(width));
   const textW = Math.max(width(o.title) + 2, ...all.map(r => width(r.label) + 3), ...all.map(r => width(r.group) + 4));
   // A refused row says why as any refused key or click does (the focused tile's frame and the status bar, PIE-727).
-  const run = (r: MenuRow, h: H) => (r.refused ? refused(h.ctx, r.refused) : void h.dispatch.press(r.action, r.args, r.tile));
+  const run = (r: MenuRow, over: H) => { const h = o.host ?? over; return r.refused ? refused(h.ctx, r.refused) : void h.dispatch.press(r.action, r.args, r.tile || undefined); };
   // ^W, then the key after it: a row's chord (^W x closes).
   let chord = false;
   const p: ListPicker<MenuRow, H> = new ListPicker<MenuRow, H>({

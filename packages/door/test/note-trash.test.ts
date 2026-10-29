@@ -130,7 +130,7 @@ describe.skipIf(!outliner)("note.trash: d d from a reader, a list and the tree; 
     await expect(act("note.trash", { ref: porch.id }, "reader", "test-agent")).rejects.toThrow("confirm=<the note's id>");
     await expect(act("note.trash", { ref: porch.id, confirm: hall.id }, "reader", "test-agent")).rejects.toThrow("doesn't name");
     const done = await act("note.trash", { ref: porch.id, confirm: porch.id.slice(0, 8) }, "reader", "test-agent");
-    expect(done).toMatchObject({ trashed: porch.id, title: "Porch", recordedAs: "agent test-agent" });
+    expect(done).toMatchObject({ trashed: porch.id, title: "Porch", recordedAs: "an agent (test-agent)'s" });
     expect(await deleted(porch)).toBe(true);
     await expect(act("note.trash", { ref: porch.id }, "reader")).rejects.toThrow("in the Trash already");
     expect(await act("note.untrash", {}, undefined, "test-agent")).toMatchObject({ restored: porch.id });

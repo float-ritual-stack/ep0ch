@@ -235,13 +235,12 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     summary: "send a held request (n: its row in the list, as peek numbers it, or id=<the note's id>; left out, the selected row): ask its agent now, as the person who pressed r (the line's own `r`). An agent's is refused: a held request waits for a person",
     keys: "r, a click on a held row's [r send]",
     touches: "nothing", replay: "ask", says: r => `asked @${r.agent} (${r.title})`,
-    person: "a request an agent or an extension wrote waits for a person's r: an agent's is refused, as the line's own r is",
+    personAlways: "a request an agent or an extension wrote waits for a person's r: an agent's is refused, as the line's own r is",
     args: { n: { type: "number", optional: true, about: "its row in the list, from 1, as peek lists them" }, id: { type: "string", optional: true, about: "the note's id, instead of n" } },
     examples: [
       { act: "held.send n=1", does: "sends the first held request: its agent is asked now" },
     ],
     async run(a, { pane, desk }, actor) {
-      if (actor.kind === "agent") throw new ActionRefused("a held request waits for a person's r: an agent can't send it");
       const ask = heldOf(pane as WaitingYouPane, a);
       await desk.ctx.board.refreshProjections(ask.blockId, ask.line >= 0 ? ask.line : undefined, actor);
       return { id: ask.blockId, title: ask.title, agent: ask.agent };

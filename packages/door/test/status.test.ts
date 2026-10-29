@@ -92,7 +92,7 @@ describe("the status bar keeps time while the door is idle", () => {
 // The bar uses the real outline: a live edit changes its drawing and its presses.
 import { afterAll, afterEach, beforeAll } from "bun:test";
 import { join } from "node:path";
-import { StatusBarNote } from "../src/status-bar";
+import { readStatusNote, StatusBarNote } from "../src/status-bar";
 import { SocketBoard, USER } from "../src/socket";
 import { openScreen } from "../src/desk/screen-specs";
 import { traceActions } from "../src/surface/actions";
@@ -265,7 +265,9 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       expect(line.indexOf("Pin 1")).toBeGreaterThan(line.indexOf(visible(result.items.find((i: any) => i.id === "drawer").text)));
       const overflow = shown.find((i: any) => /^\+\d+$/.test(visible(i.text)));
       expect(overflow).toBeDefined();
-      expect(Number(visible(overflow.text).slice(1))).toBe(8 - pins.length);
+      // The pins outrank the listed brand: it went first, then the last pins.
+      expect(line).not.toContain("ep0ch");
+      expect(Number(visible(overflow.text).slice(1))).toBe(8 - pins.length + 1);
       for (const item of shown) {
         expect(line.slice(item.from, item.to)).toBe(visible(item.text));
         const ran: string[] = [];
@@ -306,6 +308,15 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
         click("Go");
         await until(() => ran.includes("status.log"), "the first duplicate still presses");
       } finally { stop(); }
+    } finally { await board.trash(note.id, USER); }
+  });
+
+  test("a button commented out in the bar note is no duplicate: pinning its label lands", async () => {
+    const note = await board.createBlock(null, 'Commented status [status-bar::true]\n- brand\n<!-- an example:\n- ::button{label="Neat" act="status.log"}\n-->');
+    try {
+      await until(() => bar().includes("ep0ch"), "the configured bar");
+      await app.dispatch.act({ action: "status.bar.pin", args: { line: '::button{label="neat" act="status.log"}' } }, USER);
+      await until(() => bar().includes("[neat]"), "the pinned button");
     } finally { await board.trash(note.id, USER); }
   });
 
@@ -355,10 +366,113 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     await until(() => app.messages.rows.some(m => m.message.includes("::button needs")), "the broken line in the message log");
     expect((await board.get(note.id))!.text).toContain('label="Broken"');
     app.flash("");
-    expect(bar()).toContain("^K");
+    expect(bar()).not.toContain("^K");
+    expect(bar()).toMatch(/! line 3/);
+  });
+
+  test("one bad line keeps every other item in its order, a ! item opens the note at that line, and fixing it clears it (PIE-1227)", async () => {
+    const note = await board.createBlock(null, 'Typo status [status-bar::true]\n- brand\ndrawer\n::button{label="neat" act="status.log"}\n- theme\n- clock');
+    try {
+      await until(() => bar().includes("! line 3"), "the warning item");
+      app.flash("");
+      const line = bar();
+      for (const [a, b] of [["ep0ch", "neat"], ["neat", theme().name], [theme().name, ":"]] as const) expect(line.indexOf(a)).toBeLessThan(line.lastIndexOf(b));
+      expect(line).not.toContain("^K");
+      expect(app.messages.rows.filter(m => /skipped line 3.*did you mean - drawer/.test(m.message))).toHaveLength(1);
+      const warning = (await app.dispatch.act({ action: "status.bar.items" }, USER) as any).items.find((i: any) => i.id === "problems");
+      expect(warning.click).toMatchObject({ action: "status.bar.edit", args: { line: 3 } });
+      const ran: string[] = [];
+      const stop = traceActions(a => ran.push(a.name));
+      try {
+        click("! line 3");
+        await until(() => ran.includes("status.bar.edit"), "the ! item opens the note");
+      } finally { stop(); }
+      while (app.screens().length > 1) app.pop();
+      // A long message displaces the location, never the ! item (PIE-1410): still drawn, still a click.
+      app.flash("a long message about something that just happened, long enough to push the location off the bar".repeat(2));
+      expect(bar()).toContain("! line 3");
+      expect(bar()).not.toContain("ep0ch ");
+      expect((await app.dispatch.act({ action: "status.bar.items" }, USER) as any).items.find((i: any) => i.id === "problems").from).toBeDefined();
+      app.flash("");
+      const now = (await board.get(note.id))!;
+      await board.update(note.id, now.text.replace("\ndrawer\n", "\n- drawer\n"), now.revision!);
+      await until(() => !bar().includes("! line"), "the fixed line clears the warning");
+    } finally { await board.trash(note.id, USER); }
+  });
+
+  test("a narrow bar shortens and drops built-ins before any pinned button, and its +N lists what it hid by name (PIE-1213)", async () => {
+    app.drawer.active = true;
+    const note = await board.createBlock(null, 'Pinned status [status-bar::true]\n- brand\n- power\n- screen\n- machine\n::button{label="Collapse" act="status.log"}\n::button{label="yolo" act="status.log"}\n::button{label="neat" act="status.log"}\n- drawer\n- theme\n- video\n- uptime\n- clock');
+    try {
+      await until(() => bar().includes("neat"), "the pinned bar");
+      // Evan's desk is 177 wide; the three pins stay down to 50, the drawer chip shrinking to its arrow first.
+      for (const cols of [177, 80, 60, 50]) {
+        size.cols = cols;
+        app.flash("");
+        const line = bar();
+        expect(width(line)).toBe(cols);
+        for (const pin of ["Collapse", "yolo", "neat"]) expect(line).toContain(`[${pin}]`);
+        expect(line).toMatch(/\d\d:\d\d/);
+        expect(line).toMatch(/[▲▼]/);
+      }
+      const menu = await app.dispatch.act({ action: "status.bar.menu", args: { overflow: true } }, { kind: "agent", id: "test" } as any) as any;
+      const hidden = menu.rows.map((r: any) => r.label);
+      expect(hidden).toContain(theme().name);
+      expect(hidden.at(-1)).toBe("edit the status bar");
+      expect(bar()).toContain(`+${hidden.length - 1}`);
+      app.flash("saved; a message that would push the left side off");
+      expect(bar()).toContain(`+${hidden.length - 1}`);
+      app.flash("");
+      // The person's press opens it over the screen, each item by its name.
+      click(`+${hidden.length - 1}`);
+      await until(() => painted.some(l => visible(l).includes(theme().name)) && painted.some(l => visible(l).includes("edit the status bar")), "the overflow menu shows the hidden items");
+      press({ kind: "esc" });
+    } finally { await board.trash(note.id, USER); size.cols = 220; }
+  });
+
+  test("a nested list is a group: its label on the bar opens its items as a menu, by click and by act, and a nested button presses (PIE-1224)", async () => {
+    const note = await board.createBlock(null, 'Group status [status-bar::true]\n- brand\n- Tools\n  - ::button{label="Video" act="video.cycle"}\n  - theme\n- clock');
+    try {
+      await until(() => bar().includes("Tools ▲"), "the group on the bar");
+      const asked = await app.dispatch.act({ action: "status.bar.menu", args: { group: "Tools" } }, { kind: "agent", id: "test" } as any) as any;
+      expect(asked.rows.map((r: any) => [r.label, r.action])).toEqual([["[Video]", "button.press"], [theme().name, "theme.cycle"]]);
+      await expect(app.dispatch.act({ action: "status.bar.menu", args: { group: "Tool" } }, USER)).rejects.toThrow(/no group "Tool".*Tools/);
+      expect((await app.dispatch.act({ action: "status.bar.menu", args: { group: " tools " } }, { kind: "agent", id: "test" } as any) as any).title).toBe("Tools");
+      app.flash("");
+      click("Tools");
+      await until(() => painted.some(l => visible(l).includes("[Video]")), "the group's menu over the screen");
+      const row = painted.findIndex(l => visible(l).includes("[Video]")), col = visible(painted[row]!).indexOf("[Video]");
+      const video = app.video;
+      press({ kind: "mouse", action: "down", button: 0, x: col, y: row });
+      press({ kind: "mouse", action: "up", button: 0, x: col, y: row });
+      await until(() => app.video !== video, "the nested button pressed from the menu");
+      const again = app.video;
+      await app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Video" } }, USER);
+      await until(() => app.video !== again, "the nested button pressed by act");
+    } finally { await board.trash(note.id, USER); }
   });
 });
 
+
+describe("reading the status-bar note: a list, capture first (PIE-1227, PIE-1224)", () => {
+  const ids = ["brand", "drawer", "clock", "theme", "machine"];
+  test("a bad line is skipped with a did-you-mean and the rest is the bar as written, groups nested", () => {
+    const text = ['Bar [status-bar::true]', '- brand', 'drawer', '- drawr', '- ::button{label="neat" act="layout.neat"}', '- Tools', '  - theme', '  - ::button{label="Fold" act="status.log"}', '  - More', '    - machine', '- clock', '::button{label="Broken"}', '<!-- - nothing', 'here -->'].join("\n");
+    const { entries, problems } = readStatusNote(text, ids);
+    const shape = (e: any): unknown => e.kind === "group" ? { group: e.label, of: e.children.map(shape) } : e.kind === "builtin" ? e.id : `[${e.call.label}]`;
+    expect(entries.map(shape)).toEqual(["brand", "[neat]", { group: "Tools", of: ["theme", "[Fold]", { group: "More", of: ["machine"] }] }, "clock"]);
+    expect(problems.map(p => p.line + 1)).toEqual([3, 4, 12]);
+    expect(problems[0]!.message).toContain("did you mean - drawer?");
+    expect(problems[1]!.message).toContain("did you mean - drawer?");
+    expect(problems[2]!.message).toContain("::button needs");
+  });
+
+  test("an unclosed comment hides only its own line, a built-in listed twice keeps its first place, numbered items read as items", () => {
+    const { entries, problems } = readStatusNote(['Bar', '<!-- todo', '1. brand', '2. ::button{label="Go" act="status.log"}', '- brand', '- clock'].join("\n"), ids);
+    expect(entries.map((e: any) => e.kind === "builtin" ? e.id : e.call.label)).toEqual(["brand", "Go", "clock"]);
+    expect(problems.map(p => [p.line + 1, p.message.split(":")[0]])).toEqual([[2, "this <!-- comment never closes"], [5, "- brand is already on line 3; a built-in sits in one place"]]);
+  });
+});
 
 describe("the status bar says when the door settles slowly (PIE-1309)", () => {
   /** A door on a fake clock whose screen takes `paintMs` to draw: the time from a key to the frame that shows it. */

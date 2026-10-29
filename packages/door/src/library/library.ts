@@ -519,6 +519,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
   "library.copy": def({
     summary: "copy a variation's source (n=<from 1>, else the selected one): the declaring note and the text that uses it (part=use or part=note for one); the person's goes to their clipboard, an agent's comes back as the answer",
     keys: "y or a click on copy for whole source; drag release or cmd+c for selected text", touches: "nothing", replay: "safe", says: r => "text" in r ? `copied ${r.text.length} chars` : `copied the source of variation ${r.n}`,
+    personWith: a => (a.part === "selection" ? "the person's selection is theirs: an agent names the words with library.select text=" : null),
     args: { n: { type: "number", optional: true, about: "the variation, from 1" }, part: { type: "string", optional: true, about: "all (default), use, note or selection" } },
     examples: [
       { act: "library.copy n=2 tile=library", does: "gives back the declaring note and text of the second variation" },
@@ -528,7 +529,6 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
       whole("n", n);
       const p = libraryOf(pane);
       if (part === "selection") {
-        if (actor.kind === "agent") throw new ActionRefused("name the words with library.select text=; the person's selection is theirs");
         const text = p.selectedText();
         if (!text.trim()) throw new ActionRefused("nothing selected: drag over the example first");
         if (desk.ctx.copy?.(text, "the library") === false) throw new ActionRefused("the selection is more than the clipboard takes");
