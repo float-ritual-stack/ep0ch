@@ -3295,6 +3295,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * it there. Its edit opens through the reader's own `edit` (the one editor and draft session) and their keys go to it.
    * From an edit, that edit stays open where it is, as a click away leaves it (PIE-812). The reader's name, or null when no reader took it.
    */
+  /** DeskApi.writeFrom: the person's new note opened from reader `from` (a quote, PIE-1184): where its opens go, in edit. */
+  async writeFrom(from: ReaderPane, m: Msg): Promise<string | null> {
+    const id = this.idOf(from);
+    if (id !== undefined && id !== this.focus) this.focusTile(this.nameOf(id), USER);
+    return this.editNew(m, { opens: "lands", context: from.msg?.id ?? null, actor: USER });
+  }
+
   async editNew(m: Msg, how: NewNoteHow = { opens: "lands", context: null }): Promise<string | null> {
     const actor = how.actor ?? USER;
     const held = this.dispatch.rule("screen", actor, { host: true });

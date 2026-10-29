@@ -236,6 +236,43 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
   }, 40_000);
 
 
+  // PIE-1184: the person's quote lands where they are: the quote note opens where the reader's opens go, lit as just
+  // arrived, in its edit with the cursor at the end of the quote; "under this note" is asked first, and makes it a child.
+  test("quoting lands where you are (PIE-1184): under this note first in the bar; the quote opens beside the plan, lit, in edit under the quote", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as Desk; };
+    await until(() => screen().includes("question · "), "the comments loaded", 8000);
+    const plan = seeded.notes.marginalia;
+    const thread = (await board.comments(plan.id)).find(t => t.body === "Why ten days, not a week?")!;
+    // The bar asks where, under this note first, each row saying where it lands.
+    void stage().dispatch.press("quote", { threads: thread.id }, "plan");
+    const asking = () => (app as any).bar?.describe() as { scope: string; rows: { label: string }[] } | undefined;
+    await until(() => asking()?.scope === "ask", "the power bar asking where", 5000);
+    expect(asking()!.rows.map(r => r.label).slice(0, 2)).toEqual(["under this note", "in the Inbox"]);
+    press({ kind: "enter" });
+    let quote: string | undefined;
+    const by = Date.now() + 5000;
+    while (!(quote = (await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn?.[0])) { if (Date.now() > by) throw new Error("timed out waiting for the quote"); await Bun.sleep(50); }
+    expect((await board.get(quote))!.parentId).toBe(plan.id);
+    // Opened where the plan's opens go (this screen's wire keeps the plan beside it), lit as arrived, in the person's
+    // edit, the cursor at the end of the quote (⏎ starts the reply under it).
+    const tiles = () => stage().layoutGet().tiles as any[];
+    const writing = () => tiles().find(t => (stage().pane(t.name) as ReaderPane)?.surface?.draft?.blockId === quote);
+    await until(() => !!writing(), "the quote's edit open", 5000);
+    expect(tiles().some(t => t.showing?.id === quote && t.arrival)).toBe(true);
+    expect(tiles().some(t => t.showing?.id === plan.id)).toBe(true);
+    const d = (stage().pane(writing().name) as ReaderPane).surface.draft!;
+    expect(d.text.split("\n")[d.row]).toBe(`!((${thread.id}))`);
+    expect({ col: d.col, row: d.row }).toEqual({ col: `!((${thread.id}))`.length, row: d.text.split("\n").length - 1 });
+    const tile = writing;
+    // As it was: the edit put away, the quote taken back.
+    await stage().dispatch.press("edit.close", {}, tile().name).catch(() => {});
+    await board.trash(quote);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+
   test("margin attention: the kept thread's TL;DR is its card, the seen one is off the margin; thread.seen puts the current one on the earlier shelf and back=true brings it back (PIE-791)", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "margin-attention" }, as: "test-agent" })).toMatchObject({ key: "margin-attention" });
@@ -393,20 +430,25 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     await app.act({ action: "ext.undo", tile: "plan", as: "test-agent" });
     expect((await board.get(quoted.block).catch(() => null))?.deleted ?? true).toBe(true);
     expect((await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn).toBeUndefined();
-    // The person's: a click on the thread's [Quote], then the power bar asks where; ⏎ on its first row, the Inbox.
+    // The person's: a click on the thread's [Quote], then the power bar asks where; ↓ ⏎ on its second row, the Inbox.
     const quoteAt = () => { const ls = screen().split("\n"), y = ls.findIndex(l => l.includes("[Quote]") && l.includes("[TL;DR]")); return { y, x: y < 0 ? -1 : ls[y]!.indexOf("[Quote]") }; };
     await until(() => quoteAt().y >= 0, "the open thread's [Quote]", 5000);
     const q = quoteAt();
     press({ kind: "mouse", action: "down", button: 0, x: q.x + 2, y: q.y }); press({ kind: "mouse", action: "up", button: 0, x: q.x + 2, y: q.y });
     const asking = () => (app as any).bar?.describe() as { scope: string; rows: { label: string }[] } | undefined;
-    await until(() => asking()?.scope === "ask" && asking()!.rows.map(r => r.label).join() === "in the Inbox,under this note", "the power bar asking where", 5000);
-    press({ kind: "enter" });
+    await until(() => asking()?.scope === "ask" && asking()!.rows.map(r => r.label).join() === "under this note,in the Inbox", "the power bar asking where", 5000);
+    press({ kind: "down" }); press({ kind: "enter" });
     let mine: string | undefined;
     const by = Date.now() + 5000;
     while (!(mine = (await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn?.[0])) { if (Date.now() > by) throw new Error("timed out waiting for the person's quote"); await Bun.sleep(50); }
     expect((await board.get((await board.get(mine))!.parentId!))!.text).toMatch(/^Inbox/);
-    // ctrl+z in the reader takes the person's quote back.
-    press({ kind: "char", ch: "z", ctrl: true });
+    // It opened in the person's edit (PIE-1184); closed untouched, nothing changed.
+    const editing = () => (stage().layoutGet().tiles as any[]).find(t => (stage().pane(t.name) as ReaderPane)?.surface?.draft?.blockId === mine);
+    await until(() => !!editing(), "the person's quote open in their edit", 5000);
+    await stage().dispatch.press("edit.close", {}, editing().name);
+    await until(() => !editing(), "the edit closed");
+    // ctrl+z's action (ext.undo) in the reader the plan is kept in takes the quote back.
+    await stage().dispatch.press("ext.undo", {}, (stage().layoutGet().tiles as any[]).find(t => t.showing?.id === plan.id).name);
     const gone = Date.now() + 5000;
     while ((await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn?.length) { if (Date.now() > gone) throw new Error("timed out waiting for ctrl+z to undo the quote"); await Bun.sleep(50); }
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
