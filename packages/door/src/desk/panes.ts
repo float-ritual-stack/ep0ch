@@ -63,8 +63,10 @@ export interface DeskApi {
   /** The layout permits closing this tile, including the container that keeps it. */
   canClose?(p: Pane): boolean;
   holdReader?(pane: ReaderPane, actor: Actor): void;
-  /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it is newer. */
+  /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it has nothing of its own. */
   layoutUndoSeq?(): number | undefined;
+  /** Bring back the note the person trashed last (note.untrash), for a reader's ctrl+z. */
+  untrash?(): void;
   /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
   summaryKeys?(m: Msg): readonly string[] | null;
   /** Start a session in `pane` as the person's key does, so they're in it (a comment mark's ⏎ or click). */
@@ -550,6 +552,7 @@ export class ReaderPane implements Pane {
       ...(desk.overlay ? { overlay: (p: ListPicker<any, any>) => desk.overlay!(p) } : {}),
       ...(desk.keepLayout ? { keptChanged: () => desk.keepLayout!() } : {}),
       ...(desk.layoutUndoSeq ? { layoutUndoSeq: () => desk.layoutUndoSeq!() } : {}),
+      ...(desk.untrash ? { untrash: () => desk.untrash!() } : {}),
       // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): a held reader with no
       // link replaces its own note and moves nothing else; a following one moves the current note; alt+⏎ opens beside.
       navigate: (m, how) => { m.address ??= this.noteAddress; desk.setCurrent(m, { reveal: true, from: this, ...how }); },

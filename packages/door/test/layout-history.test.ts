@@ -365,5 +365,16 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     key({ kind: "char", ch: "z", ctrl: true });
     await untilAsync(async () => { const b = await board.get(result).catch(() => null); return !b || !!b.deleted || !b.text.includes("stamped"); }, "ctrl+z undid the script's write");
     expect(names()).not.toContain(victim);
+    // A note trashed after the reader's own change comes back first, even with a tile closed after the trash.
+    await person(`ext.${ext.id}.run`, { block: note.id });
+    const gone = await board.request<{ id: string }>("create", { author: "user", text: "A note trashed from the tree" });
+    await person("note.trash", { ref: gone.id, confirm: gone.id }, here);
+    await untilAsync(async () => !!(await board.get(gone.id).catch(() => null))?.deleted || !(await board.get(gone.id).catch(() => null)), "the note trashed");
+    const second = names().find(n => n !== here)!;
+    await person("tile.close", {}, second);
+    await person("tile.focus", {}, reader.tile);
+    key({ kind: "char", ch: "z", ctrl: true });
+    await untilAsync(async () => { const b = await board.get(gone.id).catch(() => null); return !!b && !b.deleted; }, "ctrl+z brought the trashed note back");
+    expect(names()).not.toContain(second);
   }, 60_000);
 });
