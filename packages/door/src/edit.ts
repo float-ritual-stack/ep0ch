@@ -1062,8 +1062,7 @@ export class Draft {
     if (vi < 0) return { vi: 0, x: 0, cp };
     while (vi + 1 < rows.length && rows[vi + 1]!.line === this.row && !rows[vi + 1]!.status && rows[vi + 1]!.start <= cp) vi++;
     const r = rows[vi]!, cw = codePointCells([...this.line]);
-    let x = r.indent;
-    for (let k = r.start; k < cp; k++) x += cw[k] ?? 1;
+    let x = r.indent; for (let k = r.start; k < cp; k++) x += cw[k] ?? 1;
     return { vi, x, cp };
   }
 

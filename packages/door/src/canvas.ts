@@ -91,15 +91,13 @@ export function stringFrame(w: number, { glyphs: g = BORDER_BOXES.round, ink = "
     inner,
     top(title = "", label = ""): string {
       const ends = open ? 2 : 3, room = Math.max(0, w - ends - (label ? width(label) + (open ? 0 : 1) : 0));
-      const t = width(title) > room ? drawEllipsized(title, room) : title;
-      const fill = g.top.repeat(Math.max(0, room - width(t)));
+      const t = width(title) > room ? drawEllipsized(title, room) : title, fill = g.top.repeat(Math.max(0, room - width(t)));
       return ink + g.tl + g.top + t + RESET + ink + fill + (label ? label + RESET + ink + (open ? "" : g.top) : "") + (open ? "" : g.tr) + RESET;
     },
     row: (text: string) => open ? ink + g.side + RESET + gap + text + RESET : ink + g.side + RESET + gap + pad(text, inner) + RESET + gap + ink + g.side + RESET,
     bottom(foot = ""): string {
       if (!open) return ink + g.bl + g.bottom.repeat(Math.max(0, w - 2)) + g.br + RESET;
-      if (!foot) return ink + g.bl + g.bottom.repeat(Math.max(0, w - 1)) + RESET;
-      const room = Math.max(0, w - 2), f = width(foot) > room ? drawEllipsized(foot, room) : foot;
+      const room = Math.max(0, w - 2), f = !foot ? g.bottom : width(foot) > room ? drawEllipsized(foot, room) : foot;
       return ink + g.bl + g.bottom + f + RESET + ink + g.bottom.repeat(Math.max(0, room - width(f))) + RESET;
     },
   };

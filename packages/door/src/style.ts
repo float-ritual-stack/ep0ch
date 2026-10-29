@@ -69,10 +69,8 @@ export const dim = (s: string) => fg(C.dark) + s + RESET;
  */
 export const SPARK_STEPS = "_░▒▓█";
 /** `values` as a sparkline's glyphs, one each, from zero to the largest (at least 1): the one scale (PIE-1291). */
-export const sparkGlyphs = (values: readonly number[]): string[] => {
-  const max = Math.max(...values, 1), top = SPARK_STEPS.length - 1;
-  return values.map(v => SPARK_STEPS[Math.min(top, Math.max(0, Math.round((v / max) * top)))]!);
-};
+export const sparkGlyphs = (values: readonly number[], max = Math.max(...values, 1), top = SPARK_STEPS.length - 1): string[] =>
+  values.map(v => SPARK_STEPS[Math.min(top, Math.max(0, Math.round((v / max) * top)))]!);
 /** The cursor at the end of a line being typed (a search, a filter, a layout's name): CP437 has no ▁, and _ reads as typed. */
 export const INPUT_CURSOR = "▌";
 
