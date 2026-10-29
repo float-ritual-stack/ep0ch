@@ -1271,7 +1271,8 @@ export class NoteSurface {
   hint(extra = ""): string {
     const context = this.contextualHint();
     if (context !== null) return context;
-    const back = this.peek(-1) ? "alt← back · " : "";
+    // Back, and the trail (PIE-208) once there is somewhere to go either way.
+    const back = (this.peek(-1) ? "alt← back · " : "") + (this.peek(-1) || this.peek(1) ? "alt+T trail · " : "");
     // Zoomed into a part (PIE-780): the way back first; else W zooms (the keys from ZOOM_KEYS, the table that binds them).
     const zoom = this.zoomHint();
     if (this.zoom) return `${extra}${zoom} · ${back}↑↓ j k blocks/rows · [ ] elements · f fold`;
