@@ -80,24 +80,36 @@ export async function recordsRoot(board: RecordWriter, who: RecordWho): Promise<
     ?? await board.request<Note>("create", { text: "Records [page::Records] [machine::record] [system-records::true]", parentId: null, ...who });
 }
 
-export async function writeRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, o: { title?: string } = {}) {
-  const find = (where: string) => findNote(board, where);
+/**
+ * What a run of records looks up once, not per record (PIE-1402: a backfill's keep looked every kind's template up again
+ * for each record, ~1 s a record on pie, and stalled the host): the Records page, and each kind's template, checked.
+ */
+export interface RecordCache { root?: Note; deploys?: Note; templates?: Map<string, Note>; checked?: Set<string> }
+
+export async function writeRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, o: { title?: string; cache?: RecordCache } = {}) {
+  const cache = o.cache ?? {};
   const deploy = kind === "deploy";
-  let root = deploy ? await find("system-view=deploys") : await recordsRoot(board, who);
-  if (!root) root = await board.request<Note>("create", { text: DEPLOYS_NOTE, parentId: null, ...who });
-  let template: Note | undefined;
+  let root = deploy ? cache.deploys ??= await findNote(board, "system-view=deploys") : cache.root ??= await recordsRoot(board, who);
+  if (!root) root = cache.deploys = await board.request<Note>("create", { text: DEPLOYS_NOTE, parentId: null, ...who });
+  // Every template in one question, then each kind's made where it's missing (the deploy template is the install's).
+  cache.templates ??= new Map((await board.request<{ blocks: { id: string; text: string }[] }>("blocks.query", { query: { where: "type=template", machinery: "show", limit: 1000 } })).blocks.flatMap(b => {
+    const of = /\[template-for::([^\]]+)\]/.exec(b.text)?.[1];
+    return of && (of !== "deploy" || /\[machine::install\]/.test(b.text)) ? [[of, b] as const] : [];
+  }));
   for (const name of (deploy ? ["deploy"] : Object.keys(RECORD_FIELDS).filter(name => name !== "deploy")) as RecordKind[]) {
-    let found = await find(`template-for=${name}${name === "deploy" ? " machine=install" : ""}`);
-    if (!found) found = await board.request<Note>("create", { text: recordTemplate(name), parentId: root.id, ...who });
-    if (name === kind) template = found;
+    if (!cache.templates.has(name)) cache.templates.set(name, await board.request<Note>("create", { text: recordTemplate(name), parentId: root.id, ...who }));
   }
+  const template = cache.templates.get(kind)!;
   // A template made before its kind gained fields stamps without them: brought up to the fields in code, once.
-  const stored = await board.request<{ id: string; text: string; revision: number } | null>("get", { blockId: template!.id });
-  if (stored && RECORD_FIELDS[kind].some(key => !stored.text.includes(`[form-field::${key} `))) {
-    await board.request("update", { blockId: stored.id, text: recordTemplate(kind), expectedRevision: stored.revision, mutation: { author: who.author, ...(who.provenance?.actorId ? { actorId: who.provenance.actorId } : {}) } }).catch(() => undefined);
+  if (!(cache.checked ??= new Set()).has(kind)) {
+    cache.checked.add(kind);
+    const stored = await board.request<{ id: string; text: string; revision: number } | null>("get", { blockId: template.id });
+    if (stored && RECORD_FIELDS[kind].some(key => !stored.text.includes(`[form-field::${key} `))) {
+      await board.request("update", { blockId: stored.id, text: recordTemplate(kind), expectedRevision: stored.revision, mutation: { author: who.author, ...(who.provenance?.actorId ? { actorId: who.provenance.actorId } : {}) } }).catch(() => undefined);
+    }
   }
   const result = await board.request<{ stamped: Note[]; warnings: string[] }>("template.stamp", {
-    of: template!.id, parent: root.id, title: o.title ?? (deploy ? `Deploy ${props.when ?? new Date().toISOString()} on ${props.host ?? "unknown"}` : `${kind} ${new Date().toISOString()}`), props, ...who,
+    of: template.id, parent: root.id, title: o.title ?? (deploy ? `Deploy ${props.when ?? new Date().toISOString()} on ${props.host ?? "unknown"}` : `${kind} ${new Date().toISOString()}`), props, ...who,
   });
   return { id: result.stamped[0]!.id, warnings: result.warnings };
 }

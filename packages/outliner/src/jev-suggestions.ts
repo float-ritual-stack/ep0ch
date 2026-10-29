@@ -20,7 +20,7 @@ import { writeShape, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { figuresIn, type FigureFit, type FigureFitReading } from "./figure-fit";
 import { jevScope, kitIn, sectionsOf, type ReviewReading, type WriteReview } from "./write-review";
-import { chips, chipValue, writeRecord, type RecordWho, type RecordWriter } from "./records";
+import { chips, chipValue, writeRecord, type RecordCache, type RecordWho, type RecordWriter } from "./records";
 import { LOOPS_SECTION } from "./work-jev";
 import type { AnnotationThread, Block, VisibleBlockCollection } from "./types";
 
@@ -87,6 +87,8 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
     if (told.length) await suggestionsPage(client);
     // Each finding is told once (PIE-1402: a repeat patch wrote the same one four times): one the note's records hold is skipped.
     const had = told.length && keep.at.source !== "backfill" ? await toldKeys(client, keep.at.note) : new Set<string>();
+    // One lookup of the Records page and the templates for every record this review leaves.
+    const cache: RecordCache = {};
     for (const f of told) {
       if (had.has(chipValue(f.key))) continue;
       had.add(chipValue(f.key));
@@ -97,7 +99,7 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
           passage: f.passage, said: f.say, patch: f.patch ? "ready" : "none",
         }),
         fix: fixText(f.patch),
-      }, JEV, { title: `${f.advice ? "consider" : "fix"}: ${f.rubric} in ${keep.title || "untitled"}`.slice(0, 120) });
+      }, JEV, { title: `${f.advice ? "consider" : "fix"}: ${f.rubric} in ${keep.title || "untitled"}`.slice(0, 120), cache });
     }
     const asked = keep.review.jev === "asked";
     const unavailable = !asked && !/^(?:off|not asked)/.test(keep.review.jev);

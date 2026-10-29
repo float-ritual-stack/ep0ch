@@ -2390,6 +2390,9 @@ export class OutlinerServer {
         if (this.readOnly) throw new Error("This outline is read-only.");
         const keep = readKeep(request.keep);
         const own = { request: async <T>(input: RequestInput): Promise<T> => {
+          // The loop turns between the records' requests, so a person's door is answered while a run keeps them
+          // (PIE-1402: a backfill's keep held it 5–8 s on pie, and a checklist waited 64 s).
+          await new Promise(resolve => setImmediate(resolve));
           const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
           if (!response.ok) throw new Error(response.error);
           return response.result as T;
