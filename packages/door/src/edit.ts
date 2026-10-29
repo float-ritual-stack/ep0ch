@@ -282,11 +282,12 @@ export class Draft {
     const s = this.undos.at(-1);
     if (by.kind === "agent" && (!s || !sameParty(s.by, by))) return { asked: false, said: this.undoPatch(by) };
     if (!s) throw new ActionRefused("nothing to undo in this draft");
-    // Saved text is never taken back silently (PIE-1414): ctrl+z at a save says so; one after a pause goes past it.
+    // Saved text is never taken back silently (PIE-1414): ctrl+z at a save says so; one after a pause goes past it. The ask
+    // comes first, short enough to read whole on the draft's one row at 40 columns (PIE-1428); what was saved after it.
     // Going past is the person's alone (draft.undo's personWith): an agent at a save only ever hears the question.
     if (s.saved !== undefined && (!past || by.kind === "agent")) {
       this.undoArmed = Date.now();
-      return { asked: true, said: this.note = `saved · ctrl+z again undoes past the save (${s.what}; revision ${s.saved} stays in its history)` };
+      return { asked: true, said: this.note = `saved · ctrl+z again undoes past it · ${s.what}; revision ${s.saved} stays in its history` };
     }
     this.undos.pop();
     s.open = false;

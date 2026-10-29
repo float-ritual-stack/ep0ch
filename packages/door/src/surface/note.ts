@@ -94,7 +94,7 @@ import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
 import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { blockRefText } from "@ep0ch/outline-core/link-syntax";
-import { deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
+import { BUTTON_GROUP, deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
 import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
 import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
@@ -10765,7 +10765,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: { label: { type: "string", optional: true, about: "the exact label of the ::button to pin; default: selected button, or the note's only one" } },
     keys: [{ via: "a right-click on a button (it becomes the [ ] position, unpressed), then pin to status bar in the tile menu" }],
     examples: [{ act: 'button.pin label="Collapse"', does: "pins the Collapse button from this note to your status bar" }],
-    menu: noteRow("pin to status bar", "", { now: ({ surface }) => surface.statusButtonLine() ? null : { hide: true } }),
+    // In the Button group, the menu's first (PIE-1428): about the button the right-click landed on.
+    menu: { ...noteRow("pin to status bar", "", { now: ({ surface }) => surface.statusButtonLine() ? null : { hide: true } }), group: BUTTON_GROUP },
     async run({ label }, { surface, host }, actor) {
       await surface.whole();
       const line = surface.statusButtonLine(label);
@@ -10781,7 +10782,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       alt: { type: "boolean", optional: true, about: "run the button's alt= action, as alt+click does" },
       n: { type: "number", optional: true, about: "which element, from 1 (elements lists them), when it is a pressable one" },
       line: { type: "number", optional: true, about: "source line from 1, with note=, to press a specific button when labels repeat" },
-      note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters): a ::button, a link, or a control its render script drew; the button's script acts on that note" },
+      note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters, a Work ID or a [[page]]): a ::button, a link, or a control its render script drew; the button's script acts on that note" },
     },
     examples: [
       { act: "button.press label=Water", does: "presses the Water button of this note, as whoever asks" },
@@ -10790,8 +10791,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ label, n, note, alt, line }, { surface, host }, actor) {
       if (note !== undefined) {
         if (label === undefined) throw new ActionRefused("note= needs label= (the button's words); open the note in a reader and use elements for n=");
-        const m = await host.ctx.board.get(note);
-        if (!m) throw new ActionRefused(`no note ${note}: button.press note=<id> takes a note's id`);
+        // Its first 8+ characters, a Work ID or a [[page]] too, as open id= takes them (PIE-1428): the one resolver, readNote's.
+        const m = await readNote(host.ctx, note);
+        if (!m) throw new ActionRefused(`no note ${note}: button.press note= takes a note's id, its first 8+ characters, a Work ID or a [[page]]`);
         const found: { label: string; act: string; alt?: string; line: number }[] = [];
         for (const c of buttonCallsOf(m.text)) if (c.act || c.problem) found.push({ label: c.label, act: c.act ?? "", alt: c.alt, line: c.line });
         m.text.split("\n").forEach((l, line) => { if (!l.includes("](act:")) return; for (const o of linkOccurrences(l)) if (o.kind === "markdown") { const act = /^act:\s*(\S.*)$/.exec(o.url.trim())?.[1]?.trim(); if (act) found.push({ label: o.text, act, line }); } });

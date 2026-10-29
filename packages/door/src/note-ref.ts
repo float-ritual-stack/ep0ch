@@ -43,6 +43,8 @@ export function noteRefText(kind: NoteRefKind, m: Msg, at: { outline?: string; f
  * first in the menu so they're in reach in a short tile, and found together by typing "copy".
  */
 export const COPY_GROUP = "Copy";
+/** The tile menu's group about the button under a right-click (pin to status bar): first, in reach in a short tile (PIE-1428). */
+export const BUTTON_GROUP = "Button";
 
 /** How the status line names what was copied. */
 export const NOTE_REF_WHAT: Record<NoteRefKind, string> = { id: "the note's id", ref: "a reference to the note", link: "the note's web link", line: "a reference to the line" };

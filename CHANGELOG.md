@@ -38,6 +38,24 @@ are its record. The outliner's entries from then are kept below, under
   passage; the side column grows with a wide tile.
 - **[Quote] asks "under this note" first** and opens the quote where your new notes open (a float beside what you read, unless `note.opens` says otherwise), lit as just arrived, in
   your edit at the end of the quote: nothing to hunt for.
+### Esc closes what's in front of you, never the Claude tile by mistake (PIE-1431, PIE-1428)
+
+- **Esc over a terminal you type in** (a terminal tile, the drawer's agent) closes the power bar or the menu over it,
+  whichever opened it: a click on the status bar's ^K, a status-bar group, a tile's ⋯. It never reaches the program.
+- **A second Esc right after** goes nowhere and says so on the status line; a moment later (0.6 s) Esc is the program's
+  again. Under the Kitty keyboard protocol too.
+- **A status-bar group in a group** opens its menu beside its parent's, which stays open: Esc closes the inner, then the outer.
+- **"pin to status bar"** is the tile menu's first row when you right-click a button.
+- **alt+o in the power bar** says what it copied on the status line and in the log, not only in the toast.
+- **At 40 columns,** a pasted link's explanation and the undo ask at a save read whole. A message the status bar cuts
+  short (a Pipe or Fold refusal) is said whole just above it while it's up. The BBS reader's Number, Refer# and Reply
+  take a row of their own, and a figure's warning wraps.
+- **alt+T in the BBS reader** lists the trail over it, as its footer says. In the river at 40 columns, alt+T on a
+  squeezed column lists the trail over the screen, not in a one-letter-wide tile.
+- **For agents:** a refusal about the tile the person types in reads one way: "the person is typing in <tile>; an
+  agent doesn't <what> · <what to do>", never `drawer.tiles`. `button.press note=` takes the 8-character short id,
+  a Work ID or a [[page]], as `open id=` does.
+- **Run:** nothing.
 
 ### A dropped connection leaves the terminal clean (PIE-1429)
 
