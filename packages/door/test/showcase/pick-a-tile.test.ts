@@ -273,7 +273,8 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await until(() => plainLines().some((l: string) => l.includes("copy web link")), "the row's menu");
     const picked = d.pane(tree).subject!()!;
     expect(subject((await board.get(picked))!)).toBe("Bean packet");
-    const menu = plainLines(), my = menu.findLastIndex((l: string) => /│\s*copy id\s/.test(l)), mx = menu[my]!.lastIndexOf("copy id") + 2;
+    // The "copy id" under the "Note" heading (the Tile group has one too).
+    const menu = plainLines(), nh = menu.findIndex((l: string) => /│ Note ─/.test(l)), my = menu.findIndex((l: string, i: number) => i > nh && /│\s*copy id\s/.test(l)), mx = menu[my]!.lastIndexOf("copy id") + 2;
     const at = h.written.length;
     h.press({ kind: "mouse", action: "down", button: 0, x: mx, y: my } as never);
     h.press({ kind: "mouse", action: "up", button: 0, x: mx, y: my } as never);

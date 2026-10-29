@@ -2790,8 +2790,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // (or a tile renamed since) can never send it to another tile. A place word (`new`) is not a tile and goes as written.
       { set: HINT_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: tileSel(at) }) },
       { set: DESK_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: at.place ?? tileSel(at) }) },
-      { set: TILE_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: at.place ?? tileSel(at) }) },
       { set: NOTE_REF_ACTIONS, takes: "screen", on: (at): NoteRefOn => { const sel = at.place ?? tileSel(at); return { copy: (a, actor) => this.copyNoteRef(sel, a.kind, actor, a.ref, a.line, a.outline), has: line => this.noteRefOf(sel, line) }; } },
+      { set: TILE_ACTIONS, takes: "screen", on: (at, how) => ({ d: this, standing: how.standing, reader: at.place ?? tileSel(at) }) },
       { set: PANE_ACTIONS, takes: "screen", on: at => ({ h: this, reader: tileSel(at) }) },
       // Built from the registry each time: an extension's kind comes and goes while the door runs.
       { claims: (req: ActRequest) => allKindActions().some(set => set.has(req.action)), delegate: () => this.kindDispatch(kindSets()), listed: true },
@@ -6898,7 +6898,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   tileMenu(sel: string | undefined, at: string | undefined, actor: Actor, q = ""): TileDone {
     const t = this.tile(sel);
-    const every: MenuRow[] = this.dispatch.menu(this.tileId(t.id), actor);
+    // The tile's own operations first, then each group in the order it first appears, its rows together: sets that share
+    // a group (note.copy-ref's and a reader's own Note rows, the tile operations split by another set's) read as one
+    // heading, and a list's Note rows (the row it was opened on, PIE-1297) come right after the tile's.
+    const listed: MenuRow[] = this.dispatch.menu(this.tileId(t.id), actor), order = [...new Set(["Tile", ...listed.map(r => r.group)])];
+    const every = order.flatMap(g => listed.filter(r => r.group === g));
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
     if (!this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };
