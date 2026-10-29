@@ -210,6 +210,8 @@ export interface Wire { says: string; short?: string; /** The tile on this desk 
 const SHOWN_LATELY_MS = 2_000;
 /** A selection walk's steps (PIE-1426): one within this of the last, from the same list, joins its stop. */
 const WALK_MS = 1000;
+/** The narrowest a trail tile opens (Desk.trailTile): a stop's title and its arrow still read; narrower, it lists over the screen. */
+const TRAIL_MIN_COLS = 18;
 
 export class Desk implements Screen, DeskApi, ColumnsHost {
   readonly ownsQuestion = true;
@@ -482,6 +484,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     else {
       const made = this.sides(at).reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source), "trail", true, USER, dir); } catch (e) { if (e instanceof ActionRefused) return null; throw e; } }, null);
       if (made === null) return null;
+      // Too narrow to read (a squeezed river column at 40 columns, PIE-1428): no one-letter-a-row spine taking the keys
+      // unseen; the trail lists over the screen instead.
+      const w = this.rectsNow().get(made)?.cols ?? 0;
+      if (w < TRAIL_MIN_COLS) { this.closeTile(this.nameOf(made), USER); this.redraw(); return null; }
       id = made;
     }
     this.keysTo(id);

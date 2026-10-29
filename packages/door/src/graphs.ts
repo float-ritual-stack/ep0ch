@@ -42,6 +42,9 @@ const rep = (s: string, n: number) => s.repeat(Number.isFinite(n) ? Math.max(0, 
  * `+ ····· [ TITLE ] ····· +` around body lines, fitted to width. `control`: drawn after the footer when it fits (a
  * live figure's density, tagged so a click changes it), measured by what it draws.
  */
+/** A figure's warning, wrapped to the frame's inside: read whole however narrow (PIE-1428), never cut short. */
+function errorLines(text: string, W: number): string[] { return wrap(text, Math.max(16, W) - 4).map(l => fg(C.lred) + l + RESET); }
+
 export function frame(title: string, body: string[], W: number, footer = "", control = ""): string[] {
   const w = Math.max(16, W);
   const inner = w - 4;
@@ -387,7 +390,7 @@ const liveSiteOf = (src: FigureSource, args?: Record<string, string>): LiveSite 
 export function renderGraph(kind: string, source: string | FigureSource, W: number, link?: RowLink, figures?: FiguresEnv, rows?: RowInline, site?: LiveSite): string[] {
   const src = typeof source === "string" ? { yaml: source } : source;
   const read = figureProps(kind, src, note => childRows(note, liveSiteOf(src)));
-  if ("error" in read) return frame(kind, [fg(C.lred) + read.error + RESET], W);
+  if ("error" in read) return frame(kind, errorLines(read.error, W), W);
   let props = read.props;
   // Props written without their `---` lines (PIE-941): said in the figure, whatever it then draws.
   const warn = read.warning ? [fg(C.lred) + read.warning + RESET] : [];
@@ -407,7 +410,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   // A block with query:/view: is answered from the outline now, not from copied values.
   const live = figures?.answer && (props.query || props.view || kind === "tabs") ? { ...liveProps(kind, props, figures.answer), status: "library demo", waiting: false } : resolveLive(kind, props, src.note, { ...liveSiteOf(src, read.args), ...site });
   if (live) {
-    if (live.error && !live.status) return frame(title, [fg(C.lred) + live.error + RESET], W, "live");
+    if (live.error && !live.status) return frame(title, errorLines(live.error, W), W, "live");
     if (live.waiting) return frame(title, [fg(DIM) + "asking the outline…" + RESET], W, "live");
     props = live.props;
     const draw = KINDS[kind];
@@ -415,7 +418,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
     const tab = tabs ? (tabs.find(t => t.value === ui.tab) ?? tabs[0])?.value : undefined;
     figures?.seen?.({ key, n, kind, title, density: ui.density, ...(tabs ? { tabs } : {}), ...(tab !== undefined ? { tab } : {}) });
     const body = draw ? withRowLimit(ui.lines, () => draw(props, Math.max(10, W - 4), link, { ...ui, ...(tab !== undefined ? { tab } : {}) })) : [];
-    if (live.error) body.push(fg(C.lred) + live.error + RESET);
+    if (live.error) body.push(...errorLines(live.error, W));
     if (!body.length) body.push(fg(DIM) + "no results" + RESET);
     body.push(...warn);
     return frame(String(props.title ?? ""), body, W, live.status ?? "live", densityControl(kind, ui));

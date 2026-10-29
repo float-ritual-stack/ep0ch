@@ -493,6 +493,18 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { await board.trash(note.id, USER); size.cols = 220; }
   });
 
+  test("at 40 columns a message the bar cuts short is said whole just above it while it's up (PIE-1428)", async () => {
+    size.cols = 40;
+    try {
+      const said = "Pipe stopped at step 2 of 3: no note named Seed swap; the step before it ran";
+      app.flash(said, 4000, { kind: "warning" });
+      await until(() => { app.flush(); return painted.slice(-6, -1).map(l => visible(l).trim()).join(" ").replace(/\s+/g, " ").includes(said); }, "the whole sentence above the bar");
+      app.flash("short");
+      app.flush();
+      expect(painted.slice(-6, -1).map(l => visible(l)).join(" ")).not.toContain("Pipe stopped");
+    } finally { size.cols = 220; app.flash(""); }
+  });
+
   test("a message on a full bar leaves no hit box where nothing is drawn: every clickable item is on the bar as drawn (PIE-1410, PIE-1415)", async () => {
     const note = await board.createBlock(null, 'Full status [status-bar::true]\n- brand\n- screen\n- machine\n::button{label="Collapse" act="status.log"}\n::button{label="yolo" act="status.log"}\n::button{label="neat" act="status.log"}\nbogus\n- theme\n- video\n- uptime\n- clock');
     try {

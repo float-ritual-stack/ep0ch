@@ -37,7 +37,7 @@ import { TEMPLATE_ACTIONS } from "./template-stamp";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
 import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
 import { isBarKey } from "./shell-keys";
-import { printable, withRowLimit } from "./text";
+import { printable, withRowLimit, wrap } from "./text";
 import { SpeedMeter } from "./speed";
 import { CLAUDE_SPLIT_ACTIONS, SplitWatch } from "./claude-splits";
 import { realFleetIO } from "./agent-fleet";
@@ -610,6 +610,8 @@ export class App implements Ctx {
     host: () => this.barHost(),
   };
   private statusBoxes: StatusHit[] = [];
+  /** The status bar's message didn't fit its row as last drawn: it's said whole above the bar (withWhole). */
+  private messageCut = false;
   /** The status-bar groups' menus the person opened, by the group's path: a nested group's opens beside its parent's. */
   private readonly statusMenus = new Map<string, ListPicker<MenuRow, unknown>>();
   /** What the narrow bar put in its `+N` chip, in the bar's order (`status.bar.menu overflow=true` lists them). */
@@ -1789,7 +1791,10 @@ export class App implements Ctx {
       placements = uncover(placements, r);
     }
     if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
-    lines.push(this.statusBar(s, cols));
+    const bar = this.statusBar(s, cols);
+    // What the bar cuts short (a refusal at 40 columns) is said whole just above it while it's up (PIE-1428).
+    if (this.messageCut && this.message) lines = withWhole(lines, this.message, cols, this.messageWarning);
+    lines.push(bar);
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     const readable = this.overflow.draw(lines, cols, Date.now());
     if (readable.overlay) placements = uncover(placements, readable.overlay);
@@ -1903,6 +1908,7 @@ export class App implements Ctx {
       held = held.toSpliced(last >= 0 ? last : Math.max(0, held.findIndex(i => i.id === "problems")), 1);
     }
     const kept = separated(held, "left"), keep = statusText(kept);
+    this.messageCut = !!this.message && width((displaced ? keep : left) + middle) > room;
     this.statusBoxes = [
       ...statusHits(displaced ? kept : leftItems, 0, displaced ? room : room - (width(left) > room ? 1 : 0)),
       ...statusHits(rightItems, Math.max(3, cols - width(right)), cols),
@@ -1937,6 +1943,13 @@ export function withToast(lines: string[], text: string, cols: number, ok = true
   const out = [...lines];
   const line = out[row] ?? "";
   out[row] = headOf(line, at) + RESET + chip(ok ? C.cyan : C.red) + pad(t, w) + RESET + tailFrom(line, at + w);
+  return out;
+}
+
+/** A message the status bar cut short, wrapped whole over the rows just above it (at most four), in the bar's ink. */
+export function withWhole(lines: string[], text: string, cols: number, warning = false): string[] {
+  const rows = wrap(printable(text, " "), Math.max(1, cols - 2)).slice(0, 4), out = [...lines];
+  rows.forEach((r, i) => { const at = out.length - rows.length + i; if (at >= 0) out[at] = STATUS_INK + fg(warning ? C.yellow : C.lcyan) + pad(` ${r}`, cols) + RESET; });
   return out;
 }
 
