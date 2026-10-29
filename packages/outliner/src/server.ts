@@ -31,6 +31,8 @@ import type { ChangeAttribution } from "./change-feed";
 import { MentionRepository } from "./mentions";
 import { EditRecoveryRepository } from "./edit-recovery";
 import {rankSearchWithJev} from './search-ranking';
+import { deepCandidates } from './search-deep';
+import { keepSearchPick, readSearchPicked, readSearchPicks, SEARCH_PICKS_METADATA_KEY, SEARCH_TALLY_MS, SearchTallies, type SearchTally } from './search-records';
 import { blockDisplayTitle } from "./references";
 import { previewPropertyParse } from "./properties";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
@@ -872,6 +874,7 @@ export class OutlinerServer {
   async close(): Promise<void> {
     this.artifactStore?.close();
     this.stopping = true;
+    if (this.searchTallyTimer) { clearTimeout(this.searchTallyTimer); this.searchTallyTimer = null; }
     for (const waiting of this.holderAnswers.values()) { clearTimeout(waiting.timer); waiting.reject(new Error("the service is stopping")); }
     this.holderAnswers.clear();
     this.watches.stop();
@@ -1460,6 +1463,52 @@ export class OutlinerServer {
 
   /** The `suggestions.keep` in progress (PIE-1251): the next waits for it. */
   private suggestionKeeps: Promise<void> = Promise.resolve();
+  /**
+   * A ranked search (or one Jev couldn't answer) counted on the day's `jev-run` (search-records.ts), after the answer
+   * has gone: one at a time, on the same turn as Jev's other records, so the day's run is made once.
+   */
+  /**
+   * The deep pass (search-deep.ts): asked when the ranked search isn't sure (or found nothing by its words), its finds
+   * added to the text's candidates and the whole ranked again, so they're scored and said as any hit is. Never throws.
+   */
+  private async deepen(query: string, ranked: GotoSearchCollection, note: { note?: { title: string; path: string } }): Promise<GotoSearchCollection> {
+    if (query.trim().length < 3 || ranked.matches[0]?.exact || ranked.semantic.verdict === "strong") {
+      return { ...ranked, semantic: { ...ranked.semantic, deep: { status: "skipped" } } };
+    }
+    const found = await deepCandidates(this.store.searchPool(), query, { jev: { promptDirectory: this.promptDirectory } });
+    if ("unavailable" in found) return { ...ranked, semantic: { ...ranked.semantic, deep: { status: "unavailable", message: found.unavailable } } };
+    const have = new Set(ranked.matches.map(m => m.block.id));
+    const added = this.store.searchMatches(found.candidates.map(c => c.id).filter(id => !have.has(id)), query);
+    const deep = { status: "found" as const, windows: found.windows, found: added.length, elapsedMs: found.elapsedMs, ...(found.reading?.usage ? { inputTokens: found.reading.usage.input } : {}) };
+    if (found.reading) this.tallySearch({ status: "ranked", model: found.reading.model, promptRevisions: found.reading.prompt, candidateCount: found.windows, ...(found.reading.usage ? { inputTokens: found.reading.usage.input, outputTokens: found.reading.usage.output } : {}) });
+    if (!added.length) return { ...ranked, semantic: { ...ranked.semantic, deep } };
+    // Jev's finds first: the "is it among these?" Noul reads the first candidates, and these are the ones it hasn't seen.
+    const again = await rankSearchWithJev(query, { ...ranked, matches: [...added, ...ranked.matches.map(({ score: _s, ...m }) => m)] }, { promptDirectory: this.promptDirectory, ...note });
+    return { ...again, semantic: { ...again.semantic, deep } };
+  }
+
+  private readonly searchTallies = new SearchTallies();
+  private searchTallyTimer: ReturnType<typeof setTimeout> | null = null;
+  private tallySearch(semantic: GotoSearchCollection["semantic"]): void {
+    if (this.readOnly || semantic.status === "lexical" || /busy|not configured/i.test(semantic.message ?? "")) return;
+    const tally: SearchTally = semantic.status === "ranked"
+      ? { kind: "ranked", sure: semantic.verdict ? { verdict: semantic.verdict, said: semantic.said ?? "" } : undefined, reading: { model: semantic.model ?? "unknown", prompt: semantic.promptRevisions ?? [], questions: (semantic.candidateCount ?? 0) + 1, ...(semantic.inputTokens !== undefined ? { usage: { input: semantic.inputTokens, output: semantic.outputTokens ?? 0 } } : {}) } }
+      : { kind: "unavailable" };
+    const own = { request: async <T>(input: { action: string } & Record<string, unknown>): Promise<T> => {
+      const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
+      if (!response.ok) throw new Error(response.error);
+      return response.result as T;
+    } };
+    this.searchTallies.count(tally);
+    if (this.searchTallyTimer) return;
+    const wait = Number(process.env.OUTLINER_SEARCH_TALLY_MS ?? SEARCH_TALLY_MS);
+    this.searchTallyTimer = setTimeout(() => {
+      this.searchTallyTimer = null;
+      if (this.stopping) return;
+      this.suggestionKeeps = this.suggestionKeeps.then(() => this.searchTallies.flush(own), () => undefined);
+    }, Number.isFinite(wait) ? wait : SEARCH_TALLY_MS);
+    this.searchTallyTimer.unref?.();
+  }
 
   /**
    * Every component's schema (`components.schemas`, PIE-618): the built-ins with the outline's own styles and types among
@@ -2183,7 +2232,8 @@ export class OutlinerServer {
             const candidates = ranked.addresses.map(address => ({ address, title: address.title.slice(0, 250), path: address.address, snippet: (this.store.get(address.blockId)?.text ?? "").slice(0, 1000), exact: address.exact }));
             const reordered = await rankSearchWithJev(request.query, { matches: candidates, completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...(ranked.context ? { note: { title: ranked.context.title, path: ranked.context.path } } : {}) });
             // A model answer cannot resurrect an address renamed or deleted while it ranked.
-            result = { addresses: reordered.matches.map(match => { const { exact: _exact, ...address } = match.address; return address; }).filter(address => this.store.pageAddressLive(address.normalizedAddress, address.blockId)), completeness: ranked.completeness, semantic: reordered.semantic, ...context };
+            result = { addresses: reordered.matches.map(match => { const { exact: _exact, ...address } = match.address; return { ...address, ...(match.score !== undefined ? { score: match.score } : {}) }; }).filter(address => this.store.pageAddressLive(address.normalizedAddress, address.blockId)), completeness: ranked.completeness, semantic: reordered.semantic, ...context };
+            this.tallySearch(reordered.semantic);
           } finally { this.activeGotoRankings--; }
         } else if (request.query?.trim()) {
           result.semantic = { status: "unavailable", message: "Jev busy; showing text matches" };
@@ -2197,12 +2247,18 @@ export class OutlinerServer {
     if (request.action === "tree.search") {
       try {
         if (request.semantic !== undefined && typeof request.semantic !== "boolean") throw new Error("semantic must be a boolean");
+        if (request.deep !== undefined && (typeof request.deep !== "boolean" || (request.deep && !request.semantic))) throw new Error("deep is a boolean, and asks for semantic: true too");
         if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1)) throw new Error("limit must be a positive integer");
         let result = this.store.searchTree(request.query, request.contextBlockId, parseMachineryMode(request.machinery), request.limit);
         if (request.semantic && this.activeGotoRankings < 2) {
           this.activeGotoRankings++;
-          try { result = await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...(result.context ? { note: { title: result.context.title, path: result.context.path } } : {}) }); }
-          finally { this.activeGotoRankings--; }
+          const note = result.context ? { note: { title: result.context.title, path: result.context.path } } : {};
+          try {
+            result = await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...note });
+            // Deep (PIE-1200): when the text's candidates hold no sure answer, Jev reads the notes themselves.
+            if (request.deep === true) result = await this.deepen(request.query, result, note);
+          } finally { this.activeGotoRankings--; }
+          this.tallySearch(result.semantic);
           // A model answer cannot resurrect a deleted or edited candidate.
           result.matches = result.matches.filter(match => {
             const current = this.store.get(match.block.id);
@@ -2313,6 +2369,19 @@ export class OutlinerServer {
         if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
+    }
+    if (request.action === "search.picks") {
+      return { id: request.id, ok: true, result: { picks: readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)) }, sequence: this.store.sequence };
+    }
+    if (request.action === "search.picked") {
+      // PIE-1197: the row a person opened from a search, with the words, kept for the search eval's labels.
+      try {
+        if (this.readOnly) throw new Error("This outline is read-only.");
+        const pick = readSearchPicked(request as unknown as Record<string, unknown>);
+        const picks = keepSearchPick(readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)), pick);
+        this.store.writeMetadata(SEARCH_PICKS_METADATA_KEY, JSON.stringify(picks));
+        return { id: request.id, ok: true, result: { kept: picks.length }, sequence: this.store.sequence };
+      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
     }
     if (request.action === "suggestions.keep") {
       // PIE-1251: the records of what Jev said are made here, in this process, so a writer that exits after one request
@@ -3268,7 +3337,7 @@ export class OutlinerServer {
           result = this.store.require(request.blockId);
           break;
         case "block.revisions":
-          result = request.revision === undefined ? this.store.revisions(request.blockId) : this.store.revisionText(request.blockId, request.revision);
+          result = request.revision !== undefined ? this.store.revisionText(request.blockId, request.revision) : request.latest ? this.store.revisions(request.blockId, true) : this.store.revisions(request.blockId);
           break;
         case "create":
           result = this.store.create(
@@ -3789,6 +3858,8 @@ export class OutlinerServer {
           throw new Error(`${request.action} requires asynchronous dispatch.`);
         case "completion.rows":
         case "completion.picked":
+        case "search.picked":
+        case "search.picks":
         case "quote":
           throw new Error(`${action} requires asynchronous dispatch.`);
         default: {

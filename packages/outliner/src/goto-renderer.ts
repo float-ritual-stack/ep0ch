@@ -60,7 +60,7 @@ export function renderGotoFrame(controller: GotoController, width: number, heigh
   const query = sanitizeDynamicText(controller.query);
   const before = query.slice(0, controller.column), after = query.slice(controller.column);
   const cursorInput = `${sliceByColumn(before, Math.max(0, visibleWidth(before) - Math.max(1, inner - 8)), Math.max(1, inner - 8), true)}▏${after}`;
-  const semanticStatus = controller.ranking ? "Jev ranking…" : controller.semantic.message ?? (controller.semantic.status === "ranked" ? "Jev ranked" : "Text matches");
+  const semanticStatus = controller.ranking ? "Jev ranking…" : controller.semantic.message ?? (controller.semantic.status === "ranked" ? (controller.semantic.label ? `Jev ranked · ${controller.semantic.label}` : "Jev ranked") : "Text matches");
   const status = controller.status || (controller.loading ? "Searching…" : controller.matches.length ? `${controller.matches.length} results · ${semanticStatus}${controller.completeness.kind === "truncated" ? " · more matches omitted" : ""}` : "No matches · try fewer words");
   const list: string[] = [];
   for (const [offset, match] of controller.matches.slice(start, start + slots).entries()) {

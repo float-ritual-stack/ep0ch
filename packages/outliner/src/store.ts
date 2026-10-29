@@ -41,7 +41,7 @@ import { STATUS_FAMILY_PROPERTY, facetRulesFromBlocks, linkTargetFacets, type Ba
 import { rankBlockFocusMatches } from "./block-focus";
 import { rankTextSearchMatches, searchTextTerms } from "@ep0ch/outline-core/search-match";
 import { normalizeBlockReadFields, normalizeBlockReadIds, projectBlock } from "./block-projection";
-import { gotoCandidates } from "./goto-search";
+import { gotoCandidates, gotoMatch } from "./goto-search";
 import { contextList, searchContext, sortByContext, type SearchContext } from "./search-context";
 import {
   BOOKMARKS_SYSTEM_VIEW,
@@ -150,6 +150,7 @@ import type {
   PageAddressMatch,
   BlockCollectionCompleteness,
   GotoSearchCollection,
+  GotoSearchMatch,
   PageAddressRecord,
   PageAddressRemoval,
   PageAddressResolution,
@@ -2796,13 +2797,14 @@ export class OutlinerStore {
    * A block's earlier texts (PIE-621), newest first, after its current one: each revision, when it was saved and by
    * whom (its edit activity, where one was recorded), and its size and first line. `revision`: that one's whole text.
    */
-  revisions(id: string): BlockRevisions {
+  revisions(id: string, latest = false): BlockRevisions {
     const block = this.require(id);
     const entry = (revision: number, text: string, saved: { savedAt: string; author?: BlockAuthor | null; actorId?: string | null; taskId?: string | null }): BlockRevisionEntry => ({
       revision, savedAt: saved.savedAt, ...(saved.author ? { author: saved.author } : {}), ...(saved.actorId ? { actorId: saved.actorId } : {}), ...(saved.taskId ? { taskId: saved.taskId } : {}),
       chars: [...text].length, lines: text.split("\n").length, firstLine: text.split("\n")[0]!.slice(0, 120),
     });
-    const rows = this.database.query("SELECT revision, text, saved_at, author, actor_id, task_id FROM block_revisions WHERE block_id = ? ORDER BY revision DESC").all(id) as Array<{ revision: number; text: string; saved_at: string; author: BlockAuthor | null; actor_id: string | null; task_id: string | null }>;
+    // `latest`: the current revision alone (who wrote it, and when), with none of the kept texts read.
+    const rows = latest ? [] : this.database.query("SELECT revision, text, saved_at, author, actor_id, task_id FROM block_revisions WHERE block_id = ? ORDER BY revision DESC").all(id) as Array<{ revision: number; text: string; saved_at: string; author: BlockAuthor | null; actor_id: string | null; task_id: string | null }>;
     return { blockId: id, revision: block.revision, revisions: [entry(block.revision, block.text, this.textSaved(block)), ...rows.map(r => entry(r.revision, r.text, { savedAt: r.saved_at, author: r.author, actorId: r.actor_id, taskId: r.task_id }))] };
   }
 
@@ -4723,6 +4725,19 @@ export class OutlinerStore {
   }
 
   /** Goto's candidates for `query`; `contextBlockId` is the note it is asked from (see `search.context`). */
+  /** Every live note, for deep search's pool (search-deep.ts narrows it). */
+  searchPool(): Block[] {
+    return this.database.transaction(() => [...this.loadGraph().byId.values()]).deferred();
+  }
+
+  /** Notes deep search found, as search rows (their path, snippet and facts), in the order given; gone ones left out. */
+  searchMatches(ids: readonly string[], query: string): GotoSearchMatch[] {
+    return this.database.transaction(() => {
+      const byId = this.loadGraph().byId, terms = searchTextTerms(query).filter(term => term.length >= 3);
+      return ids.flatMap(id => { const b = byId.get(id); return b && !b.deletedAt && !b.effectiveDeletedRootId ? [{ ...gotoMatch(b, byId, terms), deep: true as const }] : []; });
+    }).deferred();
+  }
+
   searchTree(query: string, contextBlockId?: string, machinery: MachineryMode = "show", limit?: number) {
     return this.database.transaction(() => {
       const normalized = typeof query === "string" ? tryNormalizePageAddress(query) : null;

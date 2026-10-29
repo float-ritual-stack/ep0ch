@@ -14,7 +14,8 @@ import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { askNouls, board, chips, clip, CONFIDENT, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
-import { itemTitle } from "./work-twins";
+import { itemTitle, olderFirst } from "./work-twins";
+import { deepCandidates } from "./search-deep";
 import { writeRecord } from "./records";
 import type { Block, VisibleBlockCollection } from "./types";
 
@@ -78,17 +79,34 @@ const describe = (s: Shipped) => `${s.kind === "pr" ? "pull request" : "CHANGELO
 
 interface Candidates { shipped: Shipped[]; tickets: { id: string; workId: string; title: string; stage: string; closed: boolean }[] }
 
-/** A few candidates of each kind for one ticket, by the search matcher over its title. Pure. */
-export function groomCandidates(ticket: Block, shipped: readonly Shipped[], others: readonly Block[]): Candidates {
+/**
+ * A few candidates of each kind for one ticket, by the search matcher over its title and then its body's opening (PIE-1402:
+ * a duplicate filed in other words, or a change shipped under another name, shares the body's words, not the title's).
+ * Pure.
+ */
+export function groomCandidates(ticket: Block, shipped: readonly Shipped[], others: readonly Block[], meant: readonly string[] = []): Candidates {
   const title = itemTitle(ticket), named = namedIn(workIdOf(ticket) ?? "", shipped).slice(0, 3);
-  const top = <T extends { id: string; title: string; text: string }>(docs: readonly T[], n: number) => rankTextSearchMatches(docs, title).filter(m => m.kind !== "title-fuzzy" && m.kind !== "text-fuzzy").slice(0, n).map(m => m.document);
-  const changelog = top(shipped.filter(s => s.kind === "changelog"), 3), prs = top(shipped.filter(s => s.kind === "pr"), 3);
+  const opening = clip(bodyOf(ticket), 160);
+  const top = <T extends { id: string; title: string; text: string }>(docs: readonly T[], n: number) => {
+    const seen = new Set<string>(), out: T[] = [];
+    for (const query of [title, ...(opening ? [opening] : [])]) {
+      for (const m of rankTextSearchMatches(docs, query)) {
+        if (m.kind === "title-fuzzy" || m.kind === "text-fuzzy" || seen.has(m.document.id)) continue;
+        seen.add(m.document.id); out.push(m.document);
+      }
+    }
+    return out.slice(0, n);
+  };
+  const changelog = top(shipped.filter(s => s.kind === "changelog"), 4), prs = top(shipped.filter(s => s.kind === "pr"), 4);
   const docs = others.filter(b => b.id !== ticket.id).map(b => ({ id: b.id, title: itemTitle(b), text: b.text, block: b }));
   const stageOf = (b: Block) => propOf(b, "work-stage") ?? "unknown";
-  const closed = top(docs.filter(d => ["done", "superseded"].includes(stageOf(d.block))), 3), open = top(docs.filter(d => !["done", "superseded"].includes(stageOf(d.block))), 2);
+  const closed = top(docs.filter(d => ["done", "superseded"].includes(stageOf(d.block))), 3), open = top(docs.filter(d => !["done", "superseded"].includes(stageOf(d.block))), 4);
+  // Then the tickets deep search found by meaning (search-deep.ts): a duplicate filed in other words shares no word.
+  const words = new Set([...closed, ...open].map(d => d.id));
+  const byMeaning = meant.flatMap(id => { const d = docs.find(x => x.id === id); return d && !words.has(id) ? [d] : []; }).slice(0, 3);
   return {
     shipped: [...named, ...[...changelog, ...prs].filter(s => !named.includes(s))],
-    tickets: [...closed, ...open].map(d => ({ id: d.id, workId: workIdOf(d.block) ?? d.id.slice(0, 8), title: d.title, stage: stageOf(d.block), closed: ["done", "superseded"].includes(stageOf(d.block)) })),
+    tickets: [...closed, ...open, ...byMeaning].map(d => ({ id: d.id, workId: workIdOf(d.block) ?? d.id.slice(0, 8), title: d.title, stage: stageOf(d.block), closed: ["done", "superseded"].includes(stageOf(d.block)) })),
   };
 }
 
@@ -111,6 +129,15 @@ export function groomVerdict(c: Candidates, answers: Record<string, number | und
   return { verdict: "open", confidence: Math.round((1 - top) * 100) / 100, evidence: top >= YES ? `close but under ${CONFIDENT}: ${near}` : near };
 }
 
+/**
+ * Of two twins the newer is the duplicate (PIE-1402: a groom called each the other's): a ticket whose twin is newer is
+ * the original, open, saying which one repeats it. Pure.
+ */
+export function originalFirst(ticket: string, v: Pick<GroomRow, "verdict" | "confidence" | "evidence" | "of">, twinClosed = false): Pick<GroomRow, "verdict" | "confidence" | "evidence" | "of"> {
+  // A twin already done or superseded did the work: this one is its duplicate whichever came first.
+  return v.verdict === "duplicate" && v.of && !twinClosed && olderFirst(ticket, v.of) < 0 ? { verdict: "open", confidence: v.confidence, evidence: `the original: ${v.of} repeats it (${v.evidence})` } : v;
+}
+
 export interface GroomOptions extends JevOptions {
   /** Which tickets: a query in the views' grammar (default every queued ticket). */
   where?: string;
@@ -131,7 +158,8 @@ export async function groom(source: WorkJevClient, evidence: GroomEvidence, o: G
   let tokens = 0, jev = o.jev === false ? "off" : "not asked", reading: JevReading | undefined;
   for (const [n, t] of tickets.entries()) {
     const ticket = workIdOf(t) ?? t.id.slice(0, 8), title = itemTitle(t);
-    const c = groomCandidates(t, shipped, others), latest = latestLines(t.text), named = namedIn(ticket, shipped)[0];
+    const deep = o.jev === false ? null : await deepCandidates(others, `${title}\n\n${clip(bodyOf(t), 300)}`, { where: b => b.id !== t.id, limit: 3, jev: { ...o, timeoutMs: 8000 } });
+    const c = groomCandidates(t, shipped, others, deep && "candidates" in deep ? deep.candidates.map(x => x.id) : []), latest = latestLines(t.text), named = namedIn(ticket, shipped)[0];
     // With Jev off, code says what it can: named in what shipped, unless its newest lines say it isn't done.
     // Unjudged when Jev was wanted and couldn't answer; open only when nothing shipped or filed shares its words.
     const codeOnly = (why: string, judged = false): GroomRow => named && !UNFINISHED.test(latest)
@@ -155,7 +183,8 @@ export async function groom(source: WorkJevClient, evidence: GroomEvidence, o: G
     }
     jev = "asked"; reading = asked.reading; tokens += asked.reading.usage?.input ?? 0;
     const answers = Object.fromEntries(Object.keys(questions).map(id => [id, noul(asked.answers, id)]));
-    rows.push({ ticket, id: t.id, title, ...groomVerdict(c, answers, latest), by: "jev" });
+    const judged = groomVerdict(c, answers, latest);
+    rows.push({ ticket, id: t.id, title, ...originalFirst(ticket, judged, c.tickets.find(x => x.workId === judged.of)?.closed), by: "jev" });
     o.progress?.(`${n + 1}/${tickets.length} ${ticket} ${rows.at(-1)!.verdict}`);
   }
   const counts = { solved: 0, superseded: 0, duplicate: 0, open: 0, unjudged: 0 } as Record<Verdict, number>;
@@ -222,6 +251,13 @@ export function groomSummary(report: GroomReport): string {
     if (!rows.length) continue;
     lines.push("", `${verdict}:`);
     for (const r of rows) lines.push(`  ${r.ticket} ${r.confidence.toFixed(2)} ${clip(r.title, 70)} · ${r.by === "code" ? "" : "Jev: "}${clip(r.evidence, 120)}`);
+  }
+  // Every open ticket too, each with what it was read against (PIE-1402: a pass that judged everything open printed only
+  // counts): the close calls first, then the rest; so a person sees what to look at, not just a total.
+  const open = report.rows.filter(r => r.verdict === "open" || r.verdict === "unjudged").sort((a, b) => Number(b.evidence.startsWith("close but")) - Number(a.evidence.startsWith("close but")) || a.confidence - b.confidence);
+  if (open.length) {
+    lines.push("", "open (what each was read against):");
+    for (const r of open) lines.push(`  ${r.ticket} ${r.verdict === "unjudged" ? "unjudged" : r.confidence.toFixed(2)} ${clip(r.title, 70)} · ${clip(r.evidence, 120)}`);
   }
   return lines.join("\n");
 }

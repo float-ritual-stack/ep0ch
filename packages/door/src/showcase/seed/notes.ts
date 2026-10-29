@@ -350,6 +350,20 @@ export const WRITE_REVIEW = [
   "- Board: 2 queued and 1 in review, with more coming tomorrow.",
 ].join("\n");
 
+/**
+ * The search section (PIE-1197, PIE-1198): a made-up eval run, both models side by side, as `ep0ch search eval` scores
+ * one (search-eval.ts ModelScore). The numbers are invented; the page around them is the real one.
+ */
+const score = (model: string, hit1: number, hit5: number, sureRight: number, sureNothing: number) => ({
+  model, cases: 24, positives: 12, reachable: 11, negatives: 12, asked: 22, unavailable: 0, hit1, hit5, lexHit1: 5, lexHit5: 9,
+  existsAnswered: 0.81, existsNot: 0.34, sureRight, sureWrong: 1, sureNothing, quietRight: 14, quietWrong: 2, tokensIn: 41000, tokensOut: 90,
+});
+export const SEARCH_EVAL_SCORES = [score("jev-1.13.0", 7, 10, 6, 1), score("jev-1.14.0", 7, 10, 6, 2)];
+export const SEARCH_EVAL_SWEEP = [
+  { exists: 0.7, strong: 2, sureRight: 7, sureWrong: 2, sureNothing: 3, quietWrong: 1 },
+  { exists: 0.8, strong: 2, sureRight: 6, sureWrong: 1, sureNothing: 1, quietWrong: 2 },
+];
+
 /** The completion sources section (PIE-1340): an extension's rows under [[, ranked with the pages. */
 export const SOURCES = [
   SEED.sources,

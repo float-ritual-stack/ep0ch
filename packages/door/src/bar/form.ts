@@ -86,7 +86,7 @@ export async function openActionForm(host: BarHost, req: ActRequest, actor: Acto
   if (req.tile !== undefined && fields.some(f => f.selector)) given[SELECTOR] = req.tile;
   const run = (answers: Record<string, string>) => {
     const call = callOf(info, answers);
-    return actor.kind === "agent" ? host.dispatch.act({ action: info.name, ...call }, actor) : host.dispatch.press(info.name, call.args, call.tile);
+    return host.dispatch.as(actor, { action: info.name, ...call });
   };
   return askInBar(host as never, info.name, fields.map(fieldQuestion), given, actor, run, {
     action: info.name, ...(fields.some(f => f.selector) ? { selector: SELECTOR } : {}),

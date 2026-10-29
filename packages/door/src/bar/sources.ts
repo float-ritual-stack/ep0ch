@@ -134,6 +134,20 @@ const TILES: BarSource = {
 /** A hit's row: its work id (when its title doesn't start with it) and its title. */
 const noteRow = (m: Msg): BarRow => ({ key: m.id, label: headedTitle(m), subtitle: subtitleOf(m), fill: subject(m), note: { id: m.id } });
 
+/** What a search's row carries to its pick: the words and its place, kept as the search eval's label (`search.picked`). */
+interface Searched { query: string; rank: number }
+/** A search's rows, each with where it came from, and Jev's Score on a ranked one (`2.7/3`: how well it answers). */
+const searchRows = (hits: Msg[] & { scores?: Map<string, number>; deep?: Set<string> }, query: string): BarRow[] => hits.map((m, rank) => {
+  const score = hits.scores?.get(m.id), detail = [score !== undefined ? `${score.toFixed(1)}/3` : "", hits.deep?.has(m.id) ? "by meaning" : ""].filter(Boolean).join(" · ");
+  return { ...noteRow(m), ...(detail ? { detail } : {}), data: { query, rank } satisfies Searched };
+});
+/** What the bar says of a ranked list: the service's verdict, said short (the sentence is on the row it names). */
+const jevSaid = (semantic: { label?: string; verdict?: string; deep?: { status: string; found?: number } } | undefined, deep: boolean) =>
+  [semantic?.label ? `jev ranked · ${semantic.label}` : "jev ranked",
+    semantic?.deep?.status === "found" ? `${semantic.deep.found ?? 0} found by meaning` : "",
+    // Not sure, and the words were all it read: a second / reads every note (PIE-1200).
+    !deep && semantic?.verdict && semantic.verdict !== "strong" ? "// reads every note" : ""].filter(Boolean).join(" · ");
+
 /** How many notes `/` lists with nothing typed. */
 const RECENT_NOTES = 30;
 /**
@@ -170,7 +184,7 @@ async function addressedRows(to: NonNullable<ReturnType<typeof addressOf>>, host
 
 const NOTES: BarSource = {
   id: "notes", title: "notes", prefix: "/", by: "door", asks: true,
-  about: "outline:<name> words searches another outline on this host; otherwise the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up; ⏎ opens one where opens land, alt+⏎ in a new detail; alt+m or a right-click on a hit is its menu: copy its id, reference or web link (note.copy-ref)",
+  about: "outline:<name> words searches another outline on this host; otherwise the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up, saying how sure it is (\"no strong match\" when the top isn't); a second / (//words) also has Jev read every note's title for ones the words missed (PIE-1200); ⏎ opens one where opens land, alt+⏎ in a new detail; alt+m or a right-click on a hit is its menu: copy its id, reference or web link (note.copy-ref)",
   main: { empty: false, typed: true, most: 10 },
   async rows(q, host, _scope, signal) {
     const named = q.match(/^outline:([^\s]+)(?:\s+(.*))?$/);
@@ -182,21 +196,28 @@ const NOTES: BarSource = {
     const to = addressOf(q);
     if (to) return addressedRows(to, host);
     if (!q.trim()) return recentNotes(host);
-    if (q.trim().length < 2) return [];
-    return (await host.ctx.board.search(q.trim(), 30, { near: host.near() ?? undefined, signal })).map(noteRow);
+    // `//words` (a second /): the deep search, by meaning; the words' hits first, Jev's after the pause.
+    const words = q.replace(/^\//, "").trim();
+    if (words.length < 2) return [];
+    return searchRows(await host.ctx.board.search(words, 30, { near: host.near() ?? undefined, signal }), words);
   },
   later(q, rows, host, signal) {
     const board = host.ctx.board;
-    if (q.startsWith("outline:") || rows[0]?.exact || q.trim().length < 3 || rows.length < 2 || jevOff.has(board)) return null;
-    return board.search(q.trim(), 30, { semantic: true, near: host.near() ?? undefined, signal }).then(h => {
+    const deep = q.startsWith("/"), words = q.replace(/^\//, "").trim();
+    // A deep search runs with no word hits too: finding what the words missed is its point.
+    if (q.startsWith("outline:") || rows[0]?.exact || words.length < 3 || (!deep && rows.length < 2) || jevOff.has(board)) return null;
+    return board.search(words, 30, { semantic: true, deep, near: host.near() ?? undefined, signal }).then(h => {
       if (h.semantic && notConfigured(h.semantic)) jevOff.add(board);
-      return h.semantic?.status === "ranked" ? { rows: h.map(noteRow), said: "jev ranked" } : null;
+      return h.semantic?.status === "ranked" ? { rows: searchRows(h, words), said: jevSaid(h.semantic, deep) } : null;
     }, () => null);
   },
   preview: row => (row.refused ? { lines: [row.refused] } : { note: row.key }),
   pick(row, host, how) {
     if (row.refused) throw new ActionRefused(row.refused);
-    return openNote(row.key, host, how, (row.data as { fragment?: string } | undefined)?.fragment);
+    // The person's own pick labels the words with the note wanted; an agent's doesn't speak for him.
+    const data = row.data as (Partial<Searched> & { fragment?: string }) | undefined;
+    if (data?.query !== undefined && data.rank !== undefined && how.actor.kind === "user") host.ctx.board.searchPicked(data.query, row.key, data.rank, "power-bar");
+    return openNote(row.key, host, how, data?.fragment);
   },
 };
 
@@ -414,7 +435,7 @@ const SCREENS: BarSource = {
   preview: row => ({ markdown: `**${row.label}**\n\n${(row.data as { about: string }).about || "a screen"}\n\n⏎ opens it over this screen; q comes back.` }),
   pick(row, host, how) {
     const args = { name: (row.data as { name: string }).name };
-    return how.actor.kind === "agent" ? host.dispatch.act({ action: "screen.open", args }, how.actor) : host.dispatch.press("screen.open", args);
+    return host.dispatch.as(how.actor, { action: "screen.open", args });
   },
 };
 
@@ -527,7 +548,7 @@ const EXTENSIONS: BarSource = {
     }
     if (d.block) return openNote(d.block, host, how);
     const [action, args] = d.kind === "install" ? ["extensions.install", { id: d.id }] : ["extensions.uninstall", { id: d.id, demo: d.demo! }];
-    return how.actor.kind === "agent" ? host.dispatch.act({ action, args }, how.actor) : host.dispatch.press(action, args);
+    return host.dispatch.as(how.actor, { action, args });
   },
 };
 

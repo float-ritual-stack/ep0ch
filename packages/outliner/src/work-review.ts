@@ -46,7 +46,8 @@ export async function houseRule(client: HouseRuleClient, name: HouseRule): Promi
 const TESTS = /\b(?:tests?|bun test|test run|passing|green|box-test|CI|suite|specs?|exit (?:code )?0|typecheck|bun run check)\b/i;
 const DROVE = /\b(?:drove|driven|driving|drive it|ran the (?:app|door)|in a (?:scratch )?door|real pane|screenshot|walked it|clicked|headless chromium|on the published page|opened it in|in daily use|by hand)\b/i;
 const NOT_A_FEATURE = /\b(?:refactor|test[- ]only|flak[ey]|flake|tests? (?:go|goes|went) red|red (?:test|run)|ci\b)/i;
-const SAYS_EXPERIENCE = /\b(?:evan|a person|the person)\s+(?:opens?|can|sees?|reads?|clicks?|types?|finds?|gets?)\b/i;
+// Any "Evan <does> …" (PIE-1402: "Evan writes "@loki …" in a comment … and loki hears it" was told it named no experience).
+const SAYS_EXPERIENCE = /\b(?:evan|a person|the person)\s+(?:opens?|can|sees?|reads?|clicks?|types?|finds?|gets?|writes?|asks?|files?|marks?|taps?|presses?|runs?|hears?|picks?|drags?|adds?|comments?|replies?|searches?|tells?|says?|starts?|calls?|lands?|scrolls?|reaches?)\b/i;
 
 /** One Noul asked of Jev over `state` (write-review's one Jev request), or null when it can't be. */
 async function askNoul(state: Record<string, unknown>, question: "proof" | "experience", env?: NodeJS.ProcessEnv): Promise<{ noul: number; reading: ReviewReading } | null> {

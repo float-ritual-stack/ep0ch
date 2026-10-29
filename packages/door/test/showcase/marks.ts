@@ -22,12 +22,14 @@ export const marks: Record<string, string[]> = {
   sources: ["Which issue is the swap, see [[seed", "issue"],
   twins: ["Fix the back gate latch", "Queued"],
   "write-review": ["Shed status tonight", "Jev's suggestions", "Each finding, newest first"],
+  "search-sure": ["Search evals", "EVERY RUN, PER MODEL", "Cases by source"],
   // Four readers on one note, each writing a comment in another place (PIE-770).
   composer: ["Writing in the margin", "[inline ▸]", "[floating ▸]", "[split ▸]", "[popup ▸]"],
   // A comment on the whole note in its own tile beside the reader (PIE-846); the note's whole-note thread in the margin.
   "comment-tile": ["Seed library opening hours", "comment on the whole note", "The winter shelf needs a lock", "comment · reader"],
   // The draft session: an edit open on the left, a comment being written on the right.
   drafts: ["editing · Kitchen whiteboard", "» comment", "[add them]"],
+  "while-typing": ["editing · Kitchen whiteboard", "Allotment notebook"],
   // Three kept edits against notes that moved on: one with a new line, one the note already has (settled), one old (a chip).
   kept: ["Greenhouse watering rota", "from your edit yesterday", "[add them]", "was already in the note", "1 old edit"],
   // The guide two agents raced on: @fern's words in it, @moss's proposal drawn after its last line with its controls.

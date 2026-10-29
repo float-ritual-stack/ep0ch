@@ -102,8 +102,10 @@ describe("EP0CH_NEST", () => {
 const deskPeek = (o: { pid?: number; focus: string; typing?: string | null; tiles: { id?: string; name: string; herdr?: string; pid?: number; agents?: string }[]; screen?: string; limits?: object }) => ({
   screen: {
     screen: o.screen ?? "Desk", stack: ["Main menu", "Desk"], ...(o.pid ? { pid: o.pid } : {}), outline: "garden", workspace: "/ws",
+    // Where the person is, as App.person answers it: the agent rules' answer, which `where` reads.
+    person: { focus: o.focus, typingIn: o.typing ?? null, busy: !!o.typing },
     state: o.screen && o.screen !== "Desk" ? { kind: "menu" } : {
-      kind: "desk", focusName: o.focus, inTerminal: o.typing ?? null,
+      kind: "desk", focusName: o.focus,
       panes: o.tiles.map((t, i) => ({ n: i + 1, name: t.name, ...(t.id ? { tile: t.id } : {}), kind: "pty", focused: t.name === o.focus, shown: true,
         terminal: { pid: t.pid ?? 5000 + i }, ...(t.herdr ? { herdr: { pane: t.herdr } } : {}), ...(t.agents ? { agents: t.agents, agentsBy: "tile" } : {}) })),
       ...(o.limits ?? {}),
@@ -220,6 +222,14 @@ describe("ep0ch where", () => {
     const menu = await where(deps(env, { alive: [10], peek: deskPeek({ pid: 10, focus: "", tiles, screen: "Main menu" }) }));
     expect(menu.keys.text).toBe("the person is on the door's Main menu screen, not the desk");
     expect(menu.layers.find(l => l.kind === "tile")).toMatchObject({ live: null });
+  });
+
+  test("an edit in a reader is typing, as the agent rules read it (peek's person), not only a terminal (PIE-1294)", async () => {
+    const env = { EP0CH_NEST: "door:10/desk/t1:claude", EP0CH_CONTROL: "/c/door.sock" };
+    const peek = deskPeek({ pid: 10, focus: "middle", typing: "middle", tiles: [{ id: "t1", name: "claude" }, { id: "t2", name: "middle" }] });
+    // The desk's own state says nothing of the edit (a reader isn't a terminal): where reads the person's answer.
+    expect(peek.screen.state).not.toHaveProperty("inTerminal");
+    expect((await where(deps(env, { alive: [10], peek }))).keys).toEqual({ mine: false, typing: true, tile: "t2 middle", text: "the person is on tile t2 middle, typing in it, not this one" });
   });
 
   test("the door is gone: its layer is ✗ and the keys are unknown", async () => {
