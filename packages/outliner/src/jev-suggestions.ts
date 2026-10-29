@@ -214,7 +214,7 @@ export const LIVE_EXPERIMENT = "figure-fit-live";
 const countOf = async (client: SuggestionClient, where: string, group: string) =>
   Object.fromEntries(((await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where, machinery: "show", limit: 1, group } })).groups ?? []).map(g => [g.value ?? "", g.count]));
 
-const setChip = (text: string, key: string, value: string | number) => {
+export const setChip = (text: string, key: string, value: string | number) => {
   const chip = new RegExp(`\\[${key}::[^\\]]*\\]`);
   return chip.test(text) ? text.replace(chip, () => `[${key}::${value}]`) : text;
 };

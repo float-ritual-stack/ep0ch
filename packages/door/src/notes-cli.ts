@@ -44,13 +44,17 @@ import type { Ctx } from "./app";
 import { recordJson } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 
-export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root id>]] [--ids | --lines | --json] [--ws <name>] [--machine <ssh-name>]
+export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --tree [<root id>]] [--ids | --lines | --json] [--ws <name>] [--machine <ssh-name>]
   ep0ch find [<words>…] [--query "<expression>" [--property-scope block|line|inline|all]] [--view <id>] [--under <id>]
              [--sort <key> [--direction asc|desc]] [--updated-after|--updated-before|--created-after|--created-before <date>]
              [--ids | --lines | --json]
                                    notes: with words, the service's ranked search, tree.search (the ranker
-                                   Goto, the door's / and (( use, asked from no note and without Jev; at
-                                   most 30); --recent, its newest 30; --tree, the outline (or the notes under
+                                   Goto, the door's / and (( use, asked from no note; at most 30), re-ordered
+                                   by Jev when it's set up: each row its Score (2.7/3) and a last line saying
+                                   how sure it is ("strong match: …", or "no strong match: …" when the top
+                                   isn't a sure answer; on stderr with --ids, --lines, --json); when none is
+                                   sure, Jev reads every note's title for ones the words missed (deep, PIE-1200:
+                                   such a row says "by meaning"); --lexical leaves Jev out; --recent, its newest 30; --tree, the outline (or the notes under
                                    <root id>) depth first, as Tree draws it; without, every note, newest first.
                                    A <note> here is an id, ((id)), an id's first 8+ characters, a Work ID of
                                    any prefix the outline has (PIE-870) or a [[page]], resolved by the service.
@@ -106,7 +110,7 @@ export interface BoardAddress { outline: string; machine: string }
 export type NotesBoard = SocketBoard & { address: BoardAddress };
 
 /** One note as `find` lists it. */
-export interface Found { id: string; title: string; path: string; uri?: string; /** Where a line-scope query matched it (PIE-1277). */ matched?: string }
+export interface Found { id: string; title: string; path: string; uri?: string; /** Where a line-scope query matched it (PIE-1277). */ matched?: string; /** Jev's Score on a ranked search (0 to 3). */ score?: number }
 
 /** A field of a `--lines` row: one line, no tabs. */
 const field = (s: string) => printable(s.replace(/[\t\r\n]+/g, " ")).trim();
@@ -368,7 +372,7 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   // --tree takes the root's id as its value when one follows.
   const treeAt = args.indexOf("--tree"), tree = treeAt >= 0;
   const root = tree && args[treeAt + 1] !== undefined && !args[treeAt + 1]!.startsWith("--") ? args[treeAt + 1]! : undefined;
-  const words = without(picked.rest, ["--ws", "--machine", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids", "--here"]);
+  const words = without(picked.rest, ["--ws", "--machine", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids", "--here", "--lexical"]);
   // --recent and --tree keep their own order: a refusal names what it was given and the same find without them (a
   // --tree root becomes --under, which lists a subtree in outline order).
   const given = [...(recent && tree ? ["--recent"] : []), ...(words.length ? ["words"] : []), ...SELECT_FLAGS.filter(f => args.includes(f))];
@@ -398,7 +402,7 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
       return 0;
     }
     const query = words.join(" ").trim();
-    let found: Found[];
+    let found: Found[], sure: string | undefined;
     if (asked) {
       // --query, --view, --under (and words with them): the outline's own reading, in outline (or the view's) order.
       const picked = await selectNotes(board, { ids: [], ...sel, words });
@@ -411,13 +415,21 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
       found = withUris(board, picked.ids.flatMap(id => { const b = by.get(id); return b ? [{ id, title: previewTitle(b.title), path: pathOf(b), ...(picked.matches?.get(id) ? { matched: matchedWhere(picked.matches.get(id)!) } : {}) }] : []; }));
     } else {
       // --recent: the service's own answer to an empty search (the newest notes), without reading the whole index.
-      found = withUris(board, query || recent ? (await board.searchBlocks(query)).matches.map(m => ({ id: m.block.id, title: m.title, path: m.path })) : everyNote(await board.index()));
+      // Words are ranked by Jev when the service has it (PIE-1198): each hit its Score, and how sure the list is.
+      const hits = query || recent ? await board.searchBlocks(query, query && !args.includes("--lexical") ? { semantic: true, deep: true } : {}) : null;
+      found = withUris(board, hits ? hits.matches.map(m => ({ id: m.block.id, title: m.title, path: m.path, ...(m.score !== undefined ? { score: m.score } : {}), ...(m.deep ? { matched: "by meaning" } : {}) })) : everyNote(await board.index()));
+      sure = hits?.semantic.status === "ranked" ? hits.semantic.said : undefined;
     }
+    // How sure the ranked list is: under the rows, or on stderr where stdout is for a program.
+    if (sure && (idsOut || json || lines)) io.err(`ep0ch: ${sure}`);
     if (idsOut) { for (const f of found) io.out(`((${f.id}))`); }
     else if (json) return await printRecords(board, found.map(f => f.id), io);
     else if (lines) { for (const f of found) io.out(foundLine(f)); }
     else if (!found.length) io.out(asked ? "nothing matches" : query ? `nothing matches ${query}` : "the outline has no notes");
-    else for (const f of found) io.out(`${f.id.slice(0, 8)}  ${field(f.title)}${f.path ? `  · ${field(f.path)}` : ""}${f.matched ? `  · ${field(f.matched)}` : ""}`);
+    else {
+      for (const f of found) io.out(`${f.id.slice(0, 8)}  ${f.score !== undefined ? `${f.score.toFixed(1)}/3  ` : ""}${field(f.title)}${f.path ? `  · ${field(f.path)}` : ""}${f.matched ? `  · ${field(f.matched)}` : ""}`);
+      if (sure) io.out(sure);
+    }
     return 0;
   } catch (e) {
     io.err(`ep0ch: ${(e as Error).message}`);
