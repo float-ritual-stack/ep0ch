@@ -20,6 +20,7 @@ are its record. The outliner's entries from then are kept below, under
   `screen.open` call: those that link the ticket first, then by words and by meaning (Jev). PIE-1388 and PIE-1252
   now point at Jev's suggestions.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### Esc closes what's in front of you, never the Claude tile by mistake (PIE-1431, PIE-1428)
 
 - **Esc over a terminal you type in** (a terminal tile, the drawer's agent) closes the power bar or the menu over it,
