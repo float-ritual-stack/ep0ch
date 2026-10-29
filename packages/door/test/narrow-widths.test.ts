@@ -7,12 +7,27 @@ import { foldPoints, renderDoc } from "../src/doc";
 import { figureSource, renderGraph } from "../src/graphs";
 import { drawNote } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
-import { visible } from "../src/style";
+import { Overflow } from "../src/overflow";
+import { selectedRow, visible } from "../src/style";
 import { rowLines } from "../src/text";
 import { outliner, Scratch } from "./scratch";
 
 const plain = (s: string) => visible(s).trimEnd();
 const figure = (kind: string, lines: string[], w = 40) => renderGraph(kind, figureSource(lines), w).map(plain);
+
+describe("a list row wrapped at 40 columns, selected", () => {
+  test("reveals only what its last line cut, never the whole title again under its first line (PIE-1392)", () => {
+    const title = " ◇ GRD-12 · Descale the kettle and replace the dented lid before winter sets in";
+    const rows = rowLines(title, 36, 2, { hang: 3 }).map(l => selectedRow(l, 37));
+    const o = new Overflow();
+    o.keys();
+    const shown = o.draw(rows, 40, 0).lines.map(plain);
+    expect(shown[0]).toContain("GRD-12 · Descale the kettle and");
+    // The second line goes on with the words after the first (it once drew "-12 · Descale the kettle and repla").
+    expect(shown[1]).not.toContain("Descale");
+    expect(shown[1]).toMatch(/^\S?\s*replace the dented lid/);
+  });
+});
 
 describe("figures at 40 columns", () => {
   test("a checklist row is never cut: its words wrap onto every row they take, in the figure and the component alike (PIE-1348)", () => {

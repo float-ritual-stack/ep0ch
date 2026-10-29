@@ -38,7 +38,7 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     expect(await buttonLine()).toContain("target=}");
   });
 
-  test("the person's press asks for a tile; the choice is written as the tile's id, and the next press lifts it, the one after drops it", async () => {
+  test("the person's press asks for a tile; the choice is written as the tile's id and the press runs: it lifts, the next press drops it", async () => {
     const asked = await act("button.press", { label: "pop it" });
     expect(asked.picking).toBe("tile");
     await until(() => screen().includes("pop it: choose a tile for target"), "the picker's card");
@@ -56,8 +56,7 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     }
     await untilAsync(() => buttonLine().then(l => l.includes(`target=${links}`)), "the id written on the line", 10_000);
     expect(await buttonLine()).toBe(`::button{label="pop it" act="tile.zoom tile={target} reach=column" target=${links}}`);
-    expect(lifted()).toBe(false);
-    await act("button.press", { label: "pop it" });
+    // The pick finishes the press that asked for it (PIE-1392): no second press to run it.
     await until(lifted, "links lifted");
     expect(desk().lifted.reach).toBe("column");
     expect(desk().liftsPane(desk().pane("links"))).toBe(true);
@@ -141,7 +140,7 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     // The card's "1 · this tile" row (the showcase keeps 1-9 for its sections until you step into the stage).
     await act("tile.pick", { value: agent });
     await untilAsync(() => buttonLine().then(l => l === probe.replace("target=}", `target=${agent}}`)), "the program's id on the line");
-    await act("button.press", { note, label: "pop it" });
+    // The pick runs the press it answered.
     await until(() => !!drawer.made?.lifted, "the drawer's program lifted");
     expect(drawer.made.liftsPane(drawer.tile)).toBe(true);
     await act("button.press", { note, label: "pop it" });
@@ -163,6 +162,10 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await act("tile.pick", { to: "links" });
     if (!(await line()).includes(links)) await act("tile.pick", { value: links });
     await untilAsync(() => line().then(l => l === probe.replace("target=}", `target=${links}}`)), "the id on the status-bar note's line");
+    // The pick ran the press: drop what it lifted.
+    await until(() => lifted(), "links lifted by the press the pick finished");
+    await act("button.press", { note: bar, label: "pop it" });
+    await until(() => !lifted(), "links dropped");
     await act("host.toggle", { open: false });
   });
 
@@ -300,7 +303,7 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
 
   // Last, as neat rearranges the section's tiles. The validate sweep's repro (Oct 28): two empty slots of an of= script asked
   // page2 first, as free text. Now page 1 of 2 comes first, from the notes (neat declares [form-field::page note]), each pick is written as the note's id, and the press runs.
-  test("a script's empty slots ask in order, in the kind the script declares; the next press puts the pages side by side", async () => {
+  test("a script's empty slots ask in order, in the kind the script declares; the last pick puts the pages side by side", async () => {
     const note = seeded.notes.pickATile.id;
     const two = async () => (await text()).split("\n").find(l => l.includes('label="two up"'))!;
     // An agent is told the kind it gives.
@@ -321,9 +324,8 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await pick("A neat workbench");
     await untilAsync(() => two().then(l => l.includes(`page2=${seeded.notes.neat.id}`)), "page2 written");
     expect(await two()).toBe(`::button{label="two up" of="neat" page={page1} page={page2} page1=${seeded.notes.shed.id} page2=${seeded.notes.neat.id}}`);
-    const before = new Set(app.describe().messages.map(row => row.id));
-    await act("button.press", { note, label: "two up" });
-    await until(() => app.describe().messages.some(row => !before.has(row.id) && /(^|· )neat:/.test(row.message)), "neat ran", 10_000);
+    // The last pick finishes the press (PIE-1392): neat runs with no second press.
+    await until(() => app.describe().messages.some(row => /(^|· )neat:/.test(row.message)), "neat ran", 10_000);
     const main = (await act("layout.get")).layers.find((l: any) => !l.drawer).tiles as any[];
     const a = main.find(t => t.showing?.id === seeded.notes.shed.id), b = main.find(t => t.showing?.id === seeded.notes.neat.id);
     expect(a && b).toBeTruthy();

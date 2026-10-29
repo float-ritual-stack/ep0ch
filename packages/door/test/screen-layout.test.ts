@@ -200,6 +200,17 @@ describe("floats have no place in the tree (B7, B8, B9)", () => {
     expect(r.names.get(9)).toBe("edgy");
   });
 
+  test("a new float reads: half the screen, never narrower than a note at 40 columns (PIE-1392)", () => {
+    const narrow: Rect = { col: 0, row: 0, cols: 40, rows: 46 };
+    const r = apply(fresh(), { op: "float", tile: 2 }, ctxOf(PERSON, {}, narrow));
+    if (!r.ok) throw new Error(r.refused);
+    const f = r.state.floats[0]!.rect;
+    expect(f.cols).toBe(38);
+    expect(f.col + f.cols).toBeLessThanOrEqual(40);
+    // A wide screen keeps half of it.
+    expect(withFloat(fresh(), 2).floats[0]!.rect.cols).toBe(80);
+  });
+
   test("B9: a float goes back only where the containers take it: another place if the first refuses, else refused with why", () => {
     // The keys on activity, in a split that takes only query tiles: the reader float can't drawer beside it.
     let s = withFloat(fresh(), 2);

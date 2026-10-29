@@ -398,6 +398,9 @@ async function scopedKeys(schema: ComponentSchema, ask: Asked, svc: CompletionSe
   return [...new Set(parsePropertyRecords(text ?? "").map(p => p.key))];
 }
 
+/** Whether a prop's values are found in the outline (propValues' searches) rather than the schema's own choices. */
+const foundValues = (prop: PropSchema) => prop.complete === "query" || prop.type === "property" || prop.type.startsWith("property:") || prop.type === "script" || prop.type === "ref";
+
 /** The values a prop can take, by its type: what the outline has (keys, values, notes, scripts, queries), else the schema's. */
 async function propValues(schema: ComponentSchema, prop: PropSchema, ask: Asked, svc: CompletionService): Promise<{ label: string; value: string; detail?: string }[]> {
   const q = ask.query;
@@ -438,11 +441,14 @@ const attributes: ServiceSource = {
     const prop = props.find(p => p.key === ask.key);
     if (!prop) return { rows: [] };
     const values = await propValues(schema, prop, ask, svc);
+    // A glimpse after the label shows how a value looks (a density, a tone); a value found in the outline (a query, a key,
+    // a note, a script) changes what is drawn, not how, so its row is its words alone (PIE-1392).
+    const looks = !foundValues(prop);
     return { rows: values.map((v): SourceRow => {
       const docs = v.detail ?? prop.meaning;
       if (ask.kind === "yaml-value") {
         const made = variation(schema, { [prop.key]: v.value }, prop.key);
-        return { label: v.label, kind: "value", docs, insert: yamlScalar(v.value), example: { use: made.use, ...(made.note ? { note: made.note } : {}), inline: true } };
+        return { label: v.label, kind: "value", docs, insert: yamlScalar(v.value), example: { use: made.use, ...(made.note ? { note: made.note } : {}), ...(looks ? { inline: true } : {}) } };
       }
       return { label: v.label, kind: "value", docs, insert: attributeScalar(v.value, ask.quote) };
     }) };

@@ -741,7 +741,7 @@ export class RiverColumn extends ReaderPane {
     if (d.fold !== undefined) { void this.surface.runKey("fold.toggle", { n: d.fold }, this.host(desk)); return; }
     if (d.link) {
       this.gesture.forget();
-      try { void this.surface.open(d.link, this.host(desk)); } catch (e) { desk.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); }
+      try { this.surface.clickLink(d.link, this.host(desk)); } catch (e) { desk.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); }
       return;
     }
     const row = d.row;
