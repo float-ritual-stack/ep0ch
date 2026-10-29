@@ -691,6 +691,10 @@ function boundedTreeLabel(text: string): string {
 }
 
 const NO_PROPERTIES: BlockProperty[] = Object.freeze([]) as unknown as BlockProperty[];
+/** SQLite's BINARY order for the ASCII ids and timestamps a block row holds. */
+const compareBinary = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+/** A write that touched more blocks than this (an import, a reorder of a long list) has the graph read whole again. */
+const GRAPH_PATCH_LIMIT = 400;
 
 /** How many notes' titles or labels are made between two pauses: a few milliseconds' work. */
 const SLICE = 200;
@@ -887,8 +891,8 @@ export class OutlinerStore {
     this.lineTasks.set(id, { text, tasks });
     return tasks;
   }
-  /** The last graph `loadGraph` read, and the counts it is current for. */
-  private graph: { key: string; graph: LoadedGraph } | undefined;
+  /** The last graph `loadGraph` read or patched, and the other connections' commits (`data_version`) it is current for. */
+  private graph: { version: number; graph: LoadedGraph } | undefined;
 
   constructor(path: string, resourceOptions: ResourceCatalogOptions = {}) {
     this.workspaceRoot = resolve(resourceOptions.workspaceRoot ?? dirname(path));
@@ -900,6 +904,7 @@ export class OutlinerStore {
       this.configureTransactions();
       this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
       const created = this.prepareDatabase(path) === "created";
+      this.noteGraphWrites();
       this.instance = openOutlineInstance(path, this.database, () => this.sequence, created);
       this.outlineInstanceId = this.instance.id;
       this.changes = new ChangeFeed(this.database, () => this.sequence);
@@ -2379,9 +2384,9 @@ export class OutlinerStore {
   }
 
   /** Active blocks whose text contains `fragment` (a handler's `key::`), earliest first, `limit` from `offset`. */
-  blocksContaining(fragment: string, limit: number, offset = 0): string[] {
+  blocksContaining(fragment: string, limit: number, offset = 0, anyCase = false): string[] {
     return (this.database.query(`
-      SELECT id FROM blocks WHERE instr(text, ?) > 0 AND effective_deleted_root_id IS NULL ORDER BY created_at, id LIMIT ? OFFSET ?
+      SELECT id FROM blocks WHERE instr(${anyCase ? "lower(text), lower(?)" : "text, ?"}) > 0 AND effective_deleted_root_id IS NULL ORDER BY created_at, id LIMIT ? OFFSET ?
     `).all(fragment, limit, offset) as Array<{ id: string }>).map((row) => row.id);
   }
 
@@ -2764,7 +2769,9 @@ export class OutlinerStore {
       UPDATE blocks SET text = ?, revision = revision + 1, updated_at = ?
       WHERE id = ? AND revision = ?
     `).run(text, text === current.text ? current.updatedAt : editedAt, id, expectedRevision);
-    if (result.changes !== 1) throw new Error(`Block changed since editing began: ${id}`);
+    // The rows this UPDATE matched: `changes()` alone, since Bun's `changes` also counts what a trigger wrote (the graph's notes).
+    const matched = (this.database.query("SELECT changes() AS rows").get() as { rows: number }).rows;
+    if (result.changes === 0 || matched !== 1) throw new Error(`Block changed since editing began: ${id}`);
     // The text it replaced is kept (PIE-621): a saved note can go back to it.
     if (text !== current.text) {
       const saved = this.textSaved(current);
@@ -3352,7 +3359,14 @@ export class OutlinerStore {
    * `resolveBlockRef`, the backlink index (the one `::links` and backlinks use) and the tree. Built lazily, so a query
    * without those atoms pays nothing.
    */
-  private queryRelations(graph: LoadedGraph): QueryRelations {
+  /**
+   * What a query's relation operators read. `graph` may be how to load it: a query that names no relation (most rules'
+   * `type=…`) never reads the whole outline, which every write makes stale (PIE-1402: each record a backfill wrote had
+   * every rule's one-note match load pie's graph again, and the host stalled).
+   */
+  private queryRelations(graphOf: LoadedGraph | (() => LoadedGraph)): QueryRelations {
+    let loaded: LoadedGraph | undefined = typeof graphOf === "function" ? undefined : graphOf;
+    const graphNow = () => (loaded ??= (graphOf as () => LoadedGraph)());
     const sources = new Map<string, ReadonlySet<string>>();
     const targets = new Map<string, ReadonlySet<string>>();
     const calls = new Map<string, ReadonlySet<string>>();
@@ -3362,14 +3376,14 @@ export class OutlinerStore {
       linkTargets: (blockId) => {
         let found = targets.get(blockId);
         if (!found) {
-          const source = graph.byId.get(blockId);
+          const source = graphNow().byId.get(blockId);
           found = source ? linkTargetIds(this.backlinkContextFromCurrentRead(), source) : new Set<string>();
           targets.set(blockId, found);
         }
         return found;
       },
-      writerOf: (blockId) => this.textSaved(graph.byId.get(blockId)!),
-      parentOf: (blockId) => graph.byId.get(blockId)?.parentId,
+      writerOf: (blockId) => this.textSaved(graphNow().byId.get(blockId)!),
+      parentOf: (blockId) => graphNow().byId.get(blockId)?.parentId,
       resolve: (atom, target) => {
         try {
           return this.resolveBlockRef(target).id;
@@ -3421,7 +3435,7 @@ export class OutlinerStore {
       },
       within: (blockId, rootId) => {
         const seen = new Set<string>();
-        for (let at = graph.byId.get(blockId); at && !seen.has(at.id); at = at.parentId ? graph.byId.get(at.parentId) : undefined) {
+        for (let at = graphNow().byId.get(blockId); at && !seen.has(at.id); at = at.parentId ? graphNow().byId.get(at.parentId) : undefined) {
           if (at.id === rootId) return true;
           seen.add(at.id);
         }
@@ -3796,7 +3810,8 @@ export class OutlinerStore {
    * [status-family::done]` notes), read again only when the outline changed.
    */
   facetRules(): BacklinkFacetRules {
-    const key = this.graphKey();
+    // Read without the graph: a backlinks answer never loads the whole outline (PIE-1001).
+    const key = this.changeKey();
     if (this.facetRulesCache?.key === key) return this.facetRulesCache.rules;
     const rows = this.database.query("SELECT DISTINCT block_id FROM block_properties WHERE key = ? AND scope = 'block'").all(STATUS_FAMILY_PROPERTY) as { block_id: string }[];
     const rules = facetRulesFromBlocks(rows.map(row => this.getFromCurrentRead(row.block_id)!)).rules;
@@ -4207,18 +4222,26 @@ export class OutlinerStore {
     return this.database.transaction(() => this.traverseLoadedGraph(this.loadGraph(), { deletedMode: "active" })).deferred();
   }
 
-  /** A property-selected reader depends on its members and their outline order, not unrelated writes. */
-  propertyDependencyStamp(key: string): string {
-    return JSON.stringify(this.database.query(`
+  /**
+   * A property-selected reader depends on its members and their outline order, not unrelated writes. `value`: only the
+   * blocks whose `key` holds it, in any case and among a list's values too (a few more than a query matches: never fewer). `also`: other blocks it read (where a rule sends notes), and `viewId`, a
+   * saved view's hand order.
+   */
+  propertyDependencyStamp(key: string, value?: string, also: readonly string[] = [], viewId?: string): string {
+    const members = JSON.stringify(this.database.query(`
       WITH RECURSIVE dependencies(id) AS (
-        SELECT block_id FROM block_properties WHERE key = ? AND scope = 'block'
+        SELECT block_id FROM block_properties WHERE key = ? AND scope = 'block' AND (? IS NULL OR instr(lower(value), lower(?)) > 0)
+        UNION SELECT value FROM json_each(?)
         UNION
         SELECT block.parent_id FROM blocks block JOIN dependencies ON block.id = dependencies.id
         WHERE block.parent_id IS NOT NULL
       )
       SELECT block.id, block.revision, block.parent_id, block.position, block.effective_deleted_root_id
       FROM dependencies JOIN blocks block ON block.id = dependencies.id ORDER BY block.id
-    `).all(key));
+    `).all(key, value ?? null, value ?? null, JSON.stringify(also)));
+    if (viewId === undefined) return members;
+    const order = this.database.query("SELECT block_id, rank FROM virtual_occurrence_ranks WHERE view_id = ? ORDER BY rank, block_id").all(viewId);
+    return `${members}${JSON.stringify(order)}`;
   }
 
   /** What a `{{path}}` in a question reads: the Site's values for the note the question sits in (`this`). */
@@ -4324,9 +4347,15 @@ export class OutlinerStore {
     return out;
   }
 
+  /** The keys `knownPropertyKeys` found, per graph: asked by every query that names a key, made once a graph. */
+  private readonly knownKeys = new WeakMap<LoadedGraph, Set<string>>();
+
   /** Every property key some active block carries, in any scope: what a "no notes have <key>" hint checks against. */
   private knownPropertyKeys(graph: LoadedGraph): Set<string> {
+    const known = this.knownKeys.get(graph);
+    if (known) return known;
     const keys = new Set<string>();
+    this.knownKeys.set(graph, keys);
     for (const [id, records] of graph.propertyRecordsByBlock) {
       if (graph.byId.get(id)?.effectiveDeletedRootId) continue;
       // A key written only on ticked steps is still written: settled, not missing.
@@ -4427,7 +4456,7 @@ export class OutlinerStore {
       const plans = viewIds.map(viewId => {
         const view = writeView(viewId, active(viewId));
         // A `child:` clause reads the block's children, which a move leaves where they are.
-        const subject = block ? { ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties), relations: this.queryRelations(this.loadGraph()) } : undefined;
+        const subject = block ? { ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties), relations: this.queryRelations(() => this.loadGraph()) } : undefined;
         return { viewId, plan: subject ? planMoveIntoView(view, subject, now) : planCreateInView(view, text, now) };
       });
       return { sequence: this.sequence, ...(block ? { revision: block.revision } : {}), plans };
@@ -4451,7 +4480,7 @@ export class OutlinerStore {
     const parsed = typeof expression === "string" && expression.trim() ? parseSearchExpression(expression) : { filters: [], where: undefined };
     const filters = parsed.filters, where = parsed.where && bindThis(parsed.where, thisId as string | undefined, binder ?? this.valueBinder(thisId as string | undefined));
     if (filters.some(filter => filter.key === "deleted")) throw new Error("deleted=true selects Trash; it isn't a property to match");
-    const test = where ? compileQueryExpression(where, Date.now(), this.queryRelations(this.loadGraph())) : null;
+    const test = where ? compileQueryExpression(where, Date.now(), this.queryRelations(() => this.loadGraph())) : null;
     const terms = typeof text === "string" ? searchTextTerms(text) : [];
     return this.database.transaction(() => {
       if (typeof subtreeRootId === "string") this.require(subtreeRootId);
@@ -4490,7 +4519,7 @@ export class OutlinerStore {
     const properties = parsePropertyRecords(text).filter(p => p.scope === "block").map(p => ({ key: p.key, value: p.value }));
     if (!matchesFilters(properties, parsed.filters)) return false;
     if (!where) return true;
-    const test = compileQueryExpression(where, Date.now(), this.queryRelations(this.loadGraph()));
+    const test = compileQueryExpression(where, Date.now(), this.queryRelations(() => this.loadGraph()));
     return test({ text, createdAt: "", updatedAt: "" } as never, properties);
   }
 
@@ -4514,7 +4543,7 @@ export class OutlinerStore {
           return { ok: false, message: `no {rows} have \`${key}\`${near ? `; did you mean \`${near}\`?` : present.length ? ` (they have ${present.slice(0, 8).join(", ")})` : ""}`, ...(near ? { didYouMean: [near] } : {}) };
         }
       }
-      const test = where ? compileQueryExpression(where, Date.now(), this.queryRelations(this.loadGraph())) : null;
+      const test = where ? compileQueryExpression(where, Date.now(), this.queryRelations(() => this.loadGraph())) : null;
       return {
         ok: true,
         ...(open ? { open: true as const } : {}),
@@ -5096,25 +5125,47 @@ export class OutlinerStore {
 
   /**
    * The whole outline as one graph, shared by every read until something changes (PIE-625): Tree reads every saved
-   * view after each change, and each read used to load and hydrate every block again. It is current while this
-   * connection has changed no row (`total_changes()`) and no other connection has committed (`data_version`); a
-   * transaction that fails drops it (`configureTransactions`), since a rollback undoes rows without changing either
-   * count. Shared, so it is frozen: a reader that changes a block it got from here throws instead of changing the
-   * next reader's outline.
+   * view after each change, and each read used to load and hydrate every block again. Shared, so it is frozen: a
+   * reader that changes a block it got from here throws instead of changing the next reader's outline.
+   *
+   * A write patches it rather than throwing it away (PIE-1413): this connection's TEMP triggers note each block whose
+   * row or properties it wrote (`temp.graph_dirty`), and the next read re-reads just those, so a backfill writing
+   * thousands of records no longer has each one's next read load the whole outline again (~200 ms on pie, the loop
+   * held). Read whole again: the first time, after another connection committed (`data_version`), after a hard delete
+   * or a write touching more than GRAPH_PATCH_LIMIT blocks, and after a transaction that failed (`configureTransactions`:
+   * its rollback undoes the rows and the notes of them alike, so the graph may hold what it undid).
    */
   private loadGraph(): LoadedGraph {
-    const key = this.graphKey();
-    if (this.graph?.key === key) return this.graph.graph;
-    const graph = this.readGraph();
-    this.graph = { key, graph };
+    const version = (this.database.query("PRAGMA data_version").get() as { data_version: number }).data_version;
+    const dirty = (this.database.query("SELECT block_id FROM temp.graph_dirty").all() as { block_id: string }[]).map(row => row.block_id);
+    if (this.graph?.version === version && dirty.length === 0) return this.graph.graph;
+    if (dirty.length) this.database.run("DELETE FROM temp.graph_dirty");
+    const patchable = this.graph?.version === version && dirty.length <= GRAPH_PATCH_LIMIT && !dirty.includes("*");
+    const graph = patchable ? this.patchGraph(this.graph!.graph, dirty) : this.readGraph();
+    this.graph = { version, graph };
     for (const id of this.treeLabels.keys()) if (!graph.byId.has(id)) this.treeLabels.delete(id);
     return graph;
   }
 
-  private graphKey(): string {
+  /** Whether anything changed: this connection's writes to any table (`total_changes()`), another's commits. */
+  private changeKey(): string {
     const changes = this.database.query("SELECT total_changes() AS changes").get() as { changes: number };
     const version = this.database.query("PRAGMA data_version").get() as { data_version: number };
     return `${changes.changes}:${version.data_version}`;
+  }
+
+  /** Notes, per connection, which blocks a write touched: what `loadGraph` reads again (TEMP, never in the file). */
+  private noteGraphWrites(): void {
+    const note = (id: string) => `INSERT OR IGNORE INTO temp.graph_dirty (block_id) VALUES (${id});`;
+    this.database.exec(`
+      CREATE TEMP TABLE IF NOT EXISTS graph_dirty (block_id TEXT PRIMARY KEY) WITHOUT ROWID;
+      CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_block_insert AFTER INSERT ON main.blocks BEGIN ${note("NEW.id")} END;
+      CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_block_update AFTER UPDATE ON main.blocks BEGIN ${note("NEW.id")} ${note("OLD.id")} END;
+      CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_block_delete AFTER DELETE ON main.blocks BEGIN ${note("'*'")} END;
+      CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_property_insert AFTER INSERT ON main.block_properties BEGIN ${note("NEW.block_id")} END;
+      CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_property_update AFTER UPDATE ON main.block_properties BEGIN ${note("NEW.block_id")} ${note("OLD.block_id")} END;
+      CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_property_delete AFTER DELETE ON main.block_properties BEGIN ${note("OLD.block_id")} END;
+    `);
   }
 
   /**
@@ -5144,12 +5195,66 @@ export class OutlinerStore {
   }
 
   private readGraph(): LoadedGraph {
-    const rows = this.database.query("SELECT * FROM blocks ORDER BY position, created_at").all() as BlockRow[];
+    const rows = this.database.query("SELECT * FROM blocks ORDER BY position, created_at, id").all() as BlockRow[];
     const propertyRows = this.database
       .query(
         "SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties ORDER BY block_id, ordinal",
       )
       .all() as PropertyRow[];
+    const graph: LoadedGraph = { byId: new Map(), byParent: new Map(), propertyRecordsByBlock: new Map(), lineTasksByBlock: new Map(), settledBlockRecords: new Map(), deletedDescendantCountByRoot: new Map() };
+    this.graphBlocks(graph, rows, propertyRows);
+    this.graphFamilies(graph);
+    return graph;
+  }
+
+  /** The graph with the blocks `ids` read again: their rows, properties and line tasks, and their places when they moved. */
+  private patchGraph(old: LoadedGraph, ids: readonly string[]): LoadedGraph {
+    const marks = ids.map(() => "?").join(", ");
+    const rows = this.database.query(`SELECT * FROM blocks WHERE id IN (${marks})`).all(...ids) as BlockRow[];
+    const propertyRows = this.database
+      .query(`SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties WHERE block_id IN (${marks}) ORDER BY block_id, ordinal`)
+      .all(...ids) as PropertyRow[];
+    const graph: LoadedGraph = {
+      byId: new Map(old.byId), byParent: old.byParent, propertyRecordsByBlock: new Map(old.propertyRecordsByBlock),
+      lineTasksByBlock: new Map(old.lineTasksByBlock), settledBlockRecords: new Map(old.settledBlockRecords), deletedDescendantCountByRoot: old.deletedDescendantCountByRoot,
+    };
+    for (const id of ids) {
+      graph.propertyRecordsByBlock.delete(id);
+      graph.lineTasksByBlock.delete(id);
+      graph.settledBlockRecords.delete(id);
+    }
+    const found = new Set(rows.map(row => row.id));
+    // Where a block sits (its parent, its place among siblings, whether it is in the Trash) decides the order the whole
+    // outline is read in and its families: when one changed, both are made again from the blocks, as a full read does.
+    let moved = ids.some(id => !found.has(id) && old.byId.has(id));
+    for (const id of ids) if (!found.has(id)) graph.byId.delete(id);
+    for (const block of this.graphBlocks(graph, rows, propertyRows)) {
+      const before = old.byId.get(block.id);
+      if (!before || before.parentId !== block.parentId || before.position !== block.position || before.createdAt !== block.createdAt
+        || before.deletedAt !== block.deletedAt || before.effectiveDeletedRootId !== block.effectiveDeletedRootId) moved = true;
+    }
+    if (moved) {
+      const order = [...graph.byId.values()].sort((a, b) => a.position - b.position || compareBinary(a.createdAt, b.createdAt) || compareBinary(a.id, b.id));
+      graph.byId = new Map(order.map(block => [block.id, block]));
+      graph.byParent = new Map();
+      graph.deletedDescendantCountByRoot = new Map();
+      this.graphFamilies(graph);
+      return graph;
+    }
+    // Only text and properties changed: each block takes its place among the same siblings.
+    graph.byParent = new Map(old.byParent);
+    for (const id of found) {
+      const block = graph.byId.get(id)!;
+      const siblings = [...(graph.byParent.get(block.parentId) ?? [])];
+      const at = siblings.findIndex(sibling => sibling.id === id);
+      if (at >= 0) siblings[at] = block;
+      graph.byParent.set(block.parentId, Object.freeze(siblings) as Block[]);
+    }
+    return graph;
+  }
+
+  /** Blocks into the graph, frozen, from their rows (in order) and property rows (by block, by ordinal); returns them. */
+  private graphBlocks(graph: LoadedGraph, rows: readonly BlockRow[], propertyRows: readonly PropertyRow[]): Block[] {
     const propertyRecordsByBlock = new Map<string, PropertyRecord[]>();
     const propertiesByBlock = new Map<string, BlockProperty[]>();
     for (const row of propertyRows) {
@@ -5167,43 +5272,40 @@ export class OutlinerStore {
       Object.freeze(properties);
     }
     // A ticked step's line chips are settled (PIE-1277): questions read the rest.
-    const lineTasksByBlock = new Map<string, Map<number, ChecklistStatus>>();
-    const settledBlockRecords = new Map<string, PropertyRecord[]>();
     for (const row of rows) {
       const records = propertyRecordsByBlock.get(row.id);
       if (!records) continue;
       const tasks = this.lineTasksOf(row.id, row.text, records);
       if (!tasks.size) continue;
-      lineTasksByBlock.set(row.id, tasks);
+      graph.lineTasksByBlock.set(row.id, tasks);
       if (![...tasks.values()].some(stepClosed)) continue;
-      settledBlockRecords.set(row.id, Object.freeze(records) as PropertyRecord[]);
+      graph.settledBlockRecords.set(row.id, Object.freeze(records) as PropertyRecord[]);
       propertyRecordsByBlock.set(row.id, records.filter(record => !stepClosed(tasks.get(record.ordinal) ?? "todo")));
     }
-    for (const records of propertyRecordsByBlock.values()) Object.freeze(records);
-
+    for (const [id, records] of propertyRecordsByBlock) graph.propertyRecordsByBlock.set(id, Object.freeze(records) as PropertyRecord[]);
     const blocks = rows.map((row) => Object.freeze(this.hydrate(row, propertiesByBlock.get(row.id) ?? NO_PROPERTIES)));
-    const byId = new Map<string, Block>();
-    const byParent = new Map<string | null, Block[]>();
-    const deletedDescendantCountByRoot = new Map<string, number>();
-    for (const block of blocks) {
-      byId.set(block.id, block);
-      const siblings = byParent.get(block.parentId);
+    for (const block of blocks) graph.byId.set(block.id, block);
+    return blocks;
+  }
+
+  /** Each block's siblings (in the graph's order) and the Trash's counts, from `byId`. */
+  private graphFamilies(graph: LoadedGraph): void {
+    for (const block of graph.byId.values()) {
+      const siblings = graph.byParent.get(block.parentId);
       if (siblings) {
         siblings.push(block);
       } else {
-        byParent.set(block.parentId, [block]);
+        graph.byParent.set(block.parentId, [block]);
       }
       const deletedRootId = block.effectiveDeletedRootId;
       if (deletedRootId && deletedRootId !== block.id) {
-        deletedDescendantCountByRoot.set(
+        graph.deletedDescendantCountByRoot.set(
           deletedRootId,
-          (deletedDescendantCountByRoot.get(deletedRootId) ?? 0) + 1,
+          (graph.deletedDescendantCountByRoot.get(deletedRootId) ?? 0) + 1,
         );
       }
     }
-
-    for (const siblings of byParent.values()) Object.freeze(siblings);
-    return { byId, byParent, propertyRecordsByBlock, lineTasksByBlock, settledBlockRecords, deletedDescendantCountByRoot };
+    for (const siblings of graph.byParent.values()) Object.freeze(siblings);
   }
 
   private traverseLoadedGraph(

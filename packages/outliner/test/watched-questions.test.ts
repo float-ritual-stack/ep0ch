@@ -6,6 +6,7 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BlockQueryError, THIS_MISSING } from "../src/block-query";
+import { Turns } from "../src/loop-watch";
 import { QueryWatches } from "../src/query-watches";
 import { dateBucket, questionFacets } from "../src/question-answer";
 import { OutlinerServer } from "../src/server";
@@ -287,6 +288,31 @@ describe("the watch registry", () => {
     expect(changesOf(b)).toEqual([[{ key: "b1", generation: 1 }, { key: "b2", generation: 1 }]]);
     watches.closed(b);
     expect(watches.size).toBe(1);
+    watches.stop();
+  });
+
+  test("a pass takes a turn a watch at a time, so other requests go between, and asks a question two doors watch once (PIE-1413)", async () => {
+    const turns = new Turns();
+    let value = 0, answers = 0;
+    const order: string[] = [];
+    // Each answer holds the loop 20 ms, as a view read over a big outline does.
+    const watches = new QueryWatches({
+      answer: r => { if (r.id === "watch") { answers += 1; order.push(`watch ${String(r.query && (r.query as { key?: string }).key)}`); const until = performance.now() + 20; while (performance.now() < until) { /* busy */ } } return { id: r.id, ok: true, result: { value }, sequence: 1 }; },
+      sequence: () => 1, settleMs: 5, turn: action => turns.next(action, "watches"),
+    });
+    const a = conn(), b = conn();
+    for (const key of ["k1", "k2", "k3", "k4"]) watches.ask(a, { id: "x", action: "blocks.query", query: { key }, watch: key });
+    watches.ask(b, { id: "x", action: "blocks.query", query: { key: "k1" }, watch: "same" });
+    value = 1;
+    watches.flush();
+    // A note read asked as the pass starts goes in before most of it.
+    await turns.next("get", {}).then(() => { order.push("get"); });
+    while (changesOf(a).length === 0 || changesOf(b).length === 0) await Bun.sleep(5);
+    expect(order.indexOf("get")).toBeLessThan(2);
+    expect(answers).toBe(4);
+    // One event per connection, naming what changed.
+    expect(changesOf(a)).toEqual([[{ key: "k1", generation: 1 }, { key: "k2", generation: 1 }, { key: "k3", generation: 1 }, { key: "k4", generation: 1 }]]);
+    expect(changesOf(b)).toEqual([[{ key: "same", generation: 1 }]]);
     watches.stop();
   });
 

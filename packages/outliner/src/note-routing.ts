@@ -15,6 +15,7 @@
 // counts. A note a door holds a draft of is never moved under the person: it waits, and routes when the draft closes.
 // Its own writes (the move, the history) set nothing off, and a rule written over notes that already match moves none
 // of them until asked. The seam for PIE-1011 (a seeded rule that files snapshot records under `.system`): `SEEDED_RULES`.
+import { noteWork } from "./loop-watch";
 import type { NoteRouteResult, NoteRouteRun } from "@ep0ch/outline-core/protocol";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { ruleWriter } from "@ep0ch/outline-core/rules";
@@ -72,7 +73,17 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 const typeOf = (block: Block) => block.properties.find(p => p.key === "type")?.value.trim().toLowerCase();
 
 export class NoteRouting {
-  private cache: { sequence: number; rules: RouteRule[]; problems: string[] } | null = null;
+  /**
+   * The rules as last read, and what they were read from (PIE-1413): the rule notes and their ancestors, the Routing
+   * view and its hand order, and the notes they send to. Asked on every new note and every settle, so a write elsewhere
+   * (an import's thousands) never reads them again.
+   */
+  private cache: { sequence: number; stamp: string; unresolved: boolean; targets: string[]; rules: RouteRule[]; problems: string[] } | null = null;
+
+  private stamp(targets: readonly string[]): string {
+    const hub = this.hub();
+    return `${hub?.id ?? ""}\0${this.store.propertyDependencyStamp("type", ROUTE_TYPE, hub ? [hub.id, ...targets] : targets, hub?.id)}`;
+  }
   private readonly timers = new Map<string, { when: RouteWhen; timer: ReturnType<typeof setTimeout> }>();
   /** Notes made empty (the person's ctrl+n): their first words are their creation to a rule. */
   private readonly fresh = new Set<string>();
@@ -90,7 +101,15 @@ export class NoteRouting {
   rules(): { rules: RouteRule[]; problems: string[] } {
     const sequence = this.store.sequence;
     if (this.cache?.sequence === sequence) return this.cache;
+    // Written since: still the same rules unless what they were read from changed (and none named a missing note).
+    if (this.cache && !this.cache.unresolved && this.cache.stamp === this.stamp(this.cache.targets)) {
+      this.cache.sequence = sequence;
+      return this.cache;
+    }
     const problems: string[] = [];
+    const targets: string[] = [];
+    // A rule whose target names nothing yet may start working with any note written: read again after every write.
+    let unresolved = false;
     const declared = this.store.queryBlocks({ filters: [{ key: "type", value: ROUTE_TYPE }], limit: 500, machinery: "show" }).blocks;
     if (declared.length >= 500) problems.push("more than 500 notes declare routing rules: the first 500 are used");
     const hubOrder = this.hubOrder();
@@ -108,14 +127,15 @@ export class NoteRouting {
       if (at !== "top" && at !== "end") { problems.push(`${where}: [route-at::${at}] is top or end`); continue; }
       try { this.store.matchQuery(query, []); } catch (error) { problems.push(`${where}: its query doesn't parse: ${message(error)}`); continue; }
       const target = this.target(to);
-      if (!target.ok) { problems.push(`${where}: ${target.problem}`); continue; }
+      if (target.ok && target.id) targets.push(target.id);
+      if (!target.ok) { problems.push(`${where}: ${target.problem}`); unresolved = true; continue; }
       const parsedOrder = order === undefined ? undefined : Number(order);
       if (order !== undefined && !Number.isFinite(parsedOrder)) { problems.push(`${where}: [route-order::${order}] isn't a number`); continue; }
       rules.push({ id: block.id, title: title(block), query, to, when: when as RouteWhen, at, createdAt: block.createdAt, ...(parsedOrder !== undefined ? { order: parsedOrder } : {}) });
     }
     const rank = (rule: RouteRule) => hubOrder.get(rule.id) ?? Number.MAX_SAFE_INTEGER;
     rules.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || rank(a) - rank(b) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
-    this.cache = { sequence, rules, problems };
+    this.cache = { sequence, stamp: unresolved ? "" : this.stamp(targets), unresolved, targets, rules, problems };
     return this.cache;
   }
 
@@ -305,7 +325,9 @@ export class NoteRouting {
     // A note parked while a door held it, saved again: the new quiet wait takes over, and keeps what was asked (`park`).
     const timer = setTimeout(() => {
       this.timers.delete(blockId);
+      const started = performance.now();
       this.settle(blockId, when);
+      noteWork("routing settle", performance.now() - started);
     }, this.options.quietMs ?? DEFAULT_QUIET_MS);
     timer.unref?.();
     this.timers.set(blockId, { when, timer });

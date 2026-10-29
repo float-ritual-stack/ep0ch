@@ -167,6 +167,19 @@ Every review, by the author before opening the PR and by the reviewer, goes thro
 - An error or refusal that tells the person to do something shows the exact command, with this machine's values
   filled in.
 - A client and the service it needs are on the same `PROTOCOL`; a mismatch is refused, never worked around.
+- **Load** (PIE-1413: a backfill's records froze pie's host for minutes). A change that writes in bulk, reads the same
+  thing again and again, runs on a schedule or adds a subscription (a watch, a feed reader, a fan-out) answers three
+  questions in the PR:
+  - **Fan-out:** what each write or event sets off downstream (events to every subscriber, watch passes, rules,
+    routing, the clients' re-reads).
+  - **Count:** how much of it at pie's size (about 11k notes, 86 views, two doors and the publishers): writes per run,
+    reads per write.
+  - **Proof:** the host's measured impact: `bun run bench:host` in packages/outliner (ping p50, p95, p99, max and the
+    longest stall per phase, before and after), or a case in `test/host-stalls.test.ts`.
+
+  The host keeps it fair by itself (work the service does for itself takes a turn per request, watch passes a watch
+  per turn, a write patches the graph instead of reloading it); a job never throttles itself to stay out of the way.
+  A PR none of this touches says so in one line ("no bulk writes, reads or subscriptions").
 
 ### 3. Safety
 
