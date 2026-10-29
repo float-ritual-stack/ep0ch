@@ -38,6 +38,12 @@ export function noteRefText(kind: NoteRefKind, m: Msg, at: { outline?: string; f
   return blockRefText(m.id, kind === "line" ? lineLabel(line!.text) || subject(m) : subject(m), { ...(outline ? { outline } : {}), ...(line ? { fragment: line.anchor } : {}) });
 }
 
+/**
+ * The tile menu's group for every copy row (PIE-1398): the note's (id, reference, web link, a line's) and the tile's own,
+ * first in the menu so they're in reach in a short tile, and found together by typing "copy".
+ */
+export const COPY_GROUP = "Copy";
+
 /** How the status line names what was copied. */
 export const NOTE_REF_WHAT: Record<NoteRefKind, string> = { id: "the note's id", ref: "a reference to the note", link: "the note's web link", line: "a reference to the line" };
 
@@ -87,11 +93,11 @@ export interface NoteRefOn {
 export const NOTE_REF_ACTIONS = actionSet<NoteRefOn>()("note-ref", {
   "note.copy-ref": def({
     summary: "copy the address of the note the tile points at (PIE-1297: a reader's note, a list's, the tree's or a lane's selected row, a power-bar hit; or ref=<block id>, outline= when it's another outline's): kind=id its full id (a short one doesn't resolve), kind=ref ((id|title)) to paste into another note (((outline:id|title)) for another outline's note), kind=link its web link (https://my.ep0ch.sh/pub/o/<outline>/p/<id>, a roadmap item's by its Work ID: the web client's home outline's redirects to /pub/p/), kind=line in a reader ((id^anchor|words)) for one line (line=, else your selection's first line, the heading the keys selected or the line being read), adding the ^anchor when it has none. An inline list's row in a reader is the reader's note: open the row to copy it. The person's goes to their clipboard and the status line says what; an agent's is returned to it and never touches the clipboard",
-    keys: "^W y (a reference), the tile menu's \"copy id\", \"copy reference\", \"copy web link\" and \"copy a reference to this line\", a power-bar hit's menu (alt+m, a right-click on it)",
+    keys: "^W y (a reference), the tile menu's Copy group (\"copy note id\", \"copy note reference\", \"copy note web link\", \"copy line reference\"), a power-bar hit's menu (alt+m, a right-click on it: 1 2 3 or a click)",
     // A line's copy may write its anchor into the note: the draft rule holds for it as for any write; the rest read.
     touches: "draft", draft: "write", touchesWith: ({ kind }) => (kind === "line" ? "draft" : "nothing"), replay: "ask",
-    menu: ([["copy id", "id", ""], ["copy reference", "ref", "ctrl+w y"], ["copy web link", "link", ""], ["copy a reference to this line", "line", ""]] as const).map(([label, kind, key]) => ({
-      label, group: "Note", key, args: { kind },
+    menu: ([["copy note id", "id", ""], ["copy note reference", "ref", "ctrl+w y"], ["copy note web link", "link", ""], ["copy line reference", "line", ""]] as const).map(([label, kind, key]) => ({
+      label, group: COPY_GROUP, key, args: { kind },
       now: (on: NoteRefOn) => (on.has(kind === "line") ? null : { hide: true }),
     })),
     args: {

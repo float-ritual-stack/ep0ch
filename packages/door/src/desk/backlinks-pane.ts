@@ -1,7 +1,7 @@
 import { filterLine } from "../surface/line";
 import { standsAsPerson } from "../surface/dispatch";
 import { NOBODY } from "../whereabouts";
-import { outlineBoards, readNote } from "./outline-boards";
+import { outlineBoards, readTarget } from "./outline-boards";
 // The links tile (kind `backlinks`, PIE-432, PIE-442): the links of a note, its *subject*, in the shared links model
 // (src/links.ts): its Outlinks, its Resources, its Backlinks and its
 // Children (PIE-693: the notes under it, a thread's replies), the backlinks grouped, filtered and sorted as Detail
@@ -428,8 +428,7 @@ export class BacklinksPane implements Pane {
     let result: { note: Msg; registered?: boolean };
     if (target?.outline) {
       const at = { outline: target.outline, machine: target.machine ?? ctx.machine };
-      const on = await outlineBoards(ctx).on(at);
-      const note = target.block ? await readNote(on, target.block, at) : (await on.board.resolvePage(target.page!)).block;
+      const note = await readTarget(ctx, { ...target, ...at });
       if (!note) throw new ActionRefused(`nothing answers at ${target.block ?? target.page} in ${target.outline}`);
       note.address = at;
       result = { note };

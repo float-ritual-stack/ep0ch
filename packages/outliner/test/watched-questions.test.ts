@@ -7,10 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BlockQueryError, THIS_MISSING } from "../src/block-query";
 import { QueryWatches } from "../src/query-watches";
-import { dateBucket } from "../src/question-answer";
+import { dateBucket, questionFacets } from "../src/question-answer";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import type { BlockSearchQuery, VisibleBlockCollection } from "../src/types";
+import type { Block, BlockSearchQuery, VisibleBlockCollection } from "../src/types";
 
 let root: string;
 let store: OutlinerStore;
@@ -144,6 +144,28 @@ describe("groups, sorts, facets and hints", () => {
     expect(ask({ where: "facetkey00 OR facetkey59", facets: true }).facets!.length).toBeLessThanOrEqual(50);
     expect(ask({ facets: true, facetKeys: 1000, limit: 1 }).facets!.filter(f => f.key.startsWith("facetkey")).length).toBe(60);
     expect(() => ask({ facets: true, facetKeys: 0 })).toThrow(/facetKeys/);
+  });
+
+  // PIE-1396: pie (11k notes, 521 keys) took 4.5 s for every key's facets, each key reading every note. Each note is
+  // read once now, for the keys it carries: the work grows with what notes hold, not notes times keys.
+  test("every key's facets read each note once, for the keys it carries; a tag facet still counts tags", () => {
+    type Fake = Block & { keys: string[] };
+    const blocks = Array.from({ length: 400 }, (_, i) => ({ id: `b${i}`, updatedAt: `2026-10-${String(1 + (i % 28)).padStart(2, "0")}`, keys: [`k${i % 200}`, "type", ...(i % 2 ? ["tags"] : ["tag"])] }) as unknown as Fake);
+    let reads = 0;
+    const valuesOf = (block: Block, key: string) => {
+      reads += 1;
+      return (block as Fake).keys.filter(k => k === key || key === "tag" && k === "tags").map(k => k === "type" ? "note" : `${k}-v`);
+    };
+    const facets = questionFacets(blocks, true, valuesOf, block => (block as Fake).keys, 50, 300);
+    expect(reads).toBeLessThanOrEqual(400 * 4);
+    expect(facets.find(f => f.key === "type")).toMatchObject({ count: 400, values: [{ value: "note", count: 400, last: "2026-10-28" }] });
+    // `tag` reads `tags` too (block-query's rule); `tags` reads only itself.
+    expect(facets.find(f => f.key === "tag")).toMatchObject({ count: 400, values: [{ value: "tag-v", count: 200 }, { value: "tags-v", count: 200 }] });
+    expect(facets.find(f => f.key === "tags")).toMatchObject({ count: 200 });
+    expect(facets.length).toBe(203);
+    expect(facets.slice(0, 2).map(f => f.key)).toEqual(["tag", "type"]);
+    // A key carried with no value still answers, with a count of 0, as it did before.
+    expect(questionFacets([{ id: "e", updatedAt: "2026-10-01", keys: ["area"] } as unknown as Fake], true, () => [], block => (block as Fake).keys)).toEqual([{ key: "area", count: 0, values: [] }]);
   });
 
   test("a key nobody carries is a hint with the nearest keys; a known key with no matches isn't", () => {

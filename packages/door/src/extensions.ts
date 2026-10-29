@@ -788,8 +788,10 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   }
   if (changed) kindsChanged();
   bindBar(next?.barSources ?? [], problems);
+  // Said by name (PIE-1399): an extension's own, never a script it ships (`partOf`: its row is the extension's), never an id.
   const after = new Set(served.map(e => e.id));
-  return { added: [...after].filter(id => !before.has(id)), removed: [...before].filter(id => !after.has(id)), problems };
+  const named = (e: ExtensionEntry | undefined) => (e && !e.partOf ? [e.name ?? e.id] : []);
+  return { added: [...after].filter(id => !before.has(id)).flatMap(id => named(served.find(e => e.id === id))), removed: [...before].filter(id => !after.has(id)).flatMap(id => named(was.get(id))), problems };
 }
 
 let asking = 0;

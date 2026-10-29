@@ -54,6 +54,8 @@ const SCOPE_KEYS = tabKeys("bar.open", { prev: ["alt+left", "alt+b"], next: ["al
 /** The columns a row's words keep before its kind chip is drawn beside them. */
 const CHIP_ROOM = 32;
 const SCOPE_LOOK = { on: chip(C.cyan, C.black), off: fg(C.grey), pad: " " };
+/** The row menu's chips: each a box with its digit lit, as a hot key is. */
+const MENU_LOOK = () => ({ on: chip(C.blue), off: chip(C.dark), key: fg(C.lcyan), pad: " ", gap: " " });
 
 export class PowerBar {
   /** The source it's scoped to, or null: the main list. */
@@ -63,6 +65,8 @@ export class PowerBar {
   items: BarItem[] = [];
   /** Each source's rows for the last query asked. */
   private got = new Map<string, BarRow[]>();
+  /** The sources whose rows in `got` answer the query before, kept until their answer to this one comes. */
+  private kept = new Set<string>();
   private problems = new Map<string, string>();
   /** What a source said of its rows since (`jev ranked`). */
   private said = new Map<string, string>();
@@ -93,7 +97,8 @@ export class PowerBar {
   private docsKey = "";
   private docsMode = false;
   private docsExamples = new Map<number, string>();
-  private menuSpots: { from: number; to: number; action: string; args: Record<string, unknown> }[] = [];
+  /** The row menu's chips as drawn, a list per row under the bar's line. */
+  private menuSpots: { from: number; to: number; action: string; args: Record<string, unknown> }[][] = [];
   private shownNote: string | null = null;
   private readonly notes = new Map<string, Msg | null | "…" | { offline: string }>();
   private readonly reads = new Map<string, number>();
@@ -181,11 +186,14 @@ export class PowerBar {
       if (s) { void this.host.dispatch.press("bar.open", { scope: s.id, keep: true }); return true; }
     }
     if (k.kind === "up" && this.scope !== "ask" && !this.query && this.host.runs.length) { void this.host.dispatch.press("bar.command", { op: "recall" }); return true; }
-    if (this.menuOpen && k.kind === "alt" && /^[1-9]$/.test(k.ch)) {
-      const e = this.menuEntries()[Number(k.ch) - 1];
-      if (e) void this.host.dispatch.press(e[1], e[2]);
+    // The row menu's entries by their digits (the chips say 1 2 3), alt+1 too; a pick puts the menu away, so digits type again.
+    // Anything else typed puts the menu away first: what's typed is the query again.
+    if (this.menuOpen && (k.kind === "alt" || k.kind === "char" && !k.ctrl) && /^[1-9]$/.test(k.ch) && this.menuEntries()[Number(k.ch) - 1]) {
+      const e = this.menuEntries()[Number(k.ch) - 1]!;
+      this.menuOpen = false; void this.host.dispatch.press(e[1], e[2]);
       return true;
     }
+    if (this.menuOpen && (k.kind === "char" && !k.ctrl || k.kind === "backspace" || k.kind === "paste")) this.menuOpen = false;
     if (k.kind === "alt" && ["o", "y", "i", "m"].includes(k.ch)) { void this.host.dispatch.press(k.ch === "i" ? "bar.insert" : "bar.command", k.ch === "i" ? {} : { op: k.ch === "o" ? "copy" : k.ch === "y" ? "button" : "menu" }); return true; }
     if (k.kind === "right" && this.scope !== "ask" && this.input.col === this.query.length && /\s/.test(this.query) && this.host.dispatch.has(this.query.split(/\s/)[0]!)) { void this.host.dispatch.press("bar.edit", { op: "complete" }); return true; }
     if (k.kind === "alt-enter") { if (this.items.length) this.pick(this.picker.sel + 1, true); return true; }
@@ -292,12 +300,13 @@ export class PowerBar {
   private sourceHead: string[] = [];
 
   private clicked(x: number, y: number): boolean {
-    if (this.menuOpen && y === 3) {
-      const hit = this.menuSpots.find(s => x >= s.from && x < s.to);
-      if (hit) { void this.host.dispatch.press(hit.action, hit.args); return true; }
+    const menuRows = this.menuOpen ? this.menuSpots.length : 0;
+    if (y >= 3 && y < 3 + menuRows) {
+      const hit = this.menuSpots[y - 3]!.find(s => x >= s.from && x < s.to);
+      if (hit) { this.menuOpen = false; void this.host.dispatch.press(hit.action, hit.args); return true; }
     }
     // A line of the scoped source's head (a form's field, its act line): under the bar's line.
-    if (y >= 3 + Number(this.menuOpen) && y < 3 + Number(this.menuOpen) + this.sourceHead.length) { const s = this.scope ? barSource(this.scope) : undefined; return !!s?.headClick?.(y - 3 - Number(this.menuOpen), this.host); }
+    if (y >= 3 + menuRows && y < 3 + menuRows + this.sourceHead.length) { const s = this.scope ? barSource(this.scope) : undefined; return !!s?.headClick?.(y - 3 - menuRows, this.host); }
     if (y !== 1) return false;
     const t = this.scopeHits.find(s => x >= s.from && x < s.to);
     if (t) void this.host.dispatch.press(t.action, t.args);
@@ -319,12 +328,18 @@ export class PowerBar {
     }
     const turn = this.search.begin(), q = this.query, sources = this.sources();
     this.moved = false;
-    this.got = new Map(); this.problems.clear(); this.said.clear(); this.previews.clear();
+    // A source that asks the service keeps the rows it gave until its answer to what's typed now replaces them (PIE-1398:
+    // the list held steady while typing, `notes…` saying they're coming); one that answers at once is asked again now.
+    const prior = this.got;
+    // Kept rows answer the query before, so none of them is named outright by what's typed now.
+    this.got = new Map(sources.filter(s => s.asks && prior.has(s.id)).map(s => [s.id, prior.get(s.id)!.map(({ exact: _e, ...r }) => r)] as const));
+    this.kept = new Set(this.got.keys());
+    this.problems.clear(); this.said.clear(); this.previews.clear();
     const alive = () => turn.alive() && !this.done;
     const answer = (s: BarSource, rows: BarRow[]) => {
       if (!alive()) return;
       // Answered before it's drawn: the line names only the sources still out (a search with no hits never stays "notes…").
-      turn.answered(s.id); this.got.set(s.id, rows); this.build(); this.host.ctx.redraw();
+      turn.answered(s.id); this.got.set(s.id, rows); this.kept.delete(s.id); this.build(); this.host.ctx.redraw();
       // An agent's bar is read once and put away: no re-ordering asked for it.
       if (this.quick || !s.later) return;
       // The same hits re-ordered (Jev), after a pause: what's lit stays lit, as it did in the search it replaced.
@@ -332,7 +347,7 @@ export class PowerBar {
     };
     const fail = (s: BarSource, e: unknown) => {
       if (!alive()) return;
-      turn.answered(s.id); this.problems.set(s.id, e instanceof Error ? e.message : String(e)); this.build(); this.host.ctx.redraw();
+      turn.answered(s.id); this.problems.set(s.id, e instanceof Error ? e.message : String(e)); this.got.delete(s.id); this.kept.delete(s.id); this.build(); this.host.ctx.redraw();
     };
     const ask = (s: BarSource) => { try { const r = s.rows(q, this.host, this.scope, turn.signal); if (Array.isArray(r)) answer(s, r); else void r.then(rows => answer(s, rows), e => fail(s, e)); } catch (e) { fail(s, e); } };
     const later = sources.filter(s => s.asks);
@@ -426,15 +441,11 @@ export class PowerBar {
     const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, Math.max(10, w - 30))) : this.input.render(Math.max(10, w - 30), 1)[0]) + paint(` |08${busy || count}`);
     const scoped = this.scope ? barSource(this.scope) : undefined;
     this.sourceHead = scoped?.head?.(w, this.host) ?? [];
-    this.menuSpots = [];
-    let menu = " ";
-    // Each entry keyed alt+1, alt+2… while the menu is open, as a click on it.
-    this.menuEntries().forEach(([label, action, args], i) => {
-      const said = `${i + 1} ${label}`;
-      this.menuSpots.push({ from: menu.length + 1, to: menu.length + said.length + 3, action, args });
-      menu += `[${said}] `;
-    });
-    const head = [tabs, line, ...(this.menuOpen ? [menu] : []), ...this.sourceHead, fg(C.blue) + "─".repeat(w) + RESET];
+    // The row menu (alt+m, a right-click): each entry a chip with its digit (1, 2… or alt+1 while the menu is open, as a
+    // click on it), wrapped onto more rows where the bar is narrow (the one strip, chip-rows' tabStrip).
+    const menu = this.menuOpen ? tabStrip(this.menuEntries().map(([label, action, args], i) => ({ label, key: String(i + 1), hit: { action, args } })), { width: w, at: 1, lead: " ", overflow: "wrap", style: MENU_LOOK() }) : [];
+    this.menuSpots = menu.map(r => r.hits.map(h => ({ from: h.from, to: h.to, action: h.action, args: h.args ?? {} })));
+    const head = [tabs, line, ...menu.map(r => r.text), ...this.sourceHead, fg(C.blue) + "─".repeat(w) + RESET];
     const tail = said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : [];
     const it = this.items[this.picker.sel];
     const empty = !this.items.length && !this.asking.size;
@@ -643,6 +654,17 @@ export class PowerBar {
   }
 
   /** Pick row `n` (from 1): its source does it, as `actor`. */
+  /**
+   * The row the person's pick of `n` (none: the lit one) means. ⏎ right after a paste or a key, while a source still
+   * answers what's typed: the row lit once it has answered (a pasted address's own), never one kept from the query before.
+   */
+  litPick(n?: number): number | Promise<number> {
+    const lit = this.items[this.picker.sel];
+    // Answered at once when nothing is to come (a typed action line runs as the line says, before the next key lands).
+    if (this.asking.size && !this.moved && (n === undefined || n === this.picker.sel + 1) && (!lit || this.kept.has(lit.source.id))) return this.settled(3000).then(() => (this.moved ? n ?? this.picker.sel + 1 : this.picker.sel + 1));
+    return n ?? this.picker.sel + 1;
+  }
+
   async pickRow(n: number, alt: boolean, actor: Actor): Promise<unknown> {
     const it = this.items[n - 1];
     if (!it) throw new Error(this.items.length ? `pick 1 to ${this.items.length}` : "the bar lists nothing to pick");

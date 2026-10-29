@@ -17,6 +17,7 @@ import { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import { Offline, SocketBoard, USER, type Actor } from "../src/socket";
 import { askInBar } from "../src/bar/ask";
+import { notePageUrl } from "../src/open";
 import { KeyDecoder, type Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -668,30 +669,90 @@ describe.skipIf(!outliner)("the power bar", () => {
       key(ctrlK); type("/bike shed");
       await until(() => peek().bar.rows[0]?.label === "Bike shed", "the shed found");
       key({ kind: "alt", ch: "m" } as Key);
-      await until(() => frame().some(l => l.includes("copy reference]")), "the hit's menu");
+      await until(() => frame().some(l => l.includes("2 copy note reference")), "the hit's menu");
       const f = frame();
-      expect(f.join("\n")).not.toContain("copy command]");
-      const y = f.findIndex(l => l.includes("copy reference]")), x = f[y]!.indexOf("copy reference]");
+      expect(f.join("\n")).not.toContain("copy command");
+      const y = f.findIndex(l => l.includes("copy note reference")), x = f[y]!.indexOf("copy note reference");
       key({ kind: "mouse", action: "down", x, y, button: 0 } as Key);
       key({ kind: "mouse", action: "up", x, y, button: 0 } as Key);
       await until(() => copied.includes(`((${notes.shed!.id}|Bike shed))`), "the reference copied");
-      // The same row, by a right-click on it (the menu put away first): its web link names the outline.
-      key({ kind: "alt", ch: "m" } as Key);
-      await until(() => !frame().some(l => l.includes("copy reference]")), "the menu put away");
+      // A pick puts the menu away; the same row, by a right-click on it: its web link names the outline.
+      await until(() => !frame().some(l => l.includes("copy note reference")), "the menu put away");
       const r = frame(), ry = r.findIndex(l => l.includes("Bike shed")), rx = r[ry]!.indexOf("Bike shed") + 1;
       key({ kind: "mouse", action: "down", x: rx, y: ry, button: 2 } as Key);
-      await until(() => frame().some(l => l.includes("copy web link]")), "the menu by a right-click");
-      const w = frame(), wy = w.findIndex(l => l.includes("copy web link]")), wx = w[wy]!.indexOf("copy web link]");
+      await until(() => frame().some(l => l.includes("copy note web link")), "the menu by a right-click");
+      const w = frame(), wy = w.findIndex(l => l.includes("copy note web link")), wx = w[wy]!.indexOf("copy note web link");
       key({ kind: "mouse", action: "down", x: wx, y: wy, button: 0 } as Key);
       key({ kind: "mouse", action: "up", x: wx, y: wy, button: 0 } as Key);
       await until(() => copied.some(t => t.endsWith(`/p/${notes.shed!.id}`)), "the web link copied");
-      // By keys: with the menu open, alt+1 is its first entry (copy id).
-      key({ kind: "alt", ch: "1" } as Key);
-      await until(() => copied.includes(notes.shed!.id), "the id copied by alt+1");
+      // By keys: the chips read 1 2 3, and 1 is the first entry (copy note id), never a digit typed into the query; alt+1 too.
+      key({ kind: "alt", ch: "m" } as Key);
+      await until(() => frame().some(l => l.includes("1 copy note id")), "the menu again");
+      key(ch("1"));
+      await until(() => copied.includes(notes.shed!.id), "the id copied by 1");
+      expect(peek().bar.query).toBe("bike shed");
+      key({ kind: "alt", ch: "m" } as Key);
+      key({ kind: "alt", ch: "2" } as Key);
+      await until(() => copied.filter(t => t === `((${notes.shed!.id}|Bike shed))`).length === 2, "the reference copied by alt+2");
+      // Menu closed, a digit types again; and typing with it open puts it away, the digits the query's.
+      key(ch("9"));
+      expect(peek().bar.query).toBe("bike shed9");
+      key({ kind: "alt", ch: "m" } as Key);
+      key(ch("x")); key(ch("1"));
+      expect(peek().bar.query).toBe("bike shed9x1");
+      expect(frame().some(l => l.includes("copy note id"))).toBe(false);
       // An agent names the hit by ref=.
       expect(await app.act({ action: "note.copy-ref", args: { kind: "id", ref: notes.shed!.id }, as: "wren-agent" })).toMatchObject({ text: notes.shed!.id, clipboard: false });
     } finally { (app as any).copy = copy; }
   }, 20_000);
+
+  // PIE-1398: whatever note.copy-ref copies, pasted back into the bar, is that note's row, lit, and ⏎ opens it; never a
+  // search for its words, never "no action".
+  test("a pasted id, reference, line reference, ep0ch:// address or web link is its note's row, and ⏎ opens it (PIE-1398)", async () => {
+    const own = (await board.info()).outline!, machine = (await board.info()).machine!;
+    const shed = notes.shed!.id;
+    const pasted = [
+      shed, `((${shed}|zzz))`, `((${shed.slice(0, 8)}|Bike shed))`, `((${shed}^tubes|the spare inner tubes))`,
+      `ep0ch://${own}@${machine}/b/${shed}`, notePageUrl(shed, own, {}), notePageUrl(shed, undefined, {}),
+    ];
+    for (const text of pasted) {
+      for (const scope of [null, "notes"] as const) {
+        key(ctrlK);
+        if (scope) type("/");
+        key({ kind: "paste", text });
+        await until(() => peek().bar.rows[0]?.source === "notes" && !peek().bar.asking, `${text} named its note`, 3000);
+        const bar = peek().bar;
+        expect({ text, row: bar.rows[0] }).toMatchObject({ text, row: { source: "notes", label: "Bike shed", key: shed } });
+        expect(bar.selected).toBe(1);
+        expect(bar.rows.some((r: any) => r.source === "actions" && r.refused)).toBe(false);
+        closeBar();
+      }
+    }
+    // ⏎ at once after the paste, over the recent notes / listed before it: the pasted note opens, never a row kept from before.
+    desk.setCurrent(notes.garden!);
+    key(ctrlK); type("/");
+    await until(() => peek().bar.rows.length > 0 && !peek().bar.asking, "the recent notes");
+    key({ kind: "paste", text: `((${shed}|zzz))` });
+    key({ kind: "enter" });
+    await until(() => !peek().bar && [...(desk as any).panes.values()].some((p: any) => p.msg?.id === shed), "the shed opened", 5000);
+    // A reference to a note that isn't there says so on its row, instead of waiting on a search.
+    key(ctrlK); key({ kind: "paste", text: "((0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a|gone))" });
+    await until(() => peek().bar.rows[0]?.refused !== undefined, "the missing note said");
+    expect(peek().bar.rows[0].refused).toContain("no note 0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a");
+    closeBar();
+  }, 30_000);
+
+  test("while typing, the rows the search gave stay until its answer to what's typed now replaces them (PIE-1398)", async () => {
+    key(ctrlK); type("/bike");
+    await until(() => peek().bar.rows.some((r: any) => r.label === "Bike shed") && !peek().bar.asking, "the shed found");
+    type(" s");
+    // Asked again after the pause: the shed's row is still listed while notes… is out.
+    expect(peek().bar.asking).toEqual(["notes"]);
+    expect(peek().bar.rows.some((r: any) => r.label === "Bike shed")).toBe(true);
+    await until(() => !peek().bar.asking, "the new answer");
+    expect(peek().bar.rows.some((r: any) => r.label === "Bike shed")).toBe(true);
+    closeBar();
+  });
 
   test("the desk's / opens the bar in its notes scope (the one search)", async () => {
     desk.focusPane(desk.pane(desk.tileOutline().find(t => t.kind === "tree")?.name ?? desk.tileOutline()[0]!.name)!, { kind: "user" });

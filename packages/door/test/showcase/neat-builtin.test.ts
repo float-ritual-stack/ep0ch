@@ -34,7 +34,8 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     await app.loadExtensions(true);
     const rows = await app.dispatch.act({ action: "bar.open", args: { scope: "&", query: "neat" } }, { kind: "agent", id: "test-agent" }) as { rows: { label: string; detail?: string }[] };
     expect(rows.rows.filter(r => /^neat$/i.test(r.label))).toHaveLength(1);
-    expect(rows.rows.find(r => r.label === "Neat")?.detail).toContain("your copy overrides the built-in");
+    // Installed as it ships: it reads as installed, its own words on the row, never "your copy overrides" (PIE-1399).
+    expect(rows.rows.find(r => r.label === "Neat")?.detail).not.toContain("overrides");
     const parked = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: seeded.notes.scriptTarget.id, name: "parked" } }, USER) as { tile: string };
     await app.dispatch.act({ action: "tile.drawer", tile: parked.tile, args: { on: true } }, USER);
     await press(seeded.notes.neat.id);

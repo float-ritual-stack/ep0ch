@@ -67,25 +67,37 @@ export function questionGroups(matches: readonly Block[], rows: readonly Block[]
  * a key's `more` says how many values were left out.
  */
 export function questionFacets(matches: readonly Block[], keys: true | readonly string[], valuesOf: ValuesOf, keysOf: (block: Block) => string[], valueCap = QUESTION_FACET_CAP, keyCap = QUESTION_FACET_CAP): QuestionFacet[] {
-  const wanted = keys === true ? [...new Set(matches.flatMap(keysOf))] : [...keys];
-  const facets = wanted.map((key): QuestionFacet => {
-    const counts = new Map<string, { n: number; last: string }>();
-    let count = 0;
-    for (const block of matches) {
-      const values = [...new Set(valuesOf(block, key).map(v => v.trim()).filter(Boolean))];
-      if (!values.length) continue;
-      count += 1;
+  // One pass over the matches, each asked only for the keys it carries (PIE-1396: every key over every note took
+  // seconds on pie). `tag` reads `tags` too, as block-query's tag clause does.
+  const tally = new Map<string, { count: number; counts: Map<string, { n: number; last: string }> }>();
+  const named = keys === true ? null : [...new Set(keys)];
+  // A named key no match carries still answers, with a count of 0.
+  if (named) for (const key of named) tally.set(key, { count: 0, counts: new Map() });
+  const carried = keys === true ? matches.map(block => new Set(keysOf(block))) : [];
+  const tagged = keys === true && carried.some(own => own.has("tag"));
+  matches.forEach((block, at) => {
+    let read: Iterable<string> = named ?? carried[at]!;
+    if (tagged && carried[at]!.has("tags") && !carried[at]!.has("tag")) read = [...carried[at]!, "tag"];
+    for (const key of read) {
+      // A key a match carries answers even when none of its values are words (`[area::[]]`), with a count of 0.
+      let facet = tally.get(key);
+      if (!facet) tally.set(key, facet = { count: 0, counts: new Map() });
+      const values = new Set(valuesOf(block, key).map(v => v.trim()).filter(Boolean));
+      if (!values.size) continue;
+      facet.count += 1;
       for (const value of values) {
-        const seen = counts.get(value);
-        if (!seen) counts.set(value, { n: 1, last: block.updatedAt });
+        const seen = facet.counts.get(value);
+        if (!seen) facet.counts.set(value, { n: 1, last: block.updatedAt });
         else { seen.n += 1; if (block.updatedAt > seen.last) seen.last = block.updatedAt; }
       }
     }
+  });
+  // Keys are ranked before their values are sorted: only the keys kept pay for it.
+  return [...tally].sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0])).slice(0, keyCap).map(([key, { count, counts }]): QuestionFacet => {
     const order = valueOrder(key);
     const values = [...counts].sort((a, b) => b[1].n - a[1].n || order(a[0], b[0])).map(([value, seen]) => ({ value, count: seen.n, last: seen.last }));
     return { key, count, values: values.slice(0, valueCap), ...(values.length > valueCap ? { more: values.length - valueCap } : {}) };
   });
-  return facets.sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)).slice(0, keyCap);
 }
 
 /** Edit distance, for the nearest keys a hint names. */

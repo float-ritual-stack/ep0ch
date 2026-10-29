@@ -11,7 +11,7 @@ import { Mirror } from "../src/mirror";
 import { groundSeq, setTheme, THEMES, luminance } from "../src/theme";
 import { rowBytes } from "../src/term";
 import { emphasis } from "../src/inline";
-import { destinationOf, external, externalOpenCommand, fileOpenCommand, notePageUrl } from "../src/open";
+import { addressOf, destinationOf, external, externalOpenCommand, fileOpenCommand, notePageUrl } from "../src/open";
 import { presentLinks } from "../src/refs";
 import { MessageReader } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -270,5 +270,14 @@ describe("link schemes", () => {
     expect(notePageUrl("PIE-12", undefined, {})).toBe("https://my.ep0ch.sh/pub/p/PIE-12");
     expect(notePageUrl(id, "orchard", { EP0CH_WEB_URL: "https://web.example.org/, https://other.example.org" })).toBe(`https://web.example.org/pub/o/orchard/p/${id}`);
     expect(destinationOf(notePageUrl(id, "orchard", {}))).toEqual({ target: { outline: "orchard", block: id } });
+    // PIE-1398: every form it writes reads back as the note: /pub/p/ (this outline's), a Work ID's, on the web client's own origin.
+    expect(destinationOf(notePageUrl(id, undefined, {}))).toEqual({ target: { block: id } });
+    expect(destinationOf(notePageUrl("PIE-12", undefined, {}))).toEqual({ target: { page: "PIE-12" } });
+    const env = { EP0CH_WEB_URL: "https://web.example.org" };
+    expect(destinationOf(notePageUrl(id, "orchard", env), env)).toEqual({ target: { outline: "orchard", block: id } });
+    expect(destinationOf("https://example.org/pub/p/PIE-12", env)).toEqual({ web: "https://example.org/pub/p/PIE-12" });
+    expect(addressOf(`((orchard:${id}^beds|the beds line))`)).toEqual({ block: id, outline: "orchard", fragment: "beds", label: "the beds line" });
+    expect(addressOf("garden plan")).toBeNull();
+    expect(addressOf("tile.open kind=query")).toBeNull();
   });
 });

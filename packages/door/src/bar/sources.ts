@@ -1,7 +1,8 @@
 import { overrideWords } from "@ep0ch/outliner/extension-update";
-import { outlineBoards } from "../desk/outline-boards";
-import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { outlineBoards, readTarget } from "../desk/outline-boards";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
+import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { addressOf } from "../open";
 // The power bar's built-in sources (PIE-656), each a scope with its prefix: tiles (%), notes (/), actions (>),
 // recent (+) and screens (@). None keeps a list of its own: tiles are the layout tree's (`Desk.tileOutline`) on every
 // screen and in the drawer; notes are the service's one search (`board.search`, Goto's ranker, Jev re-ordering after
@@ -152,6 +153,21 @@ export async function recentNotes(host: BarHost): Promise<BarRow[]> {
   return [...found.values()].sort((a, b) => b.at - a.at).slice(0, RECENT_NOTES).map(x => x.row);
 }
 
+/**
+ * What's typed is a note's address (PIE-1398: an id, a reference, another outline's reference, a line's, an `ep0ch://`
+ * address or a web link, `addressOf`): that note's row, read where it lives (`readNote`, another outline's through its
+ * board; a page or Work ID by `pages.resolve`), never a search for its words. Refused, it says which note it named.
+ */
+async function addressedRows(to: NonNullable<ReturnType<typeof addressOf>>, host: BarHost): Promise<BarRow[]> {
+  const named = "block" in to ? to.block : to.page;
+  const m = await readTarget(host.ctx, to);
+  if (!m || m.deleted) return [{ key: `address:${named}`, label: to.label ?? named!, exact: true, refused: `no note ${named} in ${to.outline ?? "this outline"}` }];
+  const there = m.address, c = there ? await outlineBoards(host.ctx).on(there) : null;
+  const key = there ? formatEp0chBlockUri({ outline: there.outline, machine: there.machine ?? c!.machine ?? (await c!.board.info()).machine!, blockId: m.id }) : m.id;
+  const detail = [there?.outline, to.fragment ? `line ^${to.fragment}` : ""].filter(Boolean).join(" · ");
+  return [{ ...noteRow(m), key, exact: true, oneLine: true, ...(detail ? { detail, subtitle: undefined } : {}), note: { id: m.id, ...(there ? { outline: there.outline } : {}) }, data: { fragment: to.fragment } }];
+}
+
 const NOTES: BarSource = {
   id: "notes", title: "notes", prefix: "/", by: "door", asks: true,
   about: "outline:<name> words searches another outline on this host; otherwise the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up; ⏎ opens one where opens land, alt+⏎ in a new detail; alt+m or a right-click on a hit is its menu: copy its id, reference or web link (note.copy-ref)",
@@ -163,20 +179,25 @@ const NOTES: BarSource = {
       const info = await ctx.board.info();
       return (await ctx.board.search(named[2] ?? "", 30, { signal })).map(m => ({ ...noteRow(m), key: formatEp0chBlockUri({ outline: named[1]!, machine: ctx.machine ?? info.machine!, blockId: m.id }), detail: named[1], note: { id: m.id, outline: named[1]! } }));
     }
+    const to = addressOf(q);
+    if (to) return addressedRows(to, host);
     if (!q.trim()) return recentNotes(host);
     if (q.trim().length < 2) return [];
     return (await host.ctx.board.search(q.trim(), 30, { near: host.near() ?? undefined, signal })).map(noteRow);
   },
   later(q, rows, host, signal) {
     const board = host.ctx.board;
-    if (q.startsWith("outline:") || q.trim().length < 3 || rows.length < 2 || jevOff.has(board)) return null;
+    if (q.startsWith("outline:") || rows[0]?.exact || q.trim().length < 3 || rows.length < 2 || jevOff.has(board)) return null;
     return board.search(q.trim(), 30, { semantic: true, near: host.near() ?? undefined, signal }).then(h => {
       if (h.semantic && notConfigured(h.semantic)) jevOff.add(board);
       return h.semantic?.status === "ranked" ? { rows: h.map(noteRow), said: "jev ranked" } : null;
     }, () => null);
   },
-  preview: row => ({ note: row.key }),
-  pick: (row, host, how) => openNote(row.key, host, how),
+  preview: row => (row.refused ? { lines: [row.refused] } : { note: row.key }),
+  pick(row, host, how) {
+    if (row.refused) throw new ActionRefused(row.refused);
+    return openNote(row.key, host, how, (row.data as { fragment?: string } | undefined)?.fragment);
+  },
 };
 
 /** An action's first plain key (not a gesture, not a chord), for its keycap. */
@@ -282,6 +303,8 @@ const ACTIONS: BarSource = {
  * or missing is said on the row (refused), and its summary and arguments are on the right. Anything else: none.
  */
 function actionLine(q: string, host: BarHost, command = false): BarRow | null {
+  // A note's address pasted (a web link, an ep0ch:// one) is the notes source's to open, never an action that isn't there.
+  if (addressOf(q)) return null;
   const words = lineWords(q);
   let req: ActRequest;
   try { req = actRequestOf(words); } catch (e) {
@@ -411,14 +434,14 @@ function summaryOf(e: ExtensionEntry, l: ExtensionList): string {
 
 /** An installed extension as its preview reads it: its id and version, its state and settings, where it lives, its words, what it adds. */
 function extensionFacts(e: ExtensionEntry, then: string): string {
-  const parts = extensionParts(e);
+  const parts = extensionParts(e), override = e.builtIn && overrideWords(e.id, e.builtIn);
   return [
     `**${e.name ?? e.id}** \`${e.id}\`${e.version !== undefined ? ` v${e.version}` : ""} · ${e.state}${e.settings ? ` · settings ${settingsChip(e.settings)}` : ""}`,
     ...(e.error ? ["", `> [!warning] ${e.error}`] : []), ...(e.script && e.summary ? ["", e.summary] : []), "", e.description ?? "",
     ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${partKind(p.kind)} **${p.name}**${p.about ? ` · ${p.about}` : ""}`)] : []),
     ...(e.directory ? ["", `\`${e.directory}\``] : []),
     // A copy of a built-in (PIE-1283): this copy runs, the built-in never does in place; both folders said.
-    ...(e.builtIn ? ["", `${overrideWords(e.id, e.builtIn)}: this copy runs; the built-in is \`${e.builtIn.directory}\``] : []), "", then,
+    ...(e.builtIn ? ["", override ? `${override}: this copy runs; the built-in is \`${e.builtIn.directory}\`` : `installed from the built-in \`${e.builtIn.directory}\``] : []), "", then,
   ].join("\n");
 }
 

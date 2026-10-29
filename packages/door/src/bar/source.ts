@@ -129,11 +129,11 @@ export const barSource = (id: string): BarSource | undefined => sources.find(s =
 /** The open bar hears when a source came or went (an extension added or removed). */
 export function onBarSources(f: () => void) { changed = f; }
 
-/** Open note `id` where the screen's opens land (alt: in a new detail, as alt+⏎ on a link), as `actor`. */
-export async function openNote(id: string, host: BarHost, how: PickHow): Promise<unknown> {
-  const top = host.screens().at(-1);
-  // A screen with an open of its own (the desk's) takes fresh=: a new detail beside the tile with the keys.
-  const args = how.alt && top?.dispatch?.has("open") ? { id, fresh: true } : { id };
+/** Open note `id` where the screen's opens land (alt: in a new detail, as alt+⏎ on a link; `fragment`: at that line), as `actor`. */
+export async function openNote(id: string, host: BarHost, how: PickHow, fragment?: string): Promise<unknown> {
+  const top = host.screens().at(-1), own = !!top?.dispatch?.has("open");
+  // A screen with an open of its own (the desk's) takes fresh=: a new detail beside the tile with the keys; and a line's anchor.
+  const args = { id, ...(how.alt && own ? { fresh: true } : {}), ...(fragment && own ? { fragment } : {}) };
   return how.actor.kind === "agent" ? host.dispatch.act({ action: "open", args }, how.actor) : host.dispatch.press("open", args);
 }
 

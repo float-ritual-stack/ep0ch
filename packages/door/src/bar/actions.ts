@@ -103,7 +103,8 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
       const b = on.bar();
       if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
       if (query !== undefined || scope !== undefined) throw new ActionRefused("the person's pick is from the bar as they see it: query= and scope= are an agent's");
-      const at = n ?? b.selected + 1;
+      const lit = b.litPick(n), at = typeof lit === "number" ? lit : await lit;
+      if (on.bar() !== b) throw new ActionRefused("the power bar was put away");
       if (!b.keepsRun(at)) on.close();
       try { return await b.pickRow(at, !!alt, actor); } catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); }
     },
