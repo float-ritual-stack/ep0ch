@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { extensionList } from "../../src/extensions";
+import { extensionList, scriptActions } from "../../src/extensions";
 import { barSource } from "../../src/bar/source";
 import type { Desk } from "../../src/desk/desk";
+import { openScreen } from "../../src/desk/screen-specs";
 import { USER, type Actor } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -118,6 +119,34 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     expect((await board.listExtensions(true)).extensions.find(e => e.id === "neat")?.state).toBe("active");
     await press(seeded.notes.neat.id);
   }, 40_000);
+
+  /** neat run as the person runs it from the power bar: what it said on the status line. */
+  const fromBar = async () => {
+    const { app } = h;
+    const before = new Set(app.describe().messages.map(row => row.id));
+    // The bar's run row ends in the person's own press of the script's action (src/bar/sources.ts, `run <line>`).
+    const neat = scriptActions().find(s => s.extension.name === "neat" || s.extension.id === "neat")!;
+    expect(neat).toBeDefined();
+    await app.dispatch.press(neat.action.name, {});
+    const said = () => app.describe().messages.find(row => !before.has(row.id) && /(^|· )neat:/.test(row.message));
+    await until(() => !!said(), "neat finished", 10_000).catch(error => { throw new Error(`${error.message}; last messages: ${JSON.stringify(app.describe().messages.slice(-3))}`); });
+    return said()!.message;
+  };
+
+  test("neat from the power bar on a plain desk, the person's keys in a reader: every step works (PIE-1403)", async () => {
+    const { app, board } = h;
+    await app.loadExtensions(true);
+    const desk = openScreen("desk") as Desk;
+    app.push(desk);
+    try {
+      const note = await board.createBlock(null, "Reading the seed packets\nSow thinly.");
+      const r = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: note.id, name: "packets" } }, USER) as { tile: string };
+      await app.dispatch.act({ action: "tile.focus", tile: r.tile }, USER);
+      const said = await fromBar();
+      expect(said).toContain("links wired");
+      expect(said).not.toMatch(/t-[0-9a-f]{8}/);
+    } finally { app.pop(); }
+  }, 30_000);
 
   test("an outline's own neat script overrides the installed arrangement", async () => {
     const { app, board, seeded } = h;

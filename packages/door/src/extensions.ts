@@ -496,9 +496,12 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       // A `motion=` on a script's press (a button's `motion=fantasia`) is the script's to read: props.motion, and it passes it on to its own acts.
       const hint = TXN.getStore()?.motion;
       const given = { ...withArgs(w), ...givenArgs(a, rest), ...(e.script && hint ? { motion: hint } : {}) };
+      // The person's own run of a script (the power bar's row, a key, their act) invites it as their button's press does
+      // (src/surface/invite.ts, PIE-1186): it acts as them on their screen. Runs nobody pressed carry none (PIE-1403).
+      const invited = typeof invitation === "string" && invitation ? invitation : e.script && actor.kind === "user" ? INVITES.mint("you") : undefined;
       return askingFirst(on.ctx, e, a, block, given, actor, args =>
         runExtensionAction(on.ctx, a, e.id, { ...(block ? { blockId: block } : {}), ...(line !== undefined ? { line } : {}), ...(Object.keys(args).length ? { args } : {}),
-          ...(typeof invitation === "string" && invitation ? { invitation } : {}),
+          ...(invited ? { invitation: invited } : {}),
           ...(typeof via === "string" && /^[0-9a-f-]{8,}:\d+$/.test(via) ? { button: { block: via.slice(0, via.lastIndexOf(":")), line: Number(via.slice(via.lastIndexOf(":") + 1)) } } : {}) }, actor));
     },
   };

@@ -49,4 +49,6 @@ if (L) {
 }
 for (const t of await tiles()) if (t.tile !== A && t.tile !== B && t.tile !== L && !t.collapsed && t.shown !== false) await step('tile.collapse', { tile: t.tile, on: true });
 await step('layout.even', {});
-return failed.length ? `neat: ${failed.length} steps failed · ${failed.join(' · ')}` : `neat: ${A} | ${B}, links wired`;
+// Said in the notes' words, never the tiles' ids.
+const titled = async id => { try { return (await read(id)).title; } catch { return id; } };
+return failed.length ? `neat: ${failed.length} steps failed · ${failed.join(' · ')}` : `neat: ${await titled(BRIEF)} | ${await titled(CURRENT)}, links wired`;
