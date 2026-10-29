@@ -2332,6 +2332,8 @@ export class OutlinerServer {
         if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
+    if (request.action === "search.picks") {
+      return { id: request.id, ok: true, result: { picks: readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)) }, sequence: this.store.sequence };
     }
     if (request.action === "search.picked") {
       // PIE-1197: the row a person opened from a search, with the words, kept for the search eval's labels.
@@ -3819,6 +3821,7 @@ export class OutlinerServer {
         case "completion.rows":
         case "completion.picked":
         case "search.picked":
+        case "search.picks":
         case "quote":
           throw new Error(`${action} requires asynchronous dispatch.`);
         default: {

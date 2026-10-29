@@ -2521,6 +2521,7 @@ export type OutlinerRequestAction =
   /** A completion row was chosen (PIE-1340): its pick is counted, so every client ranks it higher next time. `{ picks }`. */
   | ({ id: string; action: "completion.picked" } & import("@ep0ch/outline-core/protocol").CompletionPickedRequest)
   | ({ id: string; action: "search.picked" } & import("@ep0ch/outline-core/protocol").SearchPickedRequest)
+  | { id: string; action: "search.picks" }
   /**
    * An extension's command-palette source answers a query (PIE-656, the door's power bar): `{ extension, source,
    * rows: [{ id, label, detail?, preview?, block?, action?, args?, copy? }] }`. It writes nothing.
