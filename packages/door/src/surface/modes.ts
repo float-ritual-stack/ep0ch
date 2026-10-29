@@ -13,6 +13,7 @@ import type { Hint } from "./hint-card";
 import type { LeaveResult } from "../draft-session";
 import type { Actor } from "../socket";
 import type { Key } from "../term";
+import type { Rect } from "../canvas";
 
 /** A binding and its optional short wording, as in W_KEYS. Text input still belongs to the shared editor. */
 export interface ModeKey {
@@ -106,6 +107,8 @@ export interface Mode<H> {
   key(k: Key, host: H): boolean;
   /** It ended by itself: the stack lets it go. */
   ended?(): boolean;
+  /** The box it was last drawn in, for the screen's hit map (PIE-1407); one that keeps none answers no clicks there. */
+  drawn?(): Rect | null;
 }
 
 /** The open modes, in precedence order (`order`, by name; the newest first among equals): the first takes the keys. */

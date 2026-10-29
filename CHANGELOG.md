@@ -18,6 +18,87 @@ are its record. The outliner's entries from then are kept below, under
   the kitchen sink's panes and regions marks, the kettle's close click, the no-op repaint count, the copy-ref and
   motion checks, and the drawer program's handovers.
 - **Run:** nothing.
+### The river at 40 columns, smoothed: floats keep the keys, words show (PIE-1418, PIE-1392)
+
+- **Esc in a float keeps the keys there** (it gave them to the hidden column under it, so `x` closed that column). With
+  nothing left to close it says `nothing to close · x closes the float`, and the float's hint row leads with `x close`.
+  Tab, a click or h/l still move the keys out. *What moves:* Esc no longer hands a float's keys to the tile under it,
+  on every screen.
+- **The power bar at 40 columns** shows a long query whole, or scrolled sideways with a `«` where its start is off the
+  line and a `»` where it goes on; home brings the start back. Every one-line field scrolls the same way.
+- **A button that can't run here says why in plain words:** a sequence whose first step names no tile on this screen is
+  drawn dim and refused before it runs (`Fold the bottom can't run here: no tile is called links on the river`); one
+  that stops midway says `Pipe stopped at step 2 of 4: …`. The person reads tiles by name, never by id; Sources keeps
+  each run step's spelling (a press refused before it runs leaves no run there).
+- **The trail follows you across columns:** from any river column it is the one chain of opens, back and ahead, and
+  forward goes to the column opened from this one. Read's `n` and `p` leave a trail too (back, alt+T).
+- **On the web:** an error page has a way back to the outline (or the share's first page), and the trail's rows read as
+  links.
+### The keys window and the trail are tiles you resize, dock and close; ⏎ runs a key; Conflicts are real (PIE-1425)
+
+- **`?` opens the keys window as a tile beside the one you're in** (below it when that one is narrow, so both keep
+  their width) on the desk, the board and the river: drag its
+  border, dock it, `esc` or `q` closes it and the keys go back where they were. `?` again goes back to it.
+- **`⏎` runs the selected row** where you opened the window, as its key would there (a second click on the row too).
+  One that needs arguments (`^W o` opens a tile, which kind?) asks for them in the power bar's form.
+- **Conflicts lists only keys that really fight:** two rows of one key table on one key, or one key given twice in your
+  `keybindings.json`, each saying which one runs. Today's built-in keys have none (it said 176: esc clearing then closing
+  the power bar, alt+Q starting or stopping a recording, were counted as clashes).
+- **Every row reads as a whole sentence:** the action's own words, then where or when ("start recording, while
+  recording"), never a fragment like "then macro.stop". The power bar's typed lines (`> share.list`) aren't listed as keys.
+- **The trail (alt+T, `≡ trail`) is a tile beside its reader too:** dock it to the side and it follows the reader as
+  you walk; `⏎` or a click on a picked stop goes there, `esc` closes it. A screen without tiles still lists it over itself.
+### Undo never takes back what's saved (PIE-1414)
+
+- **ctrl+z stops at the save:** in a note you opened again after saving, the first ctrl+z keeps the saved text and says "saved · ctrl+z again undoes past the save (revision N stays in its history)"; a second press after a pause goes past it. A held key never crosses a save, and an agent's undo never does.
+- **Everywhere you type:** a reader, a float, the river and comments share the one editor, so the same holds in each.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### The status bar's last rough edges (PIE-1415, PIE-1224, PIE-1410)
+
+- **A group inside a group opens where you clicked:** More inside Tools opens over Tools, not at the left edge.
+- **A message never leaves an invisible button:** the pins, `!` and `+N` kept beside it are the ones drawn, and a click
+  on the bar finds only those; pins give way first, `+N` last.
+- **A failed button's `!` stays its own:** deleting a line no longer moves it onto the next button, and it follows its button when lines move.
+- **Right-click a note's `::button`** to pin it to the status bar: it becomes the `[ ]` position and nothing runs.
+
+### Jev's patches, round three: buried prose questions and kept chips (PIE-1419)
+
+- **A question at the bottom is buried** whether or not it names Evan: a line that ends in a question counts unless
+  Jev says firmly it asks nothing, so an unsure or unheard Jev never hides it. Its patch moves it to the top.
+- **A wall under a chip line keeps its chips as chips:** the chip line is never part of the paragraph, and the patch's
+  list starts below it.
+- **A stacked bullet of clauses** (joined by `;` or a dash) comes with a patch, one clause a bullet.
+- **The words say what's wrong:** "a paragraph of 5 sentences (keep one to 3)" or "one sentence of 612 characters";
+  a callout is "would read better as a callout", not "a callouts"; every finding leads with its fix, so
+  the 44-column suggestions page reads it.
+
+### Only the power bar answers the mouse, and it reads right at 44 and 40 columns (PIE-1407, PIE-1405)
+
+- **Nothing behind an overlay shows through it:** with the bar open over a reader, hovering the bar drew the reader's
+  byline across it. A tile's cut-short value or button now ends where the bar, a float, a menu or a toast starts, so
+  the pointer over an overlay reads only the overlay.
+- **The second click on a row runs it**, as ⏎ does: a click lights a row and shows its preview, the next click on it
+  runs it, however long between (a double click still does).
+- **A pasted link reads on the line at 40 columns**, the field scrolling sideways to the cursor instead of showing its
+  last few characters; the count takes what's left.
+- **A lit row's name stays put at 44 columns:** only its detail scrolls.
+- **Copy command copies what the row runs:** a tile's `tile.focus tile=<it>`, a screen's `screen.open`, an
+  extension's install or remove; a note's row says its menu copies its reference.
+- **Rows say themselves:** a script reads under its own name with its own words (no `ext.script-…run`, no "neat ·
+  neat:"); a pasted id that isn't here is named once, on one line; Jira's install row says what it does.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### A chat's "what changed lately" is real work, and says what it left out (PIE-1427)
+
+- **Fetched notifications are machinery:** the notifications hub stamps each one `[machine::notification]`, so lists,
+  `ep0ch find` and a chat's orient read leave them out; its boards say `[machinery::show]` and keep their cards.
+- **The count:** `outline_query` (claude.ai, ChatGPT, Grok) and the mod's `outline_find` answer a recent-activity
+  read (`updated >= -1d`) with `machineryOmitted`: "212 notifications and bookkeeping notes left out", by producer.
+- **One word brings them back:** `machinery: "show"` on `outline_query` (new) or `outline_find`; `"only"` with
+  `machine=notification` asks for just the notifications.
+- **Run once per outline that has the hub,** on its machine: `ep0ch machinery backfill --ws <name> --apply` stamps
+  the notes and boards an earlier version wrote.
 
 ### The keys window: every binding, what it shadows, and a rebind said before it lands (PIE-492, PIE-1048)
 
@@ -155,6 +236,14 @@ are its record. The outliner's entries from then are kept below, under
   action's page says so. An agent turns yolo off with `on=false`.
 - **One record:** a save you and an agent both wrote says what was stored ("yours, naming …"), as the revision
   records it; a trash receipt and a share say who was recorded the same way (`recorded()` in the door's socket.ts).
+- **Your tile keeps its size** (seen in use, Oct 29): an agent's `open` while you type lands in another reader or
+  beside another tile, never splitting the one you type in; its `tile.open` beside that tile is refused, naming `to=`.
+  Any agent step that would change your tile's size on screen (a fold beside it, a move along its edge, neat's
+  steps) is refused the same way and waits until you're done. Your own `@name` ask still opens its answer beside
+  your edit: you asked for it, and the keys stay where you type.
+- **Every typing refusal reads one way:** "the person is typing in <tile>; an agent doesn't <what> · <what to do>",
+  from the layout, the action rule and the draft rule alike (four forms before).
+- **A short id opens:** `ep0ch open 221caa3c` (or `open id=PIE-1294`) resolves as `show` and `find` do.
 - **Kitchen sink:** `ep0ch --showcase`, section while-typing.
 ### Jev's review and twins read right where Evan looks (PIE-1402)
 

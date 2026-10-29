@@ -5,7 +5,7 @@
 // ctrl+y (undo, redo), cmd+c (copy), and the mouse: a click places the cursor, a drag selects, a double click a word,
 // a triple the line. Enter, esc, tab, ↑ ↓ and the rest stay the caller's (`take` answers false for them).
 import { Draft } from "../edit";
-import { INPUT_CURSOR, paint, bg, C, fg, RESET } from "../style";
+import { INPUT_CURSOR, paint, bg, C, fg, headOf, RESET, tailFrom, width } from "../style";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
 import { USER } from "../socket";
@@ -120,6 +120,37 @@ export class LineField extends Draft {
     if (k.action === "up") { if (this.gesture.release(k.x, k.y).copy) { const t = this.selectedText(); if (t) this.copy(t); } return true; }
     return false;
   }
+
+  /** The first cell of the line drawn, when it's wider than its field: the line scrolls sideways, never wraps. */
+  private scrollX = 0;
+
+  /**
+   * One row (PIE-1405, PIE-1418): the line laid out whole, then the `w` cells around the cursor, reading as scrolled: a `«`
+   * in the first cell where words are off to the left, a `»` in the last where they go on past the right (CP437's, in the
+   * VGA font). The start stays
+   * in view while the cursor allows, and a click lands on the character under it. Wrapped, a long query at 40 columns drew
+   * only its last wrapped piece ("› swap"). More rows: the draft's own wrapping.
+   */
+  override render(w: number, h: number): string[] {
+    if (h !== 1) { this.scrollX = 0; return super.render(w, h); }
+    const tw = width(this.text), room = Math.max(1, w);
+    const line = super.render(Math.max(4, w, tw + 2), 1)[0] ?? "";
+    if (tw + 1 <= room || room < 3) { this.scrollX = 0; return [room < 3 ? headOf(line, room) + RESET : line]; }
+    const cursor = this.cursorCol, last = tw + 1 - room;
+    // The cursor in a cell no mark covers: the start while it fits before the » cell, else just inside the marks.
+    if (cursor <= room - 2) this.scrollX = 0;
+    else if (cursor < this.scrollX + 1) this.scrollX = cursor - 1;
+    else if (cursor > this.scrollX + room - 2) this.scrollX = cursor - room + 2;
+    this.scrollX = Math.max(0, Math.min(this.scrollX, last));
+    this.cursorCol = cursor - this.scrollX;
+    const cells = headOf(tailFrom(line, this.scrollX), room) + RESET;
+    const left = this.scrollX > 0, right = this.scrollX < last, mark = (m: string) => fg(C.dark) + m + RESET;
+    const body = headOf(left ? tailFrom(cells, 1) : cells, room - (left ? 1 : 0) - (right ? 1 : 0)) + RESET;
+    return [(left ? mark("«") : "") + body + (right ? mark("»") : "")];
+  }
+
+  /** The source place under a cell as last drawn: on one row, counted from the first cell shown (every caller's click). */
+  override posAt(x: number, y: number): { row: number; col: number } { return super.posAt(x + this.scrollX, y); }
 
   /** The text with ▌ where the cursor is, uncoloured (a status line's part). */
   plain(): string { return this.text.slice(0, this.col) + INPUT_CURSOR + this.text.slice(this.col); }

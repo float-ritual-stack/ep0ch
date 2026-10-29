@@ -782,6 +782,10 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     expect(await shape()).toBe(layout);
     const peek = await control({ cmd: "peek" });
     expect(JSON.stringify(peek.screen.person)).toContain("typing");
+    // The person saves it: the tests after this one start with nobody typing (an agent's open beside an edit is refused, PIE-1294).
+    b.type("\x13");
+    for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.person.typingIn !== null; i++) await Bun.sleep(100);
+    expect((await control({ cmd: "peek" })).screen.person.typingIn).toBeNull();
     b.send({ t: "detach" });
     await until(() => b.closed, "the detach", 5000);
   }, 60_000);

@@ -702,7 +702,7 @@ const stepSaid = (actor: Actor, desk: DeskApi, words: string) => { desk.ctx.flas
 
 export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   "tune.group.pick": def({
-    summary: "pick a token group heading", keys: [{ keys: "j k ← ↑ ↓ →", does: "pick a group heading" }, { keys: "wheel", does: "the same" }], touches: "tile", replay: "safe",
+    summary: "pick a token group heading", keys: [{ keys: "j k ← ↑ ↓ →", does: "pick a group heading" }, { keys: "wheel", does: "pick a group heading" }], touches: "tile", replay: "safe",
     examples: [{ act: "tune.group.pick group=Header tile=tune", does: "picks the Header heading" }],
     args: { group: { type: "string", about: "the group heading" } },
     run({ group }, { pane, desk }) {

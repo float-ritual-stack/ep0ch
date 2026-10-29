@@ -1,1 +1,1 @@
-Slack [type::virtual-branch] [query::notify.source=slack] [sort::notify.received] [direction::desc]
+Slack [type::virtual-branch] [query::notify.source=slack] [machinery::show] [sort::notify.received] [direction::desc]

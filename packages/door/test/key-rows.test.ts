@@ -41,3 +41,15 @@ test("a line built from an action's keys says them as words, never [object Objec
   expect(new FacetsPane().hint()).not.toContain("[object");
   expect(new FacetsPane().hint()).toContain("[: less");
 });
+
+test("every row of the keys window reads as a whole sentence: the action's own words, then where or when (PIE-1425)", async () => {
+  const { bindings } = await import("../src/surface/key-catalog");
+  const wrong: string[] = [];
+  for (const b of bindings()) {
+    if (b.from !== "action") continue;
+    // A key typed into the power bar (`> share.list`, `^K then macro.record`) isn't a binding of the action: it's the bar's.
+    if ((b.key === ">" && b.does.includes("power bar")) || /^then\s+\S+\.\S/.test(b.does)) wrong.push(`${b.cap} ${b.id}: "${b.does}" is a line typed in the power bar, not a key: write it as a via row`);
+    else if (!b.does.startsWith(b.about)) wrong.push(`${b.cap} ${b.id}: "${b.does}" doesn't start with what ${b.id} does ("${b.about}")`);
+  }
+  expect(wrong).toEqual([]);
+});

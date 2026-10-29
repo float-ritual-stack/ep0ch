@@ -63,7 +63,47 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
       const layout = await app.dispatch.act({ action: "layout.get" }, { kind: "user" }) as { tiles: { name: string; collapsed?: boolean }[] };
       expect(layout.tiles.find(t => t.name === "extra")?.collapsed).toBe(true);
       expect(layout.tiles.find(t => t.name === "notes")?.collapsed).not.toBe(true);
-    } finally { stop(); await board.trash(note.id); }
+    } finally {
+      stop();
+      await board.trash(note.id);
+      // The section's layout is kept: the next test starts with extra open, as a person entering it would.
+      await app.dispatch.act({ action: "tile.collapse", tile: "extra", args: { on: false } }, { kind: "user" }).catch(() => null);
+    }
+  });
+
+  test("a right-click on a button the person sees offers pin to status bar for that button, and presses nothing (PIE-1415)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "status-bar" }, as: "test-agent" });
+    await until(() => screen().includes("[Collapse]"), "the status bar guide");
+    // The [ ] on another button first: the right-click alone decides which one the menu pins.
+    const found = await app.dispatch.act({ action: "elements", tile: "notes" }, { kind: "user" }) as { elements: { n: number; label: string; kind: string }[] };
+    const other = found.elements.find(e => e.kind === "control" && !e.label.includes("Collapse"))!;
+    await app.dispatch.act({ action: "element.select", tile: "notes", args: { n: other.n } }, { kind: "user" });
+    app.flush();
+    const row = h.painted.findIndex((l, i) => i < h.painted.length - 1 && plain(l).includes("[Collapse]")), col = plain(h.painted[row]!).indexOf("[Collapse]") + 2;
+    const ran: string[] = [];
+    const stop = traceActions(a => ran.push(a.name));
+    let note: { id: string } | undefined;
+    try {
+      press({ kind: "mouse", action: "down", button: 2, x: col, y: row });
+      press({ kind: "mouse", action: "up", button: 2, x: col, y: row });
+      // The menu's row, not the guide's sentence about it.
+      const pinRow = (l: string) => /│ +pin to status bar/.test(plain(l));
+      await until(() => { app.flush(); return h.painted.some(pinRow); }, "the tile menu's pin row");
+      expect(ran).not.toContain("button.press");
+      expect(ran).not.toContain("tile.collapse");
+      const at = h.painted.findIndex(pinRow), x = plain(h.painted[at]!).search(/pin to status bar(?=\s*│)/);
+      press({ kind: "mouse", action: "down", button: 0, x, y: at });
+      press({ kind: "mouse", action: "up", button: 0, x, y: at });
+      await untilAsync(async () => !!(note = (await board.byProp("status-bar", "true"))[0]), "the pinned bar note");
+      await untilAsync(async () => (await board.get(note!.id))!.text.includes('label="Collapse"'), "Collapse pinned");
+      expect((await board.get(note!.id))!.text).not.toContain(`label="${other.label.replace(/^\[|\]$/g, "")}"`);
+    } finally {
+      stop();
+      if (note) await board.trash(note.id);
+      // The clicks put the person in the section; the next test moves from the index.
+      S().focus = "index";
+    }
   });
 
   test("the status-bar section's group opens as a menu that folds the extra tile, a typo shows as ! with the rest kept, and a list-item button presses in the guide (PIE-1224, PIE-1227)", async () => {
@@ -77,10 +117,10 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const collapsed = async () => ((await app.dispatch.act({ action: "layout.get" }, { kind: "user" })) as { tiles: { name: string; collapsed?: boolean }[] }).tiles.find(t => t.name === "extra")?.collapsed === true;
     const unfold = () => app.dispatch.act({ action: "tile.collapse", tile: "extra", args: { on: false } }, { kind: "user" });
     try {
-      await until(() => bar().includes("Tiles ▲") && bar().includes("! line 6"), "the group and the skipped line");
+      await until(() => bar().includes("Tiles ▲") && bar().includes("! line 8"), "the group and the skipped line");
       expect(bar()).toContain("ep0ch");
       const rows = (await app.dispatch.act({ action: "status.bar.menu", args: { group: "Tiles" } }, { kind: "agent", id: "test-agent" }) as any).rows;
-      expect(rows.map((r: any) => r.label)).toEqual(["[Fold extra]", expect.any(String)]);
+      expect(rows.map((r: any) => r.label)).toEqual(["[Fold extra]", expect.any(String), "More ▲"]);
       // By mouse: the group's label, then the button's row in its menu.
       press({ kind: "mouse", action: "down", button: 0, x: bar().indexOf("Tiles"), y: 59 });
       await until(() => h.painted.some(l => plain(l).includes("[Fold extra]")), "the group's menu");
@@ -89,6 +129,18 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
       press({ kind: "mouse", action: "up", button: 0, x: col, y: row });
       await untilAsync(collapsed, "Fold extra from the group's menu");
       await unfold();
+      // A group in the group: its menu opens where Tiles's did, not at the left edge (PIE-1415).
+      press({ kind: "mouse", action: "down", button: 0, x: bar().indexOf("Tiles"), y: 59 });
+      await until(() => h.painted.some(l => plain(l).includes("More ▲")), "the group's menu again");
+      const more = h.painted.findIndex(l => plain(l).includes("More ▲")), at = plain(h.painted[more]!).indexOf("More ▲");
+      press({ kind: "mouse", action: "down", button: 0, x: at, y: more });
+      press({ kind: "mouse", action: "up", button: 0, x: at, y: more });
+      expect((await app.dispatch.act({ action: "status.bar.menu", args: { group: "Tiles/More" } }, { kind: "agent", id: "test-agent" }) as any).rows).toHaveLength(1);
+      // Its frame's title says More, standing where the outer menu stood.
+      await until(() => { app.flush(); return h.painted.some(l => /┌─ More /.test(plain(l))); }, "the inner menu");
+      const inner = h.painted.find(l => /┌─ More /.test(plain(l)))!;
+      expect(Math.abs(plain(inner).indexOf("┌─ More") - at)).toBeLessThanOrEqual(4);
+      press({ kind: "esc" });
       // The guide's own list-item button presses in the reader, by act.
       const pressed = await app.dispatch.act({ action: "button.press", tile: "notes", args: { label: "Fold from a list" } }, { kind: "user" });
       await untilAsync(collapsed, `the list-item button in the guide (it answered ${JSON.stringify(pressed)})`);

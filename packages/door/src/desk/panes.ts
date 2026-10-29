@@ -81,6 +81,8 @@ export interface DeskApi {
   editPreviewTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   hasSourcesTile?(r: ReaderPane): boolean;
   sourcesTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
+  /** Reader `r`'s trail in a tile beside it (PIE-1425), or the one already open with the keys back in it; null when the layout can't place one. */
+  trailTile?(r: ReaderPane): Promise<unknown>;
   composerTile?(r: ReaderPane, on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** Reader `r`'s comment tile is open. */
   hasComposerTile?(r: ReaderPane): boolean;
@@ -249,6 +251,8 @@ export interface Pane {
   mouse?(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean;
   /** A right-click at x, y is its own (a program that asked for the mouse, a reader's step box): the tile's menu doesn't open there. */
   ownsRightClick?(x: number, y: number): boolean;
+  /** A right-click at x, y, before its menu opens: what's under it becomes the selection and nothing runs (a reader's button); null when nothing there is. */
+  pointAt?(x: number, y: number, desk: DeskApi): Promise<unknown> | null;
   /** The tile it follows selected `m` (a preview): it shows it. */
   follow?(m: Msg | null, desk: DeskApi): void;
   /** The terminal tile it follows is on file `path` now (nvim changed buffer). */
@@ -536,6 +540,7 @@ export class ReaderPane implements Pane {
       hasWiredPreview: () => !!desk.hasWiredPreview?.(this),
       ...(desk.listPreviewTile ? { hasListPreviewTile: () => !!desk.hasListPreviewTile?.(this), listPreviewTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.listPreviewTile!(this, on, side) } : {}),
       ...(desk.editPreviewTile ? { hasEditPreviewTile: () => !!desk.hasEditPreviewTile?.(this), editPreviewTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.editPreviewTile!(this, on, side) } : {}),
+      ...(desk.trailTile ? { trailTile: () => desk.trailTile!(this) } : {}),
       ...(desk.sourcesTile ? { hasSourcesTile: () => !!desk.hasSourcesTile?.(this), sourcesTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.sourcesTile!(this, on, side) } : {}),
       ...(desk.composerTile ? { composerTile: (on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down") => desk.composerTile!(this, on, keys, side), hasComposerTile: () => !!desk.hasComposerTile?.(this) } : {}),
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
@@ -709,6 +714,7 @@ export class ReaderPane implements Pane {
    * above (with `open` as there); a drag selects text instead, and never copies it.
    */
   ownsRightClick(x: number, y: number): boolean { return this.surface.ownsRightClick(x, y); }
+  pointAt(x: number, y: number, desk: DeskApi): Promise<unknown> | null { return this.surface.pointAt(x, y, this.host(desk)); }
   press(x: number, y: number, desk: DeskApi, shift = false, keepCursor = false) { this.surface.press(x, y, this.host(desk), shift, keepCursor); }
   drag(x: number, y: number, desk: DeskApi) { this.surface.drag(x, y, this.host(desk)); }
   release(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void, focusing = false): boolean {

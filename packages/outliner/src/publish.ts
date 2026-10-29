@@ -453,7 +453,7 @@ nav.crumbs{font:14px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--dim);bor
 nav.crumbs a{color:var(--dim);text-decoration:none;display:inline-block;padding:.45rem 0}
 nav.crumbs a:hover{color:var(--fg)}
 nav.crumbs a.mg-trail{color:var(--fg)}
-section#mg-trail{margin:-.75rem 0 1.25rem}section#mg-trail h2{margin-top:0}
+section#mg-trail{margin:-.75rem 0 1.25rem}section#mg-trail h2{margin-top:0}section#mg-trail a[aria-current] .t{color:var(--fg);font-weight:600}
 main.browse article{overflow-wrap:anywhere}
 section.inside h2{font:600 12px/1.4 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:2.5rem 0 .4rem}
 ul.kids{list-style:none;margin:0;padding:0;border-top:1px solid var(--rule)}
@@ -663,8 +663,9 @@ function notFound(): Response {
  * A plain page of the web client's own (the sign-in page, a refusal): dark, no script, the publisher's style, nothing
  * from the outline. `body` is HTML the caller escaped.
  */
-export function plainPage(title: string, body: string, status = 200, headers: Record<string, string> = {}): Response {
-  return withHeaders(renderedHtml(htmlPage(title, `<article>\n${body}</article>\n`, `<nav class="crumbs">ep0ch</nav>`, { browse: true }), status), headers);
+export function plainPage(title: string, body: string, status = 200, headers: Record<string, string> = {}, home?: string): Response {
+  const crumbs = home ? `<nav class="crumbs"><a href="${escapeHtml(home)}">ep0ch</a></nav>` : `<nav class="crumbs">ep0ch</nav>`;
+  return withHeaders(renderedHtml(htmlPage(title, `<article>\n${body}</article>\n`, crumbs, { browse: true }), status), headers);
 }
 
 export { escapeHtml };
@@ -674,14 +675,16 @@ export { escapeHtml };
  * GET that accepts HTML, becomes `plainPage` with the same words, status and headers (Retry-After, Allow). A
  * fetch from a page's script (no `text/html` in its Accept) keeps the plain words it reads.
  */
-export async function darkError(request: Request, response: Response): Promise<Response> {
+export async function darkError(request: Request, response: Response, home?: string): Promise<Response> {
   const type = response.headers.get("content-type") ?? "text/plain";
   if (response.status < 400 || !type.startsWith("text/plain") || !(request.headers.get("accept") ?? "").includes("text/html")) return response;
   // A HEAD has no body to show; only a GET's page is drawn.
   if (request.method !== "GET") return response;
   const said = (await response.text()).trim() || response.statusText || `Error ${response.status}`;
   const [first = said, ...rest] = said.split("\n");
-  const page = plainPage(first, `<h1>${escapeHtml(first)}</h1>\n${rest.length ? `<p class="dim">${escapeHtml(rest.join(" "))}</p>\n` : ""}`, response.status);
+  // A way back where the page has one (PIE-1418): the outline's first page, or the share's.
+  const back = home ? `<p><a href="${escapeHtml(home)}">← back to the outline</a></p>\n` : "";
+  const page = plainPage(first, `<h1>${escapeHtml(first)}</h1>\n${rest.length ? `<p class="dim">${escapeHtml(rest.join(" "))}</p>\n` : ""}${back}`, response.status, {}, home);
   for (const [name, value] of response.headers) if (name !== "content-type" && name !== "content-length" && name !== "content-security-policy") page.headers.set(name, value);
   return page;
 }
@@ -1152,6 +1155,17 @@ export class Publisher {
     return entry.public ? `${this.publicBase.origin ?? ""}${this.publicBase.basePath}${entry.path}` : undefined;
   }
 
+  /**
+   * Where an error page's way back goes: on the public listener, a share's first page under the mount it was asked at (a
+   * tunnel's at the root), and nothing else (it has no index); on the tailnet, the index.
+   */
+  private homeOf(request: Request, audience: PublishAudience): string | undefined {
+    const base = this.basePathFor(audience), path = new URL(request.url).pathname;
+    if (audience !== "public") return `${base}/`;
+    const mount = base && path.startsWith(`${base}/`) ? base : "", shared = SHARE_PATH.exec(path.slice(mount.length));
+    return shared ? `${mount}/s/${shared[1]}/` : undefined;
+  }
+
   private basePathFor(audience: PublishAudience): string {
     return audience === "public" ? this.publicBase.basePath : this.basePath;
   }
@@ -1162,7 +1176,7 @@ export class Publisher {
    * sees only public notes and takes no writes.
    */
   async handle(request: Request, audience: PublishAudience = "tailnet", tunnel?: string, signedIn?: SignedIn): Promise<Response> {
-    const response = await darkError(request, await this.reading.run({ owner: !!signedIn && audience === "tailnet" && tunnel === undefined }, () => this.answer(request, audience, tunnel, signedIn)));
+    const response = await darkError(request, await this.reading.run({ owner: !!signedIn && audience === "tailnet" && tunnel === undefined }, () => this.answer(request, audience, tunnel, signedIn)), this.homeOf(request, audience));
     return audience === "public" ? withHeaders(response, PUBLIC_HEADERS) : response;
   }
 

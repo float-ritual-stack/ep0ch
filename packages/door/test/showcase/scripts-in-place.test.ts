@@ -119,10 +119,11 @@ describe.skipIf(!outliner)("the showcase screen: scripts in place", () => {
         await app.dispatch.act({ action: "ext.undo", tile: "notes" }, USER);
         expect([await collapsed("links"), await collapsed("preview")]).toEqual([false, false]);
       }
-      const refused = await press("Refused");
-      expect(refused.problem).toContain("Step 1");
-      expect(refused.result.rows).toBe(1);
-      expect(refused.problem).toContain("missing");
+      // Its first step names no tile here: refused before anything runs, in plain words (PIE-1418), and nothing folds.
+      const before = new Set(app.describe().messages.map(r => r.id));
+      await app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Refused" } }, USER).catch(() => {});
+      expect(app.describe().messages.filter(r => !before.has(r.id)).map(r => r.message).join("\n")).toContain("Refused can't run here: no tile is called missing");
+      expect(await collapsed("links")).toBe(false);
       expect(await collapsed("links")).toBe(false);
       const partial = await press("Partial");
       expect(partial.problem).toContain("Step 3");

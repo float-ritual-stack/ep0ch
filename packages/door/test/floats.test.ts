@@ -171,11 +171,11 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
     await mine("tile.focus", {}, "reader");
     key(char("e"));
     await until(() => !!D().personIn()?.editing, "the person editing");
-    await refused(act("tile.dock", { on: true }, "reader"), /where the person is typing; an agent doesn't move it/);
-    await refused(act("layout.move", { where: "edge-left" }, "reader"), /where the person is typing/);
+    await refused(act("tile.dock", { on: true }, "reader"), /the person is typing in reader; an agent doesn't move it/);
+    await refused(act("layout.move", { where: "edge-left" }, "reader"), /the person is typing in reader/);
     expect(D().layoutGet().tiles.find((t: any) => t.name === "reader").dock).toBeUndefined();
-    await act("layout.move", { where: "edge-left" }, "activity");
-    expect(treeNames()[0]).toBe("activity");
+    // Another tile moves, unless the move would narrow theirs (PIE-1294): along the left edge it would.
+    await refused(act("layout.move", { where: "edge-left" }, "activity"), /the person is typing in reader; an agent doesn't resize it/);
     expect(get().focus).toBe("reader");
     key({ kind: "esc" });
     // The person's lock is theirs, through the socket too.

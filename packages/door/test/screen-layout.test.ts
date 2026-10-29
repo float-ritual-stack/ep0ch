@@ -322,26 +322,28 @@ describe("agents never take the person's place (C3, C4)", () => {
 
   test("C3: an agent never pins, moves, floats or places the tile the person is typing in; the person can", () => {
     const s = fresh();
-    no(s, { op: "pin", tile: 2, on: false }, /reader is where the person is typing; an agent doesn't move it/, AGENT, typing);
-    no(s, { op: "pin", tile: 2, on: false, edge: "left" }, /where the person is typing/, AGENT, typing);
-    no(s, { op: "move", tile: 2, to: { kind: "edge", dir: "left" } }, /where the person is typing/, AGENT, typing);
+    no(s, { op: "pin", tile: 2, on: false }, /the person is typing in reader; an agent doesn't move it/, AGENT, typing);
+    no(s, { op: "pin", tile: 2, on: false, edge: "left" }, /the person is typing in /, AGENT, typing);
+    no(s, { op: "move", tile: 2, to: { kind: "edge", dir: "left" } }, /the person is typing in /, AGENT, typing);
     no(s, { op: "float", tile: 2 }, /an agent doesn't float it/, AGENT, typing);
-    no(s, { op: "swap", tile: 3, with: 2 }, /where the person is typing/, AGENT, typing);
+    no(s, { op: "swap", tile: 3, with: 2 }, /the person is typing in /, AGENT, typing);
     const f = withFloat(s, 2);
-    no(f, { op: "place", tile: 2, dx: 4 }, /where the person is typing/, AGENT, typing);
+    no(f, { op: "place", tile: 2, dx: 4 }, /the person is typing in /, AGENT, typing);
     expect(ok(s, { op: "pin", tile: 2, on: false }, PERSON, typing).state).toBeTruthy();
-    // Another tile, the agent may move: the person's keys stay where they are.
-    const r = ok(s, { op: "move", tile: 4, to: { kind: "edge", dir: "left" } }, AGENT, typing);
+    // Another tile, the agent may move where it leaves their tile's size alone: the person's keys stay where they are.
+    const r = ok(s, { op: "move", tile: 3, to: { kind: "split", target: 4, dir: "down" } }, AGENT, typing);
     expect(r.focus).toBe(2);
+    // A move that would narrow their tile (a tile put along the left edge) is refused, as a resize is (PIE-1294).
+    no(s, { op: "move", tile: 4, to: { kind: "edge", dir: "left" } }, /^the person is typing in reader; an agent doesn't resize it/, AGENT, typing);
   });
 
   test("an agent never resizes the tile the person is typing in: a border, a split's shares, a grow, evening out (round 3, C4)", () => {
     const s = fresh();
-    no(s, { op: "resize", path: "", border: 0, share: 0.4 }, /reader is where the person is typing; an agent doesn't resize it/, AGENT, typing);
-    no(s, { op: "resize", path: "", border: 1, share: 0.4 }, /where the person is typing; an agent doesn't resize it/, AGENT, typing);
-    no(s, { op: "shares", split: "s1", shares: [1, 1, 1] }, /where the person is typing/, AGENT, typing);
-    no(s, { op: "grow", tile: 1, axis: "row", by: 2 }, /where the person is typing/, AGENT, typing);
-    no(s, { op: "even" }, /where the person is typing/, AGENT, typing);
+    no(s, { op: "resize", path: "", border: 0, share: 0.4 }, /the person is typing in reader; an agent doesn't resize it/, AGENT, typing);
+    no(s, { op: "resize", path: "", border: 1, share: 0.4 }, /the person is typing in reader; an agent doesn't resize it/, AGENT, typing);
+    no(s, { op: "shares", split: "s1", shares: [1, 1, 1] }, /the person is typing in /, AGENT, typing);
+    no(s, { op: "grow", tile: 1, axis: "row", by: 2 }, /the person is typing in /, AGENT, typing);
+    no(s, { op: "even" }, /the person is typing in /, AGENT, typing);
     // Yolo hands agents the keys too (Evan, Oct 22): the typing guard lifts.
     expect(ok(s, { op: "even" }, AGENT, { ...typing, yolo: true }).state).toBeTruthy();
     // A border that leaves their tile's size alone (thread over activity), the agent may move; the person may move any.
@@ -352,7 +354,48 @@ describe("agents never take the person's place (C3, C4)", () => {
     // at any share, though thread's cells may round by one as the screen re-lays out.
     const inThread: Partial<Person> = { focus: 3, typingIn: 3, busy: true };
     for (let x = 10; x <= 90; x++) expect({ x, ok: apply(s, { op: "resize", path: "", border: 0, share: x / 100 }, ctxOf(AGENT, inThread)).ok }).toEqual({ x, ok: true });
-    no(s, { op: "resize", path: "", border: 1, share: 0.4 }, /thread is where the person is typing; an agent doesn't resize it/, AGENT, inThread);
+    no(s, { op: "resize", path: "", border: 1, share: 0.4 }, /the person is typing in thread; an agent doesn't resize it/, AGENT, inThread);
+  });
+
+  // PIE-1294, seen in use Oct 29: an agent's tile.open (a split beside the focused tile) and its open naming no tile
+  // took Evan's 44-column edit tile to about 21. At his four-reader desk (177 columns) his tile keeps its rect.
+  test("an agent's open never resizes the tile the person is typing in: a new tile, a note's landing (PIE-1294)", () => {
+    const desk = new Map([[1, "r1"], [2, "r2"], [3, "r3"], [4, "r4"]]);
+    const four = () => init({ tree: splitOf("row", [leaf(1), leaf(2), leaf(3), leaf(4)]), names: desk });
+    const area: Rect = { col: 0, row: 0, cols: 177, rows: 60 };
+    const inR1: Partial<Person> = { focus: 1, typingIn: 1, busy: true };
+    const run = (s: LayoutState, op: Op, actor: Actor = AGENT) => apply(s, op, ctxOf(actor, inR1, area));
+    // Where it is on screen, in cells: never narrowed, and never shifted along by a spine kept left of it.
+    const r1 = (s: LayoutState) => place(s, area).rects.get(1);
+    const s = four();
+    const before = r1(s);
+    // tile.open beside the tile with the keys: refused in the owner's words, nothing changed.
+    const split = run(s, { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 1, dir: "right" } });
+    expect(split.ok ? "opened" : split.refused).toMatch(/^the person is typing in r1; an agent doesn't resize it/);
+    // Beside another tile it opens, and r1 is as it was.
+    const beside = run(s, { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 3, dir: "right" } });
+    expect(beside.ok && r1(beside.state)).toEqual(before);
+    // An open naming no tile while r1 holds the edit and every other reader holds a note: it lands beside another, never r1.
+    const reader = { kind: "reader", notes: true };
+    extra = { 1: { ...reader, editing: "an edit", showing: "a" }, 2: { ...reader, held: true, showing: "b" }, 3: { ...reader, held: true, showing: "c" }, 4: { ...reader, held: true, showing: "d" } };
+    for (const placement of [{ from: 1, note: "n", default: true }, { from: 1, note: "n" }]) {
+      const r = run(s, { op: "open", tile: 9, placement });
+      if (!r.ok) throw new Error(`refused: ${r.refused}`);
+      expect(r1(r.state)).toEqual(before);
+      expect(leaves(r.state.tree)).toContain(9);
+    }
+    // The person's own open from the tile they type in still opens beside it, as before.
+    const own = run(s, { op: "open", tile: 9, placement: { from: 1, note: "n" } }, PERSON);
+    expect(own.ok && place(own.state, area).rects.get(9)).toBeTruthy();
+    // Neat's folds (seen on the walk): folding the readers beside it would widen it from 44 to 81; refused, said once.
+    const fold = run(s, { op: "collapse", tile: 2, on: true, dir: "v" });
+    expect(fold.ok ? "folded" : fold.refused).toMatch(/^the person is typing in r1; an agent doesn't resize it/);
+    // With no other tile to go beside, an agent's open is refused in the same words.
+    extra = { 1: { ...reader, editing: "an edit", showing: "a" } };
+    const alone = init({ tree: leaf(1), names: new Map([[1, "r1"]]) });
+    const none = run(alone, { op: "open", tile: 9, placement: { from: 1, note: "n", default: true } });
+    expect(none.ok ? "opened" : none.refused).toMatch(/^the person is typing in r1; an agent doesn't /);
+    extra = {};
   });
 
   test("C4: an agent undoes only a lock it set; the person's are theirs, by lock, by policy, by loading a layout", () => {
@@ -713,7 +756,7 @@ describe("a float and a dock, one step each way (Evan, Oct 3)", () => {
     // A float leaves too.
     expect(floated(ok(withFloat(s, 2), { op: "take", tile: 2 }).state)).toEqual([]);
     // Never the tile the person types in (an agent), the one with their keys (an agent), the last, or a locked shape.
-    no(s, { op: "take", tile: 3 }, /where the person is typing/, AGENT, { focus: 2, typingIn: 3 });
+    no(s, { op: "take", tile: 3 }, /the person is typing in /, AGENT, { focus: 2, typingIn: 3 });
     no(s, { op: "take", tile: 2 }, /has the person's keys/, AGENT, { focus: 2 });
     no(init({ tree: leaf(2), names: NAMES }), { op: "take", tile: 2 }, /last tile/);
     no(ok(s, { op: "lock", on: true }).state, { op: "take", tile: 3 }, /locked/);
@@ -744,7 +787,7 @@ describe("replace: a new tile in another's place (PIE-565, the blank tile's rows
     extra = { 2: { placeholder: true } };
     const r = ok(fresh(), { op: "replace", tile: 2, with: 9, kind: "tree" }, AGENT);
     expect(r.focus).toBe(9);
-    no(fresh(), { op: "replace", tile: 2, with: 9, kind: "tree" }, /where the person is typing/, AGENT, { typingIn: 2 });
+    no(fresh(), { op: "replace", tile: 2, with: 9, kind: "tree" }, /the person is typing in /, AGENT, { typingIn: 2 });
     extra = {};
   });
 });

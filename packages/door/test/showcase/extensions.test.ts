@@ -271,7 +271,9 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     const rows = screen().split("\n"), y = rows.findIndex(row => row.includes("│ book *"));
     const start = rows[y]!.indexOf("│", rows[y]!.indexOf("book *")) + 1;
     const shown = rows[y]!.slice(start, rows[y]!.indexOf("│", start)).trimEnd();
-    const from = answer.indexOf(shown.slice(0, 8));
+    // A box scrolled sideways starts with « (PIE-1418): the answer's text is drawn from the cell after it.
+    const lead = shown.startsWith("«") ? 1 : 0;
+    const from = answer.indexOf(shown.slice(lead, lead + 8)) - lead;
     expect(from).toBeGreaterThanOrEqual(0);
     const x = start + 2;
     press({ kind: "mouse", action: "down", button: 0, x, y });

@@ -23,7 +23,7 @@ import { TXN, takeReserved } from "./txn";
 import type { KeyBinding } from "../desk/screen-spec";
 import { Offline, USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
-import { NOBODY, SHELL_IDLE_MS, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
+import { heldBack, NOBODY, SHELL_IDLE_MS, typingIn, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
 import { agentRefusal, type AgentLevel } from "./agent-level";
 import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, chordName, declaredKeys, isKeyName, keyCaption, type ActionDef, type Keys, type KeyRow, type ActionInfo, type Touches, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
@@ -244,12 +244,13 @@ export function stepRule(touches: "tile" | "screen", actor: Actor, where: Wherea
 
 /**
  * What a layout context reads of who acts (the desk's and the host layer's each build one): whether `actor` stands as the
- * person for the layout's shape, whether the person's typing is protected from it, and why a screen move is held now.
- * The one answer (PIE-1294), so the two contexts can't drift apart.
+ * person for the layout's shape, whether the person's typing is protected from it, and why a screen move is held now
+ * (`held`, given what the step would do: "shut the dock they have"). The one answer (PIE-1294), so the two contexts
+ * can't drift apart.
  */
-export function layoutStanding(actor: Actor, where: Whereabouts, o: { host?: true; action?: string } = {}): { standing: boolean; protectTyping: boolean; held: string | null } {
+export function layoutStanding(actor: Actor, where: Whereabouts, o: { host?: true; action?: string } = {}): { standing: boolean; protectTyping: boolean; held: (what: string) => string | null } {
   const standing = standsAsPerson(actor, where, "shape");
-  return { standing, protectTyping: actor.kind === "agent" && !standing, held: actorRule({ touches: "screen", ...(o.host ? { host: true as const } : {}) }, actor, where, o.action ? { action: o.action } : {}) };
+  return { standing, protectTyping: actor.kind === "agent" && !standing, held: what => actorRule({ touches: "screen", ...(o.host ? { host: true as const } : {}) }, actor, where, { what, ...(o.action ? { action: o.action } : {}) }) };
 }
 
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */
@@ -264,6 +265,8 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   invited?: boolean;
   /** The action asked for, by name: a press's invitation lifts a hold on navigation for layout and tile actions only, never for leaving the section. */
   action?: string;
+  /** What a held screen move would have done, as its refusal says it ("shut the dock they have"). */
+  what?: string;
 }): string | null {
   if (actor.kind !== "agent") return null;
   // The person's alone: nothing lifts it, an invitation or yolo (ActionDef.personAlways).
@@ -289,9 +292,9 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       // whose the draft is), unless they invited it (their `@name` line: the draft rule checks the invitation).
       const t = at.tile;
       if ((def.draft === "replace" || def.draft === "text") && !at.invited && t && where.typingIn === t.name) {
-        return `the person is typing in ${t.label ?? t.name}; an agent doesn't replace their text · ${def.draft === "replace" ? "draft.patch lands in their draft, or comment on the note or block.mark it to get their attention" : "block.mark gets their attention, or wait until it's sent or closed"}`;
+        return typingIn(t.label ?? t.name, "replace their text", def.draft === "replace" ? "draft.patch lands in their draft, or comment on the note or block.mark it to get their attention" : "block.mark gets their attention, or wait until it's sent or closed");
       }
-      if (standing && t && where.typingIn === t.name) return `the person is typing in ${t.label ?? t.name}; an agent does not change or close their draft`;
+      if (standing && t && where.typingIn === t.name) return typingIn(t.label ?? t.name, "change or close their draft");
       return standing ? null : at.draft?.() ?? null;
     }
     case "tile": {
@@ -301,17 +304,19 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       const typing = where.typingIn === t.name;
       const theirs = def.while === "typing" ? typing : typing || (!standing && where.focus === t.name);
       if (!theirs) return null;
-      return `${typing ? `the person is typing in ${label}` : `${label} has the person's keys`}; ${def.way ?? "an agent doesn't act there (block.mark gets their attention)"}`;
+      const why = typing ? `the person is typing in ${label}` : `${label} has the person's keys`;
+      return def.way ? `${why}; ${def.way}` : heldBack(why, "act there");
     }
     case "screen": {
-      if (where.away) return `${where.away}; not moved`;
+      const what = at.what ?? "move the screen or their keys now";
+      if (where.away) return heldBack(where.away, what, null);
       // Typing in the drawer (the host layer) is never in the way of a screen change: the drawer stays over every
       // screen, so the person's text and keys stay where they are (Evan, Oct 17: "typing in the chat door shouldn't be
       // a hard block on being able to move other parts of the screen"). An action that changes the drawer itself
       // (`host`, putting it away) still waits for them.
       if (where.keys === "host" && !def.host) return null;
       // (A hold on navigation only, as the showcase's sections, is lifted by an invitation too.)
-      if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && standing)) return `${where.why ?? "the person is typing"}; not moved`;
+      if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && standing)) return heldBack(where.why ?? "the person is typing", what);
       if (standing) return null;
       if (where.idle < SHELL_IDLE_MS) return `the person is at the keys (last key ${(where.idle / 1000).toFixed(1)}s ago); try again once they've been idle ${SHELL_IDLE_MS / 1000}s`;
       return null;
@@ -757,7 +762,7 @@ export class Dispatcher {
     if (personOnly) throw new ActionRefused(personOnly);
     const tiles = this.tilesNow();
     const at = this.target(reg, def, req, actor, tiles);
-    const args = this.tileArgs(reg.set.argsOf(req.action) ?? {}, req.args ?? {}, tiles);
+    const args = this.tileArgs(reg.set.argsOf(req.action) ?? {}, req.args ?? {}, tiles, actor);
     // What the def sees: coerced from the wire (`locked=true` is true, not "true").
     const seen = reg.set.defArgs(req.action, args, typed);
     const no = this.refusal(reg, def, req.action, at, args, seen, actor);
@@ -917,7 +922,7 @@ export class Dispatcher {
   }
 
   /** Arguments that name a tile (`to=`), read with `tile=`'s grammar: the action gets the tile's name. */
-  private tileArgs(spec: Record<string, ArgSpec>, raw: Record<string, unknown>, tiles: TileRef[]): Record<string, unknown> {
+  private tileArgs(spec: Record<string, ArgSpec>, raw: Record<string, unknown>, tiles: TileRef[], actor: Actor): Record<string, unknown> {
     const out = { ...raw };
     for (const [k, s] of Object.entries(spec)) {
       if (s.kind !== "tile" || typeof out[k] !== "string" || s.choices?.includes(out[k] as string) || !tiles.length) continue;
@@ -925,7 +930,7 @@ export class Dispatcher {
       if (resolved) { out[k] = resolved.tile.id ?? resolved.tile.name; continue; }
       if (isTilePath(String(out[k]))) continue;
       const hit = this.named(String(out[k]), tiles);
-      if (!hit) throw this.noTile(String(out[k]), tiles);
+      if (!hit) throw this.noTile(String(out[k]), tiles, actor);
       out[k] = hit.t.name;
     }
     return out;
@@ -933,11 +938,15 @@ export class Dispatcher {
 
   /**
    * The refusal for a `tile=` that names nothing: the host layer's reason when it has one (`drawer.agent` with its program
-   * closed names what to run), else the tiles this screen has.
+   * closed names what to run), else the tiles this screen has: to an agent with their ids and numbers, to the person by
+   * the names they see, and to a run their press invited, whose words they hear (PIE-1418: a button pressed in the river
+   * said `#1 library (t-…)`).
    */
-  private noTile(sel: string, tiles: TileRef[]): ActionRefused {
+  private noTile(sel: string, tiles: TileRef[], actor?: Actor): ActionRefused {
     const why = this.host.ctx()?.hostLayer?.unnamed?.(sel);
-    return new ActionRefused(why ? `no tile ${sel}: ${why}` : `no tile ${sel} on the ${this.host.title}; ${this.which(tiles)}`);
+    if (why) return new ActionRefused(`no tile ${sel}: ${why}`);
+    if (actor?.kind === "user" || actor?.invitation) return new ActionRefused(`no tile is called ${sel} on the ${this.host.title}${tiles.length ? `; its tiles: ${[...new Set(tiles.map(t => t.name))].join(", ")}` : ""}`);
+    return new ActionRefused(`no tile ${sel} on the ${this.host.title}; ${this.which(tiles)}`);
   }
 
   /** Where a request runs: the tile `tile=` names (one grammar), a place word, or the action's own default. */
@@ -954,7 +963,7 @@ export class Dispatcher {
       if (sel === "focused") return focused ? { tile: focused, name: focused.name } : { name: sel };
       if (!tiles.length) return { name: sel };
       const hit = this.named(sel, tiles) ?? this.byBlock(sel, tiles, actor);
-      if (!hit) throw this.noTile(sel, tiles);
+      if (!hit) throw this.noTile(sel, tiles, actor);
       return { tile: hit.t, name: hit.t.name };
     }
     // takes: "tile"
@@ -973,7 +982,7 @@ export class Dispatcher {
         const other = this.named(sel, tiles);
         if (other) throw new ActionRefused(`${other.t.name} is ${kindNoun(other.t)}: ${req.action} is for ${noun(req.action)}${can.length ? `; here: ${can.map(t => t.name).join(", ")}` : ""}`);
         if (BLOCK.test(sel)) throw new ActionRefused(`no ${noun(req.action).replace(/^an? /, "")} shows ${sel}; open it first (open id=${sel})`);
-        throw this.noTile(sel, can.length ? can : tiles);
+        throw this.noTile(sel, can.length ? can : tiles, actor);
       }
     }
     const t = hit.t;

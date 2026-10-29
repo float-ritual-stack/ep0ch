@@ -15,7 +15,7 @@ import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import { calloutBlocks, quoteDepth } from "@ep0ch/outline-core/callouts";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { headerLine } from "@ep0ch/outline-core/header-line";
-import { asksEvan, FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
+import { asksAt, FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
 import { chipValue } from "./records";
@@ -224,7 +224,9 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
           // One kit nudge a section (its key names the section, not the component): a rewrite that makes Jev name another
           // component is the same nudge, carried, not a new one each write.
           ...base, rule: "kit", rubric: "format", key: `kit:${clip(s.heading, 24)}`, component: schema.id,
-          say: `${where} reads as a ${(schema.title.replace(/\s*\(.*$/, "").trim() || schema.id).toLowerCase()}: ${name ? `::${name}` : schema.id} would show it (${componentGist(schema)}); ${patch ? "the patch draws it" : `if it fits, outline_components ${schema.id} gives its properties and an example`}`,
+          // Named as it's written: a `::` component by its line, one with none (a callout, a table) by its id in words.
+          // What to do first, what the component is after: a 44-column page cuts the end (PIE-1419).
+          say: `${where} would read better as ${name ? `::${name}` : `a ${schema.id.replace(/-/g, " ")}`}: ${patch ? "the patch draws it" : `if it fits, outline_components ${schema.id} gives its properties and an example`} (${componentGist(schema)})`,
           ...(patch ? { patch } : { advice: true as const }),
         });
       }
@@ -295,10 +297,10 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   const sections = changed.filter(s => s.text.split("\n").filter(l => l.trim()).length >= 1).slice(0, MAX_SECTIONS);
   if (input.jev && input.schemas && (sections.length || asks.length || ask.title)) asked = await askJev(text, sections, asks, input.schemas, ask, o);
   const answers = asked && "answers" in asked ? asked.answers : undefined;
+  // Jev's word on each line it was asked about, read by the threshold; write-shape's asksAt decides what it means.
+  const jevSays = (i: number) => { const n = answers?.[`asks::L${i}`]?.noul; return !unit(n) ? undefined : n >= REVIEW_THRESHOLDS.yes ? "yes" as const : n <= REVIEW_THRESHOLDS.no ? "no" as const : undefined; };
   const judged = answers ? {
-    // Jev's yes where it was asked, and the word heuristic's (Evan named, with a question or a decision word) either way:
-    // a line that names Evan and asks is an ask whatever Jev said (PIE-1402: "Should Evan pick up…?" went unflagged).
-    asks: new Set(lines.flatMap((line, i) => asksEvan(line) || (answers[`asks::L${i}`]?.noul ?? 0) >= REVIEW_THRESHOLDS.yes ? [i] : [])),
+    asks: new Set(lines.flatMap((_, i) => asksAt(lines, i, jevSays(i)) ? [i] : [])),
     ...(unit(answers.title?.noul) ? { titleIsContent: answers.title!.noul! >= REVIEW_THRESHOLDS.yes } : {}),
   } : {};
   const shape = { facets: await input.facets, ...judged };
