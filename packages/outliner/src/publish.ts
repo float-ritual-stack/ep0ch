@@ -452,6 +452,8 @@ main.browse{max-width:42rem;padding:1rem 1rem 6rem}
 nav.crumbs{font:14px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--dim);border-bottom:1px solid var(--rule);padding-bottom:.4rem;margin-bottom:1.25rem;overflow-wrap:anywhere}
 nav.crumbs a{color:var(--dim);text-decoration:none;display:inline-block;padding:.45rem 0}
 nav.crumbs a:hover{color:var(--fg)}
+nav.crumbs a.mg-trail{color:var(--fg)}
+section#mg-trail{margin:-.75rem 0 1.25rem}section#mg-trail h2{margin-top:0}
 main.browse article{overflow-wrap:anywhere}
 section.inside h2{font:600 12px/1.4 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:2.5rem 0 .4rem}
 ul.kids{list-style:none;margin:0;padding:0;border-top:1px solid var(--rule)}
@@ -666,6 +668,23 @@ export function plainPage(title: string, body: string, status = 200, headers: Re
 }
 
 export { escapeHtml };
+
+/**
+ * Every error a browser opens is a dark page (he is photosensitive, PIE-1386): a plain-text answer at 400 or above, to a
+ * GET that accepts HTML, becomes `plainPage` with the same words, status and headers (Retry-After, Allow). A
+ * fetch from a page's script (no `text/html` in its Accept) keeps the plain words it reads.
+ */
+export async function darkError(request: Request, response: Response): Promise<Response> {
+  const type = response.headers.get("content-type") ?? "text/plain";
+  if (response.status < 400 || !type.startsWith("text/plain") || !(request.headers.get("accept") ?? "").includes("text/html")) return response;
+  // A HEAD has no body to show; only a GET's page is drawn.
+  if (request.method !== "GET") return response;
+  const said = (await response.text()).trim() || response.statusText || `Error ${response.status}`;
+  const [first = said, ...rest] = said.split("\n");
+  const page = plainPage(first, `<h1>${escapeHtml(first)}</h1>\n${rest.length ? `<p class="dim">${escapeHtml(rest.join(" "))}</p>\n` : ""}`, response.status);
+  for (const [name, value] of response.headers) if (name !== "content-type" && name !== "content-length" && name !== "content-security-policy") page.headers.set(name, value);
+  return page;
+}
 
 /** A share link that ended: 410, a plain dark page that names nothing from the outline. */
 function shareGone(state: "expired" | "revoked"): Response {
@@ -1143,7 +1162,7 @@ export class Publisher {
    * sees only public notes and takes no writes.
    */
   async handle(request: Request, audience: PublishAudience = "tailnet", tunnel?: string, signedIn?: SignedIn): Promise<Response> {
-    const response = await this.reading.run({ owner: !!signedIn && audience === "tailnet" && tunnel === undefined }, () => this.answer(request, audience, tunnel, signedIn));
+    const response = await darkError(request, await this.reading.run({ owner: !!signedIn && audience === "tailnet" && tunnel === undefined }, () => this.answer(request, audience, tunnel, signedIn)));
     return audience === "public" ? withHeaders(response, PUBLIC_HEADERS) : response;
   }
 
@@ -2858,7 +2877,8 @@ function publishedText(text: string, context: TextContext, options: { keepProper
       if (inCode(start) || (raw.trim() && inCode(start + raw.length - raw.trimStart().length))) return;
       const sentinel = /[\ue000-\uf8ff].*$/s.exec(raw), text = sentinel ? raw.slice(0, sentinel.index) : raw, tail = sentinel?.[0] ?? "";
       const button = text.includes("::button") ? buttonCallAt([text], 0) : null;
-      if (button) { lines[i] = `**${button.label.replace(/[*_`\\[\]]/g, "")}**${tail}`; return; }
+      // In a list item or a quote (PIE-1224) the label keeps the item's marker or the quote's bar.
+      if (button) { lines[i] = `${button.prefix ?? ""}**${button.label.replace(/[*_`\\[\]]/g, "")}**${tail}`; return; }
       if (!text.includes("(act:")) return;
       let out = text;
       const here = (l: { start: number }) => !inCode(start + l.start);

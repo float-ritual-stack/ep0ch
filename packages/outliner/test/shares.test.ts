@@ -332,6 +332,20 @@ test("ttl words, and a token that is only near another opens nothing", () => {
   expect(presence.view("share:0123abcd").journal.map((event) => event.kind)).toEqual(["page", "selection", "page"]);
 });
 
+test("a tab's trail (PIE-208): the notes it opened, newest first, each once, never another tab's", () => {
+  const presence = new ReaderPresence();
+  const open = (visitor: string, blockId: string, title: string) => presence.report({ reader: "tailnet", visitor, blockId, title, url: `https://pages.example.test/p/${blockId}` });
+  open("tab-one-aaaa", "seed-a", "Seed list");
+  open("tab-one-aaaa", "shed-b", "Shed");
+  open("tab-two-bbbb", "pond-z", "Pond");
+  presence.report({ reader: "tailnet", visitor: "tab-one-aaaa", blockId: "shed-b", title: "Shed", url: "https://pages.example.test/p/shed-b", selection: { text: "the rake", before: "", after: "" } });
+  open("tab-one-aaaa", "seed-a", "Seed list");
+  const { trail } = open("tab-one-aaaa", "rake-c", "Rake");
+  expect(trail.map((stop) => stop.title)).toEqual(["Rake", "Seed list", "Shed"]);
+  expect(trail[0]).toMatchObject({ blockId: "rake-c" });
+  expect(open("tab-two-bbbb", "pond-z", "Pond").trail.map((stop) => stop.blockId)).toEqual(["pond-z"]);
+});
+
 
 test("snapshot links on the web origin need no session, serve gzip once, and clean up on revoke and expiry", async () => {
   const web = new OutlinePublishers({ home: publisher, homeName: "garden", names: async () => ["garden"], open: () => { throw new Error("home publisher already started"); } });

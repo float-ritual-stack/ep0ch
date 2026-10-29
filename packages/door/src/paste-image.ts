@@ -3,6 +3,7 @@
 // line, `[img::<path>]`, which the reader draws (src/media.ts, outline-core's media-line.ts). The terminal can't hand
 // over an image, so the clipboard is read on this machine: pbpaste's cousins on macOS, wl-paste or xclip on Linux.
 import { createHash } from "node:crypto";
+import { extensionOfBytes } from "@ep0ch/outline-core/file-magic";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, isAbsolute, join } from "node:path";
 import { resolveMediaPath } from "./media";
@@ -83,14 +84,8 @@ export function droppedImage(text: string): string | null {
   try { return statSync(r.path).isFile() ? r.path : null; } catch { return null; }
 }
 
-/** The kind of picture `b` is, by its first bytes: its file extension. */
-function extOf(b: Buffer): string {
-  if (b[0] === 0x89 && b[1] === 0x50) return ".png";
-  if (b[0] === 0xff && b[1] === 0xd8) return ".jpg";
-  if (b.subarray(0, 3).toString("latin1") === "GIF") return ".gif";
-  if (b.subarray(8, 12).toString("latin1") === "WEBP") return ".webp";
-  return ".png";
-}
+/** The kind of picture `b` is, by its first bytes: its file extension (a PNG when they say none). */
+const extOf = (b: Buffer): string => extensionOfBytes(b) ?? ".png";
 
 /**
  * `image` (its bytes, or a file to copy) kept in the outline's folder `folder`, under `media/`, named by its day and

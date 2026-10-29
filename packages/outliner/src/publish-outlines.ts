@@ -5,7 +5,7 @@
 // reach their named outline here, without granting page reads. Another machine's outline is at
 // `/pub/o/<name>@<machine>/`, read live through that machine's forward or from its copy here (publish-remote.ts).
 import { isOutlineName } from "./paths";
-import { escapeHtml, plainPage, type Publisher, type PublishAudience, type SignedIn } from "./publish";
+import { darkError, escapeHtml, plainPage, type Publisher, type PublishAudience, type SignedIn } from "./publish";
 import type { RemoteOutline } from "./publish-remote";
 
 export interface OutlinePublishersOptions {
@@ -36,8 +36,12 @@ export class OutlinePublishers {
     return this.options.home.webRoot;
   }
 
-  /** One request: an outline's own publisher below `/o/<name>`, the outlines' list at `/o/`, else the home outline. */
+  /** One request: an outline's own publisher below `/o/<name>`, the outlines' list at `/o/`, else the home outline; an error a browser opens is a dark page. */
   async handle(request: Request, audience: PublishAudience = "tailnet", signedIn?: SignedIn): Promise<Response> {
+    return darkError(request, await this.route(request, audience, signedIn));
+  }
+
+  private async route(request: Request, audience: PublishAudience, signedIn?: SignedIn): Promise<Response> {
     if (audience === "public") {
       if (!this.options.home.hostAllowed(request.headers.get("host") ?? new URL(request.url).host, audience)) {
         return new Response("Host not allowed\n", { status: 421 });

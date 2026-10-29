@@ -66,6 +66,40 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     } finally { stop(); await board.trash(note.id); }
   });
 
+  test("the status-bar section's group opens as a menu that folds the extra tile, a typo shows as ! with the rest kept, and a list-item button presses in the guide (PIE-1224, PIE-1227)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "status-bar" }, as: "test-agent" });
+    await until(() => screen().includes("[Fold from a list]"), "the list-item button in the guide");
+    const guide = seeded.notes.statusBar.text.split("\n");
+    const example = guide.slice(guide.indexOf("```text") + 1, guide.lastIndexOf("```")).join("\n");
+    const note = await board.createBlock(null, example);
+    const bar = () => { app.flush(); return plain(h.painted.at(-1)!); };
+    const collapsed = async () => ((await app.dispatch.act({ action: "layout.get" }, { kind: "user" })) as { tiles: { name: string; collapsed?: boolean }[] }).tiles.find(t => t.name === "extra")?.collapsed === true;
+    const unfold = () => app.dispatch.act({ action: "tile.collapse", tile: "extra", args: { on: false } }, { kind: "user" });
+    try {
+      await until(() => bar().includes("Tiles ▲") && bar().includes("! line 6"), "the group and the skipped line");
+      expect(bar()).toContain("ep0ch");
+      const rows = (await app.dispatch.act({ action: "status.bar.menu", args: { group: "Tiles" } }, { kind: "agent", id: "test-agent" }) as any).rows;
+      expect(rows.map((r: any) => r.label)).toEqual(["[Fold extra]", expect.any(String)]);
+      // By mouse: the group's label, then the button's row in its menu.
+      press({ kind: "mouse", action: "down", button: 0, x: bar().indexOf("Tiles"), y: 59 });
+      await until(() => h.painted.some(l => plain(l).includes("[Fold extra]")), "the group's menu");
+      const row = h.painted.findIndex(l => plain(l).includes("[Fold extra]")), col = plain(h.painted[row]!).indexOf("[Fold extra]");
+      press({ kind: "mouse", action: "down", button: 0, x: col, y: row });
+      press({ kind: "mouse", action: "up", button: 0, x: col, y: row });
+      await untilAsync(collapsed, "Fold extra from the group's menu");
+      await unfold();
+      // The guide's own list-item button presses in the reader, by act.
+      await app.dispatch.act({ action: "button.press", tile: "notes", args: { label: "Fold from a list" } }, { kind: "user" });
+      await untilAsync(collapsed, "the list-item button in the guide");
+      await unfold();
+    } finally {
+      await board.trash(note.id);
+      // The clicks put the person in the section; the next test moves from the index.
+      S().focus = "index";
+    }
+  });
+
   test("the terminal showcase paints its program's browser link beside the notebook", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "terminal" }, as: "test-agent" });
