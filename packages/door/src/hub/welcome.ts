@@ -436,8 +436,8 @@ export class WelcomeList implements Pane {
   /** A press on the band: a tab reads its note, "… more" goes to the list, the logo is the next logo. */
   pressBand(x: number, y: number, desk: DeskApi) {
     const t = this.hits.find(h => y >= h.y0 && y <= h.y1 && x >= h.from && x < h.to);
-    // "… more" gives the list the keys, as a click on the list does (not an action yet: the band has no tile to name).
-    if (t?.action === "tile.focus") { desk.focusPane?.(this, USER); desk.redraw(); }
+    // "… more" gives the list the keys: tile.focus on its own tile, as a click on the list does.
+    if (t?.action === "tile.focus") void desk.ctx.dispatch?.press(t.action, {}, desk.nameOfPane?.(this));
     else if (t) void desk.press?.(this, WELCOME_ACTIONS, t.action, t.args ?? {});
   }
 
