@@ -44,7 +44,8 @@ will and find where it's wrong.
 
 - **Start from the purpose, not the code:** what is this for, in Evan's day? Use it for that, cold, before reading the
   diff. If you can't tell how he'd find it (a key, a menu row, a hint, the power bar), that's a finding.
-- **Use it his ways:** mouse and keys both; at 40 columns and at a full desk; inside a group, a mount and the drawer;
+- **Use it his ways:** mouse and keys both; in his daily shape, a 177-column desk with four tiles 43–44 columns wide
+  and 9–13 rows tall (read from his door, Oct 29), and at 40 columns; inside a group, a mount and the drawer;
   on the web page if it has one; with a realistic amount of content (`ep0ch try --copy` gives real shapes; never copy
   content out).
 - **Look at the screen:** capture it (`tmux capture-pane`, `snap` PNG) and read it as he would: is it readable at a
