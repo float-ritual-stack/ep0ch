@@ -656,8 +656,8 @@ function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
     id: b.name, title: b.title, prefix, by: b.extension, asks: true,
     about: `${b.description ?? b.title} (extension ${b.extension})`,
     main: { empty: b.main, typed: b.main, most: 6 },
-    async rows(q, host) {
-      const r = await host.ctx.board.barRows(b.extension, b.id, q, { near: host.near() ?? undefined });
+    async rows(q, host, _scope, signal) {
+      const r = await host.ctx.board.barRows(b.extension, b.id, q, { near: host.near() ?? undefined, signal });
       return r.rows.map(row => ({ key: oneLine(row.id), label: oneLine(row.label), ...(row.detail ? { detail: oneLine(row.detail) } : {}), data: row }));
     },
     preview(row) {
