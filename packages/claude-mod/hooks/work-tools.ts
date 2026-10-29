@@ -71,7 +71,8 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
     example: {"title": "Show the weather on the home screen", "project": "ep0ch", "arc": "door", "priority": "medium", "tracks": ["door"]},
     description:
       "Create a roadmap item under the project's work queue with a newly allocated Work ID. Returns the Work ID, " +
-      'block reference and revision. New work defaults to unprioritized; pass stage only when it was agreed.',
+      'block reference and revision. New work defaults to unprioritized; pass stage only when it was agreed. The body says ' +
+      'what Evan will open and do when it is done: the answer\'s `review` says fix when it doesn\'t.',
     inputSchema: schema({
       title: { type: 'string', description: 'Concise outcome, without a Work ID or property tokens' },
       project: { type: 'string' },
@@ -201,7 +202,8 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       'Accept the roadmap item `ref` with linked proof. Every incomplete delivery must be covered: name them in deliveries ' +
       'or set allMerged; each must be merged. If another delivery is still incomplete the call is refused, naming it ' +
       'and how to finish it. The proof is added as a child block (or an existing linked proof block is used), the ' +
-      'covered deliveries become complete and the item done.',
+      'covered deliveries become complete and the item done. Proof is the app driven by an agent that didn\'t build it, ' +
+      'not tests alone: the answer\'s `review` says fix when the proof names only tests.',
     inputSchema: schema({
       ref: ITEM,
       deliveries: {

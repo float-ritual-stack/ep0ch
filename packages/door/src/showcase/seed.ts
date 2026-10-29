@@ -23,11 +23,31 @@ import { WELCOME_VIEW_TEXT } from "../hub/welcome";
 import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, PROGRAM_EXAMPLES, RULE_EXAMPLES, SOURCE_EXAMPLES, VIEW_EXAMPLES } from "./tickets/install";
 
 import { SEED, SEED_AGENT, SHOWCASE_MARK, type SeedName, WORK_PREFIX } from "./seed/names";
+
+/** The outliner's review, loaded by name: its sources are the outliner's to type-check (as mcp-write loads agent-tools). */
+interface WriteReviewModule {
+  outlineFacets(client: unknown): Promise<unknown[]>;
+  reviewWrite(input: { text: string; id: string; schemas: unknown; facets: unknown[]; jev: boolean }): Promise<{ review: unknown }>;
+}
+const WRITE_REVIEW_MODULE = "@ep0ch/outliner/write-review";
+
+/** A note reviewed as an agent's write is, and the review kept (`suggestions.keep`): returns the suggestions page it made. */
+async function keepReview(board: SocketBoard, note: Msg): Promise<Msg> {
+  const { outlineFacets, reviewWrite } = await import(WRITE_REVIEW_MODULE) as WriteReviewModule;
+  const client = { request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.request<T>(action, params); } };
+  const schemas = (await board.request<{ schemas: unknown }>("components.schemas")).schemas;
+  const { review } = await reviewWrite({ text: note.text, id: note.id, schemas, facets: await outlineFacets(client), jev: false });
+  await board.request("suggestions.keep", { keep: { kind: "reviewed", at: { note: note.id, revision: note.revision ?? 1, actorId: "moss/claude-code@showcase", source: "write" }, title: SEED.writeReview, review } });
+  const [page] = (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "system-view=jev-suggestions" } })).blocks;
+  // Beside the note, under the showcase's root, as every seeded note is.
+  await board.move(page!.id, note.parentId ?? null, USER);
+  return (await board.get(page!.id))!;
+}
 import { ECHO_COPIES, ECHO_NODELIST, ECHO_POSTS, ECHO_SEEN_BY, ECHO_TOSSER, ECHO_TOSSES } from "./seed/echonet";
 import { PROJECT_FIGURE, PROJECT_TICKETS, VENT_RAIL } from "./seed/self";
 import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, COPY_PAGE, COPY_CRATES, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, laneQuery, societyText } from "./seed/work";
 import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, KEYS_TEXT, dashboardText, figuresText, markdownFiguresText } from "./seed/figures";
-import { DEEP_LINKS, SHED_JOBS, SHED_PAD, SHED_PLAN, ZOOM_JOBS, ZOOM_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
+import { DEEP_LINKS, SHED_JOBS, SHED_PAD, SHED_PLAN, ZOOM_JOBS, ZOOM_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, WRITE_REVIEW, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
 import { LIST_FOLDS } from "./seed/list-folds";
 import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
@@ -471,6 +491,10 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.zoomPlan = await make(notes.root.id, ZOOM_PLAN);
   for (const job of ZOOM_JOBS) await make(notes.zoomPlan.id, job);
   notes.sources = await make(notes.root.id, SOURCES);
+  // The write review (PIE-1388): an agent's wall, reviewed as its write's answer reviews it (code's measures; the seed
+  // asks no Jev), kept as the service keeps a review, which makes Jev's suggestions page with its first finding.
+  notes.writeReview = await make(notes.root.id, WRITE_REVIEW, { kind: "agent", id: "moss" });
+  notes.jevPage = await keepReview(board, notes.writeReview);
   notes.swapDay = await make(notes.root.id, `${SEED.swapDay} [page::${SEED.swapDay}]\nBring seeds in paper envelopes, labelled with what and when.`);
   notes.margin = await make(notes.root.id, MARGIN);
   notes.wholeNote = await make(notes.root.id, WHOLE_NOTE);

@@ -124,3 +124,22 @@ export async function loadFigureFitPrompt(directory?: string): Promise<{ instruc
     revisions: [revision],
   };
 }
+
+/** The questions write-review.ts asks Jev about a note an agent wrote (PIE-1388), each by its name; `{section}` and `{line}` are the state path asked about. */
+export const WRITE_REVIEW_QUESTIONS = ["kit", "structured", "prose", "dense", "mixed", "context", "argues", "title", "asks", "unclear", "qa", "proof", "experience"] as const;
+export type WriteReviewPrompt = Record<typeof WRITE_REVIEW_QUESTIONS[number], string> & { revisions: PromptRevision[] };
+
+/**
+ * write-review.json (PIE-1388): every question Jev is asked about a written note, in one file, so the wording is
+ * audited and tuned in one place. Read as loadFigureFitPrompt reads its own: OUTLINER_PROMPT_DIR, else the shipped one.
+ */
+export async function loadWriteReviewPrompt(directory?: string): Promise<WriteReviewPrompt> {
+  let revision: PromptRevision;
+  try { revision = await readPrompt(aiPromptDirectory(directory), "write-review.json"); }
+  catch (error) {
+    if (!(error instanceof PromptFileError) || aiPromptDirectory(directory) === resolve(DEFAULT_AI_PROMPT_DIRECTORY)) throw error;
+    revision = await readPrompt(resolve(DEFAULT_AI_PROMPT_DIRECTORY), "write-review.json");
+  }
+  const data = object(json(revision), revision.path, [...WRITE_REVIEW_QUESTIONS], "document");
+  return { ...Object.fromEntries(WRITE_REVIEW_QUESTIONS.map(k => [k, nonempty(data[k], revision.path, k)])) as Record<typeof WRITE_REVIEW_QUESTIONS[number], string>, revisions: [revision] };
+}

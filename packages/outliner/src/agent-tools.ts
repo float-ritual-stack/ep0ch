@@ -17,10 +17,12 @@ import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-cor
 import { parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
-import { FIX_BEFORE_DONE, shapeNext, shapeWarnings } from "@ep0ch/outline-core/write-shape";
+import { shapeNext, shapeWarnings, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
+import { outlineFacets, reviewWarnings, reviewWrite, type WriteReview } from "./write-review";
+import { houseRule } from "./work-review";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
-import { figureShape, suggestFigure, type FigureFit, type FigureFitReading } from "./figure-fit";
+import { figureShape, suggestFigure } from "./figure-fit";
 import type { SuggestionKeep, SuggestionWrite } from "./jev-suggestions";
 import { figureRowReport } from "./figure-rows";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
@@ -639,55 +641,44 @@ async function componentsRead(client: AgentToolsClient, text: string): Promise<C
 }
 
 /**
- * The figure the written text would read best as (figure-fit.ts, PIE-721), for the answer to a create, an edit or a
- * patch: asked only when this write gave the note a figure's shape it didn't have (`before`, its text before the write;
- * none for a create), so a note is told once and a property set or a comment never asks, and said only when Jev is
- * sure enough. On unless OUTLINER_FIGURE_FIT is `off` (the tests' preloads set it): a feature that waits for someone to
- * switch it on is one nobody switched on (Evan, Oct 22). Null when Jev can't be asked; it never throws, since the write has landed.
+ * The outline's property values (write-review.ts outlineFacets), asked once a minute per connection.
  */
-async function figureSuggestion(client: AgentToolsClient, text: string, before?: string, at?: Omit<SuggestionWrite, "source">): Promise<{ component: string; said: string } | null> {
-  if (process.env.OUTLINER_FIGURE_FIT === "off" || figureShape(text) !== "shaped") return null;
-  type Asked = { fit: FigureFit; reading?: FigureFitReading } | { quiet: FigureFitReading | undefined } | "unavailable" | null;
-  const ask = async (): Promise<Asked> => {
-    const schemas = await schemasOf(client);
-    if (!schemas || figureShape(text, schemas) !== "shaped" || (before !== undefined && figureShape(before, schemas) === "shaped")) return null;
-    const answer = await suggestFigure(text, schemas, { timeoutMs: FIGURE_FIT_BUDGET_MS });
-    if ("unavailable" in answer) return "unavailable";
-    return answer.fit ? { fit: answer.fit, reading: answer.reading } : { quiet: answer.reading };
-  };
-  // The whole ask (schemas, key, prompt and Jev) is bounded, since the write's answer waits on it.
-  const asked = await Promise.race([ask().catch((): Asked => null), Bun.sleep(FIGURE_FIT_BUDGET_MS).then((): Asked => "unavailable")]);
-  if (!asked) return null;
-  // PIE-1251: what Jev said is a fact, recorded only once the writer is about to hear it (an ask that outlived the budget is
-  // not a suggestion anyone was told). The service makes the records (`suggestions.keep`): a one-shot CLI that waited for a
-  // dozen requests over ssh was cut off and left none. The writer's answer waits for it no longer than the budget.
-  if (at) {
-    const change: SuggestionKeep = asked === "unavailable" ? { kind: "unavailable" }
-      : "quiet" in asked ? { kind: "quiet", ...(asked.quiet ? { reading: asked.quiet } : {}) }
-      : { kind: "suggested", fit: asked.fit, ...(asked.reading ? { reading: asked.reading } : {}), at: { ...at, source: "write" } };
-    await keepRecords(client, change);
-  }
-  if (asked === "unavailable" || "quiet" in asked) return null;
-  return { component: asked.fit.component, said: asked.fit.said };
+const facetsAsked = new WeakMap<AgentToolsClient, { at: number; facets: Promise<ShapeFacet[]> }>();
+function facetsOf(client: AgentToolsClient): Promise<ShapeFacet[]> {
+  const kept = facetsAsked.get(client);
+  if (kept && Date.now() - kept.at < 60_000) return kept.facets;
+  const facets = outlineFacets(client as never);
+  facetsAsked.set(client, { at: Date.now(), facets });
+  return facets;
 }
 
 /**
- * Whether the suggestions made on this note were followed (jev-suggestions.ts, PIE-1251): asked after a write, only when
- * the note now draws a component at all (a note with none can be neither followed nor answered with another figure), so
- * an ordinary write pays nothing. Writes the verdict as a record; never throws.
+ * The review of a create, an edit or a patch (write-review.ts, PIE-1388): code's measures with ready patches, and Jev's
+ * judgment of what the write changed against Evan's rubric and the outline's whole kit, answered ship or fix. Jev is
+ * asked unless OUTLINER_FIGURE_FIT is `off` (the tests' preloads set it), whatever the note's shape: prose included.
+ * The answer waits for Jev no longer than the budget; past it, code's findings stand alone. What the writer is told is
+ * kept as records by the service (`suggestions.keep`). Never throws: the write has landed.
  */
-async function settleSuggestions(client: AgentToolsClient, noteId: string, text: string): Promise<void> {
-  if (process.env.OUTLINER_FIGURE_FIT === "off" || !componentBlocks(text.split("\n")).length) return;
-  await keepRecords(client, { kind: "settle", note: noteId });
+async function reviewOf(client: AgentToolsClient, text: string, before: string | undefined, at: Omit<SuggestionWrite, "source">): Promise<WriteReview> {
+  const input = { text, ...(before === undefined ? {} : { before }), id: at.note };
+  const full = async () => {
+    const [schemas, facets, qaRule] = await Promise.all([schemasOf(client), facetsOf(client), houseRule(client as never, "qa-for-evan")]);
+    return reviewWrite({ ...input, schemas, facets, jev: process.env.OUTLINER_FIGURE_FIT !== "off", qaRule }, { timeoutMs: REVIEW_BUDGET_MS });
+  };
+  // The whole review is bounded, and any failure in what it asks leaves code's measures alone: the write has landed.
+  const codeOnly = () => reviewWrite({ ...input, schemas: null, jev: false });
+  const { review, reading } = await Promise.race([full(), Bun.sleep(REVIEW_BUDGET_MS + 1500).then(codeOnly)]).catch(codeOnly);
+  if (process.env.OUTLINER_FIGURE_FIT !== "off") await keepRecords(client, { kind: "reviewed", at: { ...at, source: "write" }, title: headerLine(text).prose.trim(), review, ...(reading ? { reading } : {}) });
+  return review;
 }
 
 /** Asks the service to make the records of what Jev said (jev-suggestions.ts); waits for it no longer than the budget, and never throws. */
 async function keepRecords(client: AgentToolsClient, keep: SuggestionKeep): Promise<void> {
   await Promise.race([(async () => client.request({ action: "suggestions.keep", keep }))().catch(() => undefined), Bun.sleep(RECORD_BUDGET_MS)]);
 }
-/** At most this long added to a write's answer by its figure suggestion, whatever Jev does. */
-const FIGURE_FIT_BUDGET_MS = 1500;
-/** And at most this long for the suggestion's record and the settling of earlier ones (jev-suggestions.ts). */
+/** At most this long added to a write's answer by Jev's review, whatever Jev does. */
+const REVIEW_BUDGET_MS = 2500;
+/** And at most this long for the review's records and the settling of earlier ones (jev-suggestions.ts). */
 const RECORD_BUDGET_MS = 3000;
 
 /** What a figure-fit sweep found: each note it would tell, and the margin thread it left when asked to. */
@@ -867,15 +858,14 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
  * create's or an edit's, with the text before), the figure it would read best as (figure-fit.ts). Every finding is a
  * warning worded as a gate, never a refusal; `next` always ends the answer.
  */
-async function warned(client: AgentToolsClient, text: string, near?: string, self = near, gate?: { before?: string; at?: Omit<SuggestionWrite, "source"> }): Promise<{ warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
-  const [{ warnings, components }, fit, rows] = await Promise.all([
+async function warned(client: AgentToolsClient, text: string, near?: string, self = near, gate?: { before?: string; at: Omit<SuggestionWrite, "source"> }): Promise<{ warnings?: string[]; components?: string[]; figures?: string[]; review?: WriteReview; next?: string }> {
+  const [{ warnings, components }, review, rows] = await Promise.all([
     writtenReading(client, text, near, self),
-    gate ? figureSuggestion(client, text, gate.before, gate.at) : null,
+    gate ? reviewOf(client, text, gate.before, gate.at) : null,
     gate && near ? figureRowReport(client, near, text, gate.before) : null,
   ]);
-  if (gate && near) await settleSuggestions(client, near, text);
-  const all = [...warnings, ...(gate ? shapeWarnings(text, gate.before) : []), ...(rows?.warnings ?? []), ...(fit ? [FIX_BEFORE_DONE + fit.said] : [])];
-  return { ...(all.length ? { warnings: all } : {}), ...(components.length ? { components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(near ? { next: shapeNext(near) } : {}) };
+  const all = [...warnings, ...(review ? reviewWarnings(review) : []), ...(rows?.warnings ?? [])];
+  return { ...(all.length ? { warnings: all } : {}), ...(components.length ? { components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(review ? { review } : {}), ...(near ? { next: review?.next ?? shapeNext(near) } : {}) };
 }
 
 // ─── Create ────────────────────────────────────────────────────────────────
@@ -1281,7 +1271,7 @@ export async function patchDraft(
   actor: AgentActor,
   /** `suggest: false`: a write that isn't the note's words (a property set) asks figure-fit nothing, measures nothing and has no next check. */
   o: { suggest?: boolean } = {},
-): Promise<DraftPatchResult & { warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
+): Promise<DraftPatchResult & { warnings?: string[]; components?: string[]; figures?: string[]; review?: WriteReview; next?: string }> {
   const revision = requireRevision(input.revision);
   const policy = input.policy ?? "edit";
   if (!DRAFT_PATCH_POLICIES.includes(policy)) throw new WorkToolRefusal(`policy is ${DRAFT_PATCH_POLICIES.join(" or ")}`);
@@ -1312,19 +1302,17 @@ export async function patchDraft(
   const after = await read();
   if (after === undefined || after === was) return result;
   const before = new Set(await referenceWarningsFor(client, was, block.id));
-  const [now, suggestion, rows] = await Promise.all([
+  const [now, review, rows] = await Promise.all([
     writtenReading(client, after, block.id),
-    o.suggest === false ? null : figureSuggestion(client, after, was, { note: block.id, revision: (result.outcome === "applied" ? result.edits.find(e => e.blockId === block.id)?.revision : undefined) ?? block.revision, actorId: actor.actorId }),
+    o.suggest === false ? null : reviewOf(client, after, was, { note: block.id, revision: (result.outcome === "applied" ? result.edits.find(e => e.blockId === block.id)?.revision : undefined) ?? block.revision, actorId: actor.actorId }),
     o.suggest === false ? null : figureRowReport(client, block.id, after, was),
   ]);
-  if (o.suggest !== false) await settleSuggestions(client, block.id, after);
   const warnings = [
     ...now.warnings.filter(w => !before.has(w)),
-    ...(o.suggest === false ? [] : shapeWarnings(after, was)),
+    ...(review ? reviewWarnings(review) : []),
     ...(rows?.warnings ?? []),
-    ...(suggestion ? [FIX_BEFORE_DONE + suggestion.said] : []),
   ];
-  return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(o.suggest === false ? {} : { next: shapeNext(block.id) }) };
+  return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(review ? { review, next: review.next } : {}) };
 }
 
 // ─── One header property ───────────────────────────────────────────────────

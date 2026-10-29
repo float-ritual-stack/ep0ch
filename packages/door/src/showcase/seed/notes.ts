@@ -338,6 +338,18 @@ export const MEETING = [
   "> They mind the draught from the door.",
 ].join("\n");
 
+/**
+ * The write review section (PIE-1388): a status note as an agent writes one when nobody reviews it, stacked bullets and a
+ * count typed in, kept as the agent left it; the seed asks the review of it and keeps what it said, as a write's answer
+ * does, so Jev's suggestions page has its row.
+ */
+export const WRITE_REVIEW = [
+  SEED.writeReview,
+  "",
+  "- The shed roof went on at nine and the felt was cut to size. The tacks ran out halfway, which slowed the job. Then the second box came and nothing leaked.",
+  "- Board: 2 queued and 1 in review, with more coming tomorrow.",
+].join("\n");
+
 /** The completion sources section (PIE-1340): an extension's rows under [[, ranked with the pages. */
 export const SOURCES = [
   SEED.sources,

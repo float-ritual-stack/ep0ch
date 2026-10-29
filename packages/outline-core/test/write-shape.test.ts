@@ -109,3 +109,81 @@ test("a completed statement about Evan below the top isn't a question; a word fi
   expect(shapeWarnings(before.replace("Tuesday", "Wednesday"), before)).toEqual([]);
   expect(shapeWarnings(`${before}\n\n${wall}`, before)).toHaveLength(1);
 });
+
+// PIE-1388: a bullet carrying several points is a wall too, a count a query keeps true is a figure, a bare id is a link,
+// and a note past a screen has headings. Each comes with the fix made, where code can make it exactly.
+test("a list item stacking several points is told, and its patch makes one item a point", () => {
+  const note = ["Swap day", "", "- **Tables:** two went up at nine. The third had a wobbly leg; we swapped it. Nothing was lost.", "- one short point"].join("\n");
+  const [stacked] = writeShape(note);
+  expect(stacked).toMatchObject({ rule: "stacked", line: 3 });
+  expect(stacked!.say).toContain("4 points in one item");
+  expect(stacked!.patch![0]!.replacement).toBe(["- **Tables:**", "  - two went up at nine.", "  - The third had a wobbly leg; we swapped it.", "  - Nothing was lost."].join("\n"));
+  expect(writeShape(stacked!.patch!.reduce((t, p) => t.replace(p.observed, p.replacement), note))).toEqual([]);
+  expect(writeShape("Swap day\n\n- one point, with a clause, and another clause.\n- Two sentences. Still fine.")).toEqual([]);
+});
+
+test("a patch keeps the passage's properties where they were", () => {
+  const note = "Shed\n\n- The roof is on [status::blocked] and leaking. The felt ran out. We stopped at six.";
+  const [found] = writeShape(note);
+  expect(found!.patch![0]!.replacement).toBe("- The roof is on [status::blocked] and leaking.\n- The felt ran out.\n- We stopped at six.");
+});
+
+test("a wall paragraph's patch is a list of its sentences", () => {
+  const [found] = writeShape(`Seeds\n\n${wall}`);
+  expect(found!.patch![0]!.replacement.split("\n")).toHaveLength(5);
+  expect(found!.patch![0]!.replacement).toStartWith("- Seeds were sorted by hand on Tuesday.\n- The borlotti");
+});
+
+test("a number before a value the outline holds is a count for a live figure; other numbers aren't", () => {
+  const facets = [{ key: "stage", value: "queued" }, { key: "type", value: "seed-packet" }];
+  const note = "Shed\n\n14 queued and 3 seed packets left, version 2.5 out, PR 912 merged, 3 sentences long, on 2026-10-29.";
+  const found = writeShape(note, { facets });
+  expect(found.map(f => f.rule)).toEqual(["count"]);
+  expect(found[0]!.say).toContain(`"14 queued" is stage=queued, "3 seed packets" is type=seed-packet`);
+  // No ready patch: only the writer knows whether the count means the live one.
+  expect(found[0]!.patch).toBeUndefined();
+  expect(found[0]!.say).toContain(`::graph-stat with items: [{ label: "queued", query: "stage=queued" }`);
+  expect(writeShape(note)).toEqual([]);
+});
+
+test("a bare id is told to be a reference; one in a reference, a property or code is fine", () => {
+  const id = "8a1c2b3d-1111-4222-8333-444455556666";
+  const [found] = writeShape(`Links\n\nSee ${id} for the plan.`);
+  expect(found).toMatchObject({ rule: "bare-id" });
+  expect(found!.patch![0]!.replacement).toBe(`See ((${id})) for the plan.`);
+  expect(writeShape(`Links [from::${id}]\n\nSee ((${id})) and \`${id}\`.`)).toEqual([]);
+});
+
+test("a note past a screen with no heading is told to have sections", () => {
+  const long = Array.from({ length: SHAPE_LIMITS.screen + 1 }, (_, i) => `- point ${i}`).join("\n");
+  expect(writeShape(`Notes\n\n${long}`).map(f => f.rule)).toEqual(["headings"]);
+  expect(writeShape(`Notes\n\n## Part one\n${long}`)).toEqual([]);
+});
+
+test("a long title's patch keeps the name and moves the rest under it; a buried question's moves to the top", () => {
+  const [title] = writeShape("Seed swap: the whole story of how the jars were sorted, counted and labelled [type::event]\n\nBody.");
+  expect(title!.patch![0]!.replacement).toBe("Seed swap [type::event]\n\nThe whole story of how the jars were sorted, counted and labelled");
+  const filler = Array.from({ length: SHAPE_LIMITS.top }, (_, i) => `- point ${i}`).join("\n");
+  const note = `Notes\n\n${filler}\n\nShould we ask Evan which table to book?`;
+  const [question] = writeShape(note);
+  const moved = question!.patch!.reduce((t, p) => t.replace(p.observed, p.replacement), note);
+  expect(moved).toStartWith("Notes [needs::sysop: Should we ask Evan which table to book?]\n\n- [ ] Should we ask Evan which table to book?");
+  expect(writeShape(moved)).toEqual([]);
+});
+
+// loki's reshape run on real notes (Oct 29): a split inside parentheses cut a code span from its sentence, and a labelled
+// ep0ch:// link's id was told to be a reference. A ready patch never drops or moves content between sentences.
+test("a stacked patch splits only at sentence ends outside parentheses, code, quotes and brackets, and keeps every character", () => {
+  const rule = "Rules\n\n- **Never share it:** a note marked `[publish::never]` stays home (no page, no link. Not even a share). Readers never see it. Agents still do.";
+  const [found] = writeShape(rule);
+  const replacement = found!.patch![0]!.replacement;
+  expect(replacement).toBe("- **Never share it:**\n  - a note marked `[publish::never]` stays home (no page, no link. Not even a share).\n  - Readers never see it.\n  - Agents still do.");
+  const code = "Rules\n\n- Run `ep0ch find. --ids` first. Then \"read it. All of it\" twice [see. this] now. Done.";
+  const [c] = writeShape(code);
+  expect(c!.patch![0]!.replacement).toBe("- Run `ep0ch find. --ids` first.\n- Then \"read it. All of it\" twice [see. this] now.\n- Done.");
+});
+
+test("an id in a labelled ep0ch:// link or any URL isn't a bare id", () => {
+  expect(writeShape("Links\n\nSee [the plan](ep0ch://pie@float-2/b/8a1c2b3d-1111-4222-8333-444455556666) for it.")).toEqual([]);
+  expect(writeShape("Links\n\nSee ep0ch://pie@float-2/b/8a1c2b3d-1111-4222-8333-444455556666 for it.")).toEqual([]);
+});
