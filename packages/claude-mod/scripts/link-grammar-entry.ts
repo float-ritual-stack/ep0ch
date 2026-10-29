@@ -2,3 +2,4 @@ export { labelBar, linkOccurrences, pageAddressText, pageLinkSpans, qualifiedRef
 export { BLOCK_ID_PATTERN, formatEp0chBlockUri } from "../../outline-core/src/addressable-resource";
 export { COMPONENT_OPEN, componentBlocks } from "../../outline-core/src/component-block";
 export { codeBlocks } from "../../outline-core/src/code-fence";
+export { boxStatus } from "../../outline-core/src/checklist-marks";

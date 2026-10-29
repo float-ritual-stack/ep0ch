@@ -120,7 +120,10 @@ A click, `show` and `door_open` share one open (`openNote` in
   and `Link` print the address beside a link when the terminal has no hyperlinks, and cannot be told not to, so in a
   terminal the mod draws the lines that hold a reference itself (`hooks/reply-lines.ts`: one pressable `Button` per
   reference, prose around it with bold, italic and code kept) and leaves every other line to the engine's Markdown.
-  The desktop and VS Code keep the Markdown, whose links are real, on `https://pi-outliner.invalid/...` stand-ins.
+  The desktop and VS Code keep the Markdown, whose links are real: each reference links to its note's page on the web
+  client (PIE-926), `<EP0CH_WEB_URL's first origin, else https://my.ep0ch.sh>/pub/o/<the session's outline>/p/<PIE-n|page|id>`
+  (another outline's reference names that outline), so it opens in a browser, in claude.ai and on a phone; a press the
+  mod takes maps it back and opens it in the door or Detail as before.
   `https://my.ep0ch.sh/pub/p/<PIE-n|page|id>` that Claude writes, bare or as `[label](url)`, is the same reference
   (a bare one drawn as its PIE-n, page name or the note's title). An unaliased `((id))` or `((id^anchor))` is drawn as its note's title (cut to 48 characters, then `› anchor`), looked up once through the same cache as a tool row's titles and redrawn when it lands; until then, and when the block is not found, as its first eight characters and `…`; a press still opens it. Any other http(s) link, bare or `[label](url)`, is drawn in the terminal as the engine's `Link` (an OSC 8 hyperlink the terminal opens) in the dim `inactive` colour with a trailing `↗`, apart from the underlined references that open in the door; a bare address keeps its text.
   Emphasis spanning a reference and other text stays bold or italic, and a table with a reference in a cell is drawn
@@ -277,6 +280,26 @@ session ends. Every report carries `app=claude-code`. `hooks/claude-status.ts` h
 `hooks/program-status.ts` is outline-core's encoder, copied (a hooks module can't import outside the plugin) and kept
 identical by outline-core's test. It writes only where the terminal speaks the protocol: `EP0CH_PROGRAM_STATUS` says
 outright (1, 0), else `tput Pst` (a door's tiles have it); it never sends the feature query, as Claude owns the input. This build of Claude Code reports nothing itself (its plugin API has no such call); once it does, `EP0CH_PROGRAM_STATUS=native` makes the mod step aside, so a record never has two writers (the mod can't read Claude's own output to notice by itself).
+
+### Approve from the phone (PIE-1386)
+
+A permission dialog in a session nobody is watching (a background job: `CLAUDE_JOB_DIR` is set) is put to the person
+through the outline before it shows (`hooks/approve.ts`):
+
+- **One list:** every session's asks go to `EP0CH_APPROVE_WS` (`<name>` or `<name>@<machine>`, default `pie`, on the
+  bound outline's machine), so pie's Waiting on Evan is the one list. A session bound to float-hub (client work) keeps
+  its asks in float-hub, never pie; an outline that can't be read from here keeps them in the bound outline.
+- **The ask:** a note under that outline's `[[permission-asks]]` page, `Allow <tool>: <what>?` with
+  `[needs::sysop: …]` on its first line, so pie's Waiting on Evan view (any view of `needs`) lists it; three steps:
+  `allow this once`, `allow for this session`, `deny`; and the call's input.
+- **The answer:** the person's tick, on the web page (a tap on my.ep0ch.sh) or in the door, both the one
+  `checklist.update` written as `author: user`. The hook reads the note every 3 s; a tick whose last write is an
+  agent's counts for nothing. `allow for this session` keeps the dialog's own suggested rules for this session only.
+- **No tick:** after 600 s the ordinary dialog shows. The note then says so and drops its `needs` chip, as it does
+  once answered (who answered, from which session, and when).
+- **Watched sessions** show the dialog at once, as before: a held hook holds the dialog. `EP0CH_APPROVE_WAIT=<seconds>`
+  sets the wait for any session (0 is off).
+- **Not covered:** auto mode's classifier denials (PermissionDenied) can't be answered by a hook.
 
 ## Recent mentions in Claude Code
 

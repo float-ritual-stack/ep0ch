@@ -2609,7 +2609,7 @@ export type OutlinerRequestAction =
    * A block's earlier texts (PIE-621): without `revision` the list (BlockRevisions), with it that revision's whole
    * text. Going back is an ordinary `update` with that text, recorded as whoever writes it.
    */
-  | { id: string; action: "block.revisions"; blockId: string; revision?: number }
+  | { id: string; action: "block.revisions"; blockId: string; revision?: number; latest?: boolean }
   | { id: string; action: "trash.purge"; blockId: string; confirmation: string }
   | {
       id: string;

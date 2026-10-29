@@ -395,9 +395,9 @@ describe('register', () => {
     // A line with no reference stays the engine's Markdown.
     const mixed = await mountReply($, 'Plain **line** first.\nThen PIE-3 here.')
     expect((await mixed.find({ type: 'Markdown' }))?.props.text).toBe('Plain **line** first.')
-    expect(((await mixed.find({ type: 'Box' }))?.text ?? '')).not.toContain('pi-outliner.invalid')
+    expect(((await mixed.find({ type: 'Box' }))?.text ?? '')).not.toContain('my.ep0ch.sh/pub')
 
-    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-8' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/p/PIE-8' })
     await session.clock.settle()
     expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', 'pi-outliner://work/PIE-8'])
 
@@ -420,11 +420,11 @@ describe('register', () => {
     })
     await session.clock.settle()
     for (const [key, label] of [
-      ['https://pi-outliner.invalid/page/Daily%20notes', 'Daily notes'],
-      [`https://pi-outliner.invalid/block/${BLOCK}`, 'Daily notes'],
-      [`https://pi-outliner.invalid/block/${BLOCK}#2`, 'the note'],
-      ['https://pi-outliner.invalid/work/PIE-7', 'PIE-7'],
-      ['https://pi-outliner.invalid/work/PIE-8', 'PIE-8'],
+      ['https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes', 'Daily notes'],
+      [`https://my.ep0ch.sh/pub/o/garden/p/${BLOCK}`, 'Daily notes'],
+      [`https://my.ep0ch.sh/pub/o/garden/p/${BLOCK}#2`, 'the note'],
+      ['https://my.ep0ch.sh/pub/o/garden/p/PIE-7', 'PIE-7'],
+      ['https://my.ep0ch.sh/pub/p/PIE-8', 'PIE-8'],
     ]) {
       expect((await drawn.find({ key }))?.text).toBe(label)
     }
@@ -432,7 +432,7 @@ describe('register', () => {
     const row = await drawn.find({ type: 'Box' })
     expect(row?.text).toContain('\u276f See ')
     expect(row?.props.backgroundColor).toBe('userMessageBackground')
-    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
     await session.clock.settle()
     expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', 'pi-outliner://work/PIE-7'])
   })
@@ -468,7 +468,7 @@ describe('register', () => {
     await session.clock.settle()
     expect((await drawn.find({ type: 'Box' }))?.text ?? '').toContain('See Daily notes here.')
     expect((await drawn.find({ type: 'Box' }))?.text ?? '').not.toContain(BLOCK)
-    await drawn.press({ key: `https://pi-outliner.invalid/block/${BLOCK}` })
+    await drawn.press({ key: `https://my.ep0ch.sh/pub/o/garden/p/${BLOCK}` })
     await session.clock.settle()
     expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', `pi-outliner://block/${BLOCK}`])
   })
@@ -521,7 +521,7 @@ describe('register', () => {
     expect(await link('https://example.com/c')).toBeUndefined()
     expect(await link('https://example.com/d')).toBeDefined()
     // The internal reference is still a pressable, underlined Button, never a Link.
-    expect(await drawn.find({ key: 'https://pi-outliner.invalid/work/PIE-7' })).toBeDefined()
+    expect(await drawn.find({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })).toBeDefined()
   })
 
   test('a bold line and a table with references are drawn as bold and a whole table, their references pressable (PIE-1043)', async ($, on) => {
@@ -533,9 +533,9 @@ describe('register', () => {
     expect(shown).not.toMatch(/\| PIE-1031|\| PIE-1032/)
     expect(shown).toContain('Ticket')
     expect(shown).toContain('argument forms')
-    expect(await drawn.find({ key: 'https://pi-outliner.invalid/work/PIE-1031' })).toBeDefined()
+    expect(await drawn.find({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-1031' })).toBeDefined()
     expect(await drawn.find({ type: 'Text', text: 'bold ', bold: true })).toBeDefined()
-    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-1032' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-1032' })
     await session.clock.settle()
     expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', 'pi-outliner://work/PIE-1032'])
   })
@@ -545,7 +545,7 @@ describe('register', () => {
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See [[Daily notes]].')
 
-    await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
     await session.clock.settle()
 
     // The Outliner's own ensure-detail, from Claude's pane, in the session's workspace, never focusing.
@@ -569,7 +569,7 @@ describe('register', () => {
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See PIE-7.')
 
-    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
     await session.clock.settle()
 
     expect(herdrOpens(session.runs, 'ensure-detail')).toHaveLength(1)
@@ -587,7 +587,7 @@ describe('register', () => {
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See PIE-7.')
 
-    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
     await session.clock.settle()
 
     expect(herdrOpens(session.runs, 'ensure-detail')).toHaveLength(1)
@@ -601,7 +601,7 @@ describe('register', () => {
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See PIE-7.')
 
-    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
     await session.clock.settle()
 
     expect(session.runs.some(run => run.argv.includes('link'))).toBe(false)
@@ -626,7 +626,7 @@ describe('register', () => {
     const drawn = await mountReply($, 'See PIE-7.')
 
     await Promise.all([
-      drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' }),
+      drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' }),
       $.tool.call({ tool: 'mcp__ep0ch__show', reference: 'PIE-8' }),
     ])
     await session.clock.settle()
@@ -708,7 +708,7 @@ describe('register', () => {
         on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
         await session.begin(() => $.session.start(START))
         const drawn = await mountReply($, 'See [[Daily notes]].')
-        await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+        await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
         await session.clock.settle()
         const opened = session.runs.find(run => run.argv.includes('door-open'))!
         expect(opened.argv[opened.argv.indexOf('--control') + 1]).toBe(LIVE)
@@ -729,7 +729,7 @@ describe('register', () => {
         on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
         await session.begin(() => $.session.start(START))
         const drawn = await mountReply($, 'See [[Daily notes]].')
-        await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+        await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
         await session.clock.settle()
         expect(asked[0]!.slice(0, 3)).toEqual(['ep0ch', 'act', 'host.tileOf'])
         expect(asked[0]).toContain('port=51234')
@@ -748,7 +748,7 @@ describe('register', () => {
       on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See [[Daily notes]].')
-      await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+      await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
       await session.clock.settle()
       // The marker went to Claude's terminal, and the door was asked which tile drew that same token.
       const written = session.runs.find(run => run.argv[0] === 'sh' && String(run.argv.at(-1)).includes('?mark='))!
@@ -766,7 +766,7 @@ describe('register', () => {
       on('ui.open', () => ({ value: { isPlaced: false, reason: 'opened unasked under 144 columns (120 now)' } }))
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See [[Daily notes]].')
-      await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+      await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
       await session.clock.settle()
       expect(session.toasts.join('\n')).toContain('no door runs on garden')
     })
@@ -836,7 +836,7 @@ describe('register', () => {
       await session.begin(() => $.session.start({ ...START, surface: 'desktop' }))
       const reply = await $.ui.mount({ plugin: 'ep0ch', surface: 'desktop', component: 'AssistantMessage', props: { text: 'See [[Daily notes]].', isFirstOfReply: true } })
 
-      await reply.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/page/Daily%20notes' } })
+      await reply.press({ key: 'outliner-references', link: { href: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' } })
       await session.clock.settle()
       // Seated by the press itself (the person's ask), then opened by openNote; nothing copied, no toast, no Herdr.
       expect(opened).toEqual([DETAIL, DETAIL])
@@ -855,17 +855,17 @@ describe('register', () => {
       expect(body?.type).toBe('Markdown')
       expect(body?.props.text).toBe(
         '# Daily notes\n[type::note]\n## Today\n- rode to the shed\n\n' +
-        '- Bring the [Other page](https://pi-outliner.invalid/page/Other%20page) list, see [PIE-7](https://pi-outliner.invalid/work/PIE-7)',
+        '- Bring the [Other page](https://my.ep0ch.sh/pub/o/garden/p/Other%20page) list, see [PIE-7](https://my.ep0ch.sh/pub/o/garden/p/PIE-7)',
       )
       expect(body?.props.dimColor).toBeUndefined()
-      expect(body?.props.pressableLinks).toEqual(['https://pi-outliner.invalid/page/Other%20page', 'https://pi-outliner.invalid/work/PIE-7'])
+      expect(body?.props.pressableLinks).toEqual(['https://my.ep0ch.sh/pub/o/garden/p/Other%20page', 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7'])
       // Desktop's links are in the Markdown: no link buttons.
       expect(await pane.find({ key: 'detail-link-1' })).toBeUndefined()
       // Back from the first note is the mentions list.
       expect((await pane.find({ key: 'detail-back' }))?.text).toBe('← mentions')
 
       // A link in the note opens in the pane, through the same open.
-      await pane.press({ key: 'detail-body', link: { href: 'https://pi-outliner.invalid/page/Other%20page' } })
+      await pane.press({ key: 'detail-body', link: { href: 'https://my.ep0ch.sh/pub/o/garden/p/Other%20page' } })
       await session.clock.settle()
       expect(await titleOf(pane)).toBe('Other page')
       expect((await pane.find({ key: 'detail-body' }))?.props.text).toBe('# Other page\nThe chain oil is the wax one.')
@@ -913,7 +913,7 @@ describe('register', () => {
       const opened = panesIn(on)
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See [[Daily notes]].')
-      await drawn.press({ key: 'https://pi-outliner.invalid/page/Daily%20notes' })
+      await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
       await session.clock.settle()
       expect(opened[0]).toBe(DETAIL)
 
@@ -951,7 +951,7 @@ describe('register', () => {
       const body = await (await detail($, 'desktop')).find({ key: 'detail-body' })
       expect(body?.props.text).toBe(
         '# Daily notes\n[type::note]\n## Today\n- rode to the shed\n\n' +
-        '- Bring the [Other page](https://pi-outliner.invalid/page/Other%20page) list, see [PIE-7](https://pi-outliner.invalid/work/PIE-7)',
+        '- Bring the [Other page](https://my.ep0ch.sh/pub/o/garden/p/Other%20page) list, see [PIE-7](https://my.ep0ch.sh/pub/o/garden/p/PIE-7)',
       )
     })
 
@@ -1066,7 +1066,7 @@ describe('register', () => {
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See PIE-7.')
 
-      await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+      await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
       await session.clock.settle()
 
       const opened = doorOpenOf(session.runs)!
@@ -1086,7 +1086,7 @@ describe('register', () => {
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See PIE-7.')
 
-      await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+      await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
       await session.clock.settle()
 
       expect(session.toasts).toEqual(['Could not open PIE-7 in the Outliner: right holds an edit; an agent never takes it'])
@@ -1102,7 +1102,7 @@ describe('register', () => {
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See PIE-7.')
 
-      await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+      await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7' })
       await session.clock.settle()
 
       // Not seated by the press (a door was named), but opened once the door didn't answer.
@@ -1719,5 +1719,110 @@ describe('the settle check (PIE-1268)', () => {
     await start($, s)
     expect(s.wakes).toEqual([])
     expect(s.session.toasts.filter(t => t.includes('list --facets'))).toHaveLength(1)
+  })
+})
+
+describe('approve from the phone (PIE-1386)', () => {
+  const ASK = '99999999-2222-4333-8444-555555555555'
+  const PAGE = '77777777-2222-4333-8444-555555555555'
+  /** A session in a background job whose ask note reads, in turn, as each of `reads` (text and who wrote it last). */
+  function asking(on: On, reads: Array<{ text: (t: string) => string; author: string }>, env: Record<string, string> = { CLAUDE_JOB_DIR: '/jobs/j1' }, options: { outline?: string; unreadable?: string } = {}) {
+    let written = ''
+    let polled = 0
+    const edits: string[] = []
+    /** The outline each write of the ask went to (its EP0CH_WS; the bound folder's own when none is pinned). */
+    const wrote: string[] = []
+    const outlineOf = (run: Run) => (run.init?.env as Record<string, string> | undefined)?.EP0CH_WS || options.outline || 'garden'
+    const binding = (folder: string) => result(0, `${boundToWorkspace(folder).replace('"outline":"garden"', `"outline":"${options.outline ?? 'garden'}"`)}\n`, '')
+    const session = sessionIn(on, WORKSPACE, run => {
+      const op = run.argv.includes('agent') ? run.argv[run.argv.indexOf('agent') + 1] : undefined
+      if (run.argv[0] === 'ep0ch' && run.argv[1] === 'find' && run.argv.join(' ').includes('permission-asks')) {
+        return outlineOf(run) === options.unreadable ? result(1, '', `error: no outline ${options.unreadable} here\n`) : result(0, `((${PAGE}))\n`, '')
+      }
+      if (op === 'create' || op === 'edit') wrote.push(outlineOf(run))
+      if (run.argv[0] === 'sleep') return result(0, '', '')
+      if (op === 'create') {
+        written = (JSON.parse(String(run.init?.stdin)) as { text: string }).text
+        return result(0, JSON.stringify({ id: ASK, revision: 1 }), '')
+      }
+      if (op === 'read') {
+        const at = reads[Math.min(polled++, reads.length - 1)]!
+        return result(0, JSON.stringify({ id: ASK, text: at.text(written), revision: 1 + polled, author: at.author, actorId: at.author === 'user' ? 'web:session-7' : 'loki/claude-code@garden-host' }), '')
+      }
+      if (op === 'edit') {
+        edits.push((JSON.parse(String(run.init?.stdin)) as { text: string }).text)
+        return result(0, '{}', '')
+      }
+      return succeeding(run)
+    }, '', env, binding)
+    on('classic.PermissionRequest', () => ({}))
+    return { session, written: () => written, edits, polled: () => polled, wrote }
+  }
+  const tick = (label: string) => (text: string) => text.replace(`- [ ] ${label}`, `- [x] ${label} ^t-c03671`)
+  const untouched = { text: (t: string) => t, author: 'agent' }
+
+  test("the ask lands in the outline with the person's three steps; the person's tick allows the call, an agent's does nothing", async ($, on) => {
+    const ask = asking(on, [untouched, { text: tick('allow this once'), author: 'agent' }, { text: tick('allow this once'), author: 'user' }])
+    await ask.session.begin(() => $.session.start(START))
+    const answer = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'gh pr merge 12 --merge' } })
+    expect(await answer).toMatchObject({ decision: { behavior: 'allow' } })
+    expect(ask.written()).toStartWith('Allow Bash: gh pr merge 12 --merge? [needs::sysop: Bash: gh pr merge 12 --merge]')
+    expect(ask.written()).toContain('- [ ] allow this once\n- [ ] allow for this session\n- [ ] deny')
+    // The agent's tick (the second read) went by; the person's (the third) answered it, and the close-out read it again.
+    expect(ask.polled()).toBe(4)
+    expect(ask.edits.at(-1)).not.toContain('[needs::')
+    expect(ask.edits.at(-1)).toContain('Answered **allow this once** by the person (web:session-7)')
+  })
+
+  test('the person denies: the call is denied, with where the answer came from', async ($, on) => {
+    const denied = asking(on, [{ text: tick('deny'), author: 'user' }])
+    await denied.session.begin(() => $.session.start(START))
+    const no = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm notes.txt' } })
+    expect(await no).toMatchObject({ decision: { behavior: 'deny' } })
+  })
+
+  test('allow for this session writes the dialog\'s own suggestion as a session rule, never a standing one', async ($, on) => {
+    const kept = asking(on, [{ text: tick('allow for this session'), author: 'user' }])
+    await kept.session.begin(() => $.session.start(START))
+    const yes = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'bun test' }, permission_suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'bun test:*' }], behavior: 'allow', destination: 'localSettings' }] })
+    expect(await yes).toMatchObject({ decision: { behavior: 'allow', updatedPermissions: [{ type: 'addRules', destination: 'session' }] } })
+  })
+
+  test('nobody ticks: the wait runs out and the ordinary dialog shows; the note says so and waits on nobody', async ($, on) => {
+    const quiet = asking(on, [untouched], { CLAUDE_JOB_DIR: '/jobs/j1', EP0CH_APPROVE_WAIT: '30' })
+    await quiet.session.begin(() => $.session.start(START))
+    const answer = $.classic.PermissionRequest({ tool_name: 'WebFetch', tool_input: { url: 'https://example.com/a' } })
+    expect((await answer).decision).toBeUndefined()
+    expect(quiet.edits.at(-1)).toContain('Nobody ticked')
+    expect(quiet.edits.at(-1)).not.toContain('[needs::')
+  })
+
+  test('one list: a session bound to another outline asks in pie (EP0CH_APPROVE_WS); one bound to float-hub keeps its asks there', async ($, on) => {
+    const elsewhere = asking(on, [{ text: tick('allow this once'), author: 'user' }])
+    await elsewhere.session.begin(() => $.session.start(START))
+    expect((await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })).decision).toMatchObject({ behavior: 'allow' })
+    expect(elsewhere.wrote).toEqual(['pie', 'pie'])
+    expect(elsewhere.written()).toContain('(bound to garden)')
+  })
+
+  test('client work stays put: a float-hub session writes its ask in float-hub, never pie', async ($, on) => {
+    const client = asking(on, [{ text: tick('deny'), author: 'user' }], { CLAUDE_JOB_DIR: '/jobs/j1' }, { outline: 'float-hub' })
+    await client.session.begin(() => $.session.start(START))
+    expect((await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })).decision).toMatchObject({ behavior: 'deny' })
+    expect(client.wrote).toEqual(['float-hub', 'float-hub'])
+  })
+
+  test('the list outline unreadable from here (a read never makes one): the ask stays in the bound outline', async ($, on) => {
+    const local = asking(on, [{ text: tick('allow this once'), author: 'user' }], { CLAUDE_JOB_DIR: '/jobs/j1', EP0CH_APPROVE_WS: 'gurgle' }, { unreadable: 'gurgle' })
+    await local.session.begin(() => $.session.start(START))
+    expect((await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })).decision).toMatchObject({ behavior: 'allow' })
+    expect(local.wrote).toEqual(['garden', 'garden'])
+  })
+
+  test('a session someone is watching shows its dialog at once, as before: nothing is written', async ($, on) => {
+    const watched = asking(on, [untouched], {})
+    await watched.session.begin(() => $.session.start(START))
+    expect((await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })).decision).toBeUndefined()
+    expect(watched.written()).toBe('')
   })
 })
