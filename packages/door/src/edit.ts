@@ -1073,8 +1073,11 @@ export class Draft {
     vi = Math.max(0, Math.min(rows.length - 1, vi));
     const r = rows[vi]!, last = rows[vi + 1]?.line !== r.line || !!rows[vi + 1]?.status;
     if (r.status) return { row: r.line, col: this.lines[r.line]!.length };
-    // The code point at cell `x`: past the glyphs that end at or before it, never inside one.
-    const line = this.lines[r.line]!, cw = codePointCells([...line]), end = last ? r.end : Math.max(r.start, r.end - 1);
+    // The code point at cell `x`: past the glyphs that end at or before it, never inside one (a wrapped row's
+    // last glyph is where its end lands, so a click past it never splits a joined emoji).
+    const line = this.lines[r.line]!, cw = codePointCells([...line]);
+    let end = last ? r.end : Math.max(r.start, r.end - 1);
+    while (!last && end > r.start && cw[end] === 0) end--;
     let cp = r.start;
     for (let at = r.indent; cp < end && at + (cw[cp] ?? 1) <= x; ) { at += cw[cp] ?? 1; cp++; while (cp < end && cw[cp] === 0) cp++; }
     return { row: r.line, col: [...line].slice(0, cp).join("").length };

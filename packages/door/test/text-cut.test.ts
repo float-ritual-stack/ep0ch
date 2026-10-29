@@ -62,6 +62,16 @@ describe("the editor measures by glyph", () => {
     expect(widest(d.render(12, 10))).toBeLessThanOrEqual(12);
   });
 
+  test("a click past a wrapped joined emoji lands beside it, never inside it", () => {
+    const d = new Draft("b1", 1, `ab${CODER}界`);
+    d.key({ kind: "home" } as never);
+    d.render(5, 5);
+    const p = d.posAt(4, 0);
+    d.place(p.row, p.col);
+    d.key({ kind: "char", ch: "X" } as never);
+    expect(d.text).toBe(`abX${CODER}界`);
+  });
+
   test("the cursor after a wide glyph is in the cell after it", () => {
     const d = new Draft("b1", 1, "漢字x");
     d.render(20, 2);
