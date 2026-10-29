@@ -54,7 +54,7 @@ export function drainPrompt(): string {
       '([needs::sysop]).',
     '4. Once a day, while Evan has written nothing in pie, gurgle or float-hub for about 2 hours: the sweep ' +
       '(queued over 5 days: pick it up, re-rank it with a reason, or close it with the reason; no definition of done: write one).',
-    '5. A line under the day\'s build log for each pick, re-rank, close and finding.',
+    '5. A line under the day\'s build log for each pick, re-rank, close and finding, its time from `date` or the event\'s own stamp, never an estimate.',
     'If there is nothing to merge, no slot to fill and nothing in validate, answer in one line and do nothing else.',
   ].join('\n')
 }

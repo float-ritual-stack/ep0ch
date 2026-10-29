@@ -10,6 +10,10 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Send to ep0ch from your phone in one tap (PIE-1408)
+
+- **One link, one tap:** open the Send to ep0ch page on my.ep0ch.sh on your iPhone, tap Add Shortcut, and "Send to ep0ch" is in your share sheet; a PDF or photo you share to it lands as a card in today's note. The Shortcut is signed and carries its own device link, so there is nothing to copy or edit.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
 ### @loki in a comment reaches loki, and stays on its list until it answers (PIE-1404)
 
 - **Write `@loki …` (or `@daddy`, `@kitty`) in a comment on any note,** from the door, a web page on your phone or
