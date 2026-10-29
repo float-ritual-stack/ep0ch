@@ -278,12 +278,13 @@ export interface CodeMove { from: string; to: string; files: string[]; all: numb
 /**
  * What changed in the code a service runs (a RUNS row) between the commit it runs and the one it will run after this
  * install (origin/main's, or --sha's, when the checkout updates; else HEAD): `files`, the changed files it runs, and
- * `all`, how many changed. `runs` unknown is HEAD when the checkout updates. Null when it can't be told (no commit to
- * start from, or the pair's files weren't listed): the caller then restarts on an update, as before PIE-1397.
+ * `all`, how many changed. Null when it can't be told (the commit it started on is unknown, or the pair's files weren't
+ * listed): the caller then restarts on an update, as before PIE-1397. A service whose start commit is unknown may
+ * still run code from before an install that stopped short, so HEAD is never assumed for it.
  */
 export function codeMoved(f: Facts, runs: string | null | undefined, updates: boolean, code: readonly string[]): CodeMove | null {
   const c = f.repo.checkout;
-  const to = updates ? c.upstream : c.head, from = runs || (updates ? c.head : null);
+  const to = updates ? c.upstream : c.head, from = runs;
   if (!from || !to) return null;
   // An update that ends where the service already is says nothing about what moved.
   if (from === to) return updates ? null : { from, to, files: [], all: 0 };
@@ -306,7 +307,8 @@ export function unchangedSaid(m: CodeMove | null, who: string): string | null {
 /** The checkout moves in this run and the door's code with it (or that can't be told): what the machine link restarts on. */
 export const doorCodeUpdates = (f: Facts, updates: boolean) => {
   if (!updates) return false;
-  const m = codeMoved(f, null, true, RUNS.door);
+  // Its start commit isn't looked up: what this update moves, from HEAD.
+  const m = codeMoved(f, f.repo.checkout.head, true, RUNS.door);
   return !m || m.files.length > 0;
 };
 
