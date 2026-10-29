@@ -319,12 +319,11 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
     if (n) had.set(f.key, n - 1);
     // A ready patch the writer was told and hasn't applied is still theirs to apply: the verdict says fix while the list
     // holds it (PIE-1388: two walls, one patched, answered ship with both listed). Told without a patch, it's carried.
-    const told = toldOf(input.told, f.key);
-    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.passage ?? (f.line ? lines[f.line - 1] ?? "" : text)), new: (!n && !told) || (told && !!f.patch), by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
+    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.passage ?? (f.line ? lines[f.line - 1] ?? "" : text)), new: (!n && !toldOf(input.told, f.key)) || owed(input.told, f.key, !!f.patch), by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
   });
   const qaRule = input.qaRule ?? QA_RULE;
   code.push(...qaFindings(text, before, qaRule).map(f => toldOf(input.told, f.key) ? { ...f, new: false } : f));
-  const jev = (answers ? jevFindings(text, sections, asked as Asked, input.schemas ?? [], code, qaRule) : []).map(f => toldOf(input.told, f.key) ? { ...f, new: false } : f);
+  const jev = (answers ? jevFindings(text, sections, asked as Asked, input.schemas ?? [], code, qaRule) : []).map(f => toldOf(input.told, f.key) ? { ...f, new: owed(input.told, f.key, !!f.patch) } : f);
   const findings = withoutOverlaps(text, [...code, ...jev]);
   const review: WriteReview = {
     verdict: findings.some(f => f.new && !f.advice) ? "fix" : "ship",
@@ -337,6 +336,13 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   };
   return { review, ...(asked && "reading" in asked ? { reading: asked.reading } : {}) };
 }
+
+/**
+ * Whether a told finding is still the writer's to fix: told, it is carried, except one with a ready patch still
+ * unapplied, which keeps the verdict at fix while the list holds it (PIE-1388: two walls, one patched, answered ship
+ * with both listed). The one answer for code's findings and Jev's alike.
+ */
+const owed = (told: ReadonlySet<string> | undefined, key: string, patch: boolean) => toldOf(told, key) && patch;
 
 /** Whether a key was told: its record holds it as a chip holds it (records.ts chipValue). */
 const toldOf = (told: ReadonlySet<string> | undefined, key: string) => !!told && (told.has(key) || told.has(chipValue(key)));

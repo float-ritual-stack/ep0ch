@@ -475,3 +475,13 @@ test("a live write that ships is kept as quiet, findable on the suggestions page
   expect(SUGGESTIONS_PAGE).toContain("query: type=review-quiet NOT source=backfill");
   expect(SUGGESTIONS_PAGE).toContain("columns: [note, said, passage, rubric, patch, writer, created]");
 });
+
+test("Jev's dense finding with its ready patch stays the writer's to apply across writes, as code's do", async () => {
+  const { agent, store } = await setup(id => (id.startsWith("dense::") ? { type: "noul", noul: 0.95 } : undefined));
+  const made = await agent("create", { parent: "root", text: "Shed roof\n\nThe felt along the north edge has split where the batten lifted in the storm last week, and water now runs down the inside wall onto the potting bench. The supplier holds the price on new felt until the end of the month, then it goes up by a fifth. The roofer can start the week after the order lands, weather allowing.\n\nThe gutter is fine." });
+  const dense = (made.json.review as Review).findings.find(f => f.rule === "dense")!;
+  expect(dense.patch?.length).toBeGreaterThan(0);
+  const note = store.require(made.json.id);
+  const again = (await agent("patch", { ref: note.id, revision: note.revision, patches: [{ observed: "The gutter is fine.", replacement: "The gutter is fine and clear." }] })).json.review as Review;
+  expect([again.verdict, again.findings.find(f => f.rule === "dense")?.new]).toEqual(["fix", true]);
+});

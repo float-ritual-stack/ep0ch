@@ -390,3 +390,17 @@ test("a time in the note's own [day::] that hasn't come yet is a finding", () =>
   // A day alone is a day to plan for: no finding.
   expect(writeShape("Garden walk [day::2026-10-30]\n\nWeed the beds.", { now }).map(f => f.rule)).not.toContain("time");
 });
+
+test("a plan row marked *next* is never told; a zoned [day::] time is an instant; a blank line with a space keeps its patch exact", () => {
+  const now = new Date(2026, 9, 29, 9, 40);
+  const plan = "Today [day::2026-10-29]\n\n::graph-timeline\n---\n---\n- 9:00 AM: the hedge cut\n- *3:00 PM: the plumber*\n::";
+  expect(writeShape(plan, { now }).map(f => f.rule)).not.toContain("time");
+  const past = new Date(now.getTime() - 40 * 60_000).toISOString(), ahead = new Date(now.getTime() + 40 * 60_000).toISOString();
+  expect(writeShape(`Walk [day::${past}]\n\nWeeded.`, { now: new Date(now) }).map(f => f.rule)).not.toContain("time");
+  // A zoned instant still to come, on today's note (the day compared is its local day).
+  const day = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  if (day(new Date(Date.parse(ahead))) === day(now) && ahead.slice(0, 10) === day(now)) expect(writeShape(`Walk [day::${ahead}]\n\nWeeded.`, { now }).map(f => f.rule)).toContain("time");
+  const spaced = "Hedge plan\n\nThe hedge is cut.\n\nThe ladder is back.\n\nThe bay is full.\n \n- [ ] who has the long ladder, and can it be back by Friday?";
+  const q = writeShape(spaced).find(f => f.rule === "question")!;
+  for (const p of q.patch!) expect(spaced.split(p.observed)).toHaveLength(2);
+});

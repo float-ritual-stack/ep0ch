@@ -105,7 +105,8 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
     // A note that was read whole and said nothing is kept too: findable on the suggestions page (PIE-1388), and a
     // backfill rerun skips it rather than ask Jev again. One Jev couldn't read isn't, so a rerun tries it again.
     if (!told.length && (asked || /^not asked/.test(keep.review.jev))) {
-      await suggestionsPage(client);
+      // The page brought up to date apart: a page that can't be is never why the record is lost.
+      await suggestionsPage(client).catch(() => undefined);
       await writeRecord(board(client), "review-quiet", clean({ day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), source: keep.at.source }), JEV, { title: `quiet: ${keep.title || "untitled"}`.slice(0, 120), cache });
     }
     if (keep.at.source === "backfill") return;
@@ -143,7 +144,7 @@ export function fixOf(recordText: string): string[] {
  * finding to mark Jev right (x) or wrong (`-`, Reject: the status chooser's keys), which writes `jev::right` or
  * `jev::rejected` on the record; and the
  * backfill's stats by rubric and writer. Every number is a live figure. An outline that already has a page by this
- * address (pie's, made by hand) keeps its own.
+ * address (pie's, made by hand) keeps its own, gaining only what a later version added (`upgradeSuggestionsPage`).
  */
 const QUIET_HEADING = "## Reviewed, nothing to fix";
 
@@ -383,8 +384,12 @@ function judgeFinding(
   let rewrittenUnread: number | undefined;
   const section = s.line ? sectionsOf(baseline).find(x => x.line + 1 === s.line) : undefined;
   const named = s.line ? baseline.split("\n")[s.line - 1] : undefined;
+  // A kit finding is about its section: the component drawn there, its patch applied there, not anywhere in the note
+  // (PIE-1388: two sections told graph-compare, one patched, and both read followed). Found again by its heading; a
+  // heading renamed or gone reads the whole note.
+  const within = (text: string) => kitSection ? sectionsOf(text).find(x => x.heading === kitSection.heading)?.text ?? text : text;
   for (const w of window) {
-    if (pieces?.length && pieces.every(p => w.text.includes(p))) return { outcome: "followed", because: `revision ${w.revision} applied the ready patch`, patched: true };
+    if (pieces?.length && pieces.every(p => within(w.text).includes(p))) return { outcome: "followed", because: `revision ${w.revision} applied the ready patch`, patched: true };
     // Jev's own judgment: followed only when Jev read the rewrite and didn't say it again; said again, it stands.
     const review = heard?.get(w.revision);
     if (review?.said.has(key) || review?.said.has(chipValue(key))) continue;
@@ -400,10 +405,7 @@ function judgeFinding(
     // A wall or a stacked bullet is the same problem wherever its words moved: gone only when no finding of that rule is near
     // its line (a cosmetic edit to its first words changes its key, not the problem).
     const near = (f: { rule: string; line?: number }) => f.rule === rule && Math.abs((f.line ?? 0) - (s.line ?? was?.line ?? 0)) <= 3;
-    // A kit finding is about its section: the component drawn there, not anywhere in the note (PIE-1388: two sections
-    // told graph-compare, one patched, and both read followed). Found again by its heading; none named, the whole note.
-    const there = kitSection ? sectionsOf(w.text).find(x => x.heading === kitSection.heading)?.text ?? "" : w.text;
-    const gone = rule === "kit" ? kitIn(there, schemas).has(s.component)
+    const gone = rule === "kit" ? kitIn(within(w.text), schemas).has(s.component)
       : was ? !writeShape(w.text, { facets }).some(f => (rule === "wall" || rule === "stacked" ? near(f) : f.key === key))
       // Otherwise (the work rules): the passage it named was rewritten. A section by its text, a line by its words, a
       // note without a line by any change.

@@ -464,7 +464,7 @@ function questionPatch(lines: readonly string[], at: number, title: number, sent
   const box = `\n\n- [ ] ${ask}${next?.trim() ? "\n" : ""}`;
   const chip = `${lines[title]!.trimEnd()} [needs::sysop: ${chipWords(ask)}]`;
   // A line that was its own paragraph takes the blank line before it along, so none is left doubled (PIE-1428).
-  const alone = at - 1 > title && !lines[at - 1]!.trim() && !lines[at + 1]?.trim();
+  const alone = at - 1 > title && lines[at - 1] === "" && !lines[at + 1]?.trim();
   return [
     rest === null ? { observed: `${alone ? "\n\n" : "\n"}${line}`, replacement: "" } : { observed: line, replacement: rest },
     ...(anchor === title
@@ -522,7 +522,7 @@ const clockOf = (minutes: number) => `${(Math.floor(minutes / 60) + 11) % 12 + 1
 
 /**
  * A time written as past that hasn't come yet (PIE-1417): on a note whose `[day::]` is today, a `::graph-timeline` row
- * whose time is later than `now`; and a `[day::]` that carries a time later than now. A day alone is a day to plan for,
+ * whose time is later than `now`, unless it is marked *next* (a plan); and a `[day::]` that carries a time later than now. A day alone is a day to plan for,
  * and a row with a date of its own is a plan's; neither is told. No patch: only the writer knows when it happened.
  */
 function futureTimes(lines: readonly string[], title: number, now: Date): ShapeFinding[] {
@@ -534,18 +534,23 @@ function futureTimes(lines: readonly string[], title: number, now: Date): ShapeF
   if (!at || at[1] !== today) return [];
   const told = (line: number, time: string): ShapeFinding => ({
     rule: "time", key: `time:${time}`, line: line + 1,
-    say: `line ${line + 1} says ${time} on today's note, but it's ${clockOf(nowMinutes)} now: write the time it happened, once it has`,
+    say: `line ${line + 1} says ${time} on today's note, but it's ${clockOf(nowMinutes)} now: write the time it happened, once it has (a row still to come is marked *next*)`,
   });
   const out: ShapeFinding[] = [];
   // `10:30 AM` as written, or an ISO time's hours and minutes (`T10:30:00`).
-  const own = at[2] === undefined ? undefined : clockMinutes(at[2]) ?? clockMinutes(/^\d{1,2}:\d{2}/.exec(at[2])?.[0] ?? "");
+  // `10:30 AM` as written, or an ISO time: with a zone it is an instant (`T13:00:00Z`), compared as one.
+  const zoned = at[2] !== undefined && /(?:Z|[+-]\d{2}:?\d{2})$/i.test(at[2]) ? Date.parse(day!) : NaN;
+  const own = at[2] === undefined ? undefined : Number.isFinite(zoned) ? (zoned > now.getTime() ? new Date(zoned).getHours() * 60 + new Date(zoned).getMinutes() : undefined)
+    : clockMinutes(at[2]) ?? clockMinutes(/^\d{1,2}:\d{2}/.exec(at[2])?.[0] ?? "");
   const ownLine = lines.slice(title, last + 1).findIndex(l => /\[day::/.test(l)) + title;
-  if (own !== undefined && own > nowMinutes) out.push(told(ownLine, clockOf(own)));
+  if (own !== undefined && (Number.isFinite(zoned) || own > nowMinutes)) out.push(told(ownLine, clockOf(own)));
   for (const block of componentBlocks(lines)) {
     if (block.name !== "graph-timeline") continue;
     for (let i = block.start + 1; i < block.end; i++) {
       const item = /^[ \t>]*[-*+][ \t]+(.*)$/.exec(lines[i]!);
-      const label = item ? figureRow(item[1]!).label : null;
+      const row = item ? figureRow(item[1]!) : null, label = row?.label ?? null;
+      // A row marked *next* is the timeline's own "still to come": a plan, never told.
+      if (row?.emphasis === "em") continue;
       const minutes = label === null ? undefined : clockMinutes(label);
       if (minutes !== undefined && minutes > nowMinutes) out.push(told(i, label!.trim()));
     }
