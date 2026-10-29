@@ -7,8 +7,8 @@
 import { C, chip, ellipsize, fg, pad, RESET, selectedRow, width } from "../style";
 import { RowView, wheelRows } from "../scroll";
 import { keycap } from "../figures/keys";
-import { ActionRefused, actionSet, actRequestOf, chordName, def, keyCaption, keyName, lineWords } from "../surface/actions";
-import { bindings, conflicts, LAYERS, rebindEffects, shadowsOf, strayEntries, type Binding } from "../surface/key-catalog";
+import { ActionRefused, actionSet, actRequestOf, allActionSets, chordName, def, keyCaption, keyName, lineWords, shownLine } from "../surface/actions";
+import { bindings, conflicts, fightOf, LAYERS, rebindEffects, shadowsOf, strayEntries, type Binding } from "../surface/key-catalog";
 import { bindingId, entriesOf, keymapPath, keymapProblem, keymapVersion, keyTable, resetKeys, setKeys, undoKeymap } from "../surface/keymap";
 import { filterLine, type LineField } from "../surface/line";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
@@ -16,6 +16,7 @@ import { chips, tabStrip } from "../surface/chip-rows";
 import type { Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import { TILE_ACTIONS } from "./tile-actions";
+import { tileRegistry } from "./tile-registry";
 import type { ScreenSpec } from "./screen-spec";
 import type { KindHost, TileKind } from "./tile-kinds";
 
@@ -32,7 +33,7 @@ export const KEYS_WINDOW_KEYS: readonly ModeKey[] = keyTable("keys window", "the
   // Tabs by digit (the screen has no tile digits); Tab stays the desk's focus key.
   row("/", "keys.filter", "filter"), row("1", "keys.tab", "bindings", { tab: "bindings" }), row("2", "keys.tab", "conflicts", { tab: "conflicts" }), row("3", "keys.tab", "yours", { tab: "yours" }),
   row("r", "keys.rebind", "rebind"), row("u", "keys.unbind", "unbind"), row("d", "keys.reset", "built-in keys"),
-  row("ctrl+z", "keys.undo", "undo"), row("q", "keys.close", "close"),
+  row("enter", "keys.run", "run it"), row("ctrl+z", "keys.undo", "undo"), row("esc", "keys.close", "close"), row("q", "keys.close", "close"),
 ]);
 /** While the filter is typed: the line editor has every other key. */
 export const KEYS_FILTER_KEYS: readonly ModeKey[] = keyTable("keys filter", "the keys window's filter, being typed", [
@@ -106,9 +107,9 @@ export class KeysPane implements Pane {
     const hit = (b: Binding) => matches(b, this.filter);
     if (this.tab === "bindings") return all.filter(hit).map(b => ({ b }));
     if (this.tab === "yours") return all.filter(b => b.yours && hit(b)).map(b => ({ b }));
-    // Conflicts: keys two bindings claim in one place; the person's own first.
+    // Conflicts: keys two bindings really fight over (one lookup, both live), the one that runs first; the person's own first.
     const groups = conflicts(all).filter(g => g.some(hit)).sort((a, b) => Number(b.some(x => x.yours)) - Number(a.some(x => x.yours)));
-    return groups.flatMap(g => g.map((b, i) => ({ b, ...(i === 0 ? { head: `${b.cap} · ${b.scope}: ${g.length} bindings, the code picks by what's open` } : {}) })));
+    return groups.flatMap(g => { const f = fightOf(g), w = g.find(b => b.id === f.wins)!; return [w, ...g.filter(b => b !== w)].map((b, i) => ({ b, ...(i === 0 ? { head: `${b.cap} · ${b.scope}: ${f.wins} runs, ${f.loses.join(", ")} never does (${f.why})` } : {}) })); });
   }
   selected(): Binding | null { const r = this.rows(); return r[Math.min(this.at, r.length - 1)]?.b ?? null; }
 
@@ -118,9 +119,10 @@ export class KeysPane implements Pane {
     if (this.at >= rows.length) this.at = Math.max(0, rows.length - 1);
     const lines: string[] = [];
     const yours = all.filter(b => b.yours).length, clash = conflicts(all).length;
-    // The count sits beside the tabs where there's room, else at the end of the filter line (a narrow tile keeps every tab).
+    // The count sits beside the tabs where there's room, else at the end of the filter line (a narrow tile keeps every tab,
+    // and the Conflicts and Yours counts: Bindings' is the filter line's "of").
     const count = `${rows.length ? this.at + 1 : 0} of ${rows.length}`, roomy = w >= 80;
-    const strip = tabStrip(KEYS_TABS.map((t, i) => ({ key: String(i + 1), label: w < 60 ? t[0]!.toUpperCase() + t.slice(1) : t === "bindings" ? `Bindings ${all.length}` : t === "conflicts" ? `Conflicts ${clash}` : `Yours ${yours}`, on: t === this.tab, hit: { action: "keys.tab", args: { tab: t } } })), { width: roomy ? w - width(count) - 1 : w, overflow: "share", style: { ...chips(), gap: "" } })[0]!;
+    const strip = tabStrip(KEYS_TABS.map((t, i) => ({ key: String(i + 1), label: t === "bindings" ? (w < 60 ? "Bindings" : `Bindings ${all.length}`) : t === "conflicts" ? `Conflicts ${clash}` : `Yours ${yours}`, on: t === this.tab, hit: { action: "keys.tab", args: { tab: t } } })), { width: roomy ? w - width(count) - 1 : w, overflow: "share", style: { ...chips(), gap: "" } })[0]!;
     lines.push(roomy ? pad(strip.text, Math.max(0, w - width(count) - 1)) + " " + fg(C.dark) + count + RESET : strip.text);
     for (const x of strip.hits) this.hits.push({ y: 0, ...x });
     const tail = roomy ? "" : " " + fg(C.dark) + count + RESET, fieldW = Math.max(4, w - 10 - (roomy ? 0 : width(count) + 1));
@@ -133,7 +135,7 @@ export class KeysPane implements Pane {
     const wide = w >= 96, listW = this.listW = wide ? Math.floor(w * 0.56) : w;
     const sel = rows[this.at]?.b ?? null;
     const detail = sel ? this.detail(sel, wide ? w - listW - 3 : w, all)
-      : [fg(C.dark) + ellipsize(this.filter ? ` no ${this.tab === "bindings" ? "binding" : this.tab === "yours" ? "key of yours" : "conflict"} matches "${this.filter}": / then esc clears it` : this.tab === "yours" ? " your keymap gives no keys yet: r on a binding moves one" : " nothing here", wide ? w - listW - 3 : w) + RESET, ...(this.said ? ["", fg(C.lgreen) + ellipsize(this.said, wide ? w - listW - 3 : w) + RESET] : [])];
+      : [fg(C.dark) + ellipsize(this.filter ? ` no ${this.tab === "bindings" ? "binding" : this.tab === "yours" ? "key of yours" : "conflict"} matches "${this.filter}": / then esc clears it` : this.tab === "yours" ? " your keymap gives no keys yet: r on a binding moves one" : this.tab === "conflicts" ? " no two bindings fight over a key: wherever a key works, it runs one action" : " nothing here", wide ? w - listW - 3 : w) + RESET, ...(this.said ? ["", fg(C.lgreen) + ellipsize(this.said, wide ? w - listW - 3 : w) + RESET] : [])];
     this.bodyAt = lines.length + 1;
     const room = Math.max(1, h - this.bodyAt - (wide ? 0 : Math.min(detail.length + 1, Math.max(4, Math.floor(h / 2)))));
     this.listRows = room;
@@ -156,9 +158,11 @@ export class KeysPane implements Pane {
   }
 
   private rowLine(r: Row, on: boolean, w: number): string {
-    const b = r.b, cap = keycap(b.cap), capW = 12, scopeW = Math.min(14, Math.max(6, Math.floor(w * 0.18)));
+    // Narrow (a 44-column tile), the words get the room: the scope is in the detail, and the filter (`in:note`) says it.
+    const narrow = w < 60, b = r.b, cap = keycap(b.cap), capW = narrow ? 9 : 12, scopeW = narrow ? 0 : Math.min(14, Math.max(6, Math.floor(w * 0.18)));
     const mark = b.yours ? fg(C.lcyan) + "●" + RESET : r.head ? fg(C.yellow) + "!" + RESET : " ";
-    const text = mark + pad(cap, capW) + " " + fg(C.brown) + pad(ellipsize(b.scope, scopeW), scopeW) + RESET + " " + fg(C.grey) + ellipsize(b.does, Math.max(4, w - capW - scopeW - 4)) + RESET;
+    const scope = narrow ? "" : fg(C.brown) + pad(ellipsize(b.scope, scopeW), scopeW) + RESET + " ";
+    const text = mark + pad(cap, capW) + " " + scope + fg(C.grey) + ellipsize(b.does, Math.max(4, w - capW - scopeW - (narrow ? 3 : 4))) + RESET;
     return on ? selectedRow(text, w) : text;
   }
 
@@ -246,7 +250,9 @@ export class KeysPane implements Pane {
     if (hit) { this.act(desk, hit.action, hit.args ?? {}); return true; }
     // A row of the list (beside the detail on a wide tile, above it on a narrow one).
     const n = y - this.bodyAt;
-    if (n >= 0 && n < this.listRows && x < this.listW) this.act(desk, "keys.select", { n: this.view.top + n + 1 });
+    // The selected row clicked again runs it, as ⏎ does.
+    const row = this.view.top + n;
+    if (n >= 0 && n < this.listRows && x < this.listW) this.act(desk, row === this.at && row < this.rows().length ? "keys.run" : "keys.select", row === this.at ? {} : { n: row + 1 });
     return true;
   }
   private listW = 0;
@@ -309,16 +315,17 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
       const p = paneOf(pane);
       if (text !== undefined) { p.filter = text; p.at = 0; if (p.field) p.field = null; }
       if (done) p.field = null;
-      else if (text === undefined && actor.kind !== "agent") p.field = filterLine(p.filter);
+      // Typing goes on after the words it was opened with (`in:note `), never into them.
+      else if (text === undefined && actor.kind !== "agent") p.field = filterLine(p.filter && !p.filter.endsWith(" ") ? `${p.filter} ` : p.filter);
       return { filter: p.filter, rows: p.rows().length };
     },
   }),
   "keys.tab": def({
-    summary: "show the keys window's Bindings, Conflicts (keys two bindings claim in one place) or Yours (what your keymap gives): tab=<name>, or by=1/-1",
+    summary: "show the keys window's Bindings, Conflicts (keys two bindings really fight over: two rows of one key table on one key, or two entries of your keymap, so one never runs) or Yours (what your keymap gives): tab=<name>, or by=1/-1",
     keys: [{ keys: "1 2 3", does: "Bindings, Conflicts, Yours" }, { keys: "click", does: "on a tab" }],
     touches: "tile", replay: "safe", way: "an agent passes tab=",
     args: { tab: { type: "string", optional: true, choices: KEYS_TABS, about: "bindings, conflicts or yours" }, by: { type: "number", optional: true, about: "1 the next tab, -1 the previous" } },
-    examples: [{ act: "keys.tab tab=conflicts tile=keys", does: "lists the keys two bindings claim in one place" }, { act: "keys.tab by=1 tile=keys", does: "shows the next tab" }],
+    examples: [{ act: "keys.tab tab=conflicts tile=keys", does: "lists the keys two bindings fight over, and which one runs" }, { act: "keys.tab by=1 tile=keys", does: "shows the next tab" }],
     run({ tab, by }, { pane }) {
       const p = paneOf(pane), i = KEYS_TABS.indexOf(p.tab);
       p.tab = (tab as KeysTab | undefined) ?? KEYS_TABS[(((i + (by ?? 1)) % KEYS_TABS.length) + KEYS_TABS.length) % KEYS_TABS.length]!;
@@ -405,8 +412,33 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
       return { total: rows.length, bindings: rows.slice(0, limit ?? 40).map(b => ({ key: b.key, cap: b.cap, id: b.id, scope: b.scope, layer: b.layer, does: b.does, rebind: b.rebind, ...(b.yours ? { yours: true } : {}), ...(() => { const s = shadowsOf(b, all); return { takesFrom: s.under.map(u => u.id), takenBy: s.over.map(o => o.id), terminal: s.terminal ? "the program gets it" : "the door takes it" }; })() })) };
     },
   }),
+  "keys.run": def({
+    summary: "run the selected binding (or row n=) where the keys window was opened from, as its key does there: the tile it opened beside gets the person's keys back and the action runs in it (the keys screen goes back first). One that needs arguments the binding doesn't give opens its form in the power bar, the way the bar asks for them",
+    keys: [{ keys: "⏎", does: "on the selected binding" }, { keys: "click", does: "on the selected row again" }],
+    touches: "screen", replay: "ask",
+    person: "⏎ in the keys window runs a binding as the person's own key would, in their tile; an agent runs the action itself (ep0ch act <its act line>, keys.find lists them)",
+    args: { n: { type: "number", optional: true, about: "the row, from 1; default the selected one" } },
+    examples: [{ act: "keys.run n=2 tile=keys", does: "runs the second binding listed in the tile the window was opened from" }],
+    async run({ n }, { pane, desk }) {
+      const p = paneOf(pane), b = n !== undefined ? pick(p, n) : p.selected();
+      if (!b) throw new ActionRefused("no binding selected: keys.select n= or keys.filter text= first");
+      const ctx = desk.ctx;
+      if (!ctx.press) throw new ActionRefused("this screen isn't given the door's actions: run it with its key where it works");
+      const args = { ...b.args }, asks = needs(b.action).filter(a => args[a] === undefined);
+      // The window's own keys run here, in it.
+      if (KEYS_WINDOW_ACTIONS.has(b.action) && !asks.length) { await desk.press?.(p, KEYS_WINDOW_ACTIONS, b.action, args); return { ran: b.id }; }
+      // Back where it was opened from, so the action runs on that tile as its key would there.
+      const opener = tileRegistry.openerOf(p);
+      if (p.screen) await ctx.press("screen.back");
+      else if (opener !== undefined) { try { await ctx.press("tile.focus", {}, opener); } catch { /* that tile is gone: the action runs where the keys are */ } }
+      p.said = null;
+      if (asks.length) await ctx.press("bar.form", { op: "open", line: shownLine(b.action, args) });
+      else await ctx.press(b.action, args);
+      return { ran: b.id, ...(asks.length ? { asks } : {}) };
+    },
+  }),
   "keys.close": def({
-    summary: "close the keys window: the keys screen goes back to the screen it was opened over; a keys tile on a desk closes as a tile does", keys: [{ keys: "q", does: "close" }],
+    summary: "close the keys window: the keys screen goes back to the screen it was opened over; a keys tile closes as a tile does, the keys back in the tile it opened beside", keys: [{ keys: "esc q", does: "close it" }],
     touches: "screen", replay: "safe", args: {},
     async run(_, { pane, desk }) {
       if (paneOf(pane).screen) await desk.ctx.press?.("screen.back");
@@ -415,6 +447,9 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
     },
   }),
 });
+
+/** The arguments action `name` can't run without (its def's, not optional). */
+const needs = (name: string): string[] => Object.entries(allActionSets().find(s => s.has(name))?.def(name)?.args ?? {}).filter(([, a]) => !(a as { optional?: boolean }).optional).map(([k]) => k);
 
 /** Give binding `b` key `to` in its place: what it would take is said in the answer, and the window says what changed. */
 function save(p: KeysPane, b: Binding, to: string, desk: DeskApi): Record<string, unknown> {
