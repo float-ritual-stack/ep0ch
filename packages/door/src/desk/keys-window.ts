@@ -425,6 +425,8 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
       const ctx = desk.ctx;
       if (!ctx.press) throw new ActionRefused("this screen isn't given the door's actions: run it with its key where it works");
       const args = { ...b.args }, asks = needs(b.action).filter(a => args[a] === undefined);
+      // The window's own keys run here, in it.
+      if (KEYS_WINDOW_ACTIONS.has(b.action) && !asks.length) { await desk.press?.(p, KEYS_WINDOW_ACTIONS, b.action, args); return { ran: b.id }; }
       // Back where it was opened from, so the action runs on that tile as its key would there.
       const opener = tileRegistry.openerOf(p);
       if (p.screen) await ctx.press("screen.back");

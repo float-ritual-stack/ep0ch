@@ -38,7 +38,7 @@ describe.skipIf(!outliner)("showcase: trail (PIE-208)", () => {
     await until(() => tiles() === before + 1 && stage().panes.get(stage().focus)?.kind === "trail", "the trail tile beside the walk", 8000);
     await until(() => h.screen().includes("● Garden walk: the compost heap · here"), "the trail drawn", 8000);
     expect(h.screen()).toContain("← Garden walk: the orchard · 2 back");
-    await stage().dispatch.act({ action: "tile.resize", args: { by: 1 }, tile: "trail" }, USER);
+    await stage().dispatch.act({ action: "tile.resize", args: { by: 1, axis: "col" }, tile: "trail" }, USER);
     // ↓ ↓ ⏎: two stops back, at once; the trail stays beside it, the note shown lit again.
     h.press({ kind: "down" } as never); h.press({ kind: "down" } as never); h.press({ kind: "enter" } as never);
     await until(() => walk().msg?.text.startsWith("Garden walk: the orchard"), "two stops back", 10_000);

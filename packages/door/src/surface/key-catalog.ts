@@ -187,7 +187,9 @@ export function conflicts(all: readonly Binding[]): Binding[][] {
 export function fightOf(g: readonly Binding[]): { wins: string; loses: string[]; why: string } {
   const file = g[0]!.table === undefined;
   const w = file ? g.at(-1)! : g[0]!;
-  return { wins: w.id, loses: g.filter(b => b !== w).map(b => b.id), why: file ? "the keymap file's last entry for a key is the one pressed" : "its table is read first to last: the first row on a key is the one that runs" };
+  // A first row that runs only on some tiles wins only there.
+  const there = !file && w.only ? ` (on a ${w.only.join(" or ")} tile)` : !file && w.unless ? ` (but on a ${w.unless.join(" or ")} tile)` : "";
+  return { wins: w.id, loses: g.filter(b => b !== w).map(b => b.id), why: file ? "the keymap file's last entry for a key is the one pressed" : `its table is read first to last: the first row on a key is the one that runs${there}` };
 }
 
 /**

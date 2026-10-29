@@ -453,7 +453,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     let id: number;
     if (have !== undefined) id = have;
     else {
-      const made = this.sides(at).reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source), "trail", true, USER, dir); } catch { return null; } }, null);
+      const made = this.sides(at).reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source), "trail", true, USER, dir); } catch (e) { if (e instanceof ActionRefused) return null; throw e; } }, null);
       if (made === null) return null;
       id = made;
     }
@@ -4581,11 +4581,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
-   * Where a tile opened beside tile `at` for it goes, best first (the keys window, the trail): to its right where it's
-   * wide enough to share, else below it, so a 44-column tile keeps its width and the new one has all of it too.
+   * Where a list that wants width (the keys window, the trail) opens beside tile `at`, best first: the layout's one rule
+   * (`splitAxis`, wide), so a 44-column tile keeps its width and the list has all of it too.
    */
   private sides(at: number): ["right", "down"] | ["down", "right"] {
-    return (this.placed.rects.get(at)?.cols ?? 0) >= 100 ? ["right", "down"] : ["down", "right"];
+    const r = this.placed.rects.get(at);
+    return r && splitAxis(r, true) === "row" ? ["right", "down"] : ["down", "right"];
   }
 
   /**
@@ -4596,7 +4597,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const words = filter ?? this.keysFilter();
     const have = this.all().find(id => this.panes.get(id) instanceof KeysPane);
     if (have === undefined) {
-      const at = this.focus, [first, then] = this.sides(at);
+      // From a float: beside the tile under it, as tile.open does.
+      const at = this.isFloat(this.focus) ? this.grounded() ?? this.focus : this.focus, [first, then] = this.sides(at);
       const done = await this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), first, actor).catch(e => { if (e instanceof ActionRefused) return this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), then, actor); throw e; });
       // Closed (esc, q, ^W x), it gives the keys back to the tile it opened beside.
       const made = this.all().find(id => this.panes.get(id) instanceof KeysPane);
@@ -4605,7 +4607,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     const p = this.panes.get(have) as KeysPane;
     p.filter = words; p.at = 0; p.field = null; p.record = null;
-    if (actor.kind !== "agent") await this.dispatch.press("tile.focus", {}, this.tileId(have));
+    if (this.dispatch.standing(actor)) await this.dispatch.press("tile.focus", {}, this.tileId(have));
     this.redraw();
     return { ...this.tileAnswer(have), kind: "keys" };
   }
