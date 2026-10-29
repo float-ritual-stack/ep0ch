@@ -69,6 +69,8 @@ export interface BarSource {
   title: string;
   /** Typed first, it scopes the bar to this source (`%` tiles, `/` notes). */
   prefix: string;
+  /** Its prefix stays on the line as typed instead of scoping the bar (`@`, an ask line: its words complete as any line's do). */
+  inline?: true;
   /** What it lists, for `bar.open`'s answer and the bar's foot. */
   about: string;
   /** Its rows join the main list (no scope chosen): with nothing typed (`empty`), and as the person types (`typed`). */

@@ -4,8 +4,8 @@ import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { addressOf } from "../open";
 // The power bar's built-in sources (PIE-656), each a scope with its prefix: tiles (%), notes (/), actions (>),
-// recent (+) and screens (@). None keeps a list of its own: tiles are the layout tree's (`Desk.tileOutline`) on every
-// screen and in the drawer; notes are the service's one search (`board.search`, Goto's ranker, Jev re-ordering after
+// recent (+), screens (:) and agents (@, an ask line: src/bar/ask-agent.ts). None keeps a list of its own: tiles are
+// the layout tree's (`Desk.tileOutline`) on every screen and in the drawer; notes are the service's one search (`board.search`, Goto's ranker, Jev re-ordering after
 // a pause); actions are the dispatcher's (the focused tile's menu rows, then every action that needs no argument);
 // recent is the what-changed store behind the status bar's `+N new`; screens are the shell's `screen.list`. A pick goes
 // through the shared paths: the drawer's goTo, the `open` action, the dispatcher's press.
@@ -30,6 +30,7 @@ import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
 import { extensionList, extensionParts, PART_KINDS, partKind, scriptActions, type ExtensionEntry, type ExtensionList } from "../extensions";
 import { openActionForm } from "./form";
+import { AGENTS } from "./ask-agent";
 import { settingsChip, settingsMarkdown, shownValue } from "../extension-settings";
 
 /** The arguments action `name` declares, as the door lists it now. */
@@ -448,7 +449,7 @@ interface ScreenListed { stack: string[]; screens: { key: string; label: string;
 
 const screenArgs = (row: BarRow) => ({ name: (row.data as { name: string }).name });
 const SCREENS: BarSource = {
-  id: "screens", title: "screens", prefix: "@", by: "door",
+  id: "screens", title: "screens", prefix: ":", by: "door",
   about: "the screens to open: the menu's and every registered one (the ones people made too); ⏎ opens it over this one (q comes back)",
   main: { empty: false, typed: true, most: 5 },
   async rows(q, host) {
@@ -587,6 +588,6 @@ const EXTENSIONS: BarSource = {
 };
 
 /** The door's own sources, in the order the bar's tabs show them. */
-export const BUILT_IN_SOURCES = [TILES, NOTES, ACTIONS, RECENT, SCREENS, EXTENSIONS] as const;
+export const BUILT_IN_SOURCES = [TILES, NOTES, ACTIONS, RECENT, SCREENS, AGENTS, EXTENSIONS] as const;
 for (const s of BUILT_IN_SOURCES) registerBarSource(s);
 

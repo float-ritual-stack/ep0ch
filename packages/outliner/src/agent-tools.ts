@@ -1595,7 +1595,16 @@ export async function proposalOutcomesOf(client: AgentToolsClient, input: { sinc
   // The caller's own, with no persona to name it: this session's proposals, not every session's that writes as the same client.
   const session = !input.actor?.trim() && actor?.sessionId && !parseActor(whose).persona ? actor.sessionId : undefined;
   await client.requireCompatibleService();
-  return client.request({ action: "proposals.outcomes", actor: whose, ...(session ? { session } : {}), ...(input.since !== undefined ? { since: input.since } : {}), ...(input.limit !== undefined ? { limit: input.limit } : {}) });
+  const ask = (scoped: boolean, limit = input.limit) => client.request<{ actor: string; outcomes: unknown[]; cursor: string; complete: boolean }>({ action: "proposals.outcomes", actor: whose, ...(scoped && session ? { session } : {}), ...(input.since !== undefined ? { since: input.since } : {}), ...(limit !== undefined ? { limit } : {}) });
+  const page = await ask(true);
+  if (page.outcomes.length) return page;
+  // An empty list says why (PIE-1436): nothing changed since the cursor, or this session's own were all that was asked.
+  const since = input.since ? `since ${input.since}` : "this past week";
+  const persona = parseActor(whose).persona;
+  if (!session) return { ...page, said: `no proposals by ${persona ?? whose} changed ${since}: an edit that applied is no proposal, and each change of one is told once (pass since to look further back)` };
+  const others = (await ask(false, 50)).outcomes.length;
+  const left = others ? `; ${others >= 50 ? "50 or more" : others} proposal ${others === 1 ? "change" : "changes"} by ${whose} from other sessions are left out (actor="${whose}" lists them)` : "";
+  return { ...page, said: `none from this session: ${whose} writes with no persona, so only this session's proposals are its own${left}. A persona (agent = "<name>" in the folder's .ep0ch, or EP0CH_AGENT) hears every session's` };
 }
 
 /**

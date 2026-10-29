@@ -427,7 +427,8 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "`stale` (the note changed under it: re-read and send it again), `applied`, `dismissed` or `resolved`, oldest first, " +
       "each once, with the note (`note`, `title`), the proposal's id, who made it so (`by`) and why (`reason`). `actor` " +
       "is whose: yours when left out; a persona (loki) covers every client it writes through. Pass the answer's `cursor` " +
-      "as `since` next time; `complete: false` says more came after it.",
+      "as `since` next time; `complete: false` says more came after it. An empty list says why (`said`): nothing changed " +
+      "in the window, or, for a client with no persona, that only this session's proposals are its own and how many others there are.",
     properties: {
       since: { type: "string", description: "An ISO time, or the cursor an earlier call returned; the last week when left out" },
       actor: { type: "string", description: "Whose proposals: an actor id, or a persona such as loki; yours when left out" },
@@ -451,7 +452,8 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "when it returned more than a line, answer. `this` is the note the run is about (a ref), what a press in that note " +
       "gives the script as `this`; `slots` are the values a button's slots would carry (`{ week: \"42\" }`), the script's " +
       "`props`: with both, a run here is the person's press. Documents and explicit output are kept as run notes; " +
-      "[results::keep] requests a full run record. Its writes use the outline's MCP access: proposals at propose, applied at full.",
+      "[results::keep] requests a full run record; `written` lists those, and `changed` the notes the run itself changed " +
+      "(id, title, and created, edited, moved, trashed or restored). Its writes use the outline's MCP access: proposals at propose, applied at full.",
     properties: {
       ref: REF,
       this: { type: "string", description: "The note the run is about, as a press in it would give: its id, ((id)), [[page]] or Work ID" },

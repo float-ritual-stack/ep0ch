@@ -62,6 +62,11 @@ export interface ScriptRendered { markdown: string; /** The view it drew, when i
 interface SiteBinding { globals: ScriptSiteGlobals; thisId?: string; resolve?: HostApi["resolve"] }
 
 /** Runs outlive the action that starts them; progress is ordinary outline content beside the source. */
+type ChangeWord = NonNullable<ExtensionActResult["changed"]>[number]["change"];
+/** What a run's change says it did to a note (PIE-1436), and which word wins when it did several. */
+const CHANGED: Partial<Record<OutlinerChange["kind"], ChangeWord>> = { create: "created", edit: "edited", draft: "edited", move: "moved", reorder: "moved", delete: "trashed", restore: "restored" };
+const RANK: readonly ChangeWord[] = ["edited", "moved", "restored", "trashed", "created"];
+
 export class ScriptRuns {
   private readonly running = new Set<AbortController>();
   /** The runs that are going, by their undo id (a run note's `script-run::`): what `stop(run)` ends. */
@@ -268,11 +273,16 @@ export class ScriptRuns {
       `Author: ${actor.actorId ?? actor.author} · revision ${source.revision} · onBehalfOf: ${requestedBy.actorId ?? requestedBy.author}${button ? ` · button by ${button.author} in ((${button.block}))` : ""}`,
       ...(old !== undefined && old !== source.code ? ["", "```diff", createPatch(extension.name, old, source.code), "```"] : []),
     ];
+    const changed = new Map<string, ChangeWord>();
     const captured = <T>(work: () => T): T => {
       const before = new Map<string, Block>();
       const attribution = this.store.changes.attribution({ action: `script:${extension.name}`, actor, requestedBy, collect: true });
       const finish = () => {
         const changes = this.store.changes.committed(attribution);
+        for (const c of changes) {
+          const how = CHANGED[c.kind];
+          if (c.blockId && how && (RANK.indexOf(how) > RANK.indexOf(changed.get(c.blockId) ?? "edited") || !changed.has(c.blockId))) changed.set(c.blockId, how);
+        }
         this.writes.recordRun(undo, before, changes);
         this.publish(changes);
       };
@@ -493,6 +503,8 @@ export class ScriptRuns {
           result.message = failure !== undefined ? stoppedSaid ?? `${failure || "Script failed"} · check the script and run it again`
             : reason === "done" ? message : "Script stopped; run it again when ready";
           result.state = reason;
+          const notes = [...changed].filter(([id]) => id !== log?.id).map(([id, change]) => ({ id, title: firstLineWithoutPropertyTokens(this.store.get(id)?.text ?? "")?.trim() || id.slice(0, 8), change }));
+          if (notes.length) result.changed = notes;
           if (returned !== undefined && returned !== result.message) result.answer = returned;
           if (trace && failure) { trace.problem = failure; trace.result.text += `\n${failure}`; }
           this.ended?.({ run: undo, reason, ...(sequence ? { sequence: true } : {}), message: result.message, written, requestedBy, undo: (sequence !== undefined || reason === "done") && undoAvailable,

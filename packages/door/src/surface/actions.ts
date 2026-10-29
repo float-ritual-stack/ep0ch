@@ -32,10 +32,10 @@ export type ArgType = "string" | "number" | "boolean";
  * - `note`: a note, by the service's search (an id, a `((ref))`, a Work ID). `page`: a page's name (`[[name]]`).
  * - `screen`: a screen by name (screen.list). `view`: a saved view (a virtual branch's block id).
  * - `key`: a property's key; `value`: a value of the key the argument `of` names (the outline's property index).
- * - `tile-kind`: a kind of tile (the tile-kind registry).
+ * - `tile-kind`: a kind of tile (the tile-kind registry). `agent`: a persona of the agents here (src/bar/ask-agent.ts).
  * A boolean needs none (true or false), nor does a value from a fixed list (`choices`).
  */
-export type ArgKind = "outline" | "tile" | "note" | "page" | "screen" | "view" | "key" | "value" | "tile-kind" | "file" | "layout";
+export type ArgKind = "outline" | "tile" | "note" | "page" | "screen" | "view" | "key" | "value" | "tile-kind" | "file" | "layout" | "agent";
 /**
  * One argument: its type, whether it may be left out, and what it means; `kind`: the kind of thing it names (ArgKind);
  * `choices`: the values it takes, when they are a fixed list (`where=left|right|…`), offered first (with a kind, the

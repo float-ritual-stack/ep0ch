@@ -187,7 +187,7 @@ export class PowerBar {
       return true;
     }
     if (k.kind === "char" && !k.ctrl && !this.input.text && !this.scope) {
-      const s = barSources().find(x => x.prefix === k.ch);
+      const s = barSources().find(x => x.prefix === k.ch && !x.inline);
       if (s) { void this.host.dispatch.press("bar.open", { scope: s.id, keep: true }); return true; }
     }
     if (k.kind === "up" && this.scope !== "ask" && !this.query && this.host.runs.length) { void this.host.dispatch.press("bar.command", { op: "recall" }); return true; }

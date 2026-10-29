@@ -10,6 +10,7 @@ import type { PowerBar } from "./bar";
 import { clearPrivateForm, formFocus, formLine, formOpen, formRun, formSet, formState } from "./ask";
 import { formFor, openActionForm } from "./form";
 import { barSource, barSources, type BarHost } from "./source";
+import { askAgent, type Asked } from "./ask-agent";
 
 /** What the bar's actions run on: the door's open bar (the person's), and how to make one (the person's, or an agent's own unseen). */
 export interface BarOn {
@@ -212,5 +213,21 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
       clearPrivateForm();
       return { closed: true };
     },
+  }),
+  "agent.ask": def({
+    summary: "ask an agent (PIE-1437): the words as a comment naming @to on a note, addressed mail, which every session writing as that persona hears at its addressed check and answers in the thread. [[pages]] and ((notes)) in the words stay links; each %tile gets a line naming that tile in this door. The note: note=, else (the person's) the note in front of them, else the first note the words link to. The person's says what was sent where; an agent's is attributed to it",
+    keys: [{ keys: "enter", does: "on an ask line in the power bar: @name and the words" }, { keys: "click", does: "on the bar's ask @name row" }, { keys: "@", does: "on a row of the agent panel: the bar with @name on its line" }],
+    touches: "nothing", replay: "ask",
+    says: (out: Asked) => `· asked @${out.to} on ${out.title} · ${out.to}'s sessions hear it at their next check`,
+    args: {
+      to: { type: "string", kind: "agent", about: "the agent's persona (loki, kitty): the agents here are listed, and any persona's name is sent as typed" },
+      text: { type: "string", about: "what you ask, with [[pages]], ((notes)) and %tiles in it" },
+      note: { type: "string", optional: true, kind: "note", about: "the note it's a comment on; left out, the note in front of you, else the first one the words link to" },
+    },
+    examples: [
+      { act: 'agent.ask to=wren text="looking at [[seed trays]] can you pop it into %jobs"', does: "a comment naming @wren on the note in front of you, %jobs named as this door's tile" },
+      { act: "agent.ask to=wren text=\"sort these\" note=[[seed trays]]", does: "asks wren on the seed trays page" },
+    ],
+    run({ to, text, note }, { on }, actor: Actor) { return askAgent(on.host(), { to, text, ...(note ? { note } : {}) }, actor); },
   }),
 });

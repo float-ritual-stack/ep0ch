@@ -2014,7 +2014,7 @@ describe('what became of a proposal reaches its session once (PIE-1086)', () => 
     expect(s.asked[0]!.argv).toContain('--actor')
     expect(JSON.parse(s.asked[0]!.stdin!)).toEqual({ since: '2026-10-29T12:00:00.000Z' })
     expect(s.wakes).toHaveLength(1)
-    expect(s.wakes[0]).toContain(`- gone stale by Evan: your proposal ((${P}|proposal)) on ((${NOTE}|Bean rota))`)
+    expect(s.wakes[0]).toContain(`- gone stale: ((${P}|your edit of Bean rota)) no longer fits ((${NOTE}|Bean rota)), which Evan changed since`)
     expect(s.wakes[0]).toContain('proposed instead of applied')
     // The next look starts where the last ended; told ones are not told again.
     s.outcomes.push({ proposal: P, note: NOTE, title: 'Bean rota', state: 'applied', at: at(4), revision: 3, by: 'user' })
@@ -2023,7 +2023,7 @@ describe('what became of a proposal reaches its session once (PIE-1086)', () => 
     expect(s.wakes).toHaveLength(1)
     const context = ((await $.prompt.submit({ text: 'plant the beans', wait: false })).context ?? []) as string[]
     const heard = context.find(c => c.startsWith('<ep0ch-proposals>'))!
-    expect(heard).toContain('- applied by Evan: your proposal')
+    expect(heard).toContain('- applied by Evan: ((')
     expect(heard).not.toContain('gone stale')
     const later = ((await $.prompt.submit({ text: 'plant the beans', wait: false })).context ?? []) as string[]
     expect(later.some(c => c.startsWith('<ep0ch-proposals>'))).toBe(false)
@@ -2041,6 +2041,6 @@ describe('what became of a proposal reaches its session once (PIE-1086)', () => 
     await s.session.clock.advance(2 * MIN + 1000)
     expect(s.wakes).toEqual([])
     const context = ((await $.prompt.submit({ text: 'plant the beans', wait: false })).context ?? []) as string[]
-    expect(context.find(c => c.startsWith('<ep0ch-proposals>'))).toContain('gone stale by Evan')
+    expect(context.find(c => c.startsWith('<ep0ch-proposals>'))).toContain('which Evan changed since')
   })
 })
