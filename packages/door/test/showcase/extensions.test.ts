@@ -89,6 +89,29 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 
+  test("the power bar's extensions read at a glance (PIE-1284): one line each at 120 columns, grouped by what each adds, its own words in the preview", async () => {
+    const rows = await app.act({ action: "bar.open", args: { scope: "&" }, as: "test-agent" }) as { rows: { label: string; detail?: string; group?: string }[] };
+    const groups = [...new Set(rows.rows.map(r => r.group).filter(Boolean))] as string[];
+    // Each kind's group says its count; the installed come first, then what the repo has that isn't.
+    expect(groups.some(g => /^(rules|components|scripts|programs|sources|agents|tiles|records|actions) · \d+$/.test(g))).toBe(true);
+    expect(groups.findIndex(g => g.startsWith("not installed"))).toBeGreaterThan(groups.findIndex(g => g === "installed"));
+    expect(rows.rows.find(r => r.label === "Extensions")?.detail).toMatch(/\d+ of \d+ installed/);
+    // No ids, versions or paths on a row: those are the preview's.
+    for (const r of rows.rows.filter(r => /^(rules|components|scripts|programs|sources|agents|tiles|records|actions|not installed) · /.test(r.group ?? ""))) expect(r.detail ?? "").not.toMatch(/ v\d|\/|script-[0-9a-f]{6}/);
+    await app.dispatch.press("bar.open", { scope: "&" });
+    try {
+      const bar = app.bar!;
+      await bar.settled();
+      const drawn = bar.draw(120, 40).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
+      for (const r of rows.rows.filter(r => r.group?.startsWith("not installed"))) {
+        const at = drawn.findIndex(l => l.includes(r.label));
+        if (at < 0) continue;
+        // One line: the row under it is the next row or a heading, never its words wrapped.
+        expect(drawn[at + 1] ?? "").not.toMatch(/^\s*│?\s{3,}[a-z]/);
+      }
+    } finally { press({ kind: "esc" }); }
+  }, 20_000);
+
 
   test("structure (PIE-784): sort-blocks run by the person asks by= and order= in the power bar, chosen by keys, and lands as one order; an agent's extract is one step it undoes whole", async () => {
     (app as any).lastInput = 0;

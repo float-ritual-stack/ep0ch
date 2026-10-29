@@ -398,6 +398,9 @@ interface ExtRow { kind: "hub" | "page" | "install" | "remove" | "make" | "setti
 /** A description's first sentence: what an extension says it is, at a glance. */
 const firstSentence = (text: string | undefined) => (text ?? "").replace(/\s+/g, " ").trim().match(/^.*?[.!?](?=\s|$)/)?.[0] ?? (text ?? "").trim();
 
+/** A row's words for an installed one: a script says where it is written (its path is the preview's), the rest their first sentence. */
+const summaryOf = (e: ExtensionEntry) => e.script ? (e.script.file ? `a script file, ${e.script.file.split("/").pop()}` : "a script in a note") : firstSentence(e.description);
+
 /** An installed extension as its preview reads it: its id and version, its state and settings, where it lives, its words, what it adds. */
 function extensionFacts(e: ExtensionEntry, then: string): string {
   const parts = extensionParts(e);
@@ -429,7 +432,7 @@ const EXTENSIONS: BarSource = {
     const kindOf = (e: ExtensionEntry) => extensionParts(e, l)[0]?.kind ?? "actions";
     for (const kind of PART_KINDS) {
       const these = installed.filter(e => kindOf(e) === kind);
-      for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.settings ? settingsChip(e.settings) : "", firstSentence(e.description)].filter(Boolean).join(" · "), group: `${kind} · ${these.length}`, oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
+      for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.settings ? settingsChip(e.settings) : "", summaryOf(e)].filter(Boolean).join(" · "), group: `${kind} · ${these.length}`, oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
     }
     // Its settings (PIE-1343): a row each, its chip first, ⏎ the form its configSchema draws.
     for (const e of installed) if (e.settings) rows.push({ key: `settings:${e.id}`, label: `settings ${e.name ?? e.id}`, detail: [settingsChip(e.settings), e.settings.file].join(" · "), group: "settings", data: { kind: "settings", id: e.id } satisfies ExtRow });
