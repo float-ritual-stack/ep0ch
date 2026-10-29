@@ -134,6 +134,8 @@ export async function recordTwin(client: WorkJevClient, answer: TwinAnswer, at: 
 
 /** A check that found nothing (or an attach, which asked nothing): only the day's run counts it, with its tokens. Never throws. */
 export async function tallyTwins(client: WorkJevClient, answer: TwinAnswer): Promise<void> {
+  // A check Jev wasn't asked for and that found nothing cost nothing and says nothing: no run for it.
+  if (answer.jev !== "asked" && !answer.twins.length) return;
   try {
     await tallyRun(client, LOOP, dayOf(), { items: 1, suggested: answer.twins.length ? 1 : 0, ...(answer.jev === "asked" || /^not asked|^off/.test(answer.jev) ? {} : { unavailable: 1 }) }, answer.reading);
   } catch { /* bookkeeping */ }

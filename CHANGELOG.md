@@ -27,7 +27,7 @@ are its record. The outliner's entries from then are kept below, under
   ticket's lines that say what should show; `--into` keeps a `[type::validation-plan]` note. The verifier starts there.
 - **Costs on the page:** each pass is a `jev-run` (experiment `work-groom`, `work-twins`, `work-try`) with tokens and
   `cost` in dollars; Jev's suggestions page has a section for the loops. All wording is in `prompts/work-jev.json`.
-- **What to run:** `PROTOCOL` goes up (`roadmap.items.similar`, `roadmap.items.attach`, `new` on
+- **What to run:** `PROTOCOL` is 279 (`roadmap.items.similar`, `roadmap.items.attach`, `new` on
   `roadmap.items.create`): `ep0ch install --apply` on float-2, float-box and the laptop.
 
 ### Every agent write is reviewed, ship or fix, and Evan sees each review (PIE-1388)
