@@ -23,7 +23,7 @@ import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { parseWorkId } from "./work-ids";
 import { ticketOf } from "./work-stage-follows";
-import { keptBecause } from "./work-later";
+import { keptBecause } from "./work-keep";
 import {
   ROADMAP_WORK_STAGES,
   type BacklinkCollection,

@@ -87,7 +87,9 @@ test("a parked item comes back when a new note links it, with a line saying why;
   const parkedDay = ago(10).slice(0, 10);
   for (const b of [wanted, quiet, nudged, wrong]) {
     const fresh = store.require(b.id);
-    store.update(b.id, fresh.text.replace("[work-stage::later]", `[work-stage::later]\n[wreckage::${parkedDay}]`), fresh.revision);
+    // As the Oct 24 cut wrote it: the mark on a line of its own under the header.
+    const [head, ...rest] = fresh.text.split("\n");
+    store.update(b.id, [head, `[wreckage::${parkedDay}]`, ...rest].join("\n"), fresh.revision);
   }
   const workId = (b: Block) => b.properties.find(p => p.key === "work-id")!.value;
   // Before anything asks: nothing comes back; the one parked against the rule is listed with its restore command.

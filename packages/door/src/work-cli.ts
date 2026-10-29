@@ -15,7 +15,7 @@ interface Groom {
 }
 interface Later {
   park(source: Client, o: { where?: string; limit?: number; apply?: boolean; olderThanDays?: number; actor?: string }): Promise<{ rows: { id: string; outcome: string }[] }>;
-  revive(source: Client, o: { where?: string; limit?: number; apply?: boolean; jev?: boolean; actor?: string; progress?: (line: string) => void }): Promise<{ rows: { id: string; outcome: string }[] }>;
+  revive(source: Client, o: { where?: string; limit?: number; apply?: boolean; jev?: boolean; actor?: string; progress?: (line: string) => void }): Promise<{ rows: { id: string; ticket: string; outcome: string }[] }>;
   laterSummary(report: unknown): string;
 }
 interface Try {
@@ -41,8 +41,9 @@ export const WORK_USAGE = `  ep0ch work groom [--ws <name>] [--repo <dir>] [--si
                                    the way back, weekly: each parked item a comment, a new note or live work asked for
                                    again (Jev reads the note: wanted, or only cited?), or one parked against the keep
                                    rule, goes back to queued with a line saying why; then the groom's pass over what
-                                   stays, so one that shipped gets its comment. --apply writes it, with a groom-later
-                                   record each (type=groom-later outcome=restored counts what came back).
+                                   stays, so one that shipped gets its comment (kept in --into, else with --apply).
+                                   --apply writes it, with a groom-later record each (type=groom-later
+                                   outcome=restored counts what came back). --limit caps the items read.
   ep0ch work try <PIE-n>… [--ws <name>] [--into <name>] [--no-jev] [--json]
                                    what a validator would try for merged tickets: the door's actions and each ticket's
                                    lines Jev picks, as journeys (where, which keys or act call, what should show).
@@ -112,17 +113,19 @@ export async function workCommand(args: string[], io = { out: (s: string) => con
       }
       const report = await l.revive(clientOf(source), { ...common, jev, progress: line => { if (!json) process.stderr.write(`\r${line}\x1b[K`); } });
       if (!json) process.stderr.write("\r\x1b[K");
-      // Then the groom's own pass over what stays parked: one that shipped gets its comment for the verifier.
-      const stays = report.rows.filter(r => r.outcome === "stays").map(r => r.id);
+      // Then the groom's own pass over what stays parked, only those: one that shipped gets its comment for the
+      // verifier, kept in --into, else (with --apply) in the outline it read.
+      const stays = report.rows.filter(r => r.outcome === "stays").map(r => r.ticket);
       const repo = opts["--repo"] ?? join(import.meta.dir, "../../..");
       const changelog = await Bun.file(join(repo, "CHANGELOG.md")).text().catch(() => "");
       const m = await import(GROOM) as Groom;
-      const twins = stays.length && changelog ? await m.groom(clientOf(source), { changelog, prs: await mergedPullRequests(repo, opts["--since"] ?? "120d") }, { jev, where: opts["--where"] ?? "type=roadmap-item work-stage=later wreckage" }) as { rows: { id: string; verdict: string }[]; counts: Record<string, number> } : undefined;
-      const rows = twins?.rows.filter(r => stays.includes(r.id)) ?? [];
-      const shipped = twins ? { ...twins, rows, counts: Object.fromEntries(Object.keys(twins.counts).map(k => [k, rows.filter(r => r.verdict === k).length])) } : undefined;
-      const kept = shipped && into ? await m.keepGroom(clientOf(into), shipped) : undefined;
+      const shipped = stays.length && changelog
+        ? await m.groom(clientOf(source), { changelog, prs: await mergedPullRequests(repo, opts["--since"] ?? "120d") }, { jev, where: `type=roadmap-item (${stays.map(t => `work-id=${t}`).join(" OR ")})` })
+        : undefined;
+      const keepIn = into ?? (apply ? source : undefined);
+      const kept = shipped && keepIn ? await m.keepGroom(clientOf(keepIn), shipped) : undefined;
       io.out(json ? JSON.stringify({ ...report, ...(shipped ? { groom: shipped } : {}), ...(kept ? { kept } : {}) }, null, 2)
-        : `${l.laterSummary(report)}${shipped ? `\n\nwhat stays, against what shipped:\n${m.groomSummary(shipped)}` : ""}${kept ? `\n\nkept in ${opts["--into"]}: ${kept.verdicts} verdicts, ${kept.comments} comments for the verifier` : ""}`);
+        : `${l.laterSummary(report)}${shipped ? `\n\nwhat stays, against what shipped:\n${m.groomSummary(shipped)}` : ""}${kept ? `\n\nkept: ${kept.verdicts} verdicts, ${kept.comments} comments for the verifier` : ""}`);
       return 0;
     }
     if (op === "groom") {

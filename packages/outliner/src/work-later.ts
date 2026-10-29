@@ -15,39 +15,25 @@
 // Read-only unless `apply`. Jev never closes anything: the groom's own pass (work-groom.ts, `--where` over later) is
 // how a parked item that shipped gets its comment for the verifier.
 import { workIdOf } from "@ep0ch/outline-core/work-id-title";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { isMachinery } from "@ep0ch/outline-core/machinery";
 import { askNouls, board, chips, clip, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { itemTitle } from "./work-twins";
+import { KEEP_DAYS, keptBecause } from "./work-keep";
+
+export { KEEP_DAYS, keptBecause };
 import { propertyTransition } from "./work-tools";
 import { writeRecord } from "./records";
 import type { BacklinkCollection, Block, VisibleBlockCollection } from "./types";
 
 const LOOP = "work-later";
 const DAY = 86_400_000;
-/** An item younger than this is still being shaped: never parked. */
-export const KEEP_DAYS = 14;
 /** The stages an item is live in: a link from one of these is current work asking for it. */
 const LIVE = new Set(["unprioritized", "queued", "doing", "review", "validate"]);
 const PARKED_OR_CLOSED = new Set(["later", "done", "superseded"]);
 
 const propOf = (b: Pick<Block, "properties">, key: string) => b.properties.find(p => p.key === key)?.value;
 const bodyLines = (text: string) => text.split("\n").slice(1);
-
-/**
- * Why `item` must not be parked at `at`, or null when it may be: high priority, under KEEP_DAYS old, or decided. Decided
- * is what the note itself says: a ticked `- [x]` line (Evan's tick, a settled step), a `::graph-decision` whose status
- * is decided, or a `[decided::…]` property. Pure.
- */
-export function keptBecause(item: Pick<Block, "text" | "properties" | "createdAt">, at: Date | number = Date.now()): string | null {
-  const priority = propOf(item, "priority")?.toLowerCase();
-  if (priority && ["high", "urgent", "critical"].includes(priority)) return `${priority} priority`;
-  const age = (new Date(at).getTime() - new Date(item.createdAt).getTime()) / DAY;
-  if (age >= 0 && age < KEEP_DAYS) return `${Math.floor(age)} days old (under ${KEEP_DAYS})`;
-  if (propOf(item, "decided") !== undefined) return `decided: ${clip(propOf(item, "decided")!, 80)}`;
-  const ticked = bodyLines(item.text).find(l => /^\s*[-*+]\s+\[[xX]\]\s+\S/.test(l));
-  if (ticked) return `decided: ${clip(ticked.replace(/^\s*[-*+]\s+\[[xX]\]\s+/, ""), 80)}`;
-  if (/::graph-decision[\s\S]*?^status:\s*decided\b/m.test(item.text)) return "decided: a decision figure says so";
-  return null;
-}
 
 /**
  * When `item` was parked: its `[parked-at::<time>]` (the cut writes it beside the day), else the end of its
@@ -107,7 +93,8 @@ async function query(client: WorkJevClient, where: string, limit = 1000): Promis
 /** The cut: items matching `where` untouched for `olderThanDays` go to later with `[wreckage::<day>]`, unless kept. */
 export async function park(client: WorkJevClient, o: LaterOptions = {}): Promise<LaterReport> {
   const now = o.now ?? new Date(), day = now.toISOString().slice(0, 10), stale = (o.olderThanDays ?? 30) * DAY;
-  const items = (await query(client, o.where ?? "type=roadmap-item work-stage=queued", o.limit)).filter(b => now.getTime() - new Date(b.updatedAt).getTime() >= stale);
+  // The service filters by age before the limit, so --limit counts stale items, not the first few looked at.
+  const items = (await query(client, `(${o.where ?? "type=roadmap-item work-stage=queued"}) updated <= ${new Date(now.getTime() - stale).toISOString()}`, o.limit)).filter(b => now.getTime() - new Date(b.updatedAt).getTime() >= stale);
   const rows: LaterRow[] = [];
   for (const item of items) {
     const ticket = workIdOf(item) ?? item.id.slice(0, 8), title = itemTitle(item), kept = keptBecause(item, now);
@@ -125,35 +112,31 @@ export async function park(client: WorkJevClient, o: LaterOptions = {}): Promise
 
 interface Signal { kind: "nudged" | "named" | "linked"; note: Block; line: string }
 
-/** What asked for `item` since `since`: comments on it, notes made since that name or link it, live work linking it. */
+/**
+ * What asked for `item` since `since`: comments on it, notes made since that link or name it (the service's backlinks:
+ * `((id))`, `[[PIE-n]]` and a Work ID written plainly), and live work linking it. Machinery and the loops' own notes
+ * don't count. A failed lookup throws: an item is never "nothing asked" because a read failed.
+ */
 export async function wantedAgain(client: WorkJevClient, item: Block, since: Date): Promise<Signal[]> {
   const workId = workIdOf(item), after = (iso: string) => new Date(iso).getTime() > since.getTime();
-  const isJev = (b: Block) => (b.actorId ?? "").startsWith("jev/");
-  const out: Signal[] = [], seen = new Set<string>([item.id]);
+  const isJev = (b: Pick<Block, "actorId">) => (b.actorId ?? "").startsWith("jev/");
+  const out: Signal[] = [];
   // Nudged: a comment on it, by anyone but a loop.
   const under = (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: "type=annotation OR type=annotation-reply", subtreeRootId: item.id, limit: 200 } })).blocks;
-  for (const c of under) if (after(c.createdAt) && !isJev(c)) { seen.add(c.id); out.push({ kind: "nudged", note: c, line: clip(bodyLines(c.text).filter(l => !/^\s*\[[^\]]+::[^\]]*\]/.test(l)).join(" "), 160) }); }
-  for (const c of under) seen.add(c.id);
-  // Named or linked: its block id ((ref)), its Work ID ([[PIE-n]] or written plainly).
-  const sources: Block[] = [];
-  const back = await client.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: item.id, limit: 100 } }).catch(() => null);
-  for (const s of back?.sources ?? []) {
-    if (seen.has(s.blockId) || s.facets?.placement === "self" || s.facets?.placement === "descendant") continue;
-    const b = await client.request<Block>({ action: "get", blockId: s.blockId }).catch(() => null);
-    if (b) { seen.add(b.id); sources.push(b); }
-  }
-  if (workId) {
-    const named = new RegExp(`\\b${workId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?!\\d)`);
-    const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { text: workId, where: `updated > ${since.toISOString()}`, limit: 100 } }).catch(() => null);
-    for (const b of found?.blocks ?? []) if (!seen.has(b.id) && named.test(b.text)) { seen.add(b.id); sources.push(b); }
-  }
-  for (const b of sources) {
-    if (isJev(b) || propOf(b, "machine") !== undefined) continue;
-    const stage = propOf(b, "type") === "roadmap-item" ? propOf(b, "work-stage")?.toLowerCase() : undefined;
+  for (const c of under) if (after(c.createdAt) && !isJev(c)) out.push({ kind: "nudged", note: c, line: clip(bodyLines(c.text).filter(l => !/^\s*\[[^\]]+::[^\]]*\]/.test(l)).join(" "), 160) });
+  // Linked or named: the service's backlinks, which say each source's placement and stage (backlink-facets.ts).
+  const back = await client.request<BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: item.id, limit: 100 } });
+  const others = back.sources.filter(s => s.facets?.placement !== "self" && s.facets?.placement !== "descendant" && (after(s.createdAt) || after(s.updatedAt)));
+  const blocks = await Promise.all(others.map(s => client.request<Block>({ action: "get", blockId: s.blockId })));
+  for (const [i, s] of others.entries()) {
+    const b = blocks[i]!;
+    if (isJev(b) || isMachinery(b.properties)) continue;
+    // The workboard owns what a work-stage means: a later, done or superseded item asks for nothing.
+    const stage = s.facets?.stage?.property === "work-stage" ? s.facets.stage.value.toLowerCase() : undefined;
     if (stage && PARKED_OR_CLOSED.has(stage)) continue;
     const line = clip(b.text.split("\n").find(l => (workId && l.includes(workId)) || l.includes(item.id)) ?? b.text.split("\n")[0]!, 160);
     if (after(b.createdAt)) out.push({ kind: "named", note: b, line });
-    else if (stage && LIVE.has(stage) && after(b.updatedAt)) out.push({ kind: "linked", note: b, line });
+    else if (stage && LIVE.has(stage)) out.push({ kind: "linked", note: b, line });
   }
   return out;
 }
@@ -173,7 +156,8 @@ export async function revive(client: WorkJevClient, o: LaterOptions = {}): Promi
     const nudge = signals.find(s => s.kind === "nudged");
     if (nudge) { rows.push(row("restored", `nudged: a comment ${nudge.note.createdAt.slice(0, 10)}: ${nudge.line}`, "code", nudge.note.id)); continue; }
     // Parked against the rule and nothing asked since: listed with its restore command, for a person or agent to judge.
-    const kept = keptBecause(item, since.getTime() - DAY);
+    // A wreckage day reads as its end (parkedAt): the keep rule is asked as of its start, when the cut ran.
+    const kept = keptBecause(item, propOf(item, "parked-at") ? since : since.getTime() - DAY);
     if (!signals.length) { rows.push(kept ? row("misparked", `parked though ${kept}: ep0ch work stage ${ticket} queued`) : row("stays", "nothing asked for it since")); continue; }
     const say = (s: Signal) => {
       const name = noteName(s.note), line = s.line.startsWith(name.replace(/…$/, "")) ? "" : `: ${s.line}`;
@@ -206,11 +190,11 @@ export async function revive(client: WorkJevClient, o: LaterOptions = {}): Promi
 export async function restore(client: WorkJevClient, id: string, why: string, source: string | undefined, o: Pick<LaterOptions, "actor" | "now"> = {}): Promise<Block> {
   const day = (o.now ?? new Date()).toISOString().slice(0, 10), kind = why.split(/[,:]/)[0]!;
   const item = await client.request<Block>({ action: "get", blockId: id });
+  const marks = parsePropertyRecords(item.text).filter(p => p.scope === "block" && (p.key === "wreckage" || p.key === "parked-at"));
   const patched = await client.request<Block>({ action: "properties.patch", blockId: id, expectedRevision: item.revision, mutation: who(o),
-    operations: [propertyTransition(item, "work-stage", "queued"), propertyTransition(item, "restored", `${day}: ${kind}, ${o.actor ?? LOOP}`)] });
-  const unmarked = patched.text.replace(/ ?\[(?:wreckage|parked-at)::[^\]]*\]/g, "").replace(/^[ \t]+(?=\[[^\]]+::)/gm, "").replace(/\n[ \t]*\n[ \t]*\n/g, "\n\n").trimEnd();
+    operations: [propertyTransition(item, "work-stage", "queued"), ...marks.map(p => ({ op: "remove" as const, ordinal: p.ordinal })), { op: "append" as const, key: "restored", value: `${day}: ${kind}, ${o.actor ?? LOOP}` }] });
   const line = `**Back from later, ${day}:** ${why}${source ? ` ((${source}))` : ""}`;
-  return client.request<Block>({ action: "update", blockId: id, text: `${unmarked}\n\n${line}`, expectedRevision: patched.revision, mutation: who(o) });
+  return client.request<Block>({ action: "update", blockId: id, text: `${patched.text.trimEnd()}\n\n${line}`, expectedRevision: patched.revision, mutation: who(o) });
 }
 
 /** A `groom-later` record per item that moved or was kept, and the pass's `jev-run`. */
