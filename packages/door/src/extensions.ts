@@ -93,6 +93,10 @@ export interface ExtensionEntry {
   schedules?: ExtensionScheduleEntry[];
   /** Its settings (PIE-1343): config.json's path on the host, each field its configSchema declares and its state. */
   settings?: ExtensionSettings;
+  /** A copy of one of the repo's built-ins (PIE-1283): the built-in's folder and this copy's state; this copy is what runs. */
+  builtIn?: { directory: string; state: "current" | "stale" | "forked" };
+  /** A script an extension ships: that extension's id (lists fold it under it). */
+  partOf?: string;
 }
 export interface ExtensionScheduleEntry {
   entry: string; every?: string; cron?: string; next: string; running?: boolean;

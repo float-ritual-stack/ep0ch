@@ -15,6 +15,7 @@
 // what is new. A template that is a subtree is stamped whole. A step's generated id (`^t-3fa9c1`) is not carried over (the new
 // note's steps are its own to address), so an agent can fill a placeholder step in without declaring an identity change. Writes only through the store's normal paths, attributed
 // as whoever asked; refuses before writing anything when the template, a prop or `for` is wrong.
+import { retitle } from "@ep0ch/outline-core/header-line";
 import { parseBlockRef } from "@ep0ch/outline-core/addressable-resource";
 import { placeOutput } from "./place";
 import type { DraftPatchRouter } from "./draft-patch-router";
@@ -156,14 +157,6 @@ function withoutTemplateChips(text: string, addresses: ReadonlySet<string>): str
   return after.filter((line, i) => line.trim() !== "" || (before[i] ?? "").trim() === "").join("\n");
 }
 
-/** The first line with its words replaced by `title`, its marker (`# `, `- `) and its trailing chips kept. */
-function withTitle(text: string, title: string): string {
-  const [first = "", ...rest] = text.split("\n");
-  title = title.replace(/\s*\n\s*/g, " ");
-  const m = /^(\s*(?:#{1,6}\s+|[-*+]\s+)?)(.*?)((?:\s*\[[^\]\n]*::[^\]\n]*\])*)\s*$/.exec(first)!;
-  return [`${m[1]}${title}${m[3]}`, ...rest].join("\n");
-}
-
 /**
  * The generated step ids (`^t-3fa9c1`, a checklist step made addressable) taken out of a stamped text. They are the template's
  * steps' addresses, and nothing links to the new note's: a placeholder step an agent then fills in is not an address it must
@@ -254,7 +247,7 @@ function stampText(store: StampStore, request: TemplateStampRequest, prepared: R
   return (node: Node, first: boolean): string => {
     let text = fill(withoutStepIds(withoutTemplateChips(node.text, addresses)), read, warnings);
     if (first) {
-      if (request.title !== undefined) text = withTitle(text, fill(request.title, read, warnings));
+      if (request.title !== undefined) text = retitle(text, fill(request.title, read, warnings));
       if (forWord && !parsePropertyRecords(text).some(r => r.key === "type")) text = withChip(text, "type", forWord);
       text = withChip(text, "from-template", `((${template.id}))`);
       if (match) text = withChip(text, STAMPED_FOR_KEY, `((${match.id}))`);

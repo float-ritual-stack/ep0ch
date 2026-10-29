@@ -1,7 +1,7 @@
 // `ep0ch doctor`: every piece of the stack, its state (✓ current, ! behind, ✗ missing, · for information)
 // and the exact command that fixes it. Read-only; built from the facts (model.ts) so tests describe machines.
 import { basename, dirname, join, resolve } from "node:path";
-import { copyName, newsWords } from "@ep0ch/outliner/extension-update";
+import { copyName, newsWords, removeCommand, versionWords } from "@ep0ch/outliner/extension-update";
 import { byFolder, lnCommand, sh } from "./links";
 import { clauses } from "./progress";
 import { hyperOn } from "../hyper";
@@ -207,8 +207,9 @@ export function builtinChecks(f: Facts): Check[] {
   const where = (w: string) => (w === "user" ? "the user folder" : `${w}'s folder`);
   const news = (n: typeof b.copies[number]["news"]) => (n.length ? `; new since: ${newsWords(n)}` : "");
   for (const c of b.copies) {
-    if (c.state === "stale") add(c.id, "behind", `${c.dir} (${where(c.where)}) is an unchanged copy, behind the built-in${news(c.news)}`, `${ep0ch()}ext update ${c.id}   (or ep0ch install --apply)`);
-    else if (c.state === "forked") add(c.id, "info", `${c.dir} (${where(c.where)}) was changed here, so install leaves it; the built-in differs in ${c.differs.join(", ")}${news(c.news)}`, `${ep0ch()}ext update ${c.id}   (shows the diff and asks)`);
+    // The copy is what runs (the built-in never does in place, PIE-1283): said, with the command that updates it and the one that removes it.
+    if (c.state === "stale") add(c.id, "behind", `${c.dir} (${where(c.where)}) overrides the built-in: an unchanged copy, behind it${versionWords(c)}${news(c.news)}`, `${ep0ch()}ext update ${c.id}   (or ep0ch install --apply; ${ep0ch()}${removeCommand(c)} removes it)`);
+    else if (c.state === "forked") add(c.id, "info", `${c.dir} (${where(c.where)}) overrides the built-in: changed here, so install leaves it${versionWords(c)}; the built-in differs in ${c.differs.join(", ")}${news(c.news)}`, `${ep0ch()}ext update ${c.id}   (shows the diff and asks; ${ep0ch()}${removeCommand(c)} removes your copy)`);
   }
   const current = b.copies.filter(c => c.state === "current");
   if (current.length) add("built-ins", "ok", `${current.length} installed ${current.length === 1 ? "copy" : "copies"} current: ${current.map(copyName).join(" · ")}`);

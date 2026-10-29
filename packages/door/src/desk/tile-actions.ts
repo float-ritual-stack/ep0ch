@@ -36,6 +36,8 @@ export interface TileNow {
   shuts: boolean;
   /** The program running in it (a terminal tile), whose close ends it. */
   running: string | null;
+  /** The note it shows (a reader, not a list), and whether it is being edited there; null when it shows none. */
+  note: { id: string; editing: boolean } | null;
   refused(op: "close" | "float" | "zoom" | "collapse" | "pin" | "drawer" | "widen" | "hold"): string | null;
 }
 /** The tile menu's group for the tile operations. */
@@ -516,7 +518,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.title": def({
     summary: "rename a tile: a name (letters, digits, . - _) becomes its name, what tile= and paths resolve (unique in its layer: a taken name is refused) and is the title it shows; any other text (spaces, {{this.title}}) is a title written on it, the name staying, and a tile with a title written like that keeps taking text as a title (text= clears it first). Written titles support {{this.title}}, {{this.<property>}}, {{tile.kind}} and {{tile.n}}; text= clears a written title. Without text the person gets the rename prompt. Renaming the note a tile shows is the note's own edit",
-    keys: "^W n; double click a frame title or tab; \"rename this tile\" in the tile menu",
+    keys: "^W n; double click a frame title or tab; \"rename this tile\" in the tile menu (\"rename this note\" beside it is note.rename)",
     touches: "nothing", replay: "safe",
     says: r => r.prompt ? null : `${r.name}: ${r.title}`,
     menu: { label: "rename this tile…", group: TILE, key: "ctrl+w n" },
@@ -527,6 +529,25 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "tile.title text=", does: "clears the written title, back to the system one" },
     ],
     run({ text }, { d, reader }, actor) { return d.titleTile(reader, text, false, actor); },
+  }),
+  "note.rename": def({
+    summary: "rename the note tile=<tile> shows (PIE-1283): text= replaces its title, the words of its first line; that line's properties, hashtags and the body stay, and it is saved at once as the actor's write, checked against the note as the service has it. Without text the person gets a prompt holding the title. tile.title renames the tile itself, never the note",
+    keys: "\"rename this note\" in the tile menu",
+    touches: "nothing", replay: "ask",
+    says: r => r.prompt ? null : `renamed the note: ${r.title}`,
+    menu: { label: "rename this note…", group: TILE, key: "", now: ({ d, reader }, _t, actor) => {
+      const shown = d.tileNow(reader, actor).note;
+      return !shown ? { hide: true } : shown.editing ? { refused: "this reader is editing the note: change its title in the edit" } : null;
+    } },
+    args: {
+      text: { type: "string", optional: true, about: "the note's new title; its first line's properties and the body stay" },
+      note: { type: "string", optional: true, kind: "note", about: "the note you read the title from: refused when the tile shows another now" },
+      revision: { type: "number", optional: true, about: "the revision you read it at: refused when the note changed since" },
+    },
+    examples: [
+      { act: "note.rename tile=reader text=\"Seed swap, Saturday\"", does: "retitles the note the reader shows; [type::chirp] on its first line and its body stay" },
+    ],
+    run({ text, note, revision }, { d, reader }, actor) { return d.renameNote(reader, text, actor, { note, revision }); },
   }),
   "tile.title.mode": def({
     summary: "toggle between the written tile title and the system title without losing the written title",

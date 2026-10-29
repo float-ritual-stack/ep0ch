@@ -1,3 +1,4 @@
+import { overrideWords } from "@ep0ch/outliner/extension-update";
 import { outlineBoards } from "../desk/outline-boards";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
@@ -415,7 +416,9 @@ function extensionFacts(e: ExtensionEntry, then: string): string {
     `**${e.name ?? e.id}** \`${e.id}\`${e.version !== undefined ? ` v${e.version}` : ""} · ${e.state}${e.settings ? ` · settings ${settingsChip(e.settings)}` : ""}`,
     ...(e.error ? ["", `> [!warning] ${e.error}`] : []), ...(e.script && e.summary ? ["", e.summary] : []), "", e.description ?? "",
     ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${partKind(p.kind)} **${p.name}**${p.about ? ` · ${p.about}` : ""}`)] : []),
-    ...(e.directory ? ["", `\`${e.directory}\``] : []), "", then,
+    ...(e.directory ? ["", `\`${e.directory}\``] : []),
+    // A copy of a built-in (PIE-1283): this copy runs, the built-in never does in place; both folders said.
+    ...(e.builtIn ? ["", `${overrideWords(e.id, e.builtIn)}: this copy runs; the built-in is \`${e.builtIn.directory}\``] : []), "", then,
   ].join("\n");
 }
 
@@ -433,13 +436,14 @@ const EXTENSIONS: BarSource = {
     const l = extensionList();
     if (!l) return [];
     const rows: BarRow[] = [{ key: "make", label: "make your own", detail: "ep0ch-extend skill · ep0ch docs extensions", group: "make", oneLine: true, data: { kind: "make", id: "" } satisfies ExtRow }];
-    const installed = l.extensions.filter(e => e.state !== "shadowed"), all = installed.length + (l.available?.length ?? 0);
+    // A script an extension ships is part of that extension's row, not one of its own (PIE-1283).
+    const installed = l.extensions.filter(e => e.state !== "shadowed" && !e.partOf), all = installed.length + (l.available?.length ?? 0);
     if (l.hub) rows.push({ key: "hub", label: "Extensions", detail: `the hub · ${installed.length} of ${all} installed`, group: "installed", data: { kind: "hub", id: "", block: l.hub } satisfies ExtRow });
     // One line each, grouped under installed by what it adds first, that kind its chip (PIE-1284): the words are its own; the rest is the preview's.
     const kindOf = (e: ExtensionEntry) => extensionParts(e, l)[0]?.kind ?? "actions";
     for (const kind of PART_KINDS) {
       const these = installed.filter(e => kindOf(e) === kind);
-      for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.settings ? settingsChip(e.settings) : "", summaryOf(e, l)].filter(Boolean).join(" · "), group: `installed · ${kind} · ${these.length}`, chip: partKind(kind), oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
+      for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.builtIn ? overrideWords(e.id, e.builtIn) : "", e.settings ? settingsChip(e.settings) : "", summaryOf(e, l)].filter(Boolean).join(" · "), group: `installed · ${kind} · ${these.length}`, chip: partKind(kind), oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
     }
     // Its settings (PIE-1343): a row each, its chip the words; where config.json is, the preview's; ⏎ the form its configSchema draws.
     const configured = installed.filter(e => e.settings);
