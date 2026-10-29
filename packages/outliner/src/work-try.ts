@@ -93,7 +93,7 @@ export function tryMarkdown(report: TryReport): string {
     }
     for (const j of p.journeys) {
       const a = j.action, example = a.examples?.[0];
-      out.push(`- [ ] **Try:** ${a.summary.split(/[.;:]\s/)[0]}${a.keys ? ` · keys ${a.keys}` : ""} · \`ep0ch act ${example ? example.act : a.name}\`${j.p !== undefined && j.p < YES ? " (a place to start: Jev leans to it, unsure)" : ""}`);
+      out.push(`- [ ] **Try:** ${a.summary.split(/[.;:]\s/)[0]}${a.keys ? ` · keys ${clip(a.keys.split(/,\s*|;\s*/).slice(0, 2).join(", "), 40)}` : ""} · \`ep0ch act ${example ? example.act : a.name}\`${j.p !== undefined && j.p < YES ? " (a place to start: Jev leans to it, unsure)" : ""}`);
     }
     if (!p.journeys.length) out.push("- [ ] **Try:** no action reads like it; open what the line below names, by mouse and by keys");
     for (const s of p.shows) out.push(`  - **Should show:** ${s.line}`);

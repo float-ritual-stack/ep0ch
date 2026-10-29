@@ -1601,7 +1601,7 @@ export class SocketBoard implements Board {
   }
 
   /** Open items like a new one (`roadmap.items.similar`): the service's candidates and the ones it calls twins. */
-  similarItems(input: { title: string; body?: string }, timeoutMs = 6000): Promise<TwinAnswer> {
+  similarItems(input: { title: string; body?: string }, timeoutMs = 8000): Promise<TwinAnswer> {
     return this.request<TwinAnswer>("roadmap.items.similar", { input }, timeoutMs);
   }
 

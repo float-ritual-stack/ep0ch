@@ -175,7 +175,7 @@ export const JEV_DONE_VIEW = [
   "title: confident it shipped, newest pass first",
   `query: type=groom-verdict verdict=solved`,
   "machinery: show",
-  "columns: [ticket, confidence, evidence, by]",
+  "columns: [item, confidence, evidence, by]",
   "sort: created",
   "direction: desc",
   "limit: 50",
@@ -202,7 +202,7 @@ export async function keepGroom(into: WorkJevClient, report: GroomReport, o: { p
         if (receipt) { thread = receipt.annotations[0]!.block.id; comments++; }
       }
     }
-    await writeRecord(board(into), "groom-verdict", chips({ ticket: r.ticket, verdict: r.verdict, confidence: r.confidence.toFixed(2), evidence: r.of ? `${r.of}: ${r.evidence}` : r.evidence, by: r.by, pass, thread }), jevWho(LOOP), { title: `${r.ticket} ${r.verdict}` });
+    await writeRecord(board(into), "groom-verdict", chips({ item: r.ticket, verdict: r.verdict, confidence: r.confidence.toFixed(2), evidence: r.of ? `${r.of}: ${r.evidence}` : r.evidence, by: r.by, pass, thread }), jevWho(LOOP), { title: `${r.ticket} ${r.verdict}` });
     verdicts++;
   }
   const run = await recordRun(into, LOOP, pass, { items: report.rows.length, suggested: report.counts.solved + report.counts.superseded + report.counts.duplicate, unavailable: report.counts.unjudged }, report.reading);

@@ -126,3 +126,42 @@ async function addMissingChips(client: WorkJevClient, id: string, want: Record<s
 }
 
 export const dayOf = (at: Date | number = Date.now()) => new Date(at).toISOString().slice(0, 10);
+
+/**
+ * The suggestions page's section for the workboard's loops (Jev's suggestions, pie 893c51f5, and SUGGESTIONS_PAGE): what
+ * each pass read and cost, the twins offered and what became of them, and the groom's confident "solved" for the
+ * verifier. Every number is a live figure over the records; the dollars are the `cost` chip each run carries.
+ */
+export const LOOPS_SECTION = [
+  "## The workboard's loops: what each costs",
+  "::graph-table",
+  "---",
+  "title: every pass, newest first (cost in dollars)",
+  "query: type=jev-run (experiment=work-groom OR experiment=work-twins OR experiment=work-try)",
+  "machinery: show",
+  "columns: [experiment, run, items, suggested, tokens-in, cost]",
+  "sort: created",
+  "direction: desc",
+  "limit: 20",
+  "---",
+  "::",
+  "",
+  "::graph-stat",
+  "---",
+  "title: twins at filing, 30 days",
+  'items: [{ label: offered, query: "type=work-twin outcome=offered created >= -30d", machinery: show }, { label: attached, query: "type=work-twin outcome=attached created >= -30d", machinery: show, accent: true }, { label: filed anyway, query: "type=work-twin outcome=filed-anyway created >= -30d", machinery: show }, { label: Jev thinks done, query: "type=groom-verdict verdict=solved created >= -30d", machinery: show }]',
+  "---",
+  "::",
+  "",
+  "::graph-table",
+  "---",
+  "title: Jev thinks these are done (a verifier confirms; keeping Jev's comment counts it right)",
+  "query: type=groom-verdict verdict=solved",
+  "machinery: show",
+  "columns: [item, confidence, evidence, by]",
+  "sort: created",
+  "direction: desc",
+  "limit: 20",
+  "---",
+  "::",
+].join("\n");

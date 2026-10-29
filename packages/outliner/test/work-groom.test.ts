@@ -99,7 +99,7 @@ test("a pass over a scratch board: one request per ticket, a comment on the conf
   expect(kept).toMatchObject({ verdicts: 2, comments: 1 });
   const props = async (where: string) => (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where, machinery: "show" } })).blocks.map(b => Object.fromEntries(parsePropertyRecords(b.text).map(p => [p.key, p.value])) as Record<string, string>);
   const solved = (await props("type=groom-verdict verdict=solved"))[0]!;
-  expect(solved).toMatchObject({ ticket: "GDN-001", confidence: "0.90", by: "jev" });
+  expect(solved).toMatchObject({ item: "GDN-001", confidence: "0.90", by: "jev" });
   expect(solved.thread).not.toBe("none");
   const ticket = store.require(report.rows[0]!.id);
   expect(ticket.properties.find(p => p.key === "work-stage")?.value).toBe("queued");

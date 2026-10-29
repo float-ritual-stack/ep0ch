@@ -1010,9 +1010,10 @@ export class Lanes implements SourceModel {
       const answer = await board.similarItems({ title: input.title, ...(input.body ? { body: input.body } : {}) }).catch(() => null);
       const twin = answer?.candidates.find(c => answer.twins.includes(c.workId));
       if (twin) {
-        const said = `looks like ${twin.workId} (${twin.stage}) ${twin.title}${twin.same !== undefined ? ` · same work ${twin.same.toFixed(2)}` : " · title match"}`;
+        const said = `looks like ${twin.workId} (${twin.stage}) ${twin.title} · ${twin.verdict === "same" ? `same work, Jev ${twin.same!.toFixed(2)}` : "its title matches"}`;
         if (C0) { C0.twin = { text: C0.session.draft.text, workId: twin.workId, said }; C0.session.draft.attachChord = true; }
-        throw new ActionRefused(`${said} · ctrl+s again files it new, [attach here] or ctrl+x a adds it there${C0 ? "" : ` · act: card.create … new=true, or card.attach twin=${twin.workId} text=…`}`);
+        // The composer's row names the twin; its note says only what to do.
+        throw new ActionRefused(C0 ? `open work looks like it: ctrl+s again files it new · [attach here] or ctrl+x a adds it to ${twin.workId}` : `${said} · card.create … new=true files it anyway, card.attach twin=${twin.workId} text=… adds it there`);
       }
     }
     if (fileNew) input = { ...input, new: true };
