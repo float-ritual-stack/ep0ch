@@ -179,9 +179,9 @@ ${DOCS_USAGE}
                                    which secrets (with-secrets groups) exist here, where, and who may have each:
                                    names, places and modes, never a value; check exits 1 when a key isn't there;
                                    set, grant and revoke are the person's (PIE-887; ep0ch keys with no word says more)
-  ep0ch machinery backfill [--ws <name>] [--apply] [--json]
+  ep0ch machinery backfill [--ws <name>] [--machine <ssh-name>] [--apply] [--json]
                                    stamp [machine::<producer>] on what tools wrote before they stamped (file
-                                   touches, EchoNet's logs and receipts, deliveries, prior art, backup runs): a dry
+                                   touches, EchoNet's logs and receipts, deliveries, prior art, backup runs, fetched notifications): a dry
                                    run says how many; --apply stamps them (PIE-867)
   ep0ch route <note> | --all [--dry-run] [--ws <name>] [--json]
                                    route a note (an id, ((id)), [[page]] or Work ID), or every note, by the
