@@ -2447,6 +2447,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Each reader the change makes stale re-reads its note (NoteSurface.staleOn, .reread; a draft is only marked).
     for (const r of readers) if (r.surface.staleOn(e)) r.reread(this);
     if (e.action === "reconnected") for (const r of readers) r.retry(this);   // a note whose read failed while away
+    this.rereadCurrent(e);
+  }
+
+  /**
+   * The current note changed (a float's new note saved, PIE-1403): read it again, so an open that finds it here
+   * (`onScreenBlock`) never shows the text it had when it became current. Only while it is still the current note.
+   */
+  private rereadCurrent(e: OutlineEvent) {
+    const m = this.current, c = e.change;
+    // A change to its text only (a draft's, a presence's events carry none), at a revision it doesn't have yet.
+    if (!m || !c || !this.ctx || e.blockId !== m.id || m.address || m.id.includes(":")) return;
+    if (c.revision !== undefined && (m.revision ?? -1) >= c.revision && !m.partial) return;
+    // An older answer arriving last never replaces a newer one.
+    void readNote(this.ctx, m.id).then(fresh => { if (fresh && this.current?.id === fresh.id && (fresh.revision ?? -1) >= (this.current.revision ?? -1)) this.current = fresh; }, () => {});
   }
 
   /**
@@ -3124,10 +3138,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...landed.desk.tileAnswer(landed.id), id: m.id, ...(landed.why ? { why: landed.why } : {}) };
   }
 
-  /** Block `id` as a tile here shows it now (the current note, a reader's), if one does. */
+  /**
+   * The newest copy of note `id` on this screen (the current note, a tile's), or null (PIE-1403): a whole note beats a list
+   * row's partial one, then the higher revision wins, a tile's on a tie (the one that saved it has it first).
+   */
   private onScreenBlock(id: string): Msg | null {
-    if (this.current?.id === id) return this.current;
-    return [...this.panes.values()].map(p => this.showing(p)).find(m => m?.id === id) ?? null;
+    const copies = [this.current, ...[...this.panes.values()].map(p => this.showing(p))].filter((m): m is Msg => m?.id === id);
+    return copies.reduce<Msg | null>((best, m) => !best || (best.partial && !m.partial) || (!!best.partial === !!m.partial && (m.revision ?? -1) >= (best.revision ?? -1)) ? m : best, null);
   }
   /** The screen's opens land in a container (its policy's `opensInto` names one): `open tile=detail|new-detail|float` are places. */
   hasPlaces(): boolean { const k = this.layout.policy.opensInto; return !!k && this.idNamed(k) === undefined; }
@@ -3151,12 +3168,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** `current` as a reader shows it now: a save since it opened (a new note's first) changes its title. */
   private currentNow(): Msg | null {
-    const c = this.current;
-    if (!c) return null;
-    // The newest any reader holds: the one that saved it has it first, before the change reaches the others.
-    let best: Msg = c;
-    for (const p of this.panes.values()) if (p instanceof ReaderPane && p.msg?.id === c.id && (p.msg.revision ?? -1) >= (best.revision ?? -1)) best = p.msg;
-    return best;
+    return this.current ? this.onScreenBlock(this.current.id) : null;
   }
 
   /**
