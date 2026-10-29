@@ -1217,6 +1217,9 @@ desk's, until `^W e` goes in: then every key is the mount's, its `^W` too, and `
   entries of the keymap file (the App presses the last). An action set's own keys are one key, one meaning at a time
   (its code picks by state: esc clears the bar, then closes it), and a key in two layers is a shadow said on each row.
   A row of an action's keys reads as a whole sentence: the action's words, then the row's where or when.
+- **Unbound** (the fourth tab): every action of every action set that no binding reaches (`unbound` in the catalog,
+  read from `allActionSets`, never a list), by layer and scope; its `r` is the same rebind, through the App's keymap
+  layer (`layerEntry`) for one key or the ^W table's `wNow` for a chord, so it says first what that key does now.
 - **Not yet rebindable alone:** a table binding several keys under one name with different meanings (^W h j k l, the
   hyper digits) and a key after another key (`a then c`): the window says why on the row.
 
