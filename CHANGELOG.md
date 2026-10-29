@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An open that names no tile reaches a mounted screen's reader (PIE-1306)
+
+- **Mounts take opens:** on a screen whose only readers sit inside mounted screens, `ep0ch open` and an agent's open
+  with no `from=` hop into the mount that has the person's keys first, then the others; a mounted Welcome takes the
+  note in its preview, a mounted board through its group.
+- **Your place stays yours:** the person's focused tile and keys never move. A group carried into the drawer is still
+  refused, since the drawer isn't the screen's.
+
 ### One grammar for references, titles, fences and ages (PIE-1292)
 
 - **A labelled reference reads the same everywhere:** `((id|Rough edges (x)))`, `((id^intro))` and `((org:id))` name
@@ -70,6 +78,8 @@ are its record. The outliner's entries from then are kept below, under
   Evan is offline, a build-log line per pick. `EP0CH_DRAIN=on|off` overrides.
 - **The deployer is found again:** the mod reads `.ep0ch/config.toml` (and the old `.ep0ch` file), so the freshness
   sweep runs in the live checkout without `EP0CH_AGENT`.
+- **The drain validates too (#998):** each tick, when no verifier is out, one that built none of them takes the oldest
+  items in validate, closes each with proof and sends a finding back to queued with its repro.
 
 ### Agent tools take a short id (PIE-1371)
 
