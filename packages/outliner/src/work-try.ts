@@ -71,7 +71,10 @@ export async function planTries(tickets: readonly Block[], actions: readonly Try
     const asked = await askNouls({ ticket: { id: ticket, title, body } }, questions, o);
     if ("unavailable" in asked) { jev = asked.unavailable; plans.push(fallback()); continue; }
     jev = "asked"; reading = asked.reading; tokens += asked.reading.usage?.input ?? 0;
-    const journeys = acts.map((c, i) => ({ action: c.action, p: noul(asked.answers, `tries::${i}`) })).filter(j => (j.p ?? 0) >= YES).sort((a, b) => b.p! - a.p!).slice(0, KEEP);
+    const scored = acts.map((c, i) => ({ action: c.action, p: noul(asked.answers, `tries::${i}`) ?? 0 })).sort((a, b) => b.p - a.p);
+    // Yes, else the best one Jev leans toward (between the thresholds), so the validator has a place to start.
+    const journeys = scored.filter(j => j.p >= YES).slice(0, KEEP);
+    if (!journeys.length && scored[0] && scored[0].p >= 0.5) journeys.push(scored[0]);
     const shows = lines.map((line, i) => ({ line, p: noul(asked.answers, `shows::${i}`) })).filter(s => (s.p ?? 0) >= YES).sort((a, b) => b.p! - a.p!).slice(0, KEEP);
     plans.push({ ticket, title, journeys, shows, by: "jev" });
   }
@@ -90,7 +93,7 @@ export function tryMarkdown(report: TryReport): string {
     }
     for (const j of p.journeys) {
       const a = j.action, example = a.examples?.[0];
-      out.push(`- [ ] **Try:** ${a.summary.split(/[.;:]\s/)[0]}${a.keys ? ` · keys ${a.keys}` : ""} · \`ep0ch act ${example ? example.act : a.name}\``);
+      out.push(`- [ ] **Try:** ${a.summary.split(/[.;:]\s/)[0]}${a.keys ? ` · keys ${a.keys}` : ""} · \`ep0ch act ${example ? example.act : a.name}\`${j.p !== undefined && j.p < YES ? " (a place to start: Jev leans to it, unsure)" : ""}`);
     }
     if (!p.journeys.length) out.push("- [ ] **Try:** no action reads like it; open what the line below names, by mouse and by keys");
     for (const s of p.shows) out.push(`  - **Should show:** ${s.line}`);
