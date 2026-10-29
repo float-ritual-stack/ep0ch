@@ -63,7 +63,7 @@ export const PROBE_KEYS: Key[] = [
  */
 const ageless = (l: string) => l.replace(/(\x1b\[[\d;?]*[A-Za-z])|(?<![\d.:])\d+[smhd](?![A-Za-z0-9])/g, (m, esc) => esc ?? "#age");
 
-interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; drawer: string; /** The power bar is open. */ bar?: boolean; /** The hint row as drawn (checkHint), when the screen was drawn for this look. */ hint?: string }
+interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; drawer: string; /** The power bar's rows as drawn over the screen, when it's open ("" when it isn't). */ bar?: string; /** The hint row as drawn (checkHint), when the screen was drawn for this look. */ hint?: string }
 interface Finding { screen: string; keys: string; problem: string }
 
 /**
@@ -235,21 +235,28 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     } catch (e) { lines = [`render threw ${e}`]; }
     if (paintFailed) { lines = [`render threw ${paintFailed}`]; paintFailed = null; }
     // A glance is the screen drawn and nothing to compare: what a build does between its keys (no description, no whereabouts).
-    if (glance) return { top, depth: A().stack.length, lines, about: "", holds: false, video: app.video, drawer: dock(), bar: !!A().bar };
+    if (glance) return { top, depth: A().stack.length, lines, about: "", holds: false, video: app.video, drawer: dock(), bar: barRows() };
     let about = "";
     try { about = JSON.stringify(top?.describe?.() ?? null); } catch { about = "?"; }
     // The power bar open holds the keys too (they type its query): the door doesn't count it busy, but the walk's an input state.
-    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: app.person().busy || !!A().bar, video: app.video, drawer: dock(), hint, bar: !!A().bar };
+    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: app.person().busy || !!A().bar, video: app.video, drawer: dock(), hint, bar: barRows() };
   };
   /**
    * The drawer over the screen: up or put away, the person in it or not, its height. Its rows are the
    * agent's terminal (they change by themselves), so the dock is compared by these, not by what it draws.
    */
+  /** The power bar as the door draws it over the screen (its query, scope and rows), or "" when it's closed. */
+  const barRows = (): string => {
+    const bar = A().bar;
+    if (!bar) return "";
+    const { cols, rows } = A().term.info;
+    try { return bar.draw(cols, rows - 1).lines.map(ageless).join("\n"); } catch (e) { return `bar threw ${e}`; }
+  };
   const dock = () => { const d = A().drawer; return `${d.shown}|${d.entered}|${d.share}`; };
   /** The same screen shown the same way (`about`: and described the same; two builds differ in ids and revisions). */
-  // The power bar is drawn over the screen, not by it (none of the screen's rows shows it): open or not is compared on its own.
-  const alike = (a: Snap, b: Snap, about = true) => a.top?.constructor === b.top?.constructor && a.depth === b.depth && a.video === b.video && a.drawer === b.drawer && !!a.bar === !!b.bar && (!about || a.about === b.about) && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
-  const same = (a: Snap, b: Snap) => a.top === b.top && a.depth === b.depth && a.video === b.video && a.drawer === b.drawer && !!a.bar === !!b.bar && a.about === b.about && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
+  // The power bar is drawn over the screen, not by it (none of the screen's rows shows it): its rows are compared on their own.
+  const alike = (a: Snap, b: Snap, about = true) => a.top?.constructor === b.top?.constructor && a.depth === b.depth && a.video === b.video && a.drawer === b.drawer && (a.bar ?? "") === (b.bar ?? "") && (!about || a.about === b.about) && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
+  const same = (a: Snap, b: Snap) => a.top === b.top && a.depth === b.depth && a.video === b.video && a.drawer === b.drawer && (a.bar ?? "") === (b.bar ?? "") && a.about === b.about && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
 
   /** A fresh screen on the stack (over the menu), settled; and the rows that change by themselves (a clock, a meter). */
   /** A screen gone for good: what it started ends too (a desk keeps its programs running otherwise). */
@@ -738,12 +745,12 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
    * less), plus a quarter.
    */
   const COUNTS: Record<string, { looks: number; paints: number; host: number }> = {
-    // Oct 28, float-box: 472 looks, 1,577 paints, 422 round trips (the bar's keys ~250 of them); 1,515 looks before a look read the
-    // paint it followed.
-    "echonet: messages": { looks: 590, paints: 1970, host: 530 },
-    // 957, 5,510 and 1,981; 4,196 looks before. The paints: ~4 a build (setup down, enter, enter, each key painting) over ~600
-    // builds, and one a probe's key over ~2,900 keys; the round trips ~2 a build, and one a key typed in the bar.
-    "echonet: a message read": { looks: 1200, paints: 6900, host: 2480 },
+    // Oct 28, float-box: 367 looks, 1,911 paints, 631 round trips (its `/` state: the bar's keys and the builds they end); 1,515
+    // looks before a look read the paint it followed.
+    "echonet: messages": { looks: 460, paints: 2400, host: 790 },
+    // 963, 5,587 and 2,167; 4,196 looks before. The paints: ~4 a build (setup down, enter, enter, each key painting) over ~600
+    // builds, and one a probe's key over ~3,000 keys; the round trips ~2 a build, and one a key typed in the bar.
+    "echonet: a message read": { looks: 1200, paints: 7000, host: 2710 },
   };
   const overCounts = (label: string, got: { looks: number; paints: number; host: number }) => {
     const limit = COUNTS[label];

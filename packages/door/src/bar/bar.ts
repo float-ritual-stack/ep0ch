@@ -340,7 +340,9 @@ export class PowerBar {
     };
     const ask = (s: BarSource) => { try { const r = s.rows(q, this.host, this.scope); if (Array.isArray(r)) answer(s, r); else void r.then(rows => answer(s, rows), e => fail(s, e)); } catch (e) { fail(s, e); } };
     const later = sources.filter(s => s.asks);
-    for (const s of sources) { if (s.asks) this.asking.add(s.id); else { this.asking.add(s.id); ask(s); } }
+    // All asked before any answers: a source that answers at once never leaves the set empty while the rest are still to ask (settled).
+    for (const s of sources) this.asking.add(s.id);
+    for (const s of sources) if (!s.asks) ask(s);
     this.build();
     // A source that asks the service (the notes search, an extension's) waits for typing to pause.
     if (later.length && this.quick) for (const s of later) ask(s);
