@@ -12,6 +12,23 @@ export const DRAIN_EVERY_MS = 30 * 60_000
 /** The first tick soon after the session starts, so a fresh session drains within the window. */
 export const DRAIN_FIRST_MS = 60_000
 
+/**
+ * What the tick reads before it wakes the session: the open PRs and the items in doing and queued. The same answers
+ * (and the same day: the daily sweep) as the last drain that went means nothing moved, and the tick stays quiet; a
+ * builder that opens a PR or moves its ticket frees a slot, and that changes them.
+ */
+export const DRAIN_LOOKUPS: readonly (readonly string[])[] = [
+  ['gh', 'pr', 'list', '--state', 'open', '--limit', '100', '--json', 'number,headRefOid,reviewDecision,isDraft'],
+  ['ep0ch', 'find', '--ids', '--query', 'type=roadmap-item AND work-stage=doing'],
+  ['ep0ch', 'find', '--ids', '--query', 'type=roadmap-item AND work-stage=queued'],
+]
+
+/** The board as the tick saw it, or null when a lookup failed (then the tick wakes the session: it can look). */
+export function drainKeyOf(answers: readonly (string | null)[], now: number): string | null {
+  if (answers.some(a => a === null)) return null
+  return [new Date(now).toISOString().slice(0, 10), ...answers.map(a => a!.trim())].join('\n')
+}
+
 /** daddy's request, "Drain on its own clock", which holds the pull order, the skips and the sweep. */
 export const DRAIN_REQUEST = '5bfab6fb-75d1-49ee-9ec6-5f02e653a5f6'
 
@@ -29,6 +46,6 @@ export function drainPrompt(): string {
     '3. Once a day, while Evan has written nothing in pie, gurgle or float-hub for about 2 hours: the sweep ' +
       '(queued over 5 days: pick it up, re-rank it with a reason, or close it with the reason; no definition of done: write one).',
     '4. A line under the day\'s build log for each pick, re-rank and close.',
-    'If nothing changed since the last tick, answer in one line and do nothing else.',
+    'If there is nothing to merge and no slot to fill, answer in one line and do nothing else.',
   ].join('\n')
 }

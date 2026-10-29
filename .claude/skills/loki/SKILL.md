@@ -147,7 +147,8 @@ session), so no cron is set by hand. The rules are daddy's request ((5bfab6fb-75
    gets one written from its note and links.
 4. **A line under the day's build log** for every pick, re-rank and close. Close picks on proof the same day.
 
-Nothing changed since the last tick: one line, nothing else.
+The tick stays quiet when the open PRs and the doing and queued items read as at the last drain, the same day.
+Nothing to merge and no slot to fill: one line, nothing else.
 
 ## The build log
 

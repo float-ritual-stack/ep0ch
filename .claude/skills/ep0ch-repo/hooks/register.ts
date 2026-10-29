@@ -4,7 +4,7 @@ import { pathsIn, type Rule, ruleContext, ruleOf, rulesFor } from './rules'
 import { guardOf, type Merge, mergesIn, protocolOf, protocolRefusal } from './guards'
 import { installedRoot, landArgv, landedSaid, lookupFailed, mergedPr } from './landed'
 import { absolute, contentsOf, scratchRemovals, underScratch } from './scratch'
-import { DRAIN_EVERY_MS, DRAIN_FIRST_MS, drainPrompt, drainsFor } from './drain'
+import { DRAIN_EVERY_MS, DRAIN_FIRST_MS, DRAIN_LOOKUPS, drainKeyOf, drainPrompt, drainsFor } from './drain'
 import { agentOfEp0ch, type Counts, dueOf, SWEEP_AFTER_CHANGES, SWEEP_AFTER_TURNS, isDeploy, isMerge, isOutlineWrite, reportOf, SWEEP_SYSTEM, SWEEP_TOOLS, sweepBrief, sweepsFor } from './freshness'
 
 const PROTOCOL_PATH = 'packages/outline-core/src/protocol.ts'
@@ -24,6 +24,10 @@ let drainStarting: Promise<void> | undefined
 let drainTimer: { cancel: () => void } | undefined
 let drainGen = 0
 let drainWaiting = false
+/** A drain prompt is in the session and its turn hasn't ended: the next main-loop turn's end clears it. */
+let drainQueued = false
+/** The board at the last drain that went (drainKeyOf). */
+let drainKey: string | null = null
 let drainDropSaid = false
 /** Deploys and merges, and turns that wrote to the outline, since the last sweep. */
 const counts: Counts = { changes: 0, turns: 0 }
@@ -43,19 +47,21 @@ function hostnameOf($: EngineInterface): Promise<string> {
 }
 
 /**
- * The session's agent: the nearest `.ep0ch`'s `agent` (`.ep0ch/config.toml`, or an old `.ep0ch` file), else
- * EP0CH_AGENT; null when neither names one. Read once.
+ * The session's agent, in the Claude mod's order (its `sessionPersonaOf`): OUTLINER_ACTOR, else EP0CH_AGENT, else the
+ * nearest `.ep0ch`'s `agent` (`.ep0ch/config.toml`, or an old `.ep0ch` file); null when none names one. Read once.
  */
 function agentHere($: EngineInterface): Promise<string | null> {
   return (sessionAgent ??= (async () => {
-    const [envAgent, root] = await Promise.all([$.env.get('EP0CH_AGENT'), $.session.root()])
+    const [actor, envAgent, root] = await Promise.all([$.env.get('OUTLINER_ACTOR'), $.env.get('EP0CH_AGENT'), $.session.root()])
+    const named = actor?.trim() || envAgent?.trim()
+    if (named) return named
     for (let dir = root; dir; dir = dir.slice(0, dir.lastIndexOf('/'))) {
       for (const file of [`${dir}/.ep0ch/config.toml`, `${dir}/.ep0ch`]) {
         const text = await $.fs.read(file).then(t => String(t), () => null)
-        if (text !== null) return agentOfEp0ch(text) ?? (envAgent?.trim() || null)
+        if (text !== null) return agentOfEp0ch(text)
       }
     }
-    return envAgent?.trim() || null
+    return null
   })().catch(() => null))
 }
 
@@ -80,7 +86,7 @@ async function startDrain($: EngineInterface): Promise<void> {
     const gen = ++drainGen
     if (!drainsFor(await $.env.get('EP0CH_DRAIN'), await agentHere($))) return
     if (gen !== drainGen) return
-    const tick = () => void drainTick($)
+    const tick = () => void drainTick($, gen)
     drainTimer = $.clock.every(DRAIN_EVERY_MS, tick)
     $.clock.after(DRAIN_FIRST_MS, () => { if (gen === drainGen) tick() })
   } catch (error) {
@@ -88,19 +94,30 @@ async function startDrain($: EngineInterface): Promise<void> {
   }
 }
 
-async function drainTick($: EngineInterface): Promise<void> {
-  // One drain at a time: a tick that comes while the last one waits for the session to go idle is the same drain.
-  if (drainWaiting) return
+/**
+ * One tick: quiet while the last drain hasn't had its turn (a submitted prompt only queues), and quiet when the board
+ * reads as it did at the last drain that went, the same day (DRAIN_LOOKUPS); else the drain prompt.
+ */
+async function drainTick($: EngineInterface, gen: number): Promise<void> {
+  if (drainWaiting || drainQueued) return
   drainWaiting = true
   try {
+    const [cwd, now] = await Promise.all([$.session.root(), $.clock.now()])
+    const answers = await Promise.all(DRAIN_LOOKUPS.map(argv => $.process.run([...argv], { cwd, timeoutMs: LOOKUP_MS })
+      .then(r => (r.exitCode === 0 ? r.stdout : null), () => null)))
+    const key = drainKeyOf(answers, now)
+    if (gen !== drainGen || (key !== null && key === drainKey)) return
+    drainQueued = true
     const sent = await $.prompt.submit({ text: drainPrompt() })
     if (sent.drop !== undefined) throw Error(sent.drop || 'the prompt was dropped')
+    drainKey = key
     drainDropSaid = false
   } catch (error) {
+    drainQueued = false
     if (!drainDropSaid) $.ui.toast(`Drain tick didn't reach this session (${error instanceof Error ? error.message : String(error)}); the next tick tries again.`, { timeoutMs: 8000 })
     drainDropSaid = true
   } finally {
-    drainWaiting = false
+    if (gen === drainGen) drainWaiting = false
   }
 }
 
@@ -251,6 +268,8 @@ export const register: Register = (on) => {
   drainStarting = undefined
   drainGen++
   drainWaiting = false
+  drainQueued = false
+  drainKey = null
   drainDropSaid = false
   counts.changes = 0
   counts.turns = 0
@@ -345,6 +364,7 @@ export const register: Register = (on) => {
     if (e.agentId !== undefined) return result
     // A module reloaded mid-session (a deploy of this mod) never sees its session.start.
     if (!drainStarting) $.clock.after(0, () => void startDrainOnce($))
+    drainQueued = false
     if (wroteThisTurn) counts.turns++
     wroteThisTurn = false
     if (sweepId !== null && (await $.clock.now()) - sweepAt > SWEEP_STALE_MS) sweepId = null
