@@ -122,7 +122,7 @@ describe("a reader's history, without a service", () => {
     await until(() => s.msg?.id === id(3), "the parent");
     let lines = s.render(60, 12, h).lines.map(plain);
     expect(lines).toHaveLength(12);
-    expect(lines[11]!.trim()).toBe("← back · Allotment diary  ≡ trail");
+    expect(lines[11]!.trim()).toBe("← back · Allotment diary");                // no list to open here: no chip
     expect(s.hint()).toContain("alt← back");
     expect(s.click(3, 11, h)).toBe(true);
     await until(() => s.msg?.id === id(1), "the click went back");

@@ -7099,14 +7099,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** DeskApi.travelPeek: the title of the column back (-1) or forward (1) from tile `p`'s column goes to, if any. */
   travelPeek(p: Pane, dir: -1 | 1): string | null {
-    const id = this.idOf(p), flow = id === undefined ? undefined : chainOf(this.root, id).find((c): c is Flow<number> => c.t === "flow");
-    if (!flow || id === undefined) return null;
-    const ci = columnOf(flow, id), to = travelTarget(flow, ci, dir), t = to < 0 ? undefined : tileOfColumn(flow, to);
-    const q = t === undefined ? undefined : this.panes.get(t);
-    return q ? q.headName?.() ?? q.title() : null;
+    return this.travelTrail(p)?.[dir < 0 ? "back" : "forward"][0]?.title ?? null;
   }
 
-  /** DeskApi.travelTrail (PIE-208): the columns back and forward of tile `p`'s along its flow's trail, nearest first; what travelPeek reads one step of. */
+  /** DeskApi.travelTrail (PIE-208): the columns back and forward of tile `p`'s along its flow's trail, nearest first; travelPeek reads its first step. */
   travelTrail(p: Pane): { back: TrailStop[]; forward: TrailStop[] } | null {
     const id = this.idOf(p), flow = id === undefined ? undefined : chainOf(this.root, id).find((c): c is Flow<number> => c.t === "flow");
     if (!flow || id === undefined) return null;

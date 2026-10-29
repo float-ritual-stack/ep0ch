@@ -229,10 +229,14 @@
    * The trail (PIE-208): the notes this tab opened, newest first, as the service's journal keeps them. A `≡ trail` link
    * at the end of the breadcrumbs opens the list under them, each stop a link back to its page; the page shown is lit.
    */
-  let trailList = null;
+  let trailList = null, trailDrawn = "";
   function drawTrail(stops) {
     const crumbs = main.querySelector("nav.crumbs");
     if (!crumbs || !Array.isArray(stops)) return;
+    // Drawn again only when the stops changed: a report on every scroll never takes focus out of the open list.
+    const drawn = JSON.stringify(stops.map((stop) => [stop.blockId, stop.title]));
+    if (drawn === trailDrawn) return;
+    trailDrawn = drawn;
     if (!trailList) {
       const toggle = document.createElement("a");
       toggle.href = "#mg-trail"; toggle.className = "mg-trail"; toggle.textContent = "≡ trail";
@@ -250,14 +254,13 @@
     const toggle = crumbs.querySelector("a.mg-trail");
     toggle.hidden = stops.length < 2;
     if (toggle.previousSibling && toggle.previousSibling.nodeType === Node.TEXT_NODE) toggle.previousSibling.textContent = stops.length < 2 ? "" : " · ";
-    const base = api.slice(0, api.length - "/_marginalia".length);
     const heading = document.createElement("h2");
     heading.textContent = "Where you've been";
     const list = document.createElement("ul");
     list.className = "kids";
     for (const stop of stops) {
       const item = document.createElement("li"), link = document.createElement("a");
-      link.href = `${base}/p/${encodeURIComponent(stop.blockId)}`;
+      link.href = `${pageBase}/p/${encodeURIComponent(stop.blockId)}`;
       link.textContent = stop.blockId === noteId ? `● ${stop.title || "this page"} · here` : stop.title || stop.blockId;
       if (stop.blockId === noteId) link.setAttribute("aria-current", "page");
       item.append(link);

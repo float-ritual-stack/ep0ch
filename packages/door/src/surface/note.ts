@@ -393,10 +393,10 @@ export function historyKey(k: Key): -1 | 1 | 0 {
  * The history row a reader draws last while it has somewhere to go (PIE-453): `← back · <title>` on the left,
  * `<title> · forward →` on the right, each a click (`hits`, in the row's cells). Null with nowhere to go.
  */
-export function historyRow(w: number, back: string | null, forward: string | null): { line: string; hits: { from: number; to: number; dir: TrailDir }[] } | null {
+export function historyRow(w: number, back: string | null, forward: string | null, trail = true): { line: string; hits: { from: number; to: number; dir: TrailDir }[] } | null {
   if ((!back && !forward) || w < 12) return null;
   // The trail's chip (PIE-208) after back, where the row has room for it beside both titles.
-  const chip = w >= TRAIL_CHIP_MIN ? TRAIL_CHIP : "", chipW = chip ? width(chip) + 2 : 0;
+  const chip = trail && w >= TRAIL_CHIP_MIN ? TRAIL_CHIP : "", chipW = chip ? width(chip) + 2 : 0;
   const room = back && forward ? Math.floor((w - 3 - chipW) / 2) : w - 2 - chipW;
   const b = back ? drawEllipsized(`${fg(C.lcyan)}← back${fg(C.dark)} · ${printable(back)}`, room) : "", f = forward ? drawEllipsized(`${fg(C.dark)}${printable(forward)} · ${fg(C.lcyan)}forward →`, room) : "";
   const hits: { from: number; to: number; dir: TrailDir }[] = [];
@@ -1954,7 +1954,7 @@ export class NoteSurface {
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
     // Back and forward (PIE-453): the reader's last row, while it has somewhere to go.
-    const foot = this.panel?.full || h <= 3 ? null : historyRow(w, this.peek(-1), this.peek(1));
+    const foot = this.panel?.full || h <= 3 ? null : historyRow(w, this.peek(-1), this.peek(1), !!host?.overlay);
     if (foot) h -= 1;
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
     const open = openConstructs(m.text);
@@ -8226,8 +8226,9 @@ export class NoteSurface {
     const stops = (ss: readonly unknown[]): TrailStop[] => ss.flatMap(s => (typeof s === "string" ? [{ title: s }] : s ? [s as TrailStop] : []));
     const back = stops(h.back), forward = stops(h.forward);
     const answer = { here: m ? { id: m.id, title: subject(m) } : null, back, forward, ...(h.keptBy ? { keptBy: h.keptBy } : {}) };
-    if (!standing || !host.overlay) return { ...answer, shown: false };
+    if (!standing) return { ...answer, shown: false };
     if (!back.length && !forward.length) throw new ActionRefused("no trail yet: this reader hasn't followed a link (follow one, then alt+T)");
+    if (!host.overlay) throw new ActionRefused(`this screen can't list the trail over it · ${back.length ? `back steps=${back.length} goes to ${back.at(-1)!.title}` : "forward goes on"}`);
     type Row = { dir: -1 | 0 | 1; steps: number; title: string };
     const rows: Row[] = [
       ...forward.map((s, i) => ({ dir: 1 as const, steps: i + 1, title: s.title })).reverse(),
