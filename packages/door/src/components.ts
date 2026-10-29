@@ -1,9 +1,9 @@
-import { clipText } from "./overflow";
+import { LINE_BOX, stringFrame } from "./canvas";
 // A rich component's view (an extension's `component` handler line, pi-herdr-outliner
 // PIE-507), and a rule's decoration (PIE-600): the shared primitives (card, box, stack, row, text, badge, stat, bar,
 // table, checklist, sparkline, image, and band and track for headings and dividers) in the terminal, as the service's `terminal` target lays them out, with tone as colour. The
 // service checks the view against the catalogue; this draws what it sent and nothing else.
-import { BOLD, C, fg, pad, RESET, SPARK_STEPS, UNBOLD, width as vwidth } from "./style";
+import { BOLD, C, fg, pad, RESET, sparkGlyphs, UNBOLD, width as vwidth } from "./style";
 import { printable, rowLines, wrap } from "./text";
 import { BAND_ALIGNS, BAND_PATTERNS, BAND_ROWS, BUILTIN_HEADING_STYLE_REGISTRY, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import type { CalloutTone } from "@ep0ch/outline-core/callouts";
@@ -29,11 +29,6 @@ const MAX_DEPTH = 8;
 function meter(value: number, max: number, n: number, tone: unknown): string {
   const k = Math.max(0, Math.min(n, Math.round((value / max) * n)));
   return fg(toned(tone ?? "accent")) + "█".repeat(k) + fg(C.dark) + "░".repeat(n - k) + RESET;
-}
-
-function spark(values: readonly number[]): string {
-  const lo = Math.min(...values), hi = Math.max(...values);
-  return values.map(v => SPARK_STEPS[hi === lo ? 2 : Math.round(((v - lo) / (hi - lo)) * (SPARK_STEPS.length - 1))]).join("");
 }
 
 /** Lines `w` wide side by side, `gap` apart. */
@@ -160,7 +155,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       if (!values.length) throw new PrimitiveUnknown("a sparkline needs values");
       const label = n.label !== undefined ? `${one(n.label)}  ` : "";
       const room = Math.max(1, w - vwidth(label));
-      return [fg(C.grey) + label + fg(C.lcyan) + spark(values.slice(-room)) + RESET];
+      return [fg(C.grey) + label + fg(C.lcyan) + sparkGlyphs(values.slice(-room)).join("") + RESET];
     }
     case "checklist": {
       // The checklist figure's own drawing (PIE-1348), so a step looks and wraps the same in both.
@@ -200,10 +195,8 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
         ...kids(n).flatMap(c => inner(c, w - 2).map(l => `  ${l}`))];
     }
     case "box": {
-      const title = n.title !== undefined ? ` ${one(n.title)} ` : "";
-      const body = kids(n).flatMap(c => inner(c, w - 4));
-      const top = fg(C.dark) + "┌─" + fg(C.lcyan) + clipText(title, Math.max(0, w - 4)) + fg(C.dark) + "─".repeat(Math.max(0, w - 3 - vwidth(title))) + "┐" + RESET;
-      return [top, ...body.map(l => fg(C.dark) + "│ " + RESET + pad(l, w - 4) + fg(C.dark) + " │" + RESET), fg(C.dark) + "└" + "─".repeat(w - 2) + "┘" + RESET];
+      const f = stringFrame(w, { glyphs: LINE_BOX, ink: fg(C.dark) });
+      return [f.top(n.title !== undefined ? fg(C.lcyan) + ` ${one(n.title)} ` : ""), ...kids(n).flatMap(c => inner(c, f.inner)).map(f.row), f.bottom()];
     }
     case "stack":
       return kids(n).flatMap(c => inner(c, w));

@@ -5,7 +5,7 @@ import { rowLines } from "./text";
 // then it becomes one styled line per row. Blank cells keep the default background so the
 // CRT underlay shows through.
 import { closesHyperlink, DRAWN_PART, OSC8_CLOSE } from "./hyperlink";
-import { bgRgb, fgRgb, fitHint, glyphWidth, graphemes, RESET, width } from "./style";
+import { bgRgb, drawEllipsized, fgRgb, fitHint, glyphWidth, graphemes, pad, RESET, width } from "./style";
 import { floatTheme, theme } from "./theme";
 import { printable } from "./text";
 
@@ -71,10 +71,37 @@ export const BORDER_BOXES: Readonly<Record<"line" | "round" | "heavy" | "double"
   heavy: { top: "━", bottom: "━", side: "┃", tl: "┏", tr: "┓", bl: "┗", br: "┛" },
   double: { top: "═", bottom: "═", side: "║", tl: "╔", tr: "╗", bl: "╚", br: "╝" },
 };
+/** The frame a look's `border` names, the one reading of it (a tile's, a `::box`'s, a callout's); none for auto, none, joined. */
+export const borderGlyphs = (border: string | undefined): BoxGlyphs | undefined => border && border in BORDER_BOXES ? BORDER_BOXES[border as keyof typeof BORDER_BOXES] : undefined;
 /** A frame that draws nothing: a tile with `border=none` keeps its title and hint on blank edges. */
 export const NO_BOX: BoxGlyphs = { top: " ", bottom: " ", side: " ", tl: " ", tr: " ", bl: " ", br: " " };
 /** The dotted frame of the ep0ch logos (WoE, 1997): dots along, colons down. */
 export const DOTTED_BOX: BoxGlyphs = { top: ".", bottom: ".", side: ":", tl: ".", tr: ".", bl: ":", br: ":" };
+
+/**
+ * Lines of text framed `w` cells wide with `glyphs`, in `ink`: the one place strings are framed (PIE-1291; Canvas.box
+ * frames cells), so every frame obeys the BoxGlyphs it's given and no edge is wider than its sides. `pad`: cells between
+ * a side and the text. `open`: a half-box, no right side (a fence, a panel under a passage). `top` cuts its title and
+ * label to fit and fills the rest; `row` pads or cuts its text to `inner` (an open one draws it as it is); `bottom` takes
+ * a foot on an open frame.
+ */
+export function stringFrame(w: number, { glyphs: g = BORDER_BOXES.round, ink = "", pad: px = 1, open = false }: { glyphs?: BoxGlyphs; ink?: string; pad?: number; open?: boolean } = {}) {
+  const inner = Math.max(0, open ? w - 1 - px : w - 2 - 2 * px), gap = " ".repeat(px);
+  return {
+    inner,
+    top(title = "", label = ""): string {
+      const ends = open ? 2 : 3, room = Math.max(0, w - ends - (label ? width(label) + (open ? 0 : 1) : 0));
+      const t = width(title) > room ? drawEllipsized(title, room) : title, fill = g.top.repeat(Math.max(0, room - width(t)));
+      return ink + g.tl + g.top + t + RESET + ink + fill + (label ? label + RESET + ink + (open ? "" : g.top) : "") + (open ? "" : g.tr) + RESET;
+    },
+    row: (text: string) => open ? ink + g.side + RESET + gap + text + RESET : ink + g.side + RESET + gap + pad(text, inner) + RESET + gap + ink + g.side + RESET,
+    bottom(foot = ""): string {
+      if (!open) return ink + g.bl + g.bottom.repeat(Math.max(0, w - 2)) + g.br + RESET;
+      const room = Math.max(0, w - 2), f = !foot ? g.bottom : width(foot) > room ? drawEllipsized(foot, room) : foot;
+      return ink + g.bl + g.bottom + f + RESET + ink + g.bottom.repeat(Math.max(0, room - width(f))) + RESET;
+    },
+  };
+}
 
 /** The cells `Canvas.shadow` draws for a float at `r`: the column at its right, then the row below it. */
 export const shadowRects = (r: Rect): [Rect, Rect] => [

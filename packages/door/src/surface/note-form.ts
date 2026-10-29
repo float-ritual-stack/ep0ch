@@ -4,6 +4,7 @@ import { chipRows } from "./chip-rows";
 import { LineField } from "./line";
 import { partyOf } from "../steps";
 import { USER, type Actor } from "../socket";
+import { LINE_BOX, stringFrame } from "../canvas";
 import { fg, C, pad, RESET, visible, width } from "../style";
 import { ActionRefused, asBoundKey, keyName, shownLine } from "./actions";
 import { printable, wrap } from "../text";
@@ -91,8 +92,8 @@ export class NoteForm {
     const inner = Math.max(16, w - 4), labelWidth = Math.min(16, Math.max(...this.fields.map(f => width(f.name) + (f.required ? 2 : 0))) + 2);
     const room = Math.max(4, inner - labelWidth - 4);
     const rows: string[] = [];
-    const line = (text: string) => rows.push(fg(C.dark) + "│ " + RESET + pad(text, inner) + fg(C.dark) + " │" + RESET);
-    rows.push(fg(C.dark) + "┌─Fill in the form" + "─".repeat(Math.max(0, inner + 2 - width("─Fill in the form"))) + "┐" + RESET);
+    const f = stringFrame(inner + 4, { glyphs: LINE_BOX, ink: fg(C.dark) }), line = (text: string) => rows.push(f.row(text));
+    rows.push(f.top("Fill in the form"));
     this.fields.forEach((field, index) => {
       const d = this.draft(field.name), label = pad(field.name + (field.required ? " *" : ""), labelWidth);
       if (field.type === "choice") {
@@ -103,21 +104,21 @@ export class NoteForm {
         for (const row of chipRows(chips, inner, label)) line(row.text);
       } else {
         const box = field.type === "number" ? Math.min(10, room) : room;
-        line(" ".repeat(labelWidth) + "┌" + "─".repeat(box) + "┐");
+        const cell = stringFrame(box + 2, { glyphs: LINE_BOX, pad: 0 });
+        line(" ".repeat(labelWidth) + cell.top());
         const drawn = d.render(box, 1)[0] ?? "";
         const text = active && this.focus === index ? drawn : printable(visible(drawn));
-        line(label + "│" + tag(field.name, pad(text, box), shownLine("form.focus", { field: field.name })) + "│");
-        line(" ".repeat(labelWidth) + "└" + "─".repeat(box) + "┘");
+        line(label + cell.row(tag(field.name, pad(text, box), shownLine("form.focus", { field: field.name }))));
+        line(" ".repeat(labelWidth) + cell.bottom());
       }
     });
     const indent = " ".repeat(labelWidth), button = "Fill in the form";
-    line(indent + "┌" + "─".repeat(width(button) + 2) + "┐");
-    line(indent + "│ " + tag("@submit", button, "form.submit") + " │");
-    line(indent + "└" + "─".repeat(width(button) + 2) + "┘");
+    const submit = stringFrame(width(button) + 4, { glyphs: LINE_BOX });
+    for (const l of [submit.top(), submit.row(tag("@submit", button, "form.submit")), submit.bottom()]) line(indent + l);
     const warning = this.warnings.get(partyOf(USER));
     if (warning) line(fg(C.yellow) + printable(warning) + RESET);
     for (const text of ["* required", ...wrap(modeHint(FORM_KEYS, () => undefined), inner)]) line(text);
-    rows.push(fg(C.dark) + "└" + "─".repeat(inner + 2) + "┘" + RESET);
+    rows.push(f.bottom());
     return rows;
   }
 }

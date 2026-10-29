@@ -2,7 +2,7 @@ import { fullText, FULL_MARKERS } from "./overflow";
 // Text helpers shared by the BBS screens and the desk panes.
 import { closesHyperlink, DRAWN_PART, OSC8_CLOSE } from "./hyperlink";
 import { pageLinkRanges, referencedBlock } from "@ep0ch/outline-core/link-syntax";
-import { balanceStyles, balanceTags, C, drawEllipsized, fg, fgRgb, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width, visible } from "./style";
+import { balanceStyles, balanceTags, C, drawEllipsized, fg, fgRgb, MARKS, RESET, splitVisible, stripTags, styleMarks, width, visible } from "./style";
 import { theme } from "./theme";
 import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 
@@ -65,18 +65,6 @@ export const bbsDate = (ms: number) => {
   return `${p(d.getMonth() + 1)}-${p(d.getDate())}-${String(d.getFullYear()).slice(2)} (${p(d.getHours())}:${p(d.getMinutes())})`;
 };
 
-/** The first `w` cells of `s` (link tags ride along) and the rest; at least one glyph, so a wrap always moves on. */
-function cut(s: string, w: number): [string, string] {
-  const gs = graphemes(s);
-  let n = 0, i = 0;
-  for (; i < gs.length; i++) {
-    const gw = glyphWidth(gs[i]!);
-    if (n + gw > w && n > 0) break;
-    n += gw;
-  }
-  return [gs.slice(0, i).join(""), gs.slice(i).join("")];
-}
-
 /** Cells: link tags and presentation marks (src/style.ts) take none, a wide glyph two. */
 let measures: Map<string, number> | null = null;
 const len = (s: string) => {
@@ -134,7 +122,7 @@ export function wrap(text: string, w: number, { code = false, joins }: { code?: 
         rows.push(kept); line = word.trimStart(); n = len(line);
       }
       else { line += word; n += wl; }
-      while (n > w) { const [head, tail] = cut(line, w); rows.push(head); seams.push(""); line = tail; n = len(line); }
+      while (n > w) { const [head, tail] = splitVisible(line, w); rows.push(head); seams.push(""); line = tail; n = len(line); }
     }
     rows.push(line);
     joins?.push(...seams.map(s => (s === undefined ? s : s.replaceAll(HELD, " "))));

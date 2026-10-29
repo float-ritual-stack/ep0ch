@@ -12,6 +12,7 @@ import { LineField } from "../surface/line";
 import { filtered, litCells } from "../bar/filter";
 import { refused } from "../shell-keys";
 import { C, chip, fg, pad, RESET, floatSelectedRow, selectedRow, width } from "../style";
+import { wrap } from "../text";
 
 /** What the menu runs a row on: the person's press on the screen's dispatcher, and the status bar for a refusal. */
 export interface MenuHost {
@@ -21,18 +22,6 @@ export interface MenuHost {
 
 /** Keys the list takes itself: a row bound to one still shows it as its keycap, but ⏎ runs the lit row and j k move. */
 const LIST_KEYS = new Set(["up", "down", "enter", "tab", "shift+tab", "home", "end", "pgup", "pgdn"]);
-
-/** `s` in lines at most `w` wide, broken at spaces. */
-function wrap(s: string, w: number): string[] {
-  const out: string[] = [];
-  let line = "";
-  for (const word of s.split(" ")) {
-    if (line && width(line) + 1 + width(word) > w) { out.push(line); line = ""; }
-    line = line ? `${line} ${word}` : word;
-  }
-  if (line) out.push(line);
-  return out;
-}
 
 export function menuHeading(group: string, w: number): string {
   return fg(C.dark) + ` ${group} ${"─".repeat(Math.max(0, w - width(group) - 2))}` + RESET;

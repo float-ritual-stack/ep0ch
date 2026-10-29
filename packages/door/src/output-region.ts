@@ -11,7 +11,7 @@
 // callouts of src/doc.ts) and drawn by the reader (src/surface/note.ts): the mark, its click and its `[ ]` stop.
 import type { AfterRows } from "./doc";
 import type { LinkTarget } from "./refs";
-import { C, fg, RESET, visible, width } from "./style";
+import { C, dim, fg, RESET, visible, width } from "./style";
 
 /** The glyph of the one dim mark a generated region carries in the reader's gutter. */
 export const REGION_MARK = "≡";
@@ -42,7 +42,6 @@ export interface RegionDraw {
   notesFirst?: boolean;
 }
 
-const dim = (text: string) => fg(C.dark) + text + RESET;
 
 /** The dim row(s) behind the mark: facts joined by " · ", then the controls, wrapped at `w`. */
 function panel(facts: readonly string[], controls: readonly string[], w: number): string[] {
