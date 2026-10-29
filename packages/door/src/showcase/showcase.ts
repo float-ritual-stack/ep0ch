@@ -326,6 +326,19 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "one-completer", need: "complete an action and its arguments where you type: in a note's edit (ctrl+k, or / first on a line) and on the power bar's line, the same rows from the same completer (PIE-1076)",
+    part: "the one completer (PIE-1076): the editing component's Completer is every place's, the power bar's line too (LineField with grammar act); an act line's arguments and values are commandRows (src/bar/command.ts), from each ArgSpec and its kind's values (src/bar/arg-kinds.ts: a tile by the name tile= takes, from the layout), shared by the bar's line, a note's ::button step and an edit's / line; a sigil first in a value names its kind (% tiles, / notes, [[ pages, : screens); the actions here are the power bar's > rows; edit.actions (ctrl+k in an edit) and edit.run (⏎ on a / line) take the line out, save and run it, what it leaves out taking its default (ASKED_IN_PLACE: nothing asked again in the bar); arguments the host binds (ArgSpec.context: block, quote, with) are never offered",
+    files: "src/surface/completer.ts (DOOR_SOURCES here, here-args, steps; actionHereAt), src/bar/command.ts (commandRows, VALUE_SIGILS), src/bar/bar.ts (lineCompletes, drawLineCompletion), src/surface/note.ts (edit.actions, edit.run), src/extensions.ts (ASKED_IN_PLACE)",
+    aside: "Go in (⏎): the note is open in its edit with the actions that apply here listed at the cursor · type sort list, ⏎ (or tab) chooses it and its arguments are listed next · o, tab: order= and its values · ↓ ⏎ chooses desc · ⏎ on the line runs it: the list is sorted, last first, the edit saved and closed; ctrl+z takes it back · esc closes a list and leaves the line · in the power bar (ctrl+k outside the edit): tile.zoom t, tab: tile=, then this screen's tiles · act: edit.actions, complete.accept n=, edit.run",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · one completer", panes: [r], names: ["jobs"] }, show, [[r, n.oneCompleter]], d => {
+        // The person's own keys would do this: e, then ctrl+k in the edit.
+        void d.press(r, NOTE_ACTIONS, "edit").then(() => d.press(r, NOTE_ACTIONS, "edit.actions"));
+      });
+    },
+  },
+  {
     key: "sources", need: "complete from an extension's own list (a tracker's issues) where a reference is typed, ranked with the outline's pages, without a sigil of its own (PIE-1340)",
     part: "completion sources (ADR 0004 §4, PIE-1340): every source answers outline-core's one row contract (completion-source.ts: SourceDecl, SourceRow with kind, detail, docs, insert, preselect, an abort signal), triggers from outline-core's one detector (completion-triggers.ts), merged by one matcher with the host's picks (mergeSourceAnswers, completion.picked); the service's sources (pages, blocks, files, agents, components, properties, callout types: PIE-1344) and an extension's sources[] answer completion.rows, the door's own (filters, a fence's settings, a component's attributes, a button's steps) are DOOR_SOURCES; Detail asks the same completion.rows",
     files: "outline-core/src/completion-source.ts, outline-core/src/completion-triggers.ts, outliner src/completion-sources.ts, outliner src/extension-calls.ts (complete), outliner extensions/issues, src/surface/completer.ts (DOOR_SOURCES, lookupCompletion), outliner src/reference-completion.ts (Detail)",

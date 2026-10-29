@@ -22,6 +22,8 @@ export const marks: Record<string, string[]> = {
   completion: ["Ask about the beds, see ((Gree", "block"],
   // A comment ending in [[seed: the pages and an extension's issues in one list (PIE-1340).
   sources: ["Which issue is the swap, see [[seed", "issue"],
+  // A note's edit open with a / line, the actions that apply here asked for at it (PIE-1076).
+  "one-completer": ["Seed tray jobs", "editing · Seed tray jobs"],
   twins: ["Fix the back gate latch", "Queued"],
   "write-review": ["Shed status tonight", "Jev's suggestions", "Each finding, newest first"],
   "search-sure": ["Search evals", "EVERY RUN, PER MODEL", "Cases by source"],
