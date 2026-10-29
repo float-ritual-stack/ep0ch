@@ -68,7 +68,8 @@ const dropPage = (who: { name?: string; outline: string; deviceName?: string }, 
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Send a file to ep0ch</title>
 <style>:root{color-scheme:dark}body{background:#1b1712;color:#e9dfc7;font:17px/1.5 system-ui,sans-serif;margin:0;padding:16px;max-width:36rem}button,input{font:inherit;color:inherit;background:#2b241b;border:1px solid #6b5a3d;border-radius:6px;padding:.5em .8em;min-height:44px}pre{white-space:pre-wrap}</style>
 <h1>Send a file to ep0ch</h1>
-<p>${who.name ? `It becomes <b>${esc(who.name)}</b>` : "A page, a zip or a tar becomes an artifact"}, with a card in <b>${esc(who.outline)}</b>'s note for today.${expiresAt ? ` One upload, good until ${esc(expiresAt)}.` : ""}</p>
+<p>${who.name ? `It becomes <b>${esc(who.name)}</b>` : "A page, a zip or a tar of a site, an image or a PDF becomes an artifact"}, with a card in <b>${esc(who.outline)}</b>'s note for today.${expiresAt ? ` One upload, good until ${esc(expiresAt)}.` : ""}</p>
+<p>A deck or a PDF meant to be read goes on the wall as a poster instead; a PDF sent here is shown by its first page.</p>
 <p><input type="file" id="f"> <button id="b">Send</button></p><pre id="o"></pre>
 <script>document.getElementById("b").onclick=async()=>{const f=document.getElementById("f").files[0],o=document.getElementById("o");if(!f){o.textContent="Choose a file first.";return}o.textContent="Sending…";try{const r=await fetch(location.pathname.replace(/\\/?$/,"/")+encodeURIComponent(f.name),{method:"PUT",body:f});o.textContent=await r.text()}catch(e){o.textContent="Failed: "+e.message}}</script>
 </html>
@@ -145,8 +146,8 @@ export async function publishUpload(request: Request, host: Pick<OutlinerClient,
     if (!result) return json({ ok: true, pending: true, received: { bytes, sha256: meta.sha256 }, said: `Received ${filename}. It is being checked and installed; a card for it lands in ${outline}'s note for today. If it was refused, the reason is on the artifact-uploads page there.` }, 202);
     if (!result.ok) return json({ ok: false, reason: result.reason, received: { bytes, sha256: meta.sha256 }, said: `Refused: ${result.reason}` }, 422);
     return json({
-      ok: true, name: result.name, version: result.version, ...(result.title ? { title: result.title } : {}), outline, card: result.card, record: result.record,
-      said: `Installed ${result.name} version ${result.version}${result.title ? ` (${result.title})` : ""}. ${result.card}`,
+      ok: true, name: result.name, version: result.version, ...(result.kind ? { kind: result.kind } : {}), ...(result.title ? { title: result.title } : {}), outline, card: result.card, record: result.record,
+      said: `Installed ${result.name} version ${result.version}${result.title ? ` (${result.title})` : ""}${result.kind ? `, ${result.kind === "image" ? "an" : "a"} ${result.kind}` : ""}. ${result.card}`,
     }, 201);
   } finally {
     if (!received) {

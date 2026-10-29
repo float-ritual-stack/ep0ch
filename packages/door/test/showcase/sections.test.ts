@@ -81,7 +81,9 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
       const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       const page = await client.request({ action: "pages.resolve", address: day }) as { block: { id: string } };
       const cards = await client.request({ action: "children", parentId: page.block.id }) as { text: string }[];
-      expect(cards.map(card => card.text)).toContain("Showcase Lantern\n[artifact::showcase-lantern]");
+      expect(cards.map(card => card.text)).toContain("Showcase Lantern [arrival::new] [arrival-kind::site] [sent-by::test-agent]\n[artifact::showcase-lantern]");
+      // The exhibit's arrivals figure counts it live, beside the seeded card (PIE-1370).
+      await until(() => screen().includes("[ ARRIVALS ]") && screen().includes("Orbit lamp"), "arrival card and its count");
     } finally {
       http.stop(true);
       await watcher.close();

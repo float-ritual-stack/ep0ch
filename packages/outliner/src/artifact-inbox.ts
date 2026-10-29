@@ -1,6 +1,7 @@
 // What the artifacts inbox and its server-side sibling agree on, read by the publisher (which writes a drop), the
 // watcher (which takes it) and the store (which caps what it holds). No I/O beyond path joins.
 import { join } from "node:path";
+import type { ArrivalKind } from "./artifact-handover";
 
 export const artifactLimit = () => Number(process.env.EP0CH_ARTIFACT_MAX_BYTES ?? 64 * 1024 * 1024);
 export const artifactEntryLimit = () => Number(process.env.EP0CH_ARTIFACT_MAX_ENTRIES ?? 5000);
@@ -41,6 +42,8 @@ export interface DropResult {
   ok: boolean;
   name?: string;
   version?: number;
+  /** What arrived: a page, a site, a document or an image (PIE-1370). */
+  kind?: ArrivalKind;
   title?: string;
   /** Why it was refused (also in `.failed/<id>/reason.txt`). */
   reason?: string;

@@ -346,7 +346,9 @@ See the [script contract](../outliner/docs/extensions/README.md#script-blocks-an
 **Handing a file over (PIE-1267):** `ep0ch artifact lease [<name>] [--ws <outline>]` (also `> artifact.lease` in the power
 bar, which copies it, and MCP `artifact_upload_lease`, which needs write access) prints one `curl -sS -T <file> '<link>/'`
 for a page, a zip or a tar: one upload, one hour, checked and installed as the next version of its artifact, with a card in
-the outline's note for today. `ep0ch device add <name>` / `ls` / `revoke <name|id>` make a phone's Shortcut token for the
+the outline's note for today that says what arrived (page, site, document, image) and who sent it, and carries
+`[arrival::new]` for a tidy pass to clear (PIE-1370). A deck or PDF meant to be read goes on the wall as a poster; one sent
+anyway is drawn by its first page. `ep0ch device add <name>` / `ls` / `revoke <name|id>` make a phone's Shortcut token for the
 same route. Details: the outliner README, "Handing a file over from outside". The showcase's `upload` section drives a real
 lease, a zip and the card.
 

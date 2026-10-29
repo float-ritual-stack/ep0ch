@@ -10,8 +10,14 @@ import type { DropMeta } from "./artifact-inbox";
 /** The page the arrival records go under, in `EP0CH_ARTIFACT_RECORDS`'s outline (else the sender's). */
 export const UPLOADS_PAGE = "artifact-uploads";
 
+/**
+ * What an arrival is, as its card says (PIE-1370): a single page, a site (a folder, zip or tar), a document (a PDF,
+ * drawn by its first page) or an image.
+ */
+export type ArrivalKind = "page" | "site" | "document" | "image";
+
 export interface Arrival {
-  installed?: { name: string; version: number; title?: string };
+  installed?: { name: string; version: number; kind: ArrivalKind; title?: string };
   /** Why the drop was refused. */
   reason?: string;
 }
@@ -30,6 +36,15 @@ export function pageTitle(html: string): string | undefined {
 }
 
 /**
+ * The card for an arrival (PIE-1370): its title line says what it is and who sent it, and carries `[arrival::new]` until a
+ * tidy pass has connected it (a deck made a poster, a page linked from its thread) and cleared it; the artifact line
+ * under it draws it. The properties sit on the title line: an artifact line takes only its own.
+ */
+export function arrivalCard(meta: Pick<DropMeta, "by">, installed: NonNullable<Arrival["installed"]>): string {
+  return `${oneLine(installed.title ?? installed.name)} [arrival::new] [arrival-kind::${installed.kind}] [sent-by::${oneLine(meta.by, 80)}]\n[artifact::${installed.name}]`;
+}
+
+/**
  * Writes the card (when installed) and the record. Never throws: each says what happened, `card` and `record` being
  * what the sender is told.
  */
@@ -41,12 +56,12 @@ export async function handOver(outlines: string, meta: DropMeta, arrival: Arriva
   let card = "No card: the upload was refused.";
   if (arrival.installed) {
     try {
-      const { name, title } = arrival.installed;
+      const { name } = arrival.installed;
       const mine = client(meta.outline);
       const noted = meta.note ? await mine.request<PageAddressResolution>({ action: "pages.resolve", address: meta.note }) : undefined;
       const parent = noted?.status === "resolved" && noted.block ? noted.block : (await mine.request<PageAddressFollowResult>({ action: "pages.follow", address: localDay(), ...as })).block;
       if (!parent) throw new Error("today's note is unavailable");
-      await mine.request<Block>({ action: "create", parentId: parent.id, text: `${oneLine(title ?? name)}\n[artifact::${name}]`, ...as });
+      await mine.request<Block>({ action: "create", parentId: parent.id, text: arrivalCard(meta, arrival.installed), ...as });
       card = noted?.status === "resolved" ? `A card for ${name} is under ${meta.note} in ${meta.outline}.`
         : `A card for ${name} is in ${meta.outline}'s note for today${meta.note ? ` (no note ${oneLine(meta.note, 60)} was found)` : ""}.`;
     } catch (error) {

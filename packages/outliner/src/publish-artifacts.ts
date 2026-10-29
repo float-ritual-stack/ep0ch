@@ -443,6 +443,27 @@ export function reactArtifactPage(title: string, script: string): string {
 `;
 }
 
+/**
+ * The page for an artifact that is one PDF or image and nothing to run (PIE-1370): the picture (an image, or a PDF's
+ * first page when one was made) fit to the width, and a link to the file itself. Dark first, like the React page.
+ */
+export function fileArtifactPage(title: string, file: string, bytes: number, picture?: string): string {
+  const href = encodeURI(file), size = bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  const pdf = /\.pdf$/i.test(file);
+  const shown = picture ? `<a href="${href}"><img src="${encodeURI(picture)}" alt="${escapeHtml(pdf ? `${title}, first page` : title)}"></a>`
+    : pdf ? `<object data="${href}" type="application/pdf"><p>No first page was drawn for this PDF here.</p></object>` : "";
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><title>${escapeHtml(title)}</title>
+<style>body{margin:0;padding:1rem;background:#111;color:#ddd;font:15px/1.5 system-ui,sans-serif}img{display:block;max-width:100%;height:auto;margin:0 auto}
+object{display:block;width:100%;height:80vh}a{color:#7cd}p.file{text-align:center}</style>
+</head><body>
+${shown}
+<p class="file"><a href="${href}">${escapeHtml(file)}</a> · ${pdf ? "PDF" : "image"}, ${size}</p>
+</body></html>
+`;
+}
+
 /** A page that renders a mermaid diagram with mermaid from its CDN; the diagram source is text, not markup. */
 export function mermaidArtifactPage(title: string, diagram: string): string {
   return `<!doctype html>
