@@ -797,6 +797,13 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     // The title rows inside the tiles (not a frame's label): the reader's is the row's first, the column's beside it.
     const titleRows = () => raw().filter(l => /│ *An evening on the plot/.test(plain(l)));
     const titleRow = () => titleRows()[0]!;
+    // The test owns the hero line it asserts (PIE-1387): the PIE-1361 test drags its focus to 0.85,0.8 and writes
+    // the seed's line back, and the door hears that write a moment later. Write the seed's line if it isn't there,
+    // then wait for the reader to show the note at the revision the service has.
+    const was = (await board.get(seeded.notes.hero!.id))!, lines = was.text.split("\n"), seedLine = heroText().split("\n")[1]!;
+    const want = lines[1] === seedLine ? was.revision : (lines[1] = seedLine, (await board.update(was.id, lines.join("\n"), was.revision!)).revision);
+    const shown = () => (S().stages.get(S().sel).top.pane(reader().name) as any).surface.describe().showing?.revision;
+    await until(() => shown() === want, "the reader showing the hero note as the service has it", 8000);
     // At the top the picture is in view: the header knows its hero, at step 0, and is plain.
     expect(reader().header).toEqual({ backdrop: { image: "evening-beds.jpg", line: 2, step: 0, of: 3, mode: "first", drawn: null, focus: { x: 0.85, y: 0.6 } }, on: true, mode: "first" });
     expect(titleRow()).not.toContain("\x1b[48;2;");
