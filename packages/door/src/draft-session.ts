@@ -21,6 +21,7 @@ import { outlineState } from "./state";
 import type { Key } from "./term";
 import { markStart } from "@ep0ch/outline-core/draft-patch-compare";
 import { actorHandle, actorName } from "@ep0ch/outline-core/attribution";
+import { heldBack, MARK_THEM, typingIn } from "./whereabouts";
 
 // ── the target adapters' seam ─────────────────────────────────────────────────
 
@@ -571,10 +572,10 @@ export function agentRefusal(actor: Actor, on: DraftSession | { board?: object |
   }
   if (on instanceof DraftSession) {
     if (!sameParty(on.openedBy, actor)) {
-      return op === "leave" ? "the person is in this edit or comment; an agent doesn't save or close it (block.mark gets their attention)"
-        : "this draft is the person's; an agent doesn't type in it · draft.patch lands in an edit; block.mark gets their attention";
+      return op === "leave" ? typingIn("this edit or comment", "save or close it")
+        : typingIn("this draft", "type in it", `draft.patch lands in an edit; ${MARK_THEM}`);
     }
-    if (on.draft.writers.some(w => !sameParty(w, actor))) return "someone else is typing in this draft; an agent doesn't type in it · draft.patch lands in an edit; block.mark gets their attention";
+    if (on.draft.writers.some(w => !sameParty(w, actor))) return heldBack("someone else is typing in this draft", "type in it", `draft.patch lands in an edit; ${MARK_THEM}`);
     return null;
   }
   const theirs = [...registry(on.board)].find(s => s !== on.except && s.target.blockId === on.blockId && !(sameParty(s.openedBy, actor) && s.draft.writers.every(w => sameParty(w, actor))));

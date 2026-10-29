@@ -297,13 +297,13 @@ describe("the agent rule, stated once", () => {
   test("in the person's draft an agent neither types (draft.*) nor leaves; in its own, it does, until someone else types", () => {
     const { t } = fake({ blockId: undefined, place: "edit:none" });
     const mine = DraftSession.open(t, {});
-    expect(agentRefusal(AGENT, mine)).toBe("this draft is the person's; an agent doesn't type in it · draft.patch lands in an edit; block.mark gets their attention");
+    expect(agentRefusal(AGENT, mine)).toBe("the person is typing in this draft; an agent doesn't type in it · draft.patch lands in an edit; block.mark gets their attention");
     expect(agentRefusal(AGENT, mine, { op: "leave" })).toContain("an agent doesn't save or close it");
     expect(agentRefusal(USER, mine, { op: "leave" })).toBeNull();
     const its = DraftSession.open(t, { by: AGENT });
     its.replace("- a\n- b", AGENT);
     expect(agentRefusal(AGENT, its)).toBeNull();
-    expect(agentRefusal(OTHER, its)).toContain("the person's");
+    expect(agentRefusal(OTHER, its)).toContain("the person is typing in this draft");
     keys(its, ["!"]);
     expect(agentRefusal(AGENT, its)).toBe("someone else is typing in this draft; an agent doesn't type in it · draft.patch lands in an edit; block.mark gets their attention");
     mine.dispose(); its.dispose();
@@ -313,7 +313,7 @@ describe("the agent rule, stated once", () => {
     const { t, sent } = fake({ blockId: undefined, place: "edit:none-2" });
     const theirs = DraftSession.open(t, { text: "Fern" });
     keys(theirs, ["s"]);
-    await expect(theirs.act("draft.indent", {}, AGENT)).rejects.toThrow("this draft is the person's");
+    await expect(theirs.act("draft.indent", {}, AGENT)).rejects.toThrow("the person is typing in this draft");
     expect(await theirs.submit(AGENT)).toEqual({ ok: true });
     expect(sent.map(x => [x.by, x.asked])).toEqual([[USER, AGENT]]);           // recorded as the person's, who typed it
     const its = DraftSession.open(t, { by: AGENT });
