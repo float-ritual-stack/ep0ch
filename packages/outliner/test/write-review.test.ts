@@ -130,7 +130,7 @@ test("each finding the writer was told is a record with its passage and what was
 
 test("prose reaches Jev with no shape gate: the rubric's judgments are findings of their own, a clean note ships", async () => {
   const argue = "Prose that argues";
-  const { agent, asked } = await setup((id, _q, state) => {
+  const { agent, asked, store, records } = await setup((id, _q, state) => {
     const title = String(state.title);
     if (title !== argue) return undefined;
     if (id === "argues" || id.startsWith("mixed::") || id.startsWith("context::")) return { type: "noul", noul: 0.9 };
@@ -146,6 +146,14 @@ test("prose reaches Jev with no shape gate: the rubric's judgments are findings 
   // Prose was asked about, every rubric question in one request over one state.
   expect(asked).toHaveLength(1);
   expect(Object.keys(asked[0]!.questions)).toEqual(expect.arrayContaining(["argues", "kit::s0", "dense::s0", "mixed::s0", "context::s0"]));
+
+  // A rewrite Jev still says it of isn't "followed"; one it doesn't say it of is.
+  const note = store.require(made.json.id);
+  await agent("edit", { ref: note.id, expectedRevision: note.revision, text: essay.replace("The light was poor", "The light was weak") });
+  expect((await records("suggestion-outcome")).filter(o => o.rule === "argues")).toEqual([]);
+  const again = store.require(note.id);
+  await agent("edit", { ref: again.id, expectedRevision: again.revision, text: "Beds moved south\n\nThey moved for the light." });
+  expect((await records("suggestion-outcome")).filter(o => o.rule === "argues").map(o => o.outcome)).toEqual(["followed", "followed"]);
 
   const clean = await agent("create", { parent: "root", text: "Bean rows\n\n- Three rows sown on Saturday.\n- Watered at nine." });
   expect((clean.json.review as Review).verdict).toBe("ship");

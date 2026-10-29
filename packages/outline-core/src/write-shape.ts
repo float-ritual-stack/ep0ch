@@ -181,7 +181,7 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
     const sentences = sentenceCount(p.text);
     const points = p.item ? splitPoints(p.text) : [];
     if (p.item && (points.length > SHAPE_LIMITS.itemPoints || p.text.length > SHAPE_LIMITS.itemChars)) {
-      const patch = stackedPatch(lines, p, points);
+      const patch = stackedPatch(lines, p, splitPoints(p.text, { clauses: false }));
       found.push({
         rule: "stacked", key: `stacked:${p.text.slice(0, 24)}…${p.text.slice(-24)}`, line: p.line + 1,
         say: points.length > 1
@@ -259,15 +259,17 @@ function masked(text: string): string {
 }
 
 /**
- * The points one prose unit makes, in its own words: its sentences, and the clauses a `;` or a spaced dash joins. A
- * bullet whose first words are a bold or colon lead (`**Board:** …`) keeps that lead on its first point.
+ * The points one prose unit makes, in its own words: its sentences, and (unless `clauses: false`) the clauses a `;` or a
+ * spaced dash joins. Counting takes both; a patch cuts at sentences only, so no item starts mid-sentence.
  */
-export function splitPoints(text: string): string[] {
+export function splitPoints(text: string, o: { clauses?: boolean } = {}): string[] {
   const m = masked(text);
   const cuts: { at: number; skip: number }[] = [];
   for (const end of m.matchAll(/[.!?]+(?=\s+["'(\[*_`]*[\p{Lu}\d])/gu)) cuts.push({ at: end.index! + end[0].length, skip: 0 });
-  for (const semi of m.matchAll(/;\s+/g)) cuts.push({ at: semi.index! + 1, skip: 0 });
-  for (const dash of m.matchAll(/\s+(?:—|–|--)\s+/g)) cuts.push({ at: dash.index!, skip: dash[0].length });
+  if (o.clauses !== false) {
+    for (const semi of m.matchAll(/;\s+/g)) cuts.push({ at: semi.index! + 1, skip: 0 });
+    for (const dash of m.matchAll(/\s+(?:—|–|--)\s+/g)) cuts.push({ at: dash.index!, skip: dash[0].length });
+  }
   cuts.sort((a, b) => a.at - b.at);
   const out: string[] = [];
   let from = 0;

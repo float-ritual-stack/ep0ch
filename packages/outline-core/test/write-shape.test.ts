@@ -117,7 +117,7 @@ test("a list item stacking several points is told, and its patch makes one item 
   const [stacked] = writeShape(note);
   expect(stacked).toMatchObject({ rule: "stacked", line: 3 });
   expect(stacked!.say).toContain("4 points in one item");
-  expect(stacked!.patch![0]!.replacement).toBe(["- **Tables:**", "  - two went up at nine.", "  - The third had a wobbly leg;", "  - we swapped it.", "  - Nothing was lost."].join("\n"));
+  expect(stacked!.patch![0]!.replacement).toBe(["- **Tables:**", "  - two went up at nine.", "  - The third had a wobbly leg; we swapped it.", "  - Nothing was lost."].join("\n"));
   expect(writeShape(stacked!.patch!.reduce((t, p) => t.replace(p.observed, p.replacement), note))).toEqual([]);
   expect(writeShape("Swap day\n\n- one point, with a clause, and another clause.\n- Two sentences. Still fine.")).toEqual([]);
 });

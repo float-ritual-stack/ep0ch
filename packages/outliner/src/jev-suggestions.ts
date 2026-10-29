@@ -272,6 +272,7 @@ const facetsOfKey = (key: string): ShapeFacet[] => key.startsWith("count:") ? ke
 function judgeFinding(
   s: Pick<OpenSuggestion, "component" | "at" | "rule" | "key" | "line">, baseline: string,
   window: readonly { revision: number; savedAt: string; text: string }[], schemas: readonly ComponentSchema[], closed: boolean,
+  again?: ReadonlySet<number>,
 ): { outcome: Outcome; because: string; patched?: boolean } | null {
   const rule = s.rule!, key = s.key ?? "";
   const facets = facetsOfKey(key);
@@ -281,7 +282,8 @@ function judgeFinding(
     if (patch?.length && patch.every(p => w.text.includes(p.replacement))) return { outcome: "followed", because: `revision ${w.revision} applied the ready patch`, patched: true };
     const gone = rule === "kit" ? kitIn(w.text, schemas).has(s.component)
       : was ? !writeShape(w.text, { facets }).some(f => f.key === key)
-      : (() => { const section = sectionsOf(baseline).find(x => s.line !== undefined && x.line + 1 === s.line); return !!section && !w.text.includes(section.text); })();
+      // Jev's judgment: the passage was rewritten, and the review of that write didn't say it again.
+      : (() => { const section = sectionsOf(baseline).find(x => s.line !== undefined && x.line + 1 === s.line); return !!section && !w.text.includes(section.text) && !again?.has(w.revision); })();
     if (gone) return { outcome: "followed", because: rule === "kit" ? `revision ${w.revision} draws ${s.component}` : `revision ${w.revision} no longer has it` };
   }
   if (!closed) return null;
@@ -312,11 +314,13 @@ export function judgeSuggestion(
   schemas: readonly ComponentSchema[],
   now: number,
   threadLifecycle?: string,
+  /** A review finding's: the later revisions whose own review said it again (the same key). */
+  again?: ReadonlySet<number>,
 ): { outcome: Outcome; because: string; patched?: boolean } | null {
   if (threadLifecycle === "kept") return { outcome: "followed", because: "the margin thread was kept" };
   if (s.rule) {
     const window = after.filter(w => Date.parse(w.savedAt) - s.at <= FOLLOW_WITHIN_MS).slice(0, FOLLOW_WITHIN_WRITES);
-    return judgeFinding(s, baseline, window, schemas, window.length >= FOLLOW_WITHIN_WRITES || now - s.at > FOLLOW_WITHIN_MS);
+    return judgeFinding(s, baseline, window, schemas, window.length >= FOLLOW_WITHIN_WRITES || now - s.at > FOLLOW_WITHIN_MS, again);
   }
   const schema = schemas.find(x => x.id === s.component);
   const suggested = (schema && blockNameOf(schema)) ?? s.component;
@@ -369,6 +373,7 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
   const list = await client.request<BlockRevisions>({ action: "block.revisions", blockId: note });
   const text = async (revision: number) => (await client.request<{ text: string }>({ action: "block.revisions", blockId: note, revision })).text;
   let threads: AnnotationThread[] | undefined;
+  let findings: Block[] | undefined;
   let written = 0;
   for (const s of open) {
     let lifecycle: string | undefined;
@@ -380,7 +385,9 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
     const later = list.revisions.filter(r => r.revision > s.revision).sort((a, b) => a.revision - b.revision).slice(0, FOLLOW_WITHIN_WRITES);
     const baseline = list.revisions.some(r => r.revision === s.revision) ? await text(s.revision) : "";
     const after = await Promise.all(later.map(async r => ({ revision: r.revision, savedAt: r.savedAt, text: await text(r.revision) })));
-    const verdict = judgeSuggestion(s, baseline, after, schemas, now, lifecycle);
+    // The revisions whose review said the same thing again (a review finding's key), so a rewrite that kept it isn't "followed".
+    const again = s.key ? new Set((findings ??= await read(client, `type=review-finding note=${note}`, 200)).flatMap(f => { const p = propsOf(f.text); return p.key === s.key ? [Number(p.revision)] : []; })) : undefined;
+    const verdict = judgeSuggestion(s, baseline, after, schemas, now, lifecycle, again);
     if (!verdict) continue;
     // Settled by another pass while this one read the revisions: one outcome per suggestion.
     if ((await read(client, `type=suggestion-outcome suggestion=${s.id}`, 1)).length) continue;
