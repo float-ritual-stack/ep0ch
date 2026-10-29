@@ -84,13 +84,16 @@ export interface BarSource {
   alone?: true;
   /** The door's own, or the extension's id. */
   by: string;
-  /** Rows for `query` (the prefix taken off). An answer that needs the service is a promise; the bar shows `…` meanwhile. */
-  rows(query: string, host: BarHost, scope: string | null): BarRow[] | Promise<BarRow[]>;
   /**
-   * Asked once its rows came (the service's search, Jev re-ordering the same hits after a pause): the rows again with
-   * a word for the bar's line (`jev ranked`), or null to keep them. The lit row stays lit.
+   * Rows for `query` (the prefix taken off). An answer that needs the service is a promise; the bar shows `…` meanwhile.
+   * `signal` goes with the source's requests: aborted when typing replaced the query or the bar closed (src/search-schedule.ts).
    */
-  later?(query: string, rows: BarRow[], host: BarHost, alive: () => boolean): Promise<{ rows: BarRow[]; said?: string } | null> | null;
+  rows(query: string, host: BarHost, scope: string | null, signal?: AbortSignal): BarRow[] | Promise<BarRow[]>;
+  /**
+   * Asked a pause after its rows came, while the query is still the one typed (the service's search, Jev re-ordering the
+   * same hits): the rows again with a word for the bar's line (`jev ranked`), or null to keep them. The lit row stays lit.
+   */
+  later?(query: string, rows: BarRow[], host: BarHost, signal: AbortSignal): Promise<{ rows: BarRow[]; said?: string } | null> | null;
   /**
    * Lines it draws above its rows, under the bar's line, while the bar is scoped to it (the ask scope's form: its
    * fields and the act line, PIE-1031); `headClick` hears a click on its `i`-th (true when it was its).

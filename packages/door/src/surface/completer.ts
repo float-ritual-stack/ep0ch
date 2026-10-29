@@ -52,11 +52,10 @@ import { openNote, barSource, type BarHost } from "../bar/source";
 import { commandCandidates } from "../bar/command";
 import { Gesture, Selection, rowsOf, paintRange, selectText, SELECT_BG } from "./selection";
 import { visible, width as cells, ellipsize } from "../style";
+import { JEV_PAUSE_MS, SearchSchedule, SearchTurn, TYPING_PAUSE_MS } from "../search-schedule";
 
 /** At most this many candidates per lookup, as in the outliner. */
 export const COMPLETION_LIMIT = 20;
-/** How long typing pauses before Jev is asked to re-order the candidates: the popup's and the desk's search overlay's. */
-export const SEARCH_JEV_PAUSE_MS = 300;
 /** Services that said Jev isn't configured there: not asked again this run (each ask is a round trip, and when configured, paid). */
 export const jevOff = new WeakSet<object>();
 /** Room for the list and a small reader-rendered example beneath it. */
@@ -204,16 +203,18 @@ const itemOf = (row: SourceRow, src: ListSource, schemas: readonly ComponentSche
 /** A door row on the contract: its insertion as the insert (a selection makes it a snippet). */
 const rowOf = (item: CompletionItem): CompletionItem & SourceRow => ({ ...item, insert: item.selection ? { snippet: item.insertion, select: item.selection } : item.insertion });
 
+/** A token no service or extension source can answer (a fence's settings, a button's step) asks nothing: it needs no pause for typing. */
+const asksService = (board: CompletionBoard, target: CompletionTarget) => typeof board.completionRows === "function" && !!triggerOf(target.kind);
+
 /** The service's answer to `completion.rows`, or none (a test double, a service without it): its sources answer nothing. */
 async function serviceRows(board: CompletionBoard, target: CompletionTarget, own: OwnNote | undefined, opts: LookupOptions): Promise<CompletionRowsResult & { failed?: string }> {
-  // A token no service or extension source can answer (a fence's settings, a button's step) asks nothing.
-  if (typeof board.completionRows !== "function" || !triggerOf(target.kind)) return { answers: [], picks: {} };
+  if (!asksService(board, target)) return { answers: [], picks: {} };
   const { start: _s, end: _e, ...asked } = target;
-  return board.completionRows({
+  return board.completionRows!({
     target: asked,
     ...(opts.near ? { near: opts.near } : {}), ...(own ? { draft: own } : {}), ...(opts.limit ? { limit: opts.limit } : {}),
     ...(opts.offset ? { offset: opts.offset } : {}), ...(opts.semantic ? { semantic: true } : {}),
-  }).catch((e: Error) => ({ answers: [], picks: {}, failed: `lookup failed: ${e.message}` }));
+  }, opts.signal).catch((e: Error) => ({ answers: [], picks: {}, failed: `lookup failed: ${e.message}` }));
 }
 
 /**
@@ -343,13 +344,12 @@ export class Completer {
   /** The tile host paints this popup after the screen, beyond the editor's rectangle. */
   screenLayer = false;
   private preview: { item: CompletionItem; surface: NoteSurface; host: SurfaceHost } | null = null;
-  private generation = 0;
+  /** The lookup and what follows it (Jev's re-order, the preview's context): the pause for typing, latest-wins, abort. */
+  private readonly search = new SearchSchedule(TYPING_PAUSE_MS);
   private previewGesture = new Gesture();
   private accepting = false;
   private loadingMore = false;
   private limit = COMPLETION_LIMIT;
-  /** The ask in flight: aborted when the person types on or the list closes, so a slow source stops. */
-  private asking: AbortController | null = null;
   /** The order `::` first listed the components in, kept for this draft. */
   private componentOrder?: Map<string, { i: number; group?: string }>;
   constructor(private readonly d: CompletionField, private readonly board: CompletionBoard, private readonly redraw: () => void, private readonly own: () => OwnNote | undefined = () => undefined) {}
@@ -370,16 +370,14 @@ export class Completer {
   }
 
   private here() { return { row: this.d.row, col: this.d.col, line: this.d.lines[this.d.row] ?? "" }; }
-  private current(generation: number): boolean {
+  /** `turn` is still the newest lookup's (none, for a list no lookup made), and the popup is where the cursor is. */
+  private current(turn: SearchTurn | null): boolean {
     const s = this.state, h = this.here();
-    return generation === this.generation && !!s && s.at.row === h.row && s.at.col === h.col && s.at.line === h.line;
+    return turn === this.search.turn && (!turn || turn.alive()) && !!s && s.at.row === h.row && s.at.col === h.col && s.at.line === h.line;
   }
 
   dismiss(): void {
-    this.generation++;
-    this.asking?.abort();
-    this.asking = null;
-    this.stopJev();
+    this.search.cancel();
     this.previewGesture.cancel();
     if (!this.state) return;
     this.state = null;
@@ -391,63 +389,67 @@ export class Completer {
 
   private near(): string | undefined { return nearOf(this.d, this.own()); }
 
-  private jevTimer: ReturnType<typeof setTimeout> | null = null;
-  private stopJev(): void { if (this.jevTimer) clearTimeout(this.jevTimer); this.jevTimer = null; }
-
   /**
    * After a pause, ask the service again with Jev re-ordering the same candidates. The answer is used only if
    * nothing moved meanwhile (the query, the cursor, the selection), and the selected candidate stays selected.
    */
-  private askJev(generation: number, target: CompletionTarget): void {
-    this.stopJev();
+  private askJev(turn: SearchTurn, target: CompletionTarget): void {
     const fragment = target.kind === "block" && parseFragmentCompletionQuery(target.query);
     if (target.kind !== "page" && target.kind !== "block" || fragment || target.query.trim().length < 3 || jevOff.has(this.board)) return;
     // Jev re-orders the service's candidates (up to 30 for ((): one beyond the 20 shown can come into view.
-    this.jevTimer = setTimeout(async () => {
-      this.jevTimer = null;
+    turn.after(JEV_PAUSE_MS, async () => {
       const s = this.state;
-      if (!s || !this.current(generation) || s.loading || s.items.length < 2 || this.accepting || this.d.busy) return;
+      if (!s || !this.current(turn) || s.loading || s.items.length < 2 || this.accepting || this.d.busy) return;
       const index = s.index, chosen = s.items[index]?.insertion;
       s.jev = "asking";
       this.redraw();
       try {
-        const r = await lookupCompletion(this.board, target, this.own(), { semantic: true, near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined });
+        const r = await lookupCompletion(this.board, target, this.own(), { semantic: true, near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined, signal: turn.signal });
         if (r.jevOff) jevOff.add(this.board);
         const now = this.state;
         if (now !== s) return;
         // Anything moved meanwhile (the pick, the cursor, a save or an insert under way): the answer isn't used.
-        if (!this.current(generation) || now.index !== index || now.items[index]?.insertion !== chosen || this.accepting || this.d.busy) { now.jev = undefined; this.redraw(); return; }
+        if (!this.current(turn) || now.index !== index || now.items[index]?.insertion !== chosen || this.accepting || this.d.busy) { now.jev = undefined; this.redraw(); return; }
         const at = r.items.findIndex(i => i.insertion === chosen);
         if (at < 0) { now.jev = undefined; this.redraw(); return; }
         this.state = { ...r, target, picked: now.picked, line: now.line, index: at, loading: false, at: now.at };
         this.redraw();
-        void this.enrich(generation);
+        void this.enrich(turn);
       } catch {
         if (this.state === s) { s.jev = undefined; this.redraw(); }
       }
-    }, SEARCH_JEV_PAUSE_MS);
+    });
   }
 
-  /** Look up the token at the cursor (or close the popup when the cursor isn't in one). */
-  async refresh(explicit = false): Promise<void> {
+  /**
+   * Look up the token at the cursor (or close the popup when the cursor isn't in one). A lookup that asks the service
+   * waits for typing to pause (TYPING_PAUSE_MS) unless asked on purpose (`explicit`: Tab, Ctrl+Space, `complete.ask`);
+   * resolves once it's drawn, or replaced.
+   */
+  refresh(explicit = false): Promise<void> {
     this.parent = null;
     const target = this.target();
-    if (!target || this.d.busy) { this.dismiss(); return; }
-    this.stopJev();
+    if (!target || this.d.busy) { this.dismiss(); return Promise.resolve(); }
     this.limit = COMPLETION_LIMIT;
     // A re-ask of the same query keeps the pick; a changed query picks its best match.
     const same = this.state?.target.kind === target.kind && this.state.target.query === target.query;
     const picked = explicit || (same && this.state?.picked);
-    const generation = ++this.generation, was = same ? this.state?.items[this.state.index]?.insertion : undefined;
+    const turn = this.search.begin(), was = same ? this.state?.items[this.state.index]?.insertion : undefined;
     this.state = { target, picked, line: this.d.complete !== undefined, items: this.state?.items ?? [], index: this.state?.index ?? 0, truncated: null, message: "finding references...", loading: true, at: this.here() };
     this.redraw();
+    if (explicit || !asksService(this.board, target)) return this.lookup(turn, target, was);
+    return new Promise<void>(done => {
+      turn.signal.addEventListener("abort", () => done(), { once: true });
+      this.search.pause(() => void this.lookup(turn, target, was).then(done));
+    });
+  }
+
+  private async lookup(turn: SearchTurn, target: CompletionTarget, was: string | undefined): Promise<void> {
     try {
       // Only an answer is kept for the draft: a failed lookup is asked again next time, as the outliner does.
-      this.asking?.abort();
-      const asking = this.asking = new AbortController();
-      const r = await lookupCompletion(this.board, target, this.own(), { near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined, signal: asking.signal });
+      const r = await lookupCompletion(this.board, target, this.own(), { near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined, signal: turn.signal });
       if (r.jevOff) jevOff.add(this.board);
-      if (!this.current(generation)) return;
+      if (!this.current(turn)) return;
       // `::` with nothing typed lists the components used ones first: the order this draft first saw stays while it's
       // written (PIE-1127), so a component used meanwhile doesn't move the rows under the person's eye.
       if (target.kind === "component" && !target.query.trim()) {
@@ -462,20 +464,20 @@ export class Completer {
       const index = Math.max(0, r.items.findIndex(i => i.insertion === was));
       this.state = { ...r, target, picked: this.state?.picked, line: this.state?.line, index, loading: false, at: this.state!.at };
       this.redraw();
-      void this.enrich(generation);
-      this.askJev(generation, target);
+      void this.enrich(turn);
+      this.askJev(turn, target);
     } catch (e) {
-      if (this.current(generation)) { this.state = { ...this.state!, items: [], loading: false, message: `lookup failed: ${e instanceof Error ? e.message : String(e)}` }; this.redraw(); }
+      if (this.current(turn)) { this.state = { ...this.state!, items: [], loading: false, message: `lookup failed: ${e instanceof Error ? e.message : String(e)}` }; this.redraw(); }
     }
   }
 
   /** The selected candidate's ancestors and first lines, from `blocks.context`. */
-  private async enrich(generation = this.generation): Promise<void> {
+  private async enrich(turn = this.search.turn): Promise<void> {
     const item = this.state?.items[this.state.index];
     if (!item?.blockId || this.preview?.item === item) return;
     try {
       const [ctx, { NoteSurface }] = await Promise.all([this.board.blockContext(item.blockId), import("./note")]);
-      if (!this.current(generation) || this.state?.items[this.state.index] !== item) return;
+      if (!this.current(turn) || this.state?.items[this.state.index] !== item) return;
       if (ctx.selected) {
         this.preview?.surface.dispose();
         const surface = new NoteSurface();
@@ -656,16 +658,16 @@ export class Completer {
   }
 
   private async more(): Promise<void> {
-    const s = this.shown, generation = this.generation;
+    const s = this.shown, turn = this.search.turn;
     if (!s || s.target.kind !== "block" || !s.truncated || this.loadingMore) return;
     this.loadingMore = true;
-    this.stopJev();
+    turn?.dropAfter();
     const fragment = parseFragmentCompletionQuery(s.target.query);
     const offset = fragment ? this.limit : undefined;
     const limit = this.limit + COMPLETION_LIMIT;
     try {
-      const r = await lookupCompletion(this.board, s.target, this.own(), { near: this.near(), limit: fragment ? COMPLETION_LIMIT : limit, offset });
-      if (!this.current(generation) || this.state !== s) return;
+      const r = await lookupCompletion(this.board, s.target, this.own(), { near: this.near(), limit: fragment ? COMPLETION_LIMIT : limit, offset, signal: turn?.signal });
+      if (!this.current(turn) || this.state !== s) return;
       this.limit = limit;
       const seen = new Set(s.items.map(i => i.insertion));
       s.items.push(...r.items.filter(i => !seen.has(i.insertion)));
@@ -674,17 +676,17 @@ export class Completer {
       this.redraw();
       void this.enrich();
     } catch (e) {
-      if (this.current(generation)) { s.message = `more matches: ${e instanceof Error ? e.message : String(e)}`; this.redraw(); }
+      if (this.current(turn)) { s.message = `more matches: ${e instanceof Error ? e.message : String(e)}`; this.redraw(); }
     } finally { this.loadingMore = false; }
   }
 
   /** Enter / Tab: insert the selected candidate (checked with the service first). */
   async accept(index = this.state?.index ?? 0): Promise<boolean> {
-    const s = this.state, item = s?.items[index], generation = this.generation;
-    if (this.accepting || !s || !item || s.loading || !this.current(generation)) return false;
+    const s = this.state, item = s?.items[index], turn = this.search.turn;
+    if (this.accepting || !s || !item || s.loading || !this.current(turn)) return false;
     this.accepting = true;
     try {
-      if (!await insertCompletion(this.board, this.d, s.target, item, this.own(), () => this.current(generation))) return false;
+      if (!await insertCompletion(this.board, this.d, s.target, item, this.own(), () => this.current(turn))) return false;
       // Counted by the outline host (PIE-1340), so this pick ranks higher next time, here and in every other client.
       if (s.pickKey) void this.board.completionPicked?.(s.pickKey, item.insertion).catch(() => {});
       this.dismiss();
@@ -693,7 +695,7 @@ export class Completer {
       if (s.target.kind !== "filter-value" && (s.target.kind !== "component" || item.kind === "property") && this.target()) void this.refresh();
       return true;
     } catch (e) {
-      if (this.current(generation)) { s.message = e instanceof Error ? e.message : String(e); this.redraw(); }
+      if (this.current(turn)) { s.message = e instanceof Error ? e.message : String(e); this.redraw(); }
       return false;
     } finally { this.accepting = false; }
   }
