@@ -7,6 +7,6 @@ export const PICK_A_TILE = [
   '::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}',
   "A button that reads differently than it was written runs nothing, and says what to write (nested quotes ended act= early):",
   '::button{label="misread" act="tile.zoom reach="column" tile="t-a6125371"}',
-  "Open any tile's menu (the ⋯ in its header): it is headed with the tile's name and id. Copy id and copy reference under Tile put the tile's address on your clipboard; under Note, the note's id or ((id|title)).",
+  "Open any tile's menu (the ⋯ in its header): it is headed with the tile's name and id. Copy id and copy reference under Tile put the tile's address on your clipboard; under Note, the note's id, ((id|title)), its web link, or a reference to the line you're on (the line gets an ^anchor if it has none). A list's, the tree's or a lane's menu copies its selected row the same way; ^W y copies the reference, ^W , shows the tile's card.",
   "Press e and write a button on a new line: its names, values and action are coloured as you type, what won't run is underlined, and the row under it says what it runs or why not.",
 ].join("\n");

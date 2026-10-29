@@ -1,5 +1,6 @@
 import { outlinesDir } from "./discover";
 import { openLinked } from "@ep0ch/outliner/link";
+import { webBase } from "@ep0ch/outliner/artifact-grants";
 import { servingSession } from "./session/session-term";
 import type { Ctx } from "./app";
 import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
@@ -50,6 +51,16 @@ export async function openRemote(url: string, ctx: Ctx): Promise<boolean> {
   const copied = ctx.copy?.(url, undefined, write);
   ctx.flash(`${result.error ? `${result.error.split(/\r?\n/, 1)[0]} · ` : ""}${copied ? "copied" : "not copied"} ${url} · click to open`, 12000, { href: url, ...(result.error ? { kind: "error" as const, stack: result.error } : {}) });
   return false;
+}
+
+/**
+ * A note's address on the web client (PIE-1297, `note.copy-ref kind=link`): `target` is its id or Work ID, at
+ * `/pub/p/<target>` for this door's outline (the web client's home) and `/pub/o/<outline>/p/<target>` for another,
+ * on EP0CH_WEB_URL's origin (`webBase`), else https://my.ep0ch.sh. `destinationOf` reads the second back as a note.
+ */
+export function notePageUrl(target: string, outline: string | undefined, env: Record<string, string | undefined> = process.env): string {
+  const base = webBase(env) ?? "https://my.ep0ch.sh/pub";
+  return `${base}${outline ? `/o/${encodeURIComponent(outline)}` : ""}/p/${encodeURIComponent(target)}`;
 }
 
 const BLOCK_ID = /^[A-Za-z0-9_-]{8,}$/;
