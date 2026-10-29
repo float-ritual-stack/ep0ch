@@ -10,7 +10,7 @@ import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { RUBRIC, type Rubric } from "@ep0ch/outline-core/write-shape";
 import type { Block } from "@ep0ch/outline-core/protocol";
-import { recordReview, promptRevOf, writerOf, type SuggestionClient } from "./jev-suggestions";
+import { promptRevOf, writerOf, type SuggestionClient } from "./jev-suggestions";
 import { writeRecord } from "./records";
 import { outlineFacets, reviewWrite, type ReviewOptions, type WriteReview } from "./write-review";
 
@@ -27,6 +27,8 @@ export interface BackfillReport {
   since: string;
   /** Notes in the window, those an agent wrote last, and those reviewed (the rest left out by `limit`). */
   read: number; byAgents: number; reviewed: number;
+  /** Notes left out because `into` already holds their findings (a rerun after a run that was stopped). */
+  skipped: number;
   /** The window held more changed notes than one read takes (1000): the newest were read; narrow `since` for the rest. */
   truncated: boolean;
   flagged: number; passed: number; findings: number;
@@ -61,11 +63,15 @@ export async function reviewBackfill(source: SuggestionClient, o: BackfillOption
   const facets = await outlineFacets(source as never);
   const answer = await source.request<{ blocks: Block[]; completeness?: { kind: string } }>({ action: "blocks.query", query: { where: `updated >= -${since} NOT type=annotation NOT type=peer-message`, sort: "updated desc", limit: 1000 } });
   const found = answer.blocks;
-  // An extension's own pages (`ext:<name>`) are code's output, not an agent's writing.
-  const byAgents = found.filter(b => b.author === "agent" && b.actorId && !b.actorId.startsWith("ext:") && b.text.trim());
-  const notes = byAgents.slice(0, o.limit ?? 500);
+  // An extension's own pages (`ext:<name>`) and Jev's (`jev/…`: the suggestions page, its rule) are code's output, not an
+  // agent's writing.
+  const byAgents = found.filter(b => b.author === "agent" && b.actorId && !/^(?:ext:|jev\/)/.test(b.actorId) && b.text.trim());
+  // A rerun picks up where a stopped run left off: a note `into` already holds backfill findings of is done.
+  const kept = o.into ? await keptNotes(o.into) : new Set<string>();
+  const window = byAgents.slice(0, o.limit ?? 500);
+  const notes = window.filter(b => !kept.has(b.id));
   const report: BackfillReport = {
-    ...(o.outline ? { outline: o.outline } : {}), since, read: found.length, byAgents: byAgents.length, reviewed: 0, truncated: answer.completeness?.kind === "truncated" || found.length >= 1000, flagged: 0, passed: 0, findings: 0,
+    ...(o.outline ? { outline: o.outline } : {}), since, read: found.length, byAgents: byAgents.length, reviewed: 0, skipped: window.length - notes.length, truncated: answer.completeness?.kind === "truncated" || found.length >= 1000, flagged: 0, passed: 0, findings: 0,
     jev: { asked: 0, unavailable: 0, tokensIn: 0, tokensOut: 0 },
     byRubric: Object.fromEntries(RUBRIC.map(r => [r, 0])) as Record<Rubric, number>, byRule: {}, byWriter: {},
     samples: Object.fromEntries(RUBRIC.map(r => [r, []])) as unknown as Record<Rubric, BackfillSample[]>,
@@ -99,8 +105,19 @@ export async function reviewBackfill(source: SuggestionClient, o: BackfillOption
   return report;
 }
 
+/**
+ * A note's findings kept as it goes, in one request: the service makes the records in its own process (`suggestions.keep`,
+ * PIE-1402: one record took ~3 s of round trips over a forward, and a week of pie, ~2,500 records, never finished). Sent
+ * as each note is reviewed, so a run that is stopped keeps what it did.
+ */
 async function keep(into: SuggestionClient, block: Block, title: string, review: WriteReview): Promise<void> {
-  await recordReview(into, { kind: "reviewed", at: { note: block.id, revision: block.revision, actorId: block.actorId!, source: "backfill" }, title, review });
+  await into.request({ action: "suggestions.keep", keep: { kind: "reviewed", at: { note: block.id, revision: block.revision, actorId: block.actorId!, source: "backfill" }, title, review } } as never, 120_000);
+}
+
+/** Every note `into` already holds backfill findings of, by the service's groups (one answer, however many records). */
+async function keptNotes(into: SuggestionClient): Promise<Set<string>> {
+  const found = await into.request<{ groups?: { value: string | null }[] }>({ action: "blocks.query", query: { where: "type=review-finding source=backfill", machinery: "show", limit: 1, group: "note" } } as never).catch(() => ({ groups: [] }));
+  return new Set((found.groups ?? []).flatMap(g => (g.value ? [g.value] : [])));
 }
 
 /**
@@ -120,7 +137,7 @@ async function keepRun(into: SuggestionClient, r: BackfillReport, now: Date): Pr
 export function backfillSummary(r: BackfillReport): string {
   const pct = (n: number) => (r.reviewed ? `${Math.round(n / r.reviewed * 100)}%` : "0%");
   const lines = [
-    `${r.outline ?? "outline"} · last ${r.since}: ${r.read}${r.truncated ? "+ (the newest; narrow --since for the rest)" : ""} notes changed, ${r.byAgents} last written by an agent, ${r.reviewed} reviewed${r.reviewed < r.byAgents ? ` (the newest; --limit for more)` : ""}`,
+    `${r.outline ?? "outline"} · last ${r.since}: ${r.read}${r.truncated ? "+ (the newest; narrow --since for the rest)" : ""} notes changed, ${r.byAgents} last written by an agent, ${r.reviewed} reviewed${r.skipped ? `, ${r.skipped} kept by an earlier run` : ""}${r.reviewed + r.skipped < r.byAgents ? ` (the newest; --limit for more)` : ""}`,
     `flagged ${r.flagged} (${pct(r.flagged)}) · passed ${r.passed} · ${r.findings} findings`,
     `jev: ${r.jev.asked} asked, ${r.jev.unavailable} unavailable${r.jev.why ? ` (${r.jev.why})` : ""} · ${r.jev.tokensIn} tokens in, ${r.jev.tokensOut} out${r.jev.model ? ` · ${r.jev.model}` : ""}`,
     "",

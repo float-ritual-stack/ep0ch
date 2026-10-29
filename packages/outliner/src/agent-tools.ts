@@ -23,7 +23,7 @@ import { houseRule } from "./work-review";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { figureShape, suggestFigure } from "./figure-fit";
-import type { SuggestionKeep, SuggestionWrite } from "./jev-suggestions";
+import { toldKeys, type SuggestionKeep, type SuggestionWrite } from "./jev-suggestions";
 import { figureRowReport } from "./figure-rows";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
@@ -699,9 +699,9 @@ async function reviewOf(client: AgentToolsClient, text: string, before: string |
     // Each read is bounded on its own; the outline's facets (pie's answer in about 0.2 s since PIE-1396, 2 to 7 s before)
     // are read while Jev answers, and only when the text types a number before a word, so they never hold Jev up.
     // The host answers a connection's requests in turn, so the quick reads go first and the facets after them.
-    const [schemas, qaRule] = await Promise.all([within(schemasOf(client), null), within(houseRule(client as never, "qa-for-evan"), undefined)]);
+    const [schemas, qaRule, told] = await Promise.all([within(schemasOf(client), null), within(houseRule(client as never, "qa-for-evan"), undefined), off ? Promise.resolve(undefined) : within(toldKeys(client as never, at.note), undefined)]);
     const facets = hasCountCandidate(text) ? within(facetsOf(client), []) : Promise.resolve([]);
-    return reviewWrite({ ...input, schemas, facets, jev: !off, ...(qaRule ? { qaRule } : {}) }, { timeoutMs: REVIEW_BUDGET_MS });
+    return reviewWrite({ ...input, schemas, facets, jev: !off, ...(qaRule ? { qaRule } : {}), ...(told ? { told } : {}) }, { timeoutMs: REVIEW_BUDGET_MS });
   };
   // The whole review is bounded, and any failure leaves code's measures alone, saying why Jev wasn't heard: the write has landed.
   const codeOnly = (why: string) => reviewWrite({ ...input, schemas: null, jev: false, jevWhy: why });

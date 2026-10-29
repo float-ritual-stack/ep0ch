@@ -417,7 +417,9 @@ a bare id, a question for Evan below the top; Jev reads every section the write 
 which of the outline's components would show it. Many findings carry a `patch`: pass it to `outline_patch` as written
 (the figure built from your own lines, the bullet split a point a line, the question moved to the top); patches that
 would touch the same text come one per review. Each new
-finding is also a warning that starts "fix before you call this done". Every answer ends with `next`, the check to
+finding is also a warning that starts "fix before you call this done"; a component Jev would draw a section with that
+code can't build comes as advice ("consider: …"), never a fix. You hear each finding once: one you were told on an
+earlier write is carried, so a note whose patches you applied ships. Every answer ends with `next`, the check to
 make: read the note as drawn (`ep0ch show <id>`, or `outline_read` it back) before you call the write done. What you
 were told and what you did next land on Jev's suggestions page. In
 the Claude mod a note that holds a figure comes back drawn already. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
@@ -489,7 +491,8 @@ items:
 | `annotate` | static only | `code`, `notes` (or a fence with `# (1)` markers and a `1.` list) |
 
 **Width.** Every kind follows one rule (`tier`: narrow under 48 columns, cozy under 90, wide): a table in a narrow
-column keeps its title column and one more and says `+n columns`; stat tiles wrap into rows; a timeline's or
+column with three or more columns draws each row as a card (its title, then every other cell as `header: value`), and
+on a phone page the same; stat tiles wrap into rows; a timeline's or
 decision's side note goes under its row; `compare` stacks; `matrix` cuts its heads; `quadrant` shows dots and a
 legend. Write for the content, not the pane: the figure fits itself.
 

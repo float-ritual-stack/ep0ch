@@ -32,7 +32,10 @@ export class InlineList {
     if (!this.rows.length) return lines;
     const first = this.rows[0]!.first, last = this.rows.at(-1)!.last;
     this.before = first; this.after = lines.length - last - 1;
-    const total = last - first + 1, room = Math.min(10, total);
+    // Ten lines, or room for three of its rows when a row is tall (PIE-1402: a narrow table's card is a row of many lines,
+    // and a window of ten showed one card at a time).
+    const tallest = Math.max(...this.rows.map(r => r.last - r.first + 1));
+    const total = last - first + 1, room = Math.min(total, Math.max(10, Math.min(30, tallest * 3)));
     const index = this.rows.findIndex(r => inlineRowKey(key, r.target) === current);
     const selected = index < 0 ? undefined : this.rows[index];
     const top = this.view.place(selected ? index : null, total, room, selected ? [selected.first - first, selected.last - first] : null);
