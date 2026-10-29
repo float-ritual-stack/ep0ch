@@ -594,7 +594,7 @@ test("writes without an actor are refused; reads need none", async () => {
   expect(JSON.parse(read.stdout).text).toBe("Hose reel");
 });
 
-test("references resolve through the service's one resolver: ((id^fragment)), [[page]], a Work ID; a title is refused", async () => {
+test("references resolve through the service's one resolver: ((id^fragment)), [[page|label]], a Work ID, a note in Trash; a title is refused", async () => {
   const { store, cli } = await setup();
   const page = store.create("Seed Swap [page::Seed Swap]\nBeans ^beans");
   store.configureWorkIdPrefix("GDN");
@@ -608,7 +608,14 @@ test("references resolve through the service's one resolver: ((id^fragment)), [[
   expect(await resolve("[[GDN-1]]")).toMatchObject({ id: ticket.id, workId: "GDN-001" });
   expect(await resolve("GDN-001")).toMatchObject({ id: ticket.id });
   expect(await resolve("[[Seed Swap]]")).toMatchObject({ id: page.id });
+  expect(await resolve("[[Seed Swap|the swap]]")).toMatchObject({ id: page.id });
+  expect(await resolve("[[Seed Swap^beans]]")).toMatchObject({ id: page.id });
+  expect(await resolve(`((${page.id.slice(0, 8)}^beans))`)).toMatchObject({ id: page.id, fragmentId: "beans" });
   expect((await resolve("seed swap notes")).error).toContain("titles aren't accepted");
+  // A note in Trash still reads by Work ID or short id, marked, so it can be restored.
+  store.delete(ticket.id);
+  expect(await resolve("GDN-1")).toMatchObject({ id: ticket.id, deleted: true });
+  expect(await resolve(ticket.id.slice(0, 8))).toMatchObject({ id: ticket.id, deleted: true });
 });
 
 test("dropped structure and the short diff", () => {

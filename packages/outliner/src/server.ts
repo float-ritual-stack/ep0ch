@@ -3568,7 +3568,13 @@ export class OutlinerServer {
         case "blocks.resolve": {
           if (!Array.isArray(request.refs) || request.refs.length > 200 || request.refs.some(ref => typeof ref !== "string")) throw new Error("refs is a list of at most 200 strings");
           result = { resolved: request.refs.map(ref => {
-            try { return { ref, id: this.store.resolveBlockRef(ref, "note").id }; } catch (error) {
+            try {
+              const found = this.store.lookupBlockRef(ref, "note");
+              if (found.kind === "found") return { ref, id: found.block.id };
+              // `includeTrashed`: a note in Trash answers its id, marked, for a read or a restore (the agent tools).
+              if (found.kind === "trashed" && found.id && request.includeTrashed) return { ref, id: found.id, trashed: true };
+              return { ref, error: found.message };
+            } catch (error) {
         if (isSqliteBusy(error)) throw error; return { ref, error: error instanceof Error ? error.message : String(error) }; }
           }) };
           break;

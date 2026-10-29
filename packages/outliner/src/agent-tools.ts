@@ -121,7 +121,7 @@ function workIdOf(block: Block): string | undefined {
 
 /**
  * The refs the link grammar names by itself, read here: a `pi-outliner://` link, a full id, or one whole `((id))`
- * (with `^fragment`, `|label` or another outline's name). Null for the rest, which `blocks.resolve` reads.
+ * with `^fragment` or another outline's name. Null for the rest, which `blocks.resolve` reads.
  */
 function linkTarget(text: string): OutlinerLinkTarget | null {
   if (text.startsWith("pi-outliner://")) return parseOutlinerLinkUri(text);
@@ -129,8 +129,17 @@ function linkTarget(text: string): OutlinerLinkTarget | null {
   const references = blockReferenceOccurrences(text);
   if (references.length !== 1 || references[0]!.start !== 0 || references[0]!.end !== text.length) return null;
   const { outline, blockId, fragmentId } = references[0]!;
-  if (!outline && !fragmentId && !UUID.test(blockId)) return null;
+  if (!outline && !fragmentId) return null;
   return { kind: "block", value: outline ? `${outline}:${blockId}` : blockId, ...(fragmentId ? { fragmentId } : {}) };
+}
+
+/** The id `blocks.resolve` reads `text` as (a note in Trash too, so it can be read and restored), or its refusal. */
+async function serviceBlockId(client: AgentToolsClient, text: string): Promise<string> {
+  const [answer] = (await client.request<{ resolved: { id?: string; error?: string }[] }>({ action: "blocks.resolve", refs: [text], includeTrashed: true })).resolved;
+  if (answer?.id) return answer.id;
+  const error = answer?.error ?? `No note ${text}`;
+  const named = text.startsWith("[[") || text.startsWith("((") || /^[0-9a-f-]{8,}$/i.test(text) || parseWorkId(text);
+  throw new WorkToolRefusal(named ? error : `${error}; titles aren't accepted: outline_find finds one`);
 }
 
 export interface ResolvedReference {
@@ -152,21 +161,15 @@ async function resolveReference(client: AgentToolsClient, ref: string): Promise<
   const text = typeof ref === "string" ? ref.trim() : "";
   if (!text) throw new WorkToolRefusal("Give a reference: a block id, ((id)), an id's first 8+ characters, [[page]] or a Work ID");
   const target = linkTarget(text);
-  if (target) {
-    if (target.kind === "goto" || target.kind === "resource" || target.kind === "reference") {
-      throw new WorkToolRefusal(`A ${target.kind} link doesn't name one block; give its id, [[page]] or Work ID`);
-    }
-    // Read-only: a page address that doesn't resolve is an error, never a new page.
-    const resolved = await resolveOutlinerLinkTarget(client, target, { followMissingPages: false });
-    return { block: resolved.block, ...(resolved.fragmentId ? { fragmentId: resolved.fragmentId } : {}) };
+  if (!target) return { block: await client.request<Block>({ action: "get", blockId: await serviceBlockId(client, text) }) };
+  if (target.kind === "goto" || target.kind === "resource" || target.kind === "reference") {
+    throw new WorkToolRefusal(`A ${target.kind} link doesn't name one block; give its id, [[page]] or Work ID`);
   }
-  const [answer] = (await client.request<{ resolved: { id?: string; error?: string }[] }>({ action: "blocks.resolve", refs: [text] })).resolved;
-  if (!answer?.id) {
-    const error = answer?.error ?? `No note ${text}`;
-    const named = text.startsWith("[[") || /^[0-9a-f-]{8,}$/i.test(text) || parseWorkId(text);
-    throw new WorkToolRefusal(named ? error : `${error}; titles aren't accepted: outline_find finds one`);
-  }
-  return { block: await client.request<Block>({ action: "get", blockId: answer.id }) };
+  // `((b234391f^beans))`: the id by the service's resolver, the fragment by the link's.
+  const local = target.kind === "block" && !target.value.includes(":") && !UUID.test(target.value);
+  // Read-only: a page address that doesn't resolve is an error, never a new page.
+  const resolved = await resolveOutlinerLinkTarget(client, local ? { ...target, value: await serviceBlockId(client, target.value) } : target, { followMissingPages: false });
+  return { block: resolved.block, ...(resolved.fragmentId ? { fragmentId: resolved.fragmentId } : {}) };
 }
 
 /** A block to write to: resolved, and refused while it is in Trash. */
@@ -1091,9 +1094,9 @@ async function commentOnResource(
 }
 
 function threadId(thread: string): string {
-  const target = linkTarget(typeof thread === "string" ? thread.trim() : "");
-  if (target?.kind !== "block") throw new WorkToolRefusal("Name the thread by its id (outline_comment returns it)");
-  return target.value;
+  const id = (typeof thread === "string" ? thread.trim() : "").replace(/^\(\((.*)\)\)$/, "$1");
+  if (!UUID.test(id)) throw new WorkToolRefusal("Name the thread by its id (outline_comment returns it)");
+  return id.toLowerCase();
 }
 
 /** A reply in a comment thread, as the agent. */

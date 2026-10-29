@@ -6,7 +6,7 @@ import { subtitleOf, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/protocol";
 import { isSqliteBusy } from "./sqlite-busy";
 import { replaceReferenceIndex } from "./reference-index";
-import { embeddedPageAddress, referencedBlock } from "@ep0ch/outline-core/link-syntax";
+import { embeddedPageAddress, pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { propertyValueHolds, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import {handOrderRefusal, isVirtualBranchDefinition, VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
@@ -257,7 +257,7 @@ interface WorkIdAllocatorRow {
 export type BlockRefLookup =
   | { kind: "found"; block: Block; how: string }
   | { kind: "ambiguous"; ids: string[]; message: string }
-  | { kind: "trashed"; message: string }
+  | { kind: "trashed"; message: string; id?: string }
   | { kind: "missing"; message: string; didYouMean?: string };
 
 // Singleton outline configuration uses the existing metadata table when it is not canonical user content
@@ -3446,13 +3446,15 @@ export class OutlinerStore {
    * an empty reference.
    */
   lookupBlockRef(ref: string, noun = "block"): BlockRefLookup {
-    // ((id)) and ((id|label)) name the id; [[page]] the page.
-    const text = typeof ref === "string" ? referencedBlock(ref)?.blockId ?? ref.trim().replace(/^\[\[(.+)\]\]$/, "$1").trim() : "";
+    // ((id)) and ((id|label)) name the id; [[page]], [[page|label]] and [[page^anchor]] the page.
+    const pages = typeof ref === "string" ? pageAddressReferences(ref.trim()).filter(link => !link.nested) : [];
+    const whole = pages.length === 1 && pages[0]!.start === 0 && pages[0]!.end === ref.trim().length ? pages[0]!.displayAddress : null;
+    const text = typeof ref === "string" ? referencedBlock(ref)?.blockId ?? whole ?? ref.trim() : "";
     if (!text) throw new Error("Give a block: an id, ((id)), a Work ID or a [[page]]");
     let nearest: string | null = null;
-    const trashed = (): BlockRefLookup => ({ kind: "trashed", message: `${ref} is in Trash` });
+    const trashed = (id?: string): BlockRefLookup => ({ kind: "trashed", message: `${ref} is in Trash`, ...(id ? { id } : {}) });
     const exact = this.database.query("SELECT id, effective_deleted_root_id AS trashed FROM blocks WHERE id = ?").get(text.toLowerCase()) as { id: string; trashed: string | null } | null;
-    if (exact?.trashed) return trashed();
+    if (exact?.trashed) return trashed(exact.id);
     if (exact) return { kind: "found", block: this.getFromCurrentRead(exact.id)!, how: "block id" };
     if (/^[0-9a-f-]{8,}$/i.test(text)) {
       const low = text.toLowerCase();
@@ -3461,14 +3463,14 @@ export class OutlinerStore {
       const active = rows.filter(row => !row.trashed);
       if (active.length === 1) return { kind: "found", block: this.getFromCurrentRead(active[0]!.id)!, how: "block id prefix" };
       if (active.length > 1) return { kind: "ambiguous", ids: active.map(row => row.id), message: `${text} starts ${active.length === 6 ? "6 or more" : active.length} notes' ids: ${active.map(row => this.refCandidate(row.id)).join("; ")}; give more of it` };
-      if (rows.length) return trashed();
+      if (rows.length) return trashed(rows.length === 1 ? rows[0]!.id : undefined);
       if (/^[0-9a-f]{8}/.test(low)) nearest = this.nearestIdsFromCurrentRead(low);
     }
     let page: PageAddressResolution | null = null;
     // A Work ID by any spelling of its number (PIE-12 is PIE-012).
     try { page = this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(parseWorkId(text)?.workId ?? text)); } catch { /* not an address: said below */ }
     if (page?.status === "resolved" && page.block) return { kind: "found", block: page.block, how: parseWorkId(text) ? "Work ID" : "page address" };
-    if (page?.status === "deleted") return trashed();
+    if (page?.status === "deleted") return trashed(page.block?.id);
     if (ref.trim().startsWith("[[")) {
       const near = this.completePageAddresses(text, 3).addresses.map(page => `[[${page.address}]]`);
       return { kind: "missing", message: `no page ${text}`, ...(near.length ? { didYouMean: near.join(" or ") } : {}) };
