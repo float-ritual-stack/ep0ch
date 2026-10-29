@@ -378,8 +378,10 @@ export const READ_CHILDREN_MAX_CHARS = 60_000;
  */
 export async function readBlock(
   client: AgentToolsClient,
-  input: { ref: string; depth?: number; limit?: number },
+  input: { ref: string; depth?: number; limit?: number; view?: boolean },
 ): Promise<ReadResult | ResourceReadResult> {
+  // The drawing is the door's (ep0ch show); the Claude mod and the MCP gateway add it, a script reads the text.
+  if (input.view === true) throw new WorkToolRefusal("view is the note as the door draws it, which this read can't draw: read without view, or draw it with ep0ch show <id>");
   const resource = resourceRefOf(input.ref);
   if (resource) return readResource(client, resource);
   const depth = boundedInteger(input.depth, "depth", 1, 0, 6);

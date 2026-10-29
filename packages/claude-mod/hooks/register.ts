@@ -685,7 +685,9 @@ export function register(on: On, options: PluginOptions): void {
       // outline_changes' `actor` filters by agent; every other tool's names who the write is attributed to.
       const actor = await actorFor($, tool.name === 'outline_changes' || tool.name === 'outline_proposals' ? {} : input)
       try {
-        const written = await runOutlinerCli($, workspace, ['agent', command.operation, '--stdin', '--actor', actor], JSON.stringify(command.input))
+        // outline_read's view is drawn here, after the read (below): the CLI reads the text.
+        const { view: _view, width: _width, ...sent } = command.input
+        const written = await runOutlinerCli($, workspace, ['agent', command.operation, '--stdin', '--actor', actor], JSON.stringify(tool.name === 'outline_read' ? sent : command.input))
         // A note that now holds a figure comes back drawn (PIE-721), so a figure that doesn't draw is seen in this turn.
         const drawn = drawnNoteOf(tool.name, written, input)
         const drawing = drawn ? await $.process.run(drawArgv(drawn), { cwd: workspace.root, env: envFor(workspace), timeoutMs: DRAW_TIMEOUT_MS }).then(r => r.exitCode === 0 ? r.stdout : '', () => '') : ''
