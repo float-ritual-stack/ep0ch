@@ -295,16 +295,23 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       const most = { compact: 1, cozy: 4, comfortable: 12 }[density];
       const card = (r: string[], i: number) => {
         const linkOf = (k: number) => named[i]?.[k] ?? blocks[i];
-        const lead = rowLinks(link, linkOf(tcol), rowLines(r[tcol] ?? "", w, Math.max(2, most)).map(l => fg(HI) + BOLD + l + UNBOLD + RESET), ui?.key);
-        const cells = r.flatMap((value, k) => {
+        const lead = rowLines(r[tcol] ?? "", w, Math.max(2, most)).map(l => fg(HI) + BOLD + l + UNBOLD + RESET);
+        const cells = r.map((value, k) => {
           if (k === tcol || !value.trim()) return [];
           const label = head[k] ? `${head[k]}: ` : "";
-          const lines = rowLines(label + value, w, most, { hang: 2 }).map((l, n) => n === 0 && label ? fg(DIM) + label + fg(INK) + l.slice(label.length) + RESET : fg(INK) + l + RESET);
-          return rowLinks(link, linkOf(k), lines, ui?.key);
+          return rowLines(label + value, w, most, { hang: 2 }).map((l, n) => n === 0 && label ? fg(DIM) + label + fg(INK) + l.slice(label.length) + RESET : fg(INK) + l + RESET);
         });
-        return [...lead, ...cells];
+        // A card whose cells all open one note is one row (one element, walked and scrolled as one); else each cell its own.
+        const targets = new Set(r.map((_, k) => linkOf(k)));
+        if (targets.size === 1) return rowLinks(link, linkOf(tcol), [...lead, ...cells.flat()], ui?.key);
+        return [...rowLinks(link, linkOf(tcol), lead, ui?.key), ...cells.flatMap((lines, k) => rowLinks(link, linkOf(k), lines, ui?.key))];
       };
       return rows.flatMap((r, i) => [...(i ? [fg(DIM) + rep("·", Math.min(w, 12)) + RESET] : []), ...card(r, i)]);
+    }
+    // No rows to card: the title column and one more, the rest counted (PIE-581).
+    if (tier(w) === "narrow" && remaining > 2) {
+      reduce([tcol, [...Array(remaining).keys()].find(k => k !== tcol)!]);
+      dropped += remaining - 2;
     }
     const all = [head, ...rows, ...(foot ? [foot] : [])];
     const n = Math.max(...all.map(r => r.length));

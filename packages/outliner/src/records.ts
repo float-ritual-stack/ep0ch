@@ -14,7 +14,7 @@ export const RECORD_FIELDS = {
   // which repeats the passage and what was said, so one row reads whole. `fix` is the ready patch's new text, under the
   // chips in a code fence its writer adds (the fix offered, as the card shows it, and how a later write is checked for it; PIE-1402).
   // (A template holds at most 16 fields; the review's verdict is the record's title.)
-  "review-finding": ["day", "note", "revision", "writer", "harness", "rule", "rubric", "component", "key", "line", "title", "passage", "said", "fix", "patch", "source"],
+  "review-finding": ["day", "note", "revision", "writer", "harness", "rule", "rubric", "component", "key", "line", "title", "passage", "said", "patch", "source", "fix"],
   "suggestion-outcome": ["day", "suggestion", "note", "outcome", "component", "writer", "harness", "because", "rule", "rubric", "title", "passage", "said", "patched"],
   "jev-run": ["experiment", "run", "model", "prompt-rev", "items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out", "cost"],
   // The workboard's Jev loops (work-jev.ts): the groom's verdict per queued ticket, and each twin offered at filing with

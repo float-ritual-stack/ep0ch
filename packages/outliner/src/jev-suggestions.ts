@@ -97,7 +97,7 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
           passage: f.passage, said: f.say, patch: f.patch ? "ready" : "none",
         }),
         fix: fixText(f.patch),
-      }, JEV, { title: `${keep.review.verdict}: ${f.rubric} in ${keep.title || "untitled"}`.slice(0, 120) });
+      }, JEV, { title: `${f.advice ? "consider" : "fix"}: ${f.rubric} in ${keep.title || "untitled"}`.slice(0, 120) });
     }
     const asked = keep.review.jev === "asked";
     const unavailable = !asked && !/^(?:off|not asked)/.test(keep.review.jev);
