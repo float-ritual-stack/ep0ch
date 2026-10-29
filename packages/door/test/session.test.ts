@@ -1653,7 +1653,8 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     const info = (tile: string) => control({ cmd: "act", action: "tile.info", tile, as: "test-agent" });
     const running = async (tile: string) => {
       for (let i = 0; i < 100; i++) {
-        try { const r = await info(tile); if (r.terminal?.running) return r; } catch { /* not there yet */ }
+        // Running, and its pid known: on a loaded box the program runs a moment before its pid is reported (PIE-1412).
+        try { const r = await info(tile); if (r.terminal?.running && r.terminal.pid) return r; } catch { /* not there yet */ }
         await Bun.sleep(100);
       }
       return info(tile);
@@ -1706,7 +1707,8 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     const info = (tile: string) => control({ cmd: "act", action: "tile.info", tile, as: "test-agent" });
     const running = async (tile: string) => {
       for (let i = 0; i < 100; i++) {
-        try { const r = await info(tile); if (r.terminal?.running) return r; } catch { /* not there yet */ }
+        // Running, and its pid known: on a loaded box the program runs a moment before its pid is reported (PIE-1412).
+        try { const r = await info(tile); if (r.terminal?.running && r.terminal.pid) return r; } catch { /* not there yet */ }
         await Bun.sleep(100);
       }
       return info(tile);

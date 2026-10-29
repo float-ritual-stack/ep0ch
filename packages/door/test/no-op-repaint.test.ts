@@ -21,11 +21,19 @@ describe.skipIf(!outliner)("what repaints after the person's action (PIE-1301)",
   /** The frame floor is 16 ms; a press waits past it so two presses are never one paint. */
   const settle = () => Bun.sleep(40);
   /** `n` presses of an action, each answered and let go; the frames they painted. */
+  // The status bar's clock, uptime and slow chip turning over paint a frame of their own (the idle door keeps time): a
+  // hundred presses take 4 s, so a minute turning over or a loaded box's slow chip landed in that window and counted as
+  // a press's frame (PIE-1412). They're held still while presses are counted.
   async function painted(action: string, n = 1): Promise<number> {
     await settle();
-    const before = frames();
-    for (let i = 0; i < n; i++) { await app.dispatch.press(action); await settle(); }
-    return frames() - before;
+    const timeShown = A().timeShown;
+    const held = timeShown.call(app);
+    A().timeShown = () => held;
+    try {
+      const before = frames();
+      for (let i = 0; i < n; i++) { await app.dispatch.press(action); await settle(); }
+      return frames() - before;
+    } finally { A().timeShown = timeShown; }
   }
 
   const toys: Record<string, ActionDef<any, any>> = {
@@ -75,6 +83,8 @@ describe.skipIf(!outliner)("what repaints after the person's action (PIE-1301)",
   });
 
   test("a hundred presses of an action that changed nothing paint no frame", async () => {
+    // The uptime's minute turns over a second in: still no frame of the presses'.
+    A().started = Date.now() - 59_000;
     expect(await painted("probe.noop", 100)).toBe(0);
   }, 30_000);
 
