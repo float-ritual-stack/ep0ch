@@ -1726,9 +1726,11 @@ describe('approve from the phone (PIE-1386)', () => {
   const ASK = '99999999-2222-4333-8444-555555555555'
   const PAGE = '77777777-2222-4333-8444-555555555555'
   /** A session in a background job whose ask note reads, in turn, as each of `reads` (text and who wrote it last). */
-  function asking(on: On, reads: Array<{ text: (t: string) => string; author: string }>, env: Record<string, string> = { CLAUDE_JOB_DIR: '/jobs/j1' }, options: { outline?: string; unreadable?: string } = {}) {
+  function asking(on: On, reads: Array<{ text: (t: string) => string; author: string }>, env: Record<string, string> = { CLAUDE_JOB_DIR: '/jobs/j1' }, options: { outline?: string; unreadable?: string; sleep?: () => Promise<void> } = {}) {
     let written = ''
     let polled = 0
+    let madeIt = () => {}
+    const made = new Promise<void>(r => { madeIt = r })
     const edits: string[] = []
     /** The outline each write of the ask went to (its EP0CH_WS; the bound folder's own when none is pinned). */
     const wrote: string[] = []
@@ -1740,9 +1742,10 @@ describe('approve from the phone (PIE-1386)', () => {
         return outlineOf(run) === options.unreadable ? result(1, '', `error: no outline ${options.unreadable} here\n`) : result(0, `((${PAGE}))\n`, '')
       }
       if (op === 'create' || op === 'edit') wrote.push(outlineOf(run))
-      if (run.argv[0] === 'sleep') return result(0, '', '')
+      if (run.argv[0] === 'sleep') return options.sleep ? options.sleep().then(() => result(0, '', '')) : result(0, '', '')
       if (op === 'create') {
         written = (JSON.parse(String(run.init?.stdin)) as { text: string }).text
+        madeIt()
         return result(0, JSON.stringify({ id: ASK, revision: 1 }), '')
       }
       if (op === 'read') {
@@ -1756,7 +1759,7 @@ describe('approve from the phone (PIE-1386)', () => {
       return succeeding(run)
     }, '', env, binding)
     on('classic.PermissionRequest', () => ({}))
-    return { session, written: () => written, edits, polled: () => polled, wrote }
+    return { session, written: () => written, edits, polled: () => polled, wrote, made }
   }
   const tick = (label: string) => (text: string) => text.replace(`- [ ] ${label}`, `- [x] ${label} ^t-c03671`)
   const untouched = { text: (t: string) => t, author: 'agent' }
@@ -1767,7 +1770,8 @@ describe('approve from the phone (PIE-1386)', () => {
     const answer = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'gh pr merge 12 --merge' } })
     expect(await answer).toMatchObject({ decision: { behavior: 'allow' } })
     expect(ask.written()).toStartWith('Allow Bash: gh pr merge 12 --merge? [needs::sysop: Bash: gh pr merge 12 --merge]')
-    expect(ask.written()).toContain('- [ ] allow this once\n- [ ] allow for this session\n- [ ] deny')
+    // No rule suggested: the session step names that exact command, no more.
+    expect(ask.written()).toContain('- [ ] allow this once\n- [ ] allow `gh pr merge 12 --merge` for this session\n- [ ] deny')
     // The agent's tick (the second read) went by; the person's (the third) answered it, and the close-out read it again.
     expect(ask.polled()).toBe(4)
     expect(ask.edits.at(-1)).not.toContain('[needs::')
@@ -1782,18 +1786,76 @@ describe('approve from the phone (PIE-1386)', () => {
   })
 
   test('allow for this session writes the dialog\'s own suggestion as a session rule, never a standing one', async ($, on) => {
-    const kept = asking(on, [{ text: tick('allow for this session'), author: 'user' }])
+    const kept = asking(on, [{ text: tick('allow `bun test` for this session'), author: 'user' }])
     await kept.session.begin(() => $.session.start(START))
     const yes = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'bun test' }, permission_suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'bun test:*' }], behavior: 'allow', destination: 'localSettings' }] })
-    expect(await yes).toMatchObject({ decision: { behavior: 'allow', updatedPermissions: [{ type: 'addRules', destination: 'session' }] } })
+    expect((await yes).decision).toEqual({ behavior: 'allow', updatedPermissions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'bun test:*' }], behavior: 'allow', destination: 'session' }] })
   })
 
-  test('nobody ticks: the wait runs out and the ordinary dialog shows; the note says so and waits on nobody', async ($, on) => {
+  test("allow for this session grants that one command, in words: never the dialog's mode switch or a folder", async ($, on) => {
+    // What Claude Code suggested for `touch` (seen in a real session): the folder and accept-edits mode, which would
+    // have let the next `rm` run unasked.
+    const touch = asking(on, [{ text: tick('allow `touch` for this session'), author: 'user' }])
+    await touch.session.begin(() => $.session.start(START))
+    const yes = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'touch notes.txt' }, permission_suggestions: [{ type: 'addDirectories', directories: ['/work/garden'], destination: 'session' }, { type: 'setMode', mode: 'acceptEdits', destination: 'session' }] })
+    expect((await yes).decision).toEqual({ behavior: 'allow', updatedPermissions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'touch:*' }], behavior: 'allow', destination: 'session' }] })
+    expect(touch.written()).toContain('- [ ] allow this once\n- [ ] allow `touch` for this session\n- [ ] deny')
+    expect(touch.edits.at(-1)).toContain('Answered **allow `touch` for this session**')
+  })
+
+  test('a command no session rule can name exactly offers no session step: once or deny', async ($, on) => {
+    const piped = asking(on, [{ text: tick('allow this once'), author: 'user' }])
+    await piped.session.begin(() => $.session.start(START))
+    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'touch a && rm b' }, permission_suggestions: [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }] })
+    expect(piped.written()).toContain('- [ ] allow this once\n- [ ] deny')
+    expect(piped.written()).not.toContain('for this session')
+  })
+
+  test('answered at the terminal: the ask leaves the list at once, saying where, and the hook gives no answer of its own', async ($, on) => {
+    let release = () => {}
+    const held = new Promise<void>(r => { release = r })
+    const ask = asking(on, [untouched], { CLAUDE_JOB_DIR: '/jobs/j1' }, { sleep: () => held })
+    // The engine's own tool, standing in for the dialog answered `1` and the command run.
+    on('tool.call', { tool: 'Bash' }, async () => (await ask.made, { result: { stdout: '', stderr: '', interrupted: false }, text: '(Bash completed with no output)' } as any))
+    await ask.session.begin(() => $.session.start(START))
+    // The dialog is asked while the call is under way (the engine's order), and answered there before any tick.
+    const call = $.tool.call({ tool: 'Bash', command: 'touch notes.txt' } as any)
+    const answer = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'touch notes.txt' } })
+    await call
+    const decided = await answer
+    release()
+    expect(decided.decision).toBeUndefined()
+    expect(ask.edits.at(-1)).toContain('Answered in the session')
+    expect(ask.edits.at(-1)).toContain('it ran')
+    expect(ask.edits.at(-1)).not.toContain('[needs::')
+    expect(ask.edits.at(-1)).not.toContain('Nobody ticked')
+  })
+
+  test("No at the terminal interrupts the turn: the ask leaves the list at once, saying it didn't run", async ($, on) => {
+    let release = () => {}
+    const held = new Promise<void>(r => { release = r })
+    const ask = asking(on, [untouched], { CLAUDE_JOB_DIR: '/jobs/j1' }, { sleep: () => held })
+    // The dialog's No: the turn is interrupted and the call never settles (seen in a real session).
+    on('tool.call', { tool: 'Bash' }, () => new Promise(() => {}))
+    await ask.session.begin(() => $.session.start(START))
+    void $.tool.call({ tool: 'Bash', command: 'rm notes.txt' } as any)
+    const answer = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm notes.txt' } })
+    await ask.made
+    await $.turn.complete({ reason: 'aborted', answer: '' } as any)
+    const decided = await answer
+    release()
+    expect(decided.decision).toBeUndefined()
+    expect(ask.edits.at(-1)).toContain("Answered in the session (the dialog)")
+    expect(ask.edits.at(-1)).toContain("it didn't run (the turn was interrupted)")
+    expect(ask.edits.at(-1)).not.toContain('[needs::')
+  })
+
+  test('nobody ticks: the ask leaves the list when the wait runs out, saying the dialog still waits in the session', async ($, on) => {
     const quiet = asking(on, [untouched], { CLAUDE_JOB_DIR: '/jobs/j1', EP0CH_APPROVE_WAIT: '30' })
     await quiet.session.begin(() => $.session.start(START))
     const answer = $.classic.PermissionRequest({ tool_name: 'WebFetch', tool_input: { url: 'https://example.com/a' } })
     expect((await answer).decision).toBeUndefined()
-    expect(quiet.edits.at(-1)).toContain('Nobody ticked')
+    expect(quiet.edits.at(-1)).toContain('No tick in 1 min, so it left your list; the dialog still waits in the session')
     expect(quiet.edits.at(-1)).not.toContain('[needs::')
   })
 

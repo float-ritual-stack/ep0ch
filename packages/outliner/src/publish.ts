@@ -667,6 +667,22 @@ export function plainPage(title: string, body: string, status = 200, headers: Re
 
 export { escapeHtml };
 
+/**
+ * Every error a browser opens is a dark page (he is photosensitive, PIE-1386): a plain-text answer at 400 or above, to a
+ * GET or HEAD that accepts HTML, becomes `plainPage` with the same words, status and headers (Retry-After, Allow). A
+ * fetch from a page's script (no `text/html` in its Accept) keeps the plain words it reads.
+ */
+export async function darkError(request: Request, response: Response): Promise<Response> {
+  const type = response.headers.get("content-type") ?? "text/plain";
+  if (response.status < 400 || !type.startsWith("text/plain") || !(request.headers.get("accept") ?? "").includes("text/html")) return response;
+  if (request.method !== "GET" && request.method !== "HEAD") return response;
+  const said = (await response.text()).trim() || response.statusText || `Error ${response.status}`;
+  const [first = said, ...rest] = said.split("\n");
+  const page = plainPage(first, `<h1>${escapeHtml(first)}</h1>\n${rest.length ? `<p class="dim">${escapeHtml(rest.join(" "))}</p>\n` : ""}`, response.status);
+  for (const [name, value] of response.headers) if (name !== "content-type" && name !== "content-length" && name !== "content-security-policy") page.headers.set(name, value);
+  return page;
+}
+
 /** A share link that ended: 410, a plain dark page that names nothing from the outline. */
 function shareGone(state: "expired" | "revoked"): Response {
   const said = state === "expired" ? "This link has expired." : "This link was turned off.";
@@ -1143,7 +1159,7 @@ export class Publisher {
    * sees only public notes and takes no writes.
    */
   async handle(request: Request, audience: PublishAudience = "tailnet", tunnel?: string, signedIn?: SignedIn): Promise<Response> {
-    const response = await this.reading.run({ owner: !!signedIn && audience === "tailnet" && tunnel === undefined }, () => this.answer(request, audience, tunnel, signedIn));
+    const response = await darkError(request, await this.reading.run({ owner: !!signedIn && audience === "tailnet" && tunnel === undefined }, () => this.answer(request, audience, tunnel, signedIn)));
     return audience === "public" ? withHeaders(response, PUBLIC_HEADERS) : response;
   }
 
