@@ -25,6 +25,43 @@ are its record. The outliner's entries from then are kept below, under
 - **The ▾ at a heading's words folds it** on a click, as the gutter's ▾ does, at 38 columns too.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
 
+### The trail: where a reader has been, and straight back to any stop (PIE-208)
+
+- **In a reader or the river:** `alt+T`, the `≡ trail` beside `← back`, or the tile menu lists every stop back and
+  forward by title, the note shown lit. ⏎ or a click goes straight there; `← back` and `forward →` walk the same trail.
+- **On the web page:** `≡ trail` at the end of the breadcrumbs lists the notes this tab opened, newest first.
+- **Agents:** `act trail` reads the stops (it opens nothing); `act back steps=2` goes two at once; `ep0ch.trail()` on a page.
+- **Run:** nothing extra; `ep0ch install --apply` as usual (no protocol or schema change).
+
+### Approve from the phone grants what it says, and leaves the list when answered anywhere (PIE-1386)
+
+- **The session step says what it grants:** ``allow every `touch` command for this session`` adds that one rule for this session,
+  never the dialog's accept-edits mode (a tap on `touch` used to let the next `rm` run unasked), a folder or a standing
+  rule. An `rm` gets only its exact command; a call no rule names exactly (`a && b`, a `*`) offers only once and deny.
+- **Answered at the terminal, gone from the list:** the dialog shows in the session at once, beside the ask; answer it
+  there and the note leaves Waiting on Evan within 3 s, saying it was answered in the session and whether it ran (it
+  used to wait 10 minutes and then say nobody ticked). After 600 s with no answer the note leaves the list and says
+  the dialog still waits in the session.
+- **Which list:** pie's Waiting on Evan holds every session's asks beside pie's own `needs` notes; a `needs` note in
+  gurgle or float-hub stays on that outline's list, and the ask page says so.
+- **Every error page is dark:** a 404 (`/pub/p/PIE-9999`), a 502 or a busy 503 that a browser opens is the dark page
+  with the same words; a page's own fetches still get plain text.
+- **Run:** nothing beyond the next `ep0ch install --apply` (the publisher and the Claude mod pick it up).
+
+### The status bar keeps your buttons: narrow bars, typos and groups (PIE-1213, PIE-1227, PIE-1224)
+
+- **Your pins stay:** when the bar is narrow, built-ins shorten first (the drawer chip to `▲ shell`, then its arrow;
+  `+3 machine` to `+3`), then built-ins drop, and only then your last pinned buttons go into `+N`. A click on `+N`
+  lists what it hid by name; alt+click opens the bar note.
+- **A typo costs one line:** a line of your `[status-bar::true]` note the bar can't read is skipped, not the whole bar.
+  A `! line N` item says so (a click opens the note at that line), and the message log says it once with a did-you-mean
+  (`drawer` → `- drawer`). Fixing the line clears it.
+- **A message leaves them** (PIE-1410): a long message on the bar replaces the location, never `+N`, `!` or a pin
+  on the left; they stay drawn and clickable while it shows.
+- **Groups:** nest items under a list item and the bar shows its label; a click opens them as a menu
+  (`status.bar.menu group=Tools` by act).
+- **A list item holds a button,** in any note: `- ::button{…}` draws after its bullet and presses; the publisher shows
+  its label, and `button.press` finds buttons in list items and quotes too.
 ### Agents work in your door while you type, and every refusal says the same thing (PIE-1294)
 
 - **Your edit is yours:** an agent's open never replaces the note you're editing, on any screen; on Welcome your own

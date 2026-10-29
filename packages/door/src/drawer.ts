@@ -1027,13 +1027,21 @@ export class AgentDrawer {
     this.changed();
     return this.restarting;
   }
-  /** The chip as drawn on the status bar (its colour says the state). */
-  chip(now = Date.now()): string {
+  /**
+   * The chip as drawn on the status bar (its colour says the state). `short`: for a narrow bar (PIE-1213), only which
+   * program and how many more (`▼ shell +1`); `tiny`: its arrow alone. Its colour still says the state.
+   */
+  chip(now = Date.now(), size: "whole" | "short" | "tiny" = "whole"): string { return this.chips(now)[size]; }
+  /** The chip in its three sizes, read once (the status bar takes all three each frame). */
+  chips(now = Date.now()): { whole: string; short: string; tiny: string } {
     const s = this.state(now);
     const c = s === "working" ? C.yellow : s === "blocked" ? C.lmagenta : s === "done" ? C.lgreen : s === "exited" || s === "failed" ? C.lred : s === "watching" ? C.lcyan : C.white;
-    const { head, knows } = this.chipParts(now);
-    if (this.dropHover) return `${chipStyle(C.yellow, C.black)}${head}${bg(C.blue)}${fg(C.lcyan)}`;
-    return `${bg(this.open ? C.cyan : C.blue)}${fg(c)}${head}${knows && this.offersRestart ? fg(C.yellow) : ""}${knows}${bg(C.blue)}${fg(C.lcyan)}`;
+    const parts = this.chipParts(now);
+    // Short: the program and its count, without where its name came from or what it's doing.
+    const of = (head: string, knows: string) => this.dropHover
+      ? `${chipStyle(C.yellow, C.black)}${parts.head}${bg(C.blue)}${fg(C.lcyan)}`
+      : `${bg(this.open ? C.cyan : C.blue)}${fg(c)}${head}${knows && this.offersRestart ? fg(C.yellow) : ""}${knows}${bg(C.blue)}${fg(C.lcyan)}`;
+    return { whole: of(parts.head, parts.knows), short: of(parts.head.split(" · ")[0]!.replace(/ \(from [^)]*\)/, ""), ""), tiny: of(parts.head.slice(0, 1), "") };
   }
   /** A tile dragged over the drawer (its chip, its drawer): what a release there does (the chip and the drawer light up). */
   private dropHover: string | null = null;

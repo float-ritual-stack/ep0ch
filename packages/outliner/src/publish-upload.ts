@@ -1,4 +1,4 @@
-// The upload route (PIE-1267): `PUT|POST /_upload/<token>[/<filename>]` on the signed-in web client's origin
+// The upload route (PIE-1267): `PUT|POST /_upload/<token>[/<filename>][?name=&note=&reply=text]` on the signed-in web client's origin
 // (my.ep0ch.sh), reached before the sign-in because the token is the credential, like the Loki lease route
 // (publish-loki.ts). It takes one file (a page, a zip, a tar), writes it whole into the server-side inbox
 // (`inbox-remote`, artifact-inbox.ts) and answers once the watcher has installed it, or has said why not.
@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { UploadTake } from "@ep0ch/outline-core/protocol";
 import { artifactReference } from "@ep0ch/outline-core/artifacts";
+import { extensionOfBytes } from "@ep0ch/outline-core/file-magic";
 import type { OutlinerClient } from "./client";
 import { artifactLimit, DROP_FILE, DROP_RESULTS, remoteInbox, type DropMeta, type DropResult } from "./artifact-inbox";
 import { looksTar, looksZip } from "./artifact-archive";
@@ -39,7 +40,7 @@ const TYPES: Record<string, string> = {
 /** A filename that is safe as one path segment of the inbox: letters, numbers, dots, hyphens and underscores. */
 export function dropFilename(value: string | undefined): string {
   const base = (value ?? "").split(/[\\/]/).pop() ?? "";
-  const clean = base.normalize("NFKD").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[.-]+/, "").replace(/-+$/, "").slice(0, 100);
+  const clean = base.normalize("NFKD").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[.-]+/, "").replace(/[.-]+$/, "").slice(0, 100);
   return clean;
 }
 
@@ -56,6 +57,8 @@ function withExtension(filename: string, head: Uint8Array, contentType: string |
   if (looksZip(head)) return ext === ".zip" ? filename : `${stem}.zip`;
   if (looksTar(head)) return ext === ".tar" ? filename : `${stem}.tar`;
   if (ext) return filename;
+  const sniffed = extensionOfBytes(head);
+  if (sniffed) return `${filename}${sniffed}`;
   const declared = TYPES[(contentType ?? "").split(";")[0]!.trim().toLowerCase()];
   if (declared) return `${filename}${declared}`;
   const start = Buffer.from(head.subarray(0, 1024)).toString("utf8").trimStart().toLowerCase();
@@ -143,6 +146,12 @@ export async function publishUpload(request: Request, host: Pick<OutlinerClient,
     await host.request({ action: "uploads.finish", claim, ok: true }).catch((error: Error) => options.log(`upload: could not settle ${who.kind} ${who.id}: ${error.message}`));
 
     const result = await awaitResult(inbox, id, options.waitMs ?? Number(env.EP0CH_UPLOAD_WAIT_MS ?? 25_000));
+    // The phone's Shortcut asks for the sentence alone (`?reply=text`) and shows it as its notification.
+    if (url.searchParams.get("reply") === "text") {
+      if (!result) return text(`Received ${filename}. It is being checked and installed; a card for it lands in ${outline}'s note for today.`, 202);
+      if (!result.ok) return text(`Refused: ${result.reason}`, 422);
+      return text(`Installed ${result.name} version ${result.version}${result.title ? ` (${result.title})` : ""}. ${result.card}`, 201);
+    }
     if (!result) return json({ ok: true, pending: true, received: { bytes, sha256: meta.sha256 }, said: `Received ${filename}. It is being checked and installed; a card for it lands in ${outline}'s note for today. If it was refused, the reason is on the artifact-uploads page there.` }, 202);
     if (!result.ok) return json({ ok: false, reason: result.reason, received: { bytes, sha256: meta.sha256 }, said: `Refused: ${result.reason}` }, 422);
     return json({
