@@ -676,18 +676,24 @@ export class App implements Ctx {
   }
 
   /**
-   * Stops it ticking and painting, and nothing else (no draft copied out, no `done`): what the test run does with an
-   * App a finished test file left running (test/preload.ts).
+   * Stops it ticking and painting, and gives back what it bound for the whole process (its extensions' actions, tile
+   * kinds and bar sources), and nothing else (no draft copied out, no `done`): what the test run does with an App a
+   * finished test file left running (test/preload.ts). Before, power-bar's App kept `ext.*` actions bound into every
+   * later file (PIE-1412).
    */
   retire(): void {
     this.closed = true;
     stopCompletion(this.board);
     this.offResize();
+    this.offStatus();
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);
     if (this.hoverTimer) clearTimeout(this.hoverTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);
-    this.timer = null; this.paintTimer = null; this.publishTimer = null;
+    if (this.reportTimer) clearTimeout(this.reportTimer);
+    this.timer = null; this.paintTimer = null; this.publishTimer = null; this.reportTimer = null;
+    this.waitingAsks.stop();
+    unbindExtensions(this.board);
   }
 
   /**

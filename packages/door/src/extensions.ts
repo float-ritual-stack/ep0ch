@@ -202,6 +202,10 @@ let mentions: RegExp | null = null;
 const boundActions = new Set<string>();
 /** The tile kinds this module registered, with what they were made from (a changed entry is registered again). */
 const boundKinds = new Map<string, string>();
+// The test run's leak check (test/preload.ts), when there is one: what a test file left bound is named between files,
+// and unbound before the next one runs (PIE-1412). Nothing outside tests sets it.
+(globalThis as { [k: symbol]: { set(what: string, left: () => string[], reset: () => void): void } | undefined })[Symbol.for("ep0ch.test.leftovers")]
+  ?.set("extensions bound", () => (current ? (current.extensions.length ? current.extensions.map(e => e.id) : ["an empty list"]) : []), () => { asking++; boundFrom = null; bindExtensions(null); });
 
 /**
  * An extension the service serves from: active, or failed but still on its last good version (it has a name).
