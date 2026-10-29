@@ -273,6 +273,46 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     expect(outlinesOf(newestWith(notes, "outlines").outlines, null)).toEqual({ outlines: [{ outline: "gurgle", machine: "far-box" }, { outline: "pie" }], problems: [] });
   });
 
+  test("addressed mail: the mod's three reads run on the real CLI, and asksOf joins what they print into the open asks to a persona (PIE-1404)", async () => {
+    const { mentionArgs, readArgs, repliesArgs, threadsToRead, asksOf } = await mod("addressed.ts");
+    const { listedOf } = await mod("workboard-now.ts");
+    const outliner = async (args: string[], stdin?: string) => {
+      const p = Bun.spawn(["bun", OUTLINER_CLI, ...args], { cwd: scratch.workspace, stdin: stdin === undefined ? "ignore" : new Blob([stdin]), stdout: "pipe", stderr: "pipe", env: { ...clean, ...env, FORCE_COLOR: "3" } });
+      const [stdout, stderr, exitCode] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+      expect(exitCode, stderr).toBe(0);
+      return stdout;
+    };
+    const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
+    let beds = "", peas = "";
+    try {
+      beds = (await board.request<{ id: string }>("create", { parentId: null, text: "Bed rotation\nSquash moves to the north bed.", author: "user" })).id;
+      peas = (await board.request<{ id: string }>("create", { parentId: null, text: "Pea trellis\nTwine or mesh?", author: "user" })).id;
+    } finally { board.close(); }
+    const revision = async (id: string) => JSON.parse(await outliner(["read", id, "--fields", "id,revision"])).blocks[0].revision as number;
+    const comment = async (id: string, text: string, key: string, actor?: string) =>
+      JSON.parse(await outliner(["comment", "--id", id, "--expected", String(await revision(id)), "--whole", "--text", text, "--request-id", key, ...(actor ? ["--author", "agent", "--actor", actor] : [])])).annotations[0].block.id as string;
+    // The person asks loki on one note; daddy asks nobody on the other, and kitty names loki in a reply there.
+    const asked = await comment(beds, "@loki move the squash this week?", "ask-1");
+    const other = await comment(peas, "Mesh, I think.", "ask-2", "mcp:daddy/claude.ai");
+    const reply = (thread: string, body: string, actor: string) => outliner(["agent", "reply", "--stdin", "--actor", actor], JSON.stringify({ thread, body }));
+    await reply(other, "@loki the trellis note needs your call", "kitty/claude-code@test");
+    const read = async () => {
+      const mentioning = listedOf(await outliner(mentionArgs("loki")));
+      expect(mentioning.complete).toBe(true);
+      const { threads, roots } = threadsToRead(mentioning.blocks);
+      const first = roots.length ? listedOf(await outliner(readArgs(roots))).blocks : [];
+      const notes = [...new Set([...mentioning.blocks, ...first].filter((b: { properties: { key: string; value: string }[] }) => b.properties.some(p => p.value === "annotation")).map((b: { parentId: string }) => b.parentId))];
+      const named = listedOf(await outliner(readArgs(notes as string[]))).blocks;
+      const replies = (await Promise.all(repliesArgs(threads).map(async (a: string[]) => listedOf(await outliner(a)).blocks))).flat();
+      return asksOf("loki", "scratch", mentioning.blocks, [...first, ...named], replies);
+    };
+    const before = await read();
+    expect(before.map((a: { thread: string; from: string; title: string; person: boolean }) => [a.thread, a.from, a.title, a.person])).toEqual([[asked, "Evan", "Bed rotation", true], [other, "kitty", "Pea trellis", false]]);
+    // loki answers the person in the thread, from any client: that ask leaves the list; kitty's stays.
+    await reply(asked, "Moving it Thursday.", "mcp:loki/claude.ai");
+    expect((await read()).map((a: { thread: string }) => a.thread)).toEqual([other]);
+  });
+
   test("outline_comment's kind lands on the thread through the real CLI, as kind and as properties.kind (PIE-871)", async () => {
     const { checkedInput, OUTLINE_TOOLS } = await mod("outline-tools.ts");
     const tool = OUTLINE_TOOLS.find((t: { name: string }) => t.name === "outline_comment");
