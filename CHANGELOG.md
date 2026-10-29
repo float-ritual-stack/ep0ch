@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Wide text keeps to its frame (PIE-1291)
+
+- **CJK and emoji fit:** a callout title, a code fence, an artifact card and an extension's box with wide glyphs stay
+  inside their width; a callout's corner no longer falls off at 30 columns.
+- **The editor counts glyphs:** joined emoji (👩‍💻) and a soft hyphen wrap and place the cursor where they're drawn,
+  and a click lands on the glyph under it.
+- **One frame:** a callout takes the look's `border` (heavy, double, line) as a `::box` does; round stays the default.
+- **One sparkline:** an extension's sparkline scales from zero, as `::graph-spark` does.
+
 ### A Claude session running twice is said, in the session and in the door (PIE-1369)
 
 - **In the session that just started:** when `claude agents` shows another live process on this session's id (a
