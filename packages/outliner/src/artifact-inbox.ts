@@ -1,7 +1,6 @@
 // What the artifacts inbox and its server-side sibling agree on, read by the publisher (which writes a drop), the
 // watcher (which takes it) and the store (which caps what it holds). No I/O beyond path joins.
 import { join } from "node:path";
-import type { ArrivalKind } from "./artifact-handover";
 
 export const artifactLimit = () => Number(process.env.EP0CH_ARTIFACT_MAX_BYTES ?? 64 * 1024 * 1024);
 export const artifactEntryLimit = () => Number(process.env.EP0CH_ARTIFACT_MAX_ENTRIES ?? 5000);
@@ -17,6 +16,18 @@ export const remoteInbox = (outlines: string, env: NodeJS.ProcessEnv = process.e
  * A drop is a folder `<inbox-remote>/<id>/` holding `drop.json` (this) and `file/<filename>`, renamed into place whole
  * so the watcher never sees half of it.
  */
+/**
+ * What an arrival is, as its card says (PIE-1370): a single page, a site (a folder, zip or tar), a document (a PDF,
+ * drawn by its first page) or an image.
+ */
+export type ArrivalKind = "page" | "site" | "document" | "image";
+
+/** The single files a drop may be, each with what it arrives as: one table, so the accept rule and the kind agree. */
+export const DROP_FILE_KINDS: Readonly<Record<string, ArrivalKind>> = {
+  ".html": "page", ".htm": "page", ".jsx": "page", ".tsx": "page", ".svg": "page", ".mermaid": "page", ".md": "page",
+  ".pdf": "document", ".png": "image", ".jpg": "image", ".jpeg": "image", ".gif": "image", ".webp": "image",
+};
+
 export interface DropMeta {
   id: string;
   /** What admitted it: a one-time lease, or a device's token. */

@@ -47,7 +47,7 @@ are its record. The outliner's entries from then are kept below, under
 ### Every arrival is visible and connectable (PIE-1370)
 
 - **A PDF sent by lease shows its first page:** a lone PDF lands as a document whose page draws page 1 (poppler's
-  `pdftoppm`) and links the file; a lone image lands as an image. Neither draws as an empty box any more.
+  `pdftoppm`) and links the file, instead of an empty box. Without `pdftoppm` the page says so and names the install.
 - **The card says what arrived:** `[arrival::new] [arrival-kind::page|site|document|image] [sent-by::…]` on its title
   line. A tidy pass queries `arrival=new`, connects each arrival and clears the chip.
 - **Decks go on the wall:** the lease's description (MCP, the drop page, the ep0ch-outline skill) says a deck or PDF

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import type { UploadLease } from "@ep0ch/outline-core/protocol";
 import { ArtifactStore } from "../src/artifact-store";
+import { arrivalCard } from "../src/artifact-handover";
 import { OutlinerClient } from "../src/client";
 import { runDeviceCommand } from "../src/device-cli";
 import { OutlineHost } from "../src/outline-host";
@@ -197,7 +198,7 @@ test("a lone PDF arrives as a document: a page drawn by its first page and linki
   if (hasPdftoppm) {
     expect(readFileSync(join(live("lantern-deck"), "first-page.png")).subarray(1, 4).toString()).toBe("PNG");
     expect(page).toContain('src="./first-page.png"');
-  } else expect(page).toContain('<object data="./Lantern-Deck.pdf"');
+  } else expect(page).toContain("pdftoppm isn't installed here");
   expect(existsSync(join(live("lantern-deck"), "Lantern-Deck.pdf"))).toBe(true);
   // The card: what it is and who sent it on its title line, the artifact line under it as before.
   const card = (await childrenOf("garden", day())).find(block => block.text.includes("[artifact::lantern-deck]"));
@@ -207,13 +208,21 @@ test("a lone PDF arrives as a document: a page drawn by its first page and linki
   expect(open.blocks.map(block => block.id)).toContain(card!.id);
 });
 
-test("a lone image arrives as an image, its page showing it", async () => {
+test("a lone image arrives as an image, served as itself", async () => {
   const sent = await send((await lease()).url + "moth.png", DOT_PNG);
   const answer = await sent.json();
   expect(sent.status, JSON.stringify(answer)).toBe(201);
   expect(answer).toMatchObject({ name: "moth", kind: "image", title: "moth.png" });
-  expect(readFileSync(join(live("moth"), "index.html"), "utf8")).toContain('<img src="./moth.png"');
+  expect(readdirSync(live("moth"))).toEqual(["moth.png"]);
   expect((await childrenOf("garden", day())).map(block => block.text)).toContain("moth.png [arrival::new] [arrival-kind::image] [sent-by::you]\n[artifact::moth]");
+});
+
+test("a page titled like a block opener still makes a card whose properties and artifact line read", () => {
+  for (const title of ["~~~example", "::graph-stat", "---", "> quoted"]) {
+    const card = arrivalCard({ by: "you" }, { name: "odd", version: 1, kind: "page", title });
+    expect(card).toMatch(/^[\p{L}\p{N}]/u);
+    expect(card.split("\n")[1]).toBe("[artifact::odd]");
+  }
 });
 
 test("a link preview or an interrupted upload leaves the lease working; only a finished upload uses it", async () => {

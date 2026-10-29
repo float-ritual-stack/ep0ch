@@ -1374,9 +1374,9 @@ curl -sS -T orrery-site.zip 'https://my.ep0ch.sh/_upload/<token>/'
   unpacked size, checked against the header's claim before anything is inflated and against what actually unpacks. One
   folder inside a zip is stripped so `index.html` lands at the root; `__MACOSX/` and `.DS_Store` are dropped. A refused
   archive waits in `inbox-remote/.failed/<id>/` with `reason.txt`.
-- **A lone PDF or image** has no page to run, so the watcher writes one (`index.html`, PIE-1370): the image, or the PDF's
-  first page (`first-page.png`, drawn by poppler's `pdftoppm` when it is installed; an embedded viewer otherwise), fit to
-  the width and linking the file. A deck meant to be read belongs on the wall as a poster instead; the lease's
+- **A lone PDF** has no page to run, so compiling it writes one (`index.html`, PIE-1370): its first page
+  (`first-page.png`, drawn by poppler's `pdftoppm`; without it the page says so and names the install), fit to the width
+  and linking the file. A lone image needs none: the artifact host serves it as itself. A deck meant to be read belongs on the wall as a poster instead; the lease's
   description says so.
 - **The card and the record.** After the install the watcher writes a card (`Title [arrival::new] [arrival-kind::…]
   [sent-by::…]` then `[artifact::name]`) under today's

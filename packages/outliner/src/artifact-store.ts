@@ -7,9 +7,9 @@ import { join, dirname, extname, basename, resolve } from "node:path";
 import { ArtifactCompiler, fileArtifactPage, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { artifactReference, type ArtifactInfo, type ArtifactReader, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { artifactKey, artifactPageUrl, grantPath } from "./artifact-grants";
-import { artifactEntryLimit, artifactLimit, DROP_FILE, DROP_RESULTS, remoteInbox, type DropMeta, type DropResult } from "./artifact-inbox";
+import { artifactEntryLimit, artifactLimit, DROP_FILE, DROP_RESULTS, remoteInbox, DROP_FILE_KINDS, type ArrivalKind, type DropMeta, type DropResult } from "./artifact-inbox";
 import { looksTar, looksZip, stripRoot, unzip } from "./artifact-archive";
-import { handOver, pageTitle, type ArrivalKind } from "./artifact-handover";
+import { handOver, pageTitle } from "./artifact-handover";
 
 const artifactSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 function artifactName(name: string): string {
@@ -44,14 +44,12 @@ function readArtifactInput(source: string, folder: boolean, ignoreHidden = false
 
 /** A PDF's first page, drawn beside it so its card shows something; the page's name in the artifact. */
 const FIRST_PAGE = "first-page.png";
-/** Files that are shown, not run: a PDF or an image with no page of its own. */
-const OUTSIDE_PAGE = /\.(pdf|png|jpe?g|gif|webp)$/i;
-/** Draws `pdf`'s first page to `png` with poppler's pdftoppm; undefined when it isn't installed or can't read it. */
-async function firstPage(pdf: string, png: string): Promise<string | undefined> {
+/** Draws `pdf`'s first page to `png` with poppler's pdftoppm: the picture's name, or why there is none. */
+async function firstPage(pdf: string, png: string): Promise<{ picture: string } | { missing: string }> {
   try {
     const run = Bun.spawn(["pdftoppm", "-png", "-f", "1", "-l", "1", "-singlefile", "-scale-to", "1600", pdf, png.replace(/\.png$/, "")], { stdout: "ignore", stderr: "ignore", timeout: 30_000 });
-    return await run.exited === 0 && existsSync(png) ? basename(png) : undefined;
-  } catch { return undefined; }
+    return await run.exited === 0 && existsSync(png) ? { picture: basename(png) } : { missing: "pdftoppm could not read this PDF." };
+  } catch { return { missing: "No first page: pdftoppm isn't installed here (sudo apt install poppler-utils, or brew install poppler)." }; }
 }
 
 function artifactHash(folder: string, files: string[]): string {
@@ -109,13 +107,14 @@ export class ArtifactStore {
     const all = artifactFiles(folder).filter(p => p !== "index.html");
     // A PDF's drawn first page sits beside it; any other file of that name is the sender's own.
     const files = all.length === 2 && all.includes(FIRST_PAGE) && all.some(p => /\.pdf$/i.test(p)) ? all.filter(p => p !== FIRST_PAGE) : all;
-    if (files.length !== 1 || !/\.(jsx|tsx|mermaid|mmd|md|markdown|pdf|png|jpe?g|gif|webp)$/i.test(files[0]!)) return;
+    if (files.length !== 1 || !/\.(jsx|tsx|mermaid|mmd|md|markdown|pdf)$/i.test(files[0]!)) return;
     const extension = extname(files[0]!).toLowerCase();
-    // A lone PDF or image has nothing to run: its page shows it, a PDF by its first page, and links the file (PIE-1370).
-    const file = OUTSIDE_PAGE.test(files[0]!) ? files[0]! : undefined;
+    // A lone PDF has nothing to run: its page shows its first page and links the file (PIE-1370). A lone image needs
+    // none: the artifact server serves it as itself.
+    const file = extension === ".pdf" ? files[0]! : undefined;
     const source = file ? "" : readFileSync(join(folder, files[0]!), "utf8");
     let html: string;
-    if (file) html = fileArtifactPage(file, file, lstatSync(join(folder, file)).size, extension === ".pdf" ? await firstPage(join(folder, file), join(folder, FIRST_PAGE)) : file);
+    if (file) html = fileArtifactPage(file, file, lstatSync(join(folder, file)).size, await firstPage(join(folder, file), join(folder, FIRST_PAGE)));
     else if (extension === ".mermaid" || extension === ".mmd") html = mermaidArtifactPage(name, source);
     else if (extension === ".md" || extension === ".markdown") {
       const { renderMarkdownHtml } = await import("./publish");
@@ -183,12 +182,12 @@ export class ArtifactStore {
       mkdirSync(stage);
       try { untar(source, stage); files = stripRoot(readArtifactInput(stage, true, true)); }
       finally { rmSync(stage, { recursive: true, force: true }); }
-    } else if (/\.(html|jsx|tsx|svg|mermaid|md|png|jpe?g|gif|webp|pdf)$/i.test(entry)) {
+    } else if (Object.hasOwn(DROP_FILE_KINDS, extension)) {
       files = readArtifactInput(source, false); compile = true;
     } else throw new Error("Unknown artifact kind; use html, jsx, tsx, svg, mermaid or md, a zip or tar of a built folder, or an image or pdf.");
     if (!Object.keys(files).length) throw new Error("The archive holds no files.");
     const archive = looksZip(head) || looksTar(head) || extension === ".tar";
-    const kind: ArrivalKind = archive ? "site" : extension === ".pdf" ? "document" : OUTSIDE_PAGE.test(entry) ? "image" : "page";
+    const kind: ArrivalKind = archive ? "site" : DROP_FILE_KINDS[extension]!;
     if (explicit) return { name: explicit, files, compile, kind };
     // It names itself: a single page by its own title (a file called orrery.html with <title>ep0ch Orrery</title> is
     // ep0ch-orrery), an archive by its file name unless that says nothing (upload, index), then by its page's title.
@@ -425,7 +424,7 @@ export class ArtifactStore {
               const generated = join(this.root, "generated", name), index = join(live, "index.html");
               const generatedIndex = !Object.hasOwn(files, "index.html") && existsSync(generated) && existsSync(index)
                 && readFileSync(generated, "utf8") === new Bun.CryptoHasher("sha256").update(readFileSync(index)).digest("hex");
-              const paths = artifactFiles(live).filter(p => !(generatedIndex && p === "index.html"));
+              const paths = artifactFiles(live).filter(p => !(generatedIndex && (p === "index.html" || (p === FIRST_PAGE && !Object.hasOwn(files, FIRST_PAGE)))));
               if (aliases[path] === name && paths.length === Object.keys(files).length
                 && paths.every(p => files[p] !== undefined && readFileSync(join(live, p)).equals(files[p]!))) alreadyThere.push(entry);
               else collided.push({ entry, name });

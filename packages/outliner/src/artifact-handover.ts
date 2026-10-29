@@ -5,16 +5,10 @@
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { OutlinerClient } from "./client";
 import type { Block, PageAddressFollowResult, PageAddressResolution } from "./types";
-import type { DropMeta } from "./artifact-inbox";
+import type { ArrivalKind, DropMeta } from "./artifact-inbox";
 
 /** The page the arrival records go under, in `EP0CH_ARTIFACT_RECORDS`'s outline (else the sender's). */
 export const UPLOADS_PAGE = "artifact-uploads";
-
-/**
- * What an arrival is, as its card says (PIE-1370): a single page, a site (a folder, zip or tar), a document (a PDF,
- * drawn by its first page) or an image.
- */
-export type ArrivalKind = "page" | "site" | "document" | "image";
 
 export interface Arrival {
   installed?: { name: string; version: number; kind: ArrivalKind; title?: string };
@@ -41,8 +35,9 @@ export function pageTitle(html: string): string | undefined {
  * under it draws it. The properties sit on the title line: an artifact line takes only its own.
  */
 export function arrivalCard(meta: Pick<DropMeta, "by">, installed: NonNullable<Arrival["installed"]>): string {
-  // A title that opens a fence would make the whole card literal code.
-  const title = oneLine(installed.title ?? installed.name).replace(/^[`~]{3,}\s*/, "") || installed.name;
+  // A title that opens a block (a fence, a component, a rule, a quote, a list) would swallow the card's lines: it starts at
+  // its first word.
+  const title = oneLine(installed.title ?? installed.name).replace(/^[^\p{L}\p{N}]+/u, "") || installed.name;
   return `${title} [arrival::new] [arrival-kind::${installed.kind}] [sent-by::${oneLine(meta.by, 80)}]\n[artifact::${installed.name}]`;
 }
 
