@@ -161,7 +161,11 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
     } else if (act || of) {
       const value = (act || of)!;
       const values = value.startsWith("[") ? buttonList(value) : [value];
-      steps = values.map(source => ({ kind: act ? "act" : "script", ...(act && refsOf(source).length ? { written: source } : {}), source: act ? slotted(source) : actionLine({ action: source, args: Object.fromEntries(rest.map(p => [p.key, slotted(p.value, true)])) }) }));
+      // A script's words as written keep every repeat (`page={page1} page={page2}`); its source is the line it runs.
+      const said = rest.map(p => `${p.key}=${wordOf(p.value)}`).join(" ");
+      steps = values.map(source => act
+        ? { kind: "act", ...(refsOf(source).length ? { written: source } : {}), source: slotted(source) }
+        : { kind: "script", ...(refsOf(said).length ? { written: `${source} ${said}` } : {}), source: actionLine({ action: source, args: Object.fromEntries(rest.map(p => [p.key, slotted(p.value, true)])) }) });
     }
   } catch (error) { problem = (error as Error).message; }
   if (!steps.length) problem ??= '::button needs what it runs: write one action or ((script)) per line, then ::, or use act= / of=';
@@ -173,7 +177,9 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
   // A `{key}` the line has no word for: the word to add.
   const lost = [...new Set([...refsOf(act ?? ""), ...refsOf(body), ...refsOf(get("alt") ?? ""), ...(of ? rest.flatMap(p => refsOf(p.value)) : [])])].filter(k => !slots.some(s => s.key === k) && !OWN.has(k));
   if (!problem && lost.length) problem = `{${lost[0]}} has no word on the line to fill it; add ${lost[0]}= (left empty, a press asks for it)`;
-  const empty = [...new Set([...steps.flatMap(s => refsOf(s.source)), ...Object.values(props).flat().flatMap(refsOf)])].filter(k => slots.some(s => s.key === k && !s.value));
+  // Asked in the order the line writes them (a script's compiled source keeps only its last repeat, so it never orders them).
+  const read = new Set([...steps.flatMap(s => refsOf(s.source)), ...Object.values(props).flat().flatMap(refsOf)]);
+  const empty = slots.filter(s => !s.value && read.has(s.key)).map(s => s.key);
   const line = problem && !steps.length ? null : steps.map(s => s.source).join("\n") || null;
   // A look word it can't read is said, but the button still runs: only its look falls back.
   const { look, problem: lookProblem } = lookOf(get);
@@ -233,17 +239,17 @@ export function buttonCallsOf(text: string): ButtonCall[] {
 
 /**
  * Where slot `key` is read (PIE-1298): each step's action and the argument whose whole value is `{key}`, so a press asks for it
- * in the kind that argument takes (the action's own schema: `tile=` a tile). A script step reads it through the script's slot
- * of that name. `tile=` is an argument here as in any action line.
+ * in the kind that argument takes (the action's own schema: `tile=` a tile). A script step (`of=`, or `((name …))` in a body)
+ * reads it through the script's slot of that name, said `script: true`: `action` is then the script's name, and its kind is
+ * the one the script declares for that slot. `tile=` is an argument here as in any action line.
  */
-export function slotArgs(call: ButtonCall, key: string): { step: number; action: string; arg: string }[] {
-  const out: { step: number; action: string; arg: string }[] = [];
+export function slotArgs(call: ButtonCall, key: string): { step: number; action: string; arg: string; script?: true }[] {
+  const out: { step: number; action: string; arg: string; script?: true }[] = [];
   call.steps.forEach((s, step) => {
-    if (s.kind !== "act") return;
     const [action, ...words] = lineWords(s.written ?? s.source);
     for (const w of words) {
       const eq = w.indexOf("=");
-      if (eq > 0 && w.slice(eq + 1) === `{${key}}`) out.push({ step, action: action!, arg: w.slice(0, eq) });
+      if (eq > 0 && w.slice(eq + 1) === `{${key}}`) out.push({ step, action: action!, arg: w.slice(0, eq), ...(s.kind === "script" ? { script: true as const } : {}) });
     }
   });
   return out;

@@ -287,6 +287,9 @@ const ASK_SOURCE: BarSource = {
         .map(f => ({ key: `answer:${f.value}`, label: f.label ?? f.value, ...(f.detail ? { detail: f.detail } : {}), group: head, data: f.value }))];
       return Promise.resolve(q.suggest(query)).then(rows, () => rows([]));
     }
+    // A question of a kind (a note, a screen, a file) lists that kind's values, as the same field in a form does (PIE-1298: a
+    // button's empty slot is asked alone, outside a form).
+    if (q.kind) { kindPreviews.clear(); return fieldRows(q, query, host, head); }
     if (q.type === "text" || q.type === "number") {
       const value = typed || q.value;
       if (value !== undefined) return [{ key: q.masked ? "private-answer" : `answer:${value}`, label: q.masked ? "********" : value, detail: head, group: head, data: value }];
@@ -313,6 +316,8 @@ const ASK_SOURCE: BarSource = {
     if (waiting?.form) return kindPreviews.get(row.key) ?? (waiting.form.page ? { markdown: waiting.form.page } : null);
     const q = question();
     if (!q || !waiting) return null;
+    // A lone question of a kind (a button's slot): a found note previews itself, as in a form.
+    if (q.kind && kindPreviews.has(row.key)) return kindPreviews.get(row.key)!;
     if (q.type === "note" && !(q.choices ?? []).includes(String(row.data))) return { note: String(row.data) };
     return { markdown: [`**${waiting.title}** asks for **${q.label ?? q.name}**`, "", q.description ?? "", "", ...waiting.questions.map(x => `- ${x.label ?? x.name}: ${waiting!.answers[x.name] ?? (x === q ? "…" : "next")}`)].join("\n") };
   },
