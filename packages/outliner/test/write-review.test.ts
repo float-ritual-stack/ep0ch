@@ -239,6 +239,19 @@ test("the backfill reviews what agents already wrote, read only, and keeps its s
   const run = (await records("jev-run")).find(r => r.experiment === "write-review-backfill")!;
   expect(run).toMatchObject({ items: "3", suggested: "1", quiet: "2" });
   expect(kept.run).toBe(run.id);
+
+  // PIE-1402: each note's findings go in one request as it is reviewed (a week of pie never finished one record a round
+  // trip at a time), and a rerun skips the notes already kept.
+  store.create("Shed tonight\n\n- The roof went on at nine and the felt was cut. The tacks ran out halfway; we borrowed some. Then the rain held off.", null, "agent", by("kitty/claude-code@float-box"));
+  const keeps: string[] = [];
+  const counting = { request: (input: { action: string }, t?: number) => { keeps.push(input.action); return client.request(input as never, t); } };
+  const again = await reviewBackfill(client as never, { since: "7d", jev: false, into: counting as never, outline: "scratch" });
+  expect(again).toMatchObject({ reviewed: 3, skipped: 1, flagged: 1 });
+  // One request for the note with findings, and no record stamped from the client: the service makes them.
+  expect(keeps.filter(a => a === "suggestions.keep")).toHaveLength(1);
+  expect((await records("review-finding")).filter(r => r.writer === "kitty")).not.toHaveLength(0);
+  // The only record stamped from here is the run's own.
+  expect(keeps.filter(a => a === "template.stamp")).toHaveLength(1);
 });
 
 test("a note asking Evan to try something himself is told validation is the agents' job", async () => {

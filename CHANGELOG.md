@@ -28,6 +28,8 @@ are its record. The outliner's entries from then are kept below, under
   read by Jev); one Jev is unsure of is offered for the writer to decide; the original is named first. The groom
   calls the newer twin the duplicate and lists every open ticket with what it was read against. A ticket's
   experience is any "Evan <does> …" sentence.
+- **The backfill finishes:** `ep0ch review backfill --into` sends each note's findings in one request as it goes (the
+  service makes the records), a rerun skips notes already kept, and Jev's own page and rule are no longer reviewed.
 - **Run:** `ep0ch install --apply` (PROTOCOL changes: a twin's verdict can be `unsure`). pie's Jev's suggestions page
   was made by hand, so it keeps its own wording: its summary and check title still say ✗.
 
