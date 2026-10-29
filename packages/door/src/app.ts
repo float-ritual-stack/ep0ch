@@ -23,6 +23,7 @@ import { uncover, within, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
+import { asTyped, layerEntry } from "./surface/keymap";
 import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref";
 import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type TileRef } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
@@ -313,6 +314,8 @@ export interface Ctx {
 
 export interface Screen {
   title: string;
+  /** `?` is its own (the desk's: the cut hint row first, the keys window filtered to the focused tile next; the menu's); else the App opens the keys window. */
+  readonly ownsQuestion?: true;
   /**
    * What the screen is, by name (a screen spec's, PIE-515: `desk`, `board`, `welcome`; the river's, the showcase's):
    * a menu item that keeps state opens only one screen of its name at a time.
@@ -1356,7 +1359,8 @@ export class App implements Ctx {
     // An Option character standing for an alt key is that key everywhere after this, the drawer's alt+a too.
     const k = this.optionAsAlt(typed);
     this.pressed(k);
-    try { this.route(k); }
+    // The key typed, by its one name, while it's handled: an action it no longer runs (the person's keymap moved it) says so.
+    try { asTyped(k.kind === "mouse" || k.kind === "paste" ? null : keyName(k), () => this.route(k)); }
     finally {
       // A chord waiting for its next key, a menu or picker open: the next press continues this gesture (refuse).
       if (pressOf(k) !== null) this.heldAfter = !!this.stack.at(-1)?.holdsKeys?.();
@@ -1436,6 +1440,11 @@ export class App implements Ctx {
       if (k.action === "down") void this.dispatch.press("status.log");
       return;
     }
+    // The person's keymap (src/surface/keymap.ts): a key it gives an action matched in code (the shell's alt+v, a reader's z)
+    // presses that action here, before the shell's keys and the screen's; never while typing or in a terminal tile. A
+    // table's keys (^W, a mode's) are the table's, which reads the file itself.
+    const typedName = k.kind === "mouse" ? null : keyName(k), mine = typedName ? layerEntry(typedName) : undefined, mTop = this.stack.at(-1);
+    if (mine && !mTop?.rawKeys?.() && !mTop?.holdsKeys?.() && this.dispatch.has(mine.action)) { void this.dispatch.press(mine.action, mine.args); return; }
     if (k.kind === "alt" && k.ch === "Q" && !this.stack.at(-1)?.rawKeys?.() && (this.recording.active || !this.stack.at(-1)?.holdsKeys?.())) {
       void this.dispatch.press(this.recording.active ? "macro.stop" : "macro.record"); return;
     }
@@ -1485,6 +1494,10 @@ export class App implements Ctx {
         if (problem) this.flash(problem);
         else { void this.dispatch.pressBinding(binding); return; }
       }
+    }
+    // ? on a screen that doesn't word it itself (a BBS list, the art viewer): the keys window, filtered to this screen (keys.open).
+    if (top && !top.ownsQuestion && k.kind === "char" && !k.ctrl && k.ch === "?" && !k.pasted && !top.holdsKeys?.() && !top.rawKeys?.() && this.dispatch.has("keys.open")) {
+      void this.dispatch.press("keys.open", { filter: top.name ?? top.title }); return;
     }
     top?.key(k, this);
   }

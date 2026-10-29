@@ -1,4 +1,5 @@
 import { standsAsPerson } from "../surface/dispatch";
+import { keyTable } from "../surface/keymap";
 import { NOBODY } from "../whereabouts";
 import { COLUMN_MOVE_KEYS } from "../surface/attached-keys";
 import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "../surface/modes";
@@ -905,7 +906,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   }),
   "column.link": def({
     summary: "open link row n (from 1, counted from the first links row) of a river column in the next column, as ⏎ on it does (fresh=true: a new column, as alt+⏎); on a group's header it folds or opens the group. A Resource is registered if it must be and shown",
-    keys: "⏎ alt+⏎ space on a links row, a double click or an alt-, ctrl- or middle-click on one",
+    keys: [{ keys: "⏎ space", does: "on a links row, opens it in the next column" }, { keys: "alt+⏎", does: "on a links row, opens it in a new column" }, { keys: "double-click alt-click ctrl-click middle-click", does: "on a links row" }],
     touches: "nothing", replay: "ask", says: () => "opened a link",
     args: { n: { type: "number", about: "the links row, from 1" }, fresh: { type: "boolean", optional: true, about: "a new column, as alt+⏎" } },
     examples: [
@@ -926,7 +927,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   }),
   "column.complete": def({
     summary: "what a filter's word offers in a river column's `/`: text=<the filter as typed, ending in the word> (`ty`, `type:`, `-status:do`) answers the keys, or the values of the key before its colon, each with the insertion a choice writes, from the outline's property index (`properties.catalog`, most used first) and the component schemas. Nothing on screen moves and nothing is typed: an agent's filter is `column.filter query=`",
-    keys: "typing in /: ↑↓ choose, ⏎ or tab insert, esc dismiss, a click on a candidate, ctrl+space asks again",
+    keys: [{ keys: "↑ ↓", does: "choose, while typing in /" }, { keys: "⏎ tab", does: "insert the candidate" }, { keys: "esc", does: "dismiss" }, { keys: "click", does: "on a candidate" }, { keys: "ctrl+space", does: "asks again" }],
     touches: "nothing", replay: "safe",
     args: { text: { type: "string", about: "the filter text ending in the word to complete" } },
     examples: [
@@ -941,7 +942,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     },
   }),
   "column.scroll": def({
-    summary: "scroll a river column by= rows (a page is its height less two); what it lists, its selection and the keys stay", keys: "PgUp PgDn, the wheel",
+    summary: "scroll a river column by= rows (a page is its height less two); what it lists, its selection and the keys stay", keys: [{ keys: "pgup pgdn", does: "scroll the column" }, { keys: "wheel", does: "scroll the column" }],
     touches: "tile", replay: "safe", way: "an agent doesn't scroll what they're reading · peek reads the column whole, or act on another column", says: r => `scrolled ${r.tile}`,
     args: { by: { type: "number", about: "rows: positive down, negative up" } },
     examples: [
@@ -1049,7 +1050,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   }),
   "column.copy": def({
     summary: "copy the text selected in a river column (its drawn rows: drag, or v and move): the person's goes to their clipboard (a drag's when the button comes up); an agent's is given back, the clipboard left alone",
-    keys: "y, cmd+c, the release of a drag (or a double or triple click)",
+    keys: [{ keys: "y cmd+c", does: "copy the selected text" }, { keys: "drag", does: "copies when the button comes up" }, { keys: "double-click", does: "copies the selection (a triple click too)" }],
     touches: "nothing", replay: "safe",
     args: {},
     run: (_, { pane, desk }, actor) => columnOf(pane).copy(actor, desk),
@@ -1061,7 +1062,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
  * column beside, w widen, p hold (keep full), x close, g search. Back and forward (alt+← backspace alt+→) are its surface's history,
  * which goes along the flow's trail (`host`).
  */
-const FLOW_KEYS: readonly ModeKey[] = [
+const FLOW_KEYS: readonly ModeKey[] = keyTable("river column", "a river column", [
   { key: "x", action: "tile.close", label: "close" },
   { key: "h", action: "tile.focus", args: { dir: "left" }, label: "columns" },
   { key: "left", action: "tile.focus", args: { dir: "left" }, label: "columns" },
@@ -1070,7 +1071,7 @@ const FLOW_KEYS: readonly ModeKey[] = [
   { key: "w", action: "tile.widen", label: "widen" },
   { key: "p", action: "tile.hold", label: "hold" },
   { key: "g", action: "search", label: "search" },
-];
+]);
 
 /** The river column as a tile kind: a reader of the river's own view, opening a column of its own kind next. */
 export function riverColumnKind(): TileKind {

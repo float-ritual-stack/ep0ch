@@ -154,6 +154,7 @@ export const marks: Record<string, string[]> = {
   // A reader and a terminal whose program asked for the mouse, each with its ⋯.
   menu: ["Allotment notebook", "this program asked for the mouse", "\u2261"],
   wkeys: ["Allotment notebook", "Bike shed"],
+  keys: ["Bindings", "runs", "Allotment notebook"],
   "line-field": ["Allotment notebook", "Bike shed"],
   // A blank screen: its rows, each a first step.
   made: ["A blank screen. Start it with a tile here:", "t  the outline", "o  open a screen…"],

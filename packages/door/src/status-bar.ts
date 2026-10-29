@@ -177,7 +177,7 @@ export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
   }),
   "status.bar.edit": def({
     summary: "status bar: edit your [status-bar::true] note; made on first use with today's built-ins and a commented Collapse button. Order or hide built-ins with - <id> lines; ::button lines pin actions; alt= names their alternate action. Edits redraw the bar live",
-    keys: "right-click or alt+click an empty part of the status bar; the power bar's status bar: edit",
+    keys: [{ keys: "right-click alt-click", does: "on an empty part of the status bar" }, { via: "the power bar's status bar: edit" }],
     touches: "nothing", replay: "ask", args: {},
     async run(_, on, actor) { const note = await on.note.ensure(on.builtins(), actor); await on.open(note.id, actor); return { note: note.id }; },
   }),

@@ -499,7 +499,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
   }),
   "library.select": def({
     summary: "select a variation: n=<from 1> or by=1/-1; text= returns matching drawn words without changing the person's selection or clipboard",
-    keys: "j k ↓ ↑, or a click on a variation; drag, double/triple click selects text", touches: "screen", touchesWith: args => args.text !== undefined ? "nothing" : "screen", replay: "safe",
+    keys: [{ keys: "j k ↓ ↑", does: "select a variation" }, { keys: "click", does: "on a variation" }, { keys: "drag", does: "select text" }, { keys: "double-click", does: "select text (a triple click too)" }], touches: "screen", touchesWith: args => args.text !== undefined ? "nothing" : "screen", replay: "safe",
     args: { text: { type: "string", optional: true, about: "words as drawn; returns them without changing the person's selection or clipboard" }, n: { type: "number", optional: true, about: "the variation, from 1" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
     examples: [
       { act: "library.select n=3 tile=library", does: "selects the third variation drawn and brings it into view" },
@@ -565,7 +565,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     },
   }),
   "library.scroll": def({
-    summary: "scroll the page by=<rows> (negative up)", keys: "the wheel, pgup pgdn", touches: "screen", replay: "safe",
+    summary: "scroll the page by=<rows> (negative up)", keys: [{ keys: "wheel", does: "scroll the page" }, { keys: "pgup pgdn", does: "scroll the page" }], touches: "screen", replay: "safe",
     args: { by: { type: "number", about: "rows, negative up" } },
     examples: [
       { act: "library.scroll by=15 tile=library", does: "scrolls the page down fifteen rows" },

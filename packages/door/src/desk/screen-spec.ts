@@ -14,6 +14,7 @@
 // Everything a screen does that isn't layout lives in its tiles' kinds (src/desk/tile-kinds.ts) and their actions.
 // A spec is plain data (`specData` writes it, `readSpec` reads it back and checks it): what a screen note holds (a
 // screen a person made, PIE-565: src/desk/screen-notes.ts), which can't hold an override.
+import { useScreenTables, type KeyTable } from "../surface/keymap";
 import { isTileKind } from "./tile-kinds";
 import { canonKind } from "./layout";
 import type { LayoutSpec } from "./tiles";
@@ -272,6 +273,21 @@ export function screenSpec(name: string, args?: Record<string, unknown>): Screen
 export const screenTargetArg = (name: string): string | undefined => registrations.get(name)?.target;
 /** Every screen registered, by name. */
 export const screenNames = (): string[] => [...specs.keys()];
+
+// Each screen's own key map is a key table of the keymap's (PIE-492), under the screen's name: built once per set of screens.
+let screenKeyTables: { names: string; tables: KeyTable[] } | null = null;
+useScreenTables(() => {
+  const names = screenNames().join(" ");
+  if (screenKeyTables?.names === names) return screenKeyTables.tables;
+  const tables: KeyTable[] = [];
+  for (const n of screenNames()) {
+    let keys: readonly KeyBinding[] | undefined;
+    try { keys = screenSpec(n)?.keys; } catch { keys = undefined; }      // a screen that needs its target to be made has none to say
+    if (keys?.length) tables.push({ scope: n, about: `the ${n} screen's own keys`, rows: keys, prefix: "", screen: true });
+  }
+  screenKeyTables = { names, tables };
+  return tables;
+});
 
 // ── a screen mounted in another (PIE-651) ──
 

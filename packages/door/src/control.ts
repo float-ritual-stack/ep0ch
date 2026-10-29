@@ -18,7 +18,7 @@ import { connect, createServer, type Server } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { App } from "./app";
 import { VALUE_FLAGS } from "./discover";
-import { parseActArgs } from "./surface/actions";
+import { keysText, parseActArgs } from "./surface/actions";
 import type { Mirror } from "./mirror";
 import type { TermInfo } from "./term";
 import { isInside, onOutline, outlineState, privateDir, stateDir } from "./state";
@@ -351,7 +351,7 @@ export async function controlClient(args: string[]): Promise<number> {
     console.log(`${a.screen ?? "?"}${a.note ? ` · ${a.note}` : ""}${a.tiles?.length ? ` · tiles: ${a.tiles.join(", ")}` : ""}`);
     for (const x of a.actions) {
       const args = Object.entries(x.args as Record<string, { type: string; optional?: boolean }>).map(([k, v]) => `${k}=<${v.type}>${v.optional ? "?" : ""}`).join(" ");
-      console.log(`  ${x.name}${args ? " " + args : ""}${x.keys ? `   [${x.keys}]` : ""}\n      ${x.summary}${x.touches ? `\n      touches ${x.touches}${x.person ? " (the person's only)" : ""} · replay ${x.replay}` : ""}`);
+      console.log(`  ${x.name}${args ? " " + args : ""}${x.keys ? `   [${keysText(x.keys)}]` : ""}\n      ${x.summary}${x.touches ? `\n      touches ${x.touches}${x.person ? " (the person's only)" : ""} · replay ${x.replay}` : ""}`);
       if (x.answer) console.log(`      answer: ${Object.entries(x.answer as Record<string, { type: string; about: string }>).map(([key, field]) => `${key}: ${field.type} (${field.about})`).join("; ")}`);
     }
   }

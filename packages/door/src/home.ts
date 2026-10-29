@@ -17,6 +17,7 @@ import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "./surface/m
 // (src/main.ts). On a door already on an outline (a screen opened by name), it shows what it shows, but makes, imports,
 // connects and opens nothing: those wait for the home base proper. More sections (running agents, switching outlines
 // from a sidebar) are tiles a later spec adds beside this one.
+import { keyTable } from "./surface/keymap";
 import { hostname } from "node:os";
 import { basename, resolve } from "node:path";
 import type { Cell } from "./ansi";
@@ -76,12 +77,12 @@ const idOf = (r: Pick) => `${r.t}:${r.t === "offer" ? r.act : ""}:${"name" in r 
 
 const HOME_CHOICES = { outline: "home.open", new: "home.new", import: "home.import", machine: "home.connect", add: "home.add", cancel: "home.cancel" } as const;
 const HOME_CHOICE_KEYS: readonly ModeKey[] = Object.values(HOME_CHOICES).flatMap(action => ["enter", "click"].map(key => ({ key, action, label: "open" })));
-const HOME_KEYS: readonly ModeKey[] = [
+const HOME_KEYS: readonly ModeKey[] = keyTable("home", "the home base", [
   ...["click", "wheel"].map(key => ({ key, action: "home.pick", label: "pick" })),
   ...["j", "down", "k", "up"].map(key => ({ key, action: "home.pick", label: "pick", args: { by: ["j", "down"].includes(key) ? 1 : -1 } })),
   { key: "n", action: "home.new", label: "new" }, { key: "i", action: "home.import", label: "import" },
   { key: "a", action: "home.add", label: "add machine" }, { key: "r", action: "home.reload", label: "reload" },
-];
+]);
 
 export class HomePane implements Pane {
   readonly kind = "home";
@@ -497,7 +498,7 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     run({ machine }, { pane, desk }) { return connect(pane as HomePane, desk, machine); },
   }),
   "home.add": def({
-    summary: "add a machine to the home base (and connect to it): machine=. The person's picks one from ~/.ssh/config", keys: modeActionKeys([HOME_KEYS, HOME_CHOICE_KEYS], "home.add"),
+    summary: "add a machine to the home base (and connect to it): machine=. The person's picks one from ~/.ssh/config", keys: [{ keys: "a", does: "add machine" }, { keys: "⏎", does: "on the add machine choice" }, { keys: "click", does: "on the add machine choice" }],
     touches: "nothing", replay: "ask",
     args: { machine: { type: "string", about: "an ssh config name", optional: true } },
     examples: [

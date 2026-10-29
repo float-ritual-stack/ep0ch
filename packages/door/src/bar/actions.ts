@@ -47,7 +47,7 @@ const scopes = () => barSources().map(s => ({ scope: s.id, prefix: s.prefix, tit
 export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", {
   "bar.open": def({
     summary: "the power bar: one palette over every screen. With nothing typed it lists the tiles open on every screen and in your drawer (indented as each screen's layout tree, with the note each shows), then what others changed since you looked; typed, the tiles, the outline's notes (the service's one search), the actions you can do here (with their keys), what changed and the screens, each under its heading; scope=tiles|notes|actions|recent|screens|extensions or an extension's (or its prefix: % / > + @ &, ~ and so on) lists one. The person's opens it with their keys in it (query= typed in); an agent's answers the rows it would list (numbered from 1, with scope=, query=) and opens nothing",
-    keys: "ctrl+k, cmd+k (where the terminal sends it), alt+k (PIE-1346), alt+left alt+right (alt+b alt+f) and a click on a scope in the open bar, a prefix on its empty line, ✦p (hyper, also while typing; ✦g in its screens scope), a click on the status bar's ^K, on every screen and in your drawer (not while typing, in a terminal tile or the drawer's program); / on the desk and the screens on it, g in a river column (the notes scope); ^W ? on the desk (the actions scope on the ^W keys, to filter and press one)",
+    keys: [{ keys: "ctrl+k cmd+k alt+k", does: "on every screen and in your drawer, not while typing, in a terminal tile or the drawer's program (cmd+k where the terminal sends it; alt+k is PIE-1346)" }, { keys: "alt+left alt+right alt+b alt+f", does: "in the open bar, move between scopes" }, { keys: "click", does: "on a scope in the open bar, or on the status bar's ^K" }, { via: "a prefix typed on the bar's empty line" }, { keys: "✦p", does: "hyper chord, also while typing" }, { keys: "✦g", does: "hyper chord, in the bar's screens scope" }, { keys: "/", does: "on the desk and the screens on it" }, { keys: "g", does: "in a river column, the notes scope" }, { keys: "^W ?", does: "on the desk: the actions scope on the ^W keys, to filter and press one" }],
     touches: "nothing", replay: "safe",
     args: {
       query: { type: "string", optional: true, about: "what's typed in it" },
@@ -111,7 +111,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
   }),
   "bar.edit": def({
     summary: "edit the power bar's shared line: clear, complete, paste, select, cut, delete-word or undo. An agent edits an unseen line supplied by query= and scope=",
-    keys: "esc with text, ctrl+u, tab, paste, shift+arrows, drag, double click, ctrl+x, ctrl+w, ctrl+z",
+    keys: [{ keys: "esc", does: "with text in the line, clears it" }, { keys: "ctrl+u", does: "clear the line" }, { keys: "tab", does: "complete" }, { keys: "paste", does: "paste into the line" }, { keys: "shift+left shift+right shift+up shift+down", does: "select" }, { keys: "drag", does: "select" }, { keys: "double-click", does: "select" }, { keys: "ctrl+x", does: "cut" }, { keys: "ctrl+w", does: "delete a word" }, { keys: "ctrl+z", does: "undo" }],
     touches: "nothing", replay: "safe",
     args: {
       op: { type: "string", about: "clear, complete, paste, select, cut, delete-word or undo" },
@@ -161,7 +161,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
   }),
   "bar.insert": def({
     summary: "insert the command as a button into the note at the person's cursor, as one unsaved draft edit",
-    keys: "alt+i; insert button in the command menu",
+    keys: [{ keys: "alt+i", does: "insert the command as a button into the note" }, { via: "the insert button in the command menu" }],
     touches: "nothing", replay: "ask", person: "inserting at the person's cursor is their action",
     args: {},
     async run(_, { on }, actor) {

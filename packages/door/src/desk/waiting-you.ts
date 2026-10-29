@@ -178,7 +178,7 @@ const which = {
 export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
   "status.pick": def({
     summary: "pick a row of the waiting-on-you list (n from 1, or tile=<the terminal's id or name>)",
-    keys: "j k ↑ ↓, the wheel, a click",
+    keys: [{ keys: "j k ↑ ↓", does: "pick a row" }, { keys: "wheel", does: "pick a row" }, { keys: "click", does: "on a row" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's row (peek lists the rows)",
     args: which,
     examples: [
@@ -275,7 +275,7 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     },
   }),
   "ask.proposal": def({
-    summary: "apply, resolve or dismiss an open proposal", keys: "A r X, row controls",
+    summary: "apply, resolve or dismiss an open proposal", keys: [{ keys: "A", does: "apply" }, { keys: "r", does: "resolve" }, { keys: "X", does: "dismiss" }, { via: "row controls" }],
     touches: "nothing", replay: "ask",
     args: { n: { type: "number", optional: true, about: "row number from peek" }, op: { type: "string", about: "apply, resolve or dismiss" } },
     examples: [

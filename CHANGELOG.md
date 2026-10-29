@@ -10,6 +10,26 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The keys window: every binding, what it shadows, and a rebind said before it lands (PIE-492, PIE-1048)
+
+- **`?` on any screen opens it,** filtered to where you are (`in:note` in a reader); `ep0ch --screen keys`,
+  `keys.open` and the power bar too. Type `/` to filter by a key, an action, a scope or words; `Bindings 1350 ·
+  Conflicts · Yours` with a count, each row a keycap, its scope and what it does.
+- **The detail says what the key runs, its layer, what it takes the key from and what gets it first,** and whether a
+  program in a terminal tile still sees it.
+- **Rebind:** `r`, then the new key (`^W` then a key for a ^W key). What it would take from what is said first; `⏎`
+  saves it, `esc` drops it. `u` unbinds, `d` gives the built-in keys back, `ctrl+z` undoes. Agents: `keys.rebind
+  id=tile.close key="^W x" to="ctrl+w q" tile=keys`, `keys.find text=…`.
+- **One keymap file:** `keybindings.json` in the door's state dir, `{"<act line>": ["<key>", …]}` (the outliner's
+  shape; `[]` unbinds). Edit it by hand too: the door reads it again within half a second and says a bad entry.
+- **What follows a rebind:** the key itself, the ^W panel, the tile menu's keycaps, the power bar and the desk's hint
+  row (`^N new` becomes your key). A key you moved away says where it went instead of running.
+- **An action's keys are rows of keys and what each does** (PIE-1048): its page's keys table draws right
+  (tile.collapse's no longer reads "or" under the wrong key); 157 garbled ones were rewritten.
+- **Not yet:** the hint rows written by hand on some screens still say the built-in key; a key bound to several
+  meanings under one name (^W h j k l) or after another key (`a then c`) can't be moved alone, and the window says so.
+- **Run:** nothing; no protocol or schema change.
+
 ### Facets answer in under a second on pie, and a docs-only deploy keeps door sessions (PIE-1396, PIE-1400)
 
 - **Facets:** the facets read made one pass per key over every note; it now reads each note once, for the keys it

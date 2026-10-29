@@ -61,7 +61,7 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
   }),
   "terminal.copy": def({
     summary: "copy the text selected in terminal tile=<tile> to the person's clipboard (OSC 52). A drag where the program hasn't asked for the mouse, or shift+drag (alt+drag) where it has, selects, and the release of it copies (copy on select; EP0CH_COPY_ON_SELECT=0 turns that off). The person's only: an agent's copy would be a selection of theirs",
-    keys: "the release of a drag in a terminal tile (shift+drag or alt+drag when its program has the mouse)",
+    keys: [{ keys: "drag", does: "the release of a drag in a terminal tile" }, { keys: "shift-drag alt-drag", does: "the same when its program has the mouse" }],
     touches: "nothing", replay: "safe", person: "the selection in a terminal tile is the person's, and so is their clipboard",
     args: {},
     run(_, { pane, tile }, actor) {
