@@ -1388,6 +1388,14 @@ curl -sS -T orrery-site.zip 'https://my.ep0ch.sh/_upload/<token>/'
 - **A device** (`ep0ch device add "Evan's iPhone" --ws pie`, `device ls`, `device revoke <name|id>`) has a token of its own
   that opens this route and nothing else, until revoked. Its link is shown once. A Shortcut posts to
   `…/_upload/<token>/?name=<artifact>&note=<page>` with the file as the body; the Artifacts hub in pie has the recipe.
+- **The signed Shortcut** (`ep0ch device add "Evan's iPhone" --ws pie --shortcut`, PIE-1408) builds that Shortcut
+  around the new device's link (`src/send-to-ep0ch-shortcut.ts`: per shared file, `POST <link>/<Name>.<File
+  Extension>?reply=text` and a notification of the plain-text answer, no questions), signs it with `shortcuts sign
+  --mode anyone` on a Mac (`EP0CH_SHORTCUT_SIGNER`: an ssh name, or `local`; default `laptop` off macOS), keeps it 0600
+  in the host's folder and prints the one link that serves it behind the sign-in: `/_shortcut/<device id>/Send%20to%20ep0ch.shortcut`.
+  The phone opens it and taps Add Shortcut. A signing failure revokes the new device, so the same command can run
+  again; `device ls` shows the link; revoking the device deletes the file. A file sent with no extension is named by
+  its first bytes (PDF, PNG, JPEG, HEIC, WebP), and a HEIC photo is kept as a JPEG (ImageMagick's `convert`).
 
 The CLI streams a ustar archive through the outline service over its existing
 socket/SSH forward. MCP `artifact_put` accepts `{name, kind, content}` for one file

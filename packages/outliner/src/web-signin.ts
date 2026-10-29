@@ -17,7 +17,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { WEB_SESSION_TTL_MS, type WebSession } from "@ep0ch/outline-core/protocol";
 import { allowedSubjects, ALLOWED_SUBJECTS_ENV, issuerFromPublishableKey, originOfHost } from "@ep0ch/outline-core/signin";
-import { escapeHtml, plainPage, redactSharePath, type SignedIn } from "./publish";
+import { darkError, escapeHtml, plainPage, redactSharePath, type SignedIn } from "./publish";
 import { hostBusy } from "./client";
 
 export const SESSION_COOKIE = "__Host-ep0ch_session";
@@ -99,6 +99,8 @@ export interface SignInGateOptions {
   /** The artifacts inbox's upload route (publish-upload.ts): its token is its credential, so it's answered before the sign-in. */
   upload?: (request: Request) => Promise<Response>;
   snapshot?: (request: Request) => Promise<Response>;
+  /** A device's signed "Send to ep0ch" Shortcut (PIE-1408), by the device's id: it holds the device's token, so only signed in. */
+  shortcut?: (deviceId: string) => Promise<Response>;
   readerWrite?: (request: Request) => Promise<Response>;
   /** The issuer's keys (a local set under test); else its JWKS, from discovery. */
   keys?: JWTVerifyGetKey;
@@ -164,7 +166,12 @@ export class SignInGate {
     return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${origin.startsWith("https:") ? "; Secure" : ""}`;
   }
 
+  /** One request through the sign-in; an error a browser opens is a dark page. */
   async handle(request: Request): Promise<Response> {
+    return darkError(request, await this.route(request));
+  }
+
+  private async route(request: Request): Promise<Response> {
     // Only its own origins' names: a page that rebinds its own name to this listener gets nothing.
     const origin = originOfHost(this.origins, request.headers.get("host"));
     if (!origin) return withGateHeaders(new Response("Host not allowed\n", { status: 421 }));
@@ -206,6 +213,8 @@ export class SignInGate {
       const root = this.settings.home.replace(/\/+$/, "");
       if (path === "/" || path === "") return redirect(this.settings.home, renewed);
       if (root && path.startsWith("/p/")) return redirect(`${root}${path}${url.search}`, renewed);
+      const shortcut = /^\/_shortcut\/([A-Za-z0-9]+)(?:\/[^/]*)?$/.exec(path);
+      if (shortcut && reading && this.options.shortcut) return withGateHeaders(await this.options.shortcut(shortcut[1]!), renewed);
       const sessionId = found.session.id;
       return withGateHeaders(await this.options.serve(request, { sessionId, origin, stillSignedIn: () => this.stillSignedIn(sessionId) }), renewed);
     } catch (error) {

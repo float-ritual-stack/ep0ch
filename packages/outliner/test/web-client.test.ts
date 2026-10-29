@@ -576,7 +576,22 @@ test("the owner's pages hold nothing back by [publish::]: a [publish::false] chi
   const gone = store.create("Old compost plan", hub.id, "user");
   store.delete(gone.id);
   expect((await get(`/pub/p/${gone.id}`)).status).toBe(404);
-  expect(await (await get(`/pub/p/${gone.id}`)).text()).toBe("Not found\n");
+  expect(await (await get(`/pub/p/${gone.id}`, {})).text()).toBe("Not found\n");
+});
+
+test("every error page a browser opens is dark (he is photosensitive): a missing note, a work id nobody has, a bad path; a fetch still gets the plain words", async () => {
+  for (const path of ["/pub/p/PIE-9999", "/pub/p/no-such-page", "/pub/_nothing/here"]) {
+    const response = await get(path);
+    expect(response.status).toBe(404);
+    expect(response.headers.get("content-type")).toStartWith("text/html");
+    const body = await response.text();
+    expect(body).toContain("color-scheme:dark");
+    expect(body).toContain("background:var(--bg)");
+    expect(body).toContain("Not found");
+  }
+  const fetched = await get("/pub/p/PIE-9999", { accept: "*/*" });
+  expect(fetched.status).toBe(404);
+  expect(await fetched.text()).toBe("Not found\n");
 });
 
 test("the top level shows the outline's notes, not its system views: no Trash, no board of untitled deleted notes, Bookmarks a quiet link", async () => {

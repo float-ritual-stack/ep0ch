@@ -26,6 +26,8 @@ export type ArrivalKind = "page" | "site" | "document" | "image";
 export const DROP_FILE_KINDS: Readonly<Record<string, ArrivalKind>> = {
   ".html": "page", ".htm": "page", ".jsx": "page", ".tsx": "page", ".svg": "page", ".mermaid": "page", ".md": "page",
   ".pdf": "document", ".png": "image", ".jpg": "image", ".jpeg": "image", ".gif": "image", ".webp": "image",
+  // An iPhone's photos: kept as a JPEG (artifact-store.ts), which every browser and the door can draw.
+  ".heic": "image", ".heif": "image",
 };
 
 export interface DropMeta {
