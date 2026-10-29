@@ -78,14 +78,28 @@ const describe = (s: Shipped) => `${s.kind === "pr" ? "pull request" : "CHANGELO
 
 interface Candidates { shipped: Shipped[]; tickets: { id: string; workId: string; title: string; stage: string; closed: boolean }[] }
 
-/** A few candidates of each kind for one ticket, by the search matcher over its title. Pure. */
+/**
+ * A few candidates of each kind for one ticket, by the search matcher over its title and then its body's opening (PIE-1402:
+ * a duplicate filed in other words, or a change shipped under another name, shares the body's words, not the title's).
+ * Pure.
+ */
 export function groomCandidates(ticket: Block, shipped: readonly Shipped[], others: readonly Block[]): Candidates {
   const title = itemTitle(ticket), named = namedIn(workIdOf(ticket) ?? "", shipped).slice(0, 3);
-  const top = <T extends { id: string; title: string; text: string }>(docs: readonly T[], n: number) => rankTextSearchMatches(docs, title).filter(m => m.kind !== "title-fuzzy" && m.kind !== "text-fuzzy").slice(0, n).map(m => m.document);
-  const changelog = top(shipped.filter(s => s.kind === "changelog"), 3), prs = top(shipped.filter(s => s.kind === "pr"), 3);
+  const opening = clip(bodyOf(ticket), 160);
+  const top = <T extends { id: string; title: string; text: string }>(docs: readonly T[], n: number) => {
+    const seen = new Set<string>(), out: T[] = [];
+    for (const query of [title, ...(opening ? [opening] : [])]) {
+      for (const m of rankTextSearchMatches(docs, query)) {
+        if (m.kind === "title-fuzzy" || m.kind === "text-fuzzy" || seen.has(m.document.id)) continue;
+        seen.add(m.document.id); out.push(m.document);
+      }
+    }
+    return out.slice(0, n);
+  };
+  const changelog = top(shipped.filter(s => s.kind === "changelog"), 4), prs = top(shipped.filter(s => s.kind === "pr"), 4);
   const docs = others.filter(b => b.id !== ticket.id).map(b => ({ id: b.id, title: itemTitle(b), text: b.text, block: b }));
   const stageOf = (b: Block) => propOf(b, "work-stage") ?? "unknown";
-  const closed = top(docs.filter(d => ["done", "superseded"].includes(stageOf(d.block))), 3), open = top(docs.filter(d => !["done", "superseded"].includes(stageOf(d.block))), 2);
+  const closed = top(docs.filter(d => ["done", "superseded"].includes(stageOf(d.block))), 3), open = top(docs.filter(d => !["done", "superseded"].includes(stageOf(d.block))), 4);
   return {
     shipped: [...named, ...[...changelog, ...prs].filter(s => !named.includes(s))],
     tickets: [...closed, ...open].map(d => ({ id: d.id, workId: workIdOf(d.block) ?? d.id.slice(0, 8), title: d.title, stage: stageOf(d.block), closed: ["done", "superseded"].includes(stageOf(d.block)) })),
@@ -222,6 +236,13 @@ export function groomSummary(report: GroomReport): string {
     if (!rows.length) continue;
     lines.push("", `${verdict}:`);
     for (const r of rows) lines.push(`  ${r.ticket} ${r.confidence.toFixed(2)} ${clip(r.title, 70)} · ${r.by === "code" ? "" : "Jev: "}${clip(r.evidence, 120)}`);
+  }
+  // Every open ticket too, each with what it was read against (PIE-1402: a pass that judged everything open printed only
+  // counts): the close calls first, then the rest; so a person sees what to look at, not just a total.
+  const open = report.rows.filter(r => r.verdict === "open" || r.verdict === "unjudged").sort((a, b) => Number(b.evidence.startsWith("close but")) - Number(a.evidence.startsWith("close but")) || a.confidence - b.confidence);
+  if (open.length) {
+    lines.push("", "open (what each was read against):");
+    for (const r of open) lines.push(`  ${r.ticket} ${r.verdict === "unjudged" ? "unjudged" : r.confidence.toFixed(2)} ${clip(r.title, 70)} · ${clip(r.evidence, 120)}`);
   }
   return lines.join("\n");
 }

@@ -16,8 +16,12 @@ import { writeRecord } from "./records";
 import type { TwinAnswer as WireTwinAnswer, TwinCandidate } from "@ep0ch/outline-core/protocol";
 import type { Block, BlockAuthor, BlockProvenance, VisibleBlockCollection } from "./types";
 
-/** Candidates Jev is asked about, at most. */
-export const TWIN_CANDIDATES = 5;
+/**
+ * Candidates Jev is asked about, at most. Wide on purpose (PIE-1402): a twin filed in other words shares a word or two
+ * with its original's title or body, not its title, so the matcher's weaker rungs are candidates too, and Jev's same
+ * and part Nouls, in the one request, are what read them by meaning.
+ */
+export const TWIN_CANDIDATES = 12;
 /** How long a filing waits for Jev before it goes on with the text match alone. */
 export const TWIN_JEV_MS = 4000;
 const LOOP = "work-twins";
@@ -41,10 +45,19 @@ export function itemTitle(b: Pick<Block, "text" | "properties">): string {
 /** The body under an item's title and property lines, clipped for Jev. */
 const bodyOf = (b: Block, max = 600) => clip(b.text.split("\n").slice(headerLine(b.text).line + 1).filter(l => !/^\s*\[[^\]]+::[^\]]*\]\s*$/.test(l)).join("\n"), max);
 
-/** Open items like `title`, best first: code's candidates before Jev reads any. Pure. */
-export function twinCandidates(open: readonly Block[], title: string, limit = TWIN_CANDIDATES): (Omit<TwinCandidate, "verdict" | "said"> & { block: Block })[] {
+/**
+ * Open items like the new one, best first: code's candidates before Jev reads any. The matcher over the new title and,
+ * when one is given, its body (a paraphrase shares the body's words, not the title's), each item's best match kept.
+ * Pure.
+ */
+export function twinCandidates(open: readonly Block[], title: string, limit = TWIN_CANDIDATES, body?: string): (Omit<TwinCandidate, "verdict" | "said"> & { block: Block })[] {
   const docs = open.map(b => ({ id: b.id, title: itemTitle(b), text: b.text, block: b }));
-  return rankTextSearchMatches(docs, title).filter(m => !WEAK.has(m.kind) && (m.kind !== "some-terms" || (m.inTitle ?? 0) >= 0.5)).slice(0, limit).map(m => ({
+  const best = new Map<string, ReturnType<typeof rankTextSearchMatches<typeof docs[number]>>[number]>();
+  // The title's matches first (they outrank any of the body's at the same rung), then the body's first sentences.
+  for (const query of [title, ...(body?.trim() ? [clip(body, 160)] : [])]) {
+    for (const m of rankTextSearchMatches(docs, query)) if (!WEAK.has(m.kind) && !best.has(m.document.id)) best.set(m.document.id, m);
+  }
+  return [...best.values()].slice(0, limit).map(m => ({
     id: m.document.id, workId: workIdOf(m.document.block) ?? m.document.id.slice(0, 8), title: m.document.title, stage: propOf(m.document.block, "work-stage") ?? "unknown", match: m.kind, inTitle: Math.round(m.inTitle * 100) / 100, block: m.document.block,
   }));
 }
@@ -68,7 +81,7 @@ export async function openItems(client: WorkJevClient): Promise<Block[]> {
 export async function findTwins(client: WorkJevClient, input: { title: string; body?: string }, o: JevOptions & { limit?: number } = {}): Promise<TwinAnswer> {
   // A filing waits on it: Jev gets a short budget, so the caller's own timeout never fires first.
   o = { timeoutMs: TWIN_JEV_MS, ...o };
-  const found = twinCandidates(await openItems(client), input.title, o.limit);
+  const found = twinCandidates(await openItems(client), input.title, o.limit, input.body);
   if (!found.length) return { candidates: [], twins: [], jev: "not asked: no open item shares its words" };
   const questions = Object.fromEntries(found.flatMap((c, i) => {
     const candidate = JSON.stringify({ id: c.workId, title: c.title, stage: c.stage, body: bodyOf(c.block, 500) });
@@ -83,7 +96,10 @@ export async function findTwins(client: WorkJevClient, input: { title: string; b
     return { ...judged, said: twinLine(judged) };
   });
   const order = (v: TwinCandidate["verdict"]) => ["same", "text", "part", "related"].indexOf(v);
-  candidates.sort((a, b) => order(a.verdict) - order(b.verdict) || (b.same ?? 0) - (a.same ?? 0));
+  // Twins oldest first (PIE-1402: a near-duplicate named the newer twin, which was itself filed beside the original):
+  // the original is the one to attach to; the rest by Jev's confidence.
+  const twin = (c: TwinCandidate) => c.verdict === "same" || c.verdict === "text";
+  candidates.sort((a, b) => Number(twin(b)) - Number(twin(a)) || (twin(a) ? ageOf(a) - ageOf(b) : 0) || order(a.verdict) - order(b.verdict) || (b.same ?? 0) - (a.same ?? 0));
   return {
     candidates,
     twins: candidates.filter(c => c.verdict === "same" || c.verdict === "text").map(c => c.workId),
@@ -91,6 +107,9 @@ export async function findTwins(client: WorkJevClient, input: { title: string; b
     ...("reading" in asked ? { reading: asked.reading } : {}),
   };
 }
+
+/** How old an item is, by its Work ID's number (PIE-12 before PIE-120); an item with none sorts last. */
+const ageOf = (c: Pick<TwinCandidate, "workId">) => Number(/-(\d+)$/.exec(c.workId)?.[1] ?? Infinity);
 
 /** One candidate as an agent or a hint row reads it: `PIE-12 (doing) Title · same work 0.86`. */
 export function twinLine(c: Omit<TwinCandidate, "said">): string {

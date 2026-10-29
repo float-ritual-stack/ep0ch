@@ -120,3 +120,23 @@ test("the truth table: Jev's no outranks a shared title; a step of it is attach,
   const open = [{ id: "a", text: "PIE-9 — Paint the shed [work-id::PIE-9] [work-stage::later]", properties: [{ key: "work-id", value: "PIE-9" }, { key: "work-stage", value: "later" }] }] as Block[];
   expect(twinCandidates(open, "shed paint")[0]).toMatchObject({ workId: "PIE-9", title: "Paint the shed", stage: "later" });
 });
+
+// PIE-1402, found in use: a ticket filed in other words got no warning (candidates came from the title's words alone),
+// and a close duplicate named the newer twin, not the original.
+test("a twin filed in other words meets its original: its body's words make the candidate, Jev reads it as the same", async () => {
+  const { create } = await setup({ jev: (id, q) => id.startsWith("same::") && q.instructions.includes("tomato") ? 0.88 : undefined });
+  // No title word in common with "Water the tomato beds every morning"; its body says the same thing.
+  const refused = await create("Daily irrigation for the vegetable plot", { body: "Each morning the tomato beds get watered, and the garden board shows which ones." }).then(() => null, (e: Error) => e.message);
+  expect(refused).toContain("PIE-001 (doing) Water the tomato beds every morning · same work, Jev 0.88");
+});
+
+test("of two twins, the original is named first, the newer one after it", async () => {
+  const { create, store } = await setup({ jev: (id, q) => id.startsWith("same::") && q.instructions.includes("shed") ? (q.instructions.includes("PIE-002") ? 0.81 : 0.95) : undefined });
+  // A twin of PIE-002 filed beside it earlier, worded closer to the new one.
+  store.createRoadmapItem({ title: "Paint the shed door a bright blue", project: "garden", arc: "beds", tracks: ["beds"], priority: "low", workStage: "queued" });
+  const refused = await create("Paint the shed door a bright blue colour").then(() => null, (e: Error) => e.message);
+  const lines = refused!.split("\n").filter(l => l.startsWith("  - "));
+  expect(lines[0]).toContain("PIE-002 (queued) Paint the shed door blue");
+  expect(lines[1]).toContain("PIE-004");
+  expect(refused).toContain('attach: "PIE-002"');
+});

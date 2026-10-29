@@ -10,7 +10,7 @@ import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
-import { changelogSections, groom, groomVerdict, keepGroom, latestLines, namedIn } from "../src/work-groom";
+import { changelogSections, groom, groomCandidates, groomSummary, groomVerdict, keepGroom, latestLines, namedIn } from "../src/work-groom";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -113,4 +113,25 @@ test("a pass over a scratch board: one request per ticket, a comment on the conf
   expect(ticket.properties.find(p => p.key === "work-stage")?.value).toBe("queued");
   expect(await props("system-view=jev-done")).toHaveLength(1);
   expect((await props("type=jev-run experiment=work-groom"))[0]).toMatchObject({ items: "2", suggested: "1", "tokens-in": "2000", cost: "0.000084" });
+});
+
+// PIE-1402, found in use: a groom that judged everything open printed counts only, and a duplicate filed in other words
+// was never a candidate (the matcher read the title alone).
+test("a ticket's candidates come from its body too; the summary lists every open ticket with what it was read against", () => {
+  const block = (id: string, title: string, body: string, stage = "queued") => ({ id, text: `${id} — ${title} [work-id::${id}] [work-stage::${stage}]\n\n${body}`, properties: [{ key: "work-id", value: id }, { key: "work-stage", value: stage }] }) as unknown as Block;
+  const ticket = block("PIE-30", "Daily irrigation for the vegetable plot", "Each morning the tomato beds get watered.");
+  const twin = block("PIE-3", "Water the tomato beds every morning", "Evan sees which beds were watered.");
+  const c = groomCandidates(ticket, [{ id: "pr:0", kind: "pr", title: "Tomato beds watered on a timer (#12)", text: "Tomato beds watered on a timer" }], [ticket, twin]);
+  expect(c.tickets.map(t => t.workId)).toContain("PIE-3");
+  expect(c.shipped.map(s => s.title)).toContain("Tomato beds watered on a timer (#12)");
+  const summary = groomSummary({
+    rows: [
+      { ticket: "PIE-30", id: "a", title: "Daily irrigation for the vegetable plot", verdict: "open", confidence: 0.4, evidence: "close but under 0.8: PIE-3: Water the tomato beds every morning", by: "jev" },
+      { ticket: "PIE-31", id: "b", title: "Build a compost bin", verdict: "open", confidence: 1, evidence: "nothing shipped or filed does it", by: "jev" },
+    ],
+    counts: { solved: 0, superseded: 0, duplicate: 0, open: 2, unjudged: 0 }, tokens: 10, cost: "0.000001", jev: "asked",
+  });
+  const open = summary.split("\n").slice(summary.split("\n").indexOf("open (what each was read against):") + 1);
+  expect(open[0]).toContain("PIE-30 0.40 Daily irrigation for the vegetable plot · close but under 0.8: PIE-3");
+  expect(open[1]).toContain("PIE-31");
 });
