@@ -1,3 +1,4 @@
+import type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 import { SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import type { Ctx } from "../app";
@@ -62,7 +63,7 @@ export const jevOff = new WeakSet<object>();
 export const COMPLETION_ROWS = 14;
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "followPage" | "listExtensions"> & Partial<Pick<SocketBoard, "completionRows" | "completionPicked">>;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "followPage" | "listExtensions"> & Partial<Pick<SocketBoard, "completionRows" | "completionPicked" | "searchPicked">>;
 
 /**
  * Anything outline text is written in (PIE-626): a `Draft`, or a `LineField` (a property's value, a filter). The completer
@@ -112,6 +113,8 @@ export interface CompletionLookup {
   heading?: string;
   /** The key a pick of this list is counted under (`completion.picked`). */
   pickKey?: string;
+  /** How sure Jev's order is (PIE-1198), the service's call: the footer says "no strong match" when it isn't. */
+  sure?: SearchCertainty;
 }
 
 /** The note a draft's search asks from: its own note, else the note it's about (a comment's, a new card's view). */
@@ -243,6 +246,7 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   const heading = all.map(a => a.heading).find(Boolean);
   return {
     items, truncated, message, ...(all.some(a => a.jev === "ranked") ? { jev: "ranked" as const } : {}), ...(all.some(a => a.jevOff) ? { jevOff: true } : {}),
+    ...(all.find(a => a.sure)?.sure ? { sure: all.find(a => a.sure)!.sure! } : {}),
     // Only a token the service answers has picks kept for it (a fence's settings, a button's steps don't: nothing reads them).
     ...(heading ? { heading } : {}), ...(triggerOf(target.kind) ? { pickKey: pickKey({ trigger: triggerOf(target.kind), kind: target.kind, key: target.key }) } : {}),
   };
@@ -689,6 +693,8 @@ export class Completer {
       if (!await insertCompletion(this.board, this.d, s.target, item, this.own(), () => this.current(turn))) return false;
       // Counted by the outline host (PIE-1340), so this pick ranks higher next time, here and in every other client.
       if (s.pickKey) void this.board.completionPicked?.(s.pickKey, item.insertion).catch(() => {});
+      // A note picked from a list Jev ranked: the words and the note, kept as the search eval's label (PIE-1197).
+      if (s.jev === "ranked" && item.blockId) this.board.searchPicked?.(s.target.query, item.blockId, index, "complete");
       this.dismiss();
       // A folder leaves `[file::notes/` open: its entries are offered next; a filter's key `stage:` its values. A chosen value ends it
       // (the cursor is still in its word, which would offer the same value again).
@@ -995,7 +1001,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   s.listWidth = drawn.listWidth;
   rows.push(...drawn.rows); out.push(...drawn.lines);
   // Whether Jev ordered the list, said quietly first, where a narrow popup doesn't cut it.
-  const jev = s.jev === "ranked" ? "jev ranked · " : s.jev === "asking" ? "jev… · " : "";
+  const jev = s.jev === "ranked" ? (s.sure && s.sure.verdict !== "strong" ? "no strong match · " : "jev ranked · ") : s.jev === "asking" ? "jev… · " : "";
   const hint = completionHint(s, selected);
   const enter = enterKeeps(s);
   const keys = enter ? `↑↓ tab ⏎ ${enter} esc` : "↑↓ ⏎/tab esc";

@@ -930,13 +930,14 @@ export class SocketBoard implements Board {
     return this.request<SearchHits>("tree.search", { query: text, ...(opts.limit !== undefined ? { limit: opts.limit } : {}), ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) }, undefined, opts.signal);
   }
 
-  /** `searchBlocks`, at most `limit` hits read whole for a preview, with what Jev did (`semantic`). */
-  async search(text: string, limit: number, opts: SearchOptions = {}): Promise<Msg[] & { semantic?: SearchHits["semantic"] }> {
+  /** `searchBlocks`, at most `limit` hits read whole for a preview, with what Jev did (`semantic`) and its Score per hit (`scores`). */
+  async search(text: string, limit: number, opts: SearchOptions = {}): Promise<Msg[] & { semantic?: SearchHits["semantic"]; scores?: Map<string, number> }> {
     const r = await this.searchBlocks(text, opts);
     const ids = r.matches.slice(0, Math.min(1000, limit)).map(m => m.block.id);
     // A search replaced meanwhile (its signal aborted) stops reading its hits.
     const by = new Map((ids.length ? (await this.readBlocks(ids, opts.signal)).blocks : []).map(m => [m.id, m]));
-    return Object.assign(ids.flatMap(id => by.get(id) ?? []), { semantic: r.semantic });
+    const scores = new Map(r.matches.flatMap(m => m.score !== undefined ? [[m.block.id, m.score] as const] : []));
+    return Object.assign(ids.flatMap(id => by.get(id) ?? []), { semantic: r.semantic, ...(scores.size ? { scores } : {}) });
   }
 
   async callers(): Promise<Caller[]> {
