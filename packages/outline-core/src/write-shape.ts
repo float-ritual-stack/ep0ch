@@ -252,10 +252,16 @@ function masked(text: string): string {
   const out = [...text];
   const blank = (start: number, end: number) => { for (let i = start; i < end; i++) out[i] = "x"; };
   for (const ref of blockReferenceOccurrences(text, [])) blank(ref.start, ref.end);
-  for (const re of [/\[[\w-]+::[^\]]*\]/g, /`[^`]*`/g, /\[\[[^\]]*\]\]|\[[^\]]*\]\([^)]*\)/g, /https?:\/\/\S*[^\s.,;:!?)]/g, ABBREVIATION, /\d\.\d/g]) {
+  for (const re of [/\[[\w-]+::[^\]]*\]/g, /`[^`]*`/g, /\[\[[^\]]*\]\]|\[[^\]]*\]\([^)]*\)/g, /\w+:\/\/\S*[^\s.,;:!?)]/g, ABBREVIATION, /\d\.\d/g]) {
     for (const m of text.matchAll(re)) blank(m.index!, m.index! + m[0].length);
   }
-  return out.join("");
+  // Nothing ends a point inside brackets, parentheses or quotes: blanked from the innermost out, after code and links.
+  let masked = out.join("");
+  for (let before = ""; before !== masked;) {
+    before = masked;
+    masked = masked.replace(/\([^()]*\)|\[[^\[\]]*\]|"[^"\n]*"|“[^”\n]*”/g, m => "x".repeat(m.length));
+  }
+  return masked;
 }
 
 /**
@@ -311,7 +317,7 @@ function stackedPatch(lines: readonly string[], p: Paragraph, points: string[]):
   const rows = lead
     ? [`${quote}${indent}${marker}${lead[1]}`, ...[lead[2]!, ...points.slice(1)].map(point => `${quote}${indent}  ${bullet}${point}`)]
     : [`${quote}${indent}${marker}${points[0]}`, ...points.slice(1).map(point => `${quote}${indent}${bullet}${point}`)];
-  return [{ observed: sourceOf(lines, p), replacement: rows.join("\n") }];
+  return keepsEverything(sourceOf(lines, p), rows.join("\n"));
 }
 
 /** A wall of sentences made into a list, one sentence a line. */
@@ -319,7 +325,16 @@ function wallPatch(lines: readonly string[], p: Paragraph): ShapePatch[] | undef
   const points = splitPoints(rawOf(lines, p), { clauses: false });
   if (points.length < 2) return undefined;
   const { quote, indent } = leadOf(lines[p.line]!);
-  return [{ observed: sourceOf(lines, p), replacement: points.map(point => `${quote}${indent}- ${point}`).join("\n") }];
+  return keepsEverything(sourceOf(lines, p), points.map(point => `${quote}${indent}- ${point}`).join("\n"));
+}
+
+/**
+ * The patch, only when it keeps every character the passage had, in order (the bullets, quote marks and indent it adds
+ * aside): a ready patch that could drop a word, a code span or a property is worse than none.
+ */
+function keepsEverything(observed: string, replacement: string): ShapePatch[] | undefined {
+  const words = (text: string) => text.replace(/^[ \t>]*(?:[-*+]|\d+[.)])[ \t]+/gm, "").replace(/\s+/g, "");
+  return words(observed) === words(replacement) ? [{ observed, replacement }] : undefined;
 }
 
 /** A title line cut at its first break under the limit (`: `, a dash, `. `, `, `): the name stays, the rest is the first paragraph. */
@@ -356,7 +371,7 @@ function bareIds(lines: readonly string[], structure: readonly number[], title: 
     if (i === title || structure[i] !== -1) return;
     const shown = [...raw];
     for (const ref of blockReferenceOccurrences(raw, [])) for (let k = ref.start; k < ref.end; k++) shown[k] = " ";
-    for (const m of raw.matchAll(/\[[\w-]+::[^\]]*\]|`[^`]*`|https?:\/\/\S+|\[\[[^\]]*\]\]/g)) for (let k = m.index!; k < m.index! + m[0].length; k++) shown[k] = " ";
+    for (const m of raw.matchAll(/\[[\w-]+::[^\]]*\]|`[^`]*`|\w+:\/\/\S+|\]\([^)]*\)|\[\[[^\]]*\]\]/g)) for (let k = m.index!; k < m.index! + m[0].length; k++) shown[k] = " ";
     const ids = [...shown.join("").matchAll(/(?<![\w-]|\(\()[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\w-])/g)];
     if (!ids.length) return;
     let fixed = raw;
