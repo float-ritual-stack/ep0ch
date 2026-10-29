@@ -18,6 +18,9 @@ describe("the button part", () => {
   test("its state takes the glyph's place, and disabled is drawn in parentheses", () => {
     expect(plain(buttonRows("Sync", { glyph: "⟳", state: "running" }))).toEqual(["[◐ Sync…]"]);
     expect(plain(buttonRows("Sync", { glyph: "⟳", state: "failed", why: "it broke" }))).toEqual(["[! Sync]"]);
+    // With no glyph its words stay as written while it runs and after (its colour says it); failed still says !.
+    expect(plain(buttonRows("New game", { state: "done" }))).toEqual(["[New game]"]);
+    expect(plain(buttonRows("New game", { state: "failed" }))).toEqual(["[! New game]"]);
     expect(plain(buttonRows("Lock", { state: "disabled", why: "no tile shed" }))).toEqual(["(Lock)"]);
   });
 

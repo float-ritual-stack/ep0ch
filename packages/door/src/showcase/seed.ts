@@ -191,7 +191,8 @@ if (request.input.request === "describe the beds") {
   await make(notes.scripts.id, "Seed count [script::seed-count]\n```js\nreturn (await q('script')).blocks.length;\n```");
   await make(notes.scripts.id, "Beds table [script::beds-table] [mode::render]\n```js\nconst owner = (await resolve('this.owner')).values[0];\nreturn view.table({ columns: ['Owner', 'Week', 'Crop'], rows: [[owner, props.week[0], this.title]] });\n```");
   notes.buttonSequences = await make(notes.root.id, BUTTON_SEQUENCES);
-  notes.buttons = await make(notes.root.id, BUTTON_LOOKS);
+  // Under the sequences, so the root's list (the panes section's tree) keeps its length.
+  notes.buttons = await make(notes.buttonSequences.id, BUTTON_LOOKS);
   notes.pickATile = await make(notes.root.id, PICK_A_TILE);
   notes.scriptsInPlace = await make(notes.root.id, [
     `${SEED.scriptsInPlace} [owner::Sam] [crop::beans] [publish::public:scripts-in-place]`,
@@ -776,6 +777,9 @@ export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; not
     const hit = byTitle(level).get(SEED.threadHere);
     if (hit) notes.threadHere = (await board.get(hit.id)) ?? hit;
   }
+  // The buttons section's note sits under the sequences' (PIE-1287).
+  const looks = notes.buttonSequences && byTitle(await board.children(notes.buttonSequences.id)).get(SEED.buttons);
+  if (looks) notes.buttons = (await board.get(looks.id)) ?? looks;
   // The routing section's shelf, tin and recipe sit under its note (PIE-1010).
   if (notes.routing) {
     const under = byTitle(await board.children(notes.routing.id));

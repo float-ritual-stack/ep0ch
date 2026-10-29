@@ -20,14 +20,17 @@ const TONES: Readonly<Record<ButtonTone, { text: number; fill: number; on: numbe
 };
 /** What a state draws in place of the author's glyph, and its colour (none keeps the tone's). */
 const STATES: Readonly<Record<ButtonState, { glyph?: string; text?: number }>> = {
-  idle: {}, running: { glyph: "◐" }, done: { glyph: "✓", text: C.lgreen }, failed: { glyph: "!", text: C.lred }, disabled: { text: C.dark },
+  idle: {}, running: { glyph: "◐", text: C.yellow }, done: { glyph: "✓", text: C.lgreen }, failed: { glyph: "!", text: C.lred }, disabled: { text: C.dark },
 };
 const FRAMES: Readonly<Record<Exclude<ButtonFrame, "none">, BoxGlyphs>> = { box: LINE_BOX, ...BORDER_BOXES };
 
-/** The words on a button: its state's glyph (or the author's), the label, and `…` while it runs. */
+/**
+ * The words on a button: the label after its glyph, whose place a state takes (◐ running, ✓ done) and `…` while it runs. A button
+ * with no glyph says running and done by colour alone, so its words stay what was written; failed always says `!`, until pressed again.
+ */
 export function buttonWords(label: string, look: ButtonLook = {}): string {
-  const state = look.state ?? "idle", glyph = STATES[state].glyph ?? look.glyph;
-  return `${glyph ? `${glyph} ` : ""}${label}${state === "running" ? "…" : ""}`;
+  const state = look.state ?? "idle", glyph = look.glyph || state === "failed" ? STATES[state].glyph ?? look.glyph : undefined;
+  return `${glyph ? `${glyph} ` : ""}${label}${state === "running" && look.glyph ? "…" : ""}`;
 }
 
 /**
@@ -73,9 +76,13 @@ export function pressState(block: string, line: number): Pick<ButtonLook, "state
   return { state: p.state, ...(p.why ? { why: p.why } : {}) };
 }
 
+/** A press that answers sooner than this never shows running, nor done after: only one that took a while needs saying. */
+export const RUNNING_MS = 150;
+
 /**
- * Run `press` as the button on `line` of `block`: running while it runs, then done or failed with its words. A script run that
- * outlasts the service's wait answers `state: "running"` and its id (`undo`): it stays running until `scripts.ended` (pressEnded).
+ * Run `press` as the button on `line` of `block`: running once it has taken RUNNING_MS, then done; failed with its words at
+ * once. A script run that outlasts the service's wait answers `state: "running"` and its id (`undo`): it stays running until
+ * `scripts.ended` (pressEnded).
  */
 export async function pressing<T>(block: string, line: number, redraw: () => void, press: () => Promise<T>): Promise<T> {
   const key = keyOf(block, line), settle = (p: Omit<Pressed, "at">) => {
@@ -83,19 +90,21 @@ export async function pressing<T>(block: string, line: number, redraw: () => voi
     redraw();
     if (p.state === "done") setTimeout(redraw, DONE_MS + 50);
   };
-  presses.set(key, { state: "running", at: Date.now() });
-  redraw();
+  presses.delete(key);
+  let shown = false;
+  const slow = setTimeout(() => { shown = true; presses.set(key, { state: "running", at: Date.now() }); redraw(); }, RUNNING_MS);
   try {
     const r = await press();
     const answer = r && typeof r === "object" ? r as { state?: string; message?: string; undo?: string } : {};
     if (answer.state === "running" && answer.undo) settle({ state: "running", run: answer.undo });
     else if (answer.state === "failed") settle({ state: "failed", why: answer.message ?? "it failed" });
-    else settle({ state: "done" });
+    else if (shown) settle({ state: "done" });
+    else presses.delete(key);
     return r;
   } catch (e) {
     settle({ state: "failed", why: e instanceof Error ? e.message : String(e) });
     throw e;
-  }
+  } finally { clearTimeout(slow); }
 }
 
 /** A script run ended (`scripts.ended`): the button that started it is done, or failed, or a button again when it was stopped. */
