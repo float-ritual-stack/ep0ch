@@ -12,7 +12,8 @@ are its record. The outliner's entries from then are kept below, under
 
 ### The keys window and the trail are tiles you resize, dock and close; ⏎ runs a key; Conflicts are real (PIE-1425)
 
-- **`?` opens the keys window as a tile beside the one you're in** on the desk, the board and the river: drag its
+- **`?` opens the keys window as a tile beside the one you're in** (below it when that one is narrow, so both keep
+  their width) on the desk, the board and the river: drag its
   border, dock it, `esc` or `q` closes it and the keys go back where they were. `?` again goes back to it.
 - **`⏎` runs the selected row** where you opened the window, as its key would there (a second click on the row too).
   One that needs arguments (`^W o` opens a tile, which kind?) asks for them in the power bar's form.

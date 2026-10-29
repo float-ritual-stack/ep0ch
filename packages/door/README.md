@@ -2041,7 +2041,7 @@ The board's new-card composer is the same control too.
 ### The keys window (PIE-492)
 
 `?` on any screen opens every key binding the door has, filtered to where you are (`in:note` in a reader, `in:board`
-on the board): on the desk, the board and the river a **keys tile** beside the one you're in, resized by its border,
+on the board): on the desk, the board and the river a **keys tile** beside the one you're in (below a narrow one), resized by its border,
 docked and closed like any tile (`?` again goes back to it); elsewhere the keys screen. `/` and type to filter by a key
 (`^W x`), an action (`tile.close`), a scope or words. Each row is a keycap, where it works and what it does, as a whole
 sentence; the detail says what it runs, its layer, what it takes the key from, what gets it first and whether a terminal
