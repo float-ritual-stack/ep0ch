@@ -21,6 +21,16 @@ are its record. The outliner's entries from then are kept below, under
 - **One way to say how old:** `29s`, `29 s` or `29 s ago`, with one rounding, in the door, Detail and the CLIs.
 - **What to run:** `GRAMMAR` is 10; an older renderer warns once until `ep0ch install --apply`.
 
+### The parity walk reads the paint it follows, and probes the power bar on purpose (PIE-1347)
+
+- **Fewer looks, same work:** a probe's look reuses the door's last paint instead of drawing the screen again (it never
+  matched before: 4,196 looks in the EchoNet read, now ~960). Every probe, input state and replay is the same as main's.
+- **The power bar is an input state:** the first key in a part that opens it has the bar's keys probed, with the bar's rows
+  compared; before, it was typed into only when a reader's state was lost unseen. Its 150 ms pause stays as shipped
+  (`EP0CH_BAR_ASK_MS` is gone): the walk ends it with the bar's `askNow`, and `settled()` resolves on the last answer.
+- **Counts, not seconds:** the EchoNet scenarios fail on more looks, paints or host round trips than they make today, not
+  on time.
+
 ### Buttons look like buttons, and the power bar's extensions read at a glance (PIE-1287, PIE-1284)
 
 - **A button says how it looks:** `::button{… glyph="▶" tone=primary frame=round fill=on}`. Tones are quiet, primary

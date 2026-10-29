@@ -63,7 +63,7 @@ export const PROBE_KEYS: Key[] = [
  */
 const ageless = (l: string) => l.replace(/(\x1b\[[\d;?]*[A-Za-z])|(?<![\d.:])\d+[smhd](?![A-Za-z0-9])/g, (m, esc) => esc ?? "#age");
 
-interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; drawer: string; /** The power bar is open. */ bar?: boolean; /** The hint row as drawn (checkHint), when the screen was drawn for this look. */ hint?: string }
+interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; drawer: string; /** The power bar's rows as drawn over the screen, when it's open ("" when it isn't). */ bar?: string; /** The hint row as drawn (checkHint), when the screen was drawn for this look. */ hint?: string }
 interface Finding { screen: string; keys: string; problem: string }
 
 /**
@@ -80,7 +80,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   /** Keys read as one chunk of input (Term's onBatch): handled together, the screen painted once after them. */
   let batch: (run: () => void) => void = run => run();
   // Settled means no answer from the host is awaited, whichever way the screen asked (test/settle.ts).
-  // The power bar (ctrl+k) still asking its sources is not settled either: its rows land after.
+  // The power bar (ctrl+k) still asking its sources is not settled either: its rows land after. Its pause after typing (150 ms, as
+  // shipped) is run out at once (askNow, in settle): the walk's clock, not a wait on every key typed there.
   const hosts = watchHosts(() => { const bar = (app as any)?.bar; return !!bar && (bar.asking.size > 0 || !!bar.timer); });
   // The door paints at most every 16 ms (App.redraw): a paint asked for too soon waits on a timer and fires whenever the event
   // loop next turns, between two probes at random. Settled means that paint was made, now: the screen the probe looks at is the
@@ -94,6 +95,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const settle = async () => {
     for (let i = 0; ; i++) {
       const h0 = performance.now();
+      A()?.bar?.askNow();
       await hosts.settle();
       stats.hostMs += performance.now() - h0;
       if (!flushPaint()) return;
@@ -123,15 +125,13 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
 
   beforeAll(async () => {
     const env = { ...process.env };
-    restore.push(() => { for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "VISUAL", "EDITOR", "EP0CH_EDIT_ARM", "EP0CH_BAR_ASK_MS"]) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; } });
+    restore.push(() => { for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "VISUAL", "EDITOR", "EP0CH_EDIT_ARM"]) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; } });
     process.env.EP0CH_STATE = join(scratch.root, "door");
     mkdirSync(process.env.EP0CH_STATE, { recursive: true, mode: 0o700 });
     // The daily layout's agent: a program that prints nothing, so no prompt arrives between two looks.
     process.env.EP0CH_DAILY_AGENT = "sleep 3600";
     // e arms the edit (edit.arm): a window longer than any probe, so an arm never runs out between a key and the next.
     process.env.EP0CH_EDIT_ARM = "600000";
-    // The power bar asks its searching sources at once, not after typing pauses: settle() waits for the answer anyway.
-    process.env.EP0CH_BAR_ASK_MS = "0";
     // ctrl+e hands the note to $EDITOR: one that exits at once, so the probe goes on.
     process.env.VISUAL = process.env.EDITOR = "true";
     // Over the whole door, as on a screen without tiles, not in a tile beside the note (PIE-417): whether that
@@ -153,12 +153,14 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       painted = null;
       if (top) top.render = function (this: Screen, ...r: Parameters<Screen["render"]>) {
         const frame = render!.apply(this, r);
-        painted = { top, lines: frame.lines, at: frames(), refused: !!A().refusedNow };
+        painted = { top, lines: frame.lines, at: -1, refused: !!A().refusedNow };
         return frame;
       };
       const t0 = performance.now();
       try { return paint.apply(this, a); } catch (e) { paintFailed = e; /* the probe says it (snap) */ }
-      finally { stats.paints++; stats.paintMs += performance.now() - t0; if (top) { if (own) top.render = render!; else delete (top as { render?: unknown }).render; } }
+      // Stamped with the frame the paint made: the door counts it after the screen's render, so stamped there it named the frame
+      // before, never matched, and every look drew the screen again (PIE-1347: 4,196 looks, 7.4 s of one walk).
+      finally { stats.paints++; stats.paintMs += performance.now() - t0; const drew = painted as { top: Screen; at: number } | null; if (drew && drew.top === top) drew.at = frames(); if (top) { if (own) top.render = render!; else delete (top as { render?: unknown }).render; } }
     };
     restore.push(() => { (App.prototype as any).paint = paint; });
     const run = external.run;
@@ -233,19 +235,28 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     } catch (e) { lines = [`render threw ${e}`]; }
     if (paintFailed) { lines = [`render threw ${paintFailed}`]; paintFailed = null; }
     // A glance is the screen drawn and nothing to compare: what a build does between its keys (no description, no whereabouts).
-    if (glance) return { top, depth: A().stack.length, lines, about: "", holds: false, video: app.video, drawer: dock(), bar: !!A().bar };
+    if (glance) return { top, depth: A().stack.length, lines, about: "", holds: false, video: app.video, drawer: dock(), bar: barRows() };
     let about = "";
     try { about = JSON.stringify(top?.describe?.() ?? null); } catch { about = "?"; }
-    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: app.person().busy, video: app.video, drawer: dock(), hint, bar: !!A().bar };
+    // The power bar open holds the keys too (they type its query): the door doesn't count it busy, but the walk's an input state.
+    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: app.person().busy || !!A().bar, video: app.video, drawer: dock(), hint, bar: barRows() };
   };
   /**
    * The drawer over the screen: up or put away, the person in it or not, its height. Its rows are the
    * agent's terminal (they change by themselves), so the dock is compared by these, not by what it draws.
    */
+  /** The power bar as the door draws it over the screen (its query, scope and rows), or "" when it's closed. */
+  const barRows = (): string => {
+    const bar = A().bar;
+    if (!bar) return "";
+    const { cols, rows } = A().term.info;
+    try { return bar.draw(cols, rows - 1).lines.map(ageless).join("\n"); } catch (e) { return `bar threw ${e}`; }
+  };
   const dock = () => { const d = A().drawer; return `${d.shown}|${d.entered}|${d.share}`; };
   /** The same screen shown the same way (`about`: and described the same; two builds differ in ids and revisions). */
-  const alike = (a: Snap, b: Snap, about = true) => a.top?.constructor === b.top?.constructor && a.depth === b.depth && a.video === b.video && a.drawer === b.drawer && (!about || a.about === b.about) && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
-  const same = (a: Snap, b: Snap) => a.top === b.top && a.depth === b.depth && a.video === b.video && a.drawer === b.drawer && a.about === b.about && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
+  // The power bar is drawn over the screen, not by it (none of the screen's rows shows it): its rows are compared on their own.
+  const alike = (a: Snap, b: Snap, about = true) => a.top?.constructor === b.top?.constructor && a.depth === b.depth && a.video === b.video && a.drawer === b.drawer && (a.bar ?? "") === (b.bar ?? "") && (!about || a.about === b.about) && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
+  const same = (a: Snap, b: Snap) => a.top === b.top && a.depth === b.depth && a.video === b.video && a.drawer === b.drawer && (a.bar ?? "") === (b.bar ?? "") && a.about === b.about && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
 
   /** A fresh screen on the stack (over the menu), settled; and the rows that change by themselves (a clock, a meter). */
   /** A screen gone for good: what it started ends too (a desk keeps its programs running otherwise). */
@@ -254,7 +265,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   };
   const masks = new Map<string, Set<number>>();
   /** A fresh screen on the stack (over the menu), settled; and the rows that change by themselves (a clock, a meter). */
-  const stats = { fresh: 0, freshMs: 0, second: 0, unsettled: 0, paints: 0, paintMs: 0, looks: 0, lookMs: 0, pressMs: 0, settleMs: 0, hostMs: 0 };
+  const stats = { fresh: 0, freshMs: 0, freshPaints: 0, freshAsked: 0, second: 0, unsettled: 0, paints: 0, paintMs: 0, looks: 0, lookMs: 0, pressMs: 0, settleMs: 0, hostMs: 0 };
   /**
    * A scenario is held to a budget (PARITY_BUDGET_MS, 60 s): past it the scenario fails by name, with the slowest key and the
    * slowest build, rather than running on to the test's own timeout (PIE-1307: one ran 570 s against a 600 s limit and took the
@@ -272,8 +283,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const overBudget = (label: string, doing: string) => replaying || budget.check(label, doing, { builds: stats.fresh, buildMs: stats.freshMs, seconds: stats.second });
   const fresh = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
     overBudget(label, "a build");
-    stats.fresh++; const f0 = performance.now();
-    try { return await freshWith(label, make, setup); } finally { const ms = performance.now() - f0; stats.freshMs += ms; budget.build(ms); }
+    stats.fresh++; const f0 = performance.now(), p0 = stats.paints, a0 = hosts.asked();
+    try { return await freshWith(label, make, setup); }
+    finally { const ms = performance.now() - f0; stats.freshMs += ms; stats.freshPaints += stats.paints - p0; stats.freshAsked += hosts.asked() - a0; budget.build(ms); }
   };
   /**
    * A setup's keys are a way to a state, not what is probed. Pressed one by one each paints the screen (a person's keys do),
@@ -556,11 +568,12 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         const after = snap(mask);
         // The bar, probed already in this part: what opened it is checked like any key, then it is put away (a cancel). Before
         // the screens are compared: the bar is drawn over the screen, not by it, so a key that opens it changes no row of it.
+        // Built again after: the key that opened it may have ended the state (^W's prefix taken by ^W ?) while the screen looks as
+        // it did, and the keys after it went on from there outside the state (PIE-1347: ^W r ran echo.reply, not tile.layout.load).
         if (barProbed(!!mid.bar) && runs.length && declares(tokens(runs), k2, k1)) {
-          putBarAway(); await settle();
-          const again = snap(mask);
-          if (entered && alike(entered, again)) cur = again; else dirty = true;
-            continue;
+          putBarAway();
+          dirty = true;
+          continue;
         }
         if (same(mid, after)) { cur = after; continue; }
         // Typing that keeps the state goes on from where it is (most second keys are text).
@@ -709,11 +722,12 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const GLOBAL_SCOPES = new Set(["shell", "drawer", "extensions", "new"]);
   const sharedStates = new Set<string>();
   /**
-   * The power bar (ctrl+k, a screen's `/`) is the App's, the same over every screen: its keys are probed the first time a key
-   * opens it in a part, and after that a key that opens it is checked (it ran an action that names it) and the bar put away,
-   * not typed into again. Each key typed there is a search of its own (EP0CH_BAR_ASK_MS=0): 157 keys from each of a
-   * reader's seven input states were most of the EchoNet walk's host waits (PIE-1347), and those keys never reached the
-   * state itself. Put away, they do: the walk probes more of each state in less time.
+   * The power bar (ctrl+k, a screen's `/`) is the App's, the same over every screen: the first key in a part that opens it starts an
+   * input state like any other (its keys type the query), and after that a key that opens it is checked (it ran an action that
+   * names it) and the bar put away, not typed into again. Each key typed there is a search of its own (the pause run out at once,
+   * settle). Until PIE-1347 the bar was no input state at all (open, it holds no keys the door counts, and draws no row of the
+   * screen): it was typed into only when a key let a reader's state go unseen and the next opened it, so a part probed it from
+   * seven states or none.
    */
   const barProbed = (wasOpen: boolean) => {
     if (wasOpen || !A().bar) return false;
@@ -722,6 +736,27 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     return false;
   };
   const putBarAway = () => { A().bar?.close(); A().bar = null; app.redraw(); };
+
+  /**
+   * What a scenario may count, not how long it may take (PIE-1347): a time limit fails on a busy box, a count only when the walk
+   * or the door does more. `looks`: the screen drawn by a probe because no paint of the door's was current (a look reads the last
+   * paint's rows otherwise); `paints`: the door's frames; `host`: round trips to the outline host. Each is what the scenario counted
+   * alone (PARITY_ONLY) as the part's first to open the power bar, which types its keys there (a scenario after one that did counts
+   * less), plus a quarter.
+   */
+  const COUNTS: Record<string, { looks: number; paints: number; host: number }> = {
+    // Oct 28, float-box: 367 looks, 1,911 paints, 631 round trips (its `/` state: the bar's keys and the builds they end); 1,515
+    // looks before a look read the paint it followed.
+    "echonet: messages": { looks: 460, paints: 2400, host: 790 },
+    // 963, 5,587 and 2,167; 4,196 looks before. The paints: ~4 a build (setup down, enter, enter, each key painting) over ~600
+    // builds, and one a probe's key over ~3,000 keys; the round trips ~2 a build, and one a key typed in the bar.
+    "echonet: a message read": { looks: 1200, paints: 7000, host: 2710 },
+  };
+  const overCounts = (label: string, got: { looks: number; paints: number; host: number }) => {
+    const limit = COUNTS[label];
+    if (!limit) return [];
+    return (Object.keys(limit) as (keyof typeof limit)[]).filter(k => got[k] > limit[k]).map(k => `${label}\t-\t${got[k]} ${k} where at most ${limit[k]} are expected (PIE-1347: PARITY_LOG gives the split, PARITY_KEYS each key's)`);
+  };
 
   type Scenario = [string, () => Screen | Promise<Screen>, Key[]?];
   const k = (ch: string): Key => ({ kind: "char", ch });
@@ -839,10 +874,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       for (const k of Object.keys(stats) as (keyof typeof stats)[]) stats[k] = 0;
       scenario = label; budget.start();
       await audit(label, make, setup ?? []);
-      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks; slowest key ${budget.worst().key} ${budget.worst().keyMs.toFixed(0)} ms, slowest build ${budget.worst().buildMs.toFixed(0)} ms; keys: ${stats.pressMs.toFixed(0)} ms handling, ${stats.settleMs.toFixed(0)} ms settling; ${stats.unsettled} unsettled; ${stats.paints} paints ${stats.paintMs.toFixed(0)} ms, ${stats.looks} looks ${stats.lookMs.toFixed(0)} ms; ${hosts.asked() - asked0} host round trips, ${stats.hostMs.toFixed(0)} ms waiting on hosts)\n`);
+      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks; slowest key ${budget.worst().key} ${budget.worst().keyMs.toFixed(0)} ms, slowest build ${budget.worst().buildMs.toFixed(0)} ms; keys: ${stats.pressMs.toFixed(0)} ms handling, ${stats.settleMs.toFixed(0)} ms settling; ${stats.unsettled} unsettled; ${stats.paints} paints ${stats.paintMs.toFixed(0)} ms (${stats.freshPaints} building), ${stats.looks} looks ${stats.lookMs.toFixed(0)} ms; ${hosts.asked() - asked0} host round trips (${stats.freshAsked} building), ${stats.hostMs.toFixed(0)} ms waiting on hosts)\n`);
+      const over = overCounts(label, { looks: stats.looks, paints: stats.paints, host: hosts.asked() - asked0 });
       for (const k of Object.keys(stats) as (keyof typeof stats)[]) stats[k] = 0;
       const mine = [...found, ...hintFound].slice(before).map(f => `${f.screen}\t${f.keys}\t${f.problem}`);
-      expect(mine).toEqual([]);
+      expect([...mine, ...over]).toEqual([]);
     }, budget.limitMs + 60_000);
   }
   // The other parts leave the shell's states to this one: a desk that stopped opening one would leave it unprobed.
