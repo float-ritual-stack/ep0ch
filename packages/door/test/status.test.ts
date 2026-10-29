@@ -311,6 +311,15 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { await board.trash(note.id, USER); }
   });
 
+  test("a button commented out in the bar note is no duplicate: pinning its label lands", async () => {
+    const note = await board.createBlock(null, 'Commented status [status-bar::true]\n- brand\n<!-- an example:\n- ::button{label="Neat" act="status.log"}\n-->');
+    try {
+      await until(() => bar().includes("ep0ch"), "the configured bar");
+      await app.dispatch.act({ action: "status.bar.pin", args: { line: '::button{label="neat" act="status.log"}' } }, USER);
+      await until(() => bar().includes("[neat]"), "the pinned button");
+    } finally { await board.trash(note.id, USER); }
+  });
+
   test("a button sits where its line is in the note, set off by the bar's separator on either side", async () => {
     // Evan, Oct 21: his Collapse line came after `- clock` and drew as `float-2 · pieCollapse`, glued to the location on the left.
     const note = await board.createBlock(null, 'Order status [status-bar::true]\n- machine\n::button{label="Fold" act="status.log"}\n- clock\n::button{label="Collapse" act="status.log"}');

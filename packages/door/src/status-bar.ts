@@ -237,7 +237,7 @@ export class StatusBarNote {
     this.note = await this.board.createBlock(null, [
       "Your status bar [status-bar::true]", "", ...builtins.map(i => `- ${i.id}`), "",
       '<!-- ::button{label="Collapse" act="tile.collapse tile=screen"} -->',
-      "<!-- A group opens its items as a menu:", "- Tools", '  - ::button{label="Neat" act="layout.neat"}', "  - theme", "-->",
+      "<!-- A group: - Tools, with - theme or - ::button{…} items indented under it, opens them as a menu -->",
     ].join("\n"), actor);
     await this.refresh(builtins);
     return this.note!;
@@ -247,7 +247,9 @@ export class StatusBarNote {
     const button = buttonCallsOf(line).find(b => b.act);
     if (!button) throw new ActionRefused("pin a ::button line with act= or of=");
     const note = await this.ensure(builtins, actor);
-    const duplicate = buttonCallsOf(note.text).find(b => b.label.toLowerCase() === button.label.toLowerCase());
+    // The bar's own reading (in a group, not in a comment): what the note would press.
+    const calls = (es: StatusEntry[]): ButtonCall[] => es.flatMap(e => (e.kind === "button" ? [e.call] : e.kind === "group" ? calls(e.children) : []));
+    const duplicate = calls(readStatusNote(note.text, builtins.map(b => b.id)).entries).find(b => b.label.toLowerCase() === button.label.toLowerCase());
     if (duplicate) throw new ActionRefused(`line ${duplicate.line + 1} already has label="${duplicate.label}"; choose a different label=`);
     const updated = await this.board.update(note.id, `${note.text}\n${line}`, note.revision!, actor);
     await this.refresh(builtins);
