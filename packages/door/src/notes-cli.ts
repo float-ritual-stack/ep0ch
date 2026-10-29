@@ -15,6 +15,7 @@
 // without it, plain text. `--cells` prints the same drawing as JSON cells (src/cells.ts) for a program that paints a
 // grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep. `--site` prints
 // the text and the service's whole `site.answer` for its `{{ }}` (PIE-533 S2), as a JSON line a program reads.
+import type { MachineryMode } from "@ep0ch/outline-core/machinery";
 import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
@@ -238,7 +239,7 @@ export interface Out { out: (s: string) => void; err: (s: string) => void; colum
 
 /** Which notes, by the outline's own reading: a query, a saved view, a subtree, words, or ids given. */
 /** `sort`/`direction`: the order the outline gives a query's notes (created, updated or a property key), as views sort. */
-export interface Selection { ids: string[]; query?: string; view?: string; under?: string; sort?: string; direction?: string; words: string[]; dates: string[]; /** Which chips the query reads (PIE-1277): block (the default), line, inline or all. */ propertyScope?: string }
+export interface Selection { ids: string[]; query?: string; view?: string; under?: string; sort?: string; direction?: string; words: string[]; dates: string[]; /** Which chips the query reads (PIE-1277): block (the default), line, inline or all. */ propertyScope?: string; /** What a query holds of the notes tools stamped `[machine::…]` (PIE-867): the service's hide when left out. */ machinery?: MachineryMode }
 
 /** The flags that select notes and take a value, and the query clause each date flag writes. */
 export const SELECT_FLAGS = ["--query", "--view", "--under", "--sort", "--direction", "--property-scope", "--updated-after", "--updated-before", "--created-after", "--created-before"];
@@ -345,7 +346,7 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
     } catch (e) { return refused(e); }
   } else if (filtered) {
     try {
-      const q = await board.queryIds({ expression, text, subtreeRootId: s.under, ...(s.sort ? { sort: { field: s.sort, direction: s.direction ?? "asc" } } : {}), ...(s.propertyScope ? { propertyScope: s.propertyScope } : {}) });
+      const q = await board.queryIds({ expression, text, subtreeRootId: s.under, ...(s.sort ? { sort: { field: s.sort, direction: s.direction ?? "asc" } } : {}), ...(s.propertyScope ? { propertyScope: s.propertyScope } : {}), ...(s.machinery ? { machinery: s.machinery } : {}) });
       if (q.truncated) truncated = "the outline's first 1000 matches";
       hint = q.hint;
       matches = q.matches;

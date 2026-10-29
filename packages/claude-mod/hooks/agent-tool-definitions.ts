@@ -159,7 +159,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       under: { type: "string", description: "Only blocks under this one (a ref)" },
       limit: { type: "integer", minimum: 1, maximum: 200 },
       propertyScope: { type: "string", enum: ["block", "line", "inline", "all"], description: "Which chips property, hasKey and query read: block (the note's own, the default) or all (any line too)" },
-      machinery: { type: "string", enum: ["hide", "only", "show"], description: "Notes tools wrote for their own bookkeeping (file touches, tosses, deliveries): left out unless this is show or only" },
+      machinery: { type: "string", enum: ["hide", "only", "show"], description: "Notes tools wrote for themselves, stamped [machine::…] (fetched notifications, file touches, tosses, deliveries): left out unless this is show or only (only with machine=notification: just the notifications). A recent-activity query (updated >= -1d) says how many it left out in machineryOmitted" },
     },
     required: [],
     command(input) {

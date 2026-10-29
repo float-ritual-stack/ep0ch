@@ -8,6 +8,7 @@ import { pathsOf, selectNotes, type NotesBoard } from "./notes-cli";
 import type { PropertyMatch } from "@ep0ch/outline-core/protocol";
 import { callRegistry, callShown } from "./mcp-calls";
 import { foldIds, type Changes, type FoldedRow } from "./mcp-orient";
+import { machineryLeftOut, type MachineryLeftOut, type MachineryMode } from "@ep0ch/outline-core/machinery";
 
 export const QUERY_LIMIT = { fallback: 20, max: 50 } as const;
 
@@ -26,6 +27,8 @@ export interface QueryAnswer {
   foldedFrom?: number;
   /** With `omitCall`: how many blocks only that call changed were left out (`includeOwn` keeps them). */
   ownOmitted?: { call: string; handle?: string; count: number; said: string };
+  /** With `countMachinery` in hide mode: the notes tools stamped `[machine::…]` the query left out, by producer, and the sentence that says so (PIE-1427). */
+  machineryOmitted?: MachineryLeftOut;
   more: boolean;
   nextOffset?: number;
   truncated?: string;
@@ -53,6 +56,10 @@ export interface QueryAsk {
   path?: boolean;
   /** Which chips the query reads (PIE-1277): block (the default), line, inline or all. */
   propertyScope?: string;
+  /** What the query holds of the notes tools stamped `[machine::…]` (PIE-867); the service hides them when left out. */
+  machinery?: MachineryMode;
+  /** Say how many stamped notes a hiding query left out (`machineryOmitted`): a recent-activity read (PIE-1427). */
+  countMachinery?: boolean;
 }
 
 /** The CLI's words for the same selection mean nothing to a tool caller. */
@@ -63,13 +70,13 @@ export async function queryPage(board: NotesBoard, a: QueryAsk): Promise<QueryAn
   const picked = await selectNotes(board, {
     ids: [], words: [], dates: [], ...(a.query ? { query: a.query } : {}), ...(a.view ? { view: viewIdOf(a.view) } : {}),
     ...(a.sort ? { sort: a.sort.field, direction: a.sort.direction } : {}), ...(a.under ? { under: a.under } : {}),
-    ...(a.propertyScope ? { propertyScope: a.propertyScope } : {}),
+    ...(a.propertyScope ? { propertyScope: a.propertyScope } : {}), ...(a.machinery ? { machinery: a.machinery } : {}),
   });
   if ("error" in picked) return { error: inTool(picked.error) };
   let ids = picked.ids, ownOmitted: QueryAnswer["ownOmitted"];
   if (a.omitCall && a.query) {
     // The blocks whose latest change is this call's, by the service's own atom: the same query narrowed to `call:<id>`.
-    const own = await selectNotes(board, { ids: [], words: [], dates: [], query: `(${a.query}) call:${a.omitCall}`, ...(a.under ? { under: a.under } : {}) });
+    const own = await selectNotes(board, { ids: [], words: [], dates: [], query: `(${a.query}) call:${a.omitCall}`, ...(a.under ? { under: a.under } : {}), ...(a.machinery ? { machinery: a.machinery } : {}) });
     if ("error" in own) return { error: own.error };
     const mine = new Set(own.ids);
     if (mine.size) {
@@ -78,6 +85,10 @@ export async function queryPage(board: NotesBoard, a: QueryAsk): Promise<QueryAn
       if (count) ownOmitted = { call: a.omitCall, handle: callShown(a.omitCall).handle, count, said: `${count} of yours this call (${callShown(a.omitCall).handle ?? a.omitCall}), omitted (includeOwn: true shows them)` };
     }
   }
+  // What a hiding read left out, counted by the service (the same question, machinery only, by producer).
+  const machineryOmitted = a.countMachinery && a.query && (a.machinery ?? "hide") === "hide"
+    ? machineryLeftOut(await board.machineryCounts({ expression: a.query, ...(a.under ? { subtreeRootId: a.under } : {}), ...(a.propertyScope ? { propertyScope: a.propertyScope } : {}) }), 'machinery: "show" brings them back; "only" with machine=notification asks for just the notifications')
+    : undefined;
   const index = a.fold || a.path ? await board.index() : null;
   const folded = a.fold && index ? foldIds(ids, index) : ids.map((id): FoldedRow => ({ id }));
   const page = folded.slice(a.offset, a.offset + a.limit);
@@ -89,7 +100,7 @@ export async function queryPage(board: NotesBoard, a: QueryAsk): Promise<QueryAn
   return {
     ...(a.query ? { query: a.query } : {}), ...(a.view ? { view: a.view } : {}), ...(a.under ? { under: a.under } : {}),
     ...(a.sort ? { sort: `${a.sort.field} ${a.sort.direction}` } : {}),
-    limit: a.limit, offset: a.offset, total: folded.length, ...(a.fold ? { foldedFrom: ids.length } : {}), ...(ownOmitted ? { ownOmitted } : {}),
+    limit: a.limit, offset: a.offset, total: folded.length, ...(a.fold ? { foldedFrom: ids.length } : {}), ...(ownOmitted ? { ownOmitted } : {}), ...(machineryOmitted ? { machineryOmitted } : {}),
     more, ...(more ? { nextOffset: a.offset + a.limit } : {}),
     ...(picked.truncated ? { truncated: picked.truncated } : {}), ...(picked.hint ? { hint: picked.hint } : {}),
     rows: page.flatMap(f => {

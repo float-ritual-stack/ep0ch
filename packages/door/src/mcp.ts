@@ -10,6 +10,7 @@ import { boardFor, canonicalLocalMachineName, everyNote, type BoardAddress, type
 import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource, type SearchHits } from "./socket";
 import { matchFacts, MCP_ACCESS_LEVELS, PROPERTY_QUERY_SCOPES, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type OutlineSnapshot } from "@ep0ch/outline-core/protocol";
 import { actorLabel, mintCallId, parseSessionId } from "@ep0ch/outline-core/attribution";
+import { parseMachineryMode, readsRecentActivity, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { localAdmin, outlineAdminDefinitions, outlineArchive, outlineNew, OUTLINE_ADMIN_EXAMPLES, type McpOutlineAdmin } from "./mcp-outlines";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
@@ -427,14 +428,20 @@ async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, s
   const propertyScope = typeof args.propertyScope === "string" ? args.propertyScope.trim().toLowerCase() : args.propertyScope;
   if (propertyScope !== undefined && !(PROPERTY_QUERY_SCOPES as readonly unknown[]).includes(propertyScope)) return toolError(`propertyScope is ${PROPERTY_QUERY_SCOPES.join(", ")}; got ${JSON.stringify(args.propertyScope)}. all reads a [needs::…] on any line as well as the note's own header.`);
   if (args.includeOwn !== undefined && typeof args.includeOwn !== "boolean") return toolError("includeOwn is true or false: true keeps the rows only your own call changed (they are left out of a recent-activity read by default).");
-  // Recent activity (an `updated` range or sort, or fold) leaves out what this call itself just wrote: it isn't news to it.
-  const recent = !!query && /\bupdated\s*(?:<=|>=|<|>)/i.test(query) || sort?.field === "updated" || args.fold === true;
+  let machinery: MachineryMode | undefined;
+  try { machinery = args.machinery === undefined ? undefined : parseMachineryMode(args.machinery); }
+  catch (e) { return toolError(`${(e as Error).message}. show brings back fetched notifications and bookkeeping notes; only with machine=notification asks for just the notifications.`); }
+  if (machinery && view) return toolError("machinery goes with query; a saved view says its own with [machinery::show] or [machinery::only].");
+  // Recent activity (an `updated` range or sort, or fold) leaves out what this call itself just wrote: it isn't news to it,
+  // and says how many fetched notifications and bookkeeping notes it left out (PIE-1427).
+  const recent = readsRecentActivity(query) || sort?.field === "updated" || args.fold === true;
   const omitOwn = recent && args.includeOwn !== true && !!caller?.call && !caller.freshCall && !!query ? caller.call : undefined;
   const answer = await queryPage(board, {
     ...(omitOwn ? { omitCall: omitOwn } : {}),
     ...(query ? { query: callRegistry().resolveIn(query) } : {}), ...(view ? { view } : {}), limit, offset, ...(sort ? { sort } : {}), ...(under ? { under } : {}),
     ...(args.fold === true ? { fold: true } : {}), ...(fields?.fields.includes("path") ? { path: true } : {}),
     ...(typeof propertyScope === "string" ? { propertyScope } : {}),
+    ...(machinery ? { machinery } : {}), ...(recent && query ? { countMachinery: true } : {}),
   });
   if ("error" in answer) return toolError(answer.error);
   const { rows, ...page } = answer;
@@ -790,6 +797,7 @@ function toolsFor(outlines: McpOutlines) {
       description: `Run a query in ${which}, read-only, in the grammar the views use ([query::…], virtual branches, ::graph-table): clauses like type=outbox-item outbox=next, AND/OR/NOT, groups, updated >= -7d, any property compared as a date or number (due <= +3d, wait-until <= today, release-window = today, rating > 3), or a saved view by its block id. hint says a key no note has, or values a comparison couldn't read. ` +
         `The outline evaluates it, so the rows are the ones a view shows in the door. Answers block records (title, properties, revision, uri) with total and completeness; more says there are further rows, nextOffset is where to continue. Requires ${grant}. Give query or view. ` +
         `To orient (what changed lately, in a few KB): query "updated >= -1d NOT type=peer-message", sort "updated desc", fields "id,title,updated,actor,path", fold true; then outline_read the rows that are new, and pass seen on later reads. ` +
+        `Fetched notifications and tools' bookkeeping ([machine::…]) are left out unless machinery says show or only; a recent-activity read says how many in machineryOmitted ("212 notifications and bookkeeping notes left out"), so report real work, and that count beside it. ` +
         `The service sorts, so limit takes the newest first. A projected row (fields) never carries the body. fold collapses the proposals, comments and deliveries into their note: "PIE-637 · 3 changes (1 proposal, 2 comments)".`,
       inputSchema: { type: "object", properties: {
         query: { type: "string", description: "A query in the views' grammar: type=ticket NOT work-stage=done, due <= +3d" },
@@ -798,6 +806,7 @@ function toolsFor(outlines: McpOutlines) {
         fields: { type: ["string", "array"], items: { type: "string" }, description: `The columns of each row instead of the whole record: ${FIELD_NAMES.join(", ")}, or any property key ("id,title,updated,actor,path"). id and revision are always there; the body never is (outline_read).` },
         under: { type: "string", description: "Only blocks under this note (its subtree): its id, ((id)), [[page]] or Work ID, as ref names a block" },
         propertyScope: { type: "string", enum: ["block", "line", "inline", "all"], description: "Which chips the query reads: block (the note's own header, the default) or all, for a [needs::…] on any line too (a ticked - [x] step's chips no longer match). Each row then names its matches: key, value, line (from 1), and task on a step. A view says its own with [property-scope::all]." },
+        machinery: { type: "string", enum: ["hide", "only", "show"], default: "hide", description: "What the query holds of the notes tools wrote for themselves, stamped [machine::…]: fetched notifications (machine=notification), file touches, tosses, deliveries. hide leaves them out (the default; a recent-activity read counts them in machineryOmitted), show holds them with the rest, only holds just them. Not with view: a view says its own [machinery::]." },
         includeOwn: { type: "boolean", default: false, description: "Keep the rows only your own call changed. A recent-activity read (an updated range or sort, or fold) leaves them out by default, with a count (ownOmitted), since what you just wrote isn't news to you; another session's writes always show" },
         call: CALL_PROPERTY,
         fold: { type: "boolean", default: false, description: "Fold proposals, comments and deliveries into the note they belong to, with a count (changes: {count, proposals, comments, deliveries, summary, ids}); total counts folded rows" },

@@ -14,7 +14,7 @@ import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-cor
  * empty write, a stale revision, and an edit that drops a `[page::…]` or an
  * anchor other notes link to.
  */
-import { parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
+import { MACHINE_KEY, machineryLeftOut, parseMachineryMode, readsRecentActivity, type MachineryLeftOut, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { hasCountCandidate, shapeNext, shapeWarnings, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
@@ -519,7 +519,7 @@ export interface FindSearch { status: "ranked" | "lexical" | "unavailable"; verd
 /** A words-only find is the ranked search: at most this many rows (tree.search's own cap). */
 const RANKED_FIND_LIMIT = 30;
 
-export async function findBlocks(client: AgentToolsClient, input: FindInput): Promise<{ blocks: (FindRow & { score?: number })[]; complete: boolean; total?: number; search?: FindSearch }> {
+export async function findBlocks(client: AgentToolsClient, input: FindInput): Promise<{ blocks: (FindRow & { score?: number })[]; complete: boolean; total?: number; search?: FindSearch; machineryOmitted?: MachineryLeftOut }> {
   const limit = boundedInteger(input.limit, "limit", 20, 1, 200);
   const given = (key: keyof FindInput) => typeof input[key] === "string" && (input[key] as string).trim() !== "";
   if (given("view")) {
@@ -576,7 +576,14 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
   // An older service ignores `where` and would return unfiltered results.
   if (query.where !== undefined) await client.requireCompatibleService();
   const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query });
-  return { blocks: found.blocks.map(findRow), complete: found.completeness.kind === "complete" };
+  // A recent-activity read (`updated >= -1d`) that hid machinery says how many it left out, by producer (PIE-1427):
+  // the same question, machinery only, counted by the service's facets of `machine`.
+  let machineryOmitted: MachineryLeftOut | undefined;
+  if ((query.machinery ?? "hide") === "hide" && readsRecentActivity(query.where)) {
+    const counted = await client.request<{ facets?: { key: string; values: { value: string; count: number }[] }[] }>({ action: "blocks.query", query: { ...query, limit: 1, machinery: "only", facets: [MACHINE_KEY], facetValues: 1000 }, fields: ["id"] });
+    machineryOmitted = machineryLeftOut(Object.fromEntries((counted.facets?.find(f => f.key === MACHINE_KEY)?.values ?? []).map(v => [v.value, v.count])));
+  }
+  return { blocks: found.blocks.map(findRow), complete: found.completeness.kind === "complete", ...(machineryOmitted ? { machineryOmitted } : {}) };
 }
 
 // ─── Edit ──────────────────────────────────────────────────────────────────
