@@ -3,19 +3,19 @@ import { linkInstallStep } from "./link";
 // Pure: the dry run prints it, `--apply` runs it (apply.ts), the tests check it against described machines.
 //
 // One checkout (the ep0ch repo) is fast-forwarded, its workspace installed, `ep0ch` linked, the Herdr plugin
-// checked to be that checkout's packages/outliner, and the outline host restarted through its unit when the code
-// under it changed. Every `<outlines>/*.sqlite` is backed up first. Units and Herdr's config are never edited:
+// checked to be that checkout's packages/outliner, and the outline host, the MCP gateway and the publishers restarted
+// through their units only when the code each one runs changed (RUNS in model.ts). Every `<outlines>/*.sqlite` is backed up first. Units and Herdr's config are never edited:
 // what they need is said.
 import { basename, dirname, join, resolve } from "node:path";
 import { copyName } from "@ep0ch/outliner/extension-update";
 import { ep0ch } from "../session/place";
 import { backupPlan } from "../backup/setup";
 import { linkCommands, linkCounts, type LinkWork, linkWork, type OwnedLink, sh, type StaleLink } from "./links";
-import { type Checkout, type DatabaseFacts, type SchemaCode, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, type McpFacts, PLUGIN_ID, PLUGIN_SOURCE, type SessionFact, short, staleness } from "./model";
+import { type Checkout, type DatabaseFacts, type SchemaCode, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, type McpFacts, type PublisherFacts, RUNS, codeFiles, codeKey, PLUGIN_ID, PLUGIN_SOURCE, type SessionFact, short, staleness } from "./model";
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
-export type StepId = "with-secrets" | "machine-link" | "claude-mod" | "outline-files" | "backup" | "repo" | "schema" | "sweep" | "plugin" | "link" | "name" | "dials" | "ext" | "skills" | "builtins" | "host" | "mcp" | "session" | "backups" | "clients" | "client-list";
+export type StepId = "with-secrets" | "machine-link" | "claude-mod" | "outline-files" | "backup" | "repo" | "schema" | "sweep" | "plugin" | "link" | "name" | "dials" | "ext" | "skills" | "builtins" | "host" | "mcp" | "publishers" | "session" | "backups" | "clients" | "client-list";
 
 export interface Step {
   id: StepId;
@@ -272,12 +272,45 @@ export function unitChanges(f: Facts): string | null {
   return `in ${u.path}: ${changes.join("; ")}; then ${reload}`;
 }
 
+/** What changed in the code a service runs between the commit it runs and the one it runs after this install (codeMoved). */
+export interface CodeMove { from: string; to: string; files: string[]; all: number }
+
+/**
+ * What changed in the code a service runs (a RUNS row) between the commit it runs and the one it will run after this
+ * install (origin/main's, or --sha's, when the checkout updates; else HEAD): `files`, the changed files it runs, and
+ * `all`, how many changed. Null when it can't be told (the commit it started on is unknown, or the pair's files weren't
+ * listed): the caller then restarts on an update, as before PIE-1397. A service whose start commit is unknown may
+ * still run code from before an install that stopped short, so HEAD is never assumed for it.
+ */
+export function codeMoved(f: Facts, runs: string | null | undefined, updates: boolean, code: readonly string[]): CodeMove | null {
+  const c = f.repo.checkout;
+  const to = updates ? c.upstream : c.head, from = runs;
+  if (!from || !to) return null;
+  // An update that ends where the service already is says nothing about what moved.
+  if (from === to) return updates ? null : { from, to, files: [], all: 0 };
+  const all = f.repo.changes?.[codeKey(from, to)];
+  return all ? { from, to, files: codeFiles(all, code), all: all.length } : null;
+}
+
+/** A move that restarts: "2 files it runs changed from 1111111 to 2222222 (packages/outliner/src/x.ts, …)". */
+export function movedSaid(m: CodeMove): string {
+  const n = m.files.length, shown = m.files.slice(0, 3).join(", ");
+  return `${n} file${n === 1 ? "" : "s"} it runs changed from ${short(m.from)} to ${short(m.to)} (${shown}${n > 3 ? `, and ${n - 3} more` : ""})`;
+}
+
+/** A move that doesn't: "host unchanged: no restart (…)". Null when nothing moved, or something it runs did. */
+export function unchangedSaid(m: CodeMove | null, who: string): string | null {
+  if (!m || m.files.length || m.from === m.to) return null;
+  return `${who} unchanged: no restart (${short(m.from)} → ${short(m.to)} changed ${m.all} file${m.all === 1 ? "" : "s"}, none it runs)`;
+}
+
 /**
  * The outline host (one process serving every outline by name) runs this checkout's code as it was when it
- * started. After the checkout updates, or when it speaks another protocol, install restarts it through its unit
- * (launchd's kickstart -k, systemctl restart): the doors and panes on it reconnect by themselves. A host not under
- * a unit, or a unit that needs changing (another checkout's host-main.ts, settings from before PIE-530), is left
- * to the person, with the change.
+ * started. When that code changed (RUNS.host, between the commit it started on and the one this run ends on), or it
+ * speaks another protocol, install restarts it through its unit (launchd's kickstart -k, systemctl restart): the doors
+ * and panes on it reconnect by themselves. A move that touched none of its code (docs, the Claude mod, the door) leaves
+ * it running and says "host unchanged: no restart" (PIE-1397). A host not under a unit, or a unit that needs changing
+ * (another checkout's host-main.ts, settings from before PIE-530), is left to the person, with the change.
  */
 export function hostStep(f: Facts, codeUpdates: boolean, stopped = false): Step {
   const title = "Restart the outline host on the new code";
@@ -289,10 +322,13 @@ export function hostStep(f: Facts, codeUpdates: boolean, stopped = false): Step 
     return { id: "host", title: "Start the outline host on the new code", status: "do", why: `stopped while the outlines migrate; ${u.kind} starts it, and every door and pane on it reconnects`, commands: [hostUnitCommand(after, "start")] };
   }
   const missing = h.running ? staleness(h, f.repo.protocol) : [];
-  const after = codeUpdates ? "the ep0ch checkout is updated in this run" : missing.length ? `it runs old code (${missing.join(", ")})` : "";
+  const moved = codeMoved(f, h.runs, codeUpdates, RUNS.host);
+  const changed = moved ? (moved.files.length ? movedSaid(moved) : "") : codeUpdates ? "the ep0ch checkout is updated in this run" : "";
+  const after = changed || (missing.length ? `it runs old code (${missing.join(", ")})` : "");
+  const quiet = unchangedSaid(moved, "host");
   if (!u) {
     if (!h.running) return { id: "host", title: "Start the outline host", status: "manual", why: `nothing answers at ${h.socket}, and there's no ${f.platform === "macos" ? "launchd agent" : "systemd user unit"} for it; see the note below`, commands: [] };
-    if (!after) return { id: "host", title, status: "skip", why: "the host runs the current code", commands: [] };
+    if (!after) return { id: "host", title, status: "skip", why: quiet ?? "the host runs the current code", commands: [] };
     return { id: "host", title, status: "manual", why: `${after}, and it runs outside a ${f.platform === "macos" ? "launchd agent" : "systemd user unit"}; restart that process when it's quiet`, commands: [] };
   }
   const change = unitChanges(f);
@@ -302,7 +338,7 @@ export function hostStep(f: Facts, codeUpdates: boolean, stopped = false): Step 
   // The socket answers but the unit's job isn't running: another process serves it (a host started by hand),
   // and starting the unit beside it would fight it for the socket.
   if (h.running && u.state?.active === false) {
-    if (!after) return { id: "host", title, status: "skip", why: `the host runs the current code (not as ${u.kind} ${u.name}, which isn't running)`, commands: [] };
+    if (!after) return { id: "host", title, status: "skip", why: quiet ?? `the host runs the current code (not as ${u.kind} ${u.name}, which isn't running)`, commands: [] };
     return { id: "host", title, status: "manual", why: `${after}, but another process answers at ${h.socket}, not ${u.kind} ${u.name}; stop that process, then ${hostUnitCommand(u, "start")}`, commands: [] };
   }
   if (!h.running) {
@@ -310,7 +346,7 @@ export function hostStep(f: Facts, codeUpdates: boolean, stopped = false): Step 
     if (u.state?.active && u.state.pid) return { id: "host", title, status: "do", why: `${u.kind} ${u.name} runs (pid ${u.state.pid}) but nothing answers at ${h.socket}; ${u.kind} restarts it`, commands: [hostUnitCommand(u, "restart")] };
     return { id: "host", title: "Start the outline host", status: "do", why: `${u.kind} ${u.name} is set up but nothing answers at ${h.socket}${u.state ? ` (${u.state.detail})` : ""}`, commands: [hostUnitCommand(u, "start")] };
   }
-  if (!after) return { id: "host", title, status: "skip", why: `already installed and running; the host runs the current code (${u.kind} ${u.name}${h.protocol ? `, protocol ${h.protocol}` : ""})`, commands: [] };
+  if (!after) return { id: "host", title, status: "skip", why: quiet ? `${quiet}; ${u.kind} ${u.name} keeps running` : `already installed and running; the host runs the current code (${u.kind} ${u.name}${h.protocol ? `, protocol ${h.protocol}` : ""})`, commands: [] };
   return { id: "host", title, status: "do", why: `${after}; ${u.kind} restarts it, and every door and pane on it reconnects`, commands: [hostUnitCommand(u, "restart")] };
 }
 
@@ -401,10 +437,16 @@ export function sweepStep(f: Facts): Step | null {
 /** The command that restarts the MCP gateway's unit, as a person would type it. */
 export const mcpRestartCommand = (m: McpFacts) => hostUnitCommand({ ...m.unit, outlines: "", stale: [] }, "restart");
 
-/** Why the MCP gateway runs older code than the checkout (after this run's update), or null when it doesn't (or can't be told). */
+/**
+ * Why the MCP gateway runs older code than the checkout (after this run's update), or null when it doesn't (or can't be
+ * told): the door's code (RUNS.door) changed since the commit it started on, else, when that can't be listed, the
+ * checkout moved at all.
+ */
 export function mcpBehind(f: Facts, codeUpdates: boolean): string | null {
   const m = f.mcp;
   if (!m || !m.unit.state?.active) return null;
+  const moved = codeMoved(f, m.runs, codeUpdates, RUNS.door);
+  if (moved) return moved.files.length ? movedSaid(moved) : null;
   if (codeUpdates) return "the ep0ch checkout is updated in this run";
   if (m.behind) return `it started on ${short(m.runs)}, and the checkout is at ${short(f.repo.checkout.head)} now`;
   return null;
@@ -415,19 +457,56 @@ export const mcpIsHere = (f: Facts) => !!f.mcp?.door && resolve(f.mcp.door) === 
 
 /**
  * The remote MCP gateway (`ep0ch mcp serve --http`, its own unit: ep0ch-mcp.service on float-2) runs the door's code as
- * it was when it started, and a host on a newer protocol refuses it. When it runs this checkout's door and the checkout
- * moved under it (in this run, or since it started), install restarts it through its unit, as it does the outline
- * host. A gateway that runs another checkout (or one install can't tell), or isn't running, is left alone and said.
+ * it was when it started, and a host on a newer protocol refuses it. When it runs this checkout's door and that code
+ * changed under it (in this run, or since it started), install restarts it through its unit, as it does the outline
+ * host; a move that left the door's code alone leaves it running, and says so. A gateway that runs another checkout
+ * (or one install can't tell), or isn't running, is left alone and said.
  */
 export function mcpStep(f: Facts, codeUpdates: boolean): Step {
   const title = "Restart the MCP gateway on the new code";
   const m = f.mcp!, u = m.unit;
   if (!mcpIsHere(f)) return { id: "mcp", title, status: "skip", why: m.door ? `${u.kind} ${u.name} runs ${m.door}, not this checkout's door; run install from that checkout` : `${u.kind} ${u.name}: which checkout's door it runs can't be told from ${u.path}; restart it yourself (${mcpRestartCommand(m)})`, commands: [] };
   if (!u.state?.active) return { id: "mcp", title, status: "skip", why: `${u.kind} ${u.name} isn't running${u.state ? ` (${u.state.detail})` : ""}; install doesn't start it`, commands: [] };
+  const quiet = unchangedSaid(codeMoved(f, m.runs, codeUpdates, RUNS.door), "gateway");
+  if (quiet) return { id: "mcp", title, status: "skip", why: `${quiet}; ${u.kind} ${u.name} keeps running`, commands: [] };
   const behind = mcpBehind(f, codeUpdates);
   if (!behind && m.behind === undefined) return { id: "mcp", title, status: "skip", why: `whether ${u.kind} ${u.name} runs the current code can't be told (no start time or reflog); ${mcpRestartCommand(m)} if it doesn't`, commands: [] };
   if (!behind) return { id: "mcp", title, status: "skip", why: `the gateway runs the current code (${u.kind} ${u.name}${m.runs ? `, ${short(m.runs)}` : ""})`, commands: [] };
   return { id: "mcp", title, status: "do", why: `${behind}; ${u.kind} restarts it, and its MCP clients reconnect`, commands: [mcpRestartCommand(m)] };
+}
+
+/** The command that restarts a publisher's unit, as a person would type it. */
+export const publisherRestartCommand = (p: PublisherFacts) => hostUnitCommand({ ...p.unit, outlines: "", stale: [] }, "restart");
+
+/** The publishers install restarts: each running one of this checkout's outliner whose code changed under it. */
+export function publishersToRestart(f: Facts, codeUpdates: boolean): { unit: PublisherFacts; why: string }[] {
+  return (f.publishers ?? []).filter(p => p.unit.state?.active && p.outliner && resolve(p.outliner) === resolve(f.repo.outliner)).flatMap(p => {
+    const moved = codeMoved(f, p.runs, codeUpdates, RUNS.host);
+    if (moved) return moved.files.length ? [{ unit: p, why: `${p.unit.name}: ${movedSaid(moved)}` }] : [];
+    return codeUpdates ? [{ unit: p, why: `${p.unit.name}: the ep0ch checkout is updated in this run` }] : [];
+  });
+}
+
+/**
+ * The publishers (`outliner publish serve`, the artifact services): each runs the outliner's code as it was when it
+ * started, like the host. Install restarts the running ones of this checkout whose code (RUNS.host) changed, after the
+ * host; the rest keep running, said. Before PIE-1397 the deployer restarted them by hand on every deploy. Null when
+ * this machine has none.
+ */
+export function publishersStep(f: Facts, codeUpdates: boolean): Step | null {
+  const mine = (f.publishers ?? []).filter(p => p.outliner && resolve(p.outliner) === resolve(f.repo.outliner));
+  if (!mine.length) return null;
+  const title = "Restart the publishers on the new code";
+  const running = mine.filter(p => p.unit.state?.active);
+  if (!running.length) return { id: "publishers", title, status: "skip", why: `${mine.map(p => p.unit.name).join(", ")}: not running; install doesn't start them`, commands: [] };
+  const restart = publishersToRestart(f, codeUpdates);
+  const quiet = running.filter(p => !restart.some(r => r.unit === p)).map(p => {
+    const moved = codeMoved(f, p.runs, codeUpdates, RUNS.host);
+    return `${p.unit.name}: ${unchangedSaid(moved, "publisher") ?? (moved ? "runs the current code" : `whether it runs the current code can't be told (no start time or reflog); ${publisherRestartCommand(p)} if it doesn't`)}`;
+  });
+  if (!restart.length) return { id: "publishers", title, status: "skip", why: quiet.join("; "), commands: [] };
+  return { id: "publishers", title, status: "do", why: [...restart.map(r => r.why), ...quiet].join("; ") + `; ${restart.length === 1 ? "its unit restarts it" : "their units restart them"}`,
+    commands: restart.map(r => publisherRestartCommand(r.unit)) };
 }
 
 /** Things install reports and never does: a unit to create, keys, the Claude mod. */
@@ -603,6 +682,8 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
     commands: sshClients.map(name => `ssh -- ${name} 'ep0ch install --apply --as-client'`) }] : [];
   // The MCP gateway after the host it talks to.
   const mcp = f.mcp ? [mcpStep(f, updates)] : [];
+  const publishers = publishersStep(f, updates);
+  // The link restarts on every update: in connect mode it tells the other side the commit it started on (link.ts).
   const machineLink = linkInstallStep(f, updates);
   // After the update (it reads the new built-ins), with the optional steps at the end: one that fails stops nothing else.
   const builtins = builtinsStep(f, updates);
@@ -617,7 +698,7 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   }
   const mod: Step = { id: "claude-mod", title: "Install the Claude mod and rename its settings", status: "do", why: "load ep0ch and allow its tools; report launch commands that still name pi-outliner", commands: [`bun ${sh(join(f.repo.outliner, "scripts/install-claude-mod.ts"))} --project ${sh(f.repo.root)}`] };
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [...clientList, backup, repo, ...((f.outlineFiles ?? []).some(e => e.binding || e.backup) ? [{ id: "outline-files" as const, title: "Outline bindings", status: "do" as const, why: "Move old bindings to .ep0ch/config.toml, keeping .ep0ch.bak until the next install; leave scripts for explicit review", commands: ["ep0ch doctor --fix"] }] : []), plugin, link, ...(f.withSecrets ? [withSecretsStep(f)] : []), ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), ...(sweep ? [sweep] : []), host, mod, ...(machineLink ? [machineLink] : []), ...clientLegs, ...mcp, session, ...(backups ? [backups] : []), ...(builtins ? [builtins] : []), ...ext], notes: planNotes(f) };
+  return { steps: [...clientList, backup, repo, ...((f.outlineFiles ?? []).some(e => e.binding || e.backup) ? [{ id: "outline-files" as const, title: "Outline bindings", status: "do" as const, why: "Move old bindings to .ep0ch/config.toml, keeping .ep0ch.bak until the next install; leave scripts for explicit review", commands: ["ep0ch doctor --fix"] }] : []), plugin, link, ...(f.withSecrets ? [withSecretsStep(f)] : []), ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), ...(sweep ? [sweep] : []), host, mod, ...(machineLink ? [machineLink] : []), ...clientLegs, ...mcp, ...(publishers ? [publishers] : []), session, ...(backups ? [backups] : []), ...(builtins ? [builtins] : []), ...ext], notes: planNotes(f) };
 }
 
 export function withSecretsStep(f: Facts): Step {

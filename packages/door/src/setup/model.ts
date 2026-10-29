@@ -89,6 +89,31 @@ export interface RepoFacts {
   claudeModInstaller: string | null;
   /** The protocol this checkout's code speaks (packages/outline-core/src/protocol.ts, read in a fresh process). */
   protocol: number | null;
+  /**
+   * The files that differ between two commits, keyed `<from>..<to>` (codeKey): from the checkout's HEAD and each
+   * service's start commit to HEAD and to the commit install updates to. A pair that's missing couldn't be listed.
+   */
+  changes?: Record<string, string[]>;
+}
+
+/**
+ * What each long-running service runs from the checkout, as paths from the repo root (a folder ends in /). A file in a
+ * `test/` folder doesn't count. The host reads its whole package at runtime (docs/scripts.md, the bundled extensions'
+ * READMEs), so docs inside it count; PROTOCOL (outline-core) and SCHEMA_VERSION (outliner/src/schema.ts) are inside
+ * these folders. The publishers' web door starts a fresh door process per visitor, so door code isn't theirs. The MCP
+ * gateway runs the door, which imports both.
+ */
+export const RUNS = {
+  host: ["packages/outliner/", "packages/outline-core/", "package.json", "bun.lock", "bunfig.toml"],
+  door: ["packages/door/", "packages/outliner/", "packages/outline-core/", "package.json", "bun.lock", "bunfig.toml"],
+} as const;
+
+/** The key of a pair of commits in RepoFacts.changes. */
+export const codeKey = (from: string, to: string) => `${from}..${to}`;
+
+/** The files of `files` that `code` (a RUNS row) runs. */
+export function codeFiles(files: readonly string[], code: readonly string[]): string[] {
+  return files.filter(f => !/(^|\/)test\//.test(f) && code.some(p => (p.endsWith("/") ? f.startsWith(p) : f === p)));
 }
 
 export interface HostFacts {
@@ -100,6 +125,8 @@ export interface HostFacts {
   protocol?: number;
   /** The service unit that runs it, when there is one. Install restarts the host through it; it never edits it. */
   unit: HostUnit | null;
+  /** The commit the checkout was at when the unit's process started (HEAD's reflog); null or absent when unknown. */
+  runs?: string | null;
 }
 
 /**
@@ -115,6 +142,17 @@ export interface McpFacts {
   startedAt?: number;
   runs?: string | null;
   behind?: boolean;
+}
+
+/**
+ * A publisher: a unit that runs a script of the outliner's other than the host (`src/cli.ts publish serve`, the artifact
+ * services' `src/artifact-main.ts`). `outliner`: the packages/outliner folder whose script it runs, null when that
+ * can't be told; `runs`, as the gateway's.
+ */
+export interface PublisherFacts {
+  unit: { kind: "systemd" | "launchd"; path: string; name: string; state?: UnitState };
+  outliner: string | null;
+  runs?: string | null;
 }
 
 /** A launchd agent (macOS) or a systemd user unit (Linux) that runs the outline host's host-main.ts. */
@@ -242,6 +280,8 @@ export interface Facts {
   sessions?: SessionFact[];
   /** The remote MCP gateway's unit, when this machine has one (facts.ts mcpFacts); undefined when not looked for. */
   mcp?: McpFacts | null;
+  /** The publishers' units (facts.ts publisherFacts); undefined when not looked for. */
+  publishers?: PublisherFacts[];
   /** The door's userland extensions (packages/door/ext/) and the links they ask for; undefined when not looked for. */
   ext?: { root: string; exts: ExtFacts[]; stale: StaleLink[]; record?: string };
   /**

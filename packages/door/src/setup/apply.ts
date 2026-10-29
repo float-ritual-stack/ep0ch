@@ -10,8 +10,8 @@ import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
 import { databases, depsState, gatherFacts, hostFacts, mcpFacts, type OnLine, outlineSchema, pluginCode, pluginFacts, run, stopRunning, unitState } from "./facts";
 import { clauses, Progress, progressMode, size, table, type Task, type Terminal } from "./progress";
-import { type Facts, type OutlineSchema, PLUGIN_SOURCE, short, staleness } from "./model";
-import { withSecretsStep, backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, type Migration, type Plan, type PlanOptions, repoStep, sshInstallClients, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
+import { type Facts, type HostUnit, type OutlineSchema, PLUGIN_SOURCE, short, staleness } from "./model";
+import { withSecretsStep, backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, publisherRestartCommand, type Migration, type Plan, type PlanOptions, repoStep, sshInstallClients, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
 import { resolveTarget, hostLive } from "../discover";
 import type { Handover, UpgradeResult } from "../session/client";
 import { applyLinks, byFolder, LinkFailed, type LinkWork, sh } from "./links";
@@ -160,6 +160,22 @@ export async function hostReady(f: Facts, verb: "restart" | "start", was: number
   // A slower grace (a host answering late is up), with the same test.
   for (let i = 0; i < grace; i++) { await Bun.sleep(graceMs); if (await ready()) return true; }
   return false;
+}
+
+/**
+ * Restart a service's unit (the MCP gateway, a publisher) and see a new process running, and still running a few
+ * seconds on: one that dies on start is restarted by its unit with another pid, and is no success.
+ */
+async function restartService(u: HostUnit, what: string, by: string, env: Env, child: OnLine | undefined): Promise<void> {
+  const logs = u.kind === "launchd" ? `launchctl print gui/${process.getuid?.() ?? 0}/${u.name}` : `journalctl --user -u ${u.name}`;
+  // Its process now, just before the restart: the one a new process replaces.
+  const was = (await unitState(u, undefined, env)).pid;
+  await must(hostUnitArgv(u, "restart", process.getuid?.() ?? 0), `${what} wasn't restarted; ${by} by hand, and see ${logs}`, { env, timeoutMs: 30_000, onLine: child });
+  const fresh = async () => { const st = await unitState(u, undefined, env); return st.active === true && !!st.pid && st.pid !== was ? st.pid : null; };
+  const pid = await waitFor(async () => !!(await fresh()), 30_000) ? await fresh() : null;
+  if (!pid) throw new StepFailed(`${u.kind} restarted ${u.name}, but no new process runs after 30s`, `see ${logs}`);
+  await Bun.sleep(3000);
+  if ((await unitState(u, undefined, env)).pid !== pid) throw new StepFailed(`${u.kind} restarted ${u.name}, but the new process (pid ${pid}) didn't stay up`, `see ${logs}`);
 }
 
 /** What a step runs, reported through its task: what it did (`say`), its children's output, its items. */
@@ -392,19 +408,17 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       return;
     }
     case "mcp": {
-      const m = f.mcp!, u = { ...m.unit, outlines: "", stale: [] };
-      const logs = u.kind === "launchd" ? `launchctl print gui/${process.getuid?.() ?? 0}/${u.name}` : `journalctl --user -u ${u.name}`;
-      // Its process now, just before the restart: the one a new process replaces.
-      const was = (await unitState(u, undefined, env)).pid;
-      await must(hostUnitArgv(u, "restart", process.getuid?.() ?? 0), `the MCP gateway wasn't restarted; ${mcpRestartCommand(m)} by hand, and see ${logs}`, { env, timeoutMs: 30_000, onLine: child });
-      // A new process, running, and still running a few seconds on (one that dies on start is restarted by its unit
-      // with another pid, and is no success).
-      const fresh = async () => { const st = await unitState(u, undefined, env); return st.active === true && !!st.pid && st.pid !== was ? st.pid : null; };
-      const pid = await waitFor(async () => !!(await fresh()), 30_000) ? await fresh() : null;
-      if (!pid) throw new StepFailed(`${u.kind} restarted ${u.name}, but no new gateway process runs after 30s`, `see ${logs}`);
-      await Bun.sleep(3000);
-      if ((await unitState(u, undefined, env)).pid !== pid) throw new StepFailed(`${u.kind} restarted ${u.name}, but the new gateway (pid ${pid}) didn't stay up`, `see ${logs}`);
-      say(`restarted the MCP gateway (${u.kind} ${u.name}) on the new code`);
+      const m = f.mcp!;
+      await restartService({ ...m.unit, outlines: "", stale: [] }, "the MCP gateway", mcpRestartCommand(m), env, child);
+      say(`restarted the MCP gateway (${m.unit.kind} ${m.unit.name}) on the new code`);
+      return;
+    }
+    case "publishers": {
+      // The plan's commands name the ones to restart.
+      for (const p of (f.publishers ?? []).filter(p => step.commands.includes(publisherRestartCommand(p)))) {
+        await restartService({ ...p.unit, outlines: "", stale: [] }, `the publisher ${p.unit.name}`, publisherRestartCommand(p), env, child);
+        say(`restarted ${p.unit.name} on the new code`);
+      }
       return;
     }
     case "schema": {
@@ -717,7 +731,8 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     // After a migration too: the schema step stopped it, and it's started.
     if (step.id === "host" && plan.steps.some(s => (s.id === "repo" || s.id === "schema" || s.id === "sweep") && s.status === "do")) {
       const code = await pluginCode(current.repo.outliner);
-      const host = await hostFacts(current.host.folder, current.platform, current.home, env);
+      // With the commit it started on: whether its own code moved decides the restart (PIE-1397).
+      const host = await hostFacts(current.host.folder, current.platform, current.home, env, current.repo.root);
       current = { ...current, repo: { ...current.repo, protocol: code.protocol }, host };
       step = hostStep(current, current.repo.checkout.behind > 0);
     }

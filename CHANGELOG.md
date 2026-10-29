@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A deploy restarts the outline host only when the host's own code changed (PIE-1397)
+
+- **Docs- and mod-only merges leave it running:** `ep0ch install --apply` compares the code the host runs
+  (packages/outliner, outline-core, bun.lock, the root package.json; tests aside) between the commit it started on
+  and the one the checkout moves to, and restarts it only when one of those files changed. Otherwise the host step
+  says `host unchanged: no restart (<from> → <to> changed N files, none it runs)`: doors, panes and kitty's scheduled
+  passes keep their connections through a night of merges.
+- **A restart names what changed:** `1 file it runs changed from <from> to <to> (packages/outliner/src/server.ts)`. A
+  PROTOCOL bump (outline-core) and a schema step still restart it; when what changed can't be listed, an update
+  restarts it as before.
+- **The same rule for the MCP gateway** (it runs the door, so door code counts too), and for the
+  **publishers**: install now restarts `outliner publish serve` and the artifact services itself (a unit running a
+  script of this checkout's packages/outliner/src), after the host, only when the outliner's code changed. The
+  deployer's by-hand restart of them after every deploy is gone.
+- **Run:** nothing; the next `ep0ch install --apply` decides by the new rule.
+
 ### Writing, reading and pressing work the same in the river and at 40 columns (PIE-1392)
 
 - **The wide column is never cut:** at 36 to 44 columns the river's column you read is laid out at the width it has, as a

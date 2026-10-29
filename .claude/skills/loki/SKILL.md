@@ -30,7 +30,9 @@ After a merge to main (yours, or a sha an agent hands you):
    said to deploy: the handover to the new code once cost Evan his comment layout mid-draft.
 3. Deploy both legs with one command: `ssh float-2 'cd ~/projects/ep0ch && ep0ch install --apply'`.
    The host's `ep0ch install` shows the plan first when needed. Install backs up the outlines, fast-forwards the
-   checkout, migrates and restarts the host, then updates its `.host/clients` sequentially over ssh. Register
+   checkout, migrates, and restarts the host, the MCP gateway and the publishers (`publish serve`, the artifact
+   services) only when the code each runs changed ("host unchanged: no restart" otherwise; PIE-1397),
+   then updates its `.host/clients` sequentially over ssh. Register
    float-box once on float-2 with `ep0ch install --apply --add-client float-box`; `--remove-client <ssh-name>`
    removes one. Read every leg's ✓ or !: a failed client leaves the host successful and prints the exact command
    to run by hand. Busy door sessions stay running; after typing ends, run that command again. `--as-client`
@@ -39,11 +41,10 @@ After a merge to main (yours, or a sha an agent hands you):
    while the door is idle, then register float-box: the old installer cannot accept `--as-client`. If install
    leaves an older session protocol running, finish typing and use the exact session-upgrade command it prints.
 4. `ep0ch doctor`: the host, the CLI and the doors on one `PROTOCOL`, nothing behind.
-5. Restart what install doesn't:
-   - the publishers, after any deploy that touched the outliner, outline-core or the web pages:
-     `systemctl --user restart outliner-publish.service outliner-publish-gurgle.service`;
-   - the MCP gateway when `PROTOCOL` or the MCP server changed: `systemctl --user restart ep0ch-mcp.service`;
-   - doors and agents that should run the new code (`ep0ch session upgrade`, `ep0ch act agent.restart`); say which.
+5. Restart what install doesn't: doors and agents that should run the new code (`ep0ch session upgrade`,
+   `ep0ch act agent.restart`); say which. The publishers and the MCP gateway are install's now: never restart them by
+   hand after a deploy (a docs-only merge left alone is the point). A unit install says it can't tell about is restarted
+   by the command it prints.
 6. Check it took: the tailnet page answers (`curl -s https://float-2.tail2a183e.ts.net/pub/ | head`), and
    `systemctl --user status` for what you restarted.
 7. The laptop (float-hub) updates when it is reachable or when Evan runs `ep0ch install --apply` there. Inbound ssh to
