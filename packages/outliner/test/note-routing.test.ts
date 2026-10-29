@@ -208,6 +208,26 @@ test("a rule that can't be used is a listed problem, never a move: no route-to, 
   expect(again.results[0]).toMatchObject({ outcome: "moved", to: { id: recipes.id } });
 });
 
+test("the rules are read again when a rule, the Routing view or a target changes, never for a write elsewhere (PIE-1413)", async () => {
+  const { client, create, route, store } = await startService();
+  const recipes = await create("Recipes");
+  await create(`Recipes go to the shelf [type::route] [query::type=recipe] [route-to::((${recipes.id}))]`);
+  expect((await route({ ref: (await create("Toast")).id, dryRun: true })).problems).toEqual([]);
+  // Every rules read starts by asking for the rule notes.
+  const internals = store as unknown as { queryBlocks: (...args: unknown[]) => unknown };
+  const queryBlocks = internals.queryBlocks.bind(store);
+  let reads = 0;
+  internals.queryBlocks = (...args: unknown[]) => { if (JSON.stringify(args[0]).includes('"route"')) reads += 1; return queryBlocks(...args); };
+  for (let i = 0; i < 5; i++) await create(`Shopping list ${i} [type::list]`);
+  await route({ ref: (await create("Porridge")).id, dryRun: true });
+  expect(reads).toBe(0);
+  await client.request({ action: "delete", blockId: recipes.id, mutation: { author: "user" } });
+  const run = await route({ ref: (await create("Soup")).id, dryRun: true });
+  // Read again (and, while the rule names a note in the Trash, after each write, so a restore heals it).
+  expect(reads).toBeGreaterThan(0);
+  expect(run.problems.join("\n")).toContain("Trash");
+});
+
 test("the Routing view is seeded once, listing every rule; a person who trashes it isn't given it again", async () => {
   const { client, create, store, server } = await startService();
   const hub = store.liveBlocks().find(b => b.properties.some(p => p.key === "page" && p.value === "routing"));
