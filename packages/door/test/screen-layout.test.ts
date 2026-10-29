@@ -799,3 +799,37 @@ describe("renaming a tile (PIE-1283)", () => {
     ok(fresh(), { op: "rename", tile: 2, name: "yo" }, AGENT);
   });
 });
+
+// PIE-1306: an open naming no tile, on a screen whose readers are all inside mounts (a group, a board or the welcome
+// screen in a tile), lands inside one: the mount says where its own opens start (`opensInside`), and placement hops in
+// there, as it hops out of a mount with no reader (`outward`). Never "no reader takes this open" while readers are on screen.
+describe("an open naming no tile reaches the readers inside mounts (PIE-1306)", () => {
+  const MOUNTS = new Map([[1, "tree"], [4, "activity"], [5, "welcome"], [6, "group"]]);
+  const mounted = () => init({ tree: splitOf("row", [leaf(1), leaf(4), leaf(5), leaf(6)], [0.25, 0.25, 0.25, 0.25]), names: MOUNTS });
+  const mount = (path?: string): Partial<TileFacts> => ({ kind: "screen", notes: false, ...(path ? { opensInside: path } : {}) });
+
+  test("the first mount with a reader in it takes it, the one with the person's keys first; the keys stay", () => {
+    extra = { 5: mount("welcome/reader"), 6: mount("group/notes") };
+    const open = (focus: number, actor: Actor = AGENT) => placement(mounted(), { from: focus, note: "arrival", default: true }, ctxOf(actor, { focus }));
+    for (const actor of [AGENT, PERSON]) {
+      const p = open(4, actor);
+      expect(p.destination).toEqual({ kind: "across", target: "welcome/reader", rule: "tile", source: true });
+      expect(p.keys).toBeUndefined();
+    }
+    expect(open(6).destination).toEqual({ kind: "across", target: "group/notes", rule: "tile", source: true });
+    extra = {};
+  });
+
+  test("a folded mount, one kept from the actor or one with no reader inside doesn't take it; a reader on the screen comes first", () => {
+    extra = { 5: mount(), 6: mount("group/notes") };
+    const s = mounted();
+    const open = (state: LayoutState) => placement(state, { from: 4, note: "arrival", default: true }, ctxOf(AGENT, { focus: 4 })).destination;
+    expect(open(s)).toEqual({ kind: "across", target: "group/notes", rule: "tile", source: true });
+    expect(open(ok(s, { op: "collapse", tile: 6, on: true }, PERSON, { focus: 4 }).state)).toEqual({ kind: "none", reason: "no reader takes this open" });
+    extra[6] = { ...mount("group/notes"), available: false };
+    expect(open(s)).toEqual({ kind: "none", reason: "no reader takes this open" });
+    extra = { 5: mount("welcome/reader"), 6: { kind: "reader", notes: true } };
+    expect(open(s)).toMatchObject({ kind: "swap", tile: 6 });
+    extra = {};
+  });
+});

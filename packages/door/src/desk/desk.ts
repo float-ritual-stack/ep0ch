@@ -696,7 +696,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(p instanceof ReaderPane && p.editing && !(closesWithEdit && p.surface.drafting) ? { editing: sessionName(p) } : {}),
       ...(p instanceof PtyPane && p.running ? { running: p.run.cmd[0] ?? "a program" } : {}),
       ...(p && (this.holdsWork(p) || (p instanceof ReaderPane && p.holdsKeys)) ? { holds: true } : {}),
+      ...this.opensInside(p, actor ?? USER),
     };
+  }
+  /**
+   * A screen mounted in tile `p` that takes an open naming no tile (PIE-1306): the path to its tile that open starts from,
+   * when that screen's own placement keeps it inside (a reader there, or in a mount below), never back out (`outward`).
+   */
+  private opensInside(p: Pane | undefined, actor: Actor): { opensInside?: string } {
+    const inner = p instanceof ScreenTile ? p.inner : null, start = inner?.panes.get(inner.focus);
+    if (!inner || !start) return {};
+    const d = placement(inner.layout, { from: inner.focus, note: "", default: true }, inner.layoutCtx(actor)).destination;
+    const down = (path: string) => { const t = inner.storedPane(path); return !!t && inner.pathDown(t) !== undefined; };
+    if (d.kind === "none" || d.kind === "into" || (d.kind === "across" && d.source && !down(d.target))) return {};
+    const path = this.pathDown(start);
+    return path ? { opensInside: path } : {};
   }
   /**
    * Who acts, where the person is, the room: what `apply` reads. Where the person is comes from the shell's one

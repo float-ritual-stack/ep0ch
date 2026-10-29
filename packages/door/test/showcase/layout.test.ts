@@ -1056,6 +1056,46 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     await app.dispatch.press("host.toggle", { open: false });
   }, 30_000);
 
+  test("an open naming no tile (PIE-1306): a screen whose only reader is in a group lands it there, the person's keys in the drawer or on the screen; a group carried into the drawer isn't the screen's", async () => {
+    await app.dispatch.press("host.toggle", { open: false });
+    await sc.dispatch.press("section.leave");
+    await sc.dispatch.press("section", { name: "lift" });
+    screen();
+    const d = sc.tilesHere()! as any, original = d.layoutSpec();
+    d.build({ root: { t: "split", dir: "row", kids: [{ t: "leaf", kind: "tree", name: "outline" }, { t: "leaf", kind: "reader", name: "inside" }, { t: "leaf", kind: "activity", name: "beside" }] }, focus: "outline" }, true);
+    const open = (id: string) => app.act({ action: "open", args: { id }, as: "test-agent" }) as Promise<any>;
+    const shows = async (tile: string) => ((await app.act({ action: "tile.info", tile, args: {}, as: "test-agent" })) as any).showing?.id;
+    try {
+      const g = (await d.dispatch.act({ action: "tile.group", tile: "inside", args: { with: "beside" } }, USER) as { name: string }).name;
+      (app as any).paint(true);
+      const [one, two, three] = seeded.cards;
+      const r = await open(one!.id);
+      expect([r.name, await shows(r.tile)]).toEqual(["inside", one!.id]);
+      expect(d.layoutGet().focus).toBe("outline");
+      // The person in the drawer: the open still lands on the screen's group, and the keys stay in the drawer.
+      await app.dispatch.press("host.toggle", { open: true });
+      await app.dispatch.press("host.enter");
+      (app as any).paint(true);
+      const keys = app.dispatch.where().keys;
+      expect(keys).toBe("host");                                 // the drawer has them
+      const r2 = await open(two!.id);
+      expect([r2.name, await shows(r2.tile)]).toEqual(["inside", two!.id]);
+      expect(app.dispatch.where().keys).toBe(keys);
+      // The group carried into the drawer: an open naming no tile lands on the screen shown, which has no reader now, so
+      // it is refused saying what gives it one (the drawer's tiles aren't the screen's).
+      await app.dispatch.press("host.toggle", { open: false });
+      await d.dispatch.act({ action: "tile.drawer", tile: g }, USER);
+      (app as any).paint(true);
+      await expect(open(three!.id)).rejects.toThrow(/no reader takes this open; tile.open kind=reader/);
+      if (app.drawer.made?.pane(g)) await app.drawer.made.dispatch.act({ action: "tile.drawer", tile: g }, USER);
+    } finally {
+      for (const pane of d.panes.values()) pane.dispose?.();
+      d.build(original, false);
+      await app.dispatch.press("host.toggle", { open: false });
+      await sc.dispatch.press("section.leave");
+    }
+  }, 30_000);
+
   test("on an outline without the showcase it says so and writes nothing", async () => {
     const other = new Scratch();
     const b = new SocketBoard(await other.start());

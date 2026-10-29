@@ -138,6 +138,11 @@ export interface TileFacts {
   placeholder?: boolean;
   /** It holds work (a draft): in a flow, its column resists compression. */
   holds?: boolean;
+  /**
+   * A screen mounted in it (a group, a board in a tile, PIE-651) has a reader somewhere inside: the path to the tile its
+   * opens start from there (`welcome/reader`), where an open naming no tile goes in when this screen has no reader (PIE-1306).
+   */
+  opensInside?: string;
 }
 
 /** Where the person is: their keys, the tile they're typing in (an edit, a comment, a terminal), whether they're busy. */
@@ -544,10 +549,18 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   }
   if (request.history) route = null;
   if (request.container) route = { into: request.container };
+  let inward = false;
   if (request.default && to === undefined && (!route || ctx.tile(from).notes)) {
     const readers = leaves(s.tree).filter(id => { const f = ctx.tile(id); return !s.collapsed.has(id) && f.notes && !f.follower && !f.editing && !f.holds && !f.pinned && f.available !== false; });
     const target = readers.find(id => ctx.tile(id).following) ?? readers[0];
     if (target !== undefined) route = { to: target };
+    // No reader here, but readers inside a mount (PIE-1306): the mount with the person's keys, else the first, places it
+    // as its own open naming no tile, the way a mount with no reader hands one out (`outward`).
+    else {
+      const mounts = leaves(s.tree).filter(id => !s.collapsed.has(id) && ctx.tile(id).opensInside && ctx.tile(id).available !== false);
+      const inside = mounts.includes(ctx.person.focus) ? ctx.person.focus : mounts[0];
+      if (inside !== undefined) { route = { across: ctx.tile(inside).opensInside!, rule: "tile" }; inward = true; }
+    }
   }
   const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, current: ctx.standing, route, giveNewKeys: ctx.standing && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
   if (request.newNote) {
@@ -596,7 +609,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     return { ...placement(s, { ...request, container: undefined, at: undefined, to: target }, ctx), why };
   }
   if (request.at) { result.destination = { kind: "new", at: request.at }; result.giveNewKeys = ctx.standing && request.keys !== false; return result; }
-  if (route && "across" in route) result.destination = { kind: "across", target: route.across, rule: route.rule };
+  if (route && "across" in route) result.destination = { kind: "across", target: route.across, rule: route.rule, ...(inward ? { source: true as const } : {}) };
   else if (route && "into" in route) {
     const container = node(s.tree, route.into);
     if (!container) { result.destination = { kind: "none", reason: `no container ${route.into} takes this open` }; return result; }
