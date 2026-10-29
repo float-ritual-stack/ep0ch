@@ -1168,7 +1168,8 @@ tailnet page, a phone, someone else). Narrowing it to one note and below is opt-
 
 **What's on screen.** Every web client page (tailnet and share) says what its reader has in front of them: the page,
 and the words selected (debounced, at most 2,000 characters) with the text either side and the note row they're in.
-The service keeps the latest per reader in memory (`reader.report`); `reader.view`, the MCP's `reader_view` and
+The service keeps the latest per reader in memory (`reader.report`; a mirror's copy keeps it beside the mirror, for
+the MCP gateway's reader_view, PIE-1091); `reader.view`, the MCP's `reader_view` and
 `ep0ch reader` read it, so an agent in chat can say "you have X selected" without fetching or navigating anything.
 A share's address is said without its token. The page also holds the selection in `#ep0ch-selection`
 (`aria-live`), for an agent driving a browser. With it go where the words are in the row's source (`offsets` at its
