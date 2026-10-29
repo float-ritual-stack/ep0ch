@@ -26,6 +26,58 @@ are its record. The outliner's entries from then are kept below, under
   neat:"); a pasted id that isn't here is named once, on one line; Jira's install row says what it does.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
 
+### Send to ep0ch from your phone in one tap (PIE-1408)
+
+- **One link, one tap:** open the Send to ep0ch page on my.ep0ch.sh on your iPhone, tap Add Shortcut, and "Send to ep0ch" is in your share sheet; a PDF or photo you share to it lands as a card in today's note. The Shortcut is signed and carries its own device link, so there is nothing to copy or edit.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+### @loki in a comment reaches loki, and stays on its list until it answers (PIE-1404)
+
+- **Write `@loki …` (or `@daddy`, `@kitty`) in a comment on any note,** from the door, a web page on your phone or
+  another agent: that persona's live Claude sessions hear it within 30 minutes, with the note, the words and who
+  wrote it, yours first.
+- **It stays on the list** in every wake until the persona replies in the thread or the thread is resolved; a session
+  started later hears what's still open within a minute of starting.
+- Nothing to run: it ships with the Claude mod (`ep0ch install --apply`).
+### A bulk job never freezes the host: your door answers at once while thousands of records are written (PIE-1413)
+
+- **What you'll notice:** a write-review backfill, an import or an agent's bulk writes no longer stall the outline
+  host. The door's ping, a note read and a save answer in tens of milliseconds while it runs, and nothing catches up
+  in a rush when it stops. Measured on a private copy of pie (ping p95 / max / longest stall, ms):
+
+  | while | before | after |
+  |---|---|---|
+  | an ordinary day (clients re-reading after each write) | 1800 / 1911 / 1710 | 31 / 66 / 0 |
+  | a backfill writes its records | 5272 / 7004 / 4502 | 61 / 311 / 271 |
+  | an import writes notes | 7458 / 7458 / 2130 | 53 / 240 / 235 |
+  | after the import is stopped | 657 / 657 / 1224 | 23 / 111 / 0 |
+
+- **Faster jobs too:** the backfill finishes (297 notes' records in 43 s; before, 44 in two minutes), and an import
+  writes 1,503 notes in 8.5 s where it wrote 55 in a minute. A note read, a query and a save on an ordinary day went
+  from 1.8 s, 2.8 s and 56 ms (p95) to 41, 74 and 34 ms.
+- **Why it froze:** every write threw away the whole-outline graph (~200 ms to read again on pie), a job's own
+  requests ran back to back without letting anything in, each watch pass ran every watch at once, and the routing
+  rules, script sources and the waiting-on-you list were read again after every write.
+- **How it's fair now:** a write patches the graph; the service's own requests and each watch take a turn on the
+  loop; the next turn goes to whoever used the loop least lately; those lists are read only when what they read
+  changed. No job throttles itself and no client changes.
+- **What's left:** a single whole-outline read (a 200-row view, the backlinks of a busy hub) is still one turn of
+  0.2–0.4 s at pie's size, so a ping can wait that long once, never seconds.
+- **The harness:** `bun run bench:host` in packages/outliner measures it (ping p50, p95, p99, max and the longest
+  stall per phase); `scripts/box-test host-bench` runs it on float-box, and CONTRIBUTING's review checklist asks a
+  bulk or subscription change for its fan-out, its count at pie's size and that measured proof.
+
+### A patch applied as written leaves nothing to fix, and a backfill rerun costs nothing twice (PIE-1402)
+
+- **The buried question's patch:** its box is its own paragraph, the text under it stays out of it, and on a note whose
+  chips sit on the line under the title, the box goes below them.
+- **A wall's or a stacked bullet's patch** splits at sentences, never commas; a sentence too long for one bullet comes
+  with no patch, and the finding names it.
+- **Twins and the groom give one answer:** the groom asks the filing's same-work question and reads it the same way
+  ("maybe the same work as PIE-n" in the band where Jev is unsure).
+- **A live check's chooser says what each choice writes** (`Mark done · jev::right`, `Reject · jev::rejected`).
+- **The backfill:** a note Jev read and said nothing of is kept as quiet, so a rerun asks only about what's new; a
+  run keeps one row; its records look the Records page and templates up once. The host's own load under a backfill
+  is PIE-1413's.
 ### A note written in the river opens with its text, and neat speaks plainly (PIE-1403)
 
 - **Reopened, it shows what you wrote:** a note written in a float over the river, saved and opened again from the
@@ -40,6 +92,29 @@ are its record. The outliner's entries from then are kept below, under
   row first, before any note named Neat.
 - **The ▾ at a heading's words folds it** on a click, as the gutter's ▾ does, at 38 columns too.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### The trail: where a reader has been, and straight back to any stop (PIE-208)
+
+- **In a reader or the river:** `alt+T`, the `≡ trail` beside `← back`, or the tile menu lists every stop back and
+  forward by title, the note shown lit. ⏎ or a click goes straight there; `← back` and `forward →` walk the same trail.
+- **On the web page:** `≡ trail` at the end of the breadcrumbs lists the notes this tab opened, newest first.
+- **Agents:** `act trail` reads the stops (it opens nothing); `act back steps=2` goes two at once; `ep0ch.trail()` on a page.
+- **Run:** nothing extra; `ep0ch install --apply` as usual (no protocol or schema change).
+
+### Approve from the phone grants what it says, and leaves the list when answered anywhere (PIE-1386)
+
+- **The session step says what it grants:** ``allow every `touch` command for this session`` adds that one rule for this session,
+  never the dialog's accept-edits mode (a tap on `touch` used to let the next `rm` run unasked), a folder or a standing
+  rule. An `rm` gets only its exact command; a call no rule names exactly (`a && b`, a `*`) offers only once and deny.
+- **Answered at the terminal, gone from the list:** the dialog shows in the session at once, beside the ask; answer it
+  there and the note leaves Waiting on Evan within 3 s, saying it was answered in the session and whether it ran (it
+  used to wait 10 minutes and then say nobody ticked). After 600 s with no answer the note leaves the list and says
+  the dialog still waits in the session.
+- **Which list:** pie's Waiting on Evan holds every session's asks beside pie's own `needs` notes; a `needs` note in
+  gurgle or float-hub stays on that outline's list, and the ask page says so.
+- **Every error page is dark:** a 404 (`/pub/p/PIE-9999`), a 502 or a busy 503 that a browser opens is the dark page
+  with the same words; a page's own fetches still get plain text.
+- **Run:** nothing beyond the next `ep0ch install --apply` (the publisher and the Claude mod pick it up).
 
 ### The status bar keeps your buttons: narrow bars, typos and groups (PIE-1213, PIE-1227, PIE-1224)
 

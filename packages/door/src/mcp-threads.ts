@@ -8,6 +8,9 @@
 import { actorHandle, actorLabel, parseActor } from "@ep0ch/outline-core/attribution";
 import type { Comment, IndexBlock } from "./socket";
 import { prop } from "./props";
+import { mentions } from "@ep0ch/outline-core/mention";
+
+export { mentions };
 
 /** `author` is the actor id as recorded; `by` how a person reads it (`loki (claude-code@float-2)`). */
 export interface ThreadComment { id: string; author: string; by: string; at: string | null; body: string }
@@ -58,12 +61,6 @@ export const sameWho = (a: string, b: string) => {
   const [x, y] = [parseActor(a), parseActor(b)];
   return y.principal?.includes("@") && !y.persona ? y.principal === x.principal : idOf(a) === idOf(b);
 };
-
-/** Whether a text mentions `@name` (the @ is optional in the filter), as a word. */
-export function mentions(text: string, name: string): boolean {
-  const bare = name.trim().replace(/^@/, "");
-  return !!bare && new RegExp(`(^|[^\\w])@${bare.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "i").test(text);
-}
 
 export interface InboxFilter { status: "open" | "resolved" | "all"; since?: number }
 

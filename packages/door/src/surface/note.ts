@@ -147,7 +147,7 @@ import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { MOUSE_ALT, RowPresses } from "../scroll";
 import { readState, writeState } from "../state";
 import { menuRow } from "../desk/tile-menu";
-import { ListPicker } from "./picker";
+import { centred, ListPicker, pickRow } from "./picker";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
 import { calloutBlocks, rewriteCalloutHeader, stripQuotes, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
@@ -176,6 +176,8 @@ export interface TagList { tag?: string; query: string; tile?: string; notes: { 
 export interface SurfaceHost {
   /** A history landing uses the host's usual note placement. */
   historyLanded?(by: Actor): void;
+  /** A list over the screen this reader is on (the desk's overlays): the trail (PIE-208) opens in it. */
+  overlay?(p: ListPicker<any, any>): void;
   contextFor?(note: Msg | null): Ctx;
   ctx: Ctx;
   redraw(): void;
@@ -303,8 +305,10 @@ export interface SurfaceHost {
 export interface ReaderHistory {
   /** The title back (-1) or forward (1) goes to, or null when there's nowhere to go. */
   peek(dir: -1 | 1): string | null;
-  /** Go there: null when it went, else why not. */
-  go(dir: -1 | 1, actor: Actor): string | null | Promise<string | null>;
+  /** Go there, `steps` stops at once (default 1): null when it went, else why not. */
+  go(dir: -1 | 1, actor: Actor, steps?: number): string | null | Promise<string | null>;
+  /** Every stop back and forward, nearest first (the trail, PIE-208): the same trail `go` walks, read, never a copy. */
+  trail?(): { back: TrailStop[]; forward: TrailStop[] };
   /** Why an agent can't go back or forward here: it would move the person's screen or focus. */
   agentRefusal: string;
 }
@@ -376,6 +380,9 @@ function readNav(raw: unknown): SavedNav | null {
  * A reader's history keys (PIE-453): alt+←, backspace or the mouse's back button go back; alt+→ or its forward
  * button go forward. alt+b and alt+f too: some macOS terminals send them for option+← and option+→.
  */
+/** The trail's key (PIE-208): alt+T, beside back's alt+← and forward's alt+→. */
+export const isTrailKey = (k: Key) => k.kind === "alt" && k.ch === "T";
+
 export function historyKey(k: Key): -1 | 1 | 0 {
   if (k.kind === "alt-left" || k.kind === "backspace" || k.kind === "back" || (k.kind === "alt" && k.ch === "b")) return -1;
   if (k.kind === "alt-right" || k.kind === "forward" || (k.kind === "alt" && k.ch === "f")) return 1;
@@ -386,20 +393,38 @@ export function historyKey(k: Key): -1 | 1 | 0 {
  * The history row a reader draws last while it has somewhere to go (PIE-453): `← back · <title>` on the left,
  * `<title> · forward →` on the right, each a click (`hits`, in the row's cells). Null with nowhere to go.
  */
-export function historyRow(w: number, back: string | null, forward: string | null): { line: string; hits: { from: number; to: number; dir: -1 | 1 }[] } | null {
+export function historyRow(w: number, back: string | null, forward: string | null, trail = true): { line: string; hits: { from: number; to: number; dir: TrailDir }[] } | null {
   if ((!back && !forward) || w < 12) return null;
-  const room = back && forward ? Math.floor((w - 3) / 2) : w - 2;
+  // The trail's chip (PIE-208) after back, where the row has room for it beside both titles.
+  const chip = trail && w >= TRAIL_CHIP_MIN ? TRAIL_CHIP : "", chipW = chip ? width(chip) + 2 : 0;
+  const room = back && forward ? Math.floor((w - 3 - chipW) / 2) : w - 2 - chipW;
   const b = back ? drawEllipsized(`${fg(C.lcyan)}← back${fg(C.dark)} · ${printable(back)}`, room) : "", f = forward ? drawEllipsized(`${fg(C.dark)}${printable(forward)} · ${fg(C.lcyan)}forward →`, room) : "";
-  const hits: { from: number; to: number; dir: -1 | 1 }[] = [];
-  let line = "";
-  if (b) { line += " " + b + RESET; hits.push({ from: 0, to: 1 + width(b), dir: -1 }); }
+  const hits: { from: number; to: number; dir: TrailDir }[] = [];
+  let line = "", at = 0;
+  if (b) { line += " " + b + RESET; hits.push({ from: 0, to: 1 + width(b), dir: -1 }); at = 1 + width(b); }
+  if (chip) {
+    const from = at + (b ? 2 : 1);
+    line += " ".repeat(from - at) + fg(C.lcyan) + chip + RESET;
+    hits.push({ from, to: from + width(chip), dir: 0 });
+    at = from + width(chip);
+  }
   if (f) {
-    const at = w - 1 - width(f), gap = at - (b ? 1 + width(b) : 0);
-    line += " ".repeat(Math.max(1, gap)) + f + RESET;
-    hits.push({ from: at, to: w, dir: 1 });
+    const from = w - 1 - width(f);
+    line += " ".repeat(Math.max(1, from - at)) + f + RESET;
+    hits.push({ from, to: w, dir: 1 });
   }
   return { line, hits };
 }
+
+/** A history row's click: back (-1), the trail (0, PIE-208) or forward (1). */
+export type TrailDir = -1 | 0 | 1;
+/** The action a history row's click runs. */
+export const historyAction = (dir: TrailDir) => (dir < 0 ? "back" : dir > 0 ? "forward" : "trail") as "back" | "forward" | "trail";
+/** The trail's chip on the history row, and the narrowest row that draws it. */
+export const TRAIL_CHIP = "≡ trail";
+const TRAIL_CHIP_MIN = 40;
+/** One stop on a reader's trail (PIE-208): the note there, by its title as it was when the reader was there. */
+export interface TrailStop { id?: string; title: string; address?: Msg["address"] }
 
 /** What a host's header can say that only the surface knows: where the note sits, its comments and properties. */
 export interface HeaderInfo {
@@ -486,7 +511,7 @@ const same = <T,>(a: T | undefined, b: T | undefined, base: (x: T) => unknown) =
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 /** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
 /** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string } | { passage: string } | { crumbs: true } | { start: SessionKind } | { margin: true } | { fold: number } | { listPreview: number } | { region: string } | { sources: true } | { zoom: number });
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { block: number } | { thread: string; elem: string } | { history: TrailDir } | { pick: number } | { image: string } | { passage: string } | { crumbs: true } | { start: SessionKind } | { margin: true } | { fold: number } | { listPreview: number } | { region: string } | { sources: true } | { zoom: number });
 
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
@@ -1246,7 +1271,8 @@ export class NoteSurface {
   hint(extra = ""): string {
     const context = this.contextualHint();
     if (context !== null) return context;
-    const back = this.peek(-1) ? "alt← back · " : "";
+    // Back, and the trail (PIE-208) once there is somewhere to go either way.
+    const back = (this.peek(-1) ? "alt← back · " : "") + (this.peek(-1) || this.peek(1) ? "alt+T trail · " : "");
     // Zoomed into a part (PIE-780): the way back first; else W zooms (the keys from ZOOM_KEYS, the table that binds them).
     const zoom = this.zoomHint();
     if (this.zoom) return `${extra}${zoom} · ${back}↑↓ j k blocks/rows · [ ] elements · f fold`;
@@ -1928,7 +1954,7 @@ export class NoteSurface {
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
     // Back and forward (PIE-453): the reader's last row, while it has somewhere to go.
-    const foot = this.panel?.full || h <= 3 ? null : historyRow(w, this.peek(-1), this.peek(1));
+    const foot = this.panel?.full || h <= 3 ? null : historyRow(w, this.peek(-1), this.peek(1), !!host?.overlay);
     if (foot) h -= 1;
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
     const open = openConstructs(m.text);
@@ -4365,7 +4391,7 @@ export class NoteSurface {
     if (b && x >= b.col && x < b.col + b.cols && y >= b.row && y < b.row + b.rows) return false;
     const h = this.hitAt(x, y);
     if (!h) return false;
-    if ("history" in h) { void this.runKey(h.history < 0 ? "back" : "forward", {}, host); return true; }
+    if ("history" in h) { void this.runKey(historyAction(h.history), {}, host); return true; }
     if (!("link" in h || "thread" in h)) return false;
     const e = h.elem ? this.elems.find(x => x.key === h.elem) : undefined;
     if (e && (e.kind === "link" || e.kind === "row" || e.kind === "embed" || e.kind === "comment")) { void this.runKey("element.open", { n: this.elems.indexOf(e) + 1 }, host); return true; }
@@ -4563,6 +4589,7 @@ export class NoteSurface {
     // Back and forward (PIE-453): where the reader was before a follow, scrolled and with its [ ] position.
     const dir = historyKey(k);
     if (dir) { void this.runKey(dir < 0 ? "back" : "forward", {}, host); return true; }
+    if (isTrailKey(k)) { void this.runKey("trail", {}, host); return true; }
     if (ch(k) === "~") { void this.runKey("decor.raw", {}, host); return true; }
     const c = ch(k);
     // An extension's line that is the current element (PIE-512): a key its actions answer to runs that
@@ -6298,7 +6325,7 @@ export class NoteSurface {
       host.redraw();
       return true;
     }
-    if (h && "history" in h) { void this.runKey(h.history < 0 ? "back" : "forward", {}, host); return true; }
+    if (h && "history" in h) { void this.runKey(historyAction(h.history), {}, host); return true; }
     // The crumbs: the note in the outline (reader.reveal: the outline's cursor moves there, nothing else, PIE-794).
     if (h && "crumbs" in h) { host.revealInOutline?.(); return true; }
     // The byline's [comment] (PIE-846): as its key would, where the host keeps track of the person's session.
@@ -6650,7 +6677,7 @@ export class NoteSurface {
     this.setElem(e);
     this.reveal = true;
     // Mark done first, as Detail's menu; on a closed step (done, approved, rejected), Mark to do.
-    this.picker = { key: e.key, list: this.choices(stepClosed(e.task.step.status) ? 1 : 0), note: "", busy: false };
+    this.picker = { key: e.key, list: this.choices(stepClosed(e.task.step.status) ? 1 : 0, e.task.live), note: "", busy: false };
   }
 
   /**
@@ -6683,10 +6710,15 @@ export class NoteSurface {
     this.picker = { key: e.key, kind: "callout", list, note: "", busy: false, types };
   }
 
-  /** A status choice's list, from choice `sel`: j k Tab round it, ⏎ or a choice's letter chooses, esc or q cancels. */
-  choices(sel: number): Picker["list"] {
+  /**
+   * A status choice's list, from choice `sel`: j k Tab round it, ⏎ or a choice's letter chooses, esc or q cancels. On a
+   * live row (`live`, its figure's `done:`) each choice says what it writes on the row's note (`jev::right`), so a
+   * figure whose `done:` means "Jev was right" reads as that (PIE-1402).
+   */
+  choices(sel: number, live?: { key: string; done: string }): Picker["list"] {
+    const items = live ? STEP_CHOICES.map(c => c.id === "copy-link" || c.id === "address" ? c : { ...c, label: `${c.label} · ${live.key}::${liveMarkValue(live, c.id)}` }) : STEP_CHOICES;
     const list = new ListPicker<Choice, SurfaceHost>({
-      name: "choice", items: () => STEP_CHOICES, wraps: true, closers: "q", stays: true, row: () => [],
+      name: "choice", items: () => items, wraps: true, closers: "q", stays: true, row: () => [],
       choose: (_, i, host) => void this.choose(i, host),
       closed: host => { this.picker = null; host.redraw(); },                                  // a cancel: as it was
       keys: (k, host) => { const i = STEP_CHOICES.findIndex(x => x.key === ch(k)); if (i >= 0) void this.choose(i, host); return i >= 0; },
@@ -7928,7 +7960,7 @@ export class NoteSurface {
     let at = hit.line + 1;
     // A step's choice goes under its item; a callout's right under its top edge.
     if (hit.ref && !hit.ref.via) while (at < doc.source.length && doc.source[at] === doc.source[hit.line]) at++;
-    const { lines, rows } = hit.callout ? calloutPanel(hit.callout, P, W) : pickerPanel(hit.ref!, P.list.sel, P.note, P.busy, W);
+    const { lines, rows } = hit.callout ? calloutPanel(hit.callout, P, W) : pickerPanel(hit.ref!, P.list.items, P.list.sel, P.note, P.busy, W);
     const { doc: out } = withRows(doc, [{ at, lines }]);
     return { doc: out, picks: { at, lines: lines.length, rows: rows.map(r => at + r) } };
   }
@@ -8114,21 +8146,24 @@ export class NoteSurface {
    * this reader moves (in place, not through the host's navigate: nothing else follows it). Where the view
    * keeps a trail (SurfaceHost.history), that trail takes over after local replacements. Null when it went, else why not.
    */
-  async travel(dir: -1 | 1, host: SurfaceHost, actor: Actor = USER): Promise<string | null> {
+  async travel(dir: -1 | 1, host: SurfaceHost, actor: Actor = USER, steps = 1): Promise<string | null> {
     this.use(host);
-    const stack = dir < 0 ? this.backs : this.aheads, to = stack.at(-1);
-    if (!to && host.history) return host.history.go(dir, actor);
+    // `steps` stops at once (the trail's choice, PIE-208): the ones passed over go on the other stack, as one by one.
+    const stack = dir < 0 ? this.backs : this.aheads, to = stack[stack.length - steps];
+    if (!stack.length && host.history) return host.history.go(dir, actor, steps);
+    if (!to && stack.length) return `only ${stack.length} ${dir < 0 ? "back" : "ahead"}: steps=${stack.length} at most (trail lists them)`;
     if (!to) return dir < 0 ? "nothing to go back to: this reader hasn't followed a link here" : "nothing ahead: go back first";
     const holding = this.modes.holding();
     if (holding) return `finish ${holding} first · ${this.holdingHint()}`;
     const fresh = await readNote(outlineBoards(host.ctx).home(), to.msg.id, to.msg.address).catch(() => null);
-    if (stack.at(-1) !== to) return "the reader moved meanwhile";
+    if (stack[stack.length - steps] !== to) return "the reader moved meanwhile";
     const here = this.place();
     const note = fresh ?? to.msg;
     if (host.contextFor) host = { ...host, ctx: host.contextFor(note) };
     if (!this.show(note, host)) return holdsEdit("the reader");
-    stack.pop();
-    if (here) (dir < 0 ? this.aheads : this.backs).push(here);
+    const passed = stack.splice(stack.length - steps).slice(1).reverse(), other = dir < 0 ? this.aheads : this.backs;
+    if (here) other.push(here);
+    other.push(...passed);
     this.restorePlace(to);
     host.historyLanded?.(actor);
     // A redraw may paint synchronously; the host must keep the destination before its view reads it.
@@ -8183,9 +8218,44 @@ export class NoteSurface {
 
   /** The history as `peek` shows it: the titles back and forward go to, nearest first. */
   describeHistory() {
+    const trail = this.kept && !this.backs.length && !this.aheads.length ? this.kept.trail?.() : undefined;
+    if (trail) return { back: trail.back, forward: trail.forward, keptBy: "view" };
     if (this.kept && !this.backs.length && !this.aheads.length) return { back: [this.kept.peek(-1)].filter(Boolean), forward: [this.kept.peek(1)].filter(Boolean), keptBy: "view" };
     const titles = (ps: Place[]) => ps.map(p => ({ ...(p.msg.address ? { address: p.msg.address } : {}), id: p.msg.id, title: subject(p.msg) })).reverse();
     return { back: titles(this.backs), forward: titles(this.aheads) };
+  }
+
+  /**
+   * The trail (PIE-208): where this reader has been and may go again, read from the one history back and forward walk
+   * (this reader's stacks, or the view's where it keeps them). The person's opens it as a list over the screen, the
+   * note shown lit between the stops ahead (above) and back (below); a choice is back or forward that many steps.
+   * An agent's answers the stops and opens nothing.
+   */
+  trail(host: SurfaceHost, standing: boolean) {
+    const h = this.describeHistory(), m = this.msg;
+    // A view that keeps its trail without listing it says only the next title each way.
+    const stops = (ss: readonly unknown[]): TrailStop[] => ss.flatMap(s => (typeof s === "string" ? [{ title: s }] : s ? [s as TrailStop] : []));
+    const back = stops(h.back), forward = stops(h.forward);
+    const answer = { here: m ? { id: m.id, title: subject(m) } : null, back, forward, ...(h.keptBy ? { keptBy: h.keptBy } : {}) };
+    if (!standing) return { ...answer, shown: false };
+    if (!back.length && !forward.length) throw new ActionRefused("no trail yet: this reader hasn't followed a link (follow one, then alt+T)");
+    if (!host.overlay) throw new ActionRefused(`this screen can't list the trail over it · ${back.length ? `back steps=${back.length} goes to ${back.at(-1)!.title}` : "forward goes on"}`);
+    type Row = { dir: -1 | 0 | 1; steps: number; title: string };
+    const rows: Row[] = [
+      ...forward.map((s, i) => ({ dir: 1 as const, steps: i + 1, title: s.title })).reverse(),
+      { dir: 0, steps: 0, title: answer.here?.title ?? "(nothing shown)" },
+      ...back.map((s, i) => ({ dir: -1 as const, steps: i + 1, title: s.title })),
+    ];
+    const list = new ListPicker<Row, unknown>({
+      name: "trail", items: () => rows, clickChooses: true,
+      // One row a stop, so the box is as tall as the trail; a title cut short reads in full on hover (Overflow).
+      row: (r, _i, on, w) => [pickRow(` ${r.dir < 0 ? "←" : r.dir > 0 ? "→" : "●"} ${printable(r.title)}${r.dir ? ` · ${r.steps} ${r.dir < 0 ? "back" : "ahead"}` : " · here"}`, on, w)],
+      choose: r => { if (r.dir) void this.runKey(r.dir < 0 ? "back" : "forward", { steps: r.steps }, host); },
+      frame: (a, n) => ({ rect: centred(a, Math.min(64, a.cols - 2), Math.min(n + 2, a.rows)), title: "trail · where this reader has been" }),
+    });
+    list.sel = forward.length;
+    host.overlay(list);
+    return { ...answer, shown: true };
   }
 
   // ── selecting text (PIE-419) ───────────────────────────────────────────────
@@ -9136,11 +9206,12 @@ interface LineUndo { patch?: { start: number }; block: string; edits: LineEdit[]
  * A step's status choice (PIE-472), `W` cells wide: Detail's choices in its order, each with its key, the
  * one the keys are on lit, the step's current status marked, and what the last choice said.
  */
-function pickerPanel(ref: StepRef, sel: number, note: string, busy: boolean, W: number): { lines: string[]; rows: number[] } {
+function pickerPanel(ref: StepRef, choices: readonly Choice[], sel: number, note: string, busy: boolean, W: number): { lines: string[]; rows: number[] } {
   const edge = fg(C.yellow), inner = Math.max(8, W - 2), f = stringFrame(W, { glyphs: LINE_BOX, ink: edge, pad: 0, open: true });
   const lines = [f.top(fg(C.white) + ` ${STEP_BOXES[ref.step.status]} ${printable(stepTitle(ref.step))} `)];
   const rows: number[] = [];
-  STEP_CHOICES.forEach((c, i) => {
+  // The list's own choices (on a live row, each says what it writes): the panel draws them, never a second copy.
+  choices.forEach((c, i) => {
     const now = (c.id === ref.step.status ? " · now" : "");
     const text = pad(` ${c.label}${now}`, Math.max(1, inner - 3)) + ` ${c.key} `;
     rows.push(lines.length);
@@ -9446,6 +9517,8 @@ interface On { surface: NoteSurface; host: SurfaceHost; standing: boolean }
  * and dimmed (`busy`) while an edit or a comment holds it.
  */
 /** An unsent action's argument: which put-aside draft on the note. */
+/** back and forward's `steps`: how many stops on the trail at once. */
+const STEPS_ARG = { type: "number" as const, optional: true as const, about: "how many stops at once (default 1): trail lists them" };
 const UNSENT_ARGS = { kind: { type: "string" as const, optional: true, about: "edit (default), comment, child (a note under this one) or card: what's put aside on the note" } };
 /** The note what's put aside belongs to: the note shown, or the one a diff or copy view is about. */
 const unsentOf = (surface: NoteSurface) => { const m = surface.requireNote(); return unsentView(m.id)?.of ?? m.id; };
@@ -9704,7 +9777,7 @@ async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor
  * back, forward (PIE-453). An agent's never moves what the person is reading: refused on the reader they have
  * focused, and where the view keeps the history (it would move their screen or focus).
  */
-async function travelAction(dir: -1 | 1, { surface, host, standing }: On, actor: Actor) {
+async function travelAction(dir: -1 | 1, { surface, host, standing }: On, actor: Actor, steps = 1) {
   const word = dir < 0 ? "back" : "forward";
   // Where the view keeps the history itself (the river's columns), it moves the person's keys: theirs alone.
   if (!standing && host.history) throw new ActionRefused(host.history.agentRefusal);
@@ -9712,7 +9785,8 @@ async function travelAction(dir: -1 | 1, { surface, host, standing }: On, actor:
   // (Synchronous when nothing is asked: the follow goes on in the same tick, as it always did.)
   const asked = surface.askLeave(word, {}, actor, host);
   if (asked) return asked;
-  const why = await surface.travel(dir, host, actor);
+  if (!Number.isInteger(steps) || steps < 1) throw new ActionRefused("steps is a whole number from 1 (trail lists the stops)");
+  const why = await surface.travel(dir, host, actor, steps);
   if (why) throw new ActionRefused(why);
   surface.noteAgent(actor, `went ${word} here`);
   host.redraw();
@@ -10847,16 +10921,27 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "alt+←, alt+b, backspace, the mouse's back button, a click on ← back",
     touches: "tile", replay: "safe", way: "back would move what they're reading · an agent goes back only in another reader (name it with tile=)",
     menu: noteRow("back", "alt+left", { busy: true, now: ({ surface }) => (surface.describeHistory().back.length ? null : { hide: true }) }),
-    args: {},
-    run: (_, on, actor) => travelAction(-1, on, actor),
+    args: { steps: STEPS_ARG },
+    examples: [{ act: "back steps=2", does: "goes back two stops on the trail at once, as two backs would" }],
+    run: ({ steps }, on, actor) => travelAction(-1, on, actor, steps),
   }),
   "forward": def({
     summary: "go forward again to where back came from, scrolled and with its [ ] position as it was. An agent's is refused on the reader the person has focused",
     keys: "alt+→, alt+f, the mouse's forward button, a click on forward →",
     touches: "tile", replay: "safe", way: "forward would move what they're reading · an agent goes forward only in another reader (name it with tile=)",
     menu: noteRow("forward", "alt+right", { busy: true, now: ({ surface }) => (surface.describeHistory().forward.length ? null : { hide: true }) }),
+    args: { steps: STEPS_ARG },
+    examples: [{ act: "forward steps=2", does: "goes forward two stops on the trail at once" }],
+    run: ({ steps }, on, actor) => travelAction(1, on, actor, steps),
+  }),
+  "trail": def({
+    summary: "the trail of where this reader has been (PIE-208): every stop back and forward by its title, nearest first, the note shown between them. The person's opens it as a list over the screen: ⏎ or a click on a stop goes there (back or forward that many steps, as back steps= does), esc puts it away. An agent's answers the stops and opens nothing",
+    keys: "alt+T, a click on ≡ trail beside ← back",
+    touches: "nothing", replay: "safe",
+    menu: noteRow("trail: where it's been", "alt+T", { busy: true, now: ({ surface }) => { const h = surface.describeHistory(); return h.back.length || h.forward.length ? null : { hide: true }; } }),
     args: {},
-    run: (_, on, actor) => travelAction(1, on, actor),
+    examples: [{ act: "trail", does: "lists the stops back and forward; back steps=2 then goes to the second one back" }],
+    run: (_, { surface, host, standing }) => surface.trail(host, standing),
   }),
   "element.zoom": def({
     summary: "zoom this reader into a part of its note (PIE-780): the figure, table, heading's section, callout, list item or paragraph at line= (from 1; default the [ ] position's, else the reading line's), or anchor=, fills the tile, interactive at full size, the part element.detach would take there (the service says which lines). Where it was goes on its back trail: on=false, esc, back or a click on ← back returns to the whole note as it was; forward zooms in again. An agent's is refused on the reader the person has focused",
@@ -12780,7 +12865,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       surface.openPicker(e);
       host.redraw();
-      return { open: true, step: e.task!.step.itemId ?? null, choices: STEP_CHOICES.map(c => ({ id: c.id, key: c.key, label: c.label })) };
+      // The choices as the panel draws them: on a live row, each says what it writes.
+      return { open: true, step: e.task!.step.itemId ?? null, choices: (surface.picker?.list.items ?? STEP_CHOICES).map(c => ({ id: c.id, key: c.key, label: c.label })) };
     },
   }),
   ...PROPOSAL_DEFS,

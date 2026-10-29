@@ -137,6 +137,7 @@ export const SEED = {
   shedPlan: "Shed rebuild plan",
   shedPad: "Shed sticky pad",
   zoomPlan: "Orchard winter plan",
+  trailGate: "Garden walk: the gate",
   sources: "Completion from an extension",
   writeReview: "Shed status tonight",
   jevPage: "Jev's suggestions",

@@ -283,22 +283,30 @@ outright (1, 0), else `tput Pst` (a door's tiles have it); it never sends the fe
 
 ### Approve from the phone (PIE-1386)
 
-A permission dialog in a session nobody is watching (a background job: `CLAUDE_JOB_DIR` is set) is put to the person
-through the outline before it shows (`hooks/approve.ts`):
+A permission dialog in a session nobody is watching (a background job: `CLAUDE_JOB_DIR` is set) shows in the session
+at once and is put to the person through the outline at the same time (`hooks/approve.ts`). The first answer wins.
 
-- **One list:** every session's asks go to `EP0CH_APPROVE_WS` (`<name>` or `<name>@<machine>`, default `pie`, on the
-  bound outline's machine), so pie's Waiting on Evan is the one list. A session bound to float-hub (client work) keeps
-  its asks in float-hub, never pie; an outline that can't be read from here keeps them in the bound outline.
+- **One list for agents' asks:** every session's asks go to `EP0CH_APPROVE_WS` (`<name>` or `<name>@<machine>`, default
+  `pie`, on the bound outline's machine), so pie's Waiting on Evan holds them all beside pie's own `needs` notes. A
+  `needs` note written in another outline (gurgle, float-hub) stays on that outline's list. A session bound to
+  float-hub (client work) keeps its asks in float-hub, never pie; an outline that can't be read from here keeps them in
+  the bound outline.
 - **The ask:** a note under that outline's `[[permission-asks]]` page, `Allow <tool>: <what>?` with
-  `[needs::sysop: …]` on its first line, so pie's Waiting on Evan view (any view of `needs`) lists it; three steps:
-  `allow this once`, `allow for this session`, `deny`; and the call's input.
-- **The answer:** the person's tick, on the web page (a tap on my.ep0ch.sh) or in the door, both the one
+  `[needs::sysop: …]` on its first line, so pie's Waiting on Evan view (any view of `needs`) lists it; its steps:
+  `allow this once`, the session step, `deny`; and the call's input.
+- **The session step says what it grants:** ``allow every `touch` command for this session`` adds only `Bash(touch:*)` for this session
+  (`sessionGrantOf`): the dialog's own suggested rule when it has one; else a prefix rule for `touch` or `mkdir` (whose
+  dialog suggests accept-edits mode, which would let the next `rm` run unasked); else the exact command, `rm` included.
+  Never a mode switch, a folder or a standing rule. A call no rule names exactly (`a && b`, a `*`) gets no session step.
+- **A tick answers it:** the person's tick, on the web page (a tap on my.ep0ch.sh) or in the door, both the one
   `checklist.update` written as `author: user`. The hook reads the note every 3 s; a tick whose last write is an
-  agent's counts for nothing. `allow for this session` keeps the dialog's own suggested rules for this session only.
-- **No tick:** after 600 s the ordinary dialog shows. The note then says so and drops its `needs` chip, as it does
-  once answered (who answered, from which session, and when).
-- **Watched sessions** show the dialog at once, as before: a held hook holds the dialog. `EP0CH_APPROVE_WAIT=<seconds>`
-  sets the wait for any session (0 is off).
+  agent's counts for nothing. The tick answers the dialog that is showing, and the note says who answered and when.
+- **Answered in the session instead:** the call ends (it runs, or the dialog's No refuses it), and the note leaves the
+  list at once (within the 3 s read), saying it was answered in the session and whether it ran. The mod matches the
+  dialog to its call by the tool and its input (`callKey`, `CallsUnderWay`).
+- **No answer for 600 s:** the note leaves the list, saying the dialog still waits in the session.
+  `EP0CH_APPROVE_WAIT=<seconds>` sets that time for any session (0 is off).
+- **Watched sessions** write no ask: whoever watches answers the dialog there.
 - **Not covered:** auto mode's classifier denials (PermissionDenied) can't be answered by a hook.
 
 ## Recent mentions in Claude Code
@@ -450,6 +458,33 @@ has the steps for a wake.
 - A host older than `list --facets` is one toast naming `ep0ch install --apply`; the check changes nothing until it
   can read.
 
+## Addressed mail: an @persona comment reaches its sessions (PIE-1404)
+
+A comment that says `@loki` (or `@daddy`, `@kitty`, any persona) on any note, written in the door, on a web page or
+by another agent, wakes every live session of that persona, and stays on its list until it answers. The capability is
+"Addressed mail" in pie (f9f2475c).
+
+- **Who:** any session that writes as a persona (the folder's `.ep0ch` `agent =`, or `EP0CH_AGENT`), on the settle
+  check's clock: 15 seconds after the start, then every `every` minutes (30; `EP0CH_SETTLE_TUNING`'s `every=`).
+- **What it asks** (`hooks/addressed.ts`, three reads, no scan and no thread limit): the comments naming `@<persona>`
+  (`list --query '((type=annotation AND annotation-status=open) OR type=annotation-reply) AND text~"@<persona>"'`),
+  the thread roots and notes they sit under (`read`), and every reply in those threads
+  (`type=annotation-reply AND (parent-annotation=… OR …)`). The `@name` matcher is outline-core's `mention.ts`, the
+  one the gateway's thread inbox uses: `@loki` is loki, `@loki-sr` isn't, and an `@loki` in the quoted passage isn't.
+- **An ask** is an open thread where a comment the persona didn't write names it, and no comment by the persona comes
+  after (from any client: `mcp:loki/claude.ai` and `loki/claude-code@float-2` are both loki). A reply from it, or the
+  thread resolved, takes it off the list; a later @ in the same thread puts it back.
+- **A wake** is one prompt, `Addressed to @loki: N open threads ask you …`, sent when an ask is new to this session
+  (or asked again): every open ask, the new first, Evan's first, each with who, when, the note, the thread id and the
+  words, then how to answer (`outline_reply`). What was told is kept in memory, so every session of the persona hears
+  each ask once, and a session that starts later hears what is still open at its first check. A wake that doesn't go
+  is tried again at the next check.
+- **Where:** the bound outline, and the outlines `settleOutlines` or `EP0CH_SETTLE_OUTLINES` name; with neither, pie
+  and gurgle on its machine when the bound outline is one of them. An outline that can't be read is one toast and is
+  left out of that check.
+- **Agents asking agents:** another agent's @ counts, so kitty can raise loki's traffic with loki. The wake says to
+  name another agent only when its answer is needed; a loop costs one wake per check at most.
+
 ## Workboard tools
 
 In a bound folder Claude also gets `work_create`, `work_stage`, `work_set`, `work_link`,
@@ -536,7 +571,7 @@ id: "PIE-588"}`) is refused as ambiguous, and nothing runs; the same note spelt 
 accepted. A wrong call is answered with what was wrong and the right call: the unknown argument and the closest valid
 one, what is missing or the wrong type, the tool's arguments in one line, and a call that works. A name near no argument
 (the host's own metadata, `agentId` in a subagent, or a name made up) doesn't stop the call, but it's said first in the
-answer, `Not used: \`flavour\` is no argument of outline_comment (its arguments: …)` (PIE-871: a `kind` dropped
+answer, `Not used: `flavour` is no argument of outline_comment (its arguments: …)` (PIE-871: a `kind` dropped
 silently cost nine patch notes their kind). That file is the same
 code as `packages/outline-core/src/tool-args.ts` (hooks can't import it); the door's
 `test/tool-args.test.ts` fails when the two differ.

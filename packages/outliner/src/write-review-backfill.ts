@@ -66,10 +66,10 @@ export async function reviewBackfill(source: SuggestionClient, o: BackfillOption
   // An extension's own pages (`ext:<name>`) and Jev's (`jev/…`: the suggestions page, its rule) are code's output, not an
   // agent's writing.
   const byAgents = found.filter(b => b.author === "agent" && b.actorId && !/^(?:ext:|jev\/)/.test(b.actorId) && b.text.trim());
-  // A rerun picks up where a stopped run left off: a note `into` already holds backfill findings of is done.
-  const kept = o.into ? await keptNotes(o.into) : new Set<string>();
+  // A rerun picks up where a stopped run left off: a note `into` already holds a verdict of, at this revision, is done.
   const window = byAgents.slice(0, o.limit ?? 500);
-  const notes = window.filter(b => !kept.has(b.id));
+  const kept = o.into ? await keptRevisions(o.into, window) : new Set<string>();
+  const notes = window.filter(b => !kept.has(`${b.id}@${b.revision}`));
   const report: BackfillReport = {
     ...(o.outline ? { outline: o.outline } : {}), since, read: found.length, byAgents: byAgents.length, reviewed: 0, skipped: window.length - notes.length, truncated: answer.completeness?.kind === "truncated" || found.length >= 1000, flagged: 0, passed: 0, findings: 0,
     jev: { asked: 0, unavailable: 0, tokensIn: 0, tokensOut: 0 },
@@ -98,7 +98,8 @@ export async function reviewBackfill(source: SuggestionClient, o: BackfillOption
         report.byRule[f.rule] = (report.byRule[f.rule] ?? 0) + 1;
         if (report.samples[f.rubric].length < SAMPLES) report.samples[f.rubric].push({ note: block.id, title, writer, rule: f.rule, passage: f.passage, said: f.say });
       }
-      if (o.into && review.findings.length) await keep(o.into, block, title, review);
+      // Every note, quiet ones too (kept as such, so a rerun doesn't ask Jev about them again).
+      if (o.into) await keep(o.into, block, title, review);
     }
   }
   if (o.into) report.run = await keepRun(o.into, report, o.now ?? new Date());
@@ -114,10 +115,21 @@ async function keep(into: SuggestionClient, block: Block, title: string, review:
   await into.request({ action: "suggestions.keep", keep: { kind: "reviewed", at: { note: block.id, revision: block.revision, actorId: block.actorId!, source: "backfill" }, title, review } } as never, 120_000);
 }
 
-/** Every note `into` already holds backfill findings of, by the service's groups (one answer, however many records). */
-async function keptNotes(into: SuggestionClient): Promise<Set<string>> {
-  const found = await into.request<{ groups?: { value: string | null }[] }>({ action: "blocks.query", query: { where: "type=review-finding source=backfill", machinery: "show", limit: 1, group: "note" } } as never).catch(() => ({ groups: [] }));
-  return new Set((found.groups ?? []).flatMap(g => (g.value ? [g.value] : [])));
+/**
+ * `note@revision` for every note of `window` that `into` already holds a backfill's findings or quiet verdict of: a note
+ * edited since it was reviewed is new again. Asked fifty notes at a time.
+ */
+async function keptRevisions(into: SuggestionClient, window: readonly Block[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (let i = 0; i < window.length; i += 50) {
+    const ids = window.slice(i, i + 50).map(b => `note=${b.id}`).join(" OR ");
+    const found = await into.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `(type=review-finding OR type=review-quiet) source=backfill (${ids})`, machinery: "show", limit: 1000 } } as never).catch(() => ({ blocks: [] as Block[] }));
+    for (const b of found.blocks) {
+      const note = b.properties.find(p => p.key === "note")?.value, revision = b.properties.find(p => p.key === "revision")?.value;
+      if (note && revision) out.add(`${note}@${revision}`);
+    }
+  }
+  return out;
 }
 
 /**
@@ -125,8 +137,24 @@ async function keptNotes(into: SuggestionClient): Promise<Set<string>> {
  * `suggested` notes flagged, `quiet` notes passed, `agreement` the share flagged, and the tokens.
  */
 async function keepRun(into: SuggestionClient, r: BackfillReport, now: Date): Promise<string> {
+  // One row a run (PIE-1402: a stopped run and its rerun made a pile): the day and the window name it, and a rerun adds
+  // what it did to the row the first pass left.
+  // A run is its outline, its day, its window and its model: another outline or a new model is a row of its own.
+  const run = `${now.toISOString().slice(0, 10)}/${r.outline ?? "outline"}/${r.since}/${r.jev.model ?? "no-jev"}`;
+  const counts: Record<string, number> = { items: r.reviewed, suggested: r.flagged, quiet: r.passed, unavailable: r.jev.unavailable, "tokens-in": r.jev.tokensIn, "tokens-out": r.jev.tokensOut };
+  const had = (await into.request<{ blocks: { id: string; text: string; revision: number }[] }>({ action: "blocks.query", query: { where: `type=jev-run experiment=${BACKFILL_EXPERIMENT} run=${run}`, machinery: "show", limit: 1 } } as never)).blocks[0];
+  if (had) {
+    let text = had.text;
+    const chip = (key: string) => Number(new RegExp(`\\[${key}::(\\d+(?:\\.\\d+)?)\\]`).exec(text)?.[1]) || 0;
+    const set = (key: string, value: string | number) => { text = text.replace(new RegExp(`\\[${key}::[^\\]]*\\]`), () => `[${key}::${value}]`); };
+    for (const [key, n] of Object.entries(counts)) set(key, chip(key) + n);
+    set("agreement", chip("items") ? Math.round(chip("suggested") / chip("items") * 100) / 100 : 0);
+    if (r.jev.model) set("model", r.jev.model);
+    await into.request({ action: "update", blockId: had.id, text, expectedRevision: had.revision, mutation: { author: "agent", actorId: "jev/write-review" } } as never);
+    return had.id;
+  }
   const written = await writeRecord({ request: (action, params) => into.request({ action, ...params } as never) }, "jev-run", {
-    experiment: BACKFILL_EXPERIMENT, run: now.toISOString().slice(0, 16), model: r.jev.model ?? "unknown", "prompt-rev": r.jev.promptRev ?? "unknown",
+    experiment: BACKFILL_EXPERIMENT, run, model: r.jev.model ?? "unknown", "prompt-rev": r.jev.promptRev ?? "unknown",
     items: String(r.reviewed), agreed: "0", agreement: String(r.reviewed ? Math.round(r.flagged / r.reviewed * 100) / 100 : 0), suggested: String(r.flagged),
     different: "0", ignored: "0", quiet: String(r.passed), unavailable: String(r.jev.unavailable), "tokens-in": String(r.jev.tokensIn), "tokens-out": String(r.jev.tokensOut),
   }, { author: "agent", provenance: { actorId: "jev/write-review" } }, { title: `write-review backfill${r.outline ? ` of ${r.outline}` : ""}, ${r.since} to ${now.toISOString().slice(0, 10)}` });

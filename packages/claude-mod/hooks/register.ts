@@ -38,8 +38,9 @@ import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-pers
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekArgv, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, stampOf, unwrapPeer } from './peer-log'
-import { answerOf, approveWaitMs, askOutlineOf, askPageCreateArgv, askPageFindArgv, askReadOf, askText, ASK_STEPS, byThePerson, closedText } from './approve'
-import { baselineOf, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
+import { answeredInSession, answerOf, approveWaitMs, askOutlineOf, askPageCreateArgv, askPageFindArgv, askReadOf, askText, byThePerson, callEndOf, callKey, CallsUnderWay, closedText, sessionGrantOf, stepWords, type CallEnd } from './approve'
+import { addressedWakeText, askKey, asksOf, mentionArgs, newAsks, notesToRead, PERSONA_NAME, readArgs, repliesArgs, shownAsks, threadsToRead, type Ask } from './addressed'
+import { baselineOf, DEFAULT_OUTLINES, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
 import { type StatusInput, tileMark, tmuxPassthrough } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { fileTouchesOff, fileTouchGlobsOf, projectOf, touchAllowed, touchInputOf, touchOf } from './file-touches'
@@ -522,6 +523,11 @@ export function register(on: On, options: PluginOptions): void {
     // The settle check, in the deployer's session only (hooks/settle.ts).
     settleStarting = undefined
     $.clock.after(0, () => void startSettleOnce($, option))
+    // Comments that say @<this session's persona>, on the same clock (hooks/addressed.ts).
+    // A new or cleared conversation hears every ask still open, as a new session does.
+    addressedStarting = undefined
+    toldAsks.clear()
+    $.clock.after(0, () => void startAddressedOnce($, option))
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     showStatus($, null)
     $.clock.after(0, () => void readBinding($, option, false).catch(() => {}))
@@ -838,6 +844,12 @@ export function register(on: On, options: PluginOptions): void {
 
   // What this Claude is doing, to its terminal (OSC 7501; hooks/claude-status.ts has the events and why).
   on('turn.start', async ($, e, next) => { reportStatus($, working()); return next(e) })
+  // The calls under way, so an ask the person answers in the session's dialog leaves the list at once (PIE-1386).
+  on('tool.call', async ($, e, next) => {
+    const end = callsUnderWay.start(callKey(e.tool, e, e.agentId))
+    let answer: Awaited<ReturnType<typeof next>> | undefined
+    try { return answer = await next(e) } finally { end(callEndOf(answer as Parameters<typeof callEndOf>[0])) }
+  })
   on('classic.PermissionRequest', async ($, e, next) => {
     const result = await next(e)
     // A hook that answered it (allow or deny) shows no dialog: nothing waits on the person.
@@ -869,11 +881,20 @@ export function register(on: On, options: PluginOptions): void {
   on('classic.StopFailure', async ($, e, next) => { reportStatus($, stopFailed(e.error, e.error_details)); return next(e) })
 
   on('turn.complete', async ($, e, next) => {
+    // A dialog's No interrupts the turn and its call never settles: the turn's end settles the loop's calls under way.
+    // A dialog's No interrupts the turn, and the hook that asked can no longer write: the turn's end closes its asks.
+    const over: CallEnd = { ran: false, said: e.reason === 'aborted' ? 'the turn was interrupted' : 'the turn ended without it' }
+    callsUnderWay.endLoop(e.agentId, over)
+    const left = [...openAsks.values()].filter(a => a.agentId === e.agentId)
+    if (left.length) $.clock.after(0, () => void (async () => {
+      for (const ask of left) await closeAsk($, ask, answeredInSession(over, stampOf(await $.clock.now())), true).catch(() => {})
+    })())
     const result = await next(e)
     // The main loop's turn (a subagent's isn't the session's): done, idle when interrupted, error when it failed.
     if (e.agentId === undefined) reportStatus($, turnEnded(e.reason, e.answer))
     // A module reloaded mid-session never sees its session.start.
     if (!references) $.clock.after(0, () => void loadReferences($, option))
+    if (!addressedStarting) $.clock.after(0, () => void startAddressedOnce($, option))
     if (!settleStarting) $.clock.after(0, () => void startSettleOnce($, option))
     // The binding read again now and then, so the status line follows a door's upgrade or reconnect, or a new .ep0ch.
     else if ((await $.clock.now()) - bindingReadAt >= BINDING_REFRESH_MS) $.clock.after(0, () => void readBinding($, option, true).catch(() => {}))
@@ -1491,19 +1512,51 @@ async function toOwnAgent($: EngineInterface, to: string): Promise<boolean> {
 /** The bound outline's [[permission-asks]] page, found (or made) once per outline folder. */
 let askPage: { key: string; id: string; workspace: Workspace } | undefined
 type SessionRules = NonNullable<Extract<PermissionRequestDecision, { behavior: 'allow' }>['updatedPermissions']>
+/** This session's tool calls under way, each ending when it runs or is refused (its dialog answered in the session). */
+const callsUnderWay = new CallsUnderWay()
+/** The asks this session has on the person's list, by note id, until one is closed. */
+type OpenAsk = { id: string; workspace: Workspace; actor: string; agentId?: string }
+const openAsks = new Map<string, OpenAsk>()
+
+/** Closes an ask still on the list (its `needs` chip off, `said` added); one already closed is left as it is. */
+async function closeAsk($: EngineInterface, ask: OpenAsk, said: string, last = false): Promise<void> {
+  // The asking hook's close can fail after an interrupt (its `$` no longer answers), so the turn's end tries again; that
+  // try is the last, so a note that can't be read isn't tried again every turn.
+  try {
+    await closeAskOnce($, ask, said)
+    openAsks.delete(ask.id)
+  } finally {
+    if (last) openAsks.delete(ask.id)
+  }
+}
+
+async function closeAskOnce($: EngineInterface, ask: OpenAsk, said: string): Promise<void> {
+  for (let tries = 0; tries < 2; tries++) {
+    const now = askReadOf(await runOutlinerCli($, ask.workspace, ['agent', 'read', '--stdin', '--actor', ask.actor], JSON.stringify({ ref: ask.id, depth: 0 })))
+    if (!now || !/\[needs::/.test(now.text.split('\n')[0] ?? '')) break
+    try {
+      await runOutlinerCli($, ask.workspace, ['agent', 'edit', '--stdin', '--actor', ask.actor], JSON.stringify({ ref: ask.id, expectedRevision: now.revision, text: closedText(now.text, said) }))
+      break
+    } catch { /* written meanwhile: read again */ }
+  }
+}
 /** How long a poll of the ask waits between reads. */
 const ASK_POLL_MS = 3000
 
 /**
- * A permission dialog put to the person through the outline (PIE-1386, hooks/approve.ts): the ask note written, then
+ * A permission dialog put to the person through the outline too (PIE-1386, hooks/approve.ts): the ask note written, then
  * read every few seconds until a step is ticked by the person (`author: user`: the web page's tap or the door, never an
- * agent), the call abandoned, or the wait over. Resolves to the dialog's answer, or null for the ordinary dialog.
+ * agent), the dialog answered in the session (its call ends), the call abandoned, or the wait over. The dialog shows
+ * meanwhile: a tick answers it. Resolves to the tick's answer, or null when the session's dialog has the say.
  * The waits are `sleep` processes: a `$.clock` wait counts against a hook's 10 s budget, a `$` call doesn't.
  */
 async function askThePerson($: EngineInterface, option: PluginOptions, e: { tool_name: string; tool_input: unknown; permission_suggestions?: unknown[]; agent_id?: string }, signal: AbortSignal): Promise<PermissionRequestDecision | null> {
   const env = { EP0CH_APPROVE_WAIT: await $.env.get('EP0CH_APPROVE_WAIT'), CLAUDE_JOB_DIR: await $.env.get('CLAUDE_JOB_DIR') }
   const waitMs = approveWaitMs(env)
   if (!waitMs) return null
+  // The call this dialog is for, under way (found first: the page lookup below can take seconds): answered in the
+  // session, it ends.
+  const ending = callsUnderWay.ending(callKey(e.tool_name, e.tool_input, e.agent_id), e.tool_name)
   if (!references?.workspace) await loadReferences($, option)
   const bound = references?.workspace
   if (!bound) return null
@@ -1525,11 +1578,12 @@ async function askThePerson($: EngineInterface, option: PluginOptions, e: { tool
     if (!id) throw Error(`no [[permission-asks]] page in ${workspace.outline ?? 'the bound outline'}, and ep0ch new could not make one`)
     askPage = { key: key(workspace), id, workspace }
   } else workspace = askPage.workspace
+  const grant = sessionGrantOf(e.tool_name, e.tool_input, e.permission_suggestions)
   const asked = stampOf(await $.clock.now())
   const who = `${actor}${e.agent_id ? ` (a subagent)` : ''} in ${bound.root.split('/').pop() || bound.root}${bound.outline && bound.outline !== workspace.outline ? ` (bound to ${bound.outline})` : ''}`
   let created: { id?: string }
   try {
-    created = JSON.parse(await runOutlinerCli($, workspace, ['agent', 'create', '--stdin', '--actor', actor], JSON.stringify({ parent: askPage.id, text: askText(e.tool_name, e.tool_input, who, asked) })))
+    created = JSON.parse(await runOutlinerCli($, workspace, ['agent', 'create', '--stdin', '--actor', actor], JSON.stringify({ parent: askPage.id, text: askText(e.tool_name, e.tool_input, who, asked, grant?.words) })))
   } catch (error) {
     // The page moved or went to the Trash: found (or made) again on the next ask.
     askPage = undefined
@@ -1538,36 +1592,38 @@ async function askThePerson($: EngineInterface, option: PluginOptions, e: { tool
   const id = created.id
   if (!id) throw Error('agent create gave no id')
   const read = async () => askReadOf(await runOutlinerCli($, workspace, ['agent', 'read', '--stdin', '--actor', actor], JSON.stringify({ ref: id, depth: 0 })))
-  const close = async (said: string) => {
-    for (let tries = 0; tries < 2; tries++) {
-      const now = await read().catch(() => null)
-      if (!now) return
-      try {
-        await runOutlinerCli($, workspace, ['agent', 'edit', '--stdin', '--actor', actor], JSON.stringify({ ref: id, expectedRevision: now.revision, text: closedText(now.text, said) }))
-        return
-      } catch { /* written meanwhile: read again */ }
-    }
-  }
+  const ask: OpenAsk = { id, workspace, actor, ...(e.agent_id ? { agentId: e.agent_id } : {}) }
+  openAsks.set(id, ask)
+  const close = (said: string) => closeAsk($, ask, said).catch(() => {})
   // Until the deadline, and at most as many polls as fit in it: a slow or failing read never stretches the wait.
   const deadline = (await $.clock.now()) + waitMs
+  let ended: CallEnd | undefined
+  void ending?.then(end => { ended = end })
+  const inSession = async () => {
+    await close(answeredInSession(ended!, stampOf(await $.clock.now())))
+    return null
+  }
   for (let poll = 0; poll < Math.ceil(waitMs / ASK_POLL_MS) && !signal.aborted && (await $.clock.now()) < deadline; poll++) {
-    await $.process.run(['sleep', String(ASK_POLL_MS / 1000)], { timeoutMs: ASK_POLL_MS + 5000 }).catch(() => {})
+    if (ended) return inSession()
+    const sleep = $.process.run(['sleep', String(ASK_POLL_MS / 1000)], { timeoutMs: ASK_POLL_MS + 5000 }).catch(() => {})
+    await (ending ? Promise.race([sleep, ending]) : sleep)
+    if (ended) return inSession()
     if (signal.aborted) break
     const now = await read().catch(() => null)
     const answer = now ? answerOf(now.text) : null
     // A box an agent ticked (or anyone but the person) answers nothing: the wait goes on.
     if (!now || !answer || !byThePerson(now)) continue
     const at = stampOf(await $.clock.now())
-    await close(`Answered **${ASK_STEPS[answer]}** by the person${now.actorId ? ` (${now.actorId})` : ''} at ${at}; the session carried on.`)
+    await close(`Answered **${stepWords(now.text, answer)}** by the person${now.actorId ? ` (${now.actorId})` : ''} at ${at}; the session carried on.`)
     if (answer === 'deny') return { behavior: 'deny', message: `The person denied this from the outline (${at}).` }
-    if (answer === 'session') {
-      // One allow for the rest of this session: the dialog's own suggestions, kept for the session only, never a standing rule.
-      const rules = (e.permission_suggestions ?? []).filter(u => !!u && typeof u === 'object').map(u => ({ ...(u as object), destination: 'session' })) as SessionRules
-      return { behavior: 'allow', ...(rules.length ? { updatedPermissions: rules } : {}) }
-    }
+    // This one call for the rest of this session (sessionGrantOf): never a mode switch, a folder or a standing rule.
+    if (answer === 'session' && grant) return { behavior: 'allow', updatedPermissions: grant.rules as SessionRules }
     return { behavior: 'allow' }
   }
-  await close(signal.aborted ? `Not needed any more: the call ended before a tick (${stampOf(await $.clock.now())}).` : `Nobody ticked in ${Math.round(waitMs / 60000)} min: the dialog showed in the session instead (${stampOf(await $.clock.now())}).`)
+  if (ended) return inSession()
+  await close(signal.aborted
+    ? `Not needed any more: the call ended before a tick (${stampOf(await $.clock.now())}).`
+    : `No tick in ${Math.round(waitMs / 60000)} min, so it left your list; the dialog still waits in the session (${stampOf(await $.clock.now())}).`)
   return null
 }
 
@@ -2101,6 +2157,106 @@ async function logSettleChanges($: EngineInterface, bound: Workspace, root: stri
   for (const text of texts) {
     const ran = await $.process.run(['ep0ch', 'new', text, '--near', newest.id, '--as', actor], { cwd: bound.root, env, timeoutMs: SETTLE_TIMEOUT_MS })
     if (ran.exitCode !== 0) return settleToast($, `a thread change was not logged: ${failureReasonOf(ran.stderr) || ran.stderr.trim()}`)
+  }
+}
+
+// ─── Addressed mail (hooks/addressed.ts, PIE-1404) ─────────────────────────
+
+let addressedStarting: Promise<void> | undefined
+let addressedTimer: { cancel: () => void } | undefined
+let addressedRunning = false
+/** The newest ask this session was woken for, per thread (askKey): kept in memory, so every session of a persona hears each ask once, and a new one hears what is still open at its first check. */
+const toldAsks = new Map<string, number>()
+const toldAddressed = new Set<string>()
+
+function addressedToast($: EngineInterface, text: string): void {
+  if (toldAddressed.has(text)) return
+  toldAddressed.add(text)
+  $.ui.toast(`Addressed mail: ${text}`, { timeoutMs: 8000 })
+}
+
+/** Starts the check once a session, in any session that writes as a persona, on the settle check's `every`. Never throws. */
+function startAddressedOnce($: EngineInterface, option: PluginOptions): Promise<void> {
+  return (addressedStarting ??= (async () => {
+    addressedTimer?.cancel()
+    addressedTimer = undefined
+    const persona = await sessionPersona($)
+    if (!persona || !PERSONA_NAME.test(persona)) return
+    const every = tuningOf(await settleTuningOverride($, option)).config.every
+    const run = () => void runAddressed($, option, persona)
+    addressedTimer = $.clock.every(every * 60_000, run)
+    $.clock.after(SETTLE_FIRST_MS, run)
+  })().catch(() => {}))
+}
+
+/**
+ * The outlines asked: the bound one, and the ones `settleOutlines` / EP0CH_SETTLE_OUTLINES name; with neither set, pie
+ * and gurgle on its machine when the bound outline is one of them (the deployer's pair), else the bound one alone.
+ */
+async function addressedOutlines($: EngineInterface, option: PluginOptions, bound: SettleOutline): Promise<SettleOutline[]> {
+  const override = String(option.settleOutlines ?? '').trim() || (await $.env.get('EP0CH_SETTLE_OUTLINES'))?.trim() || undefined
+  const named = override ? outlinesOf(override, bound).outlines : (DEFAULT_OUTLINES as readonly string[]).includes(bound.outline) ? outlinesOf(undefined, bound).outlines : []
+  const seen = new Set<string>()
+  return [bound, ...named].filter(o => !seen.has(outlineLabel(o)) && !!seen.add(outlineLabel(o)))
+}
+
+/**
+ * One check: per outline, the comments naming @persona, the roots and notes they sit under, and every reply in those
+ * threads; joined into the asks still open with no reply from the persona. A new ask (or one asked again) wakes this
+ * session with every open ask listed; an outline that can't be read says so once and is left out of this check.
+ */
+async function runAddressed($: EngineInterface, option: PluginOptions, persona: string): Promise<void> {
+  if (addressedRunning) return
+  addressedRunning = true
+  try {
+    if (!references?.workspace) await loadReferences($, option)
+    const bound = references?.workspace
+    const root = await outlinerRootOf($)
+    if (!bound?.outline || !root) return
+    const here: SettleOutline = { outline: bound.outline, ...(bound.machine ? { machine: bound.machine } : {}) }
+    const cli = async (o: SettleOutline, args: string[]): Promise<Listed> => {
+      const at: Workspace = { root: bound.root, outline: o.outline, ...(o.machine ? { machine: o.machine } : {}), pinned: true }
+      const r = await $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args], { cwd: bound.root, env: envFor(at), timeoutMs: SETTLE_TIMEOUT_MS })
+      const listed = r.exitCode === 0 ? listedOf(r.stdout) : null
+      if (!listed) throw Error(r.exitCode !== 0 ? failureReasonOf(r.stderr) || r.stderr.trim() || `exit ${r.exitCode}` : 'its answer was not a list of blocks')
+      return listed
+    }
+    const asks: Ask[] = []
+    for (const o of await addressedOutlines($, option, here)) {
+      try {
+        const mentioning = await cli(o, mentionArgs(persona))
+        if (!mentioning.complete) addressedToast($, `${outlineLabel(o)} has more comments naming @${persona} than one read holds; the ones past it are not checked.`)
+        const { threads, roots } = threadsToRead(mentioning.blocks)
+        if (!threads.length) continue
+        const first = roots.length ? await cli(o, readArgs(roots)) : { blocks: [], complete: true }
+        const notes = notesToRead([...mentioning.blocks, ...first.blocks])
+        const [read, ...replies] = await Promise.all([notes.length ? cli(o, readArgs(notes)) : Promise.resolve({ blocks: [], complete: true }), ...repliesArgs(threads).map(args => cli(o, args))])
+        if (replies.some(r => !r.complete)) addressedToast($, `${outlineLabel(o)}: a thread has more replies than one read holds; its answer may be missed.`)
+        asks.push(...asksOf(persona, o === here ? o.outline : outlineLabel(o), mentioning.blocks, [...first.blocks, ...read!.blocks], replies.flatMap(r => r.blocks)))
+      } catch (error) {
+        addressedToast($, `${outlineLabel(o)} could not be read for @${persona}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    const fresh = newAsks(asks, toldAsks)
+    if (!fresh.length) return
+    const now = await $.clock.now()
+    // Marked before the call returns: it resolves as the turn starts, which can wait for the session to go idle.
+    // Only what the wake shows is told: a new ask past its last line wakes the next check.
+    const freshKeys = new Set(fresh.map(askKey))
+    const before = new Map(toldAsks)
+    for (const a of shownAsks(asks, freshKeys)) if (freshKeys.has(askKey(a))) toldAsks.set(askKey(a), a.at)
+    try {
+      const sent = await $.prompt.submit({ text: addressedWakeText(persona, asks, freshKeys, now, here.outline) })
+      if (sent.drop !== undefined) throw Error(sent.drop || 'the prompt was dropped')
+    } catch (error) {
+      toldAsks.clear()
+      for (const [k, v] of before) toldAsks.set(k, v)
+      addressedToast($, `could not wake this session (${error instanceof Error ? error.message : String(error)}); the next check tries again.`)
+    }
+  } catch (error) {
+    addressedToast($, error instanceof Error ? error.message : String(error))
+  } finally {
+    addressedRunning = false
   }
 }
 
