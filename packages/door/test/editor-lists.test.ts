@@ -36,6 +36,9 @@ describe("Enter after a component's opening line", () => {
     expect(closed.lines).toEqual(["::graph-table", "", "::"]);
     const button = at_end('::button{label="Water" act="tile.zoom"}'); enter(button);
     expect(button.lines).toEqual(['::button{label="Water" act="tile.zoom"}', ""]);
+    // A box typed inside a box: the closer below is the inner one's, so the outer gets its own.
+    const nested = at_end("::box"); enter(nested); type(nested, "::box"); enter(nested);
+    expect(nested.lines).toEqual(["::box", "::box", "", "::", "::"]);
     const code = at_end("```\n::box"); enter(code);
     expect(code.lines).toEqual(["```", "::box", ""]);
   });

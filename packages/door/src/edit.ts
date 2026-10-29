@@ -634,7 +634,10 @@ export class Draft {
     const open = COMPONENT_OPEN.exec(this.lines[row]!);
     if (!open || open[2] !== undefined) return false;
     if (noteCodeFences(this.lines).some(f => row > f.start && row <= f.end)) return false;
-    return !componentBlocks(this.lines).some(b => b.start === row);
+    // Unclosed when a `::` after it closes one more component than the note has now: a closer already below may be an
+    // inner component's (a box typed inside a box), so whether this line is paired isn't asked alone.
+    const closer = [...this.lines.slice(0, row + 1), "::", ...this.lines.slice(row + 1)];
+    return componentBlocks(closer).length > componentBlocks(this.lines).length;
   }
 
   /** The nearest list item above `row` indented less than `than`: the item this one is nested in. */

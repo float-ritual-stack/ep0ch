@@ -475,7 +475,7 @@ const sameElementLink = (a: Link, b: Link) => a.press || b.press
   ? !!a.press && !!b.press && a.press.block === b.press.block && a.press.line === b.press.line && a.label === b.label
   : a.role === b.role && sameLink(a, b) && same(a.task, b.task, taskBase) && same(a.callout, b.callout, calloutBase)
     && same(a.figure, b.figure, figureElemBase) && a.inlineList?.key === b.inlineList?.key && a.inlineList?.row === b.inlineList?.row
-    && a.listRow?.row === b.listRow?.row;
+    && a.listRow?.key === b.listRow?.key && a.listRow?.row === b.listRow?.row;
 const same = <T,>(a: T | undefined, b: T | undefined, base: (x: T) => unknown) => (a && b ? base(a) === base(b) : !a === !b);
 /**
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
