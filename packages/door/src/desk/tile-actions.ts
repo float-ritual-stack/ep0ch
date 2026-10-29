@@ -539,11 +539,15 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       const shown = d.tileNow(reader, actor).note;
       return !shown ? { hide: true } : shown.editing ? { refused: "this reader is editing the note: change its title in the edit" } : null;
     } },
-    args: { text: { type: "string", optional: true, about: "the note's new title; its first line's properties and the body stay" } },
+    args: {
+      text: { type: "string", optional: true, about: "the note's new title; its first line's properties and the body stay" },
+      note: { type: "string", optional: true, kind: "note", about: "the note you read the title from: refused when the tile shows another now" },
+      revision: { type: "number", optional: true, about: "the revision you read it at: refused when the note changed since" },
+    },
     examples: [
       { act: "note.rename tile=reader text=\"Seed swap, Saturday\"", does: "retitles the note the reader shows; [type::chirp] on its first line and its body stay" },
     ],
-    run({ text }, { d, reader }, actor) { return d.renameNote(reader, text, actor); },
+    run({ text, note, revision }, { d, reader }, actor) { return d.renameNote(reader, text, actor, { note, revision }); },
   }),
   "tile.title.mode": def({
     summary: "toggle between the written tile title and the system title without losing the written title",

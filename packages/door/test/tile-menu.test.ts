@@ -380,6 +380,18 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     expect(menu()?.name).toBe("note title");
     for (const ch of "Plum trees") key(char(ch));
     key({ kind: "enter" });
+    // A property written inside the title stays; only the words go.
+    const inside = await board.createBlock(null, "## [type::chirp] Pond notes #garden\nfrogs");
+    await mine("tile.open", { kind: "reader", mode: "held", note: inside.id, name: "pond" });
+    await until(() => D().pane("pond")?.msg?.id === inside.id, "the pond reader shows its note");
+    await act("note.rename", { text: "Frog log" }, "pond");
+    expect((await board.get(inside.id))!.text).toBe("## Frog log [type::chirp] #garden\nfrogs");
+    // What was read is what is renamed: a revision that moved, or another note in the tile, is refused.
+    const read = (await board.get(inside.id))!;
+    await board.update(inside.id, "## Frog log, Sunday [type::chirp] #garden\nfrogs", read.revision!);
+    await expect(act("note.rename", { text: "Toads", note: inside.id, revision: read.revision }, "pond")).rejects.toThrow("changed since");
+    await expect(act("note.rename", { text: "Toads", note: note.id }, "pond")).rejects.toThrow("shows another note");
+    expect((await board.get(inside.id))!.text).toBe("## Frog log, Sunday [type::chirp] #garden\nfrogs");
     let text = "";
     await until(() => { void board.get(note.id).then(m => { text = m?.text ?? ""; }); return text === "Plum trees [type::chirp]\nbring envelopes"; }, "the person's rename lands");
   });

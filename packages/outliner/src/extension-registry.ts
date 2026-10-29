@@ -595,10 +595,16 @@ export class ExtensionRegistry {
         completion: serving ? this.completionOf(extension) : [],
       };
     });
+    // A shipped script's problem (a refused @name, a file that won't load) is said on its extension's row too: lists
+    // fold the script under it (PIE-1283), so its own row isn't there to say it.
+    const folded = extensions.map((entry) => {
+      const said = extensions.filter((child) => child.partOf === entry.id && child.error).map((child) => `script ${child.name ?? child.id}: ${child.error}`);
+      return said.length ? { ...entry, error: [entry.error, ...said].filter(Boolean).join("; ") } : entry;
+    });
     return {
       generation: this.generation,
       roots: this.options.roots.map((root) => ({ ...root, exists: existsSync(root.path) })),
-      extensions,
+      extensions: folded,
       resourceProviders: resourceProviderEntries(this.serving().filter((extension) =>
         (extension.manifest.handlers ?? []).some((handler) => handler.kind === "resource" && this.bound.get(handler.key)?.extension === extension))),
       tileKinds: extensions.flatMap((entry) => entry.tiles),

@@ -564,6 +564,14 @@ test("a user copy of a built-in lists once, its shipped script folded under it, 
   expect(lines.join("\n")).toContain(`built-in: ${join(REPO_EXTENSIONS, "neat")}`);
 });
 
+test("a shipped script's refusal is said on its extension's row, since the script's own row is folded (PIE-1283)", async () => {
+  const { create, list } = await setup({ userInstall: ["neat"] });
+  await create("My neat [script::neat]\n```js\nreturn 'mine';\n```");
+  const listed = await list(true);
+  expect(listed.extensions.find(e => e.id === "neat")!.error).toContain("script neat: agent @neat is already answered by");
+  expect(formatExtensionsList(listed).find(line => line.startsWith("neat "))).toContain("script neat: agent @neat");
+});
+
 test("a copy of a built-in changed here says it overrides the built-in, changed here (PIE-1283)", async () => {
   const { root, list } = await setup({ userInstall: ["neat"] });
   writeFileSync(join(root, "user-extensions", "neat", "scripts", "neat.js"), `${readFileSync(join(REPO_EXTENSIONS, "neat", "scripts", "neat.js"), "utf8")}// my own tweak\n`);

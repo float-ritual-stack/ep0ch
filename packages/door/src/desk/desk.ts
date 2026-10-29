@@ -35,7 +35,7 @@ import { TONE } from "../callouts";
 import { MOUSE_RIGHT, RowPresses, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
 import { agentRefusal as draftRefusal } from "../draft-session";
-import { headerLine } from "@ep0ch/outline-core/header-line";
+import { retitle, titleWords } from "@ep0ch/outline-core/header-line";
 import { outlineChanged } from "../refs";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
@@ -4155,19 +4155,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * (outline-core's headerLine): the chips and hashtags after it and the body stay. Saved at once, checked against the
    * revision the service has now. Without text the person gets a prompt holding the title.
    */
-  async renameNote(sel: string | undefined, text: string | undefined, actor: Actor): Promise<TileDone> {
+  async renameNote(sel: string | undefined, text: string | undefined, actor: Actor, expect: { note?: string; revision?: number } = {}): Promise<TileDone> {
     const t = this.tile(sel), p = this.panes.get(t.id);
     const shown = this.noteOf(t.id);
     if (!shown) throw new ActionRefused(`${t.name} shows no note · tile.title renames the tile`);
     if (p instanceof ReaderPane && p.surface.draft) throw new ActionRefused("this reader is editing the note: change its title in the edit");
     const now = await this.ctx.board.get(shown.id);
     if (!now || now.revision === undefined) throw new ActionRefused("that note isn't there any more");
-    const h = headerLine(now.text);
+    // What the prompt (or an agent) read: the same note, at the same revision, or nothing is written.
+    if (expect.note !== undefined && expect.note !== now.id) throw new ActionRefused(`${t.name} shows another note now; nothing was renamed · ${text ?? ""}`.trimEnd());
+    if (expect.revision !== undefined && expect.revision !== now.revision) throw new ActionRefused(`the note changed since its title was read (revision ${expect.revision}, now ${now.revision}); nothing was renamed · ${text ?? ""}`.trimEnd());
     if (text === undefined) {
       if (actor.kind !== "user") throw new ActionRefused("note.rename needs text=<the note's new title>");
-      this.overlay(linePrompt<Desk>({ name: "note title", title: "Rename the note it shows", text: h.prose, prefilled: true,
+      this.overlay(linePrompt<Desk>({ name: "note title", title: "Rename the note it shows", text: titleWords(now.text), prefilled: true,
         doing: t => `⏎ renames the note to “${t}” · its properties and body stay`,
-        done: (title, d) => { d.run("note.rename", { text: title }, d.tileId(t.id)); },
+        done: (title, d) => { d.run("note.rename", { text: title, note: now.id, revision: now.revision }, d.tileId(t.id)); },
       }));
       return { ...this.tileAnswer(t.id), prompt: true };
     }
@@ -4175,7 +4177,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!title || title.includes("\n")) throw new ActionRefused("a note's title is one line of words · text=<the new title>");
     const no = draftRefusal(actor, { board: this.ctx.board, blockId: now.id });
     if (no) throw new ActionRefused(no);
-    const next = h.line < 0 ? title : now.text.slice(0, h.offset) + title + now.text.slice(h.offset + h.kept);
+    const next = retitle(now.text, title);
     const saved = await this.ctx.board.update(now.id, next, now.revision, actor);
     outlineChanged([now.id]);
     this.redraw();
