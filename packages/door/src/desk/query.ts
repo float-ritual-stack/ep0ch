@@ -24,6 +24,7 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { describeChanges, type MovePlan } from "../move";
 import { readView, type ViewRead } from "../views";
+import { RELOAD_PAUSE_MS, SearchSchedule } from "../search-schedule";
 import { summarySegments, viewSummaryKeys, prop } from "../props";
 import { clamp, pressOn, RowView, wheelRows, type RowPress } from "../scroll";
 import { hasUnsent } from "../draft-session";
@@ -97,8 +98,8 @@ export class QueryPane implements Pane {
   model: { laneKeys(k: Key): boolean; laneMouse(k: Extract<Key, { kind: "mouse" }>, press?: RowPress): boolean } | null = null;
   /** The board's hint for its lanes (c collapse · H L move); the tile's own otherwise. */
   boardHint: string | null = null;
-  private asked = 0;
-  private reload: Timer | null = null;
+  /** Its reads: a newer one stops the one before; a burst of outline changes reads once, after a pause. */
+  private readonly search = new SearchSchedule(RELOAD_PAUSE_MS);
   /**
    * `view`: the saved view's block id. `query`: a query in the views' grammar it lists instead (`#garden`), with no
    * saved view. `home`: the reader it belongs to (a tile's name): its selection previews, ⏎ lands there (PIE-794).
@@ -170,13 +171,13 @@ export class QueryPane implements Pane {
   load(desk: DeskApi): Promise<void> {
     const def = this.def, query = this.query;
     if (!def && query === null) return Promise.resolve();
-    const n = ++this.asked;
+    const turn = this.search.begin();
     // A query of its own is the service's to answer (the views' grammar, `where`), as a saved view's is.
     const reading: Promise<ViewRead> = query !== null
-      ? desk.ctx.board.queryNotes(query, 200).then(r => ({ status: "ready" as const, items: r.notes, limit: 200, truncated: r.truncated, errors: [] }), (e: Error) => ({ status: "failed" as const, items: [], limit: 200, truncated: false, errors: [`${query}: ${e.message}`] }))
-      : readView(desk.ctx.board, def!);
+      ? desk.ctx.board.queryNotes(query, 200, undefined, turn.signal).then(r => ({ status: "ready" as const, items: r.notes, limit: 200, truncated: r.truncated, errors: [] }), (e: Error) => ({ status: "failed" as const, items: [], limit: 200, truncated: false, errors: [`${query}: ${e.message}`] }))
+      : readView(desk.ctx.board, def!, {}, turn.signal);
     const mine: Promise<void> = reading.then(read => {
-      if (n !== this.asked) return this.inflight ?? undefined;   // a newer read is on its way: done when that one has landed
+      if (!turn.alive()) return this.inflight ?? undefined;   // a newer read is on its way: done when that one has landed
       this.inflight = null;
       const items = read.items;
       this.read = read;
@@ -190,7 +191,7 @@ export class QueryPane implements Pane {
       this.sel = Math.max(0, at >= 0 ? at : Math.min(this.sel, items.length - 1));
       this.loaded?.(this);
       desk.redraw();
-    }, () => { if (n === this.asked) { this.inflight = null; this.items = []; desk.redraw(); } });
+    }, () => { if (turn.alive()) { this.inflight = null; this.items = []; desk.redraw(); } });
     this.inflight = mine;
     return mine;
   }
@@ -199,10 +200,9 @@ export class QueryPane implements Pane {
 
   onEvent(desk: DeskApi, e?: OutlineEvent) {
     if (this.managed || e?.change?.kind === "draft" || e?.change?.kind === "annotate") return;
-    if (this.reload) clearTimeout(this.reload);
-    this.reload = setTimeout(() => { this.reload = null; void this.load(desk); }, 300);
+    this.search.pause(() => void this.load(desk));
   }
-  dispose() { if (this.reload) clearTimeout(this.reload); }
+  dispose() { this.search.cancel(); }
 
   private drawnItems: number[] = [];
   private cardHeight = 2;

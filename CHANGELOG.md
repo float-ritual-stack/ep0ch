@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One search scheduler: the completer waits for typing, and a replaced search stops (PIE-1382)
+
+- **The completer waits for a pause:** `((garden` typed quickly asks the service once, 150 ms after the last key, as
+  the power bar does; Tab and Ctrl+Space still ask at once. Before, every key was a round trip.
+- **A replaced search stops:** typing on in the power bar, or a query tile read again, stops the request it replaces
+  instead of letting it run to the end; its answer is never drawn.
+- **One owner:** the bar, the completer and a query tile go through `SearchSchedule` (`src/search-schedule.ts`): the
+  pause, latest-wins, abort and Jev's re-order pause. The parity walk runs those pauses out on a fake clock, as shipped.
+
 ### The extensions list reads at a glance, settings and scripts too (PIE-1284)
 
 - **One line a row:** `settings <name>` rows are one line with their state; where config.json lives is in the preview.

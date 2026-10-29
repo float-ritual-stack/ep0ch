@@ -44,6 +44,9 @@ export class SearchTurn {
     this.timers.add(cancel);
   }
 
+  /** What `after` waits to run is dropped, the turn kept (more rows asked: Jev's re-order of the first ones is stale). */
+  dropAfter(): void { for (const cancel of this.timers) cancel(); this.timers.clear(); }
+
   /** `id` was asked; `answered(id)` when its answer (or failure) came. */
   asking(id: string): void { this.pending.add(id); }
   answered(id: string): void {
@@ -58,8 +61,7 @@ export class SearchTurn {
   end(): void {
     if (!this.alive()) return;
     this.ctl.abort();
-    for (const cancel of this.timers) cancel();
-    this.timers.clear();
+    this.dropAfter();
     this.wake();
   }
 
