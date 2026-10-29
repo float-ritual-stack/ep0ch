@@ -1128,10 +1128,7 @@ export class App implements Ctx {
    * `ext.*` actions, the tile kinds. What came or went is said; the readers read their lines again.
    */
   async loadExtensions(reload = false): Promise<void> {
-    // An ended door binds nothing again (an `extensions` event that comes after quit or retire).
-    if (this.closed) return;
     await this.statusNote.refresh(this.statusItems());
-    if (this.closed) return;
     connectScriptActions(this);
     const r = await loadExtensions(this.board, reload);
     if (!r) return;

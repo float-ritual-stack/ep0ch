@@ -819,6 +819,15 @@ export async function loadExtensions(board: SocketBoard, reload = false): Promis
 /** The board whose list is bound now (loadExtensions): only the door on it unbinds it. */
 let boundFrom: SocketBoard | null = null;
 /**
+ * What's bound now and whose it is, to bind back after a read of another board's list (drawNote's: `ep0ch show`
+ * inside a door). Bound back with its board, the door on it still unbinds it when it ends (PIE-1412).
+ */
+export const extensionBinding = () => ({ list: current, from: boundFrom });
+export function restoreExtensionBinding(b: ReturnType<typeof extensionBinding>): void {
+  boundFrom = b.from;
+  bindExtensions(b.list);
+}
+/**
  * The door on `board` ended (App.quit): what its list bound goes, and a read of it still on its way binds nothing. A list
  * another board bound since is left alone.
  */
