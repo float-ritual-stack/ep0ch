@@ -68,6 +68,7 @@ import { describeKey } from "./key-probe";
 import { WhatChanged } from "./desk/what-changed";
 import { overBar, PowerBar } from "./bar/bar";
 import { tilesOf } from "./bar/sources";
+import { rawKey } from "./kbd";
 import { BAR_ACTIONS, type BarOn } from "./bar/actions";
 import { onBarSources, type BarHost } from "./bar/source";
 import type { Msg } from "./board";
@@ -450,6 +451,8 @@ export function agentActor(as?: string): Actor {
 
 /** A frame: no screen paints more often than this, and no hover report is handled more often (App.redraw, App.key). */
 const FRAME_MS = 16;
+/** After an Esc that closed something over a terminal the person types in, a second Esc this soon is that one again, never the program's (PIE-1431). */
+export const ESC_SPENT_MS = 600;
 
 export class App implements Ctx {
   readonly overflow = new Overflow();
@@ -642,9 +645,11 @@ export class App implements Ctx {
     // Raw input while the person types in the drawer or a terminal tile: the drawer first, then the
     // screen says where it goes (Term keeps mouse and ctrl+]).
     // In the drawer, the person's bytes are the drawer's alone (a picker, a reader tab): never the screen's terminal under it.
+    // Nothing over it: the power bar, or a menu over the screen while the person is in the drawer, has the keys first (PIE-1431).
     (term as { rawSink?: unknown }).rawSink = () => {
-      const sink = this.probing ? null : this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
+      const sink = this.probing || this.bar || this.overDrawer() ? null : this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
       return sink ? (bytes: string) => {
+        if (this.escSpent(bytes)) return;
         this.drawer.desks().map(d => d.liftedDesk).find(Boolean)?.dropLiftElsewhere();
         sink(bytes);
       } : null;
@@ -1384,6 +1389,8 @@ export class App implements Ctx {
     // An Option character standing for an alt key is that key everywhere after this, the drawer's alt+a too.
     const k = this.optionAsAlt(typed);
     this.pressed(k);
+    // An Esc the door reads while the person types in a program went to something over it (the bar, a menu): spent there.
+    if (k.kind === "esc" && this.typingInProgram()) this.escSpentAt = this.now();
     // The key typed, by its one name, while it's handled: an action it no longer runs (the person's keymap moved it) says so.
     try { asTyped(k.kind === "mouse" || k.kind === "paste" ? null : keyName(k), () => this.route(k)); }
     finally {
@@ -1459,6 +1466,8 @@ export class App implements Ctx {
     })) return;
     // Your drawer's ^W panel, over the screen (PIE-1338): a click on it is its.
     if (this.drawer.shown && this.drawer.desk?.keyPanelInput(k)) return;
+    // A menu opened over the screen while the person is in the drawer (a status-bar group's) has the keys before the drawer: Esc closes it, never the agent's (PIE-1431).
+    if (k.kind !== "mouse" && this.overDrawer()) { this.stack.at(-1)!.key(k, this); return; }
     // The drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
     if (k.kind === "mouse" && k.y === this.term.info.rows - 1) {
@@ -1525,6 +1534,24 @@ export class App implements Ctx {
       void this.dispatch.press("keys.open", { filter: top.name ?? top.title }); return;
     }
     top?.key(k, this);
+  }
+
+  /** A menu or picker over the screen while the person types in the drawer (a status-bar group's): the keys are its until it closes. */
+  private overDrawer(): boolean {
+    if (!this.drawer.entered) return false;
+    const over = tilesOf(this.stack.at(-1));
+    return !!over && over !== this.drawer.made && over.overlayOpen();
+  }
+  /** The person's keys are a terminal program's (a terminal tile's, the drawer's agent's), whatever is open over it. */
+  private typingInProgram(): boolean { return this.drawer.entered ? !!this.drawer.desk?.rawKeys() : !!this.stack.at(-1)?.rawKeys?.(); }
+  /** When an Esc last closed something over a terminal the person types in, or was held back for it. */
+  private escSpentAt = -Infinity;
+  /** Raw Esc bytes right after an Esc closed something over the program: held back, and said (PIE-1431). */
+  private escSpent(bytes: string): boolean {
+    if ((bytes !== "\x1b" && rawKey(bytes)?.kind !== "esc") || this.now() - this.escSpentAt >= ESC_SPENT_MS) return false;
+    this.escSpentAt = this.now();
+    this.flash("esc: nothing left to close · a moment later esc goes to the program again", 2500);
+    return true;
   }
 
   private probing = false;

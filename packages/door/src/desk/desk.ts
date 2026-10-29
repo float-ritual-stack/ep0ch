@@ -3812,7 +3812,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
   }
   /** The desk's own overlay is open (its search, the layout picker, the policy panel): it takes every key and click. */
-  private overlayOpen(): boolean { return !!this.overlays.top(); }
+  /** A menu or picker of the desk's is open over its tiles: the keys are its. */
+  overlayOpen(): boolean { return !!this.overlays.top(); }
 
   /**
    * The screen's key map (its spec's `keys`): a key there runs its action as the person, before the focused tile's own
