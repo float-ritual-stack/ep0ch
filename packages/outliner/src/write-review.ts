@@ -16,9 +16,9 @@ import { calloutBlocks, quoteDepth } from "@ep0ch/outline-core/callouts";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { asksEvan, FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
-import { loadWriteReviewPrompt, type PromptRevision, type WriteReviewPrompt } from "./ai-prompts";
+import { loadWriteReviewPrompt, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
-import { JEV_ENDPOINT, JEV_MODEL, jevKey } from "./search-ranking";
+import { askJev as askJevRequest, JEV_MODEL, jevKey, NOT_CONFIGURED, type JevAsked, type JevOptions, type JevReading } from "./jev";
 import type { QuestionFacet } from "@ep0ch/outline-core/protocol";
 
 /** A Noul at or over this reads as yes; under `NO` as no (the skill's starting thresholds). */
@@ -62,7 +62,7 @@ export interface WriteReview {
 }
 
 /** Jev's answers for one review, kept for the records: the model, the prompt and the tokens. */
-export interface ReviewReading { model: string; prompt: PromptRevision[]; usage?: { input: number; output: number }; questions: number }
+export type ReviewReading = JevReading;
 
 interface Section { id: string; heading: string; line: number; end: number; text: string }
 
@@ -107,7 +107,6 @@ export function kitIn(text: string, schemas: readonly ComponentSchema[]): Set<st
   return held;
 }
 
-export interface Asked { reading: ReviewReading; answers: Record<string, { choice?: string; confidence?: number; noul?: number }> }
 
 /** One request: the state (title, opening, the changed sections, the candidate ask lines) and every question about it. */
 export function reviewRequest(text: string, sections: readonly Section[], asks: readonly number[], options: Record<string, string>, prompt: WriteReviewPrompt, o: { title: boolean; opening: boolean }) {
@@ -136,32 +135,20 @@ export function reviewRequest(text: string, sections: readonly Section[], asks: 
   };
 }
 
-export interface ReviewOptions {
-  apiKey?: string; endpoint?: string; timeoutMs?: number; promptDirectory?: string;
-  fetch?: (url: string, init: RequestInit) => Promise<Response>;
-  env?: NodeJS.ProcessEnv;
-}
+export type ReviewOptions = JevOptions & { promptDirectory?: string };
+export type Asked = JevAsked;
 
 /**
- * One request to Jev (the write review's, and the work tools' in work-review.ts): the state and the questions sent, the
- * answers and the reading (model, prompt, tokens) back, or why it couldn't be asked. Never throws.
+ * One request to Jev with the write review's prompt as its revision (the write review's, and the work tools' in
+ * work-review.ts): jev.ts's askJev. Never throws.
  */
 export async function askJevQuestions(state: Record<string, unknown>, questions: Record<string, unknown>, o: ReviewOptions = {}): Promise<Asked | { unavailable: string }> {
   try {
     const apiKey = o.apiKey ?? await jevKey(o.env);
-    if (!apiKey) return { unavailable: "Jev is not configured: with-secrets --add typesafe TYPESAFE_API_KEY" };
-    const prompt = await loadWriteReviewPrompt(o.promptDirectory);
-    const response = await (o.fetch ?? fetch)(o.endpoint ?? (o.env ?? process.env).OUTLINER_JEV_ENDPOINT ?? JEV_ENDPOINT, {
-      method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, redirect: "error",
-      body: JSON.stringify({ model: JEV_MODEL, state, questions }), signal: AbortSignal.timeout(o.timeoutMs ?? 2500),
-    });
-    if (!response.ok) return { unavailable: `Jev HTTP ${response.status}` };
-    const body = await response.json() as { model?: string; usage?: { input_tokens?: number; output_tokens?: number }; answers?: Asked["answers"] };
-    if (!body.answers || typeof body.answers !== "object") return { unavailable: "Jev's answer didn't read" };
-    const usage = Number.isFinite(body.usage?.input_tokens) && Number.isFinite(body.usage?.output_tokens) ? { input: body.usage!.input_tokens!, output: body.usage!.output_tokens! } : undefined;
-    return { answers: body.answers, reading: { model: body.model ?? JEV_MODEL, prompt: prompt.revisions, questions: Object.keys(questions).length, ...(usage ? { usage } : {}) } };
+    if (!apiKey) return { unavailable: NOT_CONFIGURED };
+    return await askJevRequest(state, questions, (await loadWriteReviewPrompt(o.promptDirectory)).revisions, { ...o, apiKey });
   } catch (e) {
-    return { unavailable: (e as Error).name === "TimeoutError" ? "Jev didn't answer in time" : `Jev: ${(e as Error).message}` };
+    return { unavailable: `Jev: ${(e as Error).message}` };
   }
 }
 

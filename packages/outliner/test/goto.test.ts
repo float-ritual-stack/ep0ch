@@ -34,11 +34,13 @@ function harness(search?: (input: Extract<RequestInput, { action: "tree.search" 
   }, 5);
   return { controller, opened, get closed() { return closed; } };
 }
-const fakeFetch = (scores: number[]) => (async (_url: unknown, init?: RequestInit) => {
+const fakeFetch = (scores: number[], exists?: number) => (async (_url: unknown, init?: RequestInit) => {
   const body = JSON.parse(init!.body as string);
-  expect(Object.keys(body.questions)).toHaveLength(scores.length);
+  // A Score per candidate, and the one "is it among these?" Noul.
+  expect(Object.keys(body.questions)).toHaveLength(scores.length + 1);
   expect(body.questions.candidate_0.instructions).toContain("Candidate:");
-  return Response.json({ model: "jev-test", answers: Object.fromEntries(scores.map((score, i) => [`candidate_${i}`, { type: "score", score }])), usage: { input_tokens: 123 } });
+  expect(body.questions.exists.type).toBe("noul");
+  return Response.json({ model: "jev-test", answers: { ...Object.fromEntries(scores.map((score, i) => [`candidate_${i}`, { type: "score", score }])), ...(exists !== undefined ? { exists: { type: "noul", noul: exists } } : {}) }, usage: { input_tokens: 123, output_tokens: 4 } });
 });
 const promptDirectories: string[] = [];
 afterEach(() => { for (const directory of promptDirectories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
@@ -48,8 +50,8 @@ function promptFixture() {
   const path = join(directory, "goto-ranking.json");
   return {
     directory, path,
-    write(instructions: string, criteria = ["No match", "Related topic", "Relevant note", "Exact requested note"]) {
-      const text = JSON.stringify({ instructions, criteria }, null, 2) + "\n";
+    write(instructions: string, criteria = ["No match", "Related topic", "Relevant note", "Exact requested note"], exists: object | null = { instructions: "Is the note asked for among these?", true: "It is listed.", false: "Only related notes are listed." }) {
+      const text = JSON.stringify({ instructions, criteria, ...(exists ? { exists } : {}) }, null, 2) + "\n";
       writeFileSync(path, text);
       return { path, sha256: createHash("sha256").update(text).digest("hex"), text };
     },
@@ -81,7 +83,38 @@ describe("Goto search", () => {
     const candidates = gotoCandidates(notes, "terminal");
     const result = await rankGotoWithJev("terminal", candidates, { apiKey: "fixture", fetch: fakeFetch([0.2, 2.8]) });
     expect(result.matches[0]!.block.id).toBe(candidates.matches[1]!.block.id);
-    expect(result.semantic).toMatchObject({ status: "ranked", candidateCount: 2, inputTokens: 123 });
+    expect(result.semantic).toMatchObject({ status: "ranked", candidateCount: 2, inputTokens: 123, outputTokens: 4 });
+    expect(result.matches.map(m => m.score)).toEqual([2.8, 0.2]);
+  });
+  test("says how sure it is: strong when the top and the Noul agree, else no strong match", async () => {
+    const candidates = gotoCandidates(notes, "terminal");
+    const ask = (scores: number[], exists?: number) => rankGotoWithJev("terminal", candidates, { apiKey: "fixture", fetch: fakeFetch(scores, exists) });
+    const strong = await ask([0.2, 2.8], 0.95);
+    expect(strong.semantic).toMatchObject({ verdict: "strong", exists: 0.95, top: 2.8 });
+    expect(strong.semantic.said).toStartWith("strong match:");
+    // A confident #1 the Noul doesn't back is named, not claimed.
+    const weak = await ask([0.2, 2.8], 0.5);
+    expect(weak.semantic).toMatchObject({ verdict: "weak" });
+    expect(weak.semantic.said).toStartWith("no strong match: the closest is");
+    const low = await ask([0.2, 1.4], 0.9);
+    expect(low.semantic.verdict).toBe("weak");
+    const none = await ask([0.2, 2.4], 0.1);
+    expect(none.semantic).toMatchObject({ verdict: "none", said: "no strong match: nothing here looks like what was asked for" });
+    // No Noul back: the Score decides alone.
+    expect((await ask([0.2, 2.8])).semantic.verdict).toBe("strong");
+    expect((await ask([0.2, 0.6])).semantic.verdict).toBe("none");
+  });
+  test("a workspace prompt from before the Noul ranks with its own words and asks the shipped Noul", async () => {
+    const fixture = promptFixture();
+    const own = fixture.write("Judge relevance to the query.", undefined, null);
+    let sent: { questions: Record<string, { instructions: string }> } | undefined;
+    const result = await rankGotoWithJev("terminal", gotoCandidates(notes, "terminal"), { apiKey: "fixture", promptDirectory: fixture.directory, fetch: async (url, init) => {
+      sent = JSON.parse(init!.body as string);
+      return fakeFetch([1, 2], 0.8)(url, init);
+    } });
+    expect(sent!.questions.candidate_0!.instructions).toStartWith("Judge relevance to the query.");
+    expect(sent!.questions.exists!.instructions).toContain("`query`");
+    expect(result.semantic.promptRevisions?.map(r => r.path)).toEqual([own.path, expect.stringContaining("prompts/goto-ranking.json")]);
   });
   test("reloads edited instructions for the next search while an in-flight search retains its prompt", async () => {
     const fixture = promptFixture();
@@ -92,7 +125,7 @@ describe("Goto search", () => {
     const fetch = async (_url: string, init: RequestInit) => {
       requests.push(JSON.parse(init.body as string));
       if (requests.length === 1) return firstResponse.promise;
-      return fakeFetch([0.2, 2.8])(_url, init);
+      return fakeFetch([0.2, 2.8], 0.9)(_url, init);
     };
     const options = { apiKey: "fixture", promptDirectory: fixture.directory, fetch };
     const firstSearch = rankGotoWithJev("terminal", candidates, options);
