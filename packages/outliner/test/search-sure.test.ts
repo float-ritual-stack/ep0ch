@@ -204,7 +204,9 @@ test("a search eval run is kept in plain words: hit@5, said sure and sure-but-wr
   const own = Object.fromEntries(run!.properties.map(p => [p.key, p.value]));
   // Block chips, so the live table's columns read them.
   expect(own).toMatchObject({ items: "2", agreed: "1", hit5: "2", quiet: "2", suggested: "2", different: "1", cost: "0.000000" });
+  // And what the page's table shows: each count out of what it counts, never a bare number.
+  expect(own).toMatchObject({ "hit-1": "1 of 2", "hit-5": "2 of 2", "said-sure": "2 of 4", "sure-wrong": "1 of 2" });
   const page = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "system-view=search-evals", machinery: "show" } })).blocks[0]!;
   expect(page.text).toBe(EVALS_PAGE);
-  expect(page.text).toContain("headers: [model, cases, hit@1, hit@5, sure, wrong, cost $]");
+  expect(page.text).toContain("columns: [model, items, hit-1, hit-5, said-sure, sure-wrong, cost]");
 });

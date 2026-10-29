@@ -119,7 +119,7 @@ export async function tallyRun(client: WorkJevClient, loop: string, day: string,
   if (text !== run.text) await client.request<Block>({ action: "update", blockId: run.id, text, expectedRevision: run.revision, mutation: { author: "agent", actorId: `jev/${loop}` } });
 }
 
-async function addMissingChips(client: WorkJevClient, id: string, want: Record<string, string>): Promise<void> {
+export async function addMissingChips(client: WorkJevClient, id: string, want: Record<string, string>): Promise<void> {
   const block = await client.request<Block>({ action: "get", blockId: id });
   const missing = Object.entries(want).filter(([key]) => !new RegExp(`\\[${key}::`).test(block.text));
   if (!missing.length) return;
