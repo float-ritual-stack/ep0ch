@@ -62,7 +62,7 @@ describe("a button in a list item (PIE-1224)", () => {
     const body = 'Shelf\n- ::button{label="Go" act="status.log"}\n  - detail';
     const points = foldPoints(body, []);
     expect(points.some(p => p.line === 1)).toBe(true);
-    const doc = renderDoc(body, { width: 40, button: call => buttonRows(call.label), folds: { points, folded: new Set(), selected: null } } as unknown as Parameters<typeof renderDoc>[1]);
+    const doc = renderDoc(body, { width: 40, button: (call: { label: string }) => buttonRows(call.label), folds: { points, folded: new Set(), selected: null } } as unknown as Parameters<typeof renderDoc>[1]);
     expect(plain(doc.lines)).toEqual(["Shelf", "∙ [Go]", "  ∙ detail"]);
   });
 });
