@@ -176,9 +176,9 @@ export async function recentNotes(host: BarHost): Promise<BarRow[]> {
 async function addressedRows(to: NonNullable<ReturnType<typeof addressOf>>, host: BarHost): Promise<BarRow[]> {
   const named = "block" in to ? to.block : to.page;
   const m = await readTarget(host.ctx, to);
-  // Named once, on one line (PIE-1405): the row is the id, what's wrong is said after it.
+  // Named once, on one line (PIE-1405): the row is the id (or the reference's label, the id then said after it).
   if (!m || m.deleted) return [{ key: `address:${named}`, label: to.label ?? named!, exact: true, oneLine: true,
-    refused: to.outline ? `no such note in ${to.outline}` : "no such note in this outline; one from another outline opens by its ep0ch:// or web link" }];
+    refused: to.label ? `no note ${named} in ${to.outline ?? "this outline"}` : to.outline ? `no such note in ${to.outline}` : "no such note in this outline; one from another outline opens by its ep0ch:// or web link" }];
   const there = m.address, c = there ? await outlineBoards(host.ctx).on(there) : null;
   const key = there ? formatEp0chBlockUri({ outline: there.outline, machine: there.machine ?? c!.machine ?? (await c!.board.info()).machine!, blockId: m.id }) : m.id;
   const detail = [there?.outline, to.fragment ? `line ^${to.fragment}` : ""].filter(Boolean).join(" · ");
