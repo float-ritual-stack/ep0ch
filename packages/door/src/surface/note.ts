@@ -12780,7 +12780,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       surface.openPicker(e);
       host.redraw();
-      return { open: true, step: e.task!.step.itemId ?? null, choices: STEP_CHOICES.map(c => ({ id: c.id, key: c.key, label: c.label })) };
+      // The choices as the panel draws them: on a live row, each says what it writes.
+      return { open: true, step: e.task!.step.itemId ?? null, choices: (surface.picker?.list.items ?? STEP_CHOICES).map(c => ({ id: c.id, key: c.key, label: c.label })) };
     },
   }),
   ...PROPOSAL_DEFS,

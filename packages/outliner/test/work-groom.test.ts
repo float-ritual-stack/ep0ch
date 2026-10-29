@@ -70,6 +70,9 @@ test("the truth table: ships, then replaces, then duplicate; under 0.8 is open w
   // The filing's thresholds (PIE-1402): 0.72 is a duplicate here as it's a twin there, and 0.6 is "maybe the same", said.
   expect(groomVerdict(c, { "duplicate::0": 0.72 })).toMatchObject({ verdict: "duplicate", of: "GDN-3" });
   expect(groomVerdict(c, { "duplicate::0": 0.6 })).toMatchObject({ verdict: "open", evidence: expect.stringContaining("maybe the same work as GDN-3") });
+  // Of two the same, the one already done, not the higher score.
+  const two = { shipped: [], tickets: [{ id: "a", workId: "GDN-3", title: "Bins fill", stage: "done", closed: true }, { id: "b", workId: "GDN-20", title: "Bins filling", stage: "queued", closed: false }] };
+  expect(groomVerdict(two, { "duplicate::0": 0.71, "duplicate::1": 0.72 })).toMatchObject({ verdict: "duplicate", of: "GDN-3" });
 });
 
 test("a pass over a scratch board: one request per ticket, a comment on the confident solved, records, the view and the cost", async () => {

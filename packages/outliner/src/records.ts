@@ -113,16 +113,19 @@ async function stampRecord(board: RecordWriter, kind: RecordKind, props: Record<
     return of && (of !== "deploy" || /\[machine::install\]/.test(b.text)) ? [[of, b] as const] : [];
   }).reverse());
   for (const name of (deploy ? ["deploy"] : Object.keys(RECORD_FIELDS).filter(name => name !== "deploy")) as RecordKind[]) {
-    if (!cache.templates.has(name)) cache.templates.set(name, await board.request<Note>("create", { text: recordTemplate(name), parentId: root.id, ...who }));
+    // Missing from the one question (it reads at most 1000 templates): asked by name before one is made.
+    if (!cache.templates.has(name)) cache.templates.set(name, await findNote(board, `template-for=${name}${name === "deploy" ? " machine=install" : ""}`) ?? await board.request<Note>("create", { text: recordTemplate(name), parentId: root.id, ...who }));
   }
   const template = cache.templates.get(kind)!;
   // A template made before its kind gained fields stamps without them: brought up to the fields in code, once.
   if (!(cache.checked ??= new Set()).has(kind)) {
-    cache.checked.add(kind);
     const stored = await board.request<{ id: string; text: string; revision: number } | null>("get", { blockId: template.id });
+    let current = !!stored;
     if (stored && RECORD_FIELDS[kind].some(key => !stored.text.includes(`[form-field::${key} `))) {
-      await board.request("update", { blockId: stored.id, text: recordTemplate(kind), expectedRevision: stored.revision, mutation: { author: who.author, ...(who.provenance?.actorId ? { actorId: who.provenance.actorId } : {}) } }).catch(() => undefined);
+      current = await board.request("update", { blockId: stored.id, text: recordTemplate(kind), expectedRevision: stored.revision, mutation: { author: who.author, ...(who.provenance?.actorId ? { actorId: who.provenance.actorId } : {}) } }).then(() => true, () => false);
     }
+    // Checked only once it is known current: a failed upgrade is tried again by the next record.
+    if (current) cache.checked.add(kind);
   }
   const result = await board.request<{ stamped: Note[]; warnings: string[] }>("template.stamp", {
     of: template.id, parent: root.id, title: title ?? (deploy ? `Deploy ${props.when ?? new Date().toISOString()} on ${props.host ?? "unknown"}` : `${kind} ${new Date().toISOString()}`), props, ...who,

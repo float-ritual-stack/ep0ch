@@ -13,6 +13,7 @@ import { calloutBlocks, quoteDepth, stripQuotes } from "./callouts";
 import { componentBlocks, noteStructure } from "./component-block";
 import { headerLine } from "./header-line";
 import { blockReferenceOccurrences } from "./link-syntax";
+import { parsePropertyRecords } from "./property-parse";
 
 /** The limits the rules measure against, said once: the tool descriptions and the findings quote them. */
 export const SHAPE_LIMITS = {
@@ -394,8 +395,17 @@ function chipWords(text: string, max = 80): string {
 /** What is left of a line once its ask moves out: trailing joiners dropped ("…, and" ends nothing). */
 const remainderOf = (line: string, ask: string) => line.replace(ask, "").replace(/\s{2,}/g, " ").replace(/(?:[\s,;:—–-]|\b(?:and|but|so|or|then)\b)+$/i, "").trimEnd();
 
-/** A line that holds only property chips (`[type::note] [area::north]`): the title's, when it sits under the title. */
-const CHIPS_ONLY = /^[ \t]*(?:\[[\w-]+::[^\]]*\][ \t]*)+$/;
+/**
+ * A line that holds only property chips (`[type::note] [plot.row::north]`), by the shared property grammar: the title's,
+ * when it sits under the title.
+ */
+function chipsOnly(line: string): boolean {
+  const chips = parsePropertyRecords(line).filter(p => p.syntax === "bracket");
+  if (!chips.length) return false;
+  let rest = line;
+  for (const p of [...chips].sort((a, b) => b.start - a.start)) rest = rest.slice(0, p.start) + rest.slice(p.end);
+  return !rest.trim();
+}
 
 /**
  * A buried question moved to the top, as one `- [ ]` under the title (and under the chip lines right under it, which
@@ -416,8 +426,9 @@ function questionPatch(lines: readonly string[], at: number, title: number, sent
   }
   // Where the box goes: after the title, and after the chip lines right under it.
   let anchor = title;
-  while (anchor + 1 < at && CHIPS_ONLY.test(lines[anchor + 1]!)) anchor++;
-  if (anchor !== title && lines.filter(l => l === lines[anchor]).length !== 1) return undefined;
+  while (anchor + 1 < at && chipsOnly(lines[anchor + 1]!)) anchor++;
+  // Its line must be found once in the whole note (the title may repeat one of its chips): else the patch is ambiguous.
+  if (anchor !== title && lines.join("\n").split(lines[anchor]!).length !== 2) return undefined;
   // What comes after the box once the ask has moved: a blank line keeps it out of the box's item.
   const next = anchor + 1 === at ? (rest ?? lines[at + 1]) : lines[anchor + 1];
   const box = `\n\n- [ ] ${ask}${next?.trim() ? "\n" : ""}`;

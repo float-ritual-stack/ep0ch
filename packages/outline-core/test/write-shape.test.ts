@@ -260,6 +260,13 @@ test("a title whose chips are on the line under it keeps them there: the box goe
   expect(fixed.split("\n").slice(0, 4)).toEqual(["Gutter repair update [needs::sysop: Evan, should we replace the whole run?]", "[type::note] [area::north]", "", "- [ ] Evan, should we replace the whole run?"]);
 });
 
+test("a dotted key on the chip line is the title's too", () => {
+  const filler = Array.from({ length: SHAPE_LIMITS.top }, (_, i) => `- point ${i}`).join("\n");
+  const note = `Gutter repair update\n[plot.row::north]\n\n${filler}\n\nEvan, should we replace the whole run?`;
+  const fixed = apply(note, writeShape(note).find(f => f.rule === "question")!.patch!);
+  expect(fixed.split("\n")[1]).toBe("[plot.row::north]");
+});
+
 test("a wall's patch splits at sentences only; one with a sentence too long for a bullet comes with no patch", () => {
   const ok = `Seedlings\n\n${"The trays went out at nine. The frame stayed shut. The cat stayed off. The watering can was refilled. Nobody tripped."}`;
   const [wall] = writeShape(ok);

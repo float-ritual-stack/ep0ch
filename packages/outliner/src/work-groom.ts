@@ -117,7 +117,11 @@ export function groomVerdict(c: Candidates, answers: Record<string, number | und
     return { verdict: "open", confidence: Math.max(unfinished ?? 0, UNFINISHED.test(latest) ? 0.9 : 0), evidence: `merged, then found unfinished: ${clip(latest, 160)}` };
   }
   const best = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => ({ i, p: answers[`${prefix}::${i}`] })).filter((x): x is { i: number; p: number } => x.p !== undefined).sort((a, b) => b.p - a.p)[0];
-  const ships = best("ships", c.shipped.length), replaces = best("replaces", c.shipped.length), dup = best("duplicate", c.tickets.length);
+  const ships = best("ships", c.shipped.length), replaces = best("replaces", c.shipped.length);
+  // Of the tickets Jev reads as the same work, the one already done (it did the work), else the oldest: never just the
+  // highest score (a newer open twin at 0.72 over a closed original at 0.71).
+  const sure = Array.from({ length: c.tickets.length }, (_, i) => ({ i, p: answers[`duplicate::${i}`] })).filter((x): x is { i: number; p: number } => sameWork(x.p) === "same");
+  const dup = sure.sort((a, b) => Number(c.tickets[b.i]!.closed) - Number(c.tickets[a.i]!.closed) || olderFirst(c.tickets[a.i]!.workId, c.tickets[b.i]!.workId))[0] ?? best("duplicate", c.tickets.length);
   if (ships && ships.p >= CONFIDENT) return { verdict: "solved", confidence: ships.p, evidence: describe(c.shipped[ships.i]!) };
   if (replaces && replaces.p >= CONFIDENT) return { verdict: "superseded", confidence: replaces.p, evidence: describe(c.shipped[replaces.i]!) };
   // The filing's own judgment (work-twins.ts twinVerdict, its same-work question): one judgment, one answer, whether a
