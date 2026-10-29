@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One grammar for references, titles, fences and ages (PIE-1292)
+
+- **A labelled reference reads the same everywhere:** `((id|Rough edges (x)))`, `((id^intro))` and `((org:id))` name
+  one block (or another outline's) in the Pi tools, a query's view, the mod's rows, rules, output regions and paths.
+- **A note's title is the service's:** a note that starts with a bare `status:: draft` line lists by its real first
+  line in the door, as in Detail; extensions read the same title.
+- **Code is code:** `@tidy` no longer trims inside a fence a ```` ```js ```` line seemed to close, and four spaces
+  before backticks no longer opens one; Structure, screen notes and Detail's row columns read fences the same way.
+- **One way to say how old:** `29s`, `29 s` or `29 s ago`, with one rounding, in the door, Detail and the CLIs.
+- **What to run:** `GRAMMAR` is 9; an older renderer warns once until `ep0ch install --apply`.
+
 ### The drain runs on its own clock (PIE-1372)
 
 - **No cron by hand:** the repository's mod hands the deployer's session (loki's `.ep0ch`) the drain every 30
