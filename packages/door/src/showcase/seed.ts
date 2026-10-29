@@ -325,7 +325,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   await make(notes.scripts.id, "Shuffle tiles [script::shuffle-tiles] [results::keep] [effects::write]\n```js\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: true, motion: 'fantasia' });\nawait wait(1400);\nawait act('float.place', { tile: 'source', dx: 10, dy: 3, motion: 'fantasia' });\nawait act('float.place', { tile: 'extra', dx: -8, dy: 2, motion: 'fantasia' });\nawait wait(1400);\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: false, motion: 'fantasia' });\nreturn 'settled';\n```");
   notes.statusBar = await make(notes.root.id, [
     SEED.statusBar,
-    'Put [ ] on Collapse and open the tile menu: pin to status bar appends this line to your bar note. Or run button.pin label="Collapse" here.',
+    'Right-click Collapse (or put [ ] on it and open the tile menu): pin to status bar appends this line to your bar note; the right-click presses nothing. Every ::button in a note offers it. Or run button.pin label="Collapse" here.',
     '<!-- Evan\'s layout: ::button{label="Collapse" act="tile.collapse tile=screen"} -->',
     '::button{label="Collapse" act="tile.collapse tile=extra"}',
     'A button can reach past this screen: Lift lifts the agent tab you used last as a column wherever it is (in the drawer, or the screen it went out to), opening one when none is; press it again to drop it. ✦a does the same with the hyper layer on.',
@@ -334,7 +334,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     '::button{label="pop it" act="tile.zoom tile=role:agent reach=column"}',
     'Right-click or alt+click an empty part of the bar, or ^K status bar: edit. The first edit makes a note seeded with today\'s built-ins. Order them with - <id> lines; leave an id out to hide it. A ::button line puts the same button on the bar, and alt="theme.cycle" gives it an alternate click.',
     'A narrow bar keeps your buttons: built-ins shorten first (the drawer chip to ▼ shell +1, +3 machine to +3, then to its arrow), then built-ins drop, and only then the last pins give way to +N. A click on +N lists what it hid by name; alt+click opens the bar note. A duplicate label is refused when pinned; written into the note, the later line is skipped.',
-    'A list item holds a button too, in any note, and in the bar note an item with items nested under it is a group: its label on the bar opens them as a menu (status.bar.menu group=Tiles by act).',
+    'A list item holds a button too, in any note, and in the bar note an item with items nested under it is a group: its label on the bar opens them as a menu (status.bar.menu group=Tiles by act). Groups nest: More inside Tiles opens where Tiles did (group=Tiles/More).',
     '- ::button{label="Fold from a list" act="tile.collapse tile=extra"}',
     'A bar note with a group and a typo (write it in your bar note to try it):',
     '```text',
@@ -343,9 +343,11 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     '- Tiles',
     '  - ::button{label="Fold extra" act="tile.collapse tile=extra"}',
     '  - theme',
+    '  - More',
+    '    - video',
     'clock',
     '```',
-    'A line the bar can\'t read (clock above, missing its - ) is skipped: the rest stays, and a ! line 6 item says it once with a did-you-mean; its click opens the note at that line. status.bar.items describes the built-ins and their actions. Changes are live.',
+    'A line the bar can\'t read (clock above, missing its - ) is skipped: the rest stays, and a ! line 8 item says it once with a did-you-mean; its click opens the note at that line. status.bar.items describes the built-ins and their actions. Changes are live.',
   ].join("\n"));
   // A Claude session running twice (PIE-1369): the section hands the door's watch made-up processes on garden-box.
   notes.splitBrain = await make(notes.root.id, [
@@ -698,7 +700,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.formRepairs = await make(notes.root.id, FORM_REPAIRS);
   // The gallery (PIE-827): its cards first, so the line's first run draws them.
   // Machinery (PIE-867): one question asked twice, of what people wrote and of what tools stamped for their own bookkeeping.
-  const MACHINERY_QUERY = "[query::type=chore OR type=toss OR type=backup-run OR type=file-touch]";
+  const MACHINERY_QUERY = "[query::type=chore OR type=toss OR type=backup-run OR type=file-touch OR notify.key]";
   notes.machineryPeople = await make(notes.root.id, `${SEED.machineryPeople} [type::virtual-branch] ${MACHINERY_QUERY}`);
   notes.machineryTools = await make(notes.root.id, `${SEED.machineryTools} [type::virtual-branch] ${MACHINERY_QUERY} [machinery::only]`);
   // Line chips (PIE-1277): an ask buried on a step of long minutes, one ticked already; one query, asked of the header and of every line.

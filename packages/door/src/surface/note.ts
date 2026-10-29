@@ -2826,9 +2826,9 @@ export class NoteSurface {
     const buttonHook = (block: string, lines: readonly number[]): DocEnv["button"] => (call, i) => {
       const line = lines[i] ?? -1, label = printable(call.label);
       if (call.act === null || line < 0) return [fg(C.yellow) + `[${label}] ${call.problem ?? ""}` + RESET];
-      const pressed = pressState(block, line), refused = pressed.state || call.empty.length || call.sequence ? null : this.refusedPress(call.act);
+      const pressed = pressState(block, line, call.label), refused = pressed.state || call.empty.length || call.sequence ? null : this.refusedPress(call.act);
       return buttonRows(label, { ...call.look, ...pressed, ...(refused ? { state: "disabled", why: refused } : {}) },
-        t => tagged(drawn, { role: "control", label, press: { act: call.act!, steps: call.steps, ...(call.alt ? { alt: call.alt } : {}), block, line } }, t));
+        t => tagged(drawn, { role: "control", label, press: { act: call.act!, steps: call.steps, ...(call.alt ? { alt: call.alt } : {}), block, line, label: call.label } }, t));
     };
     const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m?.id ?? "", env.inlineList);
     // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
@@ -3320,7 +3320,12 @@ export class NoteSurface {
     const s: DraftSession = DraftSession.open(target, { text: fresh.text, base: fresh.revision ?? 0, props: propertyListOf(fresh), by: host.actor ?? USER, position: this.position }, {
       board: host.ctx.board, redraw,
       agentDid: (by, did) => this.noteAgent(by, did, s.draft),
-      answered: (ask, by) => { void this.act("ask.beside", { ask }, host, by).catch(e => host.ctx.flash(String(e), undefined, errorDetails(e))); },
+      // The person's own `@name` line invites its answer beside their edit (as the draft rule reads it): an agent's
+      // answer tile opens there even while they type, the keys staying in the edit (PIE-1294).
+      answered: (ask, by) => {
+        const as = s.openedBy.kind === "user" && by.kind === "agent" ? { ...by, invitation: INVITES.mint("your ask", ["shape"]) } : by;
+        void this.act("ask.beside", { ask }, host, as).catch(e => host.ctx.flash(String(e), undefined, errorDetails(e)));
+      },
       closed: how => this.draftClosed(s, how, host),
     });
     s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, host); };
@@ -4578,8 +4583,18 @@ export class NoteSurface {
 
   /** A right-click at the surface's cell `x`, `y` is an element's own (a step's box, a callout's type: its choice opens there). */
   ownsRightClick(x: number, y: number): boolean {
-    const h = this.hitAt(x, y);
+    // The note's rows are under its header image, as a click finds them.
+    const h = this.hitAt(x, y - (this.drawn?.heroRows ?? 0));
     return !!h && "link" in h && (h.link.role === "task" || h.link.role === "callout");
+  }
+
+  /**
+   * A right-click at the surface's cell `x`, `y` on a button: element.select makes it the `[ ]` position and nothing runs,
+   * so the tile menu that opens there is about it (its "pin to status bar", PIE-1415). Null anywhere else.
+   */
+  pointAt(x: number, y: number, host: SurfaceHost): Promise<unknown> | null {
+    const h = this.hitAt(x, y - (this.drawn?.heroRows ?? 0)), i = h && "link" in h && h.link.press && h.elem ? this.elems.findIndex(el => el.key === h.elem) : -1;
+    return i < 0 ? null : this.runKey("element.select", { n: i + 1 }, host);
   }
 
   /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */
@@ -4810,7 +4825,7 @@ export class NoteSurface {
       return result;
     };
     const home = p.block || this.msg?.id;
-    const shown = () => home && p.line >= 0 ? pressing(home, p.line, () => host.redraw(), run) : run();
+    const shown = () => home && p.line >= 0 ? pressing(home, p.line, () => host.redraw(), run, p.label) : run();
     return actor.kind === "user" ? d.pressDoing(p.act, { note: home }, shown) : shown();
   }
 
@@ -4899,7 +4914,7 @@ export class NoteSurface {
       const fail = (e: unknown) => host.ctx.flash(e instanceof Error ? e.message : String(e));
       if (again && left.length) void this.askSlots(m.id, again, left, host, actor, !!a.run).catch(fail);
       // The last answer of a press runs it, as the press meant (PIE-1392); a slot still empty is asked by that press.
-      else if (again && a.run && again.act !== null && !again.empty.includes(key)) void this.runPress({ act: again.act, block: m.id, line }, host, actor).catch(fail);
+      else if (again && a.run && again.act !== null && !again.empty.includes(key)) void this.runPress({ act: again.act, block: m.id, line, label: again.label }, host, actor).catch(fail);
     }
     return out;
   }
@@ -10674,6 +10689,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "pin to status bar: append this note's selected ::button to your [status-bar::true] note; label= picks a button by its exact label, or a note with one button needs no selection",
     touches: "nothing", replay: "ask",
     args: { label: { type: "string", optional: true, about: "the exact label of the ::button to pin; default: selected button, or the note's only one" } },
+    keys: [{ via: "a right-click on a button (it becomes the [ ] position, unpressed), then pin to status bar in the tile menu" }],
     examples: [{ act: 'button.pin label="Collapse"', does: "pins the Collapse button from this note to your status bar" }],
     menu: noteRow("pin to status bar", "", { now: ({ surface }) => surface.statusButtonLine() ? null : { hide: true } }),
     async run({ label }, { surface, host }, actor) {
@@ -10726,7 +10742,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if (!hits.length) throw new ActionRefused(`no button says "${label}" in that note; it has ${found.length ? found.map(f => `"${f.label}"`).join(", ") : "none"}. Example: button.press note=${m.id.slice(0, 8)} label="${found[0]?.label ?? "Review"}"`);
         if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons of that note (${hits.map(f => `"${f.label}"`).join(", ")}); say more of the label`);
         const hit = hits[0]!, act = alt && hit.alt ? hit.alt : hit.act;
-        const r = await surface.runPress({ act, block: m.id, line: hit.line }, host, actor, !!alt && !hit.alt);
+        const r = await surface.runPress({ act, block: m.id, line: hit.line, label: hit.label }, host, actor, !!alt && !hit.alt);
         surface.noteAgent(actor, `pressed ${hit.label} (${act})`);
         return { note: m.id, kind: "control", act, ...(r && typeof r === "object" ? r : {}) };
       }

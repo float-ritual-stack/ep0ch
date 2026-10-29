@@ -62,7 +62,7 @@ for (const name of names) {
     const fetched: Notification[] = await sourceFor(name).fetch({ since, days: config.days ?? 14 });
     for (const n of fetched) {
       const key = keyOf(n);
-      const found = await o<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `${KEY}="${key.replace(/"/g, "")}"`, subtreeRootId: page.id, limit: 1 } });
+      const found = await o<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `${KEY}="${key.replace(/"/g, "")}"`, subtreeRootId: page.id, limit: 1, machinery: "show" } });
       if (!found.blocks[0]) {
         await o({ action: "create", parentId: page.id, text: merged(n) });
         tally.created++;

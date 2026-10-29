@@ -1826,9 +1826,18 @@ export class App implements Ctx {
     const middle = message ? ` ${fg(this.messageWarning ? C.yellow : C.lcyan)}${loud ? BOLD : ""}${message}${loud ? UNBOLD : ""}${fg(C.lcyan)}` : "";
     const room = Math.max(0, cols - width(right) - 3);
     const displaced = !!middle && width(left + middle) > room;
-    // A message that displaces the left side leaves what the person put there and the bar's own `+N` and `!` (PIE-1410).
-    const kept = displaced ? separated(leftItems.filter(i => i.id === "overflow" || (i.rank ?? RANK.builtin) >= RANK.pinned), "left") : [];
-    const keep = statusText(kept);
+    // A message that displaces the left side leaves what the person put there and the bar's own `+N` and `!` (PIE-1410),
+    // as many as fit before it with a cell of the message: pins give way from the end, then the `!`, the `+N` (the way to
+    // the rest) last. What is kept here is what is drawn and what a click finds (PIE-1415: a dropped `+N` had left its
+    // hit box behind).
+    // From the items as they were before separating: a dropped neighbour's `│` never leads the kept ones.
+    let held = displaced ? items.filter(i => i.place === "left" && (i.id === "overflow" || (i.rank ?? RANK.builtin) >= RANK.pinned)) : [];
+    const own = (i: StatusItem) => i.id === "overflow" || i.id === "problems";
+    while (held.length && width(statusText(separated(held, "left"))) >= room) {
+      const last = held.findLastIndex(i => !own(i));
+      held = held.toSpliced(last >= 0 ? last : Math.max(0, held.findIndex(i => i.id === "problems")), 1);
+    }
+    const kept = separated(held, "left"), keep = statusText(kept);
     this.statusBoxes = [
       ...statusHits(displaced ? kept : leftItems, 0, displaced ? room : room - (width(left) > room ? 1 : 0)),
       ...statusHits(rightItems, Math.max(3, cols - width(right)), cols),
@@ -1874,8 +1883,9 @@ export function withToast(lines: string[], text: string, cols: number, ok = true
 export function statusLine(left: string, middle: string, right: string, cols: number, keep = ""): string {
   const sep = " │ ";
   const room = Math.max(0, cols - width(right) - sep.length);
-  // `keep`: the left items a message never displaces (the overflow, a skipped line's `!`, the person's pins).
-  const body = pad(middle && width(left + middle) > room ? (keep && width(keep) < room ? keep + middle : middle) : left + middle, room);
+  // `keep`: the left items a message never displaces (the overflow, a skipped line's `!`, the person's pins), as the
+  // bar chose them to fit (App.statusBar, whose hit boxes are the same items).
+  const body = pad(middle && width(left + middle) > room ? keep + middle : left + middle, room);
   // A cut can drop the message's link terminator; RESET restores colours but cannot end a hyperlink.
   const endLink = OSC8.test(body) ? OSC8_CLOSE : "";
   return STATUS_INK + body + endLink + STATUS_INK + sep + right + RESET;
