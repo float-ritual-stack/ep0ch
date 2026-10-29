@@ -2235,6 +2235,15 @@ export class NoteSurface {
       if (first >= top) gutterRows.set(first, dim(folded ? "▸" : "▾"));
       // A wrapped heading is one heading (PIE-1349): a click on any of its rows folds it.
       for (let r = Math.max(top, first); r < Math.min(first + rows, top + room); r++) this.hits.push({ row: r, from: this.gutterStart, to: this.gutterStart + 1, fold: n + 1 });
+      // The disclosure drawn at the heading's words (doc.ts's headingGlyph) is a click target as much as the gutter's (PIE-1403).
+      // It is the first thing drawn at the body's start (indented or not); a ▸ in the heading's words is never one.
+      if (first >= top) {
+        let col = 0;
+        for (const c of visible(lines[first] ?? "")) {
+          if (col >= this.bx && c !== " ") { if (c === "▾" || c === "▸") this.hits.push({ row: first, from: col, to: col + 1, fold: n + 1 }); break; }
+          col += width(c);
+        }
+      }
       // What a fold hides is said after its last row.
       const row = first + rows - 1;
       if (row < top || row >= top + room) continue;
@@ -4750,16 +4759,13 @@ export class NoteSurface {
       }
       // An extension's action acts on a note: the one this press is written in, unless the line names another.
       if (EXT_ACTIONS.has(action) && args.block === undefined) args.block = p.block || this.msg?.id;
-      // The person's press of a script invites its run (src/surface/invite.ts): it may move their tiles while it runs. Any
-      // press names its button (via), so the run's note records it and the run reads its slots whole (`page=a page=b`).
+      // The person's press of a script is invited by the script's action itself (extensions.ts, lineAction). Any press names
+      // its button (via), so the run's note records it and the run reads its slots whole (`page=a page=b`).
       if (scriptActions().some(s => s.action.name === action)) {
-        if (actor.kind === "user") args.invitation ??= INVITES.mint("you");
         const home = p.block || this.msg?.id;
         if (home) args.via ??= `${home}:${p.line}`;
       }
       const result: unknown = await d.act(d.requestIn({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, messageContext.getStore()?.tile), actor);
-      // The run it started: the invitation belongs to it from here (and is spent when it ends).
-      if (typeof args.invitation === "string" && result && typeof result === "object" && typeof (result as { undo?: unknown }).undo === "string") INVITES.bind(args.invitation, (result as { undo: string }).undo);
       host.redraw();
       return result;
     };

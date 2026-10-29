@@ -63,6 +63,20 @@ are its record. The outliner's entries from then are kept below, under
 - **Costs show:** every ranked search counts on the day's `search-live` jev-run (searches, sure, no strong match,
   tokens, cost), beside the other Jev loops on Jev's suggestions page.
 - **Run:** PROTOCOL 280: `ep0ch install --apply` on float-2 and the laptop.
+### A note written in the river opens with its text, and neat speaks plainly (PIE-1403)
+
+- **Reopened, it shows what you wrote:** a note written in a float over the river, saved and opened again from the
+  power bar showed "(empty)" until the door restarted. An open now takes the newest copy on screen, and the screen's
+  current note is read again when it changes.
+- **x closes a float over the river**, as it closes a column there and a float on the board.
+- **The power bar says "no matches"** when nothing matches what you typed, and never stays on "notes…" once the
+  search has answered.
+- **neat from the power bar works** as it does from its button: your own run of a script acts as you, the way a
+  press does. From a float it puts other floats back and folds them; a step it can't do is said whole, in the
+  door's words, and its line names your notes, never tile ids. Typed as its row reads, `run neat` lists the run
+  row first, before any note named Neat.
+- **The ▾ at a heading's words folds it** on a click, as the gutter's ▾ does, at 38 columns too.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
 
 ### Paste a note's address into the power bar and it opens; copy rows first in the tile menu (PIE-1398, PIE-1399, PIE-1284)
 
