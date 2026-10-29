@@ -17,7 +17,7 @@ import type { Block, MutationProvenance } from "./types";
  * it works"), under one **Extensions** hub in the outline. The service writes both from the extensions' folders,
  * never by hand, and again whenever the registry reloads (an extension added, updated or removed):
  *
- * - **The hub** (`Extensions [page::extensions]`, at the outline's root): the installed extensions, each a link to
+ * - **The hub** (`Extensions [page::extensions] [machine::extension-page]`, at the outline's root): the installed extensions, each a link to
  *   its page; those removed whose demo notes were kept; and those available from the repo's extension folder that
  *   aren't installed, each with its description and how to install it.
  * - **A page** per installed extension, under the hub: its name, description, version and state, its README drawn as
@@ -36,6 +36,11 @@ import type { Block, MutationProvenance } from "./types";
 const STATE_KEY = "extensions.pages";
 const SYSTEM: MutationProvenance = { author: "system" };
 const PAGE_WRITER = { author: "agent", actorId: "ext:extension-pages" } as const;
+/**
+ * What the hub and every page carry (PIE-1427): the service's own pages, rewritten on every reload, are machinery, so a
+ * chat's "what changed lately" leaves them out and counts them. `[[extensions]]` and `[[ext-<id>]]` still open them.
+ */
+export const EXTENSION_PAGE_STAMP = "[machine::extension-page]";
 
 interface Seeded { id: string; revision: number }
 interface PagesState {
@@ -340,7 +345,7 @@ export class ExtensionPages {
       this.store.changes.run(this.store.changes.attribution({ action: "extensions.pages", actor: PAGE_WRITER }), () => {
         let hub = this.live(state.hub);
         if (!hub) {
-          hub = this.createAddressed("Extensions [page::extensions]", null, "agent", PAGE_WRITER);
+          hub = this.createAddressed(`Extensions [page::extensions] ${EXTENSION_PAGE_STAMP}`, null, "agent", PAGE_WRITER);
           state.hub = hub.id;
         }
         const hubId = hub.id;
@@ -486,7 +491,7 @@ export class ExtensionPages {
 
   private pageText(entry: ExtensionEntry, loaded: LoadedExtension | undefined, demo: Demo): string {
     const name = words(loaded?.name ?? entry.name ?? entry.id) || entry.id;
-    const lines = [`${name} [ext.page::${entry.id}] [page::ext-${entry.id}]`];
+    const lines = [`${name} [ext.page::${entry.id}] [page::ext-${entry.id}] ${EXTENSION_PAGE_STAMP}`];
     if (loaded?.description ?? entry.description) lines.push(words(loaded?.description ?? entry.description));
     lines.push(`\`${entry.id}\` · version ${loaded?.version ?? entry.version ?? "?"} · ${STATE_WORDS(entry)} · ${entry.origin === "outline" ? "this outline's own" : "for every outline this host serves"}`);
     const override = entry.builtIn && overrideWords(entry.id, entry.builtIn);
@@ -512,7 +517,7 @@ export class ExtensionPages {
 
   private removedText(id: string, name: string): string {
     return [
-      `${words(name) || id} [ext.page::${id}] [page::ext-${id}]`,
+      `${words(name) || id} [ext.page::${id}] [page::ext-${id}] ${EXTENSION_PAGE_STAMP}`,
       `\`${id}\` · not installed. What was under its page is kept below.`,
       "",
       `Install it again: \`ep0ch ext add ${id}\` (its demo notes aren't added twice), or in the door the power bar's extensions (ctrl+k then &).`,
@@ -521,7 +526,7 @@ export class ExtensionPages {
 
   private hubText(state: PagesState, installed: readonly { entry: ExtensionEntry; loaded: LoadedExtension | undefined }[]): string {
     const lines = [
-      "Extensions [page::extensions]",
+      `Extensions [page::extensions] ${EXTENSION_PAGE_STAMP}`,
       "What this outline's extensions add, and what you can add. The outline service writes this page from each extension's folder, and again when one is added, updated or removed: each page below has its README, what it adds and its demo notes.",
       "",
       "## Installed",

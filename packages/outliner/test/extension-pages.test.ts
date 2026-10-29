@@ -85,10 +85,10 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
   const listed = await list();
   expect(listed.hub).toBeString();
   const hub = store.require(listed.hub!);
-  expect(hub.text.split("\n")[0]).toBe("Extensions [page::extensions]");
+  expect(hub.text.split("\n")[0]).toBe("Extensions [page::extensions] [machine::extension-page]");
   expect(hub).toMatchObject({ author: "agent", actorId: "ext:extension-pages" });
   // The hub: each installed one a link to its page; what the repo has that isn't installed, with how to install it.
-  expect(hub.text).toContain(`((${listed.pages.notify}|Notifications hub)) \`notify\` v4`);
+  expect(hub.text).toContain(`((${listed.pages.notify}|Notifications hub)) \`notify\` v5`);
   expect(listed.available.map((entry) => entry.id)).toContain("moon");
   expect(listed.available.map((entry) => entry.id)).not.toContain("notify");
   expect(hub.text).toMatch(/\*\*Moon\*\* `moon` v\d/);
@@ -96,7 +96,7 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
   // The page: README body (its # title is the page's), what it adds, the changelog's newest entry, the demo under it.
   const page = store.require(listed.pages.runbook!);
   expect(page.parentId).toBe(hub.id);
-  expect(page.text.split("\n")[0]).toBe("Runbook [ext.page::runbook] [page::ext-runbook]");
+  expect(page.text.split("\n")[0]).toBe("Runbook [ext.page::runbook] [page::ext-runbook] [machine::extension-page]");
   expect(page.text).toContain("Each press opens a terminal tile named for the step.");
   expect(codeBlocks(page.text.split("\n")).fences.filter(f => !f.closed)).toEqual([]);
   expect(page.text).not.toContain("# Runbook");
@@ -150,7 +150,7 @@ test("install from the repo, reinstall keeps your edits and adds nothing twice, 
   const moon = await client.request<{ page?: string; hub?: string; state?: string }>({ action: "extensions.install", extension: "moon" });
   expect(store.require(moon.hub!).updatedAt).toBe(hub.updatedAt);
   expect(moon.state).toBe("active");
-  expect(store.require(moon.page!).text.split("\n")[0]).toBe("Moon [ext.page::moon] [page::ext-moon]");
+  expect(store.require(moon.page!).text.split("\n")[0]).toBe("Moon [ext.page::moon] [page::ext-moon] [machine::extension-page]");
   expect(store.require(moon.hub!).text).toContain(`((${moon.page}|Moon)) \`moon\``);
   expect((await list()).available.map((entry) => entry.id)).not.toContain("moon");
   await expect(client.request({ action: "extensions.install", extension: "no-such" })).rejects.toThrow(/No extension no-such in the repo's folder/);

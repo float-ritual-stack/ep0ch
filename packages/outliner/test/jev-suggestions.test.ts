@@ -208,3 +208,27 @@ test("two writers' first suggestions of the day at once leave one run for the da
   expect(await until(async () => (await records("review-finding")).length === 2 && (await records("jev-run")).some(r => r.suggested === "2"))).toBe(true);
   expect(await records("jev-run")).toHaveLength(1);
 }, 40_000);
+
+// PIE-1388, a verifier on main (Oct 29): two sections both told to become a checklist; applying the patch in one listed
+// the other followed too, because the rule read the component anywhere in the note.
+test("a kit finding is followed only when its own section draws the component", () => {
+  const baseline = ["Plot plan", "", "## Jobs", "- [ ] dig", "- [ ] sow", "- [x] mulch", "", "## Compare", "- [ ] old bed", "- [ ] new bed", "- [x] path"].join("\n");
+  const checkedCompare = baseline.replace("## Compare\n- [ ] old bed\n- [ ] new bed\n- [x] path", "## Compare\n::graph-check\n- [ ] old bed\n- [ ] new bed\n- [x] path\n::");
+  const jobs = { component: "graph-check", at, rule: "kit", key: "kit:Jobs", line: 3 };
+  const compare = { component: "graph-check", at, rule: "kit", key: "kit:Compare", line: 8 };
+  expect(judgeSuggestion(compare, baseline, [later(1, checkedCompare)], schemas, at + 2 * 3600_000)).toMatchObject({ outcome: "followed" });
+  expect(judgeSuggestion(jobs, baseline, [later(1, checkedCompare)], schemas, at + 2 * 3600_000)).toBeNull();
+});
+
+// PIE-1388: pie's page was shaped by hand; a new section and column reach it on their own, added and never rewritten.
+test("an existing suggestions page gains the quiet writes' table and a created column, keeping its own order", async () => {
+  const { SUGGESTIONS_PAGE, upgradeSuggestionsPage } = await import("../src/jev-suggestions");
+  const old = SUGGESTIONS_PAGE.replace(/## Reviewed, nothing to fix\n[\s\S]*?\n::\n\n/, "").replace("columns: [note, said, passage, rubric, patch, writer, created]", "columns: [note, rubric, said, passage, writer, patch]");
+  expect(old).not.toContain("review-quiet");
+  const up = upgradeSuggestionsPage(old);
+  expect(up).toContain("columns: [note, rubric, said, passage, writer, patch, created]");
+  expect(up.indexOf("## Reviewed, nothing to fix")).toBeLessThan(up.indexOf("## What the writer did"));
+  expect(up.split("\n").filter(l => l === "::").length).toBe(old.split("\n").filter(l => l === "::").length + 1);
+  expect(upgradeSuggestionsPage(up)).toBe(up);
+  expect(upgradeSuggestionsPage(SUGGESTIONS_PAGE)).toBe(SUGGESTIONS_PAGE);
+});

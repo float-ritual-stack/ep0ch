@@ -44,9 +44,14 @@ async function findPage(address: string): Promise<Block | null> {
   return resolved.status === "resolved" && resolved.block ? o<Block>({ action: "get", blockId: resolved.block.id }) : null;
 }
 
-/** The page the notifications land under, made the first time. */
+/** The page the notifications land under, made the first time: the hub's own, so stamped as machinery (PIE-1427). */
 async function ensurePage(): Promise<Block> {
-  return (await findPage(addressOf)) ?? o<Block>({ action: "create", text: `Notifications [page::${addressOf}]` });
+  const found = await findPage(addressOf);
+  if (!found) return o<Block>({ action: "create", text: `Notifications [page::${addressOf}] [machine::notify]` });
+  // A page an earlier version made, unstamped: stamped on the next pull, whether or not it holds anything yet.
+  if (valueOf(found, "machine") || !/\[page::/.test(found.text.split("\n")[0] ?? "")) return found;
+  await o({ action: "update", blockId: found.id, expectedRevision: found.revision, text: withProps(found.text, { machine: "notify" }) });
+  return o<Block>({ action: "get", blockId: found.id });
 }
 
 const page = await ensurePage();

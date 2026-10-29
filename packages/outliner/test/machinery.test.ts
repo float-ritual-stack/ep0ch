@@ -53,7 +53,8 @@ test("a stamped note is hidden by default, alone with only, and with the rest on
 
   const activity = async (machinery?: string) => (await client.request<{ entries: { block: Block }[] }>({ action: "activity.recent", author: "agent", limit: 20, ...(machinery ? { machinery } : {}) } as never)).entries.map(e => e.block.id);
   expect(await activity()).not.toContain(toss.id);
-  expect(await activity("only")).toEqual([toss.id]);
+  // The service's own Extensions pages are machinery too (PIE-1427): only the two notes here are asked about.
+  expect((await activity("only")).filter(id => id === toss.id || id === gate.id)).toEqual([toss.id]);
 
   const feed = async (machinery?: string) => {
     const page = await client.request<ChangeFeedPage>({ action: "changes.since", sequence: 0, limit: 100, ...(machinery ? { machinery } : {}) } as never);
@@ -147,6 +148,27 @@ test("the backfill stamps what tools wrote before they stamped, says so first, a
   expect(hidden).toEqual([person.id]);
 });
 
+// PIE-1427, seen in use (Oct 29): the Extensions hub, every extension's page and the notifications hub's boards came
+// back as real work in a chat's recent-activity read, because they carried no [machine::].
+test("the notifications hub's pull page is stamped by the backfill, by who wrote it last; its demo boards stay the person's", async () => {
+  const { client, store } = await setup();
+  // Written as the service writes them (an extension's actor id is the service's alone).
+  const as = (actorId: string, text: string, parent: string | null = null) => store.create(text, parent, "agent", { actorId });
+  const pulled = as("ext:notify", "Notifications [page::notifications]");
+  as("ext:notify", "Heron survey merged [notify.key::github:7] [machine::notification]", pulled.id);
+  const board = as("ext:notify", "Notifications by source [page::notifications-source]");
+  const lane = as("ext:notify", "Jira [type::virtual-branch] [query::notify.source=jira] [machinery::show]", board.id);
+  const theirs = as("ext:notify", "Notifications, mine [page::notifications-mine]");
+  as("ext:notify", "Heron survey closed [notify.key::github:8] [machine::notification]", theirs.id);
+  await client.request({ action: "update", blockId: theirs.id, expectedRevision: theirs.revision, text: `${theirs.text}\n\nMine now.` } as never);
+  const done = await backfill(client as never, true);
+  expect(done.find(r => r.producer === "notify")?.stamped).toBe(1);
+  const machine = async (id: string) => (await client.request<Block>({ action: "get", blockId: id } as never)).properties.find(p => p.key === "machine")?.value;
+  expect(await Promise.all([pulled, board, lane, theirs].map(b => machine(b.id)))).toEqual(["notify", undefined, undefined, undefined]);
+  // Stamped, a page still opens by its address.
+  expect((await client.request<{ status: string; block?: Block }>({ action: "pages.resolve", address: "notifications" } as never)).block?.id).toBe(pulled.id);
+});
+
 test("an agent's recent-activity find leaves fetched notifications out and says how many (PIE-1427)", async () => {
   const { client, make } = await setup();
   await make("Pruned the pear row [type::chore]");
@@ -156,7 +178,10 @@ test("an agent's recent-activity find leaves fetched notifications out and says 
   const titles = found.blocks.map(b => b.title);
   expect(titles).toContain("Pruned the pear row");
   expect(titles.filter(t => t.startsWith("Seed order") || t.startsWith("Toss"))).toEqual([]);
-  expect(found.machineryOmitted).toEqual({ count: 4, by: { notification: 3, echonet: 1 }, said: "4 notifications and bookkeeping notes left out (machinery: show brings them back)" });
+  // The Extensions hub and its pages the service wrote at start are left out too, and counted (PIE-1427).
+  const pages = found.machineryOmitted?.by["extension-page"] ?? 0;
+  expect(pages).toBeGreaterThan(0);
+  expect(found.machineryOmitted).toEqual({ count: 4 + pages, by: { notification: 3, echonet: 1, "extension-page": pages }, said: `${4 + pages} notifications and bookkeeping notes left out (machinery: show brings them back)` });
   expect((await findBlocks(client as never, { query: "updated >= -1d", machinery: "show" })).machineryOmitted).toBeUndefined();
   expect((await findBlocks(client as never, { query: "type=chore" })).machineryOmitted).toBeUndefined();
 });
