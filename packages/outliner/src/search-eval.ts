@@ -330,13 +330,13 @@ export function reportNote(scores: readonly ModelScore[], sweeps: Record<string,
     "|---|---|---|---|---|---|",
     ...(sweeps[meta.current] ?? []).map(r => `| ${r.exists} | ${r.strong} | ${r.sureRight} | ${r.sureWrong} | ${r.sureNothing} | ${r.quietWrong} |`),
     "",
-    `In use: Noul yes ${SEARCH_THRESHOLDS.exists.yes}, no ${SEARCH_THRESHOLDS.exists.no}, top Score ${SEARCH_THRESHOLDS.strong} (search-ranking.ts \`SEARCH_THRESHOLDS\`).`,
+    `In use: Noul yes ${SEARCH_THRESHOLDS.exists.yes}, no ${SEARCH_THRESHOLDS.exists.no}, top Score ${SEARCH_THRESHOLDS.strong}, not sure from ${SEARCH_THRESHOLDS.match} (search-ranking.ts \`SEARCH_THRESHOLDS\`).`,
   ];
   return lines.join("\n");
 }
 
-/** The live table's headers: a page that has them is current. */
-const EVALS_FIGURE = "headers: [model, cases, hit@1, hit@5, sure, wrong, cost $]";
+/** The live table's columns, each count out of what it counts ("7 of 12", PIE-1409): a page that has them is current. */
+const EVALS_FIGURE = "columns: [model, items, hit-1, hit-5, said-sure, sure-wrong, cost]";
 /** The page every run lands under, made once: what the eval is and every run's numbers, live. */
 export const EVALS_PAGE = [
   "Search evals [page::search-evals] [system-view::search-evals]",
@@ -352,8 +352,8 @@ export const EVALS_PAGE = [
   "title: every run, newest first",
   "query: type=jev-run experiment=search-eval",
   "machinery: show",
-  "columns: [model, items, agreed, hit5, quiet, different, cost]",
   EVALS_FIGURE,
+  "headers: [model, cases, hit@1, hit@5, sure, wrong, cost $]",
   "sort: created",
   "direction: desc",
   "---",
@@ -421,7 +421,7 @@ export async function keepRun(client: EvalClient, scores: readonly ModelScore[],
   for (const [i, s] of scores.entries()) {
     // Scores come in the runs' order; a variant's score is named "<model> · <variant>".
     const run = runs[i]!;
-    await recordRun(client, EVAL_EXPERIMENT, day, {
+    const id = await recordRun(client, EVAL_EXPERIMENT, day, {
       // The run-level keys in the meaning search's own runs give them (search-records.ts): quiet the searches said sure,
       // suggested the ones that named the closest and didn't claim it; over every search asked, the ones with nothing
       // there too. items the cases with an answer, agreed Jev's top was the label (hit@1), hit5 it was in the first
@@ -429,6 +429,12 @@ export async function keepRun(client: EvalClient, scores: readonly ModelScore[],
       items: s.positives, agreed: s.hit1, agreement: s.positives ? Math.round(s.hit1 / s.positives * 100) / 100 : 0, hit5: s.hit5,
       suggested: s.quietRight + s.quietWrong, quiet: s.sureRight + s.sureWrong + s.sureNothing, different: s.sureWrong + s.sureNothing, unavailable: s.unavailable,
     }, { model: s.model, prompt: run.prompt, questions: s.asked, usage: { input: s.tokensIn, output: s.tokensOut } });
+    // What the page's table shows: each count out of what it counts ("7 of 12"), the eval's own chips beside the record's
+    // (the jev-run template holds the keys every loop shares, at its 16 fields).
+    const sure = s.sureRight + s.sureWrong + s.sureNothing;
+    const words = { "hit-1": `${s.hit1} of ${s.positives}`, "hit-5": `${s.hit5} of ${s.positives}`, "said-sure": `${sure} of ${s.asked}`, "sure-wrong": `${s.sureWrong + s.sureNothing} of ${sure}` };
+    const record = await client.request<Block>({ action: "get", blockId: id });
+    await client.request({ action: "update", blockId: id, text: `${record.text}\n${Object.entries(words).map(([k, v]) => `[${k}::${v}]`).join(" ")}`, expectedRevision: record.revision, mutation: { author: "agent", actorId: EVAL.provenance!.actorId! } });
   }
   const made = await client.request<{ id: string }>({ action: "create", text: note, parentId: page!.id, ...EVAL });
   return made.id;

@@ -481,6 +481,30 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
     expect(enterKeeps(c.state!)).toBe("new line");
   });
 
+  test("[[ naming no page yet: a page Jev is sure of takes the cursor from the new page, and Tab links it (PIE-1409)", async () => {
+    const found = { address: "bike-shed", blockId: "p9", kind: "page", title: "Bike shed" };
+    const board = serviced({
+      // The words find no page; Jev finds Bike shed by meaning, and is sure. Inserting checks the address still names it.
+      completePages: async (q: string | undefined, _l: number, opts: { semantic?: boolean } = {}) => opts.semantic
+        ? { addresses: [found], completeness: { kind: "complete" }, semantic: { status: "ranked", verdict: "strong", label: "sure", said: "" } }
+        : { addresses: q === "bike-shed" ? [found] : [], completeness: { kind: "complete" }, semantic: { status: "lexical" } },
+      completeFiles: async () => [],
+      searchBlocks: async () => ({ matches: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } }),
+      blockContext: async (id: string) => ({ selected: { id, text: "x" }, ancestors: [] }),
+      workIdPrefix: async () => "HOME",
+      followPage: async () => { throw new Error("no page is made: the sure answer is linked"); },
+    });
+    const d = new Draft("note-1", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "[[where the bikes live") completionKey(d, char(ch), c);
+    await until(() => c.state?.jev === "ranked", "Jev's order");
+    expect(c.state!.items.map(i => i.blockId ?? i.newPage)).toEqual(["p9", "where the bikes live"]);
+    expect(c.state!.items[c.state!.index]!.blockId).toBe("p9");
+    completionKey(d, K("tab"), c);
+    await until(() => d.text.includes("]]"), "the link inserted");
+    expect(d.text).toBe("[[bike-shed]]");
+  });
+
   test("a draft session that ends drops its popup, and the Jev ask waiting for its pause is never sent", async () => {
     const { board, asked } = fake();
     const { DraftSession, blockTarget } = await import("../src/draft-session");
