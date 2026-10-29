@@ -345,6 +345,7 @@ export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
     },
   }),
   "status.bar.pin": def({
+    words: "pin a note's line to the status bar",
     summary: "pin a ::button line to your status bar, appending it to the [status-bar::true] note; made on first use, with the existing bar's items",
     touches: "nothing", replay: "ask",
     args: { line: { type: "string", about: "the ::button line to append" } },

@@ -778,6 +778,7 @@ function rowOf(pane: TreePane, n: number | undefined, id: string | undefined): n
 
 export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
   "tree.fold": def({
+    words: "open or fold a row of the outline tree",
     summary: "open (open=true) or fold (open=false) a row of the outline tree, else the other way: a note's children, a group of links. n (from 1) or id, else the selected row. An agent's never folds away the rows the person's selection is in",
     keys: "l → space h ←, click on a row's mark",
     touches: "nothing", replay: "safe", says: r => `${r.open ? "opened" : "folded"} row ${r.row} of the outline`,

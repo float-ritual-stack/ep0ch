@@ -27,6 +27,7 @@ import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { readNewNoteIntent } from "./note-placement";
 import { DRAFT_HOLDER_TIMEOUT_MS, DraftHolds, type DraftHold, type DraftHolderAnswer } from "./draft-patch";
 import { DraftPatchRouter, type DraftHolderAsk } from "./draft-patch-router";
+import { proposalOutcomes } from "./proposal-outcomes";
 import type { ChangeAttribution } from "./change-feed";
 import { MentionRepository } from "./mentions";
 import { EditRecoveryRepository } from "./edit-recovery";
@@ -102,7 +103,7 @@ import {
   TUI_RESOURCE_PRESENTATION_CONTEXT,
 } from "./resource-presentation";
 import { probeSocket } from "./socket-probe";
-import { actionOf, thisTurn, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
+import { actionOf, thisTurn, WHOLE_OUTLINE_READS, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
 import { isWatchable, QueryWatches, type WatchConnection } from "./query-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
@@ -311,7 +312,7 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
  */
 const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draft.patch", "outputs.place", "move", "delete", "annotations.create", "annotations.reply", "annotations.batch"]);
 const EXTENSION_READS: ReadonlySet<string> = new Set([
-  "children", "blocks.read", "blocks.context", "block.revisions", "blocks.authored-links", "changes.since", "activity.recent",
+  "children", "blocks.read", "blocks.context", "block.revisions", "proposals.outcomes", "blocks.authored-links", "changes.since", "activity.recent",
   "annotations.get", "fragments.read", "fragments.at", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
   "properties.preview", "properties.catalog", "components.schemas", "components.usage", "headings.styles", "callouts.types", "styles.list",
   "extensions.list", "extensions.args", "work-ids.status", "notes.render", "notes.address", "site.answer", "site.sources", "template.use", "template.props",
@@ -468,7 +469,7 @@ export class OutlinerServer {
       // What it held the loop for (all of it when it never waited outside the loop): charged to whose it is, and named
       // in a stall.
       if (sameTurn()) ms = performance.now() - started;
-      this.turns.charge(key, ms);
+      this.turns.charge(key, ms, input.action);
       noteWork(`${input.action} (own)`, ms);
       if (!response.ok) throw new Error(response.error);
       return response.result as T;
@@ -502,7 +503,7 @@ export class OutlinerServer {
     this.watches = new QueryWatches({
       answer: request => this.handle(request as unknown as OutlinerRequest),
       sequence: () => this.store.sequence,
-      timed: ms => { noteWork("queries.changed", ms); this.turns.charge("watches", ms); },
+      timed: ms => { noteWork("queries.changed", ms); this.turns.charge("watches", ms, "blocks.query"); },
       // A pass waits its turn a watch at a time, behind interactive requests (PIE-1413).
       turn: action => this.turns.next(action, "watches"),
     });
@@ -2194,7 +2195,12 @@ export class OutlinerServer {
         if (!selected) throw new Error("This block has no authored script; add [script::name] and a closed js or ts fence");
         const extension = this.extensionRegistry.extension(selected.expectedId);
         if (!extension) throw new Error(`Script ${nameOf(selected)}: ${this.extensionRegistry.list().extensions.find(e => e.id === selected.expectedId)?.error ?? "not runnable"}`);
-        const asked: ExtensionActRequest = { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(typeof request.door === "string" ? { clientId: request.door } : {}) };
+        const slots = request.slots;
+        if (slots !== undefined && (typeof slots !== "object" || slots === null || Array.isArray(slots) || Object.values(slots).some(v => typeof v !== "string"))) {
+          throw new Error("scripts.run's slots are { name: \"value\" }: each value one line of text");
+        }
+        const about = request.this === undefined ? undefined : this.store.requireActive(String(request.this)).id;
+        const asked: ExtensionActRequest = { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(about ? { blockId: about } : {}), ...(slots && Object.keys(slots).length ? { args: slots } : {}), ...(typeof request.door === "string" ? { clientId: request.door } : {}) };
         const result = await this.scriptRuns.answered(this.scriptRuns.start(extension, asked), asked);
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
@@ -3346,6 +3352,9 @@ export class OutlinerServer {
         }
         case "get":
           result = this.store.require(request.blockId);
+          break;
+        case "proposals.outcomes":
+          result = proposalOutcomes(this.store, request);
           break;
         case "block.revisions":
           result = request.revision !== undefined ? this.store.revisionText(request.blockId, request.revision) : request.latest ? this.store.revisions(request.blockId, true) : this.store.revisions(request.blockId);
@@ -4894,7 +4903,7 @@ export class OutlinerServer {
     }
     const publishMs = performance.now() - answered;
     // Who asked is charged what its request held the loop for (Turns): the next turn goes to someone who used it less.
-    this.turns.charge(key, (loopMs ?? answered - started) + publishMs);
+    this.turns.charge(key, (loopMs ?? answered - started) + publishMs, request?.action);
     if (loopWatched()) this.timeRequest(request, received, started, answered, loopMs ?? answered - started, publishMs);
   }
 
@@ -4959,9 +4968,18 @@ export class OutlinerServer {
           // Each request waits its turn on the loop (Turns): a burst of whole-outline reads never holds it. One that waits
           // for a script run's answer (PIE-1264) lets the next go once the run has started: the run's own calls into the
           // door that asked (`scripts.answer`, and what its action then reads) come back over this connection.
-          const key = turnKeyOf(line, socket);
-          requestQueue = requestQueue.then(() => this.turns.next(actionOf(line), key)).then(() => new Promise<void>(release =>
-            void queueRelease.run(release, () => this.respond(socket, line, received, key)).finally(release)));
+          const key = turnKeyOf(line, socket), action = actionOf(line);
+          // A connection that closed has nobody to answer: what it left queued is dropped, never run (PIE-1413).
+          const answer = () => socket.destroyed ? undefined : this.respond(socket, line, received, key);
+          if (WHOLE_OUTLINE_READS.has(String(action))) {
+            // A whole-outline read starts after what the connection sent before it (so it sees those writes), and nothing
+            // waits for it: a door's 86 lane reads never hold its note read, its save or its draft behind them (PIE-1413).
+            const after = requestQueue;
+            void after.then(() => socket.destroyed ? undefined : this.turns.next(action, key).then(answer));
+          } else {
+            requestQueue = requestQueue.then(() => socket.destroyed ? undefined : this.turns.next(action, key)).then(() => new Promise<void>(release =>
+              void queueRelease.run(release, async () => answer()).finally(release)));
+          }
         }
         newline = buffer.indexOf("\n");
       }

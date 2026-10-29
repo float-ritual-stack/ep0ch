@@ -22,7 +22,7 @@ import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
-import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList, type TrailStop } from "../surface/note";
+import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList, type Trail, type TrailStop } from "../surface/note";
 import { artLines, C, dim, fg, pad, RESET, selectedRow, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rowLines, ago, wrap } from "../text";
@@ -50,6 +50,8 @@ export interface DeskApi {
    * glides, PIE-958). A terminal keeps the size its program has then; it is told the one it ends at, once.
    */
   holdsSize?(p: Pane): boolean;
+  /** Whether tile `p` is in the frame drawn lately; undefined while nothing has been drawn (a headless desk). */
+  shows?(p: Pane): boolean | undefined;
   current: Msg | null;
   /** `link`, `fresh`, `agent`: how a reader opened it (OpenHow, PIE-441), for where it goes. */
   setCurrent(m: Msg | null, opts?: { reveal?: boolean; from?: Pane; to?: Pane; keys?: false } & OpenHow): void;
@@ -114,6 +116,8 @@ export interface DeskApi {
   tileShowing?(name: string): Msg | null;
   /** A selection moved in `from`: the previews following it and its link show `m`; the current note stays. */
   showFrom?(from: Pane, m: Msg, by?: Actor): void;
+  /** Whether the previews tile `from`'s selection goes to all show nothing yet (a list given the keys fills only those, PIE-1426). */
+  previewsEmpty?(from: Pane): boolean;
   /**
    * Run an action as `by`, in tile `tile` (or the action's own default): the person's as their key does, an agent's as
    * its `act` does, a refusal said either way. A tile kind's code reaches another action (the brief steps to a day) by it.
@@ -172,7 +176,7 @@ export interface DeskApi {
    * The person's backlinks (`b`): tile `p` lists the backlinks of `m` (else of the note the reader they read through
    * shows), following the reader that shows it; its dock slides open and their keys go to it.
    */
-  aimBacklinks?(p: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void> }, m: Msg | null, given?: ReaderPane, actor?: Actor): Promise<void>;
+  aimBacklinks?(p: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void>; showSelected?(desk: DeskApi, actor: Actor): void }, m: Msg | null, given?: ReaderPane, actor?: Actor): Promise<void>;
   /**
    * The links of reader `r`'s note (`b`, the note action `links`): the screen's links tile aims at it, or, on a
    * screen without one, a links tile opens below the reader with a preview following it. The person's keys go to
@@ -217,6 +221,11 @@ export interface Pane {
    * tile on another outline's note, an EchoNet area's messages). Left out: `subject`, in this door's outline.
    */
   noteAt?(): { id: string; address?: import("./outline-boards").NoteAddress } | null;
+  /**
+   * Its back and forward (PIE-1426): what it showed before, whichever tile or key changed it. A reader's is its surface's
+   * stacks (PIE-453); the links tile's, the notes it listed. `tile.travel` walks it, the trail lists it.
+   */
+  readonly trail?: TileTrail;
   /** `typing`: the person is typing in it (a terminal shows its cursor then). */
   render(w: number, h: number, focused: boolean, desk: DeskApi, typing?: boolean): PaneView;
   /** Return true when the pane used the key. */
@@ -336,11 +345,33 @@ export type FollowMode = "follows" | "held" | "pinned";
  * A reader is a note surface (src/surface/note.ts) hosted in a pane: the surface shows, edits and
  * comments on the note; the reader adds pinning and tells the desk or board when a link is followed.
  */
+/**
+ * A tile's own back and forward (Pane.trail): what it shows now and the stops each way, nearest first (the trail tile and
+ * the trail list draw it, `trailRows`), and a walk of `steps` stops. Null when it went, else why not.
+ */
+export interface TileTrail {
+  stops(): Trail;
+  go(dir: -1 | 1, steps: number, desk: DeskApi, actor: Actor): Promise<string | null>;
+}
+
 export class ReaderPane implements Pane {
   readonly kind: TileKindName = "reader";
   readonly measured = true;
   protected readonly ownSurface = new NoteSurface();
   get surface() { return this.ownSurface; }
+  /**
+   * Its back and forward are its surface's (PIE-453), the same the trail lists; a walk is the reader's own `back` or
+   * `forward` action (its unsent-comment ask, its agent rules and its say-so stay theirs).
+   */
+  readonly trail: TileTrail = {
+    stops: () => this.surface.trailOf(),
+    go: async (dir, steps, desk, actor) => {
+      const run = desk.within ?? desk.perform;
+      if (!run) return "this screen can't run the reader's back";
+      await run.call(desk, dir < 0 ? "back" : "forward", { steps }, actor, this);
+      return null;
+    },
+  };
   gutterCols = 0;
   innerFrame?: Rect;
   heroBounds?: { col: number; row: number; cols: number };

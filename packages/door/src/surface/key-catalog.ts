@@ -44,7 +44,7 @@ export interface Binding {
   /** The action's own words (its summary's first clause). */
   about: string;
   /** Where it comes from: an action's own keys, a key table, or the keymap file (a key it gives). */
-  from: "action" | "table" | "yours";
+  from: "action" | "table" | "yours" | "unbound";
   /** It can be moved through the keymap: true, or why not. */
   rebind: true | string;
   /** The keymap gives it this key (it's not the built-in). */
@@ -58,6 +58,10 @@ export interface Binding {
 /** A screen's row's kinds of focused tile (KeyBinding's `only`, `unless`). */
 const kinds = (r: TableRow & { only?: readonly string[]; unless?: readonly string[] }) => ({ ...(r.only ? { only: r.only } : {}), ...(r.unless ? { unless: r.unless } : {}) });
 const clause = (summary: string) => summary.split(/[.:;(]/)[0]!.trim();
+/** A table row's words: its label where it says something (`close sources`), else the action's words with it (`query` alone isn't). */
+const tableWords = (label: string | undefined, about: string) => (!label ? about : label.trim().split(/\s+/).length > 1 ? label : whole(about, label, ""));
+/** An action's own words for a row: its `words`, else its summary's first clause. */
+const aboutOf = (def: ActionDef<any, any>) => def.words ?? clause(def.summary);
 /**
  * A row of an action's keys as the keys window lists it, a whole sentence: the action's own words, then the row's where
  * or when ("start recording, while recording"), since the list shows no heading above it as the action's page does. A row
@@ -71,7 +75,9 @@ function whole(about: string, does: string, cap: string): string {
   if (/^then\b/.test(l)) return `${about}: ${cap} ${d}`;
   return `${about}, ${d}`;
 }
-const GESTURES = new Set(["click", "drag", "wheel", "hover", "sideways"]);
+const GESTURE_WORDS = ["click", "drag", "wheel", "hover", "sideways"];
+/** A mouse gesture, with a modifier or not (ctrl+wheel, alt-click): a gesture, never a key the window lists or moves. */
+const GESTURES = { has: (key: string) => GESTURE_WORDS.some(g => key === g || key.endsWith(`+${g}`) || key.endsWith(`-${g}`)) };
 /** A table row's key as a binding's one name: the ^W keys after `ctrl+w `, the hyper ones after `hyper+`. */
 const tableKey = (prefix: string, key: string) => (prefix === "ctrl+w " ? `ctrl+w ${key === " " ? "space" : key}` : prefix + key);
 const capOf = (key: string) => (key.startsWith("hyper+") ? hyperLabel(key.slice(6)) : keyCaption(key));
@@ -85,7 +91,7 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
   const out: Binding[] = [];
   const defs = new Map<string, { scope: string; def: ActionDef<any, any> }>();
   for (const set of allActionSets()) for (const name of set.names()) if (!defs.has(name)) defs.set(name, { scope: set.scope, def: set.def(name)! });
-  const summary = (action: string) => { const d = defs.get(action)?.def; return d ? clause(d.summary) : action; };
+  const summary = (action: string) => { const d = defs.get(action)?.def; return d ? aboutOf(d) : action; };
   const held = new Set<string>();
   const tables = [...keyTables(), ...(screen.length ? [{ scope: screenName, about: "this screen's keys", rows: screen, prefix: "" }] : [])];
   for (const [table, t] of tables.entries()) {
@@ -97,7 +103,7 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
       held.add(`${key} ${r.action}`);
       out.push({
         key, cap: capOf(key), action: r.action, args, id, scope: t.scope, layer: t.screen || (t.scope === screenName && screen.length) ? "screen" : tableLayer(t.scope),
-        does: (r as { label?: string }).label || summary(r.action), about: summary(r.action), from: yours ? "yours" : "table",
+        does: tableWords((r as { label?: string }).label, summary(r.action)), about: summary(r.action), from: yours ? "yours" : "table",
         rebind: t.prefix === "hyper+" ? `a hyper chord: the window can't read one (the door takes it first), so give it another in keybindings.json ("${bindingId(r.action, r.args ?? {})}": [..., "hyper+<key>"])` : rebindable(t.rows, r) ? true : `${r.action} is bound to several keys here, each a different way (${rows.filter(x => x.action === r.action && !GESTURES.has(x.key)).map(x => capOf(tableKey(t.prefix, x.key))).join(" ")}): they move together in code, not one at a time`,
         ...(yours ? { yours: true as const } : {}), table,
         ...kinds(r),
@@ -106,7 +112,11 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
     }
   }
   for (const [action, { scope, def }] of defs) {
-    if (!def.keys) continue;
+    // A key the keymap gives an action that declares none (one moved out of Unbound).
+    if (!def.keys) {
+      for (const key of keymapEntries().find(e => e.action === action && !Object.keys(e.args).length)?.keys ?? []) if (!held.has(`${key} ${action}`)) out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: "yours", does: aboutOf(def), about: aboutOf(def), from: "yours", rebind: true, yours: true });
+      continue;
+    }
     // A line of keys reads as the rows `::graph-keys` draws from it (the parser test/key-rows.test.ts holds to keycaps).
     const rows: KeyRow[] = typeof def.keys === "string" ? keyAlternatives(def.keys).flatMap(r => (r.keys === "or" ? [] : [{ keys: r.keys, does: r.action }])) : [...def.keys];
     const entry = keymapEntries().find(e => e.action === action && !Object.keys(e.args).length);
@@ -118,16 +128,34 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
         seen.add(key);
         const gone = entry && !entry.keys.includes(key);
         if (gone) continue;
-        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: SCOPE_LAYER[scope] ?? "tile", does: whole(clause(def.summary), row.does, capOf(key)), about: clause(def.summary), from: "action", rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
+        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: SCOPE_LAYER[scope] ?? "tile", does: whole(aboutOf(def), row.does, capOf(key)), about: aboutOf(def), from: "action", rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
       }
     }
     // A key the keymap gives the whole action that it didn't declare.
-    for (const key of entry?.keys ?? []) if (!seen.has(key) && !held.has(`${key} ${action}`)) out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: "yours", does: clause(def.summary), about: clause(def.summary), from: "yours", rebind: true, yours: true });
+    for (const key of entry?.keys ?? []) if (!seen.has(key) && !held.has(`${key} ${action}`)) out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: "yours", does: aboutOf(def), about: aboutOf(def), from: "yours", rebind: true, yours: true });
   }
   // An entry with arguments for an action no table holds: its keys, pressed through the App's layer.
   for (const e of keymapEntries()) {
     if (!Object.keys(e.args).length || tables.some(t => t.rows.some(r => bindingId(r.action, r.args ?? {}) === e.id))) continue;
     for (const key of e.keys) out.push({ key, cap: capOf(key), action: e.action, args: e.args, id: e.id, scope: defs.get(e.action)?.scope ?? "yours", layer: "yours", does: summary(e.action), about: summary(e.action), from: "yours", rebind: true, yours: true });
+  }
+  return out;
+}
+
+/**
+ * Every action the person can run that no key reaches on any screen (the keys window's Unbound): read from the action
+ * sets, one row each with no key (`key` ""), where it runs as its scope. `rebind` says why a bare key won't do for one
+ * that can't run without arguments (its act line with them goes in keybindings.json instead).
+ */
+export function unbound(all: readonly Binding[]): Binding[] {
+  const keyed = new Set(all.map(b => b.action)), seen = new Set<string>(), out: Binding[] = [];
+  for (const set of allActionSets()) for (const name of set.names()) {
+    if (keyed.has(name) || seen.has(name)) continue;
+    seen.add(name);
+    const def = set.def(name)!, about = aboutOf(def);
+    const needs = Object.entries(def.args ?? {}).filter(([, a]) => !(a as { optional?: boolean }).optional).map(([k]) => `${k}=`);
+    out.push({ key: "", cap: "", action: name, args: {}, id: bindingId(name), scope: set.scope, layer: SCOPE_LAYER[set.scope] ?? "tile", does: about, about, from: "unbound",
+      rebind: needs.length ? `it needs ${needs.join(" ")} to run: a bare key would be refused, so bind its act line with them in ${"keybindings.json"} ("${name} ${needs.map(n => `${n}…`).join(" ")}": ["<key>"])` : true });
   }
   return out;
 }
@@ -200,14 +228,18 @@ export function rebindEffects(b: Binding, key: string, all: readonly Binding[]):
   const name = chordName(key) ?? key;
   if (b.rebind !== true) return { takes: [], under: [], over: [], problem: b.rebind };
   if (GESTURES.has(name)) return { takes: [], under: [], over: [], problem: "a mouse gesture isn't a key: clicks stay where they are" };
-  if (b.key.startsWith("ctrl+w ") !== name.startsWith("ctrl+w ")) return { takes: [], under: [], over: [], problem: b.key.startsWith("ctrl+w ") ? `${b.cap} is a ^W key: press ^W, then the key` : "a ^W chord goes to a ^W key; this one is a key of its own" };
+  if (b.key && b.key.startsWith("ctrl+w ") !== name.startsWith("ctrl+w ")) return { takes: [], under: [], over: [], problem: b.key.startsWith("ctrl+w ") ? `${b.cap} is a ^W key: press ^W, then the key` : "a ^W chord goes to a ^W key; this one is a key of its own" };
   if (b.key.startsWith("hyper+") !== name.startsWith("hyper+")) return { takes: [], under: [], over: [], problem: "a hyper chord goes to a hyper chord: hold ⌃⌥⇧⌘ and press the key" };
   const there = all.filter(x => x.key === name && x.id !== b.id);
-  const at = LAYERS.indexOf(b.layer === "yours" ? "yours" : b.layer);
+  // A key given to an action with none is pressed through the App's keymap layer, over the screens' own.
+  const at = LAYERS.indexOf(!b.key || b.layer === "yours" ? "yours" : b.layer);
+  // A key given to an action with none takes it only from your other keymap entries (setKeys moves those); a built-in
+  // binding keeps it, under your keymap's layer, wherever the action can't run.
+  const takes = (x: Binding) => (b.key ? x.scope === b.scope : x.from === "yours");
   return {
-    takes: there.filter(x => x.scope === b.scope),
-    under: there.filter(x => x.scope !== b.scope && LAYERS.indexOf(x.layer) >= at),
-    over: there.filter(x => x.scope !== b.scope && LAYERS.indexOf(x.layer) < at),
+    takes: there.filter(takes),
+    under: there.filter(x => !takes(x) && (b.key ? x.scope !== b.scope : true) && LAYERS.indexOf(x.layer) >= at),
+    over: there.filter(x => !takes(x) && (b.key ? x.scope !== b.scope : true) && LAYERS.indexOf(x.layer) < at),
     problem: null,
   };
 }

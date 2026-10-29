@@ -3,7 +3,7 @@
 // conversation. Started by agent.start (`ep0ch agent`, the panel's new), or found running in a terminal tile; listed by
 // the agent panel (alt+g, agents.list); resumed by folder. Scratch outline host, fictional notes, fake agent programs.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -14,6 +14,8 @@ import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { agentIn, agentOf, agentOfApp, asSession, claudeProjectDir, configsOf, hasConversation, piSessionDir, pickSession, resumeArgs, sessionCommand, tildeOf, withIds } from "../src/desk/agent-sessions";
 import { agentArgs } from "../src/agent-cli";
+import { ensurePtyHost, ptyHostSocket } from "../src/session/pty-host";
+import { outlineState } from "../src/state";
 import { outliner, Scratch, until } from "./scratch";
 
 const USER = { kind: "user" } as const;
@@ -309,7 +311,7 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
     const text = (p: PtyPane) => p.text().join("\n");
     return { app, desk, key: (k: Key) => key(k), paint, list, text, A: app as any };
   }
-  const end = (app: App) => { for (const s of app.drawer.sessions()) s.pane.kill(); app.drawer.tile?.kill(); app.quit(); };
+  const end = (app: App) => { for (const s of app.drawer.sessions()) s.pane?.kill(); app.drawer.tile?.kill(); app.quit(); };
 
   test("agent.start starts a config's agent in its folder, as its persona, behind the tab shown; again attaches it; moving it keeps the process and the conversation", async () => {
     const d = await door();
@@ -319,7 +321,7 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
       expect(out).toMatchObject({ started: true, attached: false, program: "fern-agent", folder: join(work, "garden-shed"), persona: "fern", config: "fern" });
       // An agent's start moves nothing of the person's: the drawer stays put away.
       expect(d.app.drawer.open).toBe(false);
-      const pane = () => d.app.drawer.sessions()[0]!.pane;
+      const pane = () => d.app.drawer.sessions()[0]!.pane!;
       await until(() => d.text(pane()).includes("fake agent in"), "the fake agent says where it runs");
       expect(d.text(pane())).toContain(`fake agent in ${join(work, "garden-shed")} as fern`);
       const pid = pane().pid;
@@ -368,7 +370,7 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
       expect(d.app.drawer.entered).toBe(true);
       const rows = await d.list();
       expect(rows.map(r => [r.folder, r.persona])).toEqual([[join(work, "garden-shed"), "fern"], [join(work, "potting-bench"), "moss"]]);
-      await until(() => d.text(d.app.drawer.sessions()[1]!.pane).includes("args --quiet"), "moss started with its config's args");
+      await until(() => d.text(d.app.drawer.sessions()[1]!.pane!).includes("args --quiet"), "moss started with its config's args");
       const fresh = await d.app.act({ action: "agent.start", args: { program: "fern", fresh: true }, as: AS }) as any;
       expect(fresh.started).toBe(true);
       const shed = (await d.list()).map(r => r.id).filter(id => id.includes("garden-shed"));
@@ -430,6 +432,79 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
     } finally { end(d.app); }
   }, 30_000);
 
+  // PIE-1432 (Evan's pie door, Oct 29, 2:28 PM): a restart left his Claude running in the terminal host with no tile, and
+  // the agent panel didn't list it. Every program the host keeps is a row; one with no tile says so, and a, d and ⏎ put
+  // it back in a tile: the same process, its conversation going on.
+  test("a program the terminal host keeps with no tile is a row saying \"no tile\"; agents.drawer, agents.dock and agents.go put it back, the same process (PIE-1432)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ep0ch-kept-"));
+    const was = process.env.EP0CH_STATE;
+    let hostPid = 0;
+    process.env.EP0CH_STATE = dir;
+    const claude = join(work, "claude");
+    try {
+      const { host: first } = await ensurePtyHost(dir);
+      hostPid = first.hostPid;
+      const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: work };
+      // Two programs an earlier daemon left with no layout naming their keys: a claude (the old drawer's key) and a fern.
+      const outs = { a: "", b: "", c: "" };
+      const a = first.spawn({ key: "drawer.json#2:drawer.agent", argv: [claude], cwd: join(work, "garden-shed"), env, cols: 60, rows: 10, meta: { cmd: [claude] } }, d => { outs.a += Buffer.from(d).toString(); });
+      const b = first.spawn({ key: "desk.json:t77", argv: [join(work, "fern-agent")], cwd: join(work, "potting-bench"), env, cols: 60, rows: 10, meta: { cmd: [join(work, "fern-agent")] } }, d => { outs.b += Buffer.from(d).toString(); });
+      // A fourth waits for its screen (board.json still names its tile t8): not "no tile", its screen adopts it.
+      const w = first.spawn({ key: "board.json:t8", argv: [claude], cwd: join(work, "potting-bench"), env, cols: 60, rows: 10, meta: { cmd: [claude] } }, () => {});
+      const c = first.spawn({ key: "river.json:t3", argv: [claude], cwd: join(work, "potting-bench"), env, cols: 60, rows: 10, meta: { cmd: [claude] } }, d => { outs.c += Buffer.from(d).toString(); });
+      a.write("the beans need water\n");
+      await until(() => outs.a.includes("turn 1: the beans") && outs.b.includes("fake agent in") && outs.c.includes("fake agent in") && !!a.pid && !!b.pid && !!c.pid, "the kept programs running");
+      first.release();
+      const { host: next } = await ensurePtyHost(dir);
+      usePtyBackend(next);
+      process.env.EP0CH_STATE = state;
+      writeFileSync(join(outlineState(), "board.json"), JSON.stringify({ root: { t: "leaf", kind: "pty", name: "bench", id: "t8", cmd: [claude] } }));
+      const d = await door();
+      try {
+        const rows = await d.list();
+        expect(rows.map(r => [r.program, r.shown.in, r.pid])).toEqual([["claude", "no tile", a.pid], ["fern-agent", "no tile", b.pid], ["claude", "no tile", c.pid]]);
+        expect(rows.some(r => r.pid === w.pid)).toBe(false);
+        expect(rows[0]).toMatchObject({ shown: { in: "no tile", key: "drawer.json#2:drawer.agent" }, where: expect.stringMatching(/^no tile/) });
+        // The panel says it too.
+        await d.app.act({ action: "agents.open", args: {}, as: AS });
+        d.key({ kind: "alt", ch: "g" });
+        await until(() => d.app.drawer.open, "the panel shown");
+        expect(d.paint().join("\n")).toContain("no tile");
+        // a: into the drawer, the same process; the conversation goes on (turn 2, not a new turn 1).
+        const pulled = await d.app.act({ action: "agents.drawer", args: { session: rows[0].id }, as: AS }) as any;
+        expect(pulled).toMatchObject({ pid: a.pid, inDrawer: true });
+        const back = d.app.drawer.sessions().find(s => s.pid === a.pid)!;
+        expect(back.shown.in).toBe("drawer");
+        await d.app.act({ action: "tile.type", tile: (back.shown as any).tile, args: { text: "and the peas\n" }, as: AS });
+        await until(() => d.text(back.pane!).includes("turn 2: and the peas"), "turn 2, in the drawer");
+        // d: docked on the screen shown, the same process (its row was a kept program's: every one is listed).
+        const docked = await d.app.act({ action: "agents.dock", args: { session: "fern-agent:" + tildeOf(join(work, "potting-bench")) }, as: AS }) as any;
+        expect(docked).toMatchObject({ pid: b.pid, inDrawer: false });
+        expect((d.desk.pane(docked.tile) as PtyPane).pid).toBe(b.pid!);
+        // Once in a tile, a program is a row by what it runs: the claude still is; the fern program (no agent) is a terminal.
+        expect((await d.list()).map(r => [r.program, r.shown.in])).toEqual([["claude", "drawer"], ["claude", "no tile"]]);
+        // ⏎ on its row in the panel (the person's agents.go): back in a drawer tab, the person's keys in it, the same process.
+        const panel = d.app.drawer.desk!.pane("agents") as any;
+        await d.app.act({ action: "agents.open", args: {}, as: AS });
+        d.key({ kind: "alt", ch: "g" });
+        await until(() => d.app.drawer.open && d.app.drawer.desk!.focusedName() === "agents", "the panel has the keys");
+        d.key({ kind: "char", ch: "j" });
+        await until(() => panel.at === 1, "the no-tile row picked");
+        expect(panel.picked().shown.in).toBe("no tile");
+        d.key({ kind: "enter" });
+        await until(() => d.app.drawer.sessions().find(s => s.pid === c.pid)?.shown.in === "drawer", "put back by ⏎");
+        expect(d.app.drawer.desk!.pane(d.app.drawer.desk!.focusedName()!)).toBe(d.app.drawer.sessions().find(s => s.pid === c.pid)!.pane!);
+        expect(next.unadopted().map(u => u.key)).toEqual(["board.json:t8"]);
+      } finally { end(d.app); }
+    } finally {
+      usePtyBackend(localPtys);
+      if (hostPid) { try { process.kill(hostPid, "SIGTERM"); } catch { /* gone */ } }
+      await until(() => !existsSync(ptyHostSocket(dir)), "the host to end", 5000).catch(() => {});
+      process.env.EP0CH_STATE = was;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 40_000);
+
   test("the agent panel: alt+g opens it in the drawer for the person, an agent's behind the tab shown; its rows, its keys, its click", async () => {
     const d = await door();
     try {
@@ -450,7 +525,7 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
       const panel = () => d.app.drawer.desk!.pane("agents") as any;
       d.key({ kind: "char", ch: "j" });
       await until(() => panel().at === 1, "picked the second");
-      const moss = d.app.drawer.sessions()[1]!.pane, pid = moss.pid;
+      const moss = d.app.drawer.sessions()[1]!.pane!, pid = moss.pid;
       d.key({ kind: "char", ch: "d" });
       await until(() => d.app.drawer.sessions().find(s => s.pane === moss)?.shown.in === "screen", "docked here");
       expect(moss.pid).toBe(pid);

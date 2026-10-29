@@ -119,8 +119,11 @@ function sameChange(left: OutlinerChange, right: OutlinerChange): boolean {
  */
 export function machineryClause(mode: MachineryMode, blockColumn: string): [string, ...string[]] {
   if (mode === "show") return [""];
-  const stamped = `EXISTS (SELECT 1 FROM block_properties machine WHERE machine.block_id = ${blockColumn} AND machine.scope = 'block' AND machine.key = ? AND TRIM(machine.value) <> '')`;
-  return mode === "only" ? [` AND ${stamped}`, MACHINE_KEY] : [` AND NOT ${stamped}`, MACHINE_KEY];
+  // The stamped notes as one set, read once per statement (PIE-1413: correlated per row, the door's activity read took
+  // 2.4 s on pie, its 16k entries each scanning the stamps).
+  const stamps = `(SELECT machine.block_id FROM block_properties machine WHERE machine.scope = 'block' AND machine.key = ? AND TRIM(machine.value) <> '')`;
+  // A row that names no block (a feed row of another kind) is never a stamped note's.
+  return mode === "only" ? [` AND ${blockColumn} IN ${stamps}`, MACHINE_KEY] : [` AND (${blockColumn} IS NULL OR ${blockColumn} NOT IN ${stamps})`, MACHINE_KEY];
 }
 
 /**

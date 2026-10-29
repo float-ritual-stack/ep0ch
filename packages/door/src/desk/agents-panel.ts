@@ -54,7 +54,7 @@ export class AgentsPane implements Pane {
     this.at = Math.min(Math.max(0, this.at), rows.length - 1);
     this.view.place(this.at, rows.length, h);
     const glyph = (s: AgentSession) => {
-      const r = s.pane.status.urgent();
+      const r = s.pane?.status.urgent();
       return r ? statusMark(r) : s.state === "working" ? statusMark({ state: "working" }) : { glyph: "·", sgr: fg(C.dark) };
     };
     return {
