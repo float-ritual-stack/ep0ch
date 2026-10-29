@@ -9,6 +9,7 @@ import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { backfill } from "../src/machinery-backfill";
+import { findBlocks } from "../src/agent-tools";
 import type { Block, ChangeFeedPage } from "../src/types";
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -121,6 +122,10 @@ test("the backfill stamps what tools wrote before they stamped, says so first, a
   const touch = await make("src/a.ts [type::file-touch] [file::/w/src/a.ts]", "agent");
   const view = await make("By project [type::virtual-branch] [query::type=file-touch] [file-project-view::garden]");
   const person = await make("Mend the gate [type::chore]");
+  // The notifications hub's notes and boards from before it stamped (PIE-1427); a view over chores stays as it is.
+  const ping = await make("Seed order shipped [notify.key::mail:7] [notify.source::mail] [notify.state::unread]", "agent");
+  const lane = await make("Unread [type::virtual-branch] [query::notify.state=unread]");
+  const chores = await make("Chores [type::virtual-branch] [query::type=chore]");
   const dry = await backfill(client as never, false);
   expect(dry.find(r => r.producer === "echonet")?.stamped).toBe(1);
   expect(dry.find(r => r.producer === "file-touch")?.stamped).toBe(1);
@@ -134,7 +139,24 @@ test("the backfill stamps what tools wrote before they stamped, says so first, a
   expect((await after(touch.id)).properties.find(p => p.key === "machine")?.value).toBe("file-touch");
   expect((await after(view.id)).properties.find(p => p.key === "machinery")?.value).toBe("show");
   expect((await after(person.id)).properties.some(p => p.key === "machine")).toBe(false);
+  expect((await after(ping.id)).properties.find(p => p.key === "machine")?.value).toBe("notification");
+  expect((await after(lane.id)).properties.find(p => p.key === "machinery")?.value).toBe("show");
+  expect((await after(chores.id)).properties.some(p => p.key === "machinery")).toBe(false);
   expect((await backfill(client as never, true)).every(r => r.stamped === 0)).toBe(true);
   const hidden = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=toss OR type=file-touch OR type=chore", limit: 20 } as never })).blocks.map(b => b.id);
   expect(hidden).toEqual([person.id]);
+});
+
+test("an agent's recent-activity find leaves fetched notifications out and says how many (PIE-1427)", async () => {
+  const { client, make } = await setup();
+  await make("Pruned the pear row [type::chore]");
+  for (const i of [1, 2, 3]) await make(`Seed order ${i} shipped [notify.key::mail:${i}] [machine::notification]`, "agent");
+  await make("Toss one [type::toss] [machine::echonet]", "agent");
+  const found = await findBlocks(client as never, { query: "updated >= -1d", limit: 200 });
+  const titles = found.blocks.map(b => b.title);
+  expect(titles).toContain("Pruned the pear row");
+  expect(titles.filter(t => t.startsWith("Seed order") || t.startsWith("Toss"))).toEqual([]);
+  expect(found.machineryOmitted).toEqual({ count: 4, by: { notification: 3, echonet: 1 }, said: "4 notifications and bookkeeping notes left out (machinery: show brings them back)" });
+  expect((await findBlocks(client as never, { query: "updated >= -1d", machinery: "show" })).machineryOmitted).toBeUndefined();
+  expect((await findBlocks(client as never, { query: "type=chore" })).machineryOmitted).toBeUndefined();
 });

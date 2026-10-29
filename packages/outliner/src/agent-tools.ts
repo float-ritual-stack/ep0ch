@@ -14,7 +14,7 @@ import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-cor
  * empty write, a stale revision, and an edit that drops a `[page::…]` or an
  * anchor other notes link to.
  */
-import { parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
+import { parseMachineryMode, readsRecentActivity, type MachineryLeftOut, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { hasCountCandidate, shapeNext, shapeWarnings, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
@@ -519,7 +519,7 @@ export interface FindSearch { status: "ranked" | "lexical" | "unavailable"; verd
 /** A words-only find is the ranked search: at most this many rows (tree.search's own cap). */
 const RANKED_FIND_LIMIT = 30;
 
-export async function findBlocks(client: AgentToolsClient, input: FindInput): Promise<{ blocks: (FindRow & { score?: number })[]; complete: boolean; total?: number; search?: FindSearch }> {
+export async function findBlocks(client: AgentToolsClient, input: FindInput): Promise<{ blocks: (FindRow & { score?: number })[]; complete: boolean; total?: number; search?: FindSearch; machineryOmitted?: MachineryLeftOut }> {
   const limit = boundedInteger(input.limit, "limit", 20, 1, 200);
   const given = (key: keyof FindInput) => typeof input[key] === "string" && (input[key] as string).trim() !== "";
   if (given("view")) {
@@ -572,11 +572,13 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
     ...(given("this") ? { this: input.this } : {}),
     ...(input.machinery !== undefined ? { machinery: machineryInput(input.machinery) } : {}),
     ...(given("propertyScope") ? { propertyScope: propertyScopeInput(input.propertyScope!) } : {}),
+    // A recent-activity read (`updated >= -1d`) says how many notes tools stamped it left out, by producer (PIE-1427).
+    ...(readsRecentActivity(input.query) ? { countMachinery: true } : {}),
   };
   // An older service ignores `where` and would return unfiltered results.
   if (query.where !== undefined) await client.requireCompatibleService();
   const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query });
-  return { blocks: found.blocks.map(findRow), complete: found.completeness.kind === "complete" };
+  return { blocks: found.blocks.map(findRow), complete: found.completeness.kind === "complete", ...(found.machineryLeftOut ? { machineryOmitted: found.machineryLeftOut } : {}) };
 }
 
 // ─── Edit ──────────────────────────────────────────────────────────────────
