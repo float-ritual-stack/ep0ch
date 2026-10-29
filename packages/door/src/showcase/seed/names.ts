@@ -138,6 +138,8 @@ export const SEED = {
   shedPad: "Shed sticky pad",
   zoomPlan: "Orchard winter plan",
   sources: "Completion from an extension",
+  writeReview: "Shed status tonight",
+  jevPage: "Jev's suggestions",
   copyPage: "Crate day, copied with its results",
   swapDay: "Seed swap day",
   meeting: "Greenhouse meeting, October",
