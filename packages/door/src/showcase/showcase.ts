@@ -637,7 +637,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "cross-outline", need: "read and edit another outline on this screen", part: "one board per outline, the shared reader and DraftSession", files: "src/desk/outline-boards.ts, src/desk/panes.ts",
+    key: "cross-outline", need: "read and edit another outline on this screen, and copy its notes' addresses as that outline's", part: "one board per outline, the shared reader and DraftSession, a links tile's rows in its target's outline (Pane.noteAt, note.copy-ref)", files: "src/desk/outline-boards.ts, src/desk/panes.ts, src/note-ref.ts",
     stage(n, show) {
       const local = detailPane();
       const foreign = detailPane();
@@ -1359,8 +1359,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "pick-a-tile", need: "choose a tile by clicking it instead of typing its id, copy any tile's or note's address from where you see it, and see a button read as you type it", part: "the wire picker (tile.link's link mode, now tile.pick), a button's {slot} read by outline-core's button-call and written by sources.set's line save (button.slot), the action's own argument kind, and Desk.tileAddressesOf over the tile registry (a tile's id, and the role or slot that names its place)", files: "outline-core/src/button-call.ts, src/button-check.ts, src/desk/desk.ts, src/surface/note.ts, src/edit.ts",
-    aside: "Press pop it: its target= is empty, so the door asks (click the links tile, or press its number); a tile whose place has a name of its own asks: this tile exactly, or whichever fills its place · the line becomes target=t-…; press again and it lifts above the drawer, again and it drops · ctrl+z takes the choice back; alt+click chooses again · the misread button runs nothing and says the line to write · an agent passes the tile itself: button.slot label=\"pop it\" key=target value=links (kept as its id) · the ⋯ menu's copy id and copy reference, under Tile and under Note · e, then write a ::button: the editor colours it and marks what won't run",
+    key: "pick-a-tile", need: "choose a tile by clicking it instead of typing its id, copy any tile's or note's address from where you see it, and see a button read as you type it", part: "the wire picker (tile.link's link mode, now tile.pick), a button's {slot} read by outline-core's button-call and written by sources.set's line save (button.slot), the action's own argument kind, Desk.tileAddressesOf over the tile registry (a tile's id, and the role or slot that names its place), and note.copy-ref over the tile's subject (Pane.subject), outline-core's blockRefText and the service's fragments.at and fragments.ensure", files: "outline-core/src/button-call.ts, src/button-check.ts, src/desk/desk.ts, src/surface/note.ts, src/edit.ts",
+    aside: "Press pop it: its target= is empty, so the door asks (click the links tile, or press its number); a tile whose place has a name of its own asks: this tile exactly, or whichever fills its place · the line becomes target=t-…; press again and it lifts above the drawer, again and it drops · ctrl+z takes the choice back; alt+click chooses again · the misread button runs nothing and says the line to write · an agent passes the tile itself: button.slot label=\"pop it\" key=target value=links (kept as its id) · the ⋯ menu's copy id and copy reference under Tile; under Note copy id, copy reference, copy web link and copy a reference to this line (an ^anchor added once) · a list's, the tree's or a lane's menu copies its selected row · ^W y copies the reference, ^W , shows the tile's card · act note.copy-ref kind=id|ref|link|line · e, then write a ::button: the editor colours it and marks what won't run",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane();
       return deskOf({ title: "showcase · pick a tile", panes: [a, b, c], names: ["notes", "links", "preview"],

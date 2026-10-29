@@ -85,6 +85,8 @@ export const W_KEYS = [
   { key: "n", group: "open", action: "tile.title", how: run("tile.title") },
   { key: "N", group: "open", action: "tile.title.mode", how: run("tile.title.mode") },
   { key: ".", group: "open", action: "tile.menu", how: run("tile.menu"), label: "this tile's menu" },
+  { key: ",", group: "open", action: "tile.info", how: run("tile.info", { card: true }), label: "about this tile: its id, kind, wires" },
+  { key: "y", group: "open", action: "note.copy-ref", how: run("note.copy-ref", { kind: "ref" }), label: "copy a reference to its note" },
 
   { key: " ", group: "mounts & groups", action: "tile.select", how: run("tile.select"), label: "pick this tile to gather, or let it go" },
   { key: "G", group: "mounts & groups", action: "tile.group", how: run("tile.group", { ask: true }), label: "gather the picked tiles into a group, or spill one" },
