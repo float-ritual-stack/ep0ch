@@ -23,7 +23,7 @@ async function doorActions(): Promise<ActionInfo[] | null> {
 }
 
 /** Every built-in action, from the registry in this process: the screens' sets and the tile kinds'. */
-async function registryActions(): Promise<ActionInfo[]> {
+export async function registryActions(): Promise<ActionInfo[]> {
   await import("./app");
   await import("./screens");
   const { allActionSets } = await import("./surface/actions");

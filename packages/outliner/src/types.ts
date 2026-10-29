@@ -1326,6 +1326,11 @@ export interface RoadmapItemCreateInput {
   sourceBlockId?: string;
   /** The wave it ships in (`[wave::<theme>]`), when it's one of several tickets under one theme. */
   wave?: string;
+  /**
+   * File it although open items look like the same work (work-twins.ts): an agent's create with twins is refused
+   * without it. The item says it was filed beside them, and relates to them.
+   */
+  new?: boolean;
 }
 
 export interface RoadmapBranchMembership {
@@ -2251,6 +2256,21 @@ export type OutlinerRequestAction =
       id: string;
       action: "roadmap.items.create";
       input: RoadmapItemCreateInput;
+      author?: BlockAuthor;
+      provenance?: BlockProvenance;
+    }
+  | {
+      /** Open items like a new one (work-twins.ts): the search matcher's candidates, Jev's Nouls, code's twins. */
+      id: string;
+      action: "roadmap.items.similar";
+      input: { title: string; body?: string };
+      limit?: number;
+    }
+  | {
+      /** A new ask added under an open item, in its writer's words and dated (work-twins.ts attachText). */
+      id: string;
+      action: "roadmap.items.attach";
+      input: { item: string; title: string; body?: string; sourceBlockId?: string };
       author?: BlockAuthor;
       provenance?: BlockProvenance;
     }

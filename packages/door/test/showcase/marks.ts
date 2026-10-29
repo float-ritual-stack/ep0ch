@@ -20,6 +20,7 @@ export const marks: Record<string, string[]> = {
   completion: ["Ask about the beds, see ((Gree", "block"],
   // A comment ending in [[seed: the pages and an extension's issues in one list (PIE-1340).
   sources: ["Which issue is the swap, see [[seed", "issue"],
+  twins: ["Fix the back gate latch", "Queued"],
   "write-review": ["Shed status tonight", "Jev's suggestions", "Each finding, newest first"],
   // Four readers on one note, each writing a comment in another place (PIE-770).
   composer: ["Writing in the margin", "[inline ▸]", "[floating ▸]", "[split ▸]", "[popup ▸]"],

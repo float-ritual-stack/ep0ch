@@ -2374,7 +2374,8 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     name: "outliner_roadmap_create",
     label: "Outliner Roadmap Create",
     description:
-      "Atomically create a canonical roadmap item under the project's work queue with an immutable Work ID and complete routing metadata",
+      "Atomically create a canonical roadmap item under the project's work queue with an immutable Work ID and complete routing metadata. " +
+      "When open items look like the same work it is refused naming them: call again with attach (their Work ID) to add the ask under that item, or new: true to file it beside them",
     promptSnippet:
       "Create roadmap work atomically; default new work to unprioritized unless promotion was explicitly requested",
     parameters: Type.Object({
@@ -2401,12 +2402,23 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
       relatedTo: Type.Optional(Type.Array(Type.String())),
       sourceBlockId: Type.Optional(Type.String({ description: "The note it came from; a request copy gets [ticket::<the new Work ID>]" })),
       wave: Type.Optional(Type.String({ description: "The wave it ships in ([wave::<theme>])" })),
+      new: Type.Optional(Type.Boolean({ description: "File it although open items look like the same work (a refusal named them)" })),
+      attach: Type.Optional(Type.String({ description: "An open item's Work ID to add this ask under instead of filing it (title and body, dated)" })),
     }),
     async execute(toolCallId, params, _signal, _onUpdate, context) {
       await ensureService(false);
+      const { attach, ...input } = params;
+      if (attach) {
+        return toolResult(await client.request({
+          action: "roadmap.items.attach",
+          input: { item: attach, title: input.title, ...(input.body ? { body: input.body } : {}), ...(input.sourceBlockId ? { sourceBlockId: input.sourceBlockId } : {}) },
+          author: "agent",
+          provenance: toolProvenance(actorId, context, toolCallId),
+        }));
+      }
       const receipt = await client.request<RoadmapItemCreateReceipt>({
         action: "roadmap.items.create",
-        input: params,
+        input,
         author: "agent",
         provenance: toolProvenance(actorId, context, toolCallId),
       });
