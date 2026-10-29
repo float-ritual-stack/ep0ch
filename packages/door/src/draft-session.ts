@@ -215,7 +215,8 @@ export class DraftSession {
     if (why) return { ok: false, why };
     const r = await this.target.submit(this, recordAs(d, actor), { asked: actor, away });
     if (r.ok) {
-      // Undo survives the save: an edit of this note opened again on what was written takes up its history.
+      // Undo survives the save: an edit of this note opened again on what was written takes up its history, stopping
+      // at the save to ask before it takes saved text back (PIE-1414).
       if (r.revision !== undefined && d.undos.length) keepHistory(this.target.place, r.revision, d.undos);
       if (this.open) this.end("written");
       return r;

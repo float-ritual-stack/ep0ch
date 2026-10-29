@@ -225,7 +225,7 @@ export const OVERSCROLL = [
 export const LABELS_BEFORE = [`${SEED.labels} [page::${SEED.labels}]`, "[room::pantry]", "", "Write the date on every lid."].join("\n");
 
 export const LABELS = [`${SEED.labels} [page::${SEED.labels}]`, "[room::pantry]", "", "Write the date on every lid.", "Rota: whoever fills a jar labels it.",
-  "Drag across text in an edit and it's copied; ctrl+z undoes, ctrl+y redoes; the tile menu's \"an earlier revision\" goes back past a save."].join("\n");
+  "Drag across text in an edit and it's copied; ctrl+z undoes, ctrl+y redoes; opened again after a save, ctrl+z stops at the save and asks before taking saved text back; the tile menu's \"an earlier revision\" goes back past a save."].join("\n");
 
 /**
  * The kept-edits section's three notes (PIE-637): each was written, then changed once by someone else (`after`), and the

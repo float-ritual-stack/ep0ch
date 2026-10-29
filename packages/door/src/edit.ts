@@ -47,9 +47,10 @@ interface PatchUnit { group?: string; patchIds?: string[]; patchId: string; by: 
  * (`typing`, `the paste (340 lines)`, `tidy's edit`). Typing runs on into one step until a pause, a space or a jump
  * elsewhere (`open` while it may); a paste, an insert, $EDITOR's text and each agent's patch are one step each.
  * `unit`: the agent patch it was, so undoing it takes it off the draft's patches too; with `removes`, the patch it took
- * back (an agent's own undo), so undoing that puts the patch back among them.
+ * back (an agent's own undo), so undoing that puts the patch back among them. `saved`: the last step before a save this
+ * draft carried over (`adopt`); ctrl+z stops there and asks before taking saved text back (PIE-1414).
  */
-export interface Step { before: string; after: string; by: Actor; what: string; at: number; caret: number; open: boolean; word?: boolean; unit?: PatchUnit; removes?: true }
+export interface Step { before: string; after: string; by: Actor; what: string; at: number; caret: number; open: boolean; word?: boolean; unit?: PatchUnit; removes?: true; saved?: true }
 /** A patch's new text, lit for a moment and labelled with who made it. Offsets are the draft's (UTF-16). */
 export interface PatchFlash { start: number; end: number; label: string; until: number }
 /** What the service asks a draft to patch (the `draft` event's patch, src/socket.ts DraftRequest). */
@@ -104,6 +105,8 @@ export class Draft {
   /** The text a "this save changes properties" warning was shown for; saving that same text again goes ahead. */
   propertyWarned: string | null = null;
   private discardArmed = false;
+  /** ctrl+z just stopped at a save and asked: the next ctrl+z goes past it (PIE-1414). */
+  private undoArmed = false;
   /** ctrl+x was pressed: a ctrl+e next hands the draft to $EDITOR (bash's edit-and-execute chord); any other key lets it go. */
   private ctrlX = false;
   /** Its host offers to attach it to open work (a new roadmap card with a twin, PIE-1258): ctrl+x a does that. */
@@ -217,6 +220,7 @@ export class Draft {
     if (after === before) return;
     this.seen = after;
     this.redos = [];
+    this.undoArmed = false;
     const c = changeOf(before, after), now = Date.now(), top = this.undos.at(-1);
     const small = what === "typing" && c.added <= 2 && c.removed <= 2;
     const typed = after.slice(c.at, c.at + c.added), space = c.added > 0 && !typed.trim(), word = !!typed.trim();
@@ -267,12 +271,18 @@ export class Draft {
    * ctrl+z: the newest step taken back, whoever made it (the person's). An agent takes back only its own: the newest
    * step when it's theirs, else its last patch where it is now (`undoPatch`). Says what it did.
    */
-  undo(by: Actor): string {
+  undo(by: Actor, past = false): string {
     this.settle();
     this.record(USER, "a change");
     const s = this.undos.at(-1);
+    if (by.kind === "agent" && s?.saved) throw new ActionRefused("the next undo takes back text that's already saved; an agent doesn't (the person's ctrl+z asks them)");
     if (by.kind === "agent" && (!s || !sameParty(s.by, by))) return this.undoPatch(by);
     if (!s) throw new ActionRefused("nothing to undo in this draft");
+    // Saved text is never taken back silently (PIE-1414): the first ctrl+z at a save says so, the next goes past it.
+    if (s.saved && !past) {
+      this.undoArmed = true;
+      return this.note = `that's saved text: what's here is what the note holds · ctrl+z again takes back ${s.what === "typing" ? "typing" : s.what} from before the save (the saved revision stays in its history)`;
+    }
     this.undos.pop();
     s.open = false;
     this.jump(s.before, by, editsOf(s, true));
@@ -295,16 +305,20 @@ export class Draft {
     return this.note = `redid ${s.what}`;
   }
 
+  /** ctrl+z stopped at a save and is asking: the next one goes past it. */
+  get asking(): boolean { return this.undoArmed; }
+
   /** What ctrl+z would take back now, for the keys line: `typing`, `the paste (340 lines)`, `tidy's edit`. */
   get undoable(): string | null { return this.undos.at(-1)?.what ?? null; }
 
   /**
    * A history carried over from an earlier draft of the same text (its session's: a save, then the note opened again
-   * unchanged), so ctrl+z goes back past the save to where that draft started (PIE-621).
+   * unchanged), so ctrl+z can go back past the save to where that draft started (PIE-621). Its last step is marked
+   * `saved`: ctrl+z stops there first and asks (PIE-1414).
    */
   adopt(steps: Step[]) {
     if (this.undos.length || steps.at(-1)?.after !== this.text) return;
-    this.undos = steps.map(s => ({ ...s, open: false, unit: undefined }));
+    this.undos = steps.map((s, i) => ({ ...s, open: false, unit: undefined, ...(i === steps.length - 1 ? { saved: true as const } : {}) }));
   }
 
   /** Start over from the block as it is now. The typed draft is dropped (a refused one was already copied out). */
@@ -433,8 +447,8 @@ export class Draft {
     // where cmd+c can't reach the door (a terminal without the Kitty keyboard protocol, tmux).
     if (isCopyKey(k) || (k.kind === "alt" && k.ch === "c")) return "copy";
     if (k.kind === "super") return "keep";
-    const was = this.discardArmed;
-    this.discardArmed = false;
+    const was = this.discardArmed, armed = this.undoArmed;
+    this.discardArmed = false; this.undoArmed = false;
     if (chord && this.attachChord && k.kind === "char" && !k.ctrl && k.ch === "a") return "attach";
     if (k.kind === "char" && k.ctrl) {
       if (k.ch === "s") return "save";
@@ -457,7 +471,7 @@ export class Draft {
       // ctrl+z undoes; ctrl+y and ctrl+shift+z (the Kitty keyboard protocol tells shift apart) redo.
       if (k.ch === "z" || k.ch === "y") {
         const name = k.ch === "y" || k.shift ? "draft.redo" : "draft.undo";
-        void DRAFT_ACTIONS.run(name, {}, this, USER).catch(e => { this.note = e instanceof Error ? e.message : String(e); });
+        void DRAFT_ACTIONS.run(name, name === "draft.undo" && armed ? { past: true } : {}, this, USER).catch(e => { this.note = e instanceof Error ? e.message : String(e); });
         return "keep";
       }
       if (k.ch === "a") { this.anchor = this.goal = null; this.col = 0; return "keep"; }
@@ -1372,10 +1386,13 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ text }, d, actor) { d.pasteText(text, actor); return { line: d.row + 1, col: d.col + 1, note: d.note || null }; },
   }),
   "draft.undo": def({
-    summary: "take back the last change in this draft, whoever made it: typing (a word or a pause at a time), a paste (one step, however big), an insert, an agent's draft.patch; back to where the draft started, past a save when the note was opened again unchanged. An agent takes back only its own: its newest step, else its last patch where it is now", keys: "ctrl+z",
+    summary: "take back the last change in this draft, whoever made it: typing (a word or a pause at a time), a paste (one step, however big), an insert, an agent's draft.patch; back to where the draft started. In a note opened again on what was saved, it stops at the save and asks: ctrl+z again (or past=true) takes saved text back. An agent takes back only its own: its newest step, else its last patch where it is now, never saved text", keys: "ctrl+z",
     touches: "draft", draft: "safe", replay: "ask",
-    args: {},
-    async run(_, d, actor) { const said = d.undo(actor); return { undone: said, left: d.undos.length, redo: d.redos.length }; },
+    args: { past: { type: "boolean", optional: true, about: "go past the save: take back text the note already holds (ctrl+z pressed again after it asked)" } },
+    async run({ past }, d, actor) {
+      const said = d.undo(actor, past === true);
+      return d.asking ? { asks: said, left: d.undos.length } : { undone: said, left: d.undos.length, redo: d.redos.length };
+    },
   }),
   "draft.redo": def({
     summary: "put back what draft.undo took back, in order; any new change drops what could be put back. An agent puts back only its own", keys: "ctrl+y, ctrl+shift+z",
