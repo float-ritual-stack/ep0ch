@@ -563,10 +563,13 @@ export class PowerBar {
     const c = this.scope === "ask" ? null : completerOf(this.input) ?? lineCompleter(this.input);
     if (!c) return false;
     if (k.kind === "mouse") return k.action === "down" && !!c.shown && c.click(k.y, k.x, t => this.host.ctx.copy?.(t));
-    const listed = !!c.shown?.items.length;
+    // A list still being asked for takes no ⏎: the line is the person's, and runs.
+    const listed = !!c.shown?.items.length && !c.shown.loading;
     const keys = listed && ["up", "down", "tab", "enter", "esc", "pgup", "pgdn"].includes(k.kind);
-    if (!keys && !(k.kind === "tab" && c.target())) return false;
-    this.input.take(k);
+    // → at the line's end asks as tab does (the shell's), so one completion answers both.
+    const asks = (k.kind === "tab" || k.kind === "right" && this.input.cursor === this.query.length) && !!c.target();
+    if (!keys && !asks) return false;
+    this.input.take(asks && !keys ? { kind: "tab" } : k);
     return true;
   }
 

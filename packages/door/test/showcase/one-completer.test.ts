@@ -68,5 +68,21 @@ describe("showcase: one completer (PIE-1076)", () => {
     expect(line()).toBeNull();
     expect(bar().query).toMatch(/ reach=c$/);
     press({ kind: "esc" }); press({ kind: "esc" });
+    await until(() => !bar(), "the bar put away", 4000);
   }, 60_000);
+
+  test("a line that starts with / but names no action is prose: ⏎ is its new line, and what's written lands", async () => {
+    await stage().dispatch.act({ action: "edit", args: {}, tile: "jobs" }, { kind: "user" });
+    await until(() => !!draft(), "the edit open", 8000);
+    // The keys go into the stage, as a person's would after the bar is put away.
+    if (S().focus !== "stage") press({ kind: "enter" });
+    const d = draft()!;
+    d.place(d.lines.length - 1, (d.lines.at(-1) ?? "").length);
+    press({ kind: "enter" });
+    type("/tmp is full");
+    press({ kind: "enter" });
+    type("again");
+    await until(() => /\/tmp is full\n(- )?again$/.test(draft()!.text), "the prose and its new line", 8000);
+    expect(draft()).not.toBeNull();
+  }, 30_000);
 });

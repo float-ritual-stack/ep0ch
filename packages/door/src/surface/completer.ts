@@ -149,6 +149,9 @@ const door = (id: string, title: string, ranked = false): SourceDecl => ({ id, t
 
 /** An act line past its action's name (`tile.zoom t`): what's left to complete is its arguments. */
 const actLineArgs = (query: string, host: BarHost) => { const q = query.trimStart(), first = q.split(/\s/)[0]!; return q.length > first.length && host.dispatch.has(first); };
+/** An act line's arguments and their values as the popup's rows, each written by `write` (its quoting, a `/` before it); null before the action's name ends. */
+const argRows = async (query: string, host: BarHost, opts: LookupOptions, write: (line: string) => string): Promise<DoorAnswer | null> =>
+  actLineArgs(query, host) ? { rows: (await commandRows(query, host, { explicit: opts.explicit })).map(r => commandItem(r, write(r.line))) } : null;
 /** An argument's row in the popup: its name or value as the label, what it means beside, a tile's screen or a note as its preview. */
 const commandItem = (r: CommandRow, insertion: string): CompletionItem => ({
   label: r.label, insertion, kind: r.kind, ...(r.detail ? { detail: r.detail } : {}), ...(r.docs ? { docs: r.docs } : {}),
@@ -165,8 +168,10 @@ export function actionHereAt(line: string, col: number): CompletionTarget | null
   const m = /^(\s*)\/(?=[a-z]|$)/.exec(line);
   if (!m || col <= m[1]!.length) return null;
   const query = line.slice(m[1]!.length + 1, col);
-  return /^(?:[a-z][\w.-]*(?:\s.*)?)?$/.test(query) ? { kind: "action", start: m[1]!.length, end: line.length, query } : null;
+  return /^(?:[a-z][\w.-]*(?:\s.*)?)?$/.test(query) ? { kind: "action", start: m[1]!.length, end: wordEnd(line, col), query } : null;
 }
+/** Where the word at `col` ends: a choice replaces it, never the arguments after it. */
+const wordEnd = (line: string, col: number) => col + /^\S*/.exec(line.slice(col))![0].length;
 
 const DOOR_SOURCES: readonly DoorSource[] = [
   // A button's step (PIE-1298): a script note's name after `((`, else the door's actions and their arguments.
@@ -180,7 +185,8 @@ const DOOR_SOURCES: readonly DoorSource[] = [
     const host = hostOf(board, opts);
     if (!host) return { rows: [] };
     // Past the action's name, its arguments and their values; before it, the actions.
-    if (actLineArgs(target.query, host)) return { rows: (await commandRows(target.query, host, { explicit: opts.explicit })).map(r => commandItem(r, r.line)) };
+    const args = await argRows(target.query, host, opts, line => line);
+    if (args) return args;
     const rows = await barSource("actions")!.rows(target.query, host, "actions");
     return { rows: rows.map(r => ({ label: r.label, insertion: r.fill ?? r.label, docs: r.detail, kind: "action" })) };
   } },
@@ -188,8 +194,7 @@ const DOOR_SOURCES: readonly DoorSource[] = [
   // then, past the name, its arguments as the bar's line completes them.
   { decl: door("here-args", "arguments", true), kinds: ["action"], async rows({ board, target, opts }) {
     const host = hostOf(board, opts);
-    if (!host || !actLineArgs(target.query, host)) return { rows: [] };
-    return { rows: (await commandRows(target.query, host, { explicit: opts.explicit })).map(r => commandItem(r, "/" + r.line)) };
+    return (host && await argRows(target.query, host, opts, line => "/" + line)) || { rows: [] };
   } },
   // Matched by the one matcher against their words (`sort list` finds "Sort the list in this block").
   { decl: door("here", "actions here"), kinds: ["action"], async rows({ board, target, opts }) {
@@ -220,7 +225,8 @@ const DOOR_SOURCES: readonly DoorSource[] = [
     const schema = schemas.find(s => COMPONENT_OPEN.exec(s.source.use.split("\n")[0]!)?.[1] === target.component);
     if (schema?.props.find(p => p.key === target.key)?.type !== "action") return { rows: [] };
     const q = target.query, write = (v: string) => target.kind === "yaml-value" ? yamlScalar(v) : attributeScalar(v, target.quote);
-    if (actLineArgs(q, host)) return { rows: (await commandRows(q, host, { explicit: opts.explicit })).map(r => commandItem(r, write(r.line))) };
+    const args = await argRows(q, host, opts, line => write(line));
+    if (args) return args;
     const rows = await barSource("actions")!.rows(q, host, "actions");
     return { rows: rows.map(r => ({ label: r.label, insertion: write(r.fill ?? r.label), docs: r.detail, kind: "value" })) };
   } },
@@ -411,7 +417,7 @@ export class Completer {
     const f = this.d, line = f.lines[f.row] ?? "", c = f.complete;
     if (c && c.grammar === "filter") { const t = filterTargetAtCursor(line, f.col); return t && { ...t, words: true }; }
     // An act line (the power bar's): past an action's name, the whole line through the cursor is one button step.
-    if (c && c.grammar === "act") { const host = ambient?.board === this.board ? ambient.host?.() : undefined; return host && actLineArgs(line.slice(0, f.col), host) ? { kind: "button-step", start: 0, end: line.length, query: line.slice(0, f.col) } : null; }
+    if (c && c.grammar === "act") { const host = ambient?.board === this.board ? ambient.host?.() : undefined; return host && actLineArgs(line.slice(0, f.col), host) ? { kind: "button-step", start: 0, end: wordEnd(line, f.col), query: line.slice(0, f.col) } : null; }
     const t = completionTargetAtCursor(line, f.col, f.lines, f.row);
     // `/` at a line's start in a note's own edit: the actions that apply here, then their arguments (PIE-1076).
     if (!t && !c && this.own()) { const here = actionHereAt(line, f.col); if (here) return here; }

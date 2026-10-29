@@ -18,7 +18,7 @@ export interface CommandRow { label: string; line: string; kind: "argument" | "v
 
 /**
  * A sigil typed first in a value names what it is, whatever the argument's kind (PIE-1076, the power bar's own scopes):
- * `tile=%dr` lists tiles, `id=/gard` notes, `name=[[gar` pages, `name=:Bo` screens.
+ * `tile=%dr` lists tiles anywhere; where an argument names a thing, `to=/gard` notes, `[[gar` pages, `:Bo` screens.
  */
 export const VALUE_SIGILS: readonly { sigil: string; kind: string }[] = [
   { sigil: "%", kind: "tile" }, { sigil: "[[", kind: "page" }, { sigil: "/", kind: "note" }, { sigil: ":", kind: "screen" },
@@ -54,7 +54,9 @@ export async function commandRows(line: string, host: BarHost, o: { explicit?: b
   const name = last.slice(0, equal), field = fields.find(f => f.name === name);
   if (!field) return [];
   let typed = last.slice(equal + 1);
-  const spec = field.spec, sigil = spec.kind === "file" ? undefined : VALUE_SIGILS.find(s => typed.startsWith(s.sigil));
+  // `%` names a tile wherever it's typed (no path or word starts with it); the rest only where the argument names a
+  // thing (a tile, a note, a screen), never in a plain value or a path, where `/` and `:` are its own text.
+  const spec = field.spec, sigil = VALUE_SIGILS.find(s => typed.startsWith(s.sigil) && (s.sigil === "%" || (!!spec.kind && spec.kind !== "file")));
   const kind = sigil?.kind ?? spec.kind;
   if (sigil) typed = typed.slice(sigil.sigil.length);
   const choices = sigil ? [] : spec.type === "boolean" ? ["true", "false"] : spec.choices ?? [];

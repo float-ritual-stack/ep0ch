@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { errorDetails, type MessageDetails } from "./status-log";
 import type { FormFieldType } from "@ep0ch/outline-core/form-fields";
 import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
@@ -492,9 +491,10 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
       with: { type: "string", optional: true, context: true, about: "the arguments a power bar row passes on, as JSON (names to text)" },
       invitation: { type: "string", optional: true, context: true, about: "the one-run invitation a person's press minted (src/surface/invite.ts): a script this starts may move their tiles, with it" },
       via: { type: "string", optional: true, context: true, about: "the button that pressed it, <note id>:<line>: the run's note records it with the button's author" },
+      asked: { type: "boolean", optional: true, context: true, about: "its arguments were completed where the person typed (a / line in an edit, PIE-1076): what they left out takes its default, and nothing is asked again in the power bar" },
       ...declaredArgs(a),
     } as ActionDef<ExtArgs, ExtOn>["args"],
-    run({ block: named, line, with: w, invitation, via, ...rest }, on, actor) {
+    run({ block: named, line, with: w, invitation, via, asked, ...rest }, on, actor) {
       // The person's run on a block names none: the note in front of them. An agent always names its block.
       // A script is an action on the outline that is still about a note: the one in front of the person is its `this`.
       const block = named ?? (actor.kind === "user" && !handler && !bar && (!outline || !!e.script) ? on.ctx.noteInFront?.() ?? undefined : undefined);
@@ -513,7 +513,7 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
           ...(typeof via === "string" && /^[0-9a-f-]{8,}:\d+$/.test(via) ? { button: { block: via.slice(0, via.lastIndexOf(":")), line: Number(via.slice(via.lastIndexOf(":") + 1)) } } : {}) }, actor)
           // The run it started: the invitation belongs to it from here (and is spent when it ends).
           .then(r => { if (invited && r.undo) INVITES.bind(invited, r.undo); return r; });
-      });
+      }, !!asked);
     },
   };
 }
@@ -522,8 +522,9 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
 function declaredArgs(a: ExtensionAction): Record<string, { type: string; optional: true; about: string; kind?: "note" | "key"; choices?: readonly string[] }> {
   return Object.fromEntries((a.args ?? []).map(x => [x.name, {
     type: x.type === "number" ? "number" : "string", optional: true,
-    // What it names, as declared (a script's `[form-field::page note]`): a note is picked from the notes. A choice's options stay
-    // in `about` (the service checks and defaults them; as choices here an empty or spaced value would be refused before it).
+    // What it names, as declared (a script's `[form-field::page note]`): a note is picked from the notes. A choice's options
+    // stay in `about` too; single-word ones are its choices as well (PIE-1076), so they complete where they're typed (a
+    // spaced or empty option would be refused here before the service, which checks and defaults them, saw it).
     ...(x.type === "note" ? { kind: "note" as const } : {}),
     // Completed where they're typed (PIE-1076): a choice's single-word options as its choices, a property by the outline's keys.
     ...(x.type === "choice" && x.options?.length && x.options.every(o => /^\S+$/.test(o)) ? { choices: x.options } : {}),
@@ -550,14 +551,8 @@ const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "prope
  * (src/bar/ask.ts), its choices from the service (`extensions.args`: a property's from the rows it would act on) and its
  * value now lit, then the action runs with them. An agent is never asked: what it leaves out takes its default, or is refused.
  */
-/**
- * A run whose arguments were completed where the person typed (a `/` line in an edit, PIE-1076): what they left out takes
- * its default, and nothing is asked again in the power bar over the work.
- */
-export const ASKED_IN_PLACE = new AsyncLocalStorage<true>();
-
-export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: ExtensionAction, block: string | undefined, given: Record<string, string>, actor: Actor, run: (args: Record<string, string>) => Promise<R>): Promise<R | { asking: string; action: string }> {
-  if (actor.kind !== "user" || !ctx.dispatch || ASKED_IN_PLACE.getStore()) return run(given);
+export async function askingFirst<R>(ctx: ExtOn["ctx"], e: ExtensionEntry, a: ExtensionAction, block: string | undefined, given: Record<string, string>, actor: Actor, run: (args: Record<string, string>) => Promise<R>, asked = false): Promise<R | { asking: string; action: string }> {
+  if (actor.kind !== "user" || !ctx.dispatch || asked) return run(given);
   // A form from the note (PIE-828): what it asks is the note's, so the service says it (a form it can't read is refused there).
   if (a.fieldsFrom === "block") {
     let specs: ExtensionArgChoice[];

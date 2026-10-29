@@ -113,7 +113,7 @@ import { composerBody, composerBox, placeBox, type ComposerBox } from "./compose
 import { AttachedTile, attachedAt, attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedTileHost, type AttachedSide, type AttachedPlace, type AttachedSplit, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, nextPlace, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
 import { pickerCwd, pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
-import { ASKED_IN_PLACE, askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, scriptInstallWords, threadAgents } from "../extensions";
+import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, scriptInstallWords, threadAgents } from "../extensions";
 import { actionLine, actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { INVITES } from "./invite";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
@@ -3459,7 +3459,9 @@ export class NoteSurface {
     // A note's own edit runs actions where the person types (PIE-1076): ctrl+k lists them, ⏎ on a / line runs it.
     if (s.draft === this.draft && !completionOf(s.draft)?.items.length) {
       if (k.kind === "char" && k.ctrl && k.ch === "k" && !k.shift) { void this.runKey("edit.actions", {}, host); return true; }
-      if (k.kind === "enter" && actionHereAt(s.draft.lines[s.draft.row] ?? "", (s.draft.lines[s.draft.row] ?? "").length) && (s.draft.lines[s.draft.row] ?? "").trim() !== "/") { void this.runKey("edit.run", {}, host); return true; }
+      // Only a line that names an action, with the cursor at its end: `/tmp is full` is prose, and ⏎ is its new line.
+      const line = s.draft.lines[s.draft.row] ?? "", here = k.kind === "enter" && s.draft.col === line.length ? actionHereAt(line, line.length) : null;
+      if (here && host.ctx.dispatch?.has(here.query.split(/\s/)[0]!)) { void this.runKey("edit.run", {}, host); return true; }
     }
     // What ends or hands off the draft is an action (PIE-506); the rest is typing.
     s.key(k, {
@@ -10593,8 +10595,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const typed = line ?? (here ? (d.lines[d.row] ?? "").slice(here.start + 1) : null);
       if (!typed?.trim()) throw new ActionRefused("the cursor isn't on a / line · ctrl+k or / first on a line lists the actions here");
       const req = actRequestOf(lineWords(typed.trim()));
-      const dispatch = host.ctx.dispatch;
-      if (!dispatch?.has(req.action)) throw new ActionRefused(`no action ${req.action} here · / lists the ones that apply`);
+      const dispatch = host.ctx.dispatch, info = dispatch?.list().actions.find(a => a.name === req.action);
+      if (!dispatch || !info) throw new ActionRefused(`no action ${req.action} here · / lists the ones that apply`);
+      // What the host binds, from here: this note (an agent's run reaches it as the person's does), and that its
+      // arguments were asked in place, so what's left out takes its default instead of a form over the note.
+      const blockId = d.blockId;
+      req.args = { ...(info.args.block?.context && req.args?.block === undefined && blockId ? { block: blockId } : {}), ...(info.args.asked?.context ? { asked: true } : {}), ...req.args };
       // The / line goes before the save: what's saved is the note as written, never the command.
       if (here) {
         const row = d.row, lines = d.lines.filter((_, i) => i !== row);
@@ -10604,7 +10610,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (d.dirty) await saveDraft(surface, host, actor);
       else surface.closeDraftAction(false);
       if (surface.draft) throw new ActionRefused(d.note || "the edit didn't save, so the action didn't run");
-      const answer = await ASKED_IN_PLACE.run(true, () => dispatch.act(req, actor));
+      const answer = await dispatch.as(actor, req);
       host.redraw();
       return { ran: actionLine(req), answer };
     },
