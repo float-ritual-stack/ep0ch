@@ -70,8 +70,8 @@ export class SearchTurn {
 
 /**
  * The scheduler for one path (a bar, a draft's completer, a query tile): one turn at a time, the newest. `begin`
- * replaces the turn; `pause` waits `pauseMs` for typing (or a burst of changes) to stop before it runs; `now` ends
- * that pause at once; `cancel` puts it all away.
+ * replaces the turn; `pause` waits `pauseMs` for typing (or a burst of changes) to stop before it runs (a path that
+ * asks on purpose, Tab or Ctrl+Space, asks without one); `cancel` puts it all away.
  */
 export class SearchSchedule {
   turn: SearchTurn | null = null;
@@ -92,18 +92,6 @@ export class SearchSchedule {
     this.paused = p;
   }
 
-  /** A pause is running. */
-  get waiting(): boolean { return this.paused !== null; }
-
-  /** The pause ends now: what it waited to run runs. False when none was waiting. */
-  now(): boolean {
-    const p = this.paused;
-    if (!p) return false;
-    this.drop();
-    p.run();
-    return true;
-  }
-
   /** Put away: no pause runs, the turn ends. */
   cancel(): void {
     this.drop();
@@ -115,12 +103,14 @@ export class SearchSchedule {
    * those still out, if any.
    */
   async settled(ms = 5000): Promise<string[]> {
-    const t = this.turn;
-    if (!t?.pending.size) return [];
     let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([t.idle(), new Promise<void>(r => { timer = setTimeout(r, ms); })]);
+    const deadline = new Promise<"late">(r => { timer = setTimeout(() => r("late"), ms); });
+    // A newer turn begun meanwhile is waited on in its place: what's asked now, not what it replaced.
+    for (let t = this.turn; t?.pending.size; t = this.turn) {
+      if (await Promise.race([t.idle(), deadline]) === "late" || t === this.turn) break;
+    }
     clearTimeout(timer);
-    return [...t.pending];
+    return [...(this.turn?.pending ?? [])];
   }
 
   private drop() { this.paused?.cancel(); this.paused = null; }

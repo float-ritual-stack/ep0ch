@@ -31,29 +31,32 @@ describe("the schedule", () => {
     expect(ran).toEqual(["ga"]);
   });
 
-  test("now runs the waiting pause at once; cancel drops it", () => {
+  test("cancel drops a waiting pause", () => {
     const s = new SearchSchedule(TYPING_PAUSE_MS), ran: string[] = [];
-    expect(s.now()).toBe(false);
-    s.pause(() => ran.push("now"));
-    expect(s.now()).toBe(true);
     s.pause(() => ran.push("dropped"));
     s.cancel();
     expect(clock.runOut()).toBe(false);
-    expect(ran).toEqual(["now"]);
+    expect(ran).toEqual([]);
   });
 
-  test("a new turn aborts the one before, drops its later work, and lets its waiters go", async () => {
+  test("a new turn aborts the one before and drops its later work; settled waits on the new one", async () => {
     const s = new SearchSchedule(TYPING_PAUSE_MS), ran: string[] = [];
     const first = s.begin();
     first.asking("notes");
     first.after(300, () => ran.push("jev"));
     const waiting = s.settled();
     const second = s.begin();
+    second.asking("ext");
     expect(first.signal.aborted).toBe(true);
     expect(second.signal.aborted).toBe(false);
     clock.runOut();
     expect(ran).toEqual([]);
-    expect(await waiting).toEqual(["notes"]);
+    let done = false;
+    void waiting.then(() => { done = true; });
+    await Bun.sleep(0);
+    expect(done).toBe(false);
+    second.answered("ext");
+    expect(await waiting).toEqual([]);
   });
 
   test("settled resolves when the last pending ask answers", async () => {
@@ -130,6 +133,18 @@ describe("each path asks the host the same way", () => {
     reads[0]!.answer([{ id: "b1", text: "Old answer" }]);
     await Promise.all([first, second]);
     expect(pane.items?.map(m => m.id)).toEqual(["b2"]);
+  });
+
+  test("a query tile put away while it reads finishes its load, drawing nothing", async () => {
+    let answer: (v: { notes: never[]; truncated: boolean }) => void = () => {};
+    const board = { queryNotes: () => new Promise(r => { answer = r; }) };
+    const desk = { ctx: { board, flash() {} }, redraw() {} } as unknown as DeskApi;
+    const pane = new QueryPane("v", "#garden");
+    const loading = pane.load(desk);
+    pane.dispose();
+    answer({ notes: [], truncated: false });
+    await loading;
+    expect(pane.items).toBeNull();
   });
 
   test("a burst of outline changes reads a query tile once, a pause after the last", () => {

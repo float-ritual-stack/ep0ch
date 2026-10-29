@@ -177,7 +177,8 @@ export class QueryPane implements Pane {
       ? desk.ctx.board.queryNotes(query, 200, undefined, turn.signal).then(r => ({ status: "ready" as const, items: r.notes, limit: 200, truncated: r.truncated, errors: [] }), (e: Error) => ({ status: "failed" as const, items: [], limit: 200, truncated: false, errors: [`${query}: ${e.message}`] }))
       : readView(desk.ctx.board, def!, {}, turn.signal);
     const mine: Promise<void> = reading.then(read => {
-      if (!turn.alive()) return this.inflight ?? undefined;   // a newer read is on its way: done when that one has landed
+      // A newer read is on its way: done when that one has landed. Put away (the tile closed), nothing is.
+      if (!turn.alive()) { const next = this.inflight; if (next === mine) this.inflight = null; return next === mine ? undefined : next ?? undefined; }
       this.inflight = null;
       const items = read.items;
       this.read = read;

@@ -523,15 +523,15 @@ export class SocketBoard implements Board {
     const id = `d${++this.seq}`;
     if (this.sent.length > 5000) this.sent.splice(0, 2500);
     this.sent.push(action);
+    const stop = () => { const w = this.waiting.get(id); if (w) { clearTimeout(w.timer); this.waiting.delete(id); w.reject(signal!.reason); } };
     return traced(new Promise<T>((resolve, reject) => {
-      const stop = () => { const w = this.waiting.get(id); if (w) { clearTimeout(w.timer); this.waiting.delete(id); w.reject(signal!.reason); } };
       const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error(`${action} timed out`)); }, timeoutMs);
       const sock = this.conn();
       this.waiting.set(id, { resolve, reject, timer, sock });
-      // Answered first, the listener finds nothing waiting: it goes with the turn's signal.
+      // Taken off the turn's signal once the request settles, however it does.
       signal?.addEventListener("abort", stop, { once: true });
       sock.write(jsonLine({ id, action, ...params, ...(this.scriptRun.getStore() ? { scriptRun: this.scriptRun.getStore() } : {}), ...(this.outline ? { outline: this.outline } : {}) }));
-    }));
+    }).finally(() => signal?.removeEventListener("abort", stop)));
   }
 
   /** A file's text, read by the service (`files.read`): a relative path is the outline's own folder (an artifact's card, PIE-793). */
@@ -928,9 +928,8 @@ export class SocketBoard implements Board {
   async search(text: string, limit: number, opts: SearchOptions = {}): Promise<Msg[] & { semantic?: SearchHits["semantic"] }> {
     const r = await this.searchBlocks(text, opts);
     const ids = r.matches.slice(0, Math.min(1000, limit)).map(m => m.block.id);
-    // A search replaced meanwhile (its signal aborted) doesn't read its hits.
-    opts.signal?.throwIfAborted();
-    const by = new Map((ids.length ? (await this.readBlocks(ids)).blocks : []).map(m => [m.id, m]));
+    // A search replaced meanwhile (its signal aborted) stops reading its hits.
+    const by = new Map((ids.length ? (await this.readBlocks(ids, opts.signal)).blocks : []).map(m => [m.id, m]));
     return Object.assign(ids.flatMap(id => by.get(id) ?? []), { semantic: r.semantic });
   }
 
@@ -1044,8 +1043,8 @@ export class SocketBoard implements Board {
    * Whole blocks, text included, in one `blocks.read` (PIE-400), with the ids that are missing or in
    * Trash.
    */
-  async readBlocks(ids: string[]): Promise<{ blocks: Msg[]; unavailable: { id: string; status: "missing" | "trashed" }[] }> {
-    const r = await this.request<{ blocks: WireBlock[]; unavailable?: { id: string; status: "missing" | "trashed" }[] }>("blocks.read", { ids, fields: [...LIST_FIELDS, "text"] });
+  async readBlocks(ids: string[], signal?: AbortSignal): Promise<{ blocks: Msg[]; unavailable: { id: string; status: "missing" | "trashed" }[] }> {
+    const r = await this.request<{ blocks: WireBlock[]; unavailable?: { id: string; status: "missing" | "trashed" }[] }>("blocks.read", { ids, fields: [...LIST_FIELDS, "text"] }, undefined, signal);
     return { blocks: r.blocks.map(b => toMsg(b)), unavailable: r.unavailable ?? [] };
   }
 
