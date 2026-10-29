@@ -44,9 +44,11 @@ export type ShapeRule = "title" | "wall" | "stacked" | "prose" | "headings" | "c
  * Evan's rubric for a note an agent wrote (Oct 29), which every finding is filed under, code's and Jev's alike, so the
  * suggestions page and the backfill count by it: dense prose; badly formatted (no headings past a screen, structure not
  * shown as structure); the ask buried; the ask unclear; facts, decisions and investigation mixed; assumes today's
- * context; argues instead of answering.
+ * context; argues instead of answering. Then the workboard's own rules where agents act (loki, Oct 29): `qa-for-evan`,
+ * validation asked of Evan or a completion proved by tests alone (validation is the agents' job), and `experience`, a
+ * ticket that doesn't say what Evan will open and do.
  */
-export const RUBRIC = ["dense", "format", "buried", "unclear", "mixed", "context", "argues"] as const;
+export const RUBRIC = ["dense", "format", "buried", "unclear", "mixed", "context", "argues", "qa-for-evan", "experience"] as const;
 export type Rubric = typeof RUBRIC[number];
 
 /** The rubric item each of code's rules measures. */

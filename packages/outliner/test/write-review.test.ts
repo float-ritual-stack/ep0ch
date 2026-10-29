@@ -200,3 +200,10 @@ test("the backfill reviews what agents already wrote, read only, and keeps its s
   expect(run).toMatchObject({ items: "3", suggested: "1", quiet: "2" });
   expect(kept.run).toBe(run.id);
 });
+
+test("a note asking Evan to try something himself is told validation is the agents' job", async () => {
+  const { agent } = await setup();
+  const made = await agent("create", { parent: "root", text: "Seed list sorted\n\n- Sorted by sowing month.\n- Evan, can you try it on your phone and check the order?" });
+  const qa = (made.json.review as Review).findings.find(f => f.rule === "qa-for-evan")!;
+  expect(qa.say).toContain("validation is the agents' job");
+});

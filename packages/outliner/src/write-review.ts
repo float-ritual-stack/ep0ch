@@ -109,7 +109,7 @@ export function reviewRequest(text: string, sections: readonly Section[], asks: 
   for (const s of sections) {
     const path = `sections.${s.id}.text`;
     if (Object.keys(options).length >= 2) questions[`kit::${s.id}`] = { type: "choice", instructions: fill(prompt.kit, path), criteria: options };
-    for (const q of ["structured", "prose", "dense", "mixed", "context"] as const) questions[`${q}::${s.id}`] = { type: "noul", instructions: fill(prompt[q], path) };
+    for (const q of ["structured", "prose", "dense", "mixed", "context", "qa"] as const) questions[`${q}::${s.id}`] = { type: "noul", instructions: fill(prompt[q], path) };
   }
   for (const i of asks) for (const q of ["asks", "unclear"] as const) questions[`${q}::L${i}`] = { type: "noul", instructions: fill(prompt[q], `asks.L${i}`) };
   if (o.title) questions.title = { type: "noul", instructions: prompt.title };
@@ -158,7 +158,7 @@ async function askJev(text: string, sections: readonly Section[], asks: readonly
 const unit = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1;
 
 /** Jev's findings from its answers: code's truth table over them, one finding per judgment that holds. */
-function jevFindings(text: string, sections: readonly Section[], asked: Asked, schemas: readonly ComponentSchema[], code: readonly { line?: number; rubric: Rubric }[]): ReviewFinding[] {
+function jevFindings(text: string, sections: readonly Section[], asked: Asked, schemas: readonly ComponentSchema[], code: readonly { line?: number; rubric: Rubric }[], qaRule = QA_RULE): ReviewFinding[] {
   const a = asked.answers, out: ReviewFinding[] = [], t = REVIEW_THRESHOLDS;
   const lines = text.split("\n");
   const yes = (id: string) => unit(a[id]?.noul) && a[id]!.noul! >= t.yes;
@@ -184,6 +184,7 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
     }
     if (yes(`dense::${s.id}`) && !codeIn(s, "dense")) out.push({ ...base, rule: "dense", rubric: "dense", key: `dense:${clip(s.heading, 24)}`, say: `${where} packs several points into one paragraph or item: one point per line, a heading over each part` });
     if (yes(`mixed::${s.id}`)) out.push({ ...base, rule: "mixed", rubric: "mixed", key: `mixed:${clip(s.heading, 24)}`, say: `${where} mixes what's true, what was decided and what's still open: give each its own section, decisions in a ::graph-decision` });
+    if (yes(`qa::${s.id}`) && !codeIn(s, "qa-for-evan")) out.push({ ...base, rule: "qa-for-evan", rubric: "qa-for-evan", key: `qa:${clip(s.heading, 24)}`, say: `${where} asks Evan to try or check something himself: ${qaRule}` });
     if (yes(`context::${s.id}`) && !codeIn(s, "context")) out.push({ ...base, rule: "context", rubric: "context", key: `context:${clip(s.heading, 24)}`, say: `${where} leans on today's context ("as discussed", "the issue above", a bare id or jargon): name the thing, or link it as ((id|label)), so it reads without this session` });
   }
   for (const [id, answer] of Object.entries(a)) {
@@ -209,6 +210,8 @@ export interface ReviewInput {
   facets?: readonly ShapeFacet[];
   /** Whether Jev is asked at all (OUTLINER_FIGURE_FIT=off, the tests' default, says no). */
   jev: boolean;
+  /** How the outline words its validation rule (work-review.ts houseRule), for a finding that asks Evan to check things. */
+  qaRule?: string;
 }
 
 /**
@@ -238,7 +241,9 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
     if (n) had.set(f.key, n - 1);
     return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.line ? lines[f.line - 1] ?? "" : text), new: !n, by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
   });
-  const jev = answers ? jevFindings(text, sections, asked as Asked, input.schemas ?? [], code) : [];
+  const qaRule = input.qaRule ?? QA_RULE;
+  code.push(...qaFindings(text, before, qaRule));
+  const jev = answers ? jevFindings(text, sections, asked as Asked, input.schemas ?? [], code, qaRule) : [];
   const findings = [...code, ...jev];
   const review: WriteReview = {
     verdict: findings.some(f => f.new) ? "fix" : "ship",
@@ -249,6 +254,20 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
       : shapeNext(input.id),
   };
   return { review, ...(asked && "reading" in asked ? { reading: asked.reading } : {}) };
+}
+
+/** What a finding that asks Evan to validate says, unless the outline words it (house rules, work-review.ts). */
+export const QA_RULE = "validation is the agents' job, never Evan's: drive it yourself (a scratch door, a headless page) and tell him what you saw";
+
+const ASKS_QA = /\b(?:can you|could you|please|would you|evan[,:]?)\s+(?:try|test|verify|check|confirm)\b|\bneeds? evan to\s+(?:try|test|verify|check|confirm)\b/i;
+
+/** Lines that ask Evan to try or check something himself, found by their words (Jev judges the rest per section). */
+function qaFindings(text: string, before: string | undefined, qaRule: string): ReviewFinding[] {
+  const lines = text.split("\n"), structure = noteStructure(lines), had = new Set(before?.split("\n") ?? []);
+  return lines.flatMap((line, i) => structure[i] === -1 && ASKS_QA.test(line) ? [{
+    rule: "qa-for-evan", rubric: "qa-for-evan" as Rubric, key: `qa:${clip(line, 40)}`, line: i + 1, passage: clip(line), new: !had.has(line), by: "code" as const,
+    say: `line ${i + 1} asks Evan to try or check something: ${qaRule}`,
+  }] : []);
 }
 
 /** A review's new findings as the write answer's warnings, each worded as a gate. */

@@ -8,5 +8,8 @@
   "argues": "Does `opening` build a case or give background before it says its point, instead of leading with the conclusion?",
   "title": "Is `title` the note's content itself, a sentence saying what happened or what to do, rather than a short name for what follows?",
   "asks": "Does `{line}` ask Evan, the outline's owner, for a decision or an answer?",
-  "unclear": "Could someone reading only `{line}` say in one sentence what Evan is asked to decide or do?"
+  "unclear": "Could someone reading only `{line}` say in one sentence what Evan is asked to decide or do?",
+  "qa": "Does `{section}` ask Evan to try, test, verify or check something himself?",
+  "proof": "Does `proof` show someone using the change in the running application (opening it, driving it or looking at what it draws), rather than only tests passing?",
+  "experience": "Does `ticket` say what Evan will open and be able to do once it is done?"
 }

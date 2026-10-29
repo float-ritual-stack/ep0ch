@@ -126,7 +126,7 @@ export async function loadFigureFitPrompt(directory?: string): Promise<{ instruc
 }
 
 /** The questions write-review.ts asks Jev about a note an agent wrote (PIE-1388), each by its name; `{section}` and `{line}` are the state path asked about. */
-export const WRITE_REVIEW_QUESTIONS = ["kit", "structured", "prose", "dense", "mixed", "context", "argues", "title", "asks", "unclear"] as const;
+export const WRITE_REVIEW_QUESTIONS = ["kit", "structured", "prose", "dense", "mixed", "context", "argues", "title", "asks", "unclear", "qa", "proof", "experience"] as const;
 export type WriteReviewPrompt = Record<typeof WRITE_REVIEW_QUESTIONS[number], string> & { revisions: PromptRevision[] };
 
 /**

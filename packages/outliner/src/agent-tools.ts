@@ -19,6 +19,7 @@ import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { shapeNext, shapeWarnings, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
 import { outlineFacets, reviewWarnings, reviewWrite, type WriteReview } from "./write-review";
+import { houseRule } from "./work-review";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { figureShape, suggestFigure } from "./figure-fit";
@@ -659,9 +660,9 @@ function facetsOf(client: AgentToolsClient): Promise<ShapeFacet[]> {
  * kept as records by the service (`suggestions.keep`). Never throws: the write has landed.
  */
 async function reviewOf(client: AgentToolsClient, text: string, before: string | undefined, at: Omit<SuggestionWrite, "source">): Promise<WriteReview> {
-  const [schemas, facets] = await Promise.all([schemasOf(client), facetsOf(client)]);
+  const [schemas, facets, qaRule] = await Promise.all([schemasOf(client), facetsOf(client), houseRule(client as never, "qa-for-evan")]);
   const jev = process.env.OUTLINER_FIGURE_FIT !== "off";
-  const { review, reading } = await reviewWrite({ text, ...(before === undefined ? {} : { before }), id: at.note, schemas, facets, jev }, { timeoutMs: REVIEW_BUDGET_MS });
+  const { review, reading } = await reviewWrite({ text, ...(before === undefined ? {} : { before }), id: at.note, schemas, facets, jev, qaRule }, { timeoutMs: REVIEW_BUDGET_MS });
   if (jev) await keepRecords(client, { kind: "reviewed", at: { ...at, source: "write" }, title: headerLine(text).prose.trim(), review, ...(reading ? { reading } : {}) });
   return review;
 }

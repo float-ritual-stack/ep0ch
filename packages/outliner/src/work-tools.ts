@@ -8,6 +8,9 @@
  * roadmap properties, delivery facts); these helpers only refuse what they can
  * tell is wrong before writing, and say why.
  */
+import { headerLine } from "@ep0ch/outline-core/header-line";
+import { reviewCompletion, reviewTicket } from "./work-review";
+import { reviewWarnings, type ReviewReading, type WriteReview } from "./write-review";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import type { RequestInput } from "./client";
 import { deliveryIdentities, parseDeliveryIdentity, type DeliveryIdentity } from "./delivery-lifecycle";
@@ -194,6 +197,8 @@ function requireRevision(block: Block, expectedRevision: number | undefined): nu
 
 export interface WorkCreateResult extends WorkItemRef {
   workQueueId: string;
+  review?: WriteReview;
+  warnings?: string[];
 }
 
 /** Allocates a Work ID and creates the item under its project's work queue. */
@@ -208,7 +213,22 @@ export async function createWorkItem(
     author: actor.author,
     provenance: provenanceOf(actor),
   });
-  return { ...workItemRef(receipt.block), workQueueId: receipt.workQueueId };
+  return { ...workItemRef(receipt.block), workQueueId: receipt.workQueueId, ...(await workReview(client, actor, receipt.block, () => reviewTicket(client, receipt.block))) };
+}
+
+/**
+ * The workboard's rules where agents act (work-review.ts, PIE-1388): an agent's create or completion is answered with a
+ * review, ship or fix, its finding said as a gate in `warnings` and kept as a record like a note's review. A person's
+ * own isn't reviewed. Never throws: the item has landed.
+ */
+async function workReview(client: WorkToolsClient, actor: WorkActor, block: Block, review: () => Promise<{ review: WriteReview; reading?: ReviewReading }>): Promise<{ review?: WriteReview; warnings?: string[] }> {
+  if (actor.author !== "agent") return {};
+  try {
+    const { review: r, reading } = await review();
+    const keep = { kind: "reviewed", at: { note: block.id, revision: block.revision, actorId: actor.actorId, source: "write" }, title: headerLine(block.text).prose.trim(), review: r, ...(reading ? { reading } : {}) };
+    await Promise.race([client.request({ action: "suggestions.keep", keep } as never).catch(() => undefined), Bun.sleep(3000)]);
+    return { review: r, ...(r.verdict === "fix" ? { warnings: reviewWarnings(r) } : {}) };
+  } catch { return {}; }
 }
 
 // ─── Properties ────────────────────────────────────────────────────────────
@@ -696,6 +716,8 @@ export interface WorkCompleteResult extends WorkItemRef {
   proof: BlockRef & { created: boolean };
   /** The deliveries this completion covered, each now Complete. */
   deliveries: DeliveryRef[];
+  review?: WriteReview;
+  warnings?: string[];
 }
 
 function deliveryRef(block: Block): DeliveryRef {
@@ -843,6 +865,7 @@ export async function completeWorkItem(
       ...workItemRef(updated),
       proof: { ...blockRef(proof), created: proofCreated },
       deliveries: completed.map(deliveryRef),
+      ...(await workReview(client, actor, updated, () => reviewCompletion(client, { ticket: updated, proof: proof.text }))),
     };
   } catch (error) {
     const written = completed.filter((block) => selected.find((delivery) => delivery.block.id === block.id)!.stage !== "complete");
