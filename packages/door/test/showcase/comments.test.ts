@@ -4,6 +4,7 @@
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { unsent } from "../../src/draft-session";
+import { UNDO_ASK_PAUSE_MS } from "../../src/edit";
 import { osc52 } from "../../src/surface/selection";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -12,7 +13,7 @@ import type { Desk } from "../../src/desk/desk";
 import { LABELS_BEFORE, MARGIN_LINES, SEED, type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, SESSION_QUOTE, Showcase } from "../../src/showcase/showcase";
 import { reopen } from "../../src/session/restore";
-import { SocketBoard } from "../../src/socket";
+import { SocketBoard, USER } from "../../src/socket";
 import { C } from "../../src/style";
 import { outliner, Scratch, until } from "../scratch";
 
@@ -806,6 +807,47 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     await app.act({ action: "draft.undo", tile: "reader", as: "test-agent" });
     expect(draft().text.split("\n")[0]).toEndWith("(wiped Sunday)");
     await app.act({ action: "edit.close", tile: "reader", args: { discard: true }, as: "test-agent" });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
+  test("undo never takes back what's saved (PIE-1414): write, save, open it again, ctrl+z stops at the save and says so; ctrl+z again goes past it, and the note keeps what was saved", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "undo" }, as: "test-agent" });
+    const stage = () => S().stages.get(S().sel).top;
+    const draft = () => stage().pane("reader").surface.draft;
+    await until(() => !!stage()?.pane("reader")?.surface.msg, "the undo section's note", 8000);
+    const id = stage().pane("reader").surface.msg!.id;
+    if (draft()) await stage().dispatch.press("edit.close", { discard: true }, "reader");
+    await until(() => !draft(), "no edit open");
+    const edit = async () => { await stage().dispatch.act({ action: "edit", tile: "reader" }, USER); await until(() => !!draft(), "the person's edit open"); };
+    await edit();
+    press({ kind: "enter" });
+    if (S().focus !== "stage") press({ kind: "enter" });
+    await stage().dispatch.act({ action: "draft.place", tile: "reader", args: { line: 999 } }, USER);
+    for (const c of "\nLids go on warm.") press(c === "\n" ? { kind: "enter" } : { kind: "char", ch: c });
+    await until(() => draft()?.text.endsWith("Lids go on warm."), "typed by keys");
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => !draft(), "saved");
+    const saved = (await board.get(id))!.text;
+    expect(saved).toEndWith("Lids go on warm.");
+    // Opened again: ctrl+z says the text is saved and leaves it.
+    await edit();
+    press({ kind: "char", ch: "z", ctrl: true });
+    await until(() => draft()!.note.includes("saved · ctrl+z again"), "ctrl+z asks at the save");
+    expect(draft()!.text).toBe(saved);
+    expect(draft()!.dirty).toBe(false);
+    expect(screen()).toContain("saved · ctrl+z again");
+    // Through act the same: it asks, and past=true is the answer.
+    expect(await stage().dispatch.act({ action: "draft.undo", tile: "reader" }, USER)).toMatchObject({ asks: expect.stringContaining("saved") });
+    await expect(app.act({ action: "draft.undo", tile: "reader", as: "test-agent" })).rejects.toThrow("this agent has no edit to undo");
+    await Bun.sleep(UNDO_ASK_PAUSE_MS);
+    press({ kind: "char", ch: "z", ctrl: true });
+    await until(() => !draft()!.text.endsWith("Lids go on warm."), "ctrl+z again, after a pause, goes past the save");
+    expect(draft()!.dirty).toBe(true);
+    expect((await board.get(id))!.text).toBe(saved);                  // nothing saved changed
+    await stage().dispatch.press("edit.close", { discard: true }, "reader");
+    await until(() => !draft(), "closed, the saved text as it was");
+    expect((await board.get(id))!.text).toBe(saved);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 });
