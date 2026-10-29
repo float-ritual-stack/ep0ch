@@ -357,7 +357,7 @@ SourceRow = ListRow                        // contract 3's row: id, label, detai
 SourceDecl = {
   id: string, title: string, description?: string,
   prefix?: string,                          // the bar: one character that scopes it
-  triggers?: ("[[" | "((" | "@" | "::" | "[key" | "key::" | "yaml-key" | "yaml-value" | "attribute" | "attribute-value" | "filter-key" | "filter-value" | "[file::" | "> [!")[],
+  triggers?: ("[[" | "((" | "@" | "::" | "[key" | "key::" | "yaml-key" | "yaml-value" | "[file::" | "> [!")[],
   main?: boolean,                           // its rows join the bar's main list
   deadline?: string
 }

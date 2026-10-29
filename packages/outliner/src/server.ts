@@ -2231,6 +2231,7 @@ export class OutlinerServer {
           const t = request.target as Record<string, unknown> | undefined;
           if (!t || typeof t !== "object" || typeof t.kind !== "string" || typeof t.query !== "string" || t.query.length > 500) throw new Error("completion.rows needs target: { kind, query } (query up to 500 characters)");
           if (t.attrs !== undefined && (!Array.isArray(t.attrs) || t.attrs.length > 100 || !t.attrs.every(a => a && typeof a === "object" && typeof (a as { key?: unknown }).key === "string" && typeof (a as { value?: unknown }).value === "string"))) throw new Error("target.attrs must be a list of { key, value } strings (at most 100)");
+          if (t.quote !== undefined && t.quote !== '"' && t.quote !== "'") throw new Error(`target.quote must be " or '`);
           if (request.near !== undefined && typeof request.near !== "string") throw new Error("near must be a block id");
           if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1)) throw new Error("limit must be a positive whole number");
           const own = { request: async <T>(action: string, input: Record<string, unknown>): Promise<T> => {

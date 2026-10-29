@@ -10,11 +10,11 @@
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { workIdTitle } from "@ep0ch/outline-core/work-id-title";
 import { pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery, type PageAddressMatch } from "@ep0ch/outline-core/completion-triggers";
-import { pickKey, sourceAnswers, triggerOf, type Picks, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
+import { pickKey, sourceAnswers, triggerOf, VALUE_TRIGGERS, type Picks, type SourceAsk, type SourceDecl, type SourceRow } from "@ep0ch/outline-core/completion-source";
 import { FRAGMENT_ID_SOURCE, qualifiedReference, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import type { CompletionRowsRequest, CompletionRowsResult, CompletionSourceAnswer, ExtensionCompletionSource } from "@ep0ch/outline-core/protocol";
-import { axisValues, keyCandidates, sweep, valueCandidates, variation, yamlKeyCandidates, yamlScalar, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
+import { axisValues, keyCandidates, sweep, valueCandidates, variation, yamlKeyCandidates, yamlScalar, attributeScalar, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { querySuggestions } from "@ep0ch/outline-core/query-suggestions";
 import type { PropsSpec } from "@ep0ch/outline-core/site";
@@ -377,7 +377,8 @@ const filters: ServiceSource = {
 /** A component's props: its schema's, and those of the template its `propsFrom` attribute names (`template.props`). */
 async function componentProps(schema: ComponentSchema, ask: Asked, svc: CompletionService): Promise<PropSchema[]> {
   const producer = schema.propsFrom ? ask.attrs?.find(a => a.key === schema.propsFrom)?.value : undefined;
-  const spec = producer ? (await svc.request<{ spec: PropsSpec }>("template.props", { of: producer })).spec : {};
+  // A template still being named (`::use{of="Templ`) has no props yet: the schema's own still answer.
+  const spec: PropsSpec = producer ? await svc.request<{ spec: PropsSpec }>("template.props", { of: producer }).then(r => r.spec, (): PropsSpec => ({})) : {};
   return [...schema.props, ...Object.entries(spec).map(([key, p]): PropSchema => ({ key, where: "line",
     type: p.kind === "property" || p.kind.startsWith("property:") ? p.kind as PropSchema["type"] : p.kind === "note" ? "ref" : p.kind === "choice" ? "enum" : "text",
     meaning: `a prop of ${producer}`, values: p.choices?.map(value => ({ value, meaning: value })),
@@ -392,7 +393,7 @@ async function scopedKeys(schema: ComponentSchema, ask: Asked, svc: CompletionSe
   const of = schema.propsFrom === "of" ? undefined : ask.attrs?.find(a => a.key === "of")?.value;
   if (!of) return noteKeys(ask, svc);
   const ref = blockReferenceOccurrences(of)[0];
-  const id = ref?.blockId ?? (of.startsWith("[[") ? (await svc.request<{ block?: { id: string } }>("pages.resolve", { address: of.slice(2, -2) }).catch(() => null))?.block?.id : of);
+  const id = ref?.blockId ?? (of.startsWith("[[") ? await svc.request<{ status: string; block?: { id: string } }>("pages.resolve", { address: of.slice(2, -2) }).then(r => r.status === "resolved" ? r.block?.id : undefined, () => undefined) : of);
   const text = id && ask.draft?.blockId === id ? ask.draft.text : id ? (await svc.request<{ selected: Wire | null }>("blocks.context", { blockId: id }).catch(() => ({ selected: null }))).selected?.text : undefined;
   return [...new Set(parsePropertyRecords(text ?? "").map(p => p.key))];
 }
@@ -443,7 +444,7 @@ const attributes: ServiceSource = {
         const made = variation(schema, { [prop.key]: v.value }, prop.key);
         return { label: v.label, kind: "value", docs, insert: yamlScalar(v.value), example: { use: made.use, ...(made.note ? { note: made.note } : {}), inline: true } };
       }
-      return { label: v.label, kind: "value", docs, insert: ask.quote ? v.value.replaceAll("\\", "\\\\").replaceAll(ask.quote, `\\${ask.quote}`) + ask.quote : JSON.stringify(v.value) };
+      return { label: v.label, kind: "value", docs, insert: attributeScalar(v.value, ask.quote) };
     }) };
   },
 };
@@ -488,8 +489,8 @@ export async function completionRows(svc: CompletionService, request: Completion
   const asks: Promise<CompletionSourceAnswer>[] = [];
   // A key an extension's source names (`[issue::`) is that source's: the properties source steps aside, so a value
   // isn't offered twice with two different inserts.
-  const claimed = ask.trigger === "key::" && extensions.some(e => e.keys?.length && sourceAnswers(e, ask));
-  for (const s of SERVICE_SOURCES) if (sourceAnswers(s.decl, ask) && !(claimed && s === properties)) {
+  const claimed = VALUE_TRIGGERS.has(ask.trigger) && extensions.some(e => e.keys?.length && sourceAnswers(e, ask));
+  for (const s of SERVICE_SOURCES) if (sourceAnswers(s.decl, ask) && !(claimed && (s === properties || s === attributes))) {
     // A source that fails says so in its own answer: the others' rows still come.
     asks.push(s.rows(ask, svc).then(a => ({ source: s.decl, ...a }), error => ({ source: s.decl, rows: [], problem: `${s.decl.title}: ${error instanceof Error ? error.message : String(error)}` })));
   }

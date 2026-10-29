@@ -43,7 +43,7 @@ import { rowLines, printable } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { blockReferenceOccurrences, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
-import { yamlScalar, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
+import { attributeScalar, yamlScalar, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { componentsReady } from "../component-schemas";
 import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import type { ListSource } from "../outline-lists";
@@ -170,8 +170,7 @@ const DOOR_SOURCES: readonly DoorSource[] = [
     const schemas = await componentsReady({ board, redraw: () => {} });
     const schema = schemas.find(s => COMPONENT_OPEN.exec(s.source.use.split("\n")[0]!)?.[1] === target.component);
     if (schema?.props.find(p => p.key === target.key)?.type !== "action") return { rows: [] };
-    const q = target.query, write = (v: string) => target.kind === "yaml-value" ? yamlScalar(v)
-      : target.quote ? v.replaceAll("\\", "\\\\").replaceAll(target.quote, `\\${target.quote}`) + target.quote : JSON.stringify(v);
+    const q = target.query, write = (v: string) => target.kind === "yaml-value" ? yamlScalar(v) : attributeScalar(v, target.quote);
     const args = await commandCandidates(q, host), rows = await barSource("actions")!.rows(q, host, "actions");
     return { rows: [...args.map(v => ({ label: v, insertion: write(v), kind: "value" })), ...rows.map(r => ({ label: r.label, insertion: write(r.fill ?? r.label), docs: r.detail, kind: "value" }))] };
   } },
