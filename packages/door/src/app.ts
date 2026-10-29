@@ -1767,10 +1767,12 @@ export class App implements Ctx {
 
   private statusBar(s: Screen, cols: number): string {
     this.shownTime = this.timeShown();
-    const items = this.statusNote.items(this.statusItems(s)).filter(i => width(i.text)), ids = items.map(i => i.id);
+    const items = this.statusNote.items(this.statusItems(s)).filter(i => width(i.text)), ids = items.map(i => i.id), whole = new Map(items.map(i => [i.id, i]));
     const hidden: StatusItem[] = [];
     const overflow = (): StatusItem => ({ id: "overflow", text: `+${hidden.length}`, place: "left", after: " │ ", click: { action: "status.bar.menu", args: { overflow: true } }, alt: { action: "status.bar.edit" } });
-    const over = () => width(statusText(items)) + (hidden.length ? width(statusText([overflow()])) : 0) + 3 > cols;
+    // Measured as drawn: each side with its separators, the overflow chip last on the left, and the │ between the sides.
+    const drawn = (list: StatusItem[]) => width(statusText(separated(list.filter(i => i.place === "left"), "left"))) + width(statusText(separated(list.filter(i => i.place === "right"), "right")));
+    const over = () => drawn(hidden.length ? [...items, overflow()] : items) + 3 > cols;
     // A narrow bar (PIE-1213): built-ins shorten first, from the end, the clock last; then the lowest rank goes into the
     // overflow (built-ins nobody listed, then listed ones, then what the person pinned), each from the end. The drawer
     // chip (down to its arrow) and the clock stay: the way into the drawer and the time are never in the overflow.
@@ -1793,7 +1795,8 @@ export class App implements Ctx {
     }
     // In the bar's own order: the menu lists them as they would stand.
     hidden.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
-    this.statusHidden = hidden;
+    // Its menu names each in its whole words (`+3 machine`, not the `+3` it was shortened to before it went).
+    this.statusHidden = hidden.map(h => whole.get(h.id) ?? h);
     if (hidden.length) items.push(overflow());
     const leftItems = separated(items.filter(i => i.place === "left"), "left"), rightItems = separated(items.filter(i => i.place === "right"), "right");
     const left = statusText(leftItems), right = statusText(rightItems);

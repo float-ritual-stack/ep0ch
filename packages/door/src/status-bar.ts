@@ -66,7 +66,7 @@ export type StatusEntry =
   | { kind: "builtin"; id: string; line: number }
   | { kind: "button"; call: ButtonCall; line: number }
   | { kind: "group"; label: string; line: number; children: StatusEntry[] };
-/** A line the reader skipped: its line (from 0) and what to write instead. */
+/** A line the reader skipped: its line (from 0) and what's wrong with it, with what to write instead. */
 export interface StatusProblem { line: number; message: string }
 
 const LIST_ITEM = /^(\s*)[-*+]\s+(.*?)\s*$/;
@@ -99,7 +99,7 @@ export function readStatusNote(text: string, builtinIds: readonly string[]): { e
     while (stack.length > 1 && stack.at(-1)!.indent >= indent) stack.pop();
     stack.at(-1)!.children.push(entry);
   };
-  const problem = (i: number, message: string) => problems.push({ line: i, message: `line ${i + 1}: ${message}` });
+  const problem = (i: number, message: string) => problems.push({ line: i, message });
   for (let i = 1; i < lines.length; i++) {
     if (!content(i)) continue;
     const line = lines[i]!, indent = indentOf(line), button = buttons.get(i);
@@ -165,7 +165,7 @@ export class StatusBarNote {
             this.note = notes[0] ?? null;
             this.read = this.note ? readStatusNote(this.note.text, builtins.map(b => b.id)) : null;
             // Said once for each set of skipped lines: the bar's `!` item keeps showing it until the line is fixed.
-            const text = this.read?.problems.length ? `Status bar: skipped ${this.read.problems.map(p => p.message).join("; ")}` : "";
+            const text = this.read?.problems.length ? `Status bar: skipped ${this.read.problems.map(p => `line ${p.line + 1}: ${p.message}`).join("; ")}` : "";
             if (text && text !== this.said) this.warn(text);
             this.said = text;
           } catch (e) {
