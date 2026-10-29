@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Undo never takes back what's saved (PIE-1414)
+
+- **ctrl+z stops at the save:** in a note you opened again after saving, the first ctrl+z keeps the saved text and says "saved · ctrl+z again undoes past the save (revision N stays in its history)"; a second press after a pause goes past it. A held key never crosses a save, and an agent's undo never does.
+- **Everywhere you type:** a reader, a float, the river and comments share the one editor, so the same holds in each.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### The status bar's last rough edges (PIE-1415, PIE-1224, PIE-1410)
 
 - **A group inside a group opens where you clicked:** More inside Tools opens over Tools, not at the left edge.
