@@ -7,7 +7,8 @@
 //   bun scripts/scripts-doc.ts --check   exit 1 when the tables drift or a pointer's symbol is gone (a moved line is not drift)
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { AGENT_TOOL_DEFINITIONS, describeTool } from "@ep0ch/outline-core/agent-tool-definitions";
+import { describeTool } from "@ep0ch/outline-core/agent-tool-definitions";
+import { SCRIPT_TOOL_DEFINITIONS } from "../src/host-api";
 import { PRIMITIVE_FIELDS, PRIMITIVE_TYPES } from "../src/component-primitives";
 
 /** The repository root, which the page's pointers are relative to. */
@@ -35,7 +36,7 @@ function firstSentence(text: string): string {
 /** The `tools.*` table: one row per agent tool, in the list's order, each pointing at its definition. */
 export function toolsTable(): string {
   const source = lines(TOOLS_FILE);
-  const rows = AGENT_TOOL_DEFINITIONS.map(definition => {
+  const rows = SCRIPT_TOOL_DEFINITIONS.map(definition => {
     const at = source.findIndex(line => line.includes(`name: "${definition.name}"`)) + 1
       || source.findIndex(line => line.includes("name: `outline_proposal_${op}`")) + 1;
     if (!at) throw new Error(`${definition.name} has no definition line in ${TOOLS_FILE}`);
