@@ -281,6 +281,23 @@ session ends. Every report carries `app=claude-code`. `hooks/claude-status.ts` h
 identical by outline-core's test. It writes only where the terminal speaks the protocol: `EP0CH_PROGRAM_STATUS` says
 outright (1, 0), else `tput Pst` (a door's tiles have it); it never sends the feature query, as Claude owns the input. This build of Claude Code reports nothing itself (its plugin API has no such call); once it does, `EP0CH_PROGRAM_STATUS=native` makes the mod step aside, so a record never has two writers (the mod can't read Claude's own output to notice by itself).
 
+### Approve from the phone (PIE-1386)
+
+A permission dialog in a session nobody is watching (a background job: `CLAUDE_JOB_DIR` is set) is put to the person
+through the outline before it shows (`hooks/approve.ts`):
+
+- **The ask:** a note under the bound outline's `[[permission-asks]]` page, `Allow <tool>: <what>?` with
+  `[needs::sysop: …]` on its first line, so pie's Waiting on Evan view (any view of `needs`) lists it; three steps:
+  `allow this once`, `allow for this session`, `deny`; and the call's input.
+- **The answer:** the person's tick, on the web page (a tap on my.ep0ch.sh) or in the door, both the one
+  `checklist.update` written as `author: user`. The hook reads the note every 3 s; a tick whose last write is an
+  agent's counts for nothing. `allow for this session` keeps the dialog's own suggested rules for this session only.
+- **No tick:** after 600 s the ordinary dialog shows. The note then says so and drops its `needs` chip, as it does
+  once answered (who answered, from which session, and when).
+- **Watched sessions** show the dialog at once, as before: a held hook holds the dialog. `EP0CH_APPROVE_WAIT=<seconds>`
+  sets the wait for any session (0 is off).
+- **Not covered:** auto mode's classifier denials (PermissionDenied) can't be answered by a hook.
+
 ## Recent mentions in Claude Code
 
 The blocks this conversation's answers mentioned show beside it, read from the

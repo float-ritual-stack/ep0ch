@@ -1721,3 +1721,79 @@ describe('the settle check (PIE-1268)', () => {
     expect(s.session.toasts.filter(t => t.includes('list --facets'))).toHaveLength(1)
   })
 })
+
+describe('approve from the phone (PIE-1386)', () => {
+  const ASK = '99999999-2222-4333-8444-555555555555'
+  const PAGE = '77777777-2222-4333-8444-555555555555'
+  /** A session in a background job whose ask note reads, in turn, as each of `reads` (text and who wrote it last). */
+  function asking(on: On, reads: Array<{ text: (t: string) => string; author: string }>, env: Record<string, string> = { CLAUDE_JOB_DIR: '/jobs/j1' }) {
+    let written = ''
+    let polled = 0
+    const edits: string[] = []
+    const session = sessionIn(on, WORKSPACE, run => {
+      const op = run.argv.includes('agent') ? run.argv[run.argv.indexOf('agent') + 1] : undefined
+      if (run.argv[0] === 'ep0ch' && run.argv[1] === 'find' && run.argv.join(' ').includes('permission-asks')) return result(0, `((${PAGE}))\n`, '')
+      if (run.argv[0] === 'sleep') return result(0, '', '')
+      if (op === 'create') {
+        written = (JSON.parse(String(run.init?.stdin)) as { text: string }).text
+        return result(0, JSON.stringify({ id: ASK, revision: 1 }), '')
+      }
+      if (op === 'read') {
+        const at = reads[Math.min(polled++, reads.length - 1)]!
+        return result(0, JSON.stringify({ id: ASK, text: at.text(written), revision: 1 + polled, author: at.author, actorId: at.author === 'user' ? 'web:session-7' : 'loki/claude-code@garden-host' }), '')
+      }
+      if (op === 'edit') {
+        edits.push((JSON.parse(String(run.init?.stdin)) as { text: string }).text)
+        return result(0, '{}', '')
+      }
+      return succeeding(run)
+    }, '', env)
+    on('classic.PermissionRequest', () => ({}))
+    return { session, written: () => written, edits, polled: () => polled }
+  }
+  const tick = (label: string) => (text: string) => text.replace(`- [ ] ${label}`, `- [x] ${label}`)
+  const untouched = { text: (t: string) => t, author: 'agent' }
+
+  test("the ask lands in the outline with the person's three steps; the person's tick allows the call, an agent's does nothing", async ($, on) => {
+    const ask = asking(on, [untouched, { text: tick('allow this once'), author: 'agent' }, { text: tick('allow this once'), author: 'user' }])
+    await ask.session.begin(() => $.session.start(START))
+    const answer = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'gh pr merge 12 --merge' } })
+    expect(await answer).toMatchObject({ decision: { behavior: 'allow' } })
+    expect(ask.written()).toStartWith('Allow Bash: gh pr merge 12 --merge? [needs::sysop: Bash: gh pr merge 12 --merge]')
+    expect(ask.written()).toContain('- [ ] allow this once\n- [ ] allow for this session\n- [ ] deny')
+    // The agent's tick (the second read) went by; the person's (the third) answered it, and the close-out read it again.
+    expect(ask.polled()).toBe(4)
+    expect(ask.edits.at(-1)).not.toContain('[needs::')
+    expect(ask.edits.at(-1)).toContain('Answered **allow this once** by the person (web:session-7)')
+  })
+
+  test('the person denies: the call is denied, with where the answer came from', async ($, on) => {
+    const denied = asking(on, [{ text: tick('deny'), author: 'user' }])
+    await denied.session.begin(() => $.session.start(START))
+    const no = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm notes.txt' } })
+    expect(await no).toMatchObject({ decision: { behavior: 'deny' } })
+  })
+
+  test('allow for this session writes the dialog\'s own suggestion as a session rule, never a standing one', async ($, on) => {
+    const kept = asking(on, [{ text: tick('allow for this session'), author: 'user' }])
+    await kept.session.begin(() => $.session.start(START))
+    const yes = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'bun test' }, permission_suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'bun test:*' }], behavior: 'allow', destination: 'localSettings' }] })
+    expect(await yes).toMatchObject({ decision: { behavior: 'allow', updatedPermissions: [{ type: 'addRules', destination: 'session' }] } })
+  })
+
+  test('nobody ticks: the wait runs out and the ordinary dialog shows; the note says so and waits on nobody', async ($, on) => {
+    const quiet = asking(on, [untouched], { CLAUDE_JOB_DIR: '/jobs/j1', EP0CH_APPROVE_WAIT: '30' })
+    await quiet.session.begin(() => $.session.start(START))
+    const answer = $.classic.PermissionRequest({ tool_name: 'WebFetch', tool_input: { url: 'https://example.com/a' } })
+    expect((await answer).decision).toBeUndefined()
+    expect(quiet.edits.at(-1)).toContain('Nobody ticked')
+    expect(quiet.edits.at(-1)).not.toContain('[needs::')
+  })
+
+  test('a session someone is watching shows its dialog at once, as before: nothing is written', async ($, on) => {
+    const watched = asking(on, [untouched], {})
+    await watched.session.begin(() => $.session.start(START))
+    expect((await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })).decision).toBeUndefined()
+    expect(watched.written()).toBe('')
+  })
+})

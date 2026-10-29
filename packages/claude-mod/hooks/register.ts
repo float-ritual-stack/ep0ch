@@ -1,5 +1,5 @@
 import { formatEp0chBlockUri } from "./link-grammar.js";
-import type { EngineInterface, On, PluginOptions, RenderElement, RenderInput, RenderSurface, UiOpenResult } from 'claude-code'
+import type { EngineInterface, On, PermissionRequestDecision, PluginOptions, RenderElement, RenderInput, RenderSurface, UiOpenResult } from 'claude-code'
 
 import {
   boundWorkspaceOf,
@@ -36,7 +36,8 @@ import { replyBlocks, tableWidths, type LinePart, type ReplyBlock } from './repl
 import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-persona'
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekArgv, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
-import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
+import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, stampOf, unwrapPeer } from './peer-log'
+import { answerOf, approveWaitMs, askPageCreateArgv, askPageFindArgv, askReadOf, askText, ASK_STEPS, byThePerson, closedText } from './approve'
 import { baselineOf, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
 import { type StatusInput, tileMark, tmuxPassthrough } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
@@ -839,8 +840,16 @@ export function register(on: On, options: PluginOptions): void {
   on('classic.PermissionRequest', async ($, e, next) => {
     const result = await next(e)
     // A hook that answered it (allow or deny) shows no dialog: nothing waits on the person.
-    if (!result.decision) reportStatus($, permissionAsked(e.tool_name, e.tool_input))
-    return result
+    if (result.decision) return result
+    reportStatus($, permissionAsked(e.tool_name, e.tool_input))
+    // Approve from the phone (PIE-1386): the ask goes in the outline, and the person's tick answers it.
+    const answered = await askThePerson($, option, e, next.signal).catch((error: unknown) => {
+      void $.ui.log(`permission ask: ${error instanceof Error ? error.message : String(error)}`)
+      return null
+    })
+    if (!answered) return result
+    reportStatus($, working())
+    return { ...result, decision: answered }
   })
   on('classic.Notification', async ($, e, next) => {
     const r = notified(e.notification_type, e.message)
@@ -1476,6 +1485,71 @@ async function runDoorTool(
 async function toOwnAgent($: EngineInterface, to: string): Promise<boolean> {
   const agents = await $.agent.list().catch(() => [])
   return agents.some(a => a.id === to || a.teammateId === to)
+}
+
+/** The bound outline's [[permission-asks]] page, found (or made) once per outline folder. */
+let askPage: { root: string; id: string } | undefined
+type SessionRules = NonNullable<Extract<PermissionRequestDecision, { behavior: 'allow' }>['updatedPermissions']>
+/** How long a poll of the ask waits between reads. */
+const ASK_POLL_MS = 3000
+
+/**
+ * A permission dialog put to the person through the outline (PIE-1386, hooks/approve.ts): the ask note written, then
+ * read every few seconds until a step is ticked by the person (`author: user`: the web page's tap or the door, never an
+ * agent), the call abandoned, or the wait over. Resolves to the dialog's answer, or null for the ordinary dialog.
+ * The waits are `sleep` processes: a `$.clock` wait counts against a hook's 10 s budget, a `$` call doesn't.
+ */
+async function askThePerson($: EngineInterface, option: PluginOptions, e: { tool_name: string; tool_input: unknown; permission_suggestions?: unknown[]; agent_id?: string }, signal: AbortSignal): Promise<PermissionRequestDecision | null> {
+  const env = { EP0CH_APPROVE_WAIT: await $.env.get('EP0CH_APPROVE_WAIT'), CLAUDE_JOB_DIR: await $.env.get('CLAUDE_JOB_DIR') }
+  const waitMs = approveWaitMs(env)
+  if (!waitMs) return null
+  if (!references?.workspace) await loadReferences($, option)
+  const workspace = references?.workspace
+  if (!workspace) return null
+  const run = (argv: readonly string[]) => $.process.run(argv, { cwd: workspace.root, env: envFor(workspace), timeoutMs: 20_000 })
+  const actor = await actorFor($, {})
+  if (askPage?.root !== workspace.root) {
+    const found = await run(askPageFindArgv())
+    const id = (found.exitCode === 0 ? pageIdOf(found.stdout) : undefined) ?? pageIdOf((await run(askPageCreateArgv(actor))).stdout)
+    if (!id) throw Error('no [[permission-asks]] page, and ep0ch new could not make one')
+    askPage = { root: workspace.root, id }
+  }
+  const asked = stampOf(await $.clock.now())
+  const who = `${actor}${e.agent_id ? ` (a subagent)` : ''} in ${workspace.root.split('/').pop() || workspace.root}`
+  const created = JSON.parse(await runOutlinerCli($, workspace, ['agent', 'create', '--stdin', '--actor', actor], JSON.stringify({ parent: askPage.id, text: askText(e.tool_name, e.tool_input, who, asked) }))) as { id?: string }
+  const id = created.id
+  if (!id) throw Error('agent create gave no id')
+  const read = async () => askReadOf(await runOutlinerCli($, workspace, ['agent', 'read', '--stdin', '--actor', actor], JSON.stringify({ ref: id, depth: 0 })))
+  const close = async (said: string) => {
+    for (let tries = 0; tries < 2; tries++) {
+      const now = await read().catch(() => null)
+      if (!now) return
+      try {
+        await runOutlinerCli($, workspace, ['agent', 'edit', '--stdin', '--actor', actor], JSON.stringify({ ref: id, expectedRevision: now.revision, text: closedText(now.text, said) }))
+        return
+      } catch { /* written meanwhile: read again */ }
+    }
+  }
+  // A count of polls, not a deadline: each poll is a sleep then a read, so the wait is as long as they take, never less.
+  for (let poll = 0; poll < Math.ceil(waitMs / ASK_POLL_MS) && !signal.aborted; poll++) {
+    await $.process.run(['sleep', String(ASK_POLL_MS / 1000)], { timeoutMs: ASK_POLL_MS + 5000 }).catch(() => {})
+    if (signal.aborted) break
+    const now = await read().catch(() => null)
+    const answer = now ? answerOf(now.text) : null
+    // A box an agent ticked (or anyone but the person) answers nothing: the wait goes on.
+    if (!now || !answer || !byThePerson(now)) continue
+    const at = stampOf(await $.clock.now())
+    await close(`Answered **${ASK_STEPS[answer]}** by the person${now.actorId ? ` (${now.actorId})` : ''} at ${at}; the session carried on.`)
+    if (answer === 'deny') return { behavior: 'deny', message: `The person denied this from the outline (${at}).` }
+    if (answer === 'session') {
+      // One allow for the rest of this session: the dialog's own suggestions, kept for the session only, never a standing rule.
+      const rules = (e.permission_suggestions ?? []).filter(u => !!u && typeof u === 'object').map(u => ({ ...(u as object), destination: 'session' })) as SessionRules
+      return { behavior: 'allow', ...(rules.length ? { updatedPermissions: rules } : {}) }
+    }
+    return { behavior: 'allow' }
+  }
+  await close(signal.aborted ? `Not needed any more: the call ended before a tick (${stampOf(await $.clock.now())}).` : `Nobody ticked in ${Math.round(waitMs / 60000)} min: the dialog showed in the session instead (${stampOf(await $.clock.now())}).`)
+  return null
 }
 
 /** The bound outline's [[peer-messages]] page, found (or made) once per outline folder. */
