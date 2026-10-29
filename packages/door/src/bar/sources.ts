@@ -101,7 +101,9 @@ const TILES: BarSource = {
     if (p instanceof PtyPane) { const text = p.text(); while (text.length && !text.at(-1)!.trim()) text.pop(); return { lines: text.length ? text : ["(the terminal is blank)"] }; }
     return { lines: [`${t.name}: a ${t.kind} tile${t.screen ? ` on the ${t.screen.title}` : " in your drawer"}`, "", p?.title?.() ?? "", "", "⏎ goes to it · alt+⏎ zooms it"] };
   },
-  command: row => shownLine("tile.focus", {}, (row.data as TileAt).path),
+  // The line its pick runs, where a line can run it: a tile on the screen shown (one in the drawer, under this screen or in
+  // a mount is gone to by the person's pick alone).
+  command(row, host) { const t = row.data as TileAt; return t.screen === host.screens().at(-1) && !t.mounts.length ? shownLine("tile.focus", {}, t.path) : null; },
   async pick(row, host, how) {
     const t = row.data as TileAt, p = t.desk.pane(t.name);
     if (!p) throw new ActionRefused(`${t.path} isn't open any more`);
@@ -333,7 +335,8 @@ const ACTIONS: BarSource = {
  * then (on its page) what running it does, never its action's "<name>: Run <name>." summary said under its name again.
  */
 function scriptSaid({ extension: e, action: a }: ReturnType<typeof scriptActions>[number], short = false): string {
-  const about = (e.summary || e.description || a.label).trim().replace(/[.;:]$/, "");
+  // Its summary is what it is; a script's description says where it is written, so never that.
+  const about = (e.summary || a.label).trim().replace(/[.;:]$/, "");
   // The row: what it is. The page: that, then what a run does (the revision it runs, what it keeps).
   return short ? about : [about, a.description].filter(Boolean).join(". ");
 }
@@ -443,6 +446,7 @@ const RECENT: BarSource = {
 
 interface ScreenListed { stack: string[]; screens: { key: string; label: string; about: string }[]; named: { name: string; title?: string; made?: boolean }[] }
 
+const screenArgs = (row: BarRow) => ({ name: (row.data as { name: string }).name });
 const SCREENS: BarSource = {
   id: "screens", title: "screens", prefix: "@", by: "door",
   about: "the screens to open: the menu's and every registered one (the ones people made too); ⏎ opens it over this one (q comes back)",
@@ -454,9 +458,9 @@ const SCREENS: BarSource = {
     return filtered(rows, q, r => [r.label, r.detail ?? "", (r.data as { about: string }).about]);
   },
   preview: row => ({ markdown: `**${row.label}**\n\n${(row.data as { about: string }).about || "a screen"}\n\n⏎ opens it over this screen; q comes back.` }),
-  command: row => shownLine("screen.open", { name: (row.data as { name: string }).name }),
+  command: row => shownLine("screen.open", screenArgs(row)),
   pick(row, host, how) {
-    const args = { name: (row.data as { name: string }).name };
+    const args = screenArgs(row);
     return how.actor.kind === "agent" ? host.dispatch.act({ action: "screen.open", args }, how.actor) : host.dispatch.press("screen.open", args);
   },
 };
@@ -497,6 +501,10 @@ function extensionFacts(e: ExtensionEntry, then: string): string {
  * installs one, `extensions.install`), and, once a name is typed, removing one (`extensions.uninstall`), keeping its demo
  * notes or not. `&` is the door's: an extension's bar source can't take it.
  */
+/** What an install or remove row runs, for its pick and its copied line alike; the rest open a page or a form. */
+const extRequest = (d: ExtRow): [string, Record<string, unknown>] | null =>
+  d.block ? null : d.kind === "install" ? ["extensions.install", { id: d.id }] : d.kind === "remove" ? ["extensions.uninstall", { id: d.id, demo: d.demo! }] : null;
+
 const EXTENSIONS: BarSource = {
   id: "extensions", title: "extensions", prefix: "&", by: "door",
   about: "the outline's extensions: the Extensions hub, each installed one's page (⏎ opens it: its README, what it adds, its demo notes; its row says its settings: default, set, needs setup, failing), each one's settings (⏎ opens its form, drawn from its configSchema), the ones the repo has that aren't installed (⏎ installs one with its demo notes), and, with its name typed, removing one",
@@ -548,11 +556,8 @@ const EXTENSIONS: BarSource = {
     return { lines: [row.label, "", row.refused ?? ""] };
   },
   command(row) {
-    const d = row.data as ExtRow;
-    if (d.kind === "install") return shownLine("extensions.install", { id: d.id });
-    if (d.kind === "remove") return shownLine("extensions.uninstall", { id: d.id, demo: d.demo });
-    if (d.kind === "settings") return shownLine(`ext.${d.id}.settings`);
-    return null;
+    const req = extRequest(row.data as ExtRow);
+    return req ? shownLine(req[0], req[1]) : null;
   },
   async pick(row, host, how) {
     const d = row.data as ExtRow;
@@ -576,7 +581,7 @@ const EXTENSIONS: BarSource = {
       return openActionForm(host, { action, args: now }, how.actor);
     }
     if (d.block) return openNote(d.block, host, how);
-    const [action, args] = d.kind === "install" ? ["extensions.install", { id: d.id }] : ["extensions.uninstall", { id: d.id, demo: d.demo! }];
+    const [action, args] = extRequest(d)!;
     return how.actor.kind === "agent" ? host.dispatch.act({ action, args }, how.actor) : host.dispatch.press(action, args);
   },
 };

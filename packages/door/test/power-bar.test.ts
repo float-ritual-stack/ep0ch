@@ -906,8 +906,14 @@ describe.skipIf(!outliner)("the power bar", () => {
     await expect(app.dispatch.act({ action: "bar.command", args: { op: "copy", n: hit } }, USER)).rejects.toThrow("its menu copies its reference");
   });
 
-  test("a click lights a row and shows its preview; a click on the lit row runs it, as enter does (PIE-1405)", async () => {
+  test("a click lights a row and shows its preview; the next click on it runs it, as enter does (PIE-1405)", async () => {
     key(ctrlK); type("%");
+    // The row lit when the bar opened is a first click's: one click on it previews, never runs.
+    const top = frame().findIndex(l => l.includes(peek().bar.rows[0].label));
+    const tx = frame()[top]!.indexOf(peek().bar.rows[0].label) + 1;
+    key({ kind: "mouse", action: "down", x: tx, y: top, button: 0 } as Key); key({ kind: "mouse", action: "up", x: tx, y: top, button: 0 } as Key);
+    expect(peek().bar).toBeDefined();
+    await Bun.sleep(450);
     // A tile row other than the lit first one, and another tile in focus.
     const rows = peek().bar.rows, n = rows.findIndex((r: any, i: number) => i > 0 && r.source === "tiles" && r.detail.split(" · ")[0] !== "reader");
     expect(n).toBeGreaterThan(0);

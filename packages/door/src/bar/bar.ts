@@ -116,13 +116,13 @@ export class PowerBar {
       name: "power bar", items: () => this.items,
       heading: (it, _i, w) => (!this.compact() && it.heading ? fg(C.dark) + ` ${it.heading} ${"─".repeat(Math.max(0, w - width(it.heading) - 2))}` + RESET : null),
       row: (it, _i, on, w) => this.rowText(it, on, w),
-      // ⏎, a double click and a click on the lit row (an alt-click: the alternate) are `bar.pick`, an action, as an agent's is.
+      // ⏎, a double click and a second click on a row (an alt-click: the alternate) are `bar.pick`, an action, as an agent's is.
       choose: (_it, i) => this.pick(i + 1, this.alt),
       closed: () => { clearPrivateForm(); this.close(); },
       keys: k => this.ownKey(k),
       clickChooses: !!this.compact(),
-      // A click lights a row and shows its preview; a click on the lit row runs it, as ⏎ does (PIE-1405).
-      litClickChooses: true,
+      // A click lights a row and shows its preview; the next click on it runs it, as ⏎ does (PIE-1405).
+      secondClickChooses: true,
       clicked: (x, y) => this.clicked(x, y),
       frame: a => this.frame(a),
     });
@@ -330,6 +330,8 @@ export class PowerBar {
       for (const s of this.sources()) if (!s.asks) { try { const r = s.rows(this.query, this.host, this.scope); if (Array.isArray(r)) this.got.set(s.id, r); } catch { /* kept as it was */ } }
       return this.build(true);
     }
+    // Other rows for what's typed now: a click on one is a first click, whatever was clicked before.
+    this.picker.view.forget();
     const turn = this.search.begin(), q = this.query, sources = this.sources();
     this.moved = false;
     // A source that asks the service keeps the rows it gave until its answer to what's typed now replaces them (PIE-1398:
@@ -411,14 +413,14 @@ export class PowerBar {
   /** A row: its indent and mark, its words, then dim what it is and its key, as wide as the list. */
   private rowText(it: BarItem, on: boolean, w: number): string[] {
     const r = it.row, head = ` ${"  ".repeat(Math.min(6, r.depth ?? 0))}${r.mark ? `${r.mark} ` : ""}`;
-    const detail = r.refused ? ` · ${r.refused}` : r.subtitle ? ` · ${r.subtitle}` : r.detail ? ` · ${r.detail}` : "";
+    const said = r.refused || r.subtitle || r.detail || "", detail = said ? ` · ${said}` : "";
     // Its kind at the right (an extension's: rule, script), once the words keep room to read (CHIP_ROOM columns).
     const kind = r.chip && w - width(r.chip) - 2 - (r.keycap ? width(keyCaption(r.keycap)) + 2 : 0) >= CHIP_ROOM ? ` ${r.chip} ` : "";
     const cap = (r.keycap ? ` ${keyCaption(r.keycap)} ` : "") + kind;
     // One line whose name fits: only what follows the name is cut short, so the lit row's marquee (PIE-1140) scrolls the
     // detail in its own cells and the name stays where it is (PIE-1405).
     const room = w - width(cap), named = head + r.label + " · ";
-    const lines = r.oneLine && detail && width(named) < room && width(head + r.label + detail) > room ? [named + drawEllipsized(detail.slice(3), room - width(named))]
+    const lines = r.oneLine && said && width(named) < room && width(head + r.label + detail) > room ? [named + drawEllipsized(said, room - width(named))]
       : rowLines(head + r.label + detail, room, r.oneLine ? 1 : undefined, { hang: width(head) });
     return lines.map((line, i) =>
       pickRow(line, on, w - width(cap), r.refused ? C.dark : C.grey) + (i ? " ".repeat(width(cap)) : kind ? cap.slice(0, -kind.length) + fg(C.dark) + kind + RESET : cap));
@@ -642,6 +644,10 @@ export class PowerBar {
       const rows = (Array.isArray(def.menu) ? def.menu : [def.menu]).filter(e => (e.args as { kind?: string } | undefined)?.kind !== "line");
       return rows.map(e => [e.label, "note.copy-ref", { ...e.args, ref: note.id, ...(note.outline ? { outline: note.outline } : {}) }] as const);
     }
+    // A row whose source says no line for it has nothing to copy: its menu offers none (PIE-1405).
+    const it = this.items[this.picker.sel];
+    const line = () => { try { return it!.source.command?.(it!.row, this.host) ?? null; } catch { return null; } };
+    if (it && it.source.id !== "runs" && !it.row.key.startsWith("line:") && !line()) return [];
     return [["copy command", "bar.command", { op: "copy" }], ["copy button", "bar.command", { op: "button" }], ["insert button", "bar.insert", {}]];
   }
 

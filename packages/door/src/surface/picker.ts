@@ -41,10 +41,10 @@ export interface PickerSpec<T, H> {
   /** A click chooses the row it's on, at once (a menu), instead of moving the cursor there first. */
   clickChooses?: boolean;
   /**
-   * A click on the row already lit chooses it, as ⏎ does (the power bar, PIE-1405): the first click selects and
-   * previews, the next opens, however long between them (click-previews: select, then open on a second click).
+   * A second click on the row a click lit chooses it however long after, as ⏎ does (the power bar, PIE-1405): the first
+   * click on a row selects and previews it, a row lit by keys or by opening is a first click's (RowPress.untimed).
    */
-  litClickChooses?: boolean;
+  secondClickChooses?: boolean;
   /** Put away by esc, a closing letter or a click outside (`how`): what else that does. */
   closed?(host: H, how: PickerClose): void;
   /** Keys and clicks of its own before the list's (the steps' x w !, the policy's h l + - and containers). */
@@ -171,7 +171,7 @@ export class ListPicker<T, H> implements Mode<H> {
     if (!r) return;                                          // never drawn (the reader's status choice): not its click
     // A panel that stays open (the policy rows, the steps) has controls for rows: a click on one is its change.
     if (hit && this.spec.clickedItem?.(this.items[hit.i]!, x - r.col - 1, host)) return;
-    if (hit) { const g = this.bindings.find(row => row.key === "click")!.action === "picker.choose" ? "open" : this.view.press(hit.i, { mods: k.mods ?? 0, button: k.button }); if (g === "open" || g === "fresh" || (g === "select" && this.spec.litClickChooses && hit.i === this.sel)) this.pick(hit.i, host); else this.sel = hit.i; }
+    if (hit) { const g = this.bindings.find(row => row.key === "click")!.action === "picker.choose" ? "open" : this.view.press(hit.i, { mods: k.mods ?? 0, button: k.button, untimed: !!this.spec.secondClickChooses && hit.i === this.sel }); if (g === "open" || g === "fresh") this.pick(hit.i, host); else this.sel = hit.i; }
     else if (!this.spec.clicked?.(x, y, host) && (!r || x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) this.close(host, "click");
   }
 
