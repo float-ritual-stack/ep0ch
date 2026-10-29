@@ -23,7 +23,7 @@ import { outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { loadFigureFitPrompt } from "../../src/ai-prompts";
 import { askFigureFit, FIGURE_FIT_THRESHOLDS, figureFitRequest, figureOptions, figureShape, type FigureFitReading } from "../../src/figure-fit";
 import { evalSet, reportNote, scoreReadings, sweepThresholds, type EvalItem } from "../../src/figure-fit-eval";
-import { JEV_MODEL } from "../../src/search-ranking";
+import { JEV_MODEL } from "../../src/jev";
 
 const USAGE = "usage: bun scripts/evals/figure-fit.ts <copy.sqlite> [--labels <file.json>] [--shaped <n>] [--gate <g>] [--confidence <c>] [--out <report.json>] [--note]";
 

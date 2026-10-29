@@ -47,7 +47,7 @@ export function writerOf(actorId: string): { writer: string; harness: string } {
 export const promptRevOf = (reading?: Pick<FigureFitReading, "prompt">) => reading?.prompt.map(p => `${p.path.split("/").pop()}:${p.sha256.slice(0, 12)}`).join(" ") || "unknown";
 
 /** A value written as a property chip: one line, with nothing that reads as a bracket or a `::` opener. */
-const chipValue = (v: string) => v.replace(/[\[\]\r\n]+/g, " ").replace(/:{2,}/g, ":").trim().slice(0, 200) || "none";
+export const chipValue = (v: string) => v.replace(/[\[\]\r\n]+/g, " ").replace(/:{2,}/g, ":").trim().slice(0, 200) || "none";
 
 /** Every value a record is stamped with, as a chip may hold it: actor ids and titles are the writer's own words. */
 const clean = (props: Record<string, string>) => Object.fromEntries(Object.entries(props).map(([k, v]) => [k, chipValue(v)]));
@@ -64,7 +64,7 @@ export interface SuggestionWrite {
   thread?: string;
 }
 
-const dayOf = (at: Date | number) => new Date(at).toISOString().slice(0, 10);
+export const dayOf = (at: Date | number) => new Date(at).toISOString().slice(0, 10);
 
 /** A suggestion a writer was told, as a fact, and the day's run brought up to date. Never throws. */
 export async function recordSuggestion(client: SuggestionClient, fit: FigureFit, reading: FigureFitReading | undefined, at: SuggestionWrite, now = new Date()): Promise<void> {
@@ -214,11 +214,11 @@ export const LIVE_EXPERIMENT = "figure-fit-live";
 const countOf = async (client: SuggestionClient, where: string, group: string) =>
   Object.fromEntries(((await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where, machinery: "show", limit: 1, group } })).groups ?? []).map(g => [g.value ?? "", g.count]));
 
-const setChip = (text: string, key: string, value: string | number) => {
+export const setChip = (text: string, key: string, value: string | number) => {
   const chip = new RegExp(`\\[${key}::[^\\]]*\\]`);
   return chip.test(text) ? text.replace(chip, () => `[${key}::${value}]`) : text;
 };
-const chipNumber = (text: string, key: string) => Number(new RegExp(`\\[${key}::(\\d+(?:\\.\\d+)?)\\]`).exec(text)?.[1]) || 0;
+export const chipNumber = (text: string, key: string) => Number(new RegExp(`\\[${key}::(\\d+(?:\\.\\d+)?)\\]`).exec(text)?.[1]) || 0;
 
 /**
  * The day's run, one note per outline per day (`type::jev-run`, the run-level keys kitty's lab runs share, so one query

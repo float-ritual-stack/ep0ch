@@ -1278,6 +1278,8 @@ export interface PageAddressFollowResult extends PageAddressResolution {
 export interface PageAddressMatch extends PageAddressRecord {
   subtitle?: string;
   title: string;
+  /** Jev's Score for it (0 to 3), on a ranked lookup (PIE-1198). */
+  score?: number;
 }
 
 export interface PageAddressCollection {
@@ -1709,6 +1711,8 @@ export interface GotoSearchMatch {
   path: string;
   snippet: string;
   exact: boolean;
+  /** Jev's Score for it (0 to 3), on a ranked search (PIE-1198). */
+  score?: number;
   /**
    * An empty query asked from a note (`contextBlockId`) lists, in order: what its parent and siblings link to
    * (`linked`), notes near it (`near`), the person's own recent edits (`yours`).
@@ -1728,9 +1732,12 @@ export interface GotoSearchCollection {
     elapsedMs?: number;
     candidateCount?: number;
     inputTokens?: number;
+    outputTokens?: number;
     promptRevisions?: PromptRevision[];
-  };
+  } & Partial<SearchCertainty>;
 }
+export type { SearchCertainty } from "@ep0ch/outline-core/protocol";
+import type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 
 interface BacklinkOccurrenceBase {
   label: string;
@@ -2513,6 +2520,7 @@ export type OutlinerRequestAction =
   | ({ id: string; action: "completion.rows" } & import("@ep0ch/outline-core/protocol").CompletionRowsRequest)
   /** A completion row was chosen (PIE-1340): its pick is counted, so every client ranks it higher next time. `{ picks }`. */
   | ({ id: string; action: "completion.picked" } & import("@ep0ch/outline-core/protocol").CompletionPickedRequest)
+  | ({ id: string; action: "search.picked" } & import("@ep0ch/outline-core/protocol").SearchPickedRequest)
   /**
    * An extension's command-palette source answers a query (PIE-656, the door's power bar): `{ extension, source,
    * rows: [{ id, label, detail?, preview?, block?, action?, args?, copy? }] }`. It writes nothing.

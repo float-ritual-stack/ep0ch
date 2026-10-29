@@ -89,18 +89,37 @@ function json(revision: PromptRevision): unknown {
   catch { throw new PromptFileError(revision.path, "invalid JSON; correct the file and retry"); }
 }
 
-export async function loadGotoPrompt(directory?: string): Promise<{ ranking: Question<string[]>; revisions: PromptRevision[] }> {
+/** The "anything here answers it?" Noul a search asks beside its scores (PIE-1198). */
+export interface ExistsQuestion { instructions: string; true: string; false: string }
+
+/**
+ * goto-ranking.json: the Score each candidate gets, and `exists`, the Noul over the list. A workspace's copy made
+ * before `exists` was added keeps its ranking and asks the shipped file's `exists` (both revisions are reported).
+ */
+export async function loadGotoPrompt(directory?: string): Promise<{ ranking: Question<string[]>; exists: ExistsQuestion; revisions: PromptRevision[] }> {
   const revision = await readPrompt(aiPromptDirectory(directory), "goto-ranking.json");
-  const data = object(json(revision), revision.path, ["instructions", "criteria"], "document");
+  const parsed = json(revision);
+  const hasExists = !!parsed && typeof parsed === "object" && Object.hasOwn(parsed, "exists");
+  const data = object(parsed, revision.path, hasExists ? ["instructions", "criteria", "exists"] : ["instructions", "criteria"], "document");
   if (!Array.isArray(data.criteria) || data.criteria.length !== 4) {
     throw new PromptFileError(revision.path, "criteria must contain exactly four score descriptions (0–3)");
   }
+  const revisions = [revision];
+  let exists: unknown = data.exists, existsPath = revision.path;
+  if (!hasExists) {
+    const shipped = await readPrompt(resolve(DEFAULT_AI_PROMPT_DIRECTORY), "goto-ranking.json");
+    exists = (json(shipped) as Record<string, unknown>).exists;
+    existsPath = shipped.path;
+    if (shipped.path !== revision.path) revisions.push(shipped);
+  }
+  const e = object(exists, existsPath, ["instructions", "true", "false"], "exists");
   return {
     ranking: {
       instructions: nonempty(data.instructions, revision.path, "instructions"),
       criteria: data.criteria.map((value, i) => nonempty(value, revision.path, `criteria[${i}]`)),
     },
-    revisions: [revision],
+    exists: { instructions: nonempty(e.instructions, existsPath, "exists.instructions"), true: nonempty(e.true, existsPath, "exists.true"), false: nonempty(e.false, existsPath, "exists.false") },
+    revisions,
   };
 }
 

@@ -31,6 +31,7 @@ import type { ChangeAttribution } from "./change-feed";
 import { MentionRepository } from "./mentions";
 import { EditRecoveryRepository } from "./edit-recovery";
 import {rankSearchWithJev} from './search-ranking';
+import { keepSearchPick, readSearchPicked, readSearchPicks, SEARCH_PICKS_METADATA_KEY, tallySearch, type SearchTally } from './search-records';
 import { blockDisplayTitle } from "./references";
 import { previewPropertyParse } from "./properties";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
@@ -1460,6 +1461,22 @@ export class OutlinerServer {
 
   /** The `suggestions.keep` in progress (PIE-1251): the next waits for it. */
   private suggestionKeeps: Promise<void> = Promise.resolve();
+  /**
+   * A ranked search (or one Jev couldn't answer) counted on the day's `jev-run` (search-records.ts), after the answer
+   * has gone: one at a time, on the same turn as Jev's other records, so the day's run is made once.
+   */
+  private tallySearch(semantic: GotoSearchCollection["semantic"]): void {
+    if (this.readOnly || semantic.status === "lexical" || /busy|not configured/i.test(semantic.message ?? "")) return;
+    const tally: SearchTally = semantic.status === "ranked"
+      ? { kind: "ranked", sure: semantic.verdict ? { verdict: semantic.verdict, said: semantic.said ?? "" } : undefined, reading: { model: semantic.model ?? "unknown", prompt: semantic.promptRevisions ?? [], ...(semantic.inputTokens !== undefined ? { usage: { input: semantic.inputTokens, output: semantic.outputTokens ?? 0 } } : {}) } }
+      : { kind: "unavailable" };
+    const own = { request: async <T>(input: RequestInput): Promise<T> => {
+      const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
+      if (!response.ok) throw new Error(response.error);
+      return response.result as T;
+    } };
+    this.suggestionKeeps = this.suggestionKeeps.then(() => tallySearch(own, tally), () => undefined);
+  }
 
   /**
    * Every component's schema (`components.schemas`, PIE-618): the built-ins with the outline's own styles and types among
@@ -2183,7 +2200,8 @@ export class OutlinerServer {
             const candidates = ranked.addresses.map(address => ({ address, title: address.title.slice(0, 250), path: address.address, snippet: (this.store.get(address.blockId)?.text ?? "").slice(0, 1000), exact: address.exact }));
             const reordered = await rankSearchWithJev(request.query, { matches: candidates, completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...(ranked.context ? { note: { title: ranked.context.title, path: ranked.context.path } } : {}) });
             // A model answer cannot resurrect an address renamed or deleted while it ranked.
-            result = { addresses: reordered.matches.map(match => { const { exact: _exact, ...address } = match.address; return address; }).filter(address => this.store.pageAddressLive(address.normalizedAddress, address.blockId)), completeness: ranked.completeness, semantic: reordered.semantic, ...context };
+            result = { addresses: reordered.matches.map(match => { const { exact: _exact, ...address } = match.address; return { ...address, ...(match.score !== undefined ? { score: match.score } : {}) }; }).filter(address => this.store.pageAddressLive(address.normalizedAddress, address.blockId)), completeness: ranked.completeness, semantic: reordered.semantic, ...context };
+            this.tallySearch(reordered.semantic);
           } finally { this.activeGotoRankings--; }
         } else if (request.query?.trim()) {
           result.semantic = { status: "unavailable", message: "Jev busy; showing text matches" };
@@ -2203,6 +2221,7 @@ export class OutlinerServer {
           this.activeGotoRankings++;
           try { result = await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...(result.context ? { note: { title: result.context.title, path: result.context.path } } : {}) }); }
           finally { this.activeGotoRankings--; }
+          this.tallySearch(result.semantic);
           // A model answer cannot resurrect a deleted or edited candidate.
           result.matches = result.matches.filter(match => {
             const current = this.store.get(match.block.id);
@@ -2313,6 +2332,16 @@ export class OutlinerServer {
         if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
+    }
+    if (request.action === "search.picked") {
+      // PIE-1197: the row a person opened from a search, with the words, kept for the search eval's labels.
+      try {
+        if (this.readOnly) throw new Error("This outline is read-only.");
+        const pick = readSearchPicked(request as unknown as Record<string, unknown>);
+        const picks = keepSearchPick(readSearchPicks(this.store.readMetadata(SEARCH_PICKS_METADATA_KEY)), pick);
+        this.store.writeMetadata(SEARCH_PICKS_METADATA_KEY, JSON.stringify(picks));
+        return { id: request.id, ok: true, result: { kept: picks.length }, sequence: this.store.sequence };
+      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
     }
     if (request.action === "suggestions.keep") {
       // PIE-1251: the records of what Jev said are made here, in this process, so a writer that exits after one request
@@ -3789,6 +3818,7 @@ export class OutlinerServer {
           throw new Error(`${request.action} requires asynchronous dispatch.`);
         case "completion.rows":
         case "completion.picked":
+        case "search.picked":
         case "quote":
           throw new Error(`${action} requires asynchronous dispatch.`);
         default: {
