@@ -305,6 +305,9 @@ const ACTIONS: BarSource = {
 function actionLine(q: string, host: BarHost, command = false): BarRow | null {
   // A note's address pasted (a web link, an ep0ch:// one) is the notes source's to open, never an action that isn't there.
   if (addressOf(q)) return null;
+  // Typed as its row reads (`run neat`): the line after `run`, so the action's row comes first, before notes it names (PIE-1403).
+  const lead = /^run\s+(?=\S)/.exec(q);
+  if (lead && !host.dispatch.has("run")) q = q.slice(lead[0].length);
   const words = lineWords(q);
   let req: ActRequest;
   try { req = actRequestOf(words); } catch (e) {

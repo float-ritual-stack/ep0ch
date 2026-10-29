@@ -20,7 +20,8 @@ are its record. The outliner's entries from then are kept below, under
   search has answered.
 - **neat from the power bar works** as it does from its button: your own run of a script acts as you, the way a
   press does. From a float it puts other floats back and folds them; a step it can't do is said whole, in the
-  door's words, and its line names your notes, never tile ids.
+  door's words, and its line names your notes, never tile ids. Typed as its row reads, `run neat` lists the run
+  row first, before any note named Neat.
 - **The ▾ at a heading's words folds it** on a click, as the gutter's ▾ does, at 38 columns too.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
 

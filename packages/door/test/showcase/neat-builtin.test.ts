@@ -151,6 +151,19 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
 
   const floating = async (tile: string) => (await h.app.dispatch.act({ action: "layout.get" }, USER) as ReturnType<Desk["layoutAll"]>).tiles.find(t => t.tile === tile)?.float;
 
+  test("typed as its row reads, run neat is the first row: the action before any note named Neat (PIE-1403)", async () => {
+    const { app } = h;
+    await app.loadExtensions(true);
+    h.press({ kind: "char", ch: "k", ctrl: true });
+    try {
+      for (const c of "run neat") h.ch(c);
+      await app.bar!.settled();
+      const first = app.bar!.items[0]!;
+      expect([first.source.id, first.row.label, first.row.refused]).toEqual(["actions", "run neat", undefined]);
+      expect(app.bar!.items.some(i => i.source.id === "notes" && /neat/i.test(i.row.label))).toBe(true);   // the notes still listed, after it
+    } finally { h.press({ kind: "esc" }); h.press({ kind: "esc" }); }
+  }, 30_000);
+
   test("neat from a float, and from a river column: it works or says in plain words what it couldn't do (PIE-1403)", async () => {
     const { app, board } = h;
     const shed = await board.createBlock(null, "The shed\nWhat's in it, and what it needs.");
