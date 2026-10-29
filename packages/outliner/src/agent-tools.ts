@@ -665,8 +665,8 @@ async function reviewOf(client: AgentToolsClient, text: string, before: string |
   const within = <T,>(work: Promise<T>, fallback: T) => Promise.race([work.catch(() => fallback), Bun.sleep(REVIEW_BUDGET_MS).then(() => fallback)]);
   const started = Date.now();
   const full = async () => {
-    // Each read is bounded on its own; the outline's facets (seconds on a big outline: pie took 2 to 7 s) are read while
-    // Jev answers, and only when the text types a number before a word, so they never hold Jev up.
+    // Each read is bounded on its own; the outline's facets (pie's answer in about 0.2 s since PIE-1396, 2 to 7 s before)
+    // are read while Jev answers, and only when the text types a number before a word, so they never hold Jev up.
     // The host answers a connection's requests in turn, so the quick reads go first and the facets after them.
     const [schemas, qaRule] = await Promise.all([within(schemasOf(client), null), within(houseRule(client as never, "qa-for-evan"), undefined)]);
     const facets = hasCountCandidate(text) ? within(facetsOf(client), []) : Promise.resolve([]);
