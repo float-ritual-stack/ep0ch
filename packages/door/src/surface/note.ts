@@ -6644,7 +6644,7 @@ export class NoteSurface {
     this.setElem(e);
     this.reveal = true;
     // Mark done first, as Detail's menu; on a closed step (done, approved, rejected), Mark to do.
-    this.picker = { key: e.key, list: this.choices(stepClosed(e.task.step.status) ? 1 : 0), note: "", busy: false };
+    this.picker = { key: e.key, list: this.choices(stepClosed(e.task.step.status) ? 1 : 0, e.task.live), note: "", busy: false };
   }
 
   /**
@@ -6677,10 +6677,15 @@ export class NoteSurface {
     this.picker = { key: e.key, kind: "callout", list, note: "", busy: false, types };
   }
 
-  /** A status choice's list, from choice `sel`: j k Tab round it, ⏎ or a choice's letter chooses, esc or q cancels. */
-  choices(sel: number): Picker["list"] {
+  /**
+   * A status choice's list, from choice `sel`: j k Tab round it, ⏎ or a choice's letter chooses, esc or q cancels. On a
+   * live row (`live`, its figure's `done:`) each choice says what it writes on the row's note (`jev::right`), so a
+   * figure whose `done:` means "Jev was right" reads as that (PIE-1402).
+   */
+  choices(sel: number, live?: { key: string; done: string }): Picker["list"] {
+    const items = live ? STEP_CHOICES.map(c => c.id === "copy-link" || c.id === "address" ? c : { ...c, label: `${c.label} · ${live.key}::${liveMarkValue(live, c.id)}` }) : STEP_CHOICES;
     const list = new ListPicker<Choice, SurfaceHost>({
-      name: "choice", items: () => STEP_CHOICES, wraps: true, closers: "q", stays: true, row: () => [],
+      name: "choice", items: () => items, wraps: true, closers: "q", stays: true, row: () => [],
       choose: (_, i, host) => void this.choose(i, host),
       closed: host => { this.picker = null; host.redraw(); },                                  // a cancel: as it was
       keys: (k, host) => { const i = STEP_CHOICES.findIndex(x => x.key === ch(k)); if (i >= 0) void this.choose(i, host); return i >= 0; },

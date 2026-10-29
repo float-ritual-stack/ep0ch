@@ -14,7 +14,7 @@ import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { askNouls, board, chips, clip, CONFIDENT, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
-import { itemTitle, olderFirst } from "./work-twins";
+import { itemTitle, olderFirst, twinVerdict } from "./work-twins";
 import { deepCandidates } from "./search-deep";
 import { writeRecord } from "./records";
 import type { Block, VisibleBlockCollection } from "./types";
@@ -77,7 +77,7 @@ const propOf = (b: Block, key: string) => b.properties.find(p => p.key === key)?
 const bodyOf = (b: Block) => clip(b.text.split("\n").slice(headerLine(b.text).line + 1).filter(l => !/^\s*\[[^\]]+::[^\]]*\]\s*$/.test(l)).join("\n"), 800);
 const describe = (s: Shipped) => `${s.kind === "pr" ? "pull request" : "CHANGELOG"}: ${s.title}`;
 
-interface Candidates { shipped: Shipped[]; tickets: { id: string; workId: string; title: string; stage: string; closed: boolean }[] }
+interface Candidates { shipped: Shipped[]; tickets: { id: string; workId: string; title: string; stage: string; closed: boolean; body?: string }[] }
 
 /**
  * A few candidates of each kind for one ticket, by the search matcher over its title and then its body's opening (PIE-1402:
@@ -106,7 +106,7 @@ export function groomCandidates(ticket: Block, shipped: readonly Shipped[], othe
   const byMeaning = meant.flatMap(id => { const d = docs.find(x => x.id === id); return d && !words.has(id) ? [d] : []; }).slice(0, 3);
   return {
     shipped: [...named, ...[...changelog, ...prs].filter(s => !named.includes(s))],
-    tickets: [...closed, ...open, ...byMeaning].map(d => ({ id: d.id, workId: workIdOf(d.block) ?? d.id.slice(0, 8), title: d.title, stage: stageOf(d.block), closed: ["done", "superseded"].includes(stageOf(d.block)) })),
+    tickets: [...closed, ...open, ...byMeaning].map(d => ({ body: clip(bodyOf(d.block), 500), id: d.id, workId: workIdOf(d.block) ?? d.id.slice(0, 8), title: d.title, stage: stageOf(d.block), closed: ["done", "superseded"].includes(stageOf(d.block)) })),
   };
 }
 
@@ -120,9 +120,16 @@ export function groomVerdict(c: Candidates, answers: Record<string, number | und
   const ships = best("ships", c.shipped.length), replaces = best("replaces", c.shipped.length), dup = best("duplicate", c.tickets.length);
   if (ships && ships.p >= CONFIDENT) return { verdict: "solved", confidence: ships.p, evidence: describe(c.shipped[ships.i]!) };
   if (replaces && replaces.p >= CONFIDENT) return { verdict: "superseded", confidence: replaces.p, evidence: describe(c.shipped[replaces.i]!) };
-  if (dup && dup.p >= CONFIDENT) {
+  // The filing's own judgment (work-twins.ts twinVerdict, its same-work question): one judgment, one answer, whether a
+  // twin is met at filing or at the groom (PIE-1402: the groom said 0.28 open of a pair filing called maybe the same).
+  const twin = dup ? twinVerdict({ match: "some-terms", same: dup.p }) : undefined;
+  if (dup && twin === "same") {
     const t = c.tickets[dup.i]!;
     return { verdict: "duplicate", confidence: dup.p, evidence: `${t.workId} (${t.stage}): ${t.title}`, of: t.workId };
+  }
+  if (dup && twin === "unsure" && !(ships && ships.p >= YES) && !(replaces && replaces.p >= YES)) {
+    const t = c.tickets[dup.i]!;
+    return { verdict: "open", confidence: dup.p, evidence: `maybe the same work as ${t.workId} (${t.stage}): ${t.title}, Jev unsure (${dup.p.toFixed(2)})` };
   }
   const top = Math.max(ships?.p ?? 0, replaces?.p ?? 0, dup?.p ?? 0);
   const near = top >= YES ? [ships, replaces].some(x => x?.p === top) ? describe(c.shipped[(top === ships?.p ? ships : replaces)!.i]!) : `${c.tickets[dup!.i]!.workId}: ${c.tickets[dup!.i]!.title}` : "nothing shipped or filed does it";
@@ -173,9 +180,10 @@ export async function groom(source: WorkJevClient, evidence: GroomEvidence, o: G
         const candidate = JSON.stringify({ title: s.title, what: s.text });
         return [[`ships::${i}`, { ask: "ships" as const, candidate }], [`replaces::${i}`, { ask: "replaces" as const, candidate }]] as const;
       }),
-      ...c.tickets.map((x, i) => [`duplicate::${i}`, { ask: "duplicate" as const, candidate: JSON.stringify({ id: x.workId, title: x.title, stage: x.stage }) }] as const),
+      // The same question, over the same state, as twins at filing (work-twins.ts findTwins): `new` is this ticket.
+      ...c.tickets.map((x, i) => [`duplicate::${i}`, { ask: "same" as const, candidate: JSON.stringify({ id: x.workId, title: x.title, stage: x.stage, body: x.body ?? "" }) }] as const),
     ]);
-    const asked = await askNouls({ ticket: { id: ticket, title, body: bodyOf(t), latest } }, questions, o);
+    const asked = await askNouls({ ticket: { id: ticket, title, body: bodyOf(t), latest }, new: { title, ...(bodyOf(t) ? { body: bodyOf(t) } : {}) } }, questions, o);
     if ("unavailable" in asked) {
       jev = asked.unavailable;
       rows.push(codeOnly(asked.unavailable));
