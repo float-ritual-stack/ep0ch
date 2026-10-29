@@ -286,7 +286,10 @@ outright (1, 0), else `tput Pst` (a door's tiles have it); it never sends the fe
 A permission dialog in a session nobody is watching (a background job: `CLAUDE_JOB_DIR` is set) is put to the person
 through the outline before it shows (`hooks/approve.ts`):
 
-- **The ask:** a note under the bound outline's `[[permission-asks]]` page, `Allow <tool>: <what>?` with
+- **One list:** every session's asks go to `EP0CH_APPROVE_WS` (`<name>` or `<name>@<machine>`, default `pie`, on the
+  bound outline's machine), so pie's Waiting on Evan is the one list. A session bound to float-hub (client work) keeps
+  its asks in float-hub, never pie; an outline that can't be read from here keeps them in the bound outline.
+- **The ask:** a note under that outline's `[[permission-asks]]` page, `Allow <tool>: <what>?` with
   `[needs::sysop: …]` on its first line, so pie's Waiting on Evan view (any view of `needs`) lists it; three steps:
   `allow this once`, `allow for this session`, `deny`; and the call's input.
 - **The answer:** the person's tick, on the web page (a tap on my.ep0ch.sh) or in the door, both the one

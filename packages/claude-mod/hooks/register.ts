@@ -38,7 +38,7 @@ import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-pers
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekArgv, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, stampOf, unwrapPeer } from './peer-log'
-import { answerOf, approveWaitMs, askPageCreateArgv, askPageFindArgv, askReadOf, askText, ASK_STEPS, byThePerson, closedText } from './approve'
+import { answerOf, approveWaitMs, askOutlineOf, askPageCreateArgv, askPageFindArgv, askReadOf, askText, ASK_STEPS, byThePerson, closedText } from './approve'
 import { baselineOf, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
 import { type StatusInput, tileMark, tmuxPassthrough } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
@@ -1489,7 +1489,7 @@ async function toOwnAgent($: EngineInterface, to: string): Promise<boolean> {
 }
 
 /** The bound outline's [[permission-asks]] page, found (or made) once per outline folder. */
-let askPage: { root: string; id: string } | undefined
+let askPage: { key: string; id: string; workspace: Workspace } | undefined
 type SessionRules = NonNullable<Extract<PermissionRequestDecision, { behavior: 'allow' }>['updatedPermissions']>
 /** How long a poll of the ask waits between reads. */
 const ASK_POLL_MS = 3000
@@ -1505,18 +1505,28 @@ async function askThePerson($: EngineInterface, option: PluginOptions, e: { tool
   const waitMs = approveWaitMs(env)
   if (!waitMs) return null
   if (!references?.workspace) await loadReferences($, option)
-  const workspace = references?.workspace
-  if (!workspace) return null
-  const run = (argv: readonly string[]) => $.process.run(argv, { cwd: workspace.root, env: envFor(workspace), timeoutMs: 20_000 })
+  const bound = references?.workspace
+  if (!bound) return null
   const actor = await actorFor($, {})
-  if (askPage?.root !== workspace.root) {
-    const found = await run(askPageFindArgv())
-    const id = (found.exitCode === 0 ? pageIdOf(found.stdout) : undefined) ?? pageIdOf((await run(askPageCreateArgv(actor))).stdout)
-    if (!id) throw Error('no [[permission-asks]] page, and ep0ch new could not make one')
-    askPage = { root: workspace.root, id }
-  }
+  // One list for the person: every session's asks in EP0CH_APPROVE_WS (pie), but client work (float-hub) keeps its own.
+  const target = askOutlineOf(bound, await $.env.get('EP0CH_APPROVE_WS'))
+  const there: Workspace | null = target ? { root: bound.root, outline: target.outline, ...(target.machine ? { machine: target.machine } : {}), pinned: true } : null
+  const runIn = (w: Workspace) => (argv: readonly string[]) => $.process.run(argv, { cwd: w.root, env: envFor(w), timeoutMs: 20_000 })
+  const key = (w: Workspace) => `${w.root}|${w.outline ?? ''}|${w.machine ?? ''}`
+  let workspace = there ?? bound
+  if (askPage?.key !== key(workspace)) {
+    let found = await runIn(workspace)(askPageFindArgv())
+    // That outline can't be read from here (a read never makes one): the bound outline keeps the ask instead.
+    if (found.exitCode !== 0 && there) {
+      workspace = bound
+      found = await runIn(workspace)(askPageFindArgv())
+    }
+    const id = (found.exitCode === 0 ? pageIdOf(found.stdout) : undefined) ?? (found.exitCode === 0 ? pageIdOf((await runIn(workspace)(askPageCreateArgv(actor))).stdout) : undefined)
+    if (!id) throw Error(`no [[permission-asks]] page in ${workspace.outline ?? 'the bound outline'}, and ep0ch new could not make one`)
+    askPage = { key: key(workspace), id, workspace }
+  } else workspace = askPage.workspace
   const asked = stampOf(await $.clock.now())
-  const who = `${actor}${e.agent_id ? ` (a subagent)` : ''} in ${workspace.root.split('/').pop() || workspace.root}`
+  const who = `${actor}${e.agent_id ? ` (a subagent)` : ''} in ${bound.root.split('/').pop() || bound.root}${bound.outline && bound.outline !== workspace.outline ? ` (bound to ${bound.outline})` : ''}`
   let created: { id?: string }
   try {
     created = JSON.parse(await runOutlinerCli($, workspace, ['agent', 'create', '--stdin', '--actor', actor], JSON.stringify({ parent: askPage.id, text: askText(e.tool_name, e.tool_input, who, asked) })))

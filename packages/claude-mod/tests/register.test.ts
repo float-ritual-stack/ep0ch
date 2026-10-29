@@ -1726,13 +1726,20 @@ describe('approve from the phone (PIE-1386)', () => {
   const ASK = '99999999-2222-4333-8444-555555555555'
   const PAGE = '77777777-2222-4333-8444-555555555555'
   /** A session in a background job whose ask note reads, in turn, as each of `reads` (text and who wrote it last). */
-  function asking(on: On, reads: Array<{ text: (t: string) => string; author: string }>, env: Record<string, string> = { CLAUDE_JOB_DIR: '/jobs/j1' }) {
+  function asking(on: On, reads: Array<{ text: (t: string) => string; author: string }>, env: Record<string, string> = { CLAUDE_JOB_DIR: '/jobs/j1' }, options: { outline?: string; unreadable?: string } = {}) {
     let written = ''
     let polled = 0
     const edits: string[] = []
+    /** The outline each write of the ask went to (its EP0CH_WS; the bound folder's own when none is pinned). */
+    const wrote: string[] = []
+    const outlineOf = (run: Run) => (run.init?.env as Record<string, string> | undefined)?.EP0CH_WS || options.outline || 'garden'
+    const binding = (folder: string) => result(0, `${boundToWorkspace(folder).replace('"outline":"garden"', `"outline":"${options.outline ?? 'garden'}"`)}\n`, '')
     const session = sessionIn(on, WORKSPACE, run => {
       const op = run.argv.includes('agent') ? run.argv[run.argv.indexOf('agent') + 1] : undefined
-      if (run.argv[0] === 'ep0ch' && run.argv[1] === 'find' && run.argv.join(' ').includes('permission-asks')) return result(0, `((${PAGE}))\n`, '')
+      if (run.argv[0] === 'ep0ch' && run.argv[1] === 'find' && run.argv.join(' ').includes('permission-asks')) {
+        return outlineOf(run) === options.unreadable ? result(1, '', `error: no outline ${options.unreadable} here\n`) : result(0, `((${PAGE}))\n`, '')
+      }
+      if (op === 'create' || op === 'edit') wrote.push(outlineOf(run))
       if (run.argv[0] === 'sleep') return result(0, '', '')
       if (op === 'create') {
         written = (JSON.parse(String(run.init?.stdin)) as { text: string }).text
@@ -1747,9 +1754,9 @@ describe('approve from the phone (PIE-1386)', () => {
         return result(0, '{}', '')
       }
       return succeeding(run)
-    }, '', env)
+    }, '', env, binding)
     on('classic.PermissionRequest', () => ({}))
-    return { session, written: () => written, edits, polled: () => polled }
+    return { session, written: () => written, edits, polled: () => polled, wrote }
   }
   const tick = (label: string) => (text: string) => text.replace(`- [ ] ${label}`, `- [x] ${label} ^t-c03671`)
   const untouched = { text: (t: string) => t, author: 'agent' }
@@ -1788,6 +1795,28 @@ describe('approve from the phone (PIE-1386)', () => {
     expect((await answer).decision).toBeUndefined()
     expect(quiet.edits.at(-1)).toContain('Nobody ticked')
     expect(quiet.edits.at(-1)).not.toContain('[needs::')
+  })
+
+  test('one list: a session bound to another outline asks in pie (EP0CH_APPROVE_WS); one bound to float-hub keeps its asks there', async ($, on) => {
+    const elsewhere = asking(on, [{ text: tick('allow this once'), author: 'user' }])
+    await elsewhere.session.begin(() => $.session.start(START))
+    expect((await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })).decision).toMatchObject({ behavior: 'allow' })
+    expect(elsewhere.wrote).toEqual(['pie', 'pie'])
+    expect(elsewhere.written()).toContain('(bound to garden)')
+  })
+
+  test('client work stays put: a float-hub session writes its ask in float-hub, never pie', async ($, on) => {
+    const client = asking(on, [{ text: tick('deny'), author: 'user' }], { CLAUDE_JOB_DIR: '/jobs/j1' }, { outline: 'float-hub' })
+    await client.session.begin(() => $.session.start(START))
+    expect((await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })).decision).toMatchObject({ behavior: 'deny' })
+    expect(client.wrote).toEqual(['float-hub', 'float-hub'])
+  })
+
+  test('the list outline unreadable from here (a read never makes one): the ask stays in the bound outline', async ($, on) => {
+    const local = asking(on, [{ text: tick('allow this once'), author: 'user' }], { CLAUDE_JOB_DIR: '/jobs/j1', EP0CH_APPROVE_WS: 'gurgle' }, { unreadable: 'gurgle' })
+    await local.session.begin(() => $.session.start(START))
+    expect((await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })).decision).toMatchObject({ behavior: 'allow' })
+    expect(local.wrote).toEqual(['garden', 'garden'])
   })
 
   test('a session someone is watching shows its dialog at once, as before: nothing is written', async ($, on) => {

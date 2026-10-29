@@ -1,6 +1,6 @@
-// Approve from the phone (PIE-1386): a permission dialog this session would show is written as an ask note in the bound
-// outline, under its [[permission-asks]] page, with `[needs::sysop: …]` on its first line so the Waiting on Evan view
-// (and any view of `needs`) lists it, and three steps: allow once, allow for this session, deny. The person ticks one,
+// Approve from the phone (PIE-1386): a permission dialog this session would show is written as an ask note in the one
+// outline the person's list is in (askOutlineOf: pie, client work aside), under its [[permission-asks]] page, with
+// `[needs::sysop: …]` on its first line so the Waiting on Evan view (and any view of `needs`) lists it, and three steps: allow once, allow for this session, deny. The person ticks one,
 // on the web page (my.ep0ch.sh, a tap) or in the door: both are the one `checklist.update`, written as `author: user`.
 // The hook waits for that tick and answers the dialog with it; a tick an agent wrote counts for nothing, and when the
 // wait runs out the ordinary dialog shows. Pure: register.ts runs the CLI and the clock.
@@ -117,3 +117,19 @@ export function askReadOf(stdout: string): AskRead | null {
 export const askPageFindArgv = (): string[] => ['ep0ch', 'find', '--query', `page = "${ASK_PAGE}"`, '--ids']
 export const askPageCreateArgv = (actor: string): string[] =>
   ['ep0ch', 'new', `[page::${ASK_PAGE}]\nPermission dialogs sessions put to the person, one note each: tick a step to answer (PIE-1386).`, '--as', actor, '--json']
+
+/** Client work stays in its own outline: a session bound to one of these keeps its asks there, never in pie. */
+export const KEEPS_ITS_ASKS: readonly string[] = ['float-hub']
+
+/**
+ * Where a session's asks go (one list for the person, PIE-1386): `EP0CH_APPROVE_WS` (`<name>` or `<name>@<machine>`,
+ * default `pie`), on the machine the bound outline is on unless it names one; null for the bound outline itself (a
+ * session bound to float-hub, client work, or to that outline already).
+ */
+export function askOutlineOf(bound: { outline?: string; machine?: string }, given: string | undefined): { outline: string; machine?: string } | null {
+  if (bound.outline && KEEPS_ITS_ASKS.includes(bound.outline)) return null
+  const [name, at] = (given?.trim() || 'pie').split('@')
+  if (!name || !/^[a-z0-9][a-z0-9-]{0,31}$/.test(name) || name === bound.outline) return null
+  const machine = at?.trim() || bound.machine
+  return { outline: name, ...(machine ? { machine } : {}) }
+}

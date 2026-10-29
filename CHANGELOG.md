@@ -13,7 +13,8 @@ are its record. The outliner's entries from then are kept below, under
 ### Answer your agents from the phone (PIE-1235, PIE-1386, PIE-1383, PIE-926)
 
 - **Approve from the phone:** a background session's permission dialog now waits up to 10 minutes as an ask note
-  under the outline's `[[permission-asks]]` page (`[needs::sysop: …]`, so it is in Waiting on Evan): tick
+  under pie's `[[permission-asks]]` page, whatever outline the session is bound to (`EP0CH_APPROVE_WS`; a float-hub
+  session keeps its asks in float-hub), with `[needs::sysop: …]`, so pie's Waiting on Evan is the one list: tick
   `allow this once`, `allow for this session` or `deny` on my.ep0ch.sh (or in the door) and the session carries on.
   Only your tick counts (an agent's does nothing); nobody ticks, and the ordinary dialog shows. Sessions you watch show
   their dialog at once as before; `EP0CH_APPROVE_WAIT=<seconds>` sets the wait (0 is off).
