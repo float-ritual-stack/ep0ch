@@ -20,9 +20,8 @@ when you touch a file under `packages/outliner/`; other tools read it before cha
 - **Host adapters, not second implementations:** the plugin's `.claude/commands/` and the Pi extension call the
   service; they don't reimplement it.
 - **The data-safety fixes and Herdr/Pi interaction work:** the
-  [implementation plan](../../packages/outliner/docs/IMPLEMENTATION_PLAN.md) has dependencies and acceptance checks,
-  and its [real-application testing and evidence requirements](../../packages/outliner/docs/IMPLEMENTATION_PLAN.md#execution-and-completion-requirements)
-  apply before you change runtime behaviour or call it complete.
+  [implementation plan](../../packages/outliner/docs/IMPLEMENTATION_PLAN.md) has their dependencies; verification is
+  the root [CONTRIBUTING.md](../../CONTRIBUTING.md#verification)'s.
 - **Scripts have one reference page,** `docs/scripts.md`. Change `host-api.ts`, `script-runtime.ts`, `script-runs.ts`, the agent
   tool list or the view primitives and `test/scripts-docs.test.ts` tells you what to update: `bun scripts/scripts-doc.ts`
   rewrites the generated tables and every `path:line` pointer from its symbol (a moved line never fails the test; a symbol that is gone does, and it names it).

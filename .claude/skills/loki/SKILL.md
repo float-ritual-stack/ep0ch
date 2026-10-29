@@ -8,7 +8,7 @@ disable-model-invocation: false
 
 loki is the Claude session on float-2 that Evan made the deployer (Oct 10): it moves the live checkout after merges,
 owns ops tickets, triages requests, launches and briefs the builder agents, and closes their tickets. Other agents
-never deploy; they hand loki a merge sha. The rules in AGENTS.md and CONTRIBUTING.md still apply; this is the part
+never deploy; they hand loki a PR number and sha, and loki merges. The rules in AGENTS.md and CONTRIBUTING.md still apply; this is the part
 only the deployer does.
 
 ## Reorient first
@@ -57,9 +57,8 @@ start except through its service.
 ## PROTOCOL numbers
 
 Never hand out numbers in advance: messages reach busy agents late, and pre-assigned numbers clashed three times.
-The rule every builder follows: at its final rebase, right before merging, `PROTOCOL` = main's value plus one; if
-another bump lands first, rebase and take the next. When several PRs bumping it are ready at once, merge them one at
-a time and tell the next one main's new value. A PR that bumps it says what each machine needs.
+Builders say in the PR that it bumps; you set `PROTOCOL` to main's value plus one at the final rebase, right before
+merging, one bumping PR at a time. A PR that bumps it says what each machine needs.
 
 ## The check-in (every half hour)
 
@@ -123,9 +122,9 @@ each move into or out of settled or shaped is already a line under the day's bui
 2. **Shape it on a capability note** (an idea's own, or a new `[type::capability]` note under Capabilities, with
    `[thread::<x>]` on it; a stream that already has a hub gets `[thread::<x>]` on the hub instead, and needs no more): the north star in Evan's words, the parts it uses, the glue, open
    questions. A new framing is a line there, not a ticket.
-3. **Cut tickets only for primitives**, each with the Parts-it-uses table the root AGENTS.md asks for, and
+3. **Cut the experience:** the sentence of what Evan will open and do, and the tickets it needs, with
    `[thread::<x>]` on every ticket (the capability note already turned the thread shaped; the tickets keep it so).
-4. **Start builders within budget** (two test-heavy agents on float-2, five in all); the rest wait for a free slot (below).
+4. **Start a builder** when Reorient's checklist has a free slot; the rest wait (below).
 5. **Gate only taste and direction** (`[needs::sysop]`, about three open). Evan does not have to say go for the rest.
 
 The check is off in every session but yours: `EP0CH_SETTLE=on|off` (or the mod's `settle` option) overrides, and
@@ -187,23 +186,20 @@ first, then opens the build log it links.
 - Before launching an agent its work has a ticket in `doing` (`work_create` or `work_set`); the ticket id is in the brief.
 - Agents run `work_deliver` on each PR they open and merge. Check they did.
 - **Close with proof:** `work_complete` (`ref: PIE-n`, `allMerged: true`, `proof:` a first-line title, then what was
-  checked and how). Validation is loki's, not Evan's: a slice closes on agent proof (tests and a real-app journey, by
-  an agent that didn't build it). Only an outcome that needs Evan's taste, direction or hands gets `[needs::sysop]`
-  with a one-line reason; keep about three open at most. Completing stamps `[done-at::<day>]` (the "Done today" lane)
-  and takes `[needs::sysop]` off.
-- A wave's tickets carry `[wave::<theme>]` (`work_create` `wave`, or `work_set`).
+  seen). Validation is loki's, not Evan's: an experience closes when an agent that didn't build it walked its sentence
+  in the app. Only an outcome that needs Evan's taste, direction or hands gets `[needs::sysop]` with a one-line
+  reason; keep about three open at most. Completing stamps `[done-at::<day>]` (the "Done today" lane) and takes
+  `[needs::sysop]` off.
 
 ## Briefing builders
 
-Use the repo's agent definitions (`.claude/agents/`): **ep0ch-builder** for a ticket or a wave slice,
-**ep0ch-verifier** for old tickets and validate sweeps, **ep0ch-recon** for read-only research, **ep0ch-auditor** for
-push and wave reviews. Their rules (the wave flow, the delivery flow, scratch-only testing, PROTOCOL at merge) live in
-those files, so a brief is the task: the ticket(s), the theme branch, what's special, who else is working nearby. At
-most two test-heavy agents on float-2 at once; heavy suites go to float-box. Prefer Sonnet for routine agents and
-Codex for second opinions.
+Use the repo's agent definitions (`.claude/agents/`): **ep0ch-builder** for an experience, **ep0ch-verifier** for old
+tickets and validate sweeps, **ep0ch-recon** for read-only research, **ep0ch-auditor** for a whole-system review. Their
+rules (the gate, the hand-off, scratch-only testing) live in those files, so a brief is the task: the sentence, its
+tickets, what's special, who else is working nearby. Slots are Reorient's checklist. Prefer Sonnet for routine
+agents.
 
-After a big push, run the review ritual on the push-review page in pie (auditors per lens, verify each finding, fix
-in a wave, docs and skills, cruft, tests that can go, CHANGELOG, then the whole backlog).
+When the system has drifted, the push-review page in pie has the whole-system review (one auditor per lens).
 
 ## Restarting your own session
 
