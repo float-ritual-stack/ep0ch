@@ -2858,7 +2858,8 @@ function publishedText(text: string, context: TextContext, options: { keepProper
       if (inCode(start) || (raw.trim() && inCode(start + raw.length - raw.trimStart().length))) return;
       const sentinel = /[\ue000-\uf8ff].*$/s.exec(raw), text = sentinel ? raw.slice(0, sentinel.index) : raw, tail = sentinel?.[0] ?? "";
       const button = text.includes("::button") ? buttonCallAt([text], 0) : null;
-      if (button) { lines[i] = `**${button.label.replace(/[*_`\\[\]]/g, "")}**${tail}`; return; }
+      // In a list item or a quote (PIE-1224) the label keeps the item's marker or the quote's bar.
+      if (button) { lines[i] = `${button.prefix ?? ""}**${button.label.replace(/[*_`\\[\]]/g, "")}**${tail}`; return; }
       if (!text.includes("(act:")) return;
       let out = text;
       const here = (l: { start: number }) => !inCode(start + l.start);

@@ -45,3 +45,24 @@ describe("the button part", () => {
     expect(visible(lit)).toBe(visible(row).replace(/\x1b\[[\d;]*m/g, ""));
   });
 });
+
+describe("a button in a list item (PIE-1224)", () => {
+  test("draws after the item's bullet, a framed one's other rows under the button, and the hook gets the note's line", async () => {
+    const { renderDoc } = await import("../src/doc");
+    const seen: number[] = [];
+    const doc = renderDoc('Shelf\n- one\n- ::button{label="Tidy" act="status.log"}\n  - ::button{label="Sync" act="status.log" frame=round}', {
+      width: 40, button: (call, i, w) => { seen.push(i); if (i === 3) expect(w).toBeLessThan(40); return buttonRows(call.label, { ...call.look }); },
+    } as Parameters<typeof renderDoc>[1]);
+    expect(seen).toEqual([2, 3]);
+    expect(plain(doc.lines)).toEqual(["Shelf", "∙ one", "∙ [Tidy]", "  ∙ ╭──────╮", "    │ Sync │", "    ╰──────╯"]);
+  });
+
+  test("a list-item button with items under it is still a button where the reader folds lists, its items under it", async () => {
+    const { foldPoints, renderDoc } = await import("../src/doc");
+    const body = 'Shelf\n- ::button{label="Go" act="status.log"}\n  - detail';
+    const points = foldPoints(body, []);
+    expect(points.some(p => p.line === 1)).toBe(true);
+    const doc = renderDoc(body, { width: 40, button: (call: { label: string }) => buttonRows(call.label), folds: { points, folded: new Set(), selected: null } } as unknown as Parameters<typeof renderDoc>[1]);
+    expect(plain(doc.lines)).toEqual(["Shelf", "∙ [Go]", "  ∙ detail"]);
+  });
+});

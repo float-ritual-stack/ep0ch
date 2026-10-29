@@ -44,6 +44,20 @@ are its record. The outliner's entries from then are kept below, under
 - **The backfill finishes:** `ep0ch review backfill --into` sends each note's findings in one request as it goes (the
   service makes the records), a rerun skips notes already kept, and Jev's own page and rule are no longer reviewed.
 - **Run:** `ep0ch install --apply` (PROTOCOL changes: a twin's verdict can be `unsure`).
+### The status bar keeps your buttons: narrow bars, typos and groups (PIE-1213, PIE-1227, PIE-1224)
+
+- **Your pins stay:** when the bar is narrow, built-ins shorten first (the drawer chip to `▲ shell`, then its arrow;
+  `+3 machine` to `+3`), then built-ins drop, and only then your last pinned buttons go into `+N`. A click on `+N`
+  lists what it hid by name; alt+click opens the bar note.
+- **A typo costs one line:** a line of your `[status-bar::true]` note the bar can't read is skipped, not the whole bar.
+  A `! line N` item says so (a click opens the note at that line), and the message log says it once with a did-you-mean
+  (`drawer` → `- drawer`). Fixing the line clears it.
+- **A message leaves them** (PIE-1410): a long message on the bar replaces the location, never `+N`, `!` or a pin
+  on the left; they stay drawn and clickable while it shows.
+- **Groups:** nest items under a list item and the bar shows its label; a click opens them as a menu
+  (`status.bar.menu group=Tools` by act).
+- **A list item holds a button,** in any note: `- ::button{…}` draws after its bullet and presses; the publisher shows
+  its label, and `button.press` finds buttons in list items and quotes too.
 
 ### Facets answer in under a second on pie, and a docs-only deploy keeps door sessions (PIE-1396, PIE-1400)
 

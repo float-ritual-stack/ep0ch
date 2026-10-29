@@ -687,8 +687,12 @@ parentheses. A button with no glyph says running and done by colour only. The ki
 lines place buttons there. Closed button bodies and list sugar work there too; pinning preserves the whole body. `alt="theme.cycle"` names a button's alternate click. The shared `button.press note=<id> label=...`
 presses it without moving focus. `status.bar.items` describes the ids and their declared actions; `status.bar.edit` opens
 or creates the config note, also reached by right-click or alt+click on empty bar space and the power bar's `status bar: edit`.
-A note button's menu offers **pin to status bar** (`button.pin label="Collapse"`). Missing or broken config keeps the default
-bar and says malformed lines in the message log. Keep edits as ordinary Blockdown, through the service with revision checks.
+A note button's menu offers **pin to status bar** (`button.pin label="Collapse"`). The note is a list (PIE-1224): a
+`- ::button{…}` item is a button, and an item with items indented under it is a **group**, its label on the bar opening
+them as a menu (`status.bar.menu group=Tools`, `Tools/More` for a nested one; an agent's answers the rows). A line the bar
+can't read is skipped, never the whole bar (PIE-1227): the rest stays, a `! line N` item opens the note at it, and the
+message log says it once with a did-you-mean. A narrow bar shortens built-ins, then drops them, before a pinned button goes
+into `+N` (PIE-1213), whose click lists what it hid. Keep edits as ordinary Blockdown, through the service with revision checks.
 
 **Heading styles and rules** (PIE-599; outline-core's `src/heading-styles.ts`, drawn by the door's
 `src/figures/banner.ts`). To divide a page more strongly than a plain heading, give the heading a style. Don't use
