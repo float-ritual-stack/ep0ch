@@ -1,7 +1,7 @@
 import type { RenderElement, RenderSurface } from 'claude-code'
 
 import type { DetailEntry, DetailHistory, DetailLink, DetailSource } from '../types'
-import { linkifyReferences, outlinerUriOf } from './references'
+import { linkifyReferences, outlinerUriOf, WEB_ORIGIN, type WebLinks } from './references'
 import { COMPONENT_OPEN, componentBlocks } from './link-grammar.js'
 
 /**
@@ -144,10 +144,10 @@ export function subtreeMarkdownOf(stdout: string, id: string): { markdown: strin
 }
 
 /** Every reference link in linkified Markdown (one `outlinerUriOf` reads back), once each, with its text. */
-export function linksOf(markdown: string): DetailLink[] {
+export function linksOf(markdown: string, web: Partial<WebLinks> = {}): DetailLink[] {
   const seen = new Map<string, string>()
   for (const m of markdown.matchAll(/\[((?:\\.|[^\]\\\n])*)\]\((https?:\/\/[^)\s]+)\)/g)) {
-    if (!seen.has(m[2]!) && outlinerUriOf(m[2]!) !== null) seen.set(m[2]!, m[1]!.replace(/\\(.)/g, '$1'))
+    if (!seen.has(m[2]!) && outlinerUriOf(m[2]!, web) !== null) seen.set(m[2]!, m[1]!.replace(/\\(.)/g, '$1'))
   }
   return [...seen].map(([href, label]) => ({ href, label }))
 }
@@ -161,8 +161,8 @@ const sanitized = (text: string) => text.replace(/\r\n?/g, '\n').replace(/\x1b\[
  * cut on a whole line to fit Markdown's bound, saying the rest is in the
  * outline (as when the read itself was cut short).
  */
-export function detailSourceOf(markdown: string, prefixes: readonly string[], from: 'ep0ch' | 'outliner', isCut = false): DetailSource {
-  let text = linkifyReferences(displayMarkdown(sanitized(markdown)), prefixes).text
+export function detailSourceOf(markdown: string, prefixes: readonly string[], from: 'ep0ch' | 'outliner', isCut = false, web: WebLinks = { origin: WEB_ORIGIN }): DetailSource {
+  let text = linkifyReferences(displayMarkdown(sanitized(markdown)), prefixes, undefined, undefined, web).text
   let isTruncated = isCut
   if (text.length > MARKDOWN_BUDGET) {
     isTruncated = true
@@ -170,7 +170,7 @@ export function detailSourceOf(markdown: string, prefixes: readonly string[], fr
     text = text.slice(0, cut > 0 ? cut : MARKDOWN_BUDGET)
   }
   if (isTruncated) text += '\n\n_More of it is in the outline._'
-  return { kind: 'source', markdown: text, links: linksOf(text).slice(0, 256), from, isTruncated }
+  return { kind: 'source', markdown: text, links: linksOf(text, web).slice(0, 256), from, isTruncated }
 }
 
 /** What the detail view draws with: the surface's table. */

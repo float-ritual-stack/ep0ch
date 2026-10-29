@@ -31,6 +31,7 @@ import {
   outlinerUriFor,
   outlinerUriOf,
   webOriginOf,
+  type WebLinks,
 } from './references'
 import { replyBlocks, tableWidths, type LinePart, type ReplyBlock } from './reply-lines'
 import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-persona'
@@ -288,11 +289,11 @@ async function drawReferences($: EngineInterface, e: RenderInput<'AssistantMessa
     if (location.value) outlines.set(id, location.value);
   }
   // Each reference links to its note's page on the web client (PIE-926), which opens anywhere: a browser, claude.ai, a phone.
-  const web = { origin: webOriginOf(await $.env.get('EP0CH_WEB_URL')), ...(workspace.outline ? { outline: workspace.outline } : {}) }
+  const web = await webLinksFor($, workspace)
   const { text, hrefs } = linkifyReferences(e.props.text, references!.prefixes, id => titles.get(id), id => outlines.get(id), web)
   if (prompt && hrefs.length === 0) return null
   // A terminal draws a link out of the outline itself too (a trailing arrow, dim), so a reply with one is not left to the engine.
-  const blocks: ReplyBlock[] = e.surface === 'terminal' ? replyBlocks(text) : [{ kind: 'markdown', text }]
+  const blocks: ReplyBlock[] = e.surface === 'terminal' ? replyBlocks(text, web) : [{ kind: 'markdown', text }]
   if ((hrefs.length === 0 && blocks.every(block => block.kind === 'markdown' || block.kind === 'blank')) || text.length > 10_000) return null
   const { Box, Text, Markdown, Button, Link } = await $.ui.resolve(e)
   const open = (href: string, surface: RenderSurface) => void openReference($, workspace, href, surface)
@@ -449,7 +450,7 @@ export function register(on: On, options: PluginOptions): void {
   // or Herdr nothing is seated: the note opens there.
   on('ui.press', { plugin: 'ep0ch' }, async ($, e, next) => {
     const opensNote = /^mention-\d+$/.test(e.element) || e.element.startsWith('tool-row-open-') ||
-      (e.element === 'outliner-references' && !!e.link && outlinerUriOf(e.link.href) !== null)
+      (e.element === 'outliner-references' && !!e.link && outlinerUriOf(e.link.href, { origin: webOrigin ?? webOriginOf(await $.env.get('EP0CH_WEB_URL')) }) !== null)
     // The cached variables read without waiting, so the press reaches its closure before anything queued after it.
     if (opensNote && references?.workspace && routeOf(routeEnv ?? await routeEnvOf($)) === 'here') {
       await $.ui.open({ id: MENTIONS_PANE, title: MENTIONS_TITLE }).catch(() => {})
@@ -1516,7 +1517,14 @@ async function askThePerson($: EngineInterface, option: PluginOptions, e: { tool
   }
   const asked = stampOf(await $.clock.now())
   const who = `${actor}${e.agent_id ? ` (a subagent)` : ''} in ${workspace.root.split('/').pop() || workspace.root}`
-  const created = JSON.parse(await runOutlinerCli($, workspace, ['agent', 'create', '--stdin', '--actor', actor], JSON.stringify({ parent: askPage.id, text: askText(e.tool_name, e.tool_input, who, asked) }))) as { id?: string }
+  let created: { id?: string }
+  try {
+    created = JSON.parse(await runOutlinerCli($, workspace, ['agent', 'create', '--stdin', '--actor', actor], JSON.stringify({ parent: askPage.id, text: askText(e.tool_name, e.tool_input, who, asked) })))
+  } catch (error) {
+    // The page moved or went to the Trash: found (or made) again on the next ask.
+    askPage = undefined
+    throw error
+  }
   const id = created.id
   if (!id) throw Error('agent create gave no id')
   const read = async () => askReadOf(await runOutlinerCli($, workspace, ['agent', 'read', '--stdin', '--actor', actor], JSON.stringify({ ref: id, depth: 0 })))
@@ -1530,8 +1538,9 @@ async function askThePerson($: EngineInterface, option: PluginOptions, e: { tool
       } catch { /* written meanwhile: read again */ }
     }
   }
-  // A count of polls, not a deadline: each poll is a sleep then a read, so the wait is as long as they take, never less.
-  for (let poll = 0; poll < Math.ceil(waitMs / ASK_POLL_MS) && !signal.aborted; poll++) {
+  // Until the deadline, and at most as many polls as fit in it: a slow or failing read never stretches the wait.
+  const deadline = (await $.clock.now()) + waitMs
+  for (let poll = 0; poll < Math.ceil(waitMs / ASK_POLL_MS) && !signal.aborted && (await $.clock.now()) < deadline; poll++) {
     await $.process.run(['sleep', String(ASK_POLL_MS / 1000)], { timeoutMs: ASK_POLL_MS + 5000 }).catch(() => {})
     if (signal.aborted) break
     const now = await read().catch(() => null)
@@ -2269,8 +2278,18 @@ function outlineFlags(workspace: Workspace): string {
 }
 
 /** A click on a reference: opened by `openNote`, or a toast saying why not. */
+/** Where this session's references link (PIE-926): the web client's origin (EP0CH_WEB_URL) and the session's outline. */
+async function webLinksFor($: EngineInterface, workspace: Workspace): Promise<WebLinks> {
+  webOrigin ??= webOriginOf(await $.env.get('EP0CH_WEB_URL'))
+  return webLinksNow(workspace, webOrigin)
+}
+const webLinksNow = (workspace: Workspace, origin: string): WebLinks => ({ origin, ...(workspace.outline ? { outline: workspace.outline } : {}) })
+/** EP0CH_WEB_URL's origin, read once (the session's environment doesn't change under it). */
+let webOrigin: string | undefined
+
 async function openReference($: EngineInterface, workspace: Workspace, href: string, surface: RenderSurface): Promise<void> {
-  const uri = outlinerUriOf(href, workspace.outline ? { outline: workspace.outline } : {})
+  // Read when the reply was drawn: a press doesn't wait on the environment again.
+  const uri = outlinerUriOf(href, webOrigin ? webLinksNow(workspace, webOrigin) : await webLinksFor($, workspace))
   if (uri) await openUri($, workspace, uri, surface)
 }
 
@@ -2551,7 +2570,7 @@ async function readDetail($: EngineInterface, workspace: Workspace, id: string):
     if (help !== null && knowsExport(help)) {
       const ran = await $.process.run(exportArgv(id), { cwd: workspace.root, env: envFor(workspace), timeoutMs: 15_000 })
       const body = ran.exitCode === 0 ? exportBodyOf(ran.stdout) : null
-      if (body) return detailSourceOf(body, prefixes, 'ep0ch')
+      if (body) return detailSourceOf(body, prefixes, 'ep0ch', false, await webLinksFor($, workspace))
       why = failureReasonOf(ran.stderr).replace(/^ep0ch: /, '') || 'ep0ch export printed nothing'
     }
   } catch (error) {
@@ -2560,7 +2579,7 @@ async function readDetail($: EngineInterface, workspace: Workspace, id: string):
   try {
     const ran = await runOutliner($, workspace, ['list', '--subtree', id, '--limit', String(SUBTREE_LIMIT)])
     const read = ran.exitCode === 0 ? subtreeMarkdownOf(ran.stdout, id) : null
-    if (read) return detailSourceOf(read.markdown, prefixes, 'outliner', read.isTruncated)
+    if (read) return detailSourceOf(read.markdown, prefixes, 'outliner', read.isTruncated, await webLinksFor($, workspace))
     why += `; ${ran.exitCode === 0 ? 'the outliner found no such block' : failureReasonOf(ran.stderr) || 'the outliner could not read it'}`
   } catch (error) {
     why += `; ${error instanceof Error ? error.message : String(error)}`

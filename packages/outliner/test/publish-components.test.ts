@@ -339,27 +339,29 @@ test("published Sources exposes query, transform and downloadable visible rows",
   expect(html).toContain('download="graph-table.json"');
   // A real URL, not a data: link a phone saves into a folder nobody sees (PIE-1383): the file, named, behind the note's own gate.
   expect(html).not.toContain('href="data:');
-  const route = `/share/p/${note.id}/_sources/0.json`;
-  expect(html).toContain(`href="${route}" download="graph-table.json"`);
+  // The source is named by its key in the note (the line it starts on) and its name, never its place in the list.
+  const route = /href="([^"]+\/_sources\/[^"]+\.json)" download="graph-table.json"/.exec(html)?.[1];
+  expect(route).toBe(`/share/p/${note.id}/_sources/4/graph-table.json`);
   const file = await publisher.handle(new Request(`http://127.0.0.1${route}`), "public");
   expect(file.status).toBe(200);
   expect(file.headers.get("content-type")).toBe("application/json; charset=utf-8");
   expect(file.headers.get("content-disposition")).toBe('attachment; filename="graph-table.json"');
   expect(await file.json()).toEqual([{ id: shown.id, title: "Sow peas [crop::peas] [publish::public]" }]);
-  const csv = await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}/_sources/0.csv`), "public");
+  const csv = await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}/_sources/4/graph-table.csv`), "public");
   expect(csv.headers.get("content-type")).toBe("text/csv; charset=utf-8");
   expect(await csv.text()).not.toContain("PRIVATE_HARVEST");
   expect(html).toContain(shown.id);
   expect(html).not.toContain(hidden.id);
   expect(html).not.toContain("PRIVATE_HARVEST");
   // Nothing past the panel's sources, and nothing of a note the public can't open.
-  expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}/_sources/1.json`), "public")).status).toBe(404);
+  expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}/_sources/9/graph-table.json`), "public")).status).toBe(404);
+  expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${note.id}/_sources/4/graph-other.json`), "public")).status).toBe(404);
   const closed = store.create("Kept close\n::graph-table\n---\nquery: crop=peas\n---\n::");
-  expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${closed.id}/_sources/0.json`), "public")).status).toBe(404);
+  expect((await publisher.handle(new Request(`http://127.0.0.1/share/p/${closed.id}/_sources/1/graph-table.json`), "public")).status).toBe(404);
   // Locked, it's gone from the owner's pages too.
   const locked = store.create("Locked [publish::never]\n::graph-table\n---\nquery: crop=peas\n---\n::");
-  expect((await publisher.handle(new Request(`http://127.0.0.1/p/${locked.id}/_sources/0.json`))).status).toBe(404);
-  expect((await publisher.handle(new Request(`http://127.0.0.1/p/${closed.id}/_sources/0.json`))).status).toBe(200);
+  expect((await publisher.handle(new Request(`http://127.0.0.1/p/${locked.id}/_sources/1/graph-table.json`))).status).toBe(404);
+  expect((await publisher.handle(new Request(`http://127.0.0.1/p/${closed.id}/_sources/1/graph-table.json`))).status).toBe(200);
 });
 
 

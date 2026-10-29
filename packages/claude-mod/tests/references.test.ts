@@ -98,10 +98,20 @@ describe('references', () => {
       `pi-outliner://block/${UUID}?fragment=beds`,
     ])
     // A press in a terminal stays the mod's (a reference), not a link out of the outline.
-    expect(replyBlocks(text).flatMap(b => b.kind === 'line' ? b.parts : []).filter(p => 'ref' in p && !('external' in p))).toHaveLength(4)
+    expect(replyBlocks(text, web).flatMap(b => b.kind === 'line' ? b.parts : []).filter(p => 'ref' in p && !('external' in p))).toHaveLength(4)
     expect(webOriginOf('https://my.example.test/, https://other.example')).toBe('https://my.example.test')
     expect(webOriginOf(undefined)).toBe('https://my.ep0ch.sh')
-    expect(outlinerUriOf('https://web.example/pub/p/x#line:74')).toBeNull()
+    expect(outlinerUriOf('https://web.example/pub/p/x#line:74', web)).toBeNull()
+    // Another site's page of that shape is a link out; so is one on another origin than this session's.
+    expect(outlinerUriOf('https://blog.example/pub/p/intro', web)).toBeNull()
+    expect(outlinerUriOf('https://web.example/pub/p/intro')).toBeNull()
+    // Another outline's page and Work ID keep their outline; its qualifier is never written twice.
+    const other = linkifyReferences('[[orchard:Bed plan]]', [], () => undefined, () => undefined, web)
+    expect(other.hrefs).toEqual(['https://web.example/pub/o/orchard/p/Bed%20plan'])
+    expect(outlinerUriOf(other.hrefs[0]!, web)).toBe('pi-outliner://page/orchard%3ABed%20plan')
+    expect(outlinerUriOf('https://web.example/pub/o/orchard/p/PIE-7', web)).toBe('pi-outliner://page/orchard%3APIE-7')
+    // A home-outline address Claude wrote stays the home outline's, whatever this session is bound to.
+    expect(linkifyReferences('See https://web.example/pub/p/PIE-8.', [], () => undefined, () => undefined, web).text).toBe('See [PIE-8](https://web.example/pub/p/PIE-8).')
   })
 
   test('a reference as the model writes it becomes an Outliner URI', async () => {

@@ -420,7 +420,8 @@ export async function readBlock(
   const record = textRecord(block);
   const site = await readSiteOf(client, block);
   // Who last wrote it (its current revision's edit), as `updated` says when: the block's own author is who made it.
-  const saved = (await client.request<BlockRevisions>({ action: "block.revisions", blockId: block.id }).catch(() => undefined))?.revisions[0];
+  // Only the entry for the revision read: a write that lands between the two reads never lends its author to older text.
+  const saved = (await client.request<BlockRevisions>({ action: "block.revisions", blockId: block.id, latest: true }).catch(() => undefined))?.revisions.find(r => r.revision === block.revision);
   const writer = saved?.author ? { author: saved.author, ...(saved.actorId ? { actorId: saved.actorId } : {}) } : { author: block.author, ...(block.actorId ? { actorId: block.actorId } : {}) };
   return {
     ...resolved,

@@ -397,7 +397,7 @@ describe('register', () => {
     expect((await mixed.find({ type: 'Markdown' }))?.props.text).toBe('Plain **line** first.')
     expect(((await mixed.find({ type: 'Box' }))?.text ?? '')).not.toContain('my.ep0ch.sh/pub')
 
-    await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/PIE-8' })
+    await drawn.press({ key: 'https://my.ep0ch.sh/pub/p/PIE-8' })
     await session.clock.settle()
     expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', 'pi-outliner://work/PIE-8'])
 
@@ -424,7 +424,7 @@ describe('register', () => {
       [`https://my.ep0ch.sh/pub/o/garden/p/${BLOCK}`, 'Daily notes'],
       [`https://my.ep0ch.sh/pub/o/garden/p/${BLOCK}#2`, 'the note'],
       ['https://my.ep0ch.sh/pub/o/garden/p/PIE-7', 'PIE-7'],
-      ['https://my.ep0ch.sh/pub/o/garden/p/PIE-8', 'PIE-8'],
+      ['https://my.ep0ch.sh/pub/p/PIE-8', 'PIE-8'],
     ]) {
       expect((await drawn.find({ key }))?.text).toBe(label)
     }
@@ -855,17 +855,17 @@ describe('register', () => {
       expect(body?.type).toBe('Markdown')
       expect(body?.props.text).toBe(
         '# Daily notes\n[type::note]\n## Today\n- rode to the shed\n\n' +
-        '- Bring the [Other page](https://my.ep0ch.sh/pub/p/Other%20page) list, see [PIE-7](https://my.ep0ch.sh/pub/p/PIE-7)',
+        '- Bring the [Other page](https://my.ep0ch.sh/pub/o/garden/p/Other%20page) list, see [PIE-7](https://my.ep0ch.sh/pub/o/garden/p/PIE-7)',
       )
       expect(body?.props.dimColor).toBeUndefined()
-      expect(body?.props.pressableLinks).toEqual(['https://my.ep0ch.sh/pub/p/Other%20page', 'https://my.ep0ch.sh/pub/p/PIE-7'])
+      expect(body?.props.pressableLinks).toEqual(['https://my.ep0ch.sh/pub/o/garden/p/Other%20page', 'https://my.ep0ch.sh/pub/o/garden/p/PIE-7'])
       // Desktop's links are in the Markdown: no link buttons.
       expect(await pane.find({ key: 'detail-link-1' })).toBeUndefined()
       // Back from the first note is the mentions list.
       expect((await pane.find({ key: 'detail-back' }))?.text).toBe('← mentions')
 
       // A link in the note opens in the pane, through the same open.
-      await pane.press({ key: 'detail-body', link: { href: 'https://my.ep0ch.sh/pub/p/Other%20page' } })
+      await pane.press({ key: 'detail-body', link: { href: 'https://my.ep0ch.sh/pub/o/garden/p/Other%20page' } })
       await session.clock.settle()
       expect(await titleOf(pane)).toBe('Other page')
       expect((await pane.find({ key: 'detail-body' }))?.props.text).toBe('# Other page\nThe chain oil is the wax one.')
@@ -951,7 +951,7 @@ describe('register', () => {
       const body = await (await detail($, 'desktop')).find({ key: 'detail-body' })
       expect(body?.props.text).toBe(
         '# Daily notes\n[type::note]\n## Today\n- rode to the shed\n\n' +
-        '- Bring the [Other page](https://my.ep0ch.sh/pub/p/Other%20page) list, see [PIE-7](https://my.ep0ch.sh/pub/p/PIE-7)',
+        '- Bring the [Other page](https://my.ep0ch.sh/pub/o/garden/p/Other%20page) list, see [PIE-7](https://my.ep0ch.sh/pub/o/garden/p/PIE-7)',
       )
     })
 

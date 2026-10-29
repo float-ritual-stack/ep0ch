@@ -529,8 +529,8 @@ test("signed in, a Sources download is a file behind the sign-in: named, typed, 
   await homeClient.request<Block>({ action: "create", parentId: survey.id, text: "Hawk-moth tally [kind::tally]", mutation: { author: "user" } } as never);
   const table = await homeClient.request<Block>({ action: "create", parentId: survey.id, text: "Tallies\n::graph-table\n---\nquery: kind=tally\n---\n::", mutation: { author: "user" } } as never);
   const page = await (await at(gate, `/pub/p/${table.id}`, { cookie })).text();
-  const href = /href="([^"]+_sources\/0\.json)"/.exec(page)?.[1];
-  expect(href).toBe(`/pub/p/${table.id}/_sources/0.json`);
+  const href = /href="([^"]+_sources\/[^"]+\.json)"/.exec(page)?.[1];
+  expect(href).toBe(`/pub/p/${table.id}/_sources/1/graph-table.json`);
   const file = await at(gate, href!, { cookie, headers: { accept: "*/*" } });
   expect(file.status).toBe(200);
   expect(file.headers.get("content-disposition")).toBe('attachment; filename="graph-table.json"');

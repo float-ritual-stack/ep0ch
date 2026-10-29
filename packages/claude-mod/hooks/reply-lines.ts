@@ -5,7 +5,7 @@
  * label per reference; every other line stays the engine's Markdown, in runs. Pure: the elements come from register.ts.
  */
 import { codeBlocks } from './link-grammar.js'
-import { outlinerUriOf } from './references'
+import { outlinerUriOf, type WebLinks } from './references'
 
 /** One drawn piece of a line: prose with its inline style, or a reference to press. */
 export type LinePart =
@@ -76,13 +76,13 @@ function styled(text: string, refs: Ref[], style?: Style): LinePart[] {
 }
 
 /** Inline parts of some text holding references, or null when it holds none the mod can open. */
-function inlineOf(text: string): LinePart[] | null {
+function inlineOf(text: string, web: Partial<WebLinks>): LinePart[] | null {
   const refs: Ref[] = []
   const slotted = text.replace(LINK, (whole, label: string | undefined, href: string | undefined) => {
     if (whole.startsWith('`')) return whole
     if (label !== undefined && href !== undefined) {
       // `[label](address)`: a reference when the address is a stand-in, else a link out (PIE-1043).
-      refs.push(outlinerUriOf(href) ? { ref: href, label: label.replace(/\\(.)/g, '$1') } : { ref: href, label: label.replace(/\\(.)/g, '$1'), external: true })
+      refs.push(outlinerUriOf(href, web) ? { ref: href, label: label.replace(/\\(.)/g, '$1') } : { ref: href, label: label.replace(/\\(.)/g, '$1'), external: true })
       return `${OPEN}${refs.length - 1}${CLOSE}`
     }
     // A bare address: the text stays as written, trailing punctuation outside it.
@@ -94,10 +94,10 @@ function inlineOf(text: string): LinePart[] | null {
 }
 
 /** One line holding references as its parts, or null when it holds none the mod can open. */
-function lineOf(line: string): LinePart[] | null {
+function lineOf(line: string, web: Partial<WebLinks>): LinePart[] | null {
   const heading = /^#{1,6}\s+/.exec(line)
   const bullet = heading ? null : /^(\s*)[-*+]\s+/.exec(line)
-  const body = inlineOf(line.slice((heading ?? bullet)?.[0].length ?? 0))
+  const body = inlineOf(line.slice((heading ?? bullet)?.[0].length ?? 0), web)
   if (!body) return null
   const parts: LinePart[] = bullet ? [{ text: `${bullet[1]}• ` }, ...body] : body
   return heading ? parts.map(part => 'ref' in part || part.style === 'dim' ? part : { ...part, style: part.style === 'italic' || part.style === 'bold-italic' ? 'bold-italic' as const : 'bold' as const }) : parts
@@ -123,9 +123,9 @@ export function tableWidths(table: { header: LinePart[][]; rows: LinePart[][][] 
  * The linkified reply cut into runs of Markdown, lines of parts and whole tables, in order. A line in a code block is
  * never a line of parts. A table with a reference in any cell is drawn whole by the mod (the engine would print the
  * address beside its links); one with none stays the engine's. Joined, the Markdown runs, lines and tables read as the
- * reply did, minus the addresses.
+ * reply did, minus the addresses. `web`: where references link (a link to another site is a link out).
  */
-export function replyBlocks(linkified: string): ReplyBlock[] {
+export function replyBlocks(linkified: string, web: Partial<WebLinks> = {}): ReplyBlock[] {
   const lines = linkified.split('\n')
   const { fences, indented } = codeBlocks(lines)
   const code = new Set(indented)
@@ -143,7 +143,7 @@ export function replyBlocks(linkified: string): ReplyBlock[] {
       while (end < lines.length && !code.has(end) && TABLE_ROW.test(lines[end]!)) end++
       const header = cellsOf(line)
       const body = lines.slice(i + 2, end).map(row => cellsOf(row))
-      const drawn = [header, ...body].map(row => row.map(cell => ({ cell, parts: inlineOf(cell) })))
+      const drawn = [header, ...body].map(row => row.map(cell => ({ cell, parts: inlineOf(cell, web) })))
       if (drawn.some(row => row.some(({ parts }) => parts))) {
         const columns = header.length
         const asParts = (row: { cell: string; parts: LinePart[] | null }[]) =>
@@ -159,7 +159,7 @@ export function replyBlocks(linkified: string): ReplyBlock[] {
     // Each piece draws on its own, so a blank line kept inside a Markdown run vanishes at its edge (Evan, Oct 26: a
     // reply with one link lost every gap between its parts); outside code it is its own row.
     if (!code.has(i) && !line.trim()) { blocks.push({ kind: 'blank' }); continue }
-    const parts = code.has(i) ? null : lineOf(line)
+    const parts = code.has(i) ? null : lineOf(line, web)
     if (parts) blocks.push({ kind: 'line', parts })
     else markdown(line)
   }

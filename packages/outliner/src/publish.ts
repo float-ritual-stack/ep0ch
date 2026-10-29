@@ -1,7 +1,7 @@
 import { ageSince } from "@ep0ch/outline-core/age";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { type ArtifactInfo, type ArtifactReader } from "@ep0ch/outline-core/artifacts";
-import { pageSources, SOURCE_ROUTE, sourceFile, SOURCES_STYLE, visibleSources } from "./publish-sources";
+import { pageSources, SOURCE_ROUTE, sourceAt, sourceFile, SOURCES_STYLE, visibleSources } from "./publish-sources";
 import type { SiteAnswer, SiteAnswerRequest, SiteLink } from "@ep0ch/outline-core/site";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 import { blockTags, metadataLines } from "@ep0ch/outline-core/block-tags";
@@ -1267,7 +1267,7 @@ export class Publisher {
       const artifact = ARTIFACT_PATH.exec(path);
       if (artifact) return await this.serveArtifact(artifact[1]!.toLowerCase(), Number(artifact[2]), url.searchParams.get("view"), audience);
       const source = SOURCE_ROUTE.exec(path);
-      if (source) return await this.serveSource(request, source[1]!.toLowerCase(), Number(source[2]), source[3] as "csv" | "json", audience);
+      if (source) return await this.serveSource(request, source[1]!.toLowerCase(), source[2]!, source[3]!, source[4] as "csv" | "json", audience);
       let slug: string;
       try {
         slug = decodeURIComponent(path.slice(3)).replace(/\/+$/, "");
@@ -1383,7 +1383,7 @@ export class Publisher {
     const artifact = ARTIFACT_PATH.exec(rest);
     if (artifact) return this.serveArtifact(artifact[1]!.toLowerCase(), Number(artifact[2]), new URL(request.url).searchParams.get("view"), "tailnet", share);
     const source = SOURCE_ROUTE.exec(rest);
-    if (source) return this.serveSource(request, source[1]!.toLowerCase(), Number(source[2]), source[3] as "csv" | "json", "tailnet", share);
+    if (source) return this.serveSource(request, source[1]!.toLowerCase(), source[2]!, source[3]!, source[4] as "csv" | "json", "tailnet", share);
     if (rest === "/search" || rest === "/search/") return this.serveSearch(request, share);
     const index = await this.shareIndex(share);
     const url = new URL(request.url);
@@ -2072,18 +2072,13 @@ export class Publisher {
   }
 
   /**
-   * The image line `line` of note `blockId` names (`/p/<id>/media/<line>`), when a page here shows that note: not locked;
-   * inside a share's scope; on the public listener, under a note that is public now with nothing between them left out.
-   * The path is the note's, read again now, and checked as an attachment is (the publish roots, nothing hidden, image
-   * types only); the URL never carries one. With `image`, it is the `image`th image primitive of the component line
-   * `line` draws (PIE-827), read again from its kept view.
-   */
-  /**
-   * A Sources panel's download (PIE-1383): the page's `index`th source, as the panel drew it (the same visibility cut,
-   * read now), as a file: `Content-Disposition: attachment` with the source's name, so a phone saves or shares it. Behind
+   * A Sources panel's download (PIE-1383): the page's source with this key and name, among those the panel draws (the
+   * same visibility cut, read now), as a file: `Content-Disposition: attachment` with the source's name, so a phone saves or shares it. Behind
    * whatever the note's page is behind: the lock, a share's scope, public only when the page is.
    */
-  private async serveSource(request: Request, blockId: string, at: number, format: "csv" | "json", audience: PublishAudience, share?: PageShare): Promise<Response> {
+  private async serveSource(request: Request, blockId: string, rawKey: string, rawName: string, format: "csv" | "json", audience: PublishAudience, share?: PageShare): Promise<Response> {
+    let key: string, name: string;
+    try { key = decodeURIComponent(rawKey); name = decodeURIComponent(rawName); } catch { return notFound(); }
     if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
     if ((await this.lockedIds([blockId])).size) return notFound();
     if (share && !(await this.inScope([blockId], share)).has(blockId)) return notFound();
@@ -2100,7 +2095,7 @@ export class Publisher {
       ? { whole, browse: true, owner: !share, anchors: [], ...(share ? { share } : {}) }
       : { browse: false, owner: false, anchors: [] });
     const sources = await visibleSources(this.liveHost(audience, index, base, share), blockId, rendered.drawn.get(blockId) ?? new Map());
-    const chosen = sources?.sources[at];
+    const chosen = sources && sourceAt(sources.sources, key, name, format);
     if (!chosen) return notFound();
     const file = sourceFile(chosen, format);
     return new Response(request.method === "HEAD" ? null : file.body, {
@@ -2111,6 +2106,13 @@ export class Publisher {
     });
   }
 
+  /**
+   * The image line `line` of note `blockId` names (`/p/<id>/media/<line>`), when a page here shows that note: not locked;
+   * inside a share's scope; on the public listener, under a note that is public now with nothing between them left out.
+   * The path is the note's, read again now, and checked as an attachment is (the publish roots, nothing hidden, image
+   * types only); the URL never carries one. With `image`, it is the `image`th image primitive of the component line
+   * `line` draws (PIE-827), read again from its kept view.
+   */
   private async serveMedia(request: Request, blockId: string, line: number, audience: PublishAudience, share?: PageShare, image?: number): Promise<Response> {
     const policy = this.requirePolicy();
     if (policy.remoteService) return notFound();

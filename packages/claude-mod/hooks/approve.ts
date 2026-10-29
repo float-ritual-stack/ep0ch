@@ -4,6 +4,7 @@
 // on the web page (my.ep0ch.sh, a tap) or in the door: both are the one `checklist.update`, written as `author: user`.
 // The hook waits for that tick and answers the dialog with it; a tick an agent wrote counts for nothing, and when the
 // wait runs out the ordinary dialog shows. Pure: register.ts runs the CLI and the clock.
+import { boxStatus } from './link-grammar.js'
 
 export const ASK_PAGE = 'permission-asks'
 
@@ -61,15 +62,15 @@ export function askText(tool: string, input: unknown, who: string, asked: string
   ].join('\n')
 }
 
-/** Each step's box as written, by its answer: `x`/`+`/`✓` say yes to that step, `-`/`✗` no. */
-function boxes(text: string): Map<AskAnswer, string> {
-  const found = new Map<AskAnswer, string>()
+/** Each step's status as its box reads (outline-core's one box grammar, bundled), by its answer. */
+function boxes(text: string): Map<AskAnswer, ReturnType<typeof boxStatus>> {
+  const found = new Map<AskAnswer, ReturnType<typeof boxStatus>>()
   for (const line of text.split('\n')) {
-    // A step's id (`^t-…`, which a first change gives it) and any chips after its words are not its words.
-    const m = /^\s*[-*+]\s+\[(.)\]\s+(.+?)(?:\s+\^[A-Za-z0-9][\w-]*)?\s*$/.exec(line)
+    // A step's id (`^t-…`, which a first change gives it) is not its words.
+    const m = /^\s*[-*+]\s+(\[.\])\s+(.+?)(?:\s+\^[A-Za-z0-9][\w-]*)?\s*$/.exec(line)
     if (!m) continue
     const which = (Object.keys(ASK_STEPS) as AskAnswer[]).find(k => ASK_STEPS[k] === m[2])
-    if (which && !found.has(which)) found.set(which, m[1]!)
+    if (which && !found.has(which)) found.set(which, boxStatus(m[1]!))
   }
   return found
 }
@@ -80,8 +81,8 @@ function boxes(text: string): Map<AskAnswer, string> {
  */
 export function answerOf(text: string): AskAnswer | null {
   const b = boxes(text)
-  const yes = (k: AskAnswer) => ['x', 'X', '+', '✓', '✔'].includes(b.get(k) ?? '')
-  const no = (k: AskAnswer) => ['-', '✗'].includes(b.get(k) ?? '')
+  const yes = (k: AskAnswer) => b.get(k) === 'done' || b.get(k) === 'approved'
+  const no = (k: AskAnswer) => b.get(k) === 'rejected'
   if (yes('deny') || no('allow') || no('session')) return 'deny'
   if (yes('session')) return 'session'
   if (yes('allow')) return 'allow'

@@ -1157,7 +1157,7 @@
   });
 
   // ---- One tap, one item (PIE-1235): on a phone, selecting words is fiddly, so a tap on a list item, a paragraph or a
-  // figure's row selects its own words, as a selection would; the bar then offers Comment and the rest, and the comment
+  // table's row selects its own words, as a selection would; the bar then offers Comment and the rest, and the comment
   // is the same passage record a selection makes, drawn in its place in the door's margin too. A second tap lets go.
   const ITEM = "li, p, td, th, blockquote, dd, dt, h1, h2, h3, h4, h5, h6";
   const SKIP = "a, button, input, textarea, select, label, summary, mark.ann, .mg-ui, .mg-card, aside, pre, code, .sources-panel";
@@ -1179,7 +1179,8 @@
     if (tapped === item && !selection.isCollapsed) { tapped = null; selection.removeAllRanges(); hideBar(); return; }
     // A selection the reader made themselves (a long press) is theirs.
     if (!selection.isCollapsed && tapped !== item && readSelection()) return;
-    const range = itemRange(item);
+    // A table's row is the item, not the one cell tapped.
+    const range = itemRange(item.closest("tr") || item);
     if (!range.toString().trim()) return;
     selection.removeAllRanges();
     selection.addRange(range);

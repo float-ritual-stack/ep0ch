@@ -33,9 +33,19 @@ export function sourceFile(source: SourceEntry, format: "csv" | "json"): { body:
   };
 }
 
-/** Where the page's `index`th source downloads (`<base>/p/<note>/_sources/<index>.<format>`): a real URL a phone can open or share. */
-export const sourceHref = (base: string, blockId: string, index: number, format: "csv" | "json") => `${base}/p/${blockId}/_sources/${index}.${format}`;
-export const SOURCE_ROUTE = /^\/p\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/_sources\/(\d{1,4})\.(csv|json)$/;
+/**
+ * Where a source downloads (`<base>/p/<note>/_sources/<key>/<name>.<format>`): a real URL a phone can open or share. It
+ * names the source by its key in the note and its name, never its place in the list, so a source added above it since
+ * the page was drawn never answers for it: a source no longer there is a 404.
+ */
+export const sourceHref = (base: string, blockId: string, source: SourceEntry, format: "csv" | "json") =>
+  `${base}/p/${blockId}/_sources/${encodeURIComponent(source.key)}/${encodeURIComponent(sourceFile(source, format).filename)}`;
+export const SOURCE_ROUTE = /^\/p\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/_sources\/([^/]{1,200})\/([^/]{1,200})\.(csv|json)$/;
+
+/** The source a download route names, among the page's: by its key, and its name as the file is named. */
+export function sourceAt(sources: readonly SourceEntry[], key: string, name: string, format: "csv" | "json"): SourceEntry | undefined {
+  return sources.find(s => s.key === key && sourceFile(s, format).filename === `${name}.${format}`);
+}
 
 /** The Sources panel: each source's query, transform and result, with copies and downloads (a link to the route). */
 export async function pageSources(host: LiveHost, blockId: string, outline: string, text: string, drawn: ReadonlyMap<number, DrawnComponent>, base: string): Promise<string> {
@@ -47,7 +57,7 @@ export async function pageSources(host: LiveHost, blockId: string, outline: stri
   let at = 0;
   for (const line of text.split("\n")) { offsets.push(at); at += line.length + 1; }
   const entries = sources.sources.map((s, i) => {
-    const download = (format: "csv" | "json") => `<a data-source-download href="${e(sourceHref(base, blockId, i, format))}" download="${e(sourceFile(s, format).filename)}">${format.toUpperCase()}</a>`;
+    const download = (format: "csv" | "json") => `<a data-source-download href="${e(sourceHref(base, blockId, s, format))}" download="${e(sourceFile(s, format).filename)}">${format.toUpperCase()}</a>`;
     const read = s.readAt ? `${s.live ? "live, " : ""}as of ${s.readAt}` : "as written";
     return `<details class="source-entry" id="source-${i}" data-source-offset="${offsets[s.line] ?? 0}"><summary>${e(s.name)} <small>${e(s.readAt ?? "as written")}</small></summary>
 ${s.problem ? `<p>${e(s.problem)}</p>` : ""}
