@@ -68,7 +68,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
       if ((by !== undefined || keep) && open && !open.ended()) {
         const all = open.scopes();
         open.setScope(by !== undefined ? all[((all.indexOf(open.scope) + Math.sign(by)) % all.length + all.length) % all.length]! : s);
-        return { open: true, scope: open.scope ?? "all", query: open.query };
+        return { open: true, scope: open.scope ?? "all", query: open.describe().query };
       }
       const b = on.open({ query, scope: s });
       return { open: true, scope: b.scope ?? "all", query: b.query };

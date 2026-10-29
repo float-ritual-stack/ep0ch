@@ -279,14 +279,14 @@ export class TunePane implements Pane {
       const settings = tabStrip(HINT_SETTINGS.map(to => ({ label: `[${to}]`, on: to === r.setting, hit: { action: "hints.set", args: { id: r.id, to } } })), { width: w, lead: "  ", style: HINT_LOOK });
       for (const row of settings) { hits.push(...controlsOf(row, lines.length)); lines.push(row.text); }
     });
-    const top = this.view.place(this.hintSel, lines.length, Math.max(1, h - 2), [starts[this.hintSel] ?? 0, (starts[this.hintSel + 1] ?? lines.length) - 1]);
-    const section = this.sectionTabs(w)[0]!;
+    const section = this.sectionTabs(w), head = section.length + 1;
+    const top = this.view.place(this.hintSel, lines.length, Math.max(1, h - head), [starts[this.hintSel] ?? 0, (starts[this.hintSel + 1] ?? lines.length) - 1]);
     this.controls = [
-      ...controlsOf(section, 0),
-      { y: 1, x: 0, cols: 11, action: "hints.reset", args: {} },
-      ...hits.filter(c => c.y >= top && c.y < top + h - 2).map(c => ({ ...c, y: c.y - top + 2 })),
+      ...section.flatMap((row, y) => controlsOf(row, y)),
+      { y: head - 1, x: 0, cols: 11, action: "hints.reset", args: {} },
+      ...hits.filter(c => c.y >= top && c.y < top + h - head).map(c => ({ ...c, y: c.y - top + head })),
     ];
-    return { lines: [section.text, fg(C.cyan) + "[reset all]" + RESET, ...lines.slice(top, top + h - 2)] };
+    return { lines: [...section.map(r => r.text), fg(C.cyan) + "[reset all]" + RESET, ...lines.slice(top, top + h - head)] };
   }
 
   /** Values or Hints: the inspector's two sections, `H` between them. */

@@ -15,17 +15,17 @@ export const CHIPS: TabStyle = { on: chip(C.blue), off: fg(C.grey), cursor: fg(C
  * Every tab set's one strip (PIE-1288): the tabs drawn in `style`, from column `at` after `lead`, within `width`. The one
  * overflow rule: `wrap` breaks rows where the next tab doesn't fit; `share` keeps one row, each label whole when they all
  * fit, else cut to an even share, and when a share would be under 4 cells the tail goes into "… N more" (`more` adds tabs
- * the caller left out; `moreHit` is its click). `tag` wraps the `i`th tab as drawn (a figure's inline link).
+ * the caller left out; its click is `moreHit`, else the first tab put away). `tag` wraps the `i`th tab as drawn (a figure's inline link).
  */
 export function tabStrip(tabs: readonly Tab[], o: { width: number; style?: TabStyle; lead?: string; at?: number; overflow?: "wrap" | "share"; more?: number; moreHit?: Omit<Hit, "from" | "to">; tag?: (drawn: string, i: number) => string }): TabRow[] {
-  const s = o.style ?? CHIPS, p = s.pad ?? "", gap = s.gap ?? "", sep = s.sep ?? "", lead = o.lead ?? "", shown = [...tabs];
+  const s = o.style ?? CHIPS, p = s.pad ?? "", gap = s.gap ?? "", sep = s.sep ?? "", lead = o.lead ?? "", shown = [...tabs], away: Tab[] = [];
   const fixed = (t: Tab) => width(p) * 2 + (t.key ? width(t.key) + 1 : 0);
   let cut = Infinity, more = o.more ?? 0;
   if (o.overflow === "share") {
-    const room = (n: number, m: number) => o.width - width(lead) - (m ? width(`… ${m} more`) + width(sep) + width(gap) : 0) - n * width(gap) - Math.max(0, n - 1) * width(sep);
+    const room = (n: number, m: number) => o.width - width(lead) - (m ? width(`… ${m} more`) + 2 * width(p) + width(sep) + width(gap) : 0) - n * width(gap) - Math.max(0, n - 1) * width(sep);
     const whole = shown.reduce((a, t) => a + fixed(t) + width(t.label), 0) <= room(shown.length, more);
     // The lit tab is never the one put away.
-    while (!whole && shown.length > 1 && Math.floor(room(shown.length, more) / shown.length) - fixed(shown[0]!) < 4) { shown.splice(shown.findLastIndex(t => !t.on), 1); more++; }
+    while (!whole && shown.some(t => !t.on) && Math.floor(room(shown.length, more) / shown.length) - fixed(shown[0]!) < 4) { away.unshift(...shown.splice(shown.findLastIndex(t => !t.on), 1)); more++; }
     if (!whole) cut = Math.max(1, Math.floor(room(shown.length, more) / Math.max(1, shown.length)) - fixed(shown[0]!));
   }
   const rows: TabRow[] = [];
@@ -42,8 +42,8 @@ export function tabStrip(tabs: readonly Tab[], o: { width: number; style?: TabSt
     if (t.hit) hits.push({ from: (o.at ?? 0) + x, to: (o.at ?? 0) + x + n, ...t.hit });
     x += n + width(gap);
   };
-  shown.forEach((t, i) => put(t, i));
-  if (more) put({ label: `… ${more} more`, hit: o.moreHit }, -1, true);
+  for (const t of shown) put(t, tabs.indexOf(t));
+  if (more) put({ label: `… ${more} more`, hit: o.moreHit ?? away[0]?.hit }, -1, true);
   rows.push({ text, hits, under: s.under && under });
   return rows;
 }
