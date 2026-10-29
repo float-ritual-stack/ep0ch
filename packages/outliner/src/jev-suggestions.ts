@@ -125,7 +125,8 @@ export function fixOf(recordText: string): string[] {
 /**
  * The page a person reads the reviews on, made with the first finding an outline keeps (PIE-1388), as the Records page
  * is: each review with its note (drawn by title, linked), what was said and the passage; what the writer did; a box per
- * finding to mark Jev right (x) or wrong (✗), which writes `jev::right` or `jev::rejected` on the record; and the
+ * finding to mark Jev right (x) or wrong (`-`, Reject: the status chooser's keys), which writes `jev::right` or
+ * `jev::rejected` on the record; and the
  * backfill's stats by rubric and writer. Every number is a live figure. An outline that already has a page by this
  * address (pie's, made by hand) keeps its own.
  */
@@ -134,7 +135,7 @@ export const SUGGESTIONS_PAGE = [
   "",
   "> [!summary] Every note an agent writes is reviewed: ship, or fix with the smallest fix.",
   "> Each row is what the writer was told, the passage it was about, and what the writer did next.",
-  "> Mark a finding right (x) or wrong (✗) below: the thresholds are tuned from your marks.",
+  "> Mark a finding below: x when Jev was right, - (Reject) when it was wrong. The thresholds are tuned from your marks.",
   "",
   "::graph-stat",
   "---",
@@ -149,7 +150,7 @@ export const SUGGESTIONS_PAGE = [
   "title: what each writer was told",
   "query: type=review-finding NOT source=backfill",
   "machinery: show",
-  "columns: [note, rubric, said, passage, writer, patch]",
+  "columns: [note, said, passage, rubric, patch, writer]",
   "link: note",
   "sort: created",
   "direction: desc",
@@ -163,7 +164,7 @@ export const SUGGESTIONS_PAGE = [
   "title: followed, patched or ignored",
   "query: type=suggestion-outcome",
   "machinery: show",
-  "columns: [note, rubric, outcome, patched, because, writer]",
+  "columns: [note, outcome, because, said, patched, writer]",
   "link: note",
   "sort: created",
   "direction: desc",
@@ -174,9 +175,12 @@ export const SUGGESTIONS_PAGE = [
   "## Was Jev right?",
   "::graph-check",
   "---",
-  "title: x when it was right, ✗ when it was wrong",
-  "query: type=review-finding created >= -7d",
+  "title: x when Jev was right, - (Reject) when it was wrong",
+  "query: type=review-finding NOT source=backfill created >= -7d",
   "machinery: show",
+  // By when it was told, so a row marked stays where it was (the default, by update, moved it under the pointer).
+  "sort: created",
+  "direction: desc",
   "done: jev=right",
   "note: said",
   "---",
