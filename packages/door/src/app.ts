@@ -1828,7 +1828,8 @@ export class App implements Ctx {
     // as many as fit before it with a cell of the message: pins give way from the end, then the `!`, the `+N` (the way to
     // the rest) last. What is kept here is what is drawn and what a click finds (PIE-1415: a dropped `+N` had left its
     // hit box behind).
-    let held = displaced ? leftItems.filter(i => i.id === "overflow" || (i.rank ?? RANK.builtin) >= RANK.pinned) : [];
+    // From the items as they were before separating: a dropped neighbour's `│` never leads the kept ones.
+    let held = displaced ? items.filter(i => i.place === "left" && (i.id === "overflow" || (i.rank ?? RANK.builtin) >= RANK.pinned)) : [];
     const own = (i: StatusItem) => i.id === "overflow" || i.id === "problems";
     while (held.length && width(statusText(separated(held, "left"))) >= room) {
       const last = held.findLastIndex(i => !own(i));

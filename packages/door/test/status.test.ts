@@ -496,12 +496,18 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
   });
 
   test("a failed button's ! stays on that button when a line above it or the button itself goes (PIE-1415)", async () => {
-    const note = await board.createBlock(null, 'Marks status [status-bar::true]\n- brand\n::button{label="Broken" act="no.such.action"}\n::button{label="Fine" act="status.log"}\n- clock');
+    const note = await board.createBlock(null, 'Marks status [status-bar::true]\n- brand\n- screen\n::button{label="Broken" act="no.such.action"}\n::button{label="Fine" act="status.log"}\n- clock');
     try {
       await until(() => bar().includes("[Fine]"), "the two buttons");
       await app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Broken" } }, USER).catch(() => null);
       const text = (id: string) => bar() && visible((app as any).statusBoxes.find((h: any) => visible(h.item.text).includes(id))?.item.text ?? "");
       await until(() => text("Broken").includes("!"), "the failed mark on Broken");
+      expect(text("Fine")).not.toContain("!");
+      // A line above it goes: the ! moves with Broken.
+      const was = (await board.get(note.id))!;
+      await board.update(note.id, was.text.replace("- screen\n", ""), was.revision!);
+      await until(() => !(app as any).statusNote.note.text.includes("- screen"), "the line above gone");
+      expect(text("Broken")).toContain("!");
       expect(text("Fine")).not.toContain("!");
       const now = (await board.get(note.id))!;
       await board.update(note.id, now.text.replace('::button{label="Broken" act="no.such.action"}\n', ""), now.revision!);

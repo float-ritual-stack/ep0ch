@@ -325,7 +325,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   await make(notes.scripts.id, "Shuffle tiles [script::shuffle-tiles] [results::keep] [effects::write]\n```js\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: true, motion: 'fantasia' });\nawait wait(1400);\nawait act('float.place', { tile: 'source', dx: 10, dy: 3, motion: 'fantasia' });\nawait act('float.place', { tile: 'extra', dx: -8, dy: 2, motion: 'fantasia' });\nawait wait(1400);\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: false, motion: 'fantasia' });\nreturn 'settled';\n```");
   notes.statusBar = await make(notes.root.id, [
     SEED.statusBar,
-    'Right-click Collapse (or put [ ] on it and open the tile menu): pin to status bar appends this line to your bar note; the right-click presses nothing. Any button you see offers it. Or run button.pin label="Collapse" here.',
+    'Right-click Collapse (or put [ ] on it and open the tile menu): pin to status bar appends this line to your bar note; the right-click presses nothing. Every ::button in a note offers it. Or run button.pin label="Collapse" here.',
     '<!-- Evan\'s layout: ::button{label="Collapse" act="tile.collapse tile=screen"} -->',
     '::button{label="Collapse" act="tile.collapse tile=extra"}',
     'A button can reach past this screen: Lift lifts the agent tab you used last as a column wherever it is (in the drawer, or the screen it went out to), opening one when none is; press it again to drop it. ✦a does the same with the hyper layer on.',

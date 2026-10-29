@@ -1443,7 +1443,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "status-bar", need: "keep a note's button on your status bar", part: "App's declared status items, StatusBarNote, outline-core button-call and button.press", files: "src/app.ts, src/status-bar.ts, src/surface/note.ts",
-    aside: 'Right-click or alt+click an empty part of the bar, or ^K status bar: edit. The note orders built-ins with - <id> lines; leave one out to hide it. Append ::button{label="Collapse" act="tile.collapse tile=screen"}; alt= names an alternate action. A right-click on any note button offers pin to status bar in its tile menu, pressing nothing. status.bar.items describes the same actions the mouse presses. Missing or broken config keeps the default bar; malformed lines stay saved and are said in the message log.',
+    aside: 'Right-click or alt+click an empty part of the bar, or ^K status bar: edit. The note orders built-ins with - <id> lines; leave one out to hide it. Append ::button{label="Collapse" act="tile.collapse tile=screen"}; alt= names an alternate action. A right-click on a ::button in a note offers pin to status bar in its tile menu, pressing nothing. status.bar.items describes the same actions the mouse presses. Missing or broken config keeps the default bar; malformed lines stay saved and are said in the message log.',
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
       return deskOf({ title: "showcase · status bar", panes: [a, b], names: ["notes", "extra"] }, show, [[a, n.statusBar], [b, n.shed]]);

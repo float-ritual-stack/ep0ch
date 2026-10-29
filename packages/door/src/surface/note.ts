@@ -4565,19 +4565,18 @@ export class NoteSurface {
 
   /** A right-click at the surface's cell `x`, `y` is an element's own (a step's box, a callout's type: its choice opens there). */
   ownsRightClick(x: number, y: number): boolean {
-    const h = this.hitAt(x, y);
+    // The note's rows are under its header image, as a click finds them.
+    const h = this.hitAt(x, y - (this.drawn?.heroRows ?? 0));
     return !!h && "link" in h && (h.link.role === "task" || h.link.role === "callout");
   }
 
   /**
-   * A right-click at the surface's cell `x`, `y` on a button: it becomes the `[ ]` position and nothing runs, so the tile
-   * menu that opens there is about it (its "pin to status bar", PIE-1415). False anywhere else.
+   * A right-click at the surface's cell `x`, `y` on a button: element.select makes it the `[ ]` position and nothing runs,
+   * so the tile menu that opens there is about it (its "pin to status bar", PIE-1415). Null anywhere else.
    */
-  pointAt(x: number, y: number): boolean {
-    const h = this.hitAt(x, y - (this.drawn?.heroRows ?? 0)), e = h && "link" in h && h.link.press && h.elem ? this.elems.find(el => el.key === h.elem) : undefined;
-    if (!e) return false;
-    this.setElem(e);
-    return true;
+  pointAt(x: number, y: number, host: SurfaceHost): Promise<unknown> | null {
+    const h = this.hitAt(x, y - (this.drawn?.heroRows ?? 0)), i = h && "link" in h && h.link.press && h.elem ? this.elems.findIndex(el => el.key === h.elem) : -1;
+    return i < 0 ? null : this.runKey("element.select", { n: i + 1 }, host);
   }
 
   /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */

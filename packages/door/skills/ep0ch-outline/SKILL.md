@@ -687,7 +687,7 @@ parentheses. A button with no glyph says running and done by colour only. The ki
 lines place buttons there. Closed button bodies and list sugar work there too; pinning preserves the whole body. `alt="theme.cycle"` names a button's alternate click. The shared `button.press note=<id> label=...`
 presses it without moving focus. `status.bar.items` describes the ids and their declared actions; `status.bar.edit` opens
 or creates the config note, also reached by right-click or alt+click on empty bar space and the power bar's `status bar: edit`.
-A right-click on any button in a note opens its menu with **pin to status bar** for that button, pressing nothing (`button.pin label="Collapse"`). The note is a list (PIE-1224): a
+A right-click on a `::button` in a note opens its menu with **pin to status bar** for that button, pressing nothing (`button.pin label="Collapse"`). The note is a list (PIE-1224): a
 `- ::button{…}` item is a button, and an item with items indented under it is a **group**, its label on the bar opening
 them as a menu (`status.bar.menu group=Tools`, `Tools/More` for a nested one, which opens where `Tools`'s did; an agent's answers the rows). A line the bar
 can't read is skipped, never the whole bar (PIE-1227): the rest stays, a `! line N` item opens the note at it, and the

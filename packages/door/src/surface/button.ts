@@ -72,11 +72,18 @@ const keyOf = (block: string, line: number) => `${block}:${line}`;
 
 /**
  * The press of the button `label` on `line` of `block`, as the person last saw it: running, done (for DONE_MS), failed until
- * pressed again. A press made by another button that stood on that line before an edit is none of this one's (PIE-1415).
+ * pressed again. An edit moves lines (PIE-1415): a press another button made on that line is none of this one's, and this
+ * one's press is found by its label wherever it now stands.
  */
 export function pressState(block: string, line: number, label?: string): Pick<ButtonLook, "state" | "why"> {
-  const p = presses.get(keyOf(block, line));
-  if (!p || (p.label !== undefined && label !== undefined && p.label !== label) || (p.state === "done" && Date.now() - p.at > DONE_MS)) return {};
+  let p = presses.get(keyOf(block, line));
+  if (p?.label !== undefined && label !== undefined && p.label !== label) p = undefined;
+  // Moved by an edit above it: the press is found by its words, when exactly one in the note has them.
+  if (!p && label !== undefined) {
+    const named = [...presses].filter(([k, q]) => k.startsWith(`${block}:`) && q.label === label);
+    if (named.length === 1) p = named[0]![1];
+  }
+  if (!p || (p.state === "done" && Date.now() - p.at > DONE_MS)) return {};
   return { state: p.state, ...(p.why ? { why: p.why } : {}) };
 }
 
