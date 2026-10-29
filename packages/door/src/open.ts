@@ -3,7 +3,7 @@ import { openLinked } from "@ep0ch/outliner/link";
 import { DEFAULT_WEB_ORIGIN, WEB_ROOT, webBase } from "@ep0ch/outliner/artifact-grants";
 import { servingSession } from "./session/session-term";
 import type { Ctx } from "./app";
-import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
+import { qualifiedReference, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import type { AuthoredResourceLink } from "./authored";
 import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 // Opening what a Markdown link names, as Detail does (pi-herdr-outliner src/detail-controller.ts
@@ -71,7 +71,7 @@ const FRAGMENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
  * Where a link's destination goes: `{ web }` for http(s), a door target for a pi-outliner:// block, page or
  * Work-ID link, or `{ refused }` with why (another pi-outliner kind the door can't open yet, or not a link).
  */
-export function destinationOf(url: string): { web: string } | { target: LinkTarget } | { refused: string } {
+export function destinationOf(url: string, env: Record<string, string | undefined> = process.env): { web: string } | { target: LinkTarget } | { refused: string } {
   const u = url.trim();
   if (u.startsWith("ep0ch://")) {
     try { const a = parseEp0chBlockUri(u); return { target: { block: a.blockId, outline: a.outline, machine: a.machine, ...(a.fragment ? { fragment: a.fragment } : {}) } }; }
@@ -80,10 +80,12 @@ export function destinationOf(url: string): { web: string } | { target: LinkTarg
   if (/^https?:\/\//i.test(u)) {
     try {
       const p = new URL(u);
-      const match = p.hostname === "my.ep0ch.sh" && p.pathname.match(/^\/pub\/o\/([^/]+)\/(?:p\/)?(.+)$/);
+      // What notePageUrl writes, on the web client's origin or the default one: `/pub/o/<outline>/p/<target>`, or `/pub/p/<target>` (this outline's).
+      const ours = [DEFAULT_WEB_ORIGIN, webBase(env)].some(b => b && new URL(b).host === p.host);
+      const match = ours && p.pathname.match(/^\/pub\/(?:o\/([^/]+)\/(?:p\/)?|p\/)([^/]+)\/?$/);
       if (match) {
         const value = decodeURIComponent(match[2]!);
-        return { target: { outline: decodeURIComponent(match[1]!), ...(BLOCK_ID.test(value) && /^[0-9a-f-]{36}$/i.test(value) ? { block: value } : { page: value }), ...(p.hash ? { fragment: p.hash.slice(1) } : {}) } };
+        return { target: { ...(match[1] ? { outline: decodeURIComponent(match[1]) } : {}), ...(BLOCK_ID.test(value) && /^[0-9a-f-]{36}$/i.test(value) ? { block: value } : { page: value }), ...(p.hash ? { fragment: p.hash.slice(1) } : {}) } };
       }
       return { web: p.href };
     } catch { return { refused: `not a web address: ${u}` }; }
@@ -98,6 +100,22 @@ export function destinationOf(url: string): { web: string } | { target: LinkTarg
   if (p.hostname === "block" && BLOCK_ID.test(qualifiedReference(value).target) && (!fragment || FRAGMENT_ID.test(fragment))) return { target: { block: value, ...(fragment ? { fragment } : {}) } };
   if (p.hostname === "page" || p.hostname === "work") return { target: { page: value } };
   return { refused: `the door can't open pi-outliner://${p.hostname} links yet` };
+}
+
+/**
+ * The note a pasted address names (PIE-1398): any form `note.copy-ref` copies, read back by the readers that own
+ * them: a block id or a reference written whole (outline-core's `referencedBlock`: `((id|label))`, `((outline:id|…))`,
+ * `((id^anchor|…))`), an `ep0ch://` address or a note's web link (`destinationOf`). Anything else (words, an action
+ * line, a web page that isn't a note) is none.
+ */
+export function addressOf(text: string, env: Record<string, string | undefined> = process.env): (LinkTarget & ({ block: string } | { page: string })) | null {
+  const t = text.trim();
+  if (!t || /\s/.test(t.replace(/\|[^]*$/, ""))) return null;
+  const ref = referencedBlock(t);
+  if (ref) return { block: ref.blockId, ...(ref.outline ? { outline: ref.outline } : {}), ...(ref.fragment ? { fragment: ref.fragment } : {}), ...(ref.label ? { label: ref.label } : {}) };
+  if (!/^(?:ep0ch|https?|pi-outliner):\/\//i.test(t)) return null;
+  const to = destinationOf(t, env);
+  return "target" in to && (to.target.block || to.target.page) ? to.target as LinkTarget & ({ block: string } | { page: string }) : null;
 }
 
 /** Published note links in the service's Resources rows still open as notes in the door. */

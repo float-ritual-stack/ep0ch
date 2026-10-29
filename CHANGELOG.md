@@ -32,6 +32,39 @@ are its record. The outliner's entries from then are kept below, under
   service makes the records), a rerun skips notes already kept, and Jev's own page and rule are no longer reviewed.
 - **Run:** `ep0ch install --apply` (PROTOCOL changes: a twin's verdict can be `unsure`). pie's Jev's suggestions page
   was made by hand, so it keeps its own wording: its summary and check title still say ✗.
+### Search says how sure it is, and the Jev pin moves only on evals (PIE-1198, PIE-1197)
+
+- **No confident wrong answer:** a ranked search (the power bar's `/`, `[[` and `((`, `ep0ch find`, `outline_find`)
+  asks Jev, in the same request as its scores, whether the note wanted is among the hits; code decides. A weak top says
+  **no strong match** (in the bar's and the completer's footer, under `ep0ch find`'s rows, and in `outline_find`'s
+  `search`) instead of reading as the answer; a sure one says so. Each hit carries its Score (`2.6/3`).
+- **`ep0ch find <words>` and the gateway's `outline_find` ask Jev by default** (`--lexical`, `semantic: false` don't);
+  the mod's `outline_find` with text alone is the same ranked search (with a property, query or subtree, text stays a
+  filter).
+- **Evals before the pin moves:** `ep0ch search harvest` turns agents' real searches (Claude Code's session logs, read
+  only) and the note opened next, and your picks from a search, into `search-eval-case` records in pie (pie's and
+  gurgle's notes only); `ep0ch search eval --into pie` ranks them with each model (cached by request), and keeps a
+  `jev-run` per model and a report under pie's **Search evals** page. First run: jev-1.13.0 stays pinned (jev-1.14.0
+  wasn't better); the "sure" threshold (Noul 0.8) comes from it.
+- **Costs show:** every ranked search counts on the day's `search-live` jev-run (searches, sure, no strong match,
+  tokens, cost), beside the other Jev loops on Jev's suggestions page.
+- **Run:** PROTOCOL 280: `ep0ch install --apply` on float-2 and the laptop.
+
+### Paste a note's address into the power bar and it opens; copy rows first in the tile menu (PIE-1398, PIE-1399, PIE-1284)
+
+- **Any address opens:** paste an id, `((id|label))`, another outline's `((outline:id|…))`, a line's `((id^anchor|…))`,
+  an `ep0ch://` address or a note's web link into the power bar: that note is the first row, lit, and ⏎ opens it (a
+  line's at that line, another outline's in its own outline). A note that isn't there says so on the row. In a note, a
+  reference opens as before, and a Markdown link to a note's web link now opens the note in its `/pub/p/` form and on
+  the web client's own origin too (a bare URL in a note isn't a link yet).
+- **The list holds still:** typing no longer empties the bar between keys; the rows stay until the next answer replaces them.
+- **The row menu by its digits:** alt+m (or a right-click) on a hit shows `1 copy note id`, `2 copy note reference`…;
+  press the digit (alt+digit works too). The chips wrap onto a second row in a narrow tile instead of being cut.
+- **Copy rows first:** the tile menu opens with its Copy group (the note's id, reference, web link and line reference,
+  then the tile's id and reference), so they're in reach in a short tile and typing "copy" finds them together.
+- **Installed reads as installed:** an extension installed as it ships (neat) no longer says "your copy overrides the
+  built-in"; only a copy you changed here, or one behind the built-in, does. The status line names what was added
+  (`extensions: Neat added`), never a script id.
 
 ### A deploy restarts the outline host only when the host's own code changed (PIE-1397)
 

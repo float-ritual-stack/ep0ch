@@ -20,6 +20,8 @@
     "./work-groom": "./src/work-groom.ts",
     "./work-try": "./src/work-try.ts",
     "./write-review": "./src/write-review.ts",
+    "./search-eval": "./src/search-eval.ts",
+    "./jev": "./src/jev.ts",
     "./mcp-write": "./src/mcp-write.ts",
     "./host-api": "./src/host-api.ts",
     "./script-examples": "./src/script-examples.ts",

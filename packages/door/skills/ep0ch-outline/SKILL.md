@@ -26,7 +26,9 @@ For changing the code instead, use `ep0ch-core`. For driving their door (peek, a
    `ep0ch --skill outliner-workflow` prints; the `work_*` tools run it). Items are made only by the
    allocator, never by hand.
 4. **Look before you make.** Find the existing owner and the vocabulary in use (`outline_find` by text,
-   `property`, `hasKey` or `query`) before creating a note, a key or a view.
+   `property`, `hasKey` or `query`) before creating a note, a key or a view. Text alone is the ranked search: each row
+   its `score`, and `search.verdict` says whether the top answers it; "no strong match" means it likely doesn't exist
+   yet, so make it rather than reuse the closest.
 
 ## Tools
 

@@ -16,6 +16,9 @@ export const RECORD_FIELDS = {
   // (A template holds at most 16 fields; the review's verdict is the record's title.)
   "review-finding": ["day", "note", "revision", "writer", "harness", "rule", "rubric", "component", "key", "line", "title", "passage", "said", "patch", "source", "fix"],
   "suggestion-outcome": ["day", "suggestion", "note", "outcome", "component", "writer", "harness", "because", "rule", "rubric", "title", "passage", "said", "patched"],
+  // PIE-1197: a real query and the note(s) that should come first (`expect`: ids, or `none` when nothing should), and who
+  // said so (`source`: an agent's read after its search, the note it made, or Evan's pick). The search eval reads them.
+  "search-eval-case": ["query", "outline", "expect", "source", "surface", "rank", "asked", "note"],
   "jev-run": ["experiment", "run", "model", "prompt-rev", "items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out", "cost"],
   // The workboard's Jev loops (work-jev.ts): the groom's verdict per queued ticket, and each twin offered at filing with
   // what became of it (offered, filed-anyway, attached).
