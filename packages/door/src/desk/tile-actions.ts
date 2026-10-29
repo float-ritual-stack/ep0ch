@@ -54,7 +54,7 @@ export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file
  * An agent's change is said on screen with who made it (each def's `says`); the person's own isn't (they see it
  * happen), unless it `confirms`: something the screen doesn't show (a layout saved, where a drag put a tile).
  */
-interface On { d: Desk; reader?: string }
+interface On { d: Desk; reader?: string; standing?: boolean }
 
 /** The tile menu's group for saving and loading the screen. */
 const SCREEN = "Screen";
@@ -574,9 +574,16 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.info": def({
     answer: { tile: { type: "string", kind: "tile", about: "the tile's stable id" }, name: { type: "string", about: "its displayed name" }, kind: { type: "string", about: "what it shows" } },
-    summary: "one tile as data: its kind, name, rect, link, dock state; a terminal's command, file, process and screen text; a reader's note; follows= and opens=: what it follows and where its opens land, in the words ^W P says them (reader.follow, tile.hold and tile.link change them)",
+    summary: "one tile as data: its kind, name, rect, link, dock state; a terminal's command, file, process and screen text; a reader's note; follows= and opens=: what it follows and where its opens land, in the words ^W P says them (reader.follow, tile.hold and tile.link change them). With card=true (^W ,, the tile menu's row) the person's shows it in a card by the tile, with copy id and copy reference on it",
+    keys: "^W , ; the tile menu's \"about this tile\"",
     touches: "nothing", replay: "safe",
-    args: {},
+    menu: { label: "about this tile", group: TILE, key: "ctrl+w ,", args: { card: true } },
+    hint: ({ card }, { d, reader, standing }) => (card && standing ? d.tileInfoHint(reader) : null),
+    args: { card: { type: "boolean", optional: true, about: "the person's: show it in a card by the tile too (^W , and the menu's row do)" } },
+    examples: [
+      { act: "tile.info tile=reader", does: "answers the reader's id, kind, note, what it follows and where its opens land" },
+      { act: "tile.info tile=reader card=true", does: "the person's: the same, shown in a card by the reader with copy id and copy reference" },
+    ],
     run(_, { d, reader }) { return d.tileInfo(reader); },
   }),
   "tile.copy-ref": def({

@@ -107,7 +107,8 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
     if (needsNvim && !NVIM) console.warn(`Skipping example (nvim is not on PATH): ${example.act}`);
     test.skipIf(needsNvim && !NVIM)(example.act, async () => {
     // A part to take out (PIE-1247): element.* examples name the figure on line 4, ^bed-jobs, and a pad to drop it into.
-    const parts = page.name.startsWith("element.") ? "\n::graph-table ^bed-jobs\n---\ntitle: Bed jobs\n---\n- peas: sow\n::\n" : "";
+    // note.copy-ref's line example names line 4, a heading: a line's reference anchors a part the service reads as one.
+    const parts = page.name.startsWith("element.") ? "\n::graph-table ^bed-jobs\n---\ntitle: Bed jobs\n---\n- peas: sow\n::\n" : page.name === "note.copy-ref" ? "\n## Beds\nSow the peas.\n\n" : "";
     // A note still writing retired look keys (PIE-1365) for tune.retired.*'s examples to fix.
     const retired = page.name.startsWith("tune.retired.") ? " [style.header.image::media/seed-swap.png] [style.header.image.tint::0.5]" : "";
     const note = await h.board.createBlock(null, `Seed swap [page::garden]${retired}${page.name === "tree.depth" ? " [type::virtual-branch] [query::page=garden]" : ""}\nseed swap: bring beans and peas.\n${parts}` + "Water the beds.\n".repeat(45));

@@ -38,6 +38,7 @@ import { external } from "../src/open";
 import { DEFAULT_THEME, setTheme } from "../src/theme";
 import { outliner, Scratch } from "./scratch";
 import { watchHosts } from "./settle";
+import { FakeSearchClock, useSearchClock } from "../src/search-schedule";
 import { cacheReads } from "./board-reads";
 import { ScenarioBudget } from "./parity-budget";
 
@@ -80,9 +81,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   /** Keys read as one chunk of input (Term's onBatch): handled together, the screen painted once after them. */
   let batch: (run: () => void) => void = run => run();
   // Settled means no answer from the host is awaited, whichever way the screen asked (test/settle.ts).
-  // The power bar (ctrl+k) still asking its sources is not settled either: its rows land after. Its pause after typing (150 ms, as
-  // shipped) is run out at once (askNow, in settle): the walk's clock, not a wait on every key typed there.
-  const hosts = watchHosts(() => { const bar = (app as any)?.bar; return !!bar && (bar.asking.size > 0 || !!bar.timer); });
+  // The power bar (ctrl+k) still asking its sources is not settled either: its rows land after. The door's search pauses (the bar's and
+  // the completer's after typing, Jev's after an answer, a query tile's after a change: src/search-schedule.ts) run on the walk's own
+  // clock, as shipped, and settle runs them out: a pause still waiting is not settled, and no key waits one out on the wall clock.
+  const clock = new FakeSearchClock();
+  const hosts = watchHosts(() => { const bar = (app as any)?.bar; return clock.pending > 0 || (!!bar && bar.asking.size > 0); }, () => clock.runOut());
   // The door paints at most every 16 ms (App.redraw): a paint asked for too soon waits on a timer and fires whenever the event
   // loop next turns, between two probes at random. Settled means that paint was made, now: the screen the probe looks at is the
   // one the door drew (snap), not one drawn again beside it.
@@ -95,7 +98,6 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const settle = async () => {
     for (let i = 0; ; i++) {
       const h0 = performance.now();
-      A()?.bar?.askNow();
       await hosts.settle();
       stats.hostMs += performance.now() - h0;
       if (!flushPaint()) return;
@@ -124,6 +126,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const hintFindings = { push(f: Finding) { if (!hintFound.some(h => h.screen === f.screen && h.keys === f.keys)) { hintFound.push(f); say(f); } } };
 
   beforeAll(async () => {
+    restore.push(useSearchClock(clock));
     const env = { ...process.env };
     restore.push(() => { for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "VISUAL", "EDITOR", "EP0CH_EDIT_ARM"]) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; } });
     process.env.EP0CH_STATE = join(scratch.root, "door");

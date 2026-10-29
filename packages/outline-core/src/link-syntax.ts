@@ -122,10 +122,14 @@ export function referencedBlock(input: string): { blockId: string; fragment?: st
   };
 }
 
-/** `((id|label))`: a reference to a note with a label that can't end it early (no `|` or parentheses). */
-export function blockRefText(id: string, label: string): string {
+/**
+ * `((id|label))`: a reference to a note with a label that can't end it early (no `|` or parentheses); `outline` names
+ * another outline (`((outline:id|label))`), `fragment` a line's anchor (`((id^anchor|label))`). The one writer of the
+ * forms `blockReferenceOccurrences` reads.
+ */
+export function blockRefText(id: string, label: string, at: { outline?: string; fragment?: string } = {}): string {
   const said = label.replace(/[|()]/g, " ").replace(/\s+/g, " ").trim();
-  return `((${id}${said ? `|${said}` : ""}))`;
+  return `((${at.outline ? `${at.outline}:` : ""}${id}${at.fragment ? `^${at.fragment}` : ""}${said ? `|${said}` : ""}))`;
 }
 
 export function blockReferenceIds(text: string, code?: CodeScope): string[] {

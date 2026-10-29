@@ -19,6 +19,14 @@ are its record. The outliner's entries from then are kept below, under
 - **Two renames:** a tile's menu has "rename this tile…" and, when the tile shows a note, "rename this
   note…" (`note.rename text=`). That one changes the note's title only; its first line's properties and its body
   stay.
+### One search scheduler: the completer waits for typing, and a replaced search stops (PIE-1382)
+
+- **The completer waits for a pause:** `((garden` typed quickly asks the service once, 150 ms after the last key, as
+  the power bar does; Tab and Ctrl+Space still ask at once. Before, every key was a round trip.
+- **A replaced search stops:** typing on in the power bar, or a query tile read again, stops the request it replaces
+  instead of letting it run to the end; its answer is never drawn.
+- **One owner:** the bar, the completer and a query tile go through `SearchSchedule` (`src/search-schedule.ts`): the
+  pause, latest-wins, abort and Jev's re-order pause. The parity walk runs those pauses out on a fake clock, as shipped.
 
 ### The extensions list reads at a glance, settings and scripts too (PIE-1284)
 
@@ -28,6 +36,20 @@ are its record. The outliner's entries from then are kept below, under
 - **Grouped under installed, with a kind chip:** headings read `installed · scripts · 24`, `settings · 7`; each row
   names its kind at its right where the width allows, so it still says so once a typed name hides the headings.
 
+
+### Copy a note's link, a line's reference, or any row's address (PIE-1297)
+
+- **Every row that is a note copies it:** a list's, the tree's or a lane's menu (⋯, or a right-click on the row) has
+  copy id, copy reference and copy web link for that row, as a reader's has for its note. A power-bar hit has them on
+  its menu (alt+m, a right-click), and a BBS message reader copies its message.
+- **Another outline's notes copy as that outline's:** a links list on another outline's note, an EchoNet area's
+  messages and `/outline:<name>` hits give `((outline:id|title))` and its `/pub/o/<outline>/` link.
+- **A web link:** copy web link gives `https://my.ep0ch.sh/pub/o/<outline>/p/<id>`, a roadmap item's by its Work
+  ID; pie's opens as `/pub/p/<id>`.
+- **A line's reference:** in a reader, copy a reference to this line gives `((id^anchor|words))`, adding the anchor
+  once when the line has none. Another outline's note copies as `((outline:id|title))`.
+- **Two keys:** `^W y` copies the reference of the note the tile points at; `^W ,` shows a tile's id, place and wires
+  in a card, with its copy rows. `act note.copy-ref kind=id|ref|link|line` does the same for an agent.
 ### An open that names no tile reaches a mounted screen's reader (PIE-1306)
 
 - **Mounts take opens:** on a screen whose only readers sit inside mounted screens, `ep0ch open` and an agent's open

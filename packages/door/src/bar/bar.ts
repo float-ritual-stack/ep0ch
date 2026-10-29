@@ -35,16 +35,11 @@ import { barSource, barSources, type BarHost, type BarPreview, type BarRow, type
 import "./sources";
 import { tabKeys, tabStrip, type TabRow } from "../surface/chip-rows";
 import { modeBinding } from "../surface/modes";
+import { JEV_PAUSE_MS, SearchSchedule, TYPING_PAUSE_MS } from "../search-schedule";
 import { compactQuestion, formOpen, formLine, maskedQuestion, clearPrivateForm } from "./ask";
 
 /** One row of the list, with the source it's from and the heading drawn above it (a source's title, a tile's screen). */
 export interface BarItem { source: BarSource; row: BarRow; heading?: string }
-
-/**
- * How long typing must pause before a source that asks the service is asked. A test that can't wait the pause out on
- * every key (the parity walk) ends it with `askNow`, as the pause running out would.
- */
-const ASK_MS = 150;
 
 /** Where the bar sits over a screen `cols` by `rows` (the status bar not counted). */
 export function barRect(cols: number, rows: number): Rect {
@@ -66,18 +61,13 @@ export class PowerBar {
   input: LineField;
   private readonly picker: ListPicker<BarItem, PowerBar>;
   items: BarItem[] = [];
-  /** Each source's rows for the last query asked, and the sources still answering. */
+  /** Each source's rows for the last query asked. */
   private got = new Map<string, BarRow[]>();
-  private asking = new Set<string>();
   private problems = new Map<string, string>();
   /** What a source said of its rows since (`jev ranked`). */
   private said = new Map<string, string>();
-  private seq = 0;
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  /** What the pause asks when it runs out (the sources that ask the service), while `timer` runs. */
-  private paused: (() => void) | null = null;
-  /** Those waiting for every source asked to answer (`settled`): called when the last one does. */
-  private waiters: (() => void)[] = [];
+  /** The query asked and what follows from it: the pause before the service is asked, the sources still answering (its turn's pending). */
+  private readonly search = new SearchSchedule(TYPING_PAUSE_MS);
   /** The lit row, by its source and key: kept lit when rows come in around it. */
   private litKey: string | null = null;
   /** The person moved the lit row since the query changed: rows arriving keep it lit; else the first row is. */
@@ -142,7 +132,7 @@ export class PowerBar {
     return l;
   }
 
-  close() { this.input = this.line(""); this.done = true; this.seq++; if (this.timer) clearTimeout(this.timer); this.timer = null; this.paused = null; this.surface.dispose(); this.answered(true); }
+  close() { this.input = this.line(""); this.done = true; this.search.cancel(); this.surface.dispose(); }
   ended(): boolean { return this.done || this.picker.ended(); }
   get query(): string { return this.input.text; }
   get selected(): number { return this.picker.sel; }
@@ -191,6 +181,11 @@ export class PowerBar {
       if (s) { void this.host.dispatch.press("bar.open", { scope: s.id, keep: true }); return true; }
     }
     if (k.kind === "up" && this.scope !== "ask" && !this.query && this.host.runs.length) { void this.host.dispatch.press("bar.command", { op: "recall" }); return true; }
+    if (this.menuOpen && k.kind === "alt" && /^[1-9]$/.test(k.ch)) {
+      const e = this.menuEntries()[Number(k.ch) - 1];
+      if (e) void this.host.dispatch.press(e[1], e[2]);
+      return true;
+    }
     if (k.kind === "alt" && ["o", "y", "i", "m"].includes(k.ch)) { void this.host.dispatch.press(k.ch === "i" ? "bar.insert" : "bar.command", k.ch === "i" ? {} : { op: k.ch === "o" ? "copy" : k.ch === "y" ? "button" : "menu" }); return true; }
     if (k.kind === "right" && this.scope !== "ask" && this.input.col === this.query.length && /\s/.test(this.query) && this.host.dispatch.has(this.query.split(/\s/)[0]!)) { void this.host.dispatch.press("bar.edit", { op: "complete" }); return true; }
     if (k.kind === "alt-enter") { if (this.items.length) this.pick(this.picker.sel + 1, true); return true; }
@@ -322,62 +317,38 @@ export class PowerBar {
       for (const s of this.sources()) if (!s.asks) { try { const r = s.rows(this.query, this.host, this.scope); if (Array.isArray(r)) this.got.set(s.id, r); } catch { /* kept as it was */ } }
       return this.build(true);
     }
-    const n = ++this.seq, q = this.query, sources = this.sources();
+    const turn = this.search.begin(), q = this.query, sources = this.sources();
     this.moved = false;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null; this.paused = null;
-    this.got = new Map(); this.asking.clear(); this.problems.clear(); this.said.clear(); this.previews.clear();
-    const alive = () => n === this.seq && !this.done;
+    this.got = new Map(); this.problems.clear(); this.said.clear(); this.previews.clear();
+    const alive = () => turn.alive() && !this.done;
     const answer = (s: BarSource, rows: BarRow[]) => {
       if (!alive()) return;
-      this.asking.delete(s.id); this.got.set(s.id, rows); this.build(); this.host.ctx.redraw(); this.answered();
+      this.got.set(s.id, rows); this.build(); this.host.ctx.redraw(); turn.answered(s.id);
       // An agent's bar is read once and put away: no re-ordering asked for it.
-      const again = this.quick ? null : s.later?.(q, rows, this.host, alive);
-      // The same hits re-ordered (Jev): what's lit stays lit, as it did in the search it replaced.
-      if (again) void again.then(r => { if (r && alive()) { this.got.set(s.id, r.rows); if (r.said) this.said.set(s.id, r.said); this.build(true); this.host.ctx.redraw(); } });
+      if (this.quick || !s.later) return;
+      // The same hits re-ordered (Jev), after a pause: what's lit stays lit, as it did in the search it replaced.
+      turn.after(JEV_PAUSE_MS, () => void s.later!(q, rows, this.host, turn.signal)?.then(r => { if (r && alive()) { this.got.set(s.id, r.rows); if (r.said) this.said.set(s.id, r.said); this.build(true); this.host.ctx.redraw(); } }, () => {}));
     };
     const fail = (s: BarSource, e: unknown) => {
       if (!alive()) return;
-      this.asking.delete(s.id); this.problems.set(s.id, e instanceof Error ? e.message : String(e)); this.build(); this.host.ctx.redraw(); this.answered();
+      this.problems.set(s.id, e instanceof Error ? e.message : String(e)); this.build(); this.host.ctx.redraw(); turn.answered(s.id);
     };
-    const ask = (s: BarSource) => { try { const r = s.rows(q, this.host, this.scope); if (Array.isArray(r)) answer(s, r); else void r.then(rows => answer(s, rows), e => fail(s, e)); } catch (e) { fail(s, e); } };
+    const ask = (s: BarSource) => { try { const r = s.rows(q, this.host, this.scope, turn.signal); if (Array.isArray(r)) answer(s, r); else void r.then(rows => answer(s, rows), e => fail(s, e)); } catch (e) { fail(s, e); } };
     const later = sources.filter(s => s.asks);
     // All asked before any answers: a source that answers at once never leaves the set empty while the rest are still to ask (settled).
-    for (const s of sources) this.asking.add(s.id);
+    for (const s of sources) turn.asking(s.id);
     for (const s of sources) if (!s.asks) ask(s);
     this.build();
     // A source that asks the service (the notes search, an extension's) waits for typing to pause.
     if (later.length && this.quick) for (const s of later) ask(s);
-    else if (later.length) {
-      this.paused = () => { for (const s of later) ask(s); };
-      this.timer = setTimeout(() => this.askNow(), ASK_MS);
-    }
-  }
-
-  /** The pause after typing ends now: the sources that ask the service are asked, as when it runs out. False when none is waiting. */
-  askNow(): boolean {
-    const run = this.paused;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null; this.paused = null;
-    run?.();
-    return !!run;
+    else if (later.length) this.search.pause(() => { for (const s of later) ask(s); });
   }
 
   /** Resolves once every source asked has answered (or `ms` passed): when the last answers, not on a poll. The sources still out, if any (an agent's rows aren't whole). */
-  async settled(ms = 5000): Promise<string[]> {
-    if (this.asking.size) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      await new Promise<void>(r => { this.waiters.push(r); timer = setTimeout(r, ms); });
-      clearTimeout(timer);
-    }
-    return [...this.asking];
-  }
-  /** Every source has answered (or the bar closed, `all`): those waiting in `settled` go on. */
-  private answered(all = false) {
-    if (this.asking.size && !all) return;
-    const w = this.waiters; this.waiters = [];
-    for (const f of w) f();
-  }
+  settled(ms = 5000): Promise<string[]> { return this.search.settled(ms); }
+
+  /** The sources whose rows are still to come for what's typed now (drawn `…`). */
+  private get asking(): ReadonlySet<string> { return this.search.turn?.pending ?? new Set(); }
 
   /** The rows again from what each source answered: in the main list each source's few under its heading. */
   private build(keepLit = this.moved) {
@@ -454,10 +425,12 @@ export class PowerBar {
     this.sourceHead = scoped?.head?.(w, this.host) ?? [];
     this.menuSpots = [];
     let menu = " ";
-    for (const [label, action, args] of [["copy command", "bar.command", { op: "copy" }], ["copy button", "bar.command", { op: "button" }], ["insert button", "bar.insert", {}]] as const) {
-      this.menuSpots.push({ from: menu.length + 1, to: menu.length + label.length + 3, action, args });
-      menu += `[${label}] `;
-    }
+    // Each entry keyed alt+1, alt+2… while the menu is open, as a click on it.
+    this.menuEntries().forEach(([label, action, args], i) => {
+      const said = `${i + 1} ${label}`;
+      this.menuSpots.push({ from: menu.length + 1, to: menu.length + said.length + 3, action, args });
+      menu += `[${said}] `;
+    });
     const head = [tabs, line, ...(this.menuOpen ? [menu] : []), ...this.sourceHead, fg(C.blue) + "─".repeat(w) + RESET];
     const tail = said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : [];
     const it = this.items[this.picker.sel];
@@ -476,14 +449,14 @@ export class PowerBar {
   private previewLines(it: BarItem, w: number, h: number): string[] {
     // A preview that answers at once is asked each frame (a terminal's screen as it is now); one read is kept for this
     // query's rows (cleared when they're asked again), and an answer for rows since replaced is dropped.
-    const key = `${it.source.id}\0${it.row.key}`, n = this.seq;
+    const key = `${it.source.id}\0${it.row.key}`, turn = this.search.turn;
     let p = this.previews.get(key);
     if (p === undefined) {
       try {
         const got = it.source.preview(it.row, this.host);
         if (got instanceof Promise) {
           this.previews.set(key, "…");
-          void got.then(v => { if (n === this.seq) { this.previews.set(key, v); this.host.ctx.redraw(); } }, () => { if (n === this.seq) this.previews.set(key, { lines: ["(no preview)"] }); });
+          void got.then(v => { if (turn?.alive()) { this.previews.set(key, v); this.host.ctx.redraw(); } }, () => { if (turn?.alive()) this.previews.set(key, { lines: ["(no preview)"] }); });
           p = "…";
         } else p = got;
       } catch (e) { p = { lines: [e instanceof Error ? e.message : String(e)] }; }
@@ -630,6 +603,20 @@ export class PowerBar {
   }
 
   menuOpen = false;
+  /**
+   * The row menu's entries (alt+m, a right-click on a row): a row that stands for a note (a notes hit, another outline's
+   * too) offers note.copy-ref's own rows (its menu's labels and arguments, the row's note as ref=; a line is a reader's);
+   * any other, the command's copies.
+   */
+  private menuEntries(): (readonly [string, string, Record<string, unknown>])[] {
+    const note = this.items[this.picker.sel]?.row.note, def = note ? this.host.dispatch.defOf("note.copy-ref") : undefined;
+    if (note && def?.menu) {
+      const rows = (Array.isArray(def.menu) ? def.menu : [def.menu]).filter(e => (e.args as { kind?: string } | undefined)?.kind !== "line");
+      return rows.map(e => [e.label, "note.copy-ref", { ...e.args, ref: note.id, ...(note.outline ? { outline: note.outline } : {}) }] as const);
+    }
+    return [["copy command", "bar.command", { op: "copy" }], ["copy button", "bar.command", { op: "button" }], ["insert button", "bar.insert", {}]];
+  }
+
   async command(op: string, n?: number) {
     if (op === "recall" && this.scope === "ask") throw new ActionRefused("recall belongs to the command line; finish or close the question first");
     if (op === "menu") { this.menuOpen = !this.menuOpen; this.host.ctx.redraw(); return; }
