@@ -91,7 +91,8 @@ export function drawSteps(html: string, steps: readonly PublishedStep[], writabl
 export const STEP_STYLE = `
 .step{display:inline-block;width:1.15em;height:1.15em;line-height:1.1em;margin:0 .4em 0 0;padding:0;vertical-align:-.12em;text-align:center;font:inherit;font-size:.95em;color:var(--dim);background:none;border:1px solid var(--rule);border-radius:.2em}
 .step::before{content:attr(data-glyph)}
-button.step{cursor:pointer}
+button.step{cursor:pointer;position:relative;touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;user-select:none}
+button.step::after{content:"";position:absolute;left:50%;top:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
 button.step:focus-visible{outline:1px solid var(--link);outline-offset:1px}
 .step.s-done{color:var(--link);border-color:var(--link)}
 .step.s-approved{color:#8fc98f;border-color:#5f8f5f}
@@ -99,6 +100,7 @@ button.step:focus-visible{outline:1px solid var(--link);outline-offset:1px}
 .step.s-waiting{color:#d6c27a}
 .step.s-problem{color:#d08a7a}
 li:has(> .step:first-child),li:has(> p:first-child > .step:first-child){list-style:none}
+@media (pointer:coarse){li:has(> .step:first-child),li:has(> p:first-child > .step:first-child){padding:max(0px,calc((44px - 1.6em) / 2)) 0}}
 `;
 
 /** The choices' menu, on a tailnet page only (the reader script opens it): above the page, a thumb's targets. */

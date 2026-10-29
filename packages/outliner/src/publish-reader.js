@@ -1089,10 +1089,13 @@
     stepMenu = { node, box };
     (items.find((item) => item.dataset.status !== box.dataset.stepStatus) || items[0]).focus();
   }
-  async function setStep(box, status) {
+  /** The step's box as the page draws it now: by its id (a first change gives it one), else by its place among the page's steps. */
+  const stepBox = (id, at) => (id && document.querySelector(`button.step[data-step-id="${CSS.escape(id)}"]`)) || document.querySelectorAll("button.step[data-step-block]")[at];
+  async function setStep(box, status, undoable) {
     // Where the reader was: the step by its id (a first change gives it one), else by its place among the page's steps.
     const at = [...document.querySelectorAll("button.step[data-step-block]")].indexOf(box);
     let id = box.dataset.stepId || "";
+    const was = box.dataset.stepStatus;
     sending += 1;
     try {
       const answer = await send({
@@ -1102,7 +1105,13 @@
         ...(box.dataset.stepNote ? { live: { note: box.dataset.stepNote, from: box.dataset.stepStatus, figure: Number(box.dataset.stepFigure), revision: Number(box.dataset.stepRevision) } } : {}),
       });
       id = answer.itemId || id;
-      say(answer.said);
+      // A tap's tick undoes from the page (PIE-1235): the step set back as it was, the same way.
+      if (undoable && answer.changed !== false && was) {
+        say(answer.said, " ", el("button", { type: "button", class: "quiet", text: "Undo", onclick: () => {
+          const again = stepBox(id, at);
+          if (again instanceof HTMLElement) setStep(again, was, false);
+        } }));
+      } else say(answer.said);
     } catch (error) {
       // Said, and the note drawn again: the reader chooses again on the step as it is now.
       say(error.message);
@@ -1113,14 +1122,69 @@
     // The note drawn again, and the reader's place kept: focus back on the step's new box.
     await refresh().catch(() => {});
     draw();
-    const again = (id && document.querySelector(`button.step[data-step-id="${CSS.escape(id)}"]`)) || document.querySelectorAll("button.step[data-step-block]")[at];
+    const again = stepBox(id, at);
     if (again instanceof HTMLElement) again.focus({ preventScroll: true });
     wake();
   }
+  // On a phone (PIE-1235) a tap ticks a step (to do and done swap, with Undo in the toast) and a long press opens its
+  // choices; a step that's approved, rejected, waiting or a problem opens them on a tap too, since a tick would lose that.
+  // A mouse's click opens the choices, as the door's does.
+  let pointer = "mouse", held = 0, heldBox = null;
+  const stepAt = (event) => event.target instanceof Element ? event.target.closest("button.step[data-step-block]") : null;
+  document.addEventListener("pointerdown", (event) => {
+    pointer = event.pointerType || "mouse";
+    clearTimeout(held);
+    heldBox = null;
+    const box = stepAt(event);
+    if (!box || pointer === "mouse") return;
+    held = setTimeout(() => { heldBox = box; openStepMenu(box); }, 500);
+  }, true);
+  for (const type of ["pointerup", "pointercancel", "scroll"]) document.addEventListener(type, () => clearTimeout(held), { capture: true, passive: true });
+  document.addEventListener("contextmenu", (event) => { if (stepAt(event)) event.preventDefault(); });
   document.addEventListener("click", (event) => {
-    const box = event.target instanceof Element ? event.target.closest("button.step[data-step-block]") : null;
-    if (box) { event.preventDefault(); if (stepMenu?.box === box) closeStepMenu(true); else openStepMenu(box); return; }
+    const box = stepAt(event);
+    if (box) {
+      event.preventDefault();
+      // The long press already opened the choices: its click leaves them open.
+      if (heldBox === box) { heldBox = null; return; }
+      if (stepMenu?.box === box) { closeStepMenu(true); return; }
+      const status = box.dataset.stepStatus;
+      if (pointer !== "mouse" && (status === "todo" || status === "done") && !readOnly) { closeStepMenu(false); setStep(box, status === "done" ? "todo" : "done", true); return; }
+      openStepMenu(box);
+      return;
+    }
     if (stepMenu && !(event.target instanceof Element && event.target.closest(".step-menu"))) closeStepMenu(false);
+  });
+
+  // ---- One tap, one item (PIE-1235): on a phone, selecting words is fiddly, so a tap on a list item, a paragraph or a
+  // table's row selects its own words, as a selection would; the bar then offers Comment and the rest, and the comment
+  // is the same passage record a selection makes, drawn in its place in the door's margin too. A second tap lets go.
+  const ITEM = "li, p, td, th, blockquote, dd, dt, h1, h2, h3, h4, h5, h6";
+  const SKIP = "a, button, input, textarea, select, label, summary, mark.ann, .mg-ui, .mg-card, aside, pre, code, .sources-panel";
+  let tapped = null;
+  /** The item's own words as a range: a list item stops before the list nested in it. */
+  function itemRange(item) {
+    const range = document.createRange();
+    range.selectNodeContents(item);
+    const nested = item.tagName === "LI" ? [...item.children].find((kid) => kid.tagName === "UL" || kid.tagName === "OL") : null;
+    if (nested) range.setEndBefore(nested);
+    return range;
+  }
+  document.addEventListener("click", (event) => {
+    if (pointer === "mouse" || readOnly || busy() || !(event.target instanceof Element)) return;
+    const host = article();
+    const item = host && host.contains(event.target) && !event.target.closest(SKIP) ? event.target.closest(ITEM) : null;
+    const selection = window.getSelection();
+    if (!item || !host.contains(item) || !selection) { tapped = null; return; }
+    if (tapped === item && !selection.isCollapsed) { tapped = null; selection.removeAllRanges(); hideBar(); return; }
+    // A selection the reader made themselves (a long press) is theirs.
+    if (!selection.isCollapsed && tapped !== item && readSelection()) return;
+    // A table's row is the item, not the one cell tapped.
+    const range = itemRange(item.closest("tr") || item);
+    if (!range.toString().trim()) return;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    tapped = item;
   });
 
   // Tapping words marked in a card opens that mark's card, in the nest under them.

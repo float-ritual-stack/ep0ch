@@ -32,6 +32,34 @@ are its record. The outliner's entries from then are kept below, under
   service makes the records), a rerun skips notes already kept, and Jev's own page and rule are no longer reviewed.
 - **Run:** `ep0ch install --apply` (PROTOCOL changes: a twin's verdict can be `unsure`).
 
+### Facets answer in under a second on pie, and a docs-only deploy keeps door sessions (PIE-1396, PIE-1400)
+
+- **Facets:** the facets read made one pass per key over every note; it now reads each note once, for the keys it
+  carries, with the same answer. On pie it went from 2–7.6 s to 116–218 ms on float-2's live host, so the facets tile,
+  filters and the write review's count rule answer at once, and nothing queued behind them on the connection waits.
+- **Docs-only deploys keep your door:** `ep0ch install --apply` hands a door session over only when the door code it
+  runs changed, and says `session unchanged: no handover (a → b changed N files, none it runs)` otherwise.
+- **Run:** nothing extra; `ep0ch install --apply` as usual.
+### Answer your agents from the phone (PIE-1235, PIE-1386, PIE-1383, PIE-926)
+
+- **Approve from the phone:** a background session's permission dialog now waits up to 10 minutes as an ask note
+  under pie's `[[permission-asks]]` page, whatever outline the session is bound to (`EP0CH_APPROVE_WS`; a float-hub
+  session keeps its asks in float-hub), with `[needs::sysop: …]`, so pie's Waiting on Evan is the one list: tick
+  `allow this once`, `allow for this session` or `deny` on my.ep0ch.sh (or in the door) and the session carries on.
+  Only your tick counts (an agent's does nothing); nobody ticks, and the ordinary dialog shows. Sessions you watch show
+  their dialog at once as before; `EP0CH_APPROVE_WAIT=<seconds>` sets the wait (0 is off).
+- **Ticks and comments are one tap on a phone:** a step's box ticks (to do and done swap) with Undo in the toast, and
+  a long press opens its other choices; every box is a 44px target. A tap on a list item, paragraph or table row
+  selects its words, so Comment is the next tap: the same passage comment a selection makes.
+- **Sources downloads are real files:** CSV and JSON come from `…/p/<note>/_sources/<n>.<csv|json>` with the
+  source's name, behind the note's own sign-in, lock and share; on a phone they open the share sheet (Save to Files,
+  AirDrop), where the browser has one. The page no longer carries every result twice as `data:` links.
+- **Work IDs and references in Claude's replies open the note's web page:** `my.ep0ch.sh/pub/o/<outline>/p/<PIE-n>`
+  (the origin from `EP0CH_WEB_URL`), so they work in a browser, in claude.ai and on the phone; a press in the
+  terminal still opens the note in the door or Detail.
+- **Changed:** `outline_read` (and `ep0ch agent read`) says who last wrote the note, as it always claimed, not who
+  made it.
+- **Run:** nothing beyond the next `ep0ch install --apply` (the publisher and the Claude mod pick it up).
 ### Search says how sure it is, finds by meaning, and the Jev pin moves only on evals (PIE-1197–1200)
 
 - **No confident wrong answer:** a ranked search (the power bar's `/`, `[[` and `((`, `ep0ch find`, `outline_find`)
@@ -142,6 +170,10 @@ are its record. The outliner's entries from then are kept below, under
   only the writer knows whether it means the live count.
 - **Jev reads prose too:** no shape gate first; one request per write over the sections it changed, judged against the
   outline's whole kit (its component schemas) and the rubric (PIE-1313's buried question and paragraph title included).
+- **Jev is heard on a big outline, and an answer without Jev says why** (#1019): each read the review makes has its
+  own limit and the slow facets read runs beside Jev, not before it, so pie's writes come back `jev: asked`; one that
+  wasn't heard says why (`not heard: the review ran past 6.0 s`, the error, or `Jev is not configured`), never a bare
+  `off`. A ticket's `PIE-n — ` lead is not counted in its title's length, and no patch moves a ticket's title down.
 - **The workboard's rules where agents act:** `work_complete` with proof that names only tests, and `work_create` with
   no sentence of what Evan will open and do, are answered fix; a note asking Evan to try or check things is
   `qa-for-evan`. A note carrying `[house-rule::<name>]` (validation, experience, qa-for-evan) words each rule.

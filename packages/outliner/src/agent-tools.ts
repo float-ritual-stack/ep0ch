@@ -32,7 +32,7 @@ import { randomUUID } from "node:crypto";
 import { checkToolArgs, closest } from "@ep0ch/outline-core/tool-args";
 import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
 import { createBlockComment } from "./block-comments";
-import { matchFacts, resourceTextRevision } from "@ep0ch/outline-core/protocol";
+import { matchFacts, resourceTextRevision, type BlockRevisions } from "@ep0ch/outline-core/protocol";
 import { authoredResourceReferenceOccurrences, type AuthoredResourceReference } from "./resource-references";
 import { resourceCommentSource } from "./resource-comments";
 import type { ResourceDescription } from "./resources";
@@ -421,6 +421,10 @@ export async function readBlock(
   else await markMore([{ id: block.id, text: "", revision: block.revision }]);
   const record = textRecord(block);
   const site = await readSiteOf(client, block);
+  // Who last wrote it (its current revision's edit), as `updated` says when: the block's own author is who made it.
+  // Only the entry for the revision read: a write that lands between the two reads never lends its author to older text.
+  const saved = (await client.request<BlockRevisions>({ action: "block.revisions", blockId: block.id, latest: true }).catch(() => undefined))?.revisions.find(r => r.revision === block.revision);
+  const writer = saved?.author ? { author: saved.author, ...(saved.actorId ? { actorId: saved.actorId } : {}) } : { author: block.author, ...(block.actorId ? { actorId: block.actorId } : {}) };
   return {
     ...resolved,
     title: blockDisplayTitle(block),
@@ -428,8 +432,7 @@ export async function readBlock(
     text: block.text,
     properties: record.properties,
     fields: record.fields,
-    author: block.author,
-    ...(block.actorId ? { actorId: block.actorId } : {}),
+    ...writer,
     updated: block.updatedAt,
     parentId: block.parentId,
     children,
@@ -693,8 +696,8 @@ async function reviewOf(client: AgentToolsClient, text: string, before: string |
   const within = <T,>(work: Promise<T>, fallback: T) => Promise.race([work.catch(() => fallback), Bun.sleep(REVIEW_BUDGET_MS).then(() => fallback)]);
   const started = Date.now();
   const full = async () => {
-    // Each read is bounded on its own; the outline's facets (seconds on a big outline: pie took 2 to 7 s) are read while
-    // Jev answers, and only when the text types a number before a word, so they never hold Jev up.
+    // Each read is bounded on its own; the outline's facets (pie's answer in about 0.2 s since PIE-1396, 2 to 7 s before)
+    // are read while Jev answers, and only when the text types a number before a word, so they never hold Jev up.
     // The host answers a connection's requests in turn, so the quick reads go first and the facets after them.
     const [schemas, qaRule, told] = await Promise.all([within(schemasOf(client), null), within(houseRule(client as never, "qa-for-evan"), undefined), off ? Promise.resolve(undefined) : within(toldKeys(client as never, at.note), undefined)]);
     const facets = hasCountCandidate(text) ? within(facetsOf(client), []) : Promise.resolve([]);

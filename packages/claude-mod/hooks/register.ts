@@ -1,5 +1,5 @@
 import { formatEp0chBlockUri } from "./link-grammar.js";
-import type { EngineInterface, On, PluginOptions, RenderElement, RenderInput, RenderSurface, UiOpenResult } from 'claude-code'
+import type { EngineInterface, On, PermissionRequestDecision, PluginOptions, RenderElement, RenderInput, RenderSurface, UiOpenResult } from 'claude-code'
 
 import {
   boundWorkspaceOf,
@@ -30,12 +30,15 @@ import {
   outlinerReferenceOf,
   outlinerUriFor,
   outlinerUriOf,
+  webOriginOf,
+  type WebLinks,
 } from './references'
 import { replyBlocks, tableWidths, type LinePart, type ReplyBlock } from './reply-lines'
 import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-persona'
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekArgv, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
-import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
+import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, stampOf, unwrapPeer } from './peer-log'
+import { answerOf, approveWaitMs, askOutlineOf, askPageCreateArgv, askPageFindArgv, askReadOf, askText, ASK_STEPS, byThePerson, closedText } from './approve'
 import { baselineOf, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
 import { type StatusInput, tileMark, tmuxPassthrough } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
@@ -285,10 +288,12 @@ async function drawReferences($: EngineInterface, e: RenderInput<'AssistantMessa
     const location = await $.state.get({ ...TOOL_OUTLINES, id });
     if (location.value) outlines.set(id, location.value);
   }
-  const { text, hrefs } = linkifyReferences(e.props.text, references!.prefixes, id => titles.get(id), id => outlines.get(id))
+  // Each reference links to its note's page on the web client (PIE-926), which opens anywhere: a browser, claude.ai, a phone.
+  const web = await webLinksFor($, workspace)
+  const { text, hrefs } = linkifyReferences(e.props.text, references!.prefixes, id => titles.get(id), id => outlines.get(id), web)
   if (prompt && hrefs.length === 0) return null
   // A terminal draws a link out of the outline itself too (a trailing arrow, dim), so a reply with one is not left to the engine.
-  const blocks: ReplyBlock[] = e.surface === 'terminal' ? replyBlocks(text) : [{ kind: 'markdown', text }]
+  const blocks: ReplyBlock[] = e.surface === 'terminal' ? replyBlocks(text, web) : [{ kind: 'markdown', text }]
   if ((hrefs.length === 0 && blocks.every(block => block.kind === 'markdown' || block.kind === 'blank')) || text.length > 10_000) return null
   const { Box, Text, Markdown, Button, Link } = await $.ui.resolve(e)
   const open = (href: string, surface: RenderSurface) => void openReference($, workspace, href, surface)
@@ -445,7 +450,7 @@ export function register(on: On, options: PluginOptions): void {
   // or Herdr nothing is seated: the note opens there.
   on('ui.press', { plugin: 'ep0ch' }, async ($, e, next) => {
     const opensNote = /^mention-\d+$/.test(e.element) || e.element.startsWith('tool-row-open-') ||
-      (e.element === 'outliner-references' && !!e.link && outlinerUriOf(e.link.href) !== null)
+      (e.element === 'outliner-references' && !!e.link && outlinerUriOf(e.link.href, { origin: webOrigin ?? webOriginOf(await $.env.get('EP0CH_WEB_URL')) }) !== null)
     // The cached variables read without waiting, so the press reaches its closure before anything queued after it.
     if (opensNote && references?.workspace && routeOf(routeEnv ?? await routeEnvOf($)) === 'here') {
       await $.ui.open({ id: MENTIONS_PANE, title: MENTIONS_TITLE }).catch(() => {})
@@ -836,8 +841,16 @@ export function register(on: On, options: PluginOptions): void {
   on('classic.PermissionRequest', async ($, e, next) => {
     const result = await next(e)
     // A hook that answered it (allow or deny) shows no dialog: nothing waits on the person.
-    if (!result.decision) reportStatus($, permissionAsked(e.tool_name, e.tool_input))
-    return result
+    if (result.decision) return result
+    reportStatus($, permissionAsked(e.tool_name, e.tool_input))
+    // Approve from the phone (PIE-1386): the ask goes in the outline, and the person's tick answers it.
+    const answered = await askThePerson($, option, e, next.signal).catch((error: unknown) => {
+      void $.ui.log(`permission ask: ${error instanceof Error ? error.message : String(error)}`)
+      return null
+    })
+    if (!answered) return result
+    reportStatus($, working())
+    return { ...result, decision: answered }
   })
   on('classic.Notification', async ($, e, next) => {
     const r = notified(e.notification_type, e.message)
@@ -1473,6 +1486,89 @@ async function runDoorTool(
 async function toOwnAgent($: EngineInterface, to: string): Promise<boolean> {
   const agents = await $.agent.list().catch(() => [])
   return agents.some(a => a.id === to || a.teammateId === to)
+}
+
+/** The bound outline's [[permission-asks]] page, found (or made) once per outline folder. */
+let askPage: { key: string; id: string; workspace: Workspace } | undefined
+type SessionRules = NonNullable<Extract<PermissionRequestDecision, { behavior: 'allow' }>['updatedPermissions']>
+/** How long a poll of the ask waits between reads. */
+const ASK_POLL_MS = 3000
+
+/**
+ * A permission dialog put to the person through the outline (PIE-1386, hooks/approve.ts): the ask note written, then
+ * read every few seconds until a step is ticked by the person (`author: user`: the web page's tap or the door, never an
+ * agent), the call abandoned, or the wait over. Resolves to the dialog's answer, or null for the ordinary dialog.
+ * The waits are `sleep` processes: a `$.clock` wait counts against a hook's 10 s budget, a `$` call doesn't.
+ */
+async function askThePerson($: EngineInterface, option: PluginOptions, e: { tool_name: string; tool_input: unknown; permission_suggestions?: unknown[]; agent_id?: string }, signal: AbortSignal): Promise<PermissionRequestDecision | null> {
+  const env = { EP0CH_APPROVE_WAIT: await $.env.get('EP0CH_APPROVE_WAIT'), CLAUDE_JOB_DIR: await $.env.get('CLAUDE_JOB_DIR') }
+  const waitMs = approveWaitMs(env)
+  if (!waitMs) return null
+  if (!references?.workspace) await loadReferences($, option)
+  const bound = references?.workspace
+  if (!bound) return null
+  const actor = await actorFor($, {})
+  // One list for the person: every session's asks in EP0CH_APPROVE_WS (pie), but client work (float-hub) keeps its own.
+  const target = askOutlineOf(bound, await $.env.get('EP0CH_APPROVE_WS'))
+  const there: Workspace | null = target ? { root: bound.root, outline: target.outline, ...(target.machine ? { machine: target.machine } : {}), pinned: true } : null
+  const runIn = (w: Workspace) => (argv: readonly string[]) => $.process.run(argv, { cwd: w.root, env: envFor(w), timeoutMs: 20_000 })
+  const key = (w: Workspace) => `${w.root}|${w.outline ?? ''}|${w.machine ?? ''}`
+  let workspace = there ?? bound
+  if (askPage?.key !== key(workspace)) {
+    let found = await runIn(workspace)(askPageFindArgv())
+    // That outline can't be read from here (a read never makes one): the bound outline keeps the ask instead.
+    if (found.exitCode !== 0 && there) {
+      workspace = bound
+      found = await runIn(workspace)(askPageFindArgv())
+    }
+    const id = (found.exitCode === 0 ? pageIdOf(found.stdout) : undefined) ?? (found.exitCode === 0 ? pageIdOf((await runIn(workspace)(askPageCreateArgv(actor))).stdout) : undefined)
+    if (!id) throw Error(`no [[permission-asks]] page in ${workspace.outline ?? 'the bound outline'}, and ep0ch new could not make one`)
+    askPage = { key: key(workspace), id, workspace }
+  } else workspace = askPage.workspace
+  const asked = stampOf(await $.clock.now())
+  const who = `${actor}${e.agent_id ? ` (a subagent)` : ''} in ${bound.root.split('/').pop() || bound.root}${bound.outline && bound.outline !== workspace.outline ? ` (bound to ${bound.outline})` : ''}`
+  let created: { id?: string }
+  try {
+    created = JSON.parse(await runOutlinerCli($, workspace, ['agent', 'create', '--stdin', '--actor', actor], JSON.stringify({ parent: askPage.id, text: askText(e.tool_name, e.tool_input, who, asked) })))
+  } catch (error) {
+    // The page moved or went to the Trash: found (or made) again on the next ask.
+    askPage = undefined
+    throw error
+  }
+  const id = created.id
+  if (!id) throw Error('agent create gave no id')
+  const read = async () => askReadOf(await runOutlinerCli($, workspace, ['agent', 'read', '--stdin', '--actor', actor], JSON.stringify({ ref: id, depth: 0 })))
+  const close = async (said: string) => {
+    for (let tries = 0; tries < 2; tries++) {
+      const now = await read().catch(() => null)
+      if (!now) return
+      try {
+        await runOutlinerCli($, workspace, ['agent', 'edit', '--stdin', '--actor', actor], JSON.stringify({ ref: id, expectedRevision: now.revision, text: closedText(now.text, said) }))
+        return
+      } catch { /* written meanwhile: read again */ }
+    }
+  }
+  // Until the deadline, and at most as many polls as fit in it: a slow or failing read never stretches the wait.
+  const deadline = (await $.clock.now()) + waitMs
+  for (let poll = 0; poll < Math.ceil(waitMs / ASK_POLL_MS) && !signal.aborted && (await $.clock.now()) < deadline; poll++) {
+    await $.process.run(['sleep', String(ASK_POLL_MS / 1000)], { timeoutMs: ASK_POLL_MS + 5000 }).catch(() => {})
+    if (signal.aborted) break
+    const now = await read().catch(() => null)
+    const answer = now ? answerOf(now.text) : null
+    // A box an agent ticked (or anyone but the person) answers nothing: the wait goes on.
+    if (!now || !answer || !byThePerson(now)) continue
+    const at = stampOf(await $.clock.now())
+    await close(`Answered **${ASK_STEPS[answer]}** by the person${now.actorId ? ` (${now.actorId})` : ''} at ${at}; the session carried on.`)
+    if (answer === 'deny') return { behavior: 'deny', message: `The person denied this from the outline (${at}).` }
+    if (answer === 'session') {
+      // One allow for the rest of this session: the dialog's own suggestions, kept for the session only, never a standing rule.
+      const rules = (e.permission_suggestions ?? []).filter(u => !!u && typeof u === 'object').map(u => ({ ...(u as object), destination: 'session' })) as SessionRules
+      return { behavior: 'allow', ...(rules.length ? { updatedPermissions: rules } : {}) }
+    }
+    return { behavior: 'allow' }
+  }
+  await close(signal.aborted ? `Not needed any more: the call ended before a tick (${stampOf(await $.clock.now())}).` : `Nobody ticked in ${Math.round(waitMs / 60000)} min: the dialog showed in the session instead (${stampOf(await $.clock.now())}).`)
+  return null
 }
 
 /** The bound outline's [[peer-messages]] page, found (or made) once per outline folder. */
@@ -2192,8 +2288,18 @@ function outlineFlags(workspace: Workspace): string {
 }
 
 /** A click on a reference: opened by `openNote`, or a toast saying why not. */
+/** Where this session's references link (PIE-926): the web client's origin (EP0CH_WEB_URL) and the session's outline. */
+async function webLinksFor($: EngineInterface, workspace: Workspace): Promise<WebLinks> {
+  webOrigin ??= webOriginOf(await $.env.get('EP0CH_WEB_URL'))
+  return webLinksNow(workspace, webOrigin)
+}
+const webLinksNow = (workspace: Workspace, origin: string): WebLinks => ({ origin, ...(workspace.outline ? { outline: workspace.outline } : {}) })
+/** EP0CH_WEB_URL's origin, read once (the session's environment doesn't change under it). */
+let webOrigin: string | undefined
+
 async function openReference($: EngineInterface, workspace: Workspace, href: string, surface: RenderSurface): Promise<void> {
-  const uri = outlinerUriOf(href)
+  // Read when the reply was drawn: a press doesn't wait on the environment again.
+  const uri = outlinerUriOf(href, webOrigin ? webLinksNow(workspace, webOrigin) : await webLinksFor($, workspace))
   if (uri) await openUri($, workspace, uri, surface)
 }
 
@@ -2474,7 +2580,7 @@ async function readDetail($: EngineInterface, workspace: Workspace, id: string):
     if (help !== null && knowsExport(help)) {
       const ran = await $.process.run(exportArgv(id), { cwd: workspace.root, env: envFor(workspace), timeoutMs: 15_000 })
       const body = ran.exitCode === 0 ? exportBodyOf(ran.stdout) : null
-      if (body) return detailSourceOf(body, prefixes, 'ep0ch')
+      if (body) return detailSourceOf(body, prefixes, 'ep0ch', false, await webLinksFor($, workspace))
       why = failureReasonOf(ran.stderr).replace(/^ep0ch: /, '') || 'ep0ch export printed nothing'
     }
   } catch (error) {
@@ -2483,7 +2589,7 @@ async function readDetail($: EngineInterface, workspace: Workspace, id: string):
   try {
     const ran = await runOutliner($, workspace, ['list', '--subtree', id, '--limit', String(SUBTREE_LIMIT)])
     const read = ran.exitCode === 0 ? subtreeMarkdownOf(ran.stdout, id) : null
-    if (read) return detailSourceOf(read.markdown, prefixes, 'outliner', read.isTruncated)
+    if (read) return detailSourceOf(read.markdown, prefixes, 'outliner', read.isTruncated, await webLinksFor($, workspace))
     why += `; ${ran.exitCode === 0 ? 'the outliner found no such block' : failureReasonOf(ran.stderr) || 'the outliner could not read it'}`
   } catch (error) {
     why += `; ${error instanceof Error ? error.message : String(error)}`
