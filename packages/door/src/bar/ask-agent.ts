@@ -95,6 +95,9 @@ export async function askAgent(host: BarHost, o: { to: string; text: string; not
   return { to, note: note.id, title, thread: receipt.id, tiles, heard: `each session writing as ${to} hears it at its addressed check (15 s after it starts, then every 30 min) and answers in the thread` };
 }
 
+/** What an ask did, in words: who, on which note, and when it's heard. */
+export const askedWords = (a: Asked) => `· asked @${a.to} on ${a.title} · ${a.to}'s sessions hear it at their next check and answer in the thread`;
+
 /** The row a typed ask line is: ⏎ (or a click) sends it. */
 function askRow(a: { to: string; text: string }): BarRow {
   return { key: `ask:${a.to}`, label: `ask @${a.to}`, detail: a.text.length > 60 ? `${a.text.slice(0, 59)}…` : a.text, exact: true, data: a };

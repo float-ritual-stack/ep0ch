@@ -339,6 +339,19 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "ask-agent", need: "ask an agent from one line: @name, then what you ask with [[pages]], ((notes)) and %tiles, each completed by its own sigil, and ⏎ sends it (PIE-1437)",
+    part: "asking an agent (PIE-1437, src/bar/ask-agent.ts): an ask line in the power bar (`@` stays on the line: the agents source is inline) completes through the one completer, its agent from agentsHere (the agent panel's sessions that write as a persona, then the outline's agent configs that name one: the agent ArgKind), [[ and (( from the service, % from the tile kind's values; ⏎ (or a click on the ask row) runs agent.ask, which sends it as addressed mail (PIE-1404): a comment naming @name on the note in front of you, each %tile named on a line of its own; @ on an agent panel row opens the bar with @persona on its line",
+    files: "src/bar/ask-agent.ts (askOf, askTargetAt, agentsHere, askAgent, AGENTS), src/bar/actions.ts (agent.ask), src/surface/completer.ts (the sessions and tiles door sources), src/desk/agents-panel.ts (@)",
+    aside: "wren, a made-up demo agent, runs in the tile on the right; the rota is in front of you · ctrl+k, @wr, tab: @wren · type looking at [[Raised beds p, ⏎ takes the page; can you pop it into %ro, tab takes the tile · ⏎ sends it: a comment naming @wren on the rota, which wren's sessions hear at their addressed check · the bar's : is the screens now · act: agent.ask to=wren text=…",
+    stage(n, show) {
+      const { bench } = demoFolders();
+      const r = new ReaderPane();
+      // temp: an exhibit no layout brings back. Its persona is what @ lists.
+      const wren = new PtyPane({ cmd: ["sh", "-c", DEMO_AGENT, "demo-agent", "wren"], cwd: bench, label: "wren", shows: "demo-agent", temp: true, session: { program: "demo-agent", persona: "wren" } });
+      return deskOf({ title: "showcase · ask an agent", panes: [r, wren], names: ["rota", "wren"] }, show, [[r, n.askAgent]]);
+    },
+  },
+  {
     key: "sources", need: "complete from an extension's own list (a tracker's issues) where a reference is typed, ranked with the outline's pages, without a sigil of its own (PIE-1340)",
     part: "completion sources (ADR 0004 §4, PIE-1340): every source answers outline-core's one row contract (completion-source.ts: SourceDecl, SourceRow with kind, detail, docs, insert, preselect, an abort signal), triggers from outline-core's one detector (completion-triggers.ts), merged by one matcher with the host's picks (mergeSourceAnswers, completion.picked); the service's sources (pages, blocks, files, agents, components, properties, callout types: PIE-1344) and an extension's sources[] answer completion.rows, the door's own (filters, a fence's settings, a component's attributes, a button's steps) are DOOR_SOURCES; Detail asks the same completion.rows",
     files: "outline-core/src/completion-source.ts, outline-core/src/completion-triggers.ts, outliner src/completion-sources.ts, outliner src/extension-calls.ts (complete), outliner extensions/issues, src/surface/completer.ts (DOOR_SOURCES, lookupCompletion), outliner src/reference-completion.ts (Detail)",

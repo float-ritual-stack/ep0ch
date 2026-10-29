@@ -10,6 +10,21 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One line asks an agent, and an agent's tool answers say what happened (PIE-1437, PIE-1436)
+
+- **Ask from the power bar:** `@wr` and tab give `@wren `, then what you ask; `[[` a page, `((` a note (its words or a
+  short id) and `%` a tile on this screen complete in place. ⏎ (or a click on the `ask @wren` row, or
+  `act agent.ask to=wren text=…`) sends it as addressed mail: a comment naming `@wren` on the note in front of you,
+  each `%tile` named on a line of its own. wren's sessions hear it at their addressed check and answer in the thread.
+- **`@` lists the agents here:** the agent panel's sessions that write as a persona, then the outline's agent configs
+  that name one; any persona typed whole is sent as typed. `@` on a row of the agent panel starts the line.
+- **Key move:** the bar's screens scope is `:` now (was `@`), as `:` already named a screen in an action's value.
+- **outline_proposals says why it's empty** (`said`): nothing changed in the window, or, for a client with no persona,
+  that only this session's proposals are its own and how many from other sessions were left out.
+- **Wake lines label each link by its note:** `((…|your edit of Bean rota))`, and a stale one says who changed the note.
+- **script_run lists the notes it changed** (`changed`: id, title, created / edited / moved / trashed / restored),
+  beside `written`, its own run notes.
+
 ### One completer: an action and its arguments complete where you type (PIE-1076)
 
 - **In a note's edit, ctrl+k** (or `/` first on a line) lists the actions that apply here at the cursor, in the edit's

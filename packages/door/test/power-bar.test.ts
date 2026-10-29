@@ -570,7 +570,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     (app as any).lastInput = 0;
     const r = await app.act({ action: "bar.open", args: { query: "bike", scope: "notes" }, as: "wren-agent" }) as any;
     expect(r.rows[0]).toMatchObject({ n: 1, source: "notes", label: "Bike shed" });
-    expect(r.scopes.map((s: any) => s.prefix)).toEqual(expect.arrayContaining(["%", "/", ">", "+", "@", "~"]));
+    expect(r.scopes.map((s: any) => s.prefix)).toEqual(expect.arrayContaining(["%", "/", ">", "+", ":", "@", "~"]));
     expect(peek().bar).toBeUndefined();
     const focus = desk.keys().focus;
     const picked = await app.act({ action: "bar.pick", args: { query: "runner", scope: "notes", n: 1 }, as: "wren-agent" }) as any;
@@ -913,7 +913,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     desk.focusTile("tree", USER);
     await app.dispatch.act({ action: "tile.focus", tile: "reader" }, USER);
     expect(desk.focusedPane()).toBe(desk.pane("reader"));
-    key(ctrlK); type("@kanban");
+    key(ctrlK); type(":kanban");
     await until(() => peek().bar.rows.some((r: any) => r.source === "screens"), "the screens answered");
     expect((await app.dispatch.press("bar.command", { op: "copy" }) as { text: string }).text).toBe("ep0ch act screen.open name=K");
     key({ kind: "esc" }); key({ kind: "esc" });

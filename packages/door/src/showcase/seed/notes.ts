@@ -413,6 +413,18 @@ export const ONE_COMPLETER = [
   "- **The same list in the power bar:** ctrl+k outside the edit, `tile.zoom t`, tab gives `tile=`, and the list is this screen's tiles by the names `tile=` takes; `%` first in a value lists tiles whatever it takes.",
 ].join("\n");
 
+/** Asking an agent from the bar (PIE-1437): a note to ask about, with the keys written beside it. */
+export const ASK_AGENT = [
+  SEED.askAgent,
+  "",
+  "- Sam waters on Mondays, Robin on Thursdays.",
+  "- The seed trays go out once the frost has gone.",
+  "",
+  "- **Ask from the bar:** ctrl+k, then `@wr` and tab gives `@wren `; type what you ask.",
+  `- **Each reference by its sigil:** \`[[\` a page (\`[[${SEED.stickyPlan}\`), \`((\` a note by its words or a short id, \`%\` a tile on this screen (\`%rota\`).`,
+  "- **⏎ sends it:** a comment naming @wren on this note, which wren's sessions hear and answer in the thread; @ on a row of the agent panel starts the same line.",
+].join("\n");
+
 export const STICKY_PAD = [
   SEED.stickyPad,
   `One part of the [[${SEED.stickyPlan}]], kept beside the long note:`,
