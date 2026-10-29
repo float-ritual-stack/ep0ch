@@ -3460,7 +3460,7 @@ export class NoteSurface {
     if (s.draft === this.draft && !completionOf(s.draft)?.items.length) {
       if (k.kind === "char" && k.ctrl && k.ch === "k" && !k.shift) { void this.runKey("edit.actions", {}, host); return true; }
       // Only a line that names an action, with the cursor at its end: `/tmp is full` is prose, and ⏎ is its new line.
-      const line = s.draft.lines[s.draft.row] ?? "", here = k.kind === "enter" && s.draft.col === line.length ? actionHereAt(line, line.length) : null;
+      const line = s.draft.lines[s.draft.row] ?? "", here = k.kind === "enter" && s.draft.col === line.length ? actionHereAt(line, line.length, s.draft.lines, s.draft.row) : null;
       if (here && host.ctx.dispatch?.has(here.query.split(/\s/)[0]!)) { void this.runKey("edit.run", {}, host); return true; }
     }
     // What ends or hands off the draft is an action (PIE-506); the rest is typing.
@@ -10571,7 +10571,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const d = surface.draft;
       if (!d) throw new ActionRefused("nothing is being edited here · e edits the note, then ctrl+k or / lists its actions");
       if (d.busy) throw new ActionRefused("the save is still landing");
-      if (!actionHereAt((d.lines[d.row] ?? ""), d.col)) {
+      if (!actionHereAt((d.lines[d.row] ?? ""), d.col, d.lines, d.row)) {
         if ((d.lines[d.row] ?? "").trim()) { d.place(d.row, (d.lines[d.row] ?? "").length); d.pasteText("\n", actor); }
         d.pasteText("/", actor);
       }
@@ -10591,7 +10591,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const d = surface.draft;
       if (!d) throw new ActionRefused("nothing is being edited here");
       if (d.busy) throw new ActionRefused("the save is still landing");
-      const here = line === undefined ? actionHereAt((d.lines[d.row] ?? ""), (d.lines[d.row] ?? "").length) : null;
+      const here = line === undefined ? actionHereAt((d.lines[d.row] ?? ""), (d.lines[d.row] ?? "").length, d.lines, d.row) : null;
       const typed = line ?? (here ? (d.lines[d.row] ?? "").slice(here.start + 1) : null);
       if (!typed?.trim()) throw new ActionRefused("the cursor isn't on a / line · ctrl+k or / first on a line lists the actions here");
       const req = actRequestOf(lineWords(typed.trim()));
@@ -10602,17 +10602,35 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const blockId = d.blockId;
       req.args = { ...(info.args.block?.context && req.args?.block === undefined && blockId ? { block: blockId } : {}), ...(info.args.asked?.context ? { asked: true } : {}), ...req.args };
       // The / line goes before the save: what's saved is the note as written, never the command.
+      // Checked before anything moves (a value it doesn't take, a note it can't act on): the line stays to correct.
+      const refused = dispatch.refusedNow(req, actor);
+      if (refused) throw new ActionRefused(`${refused} · the line stays: correct it and ⏎ again`);
+      const row = d.row, before = d.text, command = d.lines[row] ?? "";
       if (here) {
-        const row = d.row, lines = d.lines.filter((_, i) => i !== row);
-        surface.drafting!.replace(lines.join("\n"), actor);
+        surface.drafting!.replace(d.lines.filter((_, i) => i !== row).join("\n"), actor);
         d.place(Math.min(row, d.lines.length - 1), 0);
       }
-      if (d.dirty) await saveDraft(surface, host, actor);
-      else surface.closeDraftAction(false);
-      if (surface.draft) throw new ActionRefused(d.note || "the edit didn't save, so the action didn't run");
-      const answer = await dispatch.as(actor, req);
-      host.redraw();
-      return { ran: actionLine(req), answer };
+      // Capture first: a save that didn't land keeps the edit as it was typed, its / line too, with why.
+      const saved = d.dirty ? await saveDraft(surface, host, actor).catch((e: Error) => e) : (surface.closeDraftAction(false), null);
+      if (surface.draft) {
+        if (here && surface.draft === d) { surface.drafting!.replace(before, actor); d.place(row, command.length); }
+        throw new ActionRefused(saved instanceof Error ? saved.message : d.note || "the edit didn't save, so the action didn't run");
+      }
+      try {
+        const answer = await dispatch.as(actor, req);
+        host.redraw();
+        return { ran: actionLine(req), answer };
+      } catch (e) {
+        // Refused as it ran (an agent's act throws; the person's press says it): the edit opens again with the line.
+        if (here) {
+          const { draft: again } = await surface.ensureDraft(host);
+          again.place(Math.min(row, again.lines.length), 0);
+          again.pasteText(command + "\n", actor);
+          again.place(row, command.length);
+          host.redraw();
+        }
+        throw e;
+      }
     },
   }),
   "edit.reload": def({

@@ -164,9 +164,10 @@ const commandItem = (r: CommandRow, insertion: string): CompletionItem => ({
  * arguments after it, as the power bar's line takes them (`/ext.structure.sort-list by=title`). Its token is the whole
  * line through the cursor; ⏎ with no list open runs it (`edit.run`).
  */
-export function actionHereAt(line: string, col: number): CompletionTarget | null {
+export function actionHereAt(line: string, col: number, lines: readonly string[] = [line], row = 0): CompletionTarget | null {
   const m = /^(\s*)\/(?=[a-z]|$)/.exec(line);
-  if (!m || col <= m[1]!.length) return null;
+  // Code is opaque: a / line in a fence or a code span is an example, never a command.
+  if (!m || col <= m[1]!.length || cursorInCode(lines, row, col)) return null;
   const query = line.slice(m[1]!.length + 1, col);
   return /^(?:[a-z][\w.-]*(?:\s.*)?)?$/.test(query) ? { kind: "action", start: m[1]!.length, end: wordEnd(line, col), query } : null;
 }
@@ -418,9 +419,12 @@ export class Completer {
     if (c && c.grammar === "filter") { const t = filterTargetAtCursor(line, f.col); return t && { ...t, words: true }; }
     // An act line (the power bar's): past an action's name, the whole line through the cursor is one button step.
     if (c && c.grammar === "act") { const host = ambient?.board === this.board ? ambient.host?.() : undefined; return host && actLineArgs(line.slice(0, f.col), host) ? { kind: "button-step", start: 0, end: wordEnd(line, f.col), query: line.slice(0, f.col) } : null; }
+    // `/` at a line's start in a note's own edit: the actions that apply here, then their arguments (PIE-1076). Past a
+    // real action's name the line is its arguments' even where a value starts `[[` (the sigil's rows, quoted for act).
+    const here = !c && this.own() ? actionHereAt(line, f.col, f.lines, f.row) : null, host = ambient?.board === this.board ? ambient.host?.() : undefined;
+    if (here && host && actLineArgs(here.query, host)) return here;
     const t = completionTargetAtCursor(line, f.col, f.lines, f.row);
-    // `/` at a line's start in a note's own edit: the actions that apply here, then their arguments (PIE-1076).
-    if (!t && !c && this.own()) { const here = actionHereAt(line, f.col); if (here) return here; }
+    if (!t && here) return here;
     if (t || !c || !c.valueKey) return t;
     return { kind: "filter-value", start: 0, end: line.length, query: line.slice(0, f.col), key: c.valueKey };
   }

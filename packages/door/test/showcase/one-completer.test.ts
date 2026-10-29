@@ -85,4 +85,20 @@ describe("showcase: one completer (PIE-1076)", () => {
     await until(() => /\/tmp is full\n(- )?again$/.test(draft()!.text), "the prose and its new line", 8000);
     expect(draft()).not.toBeNull();
   }, 30_000);
+
+  test("a run that would be refused keeps its line in the open edit to correct", async () => {
+    const d = draft()!;
+    d.place(d.lines.length - 1, (d.lines.at(-1) ?? "").length);
+    press({ kind: "enter" });
+    // The list goes on with "- ": a / line starts its line.
+    while ((d.lines[d.row] ?? "").length) press({ kind: "backspace" });
+    type("/ext.structure.sort-list order=descc");
+    await until(() => pop() === null || !pop()!.loading, "the list settled", 8000);
+    if (pop()) press({ kind: "esc" });
+    press({ kind: "enter" });
+    // Refused before anything moved: the edit stays open with the line as typed, and says why.
+    await Bun.sleep(300);
+    expect(draft()).toBe(d);
+    expect(d.lines[d.row]).toBe("/ext.structure.sort-list order=descc");
+  }, 30_000);
 });
