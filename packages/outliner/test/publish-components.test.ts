@@ -322,6 +322,16 @@ test("a button is its label on a page and runs nothing: ::button{…} and [label
   expect(html).toContain("[start over](act: ttt-reset) in an indented example");
 });
 
+test("a button in a list item or a quote is its label on a page too, never its source line (PIE-1224)", async () => {
+  const { store, page } = await setup();
+  const note = store.create('Shelf\n- ::button{label="Tidy the shelf" act="layout.load name=tidy"}\n\n> ::button{label="Quoted press" act="theme.cycle"}');
+  const html = await page(`/p/${note.id}`);
+  expect(html).toContain("Tidy the shelf");
+  expect(html).toContain("Quoted press");
+  expect(html).not.toContain("layout.load");
+  expect(html).not.toContain("theme.cycle");
+});
+
 
 test("published Sources exposes query, transform and downloadable visible rows", async () => {
   const { store, publisher } = await setup();
