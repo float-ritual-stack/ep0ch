@@ -90,8 +90,8 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
       await untilAsync(collapsed, "Fold extra from the group's menu");
       await unfold();
       // The guide's own list-item button presses in the reader, by act.
-      await app.dispatch.act({ action: "button.press", tile: "notes", args: { label: "Fold from a list" } }, { kind: "user" });
-      await untilAsync(collapsed, "the list-item button in the guide");
+      const pressed = await app.dispatch.act({ action: "button.press", tile: "notes", args: { label: "Fold from a list" } }, { kind: "user" });
+      await untilAsync(collapsed, `the list-item button in the guide (it answered ${JSON.stringify(pressed)})`);
       await unfold();
     } finally {
       await board.trash(note.id);
