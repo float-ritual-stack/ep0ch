@@ -1,10 +1,14 @@
 import type { SiteAnswer } from "@ep0ch/outline-core/site";
-import { sourceDownload, type SourcesAnswer } from "@ep0ch/outline-core/sources";
+import { sourceDownload, type SourceEntry, type SourcesAnswer } from "@ep0ch/outline-core/sources";
 import type { DrawnComponent, LiveHost } from "./publish-live";
 import { escapeHtml } from "./publish";
 
-/** Sources follows the page's existing visibility cut, including dependencies discovered while reading. */
-export async function pageSources(host: LiveHost, blockId: string, outline: string, text: string, drawn: ReadonlyMap<number, DrawnComponent>): Promise<string> {
+/**
+ * The sources a page shows: the page's existing visibility cut, including dependencies discovered while reading, and
+ * only those outside a hidden body (`drawn`, the article's own cuts), so a hidden body's text never reaches the panel
+ * or its downloads. The panel and its download route (PIE-1383) both read this, so a download is what the panel drew.
+ */
+export async function visibleSources(host: LiveHost, blockId: string, drawn: ReadonlyMap<number, DrawnComponent>): Promise<{ readAt: string; sources: SourceEntry[] } | undefined> {
   const hidden = new Set<string>();
   let sources: SourcesAnswer | undefined;
   for (let round = 0; round < 4; round++) {
@@ -14,17 +18,46 @@ export async function pageSources(host: LiveHost, blockId: string, outline: stri
     if (!fresh.length) { sources = answer.sources; break; }
     fresh.forEach(id => hidden.add(id));
   }
-  if (!sources?.sources.length) return "";
+  if (!sources?.sources.length) return undefined;
+  const visible = sources.sources.filter(s => ![...drawn].some(([start, region]) =>
+    !region.markdown && s.line > start && s.line < region.end));
+  return visible.length ? { readAt: sources.readAt, sources: visible } : undefined;
+}
+
+/** A source's download, as the route serves it: its result as CSV or JSON, named after the source. */
+export function sourceFile(source: SourceEntry, format: "csv" | "json"): { body: string; type: string; filename: string } {
+  return {
+    body: sourceDownload(source.result, format),
+    type: format === "csv" ? "text/csv; charset=utf-8" : "application/json; charset=utf-8",
+    filename: `${source.name.replace(/[^a-zA-Z0-9_-]/g, "-") || "source"}.${format}`,
+  };
+}
+
+/**
+ * Where a source downloads (`<base>/p/<note>/_sources/<key>/<name>.<format>`): a real URL a phone can open or share. It
+ * names the source by its key in the note and its name, never its place in the list, so a source added above it since
+ * the page was drawn never answers for it: a source no longer there is a 404.
+ */
+export const sourceHref = (base: string, blockId: string, source: SourceEntry, format: "csv" | "json") =>
+  `${base}/p/${blockId}/_sources/${encodeURIComponent(source.key)}/${encodeURIComponent(sourceFile(source, format).filename)}`;
+export const SOURCE_ROUTE = /^\/p\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/_sources\/([^/]{1,200})\/([^/]{1,200})\.(csv|json)$/;
+
+/** The source a download route names, among the page's: by its key, and its name as the file is named. */
+export function sourceAt(sources: readonly SourceEntry[], key: string, name: string, format: "csv" | "json"): SourceEntry | undefined {
+  return sources.find(s => s.key === key && sourceFile(s, format).filename === `${name}.${format}`);
+}
+
+/** The Sources panel: each source's query, transform and result, with copies and downloads (a link to the route). */
+export async function pageSources(host: LiveHost, blockId: string, outline: string, text: string, drawn: ReadonlyMap<number, DrawnComponent>, base: string): Promise<string> {
+  const sources = await visibleSources(host, blockId, drawn);
+  if (!sources) return "";
   const e = escapeHtml;
   const copy = (label: string, value: string) => `<button type="button" data-source-copy="${e(value)}">Copy ${label}</button>`;
   const offsets: number[] = [];
   let at = 0;
   for (const line of text.split("\n")) { offsets.push(at); at += line.length + 1; }
-  // Use the article's actual cuts, so a hidden body's text cannot reappear in the panel or its downloads.
-  const visible = sources.sources.filter(s => ![...drawn].some(([start, region]) =>
-    !region.markdown && s.line > start && s.line < region.end));
-  const entries = visible.map((s, i) => {
-    const download = (format: "csv" | "json") => `<a download="${e(s.name.replace(/[^a-zA-Z0-9_-]/g, "-"))}.${format}" href="data:${format === "csv" ? "text/csv" : "application/json"};charset=utf-8,${encodeURIComponent(sourceDownload(s.result, format))}">${format.toUpperCase()}</a>`;
+  const entries = sources.sources.map((s, i) => {
+    const download = (format: "csv" | "json") => `<a data-source-download href="${e(sourceHref(base, blockId, s, format))}" download="${e(sourceFile(s, format).filename)}">${format.toUpperCase()}</a>`;
     const read = s.readAt ? `${s.live ? "live, " : ""}as of ${s.readAt}` : "as written";
     return `<details class="source-entry" id="source-${i}" data-source-offset="${offsets[s.line] ?? 0}"><summary>${e(s.name)} <small>${e(s.readAt ?? "as written")}</small></summary>
 ${s.problem ? `<p>${e(s.problem)}</p>` : ""}

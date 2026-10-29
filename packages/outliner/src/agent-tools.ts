@@ -32,7 +32,7 @@ import { randomUUID } from "node:crypto";
 import { checkToolArgs, closest } from "@ep0ch/outline-core/tool-args";
 import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
 import { createBlockComment } from "./block-comments";
-import { matchFacts, resourceTextRevision } from "@ep0ch/outline-core/protocol";
+import { matchFacts, resourceTextRevision, type BlockRevisions } from "@ep0ch/outline-core/protocol";
 import { authoredResourceReferenceOccurrences, type AuthoredResourceReference } from "./resource-references";
 import { resourceCommentSource } from "./resource-comments";
 import type { ResourceDescription } from "./resources";
@@ -421,6 +421,10 @@ export async function readBlock(
   else await markMore([{ id: block.id, text: "", revision: block.revision }]);
   const record = textRecord(block);
   const site = await readSiteOf(client, block);
+  // Who last wrote it (its current revision's edit), as `updated` says when: the block's own author is who made it.
+  // Only the entry for the revision read: a write that lands between the two reads never lends its author to older text.
+  const saved = (await client.request<BlockRevisions>({ action: "block.revisions", blockId: block.id, latest: true }).catch(() => undefined))?.revisions.find(r => r.revision === block.revision);
+  const writer = saved?.author ? { author: saved.author, ...(saved.actorId ? { actorId: saved.actorId } : {}) } : { author: block.author, ...(block.actorId ? { actorId: block.actorId } : {}) };
   return {
     ...resolved,
     title: blockDisplayTitle(block),
@@ -428,8 +432,7 @@ export async function readBlock(
     text: block.text,
     properties: record.properties,
     fields: record.fields,
-    author: block.author,
-    ...(block.actorId ? { actorId: block.actorId } : {}),
+    ...writer,
     updated: block.updatedAt,
     parentId: block.parentId,
     children,

@@ -1128,3 +1128,15 @@ test("the host replaces a section from its own component boundaries", async () =
   expect(updated.section).toEqual({ heading: "## First", previous: "::graph-stat\nunfinished" });
   expect(store.get(note.id)!.text).toBe(updated.text);
 });
+
+test("a read says who last wrote the note, not who made it: the person's tick on an agent's note reads as theirs (PIE-1386)", async () => {
+  const { store, agent } = await setup();
+  const made = await agent("create", { parent: "root", text: "Allow the gate? [needs::sysop: the gate]\n- [ ] allow this once\n- [ ] deny" });
+  expect((await agent("read", { ref: made.json.id })).json).toMatchObject({ author: "agent", actorId: "garden-agent" });
+  const note = store.get(made.json.id)!;
+  store.update(note.id, note.text.replace("- [ ] allow", "- [x] allow"), note.revision, { author: "user" });
+  const read = (await agent("read", { ref: made.json.id })).json;
+  expect(read.text).toContain("- [x] allow this once");
+  expect(read.author).toBe("user");
+  expect(read.actorId).toBeUndefined();
+});
