@@ -613,6 +613,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     type("Prune the gooseberry"); key({ kind: "enter" }); type("After the leaves drop.");
     key(ctrl("s"));
     await until(() => !(river as any).describe().floats?.find((f: any) => f.id === made.id)?.writing, "the edit closed", 8000);
+    await until(() => /╚═ x close · drag title/.test(screen()), "the float's hint row leading with x close");
     key({ kind: "esc" });
     expect((river as any).describe().focusName).toBe(made.name);          // still the float's keys
     expect(screen()).toContain("x closes the float");                       // what Esc says, and what x will do

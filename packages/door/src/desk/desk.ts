@@ -4491,7 +4491,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** A float's frame hint, with this screen's keys for putting it back and closing it (the board has its own o and x). */
-  private floatHint(): string { return "drag title · drag ◢ · H J K L move · ^W f back in · ^W x close · ^N another · its title onto a header or edge docks it"; }
+  /** A float's hint row: the screen's own keys for it first (the river's and the board's x close, PIE-1418), then the float's. */
+  private floatHint(): string {
+    const own = this.spec.hint === undefined ? this.screenKeyHint() : "";
+    return [own, `drag title · drag ◢ · H J K L move · ^W f back in${/\bx close\b/.test(own) ? "" : " · ^W x close"} · ^N another · its title onto a header or edge docks it`].filter(Boolean).join(" · ");
+  }
 
   /**
    * The hint row (the outermost screen's alone, PIE-1305): the keys of the focused tile, wherever it is nested, in this
