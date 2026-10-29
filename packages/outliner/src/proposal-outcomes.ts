@@ -93,11 +93,11 @@ export function outcomesOf(store: OutlinerStore, proposalId: string): ProposalOu
 }
 
 /**
- * The outcomes of `actor`'s proposals after `since` (an ISO time; a week back when left out), oldest first, at most
+ * The outcomes of `actor`'s proposals (with `session`, only the ones that session wrote) after `since` (an ISO time; a week back when left out), oldest first, at most
  * `limit`. Candidates are the proposals changed since then, the Trash's among them, by their author as the proposal
  * itself records it (its patch's actor), not whoever touched it last.
  */
-export function proposalOutcomes(store: OutlinerStore, input: { actor: string; since?: string; limit?: number }, now = Date.now()): ProposalOutcomesPage {
+export function proposalOutcomes(store: OutlinerStore, input: { actor: string; session?: string; since?: string; limit?: number }, now = Date.now()): ProposalOutcomesPage {
   const actor = typeof input.actor === "string" ? input.actor.trim() : "";
   if (!actor) throw new Error("proposals.outcomes needs actor: the agent whose proposals to follow (an actor id, or a persona such as loki)");
   if (input.since !== undefined && (typeof input.since !== "string" || !Number.isFinite(Date.parse(input.since)))) {
@@ -113,6 +113,8 @@ export function proposalOutcomes(store: OutlinerStore, input: { actor: string; s
   for (const { id } of ids) {
     const block = store.get(id);
     if (!block || !proposalAuthoredBy(parseProposal(block.text)?.actor.actorId ?? block.actorId, actor)) continue;
+    // One session of an actor with no persona (several builders write as claude-code@float-box): its own proposals only.
+    if (input.session && block.sessionId !== input.session) continue;
     outcomes.push(...outcomesOf(store, id).filter(o => Date.parse(o.at) > after));
   }
   outcomes.sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.revision - b.revision);

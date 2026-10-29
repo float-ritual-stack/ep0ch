@@ -1,3 +1,4 @@
+import { parseActor } from "@ep0ch/outline-core/attribution";
 import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-core/site-values";
 /**
  * Outline operations for agents (PIE-504): read, find, resolve, edit, create,
@@ -1583,13 +1584,16 @@ export async function settleProposal(client: AgentToolsClient, input: { ref: str
 
 /**
  * What became of an agent's proposals (PIE-1086): the service reads them from the proposals' own revisions
- * (proposal-outcomes.ts). Whose: `actor` when given, else the caller's own (a persona in it covers every client it writes through).
+ * (proposal-outcomes.ts). Whose: `actor` when given, else the caller's own: a persona in it covers every client it writes
+ * through; with none, only the caller's session (`--session`) is its own.
  */
 export async function proposalOutcomesOf(client: AgentToolsClient, input: { since?: string; actor?: string; limit?: number }, actor: AgentActor | undefined): Promise<unknown> {
   const whose = input.actor?.trim() || actor?.actorId.trim();
   if (!whose) throw new WorkToolRefusal("agent proposals: give actor (an actor id, or a persona such as loki), or pass --actor <agent id>");
+  // The caller's own, with no persona to name it: this session's proposals, not every session's that writes as the same client.
+  const session = !input.actor?.trim() && actor?.sessionId && !parseActor(whose).persona ? actor.sessionId : undefined;
   await client.requireCompatibleService();
-  return client.request({ action: "proposals.outcomes", actor: whose, ...(input.since !== undefined ? { since: input.since } : {}), ...(input.limit !== undefined ? { limit: input.limit } : {}) });
+  return client.request({ action: "proposals.outcomes", actor: whose, ...(session ? { session } : {}), ...(input.since !== undefined ? { since: input.since } : {}), ...(input.limit !== undefined ? { limit: input.limit } : {}) });
 }
 
 /**

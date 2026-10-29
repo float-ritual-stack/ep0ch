@@ -39,6 +39,7 @@ import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, dropp
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, stampOf, unwrapPeer } from './peer-log'
 import { answeredInSession, answerOf, approveWaitMs, askOutlineOf, askPageCreateArgv, askPageFindArgv, askReadOf, askText, byThePerson, callEndOf, callKey, CallsUnderWay, closedText, sessionGrantOf, stepWords, type CallEnd } from './approve'
+import { HEARD_EVERY_MS, heardText, outcomeKey, outcomesPageOf, proposalsInput, untold, wakes, type Outcome } from './proposals-heard'
 import { addressedWakeText, askKey, asksOf, mentionArgs, newAsks, notesToRead, PERSONA_NAME, readArgs, repliesArgs, shownAsks, threadsToRead, type Ask } from './addressed'
 import { baselineOf, DEFAULT_OUTLINES, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
 import { type StatusInput, tileMark, tmuxPassthrough } from './program-status'
@@ -145,7 +146,7 @@ import {
 } from './workboard-now'
 import { OWN_PID_ARGV, SPLIT_BLOCK, SPLIT_TIMEOUT_MS, type SessionSplit, splitArgv, splitOf, splitStatus, splitText } from './split-session'
 import { ORIENT_BLOCK, ORIENT_FIELDS, ORIENT_LIMIT, ORIENT_TIMEOUT_MS, orientQuery, orientsFrom, orientText } from './orient-notes'
-import { DRAW_TIMEOUT_MS, drawArgv, drawnNoteOf, GUIDE_ARGV, GUIDE_BLOCK, GUIDE_TIMEOUT_MS, guideText, UPFRONT_TOOLS, withDrawing } from './outline-guide'
+import { DRAW_TIMEOUT_MS, drawArgv, drawnNoteOf, GUIDE_ARGV, GUIDE_BLOCK, GUIDE_TIMEOUT_MS, guideText, UPFRONT_TOOLS, viewArgv, viewedNoteOf, withDrawing, withView } from './outline-guide'
 
 type AbovePromptRender = RenderInput<'AbovePrompt'>
 /** The binding card's state: written here, in this file, as the engine lists what a module reads and writes. */
@@ -528,6 +529,8 @@ export function register(on: On, options: PluginOptions): void {
     addressedStarting = undefined
     toldAsks.clear()
     $.clock.after(0, () => void startAddressedOnce($, option))
+    // What became of this session's proposals (hooks/proposals-heard.ts): heard from now on, once each.
+    startHeard($, option)
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     showStatus($, null)
     $.clock.after(0, () => void readBinding($, option, false).catch(() => {}))
@@ -601,7 +604,9 @@ export function register(on: On, options: PluginOptions): void {
   // A session running twice (PIE-1369) is said with this process's first prompt, ahead of anything else it carries. Not
   // in the first prompt's context blocks: a split is a resumed conversation (`claude --continue`), whose first prompt,
   // and its context, were made by the process that started it.
-  on('prompt.submit', async ($, e, next) => {
+  // What became of this session's proposals since its last prompt rides with the next one too (PIE-1086), once each.
+  on('prompt.submit', async ($, e0, next) => {
+    const e = heardPending.length ? { ...e0, context: [...(e0.context ?? []), `<${HEARD_BLOCK}>\n${heardText(heardPending.splice(0))}\n</${HEARD_BLOCK}>`] } : e0
     if (splitSaid) return next(e)
     const waited = Symbol('waited')
     const split = await Promise.race([splitLoad ?? readSplit($), $.clock.sleep(BINDING_WAIT_MS).then(() => waited)]).catch(() => null)
@@ -678,12 +683,19 @@ export function register(on: On, options: PluginOptions): void {
       const workspace = references?.workspace
       if (!workspace) return { deny: await notBoundText($, references?.why) }
       // outline_changes' `actor` filters by agent; every other tool's names who the write is attributed to.
-      const actor = await actorFor($, tool.name === 'outline_changes' ? {} : input)
+      const actor = await actorFor($, tool.name === 'outline_changes' || tool.name === 'outline_proposals' ? {} : input)
       try {
         const written = await runOutlinerCli($, workspace, ['agent', command.operation, '--stdin', '--actor', actor], JSON.stringify(command.input))
         // A note that now holds a figure comes back drawn (PIE-721), so a figure that doesn't draw is seen in this turn.
         const drawn = drawnNoteOf(tool.name, written, input)
         const drawing = drawn ? await $.process.run(drawArgv(drawn), { cwd: workspace.root, env: envFor(workspace), timeoutMs: DRAW_TIMEOUT_MS }).then(r => r.exitCode === 0 ? r.stdout : '', () => '') : ''
+        // outline_read with view: the note as the door draws it, in the answer as `view` (PIE-1272), as the gateway gives it.
+        const viewed = viewedNoteOf(tool.name, written, input)
+        if (viewed) {
+          const ran = await $.process.run(viewArgv(viewed.id, viewed.width), { cwd: workspace.root, env: envFor(workspace), timeoutMs: DRAW_TIMEOUT_MS }).catch((error: unknown) => ({ exitCode: 1, stdout: '', stderr: String(error) }))
+          if (ran.exitCode !== 0) return { deny: `The note was read but not drawn: ${failureReasonOf(ran.stderr) || ran.stderr.trim() || 'ep0ch show failed'}` }
+          return { result: droppedNote(tool, checked.dropped) + withView(written, ran.stdout) }
+        }
         return { result: droppedNote(tool, checked.dropped) + withDrawing(written, drawing) }
       } catch (error) {
         return { deny: error instanceof Error ? error.message : String(error) }
@@ -2157,6 +2169,71 @@ async function logSettleChanges($: EngineInterface, bound: Workspace, root: stri
   for (const text of texts) {
     const ran = await $.process.run(['ep0ch', 'new', text, '--near', newest.id, '--as', actor], { cwd: bound.root, env, timeoutMs: SETTLE_TIMEOUT_MS })
     if (ran.exitCode !== 0) return settleToast($, `a thread change was not logged: ${failureReasonOf(ran.stderr) || ran.stderr.trim()}`)
+  }
+}
+
+// ─── What became of this session's proposals (hooks/proposals-heard.ts, PIE-1086) ───
+
+const HEARD_BLOCK = 'ep0ch-proposals'
+let heardTimer: { cancel: () => void } | undefined
+let heardRunning = false
+/** Where the next look starts: the newest outcome heard, else when the session (or a /clear) started. */
+let heardCursor: string | undefined
+/** Outcomes looked up and not told yet: the next prompt carries them. */
+const heardPending: Outcome[] = []
+const heardTold = new Set<string>()
+const toldHeard = new Set<string>()
+
+function heardToast($: EngineInterface, text: string): void {
+  if (toldHeard.has(text)) return
+  toldHeard.add(text)
+  $.ui.toast(`Your proposals: ${text}`, { timeoutMs: 8000 })
+}
+
+/** Starts the look for a session: from now on, every HEARD_EVERY_MS. Never throws. */
+function startHeard($: EngineInterface, option: PluginOptions): void {
+  heardTimer?.cancel()
+  heardPending.splice(0)
+  heardTold.clear()
+  heardCursor = undefined
+  void $.clock.now().then(now => {
+    heardCursor = new Date(now).toISOString()
+    heardTimer = $.clock.every(HEARD_EVERY_MS, () => void runHeard($, option))
+  }, () => {})
+}
+
+/**
+ * One look: the outcomes of this session's proposals since the cursor (a persona's, from every client it writes through;
+ * a session with none, its own), kept for the next prompt. A stale one wakes a persona's idle session, as an ask does
+ * (hooks/addressed.ts); a session with no persona hears it at its next prompt.
+ */
+async function runHeard($: EngineInterface, option: PluginOptions): Promise<void> {
+  if (heardRunning || !heardCursor) return
+  heardRunning = true
+  try {
+    if (!references?.workspace) await loadReferences($, option)
+    const workspace = references?.workspace
+    if (!workspace?.outline) return
+    const actor = await actorFor($, {})
+    const page = outcomesPageOf(await runOutlinerCli($, workspace, ['agent', 'proposals', '--stdin', '--actor', actor], proposalsInput(heardCursor)))
+    if (!page) return heardToast($, 'the outline answered agent proposals with something else; its host may be older (ep0ch install --apply there).')
+    heardCursor = page.cursor
+    const fresh = untold(page.outcomes, heardTold)
+    for (const o of fresh) heardTold.add(outcomeKey(o))
+    heardPending.push(...fresh)
+    if (!fresh.length || !wakes(fresh) || !(await sessionPersona($))) return
+    const told = heardPending.splice(0)
+    try {
+      const sent = await $.prompt.submit({ text: heardText(told) })
+      if (sent.drop !== undefined) throw Error(sent.drop || 'the prompt was dropped')
+    } catch (error) {
+      heardPending.unshift(...told)
+      heardToast($, `could not wake this session (${error instanceof Error ? error.message : String(error)}); the next prompt carries it.`)
+    }
+  } catch (error) {
+    heardToast($, error instanceof Error ? error.message : String(error))
+  } finally {
+    heardRunning = false
   }
 }
 

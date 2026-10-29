@@ -2621,7 +2621,7 @@ export type OutlinerRequestAction =
    */
   | { id: string; action: "block.revisions"; blockId: string; revision?: number; latest?: boolean }
   /** What became of an agent's proposals (PIE-1086, proposal-outcomes.ts): `actor` an actor id or a persona, `since` an ISO time. */
-  | { id: string; action: "proposals.outcomes"; actor: string; since?: string; limit?: number }
+  | { id: string; action: "proposals.outcomes"; actor: string; session?: string; since?: string; limit?: number }
   | { id: string; action: "trash.purge"; blockId: string; confirmation: string }
   | {
       id: string;

@@ -273,6 +273,7 @@ interface AgentTools {
   resolveRef(c: unknown, ref: string): Promise<{ id: string; fragmentId?: string }>;
   resourceRefOf(ref: string): unknown | null;
   readResource(c: unknown, ref: unknown): Promise<Record<string, unknown>>;
+  proposalOutcomesOf(c: unknown, input: Record<string, unknown>, actor: WriteActor | undefined): Promise<Record<string, unknown>>;
 }
 type PatchResult = { outcome: "applied"; edits: { blockId: string; route: "draft" | "saved"; revision?: number; rebasedFrom?: number }[] } | { outcome: "proposed"; reason: string; proposalId: string; beside: string; deduped?: true };
 const AGENT_TOOLS_MODULE = "@ep0ch/outliner/agent-tools";
@@ -290,6 +291,11 @@ const clientOf = (board: WriteBoard) => ({
  * resolved by the outliner's own `resolveRef` (the service's `blocks.resolve`, so an id's first 8+ characters too), the one the Claude mod's tools use. Reads only: a page that doesn't
  * resolve is an error, never a new page. A title is refused, as there.
  */
+/** What became of an agent's proposals (PIE-1086), by the outliner's own reader, the one the Claude mod's outline_proposals runs. */
+export async function proposalOutcomesOn(board: WriteBoard, input: Record<string, unknown>, actor: WriteActor): Promise<Record<string, unknown>> {
+  return (await loadAgentTools()).proposalOutcomesOf(clientOf(board), input, actor);
+}
+
 export async function resolveBoardRef(board: WriteBoard, ref: string): Promise<{ id: string; fragmentId?: string }> {
   return (await loadAgentTools()).resolveRef(clientOf(board), ref);
 }
@@ -350,7 +356,32 @@ const ACCESS_NOTES: Readonly<Record<string, string>> = {
 };
 
 /** The shared write tools the gateway registers (PIE-720): each defined once, addressed the gateway's way. */
-const SHARED_WRITE_TOOLS = AGENT_TOOL_DEFINITIONS.filter(d => d.writes && AGENT_TOOL_SURFACES[d.name]?.gateway === true);
+const SHARED_WRITE_TOOLS = AGENT_TOOL_DEFINITIONS.filter(d => d.writes && AGENT_TOOL_SURFACES[d.name]?.gateway === true && (MCP_WRITE_TOOLS as readonly string[]).includes(d.name));
+
+/**
+ * A shared tool the gateway registers that isn't one of its note writes (script_run, outline_proposals): its definition,
+ * addressed the gateway's way (uri, or ref in `outline`) when it acts on a block, else naming the outline it reads.
+ */
+export function sharedToolDefinition(name: string, outline: Record<string, unknown>): { name: string; description: string; inputSchema: Record<string, unknown> } {
+  const definition = AGENT_TOOL_DEFINITIONS.find(d => d.name === name && AGENT_TOOL_SURFACES[d.name]?.gateway === true);
+  if (!definition) throw new Error(`${name} has no shared definition the gateway registers`);
+  if (!definition.target) {
+    return { name, description: describeTool(definition, GATEWAY_WORDS), inputSchema: { type: "object", properties: { ...definition.properties, outline }, required: [...definition.required], additionalProperties: false } };
+  }
+  const { [definition.target]: _target, ...properties } = definition.properties;
+  return {
+    name,
+    description: describeTool(definition, GATEWAY_WORDS),
+    inputSchema: { type: "object", properties: { ...REF_ADDRESS, outline, ...properties }, required: definition.required.filter(key => key !== definition.target), additionalProperties: false, oneOf: [{ required: ["ref"] }, { required: ["uri"] }] },
+  };
+}
+
+/** A shared tool's own check of its input (a slot that isn't one line, a since that isn't a time): the refusal, or nothing. */
+export function sharedToolRefusal(name: string, input: Record<string, unknown>): string | undefined {
+  const definition = AGENT_TOOL_DEFINITIONS.find(d => d.name === name);
+  const command = definition?.command({ ref: "ref", ...input });
+  return typeof command === "string" ? command : undefined;
+}
 
 /** A shared tool's call as the gateway takes it: the block it acts on as `ref` (the note a thread is on, for a thread tool). */
 export function gatewayExample(name: string): Record<string, unknown> | undefined {

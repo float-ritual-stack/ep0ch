@@ -6,7 +6,9 @@
 // read and write, and every answer says where it came from (`source`: live or mirror, and `asOf`). A write to a mirror's
 // outline never touches the mirror: it queues for the outline's home machine (src/mcp-netmail.ts).
 import { randomUUID } from "node:crypto";
-import { boardFor, canonicalLocalMachineName, everyNote, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
+import { boardFor, canonicalLocalMachineName, drawNote, everyNote, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
+import { visible } from "./style";
+import { agentToolDefinition } from "@ep0ch/outline-core/agent-tool-definitions";
 import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource, type SearchHits } from "./socket";
 import { matchFacts, MCP_ACCESS_LEVELS, PROPERTY_QUERY_SCOPES, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type OutlineSnapshot } from "@ep0ch/outline-core/protocol";
 import { actorLabel, mintCallId, parseSessionId } from "@ep0ch/outline-core/attribution";
@@ -28,7 +30,7 @@ import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, Respo
 import { recordUsage, usageShape, usageCommand } from "./mcp-usage";
 import { CAP_KEY, gatherMatrix, hostSourceFor, matrixLines, setPathCap } from "./mcp-access-matrix";
 import { callRegistry, callShown } from "./mcp-calls";
-import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, proposalSettlementRefusal, commentOnResourceOn, isResourceRef, isWriteTool, takesPersona, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, PERSONA_PROPERTY, personaRefusal, type McpCaller, type McpWriteTool } from "./mcp-writes";
+import { proposalOutcomesOn, sharedToolDefinition, sharedToolRefusal, actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, proposalSettlementRefusal, commentOnResourceOn, isResourceRef, isWriteTool, takesPersona, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, PERSONA_PROPERTY, personaRefusal, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp usage [--since 24h] [--by tool|actor|outline] [--json]
   ep0ch mcp usage --census [--ws <name>] [--machine <ssh-name>] [--json]
@@ -354,6 +356,17 @@ async function resourceBoard(outlines: McpOutlines, args: Record<string, unknown
   return target;
 }
 
+/** The width outline_read's view is drawn at when none is asked: Evan's reading width, a desk tile's (write-shape's readingWidth). */
+export const READ_VIEW_WIDTH = 44;
+
+/** The note as the door draws it, plain text a line each, by the door's own drawNote (what `ep0ch show` prints); a refusal when the width is unusable. */
+async function readView(board: Board, id: string, width: unknown): Promise<string[] | string> {
+  const w = width === undefined ? READ_VIEW_WIDTH : width;
+  if (typeof w !== "number" || !Number.isInteger(w) || w < 30 || w > 200) return `width is the columns the view is drawn at: a whole number from 30 to 200 (${READ_VIEW_WIDTH} when left out); got ${JSON.stringify(width)}.`;
+  const lines = await drawNote(board, id, w);
+  return (lines ?? []).map(l => visible(l).trimEnd());
+}
+
 async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, caller?: McpCaller, scope?: ResponseScope): Promise<ToolResult> {
   const ref = refArg(args);
   if (ref && await isResourceRef(ref)) {
@@ -390,7 +403,30 @@ async function readRecord(outlines: McpOutlines, args: Record<string, unknown>, 
   if (first) return toolText({ uri: target.uri, ...seeStub(read.record.id, read.record.revision, first), reachability: read.access });
   const threads = await target.board.comments(target.id).then(c => threadSummary(threadRows(c)), () => undefined);
   const env = envelope(target.board, target.uri, read.access, read.record, read.record.revision);
-  return toolText({ ...env, ...(pointer ? { record: pointer } : {}), ...(pending ? { pending } : {}), ...(staleSince ? { staleSince } : {}), ...(threads ? { threads } : {}) });
+  const view = args.view === true ? await readView(target.board, target.id, args.width) : undefined;
+  if (typeof view === "string") return toolError(view);
+  return toolText({ ...env, ...(pointer ? { record: pointer } : {}), ...(pending ? { pending } : {}), ...(staleSince ? { staleSince } : {}), ...(threads ? { threads } : {}), ...(view ? { view } : {}) });
+}
+
+/** outline_proposals (PIE-1086): what became of the caller's proposals in one outline, by the outliner's own reader. */
+async function proposalsTool(outlines: McpOutlines, args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {
+  const refused = sharedToolRefusal("outline_proposals", args);
+  if (refused) return toolError(refused);
+  const named = namedOutline(args.outline);
+  if (named && "error" in named) return toolError(named.error);
+  if (!named && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
+  const target = await outlines.board(named);
+  if ("error" in target) return toolError(target.error);
+  const status = await requireReadAccess(outlines, target);
+  if ("error" in status) return toolError(status.error);
+  const actor = typeof args.actor === "string" && args.actor.trim() ? undefined : caller ? actorOf(caller) : undefined;
+  if (!actor && !(typeof args.actor === "string" && args.actor.trim())) return toolError("Give actor: whose proposals (an actor id, or a persona such as loki).");
+  const { outline: _outline, persona: _persona, call: _call, ...input } = args;
+  try {
+    const page = await proposalOutcomesOn(target.board, input, (actor ? { actorId: actor.actorId } : undefined) as never);
+    const outcomes = Array.isArray(page.outcomes) ? (page.outcomes as Array<Record<string, unknown>>).map(o => ({ ...o, uri: blockUri(target.board, String(o.proposal)), noteUri: blockUri(target.board, String(o.note)) })) : page.outcomes;
+    return toolText({ outline: target.board.address.outline, machine: target.board.address.machine, ...page, outcomes });
+  } catch (e) { return toolError((e as Error).message); }
 }
 
 const QUERY_LIMIT_RULE: LimitRule = QUERY_LIMIT;
@@ -744,13 +780,12 @@ function toolsFor(outlines: McpOutlines) {
     type: "array", items: { type: "string" }, maxItems: 1000,
     description: `Blocks you already hold, as "id@revision" (the id and revision of an earlier answer). One at that revision comes back as {id, revision, unchanged: true} instead of its body, like If-None-Match; one that changed since comes back whole.`,
   };
+  // The note as drawn (PIE-1272): the shared outline_read's view and width, so both surfaces say it the same way.
+  const viewProperty = agentToolDefinition("outline_read")!.properties.view, widthProperty = agentToolDefinition("outline_read")!.properties.width;
   const rawProperty = { type: "boolean", default: false, description: "Send a proposal or a comment as the block is stored. By default it points at its note (id@revision): a proposal as its diff, a comment as its own words and the span it is about." };
   return [
-    {
-      name: "script_run",
-      description: "Run a script block and answer with what it said: its last word (message), its state (done, failed, stopped, or running when it outlasted the 3 s wait: then script.stop ends it and scripts.ended brings its end) and, when it returned more than a line, answer. Documents and explicit output are kept as run notes; [results::keep] requests a full run record. Writes use this caller's MCP access: proposals at propose, applied at full.",
-      inputSchema: addressSchema,
-    },
+    sharedToolDefinition("script_run", outlineProperty(outlines)),
+    sharedToolDefinition("outline_proposals", outlineProperty(outlines)),
     {
       name: "list_outlines",
       description: "List the outlines this server reads: each one's machine, whether it is served live or from a read-only mirror or unreachable, and its MCP access setting. " +
@@ -763,8 +798,9 @@ function toolsFor(outlines: McpOutlines) {
         `record.links are the notes it links to; record.backlinks the notes linking to it (outline_links lists the same, with where), so a note two notes link both ways appears in both. Requires ${grant}. Input: exactly one of uri or ref. ` +
         `A ref that is a Resource (resource:<id>, or a [file::path] token) reads as its stored text and the comment threads open on it (live outlines only): read a file's threads before rewriting it. ` +
         `A proposal or a comment reads as a pointer to the note it is on (its diff, or its words and the span), not a copy of the note (raw: true for the block as stored). ` +
-        `seen ("id@revision" pairs you hold) answers a block you already have as {id, revision, unchanged: true}; a block already sent earlier in the same response (a batch) comes back as {id, revision, see}.`,
-      inputSchema: { ...addressSchema, properties: { ...addressSchema.properties, seen: seenProperty, raw: rawProperty } },
+        `seen ("id@revision" pairs you hold) answers a block you already have as {id, revision, unchanged: true}; a block already sent earlier in the same response (a batch) comes back as {id, revision, see}. ` +
+        `view: true adds view: the note as the door draws it (live figures, views and components answered) at width columns (${READ_VIEW_WIDTH} when left out), as ep0ch show prints it: look at it before saying a write is done.`,
+      inputSchema: { ...addressSchema, properties: { ...addressSchema.properties, seen: seenProperty, raw: rawProperty, view: viewProperty, width: widthProperty } },
     },
     {
       name: "outline_threads",
@@ -1081,10 +1117,15 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
     const status = withLevel(await target.board.mcpAccessStatus(), caller, target.board.address);
     if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
     try {
-      return toolText(await target.board.request("scripts.run", { blockId: target.id, access: status.level, mutation: { author: "agent", ...actorOf(caller) } }));
+      const refused = sharedToolRefusal("script_run", args);
+      if (refused) return toolError(refused);
+      const about = typeof args.this === "string" ? (await resolveBoardRef(target.board, args.this.trim())).id : undefined;
+      const slots = args.slots as Record<string, string> | undefined;
+      return toolText(await target.board.request("scripts.run", { blockId: target.id, ...(about ? { this: about } : {}), ...(slots ? { slots } : {}), access: status.level, mutation: { author: "agent", ...actorOf(caller) } }));
     } catch (error) { return toolError((error as Error).message); }
   }
   if (params.name === "outline_read") return readRecord(outlines, args, caller, scope);
+  if (params.name === "outline_proposals") return proposalsTool(outlines, args, caller);
   if (params.name === "outline_threads") return threadsTool(outlines, args);
   if (params.name === "outline_query") return queryTool(outlines, args, scope, caller);
   if (params.name === "outline_write_status" && caller) return writeStatusTool(outlines, args, caller);
