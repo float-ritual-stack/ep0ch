@@ -17,6 +17,7 @@ are its record. The outliner's entries from then are kept below, under
   on the bar finds only those; pins give way first, `+N` last.
 - **A failed button's `!` stays its own:** deleting a line no longer moves it onto the next button.
 - **Right-click any button you see** to pin it to the status bar: it becomes the `[ ]` position and nothing runs.
+
 ### The keys window: every binding, what it shadows, and a rebind said before it lands (PIE-492, PIE-1048)
 
 - **`?` on any screen opens it,** filtered to where you are (`in:note` in a reader); `ep0ch --screen keys`,
