@@ -8,8 +8,8 @@
 // Every pass is a `jev-run` record with its tokens and what they cost, one experiment per loop, so Jev's suggestions page
 // shows what each loop costs. Jev selects; it never writes the words a person reads, and it never closes anything.
 import { loadWorkJevPrompt, type PromptRevision, type WorkJevPrompt } from "./ai-prompts";
+import { askJevQuestions } from "./write-review";
 import { writeRecord, type RecordWho, type RecordWriter } from "./records";
-import { JEV_ENDPOINT, JEV_MODEL, jevKey } from "./search-ranking";
 import type { Block, VisibleBlockCollection } from "./types";
 
 /** Jev's price, dollars per million input tokens (output is free): docs.typesafe.ai/go/models, Jev 1.13 and 1.14. */
@@ -44,23 +44,12 @@ export async function askNouls(
   const env = o.env ?? process.env;
   if (!o.apiKey && jevOff(env)) return { unavailable: "off" };
   if (!Object.keys(questions).length) return { unavailable: "nothing to ask" };
-  const apiKey = o.apiKey ?? await jevKey(env);
-  if (!apiKey) return { unavailable: "Jev is not configured: with-secrets --add typesafe TYPESAFE_API_KEY" };
-  try {
-    const prompt = await loadWorkJevPrompt(o.promptDirectory);
-    const asked = Object.fromEntries(Object.entries(questions).map(([id, q]) => [id, { type: "noul", instructions: prompt[q.ask].replace("{candidate}", () => q.candidate) }]));
-    const response = await (o.fetch ?? fetch)(o.endpoint ?? env.OUTLINER_JEV_ENDPOINT ?? JEV_ENDPOINT, {
-      method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, redirect: "error",
-      body: JSON.stringify({ model: JEV_MODEL, state, questions: asked }), signal: AbortSignal.timeout(o.timeoutMs ?? 8000),
-    });
-    if (!response.ok) return { unavailable: `Jev HTTP ${response.status}` };
-    const body = await response.json() as { model?: string; usage?: { input_tokens?: number; output_tokens?: number }; answers?: JevAnswers };
-    if (!body.answers || typeof body.answers !== "object") return { unavailable: "Jev's answer didn't read" };
-    const usage = Number.isFinite(body.usage?.input_tokens) ? { input: body.usage!.input_tokens!, output: body.usage?.output_tokens ?? 0 } : undefined;
-    return { answers: body.answers, reading: { model: body.model ?? JEV_MODEL, prompt: prompt.revisions, questions: Object.keys(asked).length, ...(usage ? { usage } : {}) } };
-  } catch (e) {
-    return { unavailable: (e as Error).name === "TimeoutError" ? "Jev didn't answer in time" : `Jev: ${(e as Error).message}` };
-  }
+  let prompt: WorkJevPrompt;
+  try { prompt = await loadWorkJevPrompt(o.promptDirectory); } catch (e) { return { unavailable: `Jev: ${(e as Error).message}` }; }
+  const asked = Object.fromEntries(Object.entries(questions).map(([id, q]) => [id, { type: "noul", instructions: prompt[q.ask].replace("{candidate}", () => q.candidate) }]));
+  // The one Jev client (the write review's), its reading stamped with this loop's own prompt file.
+  const answer = await askJevQuestions(state, asked, { timeoutMs: 8000, ...o });
+  return "answers" in answer ? { answers: answer.answers, reading: { ...answer.reading, prompt: prompt.revisions } } : answer;
 }
 
 /** A Noul's value when it reads as a probability, else undefined. */

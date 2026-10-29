@@ -35,7 +35,7 @@ test("Jev picks the journeys; the plan is the actions' own words, their keys and
     const body = await r.json() as { questions: Record<string, { instructions: string }> };
     asked.push(body.questions);
     const answers = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => [id, { type: "noul", noul: q.instructions.includes("beds.water") || id.startsWith("shows::") ? 0.9 : 0.2 }]));
-    return Response.json({ model: "jev-1.13.0", answers, usage: { input_tokens: 700 } });
+    return Response.json({ model: "jev-1.13.0", answers, usage: { input_tokens: 700, output_tokens: 0 } });
   } });
   fakes.push(fake);
   const blank = ticket("GDN-8", "Refactor the bed store", "Internal only.");
