@@ -6677,7 +6677,7 @@ export class NoteSurface {
     this.setElem(e);
     this.reveal = true;
     // Mark done first, as Detail's menu; on a closed step (done, approved, rejected), Mark to do.
-    this.picker = { key: e.key, list: this.choices(stepClosed(e.task.step.status) ? 1 : 0), note: "", busy: false };
+    this.picker = { key: e.key, list: this.choices(stepClosed(e.task.step.status) ? 1 : 0, e.task.live), note: "", busy: false };
   }
 
   /**
@@ -6710,10 +6710,15 @@ export class NoteSurface {
     this.picker = { key: e.key, kind: "callout", list, note: "", busy: false, types };
   }
 
-  /** A status choice's list, from choice `sel`: j k Tab round it, ⏎ or a choice's letter chooses, esc or q cancels. */
-  choices(sel: number): Picker["list"] {
+  /**
+   * A status choice's list, from choice `sel`: j k Tab round it, ⏎ or a choice's letter chooses, esc or q cancels. On a
+   * live row (`live`, its figure's `done:`) each choice says what it writes on the row's note (`jev::right`), so a
+   * figure whose `done:` means "Jev was right" reads as that (PIE-1402).
+   */
+  choices(sel: number, live?: { key: string; done: string }): Picker["list"] {
+    const items = live ? STEP_CHOICES.map(c => c.id === "copy-link" || c.id === "address" ? c : { ...c, label: `${c.label} · ${live.key}::${liveMarkValue(live, c.id)}` }) : STEP_CHOICES;
     const list = new ListPicker<Choice, SurfaceHost>({
-      name: "choice", items: () => STEP_CHOICES, wraps: true, closers: "q", stays: true, row: () => [],
+      name: "choice", items: () => items, wraps: true, closers: "q", stays: true, row: () => [],
       choose: (_, i, host) => void this.choose(i, host),
       closed: host => { this.picker = null; host.redraw(); },                                  // a cancel: as it was
       keys: (k, host) => { const i = STEP_CHOICES.findIndex(x => x.key === ch(k)); if (i >= 0) void this.choose(i, host); return i >= 0; },
@@ -7955,7 +7960,7 @@ export class NoteSurface {
     let at = hit.line + 1;
     // A step's choice goes under its item; a callout's right under its top edge.
     if (hit.ref && !hit.ref.via) while (at < doc.source.length && doc.source[at] === doc.source[hit.line]) at++;
-    const { lines, rows } = hit.callout ? calloutPanel(hit.callout, P, W) : pickerPanel(hit.ref!, P.list.sel, P.note, P.busy, W);
+    const { lines, rows } = hit.callout ? calloutPanel(hit.callout, P, W) : pickerPanel(hit.ref!, P.list.items, P.list.sel, P.note, P.busy, W);
     const { doc: out } = withRows(doc, [{ at, lines }]);
     return { doc: out, picks: { at, lines: lines.length, rows: rows.map(r => at + r) } };
   }
@@ -9201,11 +9206,12 @@ interface LineUndo { patch?: { start: number }; block: string; edits: LineEdit[]
  * A step's status choice (PIE-472), `W` cells wide: Detail's choices in its order, each with its key, the
  * one the keys are on lit, the step's current status marked, and what the last choice said.
  */
-function pickerPanel(ref: StepRef, sel: number, note: string, busy: boolean, W: number): { lines: string[]; rows: number[] } {
+function pickerPanel(ref: StepRef, choices: readonly Choice[], sel: number, note: string, busy: boolean, W: number): { lines: string[]; rows: number[] } {
   const edge = fg(C.yellow), inner = Math.max(8, W - 2), f = stringFrame(W, { glyphs: LINE_BOX, ink: edge, pad: 0, open: true });
   const lines = [f.top(fg(C.white) + ` ${STEP_BOXES[ref.step.status]} ${printable(stepTitle(ref.step))} `)];
   const rows: number[] = [];
-  STEP_CHOICES.forEach((c, i) => {
+  // The list's own choices (on a live row, each says what it writes): the panel draws them, never a second copy.
+  choices.forEach((c, i) => {
     const now = (c.id === ref.step.status ? " · now" : "");
     const text = pad(` ${c.label}${now}`, Math.max(1, inner - 3)) + ` ${c.key} `;
     rows.push(lines.length);
@@ -12859,7 +12865,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       surface.openPicker(e);
       host.redraw();
-      return { open: true, step: e.task!.step.itemId ?? null, choices: STEP_CHOICES.map(c => ({ id: c.id, key: c.key, label: c.label })) };
+      // The choices as the panel draws them: on a live row, each says what it writes.
+      return { open: true, step: e.task!.step.itemId ?? null, choices: (surface.picker?.list.items ?? STEP_CHOICES).map(c => ({ id: c.id, key: c.key, label: c.label })) };
     },
   }),
   ...PROPOSAL_DEFS,
