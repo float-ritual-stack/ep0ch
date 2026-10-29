@@ -102,7 +102,14 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
     }
     const asked = keep.review.jev === "asked";
     const unavailable = !asked && !/^(?:off|not asked)/.test(keep.review.jev);
-    if (keep.at.source === "backfill") return;
+    if (keep.at.source === "backfill") {
+      // A note that was read whole and said nothing is kept too: a rerun skips it rather than ask Jev again. One Jev
+      // couldn't read isn't, so a rerun tries it again.
+      if (!told.length && !unavailable) {
+        await writeRecord(board(client), "review-quiet", clean({ day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), source: "backfill" }), JEV, { title: `quiet: ${keep.title || "untitled"}`.slice(0, 120), cache });
+      }
+      return;
+    }
     await updateRun(client, day, { ...(told.length ? {} : asked ? { quiet: 1 } : {}), ...(unavailable ? { unavailable: 1 } : {}), ...(keep.reading ? { reading: keep.reading } : {}) });
   } catch { /* the write has landed; a record that can't be made is not its failure */ }
 }

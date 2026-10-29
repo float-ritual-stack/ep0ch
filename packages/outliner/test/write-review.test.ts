@@ -246,12 +246,17 @@ test("the backfill reviews what agents already wrote, read only, and keeps its s
   const keeps: string[] = [];
   const counting = { request: (input: { action: string }, t?: number) => { keeps.push(input.action); return client.request(input as never, t); } };
   const again = await reviewBackfill(client as never, { since: "7d", jev: false, into: counting as never, outline: "scratch" });
-  expect(again).toMatchObject({ reviewed: 3, skipped: 1, flagged: 1 });
+  // The quiet notes were kept as such, so only the new one is read; the run's row is the first pass's, added to.
+  expect(again).toMatchObject({ reviewed: 1, skipped: 3, flagged: 1 });
+  expect((await records("review-quiet")).map(r => r.writer).sort()).toEqual(["daddy", "daddy"]);
   // One request for the note with findings, and no record stamped from the client: the service makes them.
   expect(keeps.filter(a => a === "suggestions.keep")).toHaveLength(1);
   expect((await records("review-finding")).filter(r => r.writer === "kitty")).not.toHaveLength(0);
-  // The only record stamped from here is the run's own.
-  expect(keeps.filter(a => a === "template.stamp")).toHaveLength(1);
+  // Nothing stamped from here: the run's row was already there.
+  expect(keeps.filter(a => a === "template.stamp")).toHaveLength(0);
+  const runs = (await records("jev-run")).filter(r => r.experiment === "write-review-backfill");
+  expect(runs).toHaveLength(1);
+  expect(runs[0]).toMatchObject({ items: "4", suggested: "2" });
 });
 
 test("a note asking Evan to try something himself is told validation is the agents' job", async () => {

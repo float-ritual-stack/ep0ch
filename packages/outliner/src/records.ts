@@ -15,6 +15,8 @@ export const RECORD_FIELDS = {
   // chips in a code fence its writer adds (the fix offered, as the card shows it, and how a later write is checked for it; PIE-1402).
   // (A template holds at most 16 fields; the review's verdict is the record's title.)
   "review-finding": ["day", "note", "revision", "writer", "harness", "rule", "rubric", "component", "key", "line", "title", "passage", "said", "patch", "source", "fix"],
+  // A backfill's note reviewed with nothing to say (PIE-1402): kept, so a rerun doesn't ask Jev about it again.
+  "review-quiet": ["day", "note", "revision", "writer", "harness", "source"],
   "suggestion-outcome": ["day", "suggestion", "note", "outcome", "component", "writer", "harness", "because", "rule", "rubric", "title", "passage", "said", "patched"],
   // PIE-1197: a real query and the note(s) that should come first (`expect`: ids, or `none` when nothing should), and who
   // said so (`source`: an agent's read after its search, the note it made, or Evan's pick). The search eval reads them.
