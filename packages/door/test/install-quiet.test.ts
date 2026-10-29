@@ -130,7 +130,10 @@ describe.skipIf(!linux)("ep0ch install restarts the host only when its code chan
     expect(hostPid()).toBe(pid);
     expect(await hostRequest(sock, "ping", { outline: "allotment" })).toMatchObject({ protocolVersion: expect.any(Number) });
 
-    // The outliner's own code: restarted, from the commit the host still runs, naming the file.
+    // The outliner's own code: restarted, from the commit the host still runs, naming the file. Backups are named to
+    // the second, so the second install waits for the next one (on a fast box both landed in one second and the backup
+    // refused to overwrite).
+    await Bun.sleep(1100);
     const code = await install();
     const host = code.steps.find(s => s.id === "host")!;
     expect(host.status).toBe("do");
