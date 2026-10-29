@@ -1574,6 +1574,21 @@ export class MessageReader implements Screen {
         if (no) { ctx.flash(`not opened: ${subject(m)} · ${no}`); return; }
         ctx.push(new MessageReader([m], 0));
       },
+      // Back is the reader a link was followed from (PIE-1431): the trail is the readers under this one on the screen stack,
+      // read from it (a followed link pushes the next reader, q pops it), never a copy kept here.
+      history: {
+        peek: dir => (dir < 0 ? this.readersBelow(ctx)[0]?.title ?? null : null),
+        trail: () => ({ back: this.readersBelow(ctx), forward: [] }),
+        go: (dir, _actor, steps = 1) => {
+          const below = this.readersBelow(ctx).length;
+          if (dir > 0) return "nothing ahead: a reader gone back from is closed";
+          if (!below) return "nothing to go back to: this reader hasn't followed a link here";
+          if (steps > below) return `only ${below} back: steps=${below} at most (trail lists them)`;
+          for (let i = 0; i < steps; i++) ctx.pop();
+          return null;
+        },
+        agentRefusal: "back in the message reader closes the person's reader; an agent opens beside (open, link.follow) instead",
+      },
       header: (m, w, info) => this.header(m, w, info),
       // Back or forward along the trail landed on a message of the list: n and p go on from there.
       historyLanded: () => { const i = this.list.findIndex(x => x.id === this.surface.msg?.id); if (i >= 0) this.index = i; },
@@ -1586,6 +1601,17 @@ export class MessageReader implements Screen {
       press: (name, args, quiet, given) => this.dispatch.pressIn(NOTE_ACTIONS, name, args, READER, quiet, given),
       pressSet: (set, name, args, quiet, given) => this.dispatch.pressIn(set, name, args, READER, quiet, given),
     };
+  }
+
+  /** The readers this one was followed from, nearest first: the run of message readers under it on the screen stack. */
+  private readersBelow(ctx: Ctx): { id: string; title: string }[] {
+    const stack = ctx.screens?.() ?? [], out: { id: string; title: string }[] = [];
+    for (let i = stack.indexOf(this) - 1; i >= 0; i--) {
+      const r = stack[i];
+      if (!(r instanceof MessageReader) || !r.surface.msg) break;
+      out.push({ id: r.surface.msg.id, title: subject(r.surface.msg) });
+    }
+    return out;
   }
 
   /** The BBS message header, from the note the surface shows (the whole one once a list row is read). */

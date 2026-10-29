@@ -57,6 +57,15 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Your change first:** ctrl+z in a reader undoes its own last change (your edit, or an extension's or agent's write you can see), never a tile move you made somewhere else afterwards; the layout's undo gets the key only when the reader has nothing of its own. A trash newer than the reader's change still comes back first.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
+### Esc closes the message log too, never the terminal behind it (PIE-1431)
+
+- **The message log is over your terminal like the power bar is:** Esc closes it, and a second Esc right after goes
+  nowhere instead of into the terminal tile or the drawer's agent ("nothing to close · pause, then esc is the program's").
+  Whatever is over the program you type in now counts, a new overlay included.
+- **At 40 columns the undo ask reads whole:** "saved · ctrl+z again undoes past it · …; revision N stays in its
+  history" wraps under the draft's status instead of being cut.
+- **A link followed in a message reader is on its trail:** in a reader `ep0ch open` put over a menu screen, follow a
+  link, then alt+T lists where you came from; a pick goes back there.
 
 ### Margin comments read as comments, and a quote lands where you are (PIE-1255, PIE-1184)
 
