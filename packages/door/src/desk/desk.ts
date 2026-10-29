@@ -177,7 +177,7 @@ export const SEARCH_PART: HintPart = { action: "search", key: "/", label: "searc
 export const MENU_PART: HintPart = { action: "screen.back", key: "q", label: "menu" };
 export const KEYS_PART: HintPart = { action: "keys.open", key: "?", label: "keys" };
 const modeKeyParts = (rows: readonly ModeKey[]): HintPart[] => withKeymap(rows).map(r => ({ action: r.action, key: r.key, label: r.label ?? r.action, ...(r.args ? { args: r.args } : {}) }));
-const DAILY_LAYOUT_KEYS: readonly ModeKey[] = [{ key: "alt+d", action: "layout.load", args: { name: "daily" }, label: "daily" }];
+const DAILY_LAYOUT_KEYS: readonly ModeKey[] = [{ key: "alt+d", action: "layout.load", args: { name: "daily" }, label: "daily", says: "lay this screen out as the daily layout" }];
 
 type Prefix = "" | "wm" | "add" | "addtab" | "move" | "tab" | "resize";
 
@@ -212,6 +212,8 @@ const SHOWN_LATELY_MS = 2_000;
 const WALK_MS = 1000;
 /** The narrowest a trail tile opens (Desk.trailTile): a stop's title and its arrow still read; narrower, it lists over the screen. */
 const TRAIL_MIN_COLS = 18;
+/** The narrowest the keys window is opened beside a tile: narrower, below it (Desk.sides). */
+const LIST_COLS = 40;
 
 export class Desk implements Screen, DeskApi, ColumnsHost {
   readonly ownsQuestion = true;
@@ -482,7 +484,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     let id: number;
     if (have !== undefined) id = have;
     else {
-      const made = this.sides(at).reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source), "trail", true, USER, dir); } catch (e) { if (e instanceof ActionRefused) return null; throw e; } }, null);
+      const made = this.sides(at, TRAIL_MIN_COLS).flatMap(d => (d === "right" || d === "down" ? [d] : [])).reduce<number | null>((got, dir) => { if (got !== null) return got; try { return this.openPair(at, new TrailPane(source), "trail", true, USER, dir); } catch (e) { if (e instanceof ActionRefused) return null; throw e; } }, null);
       if (made === null) return null;
       // Too narrow to read (a squeezed river column at 40 columns, PIE-1428): no one-letter-a-row spine taking the keys
       // unseen; the trail lists over the screen instead.
@@ -4679,11 +4681,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /**
    * Where a list that wants width (the keys window, the trail) opens beside tile `at`, best first: the layout's one rule
-   * (`splitAxis`, wide), so a 44-column tile keeps its width and the list has all of it too.
+   * (`splitAxis`, wide), so a 44-column tile keeps its width and the list has all of it too. A tile too narrow to halve
+   * into a list of `min` columns (the keys window's LIST_COLS at 40 columns, PIE-1425) opens it below, and one already
+   * narrower along the bottom edge at the screen's width, never as a strip beside; the screen's edge last, which a
+   * container that takes only its own kind (the board's lanes) never refuses.
    */
-  private sides(at: number): ["right", "down"] | ["down", "right"] {
+  private sides(at: number, min: number): ("right" | "down" | "edge-right" | "edge-down")[] {
     const r = this.placed.rects.get(at);
-    return r && splitAxis(r, true) === "row" ? ["right", "down"] : ["down", "right"];
+    if (r && r.cols < min) return ["edge-down", "down", "right"];
+    if (r && Math.floor(r.cols / 2) < min) return ["down", "edge-down", "right"];
+    return r && splitAxis(r, true) === "row" ? ["right", "down", "edge-right"] : ["down", "right", "edge-right"];
   }
 
   /**
@@ -4695,13 +4702,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const have = this.all().find(id => this.panes.get(id) instanceof KeysPane);
     if (have === undefined) {
       // From a float: beside the tile under it, as tile.open does.
-      const at = this.isFloat(this.focus) ? this.grounded() ?? this.focus : this.focus, [first, then] = this.sides(at);
-      // Beside it, else below or beside the other way, else along the screen's right edge: a container that takes only
-      // its own kind (the board's lanes) refuses the first two, never the edge.
+      const at = this.isFloat(this.focus) ? this.grounded() ?? this.focus : this.focus;
+      // Where `sides` says, best first.
       let done: unknown;
-      for (const where of [first, then, "edge-right"] as const) {
+      const order = this.sides(at, LIST_COLS);
+      for (const [i, where] of order.entries()) {
         try { done = await this.openTile({ kind: "keys", state: { filter: words } }, this.nameOf(at), where, actor); break; }
-        catch (e) { if (!(e instanceof ActionRefused) || where === "edge-right") throw e; }
+        catch (e) { if (!(e instanceof ActionRefused) || i === order.length - 1) throw e; }
       }
       // Closed (esc, q, ^W x), it gives the keys back to the tile it opened beside.
       const made = this.all().find(id => this.panes.get(id) instanceof KeysPane);
@@ -4716,12 +4723,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
-   * The words `?` opens the keys window with: the scope of the focused tile's own actions (a reader's are NOTE_ACTIONS',
-   * `note`; another kind's, its set's), else nothing (every binding).
+   * The words `?` opens the keys window with: the scope the focused tile says its keys run in now (Pane.keysScope: a
+   * reader's NOTE_ACTIONS', `note`; a river list's, `river`), else its kind's set's, else nothing (every binding).
    */
   private keysFilter(): string {
     const p = this.panes.get(this.focus);
-    const scope = p instanceof ReaderPane ? NOTE_ACTIONS.scope : p ? kindOf(p)?.actions?.scope : undefined;
+    const scope = p ? p.keysScope?.() ?? kindOf(p)?.actions?.scope : undefined;
     return scope ? `in:${scope}` : "";
   }
 
@@ -8399,7 +8406,7 @@ export const HINT_ACTIONS = actionSet<DeskOn>()("hint", {
     args: { text: { type: "string", optional: true, about: "words to show; absent lists the tile's controls" }, for: { type: "string", optional: true, kind: "tile", about: "the tile to anchor beside" } },
     examples: [{ act: 'hint.show text="Select a destination" for=reader', does: "shows an attributed hint beside the reader" }],
     run: (a, h, actor) => h.d.hintShow(a.for ?? h.reader, a.text, actor) }),
-  "hint.get": def({ summary: "read the hint cards, or every tile's controls with xray=true", touches: "nothing", replay: "safe", args: { xray: { type: "boolean", optional: true, about: "read all the frame cards without showing them" } }, examples: [{ act: "hint.get xray=true", does: "reads every tile's controls" }], run: (a, h) => h.d.hintGet(a.xray) }),
+  "hint.get": def({ words: "read the hint cards", summary: "read the hint cards, or every tile's controls with xray=true", touches: "nothing", replay: "safe", args: { xray: { type: "boolean", optional: true, about: "read all the frame cards without showing them" } }, examples: [{ act: "hint.get xray=true", does: "reads every tile's controls" }], run: (a, h) => h.d.hintGet(a.xray) }),
   "hint.never": def({ summary: "show this hint on the status line from now on", keys: "alt+N, click", touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: {}, run: (_, h) => h.d.hintNever(h.reader) }),
   "hints.list": def({ summary: "read every declared hint, its trigger and personal setting; tune.section section=hints shows the list in the inspector", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintsList() }),
   "hints.set": def({ summary: "keep a hint as a card, a status line or off across restarts", keys: "c, s, o in the Hints section, click", touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: { id: { type: "string", about: "hint id from hints.list" }, to: { type: "string", about: "card, status or off" } }, examples: [{ act: "hints.set id=tile.collapse to=status", does: "keeps folding hints on the status line" }], run: (a, h) => h.d.hintsSet(a.id, a.to as HintSetting) }),
@@ -8441,7 +8448,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   }),
   "keys.panel": def({
     summary: "open the panel of the keys that follow a prefix (PIE-1304): every key, grouped, each a click away, with the words of the action it runs; ^W's first group is the focused tile's own keys (PIE-1338: this tile: <name>, its ⋯ menu's rows with a key, each with its action; typed once the panel is closed, a click runs the row there). A prefix opens it by itself after a short pause. An agent gets the groups as data; nothing moves",
-    keys: [{ keys: "^W", does: "then a pause shows the panel" }, { keys: "^W o", does: "open it" }, { keys: "^W O", does: "open it" }],
+    keys: [{ keys: "^W", does: "then a pause shows the panel" }, { keys: "^W o", does: "open it", says: "open the panel of the keys that follow ^W" }, { keys: "^W O", does: "open it", says: "open the panel of the keys that follow ^W" }],
     // An agent's moves nothing (it gets the groups); the person's opens their own view and arms ^W (or ^W o): their
     // next key is the chord's, so a replay asks.
     touches: "nothing", replay: "ask",
@@ -8462,7 +8469,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   "tile.arrival.clear": def({ summary: "clear the new arrival accent when you touch a tile", keys: "click, wheel, j, k, ↑, ↓, shift+up, shift+down, PgUp, PgDn", touches: "nothing", replay: "safe", args: {}, run(_, { d, reader }) { return d.clearArrival(reader); } }),
   "search": def({
     summary: "find notes by text (the service's search): query= answers the hits, numbered from 1, each with its id and title; nothing on screen moves. The person's (/) opens the power bar in its notes scope (bar.open scope=notes), where ⏎ opens the hit (`open`) and alt+⏎ opens it in a new detail",
-    keys: [{ keys: "/", does: "search" }, { keys: "g", does: "in a river column" }],
+    keys: [{ keys: "/", does: "search", says: "search for notes by their words" }, { keys: "g", does: "in a river column" }],
     touches: "nothing", replay: "safe",
     args: { query: { type: "string", optional: true, about: "the text to find (at least 2 characters)" }, limit: { type: "number", optional: true, about: "how many hits (default 30, at most 100)" } },
     examples: [
@@ -8473,7 +8480,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   }),
   "open": def({
     answer: { tile: { type: "string|null", kind: "tile", about: "the destination tile's stable id, or null when no tile opened" }, name: { type: "string", about: "the destination's displayed name" }, id: { type: "string", kind: "note", about: "the note shown" } },
-    summary: "show a note only where it lands; only the person's own open moves the current note. Show it in tile=<tile name, id or #number> (a detail holds it); or, with from=<tile>, where that tile's opens land (its link; unlinked, where the desk's own open puts it; fresh=true: a new tile there). On a screen whose opens land in a container (the board's readers row), tile=detail is the tile an open lands in there, new-detail a new one, float a new one floating. An agent's naming neither (`ep0ch open <id>`) lands where the focused tile's opens go, else a reader that follows, never one the person is typing in. A program in a tile passes from=$EP0CH_TILE_ID (or $EP0CH_TILE), the tile it was told it runs in, so it never has to know which reader that is. The person's own open gives that reader the keys, an agent's never moves them", keys: "enter in the outline, / search; ⏎ alt+⏎ in a reader that follows (where its opens land)",
+    summary: "show a note only where it lands; only the person's own open moves the current note. Show it in tile=<tile name, id or #number> (a detail holds it); or, with from=<tile>, where that tile's opens land (its link; unlinked, where the desk's own open puts it; fresh=true: a new tile there). On a screen whose opens land in a container (the board's readers row), tile=detail is the tile an open lands in there, new-detail a new one, float a new one floating. An agent's naming neither (`ep0ch open <id>`) lands where the focused tile's opens go, else a reader that follows, never one the person is typing in. A program in a tile passes from=$EP0CH_TILE_ID (or $EP0CH_TILE), the tile it was told it runs in, so it never has to know which reader that is. The person's own open gives that reader the keys, an agent's never moves them", keys: [{ keys: "enter", does: "in the outline" }, { keys: "/", does: "search", says: "search for a note by its words, then open the hit" }, { keys: "⏎ alt+⏎", does: "in a reader that follows (where its opens land)" }],
     // A reader named (tile=) is moved: an agent's is refused in the one the person has. Naming none (or a place word),
     // it lands where opens land: maybe the note they're reading, said on screen, never their keys or a reader they type in.
     touches: "tile", touchesWith: (_, tile) => (tile !== undefined ? "tile" : "nothing"), way: "opening a note there would move what they're reading · name another reader with tile=, or name none (ep0ch open <id>): it lands where opens land, never their keys or a reader they type in",

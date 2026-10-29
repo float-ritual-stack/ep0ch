@@ -1057,6 +1057,7 @@ const kindNoun = (t: TileRef) => nounOf(t.kind);
 
 export const POINTER_ACTIONS = actionSet<{ dispatcher: Dispatcher; at: Target }>()("agent focus", {
   "agent.focus": def({
+    words: "point at a tile, note or line of your own",
     summary: "set your own pointer with tile=, note= and line=, without moving the person's keys; no arguments or clear=true drops it (agents only)",
     touches: "nothing", replay: "safe",
     args: {

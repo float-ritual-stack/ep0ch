@@ -56,8 +56,8 @@ export function boardSpec(args: { hub?: unknown } = {}): ScreenSpec {
       { key: "alt+c", label: "unfold all", action: "tile.collapse", tile: "all", args: { on: false } },
       { key: "c", label: "fold", action: "tile.collapse", only: ["preview", "reader"] },
       CLOSE_KEY,
-      { key: "<", label: "narrower", action: "tile.resize", args: { axis: "row", by: -1 }, unless: ["backlinks"] },
-      { key: ">", label: "wider", action: "tile.resize", args: { axis: "row", by: 1 }, unless: ["backlinks"] },
+      { key: "<", label: "narrower", says: "make this tile narrower", action: "tile.resize", args: { axis: "row", by: -1 }, unless: ["backlinks"] },
+      { key: ">", label: "wider", says: "make this tile wider", action: "tile.resize", args: { axis: "row", by: 1 }, unless: ["backlinks"] },
     ],
 
   };

@@ -1403,7 +1403,8 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     },
   }),
   "draft.redo": def({
-    summary: "put back what draft.undo took back, in order; any new change drops what could be put back. An agent puts back only its own", keys: [{ keys: "ctrl+y", does: "redo" }, { via: "ctrl+shift+z (redo)" }],
+    words: "put back what you undid",
+    summary: "put back what draft.undo took back, in order; any new change drops what could be put back. An agent puts back only its own", keys: [{ keys: "ctrl+y", does: "redo", says: "put back the change you undid" }, { via: "ctrl+shift+z (redo)" }],
     touches: "draft", draft: "safe", replay: "ask",
     args: {},
     async run(_, d, actor) { const said = d.redo(actor); return { redone: said, left: d.redos.length }; },
@@ -1419,7 +1420,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ on }, d, actor) { d.preview =on ?? !d.preview; return { preview: d.preview }; },
   }),
   "draft.copy": def({
-    summary: "the draft's selected text, returned. The host puts the person's on their clipboard (OSC 52; an agent's never) and says \"copied N chars\". A selection made with the mouse copies when the button comes up, as in a reader (EP0CH_COPY_ON_SELECT=0 turns it off); one made by keys (shift+arrows) is copied by cmd+c, alt+c or the frame's [copy]", keys: [{ keys: "cmd+c alt+c", does: "copy" }, { keys: "click", does: "the frame's [copy]" }, { keys: "drag", does: "the release of a drag copies" }],
+    summary: "the draft's selected text, returned. The host puts the person's on their clipboard (OSC 52; an agent's never) and says \"copied N chars\". A selection made with the mouse copies when the button comes up, as in a reader (EP0CH_COPY_ON_SELECT=0 turns it off); one made by keys (shift+arrows) is copied by cmd+c, alt+c or the frame's [copy]", keys: [{ keys: "cmd+c alt+c", does: "copy", says: "copy the selected text of the draft" }, { keys: "click", does: "the frame's [copy]" }, { keys: "drag", does: "the release of a drag copies" }],
     touches: "draft", draft: "type", replay: "safe",
     args: {},
     run(_, d, actor) {

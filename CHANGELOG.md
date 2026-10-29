@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Back and forward keep your layout; the keys window speaks where you are (PIE-1426, PIE-1425)
+
+- **Your layout stays:** back or forward in a preview onto the note its detail shows (after `b`, say) shows it there; the preview no longer closes and the detail's wires stay.
+- **Narrow back row:** at 40 columns a reader's back row keeps `← back` and `forward →` whole, dropping the title first.
+- **The keys window where you are:** `?` in the river's Library opens on the river's keys (`in:river`), not a note's editing keys.
+- **Whole sentences:** every row reads as one ("give your keys to the column on the left", not "…, columns"; "close this tile", not "close tile=<tile>").
+- **At 40 columns:** the keys tile opens below, at the screen's width, instead of a 20-column strip beside.
 ### Search reads right wherever you search (PIE-1409)
 
 - **How sure, in plain words:** a right first result Jev isn't certain of says "not sure" instead of "no strong match" (the 0.8 line stays: measured on 204 cases).

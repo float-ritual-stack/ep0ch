@@ -293,7 +293,7 @@ export const MOUNT_ACTIONS = actionSet<KindHost>()("mount", {
   }),
   "mount.enter": def({
     summary: "go into a mounted screen (on=true): every key is its own, its ^W and Tab too, until ctrl+], an Esc with nothing left to close in it, or on=false. The person's only: an agent acts in a mount with tile=<mount>/<its tile>",
-    keys: "^W e on a mount; ctrl+] or esc comes out; a click on ⏎ in or ◄ out on its header",
+    keys: [{ keys: "^W e", does: "on a mount" }, { keys: "ctrl+] esc", does: "comes out", says: "come out of the mounted screen" }, { keys: "click", does: "on ⏎ in or ◄ out on its header" }],
     touches: "screen", replay: "safe", person: "going into a mount moves the person's keys; an agent names a tile in it instead: tile=<mount>/<tile>",
     menu: { label: "go in (its keys)", group: "Mount", key: "ctrl+w e", now: ({ pane }) => ((pane as ScreenTile).inside ? { label: "come out", args: { on: false } } : null) },
     args: { on: { type: "boolean", optional: true, about: "true goes in, false comes out; default toggles" } },

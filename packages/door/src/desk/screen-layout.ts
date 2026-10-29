@@ -557,7 +557,8 @@ export type NotePlacement<I = number> = {
  * back to a visible reader only for the person. An unlinked reader takes its own open. A busy named destination
  * refuses an agent; the person's open keeps the edit and uses a reader beside it. An unwired held note is kept as a spine
  * at its container policy's stack front; a wire aimed at a tile replaces its note with history. New-note tabs that cannot fit float instead.
- * Automatic opens reuse the note already here; a history landing folds its duplicate into that tile, keeping the trail.
+ * Automatic opens reuse the note already here; a history landing folds its duplicate into that tile, keeping the trail,
+ * unless the tile is wired either way or follows a selection (a preview stepping onto its source's note shows it, PIE-1426).
  * Explicitly made tiles and pinned readers stay independent.
  * Floats, tabs, docks and shapes that cannot take a spine swap with reader history only.
  * Only the person's standing moves the current note or keys; an invitation is already resolved by the dispatcher.
@@ -612,7 +613,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     const removable = policyAt(s, from, source);
     const flow = flowHolding(s.tree, from);
     const held = flow?.flow.held?.some(id => columnOf(flow.flow, id) === flow.ci);
-    if (existing !== undefined && (!request.history || !source.deliberate && !held && !source.pinned && !source.clearsOnClose && removable.closable && (!removable.locked || ctx.person.yolo) && !s.wires.some(w => w.from === from))) {
+    if (existing !== undefined && (!request.history || !source.deliberate && !source.follower && !held && !source.pinned && !source.clearsOnClose && removable.closable && (!removable.locked || ctx.person.yolo) && !s.wires.some(w => w.from === from || w.to === from))) {
       result.destination = { kind: "swap", tile: existing };
       result.reuse = { reveal: !ctx.protectTyping || ctx.person.typingIn === null };
       if (route && "next" in route && flow && leaves(flow.flow).includes(existing)) result.nextFrom = from;
