@@ -1,3 +1,4 @@
+import { holdsEdit } from "../whereabouts";
 import { errorDetails } from "../status-log";
 import { readNote } from "./outline-boards";
 import { TUNE_ACTIONS, TunePane } from "./tune";
@@ -42,7 +43,7 @@ const reading: Pick<TileKind, "previews" | "accepts" | "holdsWork" | "shows" | "
   // stays. Placement owns whether the current note moves; taking a note only changes this reader.
   take: (p, m, desk, by) => {
     const r = p as ReaderPane;
-    if (r.holdsKeys || r.editing) return `holds ${sessionName(r)}`;
+    if (r.holdsKeys || r.editing) return holdsEdit("the reader", sessionName(r));
     // An explicit open wins over a saved-history read still in flight.
     if (r.wantNote() !== m.id) r.dropWant();
     if (r.follows && !r.holding) { r.show(m, desk); return null; }

@@ -8,7 +8,7 @@ import { centred, ListPicker, pickRows, pickRow } from "./surface/picker";
 import { ch, type Key } from "./term";
 import { subject, type Msg } from "./board";
 import { openDraftIds, openDraftOf } from "./draft-session";
-import { changedSinceRead, Refused, type Actor, type SocketBoard } from "./socket";
+import { changedSinceRead, recorded, Refused, type Actor, type SocketBoard } from "./socket";
 import { ActionRefused } from "./surface/actions";
 import { partyOf, undoStamp } from "./steps";
 import type { PageRename } from "@ep0ch/outline-core/protocol";
@@ -88,7 +88,7 @@ export async function trashNote(board: SocketBoard, ref: string, actor: Actor, s
   if (log.length > 50) log.shift();
   trashed.set(board, log);
   say(`trashed “${title}”${notesUnder ? ` and the ${notesUnder} note${notesUnder === 1 ? "" : "s"} under it` : ""} · ctrl+z brings it back${lost}`);
-  return { trashed: note.id, title, notesUnder, restore: `note.untrash id=${note.id}`, recordedAs: actor.kind === "agent" ? `agent ${actor.id}` : "the person" };
+  return { trashed: note.id, title, notesUnder, restore: `note.untrash id=${note.id}`, recordedAs: recorded(actor).says };
 }
 
 export interface UntrashDone { restored: string; title: string; renamedPages?: PageRename[] }

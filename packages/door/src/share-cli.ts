@@ -5,7 +5,7 @@
 import { ageSince } from "@ep0ch/outline-core/age";
 import { boardFor, type Out } from "./notes-cli";
 import { resolveBoardRef } from "./mcp-writes";
-import { USER, type Actor } from "./socket";
+import { recorded, USER, type Actor } from "./socket";
 import type { ReaderEvent, ReaderView, ShareSession } from "@ep0ch/outline-core/protocol";
 
 export const SHARE_USAGE = `  ep0ch share start [<ref>] [--only <ref>] [--artifact <name>] [--ttl 1h] [--no-comments] [--via edge|cloudflare]
@@ -60,7 +60,7 @@ export async function startShare(board: ShareBoard, input: { ref?: string; only?
   return board.request("shares.start", {
     ...(input.artifact !== undefined ? { artifact: input.artifact } : {}), ...(scope ? { scope } : {}), ...(open ? { open } : {}), ...(input.ttl !== undefined ? { ttl: input.ttl } : {}), ...(input.comments !== undefined ? { comments: input.comments } : {}),
     ...(input.via ? { via: input.via } : {}), ...(input.allowMail?.length ? { allowMail: input.allowMail } : {}),
-    mutation: actor.kind === "agent" ? { author: "agent", actorId: actor.id } : { author: "user" },
+    mutation: recorded(actor).mutation,
   }, input.via === "cloudflare" ? 45_000 : undefined);
 }
 

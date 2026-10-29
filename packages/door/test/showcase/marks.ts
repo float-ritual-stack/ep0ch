@@ -28,6 +28,7 @@ export const marks: Record<string, string[]> = {
   "comment-tile": ["Seed library opening hours", "comment on the whole note", "The winter shelf needs a lock", "comment · reader"],
   // The draft session: an edit open on the left, a comment being written on the right.
   drafts: ["editing · Kitchen whiteboard", "» comment", "[add them]"],
+  "while-typing": ["editing · Kitchen whiteboard", "Allotment notebook"],
   // Three kept edits against notes that moved on: one with a new line, one the note already has (settled), one old (a chip).
   kept: ["Greenhouse watering rota", "from your edit yesterday", "[add them]", "was already in the note", "1 old edit"],
   // The guide two agents raced on: @fern's words in it, @moss's proposal drawn after its last line with its controls.
