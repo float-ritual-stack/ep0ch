@@ -77,7 +77,8 @@ source evidence or distinguish authored glyphs from controls.
 - `src/note-move.ts` owns the service’s `move`: check the read revision, resolve destination intent and place the note
   in one SQLite transaction. Tree, the door, CLI and agent tools send that intent; `store.move` is the internal graph write.
 - `src/loop-watch.ts` owns the host's one event loop (PIE-625): whose turn it is (`Turns`, the whole-outline reads
-  last but never starved) and what held it (`loop_stalled`, `slow_request` in the host's log). `src/text-memo.ts`
+  last but never starved, and of those waiting the one who used the loop least first, PIE-1413) and what held it
+  (`loop_stalled`, `slow_request` in the host's log). `src/text-memo.ts`
   memoizes what is a pure function of a note's text (display titles); a whole-outline read uses those and the
   store's per-change graph, never its own copy. See [Responsiveness](#responsiveness).
 - `src/tree-controller.ts` / `src/tree-renderer.ts` own Tree behavior and presentation.
@@ -395,15 +396,31 @@ Keep current task status and verification evidence on the canonical work item.
 
 One host serves every client of every outline on one event loop, and a client gives up after 3 s (PIE-625).
 
-- No request holds the loop for long. Work over the whole outline uses the graph `loadGraph` keeps for the current
-  change (frozen: never change a block you got from it) and the text memos (`text-memo.ts`, the tree labels);
-  work that is still long goes in slices with a pause between them (`readTreeIndexInSlices`).
+- No request holds the loop for long. Work over the whole outline uses the graph `loadGraph` keeps (frozen: never
+  change a block you got from it) and the text memos (`text-memo.ts`, the tree labels); work that is still long goes
+  in slices with a pause between them (`readTreeIndexInSlices`).
+- A write patches that graph, never throws it away (PIE-1413): TEMP triggers on this connection note the blocks it
+  wrote (`temp.graph_dirty`), and the next read re-reads only those. So a statement's `.changes` from Bun counts the
+  triggers' rows too: a check of how many rows an UPDATE matched reads `SELECT changes()` (`writeBlockText`).
 - Every request waits for its turn (`Turns` in `loop-watch.ts`): one per pass of the loop, the whole-outline reads
   (`WHOLE_OUTLINE_READS`) after every other request. A new action that reads the whole outline joins that list.
+  Within a lane the next turn goes to whoever has used the loop least lately (a connection, an agent's actor id, the
+  service's `own` jobs, the `watches`), so a person's request waits for one turn of a bulk job, not its whole queue.
+- The service asking itself goes through `this.own` in `server.ts` (a turn per request), never `handleAsync`
+  directly: a job of many requests (Jev's records, a script's calls) then never holds the loop between them.
+- A watch pass (`query-watches.ts`) evaluates one watch a turn, one pass at a time, each question once a pass.
+- Work a timer starts (a route settling) is timed with `noteWork`, so a stall names it, and is
+  cached by what it read (`propertyDependencyStamp`), never by `store.sequence`, which every write moves.
 - Slow outside calls (GitHub, a model, an extension) are awaited or made by the client, never waited for synchronously.
 - `bun scripts/bench-host-stalls.ts` is the guard: a note read answered in under 200 ms at start-up, under load,
   during a backup and after a restart, on a fictional outline the size of a working one. `--outliner <dir>` runs
   another checkout's host for a before.
+- `bun run bench:host` (`scripts/bench-host-fairness.ts`, PIE-1413) is the guard under bulk work: a pie-shaped
+  fictional outline (or `--copy` a private copy) with two watching doors, a Tree, two Details, the publisher and an
+  MCP gateway, while a write-review backfill writes its records and an import is stopped halfway; per phase it
+  reports ping p50, p95, p99, max and the longest stall, what the doors heard, and whether every watch converged.
+  `--check` holds ping p95 under 200 ms everywhere and no stall over 1 s; `scripts/box-test host-bench` (and `all`)
+  runs it on float-box.
 
 ### Queries
 

@@ -1722,6 +1722,84 @@ describe('the settle check (PIE-1268)', () => {
   })
 })
 
+describe('addressed mail: an @persona comment wakes its sessions (PIE-1404)', () => {
+  const MIN = 60_000
+  const NOTE = '5e1d7a40-0c55-4b8e-9a0e-6f2f3c1d9a11'
+  const THREAD = '7c0b2a19-4f6e-4d3a-8b21-0d9e5f4a3c22'
+  const persona = (name: string) => ({ name, source: 'file', file: `${WORKSPACE}/.ep0ch` })
+  /** `ago`: minutes before the clock's now when it is first read; then fixed, as a comment's time is. */
+  type C = { id: string; words: string; ago: number; author: string; actorId?: string; reply?: boolean; at?: number }
+
+  /** A session whose outline holds one open thread on NOTE, answering the three reads by their argv, recording the wakes. */
+  function addressedSession(on: On, name: string, comments: C[], status = { open: true }) {
+    const session = sessionIn(on, WORKSPACE, run => {
+      if (run.argv[0] === 'ep0ch' && run.argv[1] === 'where') return result(0, JSON.stringify({ inDoor: false, here: { machine: 'garden-host', folder: WORKSPACE, persona: persona(name) } }), '')
+      const now = session.clock.now()
+      const row = (c: C) => ({
+        id: c.id, title: c.words, parentId: c.reply ? THREAD : NOTE, author: c.author, ...(c.actorId ? { actorId: c.actorId } : {}), createdAt: new Date(c.at ??= now - c.ago * MIN).toISOString(),
+        properties: c.reply ? [{ key: 'type', value: 'annotation-reply' }, { key: 'parent-annotation', value: THREAD }] : [{ key: 'type', value: 'annotation' }, { key: 'annotation-status', value: status.open ? 'open' : 'resolved' }],
+        text: `Comment on “Whole note”\n[type::${c.reply ? 'annotation-reply' : 'annotation'}]\n${c.words}`,
+      })
+      const query = run.argv[run.argv.indexOf('--query') + 1] ?? ''
+      const list = (rows: object[]) => result(0, JSON.stringify({ blocks: rows, completeness: { kind: 'complete' } }), '')
+      if (query.includes('text~"@')) {
+        const named = query.match(/text~"@([^"]+)"/)![1]!
+        return list(comments.filter(c => (c.reply || status.open) && new RegExp(`@${named}\\b`).test(c.words)).map(row))
+      }
+      if (query.startsWith('type=annotation-reply AND (parent-annotation=')) return list(comments.filter(c => c.reply).map(row))
+      if (run.argv.includes('read')) {
+        const ids = run.argv.slice(run.argv.indexOf('read') + 1, run.argv.indexOf('--fields'))
+        return list([{ id: NOTE, title: 'Bean planting plan', properties: [] }, ...comments.filter(c => !c.reply).map(row)].filter(b => ids.includes(b.id)))
+      }
+      return succeeding(run)
+    }, '', { EP0CH_SETTLE: 'off', EP0CH_SETTLE_OUTLINES: 'garden' })
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
+    mock.store(on, {})
+    const wakes: string[] = []
+    on('prompt.submit', ($, e) => { wakes.push(e.text); return { text: e.text } as any })
+    return { session, comments, wakes, status }
+  }
+
+  async function start($: any, s: ReturnType<typeof addressedSession>) {
+    await s.session.clock.set(Date.parse('2026-10-29T12:00:00Z'))
+    await s.session.begin(() => $.session.start(START))
+    await s.session.clock.advance(20_000)
+  }
+
+  test('loki\'s session wakes once on Evan\'s @loki, keeps it listed until loki replies, and wakes again on a new ask', async ($, on) => {
+    const s = addressedSession(on, 'loki', [{ id: THREAD, words: '@loki all four as one experience', ago: 40, author: 'user' }])
+    await start($, s)
+    expect(s.wakes).toHaveLength(1)
+    expect(s.wakes[0]).toContain(`new: Evan, 40 min ago, on ((${NOTE}|Bean planting plan)), thread ${THREAD}: "@loki all four as one experience"`)
+    // Told once: the next check is quiet.
+    await s.session.clock.advance(31 * MIN)
+    expect(s.wakes).toHaveLength(1)
+    // kitty asks in the same thread: a new ask wakes again, and Evan's is still listed.
+    s.comments.push({ id: 'k1', words: '@loki the check-ins stopped at 3 AM', ago: 5, author: 'agent', actorId: 'kitty/claude-code@garden-host', reply: true })
+    await s.session.clock.advance(31 * MIN)
+    expect(s.wakes).toHaveLength(2)
+    expect(s.wakes[1]).toContain('new: kitty (2 asks)')
+    // loki answers in the thread: gone from the list, nothing more.
+    s.comments.push({ id: 'l1', words: 'Doing all four now.', ago: 1, author: 'agent', actorId: 'mcp:loki/claude.ai', reply: true })
+    s.comments.push({ id: 'k2', words: '@loki thanks', ago: 2, author: 'agent', actorId: 'kitty/claude-code@garden-host', reply: true })
+    await s.session.clock.advance(31 * MIN)
+    expect(s.wakes).toHaveLength(2)
+  })
+
+  test('kitty\'s session hears @kitty, not @loki; a session with no persona asks nothing', async ($, on) => {
+    const s = addressedSession(on, 'kitty', [{ id: THREAD, words: '@loki and @kitty: a gentler list?', ago: 10, author: 'user' }])
+    await start($, s)
+    expect(s.wakes).toHaveLength(1)
+    expect(s.wakes[0]).toStartWith('Addressed to @kitty: 1 open thread asks you')
+  })
+
+  test('a resolved thread wakes nobody', async ($, on) => {
+    const s = addressedSession(on, 'loki', [{ id: THREAD, words: '@loki done?', ago: 10, author: 'user' }], { open: false })
+    await start($, s)
+    expect(s.wakes).toEqual([])
+  })
+})
+
 describe('approve from the phone (PIE-1386)', () => {
   const ASK = '99999999-2222-4333-8444-555555555555'
   const PAGE = '77777777-2222-4333-8444-555555555555'
