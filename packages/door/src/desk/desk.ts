@@ -4167,7 +4167,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (expect.revision !== undefined && expect.revision !== now.revision) throw new ActionRefused(`the note changed since its title was read (revision ${expect.revision}, now ${now.revision}); nothing was renamed · ${text ?? ""}`.trimEnd());
     if (text === undefined) {
       if (actor.kind !== "user") throw new ActionRefused("note.rename needs text=<the note's new title>");
-      this.overlay(linePrompt<Desk>({ name: "note title", title: "Rename the note it shows", text: titleWords(now.text), prefilled: true,
+      this.overlay(linePrompt<Desk>({ name: "note title", title: "Rename this note", text: titleWords(now.text), prefilled: true,
         doing: t => `⏎ renames the note to “${t}” · its properties and body stay`,
         done: (title, d) => { d.run("note.rename", { text: title, note: now.id, revision: now.revision }, d.tileId(t.id)); },
       }));

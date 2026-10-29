@@ -357,14 +357,14 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     await mine("tile.close", {}, "mousy").catch(() => {}); await mine("tile.close", {}, "mousy");
   });
 
-  test("two renames, each saying what it renames (PIE-1283): \"rename this tile\" and, where a note is shown, \"rename the note it shows\"", async () => {
+  test("two renames, each saying what it renames (PIE-1283): \"rename this tile\" and, where a note is shown, \"rename this note\"", async () => {
     fresh();
     const note = await board.createBlock(null, "Seed swap list [type::chirp]\nbring envelopes");
     const opened = await mine("tile.open", { kind: "reader", mode: "held", note: note.id, name: "seeds" }) as { tile: string };
     await until(() => D().pane("seeds")?.msg?.id === note.id, "the seeds reader shows the note");
     const rows = (await act("tile.menu", {}, "seeds") as { rows: MenuRow[] }).rows;
     expect(rows.find(r => r.action === "tile.title")).toMatchObject({ label: "rename this tile…", group: "Tile" });
-    expect(rows.find(r => r.action === "note.rename")).toMatchObject({ label: "rename the note it shows…", group: "Tile" });
+    expect(rows.find(r => r.action === "note.rename")).toMatchObject({ label: "rename this note…", group: "Tile" });
     // A tile that shows no note has no such row.
     await mine("tile.open", { kind: "tree", name: "outline" });
     expect((await act("tile.menu", {}, "outline") as { rows: MenuRow[] }).rows.some(r => r.action === "note.rename")).toBe(false);

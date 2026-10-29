@@ -137,7 +137,7 @@ export function titleWords(text: string): string {
  * The text with its title's words replaced by `title` (one line): the header line's marker (`## `, `- `), any property
  * written among the words (`[type::chirp] Seed swap`) and the trailing chips and hashtags stay, as does every other line.
  * A text with no header line becomes the title. The one rename of a note's title (a template's stamp, a tile's
- * "rename the note it shows").
+ * "rename this note").
  */
 export function retitle(text: string, title: string): string {
   title = title.replace(/\s*\n\s*/g, " ").trim();

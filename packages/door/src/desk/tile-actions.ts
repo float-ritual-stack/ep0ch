@@ -518,7 +518,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.title": def({
     summary: "rename a tile: a name (letters, digits, . - _) becomes its name, what tile= and paths resolve (unique in its layer: a taken name is refused) and is the title it shows; any other text (spaces, {{this.title}}) is a title written on it, the name staying, and a tile with a title written like that keeps taking text as a title (text= clears it first). Written titles support {{this.title}}, {{this.<property>}}, {{tile.kind}} and {{tile.n}}; text= clears a written title. Without text the person gets the rename prompt. Renaming the note a tile shows is the note's own edit",
-    keys: "^W n; double click a frame title or tab; \"rename this tile\" in the tile menu (\"rename the note it shows\" beside it is note.rename)",
+    keys: "^W n; double click a frame title or tab; \"rename this tile\" in the tile menu (\"rename this note\" beside it is note.rename)",
     touches: "nothing", replay: "safe",
     says: r => r.prompt ? null : `${r.name}: ${r.title}`,
     menu: { label: "rename this tile…", group: TILE, key: "ctrl+w n" },
@@ -532,10 +532,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "note.rename": def({
     summary: "rename the note tile=<tile> shows (PIE-1283): text= replaces its title, the words of its first line; that line's properties, hashtags and the body stay, and it is saved at once as the actor's write, checked against the note as the service has it. Without text the person gets a prompt holding the title. tile.title renames the tile itself, never the note",
-    keys: "\"rename the note it shows\" in the tile menu",
+    keys: "\"rename this note\" in the tile menu",
     touches: "nothing", replay: "ask",
     says: r => r.prompt ? null : `renamed the note: ${r.title}`,
-    menu: { label: "rename the note it shows…", group: TILE, key: "", now: ({ d, reader }, _t, actor) => {
+    menu: { label: "rename this note…", group: TILE, key: "", now: ({ d, reader }, _t, actor) => {
       const shown = d.tileNow(reader, actor).note;
       return !shown ? { hide: true } : shown.editing ? { refused: "this reader is editing the note: change its title in the edit" } : null;
     } },

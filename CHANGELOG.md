@@ -16,8 +16,8 @@ are its record. The outliner's entries from then are kept below, under
   bar's `&` list and the Extensions hub. The script it ships is no longer a second row or a second page.
 - **Says what runs:** the row reads "your copy overrides the built-in". `ext ls --long` and the preview show both
   folders. `ep0ch doctor` and `ep0ch install --apply` give the command to remove a stale or changed copy.
-- **Two renames:** a tile's menu has "rename this tile…" and, when the tile shows a note, "rename the note it
-  shows…" (`note.rename text=`). That one changes the note's title only; its first line's properties and its body
+- **Two renames:** a tile's menu has "rename this tile…" and, when the tile shows a note, "rename this
+  note…" (`note.rename text=`). That one changes the note's title only; its first line's properties and its body
   stay.
 
 ### The extensions list reads at a glance, settings and scripts too (PIE-1284)
