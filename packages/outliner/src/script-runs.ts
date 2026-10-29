@@ -431,9 +431,10 @@ export class ScriptRuns {
               trace!.result.table!.push([String(index + 1), spelling, show(before), show(value), item.kind === "act" ? show(actionAnswer) : value === undefined ? "returned nothing" : show(value), effects.join("\n")]);
               trace!.result.rows++;
             } catch (error) {
-              // An action step runs as a one-line actions script, whose error leads with `Line 1 (<action>): `: the step says it already.
+              // An action step runs as a one-line actions script, whose errors lead with `Line 1: ` or `Line 1 (<action>): `
+              // (outline-core's actionScript): the step says where already.
               const raw = error instanceof Error ? error.message : String(error);
-              const said = item.kind === "act" ? raw.replace(/^Line 1 \([^)]*\): /, "") : raw;
+              const said = item.kind === "act" ? raw.replace(/^Line 1(?: \([^)]*\))?: /, "") : raw;
               const why = `Step ${index + 1} (${spelling}): ${said}`;
               stoppedSaid = `${sequence.label} stopped at step ${index + 1} of ${sequence.steps.length}: ${said}${index ? ` (${index === 1 ? "the step" : `the ${index} steps`} before it ran)` : ""}`;
               trace!.problem = why;

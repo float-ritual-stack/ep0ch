@@ -21,7 +21,7 @@ are its record. The outliner's entries from then are kept below, under
 - **A button that can't run here says why in plain words:** a sequence whose first step names no tile on this screen is
   drawn dim and refused before it runs (`Fold the bottom can't run here: no tile is called links on the river`); one
   that stops midway says `Pipe stopped at step 2 of 4: …`. The person reads tiles by name, never by id; Sources keeps
-  each step's spelling.
+  each run step's spelling (a press refused before it runs leaves no run there).
 - **The trail follows you across columns:** from any river column it is the one chain of opens, back and ahead, and
   forward goes to the column opened from this one. Read's `n` and `p` leave a trail too (back, alt+T).
 - **On the web:** an error page has a way back to the outline (or the share's first page), and the trail's rows read as

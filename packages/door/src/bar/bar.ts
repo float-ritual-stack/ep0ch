@@ -284,7 +284,7 @@ export class PowerBar {
       const compact = this.compact();
       const inputX = compact ? 2 + width(compact.title) : 3;
             // The line is the one line field's: a click places the cursor, a drag selects, a double click a word (PIE-1290).
-      if (this.input.mouse(k, { x: r.col + inputX, y: r.row + (compact ? 1 : 2), w: compact ? Math.max(10, r.cols - 32) : this.fieldW })) { ctx.redraw(); return; }
+      if (this.input.mouse(k, { x: r.col + inputX, y: r.row + (compact ? 1 : 2), w: this.fieldW })) { ctx.redraw(); return; }
       if (k.action === "up" || k.action === "drag") return;
       this.alt = !!((k.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL)) || k.button === MOUSE_MIDDLE;
       const at = { ...k, x: k.x - r.col, y: k.y - r.row };
@@ -424,7 +424,8 @@ export class PowerBar {
     if (compact) {
       this.scopeHits = []; this.sourceHead = [];
       const label = clipText(compact.title, Math.max(1, w - 12));
-      const input = this.scope === "ask" && maskedQuestion() ? "·".repeat(Math.min(this.query.length, Math.max(1, w - width(label) - 2))) + "█" : this.input.render(Math.max(1, w - width(label) - 2), 1)[0];
+      this.fieldW = Math.max(1, w - width(label) - 2);
+      const input = this.scope === "ask" && maskedQuestion() ? "·".repeat(Math.min(this.query.length, this.fieldW)) + "█" : this.input.render(this.fieldW, 1)[0];
       return { rect, title: "", foot: compact.choice ? "click or j k ⏎ choose · esc cancel" : "⏎ run · esc cancel",
         head: [fg(C.lcyan) + ` ${label} ` + RESET + (compact.choice ? "" : input)] };
     }

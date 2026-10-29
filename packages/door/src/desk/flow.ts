@@ -133,9 +133,8 @@ export function setFrom<I>(f: Flow<I>, i: number, from: I | undefined) {
  * moves to, not only from the one they opened last.
  */
 export function travelTarget<I>(f: Flow<I>, i: number, dir: -1 | 1): number {
-  const t = trailOf(f, i);
-  const here = tileOfColumn(f, i);
-  const to = dir < 0 ? t?.from : t?.ahead ?? (here === undefined ? undefined : (f.trail ?? []).findLast(x => x.from === here)?.tile);
+  const t = trailOf(f, i), here = f.kids[i] ? leaves(f.kids[i]!) : [];
+  const to = dir < 0 ? t?.from : t?.ahead ?? (f.trail ?? []).findLast(x => x.from !== undefined && here.includes(x.from))?.tile;
   return to === undefined ? -1 : columnOf(f, to);
 }
 /** Back from column `i` to column `to`: forward from there returns to `i`. */

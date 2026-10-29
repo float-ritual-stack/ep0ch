@@ -4494,7 +4494,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A float's hint row: the screen's own keys for it first (the river's and the board's x close, PIE-1418), then the float's. */
   private floatHint(): string {
     const own = this.spec.hint === undefined ? this.screenKeyHint() : "";
-    return [own, `drag title · drag ◢ · H J K L move · ^W f back in${/\bx close\b/.test(own) ? "" : " · ^W x close"} · ^N another · its title onto a header or edge docks it`].filter(Boolean).join(" · ");
+    return [own, `drag title · drag ◢ · H J K L move · ^W f back in${this.xClosesFloat() ? "" : " · ^W x close"} · ^N another · its title onto a header or edge docks it`].filter(Boolean).join(" · ");
   }
 
   /**
@@ -5013,9 +5013,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** In a float with nothing left to close, what Esc says closes it: the screen's own x (the river's, the board's), else ^W x. */
   private floatCloseWord(): string | null {
-    if (!this.isFloat(this.focus)) return null;
-    return `${this.screenKeys().some(b => b.key === "x" && b.action === "tile.close") ? "x" : "^W x"} closes the float`;
+    return this.isFloat(this.focus) ? `${this.xClosesFloat() ? "x" : "^W x"} closes the float` : null;
   }
+  /** The screen's own x closes the focused tile (the river's and the board's CLOSE_KEY): the hint and Esc's words both ask this. */
+  private xClosesFloat(): boolean { return this.screenKeys().some(b => b.key === "x" && b.action === "tile.close"); }
 
   /** DeskApi.escaped: Esc found nothing left to close in a tile's own screen (a screen tile): the desk's next step, or nothing. */
   escaped() { if (!this.closeStep(true)) nothingToClose(this.ctx, this.floatCloseWord() ?? undefined); }

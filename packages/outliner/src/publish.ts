@@ -1155,12 +1155,15 @@ export class Publisher {
     return entry.public ? `${this.publicBase.origin ?? ""}${this.publicBase.basePath}${entry.path}` : undefined;
   }
 
-  /** Where an error page's way back goes: the share's first page under a share link, else the index (the public audience has none). */
+  /**
+   * Where an error page's way back goes: on the public listener, a share's first page under the mount it was asked at (a
+   * tunnel's at the root), and nothing else (it has no index); on the tailnet, the index.
+   */
   private homeOf(request: Request, audience: PublishAudience): string | undefined {
     const base = this.basePathFor(audience), path = new URL(request.url).pathname;
-    const shared = SHARE_PATH.exec(base && path.startsWith(`${base}/`) ? path.slice(base.length) : path);
-    if (shared) return `${base}/s/${shared[1]}/`;
-    return audience === "public" ? undefined : `${base}/`;
+    if (audience !== "public") return `${base}/`;
+    const mount = base && path.startsWith(`${base}/`) ? base : "", shared = SHARE_PATH.exec(path.slice(mount.length));
+    return shared ? `${mount}/s/${shared[1]}/` : undefined;
   }
 
   private basePathFor(audience: PublishAudience): string {
