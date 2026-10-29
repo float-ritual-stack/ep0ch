@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Copy a note's link, a line's reference, or any row's address (PIE-1297)
+
+- **Every row that is a note copies it:** a list's, the tree's or a lane's menu (⋯ or a right-click) has copy id,
+  copy reference and copy web link for the selected row, as a reader's has for its note.
+- **A web link:** copy web link gives `https://my.ep0ch.sh/pub/p/<id>`, a roadmap item's by its Work ID, another
+  outline's under `/pub/o/<name>/`.
+- **A line's reference:** in a reader, copy a reference to this line gives `((id^anchor|words))`, adding the anchor
+  once when the line has none. Another outline's note copies as `((outline:id|title))`.
+- **Two keys:** `^W y` copies the reference of the note the tile points at; `^W ,` shows a tile's id, place and wires
+  in a card, with its copy rows. `act note.copy-ref kind=id|ref|link|line` does the same for an agent.
 ### An open that names no tile reaches a mounted screen's reader (PIE-1306)
 
 - **Mounts take opens:** on a screen whose only readers sit inside mounted screens, `ep0ch open` and an agent's open
