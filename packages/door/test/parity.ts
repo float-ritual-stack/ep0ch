@@ -18,7 +18,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { declaredKeys, hintKeys, keyName, traceActions, type ActionRun } from "../src/surface/actions";
+import { DOUBLE_MS } from "../src/scroll";
+import { declaredKeys, hintKeys, keyName, keysText, traceActions, type ActionRun } from "../src/surface/actions";
 import { rewriteRequests, traceRequests, type RunRequest } from "../src/surface/dispatch";
 import { SHELL_ACTIONS, MENU_SCREENS, MainMenu, MessageReader, StatusMessages } from "../src/screens";
 import { DRAWER_ACTIONS } from "../src/drawer";
@@ -378,6 +379,14 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const keyed = (r: ActionRun) => r.touches !== "nothing" || !!r.keys;
   const tokens = (runs: ActionRun[]) => new Set(runs.flatMap(r => [...declaredKeys(r.keys)]));
   const named = (k: Key) => (k.kind === "mouse" ? `${k.action === "down" ? "click" : k.action}@${k.x},${k.y}` : keyName(k) ?? "?");
+  // Two clicks on one row within DOUBLE_MS (src/scroll.ts) are a double click (a tile's title row: tile.title), and the walk's
+  // clicks come that fast when a click changes nothing and the screen isn't built again: whether the one before was on the
+  // same row is the layout's (on boxd, home base's row 9 is a title, PIE-1412). An action whose keys say "double-click" names it.
+  const pressedAt = new WeakMap<Key, number>();
+  const doubleClicked = (runs: ActionRun[], k: Key, before?: Key | null) => !!before && k.kind === "mouse" && before.kind === "mouse"
+    && k.action === "down" && before.action === "down" && k.y === before.y && k.button === before.button
+    && (pressedAt.get(k) ?? 0) - (pressedAt.get(before) ?? -Infinity) < DOUBLE_MS
+    && runs.every(r => /\bdouble-click\b/.test(keysText(r.keys) ?? ""));
   /** What the declared keys must name for this probe: the key's name, or for the mouse its gesture. */
   const declares = (t: Set<string>, k: Key, prefix?: Key) =>
     k.kind === "mouse" ? t.has(k.action === "wheel-up" || k.action === "wheel-down" ? "wheel" : "click") : t.has(keyName(k)!) || (!!prefix && t.has(`${keyName(prefix)} ${keyName(k)}`));
@@ -400,6 +409,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   /** A probe's key: pressed, then waited out. Where the time goes (the door handling it, then painting and settling) is counted for the log. */
   const go = async (k: Key) => {
     const t0 = performance.now();
+    pressedAt.set(k, Date.now());
     push(k);
     const t1 = performance.now();
     await settle();
@@ -503,7 +513,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     };
     /** The targeted actions a key or click ran alone, once each: replayed below as the act string would address the tile (PIE-1286). */
     const pointed = new Map<string, { key: Key; req: RunRequest }>();
+    let prev: Key | null = null;
     for (const k of [...PROBE_KEYS, ...await clicks()]) {
+      // The probe before this one on the same screen (none on a screen built afresh).
+      const before = dirty ? null : prev;
+      prev = k;
       if (dirty) { mask = await fresh(label, make, setup); dirty = false; last = null; }
       const base = last ?? snap(mask);
       const runs: ActionRun[] = [], every: ActionRun[] = [];
@@ -532,7 +546,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       // a comment, the property panel), whether or not an action opened it: its keys are probed next.
       const opened = after.holds && !base.holds && after.top === base.top && k.kind !== "mouse";
       if (runs.length) {
-        if (!declares(tokens(runs), k)) findings.push({ screen: label, keys: named(k), problem: `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it` });
+        if (!declares(tokens(runs), k) && !doubleClicked(runs, k, before)) findings.push({ screen: label, keys: named(k), problem: `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it` });
         if (log && opened) require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} opened by ${runs.map(r => `${r.scope}.${r.name}`).join(",")}\n`);
         if (opened && !barProbed(!!base.bar) && !shared(k, runs) && !reached(k, runs, after)) states.push(k);
         continue;
@@ -700,7 +714,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     try { await go(k2); } finally { stop(); timed(`${named(k1)} ${named(k2)}`, pressed); }
     const after = snap(mask);
     if (same(mid, after)) return null;
-    if (runs.length) return declares(tokens(runs), k2, k1) ? null : `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it`;
+    if (runs.length) return doubleClicked(runs, k2, k1) || declares(tokens(runs), k2, k1) ? null : `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it`;
     if (after.holds && after.top === mid.top) return null;   // still typing, or another input state
     // Cancelled: the screen as it was before the state, built again now so rows that age ("3s ago") match.
     // A second boundary can fall between the two snaps: a mismatch is tried twice more from the start.

@@ -189,7 +189,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     D().focus = [...D().panes.entries()].find(([, p]: any) => p.kind === "tree")![0];
   }, 60_000);
 
-  afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; }, 20_000);
+  afterAll(async () => { bindExtensions(null); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; }, 20_000);
 
   test("a stale tree row refuses with a plain short id", async () => {
     const gone = await board.createBlock(null, "Temporary seed ledger");

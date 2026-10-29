@@ -19,6 +19,14 @@ are its record. The outliner's entries from then are kept below, under
 - **"float-2 via ssh" is said once,** when a command starts the forward, not on every call (`EP0CH_VERBOSE=1`: every time).
 - **The ssh door's script is in the repository** (`packages/door/scripts/ssh-door.sh`): it logs a hangup, and resets
   the terminal when the door client crashes.
+### The door's tests pass together as alone (PIE-1412)
+
+- **For builders:** a door test file that leaves a scratch host running or an extension list bound is named
+  (`test leak: <file> left behind: …`) and fails the run; the shared teardown between files puts the rest back. The
+  tests that failed only beside other files, or only on a loaded box, now hold: the power bar's extension actions,
+  the kitchen sink's panes and regions marks, the kettle's close click, the no-op repaint count, the copy-ref and
+  motion checks, and the drawer program's handovers.
+- **Run:** nothing.
 ### The river at 40 columns, smoothed: floats keep the keys, words show (PIE-1418, PIE-1392)
 
 - **Esc in a float keeps the keys there** (it gave them to the hidden column under it, so `x` closed that column). With

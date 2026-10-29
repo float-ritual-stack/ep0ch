@@ -201,6 +201,9 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     await until(() => pane.session?.mode === "threads", "the reply to land");
     let list = await threads(b.id);
     expect(list[0].replies.map((r: any) => r.body)).toEqual(["Me, on Thursday."]);
+    // The list is "threads" while the thread still loads (src/comment.ts), and a key there waits for it: s pressed
+    // before then is dropped (on boxd it was, PIE-1412).
+    await idle(pane);
 
     pane.key(char("s"), d);
     await idle(pane);
