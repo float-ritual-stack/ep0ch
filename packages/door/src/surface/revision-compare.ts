@@ -40,23 +40,30 @@ export function openingRow(rows: readonly string[], passage?: string): number {
 
 /** Its rows at `cols` × `rows`: the title, the controls (with where each is, for clicks), then the marked text from `top`. */
 export function drawRevision(v: RevisionView, cols: number, rows: number): { lines: string[]; controls: { from: number; to: number; action: (typeof REVISION_CONTROLS)[number] }[]; body: number } {
-  const controls: { from: number; to: number; action: (typeof REVISION_CONTROLS)[number] }[] = [];
-  let bar = "";
-  for (const action of REVISION_CONTROLS) {
-    const from = width(bar) + (bar ? 1 : 0);
-    bar += `${bar ? " " : ""}[${CONTROL_WORDS[action](v)}]`;
-    controls.push({ from, to: width(bar), action });
-  }
+  const lay = (actions: readonly (typeof REVISION_CONTROLS)[number][]) => {
+    const controls: { from: number; to: number; action: (typeof REVISION_CONTROLS)[number] }[] = [];
+    let bar = "";
+    for (const action of actions) {
+      const from = width(bar) + (bar ? 1 : 0);
+      bar += `${bar ? " " : ""}[${CONTROL_WORDS[action](v)}]`;
+      controls.push({ from, to: width(bar), action });
+    }
+    return { bar, controls };
+  };
+  // Narrow, [esc back] goes first (the hint row says Esc): the others stay whole and clickable.
+  let { bar, controls } = lay(REVISION_CONTROLS);
+  if (width(bar) > cols) ({ bar, controls } = lay(REVISION_CONTROLS.filter(a => a !== "revision.close")));
   const title = rowLines(revisionTitle(v), cols).map(l => pad(fg(C.white) + l, cols) + RESET);
   const head = [...title, pad(fg(C.lcyan) + bar, cols) + RESET];
-  const body = v.diff.rows.flatMap(r => rowLines(r, cols, undefined, { hang: 2 }).map(l => {
+  // Every row whole, wrapped under its mark: the passage is the point, never cut short.
+  const body = v.diff.rows.flatMap(r => rowLines(r, cols, 1000, { hang: 2 }).map(l => {
     const sgr = r[0] === "+" ? fg(C.lgreen) : r[0] === "-" ? fg(C.lred) : fg(C.grey);
     return pad(sgr + l, cols) + RESET;
   }));
   const room = Math.max(0, rows - head.length);
   v.top = Math.max(0, Math.min(v.top, Math.max(0, body.length - room)));
   const shown = body.length ? body.slice(v.top, v.top + room) : [pad(fg(C.grey) + "(no text at this revision)", cols) + RESET];
-  return { lines: [...head, ...shown], controls: controls.map(c => ({ ...c })), body: title.length + 1 };
+  return { lines: [...head, ...shown], controls, body: title.length + 1 };
 }
 
 /** The keys the compare answers (for the hint and peek): its own table. */
