@@ -11,19 +11,29 @@
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { rankTextSearchMatches, type SearchMatchKind } from "@ep0ch/outline-core/search-match";
 import { workIdOf, workIdTitle } from "@ep0ch/outline-core/work-id-title";
+import { parseWorkId } from "@ep0ch/outline-core/work-ids";
+import { deepCandidates } from "./search-deep";
 import { askNouls, chips, clip, dayOf, jevWho, NO, noul, tallyRun, YES, board, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { writeRecord } from "./records";
 import type { TwinAnswer as WireTwinAnswer, TwinCandidate } from "@ep0ch/outline-core/protocol";
 import type { Block, BlockAuthor, BlockProvenance, VisibleBlockCollection } from "./types";
 
-/** Candidates Jev is asked about, at most. */
-export const TWIN_CANDIDATES = 5;
+/**
+ * Candidates Jev is asked about, at most. Wide on purpose (PIE-1402): a twin filed in other words may share no word with
+ * its original, so the matcher's title and body candidates are joined by deep search's (by meaning), and Jev's same and
+ * part Nouls, in one request, decide.
+ */
+export const TWIN_CANDIDATES = 12;
 /** How long a filing waits for Jev before it goes on with the text match alone. */
-export const TWIN_JEV_MS = 4000;
+export const TWIN_JEV_MS = 6000;
 const LOOP = "work-twins";
 
 /** Title matches strong enough to be a twin with no Jev: the phrase, or every term, in the title. */
 const STRONG: ReadonlySet<string> = new Set<SearchMatchKind>(["exact-title", "title-prefix", "title-contains", "title-terms"]);
+/** How many items deep search adds by meaning, and how long it may take of a filing's wait. */
+const DEEP_TWINS = 6, DEEP_TWIN_MS = 2500;
+/** At or over this (and under YES) Jev hasn't settled whether it's the same work: offered, for the writer to say. */
+export const UNSURE = 0.45;
 /** Kinds that are evidence at all; the fuzzy ones match letters, not words. */
 const WEAK: ReadonlySet<SearchMatchKind> = new Set(["title-fuzzy", "text-fuzzy"]);
 
@@ -41,10 +51,26 @@ export function itemTitle(b: Pick<Block, "text" | "properties">): string {
 /** The body under an item's title and property lines, clipped for Jev. */
 const bodyOf = (b: Block, max = 600) => clip(b.text.split("\n").slice(headerLine(b.text).line + 1).filter(l => !/^\s*\[[^\]]+::[^\]]*\]\s*$/.test(l)).join("\n"), max);
 
-/** Open items like `title`, best first: code's candidates before Jev reads any. Pure. */
-export function twinCandidates(open: readonly Block[], title: string, limit = TWIN_CANDIDATES): (Omit<TwinCandidate, "verdict" | "said"> & { block: Block })[] {
+/**
+ * Open items like the new one, best first: code's candidates before Jev reads any. The matcher over the new title and,
+ * when one is given, its body (a paraphrase shares the body's words, not the title's), each item's best match kept.
+ * Pure.
+ */
+export function twinCandidates(open: readonly Block[], title: string, limit = TWIN_CANDIDATES, body?: string, o: { meant?: readonly string[] } = {}): (Omit<TwinCandidate, "verdict" | "said"> & { block: Block; filler?: true })[] {
   const docs = open.map(b => ({ id: b.id, title: itemTitle(b), text: b.text, block: b }));
-  return rankTextSearchMatches(docs, title).filter(m => !WEAK.has(m.kind) && (m.kind !== "some-terms" || (m.inTitle ?? 0) >= 0.5)).slice(0, limit).map(m => ({
+  const best = new Map<string, ReturnType<typeof rankTextSearchMatches<typeof docs[number]>>[number]>();
+  // The title's matches first (they outrank any of the body's at the same rung), then the body's first sentences.
+  for (const query of [title, ...(body?.trim() ? [clip(body, 160)] : [])]) {
+    for (const m of rankTextSearchMatches(docs, query)) if (!WEAK.has(m.kind) && !best.has(m.document.id)) best.set(m.document.id, m);
+  }
+  // Then the items deep search found by meaning (`meant`, search-deep.ts: a paraphrase shares no word with its twin),
+  // best first; code never calls one of these a twin, only Jev's sure yes can (findTwins).
+  const byId = new Map(docs.map(d => [d.id, d]));
+  const meant = (o.meant ?? []).flatMap(id => { const d = byId.get(id); return d && !best.has(id) ? [d] : []; });
+  // Room for what meaning found: the matcher's weakest give way to it.
+  const words = [...best.values()].slice(0, Math.max(limit - meant.length, Math.ceil(limit / 2)));
+  const filled = [...words, ...meant.map(d => ({ document: d, kind: "some-terms" as const, score: 0, title: d.title, inTitle: 0, filler: true as const }))];
+  return filled.slice(0, limit).map(m => ({ ...("filler" in m ? { filler: true as const } : {}),
     id: m.document.id, workId: workIdOf(m.document.block) ?? m.document.id.slice(0, 8), title: m.document.title, stage: propOf(m.document.block, "work-stage") ?? "unknown", match: m.kind, inTitle: Math.round(m.inTitle * 100) / 100, block: m.document.block,
   }));
 }
@@ -52,6 +78,8 @@ export function twinCandidates(open: readonly Block[], title: string, limit = TW
 /** Code's call over Jev's answers (or none): the truth table, in one place. Pure. */
 export function twinVerdict(c: Pick<TwinCandidate, "match" | "same" | "part"> & { inTitle?: number }): TwinCandidate["verdict"] {
   if (c.same !== undefined && c.same >= YES) return "same";
+  // Between yes and no (a paraphrase whose words differ, PIE-1402): the state doesn't settle it, so the writer does.
+  if (c.same !== undefined && c.same >= UNSURE) return "unsure";
   if (c.part !== undefined && c.part >= YES) return "part";
   // Jev read it and said no to both: a title that shares words is no twin.
   if (c.same !== undefined && c.same < NO && (c.part ?? 0) < NO) return "related";
@@ -68,7 +96,13 @@ export async function openItems(client: WorkJevClient): Promise<Block[]> {
 export async function findTwins(client: WorkJevClient, input: { title: string; body?: string }, o: JevOptions & { limit?: number } = {}): Promise<TwinAnswer> {
   // A filing waits on it: Jev gets a short budget, so the caller's own timeout never fires first.
   o = { timeoutMs: TWIN_JEV_MS, ...o };
-  const found = twinCandidates(await openItems(client), input.title, o.limit);
+  const open = await openItems(client);
+  // By meaning too (search-deep.ts): a twin filed in other words. Its budget is part of the filing's; past it, words alone.
+  const started = Date.now();
+  const deep = await deepCandidates(open, [input.title, input.body?.trim()].filter(Boolean).join("\n\n"), { limit: DEEP_TWINS, jev: { ...o, timeoutMs: Math.min(DEEP_TWIN_MS, o.timeoutMs!) } });
+  // The Nouls get what's left of the budget, so the two together never pass it.
+  o = { ...o, timeoutMs: Math.max(1500, o.timeoutMs! - (Date.now() - started)) };
+  const found = twinCandidates(open, input.title, o.limit, input.body, { meant: "candidates" in deep ? deep.candidates.map(c => c.id) : [] });
   if (!found.length) return { candidates: [], twins: [], jev: "not asked: no open item shares its words" };
   const questions = Object.fromEntries(found.flatMap((c, i) => {
     const candidate = JSON.stringify({ id: c.workId, title: c.title, stage: c.stage, body: bodyOf(c.block, 500) });
@@ -76,25 +110,43 @@ export async function findTwins(client: WorkJevClient, input: { title: string; b
   }));
   const asked = await askNouls({ new: { title: input.title, ...(input.body?.trim() ? { body: clip(input.body, 800) } : {}) } }, questions, o);
   const answers = "answers" in asked ? asked.answers : undefined;
-  const candidates: TwinCandidate[] = found.map(({ block: _block, ...c }, i) => {
+  const candidates: TwinCandidate[] = found.flatMap(({ block: _block, filler, ...c }, i) => {
     const same = noul(answers, `same::${i}`), part = noul(answers, `part::${i}`);
     const withJev = { ...c, ...(same === undefined ? {} : { same }), ...(part === undefined ? {} : { part }) };
     const judged = { ...withJev, verdict: twinVerdict(withJev) };
-    return { ...judged, said: twinLine(judged) };
+    // A pool filler that shares no words is a candidate only when Jev is sure it's the same work, or a step of it.
+    return filler && (judged.verdict === "related" || judged.verdict === "unsure") ? [] : [{ ...judged, said: twinLine(judged) }];
   });
-  const order = (v: TwinCandidate["verdict"]) => ["same", "text", "part", "related"].indexOf(v);
-  candidates.sort((a, b) => order(a.verdict) - order(b.verdict) || (b.same ?? 0) - (a.same ?? 0));
+  const order = (v: TwinCandidate["verdict"]) => ["same", "text", "unsure", "part", "related"].indexOf(v);
+  // Twins oldest first (PIE-1402: a near-duplicate named the newer twin, which was itself filed beside the original):
+  // the original is the one to attach to; the rest by Jev's confidence.
+  const twin = (c: TwinCandidate) => TWIN.has(c.verdict);
+  // A sure twin before an unsure one; among twins as sure, the original first.
+  const sure = (c: TwinCandidate) => (c.verdict === "unsure" ? 1 : 0);
+  candidates.sort((a, b) => Number(twin(b)) - Number(twin(a)) || (twin(a) ? sure(a) - sure(b) || olderFirst(a.workId, b.workId) : 0) || order(a.verdict) - order(b.verdict) || (b.same ?? 0) - (a.same ?? 0));
   return {
     candidates,
-    twins: candidates.filter(c => c.verdict === "same" || c.verdict === "text").map(c => c.workId),
+    twins: candidates.filter(twin).map(c => c.workId),
     jev: "answers" in asked ? "asked" : asked.unavailable,
     ...("reading" in asked ? { reading: asked.reading } : {}),
   };
 }
 
+/** The verdicts an agent's create is refused over: a twin, sure or not, is the writer's to attach to or file beside. */
+const TWIN: ReadonlySet<TwinCandidate["verdict"]> = new Set(["same", "text", "unsure"]);
+
+/**
+ * Which of two items is the original: the lower Work ID number (PIE-12 before PIE-120); negative when `a` is. 0 when either
+ * has no Work ID (nothing says which came first). The one answer twins at filing and the groom both use.
+ */
+export function olderFirst(a: string, b: string): number {
+  const x = parseWorkId(a)?.number, y = parseWorkId(b)?.number;
+  return x === undefined || y === undefined ? 0 : x - y;
+}
+
 /** One candidate as an agent or a hint row reads it: `PIE-12 (doing) Title · same work 0.86`. */
 export function twinLine(c: Omit<TwinCandidate, "said">): string {
-  const why = c.verdict === "same" ? `same work, Jev ${c.same!.toFixed(2)}` : c.verdict === "part" ? `a step of it, Jev ${c.part!.toFixed(2)}`
+  const why = c.verdict === "same" ? `same work, Jev ${c.same!.toFixed(2)}` : c.verdict === "unsure" ? `maybe the same work, Jev unsure (${c.same!.toFixed(2)})` : c.verdict === "part" ? `a step of it, Jev ${c.part!.toFixed(2)}`
     : c.verdict === "text" ? `the title matches${c.same === undefined ? " (text match; Jev not asked)" : ` (Jev unsure, ${c.same.toFixed(2)})`}` : "shares words";
   return `${c.workId} (${c.stage}) ${c.title} · ${why}`;
 }

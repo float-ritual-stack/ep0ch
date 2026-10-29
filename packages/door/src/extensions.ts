@@ -701,10 +701,10 @@ function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
       const r = row.data as ExtensionBarRow;
       // Its action runs as any of the extension's actions does: through the dispatcher, as who picked it, its rules its own.
       const req = barRequest(r);
-      if (req) return how.actor.kind === "agent" ? host.dispatch.act(req, how.actor) : host.dispatch.press(req.action, req.args);
+      if (req) return host.dispatch.as(how.actor, req);
       if (r.block) return openNote(r.block, host, how);
       // A Resource (PIE-754): opened where opens land, registered first if it must be (the desk's open resource=).
-      if (r.resource) return how.actor.kind === "agent" ? host.dispatch.act({ action: "open", args: { resource: r.resource } }, how.actor) : host.dispatch.press("open", { resource: r.resource });
+      if (r.resource) return host.dispatch.as(how.actor, { action: "open", args: { resource: r.resource } });
       // A copy is the person's clipboard; an agent gets the text back.
       if (r.copy !== undefined) { if (how.actor.kind !== "agent") host.ctx.copy?.(r.copy); return { copied: r.copy }; }
       throw new ActionRefused("that row does nothing when picked");

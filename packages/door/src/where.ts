@@ -306,8 +306,11 @@ function keysOf(peek: any, desk: any, door: Where["door"], agentPane: string | n
     }
     if (!desk) return { mine: false, typing: false, tile: null, text: `the person is on the door's ${screen} screen, not the desk` };
     const mine = door.tile?.found ? door.tile.name : null;
-    const focus: string | null = desk.focusName ?? null;
-    const typingIn: string | null = desk.inTerminal ?? null;
+    // Where the keys are and what's typed in: the door's own answer (peek's `person`, App.person), the one every agent
+    // rule reads (PIE-1294), so an edit in a reader says typing as a terminal does. Never worked out again here.
+    const person = peek.screen?.person ?? {};
+    const focus: string | null = person.focus ?? null;
+    const typingIn: string | null = person.typingIn ?? null;
     const f = (desk.panes as any[] ?? []).find(p => p?.name === focus);
     const ref = f ? `${f.tile ? `${f.tile} ` : ""}${f.name}` : focus ?? "?";
     if (mine && focus === mine) return typingIn === mine

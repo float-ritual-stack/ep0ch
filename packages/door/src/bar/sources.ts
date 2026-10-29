@@ -461,7 +461,7 @@ const SCREENS: BarSource = {
   command: row => shownLine("screen.open", screenArgs(row)),
   pick(row, host, how) {
     const args = screenArgs(row);
-    return how.actor.kind === "agent" ? host.dispatch.act({ action: "screen.open", args }, how.actor) : host.dispatch.press("screen.open", args);
+    return host.dispatch.as(how.actor, { action: "screen.open", args });
   },
 };
 
@@ -582,7 +582,7 @@ const EXTENSIONS: BarSource = {
     }
     if (d.block) return openNote(d.block, host, how);
     const [action, args] = extRequest(d)!;
-    return how.actor.kind === "agent" ? host.dispatch.act({ action, args }, how.actor) : host.dispatch.press(action, args);
+    return host.dispatch.as(how.actor, { action, args });
   },
 };
 

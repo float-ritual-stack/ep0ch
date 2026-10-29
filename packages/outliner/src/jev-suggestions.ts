@@ -19,8 +19,8 @@ import type { RequestInput } from "./client";
 import { writeShape, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { figuresIn, type FigureFit, type FigureFitReading } from "./figure-fit";
-import { kitIn, sectionsOf, type ReviewReading, type WriteReview } from "./write-review";
-import { writeRecord, type RecordWho, type RecordWriter } from "./records";
+import { jevScope, kitIn, sectionsOf, type ReviewReading, type WriteReview } from "./write-review";
+import { chips, chipValue, writeRecord, type RecordWho, type RecordWriter } from "./records";
 import { LOOPS_SECTION } from "./work-jev";
 import type { AnnotationThread, Block, VisibleBlockCollection } from "./types";
 
@@ -46,11 +46,8 @@ export function writerOf(actorId: string): { writer: string; harness: string } {
 /** The prompt revisions a reading was made with, as short names: `figure-fit.json:1a2b3c4d5e6f`. */
 export const promptRevOf = (reading?: Pick<FigureFitReading, "prompt">) => reading?.prompt.map(p => `${p.path.split("/").pop()}:${p.sha256.slice(0, 12)}`).join(" ") || "unknown";
 
-/** A value written as a property chip: one line, with nothing that reads as a bracket or a `::` opener. */
-const chipValue = (v: string) => v.replace(/[\[\]\r\n]+/g, " ").replace(/:{2,}/g, ":").trim().slice(0, 200) || "none";
-
 /** Every value a record is stamped with, as a chip may hold it: actor ids and titles are the writer's own words. */
-const clean = (props: Record<string, string>) => Object.fromEntries(Object.entries(props).map(([k, v]) => [k, chipValue(v)]));
+const clean = chips;
 
 const propsOf = (text: string) => Object.fromEntries(parsePropertyRecords(text).map(p => [p.key, p.value]));
 
@@ -88,12 +85,19 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
   try {
     const day = dayOf(now), told = keep.review.findings.filter(f => f.new);
     if (told.length) await suggestionsPage(client);
+    // Each finding is told once (PIE-1402: a repeat patch wrote the same one four times): one the note's records hold is skipped.
+    const had = told.length && keep.at.source !== "backfill" ? await toldKeys(client, keep.at.note) : new Set<string>();
     for (const f of told) {
-      await writeRecord(board(client), "review-finding", clean({
-        day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), component: f.component ?? f.rule,
-        source: keep.at.source, rule: f.rule, rubric: f.rubric, key: f.key, line: String(f.line ?? 0), title: keep.title || "untitled",
-        passage: f.passage, said: f.say, verdict: keep.review.verdict, patch: f.patch ? "ready" : "none",
-      }), JEV, { title: `${keep.review.verdict}: ${f.rubric} in ${keep.title || "untitled"}`.slice(0, 120) });
+      if (had.has(chipValue(f.key))) continue;
+      had.add(chipValue(f.key));
+      await writeRecord(board(client), "review-finding", {
+        ...clean({
+          day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), component: f.component ?? f.rule,
+          source: keep.at.source, rule: f.rule, rubric: f.rubric, key: f.key, line: String(f.line ?? 0), title: keep.title || "untitled",
+          passage: f.passage, said: f.say, patch: f.patch ? "ready" : "none",
+        }),
+        fix: fixText(f.patch),
+      }, JEV, { title: `${f.advice ? "consider" : "fix"}: ${f.rubric} in ${keep.title || "untitled"}`.slice(0, 120) });
     }
     const asked = keep.review.jev === "asked";
     const unavailable = !asked && !/^(?:off|not asked)/.test(keep.review.jev);
@@ -103,9 +107,34 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
 }
 
 /**
+ * The keys a note's writers were already told: its `review-finding` records' keys, as a chip holds them. The one answer
+ * to "was this said before?", for the review (write-review.ts `told`) and for the records.
+ */
+export async function toldKeys(client: SuggestionClient, note: string): Promise<Set<string>> {
+  return new Set((await read(client, `type=review-finding note=${note} NOT source=backfill`, 500)).flatMap(b => { const k = propsOf(b.text).key; return k ? [k] : []; }));
+}
+
+/** Between the pieces of a fix that edits more than one place (a question's ask, and the line it left). */
+const FIX_GAP = "⋯";
+
+/** A ready patch's new text as a record keeps it, in its code fence: each piece that writes something, a `⋯` line between. */
+export function fixText(patch?: readonly { replacement: string }[]): string {
+  const pieces = patch?.map(p => p.replacement.replace(/```/g, "ˋˋˋ")).filter(r => r.trim()) ?? [];
+  // Fenced, so the fix's own chips and boxes stay text: a `[needs::sysop]` in it is never the record's.
+  return pieces.length ? `\`\`\`text\n${pieces.join(`\n${FIX_GAP}\n`)}\n\`\`\`` : "none";
+}
+
+/** A record's fix, back as its pieces (none when it came with no patch). */
+export function fixOf(recordText: string): string[] {
+  const m = /\nfix:\n```text\n([\s\S]*?)\n```/.exec(recordText);
+  return m ? m[1]!.split(`\n${FIX_GAP}\n`).filter(Boolean).map(p => p.replace(/ˋˋˋ/g, "```")) : [];
+}
+
+/**
  * The page a person reads the reviews on, made with the first finding an outline keeps (PIE-1388), as the Records page
  * is: each review with its note (drawn by title, linked), what was said and the passage; what the writer did; a box per
- * finding to mark Jev right (x) or wrong (✗), which writes `jev::right` or `jev::rejected` on the record; and the
+ * finding to mark Jev right (x) or wrong (`-`, Reject: the status chooser's keys), which writes `jev::right` or
+ * `jev::rejected` on the record; and the
  * backfill's stats by rubric and writer. Every number is a live figure. An outline that already has a page by this
  * address (pie's, made by hand) keeps its own.
  */
@@ -114,7 +143,7 @@ export const SUGGESTIONS_PAGE = [
   "",
   "> [!summary] Every note an agent writes is reviewed: ship, or fix with the smallest fix.",
   "> Each row is what the writer was told, the passage it was about, and what the writer did next.",
-  "> Mark a finding right (x) or wrong (✗) below: the thresholds are tuned from your marks.",
+  "> Mark a finding below: x when Jev was right, - (Reject) when it was wrong. The thresholds are tuned from your marks.",
   "",
   "::graph-stat",
   "---",
@@ -129,7 +158,7 @@ export const SUGGESTIONS_PAGE = [
   "title: what each writer was told",
   "query: type=review-finding NOT source=backfill",
   "machinery: show",
-  "columns: [note, rubric, said, passage, writer, patch]",
+  "columns: [note, said, passage, rubric, patch, writer]",
   "link: note",
   "sort: created",
   "direction: desc",
@@ -143,7 +172,7 @@ export const SUGGESTIONS_PAGE = [
   "title: followed, patched or ignored",
   "query: type=suggestion-outcome",
   "machinery: show",
-  "columns: [note, rubric, outcome, patched, because, writer]",
+  "columns: [note, outcome, because, said, patched, writer]",
   "link: note",
   "sort: created",
   "direction: desc",
@@ -154,9 +183,12 @@ export const SUGGESTIONS_PAGE = [
   "## Was Jev right?",
   "::graph-check",
   "---",
-  "title: x when it was right, ✗ when it was wrong",
-  "query: type=review-finding created >= -7d",
+  "title: x when Jev was right, - (Reject) when it was wrong",
+  "query: type=review-finding NOT source=backfill created >= -7d",
   "machinery: show",
+  // By when it was told, so a row marked stays where it was (the default, by update, moved it under the pointer).
+  "sort: created",
+  "direction: desc",
   "done: jev=right",
   "note: said",
   "---",
@@ -269,7 +301,15 @@ export interface OpenSuggestion {
   rule?: string;
   key?: string;
   line?: number;
+  /** The ready patch's new text, as its record keeps it (fixOf): a later write holding it applied the patch. */
+  fix?: string[];
 }
+
+/** What a later write's review said and read (PIE-1402): the keys it said, new or carried, and what Jev judged. */
+export interface Heard { said: ReadonlySet<string>; judged: ReadonlySet<string> }
+
+/** Jev's judgments: no code rule can tell they're gone, so only Jev reading the rewrite and not saying it again can. */
+const JEV_RULES: ReadonlySet<string> = new Set(["dense", "mixed", "context", "argues", "unclear", "qa-for-evan"]);
 
 /** The values a count finding's key names (`count:work-stage=queued,…`), so its patch can be made again from the note as it was. */
 const facetsOfKey = (key: string): ShapeFacet[] => key.startsWith("count:") ? key.slice(6).split(",").flatMap(q => { const m = /^([^=]+)=(.*)$/.exec(q); return m ? [{ key: m[1]!, value: m[2]!.replace(/^"|"$/g, "") }] : []; }) : [];
@@ -282,26 +322,41 @@ const facetsOfKey = (key: string): ShapeFacet[] => key.startsWith("count:") ? ke
 function judgeFinding(
   s: Pick<OpenSuggestion, "component" | "at" | "rule" | "key" | "line">, baseline: string,
   window: readonly { revision: number; savedAt: string; text: string }[], schemas: readonly ComponentSchema[], closed: boolean,
-  again?: ReadonlySet<number>,
+  heard?: ReadonlyMap<number, Heard>, fix?: readonly string[],
 ): { outcome: Outcome; because: string; patched?: boolean } | null {
   const rule = s.rule!, key = s.key ?? "";
   const facets = facetsOfKey(key);
   const was = writeShape(baseline, { facets }).find(f => f.key === key);
   const kitSection = rule === "kit" && s.line ? sectionsOf(baseline).find(x => x.line + 1 === s.line) : undefined;
   const made = kitSection ? figurePatch(kitSection.text, s.component) : null;
-  const patch = rule === "kit" ? (made && "patch" in made ? made.patch : undefined) : was?.patch;
+  // The fix as it was offered (its record keeps it); a record from before it did is made again from the note as it was.
+  const pieces = fix?.length ? fix : (rule === "kit" ? (made && "patch" in made ? made.patch : undefined) : was?.patch)?.map(p => p.replacement).filter(r => r.trim());
+  const scope = jevScope(key);
+  let rewrittenUnread: number | undefined;
   const section = s.line ? sectionsOf(baseline).find(x => x.line + 1 === s.line) : undefined;
   const named = s.line ? baseline.split("\n")[s.line - 1] : undefined;
   for (const w of window) {
-    if (patch?.length && patch.every(p => w.text.includes(p.replacement))) return { outcome: "followed", because: `revision ${w.revision} applied the ready patch`, patched: true };
+    if (pieces?.length && pieces.every(p => w.text.includes(p))) return { outcome: "followed", because: `revision ${w.revision} applied the ready patch`, patched: true };
+    // Jev's own judgment: followed only when Jev read the rewrite and didn't say it again; said again, it stands.
+    const review = heard?.get(w.revision);
+    if (review?.said.has(key) || review?.said.has(chipValue(key))) continue;
+    const rewritten = section ? !w.text.includes(section.text) : named !== undefined ? !w.text.split("\n").includes(named) : w.text !== baseline;
+    if (JEV_RULES.has(rule) && !was) {
+      // A qa line code found by its words is gone when the line is; Jev's judgments wait for Jev to read the rewrite.
+      const byWords = rule === "qa-for-evan" && !section;
+      if (rewritten && byWords) return { outcome: "followed", because: `revision ${w.revision} no longer has it` };
+      if (rewritten && review?.judged.has(scope)) return { outcome: "followed", because: `revision ${w.revision} rewrote it and Jev, reading it again, didn't say it` };
+      if (rewritten) rewrittenUnread ??= w.revision;
+      continue;
+    }
     // A wall or a stacked bullet is the same problem wherever its words moved: gone only when no finding of that rule is near
     // its line (a cosmetic edit to its first words changes its key, not the problem).
     const near = (f: { rule: string; line?: number }) => f.rule === rule && Math.abs((f.line ?? 0) - (s.line ?? was?.line ?? 0)) <= 3;
     const gone = rule === "kit" ? kitIn(w.text, schemas).has(s.component)
       : was ? !writeShape(w.text, { facets }).some(f => (rule === "wall" || rule === "stacked" ? near(f) : f.key === key))
-      // Otherwise (Jev's judgments, a qa line, the work rules): the passage it named was rewritten, and that write's own review
-      // didn't say it again. A section by its text, a line by its words, a note without a line by any change.
-      : !again?.has(w.revision) && (section ? !w.text.includes(section.text) : named !== undefined ? !w.text.split("\n").includes(named) : w.text !== baseline);
+      // Otherwise (the work rules): the passage it named was rewritten. A section by its text, a line by its words, a
+      // note without a line by any change.
+      : rewritten;
     if (gone) return { outcome: "followed", because: rule === "kit" ? `revision ${w.revision} draws ${s.component}` : `revision ${w.revision} no longer has it` };
   }
   if (!closed) return null;
@@ -312,6 +367,7 @@ function judgeFinding(
       if (other) return { outcome: "different", because: `revision ${w.revision} draws ${other} instead` };
     }
   }
+  if (rewrittenUnread !== undefined) return { outcome: "ignored", because: `revision ${rewrittenUnread} rewrote it, but Jev never read it again` };
   return { outcome: "ignored", because: `${window.length} later write${window.length === 1 ? "" : "s"} within a day left it as it was` };
 }
 
@@ -326,19 +382,19 @@ function judgeFinding(
  * - ignored: it closed with neither.
  */
 export function judgeSuggestion(
-  s: Pick<OpenSuggestion, "component" | "at"> & Partial<Pick<OpenSuggestion, "rule" | "key" | "line">>,
+  s: Pick<OpenSuggestion, "component" | "at"> & Partial<Pick<OpenSuggestion, "rule" | "key" | "line" | "fix">>,
   baseline: string,
   after: readonly { revision: number; savedAt: string; text: string }[],
   schemas: readonly ComponentSchema[],
   now: number,
   threadLifecycle?: string,
-  /** A review finding's: the later revisions whose own review said it again (the same key). */
-  again?: ReadonlySet<number>,
+  /** A review finding's: what the later writes' reviews said and read, by revision (the ones in hand). */
+  heard?: ReadonlyMap<number, Heard>,
 ): { outcome: Outcome; because: string; patched?: boolean } | null {
   if (threadLifecycle === "kept") return { outcome: "followed", because: "the margin thread was kept" };
   if (s.rule) {
     const window = after.filter(w => Date.parse(w.savedAt) - s.at <= FOLLOW_WITHIN_MS).slice(0, FOLLOW_WITHIN_WRITES);
-    return judgeFinding(s, baseline, window, schemas, window.length >= FOLLOW_WITHIN_WRITES || now - s.at > FOLLOW_WITHIN_MS, again);
+    return judgeFinding(s, baseline, window, schemas, window.length >= FOLLOW_WITHIN_WRITES || now - s.at > FOLLOW_WITHIN_MS, heard, s.fix);
   }
   const schema = schemas.find(x => x.id === s.component);
   const suggested = (schema && blockNameOf(schema)) ?? s.component;
@@ -368,7 +424,7 @@ const openOf = (suggestions: Block[], outcomes: Block[]): OpenSuggestion[] => {
     const p = propsOf(b.text);
     return {
       id: b.id, note: p.note!, revision: Number(p.revision), at: Date.parse(b.createdAt), component: p.component!, ...(p.thread && p.thread !== "none" ? { thread: p.thread } : {}), writer: p.writer, harness: p.harness, day: p.day,
-      ...(p.rule ? { rule: p.rule, key: p.key, line: Number(p.line) || undefined, rubric: p.rubric, title: p.title, passage: p.passage, said: p.said } : {}),
+      ...(p.rule ? { rule: p.rule, key: p.key, line: Number(p.line) || undefined, rubric: p.rubric, title: p.title, passage: p.passage, said: p.said, fix: fixOf(b.text) } : {}),
     };
   }).filter(s => s.note && Number.isFinite(s.revision) && s.component);
 };
@@ -379,19 +435,18 @@ type OpenWithWho = OpenSuggestion & { writer?: string; harness?: string; day?: s
  * Settles what can be settled of one note's open suggestions against its revisions: a verdict from `judgeSuggestion`
  * becomes a `suggestion-outcome` record, once. Returns how many it wrote. Never throws.
  */
-export async function settleNote(client: SuggestionClient, note: string, schemas: readonly ComponentSchema[], now = Date.now()): Promise<number> {
+export async function settleNote(client: SuggestionClient, note: string, schemas: readonly ComponentSchema[], now = Date.now(), heard?: ReadonlyMap<number, Heard>): Promise<number> {
   try {
     const open = openOf(await read(client, `(type=suggestion OR type=review-finding) note=${note}`, 50), await read(client, `type=suggestion-outcome note=${note}`, 100)) as OpenWithWho[];
-    return await settle(client, note, open, schemas, now);
+    return await settle(client, note, open, schemas, now, heard);
   } catch { return 0; }
 }
 
-async function settle(client: SuggestionClient, note: string, open: OpenWithWho[], schemas: readonly ComponentSchema[], now: number): Promise<number> {
+async function settle(client: SuggestionClient, note: string, open: OpenWithWho[], schemas: readonly ComponentSchema[], now: number, heard?: ReadonlyMap<number, Heard>): Promise<number> {
   if (!open.length) return 0;
   const list = await client.request<BlockRevisions>({ action: "block.revisions", blockId: note });
   const text = async (revision: number) => (await client.request<{ text: string }>({ action: "block.revisions", blockId: note, revision })).text;
   let threads: AnnotationThread[] | undefined;
-  let findings: Block[] | undefined;
   let written = 0;
   for (const s of open) {
     let lifecycle: string | undefined;
@@ -403,9 +458,7 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
     const later = list.revisions.filter(r => r.revision > s.revision).sort((a, b) => a.revision - b.revision).slice(0, FOLLOW_WITHIN_WRITES);
     const baseline = list.revisions.some(r => r.revision === s.revision) ? await text(s.revision) : "";
     const after = await Promise.all(later.map(async r => ({ revision: r.revision, savedAt: r.savedAt, text: await text(r.revision) })));
-    // The revisions whose review said the same thing again (a review finding's key), so a rewrite that kept it isn't "followed".
-    const again = s.key ? new Set((findings ??= await read(client, `type=review-finding note=${note}`, 200)).flatMap(f => { const p = propsOf(f.text); return p.key === s.key ? [Number(p.revision)] : []; })) : undefined;
-    const verdict = judgeSuggestion(s, baseline, after, schemas, now, lifecycle, again);
+    const verdict = judgeSuggestion(s, baseline, after, schemas, now, lifecycle, heard);
     if (!verdict) continue;
     // Settled by another pass while this one read the revisions: one outcome per suggestion.
     if ((await read(client, `type=suggestion-outcome suggestion=${s.id}`, 1)).length) continue;
@@ -493,7 +546,11 @@ export async function keepSuggestion(client: SuggestionClient, keep: SuggestionK
       if (keep.at.source !== "write") return 0;
       // The note's earlier findings are judged against this write; a review that told something new also settles the
       // day-old ones anywhere (as a figure suggestion did), so an ordinary clean write costs one note's settling.
-      const here = await settleNote(client, keep.at.note, schemas);
+      // What this write's review said (new or carried) and what Jev read: how a Jev finding is known fixed, or not.
+      // Both as written and as a record's chip holds them, so a stored key with brackets in it still meets them.
+      const both = (xs: readonly string[]) => new Set(xs.flatMap(x => [x, chipValue(x)]));
+      const heard = new Map([[keep.at.revision, { said: both(keep.review.findings.map(f => f.key)), judged: both(keep.review.judged ?? []) }]]);
+      const here = await settleNote(client, keep.at.note, schemas, Date.now(), heard);
       return here + (keep.review.findings.some(f => f.new) ? await settleOpen(client, schemas) : 0);
     }
     case "quiet":
