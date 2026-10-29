@@ -99,8 +99,8 @@ export const WHOLE_OUTLINE_READS: ReadonlySet<string> = new Set([
   "tree.index", "tree.query", "tree.focus", "tree.search", "views.read", "blocks.query", "blocks.records", "site.answer", "workspace.snapshot",
   "callouts.types", "headings.styles", "styles.list", "components.schemas", "references.backlinks", "checklist.search", "fragments.candidates",
   "pages.complete", "properties.catalog", "properties.inventory", "query.matches", "activity.recent",
-  // A board asks these of every lane after each change (PIE-1413).
-  "views.planWrite", "blocks.authored-links", "blocks.facets",
+  // A board's links and choosers read these over the whole outline (PIE-1413).
+  "blocks.authored-links", "blocks.facets",
 ]);
 
 /**

@@ -1,5 +1,4 @@
 import { Canvas, type Rect } from "./canvas";
-import { framePainted } from "./frames";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { pressEnded } from "./surface/button";
 import { RANK, StatusBarNote, STATUS_BAR_ACTIONS, STATUS_INK, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
@@ -1656,7 +1655,7 @@ export class App implements Ctx {
     // A frame after nothing but wheel reports: views may move what they laid out last time (onlyScrolled).
     paintingScroll(!this.changed);
     this.changed = false;
-    try { this.drawFrame(); } finally { paintingScroll(false); this.lastPaint = Date.now(); framePainted(); }
+    try { this.drawFrame(); } finally { paintingScroll(false); this.lastPaint = Date.now(); }
   }
 
   private drawFrame() {

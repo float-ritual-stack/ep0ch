@@ -184,6 +184,9 @@ export interface Wire { says: string; short?: string; /** The tile on this desk 
  * The only screen host (PIE-515), and final: every screen is a spec (src/desk/screen-spec.ts) on it, never a
  * subclass. What a screen does beyond its layout is its tiles' kinds' and their actions.
  */
+/** A frame drawn within this long is the screen as it is: a tile not in it is off the screen. */
+const SHOWN_LATELY_MS = 2_000;
+
 export class Desk implements Screen, DeskApi, ColumnsHost {
   readonly ownsQuestion = true;
   title: string;
@@ -346,6 +349,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private mouseTile: { id: number; r: Rect } | null = null;
   /** What was drawn, for the mouse: tiles (docks first, they're on top), header labels, dock handles. */
   private hits: [number, Rect][] = [];
+  /** When `hits` were laid out: the last frame drawn. */
+  private hitsAt = 0;
   /**
    * Each tile's look as last drawn (PIE-673), and the rectangle its content was drawn in: inside its frame, its padding
    * and, for a note, its measure (centred). The tile never sees the cells outside it: a press there is the nearest cell
@@ -2999,6 +3004,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** Tile `p`'s fold, if it's folded to a spine: who folded it (an agent's id). */
   foldOf(p: Pane): { by?: string } | undefined { const id = this.idOf(p); return id === undefined ? undefined : this.collapsed.get(id); }
+  /**
+   * Whether tile `p` was in the frame drawn lately (PIE-1413: a tile that isn't can read what changed later): the one
+   * answer to "is it on the screen", from the frame's own tiles. Never drawn yet: undefined (a headless desk).
+   */
+  shows(p: Pane): boolean | undefined {
+    if (!this.hitsAt) return undefined;
+    const id = this.idOf(p);
+    return id !== undefined && Date.now() - this.hitsAt < SHOWN_LATELY_MS && this.hits.some(([t]) => t === id);
+  }
+
   /** Where tile `name` (or the container with that key) was last drawn. */
   drawnAt(name: string): Rect | undefined { const id = this.idNamed(name); return id !== undefined ? this.hits.find(([t]) => t === id)?.[1] : this.placed.nodes.get(name); }
 
@@ -3491,6 +3506,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.pickReflows([...pinned, ...this.slid.flatMap(d => [...d.placed.rects]), ...floats]);
     // For the mouse: the top float first, then the top dock's tiles, then the layout's.
     this.hits = [...[...floats].reverse(), ...[...this.slid].reverse().flatMap(d => [...d.placed.rects]), ...pinned];
+    this.hitsAt = Date.now();
     // Motion (PIE-958): a change just made begins from where the tiles were; the tiles that move are drawn in flight, on top.
     if (this.pendingMotion) {
       const t = new Transition(this.pendingMotion.from, new Map(this.hits), this.clock(), this.pendingMotion.plan, this.pendingMotion.floated);

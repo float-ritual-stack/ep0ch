@@ -4,7 +4,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { PowerBar } from "../src/bar/bar";
 import type { BarHost } from "../src/bar/source";
-import { framePainted } from "../src/frames";
 import { QueryPane } from "../src/desk/query";
 import type { DeskApi } from "../src/desk/panes";
 import { Draft } from "../src/edit";
@@ -166,8 +165,6 @@ describe("each path asks the host the same way", () => {
 });
 
 describe("a query tile reads what changed without piling reads on the host (PIE-1413)", () => {
-  afterEach(() => framePainted(false));
-
   test("changes while its read is out read once more when it lands, never a second read beside it", async () => {
     const reads: ((v: { notes: never[]; truncated: boolean }) => void)[] = [];
     const board = { queryNotes: () => new Promise<{ notes: never[]; truncated: boolean }>(r => { reads.push(r); }) };
@@ -197,27 +194,26 @@ describe("a query tile reads what changed without piling reads on the host (PIE-
     expect(reads.length).toBe(1);
   });
 
-  test("off the screen (the door draws frames without it), it reads behind, at most every 10 s, and at once when drawn", async () => {
-    let reads = 0;
+  test("off the screen (the desk's frame doesn't hold it), it reads behind, at most every 10 s, and at once when drawn", async () => {
+    let reads = 0, shown = false, redraws = 0;
     const board = { queryNotes: () => { reads++; return Promise.resolve({ notes: [], truncated: false }); } };
-    const desk = { ctx: { board, flash() {} }, redraw() {} } as unknown as DeskApi;
+    const desk = { ctx: { board, flash() {} }, redraw() { redraws++; }, shows: () => shown } as unknown as DeskApi;
     const pane = new QueryPane("v", "#garden");
     await pane.load(desk);
+    // Behind the tiles on screen: read once, in the door's one read for what's off the screen; and a frame asked for.
+    await pane.refresh(desk);
+    await until(() => reads === 2, "the read behind");
+    expect(redraws).toBeGreaterThan(0);
+    // Changed again within its 10 s: nothing asked, until it is drawn.
+    await pane.refresh(desk);
+    await Bun.sleep(150);
+    expect(reads).toBe(2);
+    shown = true;
     pane.render(40, 10, false);
-    framePainted();
-    const drawn = Date.now;
-    Date.now = () => drawn() + 5_000;
-    try {
-      // Behind the tiles on screen: read once, in the door's one read for what's off the screen.
-      await pane.refresh(desk);
-      await until(() => reads === 2, "the read behind");
-      // Changed again within its 10 s: nothing asked, until it is drawn.
-      await pane.refresh(desk);
-      await Bun.sleep(50);
-      expect(reads).toBe(2);
-      pane.render(40, 10, false);
-      await until(() => reads === 3, "the read when it was drawn");
-    } finally { Date.now = drawn; }
+    pane.render(40, 10, false);
+    await until(() => reads === 3, "the read when it was drawn");
+    await Bun.sleep(50);
+    expect(reads).toBe(3);
   });
 });
 

@@ -421,6 +421,8 @@ const failures = [
   ...doorRows.filter(r => r.all.max > 5_000).map(r => `${r.phase}: a door request took ${r.all.max} ms`),
   ...doorRows.filter(r => r.failed).map(r => `${r.phase}: ${r.failed} door requests failed`),
   ...(doorTiles.stale ? [`${doorTiles.stale} of the door's query tiles didn't converge`] : []),
+  // A door that made no tiles (its board didn't open, the harness lost them) measured nothing: never a pass.
+  ...(door && !doorTiles.tiles ? ["the door reported no query tiles: nothing of its board was measured"] : []),
   ...rows.filter(r => r.p95 >= 200).map(r => `${r.phase}: ping p95 ${r.p95} ms`),
   ...rows.filter(r => r.longestStall > 1_000).map(r => `${r.phase}: a ${r.longestStall} ms stall`),
   ...(stale.length ? [`${stale.length} watches didn't converge`] : []),
