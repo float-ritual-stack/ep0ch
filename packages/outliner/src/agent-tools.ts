@@ -23,7 +23,7 @@ import { houseRule } from "./work-review";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { figureShape, suggestFigure } from "./figure-fit";
-import type { SuggestionKeep, SuggestionWrite } from "./jev-suggestions";
+import { toldKeys, type SuggestionKeep, type SuggestionWrite } from "./jev-suggestions";
 import { figureRowReport } from "./figure-rows";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
@@ -32,7 +32,7 @@ import { randomUUID } from "node:crypto";
 import { checkToolArgs, closest } from "@ep0ch/outline-core/tool-args";
 import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
 import { createBlockComment } from "./block-comments";
-import { matchFacts, resourceTextRevision } from "@ep0ch/outline-core/protocol";
+import { matchFacts, resourceTextRevision, type BlockRevisions } from "@ep0ch/outline-core/protocol";
 import { authoredResourceReferenceOccurrences, type AuthoredResourceReference } from "./resource-references";
 import { resourceCommentSource } from "./resource-comments";
 import type { ResourceDescription } from "./resources";
@@ -62,6 +62,8 @@ import type {
   BlockEditActivityPage,
   BlockReadCollection,
   BlockSearchQuery,
+  GotoSearchCollection,
+  SearchCertainty,
   MutationProvenance,
   ProjectedBlock,
   ResolvedBlockReferences,
@@ -419,6 +421,10 @@ export async function readBlock(
   else await markMore([{ id: block.id, text: "", revision: block.revision }]);
   const record = textRecord(block);
   const site = await readSiteOf(client, block);
+  // Who last wrote it (its current revision's edit), as `updated` says when: the block's own author is who made it.
+  // Only the entry for the revision read: a write that lands between the two reads never lends its author to older text.
+  const saved = (await client.request<BlockRevisions>({ action: "block.revisions", blockId: block.id, latest: true }).catch(() => undefined))?.revisions.find(r => r.revision === block.revision);
+  const writer = saved?.author ? { author: saved.author, ...(saved.actorId ? { actorId: saved.actorId } : {}) } : { author: block.author, ...(block.actorId ? { actorId: block.actorId } : {}) };
   return {
     ...resolved,
     title: blockDisplayTitle(block),
@@ -426,8 +432,7 @@ export async function readBlock(
     text: block.text,
     properties: record.properties,
     fields: record.fields,
-    author: block.author,
-    ...(block.actorId ? { actorId: block.actorId } : {}),
+    ...writer,
     updated: block.updatedAt,
     parentId: block.parentId,
     children,
@@ -509,7 +514,12 @@ function propertyScopeInput(value: string): PropertyQueryScope {
  * next (id, title, revision). `text`, `property`, `hasKey`, `query` and `under`
  * combine; `view` stands alone. `complete: false` means more matched than `limit`.
  */
-export async function findBlocks(client: AgentToolsClient, input: FindInput): Promise<{ blocks: FindRow[]; complete: boolean; total?: number }> {
+/** How sure a ranked find is (PIE-1198): the service's verdict and sentence, and Jev's "is it among these?". */
+export interface FindSearch { status: "ranked" | "lexical" | "unavailable"; verdict?: SearchCertainty["verdict"]; label?: string; said: string; exists?: number; deep?: GotoSearchCollection["semantic"]["deep"] }
+/** A words-only find is the ranked search: at most this many rows (tree.search's own cap). */
+const RANKED_FIND_LIMIT = 30;
+
+export async function findBlocks(client: AgentToolsClient, input: FindInput): Promise<{ blocks: (FindRow & { score?: number })[]; complete: boolean; total?: number; search?: FindSearch }> {
   const limit = boundedInteger(input.limit, "limit", 20, 1, 200);
   const given = (key: keyof FindInput) => typeof input[key] === "string" && (input[key] as string).trim() !== "";
   if (given("view")) {
@@ -528,6 +538,27 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
   }
   if (!["text", "property", "hasKey", "query"].some(key => given(key as keyof FindInput))) {
     throw new WorkToolRefusal("Give text, property, hasKey, query or view to find blocks by");
+  }
+  // Words alone are a search, not a filter: the service's ranked one (ep0ch find's, the door's), re-ordered by Jev, each
+  // row its Score and the answer how sure it is, so a weak top says "no strong match" instead of reading as the answer.
+  if (given("text") && !["property", "hasKey", "query", "under", "this", "propertyScope"].some(key => given(key as keyof FindInput)) && (input.machinery === undefined || input.machinery === "hide")) {
+    // Every candidate is ranked (as the door's / ranks them), then cut to what was asked: at most RANKED_FIND_LIMIT.
+    // Deep when the ranked hits hold no sure answer (PIE-1200): notes that never use the words are found by meaning.
+    const found = await client.request<GotoSearchCollection>({ action: "tree.search", query: input.text!, semantic: true, deep: true });
+    const shown = Math.min(limit, RANKED_FIND_LIMIT);
+    const ids = found.matches.slice(0, shown).map(m => m.block.id);
+    const read = await Promise.all(ids.map(blockId => client.request<Block | null>({ action: "get", blockId }).catch(() => null)));
+    const by = new Map(read.flatMap(b => b ? [[b.id, b] as const] : []));
+    const scores = new Map(found.matches.map(m => [m.block.id, m.score]));
+    const byMeaning = new Set(found.matches.flatMap(m => m.deep ? [m.block.id] : []));
+    const s = found.semantic;
+    const search: FindSearch = s.status === "ranked" && s.verdict ? { status: "ranked", verdict: s.verdict, ...(s.label ? { label: s.label } : {}), said: s.said ?? "", ...(s.exists !== undefined ? { exists: s.exists } : {}), ...(s.deep ? { deep: s.deep } : {}) }
+      : s.status === "ranked" ? { status: "ranked", said: "ranked by Jev over the text matches" }
+      : { status: s.status, said: `text matches only${s.message ? ` (${s.message})` : ""}` };
+    return {
+      blocks: ids.flatMap(id => { const b = by.get(id); if (!b) return []; const score = scores.get(id); return [{ ...findRow(b), ...(score !== undefined ? { score } : {}), ...(byMeaning.has(id) ? { byMeaning: true } : {}) }]; }),
+      complete: found.completeness.kind === "complete" && found.matches.length <= shown, search,
+    };
   }
   const filters: PropertyFilter[] = [];
   if (given("property")) filters.push(parsePropertyFilterClause(input.property!));
@@ -668,9 +699,9 @@ async function reviewOf(client: AgentToolsClient, text: string, before: string |
     // Each read is bounded on its own; the outline's facets (pie's answer in about 0.2 s since PIE-1396, 2 to 7 s before)
     // are read while Jev answers, and only when the text types a number before a word, so they never hold Jev up.
     // The host answers a connection's requests in turn, so the quick reads go first and the facets after them.
-    const [schemas, qaRule] = await Promise.all([within(schemasOf(client), null), within(houseRule(client as never, "qa-for-evan"), undefined)]);
+    const [schemas, qaRule, told] = await Promise.all([within(schemasOf(client), null), within(houseRule(client as never, "qa-for-evan"), undefined), off ? Promise.resolve(undefined) : within(toldKeys(client as never, at.note), undefined)]);
     const facets = hasCountCandidate(text) ? within(facetsOf(client), []) : Promise.resolve([]);
-    return reviewWrite({ ...input, schemas, facets, jev: !off, ...(qaRule ? { qaRule } : {}) }, { timeoutMs: REVIEW_BUDGET_MS });
+    return reviewWrite({ ...input, schemas, facets, jev: !off, ...(qaRule ? { qaRule } : {}), ...(told ? { told } : {}) }, { timeoutMs: REVIEW_BUDGET_MS });
   };
   // The whole review is bounded, and any failure leaves code's measures alone, saying why Jev wasn't heard: the write has landed.
   const codeOnly = (why: string) => reviewWrite({ ...input, schemas: null, jev: false, jevWhy: why });

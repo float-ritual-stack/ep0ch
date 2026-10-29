@@ -9,7 +9,7 @@
 // shows what each loop costs. Jev selects; it never writes the words a person reads, and it never closes anything.
 import { loadWorkJevPrompt, type PromptRevision, type WorkJevPrompt } from "./ai-prompts";
 import { askJevQuestions } from "./write-review";
-import { writeRecord, type RecordWho, type RecordWriter } from "./records";
+import { chips, chipValue, writeRecord, type RecordWho, type RecordWriter } from "./records";
 import type { Block, VisibleBlockCollection } from "./types";
 
 /** Jev's price, dollars per million input tokens (output is free): docs.typesafe.ai/go/models, Jev 1.13 and 1.14. */
@@ -72,8 +72,7 @@ export const board = (client: WorkJevClient): RecordWriter => ({ request: (actio
 export const jevWho = (loop: string): RecordWho => ({ author: "agent", provenance: { actorId: `jev/${loop}` } });
 
 /** A value written as a property chip: one line, nothing that reads as a bracket or a `::` opener. */
-export const chipValue = (v: string) => v.replace(/[\[\]\r\n]+/g, " ").replace(/:{2,}/g, ":").trim().slice(0, 200) || "none";
-export const chips = (props: Record<string, string>) => Object.fromEntries(Object.entries(props).map(([k, v]) => [k, chipValue(v)]));
+export { chipValue, chips } from "./records";
 
 const promptRev = (r?: JevReading) => r?.prompt.map(p => `${p.path.split("/").pop()}:${p.sha256.slice(0, 12)}`).join(" ") || "unknown";
 
@@ -87,6 +86,8 @@ export async function recordRun(client: WorkJevClient, loop: string, run: string
   const props = chips({
     experiment: loop, run, model: reading?.model ?? "none", "prompt-rev": promptRev(reading),
     items: String(counts.items ?? 0), suggested: String(counts.suggested ?? 0), quiet: String(counts.quiet ?? 0), unavailable: String(counts.unavailable ?? 0),
+    // An eval's run says how often Jev agreed with the labels (search-eval.ts): agreed, agreement, different, ignored.
+    ...Object.fromEntries(["agreed", "agreement", "different", "ignored"].filter(k => counts[k] !== undefined).map(k => [k, String(counts[k])])),
     "tokens-in": String(tokensIn), "tokens-out": String(reading?.usage?.output ?? 0), cost: costOf(tokensIn),
   });
   const made = await writeRecord(board(client), "jev-run", props, jevWho(loop), { title: `${loop} ${run}` });
@@ -98,7 +99,7 @@ export async function recordRun(client: WorkJevClient, loop: string, run: string
  * One loop's run for the day, counted up in place (twins are asked once per filing, a run per filing would be a log):
  * found or made, then its items, suggested and tokens added to. A conflicting write loses a count rather than looping.
  */
-export async function tallyRun(client: WorkJevClient, loop: string, day: string, add: { items?: number; suggested?: number; unavailable?: number }, reading?: JevReading): Promise<void> {
+export async function tallyRun(client: WorkJevClient, loop: string, day: string, add: { items?: number; suggested?: number; quiet?: number; unavailable?: number }, reading?: JevReading): Promise<void> {
   const find = async () => (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=jev-run experiment=${loop} run=${day}`, machinery: "show", limit: 1 } })).blocks[0];
   let run = await find();
   if (!run) { await recordRun(client, loop, day, {}, undefined); run = await find(); }
@@ -106,7 +107,7 @@ export async function tallyRun(client: WorkJevClient, loop: string, day: string,
   const n = (key: string) => Number(new RegExp(`\\[${key}::(\\d+(?:\\.\\d+)?)\\]`).exec(run!.text)?.[1]) || 0;
   const tokens = n("tokens-in") + (reading?.usage?.input ?? 0);
   const next: Record<string, string> = {
-    items: String(n("items") + (add.items ?? 0)), suggested: String(n("suggested") + (add.suggested ?? 0)), unavailable: String(n("unavailable") + (add.unavailable ?? 0)),
+    items: String(n("items") + (add.items ?? 0)), suggested: String(n("suggested") + (add.suggested ?? 0)), quiet: String(n("quiet") + (add.quiet ?? 0)), unavailable: String(n("unavailable") + (add.unavailable ?? 0)),
     "tokens-in": String(tokens), "tokens-out": String(n("tokens-out") + (reading?.usage?.output ?? 0)), cost: costOf(tokens),
     ...(reading ? { model: reading.model, "prompt-rev": chipValue(promptRev(reading)) } : {}),
   };

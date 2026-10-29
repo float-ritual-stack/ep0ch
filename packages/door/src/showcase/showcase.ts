@@ -320,11 +320,12 @@ export const SECTIONS: Section[] = [
   {
     key: "write-review", need: "read any note an agent wrote at a glance: every agent write reviewed ship or fix against the house rules and the whole kit, with ready patches, and each review on Jev's suggestions page (PIE-1388)",
     part: "the write review (outliner src/write-review.ts: outline-core's write-shape measures with ready patches, figure-patch's figures built from a list's own lines, and Jev's judgments against Evan's rubric and the outline's component schemas, one request per write), in every create, edit and patch answer (`review`: verdict, findings, next); what it told the writer kept as review-finding records and settled by the note's later writes (jev-suggestions.ts); the page made with the first finding (SUGGESTIONS_PAGE), its table drawing a cell that names a note as that note's title, linked (figure-live's cellBlocks, the service's titles, GRAMMAR 11); ep0ch review backfill for what agents already wrote",
-    files: "outline-core/src/write-shape.ts, outline-core/src/figure-patch.ts, outline-core/src/figure-live.ts (tableOf, cellBlockId), outliner src/write-review.ts, src/write-review-backfill.ts, src/jev-suggestions.ts, src/agent-tools.ts (reviewOf), src/site-producers.ts (cellTitles), src/publish-figures.ts, src/graphs.ts (table), src/review-cli.ts",
-    aside: "left: a status note as an agent wrote it, stacked bullets and a count typed in · right: Jev's suggestions page, its first row that note (drawn by its title, a link: ⏎ or a click opens it), what the writer was told and the passage · tick a finding x when Jev was right, ✗ when it was wrong: the mark is written on the record · an agent sees the same review in its write's answer, with the patches to apply · ep0ch review backfill --ws <name> runs it over what agents already wrote",
+    files: "outline-core/src/write-shape.ts, outline-core/src/figure-patch.ts, outline-core/src/figure-live.ts (tableOf, cellBlockId), outliner src/write-review.ts, src/write-review-backfill.ts, src/jev-suggestions.ts, src/agent-tools.ts (reviewOf), src/site-producers.ts (cellTitles), src/publish-figures.ts (cards on a phone), src/graphs.ts (table, cards when narrow), src/review-cli.ts",
+    aside: "left: a status note as an agent wrote it, stacked bullets and a count typed in · middle: Jev's suggestions page, its first row that note (drawn by its title, a link: ⏎ or a click opens it), what the writer was told and the passage · mark a finding x when Jev was right, - (Reject) when it was wrong, by key or a click on its box: the mark is written on the record and the row stays put · right: the same page in a 44-column tile, each finding a card with every field (what was said, the passage, what the writer did) · an agent sees the same review in its write's answer, with the patches to apply · ep0ch review backfill --ws <name> runs it over what agents already wrote",
     stage(n, show) {
-      const wall = new ReaderPane(), page = new ReaderPane();
-      return deskOf({ title: "showcase · write review", panes: [wall, page], names: ["wall", "page"], layout: ([a, b]) => row(0.45, a!, b!) }, show, [[wall, n.writeReview], [page, n.jevPage]]);
+      // The page twice: as a table beside the wall, and in a desk tile as narrow as Evan's (44 columns), where each finding is a card.
+      const wall = new ReaderPane(), page = new ReaderPane(), narrow = new ReaderPane();
+      return deskOf({ title: "showcase · write review", panes: [wall, page, narrow], names: ["wall", "page", "tile"], layout: ([a, b, c]) => pair("row", 0.78, row(0.3, a!, b!), leaf(c!)) }, show, [[wall, n.writeReview], [page, n.jevPage], [narrow, n.jevPage]]);
     },
   },
   {
@@ -1537,6 +1538,16 @@ export const SECTIONS: Section[] = [
         title: "showcase · nested mounts", panes: [tree, reader, calls], names: ["tree", "reader", "calls"],
         layout: ([t, r, c]) => pair("row", 0.2, leaf(t!), pair("row", 0.22, leaf(r!), leaf(c!))),
       }, show, [[reader, n.notebook]]);
+    },
+  },
+  {
+    key: "search-sure", need: "see how sure a search is: each hit's Jev score, and \"no strong match\" under a weak top instead of a confident wrong answer; and the eval that set where sure starts, the current model beside the next (PIE-1198, PIE-1197)",
+    part: "ranked search (outliner src/search-ranking.ts: one Jev request, a Score per candidate and the \"is it among these?\" Noul; certaintyOf decides strong, weak or none; SEARCH_THRESHOLDS from the eval), said by every search: the power bar's / (its footer and each row's score), [[ and (( (the completer's footer), ep0ch find (a score column and the verdict line), outline_find (the mod's and the gateway's search field); counted on the day's search-live jev-run (work-jev.ts tallyRun); the person's picks kept (search.picked) as the eval's labels; ep0ch search harvest|eval (src/search-eval.ts) keeping cases, a jev-run per model and the report under this page",
+    files: "outliner src/search-ranking.ts, src/jev.ts, src/search-records.ts, src/search-eval.ts, src/agent-tools.ts (findBlocks), src/completion-sources.ts, door src/bar/sources.ts, src/surface/completer.ts, src/notes-cli.ts (find), src/mcp.ts (outline_find), src/search-cli.ts",
+    aside: "the Search evals page: every run per model, live (hit@1 is agreed), and the labelled set by source; under it each run.s report, both models side by side and the thresholds tried · the numbers here are made up; ep0ch search eval --into <name> keeps a real run · with Jev set up, / and [[ say \"no strong match\" in their footer when the top isn't a sure answer, and ep0ch find prints each row's score",
+    stage(n, show) {
+      const page = new ReaderPane();
+      return deskOf({ title: "showcase · search says how sure", panes: [page], names: ["page"] }, show, [[page, n.searchEvals]]);
     },
   },
 ];

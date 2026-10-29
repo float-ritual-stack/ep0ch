@@ -45,7 +45,7 @@ describe('the detail pane, pure', () => {
     expect(displayMarkdown('T\n::resources jira\ntitle: Around\n::')).toBe('# T\n```resources jira\ntitle: Around\n```')
     // ::links has no closing line: what follows stays Markdown, its references still links.
     const source = detailSourceOf('Hub\n::links\nSee [[Bike shed]].', [], 'ep0ch')
-    expect(source.kind === 'source' && source.markdown).toBe('# Hub\n`::links`\nSee [Bike shed](https://pi-outliner.invalid/page/Bike%20shed).')
+    expect(source.kind === 'source' && source.markdown).toBe('# Hub\n`::links`\nSee [Bike shed](https://my.ep0ch.sh/pub/p/Bike%20shed).')
   })
 
   test("ep0ch export's Markdown without its front matter", () => {
@@ -85,8 +85,8 @@ describe('the detail pane, pure', () => {
   test('links are collected once each with their text', () => {
     const source = detailSourceOf('See [[Bike shed]], PIE-7 and [[Bike shed|the shed]].', ['PIE'], 'outliner')
     expect(source.kind === 'source' && source.links).toEqual([
-      { href: 'https://pi-outliner.invalid/page/Bike%20shed', label: 'Bike shed' },
-      { href: 'https://pi-outliner.invalid/work/PIE-7', label: 'PIE-7' },
+      { href: 'https://my.ep0ch.sh/pub/p/Bike%20shed', label: 'Bike shed' },
+      { href: 'https://my.ep0ch.sh/pub/p/PIE-7', label: 'PIE-7' },
     ])
   })
 
