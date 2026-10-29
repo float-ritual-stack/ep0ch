@@ -379,7 +379,6 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     examples: [
       { act: "tile.travel tile=card", does: "takes the person's keys back to the column this one was opened from" },
       { act: "tile.travel dir=forward tile=card", does: "takes the keys forward to the column back last left" },
-      { act: "tile.travel tile=links", does: "the links tile lists the note it listed before" },
     ],
     run({ dir, steps }, { d, reader }, actor) {
       if (steps !== undefined && (!Number.isInteger(steps) || steps < 1)) throw new ActionRefused("steps is a whole number from 1");

@@ -762,7 +762,7 @@ export class Dispatcher {
     if (personOnly) throw new ActionRefused(personOnly);
     const tiles = this.tilesNow();
     const at = this.target(reg, def, req, actor, tiles);
-    const args = this.tileArgs(reg.set.argsOf(req.action) ?? {}, req.args ?? {}, tiles);
+    const args = this.tileArgs(reg.set.argsOf(req.action) ?? {}, req.args ?? {}, tiles, actor);
     // What the def sees: coerced from the wire (`locked=true` is true, not "true").
     const seen = reg.set.defArgs(req.action, args, typed);
     const no = this.refusal(reg, def, req.action, at, args, seen, actor);
@@ -922,7 +922,7 @@ export class Dispatcher {
   }
 
   /** Arguments that name a tile (`to=`), read with `tile=`'s grammar: the action gets the tile's name. */
-  private tileArgs(spec: Record<string, ArgSpec>, raw: Record<string, unknown>, tiles: TileRef[]): Record<string, unknown> {
+  private tileArgs(spec: Record<string, ArgSpec>, raw: Record<string, unknown>, tiles: TileRef[], actor: Actor): Record<string, unknown> {
     const out = { ...raw };
     for (const [k, s] of Object.entries(spec)) {
       if (s.kind !== "tile" || typeof out[k] !== "string" || s.choices?.includes(out[k] as string) || !tiles.length) continue;
@@ -930,7 +930,7 @@ export class Dispatcher {
       if (resolved) { out[k] = resolved.tile.id ?? resolved.tile.name; continue; }
       if (isTilePath(String(out[k]))) continue;
       const hit = this.named(String(out[k]), tiles);
-      if (!hit) throw this.noTile(String(out[k]), tiles);
+      if (!hit) throw this.noTile(String(out[k]), tiles, actor);
       out[k] = hit.t.name;
     }
     return out;
@@ -938,11 +938,15 @@ export class Dispatcher {
 
   /**
    * The refusal for a `tile=` that names nothing: the host layer's reason when it has one (`drawer.agent` with its program
-   * closed names what to run), else the tiles this screen has.
+   * closed names what to run), else the tiles this screen has: to an agent with their ids and numbers, to the person by
+   * the names they see, and to a run their press invited, whose words they hear (PIE-1418: a button pressed in the river
+   * said `#1 library (t-…)`).
    */
-  private noTile(sel: string, tiles: TileRef[]): ActionRefused {
+  private noTile(sel: string, tiles: TileRef[], actor?: Actor): ActionRefused {
     const why = this.host.ctx()?.hostLayer?.unnamed?.(sel);
-    return new ActionRefused(why ? `no tile ${sel}: ${why}` : `no tile ${sel} on the ${this.host.title}; ${this.which(tiles)}`);
+    if (why) return new ActionRefused(`no tile ${sel}: ${why}`);
+    if (actor?.kind === "user" || actor?.invitation) return new ActionRefused(`no tile is called ${sel} on the ${this.host.title}${tiles.length ? `; its tiles: ${[...new Set(tiles.map(t => t.name))].join(", ")}` : ""}`);
+    return new ActionRefused(`no tile ${sel} on the ${this.host.title}; ${this.which(tiles)}`);
   }
 
   /** Where a request runs: the tile `tile=` names (one grammar), a place word, or the action's own default. */
@@ -959,7 +963,7 @@ export class Dispatcher {
       if (sel === "focused") return focused ? { tile: focused, name: focused.name } : { name: sel };
       if (!tiles.length) return { name: sel };
       const hit = this.named(sel, tiles) ?? this.byBlock(sel, tiles, actor);
-      if (!hit) throw this.noTile(sel, tiles);
+      if (!hit) throw this.noTile(sel, tiles, actor);
       return { tile: hit.t, name: hit.t.name };
     }
     // takes: "tile"
@@ -978,7 +982,7 @@ export class Dispatcher {
         const other = this.named(sel, tiles);
         if (other) throw new ActionRefused(`${other.t.name} is ${kindNoun(other.t)}: ${req.action} is for ${noun(req.action)}${can.length ? `; here: ${can.map(t => t.name).join(", ")}` : ""}`);
         if (BLOCK.test(sel)) throw new ActionRefused(`no ${noun(req.action).replace(/^an? /, "")} shows ${sel}; open it first (open id=${sel})`);
-        throw this.noTile(sel, can.length ? can : tiles);
+        throw this.noTile(sel, can.length ? can : tiles, actor);
       }
     }
     const t = hit.t;

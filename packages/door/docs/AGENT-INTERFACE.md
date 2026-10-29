@@ -270,9 +270,9 @@ These change what the person looks at, so an agent's is a visible, attributed mo
 holds their keys (a picker or menu: the tile menu `⋯`, a search, a layout or board picker; the ^W panel, `? more`; a
 pending chord, `^W`; link mode, `alt+l`; a filter being typed; an edit, at once with nothing typed, with a second `Esc`
 when unsaved, PIE-475), then the drawer when it's up and they're out of it (`host.toggle`), then what's lit in their tile
-(a link, a selection), then the screen's own (a zoom, a dock, the keys back home, a float's keys back to the tile
-under it).
-With nothing left it does nothing and says so on the status bar: `nothing to close · q leaves` (the menu's says `G
+(a link, a selection), then the screen's own (a zoom, a dock, the keys back home). A float keeps the keys (PIE-1418).
+With nothing left it does nothing and says so on the status bar: `nothing to close · q leaves` (in a float, `x closes
+the float`) (the menu's says `G
 logs off`). It never pops a screen and never logs off: leaving is `q` (`screen.back`), quitting `G` or `ctrl+c`. Each
 step is an action an agent runs by name (`host.toggle open=false`, `tile.slide open=false`, `tile.zoom on=false`,
 `tile.focus`, `element.select n=0`, `select.clear`, `edit.close`), so nothing here needs `Esc` sent as a key. In the
