@@ -4981,14 +4981,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // everywhere).
     if (k.kind === "esc" || (c0 === "q" && this.spec.home !== undefined)) {
       if (this.closeStep(k.kind === "esc")) return;
-      if (k.kind === "esc") return nothingToClose(this.ctx);
+      if (k.kind === "esc") return nothingToClose(this.ctx, this.floatCloseWord() ?? undefined);
       this.pending = null; return this.shell("screen.back");
     }
   }
 
   /**
    * The screen's own next step out, as an action: out of a zoom, a dock the keys are in shuts, the keys go home (the
-   * spec's), a dock sliding over shuts; for Esc, a float gives the keys back to the tile under it. False: none left.
+   * spec's), a dock sliding over shuts. False: none left. A float keeps the keys (PIE-1418): given back to the tile
+   * under it, they went somewhere the float hid (the river at 40 columns, a new note's float), and x then closed that.
    */
   private closeStep(esc: boolean): boolean {
     const step = (name: string, args: Record<string, unknown>, tile: string) => { this.run(name, args, tile); return true; };
@@ -5003,13 +5004,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (home !== undefined && !this.atHome()) return step("tile.focus", {}, this.nameOf(home));
     const open = this.spec.home !== undefined ? docks(this.root).find(x => shuts(x) && leaves(x.kid).length) : undefined;
     if (open) return step("tile.slide", { open: false, container: open.id }, this.nameOf(leaves(open.kid)[0]!));
-    const ground = esc && this.isFloat(this.focus) ? this.grounded() : undefined;
-    if (ground !== undefined) return step("tile.focus", {}, this.nameOf(ground));
     return false;
   }
 
+  /** In a float with nothing left to close, what Esc says closes it: the screen's own x (the river's, the board's), else ^W x. */
+  private floatCloseWord(): string | null {
+    if (!this.isFloat(this.focus)) return null;
+    return `${this.screenKeys().some(b => b.key === "x" && b.action === "tile.close") ? "x" : "^W x"} closes the float`;
+  }
+
   /** DeskApi.escaped: Esc found nothing left to close in a tile's own screen (a screen tile): the desk's next step, or nothing. */
-  escaped() { if (!this.closeStep(true)) nothingToClose(this.ctx); }
+  escaped() { if (!this.closeStep(true)) nothingToClose(this.ctx, this.floatCloseWord() ?? undefined); }
 
   /** Every desk consults the screen's one pending wire, including the drawer. */
   linkingFrom(): Pane | null { const p = this.linking; return p ? p.desk.panes.get(p.from) ?? null : null; }
@@ -5809,7 +5814,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** The tile last given the keys in each columns container (by its id): its place for Tab and home. */
   private lastIn = new Map<string, number>();
-  /** The last tile the keys were in that isn't a float: where esc in a float gives them back. */
+  /** The last tile the keys were in that isn't a float: where an open from a float lands beside. */
   private lastGrounded: number | undefined;
   private notedFocus: number | undefined;
   private grounded(): number | undefined {

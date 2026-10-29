@@ -601,6 +601,26 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     for (const t of shown) expect(t).toBe("Net the currants\nBefore the birds find them.");
   });
 
+  test("Esc after saving in a float keeps the keys in the float, and x then closes the float, not a column (PIE-1418)", async () => {
+    await mine("tile.focus", {}, lib());
+    const columns = () => V().columns.map(c => V().name(c));
+    const before = columns();
+    key(ctrl("n"));
+    const writing = () => (river as any).describe().floats?.find((f: any) => f.newNote && f.writing);
+    await until(() => !!writing(), "the new note's float", 8000);
+    const made = writing();
+    await until(() => (river as any).newNoteWhileTyping(), "the keys in its edit", 5000);
+    type("Prune the gooseberry"); key({ kind: "enter" }); type("After the leaves drop.");
+    key(ctrl("s"));
+    await until(() => !(river as any).describe().floats?.find((f: any) => f.id === made.id)?.writing, "the edit closed", 8000);
+    key({ kind: "esc" });
+    expect((river as any).describe().focusName).toBe(made.name);          // still the float's keys
+    expect(screen()).toContain("x closes the float");                       // what Esc says, and what x will do
+    key(char("x"));
+    await until(() => !(river as any).describe().floats?.some((f: any) => f.id === made.id), "its float closed");
+    expect(columns()).toEqual(before);                                     // no column closed
+  });
+
   test("the river's trail (PIE-208): the columns back by title, alt+T lists them over the river, back steps=2 goes two at once", async () => {
     focusOnReader(lib());
     const a = (await mine("open", { id: notes.peas.id, from: lib(), fresh: true })) as { name: string };
