@@ -1,5 +1,6 @@
 import { publishLoki } from "./publish-loki";
 import { publishUpload } from "./publish-upload";
+import { shortcutResponse } from "./send-to-ep0ch-shortcut";
 import { artifactLimit } from "./artifact-inbox";
 import { createBlockComment } from "./block-comments";
 import { readSavedView } from "./saved-view-read";
@@ -116,7 +117,7 @@ Publishing and extensions
   loki lease [--ttl 1h] | lease --revoke
   web sessions [--json] | web revoke <id> | --all
                                        the signed-in web client's browsers (my.ep0ch.sh), and signing them out
-  device add <name> [--ws <outline>] | ls | revoke <name|id>
+  device add <name> [--ws <outline>] [--shortcut] | ls | revoke <name|id>
                                        the phones and devices that may send a file to the artifacts inbox
 
 More in README.md, "Headless service and CLI".`;
@@ -464,6 +465,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
         loki: request => publishLoki(request, host, "http://127.0.0.1:3101", console.error),
         upload: request => publishUpload(request, host, { outlines: resolveOutlinesFolder(), log: console.error }),
         snapshot: request => web.snapshot(request),
+        shortcut: deviceId => shortcutResponse(host, deviceId),
         readerWrite: request => web.readerWrite(request),
         settings, request: input => host.request(input as Parameters<typeof host.request>[0]),
         serve: (request, signedIn) => web.handle(request, "tailnet", signedIn), log: line => console.error(line),

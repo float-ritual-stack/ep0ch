@@ -99,6 +99,8 @@ export interface SignInGateOptions {
   /** The artifacts inbox's upload route (publish-upload.ts): its token is its credential, so it's answered before the sign-in. */
   upload?: (request: Request) => Promise<Response>;
   snapshot?: (request: Request) => Promise<Response>;
+  /** A device's signed "Send to ep0ch" Shortcut (PIE-1408), by the device's id: it holds the device's token, so only signed in. */
+  shortcut?: (deviceId: string) => Promise<Response>;
   readerWrite?: (request: Request) => Promise<Response>;
   /** The issuer's keys (a local set under test); else its JWKS, from discovery. */
   keys?: JWTVerifyGetKey;
@@ -211,6 +213,8 @@ export class SignInGate {
       const root = this.settings.home.replace(/\/+$/, "");
       if (path === "/" || path === "") return redirect(this.settings.home, renewed);
       if (root && path.startsWith("/p/")) return redirect(`${root}${path}${url.search}`, renewed);
+      const shortcut = /^\/_shortcut\/([A-Za-z0-9]+)(?:\/[^/]*)?$/.exec(path);
+      if (shortcut && reading && this.options.shortcut) return withGateHeaders(await this.options.shortcut(shortcut[1]!), renewed);
       const sessionId = found.session.id;
       return withGateHeaders(await this.options.serve(request, { sessionId, origin, stillSignedIn: () => this.stillSignedIn(sessionId) }), renewed);
     } catch (error) {
