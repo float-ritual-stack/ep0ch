@@ -1105,6 +1105,9 @@ export function enterKeeps(s: CompletionState): "new line" | "applies" | null {
   if (s.items.length === 1 && item.newPage) return word;
   if (s.target.kind === "filter-key" || s.target.kind === "filter-value") return "applies";
   if (ENTER_ENDS_THE_LINE.has(s.target.kind)) return word;
+  // A button's step in a note: ⏎ starts the next step until a row is chosen (↓, tab, a click), as nvim and VS Code do.
+  // The power bar's line is one line, so ⏎ there takes the lit row (its list closes once the value is typed whole).
+  if (s.target.kind === "button-step" && !s.line) return word;
   if (AUTO_OPENING_KINDS.has(s.target.kind) && s.target.kind !== "component" && !s.target.query.trim()) return word;
   const line = s.at.line;
   if (line.slice(0, s.target.start) + item.insertion + line.slice(s.target.end) === line) return word;
