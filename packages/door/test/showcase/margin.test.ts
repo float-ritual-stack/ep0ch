@@ -176,7 +176,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as any; };
-    await until(() => screen().includes("question · ") && / comments? · (in the margin|a line each) \(M\)/.test(screen()), "the plan with its cards and count", 8000);
+    await until(() => screen().includes("question · ") && / comments? · short cards \(M\)/.test(screen()), "the plan with its cards and count", 8000);
     const planId = [...stage().panes.keys()].find((id: number) => stage().nameOf(id) === "plan") as number;
     const plan = () => stage().panes.get(planId) as ReaderPane;
     expect(plan().surface.marginMode).toBe("trim");
@@ -186,9 +186,9 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
       const x = ls[y]!.search(re) + 3;
       press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     };
-    click(/■ \d+( comments?)? · (in the margin|a line each|whole, in the margin|whole, inline) \(M\)/);
+    click(/■ \d+( comments?)? · (short cards|whole) \(M\)/);
     await until(() => plan().surface.marginMode === "full", "cards whole");
-    click(/■ \d+( comments?)? · (in the margin|a line each|whole, in the margin|whole, inline) \(M\)/);
+    click(/■ \d+( comments?)? · (short cards|whole) \(M\)/);
     await until(() => /■ \d+( comments?)? · as marks \(M\)/.test(screen()), "the count says marks only");
     expect(plan().surface.marginMode).toBe("off");
     expect(screen()).not.toContain("question · ");
@@ -442,13 +442,13 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     const by = Date.now() + 5000;
     while (!(mine = (await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn?.[0])) { if (Date.now() > by) throw new Error("timed out waiting for the person's quote"); await Bun.sleep(50); }
     expect((await board.get((await board.get(mine))!.parentId!))!.text).toMatch(/^Inbox/);
-    // It opened in the person's edit (PIE-1184); closed untouched, nothing changed.
+    // It opened in the person's edit (PIE-1184); closed untouched, nothing changed, the keys still on it.
     const editing = () => { const l = stage().layoutGet() as any; return ([...l.tiles, ...l.floats] as any[]).find(t => t.name && (stage().pane(t.name) as ReaderPane)?.surface?.draft?.blockId === mine); };
     await until(() => !!editing(), "the person's quote open in their edit", 5000);
     await stage().dispatch.press("edit.close", {}, editing().name);
     await until(() => !editing(), "the edit closed");
-    // ctrl+z's action (ext.undo) in the reader the plan is kept in takes the quote back.
-    await stage().dispatch.press("ext.undo", {}, (stage().layoutGet().tiles as any[]).find(t => t.showing?.id === plan.id).name);
+    // ctrl+z there, the edit closed, takes the quote back (its flash says so).
+    press({ kind: "char", ch: "z", ctrl: true });
     const gone = Date.now() + 5000;
     while ((await board.comments(plan.id)).find(t => t.id === thread.id)!.quotedIn?.length) { if (Date.now() > gone) throw new Error("timed out waiting for ctrl+z to undo the quote"); await Bun.sleep(50); }
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });

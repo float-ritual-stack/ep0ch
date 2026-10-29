@@ -48,7 +48,7 @@ import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
 import { partyOf } from "../steps";
 import { ActionRefused, ActionSet, actionSet, actRequestOf, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
-import { newNoteOffer, personOpens, type NewNoteHow } from "../new-note";
+import { newNoteOffer, newNoteOpens, type NewNoteHow } from "../new-note";
 import { layoutStanding, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
@@ -3289,22 +3289,26 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
+   * DeskApi.writeFrom: the person's new note made from reader `from` (a quote, PIE-1184) opened to write in where their
+   * new notes open (`newNoteOpens`, the one answer `note.new` uses too), the reader left as it was. The reader it opened
+   * in, on this desk or another (the drawer's), found by its edit.
+   */
+  async writeFrom(from: ReaderPane, m: Msg): Promise<{ tile: string; pane: ReaderPane } | null> {
+    const id = this.idOf(from);
+    if (id !== undefined && id !== this.focus) this.focusTile(this.nameOf(id), USER);
+    const tile = await this.editNew(m, { opens: newNoteOpens(this.newNoteRule()), context: from.msg?.id ?? null, actor: USER });
+    if (!tile) return null;
+    for (const d of this.relatives()) for (const p of d.panes.values()) if (p instanceof ReaderPane && p.surface.draft?.blockId === m.id) return { tile, pane: p };
+    return null;
+  }
+
+  /**
    * A new note for the person to write (PIE-544, PIE-591): in a tile of its own where `how` says (a float over the
    * screen, a new tab on the tile they're in, their drawer), or where the focused tile's opens land (`lands`: its link,
    * the screen's readers row, the next river column, else a reader beside it); an empty reader they're in (^W o d) takes
    * it there. Its edit opens through the reader's own `edit` (the one editor and draft session) and their keys go to it.
    * From an edit, that edit stays open where it is, as a click away leaves it (PIE-812). The reader's name, or null when no reader took it.
    */
-  /**
-   * DeskApi.writeFrom: the person's new note made from reader `from` (a quote, PIE-1184) opened to write in where their
-   * new notes open (`note.opens`: a float beside what they read, by default), the reader left as it was.
-   */
-  async writeFrom(from: ReaderPane, m: Msg): Promise<string | null> {
-    const id = this.idOf(from);
-    if (id !== undefined && id !== this.focus) this.focusTile(this.nameOf(id), USER);
-    return this.editNew(m, { opens: this.newNoteRule()?.opens ?? personOpens(), context: from.msg?.id ?? null, actor: USER });
-  }
-
   async editNew(m: Msg, how: NewNoteHow = { opens: "lands", context: null }): Promise<string | null> {
     const actor = how.actor ?? USER;
     const held = this.dispatch.rule("screen", actor, { host: true });
