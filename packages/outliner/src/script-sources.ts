@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { scriptHeader, SCRIPT_HEADER_WORDS, durationMs, MAX_DEADLINE_MS, type LoadedExtension, type ManifestSource, type ScriptSource, type ExtensionOrigin } from "./extension-manifest";
 import type { OutlinerStore } from "./store";
 import type { ExtensionEntry } from "./extension-registry";
-import { noteTitleLine, parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { displayTitleOfText } from "./references";
 import { bind } from "./site-answer";
 import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
 
@@ -93,6 +94,8 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
     }
     if (!definitions.length) continue;
     const revision = store.revisions(block.id).revisions[0]!;
+    // Its words: the note's title as lists show it, read above its first fence (a note that opens with its code has none).
+    const title = displayTitleOfText(lines.slice(0, fences[0]?.start ?? lines.length).join("\n"));
     for (const { fence, language, attrs, named: isNamed } of definitions) {
       const name = attrs.script!;
       const setting = (key: string) => attrs[key] ?? (noteName === name ? block.properties.find(p => p.key === key)?.value : undefined);
@@ -108,7 +111,7 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
       add(isNamed ? `${block.id}:${name}:${definition!.occurrence}` : block.id, name,
         { code, keys: (attrs.keys === undefined ? noteValues("keys") : [attrs.keys]).flatMap(value => value.split(",").map(k => k.trim()).filter(Boolean)), ...(language === "actions" ? { format: "actions" as const } : {}), blockId: block.id, ...(isNamed ? { line: fence!.start, fence: definition } : {}), revision: block.revision,
           ...(render ? { render: true as const } : {}), ...(deadline ? { deadlineMs: Math.min(deadline, MAX_DEADLINE_MS) } : {}),
-          effects, author: { author: revision.author ?? block.author, ...(revision.actorId ? { actorId: revision.actorId } : {}) } }, problem, undefined, noteTitleLine(block.text).text);
+          effects, author: { author: revision.author ?? block.author, ...(revision.actorId ? { actorId: revision.actorId } : {}) } }, problem, undefined, title);
     }
   }
   if (!draft) {

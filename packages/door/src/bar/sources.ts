@@ -26,7 +26,7 @@ import { actionLead, actionPage } from "../surface/action-page";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
-import { extensionList, extensionParts, PART_KINDS, scriptActions, type ExtensionEntry, type ExtensionList } from "../extensions";
+import { extensionList, extensionParts, PART_KINDS, partKind, scriptActions, type ExtensionEntry, type ExtensionList } from "../extensions";
 import { openActionForm } from "./form";
 import { settingsChip, settingsMarkdown, shownValue } from "../extension-settings";
 
@@ -407,7 +407,7 @@ function summaryOf(e: ExtensionEntry, l: ExtensionList): string {
   if (said) return said;
   if (e.script?.file) return `a script file, ${e.script.file.split("/").pop()}`;
   const part = extensionParts(e, l)[0];
-  return part ? `${part.kind.replace(/s$/, "")} ${part.name}${part.about ? `: ${firstSentence(part.about)}` : ""}` : "";
+  return part ? `${partKind(part.kind)} ${part.name}${part.about ? ` · ${firstSentence(part.about)}` : ""}` : "";
 }
 
 /** An installed extension as its preview reads it: its id and version, its state and settings, where it lives, its words, what it adds. */
@@ -415,8 +415,8 @@ function extensionFacts(e: ExtensionEntry, then: string): string {
   const parts = extensionParts(e);
   return [
     `**${e.name ?? e.id}** \`${e.id}\`${e.version !== undefined ? ` v${e.version}` : ""} · ${e.state}${e.settings ? ` · settings ${settingsChip(e.settings)}` : ""}`,
-    ...(e.error ? ["", `> [!warning] ${e.error}`] : []), "", e.description ?? "",
-    ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${p.kind.replace(/s$/, "")} **${p.name}**${p.about ? ` · ${p.about}` : ""}`)] : []),
+    ...(e.error ? ["", `> [!warning] ${e.error}`] : []), ...(e.script && e.summary ? ["", e.summary] : []), "", e.description ?? "",
+    ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${partKind(p.kind)} **${p.name}**${p.about ? ` · ${p.about}` : ""}`)] : []),
     ...(e.directory ? ["", `\`${e.directory}\``] : []), "", then,
   ].join("\n");
 }
@@ -441,7 +441,7 @@ const EXTENSIONS: BarSource = {
     const kindOf = (e: ExtensionEntry) => extensionParts(e, l)[0]?.kind ?? "actions";
     for (const kind of PART_KINDS) {
       const these = installed.filter(e => kindOf(e) === kind);
-      for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.settings ? settingsChip(e.settings) : "", summaryOf(e, l)].filter(Boolean).join(" · "), group: `installed · ${kind} · ${these.length}`, chip: kind.replace(/s$/, ""), oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
+      for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.settings ? settingsChip(e.settings) : "", summaryOf(e, l)].filter(Boolean).join(" · "), group: `installed · ${kind} · ${these.length}`, chip: partKind(kind), oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
     }
     // Its settings (PIE-1343): a row each, its chip the words; where config.json is, the preview's; ⏎ the form its configSchema draws.
     const configured = installed.filter(e => e.settings);

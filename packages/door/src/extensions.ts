@@ -242,6 +242,8 @@ export const extensionList = (): ExtensionList | null => current;
 /** What an extension adds, by kind, in the order its group is chosen by (the first it has): a list a row, a preview, a hub read. */
 export const PART_KINDS = ["rules", "components", "scripts", "programs", "sources", "agents", "tiles", "records", "actions"] as const;
 export type PartKind = typeof PART_KINDS[number];
+/** One part as a row or a preview names it: its kind, one of them (`rule`, `agent`), and its name. */
+export const partKind = (kind: PartKind) => kind.replace(/s$/, "");
 
 /**
  * What extension `e` adds, read from its own declarations (`extensions.list`): its rules, its component and output lines,
@@ -252,7 +254,7 @@ export function extensionParts(e: ExtensionEntry, l: ExtensionList | null = curr
   return [
     ...of("rules", (l?.rules ?? []).filter(r => r.source.kind === "extension" && r.source.extension === e.id).map(r => ({ name: r.name, about: r.description }))),
     ...of("components", e.handlers.filter(h => h.kind === "component" || h.kind === "output").map(h => ({ name: `${h.key}::`, about: h.description }))),
-    ...of("scripts", [...(e.scripts ?? []).map(s => ({ name: s.name, about: s.about })), ...(e.script ? [{ name: e.name ?? e.id, about: e.description }] : [])]),
+    ...of("scripts", [...(e.scripts ?? []).map(s => ({ name: s.name, about: s.about })), ...(e.script ? [{ name: e.name ?? e.id, about: e.summary }] : [])]),
     ...of("programs", (e.schedules ?? []).map(s => ({ name: s.entry, about: s.every ? `every ${s.every}` : s.cron }))),
     ...of("sources", (l?.barSources ?? []).filter(b => b.extension === e.id).map(b => ({ name: b.title }))),
     ...of("agents", (e.agents ?? []).map(a => ({ name: `@${a.name}`, about: a.description }))),

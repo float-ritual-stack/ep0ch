@@ -401,7 +401,8 @@ export class ExtensionRegistry {
       const conflict = conflicts.get(slot.id);
       return conflict ? { ...slot, error: slot.error ? `${slot.error}; ${conflict}` : conflict } : slot;
     });
-    const signature = JSON.stringify(resolved.map((slot) => [slot.id, slot.directory, slot.state, slot.error ?? "", slot.serving?.stamp ?? ""]));
+    // Its words too: a script note retitled (its summary, PIE-1284) is news to clients though its code isn't.
+    const signature = JSON.stringify(resolved.map((slot) => [slot.id, slot.directory, slot.state, slot.error ?? "", slot.serving?.stamp ?? "", slot.serving?.description ?? ""]));
     this.slots = resolved;
     this.bound = bound;
     this.boundAgents = agents;

@@ -79,3 +79,24 @@ test("a file script's header names its mode and effects, and anything else is re
   expect(refused?.error).toContain("mode=render");
   expect(refused?.error).toContain("effects=write");
 });
+
+test("a script's own words are its summary (PIE-1284): a note script's its note's title, an extension's its about; retitling the note is a change clients hear", async () => {
+  const { root, store, create, client } = await setup();
+  plant(join(root, "outline/extensions"), "garden", "water");
+  const note = create("Weekly tidy of the beds [script::tidyup]\n\n```js\nreturn 1;\n```");
+  const list = () => client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+  const summary = async (name: string) => (await list()).extensions.find(e => e.script && e.name === name)?.summary;
+  expect(await summary("tidyup")).toBe("Weekly tidy of the beds");
+  expect(await summary("water")).toBe("water the garden");
+  // A note that opens with its code has no title to say: never the fence's opener.
+  create("[script::bare]\n```js\nreturn 2;\n```");
+  create("```js script=fenced\nreturn 3;\n```");
+  expect(await summary("bare")).toBeUndefined();
+  expect(await summary("fenced")).toBeUndefined();
+  // Its description still says where it is written (completions show it).
+  expect((await list()).extensions.find(e => e.name === "tidyup")?.description).toContain(`((${note.id}))`);
+  const before = (await list()).generation;
+  store.update(note.id, note.text.replace("Weekly", "Monthly"), note.revision, { author: "user" });
+  expect(await until("the new title", async () => (await summary("tidyup")) === "Monthly tidy of the beds")).toBe(true);
+  expect((await list()).generation).toBeGreaterThan(before);
+});
