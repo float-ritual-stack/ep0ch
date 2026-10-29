@@ -49,6 +49,11 @@ will and find where it's wrong.
   content out).
 - **Look at the screen:** capture it (`tmux capture-pane`, `snap` PNG) and read it as he would: is it readable at a
   glance, does it say what happened, does anything look broken, cut, doubled or stale, does the next step make sense?
+- **Validate what a batch adds up to,** not ticket by ticket, criterion by criterion: use the day's merged work together
+  the way Evan's day would touch it, and map what you saw back to the tickets after.
+- **It never becomes Evan's job:** no checklist, "please verify" or "try this" handed to him (Evan: "i rather nuke this
+  project than turn it into a full time qa job ontop of my job that pays the fucking bills"). Only taste or his hands
+  go to him, as one `[needs::sysop]` line.
 - **Report the experience:** closable only when using it feels right, not when the done-when's boxes tick. Friction
   is a finding even with every box ticked: what you did, what you saw (the capture), what you expected.
 
