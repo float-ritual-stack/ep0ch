@@ -132,12 +132,23 @@ The check is off in every session but yours: `EP0CH_SETTLE=on|off` (or the mod's
 two properties on the settle capability note (the newest edited note carrying each; the folder's `.ep0ch/config.toml` holds names only and is never read): `[settle-outlines::gurgle@float-2, pie@float-2]` (default `pie` and `gurgle` on the outline's machine; `EP0CH_SETTLE_OUTLINES` overrides) and `[settle-tuning::chirps=3; quiet=60; within=4320; wake-max=5; base=…]` (`settleTuning` or `EP0CH_SETTLE_TUNING` overrides) tune
 it. The first check only records what was already settled (one baseline line in the build log). Thresholds are guesses: tune them from a week of real threads.
 
-## Draining Up next
+## Draining Up next (the drain tick)
 
-When a builder slot or a box-test slot is free and nothing is settling (no wake pending, no thread you owe a shape),
-take the next item from Up next (the briefing's section, aca85598, or the Waiting to start lane in the Roadmap Hub),
-start a builder on it within the budget, and close it on proof the same day. The backlog drains because there was room,
-not because Evan said go; one-way doors (infrastructure, deletion, a protocol bump) still get a one-line heads-up first.
+The repository's mod hands your session the drain every 30 minutes (PIE-1372; `EP0CH_DRAIN=off` stops it for a
+session), so no cron is set by hand. The rules are daddy's request ((5bfab6fb-75d1-49ee-9ec6-5f02e653a5f6|Drain on its own clock)). Each tick:
+
+1. **Merge what's ready:** a builder reported green and its findings are answered.
+2. **Fill free builder slots, up to 3,** in the pull order: Up next (the Waiting to start lane in the Roadmap Hub), then
+   `#hydra` and `arc=floor` items whose definition of done is written, then high-priority queued items, oldest first.
+   Skip `[needs::sysop]` and one-way doors (infrastructure, deletion, a protocol bump: a one-line heads-up first).
+   Absence is a green light: Evan offline means fill every free slot.
+3. **Once a day, while Evan has written nothing in pie, gurgle or float-hub for about 2 hours, sweep:** queued more than
+   5 days is picked up, re-ranked with a one-line reason, or closed with the reason; an item with no definition of done
+   gets one written from its note and links.
+4. **A line under the day's build log** for every pick, re-rank and close. Close picks on proof the same day.
+
+The tick stays quiet when the open PRs and the doing and queued items read as at the last drain, the same day.
+Nothing to merge and no slot to fill: one line, nothing else.
 
 ## The build log
 

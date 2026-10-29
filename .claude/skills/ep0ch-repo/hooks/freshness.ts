@@ -42,15 +42,15 @@ export function dueOf(c: Counts): boolean {
  */
 export function sweepsFor(setting: string | undefined, agent: string | null): boolean {
   const s = setting?.trim().toLowerCase()
-  if (s === 'on' || s === '1') return true
-  if (s === 'off' || s === '0') return false
+  if (s === 'on' || s === '1' || s === 'true') return true
+  if (s === 'off' || s === '0' || s === 'false') return false
   return agent === SWEEPER
 }
 
 /** `agent = "<name>"` in a `.ep0ch`, or null. */
 export function agentOfEp0ch(text: string): string | null {
-  const m = /^\s*agent\s*=\s*"([^"]*)"\s*$/m.exec(text)
-  return m?.[1]?.trim() || null
+  const m = /^\s*agent\s*=\s*(?:"([^"]*)"|'([^']*)')\s*(?:#.*)?$/m.exec(text)
+  return (m?.[1] ?? m?.[2])?.trim() || null
 }
 
 /** The sweep's task: the stale list from `.claude/freshness.md`, why it runs now, and how to answer. */

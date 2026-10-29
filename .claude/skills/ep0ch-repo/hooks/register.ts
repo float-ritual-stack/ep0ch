@@ -4,6 +4,7 @@ import { pathsIn, type Rule, ruleContext, ruleOf, rulesFor } from './rules'
 import { guardOf, type Merge, mergesIn, protocolOf, protocolRefusal } from './guards'
 import { installedRoot, landArgv, landedSaid, lookupFailed, mergedPr } from './landed'
 import { absolute, contentsOf, scratchRemovals, underScratch } from './scratch'
+import { DRAIN_EVERY_MS, DRAIN_FIRST_MS, DRAIN_LOOKUPS, drainKeyOf, drainPrompt, drainsFor } from './drain'
 import { agentOfEp0ch, type Counts, dueOf, SWEEP_AFTER_CHANGES, SWEEP_AFTER_TURNS, isDeploy, isMerge, isOutlineWrite, reportOf, SWEEP_SYSTEM, SWEEP_TOOLS, sweepBrief, sweepsFor } from './freshness'
 
 const PROTOCOL_PATH = 'packages/outline-core/src/protocol.ts'
@@ -15,8 +16,19 @@ const LAND_MS = 60_000
 
 /** This machine's name, asked once (the --parallel rule holds on the shared machine only). */
 let hostname: Promise<string> | undefined
-/** Whether this session sweeps, read once. */
+/** The session's agent, and whether it sweeps, read once. */
+let sessionAgent: Promise<string | null> | undefined
 let sweeps: Promise<boolean> | undefined
+/** The drain tick's clock (armed once per start; its generation stops an earlier start's first tick), whether a tick waits for the session, and whether a dropped one was said. */
+let drainStarting: Promise<void> | undefined
+let drainTimer: { cancel: () => void } | undefined
+let drainGen = 0
+let drainWaiting = false
+/** A drain prompt is in the session and its turn hasn't ended: the next main-loop turn's end clears it. */
+let drainQueued = false
+/** The board at the last drain that went (drainKeyOf). */
+let drainKey: string | null = null
+let drainDropSaid = false
 /** Deploys and merges, and turns that wrote to the outline, since the last sweep. */
 const counts: Counts = { changes: 0, turns: 0 }
 let wroteThisTurn = false
@@ -34,17 +46,79 @@ function hostnameOf($: EngineInterface): Promise<string> {
   return (hostname ??= $.process.run(['hostname'], { timeoutMs: 3000 }).then(r => r.stdout.trim(), () => ''))
 }
 
-/** Whether this session sweeps: EP0CH_FRESHNESS, else the nearest `.ep0ch`'s agent (or EP0CH_AGENT) is loki. */
-function sweepsHere($: EngineInterface): Promise<boolean> {
-  return (sweeps ??= (async () => {
-    const [setting, envAgent, root] = await Promise.all([$.env.get('EP0CH_FRESHNESS'), $.env.get('EP0CH_AGENT'), $.session.root()])
-    let agent: string | null = null
+/**
+ * The session's agent, in the Claude mod's order (its `sessionPersonaOf`): OUTLINER_ACTOR, else EP0CH_AGENT, else the
+ * nearest `.ep0ch`'s `agent` (`.ep0ch/config.toml`, or an old `.ep0ch` file); null when none names one. Read once.
+ */
+function agentHere($: EngineInterface): Promise<string | null> {
+  return (sessionAgent ??= (async () => {
+    const [actor, envAgent, root] = await Promise.all([$.env.get('OUTLINER_ACTOR'), $.env.get('EP0CH_AGENT'), $.session.root()])
+    const named = actor?.trim() || envAgent?.trim()
+    if (named) return named
     for (let dir = root; dir; dir = dir.slice(0, dir.lastIndexOf('/'))) {
-      const text = await $.fs.read(`${dir}/.ep0ch`).then(t => String(t), () => null)
-      if (text !== null) { agent = agentOfEp0ch(text); break }
+      for (const file of [`${dir}/.ep0ch/config.toml`, `${dir}/.ep0ch`]) {
+        const text = await $.fs.read(file).then(t => String(t), () => null)
+        if (text !== null) return agentOfEp0ch(text)
+      }
     }
-    return sweepsFor(setting, agent ?? (envAgent?.trim() || null))
-  })().catch(() => false))
+    return null
+  })().catch(() => null))
+}
+
+/** Whether this session sweeps: EP0CH_FRESHNESS, else the session's agent is loki. */
+function sweepsHere($: EngineInterface): Promise<boolean> {
+  return (sweeps ??= (async () => sweepsFor(await $.env.get('EP0CH_FRESHNESS'), await agentHere($)))().catch(() => false))
+}
+
+/**
+ * The drain tick (hooks/drain.ts, PIE-1372), in the deployer's sessions (EP0CH_DRAIN says otherwise): the drain prompt
+ * every 30 minutes on the engine's clock, the first soon after the start. A prompt the session drops is said once; the
+ * next tick tries again. Once per start (or, for a module reloaded mid-session, the first turn after). Never throws.
+ */
+function startDrainOnce($: EngineInterface): Promise<void> {
+  return (drainStarting ??= startDrain($))
+}
+
+async function startDrain($: EngineInterface): Promise<void> {
+  try {
+    drainTimer?.cancel()
+    drainTimer = undefined
+    const gen = ++drainGen
+    if (!drainsFor(await $.env.get('EP0CH_DRAIN'), await agentHere($))) return
+    if (gen !== drainGen) return
+    const tick = () => void drainTick($, gen)
+    drainTimer = $.clock.every(DRAIN_EVERY_MS, tick)
+    $.clock.after(DRAIN_FIRST_MS, () => { if (gen === drainGen) tick() })
+  } catch (error) {
+    $.ui.toast(`Drain tick couldn't start: ${error instanceof Error ? error.message : String(error)}`, { timeoutMs: 8000 })
+  }
+}
+
+/**
+ * One tick: quiet while the last drain hasn't had its turn (a submitted prompt only queues), and quiet when the board
+ * reads as it did at the last drain that went, the same day (DRAIN_LOOKUPS); else the drain prompt.
+ */
+async function drainTick($: EngineInterface, gen: number): Promise<void> {
+  if (drainWaiting || drainQueued) return
+  drainWaiting = true
+  try {
+    const [cwd, now] = await Promise.all([$.session.root(), $.clock.now()])
+    const answers = await Promise.all(DRAIN_LOOKUPS.map(argv => $.process.run([...argv], { cwd, timeoutMs: LOOKUP_MS })
+      .then(r => (r.exitCode === 0 ? r.stdout : null), () => null)))
+    const key = drainKeyOf(answers, now)
+    if (gen !== drainGen || (key !== null && key === drainKey)) return
+    drainQueued = true
+    const sent = await $.prompt.submit({ text: drainPrompt() })
+    if (sent.drop !== undefined) throw Error(sent.drop || 'the prompt was dropped')
+    drainKey = key
+    drainDropSaid = false
+  } catch (error) {
+    drainQueued = false
+    if (!drainDropSaid) $.ui.toast(`Drain tick didn't reach this session (${error instanceof Error ? error.message : String(error)}); the next tick tries again.`, { timeoutMs: 8000 })
+    drainDropSaid = true
+  } finally {
+    if (gen === drainGen) drainWaiting = false
+  }
 }
 
 /** Why a merge's PROTOCOL is wrong (see protocolRefusal), or null: right, untouched, not into main, or not known in time. */
@@ -179,14 +253,24 @@ async function rulesToAttach($: EngineInterface, command: string, agentId: strin
  * - guardrails: a Bash call that breaks one of the repository's hard rules is refused with the reason and the command
  *   to run instead (hooks/guards.ts);
  * - the freshness sweep: in the deployer's sessions, after a few deploys or merges, a read-only background agent checks
- *   what `.claude/freshness.md` lists as stale and hands its findings to the main thread (hooks/freshness.ts).
+ *   what `.claude/freshness.md` lists as stale and hands its findings to the main thread (hooks/freshness.ts);
+ * - the drain tick: in the deployer's sessions, the drain as a prompt every 30 minutes (hooks/drain.ts).
  */
 export const register: Register = (on) => {
   // A registration is one session (a reload, a test case): nothing carries over from the last one.
   hostname = undefined
   rules = undefined
   attached.clear()
+  sessionAgent = undefined
   sweeps = undefined
+  drainTimer?.cancel()
+  drainTimer = undefined
+  drainStarting = undefined
+  drainGen++
+  drainWaiting = false
+  drainQueued = false
+  drainKey = null
+  drainDropSaid = false
   counts.changes = 0
   counts.turns = 0
   wroteThisTurn = false
@@ -249,6 +333,14 @@ export const register: Register = (on) => {
     }
   })
 
+  // The drain tick (hooks/drain.ts), armed at each start (a resume, a /clear) in the deployer's sessions.
+  on('session.start', async ($, e, next) => {
+    const result = await next(e)
+    drainStarting = undefined
+    $.clock.after(0, () => void startDrainOnce($))
+    return result
+  })
+
   // A compaction or /clear drops what the rules said: they're given again the next time a command touches them.
   on('session.compact', async ($, e, next) => {
     const result = await next(e)
@@ -270,6 +362,9 @@ export const register: Register = (on) => {
       return result
     }
     if (e.agentId !== undefined) return result
+    // A module reloaded mid-session (a deploy of this mod) never sees its session.start.
+    if (!drainStarting) $.clock.after(0, () => void startDrainOnce($))
+    drainQueued = false
     if (wroteThisTurn) counts.turns++
     wroteThisTurn = false
     if (sweepId !== null && (await $.clock.now()) - sweepAt > SWEEP_STALE_MS) sweepId = null

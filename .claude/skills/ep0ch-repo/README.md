@@ -51,8 +51,9 @@ Two parts (`hooks/scratch.ts`, `scripts/scratch-clean`):
 
 ## The freshness sweep
 
-- **Who:** a session whose nearest `.ep0ch` says `agent = "loki"` (the live checkout's does), or that has
-  `EP0CH_AGENT=loki`. Builders' worktrees have no `.ep0ch`, so they never sweep. `EP0CH_FRESHNESS=on` or `off`
+- **Who:** a session whose agent is loki, in the Claude mod's order: `OUTLINER_ACTOR`, else `EP0CH_AGENT`, else the
+  nearest `.ep0ch`'s `agent` (`.ep0ch/config.toml`, or an old `.ep0ch` file; the live checkout's says loki). A
+  builder's worktree names no agent, so it never sweeps. `EP0CH_FRESHNESS=on` or `off`
   overrides this.
 - **When:** after 3 deploys or merges (`ep0ch install --apply`, `gh pr merge` that ran), or after 10 turns that wrote
   to the outline, counted in the main loop since the last sweep (`hooks/freshness.ts`).
@@ -66,6 +67,21 @@ Two parts (`hooks/scratch.ts`, `scripts/scratch-clean`):
     skip the plugin's hooks, and a live run showed a fork writing a file the mod meant to refuse.
 - **The answer:** the agent's answer comes back as a prompt from the ep0ch-repo plugin. The main thread checks the
   findings and makes the updates as itself. A toast says when a sweep starts, or why it couldn't.
+
+## The drain tick
+
+- **Who:** the freshness sweep's sessions, the deployer's (`EP0CH_DRAIN=on` or `off` overrides).
+- **When:** every 30 minutes on the engine's clock (`$.clock.every`, as the settle check's), the first a minute after
+  the session starts; a resume or `/clear` re-arms the one clock (`hooks/drain.ts`, PIE-1372). No cron to set.
+- **What:** a prompt of the mod's own, the drain: merge what's ready, fill free builder slots up to 3 in the pull
+  order with its skips, the once-a-day sweep while Evan has written nothing in pie, gurgle or float-hub for about 2
+  hours, a build-log line per pick, re-rank and close, one line when nothing changed. The rules are the loki skill's
+  "Draining Up next" and daddy's request (pie 5bfab6fb); the prompt points at them.
+- **Quiet when nothing moved:** before waking the session the tick reads the open PRs (`gh pr list`) and the items in
+  doing and queued (`ep0ch find --ids`); the same answers on the same day as the last drain that went, and it says
+  nothing. A lookup that fails wakes it (the session can look).
+- **One at a time:** a submitted prompt only queues, so no tick runs until a main-loop turn has ended since the last;
+  a dropped one is said once in a toast and the next tick tries again.
 
 ## Package rules for commands
 
