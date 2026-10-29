@@ -80,7 +80,7 @@ const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
     run({ by }, { pane, desk }) { pane.top = Math.max(0, Math.min(pane.total - pane.room, pane.top + by)); desk.redraw(); return { top: pane.top }; },
   }),
   "answer.follow": def({
-    summary: "follow a link in the answer beside its note", keys: "1–9, click", touches: "tile", replay: "safe",
+    summary: "follow a link in the answer beside its note", keys: [{ keys: "1-9", does: "follow that link" }, { keys: "click", does: "follow a link" }], touches: "tile", replay: "safe",
     args: { n: { type: "number", about: "link number, from one" } },
     examples: [
       { act: "answer.follow tile=answer n=1", does: "follows the answer's first link, as its reader would" },

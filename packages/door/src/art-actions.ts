@@ -35,7 +35,7 @@ export const ART_ACTIONS = actionSet<ArtOn>()("art", {
     run({ by }, on) { return done(on, on.pane.step(Math.trunc(by) || 1)); },
   }),
   "art.scroll": def({
-    summary: "scroll the piece by rows (negative: up); an agent's is said on the status bar", keys: "↑ ↓ j k PgUp PgDn, the wheel, click on ↑ or ↓",
+    summary: "scroll the piece by rows (negative: up); an agent's is said on the status bar", keys: [{ keys: "↑ ↓ j k pgup pgdn", does: "scroll the piece" }, { keys: "wheel", does: "scroll the piece" }, { keys: "click", does: "on ↑ or ↓" }],
     touches: "tile", replay: "safe", way, says: out => `· scrolled the art to row ${out.scroll}`,
     args: { by: { type: "number", about: "rows; negative scrolls up" } },
     examples: [

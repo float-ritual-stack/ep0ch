@@ -1,4 +1,5 @@
 import { formFields, FORM_FIELD_KEY, type FormField } from "@ep0ch/outline-core/form-fields";
+import { keyTable } from "./keymap";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { tabStrip } from "./chip-rows";
 import { LineField } from "./line";
@@ -11,18 +12,18 @@ import { printable, wrap } from "../text";
 import { modeBinding, modeHint, type ModeKey } from "./modes";
 import type { Key } from "../term";
 
-export const FORM_KEYS: readonly ModeKey[] = [
+export const FORM_KEYS: readonly ModeKey[] = keyTable("form", "a note form being filled", [
   { key: "tab", action: "form.move", args: { by: 1 }, label: "next field" },
   { key: "shift+tab", action: "form.move", args: { by: -1 }, label: "previous" },
   { key: "enter", action: "form.submit", label: "submit" },
   { key: "esc", action: "form.leave", label: "leave" },
-];
+]);
 
-export const FORM_CHOICE_KEYS: readonly ModeKey[] = [
+export const FORM_CHOICE_KEYS: readonly ModeKey[] = keyTable("form choice", "a choice in a note form", [
   { key: "left", action: "form.set", args: { by: -1 }, label: "previous choice" },
   { key: "right", action: "form.set", args: { by: 1 }, label: "next choice" },
   { key: "click", action: "form.set" },
-];
+]);
 
 export class NoteForm {
   fields: FormField[] = [];

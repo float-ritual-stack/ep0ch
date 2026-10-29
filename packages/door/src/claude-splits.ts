@@ -337,7 +337,7 @@ export const CLAUDE_SPLIT_ACTIONS = actionSet<SplitOn>()("claude", {
   }),
   "claude.attach": def({
     summary: "attach to one process of a Claude session running twice: a background job opens in a new terminal tile running `claude attach <job id>` (over ssh -t on another machine); an interactive one is its terminal's, refused with where it runs and how to stop it",
-    keys: "a on a row of claude.splits' picker; ⏎ then attach",
+    keys: [{ keys: "a", does: "on a row of claude.splits' picker" }, { keys: "⏎", does: "on a row of the picker, then attach" }],
     touches: "shape", replay: "ask",
     says: (out: { cmd?: string }) => (out?.cmd ? `· opened ${out.cmd}` : null),
     args: PID,

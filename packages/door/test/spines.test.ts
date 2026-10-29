@@ -76,8 +76,9 @@ describe("alt+c", () => {
 
 test("the board's collapse and expand are tile.collapse, with the board's keys", () => {
   const collapse = TILE_ACTIONS.list().find(a => a.name === "tile.collapse")!;
-  expect(collapse.keys).toContain("board c on a reader");
-  expect(collapse.keys).toContain("alt+c");
+  // Its keys are rows (PIE-1048): the board's c and alt+c each a row of their own, saying what they do.
+  expect(collapse.keys).toContainEqual({ keys: "c", does: expect.stringContaining("on the board: folds a reader") });
+  expect(collapse.keys).toContainEqual({ keys: "alt+c", does: "every one" });
   expect(BOARD_ACTIONS.has("reader.collapse")).toBe(false);
 });
 

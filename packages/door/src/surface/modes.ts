@@ -1,4 +1,5 @@
 import { keyName, keyCaption } from "./actions";
+import { effective, keyNow } from "./keymap";
 import type { SurfaceView } from "./note";
 import type { Hint } from "./hint-card";
 // The reader's modes (PIE-516, part 2): what takes a reader's keys while the person or an agent is doing
@@ -24,12 +25,13 @@ export interface ModeKey {
 
 export function modeBinding(keys: readonly ModeKey[], key: Key): ModeKey | undefined {
   if (key.kind === "mouse") return undefined;
-  return keys.find(row => row.key === keyName(key));
+  const name = keyName(key);
+  return effective(keys).find(row => row.key === name);
 }
 
 export function modeHint(keys: readonly ModeKey[], describe: (action: string) => { summary: string } | undefined): string {
   const groups = new Map<string, string[]>();
-  for (const row of keys) {
+  for (const row of effective(keys)) {
     if (row.key === "click" || row.key === "drag" || row.key === "wheel") continue;
     const label = row.label ?? describe(row.action)!.summary;
     const group = groups.get(label) ?? [];
@@ -39,7 +41,7 @@ export function modeHint(keys: readonly ModeKey[], describe: (action: string) =>
 }
 
 export function modeActionKeys(tables: readonly (readonly ModeKey[])[], action: string): string | undefined {
-  const keys = [...new Set(tables.flatMap(table => table.filter(row => row.action === action).map(row => row.key)))];
+  const keys = [...new Set(tables.flatMap(table => effective(table).filter(row => row.action === action).map(row => row.key)))];
   return keys.length ? keys.map(keyCaption).join(", ") : undefined;
 }
 
@@ -174,4 +176,26 @@ export class ModeStack<H> extends Modes<H, ReaderMode<H>> {
   changed(revision: number, partial: boolean) { for (const m of this.all()) m.changed?.(revision, partial); }
   /** The mode that holds the note, by the noun a refusal names it with ("finish the edit first"). */
   holding(): string | null { return this.all().find(m => m.editing())?.noun ?? null; }
+}
+
+/**
+ * One part of a hint row that names an action (PIE-492): `key` is its built-in key (a key its def declares, held by
+ * test/keys-window.test.ts), `label` what the row calls it. The row draws the key the person's keymap gives it instead,
+ * and leaves the part out when the keymap unbinds it, so a rebind shows on every hint row that names the action.
+ */
+export interface HintPart {
+  readonly action: string; readonly key: string; readonly label: string; readonly args?: Record<string, unknown>;
+  /** More built-in keys drawn with it (`1-9` after Tab): left out once the keymap moves the key. */
+  readonly also?: string;
+}
+/** The key a hint part shows now: the keymap's first for its binding, else its built-in; null when the keymap unbinds it. */
+export const hintKey = (p: HintPart): string | null => keyNow(p.action, p.args ?? {}, p.key) ?? null;
+/** Hint parts as a hint row draws them (`|15key|08 label`, the desk's paint codes): each a key the hint row's click presses. */
+export function partsHint(parts: readonly HintPart[]): string {
+  return parts.flatMap(p => {
+    const k = hintKey(p);
+    if (k === null) return [];
+    const cap = k === "tab" ? "Tab" : keyCaption(k);
+    return [`|15${cap}${k === p.key && p.also ? `/${p.also}` : ""}|08 ${p.label}`];
+  }).join(" · ");
 }
