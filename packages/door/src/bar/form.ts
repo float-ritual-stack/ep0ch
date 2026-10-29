@@ -21,7 +21,8 @@ export interface FormField { name: string; spec: ArgSpec; selector?: true }
 
 /** The fields of an action's form: the arguments it needs, then tile= when it runs on a tile, then the rest. */
 export function formFields(info: ActionInfo): FormField[] {
-  const args = Object.entries(info.args).filter(([name]) => name !== SELECTOR);
+  // What the host binds (the block in front, a passage) is never asked: `act` still takes it.
+  const args = Object.entries(info.args).filter(([name, s]) => name !== SELECTOR && !s.context);
   const needed = args.filter(([, s]) => !s.optional).map(([name, spec]) => ({ name, spec }));
   const rest = args.filter(([, s]) => s.optional).map(([name, spec]) => ({ name, spec }));
   // An argument named tile can't be reached from an act line (tile= is the selector): its meaning is the selector's.
