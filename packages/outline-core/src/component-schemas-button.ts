@@ -18,7 +18,7 @@ export const BUTTON: ComponentSchema = {
     { key: "tone", where: "line", type: "enum", values: enumOf({ quiet: "the link colour, for most buttons", primary: "the one to press, brighter", danger: "a press that removes or can't be undone" }), meaning: "the theme role it is drawn in (quiet)", samples: ["primary", "danger"] },
     { key: "frame", where: "line", type: "enum", values: enumOf({ none: "one row: [label], or a filled band with fill=on", box: "a thin square frame", round: "a thin frame with round corners", heavy: "a thick frame", double: "a double-line frame" }), meaning: "a frame of the box glyphs, three rows high; none (the default) is one row", samples: ["round", "heavy"] },
     { key: "fill", where: "line", type: "enum", values: enumOf({ on: "the tone as background", off: "the tone as text only" }), meaning: "the tone as its background: with frame=none a filled band (off)", samples: ["on"] },
-    { key: "of", where: "line", type: "script", meaning: "a script or comma-separated list of scripts to pipe, in place of act=; every word except label, act and alt on the line is its slot (`at=5` is props.at)", samples: ["fantasia", "ttt-move"] },
+    { key: "of", where: "line", type: "script", meaning: "a script or comma-separated list of scripts to pipe, in place of act=; every word except label, act, alt and the look words (glyph, tone, frame, fill) on the line is its slot (`at=5` is props.at)", samples: ["fantasia", "ttt-move"] },
   ],
   source: { use: '::button{label="Fold the bottom"}\ntile.collapse on=true tile=links\ntile.collapse on=true tile=preview\n::' }, example: {}, sweep: [], grids: [], space: [],
 };

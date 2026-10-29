@@ -100,7 +100,7 @@ const written = (key: string, value: string) => (/^[^\s"'{}\\]+$/.test(value) ? 
 /**
  * What the line says that no button reads (PIE-1298, Evan, Oct 25: `act="tile.zoom reach="column" tile="t-a6125371"` ended
  * act= at the second quote and zoomed the focused tile): null when it reads as written, else the reason and the line to
- * write. `strays` are words the button doesn't read (not label, act, of, alt, nor a slot some `{key}` names).
+ * write. `strays` are words the button doesn't read (not BUTTON_OWN's, nor a slot some `{key}` names).
  */
 function misread(label: string | undefined, act: string, strays: readonly { key: string; value: string }[]): string | null {
   const open = !balanced(act);

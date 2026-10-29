@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Buttons look like buttons, and the power bar's extensions read at a glance (PIE-1287, PIE-1284)
+
+- **A button says how it looks:** `::button{… glyph="▶" tone=primary frame=round fill=on}`. Tones are quiet, primary
+  and danger; frames none (one row), box, round, heavy and double. With none of them it is `[label]`, as before.
+- **A button says what its press did:** ◐ while a slow one runs, ✓ after, `!` when it failed (the pointer reads why,
+  until the next press). One whose action would be refused now is drawn dim, in parentheses. Under the pointer a
+  button lights up, in a note, a script's view and on the status bar alike.
+- **One part draws them all:** note buttons, a script view's buttons, an output region's and a proposal's controls,
+  a thread's controls, the empty screen's and the status bar's (now `[Collapse]`, a button like the rest). Published
+  pages draw the same tone, glyph and frame, inert.
+- **`&` in the power bar** lists one line per extension, grouped by what it adds first (rules, components, scripts,
+  programs, sources, agents, tiles), each with a count; the hub says how many of the repo's are installed. Its id,
+  version, folder and everything it adds are in the preview beside.
+- The kitchen sink's **buttons** section shows every tone, frame and state. GRAMMAR is 9: an older door draws the
+  look words as slots of an `of=` script until `ep0ch install --apply`.
+
 ### One answer to an @margin ask in a comment (PIE-1374)
 
 - **Explain answers once:** the page's and the door's Explain, and a typed `@margin` in a comment or reply, get one
