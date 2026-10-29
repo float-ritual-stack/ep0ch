@@ -356,7 +356,7 @@ export const EVALS_PAGE = [
   "::graph-stat",
   "---",
   "title: the labelled set",
-  'items: [{ label: agents read, query: "type=search-eval-case source=agent-read", machinery: show }, { label: Evan picked, query: "type=search-eval-case source=evan-pick", machinery: show, accent: true }, { label: the note made after, query: "type=search-eval-case source=agent-made", machinery: show }]',
+  'items: [{ label: agents read, query: "type=search-eval-case source=agent-read", machinery: show }, { label: Evan picked, query: "type=search-eval-case source=evan-pick", machinery: show, accent: true }, { label: the note made after, query: "type=search-eval-case source=agent-made", machinery: show }, { label: in none of its words, query: "type=search-eval-case source=paraphrase", machinery: show }]',
   "---",
   "::",
 ].join("\n");
