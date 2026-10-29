@@ -303,7 +303,7 @@ describe("the agent rule, stated once", () => {
     const its = DraftSession.open(t, { by: AGENT });
     its.replace("- a\n- b", AGENT);
     expect(agentRefusal(AGENT, its)).toBeNull();
-    expect(agentRefusal(OTHER, its)).toContain("the person is typing in this draft");
+    expect(agentRefusal(OTHER, its)).toMatch(/^\w+ has this draft open; an agent doesn't type in it/);
     keys(its, ["!"]);
     expect(agentRefusal(AGENT, its)).toBe("someone else is typing in this draft; an agent doesn't type in it · draft.patch lands in an edit; block.mark gets their attention");
     mine.dispose(); its.dispose();

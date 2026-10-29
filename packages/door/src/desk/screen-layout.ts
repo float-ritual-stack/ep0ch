@@ -384,8 +384,6 @@ export function apply<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Result<I> {
     taken.add(d.names.get(id)!);
   }
   if (renamed.length) { d.answer.renamed = renamed; d.changed = true; }
-  neverBlank(d);
-  wideOpens(d.tree, d.collapsed as Map<I, Fold>);
   if (ctx.actor.kind === "user" && d.focus !== ctx.person.focus && d.lift && d.focus !== d.lift.tile) d.lift = null;
   return { ok: true, state: seal(d, s), focus: d.focus, changed: d.changed, answer: d.answer, base: s };
 }
@@ -407,10 +405,15 @@ function attempt<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Draft<I> | strin
     // An agent's step leaves the tile the person is typing in the size it has on screen, in cells, whatever it does
     // around it (an open beside it, a fold that would widen it, neat's steps), or is refused (PIE-1294).
     const typing = ctx.protectTyping && ctx.person.typingIn !== null && has(s.tree, ctx.person.typingIn) ? ctx.person.typingIn : null;
-    const before = typing === null ? undefined : rects({ ...s, zoom: null }, ctx.area).get(typing);
+    // Measured as the desk draws it: a column holding work keeps its width in a flow.
+    const holds = (id: I) => !!ctx.tile(id).holds;
+    const before = typing === null ? undefined : rects({ ...s, zoom: null }, ctx.area, holds).get(typing);
     new Step(d, ctx).run(op);
+    // The fixups every step gets, before it is measured: a dock opened on a blank screen, a flow's wide column unfolded.
+    neverBlank(d);
+    wideOpens(d.tree, d.collapsed as Map<I, Fold>);
     if (ctx.protectTyping && ctx.person.typingIn !== null && d.focus !== ctx.person.focus) refuse(heldBack("the person is typing", "move their keys out of that tile"));
-    const after = before && rects({ ...d, zoom: null }, ctx.area).get(typing!);
+    const after = before && rects({ ...d, zoom: null }, ctx.area, holds).get(typing!);
     // (A cell either way is the rounding of other borders as the screen re-lays out, not a resize.)
     if (before && (!after || Math.abs(after.cols - before.cols) > 1 || Math.abs(after.rows - before.rows) > 1)) {
       refuse(typingIn(String(s.names.get(typing!)), "resize it", op.op === "open" ? `an open goes beside another tile (to=), or ${MARK_THEM}` : MARK_THEM));
@@ -690,7 +693,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       // lands in another reader that can take it, else beside another tile, else nowhere, said in the owner's words.
       if (ctx.protectTyping && ctx.person.typingIn === target) {
         const shownHere = visible(s.tree).filter(id => id !== target && !s.collapsed.has(id) && ctx.tile(id).available !== false);
-        const reader = shownHere.find(id => { const f = ctx.tile(id); return f.notes && !f.follower && !f.lists && !f.editing && !f.holds && !f.pinned; });
+        const reader = shownHere.find(id => { const f = ctx.tile(id); return f.notes && !f.follower && !f.lists && !f.editing && !f.holds && !f.pinned && !f.deliberate; });
         if (reader !== undefined) return { ...placement(s, { ...request, keys: false, default: false, to: reader }, ctx), route };
         const other = shownHere.find(id => !ctx.tile(id).editing && !ctx.tile(id).holds);
         if (other === undefined) { result.destination = { kind: "none", reason: typingIn(String(s.names.get(target)), "open beside it", `make room with tile.open to=<another tile>, or ${MARK_THEM}`) }; return result; }

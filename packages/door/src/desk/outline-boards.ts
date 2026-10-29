@@ -95,7 +95,8 @@ export async function readNote(ctx: Ctx, given: string, address?: NoteAddress): 
   const at = uri ?? address;
   const on = at ? await outlineBoards(ctx).on(at) : ctx;
   // An id's first 8+ characters, a Work ID or a [[page]] (`open id=221caa3c`, PIE-1294): the service's one resolver, as `show` and `find` ask it.
-  const id = isWholeBlockId(parsed.blockId) ? parsed.blockId : (await on.board.resolveRefs([parsed.blockId]))[0]?.id;
+  // (A note that is no block, resource:, file: or unsent:, is the board's own to read.)
+  const id = isWholeBlockId(parsed.blockId) || parsed.blockId.includes(":") ? parsed.blockId : (await on.board.resolveRefs([parsed.blockId]))[0]?.id;
   if (!id) return null;
   const note = await on.board.get(id);
   if (note && at) note.address = { outline: at.outline, ...(on.machine ? { machine: on.machine } : {}) };

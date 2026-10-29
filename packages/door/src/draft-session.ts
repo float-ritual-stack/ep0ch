@@ -21,7 +21,7 @@ import { outlineState } from "./state";
 import type { Key } from "./term";
 import { markStart } from "@ep0ch/outline-core/draft-patch-compare";
 import { actorHandle, actorName } from "@ep0ch/outline-core/attribution";
-import { heldBack, MARK_THEM, typingIn } from "./whereabouts";
+import { heldBack, MARK_THEM } from "./whereabouts";
 
 // ── the target adapters' seam ─────────────────────────────────────────────────
 
@@ -572,8 +572,9 @@ export function agentRefusal(actor: Actor, on: DraftSession | { board?: object |
   }
   if (on instanceof DraftSession) {
     if (!sameParty(on.openedBy, actor)) {
-      return op === "leave" ? typingIn("this edit or comment", "save or close it")
-        : typingIn("this draft", "type in it", `draft.patch lands in an edit; ${MARK_THEM}`);
+      // Another agent's draft is its own; the person's is theirs while they're in it.
+      const why = on.openedBy.kind === "agent" ? `${actorName(actorIdOf(on.openedBy))} has this ${op === "leave" ? "edit or comment" : "draft"} open` : `the person is typing in this ${op === "leave" ? "edit or comment" : "draft"}`;
+      return op === "leave" ? heldBack(why, "save or close it") : heldBack(why, "type in it", `draft.patch lands in an edit; ${MARK_THEM}`);
     }
     if (on.draft.writers.some(w => !sameParty(w, actor))) return heldBack("someone else is typing in this draft", "type in it", `draft.patch lands in an edit; ${MARK_THEM}`);
     return null;
