@@ -1,4 +1,4 @@
-import { holdsEdit } from "../whereabouts";
+import { heldBack, holdsEdit, MARK_THEM, typingIn } from "../whereabouts";
 import type { AltRule } from "./layout";
 // The screen-layout module (PIE-513): the reducer in the door's one-way data flow. A screen's layout is one value
 // (its tree of containers and tiles, its floats, the tiles folded to a spine, the zoom, the links, the tiles' names,
@@ -384,8 +384,6 @@ export function apply<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Result<I> {
     taken.add(d.names.get(id)!);
   }
   if (renamed.length) { d.answer.renamed = renamed; d.changed = true; }
-  neverBlank(d);
-  wideOpens(d.tree, d.collapsed as Map<I, Fold>);
   if (ctx.actor.kind === "user" && d.focus !== ctx.person.focus && d.lift && d.focus !== d.lift.tile) d.lift = null;
   return { ok: true, state: seal(d, s), focus: d.focus, changed: d.changed, answer: d.answer, base: s };
 }
@@ -404,8 +402,22 @@ function attempt<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Draft<I> | strin
   if (ctx.expected !== undefined) { const why = revisionRefusal(s, ctx.expected); if (why) return why; }
   const d = draftOf(s, ctx.person.focus);
   try {
+    // An agent's step leaves the tile the person is typing in the size it has on screen, in cells, whatever it does
+    // around it (an open beside it, a fold that would widen it, neat's steps), or is refused (PIE-1294).
+    const typing = ctx.protectTyping && ctx.person.typingIn !== null && has(s.tree, ctx.person.typingIn) ? ctx.person.typingIn : null;
+    // Measured as the desk draws it: a column holding work keeps its width in a flow.
+    const holds = (id: I) => !!ctx.tile(id).holds;
+    const before = typing === null ? undefined : rects({ ...s, zoom: null }, ctx.area, holds).get(typing);
     new Step(d, ctx).run(op);
-    if (ctx.protectTyping && ctx.person.typingIn !== null && d.focus !== ctx.person.focus) refuse("the person is typing; their keys stay in that tile");
+    // The fixups every step gets, before it is measured: a dock opened on a blank screen, a flow's wide column unfolded.
+    neverBlank(d);
+    wideOpens(d.tree, d.collapsed as Map<I, Fold>);
+    if (ctx.protectTyping && ctx.person.typingIn !== null && d.focus !== ctx.person.focus) refuse(heldBack("the person is typing", "move their keys out of that tile"));
+    const after = before && rects({ ...d, zoom: null }, ctx.area, holds).get(typing!);
+    // (A cell either way is the rounding of other borders as the screen re-lays out, not a resize.)
+    if (before && (!after || Math.abs(after.cols - before.cols) > 1 || Math.abs(after.rows - before.rows) > 1)) {
+      refuse(typingIn(String(s.names.get(typing!)), "resize it", op.op === "open" ? `an open goes beside another tile (to=), or ${MARK_THEM}` : MARK_THEM));
+    }
   } catch (e) {
     if (e instanceof Refused) return e.message;
     throw e;
@@ -677,6 +689,18 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       const beside = fresh ? undefined : ctx.beside?.get(target);
       if (beside !== undefined && s.names.has(beside) && !ctx.tile(beside).editing && !ctx.tile(beside).holds && ctx.tile(beside).available !== false)
         return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: beside }, ctx), route };
+      // An agent's open never splits the tile the person is typing in (PIE-1294: it took a 44-column edit to 21): it
+      // lands in another reader that can take it, else beside another tile, else nowhere, said in the owner's words.
+      if (ctx.protectTyping && ctx.person.typingIn === target) {
+        const shownHere = visible(s.tree).filter(id => id !== target && !s.collapsed.has(id) && ctx.tile(id).available !== false);
+        const reader = shownHere.find(id => { const f = ctx.tile(id); return f.notes && !f.follower && !f.lists && !f.editing && !f.holds && !f.pinned && !f.deliberate; });
+        if (reader !== undefined) return { ...placement(s, { ...request, keys: false, default: false, to: reader }, ctx), route };
+        const other = shownHere.find(id => !ctx.tile(id).editing && !ctx.tile(id).holds);
+        if (other === undefined) { result.destination = { kind: "none", reason: typingIn(String(s.names.get(target)), "open beside it", `make room with tile.open to=<another tile>, or ${MARK_THEM}`) }; return result; }
+        result.destination = { kind: "new", at: { kind: "split", target: other, dir: "right" } };
+        result.giveNewKeys = false;
+        return result;
+      }
       result.destination = { kind: "new", at: { kind: "split", target, dir: "right" } };
     }
     else {
@@ -692,7 +716,10 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
           const cover = flowCovers!.get(i);
           return cover === undefined || cover === "spine" ? leaves(k).map(t => [t, true] as const) : [];
         })) : s.collapsed;
-        const edge = row?.dir === "row" ? spineEdge(row, folded, target, space.spines, before) : null;
+        let edge = row?.dir === "row" ? spineEdge(row, folded, target, space.spines, before) : null;
+        // An agent's kept page never goes in left of the tile the person is typing in: it would shift their text along (PIE-1294).
+        const typing = ctx.protectTyping && ctx.person.typingIn !== null && row ? row.kids.findIndex(k => leaves(k).includes(ctx.person.typingIn!)) : -1;
+        if (edge && typing >= 0 && row!.kids.findIndex(k => leaves(k).includes(edge!.target)) + (edge.dir === "right" ? 1 : 0) <= typing) edge = spineEdge(row!, folded, target, "end", before);
         result.keep = { tile: target, at: row?.t === "split" && row.key && edge
           ? { kind: "in", key: row.key, node: row.id, index: row.kids.findIndex(k => leaves(k).includes(edge.target)) + (edge.dir === "right" ? 1 : 0) }
           : { kind: "split", target: edge?.target ?? target, dir: edge?.dir ?? (before ? "left" : "right") } };
@@ -838,7 +865,7 @@ class Step<I> {
   }
   /** An agent never moves, floats or pins the tile the person is typing in. */
   private guard(id: I, what: string) {
-    refuse(this.ctx.protectTyping && this.ctx.person.typingIn === id ? `${this.name(id)} is where the person is typing; an agent doesn't ${what} it` : null);
+    refuse(this.ctx.protectTyping && this.ctx.person.typingIn === id ? typingIn(this.name(id), `${what} it`) : null);
   }
   /**
    * An agent never resizes the tile the person is typing in (a border moved, a split's shares, a tile grown, the
@@ -852,12 +879,12 @@ class Step<I> {
     const after = shareOf(this.d.tree, t);
     // Its share of the screen along each axis, from the weights (not cells, which round as other borders move).
     const moved = (["row", "col"] as const).some(a => Math.abs(after[a] - before[a]) > 1e-9);
-    if (moved) refuse(`${this.name(t)} is where the person is typing; an agent doesn't resize it (block.mark gets their attention)`);
+    if (moved) refuse(typingIn(this.name(t), "resize it"));
   }
   /** An agent doesn't move the person's keys while they type. */
   private mayMoveKeys(what: string) {
     const p = this.ctx.person;
-    refuse(!this.ctx.protectTyping ? null : p.held !== undefined ? (p.held ? `${p.held} · an agent doesn't ${what} now` : null) : p.busy ? `the person is typing; an agent doesn't ${what} (block.mark gets their attention)` : null);
+    refuse(!this.ctx.protectTyping ? null : p.held !== undefined ? (p.held || null) : p.busy ? heldBack("the person is typing", what) : null);
   }
   /** Tile `id` can't leave where it is: locked, or its container keeps its tiles (draggable off). */
   private drag(id: I) {
@@ -949,7 +976,7 @@ class Step<I> {
       case "float":
         // Popping a tile out or putting it back moves the tile the person has: an agent doesn't, typing or not (as it
         // doesn't close or fold it).
-        if (this.ctx.protectTyping && op.tile === this.ctx.person.typingIn) refuse(`${this.name(op.tile)} is where the person is typing; an agent doesn't float it`);
+        if (this.ctx.protectTyping && op.tile === this.ctx.person.typingIn) refuse(typingIn(this.name(op.tile), "float it"));
         if (this.agent && op.tile === this.d.focus) refuse(`${this.name(op.tile)} has the person's keys; an agent doesn't float it`);
         return this.isFloat(op.tile) ? this.land(op.tile, op.at) : this.float(op.tile);
       case "place": return this.place(op);
@@ -1752,11 +1779,8 @@ class Step<I> {
 
   /** All ways of opening a row's spine share the room afresh, rather than restoring its old weight. */
   private openSpine(id: I, prior?: ReadonlyMap<I, Rect>) {
-    const typing = this.ctx.protectTyping ? this.ctx.person.typingIn : null;
-    const before = typing === null ? undefined : (prior ?? rects({ ...this.d, zoom: null }, this.ctx.area)).get(typing);
+    // (Its size in cells, for an agent's unfold, is attempt()'s to keep, as for every step.)
     this.keepsSize(() => this.unfoldRow(id, prior));
-    const after = typing === null ? undefined : rects({ ...this.d, zoom: null }, this.ctx.area).get(typing);
-    if (before && (before.cols !== after?.cols || before.rows !== after?.rows)) refuse(`${this.name(typing!)} is where the person is typing; an agent doesn't resize it`);
   }
 
   private unfoldRow(id: I, prior?: ReadonlyMap<I, Rect>) {
@@ -2101,7 +2125,7 @@ class Step<I> {
     if (e.locked && !this.yolo) refuse(this.lockedWhy(e, "widening"));
     // The column the person is typing in never squeezes under them for an agent's shift.
     const typing = this.ctx.person.typingIn;
-    if (this.ctx.protectTyping && typing !== null && typing !== id && columnOf(f.flow, typing) >= 0) refuse(`the person is typing in ${this.name(typing)}, a column of this flow; an agent's widen would squeeze it (block.mark gets their attention)`);
+    if (this.ctx.protectTyping && typing !== null && typing !== id && columnOf(f.flow, typing) >= 0) refuse(typingIn(`${this.name(typing)}, a column of this flow`, "widen another column: it would squeeze theirs"));
     const before = f.flow.anchor, folded = leaves(f.flow.kids[f.ci]!).filter(t => this.d.collapsed.has(t));
     this.rememberFlowSides(f.flow);
     widenFlow(f.flow, f.ci, this.d.touched);

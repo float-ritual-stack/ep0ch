@@ -23,7 +23,7 @@ import { TXN, takeReserved } from "./txn";
 import type { KeyBinding } from "../desk/screen-spec";
 import { Offline, USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
-import { NOBODY, SHELL_IDLE_MS, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
+import { heldBack, NOBODY, SHELL_IDLE_MS, typingIn, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
 import { agentRefusal, type AgentLevel } from "./agent-level";
 import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, declaredKeys, isKeyName, type ActionDef, type ActionInfo, type Touches, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
@@ -275,9 +275,9 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       // whose the draft is), unless they invited it (their `@name` line: the draft rule checks the invitation).
       const t = at.tile;
       if ((def.draft === "replace" || def.draft === "text") && !at.invited && t && where.typingIn === t.name) {
-        return `the person is typing in ${t.label ?? t.name}; an agent doesn't replace their text · ${def.draft === "replace" ? "draft.patch lands in their draft, or comment on the note or block.mark it to get their attention" : "block.mark gets their attention, or wait until it's sent or closed"}`;
+        return typingIn(t.label ?? t.name, "replace their text", def.draft === "replace" ? "draft.patch lands in their draft, or comment on the note or block.mark it to get their attention" : "block.mark gets their attention, or wait until it's sent or closed");
       }
-      if (standing && t && where.typingIn === t.name) return `the person is typing in ${t.label ?? t.name}; an agent does not change or close their draft`;
+      if (standing && t && where.typingIn === t.name) return typingIn(t.label ?? t.name, "change or close their draft");
       return standing ? null : at.draft?.() ?? null;
     }
     case "tile": {
@@ -287,17 +287,18 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       const typing = where.typingIn === t.name;
       const theirs = def.while === "typing" ? typing : typing || (!standing && where.focus === t.name);
       if (!theirs) return null;
-      return `${typing ? `the person is typing in ${label}` : `${label} has the person's keys`}; ${def.way ?? "an agent doesn't act there (block.mark gets their attention)"}`;
+      const why = typing ? `the person is typing in ${label}` : `${label} has the person's keys`;
+      return def.way ? `${why}; ${def.way}` : heldBack(why, "act there");
     }
     case "screen": {
-      if (where.away) return `${where.away}; not moved`;
+      if (where.away) return heldBack(where.away, "move the screen or their keys now", null);
       // Typing in the drawer (the host layer) is never in the way of a screen change: the drawer stays over every
       // screen, so the person's text and keys stay where they are (Evan, Oct 17: "typing in the chat door shouldn't be
       // a hard block on being able to move other parts of the screen"). An action that changes the drawer itself
       // (`host`, putting it away) still waits for them.
       if (where.keys === "host" && !def.host) return null;
       // (A hold on navigation only, as the showcase's sections, is lifted by an invitation too.)
-      if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && standing)) return `${where.why ?? "the person is typing"}; not moved`;
+      if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && standing)) return heldBack(where.why ?? "the person is typing", "move the screen or their keys now");
       if (standing) return null;
       if (where.idle < SHELL_IDLE_MS) return `the person is at the keys (last key ${(where.idle / 1000).toFixed(1)}s ago); try again once they've been idle ${SHELL_IDLE_MS / 1000}s`;
       return null;
