@@ -12,9 +12,9 @@ are its record. The outliner's entries from then are kept below, under
 
 ### Approve from the phone grants what it says, and leaves the list when answered anywhere (PIE-1386)
 
-- **The session step says what it grants:** ``allow `touch` for this session`` adds that one rule for this session,
+- **The session step says what it grants:** ``allow every `touch` command for this session`` adds that one rule for this session,
   never the dialog's accept-edits mode (a tap on `touch` used to let the next `rm` run unasked), a folder or a standing
-  rule. A call no rule names exactly (`a && b`) offers only once and deny.
+  rule. An `rm` gets only its exact command; a call no rule names exactly (`a && b`, a `*`) offers only once and deny.
 - **Answered at the terminal, gone from the list:** the dialog shows in the session at once, beside the ask; answer it
   there and the note leaves Waiting on Evan within 3 s, saying it was answered in the session and whether it ran (it
   used to wait 10 minutes and then say nobody ticked). After 600 s with no answer the note leaves the list and says

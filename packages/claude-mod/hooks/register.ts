@@ -879,9 +879,10 @@ export function register(on: On, options: PluginOptions): void {
     // A dialog's No interrupts the turn, and the hook that asked can no longer write: the turn's end closes its asks.
     const over: CallEnd = { ran: false, said: e.reason === 'aborted' ? 'the turn was interrupted' : 'the turn ended without it' }
     callsUnderWay.endLoop(e.agentId, over)
-    for (const ask of [...openAsks.values()].filter(a => a.agentId === e.agentId)) {
-      await closeAsk($, ask, answeredInSession(over, stampOf(await $.clock.now()))).catch(() => {})
-    }
+    const left = [...openAsks.values()].filter(a => a.agentId === e.agentId)
+    if (left.length) $.clock.after(0, () => void (async () => {
+      for (const ask of left) await closeAsk($, ask, answeredInSession(over, stampOf(await $.clock.now())), true).catch(() => {})
+    })())
     const result = await next(e)
     // The main loop's turn (a subagent's isn't the session's): done, idle when interrupted, error when it failed.
     if (e.agentId === undefined) reportStatus($, turnEnded(e.reason, e.answer))
@@ -1511,7 +1512,18 @@ type OpenAsk = { id: string; workspace: Workspace; actor: string; agentId?: stri
 const openAsks = new Map<string, OpenAsk>()
 
 /** Closes an ask still on the list (its `needs` chip off, `said` added); one already closed is left as it is. */
-async function closeAsk($: EngineInterface, ask: OpenAsk, said: string): Promise<void> {
+async function closeAsk($: EngineInterface, ask: OpenAsk, said: string, last = false): Promise<void> {
+  // The asking hook's close can fail after an interrupt (its `$` no longer answers), so the turn's end tries again; that
+  // try is the last, so a note that can't be read isn't tried again every turn.
+  try {
+    await closeAskOnce($, ask, said)
+    openAsks.delete(ask.id)
+  } finally {
+    if (last) openAsks.delete(ask.id)
+  }
+}
+
+async function closeAskOnce($: EngineInterface, ask: OpenAsk, said: string): Promise<void> {
   for (let tries = 0; tries < 2; tries++) {
     const now = askReadOf(await runOutlinerCli($, ask.workspace, ['agent', 'read', '--stdin', '--actor', ask.actor], JSON.stringify({ ref: ask.id, depth: 0 })))
     if (!now || !/\[needs::/.test(now.text.split('\n')[0] ?? '')) break
@@ -1520,7 +1532,6 @@ async function closeAsk($: EngineInterface, ask: OpenAsk, said: string): Promise
       break
     } catch { /* written meanwhile: read again */ }
   }
-  openAsks.delete(ask.id)
 }
 /** How long a poll of the ask waits between reads. */
 const ASK_POLL_MS = 3000
@@ -1536,6 +1547,9 @@ async function askThePerson($: EngineInterface, option: PluginOptions, e: { tool
   const env = { EP0CH_APPROVE_WAIT: await $.env.get('EP0CH_APPROVE_WAIT'), CLAUDE_JOB_DIR: await $.env.get('CLAUDE_JOB_DIR') }
   const waitMs = approveWaitMs(env)
   if (!waitMs) return null
+  // The call this dialog is for, under way (found first: the page lookup below can take seconds): answered in the
+  // session, it ends.
+  const ending = callsUnderWay.ending(callKey(e.tool_name, e.tool_input, e.agent_id), e.tool_name)
   if (!references?.workspace) await loadReferences($, option)
   const bound = references?.workspace
   if (!bound) return null
@@ -1557,8 +1571,6 @@ async function askThePerson($: EngineInterface, option: PluginOptions, e: { tool
     if (!id) throw Error(`no [[permission-asks]] page in ${workspace.outline ?? 'the bound outline'}, and ep0ch new could not make one`)
     askPage = { key: key(workspace), id, workspace }
   } else workspace = askPage.workspace
-  // The call this dialog is for, under way: answered in the session, it ends.
-  const ending = callsUnderWay.ending(callKey(e.tool_name, e.tool_input, e.agent_id), e.tool_name)
   const grant = sessionGrantOf(e.tool_name, e.tool_input, e.permission_suggestions)
   const asked = stampOf(await $.clock.now())
   const who = `${actor}${e.agent_id ? ` (a subagent)` : ''} in ${bound.root.split('/').pop() || bound.root}${bound.outline && bound.outline !== workspace.outline ? ` (bound to ${bound.outline})` : ''}`

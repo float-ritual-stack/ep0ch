@@ -1786,7 +1786,7 @@ describe('approve from the phone (PIE-1386)', () => {
   })
 
   test('allow for this session writes the dialog\'s own suggestion as a session rule, never a standing one', async ($, on) => {
-    const kept = asking(on, [{ text: tick('allow `bun test` for this session'), author: 'user' }])
+    const kept = asking(on, [{ text: tick('allow every `bun test` command for this session'), author: 'user' }])
     await kept.session.begin(() => $.session.start(START))
     const yes = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'bun test' }, permission_suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'bun test:*' }], behavior: 'allow', destination: 'localSettings' }] })
     expect((await yes).decision).toEqual({ behavior: 'allow', updatedPermissions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'bun test:*' }], behavior: 'allow', destination: 'session' }] })
@@ -1795,12 +1795,22 @@ describe('approve from the phone (PIE-1386)', () => {
   test("allow for this session grants that one command, in words: never the dialog's mode switch or a folder", async ($, on) => {
     // What Claude Code suggested for `touch` (seen in a real session): the folder and accept-edits mode, which would
     // have let the next `rm` run unasked.
-    const touch = asking(on, [{ text: tick('allow `touch` for this session'), author: 'user' }])
+    const touch = asking(on, [{ text: tick('allow every `touch` command for this session'), author: 'user' }])
     await touch.session.begin(() => $.session.start(START))
     const yes = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'touch notes.txt' }, permission_suggestions: [{ type: 'addDirectories', directories: ['/work/garden'], destination: 'session' }, { type: 'setMode', mode: 'acceptEdits', destination: 'session' }] })
     expect((await yes).decision).toEqual({ behavior: 'allow', updatedPermissions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'touch:*' }], behavior: 'allow', destination: 'session' }] })
-    expect(touch.written()).toContain('- [ ] allow this once\n- [ ] allow `touch` for this session\n- [ ] deny')
-    expect(touch.edits.at(-1)).toContain('Answered **allow `touch` for this session**')
+    expect(touch.written()).toContain('- [ ] allow this once\n- [ ] allow every `touch` command for this session\n- [ ] deny')
+    expect(touch.edits.at(-1)).toContain('Answered **allow every `touch` command for this session**')
+  })
+
+  test('a destructive file command gets only its exact command, never a prefix; a wildcard gets no session step', async ($, on) => {
+    const rm = asking(on, [{ text: tick('allow `rm notes.txt` for this session'), author: 'user' }])
+    await rm.session.begin(() => $.session.start(START))
+    const edits = [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }] as any
+    expect((await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm notes.txt' }, permission_suggestions: edits })).decision)
+      .toEqual({ behavior: 'allow', updatedPermissions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'rm notes.txt' }], behavior: 'allow', destination: 'session' }] })
+    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf build/*' }, permission_suggestions: edits })
+    expect(rm.written()).not.toContain('for this session')
   })
 
   test('a command no session rule can name exactly offers no session step: once or deny', async ($, on) => {

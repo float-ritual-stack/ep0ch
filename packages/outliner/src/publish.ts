@@ -669,13 +669,14 @@ export { escapeHtml };
 
 /**
  * Every error a browser opens is a dark page (he is photosensitive, PIE-1386): a plain-text answer at 400 or above, to a
- * GET or HEAD that accepts HTML, becomes `plainPage` with the same words, status and headers (Retry-After, Allow). A
+ * GET that accepts HTML, becomes `plainPage` with the same words, status and headers (Retry-After, Allow). A
  * fetch from a page's script (no `text/html` in its Accept) keeps the plain words it reads.
  */
 export async function darkError(request: Request, response: Response): Promise<Response> {
   const type = response.headers.get("content-type") ?? "text/plain";
   if (response.status < 400 || !type.startsWith("text/plain") || !(request.headers.get("accept") ?? "").includes("text/html")) return response;
-  if (request.method !== "GET" && request.method !== "HEAD") return response;
+  // A HEAD has no body to show; only a GET's page is drawn.
+  if (request.method !== "GET") return response;
   const said = (await response.text()).trim() || response.statusText || `Error ${response.status}`;
   const [first = said, ...rest] = said.split("\n");
   const page = plainPage(first, `<h1>${escapeHtml(first)}</h1>\n${rest.length ? `<p class="dim">${escapeHtml(rest.join(" "))}</p>\n` : ""}`, response.status);

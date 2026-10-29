@@ -294,10 +294,10 @@ at once and is put to the person through the outline at the same time (`hooks/ap
 - **The ask:** a note under that outline's `[[permission-asks]]` page, `Allow <tool>: <what>?` with
   `[needs::sysop: …]` on its first line, so pie's Waiting on Evan view (any view of `needs`) lists it; its steps:
   `allow this once`, the session step, `deny`; and the call's input.
-- **The session step says what it grants:** ``allow `touch` for this session`` adds that one rule for this session only
-  (`sessionGrantOf`): the dialog's own suggested rule when it has one, else a prefix rule for a file command like
-  `touch` (whose dialog suggests accept-edits mode, which would let the next `rm` run unasked), else the exact command.
-  Never a mode switch, a folder or a standing rule. A call no rule names exactly (`a && b`) gets no session step.
+- **The session step says what it grants:** ``allow every `touch` command for this session`` adds only `Bash(touch:*)` for this session
+  (`sessionGrantOf`): the dialog's own suggested rule when it has one; else a prefix rule for `touch` or `mkdir` (whose
+  dialog suggests accept-edits mode, which would let the next `rm` run unasked); else the exact command, `rm` included.
+  Never a mode switch, a folder or a standing rule. A call no rule names exactly (`a && b`, a `*`) gets no session step.
 - **A tick answers it:** the person's tick, on the web page (a tap on my.ep0ch.sh) or in the door, both the one
   `checklist.update` written as `author: user`. The hook reads the note every 3 s; a tick whose last write is an
   agent's counts for nothing. The tick answers the dialog that is showing, and the note says who answered and when.

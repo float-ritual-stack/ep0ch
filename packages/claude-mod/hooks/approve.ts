@@ -7,6 +7,7 @@
 // counts for nothing), and an answer at the terminal closes the note at once, saying so. Pure: register.ts runs the CLI
 // and the clock.
 import { boxStatus } from './link-grammar.js'
+import { EVENT_KEYS } from './outline-tools'
 
 export const ASK_PAGE = 'permission-asks'
 
@@ -111,15 +112,21 @@ export function answerOf(text: string): AskAnswer | null {
 /** A rule the session step adds: the shape of a PermissionRequest's own `addRules` suggestion, kept for the session. */
 export type SessionRule = { type: 'addRules'; rules: Array<{ toolName: string; ruleContent?: string }>; behavior: 'allow'; destination: 'session' }
 
-/** A shell command a prefix rule names exactly: one command, no chaining, pipes, substitution or redirection. */
-const SIMPLE_COMMAND = /^[A-Za-z0-9_./-]+(?:\s+[^;&|`$<>(){}\\\n]*)?$/
+/**
+ * A shell command a rule names exactly: one command, no chaining, pipes, substitution or redirection, and no `*` or
+ * `:` (a rule reads them as a wildcard or a prefix, which would grant more than the one command).
+ */
+const SIMPLE_COMMAND = /^[A-Za-z0-9_./-]+(?:\s+[^;&|`$<>(){}*:\\\n]*)?$/
+
+/** File commands that only add (a file, a folder): the ones whose accept-edits suggestion becomes a prefix rule. */
+const ADDING_COMMANDS: readonly string[] = ['touch', 'mkdir']
 
 /**
  * What "allow for this session" grants, and its words: exactly what the dialog's own rule for this one call grants,
  * never more. The dialog's `addRules` allow suggestions, kept for the session only. When it suggests none, a rule for
- * that one Bash command: a file command like `touch`, whose suggestion is accept-edits mode (which would let the next
- * `rm` run unasked), gets its prefix (`Bash(touch:*)`), narrower than that mode; any other gets the exact command. A
- * mode switch or a folder is never granted.
+ * that one Bash command: `touch` or `mkdir`, whose suggestion is accept-edits mode (which would let the next `rm` run
+ * unasked), gets its prefix (`Bash(touch:*)`), narrower than that mode; any other (an `rm` included) gets the exact
+ * command. A mode switch or a folder is never granted.
  * Null when no rule names the call exactly: the ask then offers only once and deny.
  */
 export function sessionGrantOf(tool: string, input: unknown, suggestions: readonly unknown[] = []): { rules: SessionRule[]; words: string } | null {
@@ -134,21 +141,24 @@ export function sessionGrantOf(tool: string, input: unknown, suggestions: readon
   const command = tool === 'Bash' && input && typeof input === 'object' ? (input as { command?: unknown }).command : undefined
   if (typeof command !== 'string' || !SIMPLE_COMMAND.test(command.trim())) return null
   const edits = suggestions.some(u => !!u && typeof u === 'object' && (u as { type?: unknown; mode?: unknown }).type === 'setMode' && (u as { mode?: unknown }).mode === 'acceptEdits')
-  const rule = { toolName: 'Bash', ruleContent: edits ? `${command.trim().split(/\s+/)[0]}:*` : command.trim() }
+  const first = command.trim().split(/\s+/)[0]!
+  const rule = { toolName: 'Bash', ruleContent: edits && ADDING_COMMANDS.includes(first) ? `${first}:*` : command.trim() }
   return { rules: [{ type: 'addRules', rules: [rule], behavior: 'allow', destination: 'session' }], words: `allow ${ruleWords(rule)} for this session` }
 }
 
-/** One rule in words: `touch` for `Bash(touch:*)`, the command for an exact Bash rule, else `Tool(content)`. */
+/** One rule in words: every `touch` command for `Bash(touch:*)`, the command for an exact Bash rule, else `Tool(content)`. */
 function ruleWords(rule: { toolName: string; ruleContent?: string }): string {
   const code = (s: string) => `\`${s.replace(/`/g, "'")}\``
-  if (rule.toolName === 'Bash' && rule.ruleContent) return code(rule.ruleContent.replace(/:\*$/, ''))
+  if (rule.toolName === 'Bash' && rule.ruleContent?.endsWith(':*')) return `every ${code(rule.ruleContent.slice(0, -2))} command`
+  if (rule.toolName === 'Bash' && rule.ruleContent) return code(rule.ruleContent)
   return rule.ruleContent ? code(`${rule.toolName}(${rule.ruleContent})`) : `every ${code(rule.toolName)} call`
 }
 
 /** A call's key for matching its dialog's ask: who runs it (a subagent's loop or the main one), the tool and its input. */
 export function callKey(tool: string, input: unknown, agentId?: string): string {
   const o = input && typeof input === 'object' ? input as Record<string, unknown> : {}
-  const kept = Object.keys(o).filter(k => !['tool', 'tool_use_id', 'agentId', 'requestMeta', 'consent'].includes(k)).sort()
+  const envelope = new Set<string>([...EVENT_KEYS, 'requestMeta', 'consent'])
+  const kept = Object.keys(o).filter(k => !envelope.has(k)).sort()
   return JSON.stringify([agentId ?? '', tool, kept.map(k => [k, o[k]])])
 }
 
@@ -196,11 +206,15 @@ export class CallsUnderWay {
     for (const call of [...this.calls]) if ((JSON.parse(call.key) as unknown[])[0] === (agentId ?? '')) call.finish(end)
   }
 
-  /** How the call with this key ends: the newest under way with it, else the only one of its tool; undefined for none. */
+  /**
+   * How the call with this key ends: the newest under way with it, else the only one of its tool in the same loop (a
+   * hook rewrote its input); undefined for none.
+   */
   ending(key: string, tool: string): Promise<CallEnd> | undefined {
     const same = this.calls.filter(c => c.key === key)
     if (same.length) return same.at(-1)!.ended
-    const ofTool = this.calls.filter(c => (JSON.parse(c.key) as unknown[])[1] === tool)
+    const loop = (JSON.parse(key) as unknown[])[0]
+    const ofTool = this.calls.filter(c => { const [l, t] = JSON.parse(c.key) as unknown[]; return l === loop && t === tool })
     return ofTool.length === 1 ? ofTool[0]!.ended : undefined
   }
 }
