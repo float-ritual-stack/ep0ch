@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A dropped connection leaves the terminal clean (PIE-1429)
+
+- **`ep0ch door`** carries the ssh door (`ssh ep0ch`) in this terminal and gives it back clean however it ends, a
+  dropped link included: no mouse codes over the screen, the normal screen back, and one line with the command that
+  reattaches. `ep0ch door gurgle`, `ep0ch door ep0ch fern` name another login or outline. `ep0ch --remote` does the same.
+- **A dead link ends in about a minute:** both send ssh keepalives instead of freezing until TCP gives up.
+- **"float-2 via ssh" is said once,** when a command starts the forward, not on every call (`EP0CH_VERBOSE=1`: every time).
+- **The ssh door's script is in the repository** (`packages/door/scripts/ssh-door.sh`): it logs a hangup, and resets
+  the terminal when the door client crashes.
 ### The door's tests pass together as alone (PIE-1412)
 
 - **For builders:** a door test file that leaves a scratch host running or an extension list bound is named

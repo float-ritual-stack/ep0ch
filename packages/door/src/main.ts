@@ -17,7 +17,7 @@ import { whereCommand } from "./where";
 import { connectTarget, guardDoor, homeBase, openDoor, writeLastCall, type Door } from "./door";
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
 import { placeOf } from "./session/place";
-import { forwardTo, remoteDoor, remoteOf } from "./machine";
+import { carryDoor, forwardTo, remoteDoor, remoteOf, sshDoorArgv, sshDoorOf } from "./machine";
 import { findCommand, NOTES_USAGE, revisionsCommand, showCommand } from "./notes-cli";
 import { EXPORT_USAGE } from "./export";
 import { LIBRARY_USAGE } from "./library/cli";
@@ -76,10 +76,17 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    the outline; none is this machine (--here says so outright, over
                                    EP0CH_MACHINE and the .ep0ch's machine). The door keeps an ssh forward to that
                                    machine's outline host (~/outlines/.remote/<ssh-name>.sock), shared by
-                                   every client here and started again when it drops. EP0CH_SOCKET names
+                                   every client here and started again when it drops; a command says
+                                   "<ssh-name> via ssh" when it starts the forward (EP0CH_VERBOSE=1: every
+                                   time). EP0CH_SOCKET names
                                    a host's socket outright
   ep0ch --showcase [--reset]       every shared door part, live, on its own seeded outline of made-up notes
                                    (the same as ep0ch try --showcase); --reset reseeds it
+  ep0ch door [<ssh-name>] [<outline>]
+                                   ssh -t to the ssh door (ssh ep0ch: the login whose command is the door),
+                                   <ssh-name> default ep0ch, then this terminal back clean however it ends:
+                                   a dropped link too (mouse, the alternate screen and paste turned off), with
+                                   the command that reattaches. ssh's keepalives end a dead link in a minute
   ep0ch --remote <ssh-name> [door flags]
                                    this terminal on the door session running on that machine (ssh -t
                                    <ssh-name> ep0ch [door flags]), like herdr --remote; an outline that
@@ -220,6 +227,13 @@ ${AGENT_USAGE}
 const words = checkWords(args);
 if (words && "help" in words) { console.log(usageFor(USAGE, words.help)); process.exit(0); }
 if (words) { console.error(`ep0ch: ${words.error}`); process.exit(2); }
+// ep0ch door [<ssh-name>] [<outline>]: the ssh door's login (ssh ep0ch), carried here, and this terminal given back clean
+// however ssh ends, a dropped link included (PIE-1429, src/machine.ts).
+if (args[0] === "door") {
+  const d = sshDoorOf(args.slice(1));
+  if ("error" in d) { console.error(`ep0ch: ${d.error}`); process.exit(2); }
+  process.exit(await carryDoor(d.machine, sshDoorArgv(d.machine, d.outline), d.again));
+}
 // --remote <machine>: the door runs there; this terminal only carries it (src/machine.ts).
 // An outline the machine doesn't have is never made there without --create (PIE-545): nameRemoteOutline asks it first,
 // and the home base here offers the choices; the one on this machine opens a door here instead.

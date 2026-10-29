@@ -89,7 +89,9 @@ export function forwardOptions(outlines: string, env: NodeJS.ProcessEnv = proces
 export async function forwardFor(machine: string, outlines: string, env: NodeJS.ProcessEnv = process.env): Promise<Forward> {
   try {
     const f = await ensureForward(machine, forwardOptions(outlines, env));
-    console.error(`${machine} via ${f.transport}`);
+    // Said when this call started the forward, the one time it is news; a forward already up only with EP0CH_VERBOSE=1
+    // (every ep0ch call once printed it, filling an agent's pane: PIE-1429). The door's status bar says it apart.
+    if (f.how === "started" || env.EP0CH_VERBOSE === "1") console.error(`${machine} via ${f.transport}`);
     return f;
   } catch (error) {
     throw new Error(`link to ${machine} is unavailable or its host is not answering (ep0ch link status; ep0ch install --apply on both ends); ssh: ${(error as Error).message}; check ssh ${machine} true`);
