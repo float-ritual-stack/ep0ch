@@ -8,7 +8,7 @@ import { jevOff } from "./work-jev";
 import type { BlockCollectionCompleteness, GotoSearchCollection, SearchCertainty } from "./types";
 export { JEV_ENDPOINT, JEV_MODEL, jevKey, resetJevKey } from "./jev";
 
-export interface SearchExcerpt {title:string;path:string;snippet:string;exact:boolean;score?:number}
+export interface SearchExcerpt {title:string;path:string;snippet:string;exact:boolean;score?:number;facts?:{type?:string;length:number;updated:string}}
 export interface SearchCollection<T extends SearchExcerpt> {matches:T[];completeness:BlockCollectionCompleteness;semantic:GotoSearchCollection['semantic']}
 
 /**
@@ -22,10 +22,29 @@ export const SEARCH_THRESHOLDS = { exists: { yes: 0.8, no: 0.3 }, strong: 2, flo
 /** The Noul reads the first candidates, each cut short: enough to judge "is it among these", not the whole of each. */
 export const EXISTS_CANDIDATES = 30, EXISTS_SNIPPET = 240;
 
-type Prompt = { ranking: { instructions: string; criteria: string[] }; exists: ExistsQuestion; revisions: PromptRevision[] };
+type Question = { instructions: string; criteria: string[] };
+type Prompt = { ranking: Question; structured?: Question; exists: ExistsQuestion; revisions: PromptRevision[] };
 
-/** The one request a search sends: state `{query, note?}`, a Score per candidate (its text in its own question) and the `exists` Noul. */
-export function searchRequest(query: string, matches: readonly SearchExcerpt[], prompt: Prompt, note?: { title: string; path: string }) {
+/**
+ * How a search puts its candidates to Jev: `inline`, each candidate's text in its own Score question (the skill's
+ * default), or `state` (PIE-1199): the candidates once in the state with their type, length and age, each Score
+ * pointing at its own by path. The search eval compares them; SEARCH_SHAPE is the one search uses.
+ */
+export type SearchShape = "inline" | "state";
+export const SEARCH_SHAPE: SearchShape = "inline";
+/** In the state shape, each candidate's passage is cut to this (the state is read with every question). */
+const STATE_SNIPPET = 300;
+
+/** The one request a search sends: state `{query, note?}` (and the candidates, in the state shape), a Score per candidate and the `exists` Noul. */
+export function searchRequest(query: string, matches: readonly SearchExcerpt[], prompt: Prompt, note?: { title: string; path: string }, shape: SearchShape = SEARCH_SHAPE) {
+  if (shape === "state" && prompt.structured) {
+    const candidates = Object.fromEntries(matches.map(({ title, path, snippet, facts }, index) => [`c${index}`, { title, path, ...(facts ?? {}), text: snippet.length > STATE_SNIPPET ? `${snippet.slice(0, STATE_SNIPPET)}…` : snippet }]));
+    const questions: Record<string, unknown> = Object.fromEntries(matches.map((_, index) => [`candidate_${index}`, {
+      type: "score", instructions: prompt.structured!.instructions.replace("{candidate}", `candidates.c${index}`), criteria: prompt.structured!.criteria,
+    }]));
+    questions.exists = { type: "noul", instructions: prompt.exists.instructions.replace("listed below", "in `candidates`"), criteria: { true: prompt.exists.true, false: prompt.exists.false } };
+    return { state: { query, ...(note ? { note } : {}), candidates }, questions };
+  }
   const questions: Record<string, unknown> = Object.fromEntries(matches.map(({ title, path, snippet }, index) => [`candidate_${index}`, {
     type: "score",
     instructions: `${prompt.ranking.instructions}\nCandidate: ${JSON.stringify({ title, path, text: snippet })}`,

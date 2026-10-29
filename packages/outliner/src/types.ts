@@ -1713,6 +1713,10 @@ export interface GotoSearchMatch {
   exact: boolean;
   /** Jev's Score for it (0 to 3), on a ranked search (PIE-1198). */
   score?: number;
+  /** What a ranked search reads beside its text (PIE-1199): its type, its length in characters, when it last changed. */
+  facts?: { type?: string; length: number; updated: string };
+  /** Found by meaning, not words (the deep pass, PIE-1200). */
+  deep?: true;
   /**
    * An empty query asked from a note (`contextBlockId`) lists, in order: what its parent and siblings link to
    * (`linked`), notes near it (`near`), the person's own recent edits (`yours`).
@@ -1734,6 +1738,8 @@ export interface GotoSearchCollection {
     inputTokens?: number;
     outputTokens?: number;
     promptRevisions?: PromptRevision[];
+    /** The deep pass (PIE-1200, `deep: true`): skipped when the ranked search was sure, else what Jev found and what it cost. */
+    deep?: { status: "found" | "skipped" | "unavailable"; windows?: number; found?: number; elapsedMs?: number; inputTokens?: number; message?: string };
   } & Partial<SearchCertainty>;
 }
 export type { SearchCertainty } from "@ep0ch/outline-core/protocol";
@@ -2048,7 +2054,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "workspace.snapshot"; view?: WorkspaceSnapshotView }
   | { id: string; action: "tree.index"; view?: WorkspaceSnapshotView }
   | { id: string; action: "tree.query"; query: BlockSearchQuery }
-  | { id: string; action: "tree.search"; query: string; limit?: number; semantic?: boolean; contextBlockId?: string; machinery?: import("@ep0ch/outline-core/machinery").MachineryMode }
+  | { id: string; action: "tree.search"; query: string; limit?: number; semantic?: boolean; deep?: boolean; contextBlockId?: string; machinery?: import("@ep0ch/outline-core/machinery").MachineryMode }
   | { id: string; action: "tree.focus"; query: string }
   | { id: string; action: "events.subscribe"; client: OutlinerClientRegistration }
   | { id: string; action: "clients.list"; role?: OutlinerClientRole }

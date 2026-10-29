@@ -31,6 +31,7 @@ import type { ChangeAttribution } from "./change-feed";
 import { MentionRepository } from "./mentions";
 import { EditRecoveryRepository } from "./edit-recovery";
 import {rankSearchWithJev} from './search-ranking';
+import { deepCandidates } from './search-deep';
 import { keepSearchPick, readSearchPicked, readSearchPicks, SEARCH_PICKS_METADATA_KEY, SEARCH_TALLY_MS, SearchTallies, type SearchTally } from './search-records';
 import { blockDisplayTitle } from "./references";
 import { previewPropertyParse } from "./properties";
@@ -1466,6 +1467,25 @@ export class OutlinerServer {
    * A ranked search (or one Jev couldn't answer) counted on the day's `jev-run` (search-records.ts), after the answer
    * has gone: one at a time, on the same turn as Jev's other records, so the day's run is made once.
    */
+  /**
+   * The deep pass (search-deep.ts): asked when the ranked search isn't sure (or found nothing by its words), its finds
+   * added to the text's candidates and the whole ranked again, so they're scored and said as any hit is. Never throws.
+   */
+  private async deepen(query: string, ranked: GotoSearchCollection, note: { note?: { title: string; path: string } }): Promise<GotoSearchCollection> {
+    if (query.trim().length < 3 || ranked.matches[0]?.exact || ranked.semantic.verdict === "strong") {
+      return { ...ranked, semantic: { ...ranked.semantic, deep: { status: "skipped" } } };
+    }
+    const found = await deepCandidates(this.store.searchPool(), query, { jev: { promptDirectory: this.promptDirectory } });
+    if ("unavailable" in found) return { ...ranked, semantic: { ...ranked.semantic, deep: { status: "unavailable", message: found.unavailable } } };
+    const have = new Set(ranked.matches.map(m => m.block.id));
+    const added = this.store.searchMatches(found.candidates.map(c => c.id).filter(id => !have.has(id)), query);
+    const deep = { status: "found" as const, windows: found.windows, found: added.length, elapsedMs: found.elapsedMs, ...(found.reading?.usage ? { inputTokens: found.reading.usage.input } : {}) };
+    if (found.reading) this.tallySearch({ status: "ranked", model: found.reading.model, promptRevisions: found.reading.prompt, candidateCount: found.windows, ...(found.reading.usage ? { inputTokens: found.reading.usage.input, outputTokens: found.reading.usage.output } : {}) });
+    if (!added.length) return { ...ranked, semantic: { ...ranked.semantic, deep } };
+    const again = await rankSearchWithJev(query, { ...ranked, matches: [...ranked.matches.map(({ score: _s, ...m }) => m), ...added] }, { promptDirectory: this.promptDirectory, ...note });
+    return { ...again, semantic: { ...again.semantic, deep } };
+  }
+
   private readonly searchTallies = new SearchTallies();
   private searchTallyTimer: ReturnType<typeof setTimeout> | null = null;
   private tallySearch(semantic: GotoSearchCollection["semantic"]): void {
@@ -2226,12 +2246,17 @@ export class OutlinerServer {
     if (request.action === "tree.search") {
       try {
         if (request.semantic !== undefined && typeof request.semantic !== "boolean") throw new Error("semantic must be a boolean");
+        if (request.deep !== undefined && (typeof request.deep !== "boolean" || (request.deep && !request.semantic))) throw new Error("deep is a boolean, and asks for semantic: true too");
         if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1)) throw new Error("limit must be a positive integer");
         let result = this.store.searchTree(request.query, request.contextBlockId, parseMachineryMode(request.machinery), request.limit);
         if (request.semantic && this.activeGotoRankings < 2) {
           this.activeGotoRankings++;
-          try { result = await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...(result.context ? { note: { title: result.context.title, path: result.context.path } } : {}) }); }
-          finally { this.activeGotoRankings--; }
+          const note = result.context ? { note: { title: result.context.title, path: result.context.path } } : {};
+          try {
+            result = await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...note });
+            // Deep (PIE-1200): when the text's candidates hold no sure answer, Jev reads the notes themselves.
+            if (request.deep === true) result = await this.deepen(request.query, result, note);
+          } finally { this.activeGotoRankings--; }
           this.tallySearch(result.semantic);
           // A model answer cannot resurrect a deleted or edited candidate.
           result.matches = result.matches.filter(match => {

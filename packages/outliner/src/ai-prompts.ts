@@ -96,30 +96,55 @@ export interface ExistsQuestion { instructions: string; true: string; false: str
  * goto-ranking.json: the Score each candidate gets, and `exists`, the Noul over the list. A workspace's copy made
  * before `exists` was added keeps its ranking and asks the shipped file's `exists` (both revisions are reported).
  */
-export async function loadGotoPrompt(directory?: string): Promise<{ ranking: Question<string[]>; exists: ExistsQuestion; revisions: PromptRevision[] }> {
+export async function loadGotoPrompt(directory?: string): Promise<{ ranking: Question<string[]>; exists: ExistsQuestion; structured: Question<string[]>; revisions: PromptRevision[] }> {
   const revision = await readPrompt(aiPromptDirectory(directory), "goto-ranking.json");
   const parsed = json(revision);
-  const hasExists = !!parsed && typeof parsed === "object" && Object.hasOwn(parsed, "exists");
-  const data = object(parsed, revision.path, hasExists ? ["instructions", "criteria", "exists"] : ["instructions", "criteria"], "document");
+  const has = (key: string) => !!parsed && typeof parsed === "object" && Object.hasOwn(parsed, key);
+  const hasExists = has("exists");
+  const data = object(parsed, revision.path, ["instructions", "criteria", ...(hasExists ? ["exists"] : []), ...(has("structured") ? ["structured"] : [])], "document");
   if (!Array.isArray(data.criteria) || data.criteria.length !== 4) {
     throw new PromptFileError(revision.path, "criteria must contain exactly four score descriptions (0–3)");
   }
   const revisions = [revision];
-  let exists: unknown = data.exists, existsPath = revision.path;
-  if (!hasExists) {
+  let exists: unknown = data.exists, existsPath = revision.path, structured: unknown = data.structured, structuredPath = revision.path;
+  if (!hasExists || !has("structured")) {
     const shipped = await readPrompt(resolve(DEFAULT_AI_PROMPT_DIRECTORY), "goto-ranking.json");
-    exists = (json(shipped) as Record<string, unknown>).exists;
-    existsPath = shipped.path;
+    const ship = json(shipped) as Record<string, unknown>;
+    if (!hasExists) { exists = ship.exists; existsPath = shipped.path; }
+    if (!has("structured")) { structured = ship.structured; structuredPath = shipped.path; }
     if (shipped.path !== revision.path) revisions.push(shipped);
   }
   const e = object(exists, existsPath, ["instructions", "true", "false"], "exists");
+  const st = object(structured, structuredPath, ["instructions", "criteria"], "structured");
+  if (!Array.isArray(st.criteria) || st.criteria.length !== 4) throw new PromptFileError(structuredPath, "structured.criteria must contain exactly four score descriptions (0–3)");
   return {
     ranking: {
       instructions: nonempty(data.instructions, revision.path, "instructions"),
       criteria: data.criteria.map((value, i) => nonempty(value, revision.path, `criteria[${i}]`)),
     },
+    structured: { instructions: nonempty(st.instructions, structuredPath, "structured.instructions"), criteria: st.criteria.map((v, i) => nonempty(v, structuredPath, `structured.criteria[${i}]`)) },
     exists: { instructions: nonempty(e.instructions, existsPath, "exists.instructions"), true: nonempty(e.true, existsPath, "exists.true"), false: nonempty(e.false, existsPath, "exists.false") },
     revisions,
+  };
+}
+
+/**
+ * deep-search.json (PIE-1200): the Choice a window of notes is asked and its "is it among these?" Noul. A prompt
+ * folder without it (a workspace's, made before it) reads the shipped one.
+ */
+export async function loadDeepPrompt(directory?: string): Promise<{ choice: string; exists: ExistsQuestion; revisions: PromptRevision[] }> {
+  let revision: PromptRevision;
+  try { revision = await readPrompt(aiPromptDirectory(directory), "deep-search.json"); }
+  catch (error) {
+    if (!(error instanceof PromptFileError) || aiPromptDirectory(directory) === resolve(DEFAULT_AI_PROMPT_DIRECTORY)) throw error;
+    revision = await readPrompt(resolve(DEFAULT_AI_PROMPT_DIRECTORY), "deep-search.json");
+  }
+  const data = object(json(revision), revision.path, ["choice", "exists"], "document");
+  const e = object(data.exists, revision.path, ["instructions", "true", "false"], "exists");
+  return {
+    choice: nonempty(data.choice, revision.path, "choice"),
+    exists: { instructions: nonempty(e.instructions, revision.path, "exists.instructions"), true: nonempty(e.true, revision.path, "exists.true"), false: nonempty(e.false, revision.path, "exists.false") },
+    revisions: [revision],
   };
 }
 
