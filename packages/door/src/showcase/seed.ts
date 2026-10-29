@@ -48,10 +48,35 @@ async function keepReview(board: SocketBoard, note: Msg): Promise<Msg> {
   for (const id of made) if (id) await board.move(id, parent, USER, parent ? (await board.children(parent)).filter(c => c.id !== id).length : 0);
   return (await board.get(page!.id))!;
 }
+/** The outliner's search eval (PIE-1197), loaded by name as the review is. */
+interface SearchEvalModule {
+  keepCase(client: unknown, c: { query: string; outline: string; expect: string[] | "none"; source: string }): Promise<void>;
+  reportNote(scores: unknown[], sweeps: Record<string, unknown[]>, meta: { day: string; outlines: string[]; promptRev: string; current: string }): string;
+  keepRun(client: unknown, scores: unknown[], runs: unknown[], note: string, day: string): Promise<string>;
+}
+const SEARCH_EVAL_MODULE = "@ep0ch/outliner/search-eval";
+
+/**
+ * The search eval as a run keeps it (`ep0ch search eval --into`): two made-up cases labelled with seeded notes, a run
+ * per model with made-up numbers, and its report under the Search evals page. Returns the page and the report.
+ */
+async function keepSearchEval(board: SocketBoard, root: Msg, cases: { query: string; expect: Msg }[]): Promise<{ page: Msg; report: Msg }> {
+  const e = await import(SEARCH_EVAL_MODULE) as SearchEvalModule;
+  const client = { request: <T>(input: { action: string } & Record<string, unknown>) => { const { action, ...params } = input; return board.request<T>(action, params); } };
+  for (const c of cases) await e.keepCase(client, { query: c.query, outline: "showcase", expect: [c.expect.id], source: "agent-read" });
+  const scores = SEARCH_EVAL_SCORES.map(s => ({ ...s }));
+  const runs = scores.map(s => ({ model: s.model, promptRev: "goto-ranking.json:000000000000", prompt: [], results: [] }));
+  const note = e.reportNote(scores, { "jev-1.13.0": SEARCH_EVAL_SWEEP }, { day: "2026-10-20", outlines: ["showcase"], promptRev: "goto-ranking.json:000000000000", current: "jev-1.13.0" });
+  const id = await e.keepRun(client, scores, runs, note, "2026-10-20");
+  const [page] = (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "system-view=search-evals" } })).blocks;
+  await board.move(page!.id, root.id, USER);
+  return { page: (await board.get(page!.id))!, report: (await board.get(id))! };
+}
 import { ECHO_COPIES, ECHO_NODELIST, ECHO_POSTS, ECHO_SEEN_BY, ECHO_TOSSER, ECHO_TOSSES } from "./seed/echonet";
 import { PROJECT_FIGURE, PROJECT_TICKETS, VENT_RAIL } from "./seed/self";
 import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, COPY_PAGE, COPY_CRATES, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, laneQuery, societyText } from "./seed/work";
 import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, KEYS_TEXT, dashboardText, figuresText, markdownFiguresText } from "./seed/figures";
+import { SEARCH_EVAL_SCORES, SEARCH_EVAL_SWEEP } from "./seed/notes";
 import { DEEP_LINKS, SHED_JOBS, SHED_PAD, SHED_PLAN, ZOOM_JOBS, ZOOM_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, WRITE_REVIEW, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
 import { LIST_FOLDS } from "./seed/list-folds";
 import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
@@ -500,6 +525,11 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   // asks no Jev), kept as the service keeps a review, which makes Jev's suggestions page with its first finding.
   notes.writeReview = await make(notes.root.id, WRITE_REVIEW, { kind: "agent", id: "moss" });
   notes.jevPage = await keepReview(board, notes.writeReview);
+  // Search says how sure it is (PIE-1197, PIE-1198): the eval's page and a run's report, as `ep0ch search eval --into` keeps them.
+  ({ page: notes.searchEvals } = await keepSearchEval(board, notes.root, [
+    { query: "what should I bring to the swap", expect: notes.jevPage },
+    { query: "shed roof felt", expect: notes.writeReview },
+  ]));
   notes.swapDay = await make(notes.root.id, `${SEED.swapDay} [page::${SEED.swapDay}]\nBring seeds in paper envelopes, labelled with what and when.`);
   notes.margin = await make(notes.root.id, MARGIN);
   notes.wholeNote = await make(notes.root.id, WHOLE_NOTE);

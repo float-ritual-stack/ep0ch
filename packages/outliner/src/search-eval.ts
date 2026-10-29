@@ -260,11 +260,19 @@ export function sweep(run: ModelRun): { exists: number; strong: number; sureRigh
 /** The run as a note: both models side by side, the sweep for the current one, and the live figure of every run. */
 export function reportNote(scores: readonly ModelScore[], sweeps: Record<string, ReturnType<typeof sweep>>, meta: { day: string; outlines: string[]; promptRev: string; current: string }): string {
   const row = (label: string, f: (s: ModelScore) => string) => `| ${label} | ${scores.map(f).join(" | ")} |`;
-  const s0 = scores[0]!;
+  const s0 = scores[0]!, pinned = scores.find(s => s.model === meta.current) ?? s0, next = scores.find(s => s !== pinned);
+  // The finding first: does Jev's order beat the text's, and does the next model beat the pinned one (the pin's question).
+  const better = next && (next.hit1 > pinned.hit1 || (next.hit1 === pinned.hit1 && next.sureNothing < pinned.sureNothing));
   const lines = [
-    `Search eval ${meta.day}: ${scores.map(s => `${s.model} hit@1 ${pct(s.hit1, s.positives)}%`).join(", ")} [type::snapshot] [experiment::${EVAL_EXPERIMENT}] [run::${meta.day}]`,
+    `Search eval ${meta.day}: ${next ? (better ? `${next.model} beats ${pinned.model}` : `${pinned.model} stays pinned`) : pinned.model}, hit@1 ${pct(pinned.hit1, pinned.positives)}% [type::snapshot] [experiment::${EVAL_EXPERIMENT}] [run::${meta.day}]`,
     "",
-    `> [!summary] ${s0.cases} real queries from ${meta.outlines.join(" and ")}: ${s0.positives} with the note that was wanted, ${s0.negatives} where nothing was. Each model ranked the same candidates with the same prompt (${meta.promptRev}).`,
+    `> [!summary] ${next ? `${next.model} hit@1 ${next.hit1}/${next.positives}, sure with nothing there ${next.sureNothing}; ${pinned.model} ${pinned.hit1}/${pinned.positives} and ${pinned.sureNothing}: ${better ? "the next model does better" : "no reason to move the pin"}.` : ""}`,
+    `> Jev's order against the text order on hit@1: ${pinned.hit1} against ${pinned.lexHit1} of ${pinned.positives}.`,
+    `> ${s0.cases} real queries from ${meta.outlines.join(" and ")}, ranked by each model with the same prompt (${meta.promptRev}).`,
+    "",
+    "> [!note] How to read it",
+    "> - **Labels are what was opened next:** an agent's read after its search, or Evan's pick. A right answer it didn't open counts as a miss, so hit@1 undercounts.",
+    "> - **\"Nothing there\" is a query asked of the other outline:** pie and gurgle share some topics, so a few of those have an answer after all.",
     "",
     "## Both models",
     `| | ${scores.map(s => s.model + (s.model === meta.current ? " (pinned)" : "")).join(" | ")} |`,
@@ -298,10 +306,10 @@ export const EVALS_PAGE = [
   "",
   "::graph-table",
   "---",
-  "title: every run, per model (agreed is hit@1)",
+  "title: every run, per model (agreed is hit@1; quiet sure, suggested no strong match)",
   "query: type=jev-run experiment=search-eval",
   "machinery: show",
-  "columns: [title, model, items, agreed, agreement, quiet, suggested, tokens-in]",
+  "columns: [model, items, agreed, agreement, quiet, suggested, cost]",
   "sort: created",
   "direction: desc",
   "---",

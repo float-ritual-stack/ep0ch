@@ -10,6 +10,24 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Search says how sure it is, and the Jev pin moves only on evals (PIE-1198, PIE-1197)
+
+- **No confident wrong answer:** a ranked search (the power bar's `/`, `[[` and `((`, `ep0ch find`, `outline_find`)
+  asks Jev, in the same request as its scores, whether the note wanted is among the hits; code decides. A weak top says
+  **no strong match** (in the bar's and the completer's footer, under `ep0ch find`'s rows, and in `outline_find`'s
+  `search`) instead of reading as the answer; a sure one says so. Each hit carries its Score (`2.6/3`).
+- **`ep0ch find <words>` and the gateway's `outline_find` ask Jev by default** (`--lexical`, `semantic: false` don't);
+  the mod's `outline_find` with text alone is the same ranked search (with a property, query or subtree, text stays a
+  filter).
+- **Evals before the pin moves:** `ep0ch search harvest` turns agents' real searches (Claude Code's session logs, read
+  only) and the note opened next, and your picks from a search, into `search-eval-case` records in pie (pie's and
+  gurgle's notes only); `ep0ch search eval --into pie` ranks them with each model (cached by request), and keeps a
+  `jev-run` per model and a report under pie's **Search evals** page. First run: jev-1.13.0 stays pinned (jev-1.14.0
+  wasn't better); the "sure" threshold (Noul 0.8) comes from it.
+- **Costs show:** every ranked search counts on the day's `search-live` jev-run (searches, sure, no strong match,
+  tokens, cost), beside the other Jev loops on Jev's suggestions page.
+- **Run:** PROTOCOL 280: `ep0ch install --apply` on float-2 and the laptop.
+
 ### A deploy restarts the outline host only when the host's own code changed (PIE-1397)
 
 - **Docs- and mod-only merges leave it running:** `ep0ch install --apply` compares the code the host runs
