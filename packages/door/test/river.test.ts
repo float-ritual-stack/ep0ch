@@ -654,6 +654,28 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await mine("tile.close", {}, o.name);
   }, 30_000);
 
+  test("the trail follows the person across columns: from any column it is the one chain of opens, back and ahead (PIE-1418)", async () => {
+    focusOnReader(lib());
+    const a = (await mine("open", { id: notes.squash.id, from: lib(), fresh: true })) as { name: string };
+    await until(() => !!paneOf(a.name)?.root, "the squash column");
+    const b = (await mine("open", { id: notes.beans.id, from: a.name, fresh: true })) as { name: string };
+    await until(() => !!paneOf(b.name)?.root, "the beans column");
+    const titles = (stops: { title: string }[]) => stops.map(s => s.title);
+    const title = (name: string) => paneOf(name).headName?.() ?? paneOf(name).title();
+    // Back in the Library by h: what lies ahead is the two opens, nearest first.
+    focusOnReader(lib());
+    const fromLib = (await act("trail", {}, lib())) as { back: { title: string }[]; forward: { title: string }[] };
+    expect(titles(fromLib.forward).slice(0, 2)).toEqual([title(a.name), title(b.name)]);   // and on, where earlier opens went
+    // From the middle column: the Library back, the beans ahead.
+    const fromA = (await act("trail", {}, a.name)) as { back: { title: string }[]; forward: { title: string }[] };
+    expect([titles(fromA.back), titles(fromA.forward)[0]]).toEqual([[title(lib())], title(b.name)]);
+    // And forward from the Library goes there, as back would come back.
+    await mine("forward", {}, lib());
+    expect(V().name(V().columns[V().focus]!)).toBe(a.name);
+    await mine("tile.close", {}, b.name);
+    await mine("tile.close", {}, a.name);
+  });
+
   test("the river's trail (PIE-208): the columns back by title, alt+T lists them over the river, back steps=2 goes two at once", async () => {
     focusOnReader(lib());
     const a = (await mine("open", { id: notes.peas.id, from: lib(), fresh: true })) as { name: string };
