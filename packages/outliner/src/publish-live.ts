@@ -247,8 +247,14 @@ async function answerFigure(host: LiveHost, kind: string, p: Props, note: string
   const kept = new Set(items.map(item => item.id));
   // A group counts every match; the ones this page can't show come off its count, and a group whose every member is hidden goes.
   const groups = keepGroups(a.groups, kept);
+  // A cell naming a note draws its title only when this page may show that note (PIE-1388); else its id stays as written.
+  const named = Object.keys(a.titles ?? {});
+  const showable = named.length ? await host.shown(named) : new Set<string>();
+  // Titled as the page titles every note it names (host.titles), not by the service's own reading.
+  const own = showable.size ? await host.titles([...showable]) : new Map<string, string>();
+  const titles = Object.fromEntries([...showable].flatMap(id => { const t = own.get(id) || a.titles?.[id]; return t ? [[id, t]] : []; }));
   const answer: FigureAnswer = {
-    items, truncated: a.truncated, ...(groups ? { groups } : {}),
+    items, truncated: a.truncated, ...(groups ? { groups } : {}), ...(Object.keys(titles).length ? { titles } : {}),
     ...(a.done ? { done: new Set(a.done) } : {}), ...(a.now ? { now: new Set(a.now) } : {}), ...(a.hint ? { hint: a.hint } : {}),
   };
   const drawn = liveProps(kind, asking.props, answer);

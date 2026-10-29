@@ -21,7 +21,8 @@ async function setup() {
   cleanups.push(async () => { await server.close(); store.close(); rmSync(root, { recursive: true, force: true }); });
   const cliEnv: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) if (value !== undefined && !/^(HERDR_|OUTLINER_|EP0CH_)/.test(key)) cliEnv[key] = value;
-  Object.assign(cliEnv, env);
+  // No test asks the real Jev (the preload's rule): a write's review answers from code alone.
+  Object.assign(cliEnv, env, { OUTLINER_FIGURE_FIT: "off" });
   const cli = async (args: string[]) => {
     const child = Bun.spawn(["bun", "src/cli.ts", ...args], { cwd: join(import.meta.dir, ".."), env: cliEnv, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
