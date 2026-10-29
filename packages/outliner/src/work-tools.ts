@@ -23,6 +23,7 @@ import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { parseWorkId } from "./work-ids";
 import { ticketOf } from "./work-stage-follows";
+import { keptBecause } from "./work-later";
 import {
   ROADMAP_WORK_STAGES,
   type BacklinkCollection,
@@ -259,6 +260,8 @@ export interface WorkSetResult extends WorkItemRef {
   previous: string | null;
   value: string;
   changed: boolean;
+  /** Moved to later though a groom would keep it (PIE-1421): why it's kept. Set anyway; this says so. */
+  warning?: string;
 }
 
 function isDeliveryBlock(block: Block): boolean {
@@ -334,7 +337,9 @@ export async function setWorkProperty(
   if (readBack !== stage) {
     throw new Error(`${block.id} reads back [${key}::${readBack ?? ""}] after setting ${stage}`);
   }
-  return { ...workItemRef(updated), key, previous, value: readBack, changed: true };
+  // A groom never parks a kept item (work-later.ts); by hand it's the writer's call, said back to them.
+  const kept = key === "work-stage" && stage === "later" ? keptBecause(block) : null;
+  return { ...workItemRef(updated), key, previous, value: readBack, changed: true, ...(kept ? { warning: `parked though ${kept}: a groom would keep it queued; say why in the item, or set it back with work stage ${workItemRef(updated).workId ?? block.id} queued` } : {}) };
 }
 
 export function setWorkStage(

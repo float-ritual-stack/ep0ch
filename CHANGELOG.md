@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Nothing decided quietly disappears: the groom's cut keeps, and later gives back (PIE-1421)
+
+- **`ep0ch work groom --park`** is the cut: queued items untouched for `--older-than` (30d) go to later with
+  `[wreckage::<day>]`, except high priority, under 14 days old, or decided (a ticked `- [x]`, a decided
+  `::graph-decision`, `[decided::]`). Each kept one says why. `work stage … later` by hand warns the same way.
+- **`ep0ch work groom --later`** is the way back, weekly: a parked item someone commented on, a note made since names
+  or links (Jev reads it: asked for, or only cited?), or live work links goes back to queued with a
+  "**Back from later, <day>:**" line naming the note. One parked against the keep rule is listed with its restore
+  command. Then the groom's pass runs over what stays, so a shipped one gets its comment. `--apply` writes it.
+- **The count is a query:** `type=groom-later outcome=restored created >= -7d`, on Jev's suggestions page and for the build log.
 ### The keys window and the trail are tiles you resize, dock and close; ⏎ runs a key; Conflicts are real (PIE-1425)
 
 - **`?` opens the keys window as a tile beside the one you're in** (below it when that one is narrow, so both keep

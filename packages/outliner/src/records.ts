@@ -25,6 +25,8 @@ export const RECORD_FIELDS = {
   // The workboard's Jev loops (work-jev.ts): the groom's verdict per queued ticket, and each twin offered at filing with
   // what became of it (offered, filed-anyway, attached).
   "groom-verdict": ["item", "verdict", "confidence", "evidence", "by", "pass", "thread"],
+  // PIE-1421: what a groom parked or kept, and what came back from later, with why and the note that asked for it again.
+  "groom-later": ["item", "outcome", "why", "source", "by", "pass"],
   "work-twin": ["day", "title", "twin", "same", "outcome", "item", "writer", "by"],
 } as const;
 export type RecordKind = keyof typeof RECORD_FIELDS;
