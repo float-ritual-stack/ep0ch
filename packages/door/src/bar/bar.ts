@@ -27,7 +27,7 @@ import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note"
 import { keyCaption, keyName, keyOfName, lineWords, shownLine, ActionRefused } from "../surface/actions";
 import { shellWord } from "../machine";
 import { RowView, wheelRows, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE } from "../scroll";
-import { C, chip, dim, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, width } from "../style";
+import { C, chip, dim, drawEllipsized, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, width } from "../style";
 import { paintable, rowLines, withRowLimit, wrap } from "../text";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
@@ -127,6 +127,8 @@ export class PowerBar {
     this.refresh();
   }
 
+  /** The line field's cells as last drawn: a click inside them is the field's. */
+  private fieldW = 10;
   private compact() { return this.scope === "ask" ? compactQuestion() : null; }
 
   /** Put away: nothing it asked for is waited on. */
@@ -282,7 +284,7 @@ export class PowerBar {
       const compact = this.compact();
       const inputX = compact ? 2 + width(compact.title) : 3;
             // The line is the one line field's: a click places the cursor, a drag selects, a double click a word (PIE-1290).
-      if (this.input.mouse(k, { x: r.col + inputX, y: r.row + (compact ? 1 : 2), w: Math.max(10, r.cols - 32) })) { ctx.redraw(); return; }
+      if (this.input.mouse(k, { x: r.col + inputX, y: r.row + (compact ? 1 : 2), w: compact ? Math.max(10, r.cols - 32) : this.fieldW })) { ctx.redraw(); return; }
       if (k.action === "up" || k.action === "drag") return;
       this.alt = !!((k.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL)) || k.button === MOUSE_MIDDLE;
       const at = { ...k, x: k.x - r.col, y: k.y - r.row };
@@ -438,7 +440,12 @@ export class PowerBar {
     // Nothing found for what's typed, said on the line itself: a narrow bar draws no preview to say it in.
     const none = !this.items.length && !this.asking.size && this.query.trim() !== "" && !this.problems.size;
     const count = [none ? "no matches" : `${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
-    const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, Math.max(10, w - 30))) : this.input.render(Math.max(10, w - 30), 1)[0]) + paint(` |08${busy || count}`);
+    // What's typed gets the row before the count does (PIE-1405, PIE-1418): a long query at 40 columns reads whole or
+    // scrolled with its ‹ ›, and the count takes what's left, cut short (hover reads it).
+    const status = busy || count, room = Math.max(10, w - 2);
+    const field = Math.min(room, Math.max(10, room - 1 - width(status), width(this.query) + 1));
+    this.fieldW = field;
+    const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, field)) : this.input.render(field, 1)[0]) + (room - field > 1 ? paint(" |08") + drawEllipsized(status, room - field - 1) : "");
     const scoped = this.scope ? barSource(this.scope) : undefined;
     this.sourceHead = scoped?.head?.(w, this.host) ?? [];
     // The row menu (alt+m, a right-click): each entry a chip with its digit (1, 2… or alt+1 while the menu is open, as a

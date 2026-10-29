@@ -114,3 +114,34 @@ describe("a property's value is the same field (the reader's panel)", () => {
     expect(f.text).toBe("queued for autumn");
   });
 });
+
+// PIE-1418: a line wider than its field scrolls sideways and says so: ‹ where words are off to the left, › where they go
+// on past the right, and the start kept in view while the cursor allows. It never shows only its last wrapped piece.
+test("a long line in a narrow field reads as scrolled: its start while the cursor allows, a ‹ or › where words are off it", () => {
+  const query = "Gutter swap for the north shed and the porch";
+  const l = new LineField(query, false, { complete: false });
+  // Typed to the end: the cursor's end of it, with ‹ saying the start is off to the left.
+  const end = visible(l.render(20, 1)[0]!);
+  expect(end).toStartWith("‹");
+  expect(end).toContain("the porch");
+  expect(end).not.toContain("›");
+  // Home: the start, with › saying it goes on.
+  l.take({ kind: "home" });
+  const start = visible(l.render(20, 1)[0]!);
+  expect(start).toStartWith("Gutter swap");
+  expect(start).toEndWith("›");
+  // A step back from the end, while the cursor still fits in the start's view, keeps the start.
+  const short = new LineField("Gutter swap shed", false, { complete: false });
+  short.take({ kind: "home" }); for (let i = 0; i < 6; i++) short.take({ kind: "right" });
+  expect(visible(short.render(12, 1)[0]!)).toStartWith("Gutter swap");
+  // A click on a cell lands on the character drawn there, the marks counted.
+  l.take({ kind: "end" });
+  l.render(20, 1);
+  l.drawnAt(0, 0, 20);
+  const drawn = visible(l.render(20, 1)[0]!), x = drawn.indexOf("porch");
+  l.take({ kind: "mouse", action: "down", x, y: 0, button: 0 } as Key);
+  l.take({ kind: "mouse", action: "up", x, y: 0, button: 0 } as Key);
+  expect(l.cursor).toBe(query.indexOf("porch"));
+  // A line that fits draws no marks.
+  expect(visible(new LineField("shed", false, { complete: false }).render(20, 1)[0]!)).not.toMatch(/[‹›]/);
+});
