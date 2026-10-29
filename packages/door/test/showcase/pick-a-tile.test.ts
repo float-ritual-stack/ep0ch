@@ -204,6 +204,10 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await untilAsync(() => text().then(t => t.includes(`^${first.anchor}`)), "the anchor in the note");
     // Again: the same anchor, nothing written.
     expect(await act("note.copy-ref", { kind: "line", line }, "notes", AGENT)).toMatchObject({ anchor: first.anchor, created: false });
+    // The person's, with nothing selected, names the part being read (the title at the top takes no anchor: the first part from there).
+    const read = await act("note.copy-ref", { kind: "line" }, "notes");
+    expect(read).toMatchObject({ clipboard: true });
+    expect(read.text).toMatch(new RegExp(`^\\(\\(${note}\\^[A-Za-z0-9_-]+\\|.+\\)\\)$`));
     // The person's ^W y copies the reference of the note in the tile with the keys.
     const { press, ch } = h;
     await act("section", { name: "pick-a-tile" });
@@ -259,6 +263,21 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     h.press({ kind: "mouse", action: "down", button: 0, x, y } as never);
     h.press({ kind: "mouse", action: "up", button: 0, x, y } as never);
     await until(() => h.written.slice(before).join("").includes(Buffer.from(web).toString("base64")), "the web link on the clipboard");
+    // A right-click on another row is that row's menu: the row is picked first, and its Note rows copy it.
+    const plainLines = () => h.sc.render(h.app).lines.map((l: string) => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, ""));
+    await until(() => plainLines().some((l: string) => l.includes("Bean packet")), "the Bean packet row");
+    const bean = plainLines(), by = bean.findIndex((l: string) => l.includes("Bean packet")), bx = bean[by]!.indexOf("Bean packet") + 2;
+    expect(subject((await board.get(d.pane(tree).subject!()!))!)).not.toBe("Bean packet");
+    h.press({ kind: "mouse", action: "down", button: 2, x: bx, y: by } as never);
+    h.press({ kind: "mouse", action: "up", button: 2, x: bx, y: by } as never);
+    await until(() => plainLines().some((l: string) => l.includes("copy web link")), "the row's menu");
+    const picked = d.pane(tree).subject!()!;
+    expect(subject((await board.get(picked))!)).toBe("Bean packet");
+    const menu = plainLines(), my = menu.findLastIndex((l: string) => /│\s*copy id\s/.test(l)), mx = menu[my]!.lastIndexOf("copy id") + 2;
+    const at = h.written.length;
+    h.press({ kind: "mouse", action: "down", button: 0, x: mx, y: my } as never);
+    h.press({ kind: "mouse", action: "up", button: 0, x: mx, y: my } as never);
+    await until(() => h.written.slice(at).join("").includes(Buffer.from(picked).toString("base64")), "the row's id on the clipboard");
   });
 
 });

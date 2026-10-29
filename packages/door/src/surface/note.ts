@@ -6108,11 +6108,11 @@ export class NoteSurface {
     const m = await this.whole();
     const where = { outline: m.address?.outline ?? own, foreign: !!m.address?.outline && m.address.outline !== own };
     if (kind !== "line") return deliverNoteRef(host.ctx, actor, m.id, kind, noteRefText(kind, m, where), said => this.noteAgent(actor, said));
-    const at = this.refLine(m, actor, line), board = host.ctx.board;
+    const { at, next } = this.refLine(m, actor, line), board = host.ctx.board;
     if (m.revision === undefined) throw new ActionRefused("this note has no revision to anchor a line at");
     // The part of the note holding the line (a heading, a paragraph, a list item, a quote, a component), as the service
     // reads it: its anchor goes where that part's goes, and its label is the part's own.
-    const found = await board.partAt(m.id, at), part = found.part;
+    const found = await board.partAt(m.id, at, next), part = found.part;
     // The line was chosen in the text this reader read: a note saved since may hold another part there.
     if (found.revision !== m.revision) throw new ActionRefused("the note changed since it was read; it is read again, copy once more");
     if (!part) throw new ActionRefused(`line ${at + 1} is in no part of the note that takes an anchor (a heading, a paragraph, a list item, a quote, a component)`);
@@ -6126,19 +6126,23 @@ export class NoteSurface {
     return { ...deliverNoteRef(host.ctx, actor, m.id, "line", text, said => this.noteAgent(actor, said)), line: at + 1, anchor: anchored.fragmentId, created: anchored.created };
   }
 
-  /** The source line (from 0) a line's reference names for `actor` (copyNoteRef). */
-  private refLine(m: Msg, actor: Actor, line: number | undefined): number {
+  /**
+   * The source line (from 0) a line's reference names for `actor` (copyNoteRef); `next`: it is only where the person is
+   * reading, so the first part from there counts (the title at the top of the view takes no anchor).
+   */
+  private refLine(m: Msg, actor: Actor, line: number | undefined): { at: number; next: boolean } {
     const count = m.text.split("\n").length;
     if (line !== undefined) {
       if (!Number.isInteger(line) || line < 1 || line > count) throw new ActionRefused(`line is from 1 to ${count}`);
-      return line - 1;
+      return { at: line - 1, next: false };
     }
     const sel = actor.kind === "user" ? this.selection : this.agentSelection?.id === actor.id ? this.agentSelection.sel : null;
     const src = sel ? this.sourceOf(sel, true) : null;
-    if (src) return src.lines[0];
+    if (src) return { at: src.lines[0], next: false };
     if (actor.kind !== "user") throw new ActionRefused("name the line: line=<from 1>, or select in the note first (the person's selection is theirs)");
     const folded = this.foldSel ? this.visibleFolds(m).find(p => p.key === this.foldSel) : undefined;
-    return (folded ? this.foldsIn(m).lines[folded.line] : undefined) ?? this.readingSourceLine();
+    const heading = folded ? this.foldsIn(m).lines[folded.line] : undefined;
+    return heading !== undefined ? { at: heading, next: false } : { at: this.readingSourceLine(), next: true };
   }
 
   /** Refused unless the last render drew the note (the elements come from it). */

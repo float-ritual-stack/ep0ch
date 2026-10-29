@@ -7763,8 +7763,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // A right-click in a tile opens its menu at the pointer (tile.menu), unless what's under it takes it itself (a
       // program that asked for the mouse, a step's box: their own choice opens). The tile gets the keys first.
       if (k.button === MOUSE_RIGHT && hit && !this.ownsRightClick(hit[0], hit[1], k.x, k.y)) {
-        const id = hit[0];
+        const [id, r] = hit, pane = this.panes.get(id);
         if (id !== this.focus) this.run("tile.focus", {}, this.nameOf(id));
+        // On a list's row the menu is that row's (PIE-1297: its Note rows copy it): the row is picked first, as the press
+        // that gives a tile the keys picks one (`focusing`: it selects, never opens or folds).
+        if (pane?.subject && pane.mouse && this.inBody(id, r, k.x, k.y)) {
+          const { x, y } = this.local(id, r, k.x, k.y), how: RowPress = { mods: 0, button: 0, focusing: true };
+          pane.mouse({ ...k, button: 0, action: "down" }, x, y, this, how);
+          pane.mouse({ ...k, button: 0, action: "up" }, x, y, this, how);
+        }
         return this.run("tile.menu", { at: `${k.x},${k.y}` }, this.nameOf(id));
       }
       // What a header draws to be clicked, before its row is a grip, a border or a float's title to drag: a mark's
