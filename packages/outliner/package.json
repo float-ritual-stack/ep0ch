@@ -16,6 +16,8 @@
     "./outline-binding": "./src/outline-binding.ts",
     "./agent-tools": "./src/agent-tools.ts",
     "./records": "./src/records.ts",
+    "./write-review-backfill": "./src/write-review-backfill.ts",
+    "./write-review": "./src/write-review.ts",
     "./mcp-write": "./src/mcp-write.ts",
     "./host-api": "./src/host-api.ts",
     "./script-examples": "./src/script-examples.ts",
