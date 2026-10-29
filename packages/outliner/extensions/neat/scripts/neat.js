@@ -1,4 +1,5 @@
 // ep0ch-script effects=write
+// [form-field::page note]: the left page, then the right (each left out: this outline's home, then the note in front of you)
 // Resolve explicit slots before arranging anything; defaults belong to this outline and this reader.
 const pick = async ref => (await read(ref)).id;
 const layout = await act('layout.get');

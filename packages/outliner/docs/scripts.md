@@ -66,7 +66,9 @@ The kitchen sink's **One button, two tiles** demonstrates both forms. Disk/netwo
 `::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}`. Left empty, a person's press asks for it in the
 kind the action's own argument takes (a tile: click one in the door), writes the answer on the line (`target=t-…`, an identity
 address of the tile grammar, never a name or a number) and runs nothing: the next press runs it. alt+click asks again. An agent is never asked: it writes the
-value with `button.slot label="pop it" key=target value=<tile>`. A button whose line reads differently than it was written
+value with `button.slot label="pop it" key=target value=<tile>`. A script's slot is asked in the kind the script declares
+(below): `::button{label="two up" of=neat page={page1} page={page2} page1= page2=}` asks page1 (1 of 2), then page2, from
+the notes, since neat says `[form-field::page note]`; several empty slots are asked in the order the line writes them. A button whose line reads differently than it was written
 (nested quotes that end `act=` early, stray words) runs nothing and says the line to write, in the editor as you type and on save.
 
 ## The script note
@@ -83,10 +85,10 @@ A note's `[script::y]` script is its first eligible fence with no `script=` name
 |---|---|---|---|
 | `script` | `[script::name]` | The script's name: its power-bar name, its `name::` handler line, its `@name` responder (an `@name` responder only when it starts with a lower-case letter and is lower case, digits and hyphens, up to 32). | `packages/outliner/src/script-sources.ts:50` |
 | the fence | a closed `js` or `ts` fence | The matching named fence, or the first unnamed `js`, `javascript`, `ts`, `typescript` or `actions` fence, is the code. TypeScript is stripped, not type-checked. For the note form, only that fence counts; if it is unclosed the script is empty (nothing runs, nothing is refused). | `packages/outliner/src/script-sources.ts:50` |
-| `mode` | `[mode::render]` | A handler: a line `name::` draws what the script returns. See [Modes](#modes). | `packages/outliner/src/script-sources.ts:71` |
+| `mode` | `[mode::render]` | A handler: a line `name::` draws what the script returns. See [Modes](#modes). | `packages/outliner/src/script-sources.ts:96` |
 | `effects` | `[effects::write]` | Describes writes to readers and the restart replay rule. Absent: `read`. | `packages/outliner/src/script-sources.ts:44` |
-| `deadline` | `[deadline::30s]` | When the run is cut short: `s`, `m` or `h`. Longer than `5m` is clamped to 5 minutes, not refused; a malformed value is ignored. Defaults: 5 minutes for a run, 15 seconds for a render drawing. | `packages/outliner/src/script-sources.ts:98` |
-| `keys` | `[keys::alt+S]` | Binds keys (several separated by commas). | `packages/outliner/src/script-sources.ts:106` |
+| `deadline` | `[deadline::30s]` | When the run is cut short: `s`, `m` or `h`. Longer than `5m` is clamped to 5 minutes, not refused; a malformed value is ignored. Defaults: 5 minutes for a run, 15 seconds for a render drawing. | `packages/outliner/src/script-sources.ts:123` |
+| `keys` | `[keys::alt+S]` | Binds keys (several separated by commas). | `packages/outliner/src/script-sources.ts:131` |
 
 Other ways a script exists: a file `<outline folder>/.ep0ch/scripts/name.js` or `.ts` whose first line is
 `// ep0ch-script` (settings after it: `effects=write`, `mode=render`, as in `// ep0ch-script mode=render`); an `actions` fence, which is one door action per line rather
@@ -94,13 +96,15 @@ than JavaScript (`packages/outline-core/src/action-line.ts`). Saving a malformed
 says why it isn't served.
 
 A script's arguments are `slot=value` words (`week=42`). The power bar offers the slots a js script reads as
-`props.name`: `propsUsed` finds them in the code.
+`props.name`: `propsUsed` finds them in the code. A script says what a slot names in the grammar a note's form uses:
+`[form-field::page note]` on a script's note, or in a file script's opening `//` comment lines (neat's second line). The
+power bar's run asks a choice from its options, and a button's empty `note` slot is picked from the notes; an undeclared slot is text.
 
 | Entry | Source |
 |---|---|
 | `scriptFence` | `packages/outliner/src/script-sources.ts:37` |
 | `propsUsed` | `packages/outliner/src/script-sources.ts:51` |
-| `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:452` |
+| `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:443` |
 
 **Script IDs:** a note's `[script::name]` is its power-bar and handler name; the action uses `ext.<id>.run`.
 **Find the action:** `ep0ch ext ls --ws <ws>` lists each name and ID; a script ID is `script-` plus the first 24 SHA-256 hex characters of its identity (note ID or file path), not its name.
@@ -216,23 +220,23 @@ has. The tone is one of `default`, `good`, `warn`, `bad`, `dim`, `accent`.
 
 | Builder | Fields (anything else is refused) | Source |
 |---|---|---|
-| `view.text` | `text`, `tone`, `strong`, `act` | `packages/outliner/src/component-primitives.ts:321` |
-| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:326` |
-| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:329` |
-| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:336` |
-| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:343` |
-| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:350` |
-| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:376` |
-| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:387` |
-| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:393` |
-| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:411` |
-| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:414` |
-| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:417` |
-| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:422` |
-| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:438` |
-| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:445` |
-| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:333` |
-| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty` | `packages/outliner/src/component-primitives.ts:459` |
+| `view.text` | `text`, `tone`, `strong`, `act` | `packages/outliner/src/component-primitives.ts:322` |
+| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:327` |
+| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:330` |
+| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:337` |
+| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:344` |
+| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:351` |
+| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:377` |
+| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:388` |
+| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:394` |
+| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:412` |
+| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:415` |
+| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:418` |
+| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:423` |
+| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:439` |
+| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:446` |
+| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:334` |
+| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty` | `packages/outliner/src/component-primitives.ts:460` |
 
 <!-- generated:view:end -->
 
@@ -263,7 +267,7 @@ primitive's label without the line. In a note the same press is `::button{label=
 | Entry | Source |
 |---|---|
 | `validatePrimitive` | `packages/outliner/src/component-primitives.ts:309` |
-| `PRIMITIVE_TYPES` | `packages/outliner/src/component-primitives.ts:27` |
+| `PRIMITIVE_TYPES` | `packages/outliner/src/component-primitives.ts:30` |
 | `PRIMITIVE_FIELDS` | `packages/outliner/src/component-primitives.ts:28` |
 | `MAX_NODES` | `packages/outliner/src/component-primitives.ts:130` |
 
@@ -333,7 +337,7 @@ examples lean on:
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:52` |
 | `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:870` |
-| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:453` |
+| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:444` |
 
 ## Effects, access and attribution
 
@@ -358,11 +362,11 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:253` |
-| `script_run` (the gateway tool) | `packages/door/src/mcp.ts:731` |
-| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1629` |
+| `script_run` (the gateway tool) | `packages/door/src/mcp.ts:737` |
+| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1673` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4486` |
-| `viaYolo` | `packages/outliner/src/server.ts:4516` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4560` |
+| `viaYolo` | `packages/outliner/src/server.ts:4590` |
 | `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:473` |
 
 ## Lifecycle
@@ -400,7 +404,7 @@ examples lean on:
 | `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:262` |
 | `stopRun` | `packages/outliner/src/script-runs.ts:217` |
 | `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:330` |
-| `scripts.stop` | `packages/outliner/src/server.ts:2055` |
+| `scripts.stop` | `packages/outliner/src/server.ts:2101` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2508` |
 
 ## Traps

@@ -28,6 +28,8 @@ export interface BarRow {
   keycap?: string;
   /** Why picking it would be refused now: drawn dim, and said when picked. */
   refused?: string;
+  /** What kind of thing it is (an extension's first part: rule, component, script), drawn at its right where the width allows. */
+  chip?: string;
   /** One line, its words cut to the width (the rest is the preview's): a list read at a glance. Else as many as the bar's rows take. */
   oneLine?: true;
   /** Rows of a source are grouped under headings by this (the tiles' screen), when it changes. */

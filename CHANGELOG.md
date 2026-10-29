@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The extensions list reads at a glance, settings and scripts too (PIE-1284)
+
+- **One line a row:** `settings <name>` rows are one line with their state; where config.json lives is in the preview.
+- **Each row's own words:** a note script's row says its note's title, an extension's script the about it declares,
+  and one with no description the first thing it adds (`agent @planter`), never "a script in a note" for all of them.
+- **Grouped under installed, with a kind chip:** headings read `installed · scripts · 24`, `settings · 7`; each row
+  names its kind at its right where the width allows, so it still says so once a typed name hides the headings.
+
+
 ### Copy a note's link, a line's reference, or any row's address (PIE-1297)
 
 - **Every row that is a note copies it:** a list's, the tree's or a lane's menu (⋯, or a right-click on the row) has

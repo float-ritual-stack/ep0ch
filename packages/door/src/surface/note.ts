@@ -4733,8 +4733,7 @@ export class NoteSurface {
       const args: Record<string, unknown> = { ...(req.args ?? {}) };
       let action = req.action;
       if (!d.takes(d.requestIn(req, messageContext.getStore()?.tile))) {
-        const listed = await host.ctx.board.listExtensions(false, { blockId: p.block || this.msg?.id, line: p.line });
-        const scripts = listed.extensions.filter(e => e.script && e.name === action && (e.state === "active" || e.state === "failed"));
+        const { listed, scripts } = await this.scriptsNamed(action, p.block || this.msg?.id, p.line, host);
         if (!scripts.length) {
           throw new ActionRefused(scriptInstallWords(action, listed.available) ?? d.unknownAction(action));
         }
@@ -4762,6 +4761,29 @@ export class NoteSurface {
     return actor.kind === "user" ? d.pressDoing(p.act, { note: home }, shown) : shown();
   }
 
+  /** The scripts called `name` as a press at `block`'s line `line` finds them (the note's own and its ancestors' first). */
+  private async scriptsNamed(name: string, block: string | undefined, line: number | undefined, host: SurfaceHost) {
+    const listed = await host.ctx.board.listExtensions(false, { blockId: block, ...(line !== undefined ? { line } : {}) });
+    return { listed, scripts: listed.extensions.filter(e => e.script && e.name === name && (e.state === "active" || e.state === "failed")) };
+  }
+
+  /**
+   * What slot `key` of `button` is asked as (PIE-1298): the question of the argument that reads it, from that argument's own
+   * declaration: an action's arg schema, or for a script step the slot the script declares (`[form-field::page note]`), read
+   * from the script the press would run. Null when nothing declares it (it is asked as text).
+   */
+  private async slotQuestion(block: string, button: ButtonCall, key: string, host: SurfaceHost) {
+    const use = slotArgs(button, key)[0];
+    if (!use) return null;
+    let action = use.action;
+    if (use.script) {
+      const run = (await this.scriptsNamed(action, block, button.line, host)).scripts[0]?.actions.find(a => a.id === "run");
+      if (!run) return null;
+      action = run.name;
+    }
+    return argQuestion(host.ctx as never, action, use.arg);
+  }
+
   /**
    * A press of a button with an empty slot (PIE-1298): the person is asked for it in the kind the action's own argument takes
    * (the wire picker for a tile: click one, h j k l, 1-9; the power bar's kind completion for a note, a screen, a file), and
@@ -4772,8 +4794,7 @@ export class NoteSurface {
     const key = keys[0]!, line = button.line + 1;
     const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
     if (!d) throw new ActionRefused("this screen has no dispatcher to ask with");
-    const use = slotArgs(button, key)[0];
-    const q = use ? argQuestion(host.ctx as never, use.action, use.arg) : null;
+    const q = await this.slotQuestion(block, button, key, host);
     if (actor.kind !== "user") {
       throw new ActionRefused(`${button.label} has no ${key} yet: it is the person's to choose; give it: button.slot note=${block} line=${line} key=${key} value=<${q?.kind ?? "the value"}>${q?.kind === "tile" ? " (a tile's name, its id or drawer.agent)" : ""}`);
     }
@@ -4808,7 +4829,7 @@ export class NoteSurface {
     const key = a.key ?? (button.empty[0] ?? (button.slots.length === 1 ? button.slots[0]!.key : undefined));
     if (!key || !button.slots.some(s => s.key === key)) throw new ActionRefused(`${button.label} has ${button.slots.length ? `the slots ${button.slots.map(s => s.key).join(", ")}; say key=<one>` : "no slot"} (write target= on its line and {target} where it goes)`);
     if (a.value === undefined) return this.askSlots(m.id, button, [key], host, actor);
-    const given = await this.slotValue(button, key, a.value, host, actor);
+    const given = await this.slotValue(m.id, button, key, a.value, host, actor);
     const line = button.line, before = m.text.split("\n")[line] ?? "", after = withButtonSlot(before, key, given);
     if (after === null) throw new ActionRefused(`that value can't be written on line ${line + 1}: a button line can't hold a newline, { or } in a value`);
     const wrote = after !== before;
@@ -4831,10 +4852,10 @@ export class NoteSurface {
    * role, a slot of a screen); a name, a number, `t7` or `focused` is resolved now and kept as the tile's id, for none of those
    * names the same tile after a layout changes. A value that names no tile is refused with the resolver's reason.
    */
-  private async slotValue(button: ButtonCall, key: string, value: string, host: SurfaceHost, actor: Actor): Promise<string> {
-    const use = slotArgs(button, key)[0];
-    const q = use ? argQuestion(host.ctx as never, use.action, use.arg) : null;
-    if (q?.kind !== "tile" || !value) return value;
+  private async slotValue(block: string, button: ButtonCall, key: string, value: string, host: SurfaceHost, actor: Actor): Promise<string> {
+    if (!value) return value;
+    const q = await this.slotQuestion(block, button, key, host);
+    if (q?.kind !== "tile") return value;
     const found = await tileNamed(host, value, actor);
     if ("why" in found) throw new ActionRefused(`not kept: ${found.why}`);
     return parseTileAddress(value).kind === "name" ? found.id : value;

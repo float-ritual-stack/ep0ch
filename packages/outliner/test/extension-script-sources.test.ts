@@ -79,3 +79,39 @@ test("a file script's header names its mode and effects, and anything else is re
   expect(refused?.error).toContain("mode=render");
   expect(refused?.error).toContain("effects=write");
 });
+
+// PIE-1298: what a slot names is the script's own word, in the form grammar, so a button's empty slot is asked in that kind.
+test("a script declares its slots' kinds with [form-field::…]: a file in its opening comments, a note on itself", async () => {
+  const { root, client, create } = await setup();
+  const folder = join(root, "outline/extensions/garden");
+  mkdirSync(join(folder, "scripts"), { recursive: true });
+  writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id: "garden", name: "garden", version: 1, scripts: [{ name: "pair", file: "scripts/pair.js", about: "two beds" }] }));
+  writeFileSync(join(folder, "scripts", "pair.js"), "// ep0ch-script\n// [form-field::bed note] [form-field::size choice small|large]\nconst x = '[form-field::later number]';\nreturn props.bed?.[0] + props.size?.[0] + props.extra?.[0];\n");
+  create("Sow [script::sow]\n[form-field::when choice spring|autumn]\n```js\nreturn props.when?.[0] + props.row?.[0];\n```");
+  const listed = (await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true })).extensions;
+  const args = (name: string) => listed.find(e => e.script && e.name === name)!.actions.find(a => a.id === "run")!.args;
+  // Declared first, then what the code reads that it doesn't declare, as text; a chip past the comments is code, not a declaration.
+  expect(args("pair")).toEqual([{ name: "bed", type: "note" }, { name: "size", type: "choice", options: ["small", "large"] }, { name: "extra", type: "text" }]);
+  expect(args("sow")).toEqual([{ name: "when", type: "choice", options: ["spring", "autumn"] }, { name: "row", type: "text" }]);
+});
+
+test("a script's own words are its summary (PIE-1284): a note script's its note's title, an extension's its about; retitling the note is a change clients hear", async () => {
+  const { root, store, create, client } = await setup();
+  plant(join(root, "outline/extensions"), "garden", "water");
+  const note = create("Weekly tidy of the beds [script::tidyup]\n\n```js\nreturn 1;\n```");
+  const list = () => client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+  const summary = async (name: string) => (await list()).extensions.find(e => e.script && e.name === name)?.summary;
+  expect(await summary("tidyup")).toBe("Weekly tidy of the beds");
+  expect(await summary("water")).toBe("water the garden");
+  // A note that opens with its code has no title to say: never the fence's opener.
+  create("[script::bare]\n```js\nreturn 2;\n```");
+  create("```js script=fenced\nreturn 3;\n```");
+  expect(await summary("bare")).toBeUndefined();
+  expect(await summary("fenced")).toBeUndefined();
+  // Its description still says where it is written (completions show it).
+  expect((await list()).extensions.find(e => e.name === "tidyup")?.description).toContain(`((${note.id}))`);
+  const before = (await list()).generation;
+  store.update(note.id, note.text.replace("Weekly", "Monthly"), note.revision, { author: "user" });
+  expect(await until("the new title", async () => (await summary("tidyup")) === "Monthly tidy of the beds")).toBe(true);
+  expect((await list()).generation).toBeGreaterThan(before);
+});

@@ -73,7 +73,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     for (const [name, m] of Object.entries(seeded.notes)) {
       const text = (await board.get(m.id))?.text ?? "";
       // Pick a tile's "misread" button is its demo of a button that runs nothing (PIE-1312): that one warning, and no other.
-      const meant = (w: { message: string }) => name === "pickATile" && w.message.startsWith("the ::button on line 5 runs nothing: act= ends early");
+      const meant = (w: { message: string }) => name === "pickATile" && /^the ::button on line \d+ runs nothing: act= ends early/.test(w.message);
       if (name !== "halfWritten") open.push(...syntaxWarnings(text).filter(w => !meant(w)).map(w => `${name}: ${w.message}`));
     }
     expect(open).toEqual([]);

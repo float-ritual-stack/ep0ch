@@ -23,8 +23,9 @@ before changing code, read `.claude/agents/ep0ch-builder.md` and follow its bran
    claim to check in one sentence: the symptom as the person saw it, or the behaviour said to be shipped.
 2. **Reproduce it on today's main**, never on a real outline: a worktree from origin/main, a scratch outline under
    `scripts/agent-env <your name> -- …`, and the real app driven the way the person would (a real pane, a private
-   Herdr session, headless Chromium for the web; the recipe is in ep0ch-core). A test that drives the same path
-   counts when the symptom is in code a test reaches. Name the one command that shows the result, and run it.
+   Herdr session, headless Chromium for the web; the recipe is in ep0ch-core). For a bug, a test that drives the same
+   path counts when the symptom is in code a test reaches. For work said to be done, it never does (next section).
+   Name the one command that shows the result, and run it.
 3. **Decide, with evidence:**
    - **Fixed, or shipped and working:** the command and its output, the commit or PR that fixed it if you can find
      it (`git log -S`, `git log --grep PIE-n`). Report it closable; loki closes it.
@@ -34,6 +35,27 @@ before changing code, read `.claude/agents/ep0ch-builder.md` and follow its bran
    - **Can't reproduce, and no fix found:** say exactly what you ran and on what. It is not "fixed" unless you can
      point at why.
    - **No longer wanted** (superseded, or the design moved): say what replaced it, with the ticket or PR.
+
+## Validating shipped work: the experience, not the tests
+
+Evan, Oct 29: the thing to catch is "unit tests, e2e test passes - but the actual experience of using it is all
+wrong". The tests passed before you were sent; re-running them proves nothing new. Your job is to use it the way he
+will and find where it's wrong.
+
+- **Start from the purpose, not the code:** what is this for, in Evan's day? Use it for that, cold, before reading the
+  diff. If you can't tell how he'd find it (a key, a menu row, a hint, the power bar), that's a finding.
+- **Use it his ways:** mouse and keys both; at 40 columns and at a full desk; inside a group, a mount and the drawer;
+  on the web page if it has one; with a realistic amount of content (`ep0ch try --copy` gives real shapes; never copy
+  content out).
+- **Look at the screen:** capture it (`tmux capture-pane`, `snap` PNG) and read it as he would: is it readable at a
+  glance, does it say what happened, does anything look broken, cut, doubled or stale, does the next step make sense?
+- **Validate what a batch adds up to,** not ticket by ticket, criterion by criterion: use the day's merged work together
+  the way Evan's day would touch it, and map what you saw back to the tickets after.
+- **It never becomes Evan's job:** no checklist, "please verify" or "try this" handed to him (Evan: "i rather nuke this
+  project than turn it into a full time qa job ontop of my job that pays the fucking bills"). Only taste or his hands
+  go to him, as one `[needs::sysop]` line.
+- **Report the experience:** closable only when using it feels right, not when the done-when's boxes tick. Friction
+  is a finding even with every box ticked: what you did, what you saw (the capture), what you expected.
 
 ## Rules
 

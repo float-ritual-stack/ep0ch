@@ -5,6 +5,8 @@ export const PICK_A_TILE = [
   "Pick a tile instead of typing its id",
   "Press pop it. Its target= is empty, so the door asks which tile: click one, or press its number. A tile whose place has a name of its own (the drawer's program) asks once more: this tile exactly, or whichever fills its place. The choice is written on the line, ctrl+z takes it back, and the next press lifts that tile above the drawer. Alt+click chooses again.",
   '::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}',
+  "A script's slots ask too, in the kind the script declares: neat says its page is a note (`[form-field::page note]` at its top), so two up asks for page 1 of 2, then page 2, from your notes, writes each on the line, and the next press puts them side by side.",
+  '::button{label="two up" of="neat" page={page1} page={page2} page1= page2=}',
   "A button that reads differently than it was written runs nothing, and says what to write (nested quotes ended act= early):",
   '::button{label="misread" act="tile.zoom reach="column" tile="t-a6125371"}',
   "Open any tile's menu (the ⋯ in its header): it is headed with the tile's name and id. Copy id and copy reference under Tile put the tile's address on your clipboard; under Note, the note's id, ((id|title)), its web link, or a reference to the line you're on (the line gets an ^anchor if it has none). A list's, the tree's or a lane's menu copies its selected row the same way; ^W y copies the reference, ^W , shows the tile's card.",

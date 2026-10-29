@@ -298,4 +298,36 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     h.press({ kind: "esc" });
   }, 30_000);
 
+  // Last, as neat rearranges the section's tiles. The validate sweep's repro (Oct 28): two empty slots of an of= script asked
+  // page2 first, as free text. Now page 1 of 2 comes first, from the notes (neat declares [form-field::page note]), each pick is written as the note's id, and the press runs.
+  test("a script's empty slots ask in order, in the kind the script declares; the next press puts the pages side by side", async () => {
+    const note = seeded.notes.pickATile.id;
+    const two = async () => (await text()).split("\n").find(l => l.includes('label="two up"'))!;
+    // An agent is told the kind it gives.
+    await expect(act("button.press", { note, label: "two up" }, undefined, AGENT)).rejects.toThrow(/key=page1 value=<note>/);
+    const asking = () => (app as any).bar?.describe() as { scope: string; query: string; rows: { label: string; detail?: string }[] } & Record<string, unknown> | undefined;
+    expect(await act("button.press", { note, label: "two up" })).toMatchObject({ asking: "value", action: "two up: page1 (1 of 2)" });
+    await until(() => asking()?.scope === "ask", "page 1 of 2 asked first, in the power bar");
+    // The kind's rows are notes the search found (each previews its note); a click or its number picks one.
+    const found = (title: string) => asking()?.rows.find(r => r.label.includes(title) && r.detail === "found") as { n: number } | undefined;
+    const pick = async (title: string) => {
+      for (const c of title) h.ch(c);
+      await until(() => !!found(title), `${title} among the notes`);
+      await app.dispatch.press("bar.pick", { n: found(title)!.n });
+    };
+    await pick("Bike shed");
+    await untilAsync(() => two().then(l => l.includes(`page1=${seeded.notes.shed.id}`)), "page1 written as the note's id");
+    await until(() => asking()?.scope === "ask", "then page 2 of 2");
+    await pick("A neat workbench");
+    await untilAsync(() => two().then(l => l.includes(`page2=${seeded.notes.neat.id}`)), "page2 written");
+    expect(await two()).toBe(`::button{label="two up" of="neat" page={page1} page={page2} page1=${seeded.notes.shed.id} page2=${seeded.notes.neat.id}}`);
+    const before = new Set(app.describe().messages.map(row => row.id));
+    await act("button.press", { note, label: "two up" });
+    await until(() => app.describe().messages.some(row => !before.has(row.id) && /(^|· )neat:/.test(row.message)), "neat ran", 10_000);
+    const main = (await act("layout.get")).layers.find((l: any) => !l.drawer).tiles as any[];
+    const a = main.find(t => t.showing?.id === seeded.notes.shed.id), b = main.find(t => t.showing?.id === seeded.notes.neat.id);
+    expect(a && b).toBeTruthy();
+    expect(a.rect.row).toBe(b.rect.row);
+    expect(a.rect.col).toBeLessThan(b.rect.col);
+  }, 30_000);
 });

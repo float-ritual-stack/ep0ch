@@ -26,7 +26,7 @@ import { actionLead, actionPage } from "../surface/action-page";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
-import { extensionList, extensionParts, PART_KINDS, scriptActions, type ExtensionEntry } from "../extensions";
+import { extensionList, extensionParts, PART_KINDS, partKind, scriptActions, type ExtensionEntry, type ExtensionList } from "../extensions";
 import { openActionForm } from "./form";
 import { settingsChip, settingsMarkdown, shownValue } from "../extension-settings";
 
@@ -398,16 +398,25 @@ interface ExtRow { kind: "hub" | "page" | "install" | "remove" | "make" | "setti
 /** A description's first sentence: what an extension says it is, at a glance. */
 const firstSentence = (text: string | undefined) => (text ?? "").replace(/\s+/g, " ").trim().match(/^.*?[.!?](?=\s|$)/)?.[0] ?? (text ?? "").trim();
 
-/** A row's words for an installed one: a script says where it is written (its path is the preview's), the rest their first sentence. */
-const summaryOf = (e: ExtensionEntry) => e.script ? (e.script.file ? `a script file, ${e.script.file.split("/").pop()}` : "a script in a note") : firstSentence(e.description);
+/**
+ * A row's words for an installed one, all its own (PIE-1284): a script's summary (its note's title, its extension's
+ * about) or an extension's description, the first sentence; else a script file's name; else the first thing it adds.
+ */
+function summaryOf(e: ExtensionEntry, l: ExtensionList): string {
+  const said = firstSentence(e.script ? e.summary : e.description);
+  if (said) return said;
+  if (e.script?.file) return `a script file, ${e.script.file.split("/").pop()}`;
+  const part = extensionParts(e, l)[0];
+  return part ? `${partKind(part.kind)} ${part.name}${part.about ? ` · ${firstSentence(part.about)}` : ""}` : "";
+}
 
 /** An installed extension as its preview reads it: its id and version, its state and settings, where it lives, its words, what it adds. */
 function extensionFacts(e: ExtensionEntry, then: string): string {
   const parts = extensionParts(e);
   return [
     `**${e.name ?? e.id}** \`${e.id}\`${e.version !== undefined ? ` v${e.version}` : ""} · ${e.state}${e.settings ? ` · settings ${settingsChip(e.settings)}` : ""}`,
-    ...(e.error ? ["", `> [!warning] ${e.error}`] : []), "", e.description ?? "",
-    ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${p.kind.replace(/s$/, "")} **${p.name}**${p.about ? ` · ${p.about}` : ""}`)] : []),
+    ...(e.error ? ["", `> [!warning] ${e.error}`] : []), ...(e.script && e.summary ? ["", e.summary] : []), "", e.description ?? "",
+    ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${partKind(p.kind)} **${p.name}**${p.about ? ` · ${p.about}` : ""}`)] : []),
     ...(e.directory ? ["", `\`${e.directory}\``] : []), "", then,
   ].join("\n");
 }
@@ -425,17 +434,18 @@ const EXTENSIONS: BarSource = {
   rows(q, host) {
     const l = extensionList();
     if (!l) return [];
-    const rows: BarRow[] = [{ key: "make", label: "make your own", detail: "ep0ch-extend skill · ep0ch docs extensions", group: "make", data: { kind: "make", id: "" } satisfies ExtRow }];
+    const rows: BarRow[] = [{ key: "make", label: "make your own", detail: "ep0ch-extend skill · ep0ch docs extensions", group: "make", oneLine: true, data: { kind: "make", id: "" } satisfies ExtRow }];
     const installed = l.extensions.filter(e => e.state !== "shadowed"), all = installed.length + (l.available?.length ?? 0);
     if (l.hub) rows.push({ key: "hub", label: "Extensions", detail: `the hub · ${installed.length} of ${all} installed`, group: "installed", data: { kind: "hub", id: "", block: l.hub } satisfies ExtRow });
-    // One line each, grouped by what it adds first (PIE-1284): the words are its own (its description's first sentence); the rest is the preview's.
+    // One line each, grouped under installed by what it adds first, that kind its chip (PIE-1284): the words are its own; the rest is the preview's.
     const kindOf = (e: ExtensionEntry) => extensionParts(e, l)[0]?.kind ?? "actions";
     for (const kind of PART_KINDS) {
       const these = installed.filter(e => kindOf(e) === kind);
-      for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.settings ? settingsChip(e.settings) : "", summaryOf(e)].filter(Boolean).join(" · "), group: `${kind} · ${these.length}`, oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
+      for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.settings ? settingsChip(e.settings) : "", summaryOf(e, l)].filter(Boolean).join(" · "), group: `installed · ${kind} · ${these.length}`, chip: partKind(kind), oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
     }
-    // Its settings (PIE-1343): a row each, its chip first, ⏎ the form its configSchema draws.
-    for (const e of installed) if (e.settings) rows.push({ key: `settings:${e.id}`, label: `settings ${e.name ?? e.id}`, detail: [settingsChip(e.settings), e.settings.file].join(" · "), group: "settings", data: { kind: "settings", id: e.id } satisfies ExtRow });
+    // Its settings (PIE-1343): a row each, its chip the words; where config.json is, the preview's; ⏎ the form its configSchema draws.
+    const configured = installed.filter(e => e.settings);
+    for (const e of configured) rows.push({ key: `settings:${e.id}`, label: `settings ${e.name ?? e.id}`, detail: settingsChip(e.settings!), group: `settings · ${configured.length}`, oneLine: true, data: { kind: "settings", id: e.id } satisfies ExtRow });
     for (const a of l.available ?? []) rows.push({ key: `install:${a.id}`, label: `install ${a.name}`, detail: firstSentence(a.description), group: `not installed · ${l.available!.length}`, oneLine: true, data: { kind: "install", id: a.id, about: a.description, scripts: a.scripts } satisfies ExtRow });
     // Removing one is offered once its name is typed, both ways, so the demo notes never go by a stray ⏎.
     if (q.trim()) for (const e of installed) {

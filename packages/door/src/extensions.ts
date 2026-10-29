@@ -1,4 +1,5 @@
 import { errorDetails, type MessageDetails } from "./status-log";
+import type { FormFieldType } from "@ep0ch/outline-core/form-fields";
 import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
 // Extensions in the door (PIE-512): what the outline service's extension registry offers (`extensions.list`,
 // pi-herdr-outliner PIE-507, docs/extensions/README.md) bound into the door's shared parts, never drawn or run
@@ -34,7 +35,7 @@ import type { Policy } from "./desk/screen-layout";
 import type { DeskApi } from "./desk/panes";
 import { ProgramTile } from "./desk/tile-kinds";
 import { barSources, openNote, registerBarSource, unregisterBarSource, type BarSource } from "./bar/source";
-import { askInBar } from "./bar/ask";
+import { askInBar, type BarQuestion } from "./bar/ask";
 
 /** One action an extension declares, as `extensions.list` names it. */
 export interface ExtensionAction {
@@ -62,7 +63,8 @@ export interface ExtensionAction {
 }
 /** An argument an action declares (PIE-784), as `extensions.list` carries it. */
 export interface ExtensionActionArg {
-  name: string; type: "text" | "choice" | "property" | "number"; label?: string; description?: string;
+  // The form grammar's types (outline-core form-fields.ts), as the manifest's schema takes them: a `note` names a note.
+  name: string; type: FormFieldType; label?: string; description?: string;
   options?: string[]; from?: "block" | "children" | "outline"; required?: boolean; default?: string; defaultProperty?: string;
 }
 /** An argument with its choices on a block and its value when not given (`extensions.args`). */
@@ -78,6 +80,8 @@ export interface ExtensionEntry {
   script?: { keys: readonly string[]; line?: number; blockId?: string; file?: string; code: string };
   /** `name` and `version` are absent for a folder that never loaded (it serves nothing; `error` says why). */
   id: string; name?: string; version?: number; description?: string; origin?: string;
+  /** A script's own words (its note's title, its extension's about); its `description` says where it is written. */
+  summary?: string;
   /** `active`, `failed` (it may still serve its last good version), `disabled` or `shadowed`. */
   state: string;
   directory?: string;
@@ -240,6 +244,8 @@ export const extensionList = (): ExtensionList | null => current;
 /** What an extension adds, by kind, in the order its group is chosen by (the first it has): a list a row, a preview, a hub read. */
 export const PART_KINDS = ["rules", "components", "scripts", "programs", "sources", "agents", "tiles", "records", "actions"] as const;
 export type PartKind = typeof PART_KINDS[number];
+/** One part as a row or a preview names it: its kind, one of them (`rule`, `agent`), and its name. */
+export const partKind = (kind: PartKind) => kind.replace(/s$/, "");
 
 /**
  * What extension `e` adds, read from its own declarations (`extensions.list`): its rules, its component and output lines,
@@ -250,7 +256,7 @@ export function extensionParts(e: ExtensionEntry, l: ExtensionList | null = curr
   return [
     ...of("rules", (l?.rules ?? []).filter(r => r.source.kind === "extension" && r.source.extension === e.id).map(r => ({ name: r.name, about: r.description }))),
     ...of("components", e.handlers.filter(h => h.kind === "component" || h.kind === "output").map(h => ({ name: `${h.key}::`, about: h.description }))),
-    ...of("scripts", [...(e.scripts ?? []).map(s => ({ name: s.name, about: s.about })), ...(e.script ? [{ name: e.name ?? e.id, about: e.description }] : [])]),
+    ...of("scripts", [...(e.scripts ?? []).map(s => ({ name: s.name, about: s.about })), ...(e.script ? [{ name: e.name ?? e.id, about: e.summary }] : [])]),
     ...of("programs", (e.schedules ?? []).map(s => ({ name: s.entry, about: s.every ? `every ${s.every}` : s.cron }))),
     ...of("sources", (l?.barSources ?? []).filter(b => b.extension === e.id).map(b => ({ name: b.title }))),
     ...of("agents", (e.agents ?? []).map(a => ({ name: `@${a.name}`, about: a.description }))),
@@ -495,9 +501,12 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
 }
 
 /** An action's declared arguments as its def's (PIE-784): `act ext.<id>.<action> by=price`, listed with their choices. */
-function declaredArgs(a: ExtensionAction): Record<string, { type: string; optional: true; about: string }> {
+function declaredArgs(a: ExtensionAction): Record<string, { type: string; optional: true; about: string; kind?: "note" }> {
   return Object.fromEntries((a.args ?? []).map(x => [x.name, {
     type: x.type === "number" ? "number" : "string", optional: true,
+    // What it names, as declared (a script's `[form-field::page note]`): a note is picked from the notes. A choice's options stay
+    // in `about` (the service checks and defaults them; as choices here an empty or spaced value would be refused before it).
+    ...(x.type === "note" ? { kind: "note" as const } : {}),
     about: `${x.label ?? x.name}${x.description ? `: ${x.description}` : ""}${x.options ? ` (${x.type === "property" ? `${x.options.join(", ")}, or a property${x.from ? ` the ${x.from === "outline" ? "outline has" : x.from === "children" ? "children have" : "block has"}` : ""}` : x.options.join(", ")})` : x.type === "property" ? " (a property's name)" : ""}${x.default !== undefined ? `; default ${x.default}` : ""}${x.defaultProperty ? `, or the block's own [${x.defaultProperty}::]` : ""}${x.required ? "; needed" : ""}`,
   }]));
 }
@@ -510,7 +519,7 @@ function givenArgs(a: ExtensionAction, raw: Record<string, unknown>): Record<str
 }
 
 /** A field of type `tag` (a template's prop, PIE-533 S4) is asked as text, typed as written (`#garden`). */
-const asQuestion = <Q extends { type: string }>(x: Q): Q => (x.type === "tag" ? { ...x, type: "text", free: true } : x);
+const asQuestion = <Q extends { type: string }>(x: Q) => (x.type === "tag" ? { ...x, type: "text", free: true } : x) as Q & { type: BarQuestion["type"] };
 
 /** An argument the door asks the person for when they didn't give it: a choice or a property (from its choices), or a needed one. */
 const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "property" || (!!x.required && x.default === undefined && !x.defaultProperty);

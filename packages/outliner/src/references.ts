@@ -23,7 +23,7 @@ export function blockReferenceDisplayText(reference: BlockReferenceResolution): 
 }
 
 // Asked for every reference of every note on each tree read, view and query: once per text.
-const displayTitleOfText = textMemo((text: string): string | undefined =>
+export const displayTitleOfText = textMemo((text: string): string | undefined =>
   firstLineWithoutPropertyTokens(stripFragmentAnchors(text))?.replace(/\s{2,}/g, " ").trim() || undefined);
 
 export function blockDisplayTitle(block: Block): string {
