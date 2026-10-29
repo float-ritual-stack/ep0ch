@@ -3253,10 +3253,11 @@ export class NoteSurface {
       title: `editing · ${subject({ ...m, text: d.text })}`,
       status: [
         fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
-        // Who typed it takes the hint's row, not a row of its own: an agent's patch landing never moves the text down.
-        d.note ? fg(C.cyan) + pad(d.note, w) + RESET
-          : by ? fg(C.lmagenta) + pad(by, w) + RESET
-          : fg(C.cyan) + pad("whole text: subject, body and [key::value] properties", w) + RESET,
+        // Who typed it takes the hint's row, not a row of its own: an agent's patch landing never moves the text down. What
+        // the draft says (an ask: the undo at a save) wraps whole, however narrow, as the bar's refusals do (PIE-1428).
+        ...d.note ? rowLines(d.note, w, 3).map(l => fg(C.cyan) + pad(l, w) + RESET)
+          : by ? [fg(C.lmagenta) + pad(by, w) + RESET]
+          : [fg(C.cyan) + pad("whole text: subject, body and [key::value] properties", w) + RESET],
       ],
     }, w, h) };
   }
