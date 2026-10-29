@@ -2447,6 +2447,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Each reader the change makes stale re-reads its note (NoteSurface.staleOn, .reread; a draft is only marked).
     for (const r of readers) if (r.surface.staleOn(e)) r.reread(this);
     if (e.action === "reconnected") for (const r of readers) r.retry(this);   // a note whose read failed while away
+    this.rereadCurrent(e);
+  }
+
+  /**
+   * The current note changed (a float's new note saved, PIE-1403): read it again, so an open that finds it here
+   * (`onScreenBlock`) never shows the text it had when it became current. Only while it is still the current note.
+   */
+  private rereadCurrent(e: OutlineEvent) {
+    const m = this.current, c = e.change;
+    if (!m || !this.ctx || e.blockId !== m.id || m.address || m.id.includes(":")) return;
+    if (c?.revision !== undefined && m.revision === c.revision && !m.partial) return;
+    void readNote(this.ctx, m.id).then(fresh => { if (fresh && this.current?.id === fresh.id) this.current = fresh; }, () => {});
   }
 
   /**
@@ -3125,9 +3137,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** Block `id` as a tile here shows it now (the current note, a reader's), if one does. */
+  /** The newest copy of note `id` on this screen (the current note, a tile's), or null: an older one never wins (PIE-1403). */
   private onScreenBlock(id: string): Msg | null {
-    if (this.current?.id === id) return this.current;
-    return [...this.panes.values()].map(p => this.showing(p)).find(m => m?.id === id) ?? null;
+    const copies = [this.current, ...[...this.panes.values()].map(p => this.showing(p))].filter((m): m is Msg => m?.id === id);
+    return copies.reduce<Msg | null>((best, m) => !best || (best.partial && !m.partial) || (m.revision ?? 0) > (best.revision ?? 0) ? m : best, null);
   }
   /** The screen's opens land in a container (its policy's `opensInto` names one): `open tile=detail|new-detail|float` are places. */
   hasPlaces(): boolean { const k = this.layout.policy.opensInto; return !!k && this.idNamed(k) === undefined; }

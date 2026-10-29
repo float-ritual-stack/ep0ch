@@ -558,4 +558,46 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect((again as any).policyAt((again as any).idNamed("library")).closable).toBe(false);
     await act("tile.close", {}, o.name);
   });
+
+  test("a note written in a float over the river, closed, and opened again from the power bar shows what was written (PIE-1403)", async () => {
+    await mine("tile.focus", {}, lib());
+    const writing = () => (river as any).describe().floats?.find((f: any) => f.newNote && f.writing);
+    const write = async (title: string, body: string) => {
+      key(ctrl("n"));
+      await until(() => !!writing(), "the new note's float", 8000);
+      const made = writing();
+      await until(() => (river as any).newNoteWhileTyping(), "the keys in its edit", 5000);
+      type(title); key({ kind: "enter" }); type(body);
+      key(ctrl("s"));
+      for (let i = 0; i < 100 && (await current(made.id))?.text !== `${title}\n${body}`; i++) await Bun.sleep(50);
+      expect((await current(made.id))?.text).toBe(`${title}\n${body}`);
+      await until(() => !surfaceOf(1) || !(river as any).panes.get((river as any).idNamed(made.tile))?.surface?.draft, "the edit closed", 5000);
+      return made;
+    };
+    const fromBar = async (title: string, id: string) => {
+      key(ctrl("k"));
+      expect((app as any).bar).toBeTruthy();
+      type(title);
+      await until(() => JSON.stringify((app as any).bar?.describe?.() ?? {}).includes(id), "the note among the bar's hits", 8000);
+      await (app as any).dispatch.press("open", { id });            // the notes row's ⏎ (openNote in src/bar/source.ts)
+      await (app as any).dispatch.press("bar.close", {}).catch(() => {});
+    };
+    // Closed, then opened again: its column has what was written.
+    const a = await write("Mulch the rhubarb", "Straw, a hand deep.");
+    await mine("tile.close", {}, a.tile);
+    await until(() => !(river as any).describe().floats?.some((f: any) => f.id === a.id), "its float closed");
+    await mine("tile.focus", {}, lib());
+    await fromBar("Mulch the rhubarb", a.id);
+    await until(() => !!V().byNote(a.id)?.root, "the note's column", 8000);
+    await Bun.sleep(300);
+    expect(V().byNote(a.id)!.surface.msg?.text).toBe("Mulch the rhubarb\nStraw, a hand deep.");
+    // Still open (its float stays), opened again from the bar: the float it's in keeps what was written.
+    const b = await write("Net the currants", "Before the birds find them.");
+    await mine("tile.focus", {}, lib());
+    await fromBar("Net the currants", b.id);
+    await Bun.sleep(300);
+    const shown = [...(river as any).panes.values()].filter((p: any) => p.surface?.msg?.id === b.id).map((p: any) => p.surface.msg.text);
+    expect(shown.length).toBeGreaterThan(0);
+    for (const t of shown) expect(t).toBe("Net the currants\nBefore the birds find them.");
+  });
 });
