@@ -13,6 +13,7 @@ import { Conferences, MainMenu, MessageList, MessageReader, Stats } from "../src
 import { SocketBoard } from "../src/socket";
 import { shellRunner } from "../src/drop";
 import type { Key } from "../src/term";
+import { visible } from "../src/style";
 import { outliner, Scratch, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -164,9 +165,16 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       expect(titles()).toEqual(["main menu"]);
     });
 
-    test("? runs screen.help; any key on help is screen.back; V runs video.cycle", async () => {
+    test("? opens the keys window on the menu's keys; H runs screen.help, said on the key line; any key on help is screen.back", async () => {
       home(); idle();
       key(char("?"));
+      await until(() => top().title === "keys", "the keys window by ?", 8000);
+      key(char("q"));
+      await until(() => titles().length === 1, "back on the menu");
+      // The menu's key line says both, each clickable.
+      const line = top().render(top().ctx).lines.map(visible).find((l: string) => l.includes("? keys"));
+      expect(line).toContain("H help");
+      key(char("H"));
       expect(top().title).toBe("help");
       key(char("x"));
       expect(titles()).toEqual(["main menu"]);

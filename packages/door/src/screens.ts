@@ -333,11 +333,13 @@ export class MainMenu implements Screen {
     });
     // The lit item's name at the width of the longest, so the line (and every key on it) stays put as it changes.
     const lit = ` |07: |15${item.label.padEnd(Math.max(...ITEMS.map(i => i.label.length)))}`;
-    const all = [...keys, ...extras, lit];
+    // ? and H, said and clickable: the keys window and the help screen.
+    const asks: (string | [string, Key])[] = [" |08· ", ["|15? |07keys", char("?")], " ", ["|15H |07help", char("H")]];
+    const all = [...keys, ...extras, lit, ...asks];
     // Too wide for one line (80 columns): the named items go on a line of their own under the keys.
     if (width(paint(all.map(q => (typeof q === "string" ? q : q[0])).join(""))) <= ctx.t.cols) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, all, { centre: true }));
     else {
-      lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [...keys, lit], { centre: true }));
+      lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [...keys, lit, ...asks], { centre: true }));
       // The named items on as many lines as the width takes (80 columns: two), each item whole.
       const named = (q: string | [string, Key, number]) => width(paint(typeof q === "string" ? q : q[0]));
       let row: (string | [string, Key, number])[] = [];
@@ -374,6 +376,8 @@ export class MainMenu implements Screen {
     else if (k.kind === "esc") return nothingToClose(ctx, "G logs off");
     else if (k.kind === "char" && !k.ctrl && k.ch.toUpperCase() === "V") return shellKey("video.cycle", {}, this, ctx);
     else if (ch(k) === "?") return shellKey("keys.open", { filter: "menu" }, this, ctx);
+    // H, no item's letter: the help screen, every item and what it does (? is the keys window here as everywhere).
+    else if (k.kind === "char" && !k.ctrl && k.ch.toUpperCase() === "H") return shellKey("screen.help", {}, this, ctx);
     else if (k.kind === "char" && !k.ctrl) {
       const hit = ITEMS.findIndex(i => i.key === k.ch.toUpperCase());
       if (hit >= 0) return this.open(ITEMS[hit]!, ctx);
@@ -806,7 +810,8 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.help": def({
-    summary: "open the help screen over this one: every menu item and what it does (any key goes back; ? there, as on every screen, is the keys window: keys.open); an agent's waits until the person is idle and is said on the status bar",
+    summary: "open the help screen over this one: every menu item and what it does (any key goes back; ? on the menu is the keys window, keys.open); an agent's waits until the person is idle and is said on the status bar",
+    keys: [{ keys: "H h", does: "on the main menu" }, { keys: "click", does: "on H help on the main menu's key line" }],
     touches: "screen", replay: "safe", says: () => ({ text: "· opened help · any key goes back", ms: 6000 }),
     args: {},
     run(_, { ctx }) {
