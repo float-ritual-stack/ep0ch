@@ -129,6 +129,8 @@ export class PowerBar {
     this.refresh();
   }
 
+  /** The line field's cells as last drawn: a click inside them is the field's. */
+  private fieldW = 10;
   private compact() { return this.scope === "ask" ? compactQuestion() : null; }
 
   /** Put away: nothing it asked for is waited on. */
@@ -284,7 +286,7 @@ export class PowerBar {
       const compact = this.compact();
       const inputX = compact ? 2 + width(compact.title) : 3;
             // The line is the one line field's: a click places the cursor, a drag selects, a double click a word (PIE-1290).
-      if (this.input.mouse(k, { x: r.col + inputX, y: r.row + (compact ? 1 : 2), w: Math.max(10, r.cols - 32) })) { ctx.redraw(); return; }
+      if (this.input.mouse(k, { x: r.col + inputX, y: r.row + (compact ? 1 : 2), w: compact ? Math.max(10, r.cols - 32) : this.fieldW })) { ctx.redraw(); return; }
       if (k.action === "up" || k.action === "drag") return;
       this.alt = !!((k.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL)) || k.button === MOUSE_MIDDLE;
       const at = { ...k, x: k.x - r.col, y: k.y - r.row };
@@ -449,6 +451,7 @@ export class PowerBar {
     // takes what's left, cut short (hover reads it).
     const status = busy || count, room = Math.max(10, w - 2);
     const field = Math.min(room, Math.max(10, room - 1 - width(status), width(this.query) + 1));
+    this.fieldW = field;
     const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, field)) : this.input.render(field, 1)[0]) + (room - field > 1 ? paint(" |08") + drawEllipsized(status, room - field - 1) : "");
     const scoped = this.scope ? barSource(this.scope) : undefined;
     this.sourceHead = scoped?.head?.(w, this.host) ?? [];

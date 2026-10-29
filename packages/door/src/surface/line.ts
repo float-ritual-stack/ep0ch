@@ -139,7 +139,7 @@ export class LineField extends Draft {
     else if (cursor >= this.scrollX + room) this.scrollX = cursor - room + 1;
     this.scrollX = Math.max(0, Math.min(this.scrollX, width(this.text) + 1 - room));
     this.cursorCol = cursor - this.scrollX;
-    return [this.scrollX ? headOf(tailFrom(line, this.scrollX), room) + RESET : line];
+    return [width(this.text) + 1 <= room ? line : headOf(tailFrom(line, this.scrollX), room) + RESET];
   }
 
   /** The text with ▌ where the cursor is, uncoloured (a status line's part). */

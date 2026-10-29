@@ -123,7 +123,7 @@ test("a long line in a narrow field shows the cells up to the cursor, and a clic
   expect(shown).toBe(link.slice(-19) + " ");
   // Home: the start shows again.
   l.take({ kind: "home" });
-  expect(visible(l.render(20, 1)[0]!)).toStartWith(link.slice(0, 19));
+  expect(visible(l.render(20, 1)[0]!)).toBe(link.slice(0, 20));
   // End, then a click on the field's first cell places the cursor on the character drawn there.
   l.take({ kind: "end" });
   l.render(20, 1);
