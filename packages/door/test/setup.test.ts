@@ -17,10 +17,10 @@ import { extFacts } from "../src/setup/ext-links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { ownScratch, stopUnder, wholeEnv } from "./scratch";
 import { builtinChecks, doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
-import { claudeModIn, databases, depsState, fetchRace, herdrHyperChords, herdrKeys, hostAnswers, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, outlineSchema, schemaCodeOf, startFromElapsed, systemdState } from "../src/setup/facts";
-import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, type McpFacts, type SessionFact, staleness } from "../src/setup/model";
+import { claudeModIn, databases, depsState, fetchRace, herdrHyperChords, herdrKeys, hostAnswers, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, publisherFacts, outlineSchema, schemaCodeOf, startFromElapsed, systemdState } from "../src/setup/facts";
+import { type Checkout, codeKey, detectPlatform, type Facts, type HostFacts, type HostUnit, type McpFacts, type PublisherFacts, type SessionFact, staleness } from "../src/setup/model";
 import { configuredMachineName, dialsIn, hostMachineName, isLocalMachine, localMachineAliases, writeDialsIn, writeMachineName } from "@ep0ch/outliner/machine-name";
-import { backupName, buildPlan, builtinsStep, checkoutStep, nameStep, dialsStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, mcpStep, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
+import { backupName, buildPlan, builtinsStep, checkoutStep, nameStep, dialsStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, mcpStep, publishersStep, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
 
 const scratch = mkdtempSync(join(tmpdir(), "ep0ch-setup-"));
 // The install tests' fake service manager starts a detached `link serve`: this file owns it (PIE-1360).
@@ -1588,3 +1588,108 @@ test("install records to the folder's machine without a local host", async () =>
     expect(received.blocks.some(b => b.text.includes("Local: finished"))).toBe(true);
   } finally { await local.dispose(); await receiver.dispose(); }
 }, 30_000);
+
+// PIE-1397: a deploy restarts a service only when the code it runs changed between the commit it started on and the
+// one install ends on. Kitty counted 14 host restarts in one night of docs- and mod-only merges.
+describe("restarts only on a change to the code each service runs (PIE-1397)", () => {
+  const OLD = "1111111aaaa", DOCS = "2222222bbbb", CODE = "3333333cccc";
+  const home = "/home/evan", repo = `${home}/projects/ep0ch`;
+  const sd: HostUnit = { kind: "systemd", path: `${home}/.config/systemd/user/outliner-host.service`, name: "outliner-host.service",
+    program: `${repo}/packages/outliner/src/host-main.ts`, outlines: `${home}/outlines`, stale: [], state: { active: true, pid: 77, detail: "systemd: active (running), pid 77" } };
+  const docsOnly = [".claude/skills/loki/SKILL.md", "AGENTS.md", "packages/claude-mod/hooks/stop.ts", "packages/outliner/test/store.test.ts"];
+  const outliner = [...docsOnly, "packages/outliner/src/server.ts"];
+  const door = [...docsOnly, "packages/door/src/surface/actions.ts"];
+  /** float-2 with its host on OLD and origin/main at `to`, `files` changed between them. */
+  const at = (to: string, files: string[], o: Partial<Facts> = {}): Facts => {
+    const f = float2();
+    return { ...f, plugin: { ...f.plugin!, checkout: checkout(repo, { head: OLD, upstream: to, behind: 1 }) },
+      repo: { ...f.repo, checkout: checkout(repo, { head: OLD, upstream: to, behind: 1 }), changes: { [codeKey(OLD, to)]: files } },
+      host: { ...f.host, unit: sd, runs: OLD }, ...o };
+  };
+  const pub = (name: string, o: Partial<PublisherFacts> = {}): PublisherFacts => ({
+    unit: { kind: "systemd", path: `${home}/.config/systemd/user/${name}`, name, state: { active: true, pid: 90, detail: "systemd: active (running), pid 90" } },
+    outliner: `${repo}/packages/outliner`, runs: OLD, ...o });
+  const step = (f: Facts, id: string) => buildPlan(f, opts()).steps.find(s => s.id === id)!;
+
+  test("a docs- and mod-only update leaves the host running and says so in one line", () => {
+    const host = step(at(DOCS, docsOnly), "host");
+    expect(host).toMatchObject({ status: "skip", commands: [] });
+    expect(host.why).toBe("host unchanged: no restart (1111111 → 2222222 changed 4 files, none it runs); systemd outliner-host.service keeps running");
+  });
+
+  test("an update that touches the outliner, outline-core or bun.lock restarts it, naming what changed", () => {
+    expect(step(at(CODE, outliner), "host")).toMatchObject({ status: "do", commands: ["systemctl --user restart outliner-host.service"],
+      why: expect.stringContaining("1 file it runs changed from 1111111 to 3333333 (packages/outliner/src/server.ts)") });
+    expect(step(at(CODE, ["packages/outline-core/src/protocol.ts"]), "host").status).toBe("do");
+    expect(step(at(CODE, ["bun.lock"]), "host").status).toBe("do");
+    // The door alone isn't the host's.
+    expect(step(at(CODE, door), "host").status).toBe("skip");
+  });
+
+  test("a host left on older code by a docs-only deploy is restarted when the next update touches its code, from the commit it runs", () => {
+    // HEAD already moved past the host's commit (the docs deploy); this run updates on to CODE.
+    const f = at(CODE, [], { host: { ...float2().host, unit: sd, runs: OLD } });
+    const later: Facts = { ...f, repo: { ...f.repo, checkout: checkout(repo, { head: DOCS, upstream: CODE, behind: 1 }), changes: { [codeKey(OLD, CODE)]: outliner, [codeKey(DOCS, CODE)]: outliner } } };
+    expect(step(later, "host")).toMatchObject({ status: "do", why: expect.stringContaining("from 1111111 to 3333333") });
+    // And a plain rerun after a docs-only deploy says the host is unchanged, not "runs the current code".
+    const rerun: Facts = { ...f, repo: { ...f.repo, checkout: checkout(repo, { head: DOCS, upstream: DOCS }), changes: { [codeKey(OLD, DOCS)]: docsOnly } } };
+    expect(step(rerun, "host")).toMatchObject({ status: "skip", why: expect.stringContaining("host unchanged: no restart") });
+  });
+
+  test("when what changed can't be listed, an update restarts it as before; a PROTOCOL mismatch and a schema step still do", () => {
+    const unlisted = at(CODE, []);
+    expect(step({ ...unlisted, repo: { ...unlisted.repo, changes: {} } }, "host").status).toBe("do");
+    expect(step(at(DOCS, docsOnly, { host: { ...float2().host, unit: sd, runs: OLD, protocol: PROTOCOL - 1 } }), "host")).toMatchObject({ status: "do", why: expect.stringContaining(`protocol ${PROTOCOL}`) });
+    expect(hostStep(at(DOCS, docsOnly), false, true)).toMatchObject({ status: "do", title: "Start the outline host on the new code" });
+  });
+
+  test("the MCP gateway runs the door: restarted for door code, left running for docs", () => {
+    const gw: McpFacts = { unit: { kind: "systemd", path: `${home}/.config/systemd/user/ep0ch-mcp.service`, name: "ep0ch-mcp.service", state: { active: true, pid: 91, detail: "systemd: active (running), pid 91" } },
+      door: `${repo}/packages/door`, startedAt: 1_800_000_000, runs: OLD, behind: false };
+    expect(mcpStep(at(DOCS, docsOnly, { mcp: gw }), true)).toMatchObject({ status: "skip", why: expect.stringContaining("gateway unchanged: no restart") });
+    expect(mcpStep(at(CODE, door, { mcp: gw }), true)).toMatchObject({ status: "do", commands: ["systemctl --user restart ep0ch-mcp.service"] });
+    // Started before a docs-only move (HEAD past it, no update now): still unchanged, not "it started on …".
+    const after = at(DOCS, [], { mcp: { ...gw, behind: true } });
+    const moved: Facts = { ...after, repo: { ...after.repo, checkout: checkout(repo, { head: DOCS, upstream: DOCS }), changes: { [codeKey(OLD, DOCS)]: docsOnly } } };
+    expect(mcpStep(moved, false)).toMatchObject({ status: "skip", why: expect.stringContaining("gateway unchanged") });
+  });
+
+  test("the publishers are restarted by install, after the host, only when the outliner's code changed; another checkout's are left alone", () => {
+    const pubs = [pub("outliner-publish.service"), pub("ep0ch-artifacts.service"), pub("outliner-publish-wt.service", { outliner: `${home}/wt/x/packages/outliner` })];
+    expect(publishersStep(at(DOCS, docsOnly, { publishers: pubs }), true)).toMatchObject({ status: "skip",
+      why: expect.stringContaining("outliner-publish.service: publisher unchanged: no restart") });
+    const code = buildPlan(at(CODE, outliner, { publishers: pubs }), opts()).steps;
+    const p = code.find(s => s.id === "publishers")!;
+    expect(p).toMatchObject({ status: "do", commands: ["systemctl --user restart outliner-publish.service", "systemctl --user restart ep0ch-artifacts.service"] });
+    expect(code.findIndex(s => s.id === "publishers")).toBeGreaterThan(code.findIndex(s => s.id === "host"));
+    expect(publishersStep(at(CODE, outliner, { publishers: [pub("outliner-publish.service", { unit: { ...pub("x").unit, name: "outliner-publish.service", state: { active: false, detail: "systemd: inactive (dead)" } } })] }), true))
+      .toMatchObject({ status: "skip", why: expect.stringContaining("not running") });
+    expect(publishersStep(at(CODE, outliner), true)).toBeNull();
+  });
+
+  test("a publisher is a unit running a script of packages/outliner/src other than the host's; the gateway and the host aren't", async () => {
+    const pubHome = join(scratch, "publisher-home"), dir = join(pubHome, ".config/systemd/user");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "outliner-publish.service"), "[Service]\nWorkingDirectory=%h/projects/ep0ch/packages/outliner\nExecStart=%h/.bun/bin/bun src/cli.ts publish serve --ws allotment --port 8790\n");
+    writeFileSync(join(dir, "seed-artifacts.service"), "[Service]\nExecStart=%h/.bun/bin/bun %h/projects/ep0ch/packages/outliner/src/artifact-main.ts serve\n");
+    writeFileSync(join(dir, "outliner-host.service"), "[Service]\nExecStart=/usr/bin/bun /srv/ep0ch/packages/outliner/src/host-main.ts\n");
+    writeFileSync(join(dir, "ep0ch-mcp.service"), "[Service]\nWorkingDirectory=%h/projects/ep0ch/packages/door\nExecStart=/usr/bin/bun src/main.ts mcp serve --http\n");
+    const found = await publisherFacts("linux", pubHome, scratch);
+    expect(found.map(p => [p.unit.name, p.outliner])).toEqual([
+      ["outliner-publish.service", `${pubHome}/projects/ep0ch/packages/outliner`],
+      ["seed-artifacts.service", `${pubHome}/projects/ep0ch/packages/outliner`],
+    ]);
+  });
+
+  test("the machine link runs the door: a docs-only update doesn't restart it; door code does", () => {
+    const linkHome = join(scratch, "link-home");
+    mkdirSync(join(linkHome, ".config/systemd/user"), { recursive: true });
+    const linkConfig = { mode: "serve", machines: ["float-box"] } as unknown as Facts["linkConfig"];
+    const linked = (to: string, files: string[]) => at(to, files, { home: linkHome, linkConfig, linkState: { loaded: true, running: true, enabled: true }, bun: { path: "/home/evan/.bun/bin/bun", version: "1.4.2" } });
+    // The unit as install writes it is what's there, so only the code decides.
+    const w = step(linked(CODE, door), "machine-link").writes![0]!;
+    writeFileSync(w.path, w.text);
+    expect(step(linked(DOCS, docsOnly), "machine-link")).toMatchObject({ status: "skip", why: "already installed and running" });
+    expect(step(linked(CODE, door), "machine-link")).toMatchObject({ status: "do", commands: expect.arrayContaining(["systemctl --user restart ep0ch-link"]) });
+  });
+});

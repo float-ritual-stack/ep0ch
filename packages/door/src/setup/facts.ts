@@ -21,7 +21,7 @@ import { configuredMachineName, dialsIn, suggestedMachineName } from "@ep0ch/out
 import { tossHealth } from "@ep0ch/outliner/echo-health";
 import { doorAgents } from "../desk/agent-env";
 import { hostRequest, type HostedOutline } from "../socket";
-import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, type McpFacts, PLUGIN_ID, type PluginFacts, type RepoFacts, type SchemaCode, type SchemaFacts, type OutlineSchema, type SessionFact, type UnitState } from "./model";
+import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, type McpFacts, PLUGIN_ID, type PluginFacts, type PublisherFacts, codeKey, type RepoFacts, type SchemaCode, type SchemaFacts, type OutlineSchema, type SessionFact, type UnitState } from "./model";
 import { chooseLinkDir, linkCandidates } from "./plan";
 
 type Env = Record<string, string | undefined>;
@@ -334,6 +334,54 @@ export function mcpUnits(platform: Facts["platform"], home: string): { kind: "sy
   });
 }
 
+/** A unit's command runs one of the outliner's scripts other than the host's: the script, as written (maybe relative). */
+const OUTLINER_SCRIPT = /(\S*src\/(?!host-main\.ts)[\w.-]+\.ts)\b/;
+/** The packages/outliner folder whose script `script` (relative to `wd`, %h and ~ expanded) is; null when it isn't one. */
+function outlinerOf(script: string, wd: string | undefined, home: string): string | null {
+  const expand = (p: string) => p.trim().replace(/^!/, "").replace(/%h/g, home).replace(/^~(?=\/|$)/, home);
+  const abs = script.startsWith("/") || script.startsWith("%h") || script.startsWith("~") ? expand(script) : wd ? resolve(expand(wd), script) : null;
+  if (!abs) return null;
+  const dir = resolve(abs, "../..");
+  return /\/packages\/outliner$/.test(dir) ? dir : null;
+}
+
+/**
+ * The publishers' units (PublisherFacts): systemd user units or launchd agents whose command runs a script of
+ * packages/outliner/src other than host-main.ts (`publish serve`, the artifact services), as systemd loaded it (drop-ins
+ * included), with the commit each running one started on.
+ */
+export async function publisherFacts(platform: Facts["platform"], home: string, repoRoot: string): Promise<PublisherFacts[]> {
+  const [kind, dir, ext] = platform === "linux" ? ["systemd", join(home, ".config/systemd/user"), ".service"] as const
+    : platform === "macos" ? ["launchd", join(home, "Library/LaunchAgents"), ".plist"] as const : [null, "", ""] as const;
+  if (!kind || !existsSync(dir)) return [];
+  const found = readdirSync(dir).filter(n => n.endsWith(ext)).sort().flatMap(file => {
+    let text: string;
+    try { text = readFileSync(join(dir, file), "utf8"); } catch { return []; }
+    const command = kind === "systemd" ? [...text.matchAll(/^\s*ExecStart\s*=\s*(.+)$/gm)].map(m => m[1]!).filter(Boolean).at(-1)
+      : (/<key>\s*ProgramArguments\s*<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text)?.[1] ?? "").replace(/<\/?string>/g, " ");
+    const wd = kind === "systemd" ? /^\s*WorkingDirectory\s*=\s*(.+)$/m.exec(text)?.[1] : /<key>\s*WorkingDirectory\s*<\/key>\s*<string>([^<]+)<\/string>/.exec(text)?.[1];
+    const label = kind === "launchd" ? /<key>\s*Label\s*<\/key>\s*<string>([^<]+)<\/string>/.exec(text)?.[1]?.trim() : undefined;
+    const name = label || (kind === "launchd" ? file.replace(/\.plist$/, "") : file);
+    return [{ kind, path: join(dir, file), name, command, wd }];
+  });
+  const all = await Promise.all(found.map(async x => {
+    let command = x.command, wd = x.wd;
+    if (x.kind === "systemd") {
+      // systemd's loaded configuration says what it runs, over its file (a drop-in's ExecStart replaces it).
+      const r = await run(["systemctl", "--user", "show", x.name, "-p", "ExecStart", "-p", "WorkingDirectory"], { timeoutMs: 5000 });
+      if (r.code === 0 && /argv\[\]=/.test(r.out)) { command = /argv\[\]=([^;]*)/.exec(r.out)?.[1]; wd = /^WorkingDirectory=(.*)$/m.exec(r.out)?.[1]?.trim() || wd; }
+    }
+    const script = command ? OUTLINER_SCRIPT.exec(command)?.[1] : undefined;
+    const outliner = script ? outlinerOf(script, wd, home) : null;
+    if (!outliner) return null;
+    const unit = { kind: x.kind, path: x.path, name: x.name };
+    const state = await unitState({ ...unit, outlines: "", stale: [] });
+    const runs = state.active && state.pid ? await startedOn(state.pid, repoRoot) : undefined;
+    return { unit: { ...unit, state }, outliner, ...(runs !== undefined ? { runs } : {}) } satisfies PublisherFacts;
+  }));
+  return all.filter((p): p is NonNullable<typeof p> => p !== null);
+}
+
 /**
  * The door a systemd unit runs as systemd loaded it (`systemctl --user show -p ExecStart -p WorkingDirectory`, drop-ins
  * included): its main.ts's folder; null when it doesn't run one it can tell; undefined when systemd didn't answer.
@@ -428,16 +476,40 @@ export async function hostAnswers(socket: string, tries = 3, gapMs = 400, live: 
 }
 
 /** The outline host over `folder`: its socket, whether it answers, its outlines, its protocol, its unit. */
-export async function hostFacts(folder: string, platform: Facts["platform"], home: string, env?: Env): Promise<HostFacts> {
+export async function hostFacts(folder: string, platform: Facts["platform"], home: string, env?: Env, repoRoot?: string): Promise<HostFacts> {
   const socket = hostSocketOf({ EP0CH_OUTLINES: folder, HOME: home });
   const found = hostUnit(platform, home, folder);
   const [live, state] = await Promise.all([hostAnswers(socket), found ? unitState(found, undefined, env) : Promise.resolve(undefined)]);
   const unit = found && state ? { ...found, state } : found;
-  if (!live) return { folder, socket, running: false, outlines: [], unit };
+  // The commit its process started on, for install to compare with the one it ends on (PIE-1397).
+  const runs = repoRoot && state?.active && state.pid ? await startedOn(state.pid, repoRoot) : undefined;
+  if (!live) return { folder, socket, running: false, outlines: [], unit, ...(runs !== undefined ? { runs } : {}) };
   const list = await hostRequest<{ outlines: HostedOutline[] }>(socket, "outlines.list", {}, 3000).catch(() => ({ outlines: [] as HostedOutline[] }));
   const target = openOutlineToPing(list.outlines);
   const p = target ? await hostRequest<Ping>(socket, "ping", { outline: target }, 1500).catch(() => null) : null;
-  return { folder, socket, running: true, outlines: list.outlines, ...(p?.protocolVersion !== undefined ? { protocol: p.protocolVersion } : {}), unit };
+  return { folder, socket, running: true, outlines: list.outlines, ...(p?.protocolVersion !== undefined ? { protocol: p.protocolVersion } : {}), unit, ...(runs !== undefined ? { runs } : {}) };
+}
+
+/** The commit the checkout at `repoRoot` was at when process `pid` started (movedSince); null when that can't be told. */
+export async function startedOn(pid: number, repoRoot: string): Promise<string | null> {
+  const startedAt = await processStart(pid);
+  if (startedAt === undefined) return null;
+  const moves = await headMoves(repoRoot);
+  return moves.length ? movedSince(moves, startedAt).runs : null;
+}
+
+/**
+ * The files that differ between each of `froms` and each of `tos` (`git diff --name-only`, read-only), keyed codeKey;
+ * a pair git can't diff (a commit it doesn't have) is left out, and is then restarted on as before.
+ */
+export async function codeChanges(root: string, froms: readonly (string | null | undefined)[], tos: readonly (string | null | undefined)[]): Promise<Record<string, string[]>> {
+  const pairs = [...new Set(froms.filter((x): x is string => !!x))].flatMap(from => [...new Set(tos.filter((x): x is string => !!x))].filter(to => to !== from).map(to => [from, to] as const));
+  const out: Record<string, string[]> = {};
+  await Promise.all(pairs.map(async ([from, to]) => {
+    const r = await run(["git", "-C", root, "diff", "--name-only", "--no-renames", from, to], { timeoutMs: 15_000 });
+    if (r.code === 0) out[codeKey(from, to)] = r.out.split("\n").filter(Boolean);
+  }));
+  return out;
 }
 
 /** Every outline database in the outlines folder (`<name>.sqlite`), read even when the host is down. */
@@ -571,16 +643,17 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     return Promise.resolve(p).finally(() => { waiting.splice(waiting.indexOf(name), 1); done++; o.onProgress?.({ done, total: done + waiting.length, waiting: [...waiting] }); });
   };
   const lines = (what: string): OnLine | undefined => (o.onLine ? l => o.onLine!(`${what}: ${l.trim()}`) : undefined);
-  const [bunVersion, herdrVersion, server, plugin, repo, host, agents, sessions, mcp, backups, restic] = await Promise.all([
+  const [bunVersion, herdrVersion, server, plugin, repo, host, agents, sessions, mcp, publishers, backups, restic] = await Promise.all([
     part("bun", bunPath ? run([bunPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out : null) : null),
     part("Herdr", herdrPath ? run([herdrPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out.replace(/^herdr\s+/, "") : null) : null),
     part("Herdr's server", herdrPath ? run([herdrPath, "status", "server", "--json"], { env, timeoutMs: 5000 }).then(r => { try { return JSON.parse(r.out).running === true; } catch { return false; } }) : null),
     part("the Outliner plugin", herdrPath ? pluginFacts({ ...env, HERDR_BIN_PATH: herdrPath }, fetch, lines("plugin")) : null),
     part("the ep0ch checkout", repoFacts(repoRoot, fetch, env, lines("ep0ch"), o.sha)),
-    part("the outline host", hostFacts(folder, platform, home, env)),
+    part("the outline host", hostFacts(folder, platform, home, env, repoRoot)),
     part("door agents", doorAgents(env).catch(() => undefined)),
     part("the door sessions", doorSessions(env).catch(() => [])),
     part("the MCP gateway", mcpFacts(platform, home, repoRoot).catch(() => null)),
+    part("the publishers", publisherFacts(platform, home, repoRoot).catch(() => [])),
     o.backups ? part("the backups", import("./backups").then(b => b.gatherBackups({ platform, home, env, run, restore: o.backups === "restore" }))) : undefined,
     part("the backup job", import("../backup/setup").then(b => b.backupSetupFacts({ platform, home, env, bun: bunPath, main: join(repoRoot, "packages/door/src/main.ts"), repoRoot, run, which: n => which(n, pathDirs) })).catch(() => undefined)),
   ]);
@@ -611,6 +684,9 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   const machines = await part("the machines' forwards", Promise.all(named.map(async m => ({ ...(await machineStatus(m, { ...env, HOME: home })), ...(m === here.machine ? { here: true } : {}) }))));
 
   const dbs = databases(folder);
+  // What changed between the commit each service started on (and HEAD) and the one this run ends on (PIE-1397).
+  const c = repo.checkout;
+  if (c.git) repo.changes = await part("what changed in the checkout", codeChanges(repo.root, [c.head, host.runs, mcp?.runs, ...publishers.map(p => p.runs)], [c.head, c.upstream]));
   // What install linked (links.ts), one record for every kind of link it owns.
   const record = join(env.EP0CH_STATE ?? defaultStateDir(env), "install-links.json");
   return {
@@ -673,6 +749,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
     sessions,
     mcp,
+    publishers,
     ext: extFacts(join(repo.door, "ext"), { env, home, bin: binDirOf(found, target === real(repo.entry)) ?? chooseLinkDir(linkDirs), which: n => which(n, pathDirs), record }),
     skills: skillLinkFacts({ door: repo.door, outliner: repo.outliner, env, home, record }),
     builtins: await part("the built-in extensions' installed copies", builtinCopies(repo.outliner, folder, env, home)),
