@@ -385,7 +385,8 @@ needed: the publisher's tailnet URL plus `/p/<id>` (on pie, `https://my.ep0ch.sh
 the note's text, its children as links, breadcrumbs back up. They can highlight, comment and ask `@margin` there;
 it lands as their own threads in the outline, so "go check the notes I left" means reading the note's threads.
 In the door a reader draws its comments as cards in the margin; to keep just the marks, `M` (or a click on the
-comment count after the note's date) cycles cards a row each, whole, and **marks only**, kept with the tile.
+comment count after the note's date, which says which: "in the margin", "whole", "as marks") cycles them, kept with
+the tile. Quoting a comment (`[Quote]`) opens the new note beside them to write in, under the note by default.
 
 ## Shaping a note: a floor, not a ceiling
 
