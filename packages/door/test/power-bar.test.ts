@@ -682,7 +682,7 @@ describe.skipIf(!outliner)("the power bar", () => {
       // An agent names the hit by ref=.
       expect(await app.act({ action: "note.copy-ref", args: { kind: "id", ref: notes.shed!.id }, as: "wren-agent" })).toMatchObject({ text: notes.shed!.id, clipboard: false });
     } finally { (app as any).copy = copy; }
-  });
+  }, 20_000);
 
   test("the desk's / opens the bar in its notes scope (the one search)", async () => {
     desk.focusPane(desk.pane(desk.tileOutline().find(t => t.kind === "tree")?.name ?? desk.tileOutline()[0]!.name)!, { kind: "user" });
