@@ -1,6 +1,7 @@
 // draft.patch owns attribution, conflict handling and undo.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { codeFenceLines } from "./link-grammar.js";
 import { LIST_ITEM, tidyPassage } from "./tidy-line";
 
 interface Request {
@@ -13,8 +14,9 @@ const request = (await Bun.stdin.json()) as Request;
 const ok = (value: unknown) => process.stdout.write(JSON.stringify({ ok: true, value }));
 
 function listStart(lines: string[], from: number, to: number): number | null {
+  const fenced = codeFenceLines(lines);
   for (let at = from; at <= to; at++) {
-    if (/^\s*(?:`{3,}|~{3,})/.test(lines[at]!)) return null;
+    if (fenced[at]! >= 0) return null;
     if (LIST_ITEM.test(lines[at]!)) return at;
   }
   return null;

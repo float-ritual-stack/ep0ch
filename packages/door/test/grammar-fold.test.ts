@@ -3,6 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { outputHeader } from "@ep0ch/outline-core/output-region";
+import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { linkTokenOf, parsePath } from "@ep0ch/outline-core/resolve-path";
 import { rulesFromBlocks } from "@ep0ch/outline-core/rules";
 import { sameReference } from "@ep0ch/outline-core/tool-args";
@@ -22,6 +23,11 @@ const mod = await import(ROWS) as {
 const modArgs = await import(MOD_ARGS) as { sameReference(a: unknown, b: unknown): boolean };
 const ECHONET = "../../outliner/extensions/echonet/shapes";
 const echonet = await import(ECHONET) as { firstLine(text: string): string };
+const TIDY = "../../outliner/extensions/tidy/tidy-line", LISTS = "../../outliner/extensions/structure/lists", FRAGMENTS = "../../outliner/src/fragments";
+const tidy = await import(TIDY) as { tidyPassage(lines: string[]): { replacement: string } };
+const lists = await import(LISTS) as { ownLines(item: { lines: string[]; marker: string }): string[] };
+const fragments = await import(FRAGMENTS) as { codeLineSet(text: string): Set<number> };
+const rows = mod as unknown as { capped(markdown: string): string };
 
 const ID = "3b8e6c21-5f4a-4d7b-9c02-a1e8d4f7b650";
 
@@ -91,5 +97,34 @@ describe("a note's title: one answer, noteTitleLine's", () => {
     expect(firstLineWithoutPropertyTokens(text)).toBe(title);
     expect(titleLine(text)).toEqual({ line, text: title });
     expect(echonet.firstLine(text)).toBe(title);
+  });
+});
+
+// structure.ts's anchors and tidy.ts's list start read the same bundled `codeFenceLines`; their modules read stdin.
+describe("fenced code: one answer, codeBlocks'", () => {
+  test("a `js` line inside a fence is code, not a closing fence: tidy leaves the code's trailing blanks", () => {
+    const lines = ["```", "a", "```js", "b   ", "```", "c  "];
+    expect(codeFenceLines(lines)).toEqual([0, 0, 0, 0, 0, -1]);
+    expect(tidy.tidyPassage(lines).replacement.split("\n")).toEqual(["```", "a", "```js", "b   ", "```", "c"]);
+  });
+
+  test("four spaces before a fence is indented code, never a fence that swallows what follows", () => {
+    const lines = ["text", "", "    ```", "after  "];
+    expect(codeFenceLines(lines)).toEqual([-1, -1, -1, -1]);
+    expect(tidy.tidyPassage(lines).replacement.split("\n").at(-1)).toBe("after");
+  });
+
+  test("a fence in a list item is code at every site", () => {
+    const text = "- item\n  ```\n  # not a heading ^not-an-anchor\n  ```\n- next";
+    expect(codeFenceLines(text.split("\n"))).toEqual([-1, 1, 1, 1, -1]);
+    expect(fragments.codeLineSet(text).has(2)).toBe(true);
+    expect(lists.ownLines({ lines: ["- item", "  ```", "  - inside code", "  ```", "  after"], marker: "-" })).toEqual(["- item", "  after"]);
+  });
+
+  test("the mod closes only a fence the cut leaves open", () => {
+    const open = ["```ts", ...Array.from({ length: 60 }, (_, i) => `line ${i}`)].join("\n");
+    expect(rows.capped(open).split("\n").slice(-3)[0]).toBe("```");
+    const closed = ["```", "x", "```", ...Array.from({ length: 60 }, (_, i) => `prose ${i}`)].join("\n");
+    expect(rows.capped(closed).split("\n").slice(-3)[0]).toMatch(/^prose/);
   });
 });

@@ -1,7 +1,7 @@
 // Structure: extract a passage into a child block, sort a list in a block, sort a block's children. A userland
 // extension: it reads the outline and writes through its own connection (outline.ts) as ext:structure, and imports
 // nothing from the outline's code.
-import { firstLineWithoutPropertyTokens } from "./link-grammar.js";
+import { codeFenceLines, firstLineWithoutPropertyTokens, fragmentAnchorMatch } from "./link-grammar.js";
 import { outline } from "./outline";
 import { extractFrom, lineRange, sortListInText, sortSpec, compareKeys, propertyIn } from "./lists";
 
@@ -12,16 +12,11 @@ const refuse = (message: string) => say({ message: `refused: ${message}` });
 
 /** The `^anchors` at the ends of `text`'s lines, outside fenced code (a fenced line ending in `^x` is code, not an anchor). */
 function anchorsOf(text: string): string[] {
-  const found: string[] = [];
-  let fence: string | null = null;
-  for (const line of text.split("\n")) {
-    const mark = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (mark && (!fence || (mark[0] === fence[0] && mark.length >= fence.length))) { fence = fence ? null : mark; continue; }
-    if (fence) continue;
-    const anchor = /(?:^|\s)\^([A-Za-z0-9][A-Za-z0-9_-]{0,63})[ \t]*$/.exec(line)?.[1];
-    if (anchor) found.push(anchor);
-  }
-  return found;
+  const lines = text.split("\n"), fenced = codeFenceLines(lines);
+  return lines.flatMap((line, at) => {
+    const anchor = fenced[at]! < 0 ? fragmentAnchorMatch(line)?.[1] : undefined;
+    return anchor ? [anchor] : [];
+  });
 }
 
 async function act() {

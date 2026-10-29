@@ -44,7 +44,7 @@
     "cli": "bun run src/cli.ts",
     "workflow": "bun run src/workflow-main.ts",
     "goto": "bun run src/cli.ts goto",
-    "check": "tsc --noEmit && bun ../../scripts/link-grammar.ts --check packages/outliner/extensions/echonet/link-grammar.js packages/outliner/extensions/intake/link-grammar.js packages/outliner/extensions/structure/link-grammar.js",
+    "check": "tsc --noEmit && bun ../../scripts/link-grammar.ts --check packages/outliner/extensions/echonet/link-grammar.js packages/outliner/extensions/intake/link-grammar.js packages/outliner/extensions/structure/link-grammar.js packages/outliner/extensions/tidy/link-grammar.js",
     "test": "bun test",
     "test:e2e:herdr": "bun run test/e2e/startup-interruption.ts && bun run test/e2e/resource-authoring.ts",
     "test:e2e:roadmap": "bun run test/e2e/roadmap-batches.ts",

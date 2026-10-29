@@ -1152,6 +1152,7 @@ function linkOccurrences(text, code) {
 export {
   BLOCK_ID_PATTERN,
   COMPONENT_OPEN,
+  codeBlocks,
   componentBlocks,
   formatEp0chBlockUri,
   labelBar,

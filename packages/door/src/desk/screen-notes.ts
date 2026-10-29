@@ -18,6 +18,7 @@
 //
 // The service needs nothing new for it: notes found by a property (`blocks.query`), written by `create` and `update`
 // with their revision, put in Trash by `delete`.
+import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { subject, type Msg } from "../board";
 import { EditConflict, type Actor, type SocketBoard } from "../socket";
 import { ActionRefused } from "../surface/actions";
@@ -62,8 +63,7 @@ export function screenNoteText(spec: ScreenSpec): string {
 
 /**
  * The spec in a screen note's first ```json fence, named by its `screen::` property: what the door registers, or
- * what's wrong with it. It reads only what `screenNoteText` writes (a fence opened by exactly ```json and closed by
- * ```), so the JSON's own lines are never taken for anything else.
+ * what's wrong with it. It reads only what `screenNoteText` writes (a ```json fence, as outline-core's `codeBlocks` reads one), so the JSON's own lines are never taken for anything else.
  */
 export function readScreenNote(m: Msg): ScreenNote | { problem: string; name: string; id: string } {
   const heading = subject(m).trim();
@@ -75,8 +75,9 @@ export function readScreenNote(m: Msg): ScreenNote | { problem: string; name: st
   const bad = screenNameProblem(name);
   if (bad) return wrong(`${where}: ${bad} · set its [${SCREEN_TYPE}::…]`);
   const lines = m.text.split("\n");
-  const open = lines.findIndex(l => /^```json\s*$/.test(l));
-  const close = open < 0 ? -1 : lines.findIndex((l, i) => i > open && /^```\s*$/.test(l));
+  // Its layout is the first closed ```json fence, by outline-core's fence grammar.
+  const json = codeBlocks(lines).fences.find(f => f.closed && f.fence.info.trim() === "json");
+  const open = json?.start ?? -1, close = json?.end ?? -1;
   if (open < 0 || close < 0) return wrong(`${where} (${name}) has no \`\`\`json fence holding its layout · save the screen again from the door (^W w) to write one`);
   let data: unknown;
   try { data = JSON.parse(lines.slice(open + 1, close).join("\n")); } catch (e) { return wrong(`${where} (${name}): its layout isn't JSON (${(e as Error).message})`); }

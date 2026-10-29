@@ -20,7 +20,7 @@ export type CodeScope = "note" | "inline" | readonly SourceRange[];
  * Whether `text` can hold code at all: without a backtick, a tilde, an indented line or a component's `::` opening a
  * line (its YAML is literal), it can't, so nothing's computed.
  */
-const mayHoldCode = (text: string) => /[`~]|(?:^|\n)(?: {4}|[ ]{0,3}\t| {0,3}::)/.test(text);
+export const mayHoldCode = (text: string) => /[`~]|(?:^|\n)(?: {4}|[ ]{0,3}\t| {0,3}::)/.test(text);
 
 /** The code ranges of `text` under `scope`. */
 export function codeRangesOf(text: string, scope: CodeScope = "note"): readonly SourceRange[] {

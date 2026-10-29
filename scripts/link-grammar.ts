@@ -7,6 +7,7 @@ const BUNDLES = [
   { entry: "packages/outliner/scripts/echonet-grammar-entry.ts", output: "packages/outliner/extensions/echonet/link-grammar.js" },
   { entry: "packages/outliner/scripts/intake-grammar-entry.ts", output: "packages/outliner/extensions/intake/link-grammar.js" },
   { entry: "packages/outliner/scripts/structure-grammar-entry.ts", output: "packages/outliner/extensions/structure/link-grammar.js" },
+  { entry: "packages/outliner/scripts/tidy-grammar-entry.ts", output: "packages/outliner/extensions/tidy/link-grammar.js" },
 ];
 const only = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
 const stale: string[] = [];

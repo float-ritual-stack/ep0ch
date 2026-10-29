@@ -138,6 +138,13 @@ function codeBlocks(lines) {
   }
   return { fences, indented };
 }
+function codeFenceLines(lines) {
+  const out = new Array(lines.length).fill(-1);
+  for (const block of codeBlocks(lines).fences)
+    for (let i = block.start;i <= block.end; i++)
+      out[i] = block.start;
+  return out;
+}
 
 // packages/outline-core/src/callouts.ts
 var BUILTIN_CALLOUTS = [
@@ -692,6 +699,9 @@ function pageLinkRanges(text) {
 var PAGE_FRAGMENT = new RegExp(String.raw`\s*\^(${FRAGMENT_ID_SOURCE})\s*$`);
 var MARKDOWN_LINK_SOURCE = String.raw`(?<!!)\[([^\[\]\r\n]*)\]\(([^)\r\n]*)\)`;
 var FRAGMENT_ANCHOR_PATTERN = new RegExp(String.raw`(?:^|\s)\^(${FRAGMENT_ID_SOURCE})\s*$`);
+function fragmentAnchorMatch(line) {
+  return line.match(FRAGMENT_ANCHOR_PATTERN);
+}
 
 // packages/outline-core/src/property-grammar.ts
 var PROPERTY_KEY_SOURCE = "[A-Za-z][A-Za-z0-9_.-]*";
@@ -1828,5 +1838,7 @@ function firstLineWithoutPropertyTokens(text) {
   return noteTitleLine(text).text || undefined;
 }
 export {
-  firstLineWithoutPropertyTokens
+  codeFenceLines,
+  firstLineWithoutPropertyTokens,
+  fragmentAnchorMatch
 };

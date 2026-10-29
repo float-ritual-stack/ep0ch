@@ -1,4 +1,6 @@
-// The pure part of Structure: lists inside a block's text, sorting, and what an extract writes. No I/O.
+// The pure part of Structure: lists inside a block's text, sorting, and what an extract writes. No I/O. Code fences
+// are outline-core's (`codeFenceLines`, from the bundle).
+import { codeFenceLines } from "./link-grammar.js";
 
 export interface SortSpec { by: string; order: "asc" | "desc" }
 export interface Item { lines: string[]; marker: string }
@@ -25,11 +27,10 @@ export function titleOf(firstLine: string): string {
 
 /** An item's own lines: its first, and those after it up to its first sub-item, outside code fences. */
 export function ownLines(item: Item): string[] {
-  const own = [item.lines[0]!];
-  let fenced = false;
-  for (const line of item.lines.slice(1)) {
-    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; continue; }
-    if (fenced) continue;
+  const own = [item.lines[0]!], fenced = codeFenceLines(item.lines);
+  for (const [at, line] of item.lines.entries()) {
+    if (!at) continue;
+    if (fenced[at]! >= 0) continue;
     if (MARK.test(line)) break;
     own.push(line);
   }
@@ -64,13 +65,7 @@ export function compareKeys(a: string | undefined, b: string | undefined, order:
 }
 
 /** Which lines are in a code fence (the fence lines too). */
-function fencedLines(lines: string[]): boolean[] {
-  let fenced = false;
-  return lines.map((line) => {
-    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; return true; }
-    return fenced;
-  });
-}
+const fencedLines = (lines: string[]): boolean[] => codeFenceLines(lines).map((start) => start >= 0);
 
 /** Every top-level list run in `lines` (a run ends at a blank line or a line that isn't an item or under one). */
 export function listRuns(lines: string[]): Run[] {

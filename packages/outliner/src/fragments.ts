@@ -1,6 +1,6 @@
 import { standaloneListItemText, markdownSourceTokens, type MarkdownListItem, type MarkdownSourceToken } from "./markdown-structure";
 
-import { FRAGMENT_ID_SOURCE, fragmentAnchorMatch } from "@ep0ch/outline-core/link-syntax";
+import { FRAGMENT_ID_SOURCE, fragmentAnchorMatch, mayHoldCode } from "@ep0ch/outline-core/link-syntax";
 import { outputHeader } from "@ep0ch/outline-core/output-region";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
@@ -142,10 +142,9 @@ function parsedNote(text: string): ParsedNote {
 /** The lines inside fenced or indented code: no anchor, heading, boundary or embed lives there (PIE-424). */
 export function codeLineSet(text: string): Set<number> {
   // Without a fence or an indented line there's no code to find, and nothing to parse.
-  if (!MAY_HOLD_CODE.test(text)) return new Set();
+  if (!mayHoldCode(text)) return new Set();
   return new Set(parsedNote(text).codeLines);
 }
-const MAY_HOLD_CODE = /^(?: {4}|\t| {0,3}(?:```|~~~))/m;
 
 export function fragmentAnchors(text: string): FragmentAnchor[] {
   const note = parsedNote(text);

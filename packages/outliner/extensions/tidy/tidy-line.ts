@@ -1,5 +1,6 @@
 // What @tidy does to one line, kept apart from tidy.ts (which reads its request from stdin) so the
-// service's `outliner patch-demo` uses the same rules instead of a copy.
+// service's `outliner patch-demo` uses the same rules instead of a copy. Fences are outline-core's (the bundle).
+import { codeFenceLines } from "./link-grammar.js";
 
 /** Links, references, anchors, properties and code: tidying never goes inside one. */
 const PROTECTED = /\[\[[^\]\r\n]*\]\]|!?\(\([^)\r\n]*\)\)|\[[A-Za-z][A-Za-z0-9_.-]*::[^\]\r\n]*\]|(?<=\s)\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$|`[^`\r\n]*`/g;
@@ -30,8 +31,10 @@ export function tidyLine(line: string): string {
 export function tidyPassage(lines: string[]): { replacement: string; message: string } {
   const indents: { indent: number; shift: number }[] = [];
   let nested = 0, trimmed = 0, formatted = 0;
-  let fence = "";
-  const replacement = lines.map(line => {
+  // Fenced code is code, by outline-core's one fence grammar: a `js` line inside a fence never closes it.
+  const fenced = codeFenceLines(lines);
+  const replacement = lines.map((line, at) => {
+    const fence = fenced[at]! >= 0;
     const lead = /^\s*/.exec(line)![0].replaceAll("\t", "  ").length;
     const item = LIST_ITEM.exec(line);
     const parent = [...indents].reverse().find(item => item.indent < lead);
@@ -39,8 +42,6 @@ export function tidyPassage(lines: string[]): { replacement: string; message: st
     if ((!item || fence) && parent && line.trim() && lead > parent.indent) {
       line = " ".repeat(Math.max(0, lead + parent.shift)) + line.trimStart();
     } else if (!item && line.trim() && lead === 0) indents.length = 0;
-    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
-    if (marker) { if (!fence) fence = marker; else if (marker[0] === fence[0] && marker.length >= fence.length) fence = ""; return line; }
     if (fence) return line;
     let out = tidyLine(line);
     if (/\s+$/.test(line)) trimmed++;
