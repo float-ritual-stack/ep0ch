@@ -497,11 +497,12 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
 }
 
 /** An action's declared arguments as its def's (PIE-784): `act ext.<id>.<action> by=price`, listed with their choices. */
-function declaredArgs(a: ExtensionAction): Record<string, { type: string; optional: true; about: string; kind?: "note"; choices?: readonly string[] }> {
+function declaredArgs(a: ExtensionAction): Record<string, { type: string; optional: true; about: string; kind?: "note" }> {
   return Object.fromEntries((a.args ?? []).map(x => [x.name, {
     type: x.type === "number" ? "number" : "string", optional: true,
-    // What it names, as declared (a script's `[form-field::page note]`): a note is picked from the notes, a choice from its options.
-    ...(x.type === "note" ? { kind: "note" as const } : {}), ...(x.type === "choice" && x.options ? { choices: x.options } : {}),
+    // What it names, as declared (a script's `[form-field::page note]`): a note is picked from the notes. A choice's options stay
+    // in `about` (the service checks and defaults them; as choices here an empty or spaced value would be refused before it).
+    ...(x.type === "note" ? { kind: "note" as const } : {}),
     about: `${x.label ?? x.name}${x.description ? `: ${x.description}` : ""}${x.options ? ` (${x.type === "property" ? `${x.options.join(", ")}, or a property${x.from ? ` the ${x.from === "outline" ? "outline has" : x.from === "children" ? "children have" : "block has"}` : ""}` : x.options.join(", ")})` : x.type === "property" ? " (a property's name)" : ""}${x.default !== undefined ? `; default ${x.default}` : ""}${x.defaultProperty ? `, or the block's own [${x.defaultProperty}::]` : ""}${x.required ? "; needed" : ""}`,
   }]));
 }

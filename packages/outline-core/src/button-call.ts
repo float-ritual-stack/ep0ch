@@ -162,10 +162,10 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
       const value = (act || of)!;
       const values = value.startsWith("[") ? buttonList(value) : [value];
       // A script's words as written keep every repeat (`page={page1} page={page2}`); its source is the line it runs.
-      const said = of ? [of, ...rest.map(p => `${p.key}=${wordOf(p.value)}`)].join(" ") : "";
+      const said = rest.map(p => `${p.key}=${wordOf(p.value)}`).join(" ");
       steps = values.map(source => act
         ? { kind: "act", ...(refsOf(source).length ? { written: source } : {}), source: slotted(source) }
-        : { kind: "script", ...(refsOf(said).length ? { written: said } : {}), source: actionLine({ action: source, args: Object.fromEntries(rest.map(p => [p.key, slotted(p.value, true)])) }) });
+        : { kind: "script", ...(refsOf(said).length ? { written: `${source} ${said}` } : {}), source: actionLine({ action: source, args: Object.fromEntries(rest.map(p => [p.key, slotted(p.value, true)])) }) });
     }
   } catch (error) { problem = (error as Error).message; }
   if (!steps.length) problem ??= '::button needs what it runs: write one action or ((script)) per line, then ::, or use act= / of=';

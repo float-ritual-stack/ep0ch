@@ -102,6 +102,8 @@ test("of= scripts: empty slots are asked in the order written, each read by the 
   expect(call.empty).toEqual(["page1", "page2"]);
   expect(slotArgs(call, "page1")).toEqual([{ step: 0, action: "neat", arg: "page", script: true }]);
   expect(slotArgs(call, "page2")).toEqual([{ step: 0, action: "neat", arg: "page", script: true }]);
+  // Each script of a list reads it by its own name.
+  expect(slotArgs(buttonCallAt(["::button{of=[neat,other] page={p} p=}"], 0)!, "p").map(u => u.action)).toEqual(["neat", "other"]);
   // A body's ((script)) step reads its slot through the slot of that name.
   const body = buttonCallAt(['::button{label="f" t=}', "((fold tile={t}))", "::"], 0)!;
   expect(slotArgs(body, "t")).toEqual([{ step: 0, action: "fold", arg: "tile", script: true }]);

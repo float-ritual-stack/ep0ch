@@ -98,7 +98,7 @@ says why it isn't served.
 A script's arguments are `slot=value` words (`week=42`). The power bar offers the slots a js script reads as
 `props.name`: `propsUsed` finds them in the code. A script says what a slot names in the grammar a note's form uses:
 `[form-field::page note]` on a script's note, or in a file script's opening `//` comment lines (neat's second line). The
-power bar and a button's empty slot then ask for a note, a choice from its options or a number; an undeclared slot is text.
+power bar's run asks a choice from its options, and a button's empty `note` slot is picked from the notes; an undeclared slot is text.
 
 | Entry | Source |
 |---|---|

@@ -60,8 +60,9 @@ export function propsUsed(code: string): string[] {
  */
 export function declaredSlots(script: Pick<ScriptSource, "code" | "fields" | "file">): ExtensionActionArg[] {
   const values = script.fields ?? (script.file ? parsePropertyRecords(leadingComments(script.code)).filter(p => p.key === FORM_FIELD_KEY).map(p => p.value) : []);
-  // A script's slot may be any name (`tile`, `block`): its props are its own, not an action request's.
-  return formFields(values, new Set()).fields.map(f => ({ name: f.name, type: (FORM_FIELD_TYPES as readonly string[]).includes(f.type) ? f.type as ExtensionActionArg["type"] : "property",
+  // A name the run's request already uses (block, tile, …) is no declared slot: the door would read it as the request's own.
+  // A `property:<key>` (a value of that property) has no run-argument type: it stays text rather than read as a property's name.
+  return formFields(values).fields.map(f => ({ name: f.name, type: (FORM_FIELD_TYPES as readonly string[]).includes(f.type) ? f.type as ExtensionActionArg["type"] : "text",
     ...(f.options ? { options: f.options } : {}), ...(f.required ? { required: true } : {}), ...(f.default !== undefined ? { default: f.default } : {}) }));
 }
 const leadingComments = (code: string) => {
