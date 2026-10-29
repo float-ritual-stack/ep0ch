@@ -20,6 +20,7 @@ are its record. The outliner's entries from then are kept below, under
 - **The words say what's wrong:** "a paragraph of 5 sentences (keep one to 3)" or "one sentence of 612 characters";
   a callout is "would read better as a callout", not "a callouts"; the buried question's fix leads in plain words, so
   the 44-column suggestions page reads it.
+
 ### Send to ep0ch from your phone in one tap (PIE-1408)
 
 - **One link, one tap:** open the Send to ep0ch page on my.ep0ch.sh on your iPhone, tap Add Shortcut, and "Send to ep0ch" is in your share sheet; a PDF or photo you share to it lands as a card in today's note. The Shortcut is signed and carries its own device link, so there is nothing to copy or edit.
