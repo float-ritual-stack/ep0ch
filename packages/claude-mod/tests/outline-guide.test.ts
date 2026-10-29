@@ -114,9 +114,9 @@ describe('a written figure drawn back', () => {
     s.runs.length = 0
     const out = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, expectedRevision: 3, append: '::graph-stat\n---\ntitel: the beds\n---\n::' })
     const text = String(out.result)
-    expect(text).toStartWith('The note as it draws (ep0ch show, 80 columns):\n┌ the beds')
+    expect(text).toStartWith('The note as it draws (ep0ch show, 44 columns):\n┌ the beds')
     expect(outputJsonOf(text)).toMatchObject({ id: NOTE, components: ['graph-stat'] })
-    expect(s.runs.find(r => r.argv[0] === 'ep0ch' && r.argv[1] === 'show')!.argv).toEqual(['ep0ch', 'show', NOTE, '--width', '80', '--rows', '40'])
+    expect(s.runs.find(r => r.argv[0] === 'ep0ch' && r.argv[1] === 'show')!.argv).toEqual(['ep0ch', 'show', NOTE, '--width', '44', '--rows', '40'])
   })
 
   test('a small write elsewhere in a note that holds a figure draws nothing', async ($, on) => {
@@ -172,9 +172,9 @@ describe('the pure parts', () => {
 
   test('withDrawing: the drawing first, the JSON last; nothing drawn leaves the result alone', () => {
     const json = JSON.stringify({ id: NOTE, revision: 4 })
-    expect(withDrawing(json, DRAWN)).toBe(`The note as it draws (ep0ch show, 80 columns):\n${DRAWN.trimEnd()}\n\n${json}`)
+    expect(withDrawing(json, DRAWN)).toBe(`The note as it draws (ep0ch show, 44 columns):\n${DRAWN.trimEnd()}\n\n${json}`)
     expect(outputJsonOf(withDrawing(json, DRAWN))).toEqual({ id: NOTE, revision: 4 })
     expect(withDrawing(json, '  \n')).toBe(json)
-    expect(drawArgv(NOTE)).toEqual(['ep0ch', 'show', NOTE, '--width', '80', '--rows', '40'])
+    expect(drawArgv(NOTE)).toEqual(['ep0ch', 'show', NOTE, '--width', '44', '--rows', '40'])
   })
 })

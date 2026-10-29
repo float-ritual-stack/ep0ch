@@ -35,8 +35,8 @@ export function guideText(stdout: string): string | null {
 
 /** The write tools whose result is drawn back when what they wrote holds a figure. */
 export const DRAWN_BACK: readonly string[] = ['outline_edit', 'outline_create', 'outline_patch']
-/** The drawing's size: the door's reading width, and the note's first rows (a figure lower down is the warnings' to say). */
-const DRAW_WIDTH = 80
+/** The drawing's size: Evan's reading width (a 44-column desk tile, write-shape's readingWidth), and the note's first rows. */
+const DRAW_WIDTH = 44
 const DRAW_ROWS = 40
 export const DRAW_TIMEOUT_MS = 8000
 

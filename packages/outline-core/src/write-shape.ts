@@ -28,6 +28,8 @@ export const SHAPE_LIMITS = {
   proseAny: 40,
   /** A question for Evan belongs in the first lines; one below line `top` is buried. */
   top: 8,
+  /** The columns Evan reads a note in: a desk tile, four across his door (loki, Oct 29). The render check draws at it. */
+  readingWidth: 44,
   /** The top of a note: its first this many lines under the title (blank ones aside), where an ask reads first. */
   topLines: 3,
   /** A list item is one point; past this many (sentences, and clauses after `;` or a dash) it is points stacked in one bullet (PIE-1388). */
@@ -93,7 +95,7 @@ export interface ShapeOptions { kind?: "note" | "comment"; facets?: readonly Sha
 export const FIX_BEFORE_DONE = "fix before you call this done: ";
 
 /** The line every write answer ends with. `id` is the block written (a thread's note, for a comment). */
-export const shapeNext = (id: string) => `read it as drawn before you call it done: \`ep0ch show ${id}\` (or outline_read it back)`;
+export const shapeNext = (id: string) => `read it as drawn before you call it done, at the width Evan reads in (a 44-column desk tile): \`ep0ch show ${id} --width ${SHAPE_LIMITS.readingWidth}\` (or outline_read it back)`;
 
 const excerpt = (text: string, max = 48) => {
   const flat = text.replace(/\s+/g, " ").trim();
