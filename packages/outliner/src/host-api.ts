@@ -184,6 +184,9 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
   };
 }
 
+/** The agent tools a script is handed: all but script_run (a script runs other scripts through its button's sequence, not by starting a run inside its own). */
+export const SCRIPT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = AGENT_TOOL_DEFINITIONS.filter(definition => definition.name !== "script_run");
+
 /**
  * The host API for code running as the agent `actor` (its writes are `author: agent` with its
  * actor id; a run's `sessionId` names the run). Reads need no actor; a write without one is refused, never written as
@@ -192,9 +195,6 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
 export type RenderHostApi = Omit<HostApi, "act" | "place">;
 
 export function hostApi(client: AgentToolsClient, actor: undefined, options: HostApiOptions & { kind: "render" }): RenderHostApi;
-/** The agent tools a script is handed: all but script_run (a script runs other scripts through its button's sequence, not by starting a run inside its own). */
-export const SCRIPT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = AGENT_TOOL_DEFINITIONS.filter(definition => definition.name !== "script_run");
-
 export function hostApi(client: AgentToolsClient, actor?: AgentActor, options?: HostApiOptions): HostApi;
 export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: HostApiOptions = {}): HostApi | RenderHostApi {
   let calls = 0;
