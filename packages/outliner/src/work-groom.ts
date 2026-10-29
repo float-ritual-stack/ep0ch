@@ -133,11 +133,12 @@ export async function groom(source: WorkJevClient, evidence: GroomEvidence, o: G
     const ticket = workIdOf(t) ?? t.id.slice(0, 8), title = itemTitle(t);
     const c = groomCandidates(t, shipped, others), latest = latestLines(t.text), named = namedIn(ticket, shipped)[0];
     // With Jev off, code says what it can: named in what shipped, unless its newest lines say it isn't done.
-    const codeOnly = (why: string): GroomRow => named && !UNFINISHED.test(latest)
+    // Unjudged when Jev was wanted and couldn't answer; open only when nothing shipped or filed shares its words.
+    const codeOnly = (why: string, judged = false): GroomRow => named && !UNFINISHED.test(latest)
       ? { ticket, id: t.id, title, verdict: "solved", confidence: 0.8, evidence: `shipped under its id: ${describe(named)}`, by: "code" }
-      : { ticket, id: t.id, title, verdict: o.jev === false || named ? "unjudged" : "open", confidence: 0, evidence: named ? `named in ${describe(named)}, but its newest lines: ${clip(latest, 120)}` : why, by: "none" };
+      : { ticket, id: t.id, title, verdict: judged && !named ? "open" : "unjudged", confidence: 0, evidence: named ? `named in ${describe(named)}, but its newest lines: ${clip(latest, 120)}` : why, by: "none" };
     if (o.jev === false) { rows.push(codeOnly("Jev off")); continue; }
-    if (!c.shipped.length && !c.tickets.length) { rows.push(codeOnly("nothing shipped or filed shares its words")); continue; }
+    if (!c.shipped.length && !c.tickets.length) { rows.push(codeOnly("nothing shipped or filed shares its words", true)); continue; }
     const questions = Object.fromEntries([
       ["unfinished", { ask: "unfinished" as const, candidate: "" }] as const,
       ...c.shipped.flatMap((s, i) => {

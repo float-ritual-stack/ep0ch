@@ -844,3 +844,27 @@ export interface QuotedSubject { ref: string; label: string; kind?: FragmentKind
 export type QuoteReceipt<B = { id: string; text: string }, P = { parentId: string | null; said: string }> =
   | { block: B; placement: P; marks: string[]; subjects: QuotedSubject[]; undo?: string }
   | { into: { blockId: string; outcome: "applied" | "proposed"; revision?: number; reason?: string }; subjects: QuotedSubject[]; said: string };
+
+/**
+ * One open item a new one looks like (`roadmap.items.similar`, the outliner's work-twins.ts): how the search matcher
+ * found it, Jev's Nouls when it answered, code's verdict, and `said`, the line every client shows for it.
+ */
+export interface TwinCandidate {
+  id: string;
+  workId: string;
+  title: string;
+  stage: string;
+  /** The search matcher's kind, and the share of the new title's words in its title. */
+  match: string;
+  inTitle: number;
+  /** Jev's: the same work, and one more step of it. */
+  same?: number;
+  part?: number;
+  /** `same` (a twin), `part` (attach to it), `text` (a strong title match Jev didn't say no to), or `related`. */
+  verdict: "same" | "part" | "text" | "related";
+  /** `PIE-12 (doing) Title · same work, Jev 0.86`: the service's words for it. */
+  said: string;
+}
+
+/** `roadmap.items.similar`'s answer: the candidates, the Work IDs an agent's create is refused over, and whether Jev read them. */
+export interface TwinAnswer { candidates: TwinCandidate[]; twins: string[]; jev: string; tokens?: number }

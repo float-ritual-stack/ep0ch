@@ -961,11 +961,11 @@ export class Lanes implements SourceModel {
   }
 
   /** Ctrl+S in the composer: create it (the card adapter, through card.create or note.create). A refusal keeps the text, says why, and copies it to disk. */
-  private async submitComposer() {
+  private async submitComposer(actor: Actor = USER) {
     const C0 = this.composer;
     if (!C0) return;
     this.host.redraw();
-    const r = await C0.session.submit(USER);
+    const r = await C0.session.submit(actor);
     if (!r.ok) this.host.ctx.flash(r.why);
     this.host.redraw();
   }
@@ -1010,7 +1010,7 @@ export class Lanes implements SourceModel {
       const answer = await board.similarItems({ title: input.title, ...(input.body ? { body: input.body } : {}) }).catch(() => null);
       const twin = answer?.candidates.find(c => answer.twins.includes(c.workId));
       if (twin) {
-        const said = `looks like ${twin.workId} (${twin.stage}) ${twin.title} · ${twin.verdict === "same" ? `same work, Jev ${twin.same!.toFixed(2)}` : "its title matches"}`;
+        const said = `looks like ${twin.said}`;
         if (C0) { C0.twin = { text: C0.session.draft.text, workId: twin.workId, said }; C0.session.draft.attachChord = true; }
         // The composer's row names the twin; its note says only what to do.
         throw new ActionRefused(C0 ? `open work looks like it: ctrl+s again files it new · [attach here] or ctrl+x a adds it to ${twin.workId}` : `${said} · card.create … new=true files it anyway, card.attach twin=${twin.workId} text=… adds it there`);
@@ -1043,6 +1043,8 @@ export class Lanes implements SourceModel {
     const C0 = this.composer?.kind === "card" ? this.composer : null;
     if (text === undefined) {
       if (!C0) throw new ActionRefused("no new card is being written; card.attach twin=PIE-n text=… adds an ask under that item");
+      // The card being written is the person's: an agent attaches its own words.
+      if (actor.kind === "agent") throw new ActionRefused("the new card being written is the person's; an agent passes its own text= (card.attach twin=PIE-n text=…)");
       const to = twin ?? C0.twin?.workId;
       if (!to) throw new ActionRefused("the new card hasn't been offered open work yet: ctrl+s asks, or name it with twin=PIE-n");
       C0.attachTo = to;

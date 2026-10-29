@@ -20,6 +20,7 @@ afterEach(async () => {
 });
 
 type Question = { type: string; instructions: string };
+const until = async (ok: () => Promise<boolean>, ms = 5000) => { const end = Date.now() + ms; while (!(await ok())) { if (Date.now() > end) throw new Error("timed out"); await Bun.sleep(25); } };
 /** The fake Jev: `same` says yes for candidates whose instructions name `twin`; everything else no. */
 async function setup(o: { jev?: (id: string, q: Question) => number | undefined } = {}) {
   const asked: { state: Record<string, unknown>; questions: Record<string, Question> }[] = [];
@@ -59,7 +60,7 @@ async function setup(o: { jev?: (id: string, q: Question) => number | undefined 
 test("an agent's ticket for work already open is refused, naming the twin and the two calls", async () => {
   const { create, records, asked } = await setup({ jev: (id, q) => id.startsWith("same::") && q.instructions.includes("tomato") ? 0.92 : undefined });
   const refused = await create("Water tomato beds each morning automatically").then(() => null, (e: Error) => e.message);
-  expect(refused).toContain("PIE-001 (doing) Water the tomato beds every morning · same work 0.92");
+  expect(refused).toContain("PIE-001 (doing) Water the tomato beds every morning · same work, Jev 0.92");
   expect(refused).toContain('attach: "PIE-001"');
   expect(refused).toContain("new: true");
   // One request for every candidate, each candidate in its own question.
@@ -84,16 +85,22 @@ test("new: true files it anyway, beside its twin; attach adds the ask under the 
   await client.request({ action: "update", blockId: now.id, text: now.text.replace("[work-stage::unprioritized]", `[work-stage::superseded] [superseded-by::${attached.block.id}]`), expectedRevision: now.revision, mutation: { author: "user" } });
   const done = await client.request({ action: "roadmap.items.attach", input: { item: filed.workId, title: "one more" }, ...agent }).then(() => null, (e: Error) => e.message);
   expect(done).toContain("never reopens it");
+  // Nor writes into a note that isn't a roadmap item.
+  const note = store.create("Seed order for spring");
+  const notItem = await client.request({ action: "roadmap.items.attach", input: { item: note.id, title: "one more" }, ...agent }).then(() => null, (e: Error) => e.message);
+  expect(notItem).toContain("isn't a roadmap item");
 });
 
 test("a person's own create is never refused; similar answers the candidates for the door's hint", async () => {
-  const { create, client } = await setup({ jev: (id, q) => id.startsWith("same::") && q.instructions.includes("shed") ? 0.88 : undefined });
+  const { create, client, records } = await setup({ jev: (id, q) => id.startsWith("same::") && q.instructions.includes("shed") ? 0.88 : undefined });
   const mine = await create("Paint the shed door a darker blue", {}, { author: "user" });
   expect(mine.workId).toBe("PIE-004");
   const similar = await client.request<{ twins: string[]; candidates: { workId: string; verdict: string }[]; jev: string }>({ action: "roadmap.items.similar", input: { title: "Paint the shed door blue again" } });
   expect(similar.jev).toBe("asked");
   expect(similar.twins).toContain("PIE-002");
-  expect(similar.candidates.find(c => c.workId === "PIE-002")).toMatchObject({ verdict: "same" });
+  expect(similar.candidates.find(c => c.workId === "PIE-002")).toMatchObject({ verdict: "same", said: "PIE-002 (queued) Paint the shed door blue · same work, Jev 0.88" });
+  // The person's offer is counted, as an agent's is.
+  await until(async () => (await records("work-twin")).some(r => r.outcome === "offered" && r.writer === "person"));
 });
 
 test("with Jev off, a strong title match is a twin on its own, said as a text match; unrelated work files", async () => {

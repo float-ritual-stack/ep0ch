@@ -201,6 +201,9 @@ export interface WorkCreateResult extends WorkItemRef {
   warnings?: string[];
 }
 
+/** How long a create waits: the twin check (TWIN_JEV_MS) and the service's own work, with room. */
+const CREATE_TIMEOUT_MS = 15_000;
+
 /** Allocates a Work ID and creates the item under its project's work queue. */
 export async function createWorkItem(
   client: WorkToolsClient,
@@ -212,7 +215,8 @@ export async function createWorkItem(
     input,
     author: actor.author,
     provenance: provenanceOf(actor),
-  });
+  // The service asks Jev for twins first (work-twins.ts, a few seconds at most): a timeout here would report a failure while it files.
+  }, CREATE_TIMEOUT_MS);
   return { ...workItemRef(receipt.block), workQueueId: receipt.workQueueId, ...(await workReview(client, actor, receipt.block, () => reviewTicket(client, receipt.block))) };
 }
 
@@ -242,7 +246,9 @@ export async function attachToItem(
   input: { item: string; title: string; body?: string; sourceBlockId?: string },
   actor: WorkActor,
 ): Promise<{ attached: string; ref: BlockRef }> {
-  const receipt = await client.request<{ attached: string; block: Block }>({ action: "roadmap.items.attach", input, author: actor.author, provenance: provenanceOf(actor) });
+  const receipt = await client.request<{ attached: string; block: Block }>({ action: "roadmap.items.attach", input, author: actor.author, provenance: provenanceOf(actor) }, CREATE_TIMEOUT_MS);
+  // A request copy names the item it went to, as a create from it does.
+  if (input.sourceBlockId) await linkTicket(client, input.sourceBlockId, receipt.attached, actor);
   return { attached: receipt.attached, ref: blockRef(receipt.block) };
 }
 

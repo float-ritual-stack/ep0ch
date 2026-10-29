@@ -52,6 +52,14 @@ test("merged, then found wrong in use, is open: the five calibration cases", () 
   expect(latestLines("T [type::roadmap-item]\n\nFirst.\n\nDone when: X.\n\n**Used:** Finishing in GDN-12.")).toBe("**Used:** Finishing in GDN-12.");
 });
 
+test("with Jev unreachable, a ticket with candidates is unjudged, never called open", async () => {
+  const t = { id: "b1", revision: 1, text: "GDN-5 — Compost bins fill from the kitchen [type::roadmap-item] [work-stage::queued] [work-id::GDN-5]\n\nScraps to bins.", properties: [{ key: "work-id", value: "GDN-5" }, { key: "work-stage", value: "queued" }] } as unknown as Block;
+  const client = { request: async <T>() => ({ blocks: [t] }) as T };
+  const report = await groom(client, { changelog: CHANGELOG, prs: [] }, { apiKey: "fake", endpoint: "http://127.0.0.1:9/v1/systemone", timeoutMs: 500 });
+  expect(report.rows[0]).toMatchObject({ verdict: "unjudged", by: "none" });
+  expect(report.counts.unjudged).toBe(1);
+});
+
 test("the truth table: ships, then replaces, then duplicate; under 0.8 is open with the near miss said", () => {
   const c = { shipped: [{ id: "c0", kind: "pr" as const, title: "Bins (#4)", text: "" }], tickets: [{ id: "t", workId: "GDN-3", title: "Bins fill", stage: "done", closed: true }] };
   expect(groomVerdict(c, { "ships::0": 0.9 })).toMatchObject({ verdict: "solved", confidence: 0.9, evidence: "pull request: Bins (#4)" });

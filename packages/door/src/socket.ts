@@ -18,7 +18,7 @@ import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { connect, type Socket } from "node:net";
 import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
-import type { PartAt, PropertyMatch } from "@ep0ch/outline-core/protocol";
+import type { PartAt, PropertyMatch, TwinAnswer } from "@ep0ch/outline-core/protocol";
 import type { CompletionRowsRequest, CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
@@ -91,9 +91,7 @@ export interface RoadmapItemInput {
   /** File it although open items look like the same work (the service refuses an agent's otherwise). */
   new?: boolean;
 }
-/** One open item a new one looks like (`roadmap.items.similar`, the outliner's work-twins.ts). */
-export interface TwinCandidate { id: string; workId: string; title: string; stage: string; match: string; inTitle: number; same?: number; part?: number; verdict: "same" | "part" | "text" | "related" }
-export interface TwinAnswer { candidates: TwinCandidate[]; twins: string[]; jev: string }
+
 /** Everything a list row needs, without the note's full text. */
 export const LIST_FIELDS = ["parent", "title", "properties", "revision", "timestamps", "author", "hasChildren"] as const;
 

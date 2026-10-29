@@ -56,10 +56,12 @@ async function mergedPullRequests(repo: string, since: string): Promise<{ ref: s
 export async function workCommand(args: string[], io = { out: (s: string) => console.log(s), err: (s: string) => console.error(s) }): Promise<number> {
   const op = args[1];
   if (op !== "groom" && op !== "try") {
-    // The outliner's own: --ws names the outline, as for ext and keys.
+    // The outliner's own: --ws and --machine name the outline, as EP0CH_WS and EP0CH_MACHINE do for it.
     let rest = args.slice(1);
-    const at = rest.indexOf("--ws");
-    if (at >= 0 && rest[at + 1]) { process.env.EP0CH_WS = rest[at + 1]; rest = [...rest.slice(0, at), ...rest.slice(at + 2)]; }
+    for (const [flag, name] of [["--ws", "EP0CH_WS"], ["--machine", "EP0CH_MACHINE"]] as const) {
+      const at = rest.indexOf(flag);
+      if (at >= 0 && rest[at + 1]) { process.env[name] = rest[at + 1]; rest = [...rest.slice(0, at), ...rest.slice(at + 2)]; }
+    }
     if (op === undefined || op === "help" || op === "--help") io.out(WORK_USAGE);
     const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
     const run = Bun.spawn([process.execPath, cli, "work", ...rest], { stdio: ["inherit", "inherit", "inherit"], env: process.env });

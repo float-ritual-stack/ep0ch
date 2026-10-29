@@ -57,7 +57,7 @@ import { quoteInto, readQuoteInput } from "./quote-into";
 import { stampTemplateInto, stampTemplate, type TemplateStampResult } from "./template-stamp";
 import { keepSuggestion, readKeep } from "./jev-suggestions";
 import { parseWorkId } from "@ep0ch/outline-core/work-ids";
-import { attachText, findTwins, recordTwin, twinRefusal, writerName } from "./work-twins";
+import { attachText, findTwins, recordTwin, tallyTwins, twinRefusal, writerName } from "./work-twins";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSyncs } from "./extension-sync";
 import { resourceProviderEntries } from "./extension-registry";
@@ -2269,7 +2269,11 @@ export class OutlinerServer {
           const input = request.input;
           if (!input || typeof input.title !== "string" || !input.title.trim()) throw new Error("roadmap.items.similar needs input: { title, body? }");
           if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 10)) throw new Error("limit must be a whole number from 1 to 10");
-          const { reading, ...answer } = await findTwins(own, { title: input.title, ...(typeof input.body === "string" ? { body: input.body } : {}) }, { ...jev, ...(request.limit ? { limit: request.limit } : {}) });
+          const found = await findTwins(own, { title: input.title, ...(typeof input.body === "string" ? { body: input.body } : {}) }, { ...jev, ...(request.limit ? { limit: request.limit } : {}) });
+          // The person's check (the door asks it on ctrl+s): an offer when it found one, the tokens either way.
+          if (found.twins.length) await recordTwin(own, found, { title: input.title, outcome: "offered" });
+          else await tallyTwins(own, found);
+          const { reading, ...answer } = found;
           return { id: request.id, ok: true, result: { ...answer, ...(reading?.usage ? { tokens: reading.usage.input } : {}) }, sequence: this.store.sequence };
         }
         if (this.readOnly) throw new Error("This outline is read-only.");
@@ -2278,6 +2282,7 @@ export class OutlinerServer {
           if (!input || typeof input.item !== "string" || typeof input.title !== "string" || !input.title.trim()) throw new Error("roadmap.items.attach needs input: { item: <Work ID or block id>, title, body?, sourceBlockId? }");
           const item = (parseWorkId(input.item.trim()) ? (await own.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=roadmap-item work-id=${input.item.trim()}`, limit: 1 } })).blocks[0] : this.store.get(input.item.trim()))
             ?? (() => { throw new Error(`no roadmap item ${input.item}: attach names an open item by its Work ID (PIE-12) or block id`); })();
+          if (!item.properties.some(p => p.key === "type" && p.value === "roadmap-item")) throw new Error(`${input.item} isn't a roadmap item: attach names open work by its Work ID (PIE-12)`);
           const stage = item.properties.find(p => p.key === "work-stage")?.value;
           if (stage === "done" || stage === "superseded") throw new Error(`${input.item} is ${stage}: attach adds to open work, never reopens it; file it with new: true and say what it follows`);
           const mutation = { author: request.author ?? "user", ...(request.provenance?.actorId ? { actorId: request.provenance.actorId } : {}) } as MutationProvenance;
@@ -2298,6 +2303,7 @@ export class OutlinerServer {
           await recordTwin(own, answer, { title: input.title, outcome: "offered", ...(actorId ? { actorId } : {}) });
           throw new Error(twinRefusal(answer, input.title));
         }
+        if (!answer.twins.length) await tallyTwins(own, answer);
         const beside = fileAnyway ? answer.twins : [];
         const filed = beside.length ? { ...input, relatedTo: [...new Set([...(input.relatedTo ?? []), ...answer.candidates.filter(c => beside.includes(c.workId)).map(c => c.id)])], body: `${input.body?.trim() ? `${input.body.trim()}\n\n` : ""}Filed beside ${beside.map(w => `[[${w}]]`).join(", ")}: open work that looked like the same, filed anyway.` } : input;
         const response = this.handle({ ...request, input: filed }, subscribedClient);
