@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Jev's patches, round three: buried prose questions and kept chips (PIE-1419)
+
+- **A question at the bottom is buried** whether or not it names Evan: a line that ends in a question counts unless
+  Jev says firmly it asks nothing, so an unsure or unheard Jev never hides it. Its patch moves it to the top.
+- **A wall under a chip line keeps its chips as chips:** the chip line is never part of the paragraph, and the patch's
+  list starts below it.
+- **A stacked bullet of clauses** (joined by `;` or a dash) comes with a patch, one clause a bullet.
+- **The words say what's wrong:** "a paragraph of 5 sentences (keep one to 3)" or "one sentence of 612 characters";
+  a callout is "would read better as a callout", not "a callouts"; every finding leads with its fix, so
+  the 44-column suggestions page reads it.
+
 ### Only the power bar answers the mouse, and it reads right at 44 and 40 columns (PIE-1407, PIE-1405)
 
 - **Nothing behind an overlay shows through it:** with the bar open over a reader, hovering the bar drew the reader's
