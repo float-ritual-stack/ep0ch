@@ -57,7 +57,7 @@ export async function reviewBackfill(source: SuggestionClient, o: BackfillOption
   if (!/^\d+[dhw]$/.test(since)) throw new Error(`since is a count of days, hours or weeks (7d, 12h, 2w), not ${JSON.stringify(o.since)}`);
   const schemas = (await source.request<{ schemas: ComponentSchema[] }>({ action: "components.schemas" }).catch(() => null))?.schemas ?? null;
   const facets = await outlineFacets(source as never);
-  const found = (await source.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `updated >= -${since} NOT type=annotation`, sort: "updated desc", limit: 1000 } })).blocks;
+  const found = (await source.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `updated >= -${since} NOT type=annotation NOT type=peer-message`, sort: "updated desc", limit: 1000 } })).blocks;
   // An extension's own pages (`ext:<name>`) are code's output, not an agent's writing.
   const byAgents = found.filter(b => b.author === "agent" && b.actorId && !b.actorId.startsWith("ext:") && b.text.trim());
   const notes = byAgents.slice(0, o.limit ?? 500);

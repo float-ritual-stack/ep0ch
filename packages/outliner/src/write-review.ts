@@ -261,6 +261,6 @@ export const reviewWarnings = (review: WriteReview) => review.findings.filter(f 
 export async function outlineFacets(client: { request<T>(input: { action: "blocks.query"; query: Record<string, unknown> }): Promise<T> }): Promise<ShapeFacet[]> {
   try {
     const r = await client.request<{ facets?: QuestionFacet[] }>({ action: "blocks.query", query: { where: "", facets: true, facetKeys: 300, facetValues: 200, limit: 1 } });
-    return (r.facets ?? []).flatMap(f => f.values.map(v => ({ key: f.key, value: v.value })));
+    return (r.facets ?? []).flatMap(f => f.values.map(v => ({ key: f.key, value: v.value, count: v.count, values: f.values.length + (f.more ?? 0) })));
   } catch { return []; }
 }

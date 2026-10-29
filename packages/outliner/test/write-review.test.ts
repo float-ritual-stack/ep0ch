@@ -102,7 +102,7 @@ test("an agent's wall of stacked bullets and pasted counts is answered fix, with
 });
 
 test("each finding the writer was told is a record with its passage and what was said, and applying its patch settles it followed", async () => {
-  const { store, agent, records } = await setup();
+  const { store, agent, records, client } = await setup();
   seedBoard(store);
   const made = await agent("create", { parent: "root", text: WALL });
   const told = await records("review-finding");
@@ -111,6 +111,11 @@ test("each finding the writer was told is a record with its passage and what was
   expect(stacked).toMatchObject({ note: made.json.id, rubric: "dense", title: "Status tonight", patch: "ready", verdict: "fix", writer: "loki", source: "write" });
   expect(stacked.passage).toContain("The swap table went up at nine");
   expect(stacked.said).toContain("3 points in one item");
+  // The page is made with the first finding; its table names the note by its title, which every reader links.
+  const pages = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "system-view=jev-suggestions" } })).blocks;
+  expect(pages).toHaveLength(1);
+  const answer = await client.request<{ produced: { titles?: Record<string, string> } }>({ action: "site.answer", blockId: pages[0]!.id, produce: { kind: "figure", figure: "table", props: { query: "type=review-finding NOT source=backfill", machinery: "show", columns: ["note", "rubric", "said"] } } });
+  expect(answer.produced.titles?.[made.json.id]).toBe("Status tonight");
 
   const note = store.require(made.json.id);
   const review = made.json.review as Review;

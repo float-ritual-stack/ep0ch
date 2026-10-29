@@ -86,6 +86,7 @@ export async function recordSuggestion(client: SuggestionClient, fit: FigureFit,
 export async function recordReview(client: SuggestionClient, keep: Extract<SuggestionKeep, { kind: "reviewed" }>, now = new Date()): Promise<void> {
   try {
     const day = dayOf(now), told = keep.review.findings.filter(f => f.new);
+    if (told.length) await suggestionsPage(client);
     for (const f of told) {
       await writeRecord(board(client), "review-finding", clean({
         day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), component: f.component ?? f.rule,
@@ -99,6 +100,98 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
     await updateRun(client, day, { ...(told.length ? {} : asked ? { quiet: 1 } : {}), ...(unavailable ? { unavailable: 1 } : {}), ...(keep.reading ? { reading: keep.reading } : {}) });
   } catch { /* the write has landed; a record that can't be made is not its failure */ }
 }
+
+/**
+ * The page a person reads the reviews on, made with the first finding an outline keeps (PIE-1388), as the Records page
+ * is: each review with its note (drawn by title, linked), what was said and the passage; what the writer did; a box per
+ * finding to mark Jev right (x) or wrong (✗), which writes `jev::right` or `jev::rejected` on the record; and the
+ * backfill's stats by rubric and writer. Every number is a live figure. An outline that already has a page by this
+ * address (pie's, made by hand) keeps its own.
+ */
+export const SUGGESTIONS_PAGE = [
+  "Jev's suggestions [page::jevs-suggestions] [system-view::jev-suggestions]",
+  "",
+  "> [!summary] Every note an agent writes is reviewed: ship, or fix with the smallest fix.",
+  "> Each row is what the writer was told, the passage it was about, and what the writer did next.",
+  "> Mark a finding right (x) or wrong (✗) below: the thresholds are tuned from your marks.",
+  "",
+  "::graph-stat",
+  "---",
+  "title: last 7 days",
+  'items: [{ label: findings, query: "type=review-finding NOT source=backfill created >= -7d", machinery: show }, { label: followed, query: "type=suggestion-outcome outcome=followed created >= -7d", machinery: show, accent: true }, { label: patched, query: "type=suggestion-outcome patched=yes created >= -7d", machinery: show }, { label: ignored, query: "type=suggestion-outcome outcome=ignored created >= -7d", machinery: show }]',
+  "---",
+  "::",
+  "",
+  "## Each finding, newest first",
+  "::graph-table",
+  "---",
+  "title: what each writer was told",
+  "query: type=review-finding NOT source=backfill",
+  "machinery: show",
+  "columns: [note, rubric, said, passage, writer, patch]",
+  "sort: created",
+  "direction: desc",
+  "limit: 30",
+  "---",
+  "::",
+  "",
+  "## What the writer did",
+  "::graph-table",
+  "---",
+  "title: followed, patched or ignored",
+  "query: type=suggestion-outcome",
+  "machinery: show",
+  "columns: [note, rubric, outcome, patched, because, writer]",
+  "sort: created",
+  "direction: desc",
+  "limit: 30",
+  "---",
+  "::",
+  "",
+  "## Was Jev right?",
+  "::graph-check",
+  "---",
+  "title: x when it was right, ✗ when it was wrong",
+  "query: type=review-finding created >= -7d",
+  "machinery: show",
+  "done: jev=right",
+  "note: said",
+  "---",
+  "::",
+  "",
+  "## By rubric and writer",
+  "::graph-matrix",
+  "---",
+  "title: findings, 30 days",
+  "query: type=review-finding created >= -30d",
+  "machinery: show",
+  "down: rubric",
+  "across: writer",
+  "---",
+  "::",
+  "",
+  "## Backfill runs",
+  "::graph-table",
+  "---",
+  "title: what agents already wrote, reviewed (items reviewed, suggested flagged, quiet passed)",
+  "query: type=jev-run experiment=write-review-backfill",
+  "machinery: show",
+  "columns: [title, items, suggested, quiet, tokens-in, model]",
+  "sort: created",
+  "direction: desc",
+  "---",
+  "::",
+].join("\n");
+
+let pageMade = new WeakSet<SuggestionClient>();
+async function suggestionsPage(client: SuggestionClient): Promise<void> {
+  if (pageMade.has(client)) return;
+  const has = await read(client, "system-view=jev-suggestions OR page=jevs-suggestions", 1);
+  if (!has.length) await client.request({ action: "create", text: SUGGESTIONS_PAGE, parentId: null, author: JEV.author, provenance: JEV.provenance } as RequestInput);
+  pageMade.add(client);
+}
+/** For a test: make the page again on the next finding. */
+export function forgetSuggestionsPage() { pageMade = new WeakSet(); }
 
 /** Jev was asked and said nothing (`quiet`, with its reading), or couldn't be asked (`unavailable`): counted on the day's run. Never throws. */
 export async function tallyAsk(client: SuggestionClient, what: "quiet" | "unavailable", reading?: FigureFitReading, now = new Date()): Promise<void> {
