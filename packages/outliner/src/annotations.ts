@@ -5,6 +5,7 @@ import { parseProperties, stripProperties } from "@ep0ch/outline-core/property-p
 import { authoredResourceReferenceOccurrences } from "./resource-references";
 import { ANNOTATION_EDITED_KEY, annotationProperties, annotationPropertyProblem, isMarkLifecycle, MARK_HEADING } from "@ep0ch/outline-core/annotation-marks";
 import type {
+  BlockProperty,
   AnnotationAnchor,
   AnnotationPassage,
   AnnotationPassageResolution,
@@ -32,6 +33,12 @@ import type {
 const DEFAULT_CONTEXT_UNITS = 32;
 export const ANNOTATION_TYPE = "annotation";
 export const ANNOTATION_REPLY_TYPE = "annotation-reply";
+
+/** A comment or a reply (a mark): drawn on its passage, never listed as a row of the note, never asked by @name in place. */
+export function isAnnotationBlock(block: { properties?: readonly BlockProperty[] }): boolean {
+  const type = getProperty(block.properties ?? [], "type");
+  return type === ANNOTATION_TYPE || type === ANNOTATION_REPLY_TYPE;
+}
 
 function identity(value: unknown, label: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${label} cannot be empty`);

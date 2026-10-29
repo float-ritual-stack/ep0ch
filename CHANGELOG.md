@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One answer to an @margin ask in a comment (PIE-1374)
+
+- **Explain answers once:** the page's and the door's Explain, and a typed `@margin` in a comment or reply, get one
+  answer: a reply in the thread by the agent. The note's in-place answer no longer also writes into the comment.
+- **Your comment stays yours:** no agent text is written into it under your name. An `@name` line in a note still
+  gets its answer under the line.
+
 ### The drain runs on its own clock (PIE-1372)
 
 - **No cron by hand:** the repository's mod hands the deployer's session (loki's `.ep0ch`) the drain every 30

@@ -19,6 +19,7 @@ import type { AnnotationRecord, AnnotationThread, Block, MutationProvenance } fr
 import { resourceCommentSource } from "./resource-comments";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { blockDisplayTitle } from "./references";
+import { isAnnotationBlock } from "./annotations";
 
 /**
  * Agents addressed while you write (PIE-501): a person writes
@@ -272,12 +273,21 @@ export class AgentRequests {
 
   /** Every `@name` line's key, whatever the name: what a later save is compared with. */
   private shapes(block: Block): string[] {
-    if (block.effectiveDeletedRootId || this.store.extensionOwner(block.id)) return [];
+    if (!this.asksInPlace(block)) return [];
     return requestLines(block.text, null).map((line) => line.requestKey);
   }
 
+  /**
+   * Whether an `@name` line in this block is answered in place, as an output region under the line. A comment or a
+   * reply is never: its thread answers it (`threadWritten`), as a reply by the agent, and the person's words stay theirs
+   * (PIE-1374). Trashed blocks and an extension's own records aren't either.
+   */
+  private asksInPlace(block: Block): boolean {
+    return !block.effectiveDeletedRootId && !this.store.extensionOwner(block.id) && !isAnnotationBlock(block);
+  }
+
   private lines(block: Block, names: ReadonlySet<string> | null = this.registry.agentNames()): RequestLine[] {
-    if (block.effectiveDeletedRootId || this.store.extensionOwner(block.id)) return [];
+    if (!this.asksInPlace(block)) return [];
     return requestLines(block.text, names);
   }
 
@@ -389,7 +399,7 @@ export class AgentRequests {
   holdWritten(blockId: string, text: string, actor: MutationProvenance | undefined, before: ReadonlySet<string>, own?: MutationProvenance, requestedBy?: MutationProvenance): { wakes: { requestKey: string; by: string; chain: InvocationChain; refund(): void }[]; recorded: string[] } {
     const out = { wakes: [] as { requestKey: string; by: string; chain: InvocationChain; refund(): void }[], recorded: [] as string[] };
     const block = this.store.get(blockId);
-    if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return out;
+    if (!block || !this.asksInPlace(block)) return out;
     const lines = requestLines(text, this.registry.agentNames());
     if (!lines.length) return out;
     const answered = new Set(this.store.agentRequests(blockId).map((row) => row.requestKey));
@@ -553,7 +563,7 @@ export class AgentRequests {
   touched(blockId: string, text: string): void {
     if (this.stopped) return;
     const block = this.store.get(blockId);
-    if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return;
+    if (!block || !this.asksInPlace(block)) return;
     const names = this.registry.agentNames();
     for (const line of requestLines(text, null)) {
       if (!names.has(line.agent)) this.deps.changed(blockId, { line: line.text, state: "unanswered", warning: this.unanswered(line.agent) });
@@ -637,7 +647,7 @@ export class AgentRequests {
     const block = this.store.get(blockId);
     if (!block) return;
     let found = this.lines(block).find((candidate) => candidate.requestKey === requestKey);
-    if (!found && !block.effectiveDeletedRootId && !this.store.extensionOwner(blockId)) {
+    if (!found && this.asksInPlace(block)) {
       // Asked while typing (`drafts.touch`): the line is in the live draft, not saved yet.
       const draft = await this.deps.readDraft(blockId).catch(() => null);
       found = draft ? requestLines(draft.text, this.registry.agentNames()).find((candidate) => candidate.requestKey === requestKey) : undefined;

@@ -231,3 +231,46 @@ test("margin session arguments use the shared brace grammar and keep each argume
   const thread = await until("session answer", async () => (await threads()).find(t => t.block.id === receipt.annotations[0]!.block.id && t.replies.length));
   expect(JSON.parse(thread.replies[0]!.body)).toEqual([thread.properties!["margin-session"]![0], "two words", "{id}"]);
 });
+
+// PIE-1374: the Explain button (the published page's and the door's) writes "@margin explain this passage" as the
+// person's comment, `kind: explain`. One owner answers it: the thread, as a reply by the agent. The block-level @name
+// path never streams an output region into the person's comment: marginalia keeping its session id on the thread
+// (`margin-session`, an edit of the comment) once woke it, and the answer landed twice. In a note, the output region stays.
+test("an @margin ask in a comment gets one answer, as a reply; the person's comment is never edited; a note keeps its output region", async () => {
+  const { client, note, store, threads } = await setup(["sh", "-c", "cat > /dev/null; echo 'It says to water early.'"], { start: ["--session-id", "{id}"], resume: ["--resume", "{id}"] });
+  const at = note.text.indexOf("before the glass warms");
+  const receipt = await client.request<AnnotationBatchReceipt>({
+    action: "annotations.batch", requestId: "explain-1", author: "user",
+    operations: [{ operationId: "explain", type: "block-comment", input: { blockId: note.id, expectedRevision: note.revision, body: "@margin explain this passage", source: "user", passage: { quote: "before the glass warms", start: at }, properties: { kind: "explain" } } }],
+  });
+  const asked = receipt.annotations[0]!.block;
+  const thread = await until("the margin's answer", async () => (await threads()).find(t => t.block.id === asked.id && t.replies.length));
+  expect(thread.properties!["margin-session"]).toHaveLength(1);
+  // Past the quiet a note's ask waits for (80 ms here), so a second answer would have landed.
+  await Bun.sleep(600);
+  const after = (await threads()).find(t => t.block.id === asked.id)!;
+  expect(after.replies.map(r => [r.block.actorId, r.body])).toEqual([["ext:marginalia", "It says to water early."]]);
+  const comment = store.get(asked.id)!;
+  expect(comment.text).not.toContain("answered");
+  expect(comment.text).toContain("@margin explain this passage");
+  expect([comment.author, comment.actorId ?? null]).toEqual([asked.author, asked.actorId ?? null]);
+  expect(store.agentRequests(asked.id)).toEqual([]);
+
+  // A typed @margin reply in that thread: one more reply, the comment still untouched.
+  await client.request<AnnotationBatchReceipt>({
+    action: "annotations.batch", requestId: "explain-2", author: "user",
+    operations: [{ operationId: "r", type: "reply", input: { annotationId: asked.id, body: "@margin and at noon?", source: "user" } }],
+  });
+  await until("the second answer", async () => (await threads()).find(t => t.block.id === asked.id)!.replies.filter(r => r.block.actorId === "ext:marginalia").length === 2);
+  await Bun.sleep(600);
+  const twice = (await threads()).find(t => t.block.id === asked.id)!;
+  expect(twice.replies.map(r => r.block.actorId === "ext:marginalia")).toEqual([true, false, true]);
+  expect(store.get(asked.id)!.text).toBe(comment.text);
+  expect(store.get(twice.replies[1]!.block.id)!.text).not.toContain("answered");
+
+  // In a note, @margin keeps its output region.
+  const own = store.create("Seedling notes", null, "user");
+  await client.request({ action: "update", blockId: own.id, text: `${own.text}\n@margin what hardens them?`, expectedRevision: own.revision, mutation: { author: "user" } });
+  const answered = await until("the note's output region", () => store.get(own.id)!.text.includes("> [!note]- @margin answered") && store.get(own.id)!);
+  expect(answered.text).toContain("> It says to water early.");
+});
