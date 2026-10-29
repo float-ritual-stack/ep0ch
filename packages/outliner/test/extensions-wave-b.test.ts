@@ -545,7 +545,7 @@ test("a script extension names missing files and opt-in headers, and exposes onl
   expect(listed.extensions.some(e => e.script && e.name === "unused")).toBe(false);
 });
 
-test("a user copy of a built-in lists once, its shipped script folded under it, and says it overrides the built-in (PIE-1283)", async () => {
+test("a user copy of a built-in lists once, its shipped script folded under it; installed as it ships, it doesn't say it overrides anything (PIE-1283, PIE-1399)", async () => {
   const { list } = await setup({ userInstall: ["neat"] });
   const listed = await list(true);
   const neat = listed.extensions.find(e => e.id === "neat")!;
@@ -560,7 +560,8 @@ test("a user copy of a built-in lists once, its shipped script folded under it, 
   const lines = formatExtensionsList(listed, true);
   expect(lines.filter(line => line.startsWith("neat "))).toHaveLength(2); // its row, and its --long folder line
   expect(lines.some(line => line.includes(script.id))).toBe(false);
-  expect(lines.find(line => line.startsWith("neat "))).toContain("your copy overrides the built-in");
+  // A plain install is the built-in's files in the user folder: it reads as installed (PIE-1399), the built-in named in --long.
+  expect(lines.find(line => line.startsWith("neat "))).not.toContain("overrides");
   expect(lines.join("\n")).toContain(`built-in: ${join(REPO_EXTENSIONS, "neat")}`);
 });
 
