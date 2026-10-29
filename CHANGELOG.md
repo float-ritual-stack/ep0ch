@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A drawer Claude is its own session, and a program with no tile is listed and put back (PIE-1432)
+
+- **Its own name:** the door drops the Claude settings it inherited (`CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_PID`, `CLAUDE_JOB_DIR`, `AI_AGENT`) when it starts its terminal host and every tile, so a Claude started in your drawer shows its own name and saves its transcript.
+- **Where you left it:** a tile you dragged out of the drawer comes back on that screen after a restart; the old drawer-only key and its conversion step are gone (PIE-1332).
+- **Never lost:** a program the terminal host still keeps with no tile shows in the agents tab (alt+g) as "no tile" with when it last wrote, and ⏎ puts it back in a tile, the same process.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
 ### An agent hears what became of its edits, and MCP does what a script does (PIE-1086, PIE-1272)
 
 - **Proposals answer back:** an agent's edit that was proposed instead of applied, and every change after it (gone
