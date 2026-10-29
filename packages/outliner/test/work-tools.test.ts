@@ -20,7 +20,8 @@ function isolatedEnv(extra: Record<string, string>): Record<string, string> {
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && !key.startsWith("HERDR_") && !key.startsWith("OUTLINER_")) env[key] = value;
   }
-  return { ...env, ...extra };
+  // No test asks the real Jev (the preload's rule): the work tools' review answers from code's words alone.
+  return { ...env, OUTLINER_FIGURE_FIT: "off", ...extra };
 }
 
 async function runCli(env: Record<string, string>, args: string[], stdin?: string) {
