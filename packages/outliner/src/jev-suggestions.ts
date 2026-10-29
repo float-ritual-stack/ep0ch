@@ -86,7 +86,7 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
     const day = dayOf(now), told = keep.review.findings.filter(f => f.new);
     if (told.length) await suggestionsPage(client);
     // Each finding is told once (PIE-1402: a repeat patch wrote the same one four times): one the note's records hold is skipped.
-    const had = told.length && keep.at.source !== "backfill" ? new Set((await read(client, `type=review-finding note=${keep.at.note} NOT source=backfill`, 500)).map(b => propsOf(b.text).key)) : new Set<string | undefined>();
+    const had = told.length && keep.at.source !== "backfill" ? await toldKeys(client, keep.at.note) : new Set<string>();
     for (const f of told) {
       if (had.has(chipValue(f.key))) continue;
       had.add(chipValue(f.key));
@@ -106,6 +106,14 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
   } catch { /* the write has landed; a record that can't be made is not its failure */ }
 }
 
+/**
+ * The keys a note's writers were already told: its `review-finding` records' keys, as a chip holds them. The one answer
+ * to "was this said before?", for the review (write-review.ts `told`) and for the records.
+ */
+export async function toldKeys(client: SuggestionClient, note: string): Promise<Set<string>> {
+  return new Set((await read(client, `type=review-finding note=${note} NOT source=backfill`, 500)).flatMap(b => { const k = propsOf(b.text).key; return k ? [k] : []; }));
+}
+
 /** Between the pieces of a fix that edits more than one place (a question's ask, and the line it left). */
 const FIX_GAP = "⋯";
 
@@ -119,7 +127,7 @@ export function fixText(patch?: readonly { replacement: string }[]): string {
 /** A record's fix, back as its pieces (none when it came with no patch). */
 export function fixOf(recordText: string): string[] {
   const m = /\nfix:\n```text\n([\s\S]*?)\n```/.exec(recordText);
-  return m ? m[1]!.split(`\n${FIX_GAP}\n`).filter(Boolean) : [];
+  return m ? m[1]!.split(`\n${FIX_GAP}\n`).filter(Boolean).map(p => p.replace(/ˋˋˋ/g, "```")) : [];
 }
 
 /**
@@ -539,7 +547,9 @@ export async function keepSuggestion(client: SuggestionClient, keep: SuggestionK
       // The note's earlier findings are judged against this write; a review that told something new also settles the
       // day-old ones anywhere (as a figure suggestion did), so an ordinary clean write costs one note's settling.
       // What this write's review said (new or carried) and what Jev read: how a Jev finding is known fixed, or not.
-      const heard = new Map([[keep.at.revision, { said: new Set(keep.review.findings.map(f => f.key)), judged: new Set(keep.review.judged ?? []) }]]);
+      // Both as written and as a record's chip holds them, so a stored key with brackets in it still meets them.
+      const both = (xs: readonly string[]) => new Set(xs.flatMap(x => [x, chipValue(x)]));
+      const heard = new Map([[keep.at.revision, { said: both(keep.review.findings.map(f => f.key)), judged: both(keep.review.judged ?? []) }]]);
       const here = await settleNote(client, keep.at.note, schemas, Date.now(), heard);
       return here + (keep.review.findings.some(f => f.new) ? await settleOpen(client, schemas) : 0);
     }

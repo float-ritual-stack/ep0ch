@@ -14,7 +14,7 @@ import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { workIdOf } from "@ep0ch/outline-core/work-id-title";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { askNouls, board, chips, clip, CONFIDENT, costOf, jevWho, noul, recordRun, YES, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
-import { itemTitle } from "./work-twins";
+import { itemTitle, olderFirst } from "./work-twins";
 import { writeRecord } from "./records";
 import type { Block, VisibleBlockCollection } from "./types";
 
@@ -129,9 +129,9 @@ export function groomVerdict(c: Candidates, answers: Record<string, number | und
  * Of two twins the newer is the duplicate (PIE-1402: a groom called each the other's): a ticket whose twin is newer is
  * the original, open, saying which one repeats it. Pure.
  */
-export function originalFirst(ticket: string, v: Pick<GroomRow, "verdict" | "confidence" | "evidence" | "of">): Pick<GroomRow, "verdict" | "confidence" | "evidence" | "of"> {
-  const age = (id: string) => Number(/-(\d+)$/.exec(id)?.[1] ?? Infinity);
-  return v.verdict === "duplicate" && v.of && age(v.of) > age(ticket) ? { verdict: "open", confidence: v.confidence, evidence: `the original: ${v.of} repeats it (${v.evidence})` } : v;
+export function originalFirst(ticket: string, v: Pick<GroomRow, "verdict" | "confidence" | "evidence" | "of">, twinClosed = false): Pick<GroomRow, "verdict" | "confidence" | "evidence" | "of"> {
+  // A twin already done or superseded did the work: this one is its duplicate whichever came first.
+  return v.verdict === "duplicate" && v.of && !twinClosed && olderFirst(ticket, v.of) < 0 ? { verdict: "open", confidence: v.confidence, evidence: `the original: ${v.of} repeats it (${v.evidence})` } : v;
 }
 
 export interface GroomOptions extends JevOptions {
@@ -178,7 +178,8 @@ export async function groom(source: WorkJevClient, evidence: GroomEvidence, o: G
     }
     jev = "asked"; reading = asked.reading; tokens += asked.reading.usage?.input ?? 0;
     const answers = Object.fromEntries(Object.keys(questions).map(id => [id, noul(asked.answers, id)]));
-    rows.push({ ticket, id: t.id, title, ...originalFirst(ticket, groomVerdict(c, answers, latest)), by: "jev" });
+    const judged = groomVerdict(c, answers, latest);
+    rows.push({ ticket, id: t.id, title, ...originalFirst(ticket, judged, c.tickets.find(x => x.workId === judged.of)?.closed), by: "jev" });
     o.progress?.(`${n + 1}/${tickets.length} ${ticket} ${rows.at(-1)!.verdict}`);
   }
   const counts = { solved: 0, superseded: 0, duplicate: 0, open: 0, unjudged: 0 } as Record<Verdict, number>;

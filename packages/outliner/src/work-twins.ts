@@ -11,6 +11,7 @@
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { rankTextSearchMatches, type SearchMatchKind } from "@ep0ch/outline-core/search-match";
 import { workIdOf, workIdTitle } from "@ep0ch/outline-core/work-id-title";
+import { parseWorkId } from "@ep0ch/outline-core/work-ids";
 import { askNouls, chips, clip, dayOf, jevOff, jevWho, NO, noul, tallyRun, YES, board, type JevOptions, type JevReading, type WorkJevClient } from "./work-jev";
 import { writeRecord } from "./records";
 import type { TwinAnswer as WireTwinAnswer, TwinCandidate } from "@ep0ch/outline-core/protocol";
@@ -104,14 +105,16 @@ export async function findTwins(client: WorkJevClient, input: { title: string; b
     const same = noul(answers, `same::${i}`), part = noul(answers, `part::${i}`);
     const withJev = { ...c, ...(same === undefined ? {} : { same }), ...(part === undefined ? {} : { part }) };
     const judged = { ...withJev, verdict: twinVerdict(withJev) };
-    // A pool filler that shares no words is a candidate only when Jev reads it as the same work, or a step of it.
-    return filler && judged.verdict === "related" ? [] : [{ ...judged, said: twinLine(judged) }];
+    // A pool filler that shares no words is a candidate only when Jev is sure it's the same work, or a step of it.
+    return filler && (judged.verdict === "related" || judged.verdict === "unsure") ? [] : [{ ...judged, said: twinLine(judged) }];
   });
   const order = (v: TwinCandidate["verdict"]) => ["same", "text", "unsure", "part", "related"].indexOf(v);
   // Twins oldest first (PIE-1402: a near-duplicate named the newer twin, which was itself filed beside the original):
   // the original is the one to attach to; the rest by Jev's confidence.
   const twin = (c: TwinCandidate) => TWIN.has(c.verdict);
-  candidates.sort((a, b) => Number(twin(b)) - Number(twin(a)) || (twin(a) ? ageOf(a) - ageOf(b) : 0) || order(a.verdict) - order(b.verdict) || (b.same ?? 0) - (a.same ?? 0));
+  // A sure twin before an unsure one; among twins as sure, the original first.
+  const sure = (c: TwinCandidate) => (c.verdict === "unsure" ? 1 : 0);
+  candidates.sort((a, b) => Number(twin(b)) - Number(twin(a)) || (twin(a) ? sure(a) - sure(b) || olderFirst(a.workId, b.workId) : 0) || order(a.verdict) - order(b.verdict) || (b.same ?? 0) - (a.same ?? 0));
   return {
     candidates,
     twins: candidates.filter(twin).map(c => c.workId),
@@ -123,8 +126,14 @@ export async function findTwins(client: WorkJevClient, input: { title: string; b
 /** The verdicts an agent's create is refused over: a twin, sure or not, is the writer's to attach to or file beside. */
 const TWIN: ReadonlySet<TwinCandidate["verdict"]> = new Set(["same", "text", "unsure"]);
 
-/** How old an item is, by its Work ID's number (PIE-12 before PIE-120); an item with none sorts last. */
-const ageOf = (c: Pick<TwinCandidate, "workId">) => Number(/-(\d+)$/.exec(c.workId)?.[1] ?? Infinity);
+/**
+ * Which of two items is the original: the lower Work ID number (PIE-12 before PIE-120); negative when `a` is. 0 when either
+ * has no Work ID (nothing says which came first). The one answer twins at filing and the groom both use.
+ */
+export function olderFirst(a: string, b: string): number {
+  const x = parseWorkId(a)?.number, y = parseWorkId(b)?.number;
+  return x === undefined || y === undefined ? 0 : x - y;
+}
 
 /** One candidate as an agent or a hint row reads it: `PIE-12 (doing) Title · same work 0.86`. */
 export function twinLine(c: Omit<TwinCandidate, "said">): string {

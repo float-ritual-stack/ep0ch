@@ -140,4 +140,7 @@ test("of two twins the newer is the duplicate; the original stays open and names
   const dup = { verdict: "duplicate" as const, confidence: 0.9, evidence: "PIE-6 (queued): Turn the heaps", of: "PIE-6" };
   expect(originalFirst("PIE-2", dup)).toMatchObject({ verdict: "open", evidence: expect.stringContaining("the original: PIE-6 repeats it") });
   expect(originalFirst("PIE-9", dup)).toEqual(dup);
+  // A twin already done did the work; one with no Work ID says nothing of which came first.
+  expect(originalFirst("PIE-2", dup, true)).toEqual(dup);
+  expect(originalFirst("PIE-2", { ...dup, of: "a1b2c3d4" })).toEqual({ ...dup, of: "a1b2c3d4" });
 });
