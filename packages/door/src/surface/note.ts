@@ -81,7 +81,6 @@ import { addressedResource, destinationOf, external, externalOpenCommand, fileOp
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, noteReplyTarget, recordAs, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
 import { pageWithResults } from "../page-results";
-import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
@@ -94,6 +93,8 @@ import type { Scroll } from "../canvas";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
 import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject } from "../socket";
 import { lastTrashed } from "../note-trash";
+import { blockRefText } from "@ep0ch/outline-core/link-syntax";
+import { deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
 import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
 import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
@@ -6118,21 +6119,51 @@ export class NoteSurface {
   }
 
   /**
-   * `note.copy-ref` (PIE-1297): the note's full id (a short one doesn't resolve), or a reference to paste into another note,
-   * `((id|title))`. The person's goes to their clipboard; an agent's is returned to it and never touches the clipboard.
+   * `note.copy-ref` (PIE-1297) in a reader: the note's id, reference or web link (`noteRefText`), or a reference to one
+   * line, `((id^anchor|words))`, minting the anchor when it has none (`fragments.ensure`, attributed, as `fields.anchor`
+   * does). The line is `line` (from 1); else the actor's own selection's first line; the person's falls back to the
+   * heading the keys selected, then the line being read. `own`: this door's outline, so another's note is named with
+   * its outline. The person's goes to their clipboard; an agent's is returned to it.
    */
-  async copyNoteRef(kind: "id" | "ref", host: SurfaceHost, actor: Actor): Promise<{ id: string; kind: string; text: string; clipboard: boolean }> {
+  async copyNoteRef(kind: NoteRefKind, host: SurfaceHost, actor: Actor, own: string | undefined, line?: number): Promise<{ id: string; kind: string; text: string; clipboard: boolean; line?: number; anchor?: string; created?: boolean }> {
     const m = await this.whole();
-    const text = kind === "ref" ? blockRefText(m.id, subject(m)) : m.id;
-    const what = kind === "ref" ? "a reference to the note" : "the note's id";
-    if (actor.kind === "user") {
-      if (host.ctx.copy?.(text) === false) throw new ActionRefused("the clipboard refused it");
-      host.ctx.flash(`copied ${what}: ${text}`);
-      return { id: m.id, kind, text, clipboard: true };
+    const where = { outline: m.address?.outline ?? own, foreign: !!m.address?.outline && m.address.outline !== own };
+    if (kind !== "line") return deliverNoteRef(host.ctx, actor, m.id, kind, noteRefText(kind, m, where), said => this.noteAgent(actor, said));
+    const { at, next } = this.refLine(m, actor, line), board = host.ctx.board;
+    if (m.revision === undefined) throw new ActionRefused("this note has no revision to anchor a line at");
+    // The part of the note holding the line (a heading, a paragraph, a list item, a quote, a component), as the service
+    // reads it: its anchor goes where that part's goes, and its label is the part's own.
+    const found = await board.partAt(m.id, at, next), part = found.part;
+    // The line was chosen in the text this reader read: a note saved since may hold another part there.
+    if (found.revision !== m.revision) throw new ActionRefused("the note changed since it was read; it is read again, copy once more");
+    if (!part) throw new ActionRefused(`line ${at + 1} is in no part of the note that takes an anchor (a heading, a paragraph, a list item, a quote, a component)`);
+    let anchored: { fragmentId: string; created: boolean };
+    try { anchored = part.fragmentId ? { fragmentId: part.fragmentId, created: false } : await board.ensureFragment(m.id, part.lineIndex, m.revision, actor); }
+    catch (e) {
+      const said = e instanceof Error ? e.message : String(e);
+      throw new ActionRefused(/changed since/.test(said) ? "not anchored: the note changed since it was read; it is read again, copy once more" : `not anchored: ${said}`);
     }
-    host.ctx.flash(`copied ${what} for itself · your clipboard is untouched`);
-    this.noteAgent(actor, `copied ${what}`);
-    return { id: m.id, kind, text, clipboard: false };
+    const text = noteRefText("line", m, where, { anchor: anchored.fragmentId, text: part.label });
+    return { ...deliverNoteRef(host.ctx, actor, m.id, "line", text, said => this.noteAgent(actor, said)), line: at + 1, anchor: anchored.fragmentId, created: anchored.created };
+  }
+
+  /**
+   * The source line (from 0) a line's reference names for `actor` (copyNoteRef); `next`: it is only where the person is
+   * reading, so the first part from there counts (the title at the top of the view takes no anchor).
+   */
+  private refLine(m: Msg, actor: Actor, line: number | undefined): { at: number; next: boolean } {
+    const count = m.text.split("\n").length;
+    if (line !== undefined) {
+      if (!Number.isInteger(line) || line < 1 || line > count) throw new ActionRefused(`line is from 1 to ${count}`);
+      return { at: line - 1, next: false };
+    }
+    const sel = actor.kind === "user" ? this.selection : this.agentSelection?.id === actor.id ? this.agentSelection.sel : null;
+    const src = sel ? this.sourceOf(sel, true) : null;
+    if (src) return { at: src.lines[0], next: false };
+    if (actor.kind !== "user") throw new ActionRefused("name the line: line=<from 1>, or select in the note first (the person's selection is theirs)");
+    const folded = this.foldSel ? this.visibleFolds(m).find(p => p.key === this.foldSel) : undefined;
+    const heading = folded ? this.foldsIn(m).lines[folded.line] : undefined;
+    return heading !== undefined ? { at: heading, next: false } : { at: this.readingSourceLine(), next: true };
   }
 
   /** Refused unless the last render drew the note (the elements come from it). */
@@ -7655,7 +7686,7 @@ export class NoteSurface {
       host.ctx.flash(why, undefined, errorDetails(e));
       throw new ActionRefused(why);
     }
-    const link = `((${drawnFields.from}^${anchored.fragmentId}))`;
+    const link = blockRefText(drawnFields.from, "", { fragment: anchored.fragmentId });
     if (actor.kind === "user") host.ctx.copy?.(link);
     const said = `${anchored.created ? "anchored" : "already anchored"} line ${row.line + 1}: ${link}${actor.kind === "user" ? " · copied" : ""}`;
     host.ctx.flash(said);
@@ -12108,19 +12139,6 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     examples: [{ act: "note.copy", does: "answers the note's text with its live figures' results" }, { act: "note.copy source=true", does: "answers the note's text as stored" }],
     async run({ source }, { surface, host }, actor) {
       const r = await surface.copyNote(host, actor, source === true);
-      host.redraw();
-      return r;
-    },
-  }),
-  "note.copy-ref": def({
-    summary: "copy the note's id (kind=id, the full id: a short one doesn't resolve) or a reference to it (kind=ref, ((id|title)), ready to paste into another note). The person's goes to their clipboard and the status line says what was copied; an agent's is returned to it and never touches the person's clipboard",
-    keys: "the tile menu's \"copy id\" and \"copy reference\" (Note), the power bar",
-    touches: "nothing", replay: "safe",
-    menu: [noteRow("copy id", "", {}), noteRow("copy reference", "", {})].map((r, i) => ({ ...r, args: { kind: i ? "ref" : "id" } })),
-    args: { kind: { type: "string", optional: true, choices: ["id", "ref"], about: "id (default): the note's full id; ref: ((id|title))" } },
-    examples: [{ act: "note.copy-ref kind=ref", does: "answers ((<id>|<title>)) for the note shown" }],
-    async run({ kind }, { surface, host }, actor) {
-      const r = await surface.copyNoteRef((kind ?? "id") as "id" | "ref", host, actor);
       host.redraw();
       return r;
     },

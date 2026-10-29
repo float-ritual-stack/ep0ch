@@ -20,7 +20,7 @@ import { writeDialsIn, writeMachineName } from "@ep0ch/outliner/machine-name";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
 import { ep0ch } from "../session/place";
 import { sshBin } from "../machine";
-import { copyName, type CopyUpdate, newsWords } from "@ep0ch/outliner/extension-update";
+import { copyName, type CopyUpdate, newsWords, removeCommand } from "@ep0ch/outliner/extension-update";
 import { prepareInstallBackups, pruneInstallBackups } from "./install-backups";
 import { startDeployRecord } from "./deploy-record";
 
@@ -309,7 +309,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       for (const c of copies.filter(c => c.done === "updated")) say(`refreshed ${copyName(c)}${c.news.length ? `: ${c.news.length} change${c.news.length === 1 ? "" : "s"} (${newsWords(c.news)})` : ""}`);
       for (const c of copies.filter(c => c.done === "kept")) {
         record(`${copyName(c)} was changed here: left as it is`);
-        show(`    ! ${copyName(c)} was changed here, so it's left as it is: \`${ep0ch()}ext update ${c.id}\` shows what's new and asks`);
+        show(`    ! ${copyName(c)} overrides the built-in and was changed here, so it's left as it is: \`${ep0ch()}ext update ${c.id}\` shows what's new and asks, \`${ep0ch()}${removeCommand(c)}\` removes it`);
       }
       const current = copies.filter(c => c.done === "current").length;
       if (current) say(`${current} already current`);

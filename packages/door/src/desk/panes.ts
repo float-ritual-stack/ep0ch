@@ -207,6 +207,11 @@ export interface Pane {
   hint(): string;
   /** The note the tile points at (a reader's note, a list's or the tree's selected row): what `note.trash` takes by default. Null: none. */
   subject?(): string | null;
+  /**
+   * The note it points at for copying its address (`note.copy-ref`), with its outline when that's another's (a links
+   * tile on another outline's note, an EchoNet area's messages). Left out: `subject`, in this door's outline.
+   */
+  noteAt?(): { id: string; address?: import("./outline-boards").NoteAddress } | null;
   /** `typing`: the person is typing in it (a terminal shows its cursor then). */
   render(w: number, h: number, focused: boolean, desk: DeskApi, typing?: boolean): PaneView;
   /** Return true when the pane used the key. */

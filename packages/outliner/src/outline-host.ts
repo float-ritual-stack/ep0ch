@@ -40,6 +40,7 @@ import { answerWebSessions, WEB_SESSION_ACTIONS, WebSessions } from "./web-sessi
 import { readMcpAccessFiles } from "./mcp-access-files";
 import { acquireLockFile, acquireWorkspaceOwnership, ownerLockOf } from "./workspace-ownership";
 import { metaDir, withLitestreamPaused } from "./litestream-guard";
+import { DEFAULT_WEB_ORIGIN } from "./artifact-grants";
 
 /*
  * The outline host (PIE-457, PIE-530): one process per user and machine, one socket, any number of outlines, like
@@ -892,7 +893,7 @@ export class OutlineHost {
 
   /** Where the web client is reached from outside (`EP0CH_WEB_URL`, the first when it lists several). */
   private webOrigin(): string {
-    return (process.env.EP0CH_WEB_URL?.split(",")[0]?.trim() || "https://my.ep0ch.sh").replace(/\/+$/, "");
+    return (process.env.EP0CH_WEB_URL?.split(",")[0]?.trim() || DEFAULT_WEB_ORIGIN).replace(/\/+$/, "");
   }
 
   private requireOutline(name: string): void {

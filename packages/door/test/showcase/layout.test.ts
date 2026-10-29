@@ -942,6 +942,10 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     expect(await app.act({ action: "tile.info", tile: "calls/yo", args: {}, as: "test-agent" })).toMatchObject({ name: "yo" });
     await expect(app.act({ action: "tile.title", tile: "calls/yo", args: { text: "activity" }, as: "test-agent" })).rejects.toThrow(/already a tile named activity/);
     expect(await app.act({ action: "tile.info", tile: "reader", args: {}, as: "test-agent" })).toMatchObject({ name: "reader" });
+    // Showing a note, its menu has both renames side by side, each saying what it renames (PIE-1283).
+    await app.act({ action: "open", tile: "calls/yo", args: { id: seeded.notes.hub.id }, as: "test-agent" });
+    const rows = ((await app.act({ action: "tile.menu", tile: "calls/yo", args: {}, as: "test-agent" })) as { rows: { action: string; label: string }[] }).rows;
+    expect(rows.filter(r => r.action === "tile.title" || r.action === "note.rename").map(r => r.label).sort()).toEqual(["rename this note…", "rename this tile…"]);
   }, 40_000);
 
 

@@ -23,6 +23,7 @@ import { uncover, within, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
+import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref";
 import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type TileRef } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { lineCompletionHooks } from "./surface/line-hooks";
@@ -1198,6 +1199,16 @@ export class App implements Ctx {
     { set: BAR_ACTIONS, takes: "none", on: (_, how) => ({ on: this.barOn, standing: how.standing }) },
     { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
     { set: RUNBOOK_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
+    // note.copy-ref on a screen that has none of its own (the main menu, a BBS list): the note named by ref=, else the
+    // one in front (the power bar's row menu copies a hit from anywhere).
+    { set: NOTE_REF_ACTIONS, takes: "none", claims: req => req.action === "note.copy-ref" && !this.stack.at(-1)?.dispatch?.has(req.action), on: (): NoteRefOn => ({
+      copy: (a, actor) => {
+        const id = a.ref ?? this.noteInFront();
+        if (!id) throw new ActionRefused("no note in front to copy; ref=<a block id> names one");
+        return copyNoteById(this, actor, a.kind, id, a.outline ? { outline: a.outline } : undefined);
+      },
+      has: () => false,
+    }) },
     { set: CLAUDE_SPLIT_ACTIONS, takes: "none", on: (_, how) => {
       // The screen's desk, where tile.open lands too (a stage inside the showcase, a desk's own screen).
       const here = (this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d)) ?? this.stack.at(-1)) as { overlay?(p: unknown): void } | undefined;

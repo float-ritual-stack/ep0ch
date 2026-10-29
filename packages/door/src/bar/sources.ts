@@ -1,3 +1,4 @@
+import { overrideWords } from "@ep0ch/outliner/extension-update";
 import { outlineBoards } from "../desk/outline-boards";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
@@ -14,7 +15,7 @@ import { PtyPane } from "../desk/pty";
 import { tileKinds } from "../desk/tile-kinds";
 import { wCaption, type WRow } from "../desk/wkeys";
 import { ScreenTile } from "../desk/screen-tile";
-import { notConfigured, jevOff, SEARCH_JEV_PAUSE_MS } from "../surface/completer";
+import { notConfigured, jevOff } from "../surface/completer";
 import { ActionRefused, actRequestOf, coerceActionArgs, declaredKeys, lineWords, shownLine, type ActionInfo, type ActRequest } from "../surface/actions";
 import { authorName, USER } from "../socket";
 import { ago } from "../text";
@@ -130,7 +131,7 @@ const TILES: BarSource = {
 };
 
 /** A hit's row: its work id (when its title doesn't start with it) and its title. */
-const noteRow = (m: Msg): BarRow => ({ key: m.id, label: headedTitle(m), subtitle: subtitleOf(m), fill: subject(m) });
+const noteRow = (m: Msg): BarRow => ({ key: m.id, label: headedTitle(m), subtitle: subtitleOf(m), fill: subject(m), note: { id: m.id } });
 
 /** How many notes `/` lists with nothing typed. */
 const RECENT_NOTES = 30;
@@ -153,25 +154,23 @@ export async function recentNotes(host: BarHost): Promise<BarRow[]> {
 
 const NOTES: BarSource = {
   id: "notes", title: "notes", prefix: "/", by: "door", asks: true,
-  about: "outline:<name> words searches another outline on this host; otherwise the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up; ⏎ opens one where opens land, alt+⏎ in a new detail",
+  about: "outline:<name> words searches another outline on this host; otherwise the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up; ⏎ opens one where opens land, alt+⏎ in a new detail; alt+m or a right-click on a hit is its menu: copy its id, reference or web link (note.copy-ref)",
   main: { empty: false, typed: true, most: 10 },
-  async rows(q, host) {
+  async rows(q, host, _scope, signal) {
     const named = q.match(/^outline:([^\s]+)(?:\s+(.*))?$/);
     if (named) {
       const ctx = await outlineBoards(host.ctx).on({ outline: named[1]! });
       const info = await ctx.board.info();
-      return (await ctx.board.search(named[2] ?? "", 30)).map(m => ({ ...noteRow(m), key: formatEp0chBlockUri({ outline: named[1]!, machine: ctx.machine ?? info.machine!, blockId: m.id }), detail: named[1] }));
+      return (await ctx.board.search(named[2] ?? "", 30, { signal })).map(m => ({ ...noteRow(m), key: formatEp0chBlockUri({ outline: named[1]!, machine: ctx.machine ?? info.machine!, blockId: m.id }), detail: named[1], note: { id: m.id, outline: named[1]! } }));
     }
     if (!q.trim()) return recentNotes(host);
     if (q.trim().length < 2) return [];
-    return (await host.ctx.board.search(q.trim(), 30, { near: host.near() ?? undefined })).map(noteRow);
+    return (await host.ctx.board.search(q.trim(), 30, { near: host.near() ?? undefined, signal })).map(noteRow);
   },
-  later(q, rows, host, alive) {
+  later(q, rows, host, signal) {
     const board = host.ctx.board;
     if (q.startsWith("outline:") || q.trim().length < 3 || rows.length < 2 || jevOff.has(board)) return null;
-    // Asked only if the query is still the one typed after the pause, and the bar still open.
-    return Bun.sleep(SEARCH_JEV_PAUSE_MS).then(() => (alive() ? board.search(q.trim(), 30, { semantic: true, near: host.near() ?? undefined }) : null)).then(h => {
-      if (!h) return null;
+    return board.search(q.trim(), 30, { semantic: true, near: host.near() ?? undefined, signal }).then(h => {
       if (h.semantic && notConfigured(h.semantic)) jevOff.add(board);
       return h.semantic?.status === "ranked" ? { rows: h.map(noteRow), said: "jev ranked" } : null;
     }, () => null);
@@ -417,7 +416,9 @@ function extensionFacts(e: ExtensionEntry, then: string): string {
     `**${e.name ?? e.id}** \`${e.id}\`${e.version !== undefined ? ` v${e.version}` : ""} · ${e.state}${e.settings ? ` · settings ${settingsChip(e.settings)}` : ""}`,
     ...(e.error ? ["", `> [!warning] ${e.error}`] : []), ...(e.script && e.summary ? ["", e.summary] : []), "", e.description ?? "",
     ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${partKind(p.kind)} **${p.name}**${p.about ? ` · ${p.about}` : ""}`)] : []),
-    ...(e.directory ? ["", `\`${e.directory}\``] : []), "", then,
+    ...(e.directory ? ["", `\`${e.directory}\``] : []),
+    // A copy of a built-in (PIE-1283): this copy runs, the built-in never does in place; both folders said.
+    ...(e.builtIn ? ["", `${overrideWords(e.id, e.builtIn)}: this copy runs; the built-in is \`${e.builtIn.directory}\``] : []), "", then,
   ].join("\n");
 }
 
@@ -435,13 +436,14 @@ const EXTENSIONS: BarSource = {
     const l = extensionList();
     if (!l) return [];
     const rows: BarRow[] = [{ key: "make", label: "make your own", detail: "ep0ch-extend skill · ep0ch docs extensions", group: "make", oneLine: true, data: { kind: "make", id: "" } satisfies ExtRow }];
-    const installed = l.extensions.filter(e => e.state !== "shadowed"), all = installed.length + (l.available?.length ?? 0);
+    // A script an extension ships is part of that extension's row, not one of its own (PIE-1283).
+    const installed = l.extensions.filter(e => e.state !== "shadowed" && !e.partOf), all = installed.length + (l.available?.length ?? 0);
     if (l.hub) rows.push({ key: "hub", label: "Extensions", detail: `the hub · ${installed.length} of ${all} installed`, group: "installed", data: { kind: "hub", id: "", block: l.hub } satisfies ExtRow });
     // One line each, grouped under installed by what it adds first, that kind its chip (PIE-1284): the words are its own; the rest is the preview's.
     const kindOf = (e: ExtensionEntry) => extensionParts(e, l)[0]?.kind ?? "actions";
     for (const kind of PART_KINDS) {
       const these = installed.filter(e => kindOf(e) === kind);
-      for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.settings ? settingsChip(e.settings) : "", summaryOf(e, l)].filter(Boolean).join(" · "), group: `installed · ${kind} · ${these.length}`, chip: partKind(kind), oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
+      for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.builtIn ? overrideWords(e.id, e.builtIn) : "", e.settings ? settingsChip(e.settings) : "", summaryOf(e, l)].filter(Boolean).join(" · "), group: `installed · ${kind} · ${these.length}`, chip: partKind(kind), oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
     }
     // Its settings (PIE-1343): a row each, its chip the words; where config.json is, the preview's; ⏎ the form its configSchema draws.
     const configured = installed.filter(e => e.settings);
