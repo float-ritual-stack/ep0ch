@@ -18,7 +18,8 @@ if (!props.page?.[0]) {
 const BRIEF = props.page?.[0] ? await pick(props.page[0]) : home;
 const CURRENT = props.page?.[1] ? await pick(props.page[1]) : (current ?? this.id);
 const failed = [];
-const step = async (name, args) => { try { return await act(name, args); } catch (e) { failed.push(`${name}: ${String(e).slice(0, 140)}`); return null; } };
+// A step that couldn't be done is said in the door's own words, whole (never "Error:" or clipped).
+const step = async (name, args) => { try { return await act(name, args); } catch (e) { failed.push(`${name}: ${e?.message ?? String(e)}`); return null; } };
 const tiles = async () => (await act('layout.get')).layers.find(x => !x.drawer).tiles;
 
 // A reader holding a note: one showing it already, else a new held one.
@@ -47,8 +48,13 @@ if (L) {
   await step('tile.link', { tile: L, to: B, verb: 'open' });
   await step('tile.link', { tile: L, to: A, verb: 'alt' });
 }
-for (const t of await tiles()) if (t.tile !== A && t.tile !== B && t.tile !== L && !t.collapsed && t.shown !== false) await step('tile.collapse', { tile: t.tile, on: true });
+for (const t of await tiles()) {
+  if (t.tile === A || t.tile === B || t.tile === L || t.collapsed || t.shown === false) continue;
+  // A float has no place to fold in: it goes back into the layout first, then folds as the rest do.
+  if (t.float && !(await step('tile.float', { tile: t.tile }))) continue;
+  await step('tile.collapse', { tile: t.tile, on: true });
+}
 await step('layout.even', {});
 // Said in the notes' words, never the tiles' ids.
 const titled = async id => { try { return (await read(id)).title; } catch { return id; } };
-return failed.length ? `neat: ${failed.length} steps failed · ${failed.join(' · ')}` : `neat: ${await titled(BRIEF)} | ${await titled(CURRENT)}, links wired`;
+return failed.length ? `neat: ${failed.length} ${failed.length === 1 ? 'step' : 'steps'} failed · ${failed.join(' · ')}` : `neat: ${await titled(BRIEF)} | ${await titled(CURRENT)}, links wired`;

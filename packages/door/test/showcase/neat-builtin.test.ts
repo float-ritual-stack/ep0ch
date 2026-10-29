@@ -148,6 +148,39 @@ describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
     } finally { app.pop(); }
   }, 30_000);
 
+  test("neat from a float, and from a river column: it works or says in plain words what it couldn't do (PIE-1403)", async () => {
+    const { app, board } = h;
+    const shed = await board.createBlock(null, "The shed\nWhat's in it, and what it needs.");
+    const note = await board.createBlock(shed.id, "Plan the cold frame\nGlass from the old shed.");
+    const desk = openScreen("desk") as Desk;
+    app.push(desk);
+    try {
+      const r = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: note.id, name: "frame" } }, USER) as { tile: string };
+      await app.dispatch.act({ action: "tile.float", tile: r.tile }, USER);
+      await app.dispatch.act({ action: "tile.focus", tile: r.tile }, USER);
+      expect(desk.isFloat(desk.idOf(desk.focusedPane())!)).toBe(true);
+      const said = await fromBar();
+      expect(said).not.toMatch(/t-[0-9a-f]{8}|Error:|…$/);
+      expect(said).toContain("links wired");
+    } finally { app.pop(); }
+    const river = openScreen("river") as Desk;
+    app.push(river);
+    try {
+      const o = await app.act({ action: "open", args: { id: note.id }, as: "test-agent" }) as { name: string };
+      await app.dispatch.act({ action: "tile.focus", tile: o.name }, USER);
+      let said = await fromBar();
+      expect(said).not.toMatch(/t-[0-9a-f]{8}|Error:/);
+      // A reader floating over the river (a new note's float is one), the person's keys in it.
+      const made = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: note.id, name: "glass" } }, USER) as { tile: string };
+      await app.dispatch.act({ action: "tile.float", tile: made.tile }, USER);
+      await app.dispatch.act({ action: "tile.focus", tile: made.tile }, USER);
+      expect(river.isFloat(river.idOf(river.focusedPane())!)).toBe(true);
+      said = await fromBar();
+      expect(said).not.toMatch(/t-[0-9a-f]{8}|Error:/);
+      expect(made).toBeDefined();
+    } finally { app.pop(); }
+  }, 30_000);
+
   test("an outline's own neat script overrides the installed arrangement", async () => {
     const { app, board, seeded } = h;
     await board.createBlock(null, "My neat [script::neat]\n```js\nreturn 'neat: outline wins ' + props.page[0];\n```");
