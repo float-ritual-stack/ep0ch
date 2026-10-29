@@ -1772,8 +1772,8 @@ export class App implements Ctx {
     const overflow = (): StatusItem => ({ id: "overflow", text: `+${hidden.length}`, place: "left", after: " │ ", click: { action: "status.bar.menu", args: { overflow: true } }, alt: { action: "status.bar.edit" } });
     const over = () => width(statusText(items)) + (hidden.length ? width(statusText([overflow()])) : 0) + 3 > cols;
     // A narrow bar (PIE-1213): built-ins shorten first, from the end, the clock last; then the lowest rank goes into the
-    // overflow (built-ins nobody listed, then listed ones, then what the person pinned), each from the end. The clock and
-    // the drawer stay whole.
+    // overflow (built-ins nobody listed, then listed ones, then what the person pinned), each from the end. The drawer
+    // chip (down to its arrow) and the clock stay: the way into the drawer and the time are never in the overflow.
     const order = [...items.keys()].reverse().sort((a, b) => Number(items[a]!.id === "clock") - Number(items[b]!.id === "clock"));
     for (const j of order) {
       if (!over()) break;
@@ -1782,7 +1782,9 @@ export class App implements Ctx {
     }
     for (const rank of [RANK.builtin, RANK.listed, RANK.pinned]) {
       // Before a pin goes, the drawer chip is its arrow alone (its colour still says the state).
-      if (rank === RANK.pinned) for (const [j, it] of items.entries()) if (over() && it.tiny !== undefined) items[j] = { ...it, text: it.tiny };
+      if (rank === RANK.pinned) {
+        for (const [j, it] of items.entries()) if (over() && it.tiny !== undefined) items[j] = { ...it, text: it.tiny };
+      }
       while (over()) {
         const last = items.findLastIndex(i => (i.rank ?? RANK.builtin) === rank && i.id !== "clock" && i.id !== "drawer");
         if (last < 0) break;

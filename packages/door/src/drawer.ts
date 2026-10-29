@@ -1035,7 +1035,8 @@ export class AgentDrawer {
     const s = this.state(now);
     const c = s === "working" ? C.yellow : s === "blocked" ? C.lmagenta : s === "done" ? C.lgreen : s === "exited" || s === "failed" ? C.lred : s === "watching" ? C.lcyan : C.white;
     const parts = this.chipParts(now), cut = size !== "whole" && !this.dropHover;
-    const head = cut ? (size === "tiny" ? parts.head.slice(0, 1) : parts.head.split(" · ")[0]!) : parts.head, knows = size === "whole" ? parts.knows : "";
+    // Short: the program and its count, without where its name came from or what it's doing.
+    const head = cut ? (size === "tiny" ? parts.head.slice(0, 1) : parts.head.split(" · ")[0]!.replace(/ \(from [^)]*\)/, "")) : parts.head, knows = size === "whole" ? parts.knows : "";
     if (this.dropHover) return `${chipStyle(C.yellow, C.black)}${head}${bg(C.blue)}${fg(C.lcyan)}`;
     return `${bg(this.open ? C.cyan : C.blue)}${fg(c)}${head}${knows && this.offersRestart ? fg(C.yellow) : ""}${knows}${bg(C.blue)}${fg(C.lcyan)}`;
   }
