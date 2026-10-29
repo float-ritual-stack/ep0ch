@@ -52,8 +52,8 @@ export const NOTES_USAGE = `  ep0ch find [<words>… [--lexical] | --recent | --
                                    notes: with words, the service's ranked search, tree.search (the ranker
                                    Goto, the door's / and (( use, asked from no note; at most 30), re-ordered
                                    by Jev when it's set up: each row its Score (2.7/3) and a last line saying
-                                   how sure it is ("strong match: …", or "no strong match: …" when the top
-                                   isn't a sure answer; on stderr with --ids, --lines, --json); when none is
+                                   how sure it is ("strong match: …"; "not sure it's the one: …" when the top
+                                   scores as a match but isn't settled; "no strong match: …" when it isn't one; on stderr with --ids, --lines, --json); when none is
                                    sure, Jev reads every note's title for ones the words missed (deep, PIE-1200:
                                    such a row says "by meaning"); --lexical leaves Jev out; --recent, its newest 30; --tree, the outline (or the notes under
                                    <root id>) depth first, as Tree draws it; without, every note, newest first.

@@ -157,7 +157,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "combine; view stands alone. propertyScope says which chips property, hasKey and query read: the note's own (block, the default), or `all` for a " +
       "`[needs::…]` on any line, each row then naming its `matches` (key, value, line, and task: an open `- [ ]` is todo, a ticked one no longer matches). " +
       "Text alone is a search, ranked as ep0ch find ranks it (Jev over the text matches, at most 30): each row its `score` (0 to 3), " +
-      "and `search` says how sure it is: verdict strong, or \"no strong match\" (weak: the closest named, not claimed; none: nothing here answers it), " +
+      "and `search` says how sure it is: verdict strong (\"sure\"), weak (\"not sure\" over a top Jev scores as a match, else \"no strong match\": the closest named, not claimed) or none (\"no strong match\": nothing here answers it), " +
       "with `exists` (Jev's \"is it among these?\", 0 to 1). With anything else, text is a filter (every word, any order). " +
       "Returns rows (id, title, revision, parentId, created, updated); read one with outline_read.",
     properties: {

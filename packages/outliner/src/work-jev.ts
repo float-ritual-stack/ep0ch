@@ -86,8 +86,8 @@ export async function recordRun(client: WorkJevClient, loop: string, run: string
   const props = chips({
     experiment: loop, run, model: reading?.model ?? "none", "prompt-rev": promptRev(reading),
     items: String(counts.items ?? 0), suggested: String(counts.suggested ?? 0), quiet: String(counts.quiet ?? 0), unavailable: String(counts.unavailable ?? 0),
-    // An eval's run says how often Jev agreed with the labels (search-eval.ts): agreed, agreement, different, ignored.
-    ...Object.fromEntries(["agreed", "agreement", "different", "ignored"].filter(k => counts[k] !== undefined).map(k => [k, String(counts[k])])),
+    // An eval's run says how often Jev agreed with the labels (search-eval.ts): agreed, agreement, hit5, different, ignored.
+    ...Object.fromEntries(["agreed", "agreement", "hit5", "different", "ignored"].filter(k => counts[k] !== undefined).map(k => [k, String(counts[k])])),
     "tokens-in": String(tokensIn), "tokens-out": String(reading?.usage?.output ?? 0), cost: costOf(tokensIn),
   });
   const made = await writeRecord(board(client), "jev-run", props, jevWho(loop), { title: `${loop} ${run}` });
