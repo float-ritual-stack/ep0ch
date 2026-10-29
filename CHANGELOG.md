@@ -17,6 +17,7 @@ are its record. The outliner's entries from then are kept below, under
 - **On the web page:** `≡ trail` at the end of the breadcrumbs lists the notes this tab opened, newest first.
 - **Agents:** `act trail` reads the stops (it opens nothing); `act back steps=2` goes two at once; `ep0ch.trail()` on a page.
 - **Run:** nothing extra; `ep0ch install --apply` as usual (no protocol or schema change).
+
 ### Agents work in your door while you type, and every refusal says the same thing (PIE-1294)
 
 - **Your edit is yours:** an agent's open never replaces the note you're editing, on any screen; on Welcome your own
