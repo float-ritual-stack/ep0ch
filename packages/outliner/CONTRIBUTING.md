@@ -404,8 +404,12 @@ One host serves every client of every outline on one event loop, and a client gi
   triggers' rows too: a check of how many rows an UPDATE matched reads `SELECT changes()` (`writeBlockText`).
 - Every request waits for its turn (`Turns` in `loop-watch.ts`): one per pass of the loop, the whole-outline reads
   (`WHOLE_OUTLINE_READS`) after every other request. A new action that reads the whole outline joins that list.
-  Within a lane the next turn goes to whoever has used the loop least lately (a connection, an agent's actor id, the
-  service's `own` jobs, the `watches`), so a person's request waits for one turn of a bulk job, not its whole queue.
+  Within a lane the next turn goes to whoever has used the loop least lately in that lane (a connection, an agent's
+  actor id, the service's `own` jobs, the `watches`), so a person's request waits for one turn of a bulk job, not its
+  whole queue, and a door's lane reads never count against its own note read.
+- A connection's whole-outline reads don't hold its queue: each starts after what the connection sent before it, and
+  nothing after it waits for it (a door's board reads never hold its children, its save or its draft). Everything else
+  on a connection keeps its order. A connection that closed has its queued requests dropped, never run.
 - The service asking itself goes through `this.own` in `server.ts` (a turn per request), never `handleAsync`
   directly: a job of many requests (Jev's records, a script's calls) then never holds the loop between them.
 - A watch pass (`query-watches.ts`) evaluates one watch a turn, one pass at a time, each question once a pass.
@@ -416,11 +420,14 @@ One host serves every client of every outline on one event loop, and a client gi
   during a backup and after a restart, on a fictional outline the size of a working one. `--outliner <dir>` runs
   another checkout's host for a before.
 - `bun run bench:host` (`scripts/bench-host-fairness.ts`, PIE-1413) is the guard under bulk work: a pie-shaped
-  fictional outline (or `--copy` a private copy) with two watching doors, a Tree, two Details, the publisher and an
-  MCP gateway, while a write-review backfill writes its records and an import is stopped halfway; per phase it
-  reports ping p50, p95, p99, max and the longest stall, what the doors heard, and whether every watch converged.
-  `--check` holds ping p95 under 200 ms everywhere and no stall over 1 s; `scripts/box-test host-bench` (and `all`)
-  runs it on float-box.
+  fictional outline (or `--copy` a private copy) with a real door on the Desk (the door's `scripts/bench-door-desk.ts`:
+  a board tile and a live query tile, the person reading and saving through the same connection), a watching door, the
+  publisher and an MCP gateway (`--crowd` adds a door, a Tree and two Details), while a write-review backfill writes its
+  records and an import is stopped halfway. Per phase it reports ping p50, p95, p99, max and the longest stall, the
+  door's own requests (all, and the person's children and saves) and whether every watch and every door tile
+  converged. `--check` holds ping p95 and the person's requests in the door under 200 ms, no stall over 1 s and no door
+  request over 5 s; `scripts/box-test host-bench` (and `all`) runs it on float-box. A probe on a connection of its own
+  isn't the door: measure from the door's side.
 
 ### Queries
 
