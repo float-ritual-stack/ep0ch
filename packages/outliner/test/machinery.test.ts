@@ -147,6 +147,27 @@ test("the backfill stamps what tools wrote before they stamped, says so first, a
   expect(hidden).toEqual([person.id]);
 });
 
+// PIE-1427, seen in use (Oct 29): the Extensions hub, every extension's page and the notifications hub's boards came
+// back as real work in a chat's recent-activity read, because they carried no [machine::].
+test("the notifications hub's pull page is stamped by the backfill, by who wrote it last; its demo boards stay the person's", async () => {
+  const { client, store } = await setup();
+  // Written as the service writes them (an extension's actor id is the service's alone).
+  const as = (actorId: string, text: string, parent: string | null = null) => store.create(text, parent, "agent", { actorId });
+  const pulled = as("ext:notify", "Notifications [page::notifications]");
+  as("ext:notify", "Heron survey merged [notify.key::github:7] [machine::notification]", pulled.id);
+  const board = as("ext:notify", "Notifications by source [page::notifications-source]");
+  const lane = as("ext:notify", "Jira [type::virtual-branch] [query::notify.source=jira] [machinery::show]", board.id);
+  const theirs = as("ext:notify", "Notifications, mine [page::notifications-mine]");
+  as("ext:notify", "Heron survey closed [notify.key::github:8] [machine::notification]", theirs.id);
+  await client.request({ action: "update", blockId: theirs.id, expectedRevision: theirs.revision, text: `${theirs.text}\n\nMine now.` } as never);
+  const done = await backfill(client as never, true);
+  expect(done.find(r => r.producer === "notify")?.stamped).toBe(1);
+  const machine = async (id: string) => (await client.request<Block>({ action: "get", blockId: id } as never)).properties.find(p => p.key === "machine")?.value;
+  expect(await Promise.all([pulled, board, lane, theirs].map(b => machine(b.id)))).toEqual(["notify", undefined, undefined, undefined]);
+  // Stamped, a page still opens by its address.
+  expect((await client.request<{ status: string; block?: Block }>({ action: "pages.resolve", address: "notifications" } as never)).block?.id).toBe(pulled.id);
+});
+
 test("an agent's recent-activity find leaves fetched notifications out and says how many (PIE-1427)", async () => {
   const { client, make } = await setup();
   await make("Pruned the pear row [type::chore]");
