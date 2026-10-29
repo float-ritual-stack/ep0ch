@@ -4,7 +4,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { USER } from "../../src/socket";
 import { subject } from "../../src/board";
-import { notePageUrl } from "../../src/open";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
@@ -192,8 +191,10 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
   // PIE-1297, the note half: the web link, a line's reference, and the same copy on every row that is a note.
   test("note.copy-ref in a reader: its web link, and a line's reference that mints the line's anchor once", async () => {
     const note = seeded.notes.pickATile.id;
-    expect(await act("note.copy-ref", { kind: "link" }, "notes", AGENT)).toMatchObject({ text: notePageUrl(note, undefined), clipboard: false });
-    expect(notePageUrl(note, undefined)).toEndWith(`/pub/p/${note}`);
+    // Named by its outline: the web client's root outline's /pub/o/<name>/ redirects to /pub/p/.
+    const link = await act("note.copy-ref", { kind: "link" }, "notes", AGENT);
+    expect(link).toMatchObject({ clipboard: false });
+    expect(link.text).toMatch(new RegExp(`^https://[^/]+/pub/o/[^/]+/p/${note}$`));
     // An agent names the line; it never reads the person's cursor.
     await expect(act("note.copy-ref", { kind: "line" }, "notes", AGENT)).rejects.toThrow(/line=/);
     const line = (await text()).split("\n").findIndex(l => l.startsWith("Press pop it")) + 1;
@@ -221,9 +222,9 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     const links = (await act("tile.info", {}, "links", AGENT)).tile as string;
     // A read (a button's tile= resolved, an agent's ask) shows nothing; the person's card=true (^W ,) shows the card.
     await act("tile.info", {}, "links");
-    expect(screen()).not.toContain(`Id: ${links}`);
+    expect(screen()).not.toContain(`tile: ${links}`);
     await act("tile.info", { card: true }, "links");
-    await until(() => screen().includes(`Id: ${links}`), "the tile's card");
+    await until(() => screen().includes(`tile: ${links}`), "the tile's card");
     expect(screen()).toContain("copy reference");
     await act("hint.dismiss", {}, "links");
   });
@@ -236,11 +237,13 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     // The person's selection, on a row that is a note.
     for (let n = 1; !d.pane(tree).subject?.() && n < 8; n++) await act("tree.pick", { n }, tree);
     // The pick opens its note, and the tree reveals the note it opened: wait for the selection to settle.
-    for (let i = 0, seen = ""; i < 20; i++) { await Bun.sleep(150); const now = d.pane(tree).subject?.() ?? ""; if (now && now === seen) break; seen = now; }
+    await until(() => !!d.pane(tree).subject?.() && d.pane(tree).subject!() === (d as any).current?.id, "the pick shown and the tree's selection on it");
     const notebook = d.pane(tree).subject!()!;
     const title = subject((await board.get(notebook))!);
     expect(await act("note.copy-ref", { kind: "ref" }, tree, AGENT)).toMatchObject({ id: notebook, text: `((${notebook}|${title}))`, clipboard: false });
     expect(await act("note.copy-ref", { kind: "id" }, tree, AGENT)).toMatchObject({ text: notebook });
+    const web = (await act("note.copy-ref", { kind: "link" }, tree, AGENT)).text as string;
+    expect(web).toEndWith(`/p/${notebook}`);
     // A line is a reader's: a list row has none.
     await expect(act("note.copy-ref", { kind: "line" }, tree, AGENT)).rejects.toThrow(/reader/);
     const rows = ((await act("tile.menu", {}, tree, AGENT)).rows as { label: string; group: string }[]).map(r => `${r.group}: ${r.label}`);
@@ -255,7 +258,7 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     const before = h.written.length;
     h.press({ kind: "mouse", action: "down", button: 0, x, y } as never);
     h.press({ kind: "mouse", action: "up", button: 0, x, y } as never);
-    await until(() => h.written.slice(before).join("").includes(Buffer.from(notePageUrl(notebook, undefined)).toString("base64")), "the web link on the clipboard");
+    await until(() => h.written.slice(before).join("").includes(Buffer.from(web).toString("base64")), "the web link on the clipboard");
   });
 
 });

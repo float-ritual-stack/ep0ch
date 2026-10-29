@@ -265,7 +265,7 @@ describe("link schemes", () => {
   });
 
   // PIE-1297: note.copy-ref kind=link writes a note's web address; another outline's opens back in the door.
-  test("a note's web link: this outline's at /pub/p/, another's at /pub/o/<name>/p/, on the web client's origin", () => {
+  test("a note's web link names its outline (/pub/o/<name>/p/), on the web client's origin; none known, /pub/p/", () => {
     const id = "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34";
     expect(notePageUrl("PIE-12", undefined, {})).toBe("https://my.ep0ch.sh/pub/p/PIE-12");
     expect(notePageUrl(id, "orchard", { EP0CH_WEB_URL: "https://web.example.org/, https://other.example.org" })).toBe(`https://web.example.org/pub/o/orchard/p/${id}`);

@@ -93,6 +93,7 @@ import type { Scroll } from "../canvas";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
 import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject } from "../socket";
 import { lastTrashed } from "../note-trash";
+import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
 import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
@@ -6105,13 +6106,15 @@ export class NoteSurface {
    */
   async copyNoteRef(kind: NoteRefKind, host: SurfaceHost, actor: Actor, own: string | undefined, line?: number): Promise<{ id: string; kind: string; text: string; clipboard: boolean; line?: number; anchor?: string; created?: boolean }> {
     const m = await this.whole();
-    const outline = m.address?.outline && m.address.outline !== own ? m.address.outline : undefined;
-    if (kind !== "line") return deliverNoteRef(host.ctx, actor, m.id, kind, noteRefText(kind, m, outline), said => this.noteAgent(actor, said));
+    const where = { outline: m.address?.outline ?? own, foreign: !!m.address?.outline && m.address.outline !== own };
+    if (kind !== "line") return deliverNoteRef(host.ctx, actor, m.id, kind, noteRefText(kind, m, where), said => this.noteAgent(actor, said));
     const at = this.refLine(m, actor, line), board = host.ctx.board;
     if (m.revision === undefined) throw new ActionRefused("this note has no revision to anchor a line at");
     // The part of the note holding the line (a heading, a paragraph, a list item, a quote, a component), as the service
     // reads it: its anchor goes where that part's goes, and its label is the part's own.
-    const part = (await board.partAt(m.id, at)).part;
+    const found = await board.partAt(m.id, at), part = found.part;
+    // The line was chosen in the text this reader read: a note saved since may hold another part there.
+    if (found.revision !== m.revision) throw new ActionRefused("the note changed since it was read; it is read again, copy once more");
     if (!part) throw new ActionRefused(`line ${at + 1} is in no part of the note that takes an anchor (a heading, a paragraph, a list item, a quote, a component)`);
     let anchored: { fragmentId: string; created: boolean };
     try { anchored = part.fragmentId ? { fragmentId: part.fragmentId, created: false } : await board.ensureFragment(m.id, part.lineIndex, m.revision, actor); }
@@ -6119,7 +6122,7 @@ export class NoteSurface {
       const said = e instanceof Error ? e.message : String(e);
       throw new ActionRefused(/changed since/.test(said) ? "not anchored: the note changed since it was read; it is read again, copy once more" : `not anchored: ${said}`);
     }
-    const text = noteRefText("line", m, outline, { anchor: anchored.fragmentId, text: part.label });
+    const text = noteRefText("line", m, where, { anchor: anchored.fragmentId, text: part.label });
     return { ...deliverNoteRef(host.ctx, actor, m.id, "line", text, said => this.noteAgent(actor, said)), line: at + 1, anchor: anchored.fragmentId, created: anchored.created };
   }
 
@@ -7658,7 +7661,7 @@ export class NoteSurface {
       host.ctx.flash(why, undefined, errorDetails(e));
       throw new ActionRefused(why);
     }
-    const link = `((${drawnFields.from}^${anchored.fragmentId}))`;
+    const link = blockRefText(drawnFields.from, "", { fragment: anchored.fragmentId });
     if (actor.kind === "user") host.ctx.copy?.(link);
     const said = `${anchored.created ? "anchored" : "already anchored"} line ${row.line + 1}: ${link}${actor.kind === "user" ? " · copied" : ""}`;
     host.ctx.flash(said);

@@ -1,6 +1,6 @@
 import { outlinesDir } from "./discover";
 import { openLinked } from "@ep0ch/outliner/link";
-import { webBase } from "@ep0ch/outliner/artifact-grants";
+import { DEFAULT_WEB_ORIGIN, WEB_ROOT, webBase } from "@ep0ch/outliner/artifact-grants";
 import { servingSession } from "./session/session-term";
 import type { Ctx } from "./app";
 import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
@@ -55,11 +55,12 @@ export async function openRemote(url: string, ctx: Ctx): Promise<boolean> {
 
 /**
  * A note's address on the web client (PIE-1297, `note.copy-ref kind=link`): `target` is its id or Work ID, at
- * `/pub/p/<target>` for this door's outline (the web client's home) and `/pub/o/<outline>/p/<target>` for another,
- * on EP0CH_WEB_URL's origin (`webBase`), else https://my.ep0ch.sh. `destinationOf` reads the second back as a note.
+ * `/pub/o/<outline>/p/<target>` on EP0CH_WEB_URL's origin (`webBase`), else `DEFAULT_WEB_ORIGIN`. The outline is always
+ * named: the door doesn't know which outline the web client serves at its root, and that one's `/pub/o/<name>/` redirects
+ * to `/pub/p/`. With no outline known, `/pub/p/<target>`. `destinationOf` reads it back as a note.
  */
 export function notePageUrl(target: string, outline: string | undefined, env: Record<string, string | undefined> = process.env): string {
-  const base = webBase(env) ?? "https://my.ep0ch.sh/pub";
+  const base = webBase(env) ?? `${DEFAULT_WEB_ORIGIN}${WEB_ROOT}`;
   return `${base}${outline ? `/o/${encodeURIComponent(outline)}` : ""}/p/${encodeURIComponent(target)}`;
 }
 

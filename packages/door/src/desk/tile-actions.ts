@@ -560,6 +560,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     menu: { label: "about this tile", group: TILE, key: "ctrl+w ,", args: { card: true } },
     hint: ({ card }, { d, reader, standing }) => (card && standing ? d.tileInfoHint(reader) : null),
     args: { card: { type: "boolean", optional: true, about: "the person's: show it in a card by the tile too (^W , and the menu's row do)" } },
+    examples: [
+      { act: "tile.info tile=reader", does: "answers the reader's id, kind, note, what it follows and where its opens land" },
+      { act: "tile.info tile=reader card=true", does: "the person's: the same, shown in a card by the reader with copy id and copy reference" },
+    ],
     run(_, { d, reader }) { return d.tileInfo(reader); },
   }),
   "tile.copy-ref": def({
@@ -572,9 +576,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run({ kind }, { d, reader }, actor) { return d.copyTileRef(reader, (kind ?? "id") as "id" | "ref", actor); },
   }),
   "note.copy-ref": def({
-    summary: "copy the address of the note the tile points at (PIE-1297: a reader's note, a list's, the tree's or a lane's selected row; or ref=<block id>): kind=id its full id (a short one doesn't resolve), kind=ref ((id|title)) to paste into another note (((outline:id|title)) for another outline's note), kind=link its web link (https://my.ep0ch.sh/pub/p/<id>, a roadmap item's by its Work ID, another outline's under /pub/o/<name>/), kind=line in a reader ((id^anchor|words)) for one line (line=, else your selection's first line, the heading the keys selected or the line being read), adding the ^anchor when it has none. An inline list's row in a reader is the reader's note: open the row to copy it. The person's goes to their clipboard and the status line says what; an agent's is returned to it and never touches the clipboard",
+    summary: "copy the address of the note the tile points at (PIE-1297: a reader's note, a list's, the tree's or a lane's selected row; or ref=<block id>): kind=id its full id (a short one doesn't resolve), kind=ref ((id|title)) to paste into another note (((outline:id|title)) for another outline's note), kind=link its web link (https://my.ep0ch.sh/pub/o/<outline>/p/<id>, a roadmap item's by its Work ID: the web client's home outline's redirects to /pub/p/), kind=line in a reader ((id^anchor|words)) for one line (line=, else your selection's first line, the heading the keys selected or the line being read), adding the ^anchor when it has none. An inline list's row in a reader is the reader's note: open the row to copy it. The person's goes to their clipboard and the status line says what; an agent's is returned to it and never touches the clipboard",
     keys: "^W y (a reference), the tile menu's \"copy id\", \"copy reference\", \"copy web link\" and \"copy a reference to this line\"",
-    touches: "nothing", replay: "safe",
+    // A line's copy may write its anchor into the note: the draft rule holds for it as for any write; the rest read.
+    touches: "draft", draft: "write", touchesWith: ({ kind }) => (kind === "line" ? "draft" : "nothing"), replay: "safe",
     menu: ([["copy id", "id", ""], ["copy reference", "ref", "ctrl+w y"], ["copy web link", "link", ""], ["copy a reference to this line", "line", ""]] as const).map(([label, kind, key]) => ({
       label, group: "Note", key, args: { kind },
       now: ({ d, reader }: On) => (d.noteRefOf(reader, kind === "line") ? null : { hide: true }),

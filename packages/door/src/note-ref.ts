@@ -23,30 +23,37 @@ export function lineLabel(line: string): string {
 }
 
 /**
- * The text `kind` copies for note `m`. `outline` is the note's when it isn't this door's own: a reference then names it
- * (`((outline:id|title))`) and the web link is that outline's. `line`: the anchor and words of the line a `line` copy names.
+ * The text `kind` copies for note `m`, in outline `at.outline` (the web link names it); `at.foreign`: that outline isn't
+ * this door's own, so a reference names it too (`((outline:id|title))`). `line`: the anchor and words of the line a
+ * `line` copy names.
  */
-export function noteRefText(kind: NoteRefKind, m: Msg, outline?: string, line?: { anchor: string; text: string }): string {
+export function noteRefText(kind: NoteRefKind, m: Msg, at: { outline?: string; foreign?: boolean } = {}, line?: { anchor: string; text: string }): string {
+  const outline = at.foreign ? at.outline : undefined;
   if (kind === "id") return m.id;
-  if (kind === "link") return notePageUrl(prop(m, "work-id") ?? m.id, outline);
+  if (kind === "link") return notePageUrl(prop(m, "work-id") ?? m.id, at.outline);
   if (kind === "line" && !line) throw new ActionRefused("a line's reference needs the line: open the note in a reader and put the cursor on it");
   return blockRefText(m.id, kind === "line" ? lineLabel(line!.text) || subject(m) : subject(m), { ...(outline ? { outline } : {}), ...(line ? { fragment: line.anchor } : {}) });
 }
 
 /** How the status line names what was copied. */
-const WHAT: Record<NoteRefKind, string> = { id: "the note's id", ref: "a reference to the note", link: "the note's web link", line: "a reference to the line" };
+export const NOTE_REF_WHAT: Record<NoteRefKind, string> = { id: "the note's id", ref: "a reference to the note", link: "the note's web link", line: "a reference to the line" };
 
 /**
- * `text` to the person's clipboard (said on the status line), or back to an agent (said as its own, the clipboard
- * untouched). `copy` and `flash` are the door's.
+ * A copy of an address (a note's, a tile's): `text` to the person's clipboard, the status line saying `what` it was, or
+ * back to an agent (said as its own, the clipboard untouched; `said` tells the note it was in). `copy` and `flash` are
+ * the door's.
  */
-export function deliverNoteRef(ctx: { copy?(text: string): boolean; flash(msg: string): void }, actor: Actor, id: string, kind: NoteRefKind, text: string, said?: (msg: string) => void) {
+export function deliverCopy(ctx: { copy?(text: string): boolean; flash(msg: string): void }, actor: Actor, text: string, what: string, said?: (msg: string) => void): { text: string; clipboard: boolean } {
   if (actor.kind === "user") {
     if (ctx.copy?.(text) === false) throw new ActionRefused("the clipboard refused it");
-    ctx.flash(`copied ${WHAT[kind]}: ${text}`);
-    return { id, kind, text, clipboard: true };
+    ctx.flash(`copied ${what}: ${text}`);
+    return { text, clipboard: true };
   }
-  ctx.flash(`@${actor.id ?? "agent"} copied ${WHAT[kind]} for itself · your clipboard is untouched`);
-  said?.(`copied ${WHAT[kind]}`);
-  return { id, kind, text, clipboard: false };
+  ctx.flash(`@${actor.id ?? "agent"} copied ${what} for itself · your clipboard is untouched`);
+  said?.(`copied ${what}`);
+  return { text, clipboard: false };
 }
+
+/** `note.copy-ref`'s answer: the note, the kind and what `deliverCopy` did. */
+export const deliverNoteRef = (ctx: Parameters<typeof deliverCopy>[0], actor: Actor, id: string, kind: NoteRefKind, text: string, said?: (msg: string) => void) =>
+  ({ id, kind, ...deliverCopy(ctx, actor, text, NOTE_REF_WHAT[kind], said) });

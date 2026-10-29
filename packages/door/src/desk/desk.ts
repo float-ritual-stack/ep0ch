@@ -39,7 +39,7 @@ import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
 import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { lastTrashed } from "../note-trash";
-import { deliverNoteRef, NOTE_REF_KINDS, noteRefText, type NoteRefKind } from "../note-ref";
+import { deliverCopy, deliverNoteRef, NOTE_REF_KINDS, noteRefText, type NoteRefKind } from "../note-ref";
 import { LayoutHistory, type LayoutEntry } from "./layout-history";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
@@ -6151,14 +6151,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!refs) throw new ActionRefused(`${this.nameOf(t.id)} isn't reachable from here to name`);
     const text = kind === "ref" ? refs.place ?? refs.id : refs.id;
     const answer = { ...this.tileAnswer(t.id), kind, text, id: refs.id, ...(refs.place ? { place: refs.place } : {}) };
-    const what = kind === "ref" && !refs.place ? `${text} (nothing else names ${refs.name} alone, so its id)` : text;
-    if (actor.kind === "user") {
-      if (this.ctx.copy?.(text) === false) throw new ActionRefused("the clipboard refused it");
-      this.ctx.flash(`copied ${what}`);
-      return { ...answer, clipboard: true };
-    }
-    this.ctx.flash(`@${actor.id ?? "agent"} copied ${refs.name}'s ${kind === "ref" ? "reference" : "id"} for itself · your clipboard is untouched`);
-    return { ...answer, clipboard: false };
+    const what = `${refs.name}'s ${kind === "ref" ? `reference${refs.place ? "" : ` (nothing else names ${refs.name} alone, so its id)`}` : "id"}`;
+    return { ...answer, ...deliverCopy(this.ctx, actor, text, what) };
   }
 
   /**
@@ -6177,24 +6171,23 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   async copyNoteRef(sel: string | undefined, kind: NoteRefKind, actor: Actor, ref?: string, line?: number) {
     if (!NOTE_REF_KINDS.includes(kind)) throw new ActionRefused(`kind is ${NOTE_REF_KINDS.join(", ")}`);
-    const t = this.tile(sel), pane = this.panes.get(t.id), s = this.subjectOf(sel), own = this.ctx.board.outline ?? this.ctx.outline;
+    const t = this.tile(sel), pane = this.panes.get(t.id), s = this.subjectOf(sel);
+    // This door's outline by name, as the host answers it (a board opened with no name reads the host's default).
+    const own = this.ctx.outline ?? this.ctx.board.outline ?? (await this.ctx.board.info()).outline;
     const id = ref ?? s.id;
     if (!id) throw new ActionRefused(`${s.tile} points at no note; ref=<a block id> names one`);
     if (pane instanceof ReaderPane && pane.msg?.id === id) return { ...this.tileAnswer(t.id), ...(await pane.surface.copyNoteRef(kind, pane.host(this), actor, own, line)) };
     if (kind === "line") throw new ActionRefused(`a line's reference is a reader's: open the note in one and put the cursor on the line (${s.tile} lists notes)`);
     const m = await this.ctx.board.get(id);
     if (!m) throw new ActionRefused(`no note ${id} in this outline`);
-    return { ...this.tileAnswer(t.id), ...deliverNoteRef(this.ctx, actor, m.id, kind, noteRefText(kind, m)) };
+    return { ...this.tileAnswer(t.id), ...deliverNoteRef(this.ctx, actor, m.id, kind, noteRefText(kind, m, { ...(own ? { outline: own } : {}) })) };
   }
 
-  /** The person's `tile.info` (^W ,), as a card by the tile: what the answer says, and its copy rows. */
+  /** The person's `tile.info` (^W ,), as a card by the tile: its answer's own fields as they come, and its copy rows. */
   tileInfoHint(sel: string | undefined): Hint {
-    const t = this.tile(sel), info = this.tileInfo(sel) as ReturnType<Desk["tileInfo"]> & { kind?: string }, tile = this.tileId(t.id);
-    const place = this.tileAddressesOf(this.panes.get(t.id)!)?.place;
-    return { id: "tile.info", title: `${this.nameOf(t.id)} · ${shortTileId(tile)}`, lines: [
-      `Id: ${tile}`, ...(place ? [`Place: ${place}`] : []), `Kind: ${info.kind ?? this.panes.get(t.id)!.kind}`,
-      `Follows: ${info.follows}`, `Opens: ${info.opens}`,
-    ], choices: [
+    const t = this.tile(sel), tile = this.tileId(t.id), place = this.tileAddressesOf(this.panes.get(t.id)!)?.place;
+    const said = Object.entries({ ...this.tileInfo(sel), ...(place ? { place } : {}) }).filter(([, v]) => typeof v === "string" || typeof v === "number");
+    return { id: "tile.info", title: `${this.nameOf(t.id)} · ${shortTileId(tile)}`, lines: said.map(([k, v]) => `${k}: ${v}`), choices: [
       { label: "copy id", act: { action: "tile.copy-ref", tile, args: { kind: "id" } } },
       { label: "copy reference", act: { action: "tile.copy-ref", tile, args: { kind: "ref" } } },
     ] };
