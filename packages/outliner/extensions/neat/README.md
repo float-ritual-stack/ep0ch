@@ -11,7 +11,7 @@ An agent runs `ep0ch act extensions.install id=neat`. Then run `neat` from the p
 
 Each `page=` is a reference `read` understands: a page, block reference, id or Work ID. The first slot chooses the left reader, the second the right. Without the first slot, it uses this outline's `[welcome::1]` note, then `[page::home]`, then the current note's top ancestor. Without the second slot, it uses the reader with the person's keys. Press from a reader when using these defaults.
 
-Leave the pages for the press to ask: `::button{label="two up" of=neat page={page1} page={page2} page1= page2=}` asks for page 1 of 2, then page 2, from your notes (neat's second line, `// [form-field::page note]`, says a page is a note), writes each on the line, and the next press arranges them.
+Leave the pages for the press to ask: `::button{label="two up" of=neat page={page1} page={page2} page1= page2=}` asks for page 1 of 2, then page 2, from your notes (neat's second line, `// [form-field::page note]`, says a page is a note), writes each on the line, and the last pick arranges them; later presses use what the line holds.
 
 The manifest declares `scripts/neat.js` as the script `neat`. An outline's own `[script::neat]` note wins over it. Edit that note to customize your arrangement; no setting or copied layout engine is needed.
 

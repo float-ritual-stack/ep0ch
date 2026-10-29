@@ -59,6 +59,20 @@ are its record. The outliner's entries from then are kept below, under
 - **`ep0ch review backfill --ws <name> [--since 7d] [--into <name>]`** reviews what agents already wrote, read only,
   counted by rubric, rule and writer with samples and Jev's tokens; `--into` keeps it as records for the page.
 - **What to run:** `GRAMMAR` is 11; an older renderer warns once until `ep0ch install --apply`.
+### Writing, reading and pressing work the same in the river and at 40 columns (PIE-1392)
+
+- **The wide column is never cut:** at 36 to 44 columns the river's column you read is laid out at the width it has, as a
+  desk tile is, never drawn wider and clipped under its neighbour's ▒ edge.
+- **A selected row reads once:** a wrapped title in the Library (or any list) shows its first line, then the rest; the
+  selection reveals only what the last line cut, never the whole title again.
+- **A press in the river is a press:** a click on a `::button` in a river column runs it as a click in a reader does
+  (it asked `[[undefined]]` before); every element of the river's note goes through the reader's one click.
+- **A pick finishes the press:** a button's empty slots are asked in order and the last answer runs it, no second
+  press. In the page picker, ⏎ on words typed takes the note they find; "as typed" is the last row.
+- **neat in the river:** `tile.collapse` folds a river column to a spine (the wide place passes on, `^W W` opens it),
+  so two up works there as on the desk.
+- **Writing components:** ⏎ after `::box{…}` (any component with a body) brings its closing `::`; a query's values
+  in completion are their words, without a glimpse of the figure's example.
 ### A copy of a built-in extension lists once and says it overrides the built-in (PIE-1283)
 
 - **One row:** a copy of neat (or any built-in) in your extensions folder is one row in `ep0ch ext ls`, the power

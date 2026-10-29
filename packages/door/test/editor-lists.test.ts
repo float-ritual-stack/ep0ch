@@ -27,6 +27,23 @@ let state: string;
 beforeAll(() => { state = mkdtempSync(join(tmpdir(), "ep0ch-496-")); process.env.EP0CH_STATE = state; });
 afterAll(() => { delete process.env.EP0CH_STATE; rmSync(state, { recursive: true, force: true }); });
 
+describe("Enter after a component's opening line", () => {
+  test("brings its closing :: when nothing closes it yet; a one-line call, a closed one and code are left alone (PIE-1392)", () => {
+    const d = at_end('Kettle notes\n::box{list.gap="2"}');
+    enter(d); type(d, "See the lid.");
+    expect(d.lines).toEqual(["Kettle notes", '::box{list.gap="2"}', "See the lid.", "::"]);
+    const closed = at_end("::graph-table\n::"); closed.place(0, Infinity); enter(closed);
+    expect(closed.lines).toEqual(["::graph-table", "", "::"]);
+    const button = at_end('::button{label="Water" act="tile.zoom"}'); enter(button);
+    expect(button.lines).toEqual(['::button{label="Water" act="tile.zoom"}', ""]);
+    // A box typed inside a box: the closer below is the inner one's, so the outer gets its own.
+    const nested = at_end("::box"); enter(nested); type(nested, "::box"); enter(nested);
+    expect(nested.lines).toEqual(["::box", "::box", "", "::", "::"]);
+    const code = at_end("```\n::box"); enter(code);
+    expect(code.lines).toEqual(["```", "::box", ""]);
+  });
+});
+
 describe("Enter keeps the list going", () => {
   test("a bullet at any indent continues with the same marker", () => {
     const d = at_end("- nesty nest nest");

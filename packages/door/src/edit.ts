@@ -6,6 +6,7 @@ import { ReaderPosition, PositionRows } from "./reader-position";
 import { propertyListOf, type PropertyList } from "./props";
 import { strayKeys } from "./stray";
 import { pageTitleLine } from "@ep0ch/outline-core/page-title";
+import { COMPONENT_OPEN, componentBlocks, noteCodeFences } from "@ep0ch/outline-core/component-block";
 import { linkOccurrences, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -622,9 +623,24 @@ export class Draft {
       return;
     }
     const keep = indent && col >= indent.length ? indent : "";
+    const closes = !plain && !rest.trim() && this.opensComponent(this.row);
     L[this.row] = line.slice(0, col);
     L.splice(this.row + 1, 0, keep + (keep ? rest.replace(/^[ \t]+/, "") : rest));
+    // ⏎ after a component's opening line that nothing closes yet (`::box{list.gap="2"}`): its `::` comes with it, as an
+    // editor closes a bracket, so what's written between reads as the component and not as plain text (PIE-1392).
+    if (closes) L.splice(this.row + 2, 0, indent + "::");
     this.row++; this.col = keep.length;
+  }
+
+  /** Whether line `row` opens a component with a body (not a one-line call) that no `::` closes yet, outside code. */
+  private opensComponent(row: number): boolean {
+    const open = COMPONENT_OPEN.exec(this.lines[row]!);
+    if (!open || open[2] !== undefined) return false;
+    if (noteCodeFences(this.lines).some(f => row > f.start && row <= f.end)) return false;
+    // Unclosed when a `::` after it closes one more component than the note has now: a closer already below may be an
+    // inner component's (a box typed inside a box), so whether this line is paired isn't asked alone.
+    const closer = [...this.lines.slice(0, row + 1), "::", ...this.lines.slice(row + 1)];
+    return componentBlocks(closer).length > componentBlocks(this.lines).length;
   }
 
   /** The nearest list item above `row` indented less than `than`: the item this one is nested in. */

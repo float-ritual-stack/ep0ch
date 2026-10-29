@@ -33,7 +33,7 @@ export interface PlacedColumn { i: number; cover: Cover; rect: Rect; box: Rect }
  * distance; with too many even as spines, the ones nearest the anchor. Leftover room shows more of the peeks first,
  * then goes to the anchor, so the strip fills its room. River.layout(), as a pure function of the flow.
  */
-export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean, policy: Pick<ReturnType<typeof effective>, "spines" | "min-width" | "readable" | "by"> = effective([{ by: "flow", policy: f.policy }])): { i: number; cover: Cover; width: number; natural: number }[] {
+export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean, policy: Pick<ReturnType<typeof effective>, "spines" | "min-width" | "readable" | "by"> = effective([{ by: "flow", policy: f.policy }]), folded?: (id: I) => boolean): { i: number; cover: Cover; width: number; natural: number }[] {
   const n = f.kids.length;
   if (!n) return [];
   if (policy["min-width"] === 0) return f.kids.map((_, i) => {
@@ -48,16 +48,22 @@ export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean
   const held = new Set((f.held ?? []).map(id => columnOf(f, id)).filter(i => i >= 0));
   const busy = (i: number) => !!holds && leaves(f.kids[i]!).some(id => holds(id));
   const shown = [...f.kids.keys()].sort((a, b) => Math.abs(a - anchor) - Math.abs(b - anchor) || b - a)
-    .slice(0, Math.max(1, Math.floor(width / SPINE))).sort((a, b) => a - b);
+    // The wide column keeps at least a peek's width to read in (PIE-1392): the far columns give way before it does.
+    .slice(0, Math.max(1, 1 + Math.floor((width - Math.min(FULL, PEEK)) / SPINE))).sort((a, b) => a - b);
   const cover = new Map<number, Cover>(shown.map(i => [i, "spine"]));
   let spare = width - shown.length * SPINE;
   const recent = (i: number) => Math.max(-1, ...leaves(f.kids[i]!).map(id => (f.recent ?? []).indexOf(id)));
-  const rank = (i: number) => i === anchor ? -4 : busy(i) ? -3 : recent(i) >= 0 ? -2 + 1 / (recent(i) + 2) : i === keep ? 0.25 : held.has(i) ? 0.5 : Math.abs(i - anchor);
+  const rank = (i: number) => busy(i) ? -3 : recent(i) >= 0 ? -2 + 1 / (recent(i) + 2) : i === keep ? 0.25 : held.has(i) ? 0.5 : Math.abs(i - anchor);
+  // The wide column is always full (PIE-1392): narrower than a full column it is laid out at the width there is, like
+  // any tile on the desk, never a peek cut under its neighbour or a spine stretched wide.
+  if (shown.includes(anchor)) { cover.set(anchor, "full"); spare -= Math.min(spare, FULL - SPINE); }
   for (const i of [...shown].sort((a, b) => rank(a) - rank(b) || b - a)) {
+    // A column folded to a spine (tile.collapse) stays one (PIE-1392).
+    if (i === anchor || (folded && leaves(f.kids[i]!).every(folded))) continue;
     if (spare >= FULL - SPINE) { cover.set(i, "full"); spare -= FULL - SPINE; }
     else if (spare >= PEEK - SPINE) { cover.set(i, "peek"); spare -= PEEK - SPINE; }
   }
-  const w = new Map<number, number>(shown.map(i => [i, cover.get(i) === "full" ? FULL : cover.get(i) === "peek" ? PEEK : SPINE]));
+  const w = new Map<number, number>(shown.map(i => [i, i === anchor ? Math.min(FULL, width - (shown.length - 1) * SPINE) : cover.get(i) === "full" ? FULL : cover.get(i) === "peek" ? PEEK : SPINE]));
   const peeks = shown.filter(i => cover.get(i) === "peek");
   for (let left = peeks.length; left > 0 && spare > 0; left--) {
     const i = peeks[peeks.length - left]!, add = Math.min(FULL - PEEK, Math.floor(spare / left));
@@ -85,7 +91,7 @@ export function placeFlow<I>(f: Flow<I>, r: Rect, opts: PlaceOpts<I>, out: Place
   if (f.key) out.nodes.set(f.key, r);
   const cols: PlacedColumn[] = [];
   let x = r.col;
-  for (const c of squeeze(f, r.cols, opts.holds, opts.flowPolicy?.(f))) {
+  for (const c of squeeze(f, r.cols, opts.holds, opts.flowPolicy?.(f), opts.folded)) {
     const rect: Rect = { ...r, col: x, cols: c.width }, box: Rect = { ...rect, cols: c.natural };
     const inner = place(f.kids[c.i]!, box, opts, { rects: new Map(), nodes: new Map(), dividers: [] });
     for (const [id, t] of inner.rects) {

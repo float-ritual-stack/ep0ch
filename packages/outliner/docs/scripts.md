@@ -65,7 +65,7 @@ The kitchen sink's **One button, two tiles** demonstrates both forms. Disk/netwo
 **Buttons that ask.** A `{key}` in `act=` (or in an `of=` script's values) is filled from the word `key=` on the same line:
 `::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}`. Left empty, a person's press asks for it in the
 kind the action's own argument takes (a tile: click one in the door), writes the answer on the line (`target=t-…`, an identity
-address of the tile grammar, never a name or a number) and runs nothing: the next press runs it. alt+click asks again. An agent is never asked: it writes the
+address of the tile grammar, never a name or a number), and the last answer runs the press. alt+click asks again (and runs nothing). An agent is never asked: it writes the
 value with `button.slot label="pop it" key=target value=<tile>`. A script's slot is asked in the kind the script declares
 (below): `::button{label="two up" of=neat page={page1} page={page2} page1= page2=}` asks page1 (1 of 2), then page2, from
 the notes, since neat says `[form-field::page note]`; several empty slots are asked in the order the line writes them. A button whose line reads differently than it was written
