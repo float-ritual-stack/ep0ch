@@ -7,7 +7,7 @@
 // outline never touches the mirror: it queues for the outline's home machine (src/mcp-netmail.ts).
 import { randomUUID } from "node:crypto";
 import { boardFor, canonicalLocalMachineName, everyNote, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
-import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource } from "./socket";
+import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource, type SearchHits } from "./socket";
 import { matchFacts, MCP_ACCESS_LEVELS, PROPERTY_QUERY_SCOPES, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type OutlineSnapshot } from "@ep0ch/outline-core/protocol";
 import { actorLabel, mintCallId, parseSessionId } from "@ep0ch/outline-core/attribution";
 import { localAdmin, outlineAdminDefinitions, outlineArchive, outlineNew, OUTLINE_ADMIN_EXAMPLES, type McpOutlineAdmin } from "./mcp-outlines";
@@ -565,10 +565,14 @@ async function threadsTool(outlines: McpOutlines, args: Record<string, unknown>)
 const ROOT_PATH = "(root)";
 const pathOf = (path: string) => path || ROOT_PATH;
 
-/** What a search's ranking was, in words a caller can act on. */
-const semanticSays = (asked: boolean, semantic: { status: string; message?: string } | undefined) => {
-  if (!asked) return { asked, status: "lexical", said: "lexical: ep0ch find's ranker (title, text, properties); pass semantic: true to ask for a semantic re-ranking" };
+/**
+ * What a search's ranking was and how sure it is, in words a caller can act on: on a ranked one the service's verdict
+ * (`strong`, or `weak`/`none`: "no strong match"), its sentence, and Jev's "is it among these?" (`exists`).
+ */
+const semanticSays = (asked: boolean, semantic: SearchHits["semantic"] | undefined) => {
+  if (!asked) return { asked, status: "lexical", said: "lexical: ep0ch find's ranker (title, text, properties); semantic: false left Jev out" };
   const status = semantic?.status ?? "unavailable";
+  if (status === "ranked" && semantic?.verdict) return { asked, status, verdict: semantic.verdict, ...(semantic.label ? { label: semantic.label } : {}), said: semantic.said, ...(semantic.exists !== undefined ? { exists: semantic.exists } : {}) };
   return { asked, status, said: status === "ranked" ? "re-ranked semantically (Jev) over the lexical candidates" : `lexical: semantic re-ranking was asked for and isn't available here${semantic?.message ? ` (${semantic.message})` : ""}` };
 };
 
@@ -586,13 +590,14 @@ async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>):
   const query = stringField(args, "query")?.trim() ?? "";
   const limit = limitOf(args.limit, query ? FIND_LIMIT : LIST_LIMIT);
   if (typeof limit !== "number") return toolError(limit.error);
-  const askSemantic = args.semantic === true;
+  // Agents' searches are ranked and say how sure they are unless they ask not to (PIE-1198).
+  const askSemantic = args.semantic !== false;
   // `completeness` is about this answer: the limit asked for, and whether there are more than it shows (cut here, or
   // already cut at the service's own limit).
   let rows: (Found & { revision?: number })[], more: boolean, search: ReturnType<typeof semanticSays> | undefined;
   if (query) {
     const found = await board.searchBlocks(query, askSemantic ? { semantic: true } : {});
-    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: pathOf(m.path), uri: blockUri(board, m.block.id), revision: m.block.revision }));
+    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: pathOf(m.path), uri: blockUri(board, m.block.id), revision: m.block.revision, ...(m.score !== undefined ? { score: m.score } : {}) }));
     // A hit the caller holds at this revision is a stub: its title and path are what they already have.
     if (seen) rows = rows.map(r => r.revision !== undefined && seen.has(pairOf(r.id, r.revision)) ? ({ ...unchangedStub(r.id, r.revision, r.uri), path: r.path }) as unknown as typeof r : r);
     more = found.matches.length > limit || found.completeness.kind !== "complete";
@@ -768,12 +773,12 @@ function toolsFor(outlines: McpOutlines) {
     },
     {
       name: "outline_find",
-      description: `Search ${which} with the same ranker as ep0ch find: lexical (title, text, properties) unless semantic is true, and search says which ranking it got and why. ` +
+      description: `Search ${which} with the same ranker as ep0ch find: lexical candidates (title, text, properties) re-ranked by Jev, each match with its score (0 to 3), and search says how sure it is: verdict strong, or "no strong match" (weak: the closest is named, not claimed; none: nothing here answers it), with exists (Jev's "is it among these?", 0 to 1). semantic: false is the lexical order alone. ` +
         `source and asOf say whether it searched the live outline or a read-only mirror; a top-level note's path is "${ROOT_PATH}". Requires ${grant}. Empty query lists index rows.`,
       inputSchema: { type: "object", properties: {
         query: { type: "string" },
         limit: { ...limitSchema(LIST_LIMIT, "Rows for an empty query"), description: `Matches: 1 to ${FIND_LIMIT.max} for a query (default ${FIND_LIMIT.fallback}); 1 to ${LIST_LIMIT.max} rows for an empty query (default ${LIST_LIMIT.fallback})` },
-        semantic: { type: "boolean", default: false, description: "Ask for a semantic re-ranking (Jev) of the lexical candidates; the answer's search says whether it happened" },
+        semantic: { type: "boolean", default: true, description: "Jev re-ranks the lexical candidates and says how sure it is (the default); false for the lexical order alone. The answer's search says whether it happened" },
         seen: seenProperty,
         outline: outlineProperty(outlines),
       }, additionalProperties: false },

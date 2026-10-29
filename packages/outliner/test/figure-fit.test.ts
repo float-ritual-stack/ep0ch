@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { BUILTIN_COMPONENT_SCHEMAS, mergeComponentSchemas, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { loadFigureFitPrompt } from "../src/ai-prompts";
 import { figureFitRequest, figureOptions, figureShape, fitOf, readFigureFit, suggestFigure } from "../src/figure-fit";
-import { resetJevKey } from "../src/search-ranking";
+import { resetJevKey } from "../src/jev";
 
 const SEASON = ["Garden year", "- 2026-03: seeds sown", "- 2026-05: first flowers", "- 2026-08: open garden", "- 2026-10: seed collecting"].join("\n");
 const MUSING = ["Why the beds face south", "", "The light lands there first, and the wall keeps the warmth into the evening. It is the one choice I would make again."].join("\n");

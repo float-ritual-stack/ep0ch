@@ -62,6 +62,8 @@ import type {
   BlockEditActivityPage,
   BlockReadCollection,
   BlockSearchQuery,
+  GotoSearchCollection,
+  SearchCertainty,
   MutationProvenance,
   ProjectedBlock,
   ResolvedBlockReferences,
@@ -509,7 +511,12 @@ function propertyScopeInput(value: string): PropertyQueryScope {
  * next (id, title, revision). `text`, `property`, `hasKey`, `query` and `under`
  * combine; `view` stands alone. `complete: false` means more matched than `limit`.
  */
-export async function findBlocks(client: AgentToolsClient, input: FindInput): Promise<{ blocks: FindRow[]; complete: boolean; total?: number }> {
+/** How sure a ranked find is (PIE-1198): the service's verdict and sentence, and Jev's "is it among these?". */
+export interface FindSearch { status: "ranked" | "lexical" | "unavailable"; verdict?: SearchCertainty["verdict"]; label?: string; said: string; exists?: number }
+/** A words-only find is the ranked search: at most this many rows (tree.search's own cap). */
+const RANKED_FIND_LIMIT = 30;
+
+export async function findBlocks(client: AgentToolsClient, input: FindInput): Promise<{ blocks: (FindRow & { score?: number })[]; complete: boolean; total?: number; search?: FindSearch }> {
   const limit = boundedInteger(input.limit, "limit", 20, 1, 200);
   const given = (key: keyof FindInput) => typeof input[key] === "string" && (input[key] as string).trim() !== "";
   if (given("view")) {
@@ -528,6 +535,25 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
   }
   if (!["text", "property", "hasKey", "query"].some(key => given(key as keyof FindInput))) {
     throw new WorkToolRefusal("Give text, property, hasKey, query or view to find blocks by");
+  }
+  // Words alone are a search, not a filter: the service's ranked one (ep0ch find's, the door's), re-ordered by Jev, each
+  // row its Score and the answer how sure it is, so a weak top says "no strong match" instead of reading as the answer.
+  if (given("text") && !["property", "hasKey", "query", "under", "this", "propertyScope"].some(key => given(key as keyof FindInput)) && (input.machinery === undefined || input.machinery === "hide")) {
+    // Every candidate is ranked (as the door's / ranks them), then cut to what was asked: at most RANKED_FIND_LIMIT.
+    const found = await client.request<GotoSearchCollection>({ action: "tree.search", query: input.text!, semantic: true });
+    const shown = Math.min(limit, RANKED_FIND_LIMIT);
+    const ids = found.matches.slice(0, shown).map(m => m.block.id);
+    const read = await Promise.all(ids.map(blockId => client.request<Block | null>({ action: "get", blockId }).catch(() => null)));
+    const by = new Map(read.flatMap(b => b ? [[b.id, b] as const] : []));
+    const scores = new Map(found.matches.map(m => [m.block.id, m.score]));
+    const s = found.semantic;
+    const search: FindSearch = s.status === "ranked" && s.verdict ? { status: "ranked", verdict: s.verdict, ...(s.label ? { label: s.label } : {}), said: s.said ?? "", ...(s.exists !== undefined ? { exists: s.exists } : {}) }
+      : s.status === "ranked" ? { status: "ranked", said: "ranked by Jev over the text matches" }
+      : { status: s.status, said: `text matches only${s.message ? ` (${s.message})` : ""}` };
+    return {
+      blocks: ids.flatMap(id => { const b = by.get(id); if (!b) return []; const score = scores.get(id); return [{ ...findRow(b), ...(score !== undefined ? { score } : {}) }]; }),
+      complete: found.completeness.kind === "complete" && found.matches.length <= shown, search,
+    };
   }
   const filters: PropertyFilter[] = [];
   if (given("property")) filters.push(parsePropertyFilterClause(input.property!));
