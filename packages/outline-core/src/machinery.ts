@@ -45,3 +45,27 @@ export function bookkeepingOnly(before: string, after: string): boolean {
   const bare = (text: string) => replacePropertyTokens(text, () => "").replace(/[ \t]+$/gm, "");
   return before !== after && bare(before) === bare(after);
 }
+
+/** What the notifications hub stamps on each notification it fetched (PIE-1427): its own kind, so a reader can ask for them on purpose (`machine=notification`). */
+export const NOTIFICATION_MACHINE = "notification";
+
+/** Whether a query reads recent activity: it compares `updated` (`updated >= -1d`). Such a read says what machinery it left out. */
+export const readsRecentActivity = (where: string | undefined): boolean => !!where && /\bupdated\s*(?:<=|>=|<|>|=)/i.test(where);
+
+/** What a read left out, by producer (`[machine::<producer>]`), as one count and one sentence that says how to get them back. */
+export interface MachineryLeftOut { count: number; by: Record<string, number>; said: string }
+
+/**
+ * The left-out count a hiding read reports (PIE-1427), from the service's facet counts of `machine` over the same
+ * question asked with `machinery: only`: "212 notifications and bookkeeping notes left out (machinery: show brings them
+ * back)". Undefined when nothing was left out.
+ */
+export function machineryLeftOut(by: Record<string, number>, bringBack = "machinery: show brings them back"): MachineryLeftOut | undefined {
+  const count = Object.values(by).reduce((sum, n) => sum + n, 0);
+  if (!count) return undefined;
+  const notifications = by[NOTIFICATION_MACHINE] ?? 0, rest = count - notifications;
+  const what = notifications && rest ? "notifications and bookkeeping notes"
+    : notifications ? (notifications === 1 ? "notification" : "notifications")
+    : rest === 1 ? "bookkeeping note" : "bookkeeping notes";
+  return { count, by, said: `${count} ${what} left out (${bringBack})` };
+}

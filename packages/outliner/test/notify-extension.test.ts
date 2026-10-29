@@ -59,7 +59,7 @@ async function setup() {
   });
   await client.request({ action: "extensions.list", reload: true });
   const pull = async () => (await client.request<{ message: string }>({ action: "extensions.act", extension: "notify", extensionAction: "pull", mutation: { author: "user" } })).message;
-  const notes = async () => (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "notify.key", limit: 100 } })).blocks;
+  const notes = async () => (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "notify.key", limit: 100, machinery: "show" } })).blocks;
   return { root, store, client, pull, notes };
 }
 
@@ -72,6 +72,9 @@ test("pure parts: the web URL of a subject, imported words kept inert, and read 
   const note = (text: string) => ({ text, properties: parseProperties(text) });
   expect(valueOf(note(merged(n, note(read))), "notify.state")).toBe("read");
   expect(valueOf(note(merged({ ...n, unread: false }, note(merged(n)))), "notify.state")).toBe("read");
+  // Stamped as machinery of its own kind, once, however often it is pulled again (PIE-1427).
+  const twice = merged(n, note(merged(n, note(read))));
+  expect(twice.match(/\[machine::notification\]/g)).toEqual(["[machine::notification]"]);
 });
 
 test("a pull makes one note per notification from all four sources with open properties, the demo's two boards answer them, and a second pull writes nothing", async () => {
@@ -85,11 +88,18 @@ test("a pull makes one note per notification from all four sources with open pro
   expect((await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "mood=calm" } })).blocks).toHaveLength(0);
   expect(store.get(github.id)).toMatchObject({ author: "agent", actorId: "ext:notify" });
   // Properties are open: the service filters on them, nothing in code lists them.
-  const jira = await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "notify.source=jira AND notify.state=unread" } });
+  const jira = await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "notify.source=jira AND notify.state=unread", machinery: "show" } });
   expect(jira.blocks).toHaveLength(2);
+  // Machinery of its own kind (PIE-1427): a plain list leaves them out, and asking for notifications on purpose finds them all.
+  expect((await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "notify.source=jira" } })).blocks).toHaveLength(0);
+  expect((await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "machine=notification", machinery: "only", limit: 100 } })).blocks).toHaveLength(7);
   // The boards: the demo's hubs of views (written when it was installed), lanes by state and by source, answered by the service.
   const hubs = await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=virtual-branch", limit: 50 } });
   expect(hubs.blocks.map((b) => valueOf(b, "query")).filter((q) => q?.startsWith("notify.")).sort()).toEqual(["notify.source=github", "notify.source=gmail", "notify.source=jira", "notify.source=slack", "notify.state=read", "notify.state=unread"]);
+  // Each board says [machinery::show], so its lane still holds the notifications.
+  const unread = hubs.blocks.find((b) => valueOf(b, "query") === "notify.state=unread")!;
+  expect(valueOf(unread, "machinery")).toBe("show");
+  expect((await client.request<{ blocks: Block[] }>({ action: "views.read", viewId: unread.id, format: "tree" })).blocks.length).toBeGreaterThan(0);
 
   const before = store.changes.since(0, 1000);
   const count = before.kind === "changes" ? before.changes.length : -1;
