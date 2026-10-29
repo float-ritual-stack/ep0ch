@@ -305,7 +305,7 @@ export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
   }),
   "status.bar.edit": def({
     summary: "status bar: edit your [status-bar::true] note; made on first use with today's built-ins and a commented Collapse button. Order or hide built-ins with - <id> lines; ::button lines (or - ::button items) pin actions; alt= names their alternate action; items nested under one make a group, a menu on the bar. A line it can't read is skipped and shown as the bar's ! item; line= opens the note there. Edits redraw the bar live",
-    keys: "right-click or alt+click an empty part of the status bar; a click on its ! item; the power bar's status bar: edit",
+    keys: [{ keys: "right-click alt-click", does: "on an empty part of the status bar" }, { keys: "click", does: "on its ! item" }, { via: "the power bar's status bar: edit" }],
     touches: "nothing", replay: "ask",
     args: { line: { type: "number", optional: true, about: "the note's line to open it at (1 is the title): the bar's ! item gives its first skipped line" } },
     examples: [
@@ -322,7 +322,7 @@ export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
   }),
   "status.bar.menu": def({
     summary: "open a status-bar group's items as a menu (group=<label>, nested groups as Tools/More), or with overflow=true what the bar has no room for (its +N chip). The person's opens over the screen, each row runs that item's click; an agent's answers the rows (label, action, args) without opening anything",
-    keys: "a click on a status-bar group or on its +N overflow chip",
+    keys: [{ keys: "click", does: "on a status-bar group or on its +N overflow chip" }],
     touches: "nothing", replay: "safe",
     args: {
       group: { type: "string", optional: true, about: "the group's label as the bar shows it; Outer/Inner for a nested group" },

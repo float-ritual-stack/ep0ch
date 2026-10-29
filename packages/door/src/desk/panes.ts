@@ -940,7 +940,7 @@ const DETACH_WHERE = ["left", "right", "up", "down", "tabs", "edge-left", "edge-
 export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("reader", {
   "element.detach": def({
     summary: "detach a part of the reader's note (PIE-1247): the figure, callout, list item or paragraph at line= (from 1; default the current element, else the top row read), or anchor=, becomes a block of its own under the .detached page that embeds it (!((note^anchor)), its anchor written if it had none) and opens in a tile of its own with no header, where= beside this reader (or to=<tile>). From then on it's an ordinary note: it outlives this tile, and the part's note lists it among its backlinks by the anchor",
-    keys: "alt+D in a reader; alt+drag a part out of the reader onto a tile's side, its header or the screen's edge",
+    keys: [{ keys: "alt+D", does: "in a reader" }, { keys: "alt-drag", does: "a part out of the reader onto a tile's side, its header or the screen's edge" }],
     touches: "screen", replay: "ask",
     menu: { label: "detach this part", group: "Reader", key: "alt+D", now: ({ pane }) => (!pane.msg ? { refused: "nothing in that reader to detach" } : null) },
     args: {
@@ -967,7 +967,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
   }),
   "element.quote": def({
     summary: "put a part of the reader's note into another note (PIE-1247), as the alt+drag's drop does: the part at line= (from 1; default the current element) or anchor= goes into=<note> (an id, ((id)) or [[page]]) after its line at= (from 1; a part there, a figure or a callout, after the whole of it), as a reference (!((note^anchor)) for a figure or callout, ((note^anchor)) for a list item or paragraph; its anchor written if it had none) or, copy=true, its own lines (a figure with its query, which then answers for the note it's in). Through draft.patch: an edit open there takes it in place",
-    keys: "alt+drag a part onto another reader's note, then choose reference or copy",
+    keys: [{ keys: "alt-drag", does: "a part onto another reader's note, then choose reference or copy" }],
     touches: "draft", draft: "write", replay: "ask",
     args: {
       into: { type: "string", optional: false, kind: "note", about: "the note it goes into: an id or ((id))" },
@@ -1036,7 +1036,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
   }),
   "reader.mode": def({
     summary: "set how a reader (tile=<its name>, any reader, a detail too) shows notes: mode=follows (the current note, as it changes), held (the note it shows; the current note doesn't move it) or pinned (a page's note, shown again each time it starts; page=<name>, left out the page the shown note has); left out, p's toggle: follows to held, anything else back to following. Said on screen when an agent does it",
-    keys: "p; P then enter or space on Shows changes the state, or click its row; the page lock pins it",
+    keys: [{ keys: "p", does: "pick the mode" }, { keys: "P then ⏎ space", does: "on Shows changes the state" }, { keys: "click", does: "its row" }, { via: "the page lock pins it" }],
     touches: "tile", replay: "safe", way: "an agent sets a reader's mode when the person isn't in it", says: r => `${r.mode === "follows" ? "set the reader: shows the current note" : r.mode === "pinned" ? `locked the reader: stays put on [[${r.page}]]` : "set the reader: stays put"}`,
     menu: { label: "stays put on this note", group: "Reader", key: "p", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: holdsEdit("the reader") } : pane.followMode !== "follows" ? { label: "shows the current note" } : null) },
     args: {

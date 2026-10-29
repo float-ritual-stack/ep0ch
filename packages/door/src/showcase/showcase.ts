@@ -19,7 +19,7 @@ import { USER, type Actor, type OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selectedRow } from "../style";
 import { wrap } from "../text";
 import { ch, isUp, isDown, type Key } from "../term";
-import { ActionRefused, actionSet, def, type ActionInfo, type ActRequest } from "../surface/actions";
+import { ActionRefused, actionSet, def, keysText, type ActionInfo, type ActRequest } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { screenKeys } from "../whereabouts";
 import { draftPreview, NOTE_ACTIONS } from "../surface/note";
@@ -33,6 +33,7 @@ import { type SavedTree, type TileSpec } from "../desk/tiles";
 import type { NewNoteOpens, NewNoteRule } from "../desk/screen-spec";
 import type { NewNoteHow } from "../new-note";
 import { TILE_ACTIONS } from "../desk/tile-actions";
+import { KeysPane } from "../desk/keys-window";
 import { PANE_ACTIONS } from "../desk/pane-actions";
 import { BOARD_ACTIONS } from "../desk/lanes";
 import { COLUMN_ACTIONS, RiverColumn } from "../river/column";
@@ -425,7 +426,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "undo", need: "copy text out of a draft; undo and redo anything typed or pasted, a big paste in one step", part: "the draft's one history (Draft.undos and redos behind draft.undo, ctrl+z, and draft.redo, ctrl+y or ctrl+shift+z: typing a word at a time, a paste or an agent's patch one step each, carried past a save when the note is opened again unchanged) and its copy (draft.copy: copy on select, a double click's word, shift+click and shift+arrows, cmd+c, alt+c, the frame's [copy]; OSC 52 through App.copy)", files: "src/edit.ts, src/surface/editor.ts, src/surface/note.ts, src/draft-session.ts, src/term.ts",
+    key: "undo", need: "copy text out of a draft; undo and redo anything typed or pasted, a big paste in one step", part: "the draft's one history (Draft.undos and redos behind draft.undo, ctrl+z, and draft.redo, ctrl+y or ctrl+shift+z: typing a word at a time, a paste or an agent's patch one step each, carried over a save when the note is opened again unchanged, stopping at the save to ask before taking saved text back) and its copy (draft.copy: copy on select, a double click's word, shift+click and shift+arrows, cmd+c, alt+c, the frame's [copy]; OSC 52 through App.copy)", files: "src/edit.ts, src/surface/editor.ts, src/surface/note.ts, src/draft-session.ts, src/term.ts",
     aside: "the edit has a whole pantry list pasted into it by mistake: one step, said on the status line (pasted 42 lines · ctrl+z undoes) · ctrl+z takes it back, ctrl+y puts it back · the first line's [page::…] is selected: let go of a drag (or double-click a word, shift+click, shift+arrows then cmd+c or alt+c, or the frame's [copy]) and it's on your clipboard, \"copied N chars\" · an agent's draft.copy only returns the text, never your clipboard · the note has an earlier revision: the tile menu's \"an earlier revision\" (revision.restore) puts it in the edit, ctrl+s saves it, ctrl+z takes it back; `ep0ch revisions <id>` lists them from a shell; this earlier text was saved by cowboy under yolo: its history line says by cowboy · for evan · via yolo",
     stage(n, show) {
       const r = new ReaderPane();
@@ -1250,6 +1251,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "keys", need: "see every key binding with where it works and what it takes from what, and move one to another key with what it would do said first", part: "the keys window (PIE-492): the catalog (surface/key-catalog.ts) reads every binding from the parts that bind keys (each ActionDef's key rows, PIE-1048; the key tables: ^W, each mode's, the hyper layer) in the layers a key passes through; the one keymap file (surface/keymap.ts: keybindings.json, an act line to its keys) that every table, the App's layer and the hint rows read", files: "src/desk/keys-window.ts, src/surface/key-catalog.ts, src/surface/keymap.ts, src/surface/modes.ts (partsHint), src/desk/wkeys.ts (wNow)",
+    aside: "? on any screen opens it on where you are (in:note in a reader) · / and type to filter: tile close, ^W, yours · each row's keycap, scope and words; the detail says what it runs, its layer, what it takes the key from and what gets it first, and whether a terminal tile's program sees it · r, then the new key (^W then a key for a ^W key): what it would take is said, ⏎ saves it in keybindings.json in the door's state dir, esc drops it · u unbinds, d gives the built-in keys back, ctrl+z undoes · the hint row below follows at once (rebind note.new and its ^N becomes the new key) · this is your keymap, the real one: ctrl+z here puts it back · `act keys.find text=tile.close tile=keys` reads, `act keys.rebind id=tile.close key=\"^W x\" to=\"ctrl+w q\" tile=keys` moves one as an agent, said on screen",
+    stage(n, show) {
+      const keys = new KeysPane({ filter: "^W" }), r = new ReaderPane(true);
+      return deskOf({ title: "showcase · keys", panes: [keys, r], names: ["keys", "reader"], layout: ([x, y]) => row(0.62, x!, y!) }, show, [[r, n.notebook]]);
+    },
+  },
+  {
     key: "line-field", need: "type one line anywhere (a rename, a filter, a search, a property's value, the power bar) with the same keys and mouse every time", part: "the one line field (PIE-1290): LineField (src/surface/line.ts), a one-row Draft with the line editor's keys, and outline-core's grapheme steps (graphemes.ts) that Draft and the outliner's TextBuffer share", files: "src/surface/line.ts, src/surface/editor.ts (editorLineKey), src/edit.ts, packages/outline-core/src/graphemes.ts",
     aside: "^W n renames the reader: type a name, drag across a word to select it, backspace deletes it, ctrl+z brings it back, ctrl+y takes it away again · double click a word, a paste replaces it · ctrl+w (or alt+backspace) erases the word before the cursor; while a line has the keys, ^W waits: esc, then ^W · backspace takes a whole character, an emoji family or a flag too · the same keys in a river column's / filter, the property panel's value (i, ⏎ on a row), the message log's /, the tile menu's search and the power bar · `act tile.title tile=reader` opens the prompt for you; `act tile.title tile=reader text=Seedlings` renames it as an agent",
     stage(n, show) {
@@ -1565,6 +1574,7 @@ export const SECTIONS: Section[] = [
 const indexWidth = (cols: number) => (cols >= 160 ? 52 : cols >= 110 ? 34 : cols >= 60 ? 16 : 12);
 
 export class Showcase implements Screen {
+  readonly ownsQuestion = true;
   title = "showcase";
   readonly name = "showcase";
   ctx!: Ctx;
@@ -1955,9 +1965,9 @@ export class ActionsPane implements Pane {
     const lines = this.rows.slice(this.view.top, this.view.top + room).map((r, j) => {
       const i = this.view.top + j;
       if ("head" in r) return fg(C.lcyan) + pad(r.head, w) + RESET;
-      const text = ` ${pad(r.a.name, nameW)} ${pad(r.a.keys ?? "—", keysW)} ${r.a.summary}`;
+      const text = ` ${pad(r.a.name, nameW)} ${pad(keysText(r.a.keys) ?? "—", keysW)} ${r.a.summary}`;
       return i === this.sel ? selectedRow(text, w, focused)
-        : fg(C.yellow) + " " + pad(r.a.name, nameW) + " " + fg(C.brown) + pad(r.a.keys ?? "—", keysW) + " " + fg(C.grey) + pad(r.a.summary, Math.max(1, w - nameW - keysW - 3)) + RESET;
+        : fg(C.yellow) + " " + pad(r.a.name, nameW) + " " + fg(C.brown) + pad(keysText(r.a.keys) ?? "—", keysW) + " " + fg(C.grey) + pad(r.a.summary, Math.max(1, w - nameW - keysW - 3)) + RESET;
     });
     while (lines.length < room) lines.push("");
     if (detail) lines.push(fg(C.blue) + "─".repeat(w) + RESET, ...page.slice(0, detail - 1));
@@ -1965,8 +1975,8 @@ export class ActionsPane implements Pane {
   }
   runAction(a: ActionInfo, desk: DeskApi, actor: Actor) {
     const needs = Object.entries(a.args).filter(([, s]) => !s.optional).map(([k]) => k);
-    if (!["note", "desk"].includes(a.scope)) return desk.ctx.flash(`${a.name} belongs to the ${a.scope}; try it there${a.keys ? ` (${a.keys})` : ""}`);
-    if (needs.length) return desk.ctx.flash(`${a.name} needs ${needs.join(", ")}: use its key${a.keys ? ` (${a.keys})` : ""} in the reader, or ep0ch-door act ${a.name} ${needs.map(n => `${n}=…`).join(" ")}`);
+    if (!["note", "desk"].includes(a.scope)) return desk.ctx.flash(`${a.name} belongs to the ${a.scope}; try it there${a.keys ? ` (${keysText(a.keys)})` : ""}`);
+    if (needs.length) return desk.ctx.flash(`${a.name} needs ${needs.join(", ")}: use its key${a.keys ? ` (${keysText(a.keys)})` : ""} in the reader, or ep0ch-door act ${a.name} ${needs.map(n => `${n}=…`).join(" ")}`);
     this.run?.(a.name, actor).then(() => desk.redraw(), e => desk.ctx.flash(`${a.name}: ${e instanceof Error ? e.message : String(e)}`, undefined, errorDetails(e)));
   }
   key(k: Key, desk: DeskApi): boolean {

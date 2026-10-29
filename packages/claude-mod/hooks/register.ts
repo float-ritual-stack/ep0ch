@@ -39,7 +39,8 @@ import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, dropp
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, stampOf, unwrapPeer } from './peer-log'
 import { answeredInSession, answerOf, approveWaitMs, askOutlineOf, askPageCreateArgv, askPageFindArgv, askReadOf, askText, byThePerson, callEndOf, callKey, CallsUnderWay, closedText, sessionGrantOf, stepWords, type CallEnd } from './approve'
-import { baselineOf, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
+import { addressedWakeText, askKey, asksOf, mentionArgs, newAsks, notesToRead, PERSONA_NAME, readArgs, repliesArgs, shownAsks, threadsToRead, type Ask } from './addressed'
+import { baselineOf, DEFAULT_OUTLINES, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
 import { type StatusInput, tileMark, tmuxPassthrough } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { fileTouchesOff, fileTouchGlobsOf, projectOf, touchAllowed, touchInputOf, touchOf } from './file-touches'
@@ -522,6 +523,11 @@ export function register(on: On, options: PluginOptions): void {
     // The settle check, in the deployer's session only (hooks/settle.ts).
     settleStarting = undefined
     $.clock.after(0, () => void startSettleOnce($, option))
+    // Comments that say @<this session's persona>, on the same clock (hooks/addressed.ts).
+    // A new or cleared conversation hears every ask still open, as a new session does.
+    addressedStarting = undefined
+    toldAsks.clear()
+    $.clock.after(0, () => void startAddressedOnce($, option))
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     showStatus($, null)
     $.clock.after(0, () => void readBinding($, option, false).catch(() => {}))
@@ -888,6 +894,7 @@ export function register(on: On, options: PluginOptions): void {
     if (e.agentId === undefined) reportStatus($, turnEnded(e.reason, e.answer))
     // A module reloaded mid-session never sees its session.start.
     if (!references) $.clock.after(0, () => void loadReferences($, option))
+    if (!addressedStarting) $.clock.after(0, () => void startAddressedOnce($, option))
     if (!settleStarting) $.clock.after(0, () => void startSettleOnce($, option))
     // The binding read again now and then, so the status line follows a door's upgrade or reconnect, or a new .ep0ch.
     else if ((await $.clock.now()) - bindingReadAt >= BINDING_REFRESH_MS) $.clock.after(0, () => void readBinding($, option, true).catch(() => {}))
@@ -2150,6 +2157,106 @@ async function logSettleChanges($: EngineInterface, bound: Workspace, root: stri
   for (const text of texts) {
     const ran = await $.process.run(['ep0ch', 'new', text, '--near', newest.id, '--as', actor], { cwd: bound.root, env, timeoutMs: SETTLE_TIMEOUT_MS })
     if (ran.exitCode !== 0) return settleToast($, `a thread change was not logged: ${failureReasonOf(ran.stderr) || ran.stderr.trim()}`)
+  }
+}
+
+// ─── Addressed mail (hooks/addressed.ts, PIE-1404) ─────────────────────────
+
+let addressedStarting: Promise<void> | undefined
+let addressedTimer: { cancel: () => void } | undefined
+let addressedRunning = false
+/** The newest ask this session was woken for, per thread (askKey): kept in memory, so every session of a persona hears each ask once, and a new one hears what is still open at its first check. */
+const toldAsks = new Map<string, number>()
+const toldAddressed = new Set<string>()
+
+function addressedToast($: EngineInterface, text: string): void {
+  if (toldAddressed.has(text)) return
+  toldAddressed.add(text)
+  $.ui.toast(`Addressed mail: ${text}`, { timeoutMs: 8000 })
+}
+
+/** Starts the check once a session, in any session that writes as a persona, on the settle check's `every`. Never throws. */
+function startAddressedOnce($: EngineInterface, option: PluginOptions): Promise<void> {
+  return (addressedStarting ??= (async () => {
+    addressedTimer?.cancel()
+    addressedTimer = undefined
+    const persona = await sessionPersona($)
+    if (!persona || !PERSONA_NAME.test(persona)) return
+    const every = tuningOf(await settleTuningOverride($, option)).config.every
+    const run = () => void runAddressed($, option, persona)
+    addressedTimer = $.clock.every(every * 60_000, run)
+    $.clock.after(SETTLE_FIRST_MS, run)
+  })().catch(() => {}))
+}
+
+/**
+ * The outlines asked: the bound one, and the ones `settleOutlines` / EP0CH_SETTLE_OUTLINES name; with neither set, pie
+ * and gurgle on its machine when the bound outline is one of them (the deployer's pair), else the bound one alone.
+ */
+async function addressedOutlines($: EngineInterface, option: PluginOptions, bound: SettleOutline): Promise<SettleOutline[]> {
+  const override = String(option.settleOutlines ?? '').trim() || (await $.env.get('EP0CH_SETTLE_OUTLINES'))?.trim() || undefined
+  const named = override ? outlinesOf(override, bound).outlines : (DEFAULT_OUTLINES as readonly string[]).includes(bound.outline) ? outlinesOf(undefined, bound).outlines : []
+  const seen = new Set<string>()
+  return [bound, ...named].filter(o => !seen.has(outlineLabel(o)) && !!seen.add(outlineLabel(o)))
+}
+
+/**
+ * One check: per outline, the comments naming @persona, the roots and notes they sit under, and every reply in those
+ * threads; joined into the asks still open with no reply from the persona. A new ask (or one asked again) wakes this
+ * session with every open ask listed; an outline that can't be read says so once and is left out of this check.
+ */
+async function runAddressed($: EngineInterface, option: PluginOptions, persona: string): Promise<void> {
+  if (addressedRunning) return
+  addressedRunning = true
+  try {
+    if (!references?.workspace) await loadReferences($, option)
+    const bound = references?.workspace
+    const root = await outlinerRootOf($)
+    if (!bound?.outline || !root) return
+    const here: SettleOutline = { outline: bound.outline, ...(bound.machine ? { machine: bound.machine } : {}) }
+    const cli = async (o: SettleOutline, args: string[]): Promise<Listed> => {
+      const at: Workspace = { root: bound.root, outline: o.outline, ...(o.machine ? { machine: o.machine } : {}), pinned: true }
+      const r = await $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args], { cwd: bound.root, env: envFor(at), timeoutMs: SETTLE_TIMEOUT_MS })
+      const listed = r.exitCode === 0 ? listedOf(r.stdout) : null
+      if (!listed) throw Error(r.exitCode !== 0 ? failureReasonOf(r.stderr) || r.stderr.trim() || `exit ${r.exitCode}` : 'its answer was not a list of blocks')
+      return listed
+    }
+    const asks: Ask[] = []
+    for (const o of await addressedOutlines($, option, here)) {
+      try {
+        const mentioning = await cli(o, mentionArgs(persona))
+        if (!mentioning.complete) addressedToast($, `${outlineLabel(o)} has more comments naming @${persona} than one read holds; the ones past it are not checked.`)
+        const { threads, roots } = threadsToRead(mentioning.blocks)
+        if (!threads.length) continue
+        const first = roots.length ? await cli(o, readArgs(roots)) : { blocks: [], complete: true }
+        const notes = notesToRead([...mentioning.blocks, ...first.blocks])
+        const [read, ...replies] = await Promise.all([notes.length ? cli(o, readArgs(notes)) : Promise.resolve({ blocks: [], complete: true }), ...repliesArgs(threads).map(args => cli(o, args))])
+        if (replies.some(r => !r.complete)) addressedToast($, `${outlineLabel(o)}: a thread has more replies than one read holds; its answer may be missed.`)
+        asks.push(...asksOf(persona, o === here ? o.outline : outlineLabel(o), mentioning.blocks, [...first.blocks, ...read!.blocks], replies.flatMap(r => r.blocks)))
+      } catch (error) {
+        addressedToast($, `${outlineLabel(o)} could not be read for @${persona}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    const fresh = newAsks(asks, toldAsks)
+    if (!fresh.length) return
+    const now = await $.clock.now()
+    // Marked before the call returns: it resolves as the turn starts, which can wait for the session to go idle.
+    // Only what the wake shows is told: a new ask past its last line wakes the next check.
+    const freshKeys = new Set(fresh.map(askKey))
+    const before = new Map(toldAsks)
+    for (const a of shownAsks(asks, freshKeys)) if (freshKeys.has(askKey(a))) toldAsks.set(askKey(a), a.at)
+    try {
+      const sent = await $.prompt.submit({ text: addressedWakeText(persona, asks, freshKeys, now, here.outline) })
+      if (sent.drop !== undefined) throw Error(sent.drop || 'the prompt was dropped')
+    } catch (error) {
+      toldAsks.clear()
+      for (const [k, v] of before) toldAsks.set(k, v)
+      addressedToast($, `could not wake this session (${error instanceof Error ? error.message : String(error)}); the next check tries again.`)
+    }
+  } catch (error) {
+    addressedToast($, error instanceof Error ? error.message : String(error))
+  } finally {
+    addressedRunning = false
   }
 }
 

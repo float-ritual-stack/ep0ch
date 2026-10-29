@@ -1,4 +1,5 @@
 import { standsAsPerson } from "../surface/dispatch";
+import { keyTable } from "../surface/keymap";
 import { NOBODY } from "../whereabouts";
 import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "../surface/modes";
 import { clipText } from "../overflow";
@@ -178,7 +179,7 @@ type BandHit = { y0: number; y1: number; from: number; to: number; action: strin
  * screen's model too: which notes are welcome notes (read again as the outline changes), the fallback page while
  * there are none, the logo, and the band its kind draws.
  */
-const WELCOME_LIST_KEYS: readonly ModeKey[] = [
+const WELCOME_LIST_KEYS: readonly ModeKey[] = keyTable("welcome", "the welcome screen's lists", [
   { key: "click", action: "welcome.select", label: "pick" },
   { key: "wheel", action: "welcome.select", label: "pick" },
   { key: "drag", action: "welcome.move", label: "reorder" },
@@ -187,7 +188,7 @@ const WELCOME_LIST_KEYS: readonly ModeKey[] = [
   { key: "end", action: "welcome.select", label: "last", args: { last: true } },
   { key: "enter", action: "welcome.select", label: "read", args: { read: true } },
   ...["alt+up", "alt+down"].map(key => ({ key, action: "welcome.move", label: "reorder", args: { by: key === "alt+up" ? -1 : 1 } })),
-];
+]);
 
 export class WelcomeList implements Pane {
   readonly bindings = WELCOME_LIST_KEYS;

@@ -285,7 +285,7 @@ export class ScreenTile implements Pane {
 export const MOUNT_ACTIONS = actionSet<KindHost>()("mount", {
   "mount.out": def({
     summary: "pop a mounted screen out to the full screen (the screen switch, over this one: q comes back to the mount where it was). The full screen is its own instance (its own layout, selection and scroll; the outline's cards are the same). A group has no screen of its own: refused",
-    keys: "^W u on a mount; a click on ▲ full on its header; its tile menu",
+    keys: [{ keys: "^W u", does: "on a mount" }, { keys: "click", does: "on ▲ full on its header" }, { via: "its tile menu" }],
     touches: "screen", replay: "ask", says: r => `popped out to the ${r.screen}`,
     menu: { label: "pop out to the full screen", group: "Mount", key: "ctrl+w u", now: ({ pane }) => ((pane as ScreenTile).group ? { hide: true } : null) },
     args: {},

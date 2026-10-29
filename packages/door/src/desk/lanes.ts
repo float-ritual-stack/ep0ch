@@ -1469,7 +1469,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   }),
   "board.hub": def({
     summary: "which board this is: with no id, the hubs it can show (every block with two or more virtual-branch lanes), and for the person the picker to choose one; with id=<hub block id>, show that board. An agent's switch is refused while the person is typing, and is said on the status bar",
-    keys: "g, then j k ↑↓ and ⏎ or click on a board; esc, q or a click outside puts the picker away (q with no board shown yet leaves the screen; esc stays on it)",
+    keys: [{ keys: "g", does: "opens the board picker" }, { keys: "j k ↑ ↓", does: "move in the picker" }, { keys: "⏎ click", does: "on a board" }, { keys: "esc q click", does: "puts the picker away (click outside it; q with no board shown yet leaves the screen; esc stays on it)" }],
     touches: "screen", touchesWith: a => (a.id !== undefined ? "screen" : "nothing"), replay: "safe", says: r => (r.hub ? `showed the board ${r.title}` : null),
     // Putting the picker away is the person's own (only their g opens it).
     personWith: a => (a.close ? "the hub picker is the person's; an agent shows a board with board.hub id=<hub>" : null),
@@ -1581,7 +1581,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     run: ({ lane }, { model }) => lanesOf({ model }).newCard(lane),
   }),
   "card.create": def({
-    summary: "create a card in a lane: the text, born with the properties the lane's query sets (and its create:: default, unless the text sets that key), under the lane's create-parent or where its cards live. In a roadmap lane (type=roadmap-item) it's a roadmap item made by the workboard's allocator, which issues its work-id: the text gives priority, arc and track(s) as [key::value] tokens, and Review/Validate/Done lanes refuse (create in Queued or Doing, then move). Refused, with the reason, when the lane can't define it", keys: "n, typing, ctrl+s",
+    summary: "create a card in a lane: the text, born with the properties the lane's query sets (and its create:: default, unless the text sets that key), under the lane's create-parent or where its cards live. In a roadmap lane (type=roadmap-item) it's a roadmap item made by the workboard's allocator, which issues its work-id: the text gives priority, arc and track(s) as [key::value] tokens, and Review/Validate/Done lanes refuse (create in Queued or Doing, then move). Refused, with the reason, when the lane can't define it", keys: [{ keys: "n", does: "start a card, then type its text" }, { keys: "ctrl+s", does: "save it" }],
     touches: "nothing", replay: "ask",
     args: {
       lane: { type: "string", about: "the lane's name" },
@@ -1611,7 +1611,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     run: ({ twin, text }, { model }, actor) => lanesOf({ model }).attachCard(twin, text, actor),
   }),
   "note.create": def({
-    summary: "add a note under the selected card (or parent=<id>)", keys: "N, typing, ctrl+s",
+    summary: "add a note under the selected card (or parent=<id>)", keys: [{ keys: "N", does: "start a note, then type its text" }, { keys: "ctrl+s", does: "save it" }],
     touches: "nothing", replay: "ask",
     args: { text: { type: "string", about: "the note's text" }, parent: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     examples: [
