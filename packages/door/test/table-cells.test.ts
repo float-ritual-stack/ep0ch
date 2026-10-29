@@ -12,6 +12,8 @@ test("a cell naming a note is drawn as its title and links it; the row's other c
   const t = tableOf({ columns: ["note", "rubric"] }, [item], { [NOTE]: "Status tonight" });
   expect(t.rows).toEqual([["Status tonight", "dense"]]);
   expect(t.cellBlocks).toEqual([[NOTE, null]]);
+  // `link: note`: the row opens the note it's about, not the record.
+  expect(tableOf({ columns: ["note", "rubric"], link: "note" }, [item], { [NOTE]: "Status tonight" }).blocks).toEqual([NOTE]);
   // Without its title (the page may not show that note), the id stays as written.
   expect(tableOf({ columns: ["note"] }, [item], {}).rows).toEqual([[NOTE]]);
 

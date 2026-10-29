@@ -180,6 +180,7 @@ function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefin
   const now = asking.props.now ? subset(store, tools, thisId, String(asking.props.now), ids) : {};
   const error = done.error ? `done: ${done.error}` : now.error ? `now: ${now.error}` : undefined;
   const titles = kind === "table" || kind === "tabs" ? cellTitles(store, a.blocks, Array.isArray(p.columns) ? p.columns.map(String) : undefined) : undefined;
+  // (A `link:` property's notes are the rows' links; they need no title.)
   return {
     kind: "figure", blocks: a.blocks, truncated: a.truncated, ...(titles ? { titles } : {}),
     ...(a.groups ? { groups: a.groups } : {}), ...(a.hint ? { hint: a.hint } : {}),

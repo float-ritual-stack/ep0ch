@@ -92,7 +92,7 @@ export async function recordReview(client: SuggestionClient, keep: Extract<Sugge
         day, note: keep.at.note, revision: String(keep.at.revision), ...writerOf(keep.at.actorId), component: f.component ?? f.rule,
         source: keep.at.source, rule: f.rule, rubric: f.rubric, key: f.key, line: String(f.line ?? 0), title: keep.title || "untitled",
         passage: f.passage, said: f.say, verdict: keep.review.verdict, patch: f.patch ? "ready" : "none",
-      }), JEV, { title: `${f.rubric}: ${keep.title || "untitled"}`.slice(0, 120) });
+      }), JEV, { title: `${keep.review.verdict}: ${f.rubric} in ${keep.title || "untitled"}`.slice(0, 120) });
     }
     const asked = keep.review.jev === "asked";
     const unavailable = !asked && !/^(?:off|not asked)/.test(keep.review.jev);
@@ -129,6 +129,7 @@ export const SUGGESTIONS_PAGE = [
   "query: type=review-finding NOT source=backfill",
   "machinery: show",
   "columns: [note, rubric, said, passage, writer, patch]",
+  "link: note",
   "sort: created",
   "direction: desc",
   "limit: 30",
@@ -142,6 +143,7 @@ export const SUGGESTIONS_PAGE = [
   "query: type=suggestion-outcome",
   "machinery: show",
   "columns: [note, rubric, outcome, patched, because, writer]",
+  "link: note",
   "sort: created",
   "direction: desc",
   "limit: 30",
@@ -183,15 +185,20 @@ export const SUGGESTIONS_PAGE = [
   "::",
 ].join("\n");
 
-let pageMade = new WeakSet<SuggestionClient>();
+/**
+ * How a review's record reads when it's opened (a tap on a row lands on the note; one opened another way still reads): a
+ * rule note drawing a card of what the record says, its note by title and linked. A rule, so the records written
+ * before it read too, with nothing rewritten.
+ */
+export const REVIEW_RECORDS_RULE =
+  "Review records read [rule-name::review-records] [rule-match::type=review-finding OR type=suggestion OR type=suggestion-outcome] " +
+  "[rule-decorate::card] [rule-place::prepend] [rule-fields::note, rubric, component, verdict, said, passage, outcome, because, writer]";
+
 async function suggestionsPage(client: SuggestionClient): Promise<void> {
-  if (pageMade.has(client)) return;
   const has = await read(client, "system-view=jev-suggestions OR page=jevs-suggestions", 1);
   if (!has.length) await client.request({ action: "create", text: SUGGESTIONS_PAGE, parentId: null, author: JEV.author, provenance: JEV.provenance } as RequestInput);
-  pageMade.add(client);
+  if (!(await read(client, "rule-name=review-records", 1)).length) await client.request({ action: "create", text: REVIEW_RECORDS_RULE, parentId: null, author: JEV.author, provenance: JEV.provenance } as RequestInput);
 }
-/** For a test: make the page again on the next finding. */
-export function forgetSuggestionsPage() { pageMade = new WeakSet(); }
 
 /** Jev was asked and said nothing (`quiet`, with its reading), or couldn't be asked (`unavailable`): counted on the day's run. Never throws. */
 export async function tallyAsk(client: SuggestionClient, what: "quiet" | "unavailable", reading?: FigureFitReading, now = new Date()): Promise<void> {
@@ -402,7 +409,7 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
     await writeRecord(board(client), "suggestion-outcome", clean({
       day: s.day ?? dayOf(s.at), suggestion: s.id, note, outcome: verdict.outcome, component: s.component, writer: s.writer ?? "unknown", harness: s.harness ?? "unknown", because: verdict.because,
       rule: s.rule ?? "figure-fit", rubric: s.rubric ?? "format", title: s.title ?? "none", passage: s.passage ?? "none", said: s.said ?? "none", patched: verdict.patched ? "yes" : "no",
-    }), JEV);
+    }), JEV, { title: `${verdict.outcome}${verdict.patched ? " (patched)" : ""}: ${s.rubric ?? s.component} in ${s.title ?? "a note"}`.slice(0, 120) });
     written++;
     await updateRun(client, s.day ?? dayOf(s.at), {}).catch(() => undefined);
   }

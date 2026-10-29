@@ -27,7 +27,15 @@ are its record. The outliner's entries from then are kept below, under
   `qa-for-evan`. A note carrying `[house-rule::<name>]` (validation, experience, qa-for-evan) words each rule.
 - **Jev's suggestions page:** made with an outline's first finding: each finding with its note, what was said and the
   passage; what the writer did (followed, patched, ignored); a box to mark Jev right (x) or wrong (✗).
-- **A table cell naming a note draws its title, linked,** in every `::graph-table` and on the web page.
+- **A table cell naming a note draws its title, linked,** in every `::graph-table` and on the web page; `link: <property>`
+  makes a row open the note its property names (the page's rows open the note a finding is about).
+- **A record reads when it's opened:** a review's records are titled as a sentence ("fix: buried in Garden beds"), and
+  a rule note made with the page draws a card of what each says (its note by title, the passage, what was said), for
+  the records written before it too. A card leaves out fields its block doesn't have, and its fields read one a line
+  on the web.
+- **Buried means anywhere but the top:** an ask in the last sentence of a paragraph is buried; its patch moves that
+  sentence alone to a top `- [ ]`. A short, clear note ships: Jev's judgment needs a section with room for the problem
+  (rows for a figure, length for dense and mixed).
 - **`ep0ch review backfill --ws <name> [--since 7d] [--into <name>]`** reviews what agents already wrote, read only,
   counted by rubric, rule and writer with samples and Jev's tokens; `--into` keeps it as records for the page.
 - **What to run:** `GRAMMAR` is 11; an older renderer warns once until `ep0ch install --apply`.

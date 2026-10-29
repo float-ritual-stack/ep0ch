@@ -28,6 +28,8 @@ export const SHAPE_LIMITS = {
   proseAny: 40,
   /** A question for Evan belongs in the first lines; one below line `top` is buried. */
   top: 8,
+  /** The top of a note: its first this many lines under the title (blank ones aside), where an ask reads first. */
+  topLines: 3,
   /** A list item is one point; past this many (sentences, and clauses after `;` or a dash) it is points stacked in one bullet (PIE-1388). */
   itemPoints: 2,
   /** A list item past this many characters is a wall whatever its punctuation. */
@@ -69,6 +71,8 @@ export interface ShapeFinding {
   line?: number;
   /** The fix made, ready for outline_patch, when code can make it exactly; none when only the writer can. */
   patch?: ShapePatch[];
+  /** The exact words it is about, when that's less than its line (the sentence that asks). */
+  passage?: string;
 }
 
 /**
@@ -225,13 +229,21 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
       }
     }
 
+    // An ask of Evan anywhere but the top (Evan's rubric, "the ask is buried"): the top is the first few lines under the
+    // title, where a `- [ ]` reads first. A sentence in a paragraph is buried wherever the paragraph is.
     if (!/\[needs::\s*sysop/i.test(text)) {
-      const buried = lines.findIndex((line, i) => i >= SHAPE_LIMITS.top && structure[i] === -1 && (o.asks ? o.asks.has(i) : asksEvan(line)));
+      const body = lines.flatMap((l, i) => i > (header?.line ?? -1) && l.trim() ? [i] : []);
+      const top = new Set(body.slice(0, SHAPE_LIMITS.topLines));
+      // At the top: a "- [ ]" in the first lines, or the first sentence of the first line. Anything else is buried.
+      const atTop = (i: number, sentence: string) => (top.has(i) && /^[ \t>]*[-*+][ \t]+\[ \][ \t]/.test(lines[i]!)) ||
+        (i === body[0] && splitPoints(lines[i]!.replace(/^[ \t>]*(?:[-*+]|\d+[.)])?[ \t]*/, ""), { clauses: false })[0]?.trim() === sentence.trim());
+      const buried = lines.findIndex((line, i) => i !== header?.line && structure[i] === -1 && (o.asks ? o.asks.has(i) : asksEvan(line)) && !atTop(i, askedSentence(line, o.asks !== undefined)));
       if (buried >= 0) {
-        const patch = questionPatch(lines, buried, header?.line ?? 0);
+        const sentence = askedSentence(lines[buried]!, o.asks !== undefined);
+        const patch = questionPatch(lines, buried, header?.line ?? 0, sentence);
         found.push({
-          rule: "question", key: `question:${excerpt(lines[buried]!, 40)}`, line: buried + 1,
-          say: `line ${buried + 1} asks Evan something below the top ("${excerpt(lines[buried]!, 32)}"): put the question first as one "- [ ]" line and mark the note [needs::sysop: the decision]`,
+          rule: "question", key: `question:${excerpt(sentence, 40)}`, line: buried + 1, passage: sentence,
+          say: `line ${buried + 1} asks Evan something below the top ("${excerpt(sentence, 60)}"): put the question first as one "- [ ]" line and mark the note [needs::sysop: the decision]${patch ? " (the patch does)" : ""}`,
           ...(patch ? { patch } : {}),
         });
       }
@@ -350,15 +362,26 @@ function titlePatch(line: string, title: string): ShapePatch[] | undefined {
 }
 
 /** A buried question moved to the top, as one `- [ ]` under the title, and the note marked `[needs::sysop: …]`. */
-function questionPatch(lines: readonly string[], at: number, title: number): ShapePatch[] | undefined {
+function questionPatch(lines: readonly string[], at: number, title: number, sentence: string): ShapePatch[] | undefined {
   const line = lines[at]!;
   if (lines.filter(l => l === line).length !== 1 || lines.filter(l => l === lines[title]).length !== 1 || at <= title) return undefined;
   const words = line.replace(/^(?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])?[ \t]*(?:\[[ xX]\][ \t]*)?/, "").trim();
-  const decision = words.replace(/[\[\]]/g, "").slice(0, 60);
+  const ask = sentence.trim();
+  const decision = ask.replace(/[\[\]]/g, "").slice(0, 60);
+  // The ask alone moves: a sentence out of its paragraph (the rest stays), or the whole line when it's only the ask.
+  const rest = words === ask ? null : line.replace(ask, "").replace(/\s{2,}/g, " ").trimEnd();
+  if (rest !== null && rest === line) return undefined;
   return [
-    { observed: `\n${line}`, replacement: "" },
-    { observed: lines[title]!, replacement: `${lines[title]!.trimEnd()} [needs::sysop: ${decision}]\n\n- [ ] ${words}` },
+    rest === null ? { observed: `\n${line}`, replacement: "" } : { observed: line, replacement: rest },
+    { observed: lines[title]!, replacement: `${lines[title]!.trimEnd()} [needs::sysop: ${decision}]\n\n- [ ] ${ask}` },
   ];
+}
+
+/** The sentence of a line that asks: one with a question mark or naming Evan with a decision, else (Jev judged the line) its last. */
+function askedSentence(line: string, judged: boolean): string {
+  const words = line.replace(/^(?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])?[ \t]*(?:\[[ xX]\][ \t]*)?/, "").trim();
+  const sentences = splitPoints(words, { clauses: false });
+  return sentences.find(x => asksEvan(x)) ?? sentences.find(x => /\?/.test(x)) ?? (judged ? sentences.at(-1)! : words);
 }
 
 /**
@@ -438,7 +461,7 @@ function countFindings(lines: readonly string[], structure: readonly number[], t
 
 /** A line that asks Evan: names him and has a question mark or a decision word. A heuristic until PIE-1251's judgment replaces it. */
 export function asksEvan(line: string): boolean {
-  return /\bEvan\b/.test(line) && (/\?/.test(line) || /\b(?:decide|should we)\b/i.test(line));
+  return /\bEvan\b/.test(line) && (/\?/.test(line) || /\b(?:decide|decision|should we|needs? (?:your|his)|approve|confirm|pick|choose|sign off)\b/i.test(line));
 }
 
 /**

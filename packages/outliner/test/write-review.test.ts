@@ -71,7 +71,7 @@ const WALL = [
   "- Board: 3 queued and 2 in review, with more coming tomorrow.",
 ].join("\n");
 
-type Review = { verdict: "ship" | "fix"; findings: { rule: string; say: string; new: boolean; patch?: { observed: string; replacement: string }[] }[]; next: string };
+type Review = { verdict: "ship" | "fix"; findings: { rule: string; rubric: string; say: string; passage: string; new: boolean; patch?: { observed: string; replacement: string }[] }[]; next: string };
 
 test("an agent's wall of stacked bullets and pasted counts is answered fix, with patches that make it ship", async () => {
   const { store, agent } = await setup();
@@ -117,6 +117,15 @@ test("each finding the writer was told is a record with its passage and what was
   expect(pages).toHaveLength(1);
   const answer = await client.request<{ produced: { titles?: Record<string, string> } }>({ action: "site.answer", blockId: pages[0]!.id, produce: { kind: "figure", figure: "table", props: { query: "type=review-finding NOT source=backfill", machinery: "show", columns: ["note", "rubric", "said"] } } });
   expect(answer.produced.titles?.[made.json.id]).toBe("Status tonight");
+  // A record opened on its own reads: titled as a sentence, and a card of what it says, its note by title and linked.
+  const finding = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=review-finding rule=stacked", machinery: "show" } })).blocks[0]!;
+  expect(finding.text.split("\n", 1)[0]).toStartWith("fix: dense in Status tonight");
+  const read = await client.request<{ decorations?: { view?: { type: string; link?: string; children?: { children?: { label: string; value: string }[] }[] } }[] }>({ action: "resources.projection.read", blockId: finding.id });
+  const card = read.decorations!.find(d => d.view?.type === "card")!.view!;
+  expect(card.link).toBe(made.json.id);
+  const fields = Object.fromEntries(card.children![0]!.children!.map(c => [c.label, c.value]));
+  expect(fields).toMatchObject({ note: "Status tonight", rubric: "dense" });
+  expect(fields.said).toContain("3 points in one item");
 
   const note = store.require(made.json.id);
   const review = made.json.review as Review;
@@ -137,7 +146,7 @@ test("prose reaches Jev with no shape gate: the rubric's judgments are findings 
     if (id === "argues" || id.startsWith("mixed::") || id.startsWith("context::")) return { type: "noul", noul: 0.9 };
     return undefined;
   });
-  const essay = [argue, "", "To understand why the beds moved, it helps to go back to the spring. The light was poor and the soil heavy.", "", "As discussed, the issue above is settled now."].join("\n");
+  const essay = [argue, "", "To understand why the beds moved, it helps to go back to the spring, when the light along the north fence was poor all morning and the soil there stayed heavy and cold well into May. We tried two rows of beans there and both came up late and thin.", "", "As discussed, the issue above is settled now: the beds face south from next year, and the north strip becomes the compost and the water butts, which never minded the shade."].join("\n");
   const made = await agent("create", { parent: "root", text: essay });
   expect(made.exitCode, made.stderr).toBe(0);
   const review = made.json.review as Review & { jev: string };
@@ -150,7 +159,7 @@ test("prose reaches Jev with no shape gate: the rubric's judgments are findings 
 
   // A rewrite Jev still says it of isn't "followed"; one it doesn't say it of is.
   const note = store.require(made.json.id);
-  await agent("edit", { ref: note.id, expectedRevision: note.revision, text: essay.replace("The light was poor", "The light was weak") });
+  await agent("edit", { ref: note.id, expectedRevision: note.revision, text: essay.replace("north fence", "north wall") });
   expect((await records("suggestion-outcome")).filter(o => o.rule === "argues")).toEqual([]);
   const again = store.require(note.id);
   await agent("edit", { ref: again.id, expectedRevision: again.revision, text: "Beds moved south\n\nThey moved for the light." });
@@ -215,4 +224,48 @@ test("a note asking Evan to try something himself is told validation is the agen
   const made = await agent("create", { parent: "root", text: "Seed list sorted\n\n- Sorted by sowing month.\n- Evan, can you try it on your phone and check the order?" });
   const qa = (made.json.review as Review).findings.find(f => f.rule === "qa-for-evan")!;
   expect(qa.say).toContain("validation is the agents' job");
+});
+
+// PIE-1388's done-when (Evan's Oct 17 intent): future Evan opens an agent's note and finds its point, what's known or
+// undecided, and what needs him, without the conversation that produced it. Two acceptance cases.
+const ASK = "Evan, should we keep the cedar beds or switch to stone before the frost?";
+const THREE_PARAGRAPHS = [
+  "Garden beds after the autumn",
+  "",
+  "The beds along the south fence held up well through the wet weeks, although the cedar on the corner bed has started to soften where the soil sits against it. The stone edging on the herb bed has not moved at all. The paths between the beds drained better than last year, mostly because the gravel was topped up in September. Nothing needs doing to the paths before spring.",
+  "",
+  "The compost bays are full and the second bay has turned well. The first bay still smells sour, which usually means it is too wet and needs more brown material. Leaves from the street trees would do, and there will be plenty of those in a fortnight. The bins by the shed are empty and can take the overflow if needed.",
+  "",
+  `The seed order for next year is half done, with the beans and peas chosen and the squash still open. The cedar on the corner bed will need replacing within a year or two at this rate, and stone would last longer but costs more and takes a weekend to lay. The garlic goes in next week either way. ${ASK}`,
+].join("\n");
+
+test("acceptance: three long paragraphs with the ask hidden in the last sentence: Jev reads it, the ask is buried with its exact words and moved to the top, the paragraphs are dense", async () => {
+  const { store, agent, asked } = await setup((id, _q, state) => {
+    const line = (state.asks as Record<string, string> | undefined)?.[id.split("::")[1] ?? ""] ?? "";
+    if (id.startsWith("asks::")) return { type: "noul", noul: line.includes("cedar beds or switch") ? 0.95 : 0.05 };
+    if (id.startsWith("unclear::")) return { type: "noul", noul: 0.9 };
+    return undefined;
+  });
+  const made = await agent("create", { parent: "root", text: THREE_PARAGRAPHS });
+  expect(made.exitCode, made.stderr).toBe(0);
+  expect(asked).toHaveLength(1);
+  const review = made.json.review as Review;
+  expect(review.verdict).toBe("fix");
+  const buried = review.findings.find(f => f.rubric === "buried")!;
+  expect(buried.passage).toBe(ASK);
+  expect(review.findings.filter(f => f.rubric === "dense").length).toBeGreaterThanOrEqual(3);
+  // The concise fix: the ask alone moves to the top as one "- [ ]", and the note is marked for Evan.
+  const note = store.require(made.json.id);
+  await agent("patch", { ref: note.id, revision: note.revision, patches: buried.patch });
+  const fixed = store.require(note.id).text;
+  expect(fixed.split("\n").slice(0, 3)).toEqual([`Garden beds after the autumn [needs::sysop: ${ASK.slice(0, 60)}]`, "", `- [ ] ${ASK}`]);
+  expect(fixed).toContain("costs more and takes a weekend to lay.");
+  expect(fixed.split(ASK)).toHaveLength(2);
+});
+
+test("acceptance: a short, clear, self-contained note ships, pushed into no component it doesn't need", async () => {
+  const { agent } = await setup();
+  const made = await agent("create", { parent: "root", text: "Cedar beds stay this winter\n\nThe corner bed's cedar is soft but holds until spring.\n\n- Stone costs more and takes a weekend.\n- We revisit it in March." });
+  expect((made.json.review as Review).verdict).toBe("ship");
+  expect((made.json.review as Review).findings).toEqual([]);
 });

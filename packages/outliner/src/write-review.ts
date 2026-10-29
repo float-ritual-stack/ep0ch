@@ -15,7 +15,7 @@ import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import { calloutBlocks, quoteDepth } from "@ep0ch/outline-core/callouts";
 import { figurePatch } from "@ep0ch/outline-core/figure-patch";
 import { headerLine } from "@ep0ch/outline-core/header-line";
-import { asksEvan, FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, SHAPE_LIMITS, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
+import { asksEvan, FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, splitPoints, writeShape, type Rubric, type ShapeFacet, type ShapePatch } from "@ep0ch/outline-core/write-shape";
 import { loadWriteReviewPrompt, type PromptRevision, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
 import { JEV_ENDPOINT, JEV_MODEL, jevKey } from "./search-ranking";
@@ -23,8 +23,15 @@ import type { QuestionFacet } from "@ep0ch/outline-core/protocol";
 
 /** A Noul at or over this reads as yes; under `NO` as no (the skill's starting thresholds). */
 export const REVIEW_THRESHOLDS = { yes: 0.7, no: 0.3, ...FIGURE_FIT_THRESHOLDS };
+
+/**
+ * What a section must be before Jev's judgment of it stands (code's half of the truth table): a short, clear passage
+ * is never pushed into a component or called dense, whatever Jev says. A component needs rows to draw (or a wall of
+ * prose it could replace); dense and mixed need room to be either.
+ */
+export const REVIEW_SIZES = { kitRows: 3, kitProse: 400, dense: 300, mixed: 400 };
 /** Sections a review asks Jev about, and how much of each it sends. */
-const MAX_SECTIONS = 8, MAX_SECTION = 1500, MAX_ASKS = 5;
+const MAX_SECTIONS = 8, MAX_SECTION = 1500, MAX_ASKS = 8;
 
 export interface ReviewFinding {
   /** Code's rule (`stacked`, `count`, …) or Jev's judgment (`kit`, `dense`, `mixed`, `context`, `argues`, `unclear`). */
@@ -81,8 +88,8 @@ export function sectionsOf(text: string): Section[] {
 
 /** The lines below the top that may ask Evan something: a question mark or a decision word, outside code and components. */
 function askCandidates(text: string): number[] {
-  const lines = text.split("\n"), structure = noteStructure(lines);
-  return lines.flatMap((line, i) => i >= SHAPE_LIMITS.top && structure[i] === -1 && (/\?\s*$|\?\s+\S/.test(line) || /\b(?:decide|should we|which (?:one|do)|can you|do you want)\b/i.test(line)) ? [i] : []);
+  const lines = text.split("\n"), structure = noteStructure(lines), title = headerLine(text).line;
+  return lines.flatMap((line, i) => i > title && structure[i] === -1 && (/\?/.test(line) || /\b(?:evan|you|your|decide|decision|should|please|let me know|approve|confirm|pick|choose|sign off)\b/i.test(line)) ? [i] : []);
 }
 
 /** The components a review may name: every one the outline has in its figures, layout and site groups, each by its own description. */
@@ -180,7 +187,10 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
     const where = s.id === "s0" ? "the top of the note" : `the section "${clip(s.heading, 40)}"`;
     const base = { line: s.line + 1, passage: clip(s.text), new: true, by: "jev" as const };
     const kit = a[`kit::${s.id}`], structured = a[`structured::${s.id}`]?.noul, prose = a[`prose::${s.id}`]?.noul;
-    if (kit?.choice && unit(kit.confidence) && unit(structured) && unit(prose) && (structured + (1 - prose)) / 2 >= t.gate && kit.confidence >= t.confidence) {
+    // Rows a figure could draw: list items, table rows, dated lines, a callout's body lines (as figure-fit counts them).
+    const rows = s.text.split("\n").filter(l => /^[ \t>]*(?:[-*+]|\d+[.)]|\||\d{4}-\d{2})\s*\S/.test(l) || /^[ \t]*>[ \t]*(?!\[!)\S/.test(l)).length;
+    const roomy = (n: number) => s.text.length > n;
+    if ((rows >= REVIEW_SIZES.kitRows || roomy(REVIEW_SIZES.kitProse)) && kit?.choice && unit(kit.confidence) && unit(structured) && unit(prose) && (structured + (1 - prose)) / 2 >= t.gate && kit.confidence >= t.confidence) {
       const schema = schemas.find(x => x.id === kit.choice);
       // A section that draws a figure already chose one: it isn't told about another.
       const held = kitIn(s.text, schemas);
@@ -195,8 +205,8 @@ function jevFindings(text: string, sections: readonly Section[], asked: Asked, s
         });
       }
     }
-    if (yes(`dense::${s.id}`) && !codeIn(s, "dense")) out.push({ ...base, rule: "dense", rubric: "dense", key: `dense:${clip(s.heading, 24)}`, say: `${where} packs several points into one paragraph or item: one point per line, a heading over each part` });
-    if (yes(`mixed::${s.id}`)) out.push({ ...base, rule: "mixed", rubric: "mixed", key: `mixed:${clip(s.heading, 24)}`, say: `${where} mixes what's true, what was decided and what's still open: give each its own section, decisions in a ::graph-decision` });
+    if (yes(`dense::${s.id}`) && roomy(REVIEW_SIZES.dense) && !codeIn(s, "dense")) out.push({ ...base, rule: "dense", rubric: "dense", key: `dense:${clip(s.heading, 24)}`, say: `${where} packs several points into one paragraph or item: one point per line, a heading over each part` });
+    if (yes(`mixed::${s.id}`) && roomy(REVIEW_SIZES.mixed)) out.push({ ...base, rule: "mixed", rubric: "mixed", key: `mixed:${clip(s.heading, 24)}`, say: `${where} mixes what's true, what was decided and what's still open: give each its own section, decisions in a ::graph-decision` });
     if (yes(`qa::${s.id}`) && !codeIn(s, "qa-for-evan")) out.push({ ...base, rule: "qa-for-evan", rubric: "qa-for-evan", key: `qa:${clip(s.heading, 24)}`, say: `${where} asks Evan to try or check something himself: ${qaRule}` });
     if (yes(`context::${s.id}`) && !codeIn(s, "context")) out.push({ ...base, rule: "context", rubric: "context", key: `context:${clip(s.heading, 24)}`, say: `${where} leans on today's context ("as discussed", "the issue above", a bare id or jargon): name the thing, or link it as ((id|label)), so it reads without this session` });
   }
@@ -253,7 +263,7 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
   const code: ReviewFinding[] = writeShape(text, shape).map(f => {
     const n = had.get(f.key) ?? 0;
     if (n) had.set(f.key, n - 1);
-    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.line ? lines[f.line - 1] ?? "" : text), new: !n, by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
+    return { rule: f.rule, rubric: RUBRIC_OF[f.rule], key: f.key, say: f.say, ...(f.line ? { line: f.line } : {}), passage: clip(f.passage ?? (f.line ? lines[f.line - 1] ?? "" : text)), new: !n, by: "code" as const, ...(f.patch ? { patch: f.patch } : {}) };
   });
   const qaRule = input.qaRule ?? QA_RULE;
   code.push(...qaFindings(text, before, qaRule));
@@ -291,14 +301,19 @@ function qaFindings(text: string, before: string | undefined, qaRule: string): R
  */
 function withoutOverlaps(text: string, findings: ReviewFinding[]): ReviewFinding[] {
   const taken: [number, number][] = [];
-  return findings.map(f => {
+  // The ask's patch is placed first: moving a buried question to the top matters more than splitting the paragraph it was in.
+  const order = [...findings.keys()].sort((a, b) => Number(findings[b]!.rubric === "buried") - Number(findings[a]!.rubric === "buried"));
+  const placed = new Map<number, ReviewFinding>();
+  for (const k of order) placed.set(k, place(findings[k]!));
+  return findings.map((_, k) => placed.get(k)!);
+  function place(f: ReviewFinding): ReviewFinding {
     if (!f.patch || !f.new) return f;
     const spans = f.patch.map(p => { const at = text.indexOf(p.observed); return [at, at + p.observed.length] as [number, number]; });
     const clashes = spans.some(([a, b]) => a < 0 || taken.some(([c, d]) => a < d && c < b));
     if (clashes) { const { patch: _, ...rest } = f; return { ...rest, say: `${f.say} (after the other patches: its own comes with the next review)` }; }
     taken.push(...spans);
     return f;
-  });
+  }
 }
 
 /** A review's new findings as the write answer's warnings, each worded as a gate. */

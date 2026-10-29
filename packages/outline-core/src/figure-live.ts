@@ -136,7 +136,8 @@ export function tableOf(p: Props, items: readonly FigureItem[], titles?: Readonl
   const named = raw.map(r => r.map(v => { const id = cellBlockId(v); return id && titles?.[id] ? id : null; }));
   const rows = raw.map((r, i) => r.map((v, k) => (named[i]![k] ? titles![named[i]![k]!]! : v)));
   return {
-    headers: p.headers ?? cols, rows, blocks: items.map(m => m.id), titleColumn: Math.max(0, cols.indexOf("title")),
+    // `link: <property>`: a row opens the note its property names (a record's `note`), where it names one; else its own.
+    headers: p.headers ?? cols, rows, blocks: items.map(m => (typeof p.link === "string" && cellBlockId(itemField(m, p.link))) || m.id), titleColumn: Math.max(0, cols.indexOf("title")),
     ...(named.some(r => r.some(Boolean)) ? { cellBlocks: named } : {}),
   };
 }
@@ -267,7 +268,7 @@ export function keepGroups(groups: readonly QuestionGroup[] | undefined, kept: R
 }
 
 /** The props a figure's question is read from (`liveAsk`, `figureQuestion`, `done:`/`now:`, a stat's items): what a client sends to be answered. */
-const ASK_KEYS = ["query", "view", "limit", "sort", "direction", "machinery", "source", "group", "done", "now", "label", "value", "columns"] as const;
+const ASK_KEYS = ["query", "view", "limit", "sort", "direction", "machinery", "source", "group", "done", "now", "label", "value", "columns", "link"] as const;
 export function askProps(p: Props): Props {
   const pick = (from: Props) => Object.fromEntries(ASK_KEYS.flatMap(k => from?.[k] === undefined ? [] : [[k, from[k]]]));
   // A title that reads the Site (`{{props.day}}` in a template, PIE-1362) is asked with the question, and answered read.
