@@ -1580,7 +1580,7 @@ export class App implements Ctx {
       return { typing: !!p?.typing, over: chrome || !this.drawer.entered || !!p?.over };
     }
     for (let i = this.stack.length - 1; i >= 0; i--) {
-      const s = this.stack[i], d = tilesOf(s), above = chrome || i < this.stack.length - 1;
+      const s = this.stack[i]!, d = tilesOf(s), above = chrome || i < this.stack.length - 1;
       if (!d) { if (s.rawKeys?.()) return { typing: true, over: above }; continue; }
       const p = d.programKeys();
       // A screen that frames a desk (the showcase's stage) says whether the keys are in it at all.
