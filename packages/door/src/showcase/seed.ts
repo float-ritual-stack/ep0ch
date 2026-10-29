@@ -148,6 +148,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     }
     cards.push(card);
   }
+  // The twins section (PIE-1258): the queued card a near-duplicate is offered, and attached to.
+  notes.gateLatch = cards[0]!;
 
   notes.chores = await make(notes.root.id, `${SEED.chores}\nPlain blocks with properties, for the live figures and the saved view.`);
   const chores: Msg[] = [];

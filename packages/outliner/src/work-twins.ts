@@ -29,8 +29,9 @@ export interface TwinCandidate {
   workId: string;
   title: string;
   stage: string;
-  /** How the text matched (the search matcher's kind). */
+  /** How the text matched (the search matcher's kind), and the share of the new title's words in its title. */
   match: SearchMatchKind;
+  inTitle: number;
   /** Jev's Nouls, when it answered: the same work, and one more step of it. */
   same?: number;
   part?: number;
@@ -61,17 +62,18 @@ const bodyOf = (b: Block, max = 600) => clip(b.text.split("\n").slice(headerLine
 export function twinCandidates(open: readonly Block[], title: string, limit = TWIN_CANDIDATES): Omit<TwinCandidate, "verdict">[] {
   const docs = open.map(b => ({ id: b.id, title: itemTitle(b), text: b.text, block: b }));
   return rankTextSearchMatches(docs, title).filter(m => !WEAK.has(m.kind) && (m.kind !== "some-terms" || (m.inTitle ?? 0) >= 0.5)).slice(0, limit).map(m => ({
-    id: m.document.id, workId: workIdOf(m.document.block) ?? m.document.id.slice(0, 8), title: m.document.title, stage: propOf(m.document.block, "work-stage") ?? "unknown", match: m.kind,
+    id: m.document.id, workId: workIdOf(m.document.block) ?? m.document.id.slice(0, 8), title: m.document.title, stage: propOf(m.document.block, "work-stage") ?? "unknown", match: m.kind, inTitle: Math.round(m.inTitle * 100) / 100,
   }));
 }
 
 /** Code's call over Jev's answers (or none): the truth table, in one place. Pure. */
-export function twinVerdict(c: Pick<TwinCandidate, "match" | "same" | "part">): TwinCandidate["verdict"] {
+export function twinVerdict(c: Pick<TwinCandidate, "match" | "same" | "part"> & { inTitle?: number }): TwinCandidate["verdict"] {
   if (c.same !== undefined && c.same >= YES) return "same";
   if (c.part !== undefined && c.part >= YES) return "part";
   // Jev read it and said no to both: a title that shares words is no twin.
   if (c.same !== undefined && c.same < NO && (c.part ?? 0) < NO) return "related";
-  return STRONG.has(c.match) ? "text" : "related";
+  // All its words in the title, or all but one of four or more.
+  return STRONG.has(c.match) || (c.match === "partial-terms" && (c.inTitle ?? 0) >= 0.75) ? "text" : "related";
 }
 
 /** The open items (every stage but done and superseded). */
