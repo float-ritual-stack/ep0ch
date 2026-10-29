@@ -41,6 +41,8 @@ export interface Whereabouts extends ScreenKeys {
 
 /** The host layer's agent tile, as `typingIn` names it while the person types in the drawer. */
 export const HOST_AGENT = "drawer.agent";
+/** The host layer's drawer holds the drawer's desk: one leaf, its tiles the drawer's tabs (re-exported by src/drawer.ts). */
+export const HOST_TILES = "drawer.tiles";
 
 export interface AgentPointer {
   agent: string;
@@ -96,9 +98,15 @@ export function whereabouts(o: {
   const k = o.keys ?? { focus: null, typingIn: null, busy: false };
   const away = !o.loggedOn ? `the door is at the ${o.screen ?? "logon"}; the person hasn't logged on`
     : o.suspended ? `the person is in the door's ${o.suspended} (the door waits under it)` : null;
-  if (o.inHost) return { address: o.hostAddress, focus: k.focus, typingIn: o.hostTile ?? HOST_AGENT, busy: true, why: `the person is typing in the drawer${o.hostTile && o.hostTile !== HOST_AGENT ? ` (${o.hostTile.replace(/^drawer:/, "")})` : ""}`, keys: "host", screen: o.screen, idle: o.idle, away };
+  if (o.inHost) return { address: o.hostAddress, focus: k.focus, typingIn: o.hostTile ?? HOST_AGENT, busy: true, why: `the person is typing in ${hostTyping(o.hostTile)}`, keys: "host", screen: o.screen, idle: o.idle, away };
   const why = k.busy ? (k.why ?? `the person is typing on the ${o.screen ?? "screen"}`) : undefined;
   return { address: k.address, focus: k.focus, typingIn: k.typingIn, busy: k.busy || !!o.suspended, ...(k.busy && k.navHold && !o.suspended ? { navHold: true as const } : {}), ...(why ? { why } : o.suspended ? { why: away! } : {}), keys: "screen", screen: o.screen, idle: o.idle, away };
+}
+
+/** The drawer's tile the person types in, as a refusal names it: `<its name> in the drawer`, or the drawer itself (never its container's id, `drawer.tiles`). */
+function hostTyping(tile: string | null | undefined): string {
+  const name = tile && tile !== HOST_AGENT ? tile.replace(/^drawer:/, "") : "";
+  return name && name !== HOST_TILES ? `${name} in the drawer` : "the drawer";
 }
 
 /**
@@ -138,3 +146,9 @@ export const MARK_THEM = "block.mark gets their attention";
 export const heldBack = (why: string, what: string, way: string | null = MARK_THEM): string => `${why}; an agent doesn't ${what}${way ? ` · ${way}` : ""}`;
 /** `heldBack` for the tile, draft or passage the person is typing in (`label`: its name, or "this draft"). */
 export const typingIn = (label: string, what: string, way: string | null = MARK_THEM): string => heldBack(`the person is typing in ${label}`, what, way);
+/**
+ * `heldBack` for the tile that has the person's keys (`typing`: they type in it, said as `typingIn` says it; else it's
+ * only focused). Every layout guard about the person's tile words it here (PIE-1428).
+ */
+export const keysIn = (label: string, what: string, typing = false, way: string | null = MARK_THEM): string =>
+  typing ? typingIn(label, what, way) : heldBack(`${label} has the person's keys`, what, way);

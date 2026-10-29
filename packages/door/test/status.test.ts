@@ -452,7 +452,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { await board.trash(note.id, USER); }
   });
 
-  test("a group inside a group opens its menu where the click was, under its outer group, not at column 1 (PIE-1415)", async () => {
+  test("a group inside a group opens its menu beside its outer group's, which stays open, never at column 1 (PIE-1415, PIE-1428)", async () => {
     // On the right of the bar, so column 1 is far from the click.
     const note = await board.createBlock(null, 'Nested status [status-bar::true]\n- brand\n- clock\n- Tools\n  - theme\n  - More\n    - ::button{label="Video" act="video.cycle"}');
     try {
@@ -468,10 +468,17 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
         press({ kind: "mouse", action: "up", button: 0, x: col, y: row });
         await until(() => painted.slice(0, -1).some(l => visible(l).includes("[Video]")), "the inner menu");
         const inner = painted.findIndex(l => visible(l).includes("[Video]")), at = visible(painted[inner]!).indexOf("[Video]");
-        // Where the outer menu stood (it opened above Tools), never pulled to the left edge.
-        expect(Math.abs(at - col)).toBeLessThanOrEqual(4);
+        // Beside the outer menu (to its right, or its left at the bar's right end), which stays open and in sight (PIE-1428),
+        // never pulled to the left edge; Esc closes it, then the outer.
+        // (At 44 columns two menus don't fit side by side: the inner is drawn over the outer, which is there again after Esc.)
+        if (cols >= 70) expect(painted.slice(0, -1).some(l => visible(l).includes("More ▲"))).toBe(true);
+        expect(at).toBeGreaterThan(1);
         expect(tools).toBeGreaterThan(cols / 2);
         press({ kind: "esc" });
+        await until(() => !painted.slice(0, -1).some(l => visible(l).includes("[Video]")), "the inner menu closed");
+        expect(painted.slice(0, -1).some(l => visible(l).includes("More ▲"))).toBe(true);
+        press({ kind: "esc" });
+        await until(() => !painted.slice(0, -1).some(l => visible(l).includes("More ▲")), "the outer menu closed");
       }
     } finally { await board.trash(note.id, USER); size.cols = 220; }
   });

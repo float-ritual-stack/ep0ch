@@ -282,7 +282,7 @@ const opensFrom = (bar: string, path: string) => { const a = pathOf(bar), b = pa
 export function menuRowOf(item: StatusItem, group: string): MenuRow {
   const label = visible(item.text).trim() || item.id;
   return item.click
-    ? { action: item.click.action, args: item.click.args ?? {}, tile: item.click.tile ?? "", label, group }
+    ? { action: item.click.action, args: item.click.args ?? {}, tile: item.click.tile ?? "", label, group, ...(item.click.action === "status.bar.menu" && item.click.args?.group !== undefined ? { submenu: true as const } : {}) }
     : { action: "status.log", args: {}, tile: "", label, group, refused: `${label} does nothing on a click` };
 }
 
@@ -293,8 +293,11 @@ interface StatusOn {
   /** What the bar had no room for, in its order (the `+N` chip's). */
   hidden(): StatusItem[];
   open(id: string, actor: Actor, reveal?: Reveal): Promise<unknown>;
-  /** Show the person a menu of `rows` over the screen, above the bar's item `anchor` picks; false when no screen can hold one. */
-  menu(title: string, rows: MenuRow[], anchor: (item: StatusItem) => boolean): boolean;
+  /**
+   * Show the person a menu of `rows` over the screen, above the bar's item `anchor` picks; false when no screen can hold one.
+   * `group`: the group's path (Tools/More): a nested group's menu opens beside its parent's, which stays open (PIE-1428).
+   */
+  menu(title: string, rows: MenuRow[], anchor: (item: StatusItem) => boolean, group?: string): boolean;
   flash(text: string): void;
 }
 export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
@@ -340,7 +343,7 @@ export const STATUS_BAR_ACTIONS = actionSet<StatusOn>()("status bar", {
       if (overflow) rows.push({ action: "status.bar.edit", args: {}, tile: "", label: "edit the status bar", group: "the bar" });
       const title = overflow ? "status bar" : g.label, answer = { title, rows: rows.map(({ tile: _t, group: _g, ...r }) => r) };
       if (actor.kind === "agent") return answer;
-      if (!on.menu(title, rows, i => (overflow ? i.id === "overflow" : i.click?.action === "status.bar.menu" && opensFrom(String(i.click.args?.group ?? ""), group ?? "")))) on.flash(`${title}: ${rows.map(r => r.label).join(" · ")}`);
+      if (!on.menu(title, rows, i => (overflow ? i.id === "overflow" : i.click?.action === "status.bar.menu" && opensFrom(String(i.click.args?.group ?? ""), group ?? "")), overflow ? undefined : pathOf(group ?? ""))) on.flash(`${title}: ${rows.map(r => r.label).join(" · ")}`);
       return answer;
     },
   }),

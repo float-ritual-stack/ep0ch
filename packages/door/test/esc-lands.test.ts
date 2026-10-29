@@ -138,7 +138,7 @@ describe.skipIf(!outliner)("Esc lands where it was meant (PIE-1431)", () => {
     const d = await door();
     try {
       await d.typeIn();
-      const notes = (d.desk as any).hits.find(([id]: [string]) => d.desk.nameOf(id) !== "kettle");
+      const notes = (d.desk as any).hits.find(([id]: [number]) => (d.desk as any).nameOf(id) !== "kettle");
       const [, r] = notes;
       await d.feed(click(r.col + 2, r.row + 2) + "\x1b");
       expect(await d.echoed(d.kettle)).toBe(false);

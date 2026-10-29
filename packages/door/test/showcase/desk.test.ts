@@ -48,6 +48,8 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await app.dispatch.act({ action: "element.select", tile: "notes", args: { n: found.elements.find(e => e.label.includes("Collapse"))!.n } }, { kind: "user" });
     const menu = await app.dispatch.act({ action: "tile.menu", tile: "notes" }, { kind: "agent", id: "test-agent" }) as any;
     expect(JSON.stringify(menu)).toContain("pin to status bar");
+    // The menu's first row, in reach in a short tile without typing pin (PIE-1428).
+    expect(menu.rows[0]).toMatchObject({ label: "pin to status bar", group: "Button" });
     await app.dispatch.act({ action: "button.pin", tile: "notes", args: { label: "Collapse" } }, { kind: "user" });
     const note = (await board.byProp("status-bar", "true"))[0]!;
     expect(note.text).toContain('::button{label="Collapse" act="tile.collapse tile=extra"}');
@@ -93,7 +95,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
       await until(() => { app.flush(); return h.painted.some(pinRow); }, "the tile menu's pin row");
       expect(ran).not.toContain("button.press");
       expect(ran).not.toContain("tile.collapse");
-      const at = h.painted.findIndex(pinRow), x = plain(h.painted[at]!).search(/pin to status bar(?=\s*│)/);
+      const at = h.painted.findIndex(pinRow), x = plain(h.painted[at]!).search(/(?<=│ +)pin to status bar/);
       press({ kind: "mouse", action: "down", button: 0, x, y: at });
       press({ kind: "mouse", action: "up", button: 0, x, y: at });
       await untilAsync(async () => !!(note = (await board.byProp("status-bar", "true"))[0]), "the pinned bar note");
@@ -137,11 +139,19 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
       press({ kind: "mouse", action: "down", button: 0, x: at, y: more });
       press({ kind: "mouse", action: "up", button: 0, x: at, y: more });
       expect((await app.dispatch.act({ action: "status.bar.menu", args: { group: "Tiles/More" } }, { kind: "agent", id: "test-agent" }) as any).rows).toHaveLength(1);
-      // Its frame's title says More, standing where the outer menu stood.
+      // Its frame's title says More, beside the outer menu, which stays open under it (PIE-1428); Esc closes More, then Tiles.
       await until(() => { app.flush(); return h.painted.some(l => /┌─ More /.test(plain(l))); }, "the inner menu");
+      const outer = h.painted.find(l => /┌─ Tiles /.test(plain(l)));
+      expect(outer).toBeDefined();
       const inner = h.painted.find(l => /┌─ More /.test(plain(l)))!;
-      expect(Math.abs(plain(inner).indexOf("┌─ More") - at)).toBeLessThanOrEqual(4);
+      expect(plain(inner).indexOf("┌─ More")).toBeGreaterThan(plain(outer!).indexOf("┌─ Tiles"));
       press({ kind: "esc" });
+      app.flush();
+      expect(h.painted.some(l => /┌─ More /.test(plain(l)))).toBe(false);
+      expect(h.painted.some(l => /┌─ Tiles /.test(plain(l)))).toBe(true);
+      press({ kind: "esc" });
+      app.flush();
+      expect(h.painted.some(l => /┌─ Tiles /.test(plain(l)))).toBe(false);
       // The guide's own list-item button presses in the reader, by act.
       const pressed = await app.dispatch.act({ action: "button.press", tile: "notes", args: { label: "Fold from a list" } }, { kind: "user" });
       await untilAsync(collapsed, `the list-item button in the guide (it answered ${JSON.stringify(pressed)})`);

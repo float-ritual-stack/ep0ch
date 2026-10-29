@@ -69,6 +69,7 @@ import { WhatChanged } from "./desk/what-changed";
 import { overBar, PowerBar } from "./bar/bar";
 import { tilesOf } from "./bar/sources";
 import { rawKey } from "./kbd";
+import type { ListPicker } from "./surface/picker";
 import { BAR_ACTIONS, type BarOn } from "./bar/actions";
 import { onBarSources, type BarHost } from "./bar/source";
 import type { Msg } from "./board";
@@ -609,6 +610,8 @@ export class App implements Ctx {
     host: () => this.barHost(),
   };
   private statusBoxes: StatusHit[] = [];
+  /** The status-bar groups' menus the person opened, by the group's path: a nested group's opens beside its parent's. */
+  private readonly statusMenus = new Map<string, ListPicker<MenuRow, unknown>>();
   /** What the narrow bar put in its `+N` chip, in the bar's order (`status.bar.menu overflow=true` lists them). */
   private statusHidden: StatusItem[] = [];
   private readonly statusButtons = new NoteSurface();
@@ -1219,12 +1222,17 @@ export class App implements Ctx {
       flash: (text: string) => this.flash(text, 12_000),
       // A group's or the overflow's menu (PIE-1224, PIE-1213): the tile menu over the screen, above the bar item it opens from,
       // its rows run on this dispatcher (they are the bar's own clicks).
-      menu: (title: string, rows: MenuRow[], anchor: (item: StatusItem) => boolean) => {
+      menu: (title: string, rows: MenuRow[], anchor: (item: StatusItem) => boolean, group?: string) => {
         // Only over the screen the person sees: a desk under another screen would hold a menu nobody sees.
         const here = this.screenDesk();
         if (!here || here !== tilesOf(this.stack.at(-1))) return false;
         const hit = this.statusBoxes.find(h => anchor(h.item));
-        here.overlay(tileMenu({ title, rows, at: { col: hit?.from ?? 0, row: Math.max(0, this.term.info.rows - 2) }, host: { dispatch: { press: (a, args, tile) => this.dispatch.press(a, args, tile) }, ctx: this } }));
+        // A group in a group opens beside its parent's menu, still open under it (PIE-1428); the outermost, above its bar item.
+        const parent = group?.includes("/") ? this.statusMenus.get(group.slice(0, group.lastIndexOf("/"))) : undefined, box = parent && !parent.ended() ? parent.drawn() : null;
+        const at = box ? { col: box.col + box.cols, row: box.row } : { col: hit?.from ?? 0, row: Math.max(0, this.term.info.rows - 2) };
+        const menu = tileMenu({ title, rows, at, ...(box ? { beside: box } : {}), ...(group ? { name: `tile menu ${group}` } : {}), host: { dispatch: { press: (a, args, tile) => this.dispatch.press(a, args, tile) }, ctx: this } });
+        if (group !== undefined) this.statusMenus.set(group, menu);
+        here.overlay(menu);
         this.redraw();
         return true;
       },

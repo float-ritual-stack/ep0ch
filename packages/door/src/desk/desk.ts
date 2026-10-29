@@ -42,7 +42,7 @@ import { uncover, type Placement } from "../kitty";
 import { inResize, resizeEnded, resizeHeld } from "../resize";
 import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { lastTrashed } from "../note-trash";
-import { COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
+import { BUTTON_GROUP, COPY_GROUP, copyNoteById, deliverCopy, NOTE_REF_ACTIONS, ownOutline, type NoteRefKind, type NoteRefOn } from "../note-ref";
 import { LayoutHistory, type LayoutEntry } from "./layout-history";
 import { motionMode, planMotion, Transition, type MotionPlan } from "../motion";
 import { TXN } from "../surface/txn";
@@ -3092,7 +3092,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const busy = this.holdsKeys();
     const inner = f instanceof ScreenTile && !this.contentCover(this.focus).fold ? f.inner?.keys() : null;
     const address = inner?.address ?? (f ? this.tileId(this.focus) : null);
-    const why = !busy ? undefined : this.rawKeys() ? `the person is typing in ${name}, a terminal tile on the ${this.title}`
+    const why = !busy ? undefined : this.rawKeys() ? `the person is typing in ${name} on the ${this.title}`
       : `the person is typing on the ${this.title}: in an edit, a comment or the property panel (or a filter, a picker, a ^W command)`;
     return { focus: name, address, typingIn: typing ? name : null, busy, ...(why ? { why } : {}) };
   }
@@ -7101,7 +7101,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // on, so its Note rows come next; the ⋯ menu is about the tile, so its kind's own groups (a reader's Shows and page
     // lock) come before the long Note group and never fall below the fold.
     const listed: MenuRow[] = this.dispatch.menu(this.tileId(t.id), actor), groups = listed.map(r => r.group).filter(g => g !== "Note");
-    const order = [...new Set(at ? [COPY_GROUP, "Tile", "Note", ...groups] : [COPY_GROUP, "Tile", ...groups, "Note"])];
+    // A button's own rows (pin to status bar, shown only when one is the [ ] position) come before all of them (PIE-1428).
+    const order = [...new Set(at ? [BUTTON_GROUP, COPY_GROUP, "Tile", "Note", ...groups] : [BUTTON_GROUP, COPY_GROUP, "Tile", ...groups, "Note"])];
     const every = order.flatMap(g => listed.filter(r => r.group === g));
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;

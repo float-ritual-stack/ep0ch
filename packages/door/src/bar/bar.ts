@@ -498,7 +498,8 @@ export class PowerBar {
     if ("lines" in p || "markdown" in p) {
       if (this.docsKey !== key + w) { this.docsKey = key + w; this.docsView.reset(); this.docsSelection = null; this.docsMode = false; }
       this.docsDoc = "markdown" in p ? draftPreviewDoc(p.markdown, w, { board: this.host.ctx.board, redraw: () => this.host.ctx.redraw() }) : null;
-      this.docsLines = this.docsDoc?.lines ?? ("lines" in p ? p.lines.flatMap(l => rowLines(paintable(l), w)).map(l => fg(C.grey) + l + RESET) : []);
+      // Each line whole, however narrow (PIE-1428: a refusal's how-to at 40 columns): the preview scrolls, it never cuts a line.
+      this.docsLines = this.docsDoc?.lines ?? ("lines" in p ? p.lines.flatMap(l => rowLines(paintable(l), w, Infinity)).map(l => fg(C.grey) + l + RESET) : []);
       this.docsExamples.clear();
       const info = this.host.dispatch.list().actions.find(a => a.name === (it.row.data as { action?: string })?.action);
       const plain = this.docsLines.map(l => rowsOf([l]).cells(0).join(""));
@@ -660,7 +661,8 @@ export class PowerBar {
     if (op === "recall") { this.input.splice(0, this.query.length, line); this.refresh(); return { line }; }
     // Each word shell-quoted, so a value like "$HOME" or `cmd` pastes as written, never expanded.
     const text = op === "button" ? commandButton(line) : ["ep0ch", "act", ...lineWords(line)].map(shellWord).join(" ");
-    this.host.ctx.copy?.(text);
+    // Said on the status line and in its log too (PIE-1428): the toast is gone in a moment.
+    if (this.host.ctx.copy?.(text) !== false) this.host.ctx.flash(`copied ${op === "button" ? "as a note button" : "the command"}: ${text}`);
     return { text };
   }
 

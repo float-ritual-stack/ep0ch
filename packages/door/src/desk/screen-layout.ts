@@ -1,4 +1,4 @@
-import { heldBack, holdsEdit, MARK_THEM, typingIn } from "../whereabouts";
+import { heldBack, holdsEdit, keysIn, MARK_THEM, typingIn } from "../whereabouts";
 import type { AltRule } from "./layout";
 // The screen-layout module (PIE-513): the reducer in the door's one-way data flow. A screen's layout is one value
 // (its tree of containers and tiles, its floats, the tiles folded to a spine, the zoom, the links, the tiles' names,
@@ -833,6 +833,8 @@ class Step<I> {
   /** An agent in yolo: the person handed it the door, so their locks don't hold it either. */
   private get yolo() { return this.ctx.actor.kind === "agent" && !!this.ctx.person.yolo; }
   private name(id: I) { return this.d.names.get(id) ?? String(id); }
+  /** Why an agent leaves the tile with the person's keys alone, in the one wording (keysIn): typing in it, or only focused there. */
+  private theirs(id: I, what: string) { return keysIn(this.name(id), what, this.ctx.person.typingIn === id); }
   /** This layout as the person reads about it: the screen, or your drawer. */
   private get self(): LayoutSelf { return this.ctx.self ?? SCREEN_SELF; }
   private facts(id: I): TileFacts { return this.ctx.tile(id); }
@@ -977,7 +979,7 @@ class Step<I> {
         // Popping a tile out or putting it back moves the tile the person has: an agent doesn't, typing or not (as it
         // doesn't close or fold it).
         if (this.ctx.protectTyping && op.tile === this.ctx.person.typingIn) refuse(typingIn(this.name(op.tile), "float it"));
-        if (this.agent && op.tile === this.d.focus) refuse(`${this.name(op.tile)} has the person's keys; an agent doesn't float it`);
+        if (this.agent && op.tile === this.d.focus) refuse(this.theirs(op.tile, "float it"));
         return this.isFloat(op.tile) ? this.land(op.tile, op.at) : this.float(op.tile);
       case "place": return this.place(op);
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
@@ -1252,7 +1254,7 @@ class Step<I> {
       const own = chainOf(this.d.tree, id).find(c => c.id === e.by.closable && c.t === "tabs" && c.ids.length === 1);
       if (!e.closable && !(f.clearsOnClose && e.by.closable === `${f.kind} tiles`)) refuse(own ? `${name} stays: its place (${own.id}) keeps it${fold} · ^W P there turns closable on` : this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles${fold} · ^W P there turns closable on`));
       if (f.keeps) refuse(`${name} stays: ${f.keeps}${fold}`);
-      if (this.agent && id === this.d.focus && (!f.clearsOnClose || this.ctx.person.here !== false)) refuse(`${name} has the person's keys; an agent doesn't close it`);
+      if (this.agent && id === this.d.focus && (!f.clearsOnClose || this.ctx.person.here !== false)) refuse(this.theirs(id, "close it"));
       if (this.agent && f.running) refuse(`${name} is running ${f.running}; an agent doesn't end it`);
     }
     if (!f.clearsOnClose) this.lift(id);
@@ -1278,7 +1280,7 @@ class Step<I> {
     if (!e.closable) refuse(this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles · ^W P there turns closable on`));
     if (e.accepts && !e.accepts.includes(op.kind)) refuse(`${this.whose(e.by.accepts)} takes only ${e.accepts.join(", ") || "nothing"}: not a ${op.kind} tile`);
     // The person's keys on it: an agent replaces only a place holder (the blank tile), and never where they're typing.
-    if (this.agent && id === this.d.focus && !f.placeholder) refuse(`${name} has the person's keys; an agent doesn't replace it`);
+    if (this.agent && id === this.d.focus && !f.placeholder) refuse(this.theirs(id, "replace it"));
     this.guard(id, "replace");
     let newName = op.name;
     if (newName !== undefined && named(this.d, newName) !== undefined && named(this.d, newName) !== id) refuse(`there's already a tile named ${newName}`);
@@ -1310,7 +1312,7 @@ class Step<I> {
     if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
     if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
     if (!heir && !this.ctx.empties && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
-    if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't take it away`);
+    if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(this.theirs(id, "take it away"));
     if (heir) {
       if (this.all().includes(heir.id)) refuse(`${this.name(heir.id)} is in the layout already`);
       const float = this.d.floats.find(x => x.id === id);
@@ -1344,7 +1346,7 @@ class Step<I> {
       const e = this.policyAt(t), f = this.facts(t);
       if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
       if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
-      if (this.agent && this.ctx.person.here !== false && t === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't gather it into a group`);
+      if (this.agent && this.ctx.person.here !== false && t === this.d.focus) refuse(this.theirs(t, "gather it into a group"));
     }
     // A container that keeps its tiles from data (a board's lanes: their source fills them) isn't gathered: its tiles would leave their source.
     if (target && target.t === "columns" && target.source) refuse(`${op.node} is filled from ${target.source}: its tiles come and go with the data, so it isn't gathered (mount the screen's part instead: tile.open kind=screen part=)`);
@@ -1370,7 +1372,7 @@ class Step<I> {
     this.notFloat(op.tile, `spilling ${name}`);
     this.shape(op.tile, `spilling ${name}`);
     this.guard(op.tile, "spill");
-    if (this.agent && this.ctx.person.here !== false && op.tile === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't spill it`);
+    if (this.agent && this.ctx.person.here !== false && op.tile === this.d.focus) refuse(this.theirs(op.tile, "spill it"));
     const fresh = leaves(op.tree);
     if (!fresh.length) refuse(`${name} holds no tiles`);
     for (const t of fresh) if (this.all().includes(t)) refuse(`${this.name(t)} is in the layout already`);
@@ -1557,7 +1559,7 @@ class Step<I> {
     // would), then its dock wraps it, both in this one transaction (refused whole, it stays the float it was).
     // on=true puts it back pinned outright.
     if (this.isFloat(id)) {
-      if (this.agent && id === this.d.focus) refuse(`${this.name(id)} has the person's keys; an agent doesn't move it`);
+      if (this.agent && id === this.d.focus) refuse(this.theirs(id, "move it"));
       if (container !== undefined) refuse(`${this.name(id)} is a float: no container holds it · tile.dock without container= puts it in a dock of its own`);
       this.land(id);
       if (on === true) { this.d.answer = { pinned: true, floated: false }; return; }
@@ -1684,7 +1686,7 @@ class Step<I> {
     }
     const e = this.policyAt(id);
     if (!e.collapsible) refuse(`${name} stays open: ${e.by.collapsible} doesn't fold · ^W P there turns collapsible on`);
-    if (this.agent && this.foldSet(id).includes(this.d.focus)) refuse(`${this.name(this.d.focus)} has the person's keys; an agent doesn't fold it`);
+    if (this.agent && this.foldSet(id).includes(this.d.focus)) refuse(this.theirs(this.d.focus, "fold it"));
     const by = byOf(this.ctx.actor);
     for (const t of this.foldSet(id)) this.d.collapsed.set(t, { ...by, ...fold });
     this.d.answer = { collapsed: true, dir: fold.dir === "h" ? "h" : "v" };
@@ -1702,7 +1704,7 @@ class Step<I> {
   private foldColumn(id: I, f: { flow: Flow<I>; ci: number }) {
     const e = this.policyAt(id);
     if (!e.collapsible) refuse(`${this.name(id)} stays open: ${e.by.collapsible} doesn't fold · ^W P there turns collapsible on`);
-    if (this.agent && this.foldSet(id).includes(this.d.focus)) refuse(`${this.name(this.d.focus)} has the person's keys; an agent doesn't fold it`);
+    if (this.agent && this.foldSet(id).includes(this.d.focus)) refuse(this.theirs(this.d.focus, "fold it"));
     const open = (i: number) => leaves(f.flow.kids[i]!).some(t => !this.d.collapsed.has(t));
     if (columnOf(f.flow, f.flow.anchor) === f.ci) {
       const to = [...f.flow.kids.keys()].filter(i => i !== f.ci && open(i)).sort((a, b) => Math.abs(a - f.ci) - Math.abs(b - f.ci) || a - b)[0];
