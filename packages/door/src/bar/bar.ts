@@ -21,6 +21,7 @@ import type { Ctx } from "../app";
 import type { Msg } from "../board";
 import { ListPicker, pickRow } from "../surface/picker";
 import { LineField } from "../surface/line";
+import { COMPLETION_ROWS, completerOf, completionOf, lineCompleter, renderCompletion } from "../surface/completer";
 import { editorLineKey } from "../surface/editor";
 import { Gesture, rowsOf, wordAt, Selection, paintRange, SELECT_BG, isCopyKey, modeKey } from "../surface/selection";
 import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note";
@@ -136,7 +137,7 @@ export class PowerBar {
   /** Put away: nothing it asked for is waited on. */
   /** The bar's line: plain words for every source, so no outline-text completion; a masked answer is never copied. */
   private line(text: string): LineField {
-    const l = new LineField(text, false, { complete: false, id: "power-bar" });
+    const l = new LineField(text, false, { complete: { grammar: "act" }, id: "power-bar" });
     l.copy = t => { if (!(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(t); };
     return l;
   }
@@ -262,6 +263,9 @@ export class PowerBar {
   /** A key or a click while it's open: everything is the bar's. Mouse reports are made relative to where it was drawn. */
   key(k: Key, ctx: Ctx) {
     const was = this.picker.sel;
+    // An act line's arguments complete in place (PIE-1076), in the one completer every place a person types has: while
+    // its list is up ↑ ↓ move, tab and ⏎ take the lit row, esc closes the list (the line stays); tab asks for it.
+    if (this.lineCompletes(k)) { ctx.redraw(); return; }
     // Right after a typed line ran, its answer is kept under "this session" (↑ brings the line back): one Esc closes.
     if (k.kind === "esc" && this.query && this.justRan === this.query && !this.compact() && !this.docsMode) { void this.host.dispatch.press("bar.close"); return; }
     if (k.kind === "esc" && this.query && !this.compact() && !this.docsMode) { void this.host.dispatch.press("bar.edit", { op: "clear" }); return; }
@@ -322,6 +326,8 @@ export class PowerBar {
    * `background` (what changed, a source came or went; not the person's typing): only the sources that answer at once
    * are asked again, the rows the service gave are kept, and what's lit stays lit.
    */
+  /** The line the rows were last asked for: a completion inserted since (it lands after its check) asks again. */
+  private listedFor = "";
   refresh(background = false) {
     if (this.done) return;
     if (background) {
@@ -333,6 +339,7 @@ export class PowerBar {
     // Other rows for what's typed now: a click on one is a first click, whatever was clicked before.
     this.picker.view.forget();
     const turn = this.search.begin(), q = this.query, sources = this.sources();
+    this.listedFor = q;
     this.moved = false;
     // A source that asks the service keeps the rows it gave until its answer to what's typed now replaces them (PIE-1398:
     // the list held steady while typing, `notes…` saying they're coming); one that answers at once is asked again now.
@@ -551,14 +558,42 @@ export class PowerBar {
     return this.surface.render(w, h, sh).lines.slice(0, h).map(l => l.replace(TAGS, "").replace(MARKS, ""));
   }
 
+  /** Whether the line's completion takes `k` first: a key for its open list, tab where an argument is being typed, a click on the list. */
+  private lineCompletes(k: Key): boolean {
+    const c = this.scope === "ask" ? null : completerOf(this.input) ?? lineCompleter(this.input);
+    if (!c) return false;
+    if (k.kind === "mouse") return k.action === "down" && !!c.shown && c.click(k.y, k.x, t => this.host.ctx.copy?.(t));
+    const listed = !!c.shown?.items.length;
+    const keys = listed && ["up", "down", "tab", "enter", "esc", "pgup", "pgdn"].includes(k.kind);
+    if (!keys && !(k.kind === "tab" && c.target())) return false;
+    this.input.take(k);
+    return true;
+  }
+
+  /** The line's completion list, under the word being typed, over the bar's rows: where it went is kept, so a click chooses. */
+  private drawLineCompletion(canvas: Canvas, r: Rect, values?: StyleValues) {
+    const c = completerOf(this.input), pop = c && completionOf(this.input);
+    if (c) c.drawn = null;
+    if (!c || !pop || this.scope === "ask" || this.compact()) return;
+    const word = this.query.slice(0, this.input.cursor).lastIndexOf(" ") + 1;
+    const pw = Math.min(r.cols - 2, Math.max(28, Math.min(72, r.cols - 6)));
+    const x = Math.max(1, Math.min(3 + Math.min(width(this.query.slice(0, word)), this.fieldW - 1), r.cols - 1 - pw)), y = 3;
+    const rows: (number | null)[] = [];
+    const lines = renderCompletion(pop, pw, Math.max(3, Math.min(COMPLETION_ROWS, r.rows - y - 1)), rows, 0, values);
+    lines.forEach((l, i) => canvas.text(x, y + i, l, pw));
+    c.drawn = { row: r.row + y, col: r.col + x, cols: pw, items: rows };
+  }
+
   /** Drawn over a screen `cols` by `rows`: where, and its rows. */
   draw(cols: number, rows: number): { rect: Rect; lines: string[] } {
+    if (this.query !== this.listedFor && !this.done) this.refresh();
     const compact = this.compact();
     const height = compact ? (compact.choice ? Math.min(this.items.length, 6) : 0) + 3 : 0;
     const r = (this.rect = compact ? { col: 1, row: Math.max(0, rows - height - 1), cols: Math.min(cols - 3, Math.max(48, width(compact.title) + 24)), rows: height } : barRect(cols, rows));
     const canvas = new Canvas(r.cols + 1, r.rows + 1);
     const values = lookFor(this.host.ctx, { screen: this.host.screens().at(-1)?.title }, r.cols).values;
     withRowLimit(values["rows.lines"], () => this.picker.draw(canvas, { col: 0, row: 0, cols: r.cols, rows: r.rows }, values));
+    this.drawLineCompletion(canvas, r, values);
     return { rect: { ...r, cols: r.cols + 1, rows: r.rows + 1 }, lines: canvas.lines() };
   }
 

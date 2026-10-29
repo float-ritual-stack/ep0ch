@@ -50,7 +50,7 @@ import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import type { ListSource } from "../outline-lists";
 import { drawVariation, drawComponentProps } from "../library/draw";
 import { openNote, barSource, type BarHost } from "../bar/source";
-import { commandCandidates } from "../bar/command";
+import { commandRows, type CommandRow } from "../bar/command";
 import { Gesture, Selection, rowsOf, paintRange, selectText, SELECT_BG } from "./selection";
 import { visible, width as cells, ellipsize } from "../style";
 import { JEV_PAUSE_MS, SearchSchedule, SearchTurn, TYPING_PAUSE_MS } from "../search-schedule";
@@ -121,7 +121,7 @@ export interface CompletionLookup {
 export const nearOf = (d: CompletionField | null | undefined, own?: OwnNote): string | undefined => own?.blockId ?? d?.near;
 
 /** How the lookup is asked: `semantic` has Jev re-order it; `near` is the note the draft writes in. */
-export interface LookupOptions { semantic?: boolean; near?: string; limit?: number; offset?: number; host?: BarHost; signal?: AbortSignal }
+export interface LookupOptions { /** Asked on purpose (Tab, ctrl+space): a source may offer what it holds back while typing. */ explicit?: boolean; semantic?: boolean; near?: string; limit?: number; offset?: number; host?: BarHost; signal?: AbortSignal }
 
 /** The note a note draft is writing, for `((#heading` in itself; comments and replies have none. */
 export interface OwnNote { blockId: string; text: string }
@@ -147,6 +147,15 @@ interface DoorSource { decl: SourceDecl; kinds: readonly CompletionKind[]; rows(
 const hostOf = (board: CompletionBoard, opts: LookupOptions) => opts.host ?? (ambient?.board === board ? ambient.host?.() : undefined);
 const door = (id: string, title: string, ranked = false): SourceDecl => ({ id, title, triggers: [], priority: 10, ranked, by: "door" });
 
+/** An act line past its action's name (`tile.zoom t`): what's left to complete is its arguments. */
+const actLineArgs = (query: string, host: BarHost) => { const q = query.trimStart(), first = q.split(/\s/)[0]!; return q.length > first.length && host.dispatch.has(first); };
+/** An argument's row in the popup: its name or value as the label, what it means beside, a tile's screen or a note as its preview. */
+const commandItem = (r: CommandRow, insertion: string): CompletionItem => ({
+  label: r.label, insertion, kind: r.kind, ...(r.detail ? { detail: r.detail } : {}), ...(r.docs ? { docs: r.docs } : {}),
+  ...(r.preview && "note" in r.preview ? { blockId: r.preview.note } : {}),
+  ...(r.preview && "lines" in r.preview ? { preview: ((lines: string[]) => (_w: number, h: number) => lines.slice(0, h))(r.preview.lines) } : {}),
+});
+
 const DOOR_SOURCES: readonly DoorSource[] = [
   // A button's step (PIE-1298): a script note's name after `((`, else the door's actions and their arguments.
   { decl: door("steps", "steps", true), kinds: ["button-step"], async rows({ board, target, own, opts }) {
@@ -158,9 +167,10 @@ const DOOR_SOURCES: readonly DoorSource[] = [
     }
     const host = hostOf(board, opts);
     if (!host) return { rows: [] };
+    // Past the action's name, its arguments and their values; before it, the actions.
+    if (actLineArgs(target.query, host)) return { rows: (await commandRows(target.query, host, { explicit: opts.explicit })).map(r => commandItem(r, r.line)) };
     const rows = await barSource("actions")!.rows(target.query, host, "actions");
-    const args = await commandCandidates(target.query, host);
-    return { rows: [...args.map(value => ({ label: value, insertion: value, kind: "value" })), ...rows.map(r => ({ label: r.label, insertion: r.fill ?? r.label, docs: r.detail, kind: "action" }))] };
+    return { rows: rows.map(r => ({ label: r.label, insertion: r.fill ?? r.label, docs: r.detail, kind: "action" })) };
   } },
   { decl: door("fence", "settings"), kinds: ["fence-setting"], async rows() {
     return { rows: SCRIPT_FENCE.settings.map(s => ({ label: `${s.key}=`, insertion: `${s.key}=`, docs: s.meaning, kind: "setting" })) };
@@ -173,8 +183,9 @@ const DOOR_SOURCES: readonly DoorSource[] = [
     const schema = schemas.find(s => COMPONENT_OPEN.exec(s.source.use.split("\n")[0]!)?.[1] === target.component);
     if (schema?.props.find(p => p.key === target.key)?.type !== "action") return { rows: [] };
     const q = target.query, write = (v: string) => target.kind === "yaml-value" ? yamlScalar(v) : attributeScalar(v, target.quote);
-    const args = await commandCandidates(q, host), rows = await barSource("actions")!.rows(q, host, "actions");
-    return { rows: [...args.map(v => ({ label: v, insertion: write(v), kind: "value" })), ...rows.map(r => ({ label: r.label, insertion: write(r.fill ?? r.label), docs: r.detail, kind: "value" }))] };
+    if (actLineArgs(q, host)) return { rows: (await commandRows(q, host, { explicit: opts.explicit })).map(r => commandItem(r, write(r.line))) };
+    const rows = await barSource("actions")!.rows(q, host, "actions");
+    return { rows: rows.map(r => ({ label: r.label, insertion: write(r.fill ?? r.label), docs: r.detail, kind: "value" })) };
   } },
 ];
 
@@ -362,6 +373,8 @@ export class Completer {
   target(): CompletionTarget | null {
     const f = this.d, line = f.lines[f.row] ?? "", c = f.complete;
     if (c && c.grammar === "filter") { const t = filterTargetAtCursor(line, f.col); return t && { ...t, words: true }; }
+    // An act line (the power bar's): past an action's name, the whole line through the cursor is one button step.
+    if (c && c.grammar === "act") { const host = ambient?.board === this.board ? ambient.host?.() : undefined; return host && actLineArgs(line.slice(0, f.col), host) ? { kind: "button-step", start: 0, end: line.length, query: line.slice(0, f.col) } : null; }
     const t = completionTargetAtCursor(line, f.col, f.lines, f.row);
     if (t || !c || !c.valueKey) return t;
     return { kind: "filter-value", start: 0, end: line.length, query: line.slice(0, f.col), key: c.valueKey };
@@ -441,17 +454,17 @@ export class Completer {
     const turn = this.search.begin(), was = same ? this.state?.items[this.state.index]?.insertion : undefined;
     this.state = { target, picked, line: this.d.complete !== undefined, items: this.state?.items ?? [], index: this.state?.index ?? 0, truncated: null, message: "finding references...", loading: true, at: this.here() };
     this.redraw();
-    if (explicit || !asksService(this.board, target)) return this.lookup(turn, target, was);
+    if (explicit || !asksService(this.board, target)) return this.lookup(turn, target, was, explicit);
     return new Promise<void>(done => {
       turn.signal.addEventListener("abort", () => done(), { once: true });
       this.search.pause(() => void this.lookup(turn, target, was).then(done));
     });
   }
 
-  private async lookup(turn: SearchTurn, target: CompletionTarget, was: string | undefined): Promise<void> {
+  private async lookup(turn: SearchTurn, target: CompletionTarget, was: string | undefined, explicit = false): Promise<void> {
     try {
       // Only an answer is kept for the draft: a failed lookup is asked again next time, as the outliner does.
-      const r = await lookupCompletion(this.board, target, this.own(), { near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined, signal: turn.signal });
+      const r = await lookupCompletion(this.board, target, this.own(), { near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined, signal: turn.signal, ...(explicit ? { explicit } : {}) });
       if (r.jevOff) jevOff.add(this.board);
       if (!this.current(turn)) return;
       // `::` with nothing typed lists the components used ones first: the order this draft first saw stays while it's
@@ -974,7 +987,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   }
   const header = h >= 3, footer = h >= 2 && (!reference || h >= 6);
   const out: string[] = [];
-  const heading = { attribute: "attributes", "attribute-value": "values", component: "components", agent: "agents", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values" }[s.target?.kind as string] ?? "references";
+  const heading = { attribute: "attributes", "attribute-value": "values", component: "components", agent: "agents", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values", "button-step": ({ value: "values", argument: "arguments" } as Record<string, string>)[s.items[0]?.kind ?? ""] ?? "actions" }[s.target?.kind as string] ?? "references";
   const ranking = !footer && s.jev ? ` · jev ${s.jev}` : "";
   if (header) rows.push(null), out.push(fg(C.lcyan) + pad(` ${printable(s.heading ?? heading, " ")} ${s.index + 1}/${s.items.length}${echo}${ranking}${scopes ? ` ${scopes}` : ""}${s.loading ? " · finding..." : ""}`, w) + RESET);
   const picker = completionPicker(s);
