@@ -407,7 +407,7 @@ function extensionFacts(e: ExtensionEntry, then: string): string {
   return [
     `**${e.name ?? e.id}** \`${e.id}\`${e.version !== undefined ? ` v${e.version}` : ""} · ${e.state}${e.settings ? ` · settings ${settingsChip(e.settings)}` : ""}`,
     ...(e.error ? ["", `> [!warning] ${e.error}`] : []), "", e.description ?? "",
-    ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${p.kind.replace(/s$/, "")} **${p.name}**${p.about ? `: ${p.about}` : ""}`)] : []),
+    ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${p.kind.replace(/s$/, "")} **${p.name}**${p.about ? ` · ${p.about}` : ""}`)] : []),
     ...(e.directory ? ["", `\`${e.directory}\``] : []), "", then,
   ].join("\n");
 }

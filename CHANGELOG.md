@@ -23,8 +23,8 @@ are its record. The outliner's entries from then are kept below, under
 - **`&` in the power bar** lists one line per extension, grouped by what it adds first (rules, components, scripts,
   programs, sources, agents, tiles), each with a count; the hub says how many of the repo's are installed. Its id,
   version, folder and everything it adds are in the preview beside.
-- The kitchen sink's **buttons** section shows every tone, frame and state. GRAMMAR is 9: an older door draws the
-  look words as slots of an `of=` script until `ep0ch install --apply`.
+- The kitchen sink's **buttons** section shows every tone, frame and state. GRAMMAR is 9: an older door doesn't read the
+  look words and refuses those buttons until `ep0ch install --apply`.
 
 ### One answer to an @margin ask in a comment (PIE-1374)
 
