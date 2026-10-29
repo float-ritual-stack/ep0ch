@@ -58,6 +58,8 @@ export interface Binding {
 /** A screen's row's kinds of focused tile (KeyBinding's `only`, `unless`). */
 const kinds = (r: TableRow & { only?: readonly string[]; unless?: readonly string[] }) => ({ ...(r.only ? { only: r.only } : {}), ...(r.unless ? { unless: r.unless } : {}) });
 const clause = (summary: string) => summary.split(/[.:;(]/)[0]!.trim();
+/** An action's own words for a row: its `words`, else its summary's first clause. */
+const aboutOf = (def: ActionDef<any, any>) => def.words ?? clause(def.summary);
 /**
  * A row of an action's keys as the keys window lists it, a whole sentence: the action's own words, then the row's where
  * or when ("start recording, while recording"), since the list shows no heading above it as the action's page does. A row
@@ -85,7 +87,7 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
   const out: Binding[] = [];
   const defs = new Map<string, { scope: string; def: ActionDef<any, any> }>();
   for (const set of allActionSets()) for (const name of set.names()) if (!defs.has(name)) defs.set(name, { scope: set.scope, def: set.def(name)! });
-  const summary = (action: string) => { const d = defs.get(action)?.def; return d ? clause(d.summary) : action; };
+  const summary = (action: string) => { const d = defs.get(action)?.def; return d ? aboutOf(d) : action; };
   const held = new Set<string>();
   const tables = [...keyTables(), ...(screen.length ? [{ scope: screenName, about: "this screen's keys", rows: screen, prefix: "" }] : [])];
   for (const [table, t] of tables.entries()) {
@@ -108,7 +110,7 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
   for (const [action, { scope, def }] of defs) {
     // A key the keymap gives an action that declares none (one moved out of Unbound).
     if (!def.keys) {
-      for (const key of keymapEntries().find(e => e.action === action && !Object.keys(e.args).length)?.keys ?? []) if (!held.has(`${key} ${action}`)) out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: "yours", does: clause(def.summary), about: clause(def.summary), from: "yours", rebind: true, yours: true });
+      for (const key of keymapEntries().find(e => e.action === action && !Object.keys(e.args).length)?.keys ?? []) if (!held.has(`${key} ${action}`)) out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: "yours", does: aboutOf(def), about: aboutOf(def), from: "yours", rebind: true, yours: true });
       continue;
     }
     // A line of keys reads as the rows `::graph-keys` draws from it (the parser test/key-rows.test.ts holds to keycaps).
@@ -122,11 +124,11 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
         seen.add(key);
         const gone = entry && !entry.keys.includes(key);
         if (gone) continue;
-        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: SCOPE_LAYER[scope] ?? "tile", does: whole(clause(def.summary), row.does, capOf(key)), about: clause(def.summary), from: "action", rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
+        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: SCOPE_LAYER[scope] ?? "tile", does: whole(aboutOf(def), row.does, capOf(key)), about: aboutOf(def), from: "action", rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
       }
     }
     // A key the keymap gives the whole action that it didn't declare.
-    for (const key of entry?.keys ?? []) if (!seen.has(key) && !held.has(`${key} ${action}`)) out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: "yours", does: clause(def.summary), about: clause(def.summary), from: "yours", rebind: true, yours: true });
+    for (const key of entry?.keys ?? []) if (!seen.has(key) && !held.has(`${key} ${action}`)) out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: "yours", does: aboutOf(def), about: aboutOf(def), from: "yours", rebind: true, yours: true });
   }
   // An entry with arguments for an action no table holds: its keys, pressed through the App's layer.
   for (const e of keymapEntries()) {
@@ -146,7 +148,7 @@ export function unbound(all: readonly Binding[]): Binding[] {
   for (const set of allActionSets()) for (const name of set.names()) {
     if (keyed.has(name) || seen.has(name)) continue;
     seen.add(name);
-    const def = set.def(name)!, about = clause(def.summary);
+    const def = set.def(name)!, about = aboutOf(def);
     const needs = Object.entries(def.args ?? {}).filter(([, a]) => !(a as { optional?: boolean }).optional).map(([k]) => `${k}=`);
     out.push({ key: "", cap: "", action: name, args: {}, id: bindingId(name), scope: set.scope, layer: SCOPE_LAYER[set.scope] ?? "tile", does: about, about, from: "unbound",
       rebind: needs.length ? `it needs ${needs.join(" ")} to run: a bare key would be refused, so bind its act line with them in ${"keybindings.json"} ("${name} ${needs.map(n => `${n}…`).join(" ")}": ["<key>"])` : true });

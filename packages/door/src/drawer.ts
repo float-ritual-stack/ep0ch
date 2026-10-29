@@ -2019,6 +2019,7 @@ export const HOST_AGENT_TILE: TileRef = { name: HOST_AGENT, kind: "pty", label: 
  */
 export const HOST_TILE_ACTIONS = actionSet<{ drawer: AgentDrawer }>()("host", {
   "tile.herdr": def({
+    words: "show an agent that lives in a Herdr pane in this terminal tile",
     summary: "the agent tab used last (tile=drawer.agent) lives in Herdr pane pane=<label> (on=false: it no longer does): quitting the door then ends only the attach",
     touches: "nothing", replay: "ask",
     args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-<outline>)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: it no longer shows a Herdr agent" } },

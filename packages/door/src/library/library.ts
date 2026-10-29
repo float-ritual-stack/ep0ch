@@ -565,6 +565,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     },
   }),
   "library.scroll": def({
+    words: "scroll the page",
     summary: "scroll the page by=<rows> (negative up)", keys: [{ keys: "wheel", does: "scroll the page" }, { keys: "pgup pgdn", does: "scroll the page" }], touches: "screen", replay: "safe",
     args: { by: { type: "number", about: "rows, negative up" } },
     examples: [
