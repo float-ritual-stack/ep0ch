@@ -130,6 +130,7 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
     return {
       key: b.key, action: b.action,
       ...(typeof b.label === "string" ? { label: b.label } : {}),
+      ...(typeof b.says === "string" ? { says: b.says } : {}),
       ...(b.args && typeof b.args === "object" && !Array.isArray(b.args) ? { args: { ...b.args } } : {}),
       ...(typeof b.tile === "string" ? { tile: b.tile } : {}),
       ...(kinds(b.unless) ? { unless: kinds(b.unless)! } : {}),
