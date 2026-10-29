@@ -176,7 +176,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as any; };
-    await until(() => screen().includes("question · ") && / comments? · shown \(M\)/.test(screen()), "the plan with its cards and count", 8000);
+    await until(() => screen().includes("question · ") && / comments? · (in the margin|a line each) \(M\)/.test(screen()), "the plan with its cards and count", 8000);
     const planId = [...stage().panes.keys()].find((id: number) => stage().nameOf(id) === "plan") as number;
     const plan = () => stage().panes.get(planId) as ReaderPane;
     expect(plan().surface.marginMode).toBe("trim");
@@ -186,10 +186,10 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
       const x = ls[y]!.search(re) + 3;
       press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     };
-    click(/■ \d+( comments?)? · (shown|full) \(M\)/);
+    click(/■ \d+( comments?)? · (in the margin|a line each|whole, in the margin|whole, inline) \(M\)/);
     await until(() => plan().surface.marginMode === "full", "cards whole");
-    click(/■ \d+( comments?)? · (shown|full) \(M\)/);
-    await until(() => /■ \d+( comments?)? · marks \(M\)/.test(screen()), "the count says marks only");
+    click(/■ \d+( comments?)? · (in the margin|a line each|whole, in the margin|whole, inline) \(M\)/);
+    await until(() => /■ \d+( comments?)? · as marks \(M\)/.test(screen()), "the count says marks only");
     expect(plan().surface.marginMode).toBe("off");
     expect(screen()).not.toContain("question · ");
     // Kept with the tile: its spec (what a layout, a handover and a restart save) says so, and a tile made from it reads the same.
@@ -197,7 +197,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     expect(spec.margin).toBe("off");
     expect((makeTile({ ...spec }) as ReaderPane).surface.marginMode).toBe("off");
     // As it was, for the tests after.
-    click(/■ \d+( comments?)? · marks \(M\)/);
+    click(/■ \d+( comments?)? · as marks \(M\)/);
     await until(() => plan().surface.marginMode === "trim", "a row each again");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);

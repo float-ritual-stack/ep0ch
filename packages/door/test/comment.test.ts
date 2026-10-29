@@ -168,7 +168,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
     expect(plain(pane.render(80, 30, true, d).lines.join("\n"))).toContain('"release notes"');
     pane.key({ kind: "esc" }, d);
     expect(pane.session).toBeNull();
-    expect(plain(pane.render(80, 30, true, d).lines[2]!)).toContain("1 comment · shown (M)");
+    expect(plain(pane.render(80, 30, true, d).lines[2]!)).toContain("1 comment · a line each (M)");
   });
 
   // Capture is more reliable than interpretation (AGENTS.md): a comment that quotes a broken reference lands as written,

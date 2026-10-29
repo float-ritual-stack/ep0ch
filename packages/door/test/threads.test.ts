@@ -100,7 +100,7 @@ describe("marks only, without a service (PIE-873)", () => {
     expect(draw().join("\n")).toContain("A tidy list.");
     s.marginMode = "off";
     const rows = draw();
-    expect(rows.join("\n")).toContain("■ 2 comments · marks (M)");
+    expect(rows.join("\n")).toContain("■ 2 comments · as marks (M)");
     expect(rows.join("\n")).not.toContain("A tidy list.");
     expect(rows.find(l => l.includes("Shed jobs"))).toContain("Shed jobs [+]");
     // `[ ]` stops on that mark, where it's drawn.
@@ -216,7 +216,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     await fresh();
     expect(drawn("Use the hazel poles.")).toBe(false);
     stepTo("\"Canes along the fence\"");
-    expect(P().surface.hint()).toContain("⏎ expand its thread");
+    expect(P().surface.hint()).toContain("⏎ open its card");
     key({ kind: "enter" });
     await shows("Use the hazel poles.");
     expect(P().surface.session).toBeNull();                              // no thread list, no session: still reading
@@ -231,7 +231,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     expect(replyControls).toContain("Quote the reply");
     frame();
     for (const label of ["[Select]", "[Reply]", "[Edit]", "[Seen]"]) expect(drawn(label)).toBe(true);
-    expect(P().surface.hint()).toContain("⏎ collapse its thread");
+    expect(P().surface.hint()).toContain("⏎ fold its card back to its [+]");
     key({ kind: "enter" });
     await until(() => !drawn("Use the hazel poles."), "the card folded");
     expect(current()!.kind).toBe("comment");

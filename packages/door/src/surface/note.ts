@@ -3,7 +3,7 @@ import { standsAsPerson } from "./dispatch";
 import { READER_MOVE_KEYS, ZOOM_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
 import { modeBinding, modeHint, modeActionKeys } from "./modes";
 import { hintSetting } from "./hints";
-import { fullPlainText, selectFullText } from "../overflow";
+import { fullPlainText, fullText, selectFullText } from "../overflow";
 import { commandButton } from "../bar/command";
 import { buttonRows, buttonText, pressing, pressState } from "./button";
 import { withFigureProp } from "@ep0ch/outline-core/figure-props";
@@ -132,7 +132,7 @@ import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "../live";
 import { SocketBoard } from "../socket";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, routeNote, undoMove, type MoveArgs } from "../note-move";
-import { hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
+import { hasCard, kindOf, MARGIN_MODE_WORDS, MARGIN_MODES, marginChipHint, marginColumn, nextMargin, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
@@ -583,14 +583,20 @@ const COPY_GLYPH = "⧉";
 const ZOOM_GLYPH = "⤢";
 /** How many of a block's first rows its copy control looks through for a free cell. */
 export const COPY_ROWS = 4;
+/** What a comment mark says on hover (PIE-1255): what it stands for and what a click does. */
+const MARK_HINT = {
+  whole: "a comment on the whole note · click or ⏎ opens its card at the top of the note",
+  passage: "a comment on these words · click or ⏎ opens its card",
+  open: "this comment's card is open · click or ⏎ folds it back to its [+]",
+} as const;
 /** What ⏎ does on an element, for the hint. `open`: a fold is folded, a comment mark's thread is expanded. */
 const verbOf = (e: Element, open: boolean) =>
   e.link?.ext ? extVerb(e.link.ext)
-  : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
+  : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "fold its card back to its [+]" : "open its card")
   : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : e.link.proposal.op === "resolve" ? "resolve it" : "dismiss it")
   : e.kind === "control" && e.link?.unsent ? UNSENT_VERB[e.link.unsent.op]
   : e.kind === "control" && e.link?.use ? "ask for what the ::use needs"
-  : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "edit" ? (e.value ? "edit the reply" : "edit the comment") : e.control === "card" ? "expand its thread" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.control === "tldr" ? "ask @margin for its TL;DR" : e.label.toLowerCase())
+  : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "edit" ? (e.value ? "edit the reply" : "edit the comment") : e.control === "card" ? "open its card" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.control === "tldr" ? "ask @margin for its TL;DR" : e.label.toLowerCase())
   : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "block" ? "copy it"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.value ? (e.link.value.problem ?? (e.link.at !== undefined ? "show the line it reads" : "say how it is computed")) : e.link?.media || e.link?.url ? "open" : "follow";
@@ -1732,8 +1738,9 @@ export class NoteSurface {
     const chip = (sourcesOn ? `${fg(C.dark)} · ${fg(C.lcyan)}${SOURCES_CHIP}` : "") + (commentOn ? `${fg(C.dark)} · ${fg(C.lcyan)}${COMMENT_CHIP}` : "");
     // Marks only (PIE-873): the margin's off mode said where the comments are counted, so it's found and its way back is.
     const n = this.comments?.length ?? 0, off = this.marginMode === "off" && !this.printed;
-    const mode = off ? "marks" : this.marginMode === "full" ? "full" : "shown";
-    let said = !this.comments?.length ? "" : `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}■ ${n} comment${n === 1 ? "" : "s"} · ${mode} (M)`;
+    // The chip says what's drawn (PIE-1255), in the mode's own words; its hover, what each mode does.
+    const mode = MARGIN_MODE_WORDS[off ? "off" : this.marginMode].chip(this.marginCols(m, w) > 0);
+    let said = !this.comments?.length ? "" : `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}${fullText(marginChipHint(off ? "off" : this.marginMode), `■ ${n} comment${n === 1 ? "" : "s"} · ${mode} (M)`)}`;
     // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
     // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
     const own0 = host?.header, { text: summary, line: summaryLine, links: summaryLinks } = this.summaryView(m, src, own0 ? C.lgreen : C.dark);
@@ -1780,7 +1787,7 @@ export class NoteSurface {
     const summaryAt = !apart ? 0 : propsApart && !shared ? 2 : 1, summaryFrom = !apart ? width(before) : shared ? width(`${propsText} · `) : 0;
     // Marks only in a narrow tile: the short form, so its way back (M, or a click) is still on screen whole.
     if (said && width(metaRows[0]!) > w) {
-      const short = `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}■ ${n} · ${mode} (M)`;
+      const short = `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}${fullText(marginChipHint(off ? "off" : this.marginMode), `■ ${n} · ${mode} (M)`)}`;
       metaRows[0] = pad(metaRows[0]!.slice(0, metaRows[0]!.length - said.length), Math.max(0, w - width(short))) + short;
       said = short;
     }
@@ -1799,7 +1806,7 @@ export class NoteSurface {
     // the body over); the ones that don't fit go on a row of their own under it, so none is lost in a narrow tile.
     if (!this.printed && !omit.title) {
       let col = width(lines.at(-1) ?? ""), row = titled.length - 1, n = 0;
-      const put = () => { if (n) titled[row] = pad(titled[row]!.replace(/ *\x1b\[0m$/, "") + fg(C.yellow) + " [+]".repeat(n) + RESET, w); };
+      const put = () => { if (n) titled[row] = pad(titled[row]!.replace(/ *\x1b\[0m$/, "") + fg(C.yellow) + ` ${fullText(MARK_HINT.whole, "[+]")}`.repeat(n) + RESET, w); };
       for (const c of (this.comments ?? []).filter(c => isWholeNote(c) && !this.threadShown(c.id))) {
         if (col + 4 > w && (col > 0 || n > 0)) { put(); titled.push(""); lines.push(""); row++; col = 0; n = 0; }
         wholeMarks.push({ thread: c.id, row: above + row, from: col + 1, to: Math.min(w, col + 4) });
@@ -2347,7 +2354,7 @@ export class NoteSurface {
     for (const k of this.printed ? [] : marks) {
       const row = gutterRow(k);
       if (whole.has(k.thread) || row < top || row >= top + room) continue;
-      const glyph = this.threadShown(k.thread) ? "[–]" : "[+]";
+      const glyph = this.threadShown(k.thread) ? fullText(MARK_HINT.open, "[–]") : fullText(MARK_HINT.passage, "[+]");
       const old = gutterRows.get(row) ?? "";
       gutterRows.set(row, pad(old, 1 + (k.col ?? 0)) + fg(k.open ? C.yellow : C.dark) + glyph + RESET);
     }
@@ -2386,9 +2393,7 @@ export class NoteSurface {
     const decorations = isOutlineNote(m) && !this.raw ? decorationsOf(m, src) : [];
     // The margin's side column (ADR 0004 contract 6): when the reader is wide and the note has cards to show.
     // The margin's default (PIE-791): current threads only; seen and resolved are on the thread list's earlier shelf.
-    const cardThreads = (this.commentsFor === m.id ? this.comments ?? [] : []).filter(c => (c.start !== null || isWholeNote(c)) && this.threadShown(c.id));
-    // Printed (`ep0ch show`), the threads are read with outline_threads: no cards in the drawing.
-    const mcols = marginColumn(w, this.printed ? "off" : this.marginMode, cardThreads.length);
+    const cardThreads = this.cardThreads(m), mcols = this.marginCols(m, w);
 
     // The outline's callout types too: a type declared (or its answer arriving) draws the note again.
     const writing = this.composing(host);
@@ -5551,6 +5556,16 @@ export class NoteSurface {
   }
 
   private openedWhileOff = new Set<string>();
+
+  /** The margin's side column at reader width `w`: 0 when the cards fold under their passages (or there are none). */
+  private marginCols(m: Msg, w: number): number {
+    // Printed (`ep0ch show`), the threads are read with outline_threads: no cards in the drawing.
+    return marginColumn(w, this.printed ? "off" : this.marginMode, this.cardThreads(m).length);
+  }
+  /** The threads drawn as cards. The margin's default (PIE-791): current threads only; seen and resolved are on the thread list's earlier shelf. */
+  private cardThreads(m: Msg): Comment[] {
+    return (this.commentsFor === m.id ? this.comments ?? [] : []).filter(c => (c.start !== null || isWholeNote(c)) && this.threadShown(c.id));
+  }
   /** The thread the person just opened: the next frame brings its card into view. */
   private revealThread: string | null = null;
   private revealFrom: number | null = null;
@@ -11247,8 +11262,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "margin": def({
-    summary: "the margin's cards (ADR 0004 contract 6): one row each (trim), whole with their replies (full), or off: marks only (the highlights and marks stay on the words, the byline says \"marks\"). A wide reader has them in a column beside the text; a narrow one under each passage. Reading state agents may change for the person, kept with the tile (PIE-873) and taken by a reader opened from it",
-    keys: [{ keys: "M", does: "cycles trim, full, off (marks only)" }, { keys: "click", does: "the byline's comment count" }],
+    summary: `the margin's cards (ADR 0004 contract 6): trim, ${MARGIN_MODE_WORDS.trim.does}; full, ${MARGIN_MODE_WORDS.full.does}; off, ${MARGIN_MODE_WORDS.off.does} (the highlights stay on the words). The byline's count says which: ${MARGIN_MODES.map(x => `"${MARGIN_MODE_WORDS[x].chip(x !== "off")}"`).join(", ")}. Reading state agents may change for the person, kept with the tile (PIE-873) and taken by a reader opened from it`,
+    keys: [{ keys: "M", does: "cycles trim, full, off (as marks)" }, { keys: "click", does: "the byline's comment count" }],
     touches: "shape", replay: "safe",
     args: { mode: { type: "string", optional: true, about: "trim, full or off; left out, the next one" } },
     examples: [
@@ -11256,13 +11271,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "margin mode=full", does: "shows each margin card whole, with its replies" },
     ],
     run({ mode }, { surface, host }, actor) {
-      const next = mode === undefined ? MARGIN_MODES[(MARGIN_MODES.indexOf(surface.marginMode) + 1) % MARGIN_MODES.length]! : (MARGIN_MODES as readonly string[]).includes(mode) ? mode as MarginMode : null;
+      const next = mode === undefined ? nextMargin(surface.marginMode) : (MARGIN_MODES as readonly string[]).includes(mode) ? mode as MarginMode : null;
       if (!next) throw new ActionRefused("mode is trim, full or off");
       surface.setMargin(next);
-      surface.noteAgent(actor, `comments: ${next === "off" ? "marks" : next}`);
+      surface.noteAgent(actor, `comments: ${MARGIN_MODE_WORDS[next].chip(false)}`);
       // Kept with the tile (PIE-873): a handover, a restart and the next note read the same way.
       host.keptChanged?.();
-      host.ctx.flash(`margin: ${next === "trim" ? "cards a row each" : next === "full" ? "cards whole" : "off (highlights stay)"} · M`);
+      host.ctx.flash(`comments: ${MARGIN_MODE_WORDS[next].does} · M for ${MARGIN_MODE_WORDS[nextMargin(next)].chip(false)}`);
       host.redraw();
       return { margin: next };
     },

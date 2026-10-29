@@ -26,6 +26,20 @@ import { printable } from "../text";
 export type MarginMode = "trim" | "full" | "off";
 export const MARGIN_MODES: readonly MarginMode[] = ["trim", "full", "off"];
 
+/**
+ * What each mode is, in the words every place that names it uses (PIE-1255: the byline's chip, its hover, M's flash, the
+ * `margin` action's docs): `chip` is what you see now, `beside` when the reader has a side column for the cards.
+ */
+export const MARGIN_MODE_WORDS: Readonly<Record<MarginMode, { chip: (beside: boolean) => string; does: string }>> = {
+  trim: { chip: beside => (beside ? "in the margin" : "a line each"), does: "each comment a short card, beside the text when the tile is wide, a line under its words when it's narrow" },
+  full: { chip: beside => (beside ? "whole, in the margin" : "whole, inline"), does: "each comment whole, with its replies" },
+  off: { chip: () => "as marks", does: "no cards: a [+] beside each passage and after the title opens just that comment" },
+};
+/** The mode M (or a click on the chip) goes to next. */
+export const nextMargin = (mode: MarginMode): MarginMode => MARGIN_MODES[(MARGIN_MODES.indexOf(mode) + 1) % MARGIN_MODES.length]!;
+/** What the byline's comment chip says on hover: what you see now, and what a click (or M) turns it into. */
+export const marginChipHint = (mode: MarginMode) => `comments ${MARGIN_MODE_WORDS[mode].chip(false).replace("a line each", "as short cards")}: ${MARGIN_MODE_WORDS[mode].does} · click or M: ${MARGIN_MODE_WORDS[nextMargin(mode)].does}`;
+
 /** A rule tone as the look's surface it's drawn on: the callouts' families. */
 const SURFACE_OF: Readonly<Record<RuleTone, CalloutTone>> = { default: "blue", good: "green", warn: "amber", bad: "coral", accent: "violet", dim: "neutral" };
 /** The ink a tone's mark and card edge are drawn in. */
