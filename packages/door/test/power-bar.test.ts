@@ -101,6 +101,15 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(app.whatChanged.unseenIds()).toContain(notes.shed!.id);
   });
 
+  test("a search with no hits says so on its line once the notes have answered, never notes… (PIE-1403)", async () => {
+    key(ctrlK); type("zqxvbnw");
+    await (app as any).bar.settled();
+    await Bun.sleep(60);                                   // past a frame: what the person sees is the last paint, not a fresh one
+    const line = painted.map(plain).find(l => l.includes("› zqxvbnw"))!;
+    expect(line).toContain("no matches");
+    expect(line).not.toContain("notes…");
+  });
+
   test("typed, every source answers under its heading; a prefix and alt+← alt+→ move between scopes; esc puts it away", async () => {
     key(ctrlK); type("garden");
     await until(() => peek().bar.rows.some((r: any) => r.source === "notes"), "the notes search answered", 5000);

@@ -323,7 +323,8 @@ export class PowerBar {
     const alive = () => turn.alive() && !this.done;
     const answer = (s: BarSource, rows: BarRow[]) => {
       if (!alive()) return;
-      this.got.set(s.id, rows); this.build(); this.host.ctx.redraw(); turn.answered(s.id);
+      // Answered before it's drawn: the line names only the sources still out (a search with no hits never stays "notes…").
+      turn.answered(s.id); this.got.set(s.id, rows); this.build(); this.host.ctx.redraw();
       // An agent's bar is read once and put away: no re-ordering asked for it.
       if (this.quick || !s.later) return;
       // The same hits re-ordered (Jev), after a pause: what's lit stays lit, as it did in the search it replaced.
@@ -331,7 +332,7 @@ export class PowerBar {
     };
     const fail = (s: BarSource, e: unknown) => {
       if (!alive()) return;
-      this.problems.set(s.id, e instanceof Error ? e.message : String(e)); this.build(); this.host.ctx.redraw(); turn.answered(s.id);
+      turn.answered(s.id); this.problems.set(s.id, e instanceof Error ? e.message : String(e)); this.build(); this.host.ctx.redraw();
     };
     const ask = (s: BarSource) => { try { const r = s.rows(q, this.host, this.scope, turn.signal); if (Array.isArray(r)) answer(s, r); else void r.then(rows => answer(s, rows), e => fail(s, e)); } catch (e) { fail(s, e); } };
     const later = sources.filter(s => s.asks);
@@ -419,7 +420,9 @@ export class PowerBar {
     this.scopeHits = scopes!.hits;
     const busy = this.asking.size ? `${[...this.asking].map(id => barSource(id)?.title ?? id).join(", ")}…` : "";
     const said = [...this.problems].map(([id, why]) => `${barSource(id)?.title ?? id}: ${why}`).join(" · ");
-    const count = [`${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
+    // Nothing found for what's typed, said on the line itself: a narrow bar draws no preview to say it in.
+    const none = !this.items.length && this.query.trim() !== "" && !this.problems.size;
+    const count = [none ? "no matches" : `${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
     const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, Math.max(10, w - 30))) : this.input.render(Math.max(10, w - 30), 1)[0]) + paint(` |08${busy || count}`);
     const scoped = this.scope ? barSource(this.scope) : undefined;
     this.sourceHead = scoped?.head?.(w, this.host) ?? [];
