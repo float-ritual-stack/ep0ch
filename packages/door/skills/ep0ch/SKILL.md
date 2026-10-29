@@ -305,7 +305,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   list in their drawer behind the tab shown, `changes.go` and `changes.diff` act on a row. Marking it seen
   (`changes.seen`, and the person's own open of the list) is theirs; yours is refused and your open never clears it.
 - **The keys window** (PIE-492): what a key does and where, and the person's keymap. `keys.open filter=<words>` opens it
-  over their screen (waits as `screen.open` does); in it, `keys.find text=tile.close tile=keys` answers every binding of
+  (a `keys` tile beside the focused one on a screen of tiles, else a screen over theirs; waits as `screen.open` does); in it, `keys.find text=tile.close tile=keys` answers every binding of
   those words with its scope, layer, what it takes the key from (`takesFrom`), what gets it first (`takenBy`) and whether
   it can move. `keys.rebind id=<act line> key=<its key now> to=<new key> tile=keys` saves a rebind in
   `keybindings.json` (said on screen; `keys.unbind`, `keys.reset id=`, `keys.undo`). Only when the person asks: it's
