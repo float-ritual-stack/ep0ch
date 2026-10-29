@@ -1,7 +1,7 @@
 import { Canvas, type Rect } from "./canvas";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { pressEnded } from "./surface/button";
-import { StatusBarNote, STATUS_BAR_ACTIONS, STATUS_INK, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
+import { RANK, StatusBarNote, STATUS_BAR_ACTIONS, STATUS_INK, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
 import { OSC8, OSC8_CLOSE } from "./hyperlink";
 import { fullPlainText } from "./overflow";
 import { Overflow } from "./overflow";
@@ -24,7 +24,9 @@ import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./di
 import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
 import { copyNoteById, NOTE_REF_ACTIONS, type NoteRefOn } from "./note-ref";
-import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type TileRef } from "./surface/dispatch";
+import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type MenuRow, type TileRef } from "./surface/dispatch";
+import { tileMenu } from "./desk/tile-menu";
+import type { Reveal } from "./reveal";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { lineCompletionHooks } from "./surface/line-hooks";
 import { AgentPointers, screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
@@ -599,6 +601,8 @@ export class App implements Ctx {
     host: () => this.barHost(),
   };
   private statusBoxes: StatusHit[] = [];
+  /** What the narrow bar put in its `+N` chip, in the bar's order (`status.bar.menu overflow=true` lists them). */
+  private statusHidden: StatusItem[] = [];
   private readonly statusButtons = new NoteSurface();
   readonly statusNote: StatusBarNote;
   private drawerRun: DrawerRun;
@@ -1194,7 +1198,19 @@ export class App implements Ctx {
       on: (_, how) => ({ surface: this.statusButtons, standing: how.standing, host: { ctx: this, redraw: () => this.redraw(), navigate() {} } }) },
     { set: STATUS_BAR_ACTIONS, takes: "none", on: () => ({
       note: this.statusNote, builtins: () => this.statusItems(), items: () => this.describeStatusItems(),
-      open: (id: string, actor: Actor) => this.hostLayer.openOnScreen(id, true, actor),
+      open: (id: string, actor: Actor, reveal?: Reveal) => this.hostLayer.openOnScreen(id, true, actor, undefined, reveal),
+      hidden: () => this.statusHidden,
+      flash: (text: string) => this.flash(text, 12_000),
+      // A group's or the overflow's menu (PIE-1224, PIE-1213): the tile menu over the screen, above the bar item it opens from,
+      // its rows run on this dispatcher (they are the bar's own clicks).
+      menu: (title: string, rows: MenuRow[], anchor: (item: StatusItem) => boolean) => {
+        const here = (this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d)) ?? this.stack.at(-1)) as { overlay?(p: unknown): void } | undefined;
+        if (typeof here?.overlay !== "function") return false;
+        const hit = this.statusBoxes.find(h => anchor(h.item));
+        here.overlay(tileMenu({ title, rows, at: { col: hit?.from ?? 0, row: Math.max(0, this.term.info.rows - 2) }, host: { dispatch: { press: (a, args, tile) => this.dispatch.press(a, args, tile) }, ctx: this } }));
+        this.redraw();
+        return true;
+      },
     }) },
     { set: BAR_ACTIONS, takes: "none", on: (_, how) => ({ on: this.barOn, standing: how.standing }) },
     { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
@@ -1723,17 +1739,17 @@ export class App implements Ctx {
       { id: "machine", text: this.location, place: "left", click: { action: "status.log" } },
       right("dance", s?.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD}` : "", "layout.stop"),
       right("yolo", this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD}` : "", "agents.yolo", { on: false }),
-      { ...right("drawer", this.drawer.active ? this.drawer.chip() : "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}) },
-      right("waiting", waiting.styled, "host.waiting"),
+      { ...right("drawer", this.drawer.active ? this.drawer.chip() : "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}), ...(this.drawer.active ? { short: this.drawer.chip(Date.now(), "short"), tiny: this.drawer.chip(Date.now(), "tiny") } : {}) },
+      { ...right("waiting", waiting.styled, "host.waiting"), ...(waiting.styled ? { short: waiting.styled.replace(/ on you$/, "") } : {}) },
       right("split", split ? `${fg(C.lred)}${split}` : "", "claude.splits"),
       right("offline", this.offline ? `${fg(C.lred)}offline` : "", "status.log"),
       right("slow", slow ? `${fg(C.yellow)}${slow}` : "", "status.speed"),
       right("backup", backup ? `${fg(backup.status ? C.dark : C.lred)}${backup.text}` : "", "backups.alert"),
       right("new", count ? `${fg(C.yellow)}+${count} new` : "", "changes.open"),
-      right("machinery", ext ? `${fg(C.dark)}${ext}` : "", "changes.machinery"),
+      { ...right("machinery", ext ? `${fg(C.dark)}${ext}` : "", "changes.machinery"), ...(held ? { short: `${fg(C.dark)}+${held}` } : {}) },
       right("video", this.video, "video.cycle"),
       right("theme", theme().name, "theme.cycle"),
-      right("uptime", `on ${mins}m`, "status.log"),
+      { ...right("uptime", `on ${mins}m`, "status.log"), short: `${mins}m` },
       { ...right("clock", clock ?? "", "status.log"), after: " " },
     ];
     return items;
@@ -1744,24 +1760,39 @@ export class App implements Ctx {
     return { note: this.statusNote.note?.id ?? null, builtins: this.statusItems().map(i => i.id), items: [...this.statusNote.items(this.statusItems()), ...this.statusBoxes.filter(h => h.item.id === "overflow").map(h => h.item)].map(item => {
       const hit = this.statusBoxes.find(h => h.item.id === item.id);
       const describe = (req: ActRequest | undefined) => req ? { ...req, definition: actions.find(a => a.name === req.action) } : undefined;
-      return { ...item, click: describe(item.click), alt: describe(item.alt), lastCell: describe(item.lastCell), ...(hit ? { from: hit.from, to: hit.to } : {}) };
+      // As drawn: a narrow bar's short words (PIE-1213), and whether it went into the +N chip.
+      return { ...item, ...(hit ? { text: hit.item.text } : {}), click: describe(item.click), alt: describe(item.alt), lastCell: describe(item.lastCell), ...(hit ? { from: hit.from, to: hit.to } : {}), ...(this.statusHidden.some(h => h.id === item.id) ? { overflowed: true } : {}) };
     }) };
   }
 
   private statusBar(s: Screen, cols: number): string {
     this.shownTime = this.timeShown();
-    const items = this.statusNote.items(this.statusItems(s)).filter(i => width(i.text));
-    let hidden = 0;
-    const overflow = (): StatusItem => ({ id: "overflow", text: `+${hidden}`, place: "left", after: " │ ", click: { action: "status.bar.edit" } });
-    // Keep the clock and drawer whole; later note lines yield their space first.
-    while (width(statusText(items)) + (hidden ? width(statusText([overflow()])) : 0) + 3 > cols) {
-      let last = items.length - 1;
-      while (last >= 0 && (items[last]!.id === "clock" || items[last]!.id === "drawer")) last--;
-      if (last < 0) break;
-      items.splice(last, 1);
-      hidden++;
+    const items = this.statusNote.items(this.statusItems(s)).filter(i => width(i.text)), ids = items.map(i => i.id);
+    const hidden: StatusItem[] = [];
+    const overflow = (): StatusItem => ({ id: "overflow", text: `+${hidden.length}`, place: "left", after: " │ ", click: { action: "status.bar.menu", args: { overflow: true } }, alt: { action: "status.bar.edit" } });
+    const over = () => width(statusText(items)) + (hidden.length ? width(statusText([overflow()])) : 0) + 3 > cols;
+    // A narrow bar (PIE-1213): built-ins shorten first, from the end, the clock last; then the lowest rank goes into the
+    // overflow (built-ins nobody listed, then listed ones, then what the person pinned), each from the end. The clock and
+    // the drawer stay whole.
+    const order = [...items.keys()].reverse().sort((a, b) => Number(items[a]!.id === "clock") - Number(items[b]!.id === "clock"));
+    for (const j of order) {
+      if (!over()) break;
+      const it = items[j]!;
+      if (it.short !== undefined && width(it.short) < width(it.text)) items[j] = { ...it, text: it.short };
     }
-    if (hidden) items.push(overflow());
+    for (const rank of [RANK.builtin, RANK.listed, RANK.pinned]) {
+      // Before a pin goes, the drawer chip is its arrow alone (its colour still says the state).
+      if (rank === RANK.pinned) for (const [j, it] of items.entries()) if (over() && it.tiny !== undefined) items[j] = { ...it, text: it.tiny };
+      while (over()) {
+        const last = items.findLastIndex(i => (i.rank ?? RANK.builtin) === rank && i.id !== "clock" && i.id !== "drawer");
+        if (last < 0) break;
+        hidden.unshift(...items.splice(last, 1));
+      }
+    }
+    // In the bar's own order: the menu lists them as they would stand.
+    hidden.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+    this.statusHidden = hidden;
+    if (hidden.length) items.push(overflow());
     const leftItems = separated(items.filter(i => i.place === "left"), "left"), rightItems = separated(items.filter(i => i.place === "right"), "right");
     const left = statusText(leftItems), right = statusText(rightItems);
     // A loud refusal (the same key refused again) is bold here too; the focused tile's frame says it in its place.

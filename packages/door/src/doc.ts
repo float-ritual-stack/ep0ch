@@ -670,7 +670,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // `::button` (outline-core's button-call.ts): a labelled press.
     const button = env.button ? buttonCallAt(src, i) : null;
     if (button) {
-      out.push(...env.button!(button, i, W));
+      // In a list item or a quote (PIE-1224): its bullet or bar first, the button's other rows under the button.
+      const mark = button.prefix ? colourBody(button.prefix) : "", inset = button.prefix ? vwidth(button.prefix) : 0;
+      out.push(...env.button!(button, i, W - inset).map((r, n) => (n === 0 ? mark : " ".repeat(inset)) + r));
       i = button.endLine;
       continue;
     }
