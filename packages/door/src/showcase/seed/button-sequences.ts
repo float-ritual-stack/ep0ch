@@ -1,6 +1,6 @@
 export const BUTTON_SEQUENCES = [
   "One button, two tiles",
-  "Press Fold the bottom, then ctrl+z: both tiles come back. Sugar does the same. Pipe passes [2,3] through an action and two more scripts. Sources (S) shows each input, output, answer and remaining effects.",
+  "Press Fold the bottom, then ctrl+z: both tiles come back. Sugar does the same. Pipe passes [2,3] through an action and two more scripts. Sources (S) shows each input, output, answer and remaining effects. Open this note in the river, where no tile is called links: Fold the bottom is drawn dim and says why, and Pipe says the step it stopped at, in plain words.",
   "```js script=pick", "return [2, 3];", "```",
   "```js script=convert", "return input.map(n => n * 2);", "```",
   "```js script=wire", "return input.join(',');", "```",

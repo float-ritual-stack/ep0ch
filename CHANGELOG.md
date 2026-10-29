@@ -10,6 +10,23 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The river at 40 columns, smoothed: floats keep the keys, words show (PIE-1418, PIE-1392)
+
+- **Esc in a float keeps the keys there** (it gave them to the hidden column under it, so `x` closed that column). With
+  nothing left to close it says `nothing to close · x closes the float`, and the float's hint row leads with `x close`.
+  Tab, a click or h/l still move the keys out. *What moves:* Esc no longer hands a float's keys to the tile under it,
+  on every screen.
+- **The power bar at 40 columns** shows a long query whole, or scrolled sideways with a `‹` where its start is off the
+  line and a `›` where it goes on; home brings the start back. Every one-line field scrolls the same way.
+- **A button that can't run here says why in plain words:** a sequence whose first step names no tile on this screen is
+  drawn dim and refused before it runs (`Fold the bottom can't run here: no tile is called links on the river`); one
+  that stops midway says `Pipe stopped at step 2 of 4: …`. The person reads tiles by name, never by id; Sources keeps
+  each step's spelling.
+- **The trail follows you across columns:** from any river column it is the one chain of opens, back and ahead, and
+  forward goes to the column opened from this one. Read's `n` and `p` leave a trail too (back, alt+T).
+- **On the web:** an error page has a way back to the outline (or the share's first page), and the trail's rows read as
+  links.
+
 ### A patch applied as written leaves nothing to fix, and a backfill rerun costs nothing twice (PIE-1402)
 
 - **The buried question's patch:** its box is its own paragraph, the text under it stays out of it, and on a note whose
