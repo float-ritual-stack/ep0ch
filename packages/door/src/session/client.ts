@@ -394,7 +394,7 @@ export async function upgradeAll(o: { clients?: boolean; handoff?: boolean; only
   const out: UpgradeResult[] = [];
   const { commit: here, dir: checkout } = codeVersion();
   for (const r of await runningSessions()) {
-    // install hands over only the sessions its plan does (`only`); it says the rest itself.
+    // install leaves out the sessions its plan keeps (`only`); it says those itself.
     if (o.only && !o.only(r.info)) continue;
     const place = { ...r.info.place, dir: r.dir };
     // Another checkout's session is that checkout's to upgrade (doctor says so).

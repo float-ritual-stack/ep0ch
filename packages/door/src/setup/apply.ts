@@ -280,11 +280,11 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
     case "session": {
       // The daemon starts its successor from its checkout, now on the new code.
       const { upgradeAll } = await import("../session/client");
-      // Only the sessions the plan hands over (PIE-1400): one whose door code didn't move keeps its daemon and terminals.
-      const repo = repoStep(f);
-      const handing = new Set((f.sessions ?? []).filter(s => sessionVerdict(s, f, repo).status === "do").map(s => s.pid));
-      for (const s of f.sessions ?? []) if (!handing.has(s.pid)) { const why = sessionVerdict(s, f, repo).why; record(why); show(`    ✓ ${why}`); }
-      const rs = await upgradeAll({ handoff: true, only: info => handing.has(info.pid) });
+      // The plan's sessions whose door code didn't move keep their daemons and terminals (PIE-1400); every other one,
+      // a session started since the plan was made too, is handed over.
+      const kept = new Set((step.kept ?? []).map(k => k.pid));
+      for (const k of step.kept ?? []) { record(k.why); show(`    ✓ ${k.why}`); }
+      const rs = await upgradeAll({ handoff: true, only: info => !kept.has(info.pid) });
       const handed = rs.filter(r => r.ok && r.handover);
       for (const r of rs) if (r.ok) { record(r.message); if (!r.handover) show(`    ✓ ${r.message}`); }
       if (handed.length) handoverLines(handed.map(r => r.handover!)).forEach(show);

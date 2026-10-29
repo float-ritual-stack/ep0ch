@@ -38,6 +38,8 @@ export interface Step {
   machineName?: string;
   /** dials: whether this machine dials in from now on. */
   dialsIn?: boolean;
+  /** session: the sessions it leaves running because none of the door's code moved under them (PIE-1400), and why. */
+  kept?: { pid: number; why: string }[];
 }
 
 export interface Migration {
@@ -609,7 +611,8 @@ export function sessionStep(f: Facts, repo: Pick<Step, "status">): Step {
   const doing = all.filter((_, i) => verdicts[i]!.status === "do");
   // Only the sessions it hands over: `--all` unless that would hand over one whose code didn't move.
   const commands = !doing.length ? [] : !verdicts.some(v => v.unchanged) ? [`${ep0ch()}session upgrade --all`] : doing.map(s => `${ep0ch()}session upgrade ${sessionFlags({ place: s })}`);
-  return { id: "session", title, status: doing.length ? "do" : "skip", why: verdicts.map(v => v.why).join("; "), commands };
+  const kept = all.flatMap((s, i) => verdicts[i]!.unchanged ? [{ pid: s.pid, why: verdicts[i]!.why }] : []);
+  return { id: "session", title, status: doing.length ? "do" : "skip", why: verdicts.map(v => v.why).join("; "), commands, ...(kept.length ? { kept } : {}) };
 }
 
 /**
