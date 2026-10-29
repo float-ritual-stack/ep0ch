@@ -10,7 +10,7 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
-### Search says how sure it is, and the Jev pin moves only on evals (PIE-1198, PIE-1197)
+### Search says how sure it is, finds by meaning, and the Jev pin moves only on evals (PIE-1197–1200)
 
 - **No confident wrong answer:** a ranked search (the power bar's `/`, `[[` and `((`, `ep0ch find`, `outline_find`)
   asks Jev, in the same request as its scores, whether the note wanted is among the hits; code decides. A weak top says
@@ -24,6 +24,14 @@ are its record. The outliner's entries from then are kept below, under
   gurgle's notes only); `ep0ch search eval --into pie` ranks them with each model (cached by request), and keeps a
   `jev-run` per model and a report under pie's **Search evals** page. First run: jev-1.13.0 stays pinned (jev-1.14.0
   wasn't better); the "sure" threshold (Noul 0.8) comes from it.
+- **Found even without your words (PIE-1200):** when the ranked hits hold no sure answer, `outline_find` and
+  `ep0ch find` have Jev read every note's title (windows of 250, four at a time) and find the ones the words missed;
+  in the power bar, a second `/` (`//words`) does it, and an unsure footer says so (`// reads every note`). Such a row
+  says `by meaning`. On 16 queries asked in none of their note's words, the right note came first 3 times and in the
+  top 5 4 times without it, and 7 and 15 with it.
+- **Candidates read better (PIE-1199):** a search's snippet is the passage holding the most words of the query, not the
+  first place one appears. The candidates-in-state shape and type/length facts were measured and not adopted: neither
+  beat today's hit@1 on the eval set.
 - **Costs show:** every ranked search counts on the day's `search-live` jev-run (searches, sure, no strong match,
   tokens, cost), beside the other Jev loops on Jev's suggestions page.
 - **Run:** PROTOCOL 280: `ep0ch install --apply` on float-2 and the laptop.

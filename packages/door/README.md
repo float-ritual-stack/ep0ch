@@ -765,7 +765,9 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   `property` link, as the backlink relation counts it. `outline_find`'s `completeness` is `{kind, limit, more}` for
   the limit asked, its `search` says whether the ranking was lexical or semantic (Jev ranks by default; `semantic:
   false` doesn't ask) and how sure it is: `verdict` `strong`, or `weak`/`none` with `said` "no strong match: …", and
-  `exists`, Jev's "is it among these?"; each match carries its `score` (0 to 3) (PIE-1198); and a
+  `exists`, Jev's "is it among these?"; each match carries its `score` (0 to 3) (PIE-1198); when none is sure, Jev
+  reads every note's title for ones the words missed (`deep`, PIE-1200: `byMeaning: true` on those rows, `search.deep`
+  what it found and cost; `deep: false` skips it); and a
   top-level note's `path` is `(root)`. `outline_links` cuts its links, resources and backlinks at `limit` each, and
   its `completeness` gives each group `{complete, shown, total, more}`. A `limit` outside 1 to the tool's maximum is
   refused, naming the default and the maximum.
