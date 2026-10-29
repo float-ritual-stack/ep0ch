@@ -384,3 +384,104 @@ test("a wall under a chip line, patched as written, keeps its chips as chips and
   expect(now.properties.map(p => p.key)).toEqual(expect.arrayContaining(["type", "area"]));
   expect((patched.json.review as Review).verdict).toBe("ship");
 });
+
+// PIE-1428, a verifier's walk (Oct 29, Jev answering): an instruction the note gives was called a QA ask of Evan; a
+// four-sentence paragraph ending in a question never shipped after its question patch; an answered checkbox was an ask.
+
+test("a note's own instructions are not a QA ask of Evan, even when Jev reads them as one; an ask addressed to him is", async () => {
+  const { agent } = await setup(id => (id.startsWith("qa::") ? { type: "noul", noul: 0.95 } : undefined));
+  const jobs = await agent("create", { parent: "root", text: "Plot jobs\n\n- Turn the compost bay.\n- Oil the gate latch.\n- Check the water butt level; write it on the shed door so the next person knows." });
+  expect((jobs.json.review as Review).findings.map(f => f.rule)).not.toContain("qa-for-evan");
+  expect((jobs.json.review as Review).verdict).toBe("ship");
+  const keys = await agent("create", { parent: "root", text: "Keys window rebuilt\n\n- Rows are sorted by screen.\n- Try it at 40 columns and tell me whether the rows read right." });
+  expect((keys.json.review as Review).findings.map(f => f.rule)).toContain("qa-for-evan");
+});
+
+test("a four-sentence paragraph ending in a question ships once the patches it is given are applied as written", async () => {
+  // Jev unsure whether the question asks Evan (as it was in use), sure the paragraph is dense.
+  const { agent, store } = await setup(id => (id.startsWith("dense::") ? { type: "noul", noul: 0.95 } : id.startsWith("asks::") ? { type: "noul", noul: 0.5 } : undefined));
+  const made = await agent("create", { parent: "root", text: "Greenhouse watering\n\nThe rota covers mornings only at the moment, and the evening watering has fallen to whoever happens to be passing. Two people have said they would take Tuesdays and Thursdays. The tap near the bench drips, and the washer has not been replaced since spring. Should we move the watering to a fixed evening slot and put the washer on the order?" });
+  let review = made.json.review as Review;
+  // The wall's patch waits for the question's, and says so without claiming one it doesn't carry.
+  const wall = review.findings.find(f => f.rule === "wall")!;
+  expect(wall.patch).toBeUndefined();
+  expect(wall.say).not.toContain("the patch makes it a list");
+  for (let round = 0; round < 3 && review.verdict === "fix"; round++) {
+    const patches = review.findings.flatMap(f => f.new ? f.patch ?? [] : []);
+    expect(patches.length, `round ${round}: ${JSON.stringify(review.findings)}`).toBeGreaterThan(0);
+    const note = store.require(made.json.id);
+    review = (await agent("patch", { ref: note.id, revision: note.revision, patches })).json.review as Review;
+  }
+  expect(review.verdict).toBe("ship");
+  const text = store.require(made.json.id).text;
+  expect(text).toContain("- [ ] Should we move the watering");
+  expect(text).toContain("- Two people have said they would take Tuesdays and Thursdays.");
+});
+
+test("an answered checkbox is no ask: no buried finding, Jev isn't asked about it, and [needs::sysop] is never put back", async () => {
+  const { agent, asked } = await setup(id => (id.startsWith("asks::") ? { type: "noul", noul: 0.95 } : undefined));
+  const text = "PIE-9 · Downloads work on a phone [type::roadmap-item] [work-stage::done]\n\n- [x] Does Save to Files appear when you tap CSV? Evan, Oct 29: \"sharing that way works\".\n\n## Why\nThe link was a data URL, and phones ignore those.";
+  const made = await agent("create", { parent: "root", text });
+  const review = made.json.review as Review;
+  expect(review.findings.map(f => f.rule)).not.toContain("question");
+  expect(JSON.stringify(review.findings)).not.toContain("needs::sysop");
+  expect(asked.flatMap(a => Object.keys(a.questions)).filter(q => q.startsWith("asks::"))).toEqual([]);
+});
+
+// PIE-1417: a build-log time still to come is told before the line lands; one already past isn't.
+test("a build log's timeline row ten minutes ahead is a finding with the time now; one ten minutes back is none", async () => {
+  const { agent } = await setup();
+  // The reviewing process's own zone is the outline's: the CLI is given one, and the test reads its clock in the same.
+  const TZ = "America/Toronto";
+  const at = (d: Date) => Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", minute: "2-digit", hour12: true }).formatToParts(d).map(p => [p.type, p.value]));
+  const now = at(new Date()), day = `${now.year}-${now.month}-${now.day}`;
+  const shift = (minutes: number) => { const d = at(new Date(Date.now() + minutes * 60_000)); return d.day === now.day ? `${d.hour}:${d.minute} ${d.dayPeriod}` : minutes > 0 ? "11:59 PM" : "12:00 AM"; };
+  const log = (time: string) => `Build log [type::build-log] [day::${day}]\n\n::graph-timeline\n---\ntitle: what landed\n---\n- ${time}: the hedge cut\n::`;
+  const ahead = (await agent("create", { parent: "root", text: log(shift(10)) }, undefined, { TZ })).json.review as Review;
+  const time = ahead.findings.find(f => f.rule === "time");
+  expect(time?.say).toContain(shift(10));
+  expect(time?.say).toContain(`it's ${shift(0)} now`);
+  expect(ahead.verdict).toBe("fix");
+  const back = (await agent("create", { parent: "root", text: log(shift(-10)) }, undefined, { TZ })).json.review as Review;
+  expect(back.findings.filter(f => f.rule === "time").map(f => f.say)).toEqual([]);
+});
+
+// PIE-1388, a verifier on main (Oct 29): two long walls, one patched, answered ship while it still listed both.
+test("a ready patch the writer was told and hasn't applied keeps the verdict fix: the verdict and the list agree", async () => {
+  const { agent, store } = await setup();
+  const wall = (w: string) => Array.from({ length: 8 }, (_, i) => `The ${w} row ${i + 1} was weeded on Sunday and the beds along the fence were mulched with straw before the rain.`).join(" ");
+  const made = await agent("create", { parent: "root", text: `Allotment walls\n\n${wall("bean")}\n\n${wall("pea")}` });
+  let review = made.json.review as Review;
+  expect(review.findings.filter(f => f.rule === "wall" && f.patch)).toHaveLength(2);
+  const note = store.require(made.json.id);
+  review = (await agent("patch", { ref: note.id, revision: note.revision, patches: review.findings.find(f => f.rule === "wall")!.patch })).json.review as Review;
+  const left = review.findings.filter(f => f.rule === "wall");
+  expect(left).toHaveLength(1);
+  expect([review.verdict, left[0]!.new]).toEqual(["fix", true]);
+  const now = store.require(note.id);
+  review = (await agent("patch", { ref: now.id, revision: now.revision, patches: left[0]!.patch })).json.review as Review;
+  expect(review.verdict).toBe("ship");
+});
+
+// PIE-1388: a live write the review passed left nothing to find it by; only the backfill kept its quiet notes.
+test("a live write that ships is kept as quiet, findable on the suggestions page with when", async () => {
+  const { agent, records } = await setup();
+  await agent("create", { parent: "root", text: "Bean rows [type::note]\n\n- Sown on Monday.\n- Netted on Tuesday." });
+  const sore = await agent("create", { parent: "root", text: "Seed list sorted\n\n- Evan, can you check the order on your phone?" });
+  const quiet = await records("review-quiet");
+  expect(quiet.map(q => [q.source, q.writer])).toEqual([["write", "loki"]]);
+  expect(quiet[0]!.note).not.toBe(sore.json.id);
+  const { SUGGESTIONS_PAGE } = await import("../src/jev-suggestions");
+  expect(SUGGESTIONS_PAGE).toContain("query: type=review-quiet NOT source=backfill");
+  expect(SUGGESTIONS_PAGE).toContain("columns: [note, writer, revision, created]");
+});
+
+test("Jev's dense finding with its ready patch stays the writer's to apply across writes, as code's do", async () => {
+  const { agent, store } = await setup(id => (id.startsWith("dense::") ? { type: "noul", noul: 0.95 } : undefined));
+  const made = await agent("create", { parent: "root", text: "Shed roof\n\nThe felt along the north edge has split where the batten lifted in the storm last week, and water now runs down the inside wall onto the potting bench. The supplier holds the price on new felt until the end of the month, then it goes up by a fifth. The roofer can start the week after the order lands, weather allowing.\n\nThe gutter is fine." });
+  const dense = (made.json.review as Review).findings.find(f => f.rule === "dense")!;
+  expect(dense.patch?.length).toBeGreaterThan(0);
+  const note = store.require(made.json.id);
+  const again = (await agent("patch", { ref: note.id, revision: note.revision, patches: [{ observed: "The gutter is fine.", replacement: "The gutter is fine and clear." }] })).json.review as Review;
+  expect([again.verdict, again.findings.find(f => f.rule === "dense")?.new]).toEqual(["fix", true]);
+});

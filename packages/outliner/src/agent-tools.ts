@@ -1,3 +1,4 @@
+import { parseActor } from "@ep0ch/outline-core/attribution";
 import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-core/site-values";
 /**
  * Outline operations for agents (PIE-504): read, find, resolve, edit, create,
@@ -377,8 +378,10 @@ export const READ_CHILDREN_MAX_CHARS = 60_000;
  */
 export async function readBlock(
   client: AgentToolsClient,
-  input: { ref: string; depth?: number; limit?: number },
+  input: { ref: string; depth?: number; limit?: number; view?: boolean },
 ): Promise<ReadResult | ResourceReadResult> {
+  // The drawing is the door's (ep0ch show); the Claude mod and the MCP gateway add it, a script reads the text.
+  if (input.view === true) throw new WorkToolRefusal("view is the note as the door draws it, which this read can't draw: read without view, or draw it with ep0ch show <id>");
   const resource = resourceRefOf(input.ref);
   if (resource) return readResource(client, resource);
   const depth = boundedInteger(input.depth, "depth", 1, 0, 6);
@@ -1581,9 +1584,34 @@ export async function settleProposal(client: AgentToolsClient, input: { ref: str
   return client.request({ action: `draft.proposal.${op}`, proposalId: id, mutation: mutationOf(actor) }, op === "resolve" ? 120_000 : undefined);
 }
 
+/**
+ * What became of an agent's proposals (PIE-1086): the service reads them from the proposals' own revisions
+ * (proposal-outcomes.ts). Whose: `actor` when given, else the caller's own: a persona in it covers every client it writes
+ * through; with none, only the caller's session (`--session`) is its own.
+ */
+export async function proposalOutcomesOf(client: AgentToolsClient, input: { since?: string; actor?: string; limit?: number }, actor: AgentActor | undefined): Promise<unknown> {
+  const whose = input.actor?.trim() || actor?.actorId.trim();
+  if (!whose) throw new WorkToolRefusal("agent proposals: give actor (an actor id, or a persona such as loki), or pass --actor <agent id>");
+  // The caller's own, with no persona to name it: this session's proposals, not every session's that writes as the same client.
+  const session = !input.actor?.trim() && actor?.sessionId && !parseActor(whose).persona ? actor.sessionId : undefined;
+  await client.requireCompatibleService();
+  return client.request({ action: "proposals.outcomes", actor: whose, ...(session ? { session } : {}), ...(input.since !== undefined ? { since: input.since } : {}), ...(input.limit !== undefined ? { limit: input.limit } : {}) });
+}
+
+/**
+ * Runs a script block as an agent (PIE-1272), the way a person's press runs it: `this` the note it is about, `slots`
+ * its props. The service caps its writes at the outline's MCP access, the same as the gateway's script_run.
+ */
+export async function runScriptBlock(client: AgentToolsClient, input: { ref: string; this?: string; slots?: Record<string, string> }, actor: AgentActor): Promise<unknown> {
+  await client.requireCompatibleService();
+  const { id } = await resolveRef(client, input.ref);
+  const about = input.this ? (await resolveRef(client, input.this)).id : undefined;
+  return client.request({ action: "scripts.run", blockId: id, ...(about ? { this: about } : {}), ...(input.slots ? { slots: input.slots } : {}), access: "full", mutation: mutationOf(actor) }, 120_000);
+}
+
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["artifact-deploy", "proposal-resolve", "proposal-apply", "proposal-dismiss", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file", "figure-fit"] as const;
+export const AGENT_OPERATIONS = ["artifact-deploy", "proposal-resolve", "proposal-apply", "proposal-dismiss", "proposals", "script-run", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file", "figure-fit"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -1618,6 +1646,8 @@ export function runAgentOperation(
     case "proposal-resolve": return settleProposal(client, any, "resolve", writer());
     case "proposal-apply": return settleProposal(client, any, "apply", writer());
     case "proposal-dismiss": return settleProposal(client, any, "dismiss", writer());
+    case "proposals": return proposalOutcomesOf(client, any, actor);
+    case "script-run": return runScriptBlock(client, any, writer());
     case "patch": return patchDraft(client, any, writer());
     case "set-property": return setBlockProperty(client, any, writer());
     case "assign-id": return assignWorkId(client, any, writer());

@@ -35,7 +35,7 @@ For changing the code instead, use `ep0ch-core`. For driving their door (peek, a
 In Claude with the Claude mod (packages/claude-mod): `outline_read`, `outline_find`, `outline_resolve`, `outline_site` (what a note's `{{this.key}}`, `parent.key`, a bare `key` up the outline, `((id)).key`, `this.tasks | status=todo` or `now.date-1d` resolve to, with the route and a did-you-mean for a typo), `outline_edit`,
 `outline_patch`, `outline_proposal_apply`/`outline_proposal_dismiss`, `outline_create`, `outline_assign_id`,
 `outline_move`, `outline_trash`/`outline_restore`, `outline_comment`/`outline_reply`/`outline_resolve_thread`,
-`outline_changes`, the `work_*` tools and `note_section`; in a door tile also `door_where`, `door_peek`,
+`outline_changes`, `outline_proposals`, `script_run`, the `work_*` tools and `note_section`; in a door tile also `door_where`, `door_peek`,
 `door_act`, `door_open`. Every tool that names a note takes it as `ref` (`id`, `reference`, `block`, `blockId`, `uri`, `note` are accepted; two that disagree are refused, so pass one), and a wrong call comes back with the tool's arguments and a call that works. The table is in `packages/claude-mod/README.md`, "Outline tools". Other agents run
 the same operations as `outliner agent <operation> --json '{…}' --actor <id>`; `ep0ch find <words>` and
 `ep0ch show <id>` read (ranked search, a note drawn as text) with no door and no mod; `ep0ch show <id> --markdown` is
@@ -125,6 +125,11 @@ revision, so concurrent edits rarely collide.
 - **Settle a proposal by id:** `outline_proposal_apply {ref: "<proposal id>"}` or
   `outline_proposal_dismiss {ref: "<proposal id>"}` needs no reader. Apply keeps the normal patch comparison;
   any agent may dismiss any proposal (recorded as the one who did; the Trash takes it back). MCP settlement requires full access.
+- **Hear what became of your proposals:** `outline_proposals {since}` lists each edit of yours that was proposed
+  instead, and each change after it (`stale`, `applied`, `dismissed`, `resolved`), oldest first, once each, with the
+  note, who and why; pass its `cursor` as `since` next time. With the Claude mod you don't poll: the next prompt
+  carries what changed, and a stale one wakes a persona's idle session. A stale one is a task: re-read the note and
+  send the edit again, or dismiss your proposal.
 - A refusal is an answer: read again and retry, or leave it. Never route around it.
 - A write's `warnings` are answers too, and each one that starts "fix before you call this done" is a gate: a long
   title, a wall, a buried question (the floor, under "Shaping a note"). A `((` that leads nowhere (with a did-you-mean), and each construct you
@@ -423,7 +428,7 @@ would touch the same text come one per review. Each new
 finding is also a warning that starts "fix before you call this done"; a component Jev would draw a section with that
 code can't build comes as advice ("consider: …"), never a fix. You hear each finding once: one you were told on an
 earlier write is carried, so a note whose patches you applied ships. Every answer ends with `next`, the check to
-make: read the note as drawn (`ep0ch show <id>`, or `outline_read` it back) before you call the write done. What you
+make: read the note as drawn (`ep0ch show <id>`, or `outline_read` it back with `view: true`) before you call the write done. What you
 were told and what you did next land on Jev's suggestions page. In
 the Claude mod a note that holds a figure comes back drawn already. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
 the content.
@@ -831,9 +836,9 @@ the name. The whole-note form uses `[script::name]` and a closed `js` fence; `[m
 entry: `packages/outliner/docs/scripts.md` in the repository. Read it before writing a script; its example 2 is the
 usual start (a table of a note's children with a computed column). Two traps to know first: `this.children` is always
 empty (use `q("parent:this")` or `read(this.id)`), and a `q` row has no properties (read the row: one `read()` per row).
-More traps: a render script run as an action leaves a run note (31 KB with `[results::keep]`); `script_run` over MCP
-passes no slots or `this` yet (PIE-1272); and pass `persona` when you aren't the connector's owner, or the write is
-recorded as theirs.
+More traps: a render script run as an action leaves a run note (31 KB with `[results::keep]`); `script_run` runs a
+script the way a person's press does only with `this` (the note it is about) and `slots` (`{ card: "lamplighter" }`,
+its `props`); and pass `persona` when you aren't the connector's owner, or the write is recorded as theirs.
 
 The short form for working in an outline is [references/scripts.md](references/scripts.md).
 
