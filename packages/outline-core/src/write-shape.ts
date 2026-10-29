@@ -177,7 +177,9 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
       const patch = stackedPatch(lines, p, points);
       found.push({
         rule: "stacked", key: `stacked:${p.text.slice(0, 24)}…${p.text.slice(-24)}`, line: p.line + 1,
-        say: `line ${p.line + 1} ("${excerpt(p.text, 32)}") stacks ${points.length} points in one item, ${p.text.length} characters: a bullet is one point; make each its own item${points.length > 1 ? " (the patch does)" : ""}, or a figure if they share fields`,
+        say: points.length > 1
+          ? `line ${p.line + 1} ("${excerpt(p.text, 32)}") stacks ${points.length} points in one item, ${p.text.length} characters: a bullet is one point; make each its own item (the patch does), or a figure if they share fields`
+          : `line ${p.line + 1} ("${excerpt(p.text, 32)}") is one item of ${p.text.length} characters: a bullet is one short point; cut it, or put the detail in nested items under a short lead`,
         ...(patch ? { patch } : {}),
       });
     } else if (!p.item && (sentences > SHAPE_LIMITS.sentences || p.text.length > SHAPE_LIMITS.paragraphChars)) {

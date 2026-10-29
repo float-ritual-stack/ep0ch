@@ -269,11 +269,14 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const width0 = Math.max(0, ...[head, ...rows].map(r => r.length));
     let tcol = Math.min(Math.max(0, width0 - 1), Math.max(0, Number(p.titleColumn) || 0));
     let dropped = 0;
+    let kept = Array.from({ length: width0 }, (_, k) => k);
     const reduce = (keep: number[]) => {
       const cut = (r: string[]) => keep.map(k => r[k] ?? "");
       head = cut(head); rows = rows.map(cut); foot = foot && cut(foot); align = cut(align);
       tcol = Math.max(0, keep.indexOf(tcol));
+      kept = keep.map(k => kept[k]!);
     };
+    const keepCols = <T,>(r: readonly T[]) => kept.map(k => r[k] ?? null);
     const id = head.findIndex(c => c.toLowerCase() === "id");
     const title = head.findIndex(c => c.toLowerCase() === "title");
     const natural = Array.from({ length: width0 }, (_, k) => Math.max(...[head, ...rows].map(r => vwidth(r[k] ?? "")))).reduce((a, b) => a + b, 0) + (width0 - 1) * 3;
@@ -304,7 +307,17 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       return Array.from({ length: Math.max(...cells.map(c => c.length)) }, (_, i) => line(cells.map(c => c[i] ?? ""), fg(INK)));
     };
     const blocks: unknown[] = p.blocks ?? [];
-    const body = rows.flatMap((r, i) => [...(density === "comfortable" && i ? [""] : []), ...rowLinks(link, blocks[i], drawRow(r), ui?.key)]);
+    // A cell naming a note (PIE-1388, figure-live's cellBlocks) is that note's link; the row's other cells stay its own note's.
+    const named: (string | null)[][] = Array.isArray(p.cellBlocks) ? p.cellBlocks.map((r: (string | null)[]) => keepCols(r)) : [];
+    const drawLinkedRow = (r: string[], i: number) => {
+      const cells = r.map((c, k) => rowLines(c, cw[k]!, most));
+      const depth = Math.max(...cells.map(c => c.length));
+      return Array.from({ length: depth }, (_, j) => r.map((_, k) => {
+        const text = fg(INK) + cell(cells[k]![j] ?? "", k);
+        return rowLinks(link, named[i]?.[k] ?? blocks[i], [text], ui?.key)[0]!;
+      }).join(fg(DIM) + " ┊ ") + RESET);
+    };
+    const body = rows.flatMap((r, i) => [...(density === "comfortable" && i ? [""] : []), ...(named[i]?.some(Boolean) && link ? drawLinkedRow(r, i) : rowLinks(link, blocks[i], drawRow(r), ui?.key))]);
     return [line(head, fg(HI)), rule, ...body, ...(foot ? [rule, line(foot, fg(HI))] : []), ...(dropped ? [fg(DIM) + `+${dropped} column${dropped === 1 ? "" : "s"} · widen to see` + RESET] : [])];
   },
 

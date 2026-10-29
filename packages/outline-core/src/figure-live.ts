@@ -46,7 +46,14 @@ export interface FigureAnswer {
   done?: ReadonlySet<string>;
   now?: ReadonlySet<string>;
   hint?: string;
+  /** Titles of the notes a table's cells name by id (SiteProduced's `titles`): such a cell draws the title, linked. */
+  titles?: Readonly<Record<string, string>>;
 }
+
+/** A value that is a note's id, as records write them (`note::<uuid>`), or a reference to one. */
+const CELL_ID = /^(?:\(\()?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\)\))?$/;
+/** The note id a cell's value names, if it names one. */
+export const cellBlockId = (value: string): string | undefined => CELL_ID.exec(value.trim())?.[1];
 
 /** A figure's question, as the service takes it: a saved view read (`views.read`), or a query (`blocks.query`). */
 export type FigureQuestion =
@@ -122,9 +129,16 @@ export function itemField(m: FigureItem, key: string): string {
  * when left out) as headers unless `headers:` names them, a row per result and its note's id, and which column is
  * the title (the one density wraps).
  */
-export function tableOf(p: Props, items: readonly FigureItem[]) {
+export function tableOf(p: Props, items: readonly FigureItem[], titles?: Readonly<Record<string, string>>) {
   const cols: string[] = p.columns ?? ["title", ...(items.some(m => valueOf(m, "subtitle")) ? ["subtitle"] : []), "updated"];
-  return { headers: p.headers ?? cols, rows: items.map(m => cols.map(c => itemField(m, c))), blocks: items.map(m => m.id), titleColumn: Math.max(0, cols.indexOf("title")) };
+  const raw = items.map(m => cols.map(c => itemField(m, c)));
+  // A cell naming a note (PIE-1388): drawn as its title, and the note it names kept beside it (`cellBlocks`), so a reader links it.
+  const named = raw.map(r => r.map(v => { const id = cellBlockId(v); return id && titles?.[id] ? id : null; }));
+  const rows = raw.map((r, i) => r.map((v, k) => (named[i]![k] ? titles![named[i]![k]!]! : v)));
+  return {
+    headers: p.headers ?? cols, rows, blocks: items.map(m => m.id), titleColumn: Math.max(0, cols.indexOf("title")),
+    ...(named.some(r => r.some(Boolean)) ? { cellBlocks: named } : {}),
+  };
 }
 
 /**
@@ -165,7 +179,7 @@ export function liveProps(kind: string, p: Props, a: FigureAnswer): { props: Pro
       // The service's groups, most first; a match without the property is the NONE group.
       return { props: { ...p, items: [...(a.groups ?? [])].sort((x, y) => y.count - x.count).map(g => ({ label: g.value ?? NONE, value: g.count, query: groupWhere(String(p.query), String(p.group ?? "status"), g.value) })) } };
     case "table":
-      return { props: { ...p, ...tableOf(p, items) } };
+      return { props: { ...p, ...tableOf(p, items, a.titles) } };
     case "tabs": {
       // One tab per group the service answered for `group:`: the values `order:` lists first (even with nothing in
       // them), then the rest in the service's order (the property's value order, so a count changing never moves a
@@ -178,7 +192,7 @@ export function liveProps(kind: string, p: Props, a: FigureAnswer): { props: Pro
       const tabs = [...order, ...rest].map(value => {
         const g = groups.get(value);
         const ms = (g?.ids ?? []).flatMap(id => byId.get(id) ?? []).slice(0, per);
-        return { value, count: g?.count ?? 0, more: Math.max(0, (g?.count ?? 0) - ms.length), ...tableOf(p, ms) };
+        return { value, count: g?.count ?? 0, more: Math.max(0, (g?.count ?? 0) - ms.length), ...tableOf(p, ms, a.titles) };
       });
       return { props: { ...p, tabs, truncated: a.truncated } };
     }

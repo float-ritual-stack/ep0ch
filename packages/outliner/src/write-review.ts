@@ -19,6 +19,7 @@ import { FIX_BEFORE_DONE, RUBRIC_OF, shapeNext, SHAPE_LIMITS, splitPoints, write
 import { loadWriteReviewPrompt, type PromptRevision, type WriteReviewPrompt } from "./ai-prompts";
 import { FIGURE_FIT_THRESHOLDS } from "./figure-fit";
 import { JEV_ENDPOINT, JEV_MODEL, jevKey } from "./search-ranking";
+import type { QuestionFacet } from "@ep0ch/outline-core/protocol";
 
 /** A Noul at or over this reads as yes; under `NO` as no (the skill's starting thresholds). */
 export const REVIEW_THRESHOLDS = { yes: 0.7, no: 0.3, ...FIGURE_FIT_THRESHOLDS };
@@ -252,3 +253,14 @@ export async function reviewWrite(input: ReviewInput, o: ReviewOptions = {}): Pr
 
 /** A review's new findings as the write answer's warnings, each worded as a gate. */
 export const reviewWarnings = (review: WriteReview) => review.findings.filter(f => f.new).map(f => FIX_BEFORE_DONE + f.say);
+
+/**
+ * The outline's property values, for the count-in-prose rule: a number typed before one of them is a count a query
+ * keeps true. One `blocks.query` for every key's values (machinery left out); none when it can't be asked.
+ */
+export async function outlineFacets(client: { request<T>(input: { action: "blocks.query"; query: Record<string, unknown> }): Promise<T> }): Promise<ShapeFacet[]> {
+  try {
+    const r = await client.request<{ facets?: QuestionFacet[] }>({ action: "blocks.query", query: { where: "", facets: true, facetKeys: 300, facetValues: 200, limit: 1 } });
+    return (r.facets ?? []).flatMap(f => f.values.map(v => ({ key: f.key, value: v.value })));
+  } catch { return []; }
+}

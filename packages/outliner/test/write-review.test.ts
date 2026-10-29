@@ -168,3 +168,30 @@ test("a list Jev reads as a timeline comes with the figure built from its lines,
   const last = asked.at(-1)!;
   expect(Object.keys((last.state.sections ?? {}) as object)).toEqual(["s1"]);
 });
+
+test("the backfill reviews what agents already wrote, read only, and keeps its stats as its own experiment when asked", async () => {
+  const { store, client, records } = await setup();
+  const count = async () => (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "", machinery: "show", limit: 1000 } })).blocks.length;
+  seedBoard(store);
+  const by = (actorId: string) => ({ actorId });
+  store.create(WALL, null, "agent", by("loki/claude-code@float-box"));
+  store.create("Long story\n\nFirst some background on beans. Then the point.", null, "agent", by("daddy/claude-code@float-box"));
+  store.create("Bean rows\n\n- Three rows sown.", null, "agent", by("daddy/claude-code@float-box"));
+  store.create("A person's own note\n\n- 3 queued and more. Many points. In one item. Stacked.", null, "user");
+  const before = await count();
+  const { reviewBackfill } = await import("../src/write-review-backfill");
+  const report = await reviewBackfill(client as never, { since: "7d", jev: false });
+  expect(report).toMatchObject({ byAgents: 3, reviewed: 3, flagged: 1, passed: 2 });
+  expect(report.byRubric).toMatchObject({ dense: 1, format: 1 });
+  expect(report.byWriter.loki).toMatchObject({ reviewed: 1, flagged: 1 });
+  expect(report.samples.dense[0]).toMatchObject({ writer: "loki", rule: "stacked" });
+  expect(await count()).toBe(before);
+
+  // Kept: a finding per record, marked as the backfill's, and the run with its counts.
+  const kept = await reviewBackfill(client as never, { since: "7d", jev: false, into: client as never, outline: "scratch" });
+  expect((await records("review-finding")).every(r => r.source === "backfill")).toBe(true);
+  expect(await records("review-finding")).toHaveLength(2);
+  const run = (await records("jev-run")).find(r => r.experiment === "write-review-backfill")!;
+  expect(run).toMatchObject({ items: "3", suggested: "1", quiet: "2" });
+  expect(kept.run).toBe(run.id);
+});

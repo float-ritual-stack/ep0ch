@@ -56,11 +56,13 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
     const blocks: unknown[] = p.blocks ?? [];
     const align: string[] = Array.isArray(p.align) ? p.align : [];
     const tc = Math.max(0, Number(p.titleColumn) || 0);
-    const cell = (tag: "td" | "th", text: string, k: number, block?: unknown) =>
-      `<${tag}${align[k] === "right" ? ` class="num"` : ""}>${k === tc && block !== undefined ? rowText(text, block, href) : esc(text)}</${tag}>`;
+    // A cell naming a note (PIE-1388, figure-live's cellBlocks) links that note, drawn by its title.
+    const named: (string | null)[][] = Array.isArray(p.cellBlocks) ? p.cellBlocks : [];
+    const cell = (tag: "td" | "th", text: string, k: number, block?: unknown, names?: unknown) =>
+      `<${tag}${align[k] === "right" ? ` class="num"` : ""}>${typeof names === "string" ? rowText(text, names, href) : k === tc && block !== undefined ? rowText(text, block, href) : esc(text)}</${tag}>`;
     const foot: string[] | undefined = Array.isArray(p.footer) ? p.footer.map(String) : undefined;
     return `<div class="fig-scroll"><table>${head.length ? `<thead><tr>${head.map((h, k) => cell("th", h, k)).join("")}</tr></thead>` : ""}` +
-      `<tbody>${rows.map((r, i) => `<tr>${r.map((c, k) => cell("td", c, k, blocks[i])).join("")}</tr>`).join("")}</tbody>` +
+      `<tbody>${rows.map((r, i) => `<tr>${r.map((c, k) => cell("td", c, k, blocks[i], named[i]?.[k])).join("")}</tr>`).join("")}</tbody>` +
       `${foot ? `<tfoot><tr>${foot.map((f, k) => cell("th", f, k)).join("")}</tr></tfoot>` : ""}</table></div>`;
   },
 

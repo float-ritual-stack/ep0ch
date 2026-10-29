@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { RECORD_USAGE } from "./record-cli";
+import { REVIEW_USAGE } from "./review-cli";
 // ep0ch-door: a BBS door into a pi-herdr-outliner outline, over its socket.
 import { join } from "node:path";
 import { SocketBoard } from "./socket";
@@ -140,6 +141,7 @@ ${BACKUP_USAGE}
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)
 ${NOTES_USAGE}
 ${RECORD_USAGE}
+${REVIEW_USAGE}
 ${NEW_USAGE}
 ${VIEW_USAGE}
   ep0ch artifact put <file-or-folder> [--name <name>] [--machine <ssh-name>]
@@ -279,6 +281,7 @@ if (tryArgs) {
   process.exit(await run.exited);
 }
 if (args[0] === "record") process.exit(await (await import("./record-cli")).recordCommand(args));
+if (args[0] === "review") process.exit(await (await import("./review-cli")).reviewCommand(args));
 if (args[0] === "find") process.exit(await findCommand(args));
 if (args[0] === "show") process.exit(await showCommand(args));
 if (args[0] === "revisions") process.exit(await revisionsCommand(args));

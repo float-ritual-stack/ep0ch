@@ -18,7 +18,7 @@ import { parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/mach
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { shapeNext, shapeWarnings, type ShapeFacet } from "@ep0ch/outline-core/write-shape";
-import { reviewWarnings, reviewWrite, type WriteReview } from "./write-review";
+import { outlineFacets, reviewWarnings, reviewWrite, type WriteReview } from "./write-review";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { figureShape, suggestFigure } from "./figure-fit";
@@ -31,7 +31,7 @@ import { randomUUID } from "node:crypto";
 import { checkToolArgs, closest } from "@ep0ch/outline-core/tool-args";
 import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
 import { createBlockComment } from "./block-comments";
-import { matchFacts, resourceTextRevision, type QuestionFacet } from "@ep0ch/outline-core/protocol";
+import { matchFacts, resourceTextRevision } from "@ep0ch/outline-core/protocol";
 import { authoredResourceReferenceOccurrences, type AuthoredResourceReference } from "./resource-references";
 import { resourceCommentSource } from "./resource-comments";
 import type { ResourceDescription } from "./resources";
@@ -640,15 +640,13 @@ async function componentsRead(client: AgentToolsClient, text: string): Promise<C
 }
 
 /**
- * The outline's property values, for the review's count-in-prose rule: a number typed before one of them is a count a
- * query keeps true. Asked once a minute per connection (`blocks.query` facets, machinery left out); none when it can't be.
+ * The outline's property values (write-review.ts outlineFacets), asked once a minute per connection.
  */
 const facetsAsked = new WeakMap<AgentToolsClient, { at: number; facets: Promise<ShapeFacet[]> }>();
 function facetsOf(client: AgentToolsClient): Promise<ShapeFacet[]> {
   const kept = facetsAsked.get(client);
   if (kept && Date.now() - kept.at < 60_000) return kept.facets;
-  const facets = client.request<{ facets?: QuestionFacet[] }>({ action: "blocks.query", query: { where: "", facets: true, facetKeys: 300, facetValues: 200, limit: 1 } })
-    .then(r => (r.facets ?? []).flatMap(f => f.values.map(v => ({ key: f.key, value: v.value }))), () => []);
+  const facets = outlineFacets(client as never);
   facetsAsked.set(client, { at: Date.now(), facets });
   return facets;
 }
