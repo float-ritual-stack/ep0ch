@@ -374,6 +374,13 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
       lines();
       const id = [...desk().panes.entries()].find(([, p]: any) => p.kind === "keys")![0];
       expect(desk().placed.rects.get(id).cols).toBeGreaterThanOrEqual(36);
+      // The selected row's sentence is said whole under the list, wrapped, where the list's row is cut.
+      const long = bindings().find(b => b.key && b.does.length > 45)!;
+      await act("keys.filter", { text: long.id });
+      const found: any = await act("keys.find", {});
+      await act("keys.select", { n: found.bindings.findIndex((b: any) => b.key === long.key && b.id === long.id) + 1 });
+      const said = (keysPane().render(40, 50, true, desk()).lines.map(visible) as string[]).map(l => l.replace(/^[║│]\s*|\s*[║│█]$/g, "").trim()).join(" ");
+      expect(said.replace(/\s+/g, " ")).toContain(long.does);
       key({ kind: "esc" });
       await until(() => tiles() === before, "esc closed it");
     } finally { cols = 177; rows = 60; lines(); }

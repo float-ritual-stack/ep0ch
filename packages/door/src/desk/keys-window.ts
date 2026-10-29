@@ -6,6 +6,7 @@
 // about a binding.
 import { C, chip, ellipsize, fg, pad, RESET, selectedRow, width } from "../style";
 import { RowView, wheelRows } from "../scroll";
+import { wrap } from "../text";
 import { keycap } from "../figures/keys";
 import { ActionRefused, actionSet, actRequestOf, allActionSets, chordName, def, keyCaption, keyName, lineWords, shownLine } from "../surface/actions";
 import { bindings, conflicts, fightOf, LAYERS, rebindEffects, shadowsOf, strayEntries, unbound, type Binding } from "../surface/key-catalog";
@@ -188,7 +189,9 @@ export class KeysPane implements Pane {
     this.buttons = [];
     const out: string[] = [];
     const label = (k: string, v: string) => out.push(fg(C.dark) + pad(k, 9) + RESET + ellipsize(v, Math.max(4, w - 9)));
-    out.push((b.key ? keycap(b.cap) + " " : "") + fg(C.white) + ellipsize(b.does, Math.max(4, w - (b.key ? width(b.cap) + 4 : 1))) + RESET);
+    // The selected row's sentence whole, wrapped under its key where the list cut it (a 40-column tile, PIE-1425).
+    const capW = b.key ? width(b.cap) + 3 : 0, said = wrap(b.does, Math.max(8, w - capW - 1));
+    said.slice(0, 3).forEach((l, i) => out.push((i === 0 ? (b.key ? keycap(b.cap) + " " : "") : " ".repeat(capW)) + fg(C.white) + (i === 2 && said.length > 3 ? ellipsize(`${l} ${said.slice(3).join(" ")}`, Math.max(8, w - capW - 1)) : l) + RESET));
     label("runs", fg(C.yellow) + b.id + RESET + (b.about !== b.does ? fg(C.grey) + `: ${b.about}` + RESET : ""));
     label("where", `${b.scope} · ${b.layer === "yours" ? "your keymap's layer" : `the ${b.layer} layer`}`);
     const s = b.key ? shadowsOf(b, all) : { over: [], under: [], terminal: true };
