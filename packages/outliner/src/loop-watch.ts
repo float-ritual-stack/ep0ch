@@ -92,12 +92,15 @@ export function loopWatched(): boolean {
 /**
  * Reads that walk the whole outline (PIE-625). A client asks for many at once (Tree reads the tree and every saved
  * view after each change; five Details read their styles), and one outline's are each a few milliseconds: they wait
- * behind every other request, so a note read, a write or a ping is never queued behind a burst of them.
+ * behind every other request, so a note read, a write or a ping is never queued behind a burst of them, on another
+ * connection or on its own (they don't hold their connection's queue, PIE-1413). Only reads go here.
  */
 export const WHOLE_OUTLINE_READS: ReadonlySet<string> = new Set([
   "tree.index", "tree.query", "tree.focus", "tree.search", "views.read", "blocks.query", "blocks.records", "site.answer", "workspace.snapshot",
   "callouts.types", "headings.styles", "styles.list", "components.schemas", "references.backlinks", "checklist.search", "fragments.candidates",
   "pages.complete", "properties.catalog", "properties.inventory", "query.matches", "activity.recent",
+  // A board asks these of every lane after each change (PIE-1413).
+  "views.planWrite", "blocks.authored-links", "blocks.facets",
 ]);
 
 /**
@@ -117,6 +120,9 @@ const LAST_EVERY = 8;
 /** How fast what someone used of the loop is forgotten: halved each this long. */
 const USAGE_HALF_LIFE_MS = 1_000;
 
+/** Which lane a request waits in: the whole-outline reads last. */
+const laneOf = (action: unknown): "first" | "last" => (WHOLE_OUTLINE_READS.has(String(action)) ? "last" : "first");
+
 /** Who a turn is for: a connection, an `actor:<id>`, the service's `own` jobs, its `watches`. */
 export type TurnKey = object | string;
 
@@ -133,42 +139,47 @@ export class Turns {
   private passedOver = 0;
   private charges = 0;
   /** What each one asking used of the loop lately, decayed, with when it was last brought up to date. */
-  private readonly usage = new Map<TurnKey, { ms: number; at: number }>();
+  /**
+   * What each one asking used of the loop lately, decayed, per lane: a door's lane reads count against its other reads,
+   * never against its note read or its save, so a busy board doesn't put its own person at the back (PIE-1413).
+   */
+  private readonly usage = { first: new Map<TurnKey, { ms: number; at: number }>(), last: new Map<TurnKey, { ms: number; at: number }>() };
 
   constructor(private readonly now: () => number = () => performance.now()) {}
 
   next(action: unknown, key: TurnKey = "anonymous"): Promise<void> {
     return new Promise(resolve => {
-      (WHOLE_OUTLINE_READS.has(String(action)) ? this.last : this.first).push({ resolve, key });
+      (laneOf(action) === "last" ? this.last : this.first).push({ resolve, key });
       this.schedule();
     });
   }
 
   /** `key`'s turn took `ms` of the loop (its handling and what it set off). */
-  charge(key: TurnKey, ms: number): void {
+  charge(key: TurnKey, ms: number, action?: unknown): void {
     if (!(ms > 0)) return;
-    const used = this.used(key);
-    this.usage.set(key, { ms: used + ms, at: this.now() });
+    const lane = laneOf(action);
+    const used = this.used(key, this.now(), lane);
+    this.usage[lane].set(key, { ms: used + ms, at: this.now() });
     // Those who stopped asking are forgotten (a closed connection is let go).
-    if (++this.charges % 512 === 0) for (const known of [...this.usage.keys()]) this.used(known);
+    if (++this.charges % 512 === 0) for (const l of ["first", "last"] as const) for (const known of [...this.usage[l].keys()]) this.used(known, this.now(), l);
   }
 
   /** What `key` has used of the loop, forgetting as it goes (as of `now`: one moment for a whole choice). */
-  used(key: TurnKey, now = this.now()): number {
-    const entry = this.usage.get(key);
+  used(key: TurnKey, now = this.now(), lane: "first" | "last" = "first"): number {
+    const entry = this.usage[lane].get(key);
     if (!entry) return 0;
     const ms = entry.ms * 2 ** (-(now - entry.at) / USAGE_HALF_LIFE_MS);
-    if (ms < 0.01) { this.usage.delete(key); return 0; }
+    if (ms < 0.01) { this.usage[lane].delete(key); return 0; }
     return ms;
   }
 
   /** The one waiting in `lane` that has used the loop least (the longest waiting among equals). */
-  private take(lane: Waiting[]): Waiting | undefined {
+  private take(lane: Waiting[], which: "first" | "last"): Waiting | undefined {
     if (lane.length <= 1) return lane.shift();
     const now = this.now();
-    let best = 0, bestUsed = this.used(lane[0]!.key, now);
+    let best = 0, bestUsed = this.used(lane[0]!.key, now, which);
     for (let i = 1; i < lane.length; i++) {
-      const used = this.used(lane[i]!.key, now);
+      const used = this.used(lane[i]!.key, now, which);
       if (used < bestUsed) { best = i; bestUsed = used; }
     }
     return lane.splice(best, 1)[0];
@@ -182,7 +193,7 @@ export class Turns {
       // Never starved: after LAST_EVERY turns to other requests, a whole-outline read gets one.
       const fromLast = this.last.length > 0 && (this.first.length === 0 || this.passedOver >= LAST_EVERY);
       this.passedOver = fromLast || this.last.length === 0 ? 0 : this.passedOver + 1;
-      this.take(fromLast ? this.last : this.first)?.resolve();
+      this.take(fromLast ? this.last : this.first, fromLast ? "last" : "first")?.resolve();
       if (this.first.length || this.last.length) this.schedule();
     });
   }

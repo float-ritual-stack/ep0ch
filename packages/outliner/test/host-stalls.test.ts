@@ -30,6 +30,10 @@ function graphReads(store: OutlinerStore) {
   return () => reads;
 }
 
+async function until(ok: () => boolean, ms = 30_000): Promise<void> {
+  for (const end = Date.now() + ms; !ok();) { if (Date.now() > end) throw new Error("timed out"); await Bun.sleep(10); }
+}
+
 const graphOf = (store: OutlinerStore) => (store as unknown as { loadGraph(): { byId: Map<string, Block> } }).loadGraph();
 
 test("a write's fan-out in a 50,000-block outline leaves another outline responsive (PIE-1001)", async () => {
@@ -459,3 +463,55 @@ test("a backfill --into leaves a watching door's ping answered at once (PIE-1413
     done();
   }
 }, 300_000);
+
+// PIE-1413's second round, found by driving a door on the Desk: a board's lane reads, queued on the door's one
+// connection, held its note reads and saves behind them for minutes, and a closed door's queue kept running.
+test("a connection's whole-outline reads never hold its note read or its save, and a closed connection's queue is dropped", async () => {
+  const { root, store, done } = scratch("own-connection");
+  const server = new OutlinerServer(store, join(root, "host.sock"));
+  try {
+    store.database.transaction(() => { for (let i = 0; i < 3000; i++) store.create(`Seed packet ${i} [type::packet] [bed::b${i % 40}]`, null, "user"); })();
+    const note = store.create("Shed key [type::note]", null, "user");
+    for (let i = 0; i < 40; i++) store.create(`Lane ${i} [type::virtual-branch] [query::type=packet bed=b${i}]`, null, "user");
+    const views = store.queryBlocks({ filters: [{ key: "type", value: "virtual-branch" }], limit: 100 }).blocks.map(b => b.id);
+    await server.start();
+    const reads = graphReads(store);
+    const open = () => {
+      const socket = connect(join(root, "host.sock"));
+      socket.setEncoding("utf8");
+      const answered = new Map<string, number>();
+      let buffer = "";
+      socket.on("data", (chunk: string) => {
+        buffer += chunk;
+        for (let at = buffer.indexOf("\n"); at >= 0; at = buffer.indexOf("\n")) { answered.set(JSON.parse(buffer.slice(0, at)).id, performance.now()); buffer = buffer.slice(at + 1); }
+      });
+      const send = (id: string, request: object) => socket.write(`${JSON.stringify({ id, ...request })}\n`);
+      return { socket, answered, send };
+    };
+    // A door: every lane's read sent at once, then its person reads a note and saves it, all on the one connection.
+    const door = open();
+    const sent = performance.now();
+    for (const [i, viewId] of views.entries()) door.send(`lane-${i}`, { action: "views.read", viewId, format: "tree" });
+    door.send("note", { action: "children", blockId: note.id });
+    door.send("save", { action: "update", blockId: note.id, text: "Shed key, by the door [type::note]", expectedRevision: note.revision, mutation: { author: "user" } });
+    await until(() => door.answered.size === views.length + 2);
+    const lanesDone = Math.max(...views.map((_, i) => door.answered.get(`lane-${i}`)!));
+    expect(door.answered.get("note")!).toBeLessThan(lanesDone);
+    expect(door.answered.get("save")!).toBeLessThan(lanesDone);
+    expect(door.answered.get("save")! - sent).toBeLessThan((lanesDone - sent) / 2);
+    door.socket.destroy();
+    // A door that goes away with its lanes asked: nobody waits for them, and the host doesn't read them.
+    const gone = open();
+    await new Promise(resolve => gone.socket.once("connect", resolve));
+    const before = reads();
+    for (const [i, viewId] of views.entries()) gone.send(`lane-${i}`, { action: "views.read", viewId, format: "tree" });
+    gone.socket.destroy();
+    await Bun.sleep(300);
+    const after = store.get(note.id);
+    expect(after?.text).toBe("Shed key, by the door [type::note]");
+    expect(reads() - before).toBeLessThan(views.length / 4);
+  } finally {
+    await server.close();
+    done();
+  }
+}, 120_000);
