@@ -73,7 +73,9 @@ function whole(about: string, does: string, cap: string): string {
   if (/^then\b/.test(l)) return `${about}: ${cap} ${d}`;
   return `${about}, ${d}`;
 }
-const GESTURES = new Set(["click", "drag", "wheel", "hover", "sideways"]);
+const GESTURE_WORDS = ["click", "drag", "wheel", "hover", "sideways"];
+/** A mouse gesture, with a modifier or not (ctrl+wheel, alt-click): a gesture, never a key the window lists or moves. */
+const GESTURES = { has: (key: string) => GESTURE_WORDS.some(g => key === g || key.endsWith(`+${g}`) || key.endsWith(`-${g}`)) };
 /** A table row's key as a binding's one name: the ^W keys after `ctrl+w `, the hyper ones after `hyper+`. */
 const tableKey = (prefix: string, key: string) => (prefix === "ctrl+w " ? `ctrl+w ${key === " " ? "space" : key}` : prefix + key);
 const capOf = (key: string) => (key.startsWith("hyper+") ? hyperLabel(key.slice(6)) : keyCaption(key));

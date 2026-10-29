@@ -345,8 +345,20 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
       const l = keysPane().render(40, 30, true, desk()).lines.map(visible) as string[];
       expect(l[0]).toContain("Bindings");
       expect(l.join("\n")).toContain("runs");
-      expect(l[0]).toContain("Conflicts 0");
+      expect(l.slice(0, 2).join(" ")).toContain("Conflicts 0");
       expect(Math.max(...l.map(x => x.length))).toBeLessThanOrEqual(40);
+      // No tab label and no key is cut mid-word: the tabs wrap, the key column is as wide as its widest key.
+      expect(l.slice(0, 2).join(" ")).not.toContain("…");
+      const p = keysPane();
+      for (const words of ["shift+tab", "ctrl+space", "delete"]) {
+        p.filter = words; p.at = 0;
+        const rows = p.render(40, 30, true, desk()).lines.map(visible) as string[];
+        const caps = rows.slice(4).filter(x => /^[║│]?.?\S/.test(x)).map(x => x.slice(0, 14));
+        expect(caps.filter(c => c.includes("…"))).toEqual([]);
+      }
+      p.filter = "";
+      // A mouse gesture with a modifier (ctrl+wheel) is a gesture, never a key row.
+      expect(bindings().some(b => /wheel|click|drag/.test(b.key))).toBe(false);
     } finally { cols = 177; rows = 60; }
     key({ kind: "esc" });
     await until(() => focusedKind() !== "keys", "closed");

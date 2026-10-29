@@ -149,7 +149,10 @@ export class KeysPane implements Pane {
     this.listRows = room;
     lines.push(fg(C.dark) + "─".repeat(w) + RESET);
     const top = this.view.place(rows.length ? this.at : null, rows.length, room);
-    const listed = rows.slice(top, top + room).map((r, i) => this.rowLine(r, top + i === this.at, listW));
+    // The key column is as wide as the widest key shown (^W h to ctrl+space), so no key is cut.
+    const shown = rows.slice(top, top + room);
+    this.capW = Math.min(14, Math.max(listW < 60 ? 7 : 10, ...shown.map(r => (r.b.key ? width(r.b.cap) : listW < 60 ? 7 : 10))));
+    const listed = shown.map((r, i) => this.rowLine(r, top + i === this.at, listW));
     if (wide) {
       for (let i = 0; i < Math.max(room, 0); i++) {
         const l = listed[i] ?? " ".repeat(listW), d = detail[i] ?? "";
@@ -165,9 +168,11 @@ export class KeysPane implements Pane {
     return { lines: lines.slice(0, h).map(l => pad(l, w) + RESET), scroll: { top, total: rows.length, room } };
   }
 
+  /** The key column's width as last drawn: the widest key shown. */
+  private capW = 10;
   private rowLine(r: Row, on: boolean, w: number): string {
     // Narrow (a 44-column tile), the words get the room: the scope is in the detail, and the filter (`in:note`) says it.
-    const narrow = w < 60, b = r.b, cap = !b.key ? (narrow ? fg(C.brown) + ellipsize(b.scope, 9) + RESET : fg(C.dark) + (b.rebind === true ? "no key" : "needs args") + RESET) : keycap(b.cap), capW = narrow ? 9 : 12, scopeW = narrow ? 0 : Math.min(14, Math.max(6, Math.floor(w * 0.18)));
+    const narrow = w < 60, b = r.b, capW = this.capW + 2, cap = !b.key ? (narrow ? fg(C.brown) + ellipsize(b.scope, capW - 1) + RESET : fg(C.dark) + (b.rebind === true ? "no key" : "needs args") + RESET) : keycap(b.cap), scopeW = narrow ? 0 : Math.min(14, Math.max(6, Math.floor(w * 0.18)));
     const mark = b.yours ? fg(C.lcyan) + "●" + RESET : r.head ? fg(C.yellow) + "!" + RESET : " ";
     const scope = narrow ? "" : fg(C.brown) + pad(ellipsize(b.scope, scopeW), scopeW) + RESET + " ";
     const text = mark + pad(cap, capW) + " " + scope + fg(C.grey) + ellipsize(b.does, Math.max(4, w - capW - scopeW - (narrow ? 3 : 4))) + RESET;
