@@ -8,7 +8,7 @@ import { linkInstallStep } from "./link";
 // what they need is said.
 import { basename, dirname, join, resolve } from "node:path";
 import { copyName } from "@ep0ch/outliner/extension-update";
-import { ep0ch } from "../session/place";
+import { ep0ch, sessionFlags } from "../session/place";
 import { backupPlan } from "../backup/setup";
 import { linkCommands, linkCounts, type LinkWork, linkWork, type OwnedLink, sh, type StaleLink } from "./links";
 import { type Checkout, type DatabaseFacts, type SchemaCode, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, type McpFacts, type PublisherFacts, RUNS, codeFiles, codeKey, PLUGIN_ID, PLUGIN_SOURCE, type SessionFact, short, staleness } from "./model";
@@ -299,9 +299,9 @@ export function movedSaid(m: CodeMove): string {
 }
 
 /** A move that doesn't: "host unchanged: no restart (…)". Null when nothing moved, or something it runs did. */
-export function unchangedSaid(m: CodeMove | null, who: string): string | null {
+export function unchangedSaid(m: CodeMove | null, who: string, kept = "no restart"): string | null {
   if (!m || m.files.length || m.from === m.to) return null;
-  return `${who} unchanged: no restart (${short(m.from)} → ${short(m.to)} changed ${m.all} file${m.all === 1 ? "" : "s"}, none it runs)`;
+  return `${who} unchanged: ${kept} (${short(m.from)} → ${short(m.to)} changed ${m.all} file${m.all === 1 ? "" : "s"}, none it runs)`;
 }
 
 /**
@@ -575,6 +575,8 @@ export interface SessionVerdict {
   brief: string;
   /** do: the commit the session is handed to. */
   target?: string | null;
+  /** skip: its commit is older, but none of the door's code moved since (PIE-1400); `session upgrade --all` would still hand it over. */
+  unchanged?: true;
 }
 
 export function sessionVerdict(s: SessionFact, f: Facts, repo: Pick<Step, "status">): SessionVerdict {
@@ -587,21 +589,27 @@ export function sessionVerdict(s: SessionFact, f: Facts, repo: Pick<Step, "statu
   const updates = repo.status === "do" && c.behind > 0;
   const target = updates ? c.upstream : c.head;
   if (s.commit && s.commit === target) return verdict("skip", `runs the current code (${short(s.commit)})`);
+  // A move that touched none of the door's code (docs, the Claude mod) leaves it as it is (PIE-1400): a handover
+  // reattaches every terminal on it. An unknown commit, or a pair whose files weren't listed, hands it over.
+  const quiet = unchangedSaid(codeMoved(f, s.commit, updates, RUNS.door), "session", "no handover");
+  if (quiet) return { ...verdict("skip", quiet), unchanged: true };
   return verdict("do", `runs ${short(s.commit)}, the checkout ${updates ? "will be" : "is"} at ${short(target)}: a new daemon on that code takes it over; its ${s.programs} program${s.programs === 1 ? "" : "s"} keep running and its ${s.clients} terminal${s.clients === 1 ? "" : "s"} attach again`, target);
 }
 
 /**
- * The door sessions (PIE-418), one per outline: every daemon on older code than the checkout (after its update) is
- * handed to a new one on that code (`ep0ch session upgrade --all`): its programs keep running in the terminal host,
- * its terminals attach again.
+ * The door sessions (PIE-418), one per outline: every daemon whose door code (RUNS.door) is older than the checkout's
+ * (after its update) is handed to a new one on that code: its programs keep running in the terminal host, its
+ * terminals attach again. One whose code didn't move is left running (PIE-1400).
  */
 export function sessionStep(f: Facts, repo: Pick<Step, "status">): Step {
   const title = "Hand the door sessions to the new code";
   const all = f.sessions ?? [];
   if (!all.length) return { id: "session", title, status: "skip", why: "no door session runs", commands: [] };
   const verdicts = all.map(s => sessionVerdict(s, f, repo));
-  const doing = verdicts.some(v => v.status === "do");
-  return { id: "session", title, status: doing ? "do" : "skip", why: verdicts.map(v => v.why).join("; "), commands: doing ? [`${ep0ch()}session upgrade --all`] : [] };
+  const doing = all.filter((_, i) => verdicts[i]!.status === "do");
+  // Only the sessions it hands over: `--all` unless that would hand over one whose code didn't move.
+  const commands = !doing.length ? [] : !verdicts.some(v => v.unchanged) ? [`${ep0ch()}session upgrade --all`] : doing.map(s => `${ep0ch()}session upgrade ${sessionFlags({ place: s })}`);
+  return { id: "session", title, status: doing.length ? "do" : "skip", why: verdicts.map(v => v.why).join("; "), commands };
 }
 
 /**

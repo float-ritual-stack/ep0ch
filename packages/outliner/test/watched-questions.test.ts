@@ -10,7 +10,7 @@ import { QueryWatches } from "../src/query-watches";
 import { dateBucket, questionFacets } from "../src/question-answer";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import type { BlockSearchQuery, VisibleBlockCollection } from "../src/types";
+import type { Block, BlockSearchQuery, VisibleBlockCollection } from "../src/types";
 
 let root: string;
 let store: OutlinerStore;
@@ -149,14 +149,14 @@ describe("groups, sorts, facets and hints", () => {
   // PIE-1396: pie (11k notes, 521 keys) took 4.5 s for every key's facets, each key reading every note. Each note is
   // read once now, for the keys it carries: the work grows with what notes hold, not notes times keys.
   test("every key's facets read each note once, for the keys it carries; a tag facet still counts tags", () => {
-    const blocks = Array.from({ length: 400 }, (_, i) => ({ id: `b${i}`, updatedAt: `2026-10-${String(1 + (i % 28)).padStart(2, "0")}`, keys: [`k${i % 200}`, "type", ...(i % 2 ? ["tags"] : ["tag"])] }));
+    type Fake = Block & { keys: string[] };
+    const blocks = Array.from({ length: 400 }, (_, i) => ({ id: `b${i}`, updatedAt: `2026-10-${String(1 + (i % 28)).padStart(2, "0")}`, keys: [`k${i % 200}`, "type", ...(i % 2 ? ["tags"] : ["tag"])] }) as unknown as Fake);
     let reads = 0;
-    const valuesOf = (block: never, key: string) => {
+    const valuesOf = (block: Block, key: string) => {
       reads += 1;
-      const b = block as (typeof blocks)[number];
-      return b.keys.filter(k => k === key || key === "tag" && k === "tags").map(k => k === "type" ? "note" : `${k}-v`);
+      return (block as Fake).keys.filter(k => k === key || key === "tag" && k === "tags").map(k => k === "type" ? "note" : `${k}-v`);
     };
-    const facets = questionFacets(blocks as never, true, valuesOf, block => (block as unknown as (typeof blocks)[number]).keys, 50, 300);
+    const facets = questionFacets(blocks, true, valuesOf, block => (block as Fake).keys, 50, 300);
     expect(reads).toBeLessThanOrEqual(400 * 4);
     expect(facets.find(f => f.key === "type")).toMatchObject({ count: 400, values: [{ value: "note", count: 400, last: "2026-10-28" }] });
     // `tag` reads `tags` too (block-query's rule); `tags` reads only itself.
