@@ -28,6 +28,7 @@ const untilAsync = async (ok: () => Promise<boolean>, what: string, ms = 10_000)
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
 import { useShowcaseScreen } from "./harness";
+import { PtyPane } from "../../src/desk/pty";
 import { marks } from "./marks";
 import { prop } from "../../src/props";
 
@@ -277,6 +278,34 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     press({ kind: "esc" });
     expect(message()).toBe("nothing to close · q leaves");
     expect(app.describe()).toMatchObject({ screen: "showcase" });
+  }, 20_000);
+
+  test("the esc section's kettle (PIE-1431): typing in a terminal, the power bar over it takes Esc, a second Esc right after goes nowhere and says so, a moment later Esc is kettle's", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "esc" }, as: "test-agent" });
+    await until(() => marks.esc!.every(m => screen().includes(m)), "the esc section");
+    const stage = () => S().stages.get(S().sel).top;
+    const kettle = () => stage().pane("kettle") as PtyPane;
+    await until(() => kettle()?.running === true && kettle().text().some(l => l.includes("kettle: cat -v, an Esc")), "kettle runs");
+    const echoed = () => kettle().text().join("\n").includes("^[");
+    press({ kind: "enter" });
+    await stage().dispatch.press("tile.focus", {}, "kettle");
+    await stage().dispatch.press("tile.enter", {}, "kettle");
+    expect(S().rawKeys()).toBe(true);                              // the person types in kettle
+    await app.dispatch.press("bar.open");
+    await until(() => !!(app as any).bar, "the power bar over kettle");
+    press({ kind: "esc" });
+    expect((app as any).bar).toBeNull();                           // the bar took it
+    press({ kind: "esc" });                                        // a second Esc at once
+    await Bun.sleep(150);
+    expect(echoed()).toBe(false);
+    expect((app as any).message).toContain("pause, then esc is the program's");
+    await Bun.sleep(700);
+    press({ kind: "esc" });
+    await until(echoed, "a later Esc reaches kettle");
+    await stage().dispatch.press("tile.leave", {}, "kettle");
+    // The keys went into the section; the next test moves from the index.
+    S().focus = "index";
   }, 20_000);
 
 

@@ -10,6 +10,21 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Esc closes what's in front of you, never the Claude tile by mistake (PIE-1431, PIE-1428)
+
+- **Esc over a terminal you type in** (a terminal tile, the drawer's agent) closes the power bar or the menu over it,
+  whichever opened it: a click on the status bar's ^K, a status-bar group, a tile's ⋯. It never reaches the program.
+- **A second Esc right after** goes nowhere and says so on the status line; a moment later (0.6 s) Esc is the program's
+  again. Under the Kitty keyboard protocol too.
+- **A status-bar group in a group** opens its menu beside its parent's, which stays open: Esc closes the inner, then the outer.
+- **"pin to status bar"** is the tile menu's first row when you right-click a button.
+- **alt+o in the power bar** says what it copied on the status line and in the log, not only in the toast.
+- **At 40 columns,** a pasted link's explanation and the undo ask at a save read whole.
+- **For agents:** a refusal about the tile the person types in reads one way: "the person is typing in <tile>; an
+  agent doesn't <what> · <what to do>", never `drawer.tiles`. `button.press note=` takes the 8-character short id,
+  a Work ID or a [[page]], as `open id=` does.
+- **Run:** nothing.
+
 ### A dropped connection leaves the terminal clean (PIE-1429)
 
 - **`ep0ch door`** carries the ssh door (`ssh ep0ch`) in this terminal and gives it back clean however it ends, a

@@ -1397,8 +1397,13 @@ export class App implements Ctx {
     // An Option character standing for an alt key is that key everywhere after this, the drawer's alt+a too.
     const k = this.optionAsAlt(typed);
     this.pressed(k);
-    // An Esc the door reads while the person types in a program went to something over it (the bar, a menu): spent there.
-    if (k.kind === "esc" && this.typingInProgram()) this.escSpentAt = this.now();
+    // An Esc the door reads while the person types in a program: one for something over it (the bar, a menu) is spent
+    // there; one right after it is that one again, never the program's (PIE-1431). A screen that hands its terminal decoded
+    // keys (the showcase's stage) meets it here; raw bytes meet it in the raw sink (escSpent).
+    if (k.kind === "esc" && this.typingInProgram()) {
+      if (!this.overProgram() && this.heldEsc()) return;
+      if (this.overProgram()) this.escSpentAt = this.now();
+    }
     // The key typed, by its one name, while it's handled: an action it no longer runs (the person's keymap moved it) says so.
     try { asTyped(k.kind === "mouse" || k.kind === "paste" ? null : keyName(k), () => this.route(k)); }
     finally {
@@ -1552,15 +1557,22 @@ export class App implements Ctx {
   }
   /** The person's keys are a terminal program's (a terminal tile's, the drawer's agent's), whatever is open over it. */
   private typingInProgram(): boolean { return this.drawer.entered ? !!this.drawer.desk?.rawKeys() : !!this.stack.at(-1)?.rawKeys?.(); }
+  /** Something over the program the person types in has their keys: the power bar, or a menu or picker over its tiles. */
+  private overProgram(): boolean {
+    if (this.bar || this.overDrawer()) return true;
+    return !!(this.drawer.entered ? this.drawer.desk : tilesOf(this.stack.at(-1)))?.overlayOpen();
+  }
   /** When an Esc last closed something over a terminal the person types in, or was held back for it. */
   private escSpentAt = -Infinity;
-  /** Raw Esc bytes right after an Esc closed something over the program: held back, and said (PIE-1431). */
-  private escSpent(bytes: string): boolean {
-    if ((bytes !== "\x1b" && rawKey(bytes)?.kind !== "esc") || this.now() - this.escSpentAt >= ESC_SPENT_MS) return false;
+  /** An Esc right after one closed something over the program: held back, and said (PIE-1431). */
+  private heldEsc(): boolean {
+    if (this.now() - this.escSpentAt >= ESC_SPENT_MS) return false;
     this.escSpentAt = this.now();
-    this.flash("esc: nothing left to close · a moment later esc goes to the program again", 2500);
+    this.flash("nothing to close · pause, then esc is the program's", 2500);
     return true;
   }
+  /** Raw bytes that are an Esc (legacy, or a Kitty report), held back as heldEsc says. */
+  private escSpent(bytes: string): boolean { return (bytes === "\x1b" || rawKey(bytes)?.kind === "esc") && this.heldEsc(); }
 
   private probing = false;
   probeKeys(on = !this.probing): boolean {
