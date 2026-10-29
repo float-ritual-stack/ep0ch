@@ -41,19 +41,19 @@ export function buttonRows(label: string, look: ButtonLook = {}, press: (drawn: 
   const tone = TONES[look.tone ?? "quiet"], state = STATES[look.state ?? "idle"], words = buttonWords(label, look);
   const disabled = look.state === "disabled";
   const ink = fg(state.text ?? tone.text), back = look.fill && !disabled ? bg(tone.fill) + fg(state.text ?? tone.on) : "";
-  const lit = (text: string) => fg(C.white) + BOLD + (look.fill ? bg(tone.fill) : "") + text + RESET;
+  const lit = fg(C.white) + BOLD + (look.fill ? bg(tone.fill) : "");
   // Under the pointer: lit, or, for one that can't run or didn't, the why read in full in its place.
-  const hover = (styled: string, plain: string) => look.why && (disabled || look.state === "failed") ? fullText(look.why, styled) : litText(styled, lit(plain));
+  const hover = (styled: string) => look.why && (disabled || look.state === "failed") ? fullText(look.why, styled) : litText(styled, lit);
   const frame = look.frame && look.frame !== "none" ? FRAMES[look.frame] : null;
   if (!frame) {
     const plain = look.fill && !disabled ? ` ${words} ` : disabled ? `(${words})` : `[${words}]`;
-    return [press(hover((back || ink + BOLD) + plain + RESET, plain))];
+    return [press(hover((back || ink + BOLD) + plain + RESET))];
   }
   const inner = ` ${words} `, edge = ink + (disabled ? "" : BOLD);
   const across = frame.top.repeat(width(inner));
   return [
     edge + frame.tl + across + frame.tr + RESET,
-    edge + frame.side + RESET + press(hover((back || edge) + inner + RESET, inner)) + edge + frame.side + RESET,
+    edge + frame.side + RESET + press(hover((back || edge) + inner + RESET)) + edge + frame.side + RESET,
     edge + frame.bl + frame.bottom.repeat(width(inner)) + frame.br + RESET,
   ];
 }

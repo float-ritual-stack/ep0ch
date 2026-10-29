@@ -42,15 +42,16 @@ export function fullText(text: string, drawn: string, lit?: string): string {
     values.set(key, value); byId.set(value.id, value);
     // Bound retained source references as screens and completions come and go.
     if (values.size > 1024) {
-      const oldest = values.values().next().value!;
-      values.delete(oldest.source); byId.delete(oldest.id);
+      const [oldKey, oldest] = values.entries().next().value!;
+      values.delete(oldKey); byId.delete(oldest.id);
     }
   } else { values.delete(key); values.set(key, value); }
   return `\x1b[777;0;${value.id}m${drawn.replace(FULL_MARKERS, "")}${FULL_END}`;
 }
 /**
  * `drawn` brightened under the pointer (PIE-1287): the one hover rule for anything pressable (a button in a note, on the status
- * bar, in a float). `lit` is the same cells drawn lit; the frame is composed first, so it holds wherever the drawing lands.
+ * bar, in a float). `lit` is the style its cells take then; the frame is composed first, so only the cells still showing it
+ * (not those a float covers) are restyled, wherever the drawing lands.
  */
 export const litText = (drawn: string, lit: string): string => fullText("", drawn, lit);
 export const clipText = (text: string, cells: number): string => width(text) > cells ? fullText(text, headOf(text, cells)) : text;
@@ -133,7 +134,8 @@ export class Overflow {
     if (!cut) return { lines: clean };
     if (cut.lit !== undefined) {
       this.scrolling = false;
-      clean[cut.y] = headOf(clean[cut.y] ?? "", cut.x) + OSC8_CLOSE + RESET + cut.lit + RESET + tailFrom(clean[cut.y] ?? "", cut.end);
+      const row = clean[cut.y] ?? "", cells = visible(headOf(tailFrom(row, cut.x), cut.end - cut.x));
+      clean[cut.y] = headOf(row, cut.x) + OSC8_CLOSE + RESET + cut.lit + cells + RESET + tailFrom(row, cut.end);
       return { lines: clean };
     }
     this.step = Math.max(0, Math.floor((now - this.since - 900) / 100));

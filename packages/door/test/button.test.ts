@@ -2,7 +2,7 @@
 // [label], and the button under the pointer is drawn lit (or reads its why) through the one Overflow pass.
 import { describe, expect, test } from "bun:test";
 import { Overflow } from "../src/overflow";
-import { visible, width } from "../src/style";
+import { headOf, visible, width } from "../src/style";
 import { buttonRows } from "../src/surface/button";
 
 const plain = (rows: string[]) => rows.map(r => visible(r).replace(/\x1b\[[\d;]*m/g, ""));
@@ -34,5 +34,14 @@ describe("the button part", () => {
     expect(o.hover(6, 0)).toBe(false);
     o.hover(13, 0);
     expect(visible(o.draw([row], 40, 0).lines[0]!)).toContain("no til");
+  });
+
+  test("a button half under a float lights only the cells still showing, and the row keeps its width", () => {
+    const o = new Overflow(), row = "say " + headOf(buttonRows("Water the beds")[0]!, 6) + "│float│";
+    o.draw([row], 40, 0);
+    o.hover(5, 0);
+    const lit = o.draw([row], 40, 0).lines[0]!;
+    expect(lit).toContain("\x1b[1m");
+    expect(visible(lit)).toBe(visible(row).replace(/\x1b\[[\d;]*m/g, ""));
   });
 });
