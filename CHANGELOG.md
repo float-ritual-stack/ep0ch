@@ -30,6 +30,22 @@ are its record. The outliner's entries from then are kept below, under
 - **Not yet:** the hint rows written by hand on some screens still say the built-in key; a key bound to several
   meanings under one name (^W h j k l) or after another key (`a then c`) can't be moved alone, and the window says so.
 - **Run:** nothing; no protocol or schema change.
+### Only the power bar answers the mouse, and it reads right at 44 and 40 columns (PIE-1407, PIE-1405)
+
+- **Nothing behind an overlay shows through it:** with the bar open over a reader, hovering the bar drew the reader's
+  byline across it. A tile's cut-short value or button now ends where the bar, a float, a menu or a toast starts, so
+  the pointer over an overlay reads only the overlay.
+- **The second click on a row runs it**, as ⏎ does: a click lights a row and shows its preview, the next click on it
+  runs it, however long between (a double click still does).
+- **A pasted link reads on the line at 40 columns**, the field scrolling sideways to the cursor instead of showing its
+  last few characters; the count takes what's left.
+- **A lit row's name stays put at 44 columns:** only its detail scrolls.
+- **Copy command copies what the row runs:** a tile's `tile.focus tile=<it>`, a screen's `screen.open`, an
+  extension's install or remove; a note's row says its menu copies its reference.
+- **Rows say themselves:** a script reads under its own name with its own words (no `ext.script-…run`, no "neat ·
+  neat:"); a pasted id that isn't here is named once, on one line; Jira's install row says what it does.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### Send to ep0ch from your phone in one tap (PIE-1408)
 
 - **One link, one tap:** open the Send to ep0ch page on my.ep0ch.sh on your iPhone, tap Add Shortcut, and "Send to ep0ch" is in your share sheet; a PDF or photo you share to it lands as a card in today's note. The Shortcut is signed and carries its own device link, so there is nothing to copy or edit.
