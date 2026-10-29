@@ -356,7 +356,7 @@ export const EVALS_PAGE = [
   "::graph-stat",
   "---",
   "title: the labelled set",
-  'items: [{ label: agents read, query: "type=search-eval-case source=agent-read", machinery: show }, { label: Evan picked, query: "type=search-eval-case source=evan-pick", machinery: show, accent: true }, { label: the note made after, query: "type=search-eval-case source=agent-made", machinery: show }]',
+  'items: [{ label: agents read, query: "type=search-eval-case source=agent-read", machinery: show }, { label: Evan picked, query: "type=search-eval-case source=evan-pick", machinery: show, accent: true }, { label: the note made after, query: "type=search-eval-case source=agent-made", machinery: show }, { label: in none of its words, query: "type=search-eval-case source=paraphrase", machinery: show }]',
   "---",
   "::",
 ].join("\n");
@@ -409,8 +409,9 @@ export function otherOutlineCases(cases: readonly EvalCase[], outlines: readonly
 export async function keepRun(client: EvalClient, scores: readonly ModelScore[], runs: readonly ModelRun[], note: string, day: string): Promise<string> {
   let page = (await read(client, "system-view=search-evals"))[0];
   if (!page) { await client.request({ action: "create", text: EVALS_PAGE, parentId: null, ...EVAL }); page = (await read(client, "system-view=search-evals"))[0]; }
-  for (const s of scores) {
-    const run = runs.find(r => r.model === s.model)!;
+  for (const [i, s] of scores.entries()) {
+    // Scores come in the runs' order; a variant's score is named "<model> · <variant>".
+    const run = runs[i]!;
     await recordRun(client, EVAL_EXPERIMENT, day, {
       // The run-level keys in the meaning every loop gives them (agreed: Jev's top agreed with the label); hit@5 and the
       // rest are the report's.
