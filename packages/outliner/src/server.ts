@@ -102,7 +102,7 @@ import {
   TUI_RESOURCE_PRESENTATION_CONTEXT,
 } from "./resource-presentation";
 import { probeSocket } from "./socket-probe";
-import { actionOf, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
+import { actionOf, thisTurn, turnKeyOf, turnOwner, type TurnKey, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
 import { isWatchable, QueryWatches, type WatchConnection } from "./query-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
@@ -461,14 +461,13 @@ export class OutlinerServer {
       const key = turnOwner.getStore() ?? "own";
       await this.turns.next(input.action, key);
       const started = performance.now();
-      let sameTurn = true;
-      setImmediate(() => { sameTurn = false; });
+      const sameTurn = thisTurn();
       const pending = this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
       let ms = performance.now() - started;
       const response = await pending;
       // What it held the loop for (all of it when it never waited outside the loop): charged to whose it is, and named
       // in a stall.
-      if (sameTurn) ms = performance.now() - started;
+      if (sameTurn()) ms = performance.now() - started;
       this.turns.charge(key, ms);
       noteWork(`${input.action} (own)`, ms);
       if (!response.ok) throw new Error(response.error);
@@ -4812,10 +4811,7 @@ export class OutlinerServer {
 
   private async respondNow(socket: Socket, line: string, received: number, key: TurnKey): Promise<void> {
     const started = performance.now();
-    // Whether it is still the turn it started in: a handler that never waits for anything outside the loop runs its
-    // continuations in this pass, so all of it (not only what ran before its first await) held the loop.
-    let sameTurn = true;
-    setImmediate(() => { sameTurn = false; });
+    const sameTurn = thisTurn();
     let request: OutlinerRequest | undefined;
     let response: OutlinerResponse;
     let attribution: ChangeAttribution | undefined;
@@ -4867,7 +4863,7 @@ export class OutlinerServer {
       // What ran before the handler first waited held the loop; the waits after it didn't, unless they were all in this turn.
       loopMs = performance.now() - started;
       response = await pending;
-      if (sameTurn) loopMs = performance.now() - started;
+      if (sameTurn()) loopMs = performance.now() - started;
       if (grant && response.ok && String(current.action) === "mcp.access.status") (response.result as McpAccessStatus).granted = this.grantedLevel(grant);
     } catch (error) {
       const problem = queryRequestProblem(error);

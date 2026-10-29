@@ -123,7 +123,7 @@ export type TurnKey = object | string;
 /** Whose request this work is for: what the service asks itself while answering one goes as that one's (`own`). */
 export const turnOwner = new AsyncLocalStorage<TurnKey>();
 
-interface Waiting { resolve: () => void; key: TurnKey; seq: number }
+interface Waiting { resolve: () => void; key: TurnKey }
 
 export class Turns {
   private readonly first: Waiting[] = [];
@@ -131,7 +131,6 @@ export class Turns {
   private scheduled = false;
   /** Turns given in a row to other requests while a whole-outline read waited. */
   private passedOver = 0;
-  private seq = 0;
   private charges = 0;
   /** What each one asking used of the loop lately, decayed, with when it was last brought up to date. */
   private readonly usage = new Map<TurnKey, { ms: number; at: number }>();
@@ -140,7 +139,7 @@ export class Turns {
 
   next(action: unknown, key: TurnKey = "anonymous"): Promise<void> {
     return new Promise(resolve => {
-      (WHOLE_OUTLINE_READS.has(String(action)) ? this.last : this.first).push({ resolve, key, seq: this.seq++ });
+      (WHOLE_OUTLINE_READS.has(String(action)) ? this.last : this.first).push({ resolve, key });
       this.schedule();
     });
   }
@@ -154,11 +153,11 @@ export class Turns {
     if (++this.charges % 512 === 0) for (const known of [...this.usage.keys()]) this.used(known);
   }
 
-  /** What `key` has used of the loop, forgetting as it goes. */
-  used(key: TurnKey): number {
+  /** What `key` has used of the loop, forgetting as it goes (as of `now`: one moment for a whole choice). */
+  used(key: TurnKey, now = this.now()): number {
     const entry = this.usage.get(key);
     if (!entry) return 0;
-    const ms = entry.ms * 2 ** (-(this.now() - entry.at) / USAGE_HALF_LIFE_MS);
+    const ms = entry.ms * 2 ** (-(now - entry.at) / USAGE_HALF_LIFE_MS);
     if (ms < 0.01) { this.usage.delete(key); return 0; }
     return ms;
   }
@@ -166,9 +165,10 @@ export class Turns {
   /** The one waiting in `lane` that has used the loop least (the longest waiting among equals). */
   private take(lane: Waiting[]): Waiting | undefined {
     if (lane.length <= 1) return lane.shift();
-    let best = 0, bestUsed = this.used(lane[0]!.key);
+    const now = this.now();
+    let best = 0, bestUsed = this.used(lane[0]!.key, now);
     for (let i = 1; i < lane.length; i++) {
-      const used = this.used(lane[i]!.key);
+      const used = this.used(lane[i]!.key, now);
       if (used < bestUsed) { best = i; bestUsed = used; }
     }
     return lane.splice(best, 1)[0];
@@ -186,6 +186,16 @@ export class Turns {
       if (this.first.length || this.last.length) this.schedule();
     });
   }
+}
+
+/**
+ * Whether work begun now is still in the same pass of the loop: a request that never waited for anything outside it
+ * ran its continuations in this pass, so all of it held the loop, not only what ran before its first await.
+ */
+export function thisTurn(): () => boolean {
+  let same = true;
+  setImmediate(() => { same = false; });
+  return () => same;
 }
 
 /** Who a request line is for, for its turn: the agent it names (`actorId`), else the connection it came on. */

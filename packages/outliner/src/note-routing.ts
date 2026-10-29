@@ -78,7 +78,7 @@ export class NoteRouting {
    * view and its hand order, and the notes they send to. Asked on every new note and every settle, so a write elsewhere
    * (an import's thousands) never reads them again.
    */
-  private cache: { stamp: string; targets: string[]; rules: RouteRule[]; problems: string[] } | null = null;
+  private cache: { sequence: number; stamp: string; unresolved: boolean; targets: string[]; rules: RouteRule[]; problems: string[] } | null = null;
 
   private stamp(targets: readonly string[]): string {
     const hub = this.hub();
@@ -99,7 +99,13 @@ export class NoteRouting {
 
   /** Every rule note now, in the order they're tried, and the rule notes that can't be used (and why). */
   rules(): { rules: RouteRule[]; problems: string[] } {
-    if (this.cache && this.cache.stamp === (this.cache.stamp.startsWith("sequence ") ? `sequence ${this.store.sequence}` : this.stamp(this.cache.targets))) return this.cache;
+    const sequence = this.store.sequence;
+    if (this.cache?.sequence === sequence) return this.cache;
+    // Written since: still the same rules unless what they were read from changed (and none named a missing note).
+    if (this.cache && !this.cache.unresolved && this.cache.stamp === this.stamp(this.cache.targets)) {
+      this.cache.sequence = sequence;
+      return this.cache;
+    }
     const problems: string[] = [];
     const targets: string[] = [];
     // A rule whose target names nothing yet may start working with any note written: read again after every write.
@@ -129,7 +135,7 @@ export class NoteRouting {
     }
     const rank = (rule: RouteRule) => hubOrder.get(rule.id) ?? Number.MAX_SAFE_INTEGER;
     rules.sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || rank(a) - rank(b) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
-    this.cache = { stamp: unresolved ? `sequence ${this.store.sequence}` : this.stamp(targets), targets, rules, problems };
+    this.cache = { sequence, stamp: unresolved ? "" : this.stamp(targets), unresolved, targets, rules, problems };
     return this.cache;
   }
 

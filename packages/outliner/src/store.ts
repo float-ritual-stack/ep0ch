@@ -691,6 +691,8 @@ function boundedTreeLabel(text: string): string {
 }
 
 const NO_PROPERTIES: BlockProperty[] = Object.freeze([]) as unknown as BlockProperty[];
+/** SQLite's BINARY order for the ASCII ids and timestamps a block row holds. */
+const compareBinary = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 /** A write that touched more blocks than this (an import, a reorder of a long list) has the graph read whole again. */
 const GRAPH_PATCH_LIMIT = 400;
 
@@ -3808,7 +3810,8 @@ export class OutlinerStore {
    * [status-family::done]` notes), read again only when the outline changed.
    */
   facetRules(): BacklinkFacetRules {
-    const key = this.graphKey();
+    // Read without the graph: a backlinks answer never loads the whole outline (PIE-1001).
+    const key = this.changeKey();
     if (this.facetRulesCache?.key === key) return this.facetRulesCache.rules;
     const rows = this.database.query("SELECT DISTINCT block_id FROM block_properties WHERE key = ? AND scope = 'block'").all(STATUS_FAMILY_PROPERTY) as { block_id: string }[];
     const rules = facetRulesFromBlocks(rows.map(row => this.getFromCurrentRead(row.block_id)!)).rules;
@@ -4221,13 +4224,13 @@ export class OutlinerStore {
 
   /**
    * A property-selected reader depends on its members and their outline order, not unrelated writes. `value`: only the
-   * blocks whose `key` is that (`type` `route`). `also`: other blocks it read (where a rule sends notes), and `viewId`, a
+   * blocks whose `key` holds it, in any case and among a list's values too (a few more than a query matches: never fewer). `also`: other blocks it read (where a rule sends notes), and `viewId`, a
    * saved view's hand order.
    */
   propertyDependencyStamp(key: string, value?: string, also: readonly string[] = [], viewId?: string): string {
     const members = JSON.stringify(this.database.query(`
       WITH RECURSIVE dependencies(id) AS (
-        SELECT block_id FROM block_properties WHERE key = ? AND scope = 'block' AND (? IS NULL OR value = ?)
+        SELECT block_id FROM block_properties WHERE key = ? AND scope = 'block' AND (? IS NULL OR instr(lower(value), lower(?)) > 0)
         UNION SELECT value FROM json_each(?)
         UNION
         SELECT block.parent_id FROM blocks block JOIN dependencies ON block.id = dependencies.id
@@ -5144,6 +5147,13 @@ export class OutlinerStore {
     return graph;
   }
 
+  /** Whether anything changed: this connection's writes to any table (`total_changes()`), another's commits. */
+  private changeKey(): string {
+    const changes = this.database.query("SELECT total_changes() AS changes").get() as { changes: number };
+    const version = this.database.query("PRAGMA data_version").get() as { data_version: number };
+    return `${changes.changes}:${version.data_version}`;
+  }
+
   /** Notes, per connection, which blocks a write touched: what `loadGraph` reads again (TEMP, never in the file). */
   private noteGraphWrites(): void {
     const note = (id: string) => `INSERT OR IGNORE INTO temp.graph_dirty (block_id) VALUES (${id});`;
@@ -5156,12 +5166,6 @@ export class OutlinerStore {
       CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_property_update AFTER UPDATE ON main.block_properties BEGIN ${note("NEW.block_id")} ${note("OLD.block_id")} END;
       CREATE TEMP TRIGGER IF NOT EXISTS graph_dirty_property_delete AFTER DELETE ON main.block_properties BEGIN ${note("OLD.block_id")} END;
     `);
-  }
-
-  private graphKey(): string {
-    const changes = this.database.query("SELECT total_changes() AS changes").get() as { changes: number };
-    const version = this.database.query("PRAGMA data_version").get() as { data_version: number };
-    return `${changes.changes}:${version.data_version}`;
   }
 
   /**
@@ -5191,7 +5195,7 @@ export class OutlinerStore {
   }
 
   private readGraph(): LoadedGraph {
-    const rows = this.database.query("SELECT * FROM blocks ORDER BY position, created_at").all() as BlockRow[];
+    const rows = this.database.query("SELECT * FROM blocks ORDER BY position, created_at, id").all() as BlockRow[];
     const propertyRows = this.database
       .query(
         "SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties ORDER BY block_id, ordinal",
@@ -5230,7 +5234,7 @@ export class OutlinerStore {
         || before.deletedAt !== block.deletedAt || before.effectiveDeletedRootId !== block.effectiveDeletedRootId) moved = true;
     }
     if (moved) {
-      const order = [...graph.byId.values()].sort((a, b) => a.position - b.position || (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+      const order = [...graph.byId.values()].sort((a, b) => a.position - b.position || compareBinary(a.createdAt, b.createdAt) || compareBinary(a.id, b.id));
       graph.byId = new Map(order.map(block => [block.id, block]));
       graph.byParent = new Map();
       graph.deletedDescendantCountByRoot = new Map();

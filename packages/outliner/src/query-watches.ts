@@ -116,8 +116,10 @@ export class QueryWatches {
   /** What changed since the last evaluation: every note named, or everything (a change that names no note). */
   private pendingIds = new Set<string>();
   private pendingAll = false;
-  /** A pass is being evaluated in turns: a flush now leaves its changes to the next. */
+  /** A pass is being evaluated in turns (or waits for one): a flush now leaves its changes to the next. */
   private passing = false;
+  private passes = 0;
+  private chain: Promise<void> = Promise.resolve();
   private readonly settleMs: number;
   private readonly minuteMs: number;
   private readonly maxWaitMs: number;
@@ -241,11 +243,11 @@ export class QueryWatches {
     const all = this.pendingAll || this.pendingIds.size === 0, touched = this.pendingIds;
     this.pendingAll = false;
     this.pendingIds = new Set();
-    this.evaluate(() => true, touched, all, true);
+    this.evaluate(() => true, touched, all);
   }
 
-  /** Evaluate the selected watches: at once, or (with `turn`) a watch a turn; `pass` marks the change-driven pass. */
-  private evaluate(select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean, pass = false): void {
+  /** Evaluate the selected watches: at once, or (with `turn`) a watch a turn, after any pass still going. */
+  private evaluate(select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean): void {
     if (!this.options.turn) {
       const started = performance.now();
       const changes = new Map<WatchConnection, QueryChange[]>();
@@ -260,9 +262,11 @@ export class QueryWatches {
       this.options.timed?.(performance.now() - started, this.all.size);
       return;
     }
-    if (pass) this.passing = true;
-    void this.inTurns(select, touched, all).finally(() => {
-      if (!pass) return;
+    // One pass at a time, the clock's too: a pass never applies an answer older than one another pass gave.
+    this.passing = true;
+    this.passes += 1;
+    this.chain = this.chain.then(() => this.inTurns(select, touched, all)).catch(() => {}).finally(() => {
+      if (--this.passes > 0) return;
       this.passing = false;
       if (!this.pendingAll && this.pendingIds.size === 0) return;
       // What changed during the pass: the next one, once it settles.
@@ -274,21 +278,25 @@ export class QueryWatches {
   private async inTurns(select: (watch: Watch) => boolean, touched: ReadonlySet<string>, all: boolean): Promise<void> {
     // One answer per question a pass: the same read watched on two connections is evaluated once.
     const answered = new Map<string, OutlinerResponse>();
-    // What changed, told each connection in one event: at the end of the pass, or sooner in a long one.
-    const told = new Map<WatchConnection, QueryChange[]>();
+    // What changed, told each connection in one event: at the end of the pass, or sooner in a long one. A watch
+    // replaced, dropped or moved on since is left out: only a generation the watch still has is told.
+    const told = new Map<WatchConnection, Array<{ slot: string; watch: Watch; change: QueryChange }>>();
     let toldAt = performance.now();
     const tell = () => {
-      for (const [connection, list] of told) this.send(connection, list);
+      for (const [connection, list] of told) {
+        this.send(connection, list.filter(({ slot, watch, change }) => this.all.get(slot) === watch && watch.generation === change.generation).map(({ change }) => change));
+      }
       told.clear();
       toldAt = performance.now();
     };
+    const current = (slot: string, watch: Watch) => this.all.get(slot) === watch && !watch.connection.destroyed;
     for (const [slot, watch] of [...this.all]) {
-      if (!this.wanted(watch, select, touched, all)) continue;
+      if (!current(slot, watch) || !this.wanted(watch, select, touched, all)) continue;
       let response = answered.get(watch.signature);
       if (!response) {
         await this.options.turn!(String(watch.request.action));
         // Replaced, dropped or closed while it waited.
-        if (this.all.get(slot) !== watch || watch.connection.destroyed) continue;
+        if (!current(slot, watch)) continue;
         const started = performance.now();
         try { response = this.options.answer({ ...watch.request, id: "watch" } as Request); }
         catch (error) { response = { id: "watch", ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.options.sequence() }; }
@@ -296,7 +304,7 @@ export class QueryWatches {
         answered.set(watch.signature, response);
       }
       const change = this.update(watch, response);
-      if (change) told.set(watch.connection, [...(told.get(watch.connection) ?? []), change]);
+      if (change) told.set(watch.connection, [...(told.get(watch.connection) ?? []), { slot, watch, change }]);
       if (told.size && performance.now() - toldAt > TELL_EVERY_MS) tell();
     }
     tell();
