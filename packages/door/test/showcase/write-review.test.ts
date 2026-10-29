@@ -17,5 +17,9 @@ describe.skipIf(!outliner)("showcase: write review (PIE-1388)", () => {
     // The table's note cell is the note's title, never its id.
     expect(screen).not.toContain(h.seeded.notes.writeReview.id.slice(0, 13));
     expect(screen).toContain("line 3 (\"The");
+    // The 44-column tile (PIE-1402): each finding a card, every field shown, none hidden behind "+n columns".
+    expect(screen).not.toContain("columns · widen to see");
+    await until(() => h.screen().includes("said: line "), "the narrow tile's card", 15_000);
+    expect(h.screen()).toContain("passage: ");
   });
 });

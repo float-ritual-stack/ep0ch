@@ -10,6 +10,28 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Jev's review and twins read right where Evan looks (PIE-1402)
+
+- **Jev's suggestions at 44 columns:** a table of three or more columns in a narrow tile draws each row as a card, its
+  title then every cell as `header: value`, three cards to a scroll; the web page does the same at phone width. Each
+  finding shows the passage, what was said and what the writer did, once.
+- **A finding is told once:** a writer who heard a finding on an earlier write hears it carried, so a note whose
+  patches were applied ships; the record keeps the writer's words (`[needs::sysop]` stays, quoted) and the fix
+  offered. "Followed" means Jev read the rewrite and didn't say it again, and a patch applied as written reads
+  patched. A component code can't build is advice, never a fix; a context finding quotes the phrase it leans on.
+- **Patches that leave nothing to fix:** the buried question's moves whole sentences, its chip cut at a word, its box
+  its own paragraph; a wall's or a stacked bullet's long sentence nests its clauses. Compare (`label: A | B`, columns
+  from the line above), decision (chosen, rejected) and word-marked check rows come as patches too (PIE-1252).
+- **Mark Jev right or wrong** with the status chooser's keys (x right, `-` Reject wrong), by click too; the row
+  stays where it was.
+- **Twins by meaning:** a ticket filed in other words meets its original (its body is read, and deep search
+  finds it by meaning); one Jev is unsure of is offered for the writer to decide; the original is named first. The groom
+  calls the newer twin the duplicate and lists every open ticket with what it was read against. A ticket's
+  experience is any "Evan <does> …" sentence.
+- **The backfill finishes:** `ep0ch review backfill --into` sends each note's findings in one request as it goes (the
+  service makes the records), a rerun skips notes already kept, and Jev's own page and rule are no longer reviewed.
+- **Run:** `ep0ch install --apply` (PROTOCOL changes: a twin's verdict can be `unsure`).
+
 ### Facets answer in under a second on pie, and a docs-only deploy keeps door sessions (PIE-1396, PIE-1400)
 
 - **Facets:** the facets read made one pass per key over every note; it now reads each note once, for the keys it

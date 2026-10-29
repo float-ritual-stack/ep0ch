@@ -19,6 +19,6 @@ export const drawCheck: Draw = (p, w, link, ui) => (p.items ?? []).flatMap((it: 
   // The words hang under themselves, past the box and its two spaces; a side note sits one further in.
   const lines = inlineRows(String(it.label ?? ""), w - 5, ink, ui?.rows, typeof it.block === "string", Infinity);
   const note = it.note ? inlineRows(String(it.note), w - 6, DIM, ui?.rows, false, Infinity) : [];
-  return rowLinks(link, it.block, lines).map((l, i) => (i ? "     " : box + "  ") + l)
-    .concat(note.map(l => "      " + l));
+  // The note is the row's too (PIE-1402): one element with its words, so a list that scrolls never parts a row from its note.
+  return rowLinks(link, it.block, [...lines, ...note]).map((l, i) => (i >= lines.length ? "      " : i ? "     " : box + "  ") + l);
 });

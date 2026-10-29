@@ -146,8 +146,10 @@ Optional:
    Source and relationship fields take UUIDs. New work defaults to `unprioritized`.
    Ticketing a request, pass its copy as the source (`--source`, the mod's `from`)
    so the copy names its ticket. An agent's create that looks like open work is
-   refused naming the twins: attach the ask there (`--attach PIE-n`, the mod's and
-   Pi's `attach`), or file it anyway (`--new`, `new: true`), said in the item.
+   refused naming the twins, the original first: attach the ask there (`--attach PIE-n`,
+   the mod's and Pi's `attach`), or file it anyway (`--new`, `new: true`), said in the
+   item. Twins are read by meaning, a paraphrase included; one Jev is unsure of is
+   offered too ("maybe the same work"), for you to decide.
 3. After the owner commits scope, create an ordinary `work-batch` block with its
    project and objective. Assign members through optimistic `work-batch` property
    patches; use `queued` for selected items waiting to start. `workBatchId` on

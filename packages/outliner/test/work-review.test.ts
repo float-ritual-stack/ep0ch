@@ -24,4 +24,7 @@ test("a ticket that says what Evan will open ships; one that doesn't is a fix", 
   const vague = await reviewTicket(none, { id: "t-3", text: "GARD-9 — Seed sorter improvements\n\nMake sorting better and faster." });
   expect(vague.review.findings[0]).toMatchObject({ rule: "no-experience", rubric: "experience" });
   expect(await houseRule(none, "experience")).toContain("[house-rule::experience]");
+  // PIE-1402: any "Evan <does> … and <sees>" sentence is one, not only "Evan opens".
+  const writes = { id: "t-4", text: "GARD-10 — Comments reach the gardener\n\n**The sentence:** Evan writes \"@moss …\" in a comment on any note, and moss's session hears it within half an hour." };
+  expect((await reviewTicket(none, writes)).review.verdict).toBe("ship");
 });

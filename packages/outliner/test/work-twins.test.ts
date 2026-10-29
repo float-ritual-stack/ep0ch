@@ -19,17 +19,22 @@ afterEach(async () => {
   for (const k of ["OUTLINER_FIGURE_FIT", "TYPESAFE_API_KEY", "OUTLINER_JEV_ENDPOINT"]) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
 });
 
-type Question = { type: string; instructions: string };
+type Question = { type: string; instructions: string; criteria?: Record<string, string> };
 const until = async (ok: () => Promise<boolean>, ms = 5000) => { const end = Date.now() + ms; while (!(await ok())) { if (Date.now() > end) throw new Error("timed out"); await Bun.sleep(25); } };
 /** The fake Jev: `same` says yes for candidates whose instructions name `twin`; everything else no. */
-async function setup(o: { jev?: (id: string, q: Question) => number | undefined } = {}) {
+async function setup(o: { jev?: (id: string, q: Question) => number | undefined; meant?: string } = {}) {
   const asked: { state: Record<string, unknown>; questions: Record<string, Question> }[] = [];
   const fake = Bun.serve({
     port: 0, hostname: "127.0.0.1",
     async fetch(request) {
       const body = await request.json() as { state: Record<string, unknown>; questions: Record<string, Question> };
       asked.push(body);
-      const answers = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => [id, { type: "noul", noul: o.jev?.(id, q) ?? 0.05 }]));
+      // Deep search's window (search-deep.ts): a Choice over the open items, the one the test names most likely.
+      const choice = (q: Question) => {
+        const names = Object.keys(q.criteria ?? {}), hit = names.find(n => o.meant && q.criteria![n]!.includes(o.meant));
+        return { type: "choice", choice: hit ?? names[0], confidence: 0.5, probabilities: Object.fromEntries(names.map(n => [n, n === hit ? 0.9 : 0.1 / names.length])) };
+      };
+      const answers = Object.fromEntries(Object.entries(body.questions).map(([id, q]) => [id, q.type === "choice" ? choice(q) : { type: "noul", noul: o.jev?.(id, q) ?? (id === "exists" && o.meant ? 0.9 : 0.05) }]));
       return Response.json({ model: "jev-1.13.0", answers, usage: { input_tokens: 1000, output_tokens: 0 } });
     },
   });
@@ -63,9 +68,9 @@ test("an agent's ticket for work already open is refused, naming the twin and th
   expect(refused).toContain("PIE-001 (doing) Water the tomato beds every morning · same work, Jev 0.92");
   expect(refused).toContain('attach: "PIE-001"');
   expect(refused).toContain("new: true");
-  // One request for every candidate, each candidate in its own question.
-  expect(asked).toHaveLength(1);
-  expect(Object.keys(asked[0]!.questions).filter(id => id.startsWith("same::")).length).toBeGreaterThan(0);
+  // Deep search's window, then one request for every candidate, each candidate in its own question.
+  expect(asked).toHaveLength(2);
+  expect(Object.keys(asked[1]!.questions).filter(id => id.startsWith("same::")).length).toBeGreaterThan(0);
   const [offer] = await records("work-twin");
   expect(offer).toMatchObject({ outcome: "offered", twin: "PIE-001", same: "0.92", by: "jev" });
   expect((await records("jev-run")).find(r => r.experiment === "work-twins")).toMatchObject({ "tokens-in": "1000", cost: "0.000042" });
@@ -114,9 +119,36 @@ test("the truth table: Jev's no outranks a shared title; a step of it is attach,
   expect(twinVerdict({ match: "title-terms", same: 0.1, part: 0.1 })).toBe("related");
   expect(twinVerdict({ match: "some-terms", same: 0.75 })).toBe("same");
   expect(twinVerdict({ match: "some-terms", same: 0.4, part: 0.8 })).toBe("part");
-  expect(twinVerdict({ match: "title-terms", same: 0.5 })).toBe("text");
+  // Between yes and no Jev hasn't settled it (PIE-1402: a paraphrase scored 0.53): offered, for the writer to decide.
+  expect(twinVerdict({ match: "title-terms", same: 0.5 })).toBe("unsure");
+  expect(twinVerdict({ match: "some-terms", same: 0.53, part: 0.66 })).toBe("unsure");
+  expect(twinVerdict({ match: "title-terms", same: 0.35 })).toBe("text");
   expect(twinVerdict({ match: "partial-terms", inTitle: 0.8 })).toBe("text");
   expect(twinVerdict({ match: "partial-terms", inTitle: 0.5 })).toBe("related");
   const open = [{ id: "a", text: "PIE-9 — Paint the shed [work-id::PIE-9] [work-stage::later]", properties: [{ key: "work-id", value: "PIE-9" }, { key: "work-stage", value: "later" }] }] as Block[];
   expect(twinCandidates(open, "shed paint")[0]).toMatchObject({ workId: "PIE-9", title: "Paint the shed", stage: "later" });
+});
+
+// PIE-1402, found in use: a ticket filed in other words got no warning (candidates came from the title's words alone),
+// and a close duplicate named the newer twin, not the original.
+test("a twin filed in other words meets its original: its body's words make the candidate, Jev reads it as the same", async () => {
+  const { create } = await setup({ meant: "tomato", jev: (id, q) => id.startsWith("same::") && q.instructions.includes("tomato") ? 0.88 : undefined });
+  // No title word in common with "Water the tomato beds every morning"; its body says the same thing.
+  const refused = await create("Daily irrigation for the vegetable plot", { body: "Each morning the tomato beds get watered, and the garden board shows which ones." }).then(() => null, (e: Error) => e.message);
+  expect(refused).toContain("PIE-001 (doing) Water the tomato beds every morning · same work, Jev 0.88");
+  // With no body and no word in common, deep search finds it by meaning; the rest stay out of the answer.
+  const bare = await create("Daily irrigation for the vegetable plot").then(() => null, (e: Error) => e.message);
+  expect(bare).toContain("PIE-001 (doing) Water the tomato beds every morning · same work, Jev 0.88");
+  expect(bare).not.toContain("Prune the apple tree");
+});
+
+test("of two twins, the original is named first, the newer one after it", async () => {
+  const { create, store } = await setup({ jev: (id, q) => id.startsWith("same::") && q.instructions.includes("shed") ? (q.instructions.includes("PIE-002") ? 0.81 : 0.95) : undefined });
+  // A twin of PIE-002 filed beside it earlier, worded closer to the new one.
+  store.createRoadmapItem({ title: "Paint the shed door a bright blue", project: "garden", arc: "beds", tracks: ["beds"], priority: "low", workStage: "queued" });
+  const refused = await create("Paint the shed door a bright blue colour").then(() => null, (e: Error) => e.message);
+  const lines = refused!.split("\n").filter(l => l.startsWith("  - "));
+  expect(lines[0]).toContain("PIE-002 (queued) Paint the shed door blue");
+  expect(lines[1]).toContain("PIE-004");
+  expect(refused).toContain('attach: "PIE-002"');
 });

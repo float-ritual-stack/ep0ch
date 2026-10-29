@@ -9,7 +9,7 @@
 // shows what each loop costs. Jev selects; it never writes the words a person reads, and it never closes anything.
 import { loadWorkJevPrompt, type PromptRevision, type WorkJevPrompt } from "./ai-prompts";
 import { askJevQuestions } from "./write-review";
-import { writeRecord, type RecordWho, type RecordWriter } from "./records";
+import { chips, chipValue, writeRecord, type RecordWho, type RecordWriter } from "./records";
 import type { Block, VisibleBlockCollection } from "./types";
 
 /** Jev's price, dollars per million input tokens (output is free): docs.typesafe.ai/go/models, Jev 1.13 and 1.14. */
@@ -72,8 +72,7 @@ export const board = (client: WorkJevClient): RecordWriter => ({ request: (actio
 export const jevWho = (loop: string): RecordWho => ({ author: "agent", provenance: { actorId: `jev/${loop}` } });
 
 /** A value written as a property chip: one line, nothing that reads as a bracket or a `::` opener. */
-export const chipValue = (v: string) => v.replace(/[\[\]\r\n]+/g, " ").replace(/:{2,}/g, ":").trim().slice(0, 200) || "none";
-export const chips = (props: Record<string, string>) => Object.fromEntries(Object.entries(props).map(([k, v]) => [k, chipValue(v)]));
+export { chipValue, chips } from "./records";
 
 const promptRev = (r?: JevReading) => r?.prompt.map(p => `${p.path.split("/").pop()}:${p.sha256.slice(0, 12)}`).join(" ") || "unknown";
 
