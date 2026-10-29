@@ -388,6 +388,12 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
         await until(() => ran.includes("status.bar.edit"), "the ! item opens the note");
       } finally { stop(); }
       while (app.screens().length > 1) app.pop();
+      // A long message displaces the location, never the ! item (PIE-1410): still drawn, still a click.
+      app.flash("a long message about something that just happened, long enough to push the location off the bar".repeat(2));
+      expect(bar()).toContain("! line 3");
+      expect(bar()).not.toContain("ep0ch ");
+      expect((await app.dispatch.act({ action: "status.bar.items" }, USER) as any).items.find((i: any) => i.id === "problems").from).toBeDefined();
+      app.flash("");
       const now = (await board.get(note.id))!;
       await board.update(note.id, now.text.replace("\ndrawer\n", "\n- drawer\n"), now.revision!);
       await until(() => !bar().includes("! line"), "the fixed line clears the warning");
@@ -414,6 +420,9 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       expect(hidden).toContain(theme().name);
       expect(hidden.at(-1)).toBe("edit the status bar");
       expect(bar()).toContain(`+${hidden.length - 1}`);
+      app.flash("saved; a message that would push the left side off");
+      expect(bar()).toContain(`+${hidden.length - 1}`);
+      app.flash("");
       // The person's press opens it over the screen, each item by its name.
       click(`+${hidden.length - 1}`);
       await until(() => painted.some(l => visible(l).includes(theme().name)) && painted.some(l => visible(l).includes("edit the status bar")), "the overflow menu shows the hidden items");

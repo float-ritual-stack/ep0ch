@@ -1811,11 +1811,14 @@ export class App implements Ctx {
     const middle = message ? ` ${fg(this.messageWarning ? C.yellow : C.lcyan)}${loud ? BOLD : ""}${message}${loud ? UNBOLD : ""}${fg(C.lcyan)}` : "";
     const room = Math.max(0, cols - width(right) - 3);
     const displaced = !!middle && width(left + middle) > room;
+    // A message that displaces the left side leaves what the person put there and the bar's own `+N` and `!` (PIE-1410).
+    const kept = displaced ? separated(leftItems.filter(i => i.id === "overflow" || (i.rank ?? RANK.builtin) >= RANK.pinned), "left") : [];
+    const keep = statusText(kept);
     this.statusBoxes = [
-      ...(!displaced ? statusHits(leftItems, 0, room - (width(left) > room ? 1 : 0)) : []),
+      ...statusHits(displaced ? kept : leftItems, 0, displaced ? room : room - (width(left) > room ? 1 : 0)),
       ...statusHits(rightItems, Math.max(3, cols - width(right)), cols),
     ];
-    return statusLine(left, middle, right, cols);
+    return statusLine(left, middle, right, cols, keep);
   }
 }
 
@@ -1851,12 +1854,13 @@ export function withToast(lines: string[], text: string, cols: number, ok = true
 /**
  * The status bar's three parts in `cols` cells: the right part (video, uptime, clock) always shows whole,
  * with a `│` between it and the rest, even when the rest fills its room exactly or is cut short. A
- * message outranks the location: in a narrow pane it replaces it rather than being cut off.
+ * message outranks the location: in a narrow pane it replaces it rather than being cut off (`keep` stays before it).
  */
-export function statusLine(left: string, middle: string, right: string, cols: number): string {
+export function statusLine(left: string, middle: string, right: string, cols: number, keep = ""): string {
   const sep = " │ ";
   const room = Math.max(0, cols - width(right) - sep.length);
-  const body = pad(middle && width(left + middle) > room ? middle : left + middle, room);
+  // `keep`: the left items a message never displaces (the overflow, a skipped line's `!`, the person's pins).
+  const body = pad(middle && width(left + middle) > room ? (keep && width(keep) < room ? keep + middle : middle) : left + middle, room);
   // A cut can drop the message's link terminator; RESET restores colours but cannot end a hyperlink.
   const endLink = OSC8.test(body) ? OSC8_CLOSE : "";
   return STATUS_INK + body + endLink + STATUS_INK + sep + right + RESET;

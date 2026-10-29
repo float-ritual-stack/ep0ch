@@ -18,6 +18,8 @@ are its record. The outliner's entries from then are kept below, under
 - **A typo costs one line:** a line of your `[status-bar::true]` note the bar can't read is skipped, not the whole bar.
   A `! line N` item says so (a click opens the note at that line), and the message log says it once with a did-you-mean
   (`drawer` → `- drawer`). Fixing the line clears it.
+- **A message leaves them** (PIE-1410): a long message on the bar replaces the location, never `+N`, `!` or a pin
+  on the left; they stay drawn and clickable while it shows.
 - **Groups:** nest items under a list item and the bar shows its label; a click opens them as a menu
   (`status.bar.menu group=Tools` by act).
 - **A list item holds a button,** in any note: `- ::button{…}` draws after its bullet and presses; the publisher shows
