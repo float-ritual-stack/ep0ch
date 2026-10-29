@@ -177,3 +177,18 @@ test("a button's look words are its own, and one it can't read is said while the
   const { syntaxWarnings } = await import("../src/syntax-warnings");
   expect(syntaxWarnings('::button{label="Go" frame=rounded act="status.log"}').map(w => w.message).join()).toContain("runs but is drawn plain: the button doesn't read frame=rounded");
 });
+
+test("a button in a list item or a quote is a button, at its own line, its container's marks said (PIE-1224)", () => {
+  const text = ['Bar', '- ::button{label="neat" act="status.log"}', '  1. ::button{label="Two" act="theme.cycle"}', '> ::button{label="Quoted" act="video.cycle"}', '> - ::button{label="Deep" act="status.log"}', '- just text', '```', '- ::button{label="Fenced" act="status.log"}', '```'].join("\n");
+  const found = buttonCallsOf(text);
+  expect(found.map(b => [b.line, b.label, b.act, b.prefix])).toEqual([
+    [1, "neat", "status.log", "- "], [2, "Two", "theme.cycle", "  1. "], [3, "Quoted", "video.cycle", "> "], [4, "Deep", "status.log", "> - "],
+  ]);
+  expect(buttonCallAt(['::button{label="Own" act="status.log"}'], 0)?.prefix).toBeUndefined();
+  // A body continues with the item's indent (or the quote's bars); a line that doesn't continue it ends the body.
+  const body = buttonCallsOf('- ::button{label="Both"}\n  video.cycle\n  theme.cycle\n  ::\n- next')[0]!;
+  expect(body).toMatchObject({ line: 0, endLine: 3, act: "video.cycle\ntheme.cycle", prefix: "- " });
+  expect(buttonCallsOf('> ::button{label="Q"}\n> status.log\n> ::')[0]).toMatchObject({ endLine: 2, act: "status.log" });
+  // A slot written back keeps the item's marker.
+  expect(withButtonSlot('- ::button{label="Pop" act="tile.zoom tile={target}" target=}', "target", "t-1")).toBe('- ::button{label="Pop" act="tile.zoom tile={target}" target=t-1}');
+});
