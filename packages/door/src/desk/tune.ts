@@ -109,11 +109,11 @@ interface Armed { action: "tune.resetlevel" | "tune.revert"; words: string; targ
 
 /** The label of the outline's layer a target writes (look.ts's layers): `global`, `tile detail`, `page`, `style lab`. */
 const layerLabel = (target: TuneTarget) => (target === "global" ? "global" : target.startsWith("page:") ? "page" : target.startsWith("instance:") ? "this tile" : target.startsWith("list:") ? "this list" : target.includes(":") ? target.replace(":", " ") : `style ${target}`);
-/** The save level a source's target is, for the level picker: named styles are written "where it's set" (auto). */
 /** A hint's settings: the one it has green, the rest cyan, as Hints always drew them. */
 const HINT_LOOK = { on: fg(C.lgreen), off: fg(C.cyan), gap: " " };
 /** A strip row's tabs as the inspector's click targets on line `y`. */
 const controlsOf = (row: TabRow, y: number) => row.hits.map(h => ({ y, x: h.from, cols: h.to - h.from, action: h.action, args: h.args ?? {} }));
+/** The save level a source's target is, for the level picker: named styles are written "where it's set" (auto). */
 const levelOfSource = (src: StyleSource): TuneLevel => (src.level === "global" || src.level === "tile" || src.level === "screen" || src.level === "instance" ? src.level : src.level === "page" && src.label === "page" ? "page" : src.label === "this list" ? "list" : "auto");
 
 export class TunePane implements Pane {

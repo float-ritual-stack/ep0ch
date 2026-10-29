@@ -2,7 +2,7 @@ import { standsAsPerson } from "../surface/dispatch";
 import { NOBODY } from "../whereabouts";
 import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "../surface/modes";
 import { clipText } from "../overflow";
-import { TAB_DIGITS, tabStrip } from "../surface/chip-rows";
+import { TAB_DIGITS, tabKeys, tabStrip } from "../surface/chip-rows";
 // Welcome: the notes with a block-scoped `welcome` property (any value: it only marks a note), one at a time, in the
 // hand-set order of the Welcome view (a saved view `[query::welcome]`, #190's order: alt+↑ alt+↓ or a drag in the list,
 // `welcome.move`, `ep0ch view order`, a board lane on it); the first is the detail when the screen opens. Notes the
@@ -32,7 +32,7 @@ import { artNamed } from "../packs";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { C, chip, ellipsize, fg, pad, paint, RESET, selectedRow, width } from "../style";
 import { ch, isUp, isDown, type Key, type TermInfo } from "../term";
-import { rowLines, bbsDate, wrap } from "../text";
+import { bbsDate, wrap } from "../text";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { OpenHow } from "../surface/note";
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
@@ -80,8 +80,6 @@ export async function findWelcome(board: SocketBoard): Promise<{ notes: Msg[]; v
   return { notes: orderWelcome(notes, ids), view };
 }
 
-/** The digit for the note at place `i` (from 0): 1…9, then 0 for the tenth; none after that. */
-export const tabKey = (i: number): string | null => TAB_DIGITS[i] ?? null;
 
 // ── the logo ────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -242,7 +240,7 @@ export class WelcomeList implements Pane {
     return {
       lines: this.rows.slice(this.view.top, this.view.top + h).map(r => {
         if ("more" in r) return fg(C.dark) + pad(`  … ${r.more} more`, w) + RESET;
-        const m = this.items![r.i]!, key = tabKey(r.i) ?? " ";
+        const m = this.items![r.i]!, key = TAB_DIGITS[r.i] ?? " ";
         if (r.i === at) return selectedRow(` ${key} ${subject(m)}`, w, focused);
         return pad(` ${fg(C.white)}${key} ${fg(C.lmagenta)}${subject(m)}`, w) + RESET;
       }),
@@ -396,7 +394,7 @@ export class WelcomeList implements Pane {
   describe(desk: DeskApi) {
     const items = this.items, d = this.detail?.msg, pv = this.preview(desk)?.msg;
     return {
-      welcome: items ? items.map((m, i) => ({ n: i + 1, key: tabKey(i), id: m.id, title: subject(m), value: prop(m, WELCOME_KEY) ?? "" })) : null,
+      welcome: items ? items.map((m, i) => ({ n: i + 1, key: TAB_DIGITS[i] ?? null, id: m.id, title: subject(m), value: prop(m, WELCOME_KEY) ?? "" })) : null,
       view: this.orderView ? { id: this.orderView.id, title: subject(this.orderView) } : null,
       shown: this.at >= 0 ? this.at + 1 : null,
       detail: d ? { id: d.id, title: subject(d) } : null,
@@ -463,11 +461,11 @@ export class WelcomeList implements Pane {
     if (named) this.hits.push({ y0: row, y1: row, from: 2, to: 13, action: "welcome.logo" });
     const lead = rail("[=") + (named ? fg(C.white) + " e p 0 c h " + RESET + rail("=") : "") + " ";
     const [strip] = items.length
-      ? tabStrip(items.slice(0, 10).map((m, i) => ({ label: subject(m), key: tabKey(i)!, on: i === at, hit: { action: "welcome.select", args: { n: i + 1, read: true } } })), {
+      ? tabStrip(items.slice(0, 10).map((m, i) => ({ label: subject(m), key: TAB_DIGITS[i]!, on: i === at, hit: { action: "welcome.select", args: { n: i + 1, read: true } } })), {
         width: cols - 2, lead, overflow: "share", more: Math.max(0, items.length - 10), moreHit: { action: "tile.focus" },
         style: { on: chip(C.magenta), off: fg(C.lmagenta), key: fg(C.white), more: fg(C.lcyan), sep: " ", gap: rail(" =") },
       })
-      : [{ text: lead + fg(C.dark) + (this.items ? `no welcome notes yet · showing [[${welcomeFallback()}]] ` : "asking the outline… ") + RESET + rail("="), hits: [], cells: 0 }];
+      : [{ text: lead + fg(C.dark) + (this.items ? `no welcome notes yet · showing [[${welcomeFallback()}]] ` : "asking the outline… ") + RESET + rail("="), hits: [] }];
     for (const h of strip!.hits) this.hits.push({ y0: row, y1: row, ...h });
     canvas.text(0, row, strip!.text + rail("=".repeat(Math.max(0, cols - 1 - width(strip!.text))) + "]"), cols);
   }
@@ -486,7 +484,7 @@ export class WelcomeDetail extends ReaderPane {
     const s = this.list, m = this.msg;
     if (!s || !m) return s?.items && !s.items.length && !s.fallback ? "nothing to read yet" : "detail";
     const i = s.items?.findIndex(x => x.id === m.id) ?? -1;
-    const tag = i >= 0 ? `welcome ${tabKey(i) ?? i + 1}` : s.fallback?.id === m.id ? `[[${welcomeFallback()}]] · no welcome notes yet` : "read here";
+    const tag = i >= 0 ? `welcome ${TAB_DIGITS[i] ?? i + 1}` : s.fallback?.id === m.id ? `[[${welcomeFallback()}]] · no welcome notes yet` : "read here";
     return tag;
   }
   /** The detail never follows another note here: no `p`. */
@@ -561,7 +559,7 @@ export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
   "welcome.select": def({
     summary: "read a welcome note in the detail: n (its place from 1, as the tabs number them: 1-9, then 10 is the 0 key) or id; read=true also gives the detail the person's keys (never an agent's). Refused to an agent while the person is typing here",
     keys: modeActionKeys([WELCOME_LIST_KEYS], "welcome.select"),
-    touches: "screen", replay: "safe", says: r => `put ${r.title} in the detail${r.n ? ` (welcome ${tabKey(r.n - 1) ?? r.n})` : ""}`,
+    touches: "screen", replay: "safe", says: r => `put ${r.title} in the detail${r.n ? ` (welcome ${TAB_DIGITS[r.n - 1] ?? r.n})` : ""}`,
     args: {
       n: { type: "number", optional: true, about: "its place, from 1" },
       id: { type: "string", optional: true, about: "the welcome note's block id" },
@@ -672,10 +670,9 @@ export function welcomeKinds(): TileKind[] {
  * backlinks about a third of the height: as policy, so a person's arrangement inside it is theirs.
  */
 export function welcomeSpec(): ScreenSpec {
-  const digits = [..."1234567890"].map((d, i) => ({ key: d, label: "read", action: "welcome.select", args: { n: i + 1, read: true } }));
   return {
     name: "welcome", title: "welcome", frame: "dotted", digits: false, band: "welcome", lands: "preview", fresh: "welcome.read",
-    keys: [...digits, { key: "L", label: "logo", action: "welcome.logo", unless: ["tree"] }],
+    keys: [...tabKeys("welcome.select", { digits: "n", args: { read: true }, label: "read" }), { key: "L", label: "logo", action: "welcome.logo", unless: ["tree"] }],
     layout: {
       focus: "detail",
       root: {

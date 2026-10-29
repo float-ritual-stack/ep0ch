@@ -3,8 +3,8 @@ import { C, chip, ellipsize, fg, RESET, width } from "../style";
 import type { ModeKey } from "./modes";
 
 interface Hit { from: number; to: number; action: string; args?: Record<string, unknown> }
-/** A row of a strip: its text, where each tab is for a click, the underline under the lit one (a style's `under`), its width. */
-export interface TabRow { text: string; hits: Hit[]; under?: string; cells: number }
+/** A row of a strip: its text, where each tab is for a click, the underline under the lit one (a style's `under`). */
+export interface TabRow { text: string; hits: Hit[]; under?: string }
 /** A tab: its label (and hot key), lit when `on`, the cursor's marked, a click running `hit`; `hint` is the label's whole text. */
 export interface Tab { label: string; on?: boolean; cursor?: boolean; key?: string; hint?: string; hit?: Omit<Hit, "from" | "to"> }
 /** How a strip looks: the lit, unlit and cursor tab, an unlit tab's hot key, "… N more", the space inside and after a tab, between two, and the underline. */
@@ -18,9 +18,8 @@ export const CHIPS: TabStyle = { on: chip(C.blue), off: fg(C.grey), cursor: fg(C
  * the caller left out; `moreHit` is its click). `tag` wraps the `i`th tab as drawn (a figure's inline link).
  */
 export function tabStrip(tabs: readonly Tab[], o: { width: number; style?: TabStyle; lead?: string; at?: number; overflow?: "wrap" | "share"; more?: number; moreHit?: Omit<Hit, "from" | "to">; tag?: (drawn: string, i: number) => string }): TabRow[] {
-  const s = o.style ?? CHIPS, p = s.pad ?? "", gap = s.gap ?? "", sep = s.sep ?? "", at0 = o.at ?? 0, lead = o.lead ?? "";
+  const s = o.style ?? CHIPS, p = s.pad ?? "", gap = s.gap ?? "", sep = s.sep ?? "", lead = o.lead ?? "", shown = [...tabs];
   const fixed = (t: Tab) => width(p) * 2 + (t.key ? width(t.key) + 1 : 0);
-  const shown = [...tabs];
   let cut = Infinity, more = o.more ?? 0;
   if (o.overflow === "share") {
     const room = (n: number, m: number) => o.width - width(lead) - (m ? width(`… ${m} more`) + width(sep) + width(gap) : 0) - n * width(gap) - Math.max(0, n - 1) * width(sep);
@@ -33,19 +32,19 @@ export function tabStrip(tabs: readonly Tab[], o: { width: number; style?: TabSt
   let text = lead, under = " ".repeat(width(lead)), hits: Hit[] = [], x = width(lead);
   const put = (t: Tab, i: number, tail = false) => {
     const label = tail ? t.label : ellipsize(t.label, cut), drawn = `${p}${t.key ? `${t.key} ` : ""}${label}${p}`, n = width(drawn);
-    if (o.overflow !== "share" && x > width(lead) && x + width(sep) + n + width(gap) > o.width) { rows.push({ text, hits, under: s.under && under, cells: x }); text = " ".repeat(width(lead)); under = text; hits = []; x = width(lead); }
+    if (o.overflow !== "share" && x > width(lead) && x + width(sep) + n + width(gap) > o.width) { rows.push({ text, hits, under: s.under && under }); text = " ".repeat(width(lead)); under = text; hits = []; x = width(lead); }
     else if (x > width(lead)) { text += sep; under += " ".repeat(width(sep)); x += width(sep); }
     const look = t.on ? s.on : t.cursor ? s.cursor ?? s.off : tail ? s.more ?? s.off : s.off;
     const marked = t.cursor ? `\x1b[4m${drawn}\x1b[24m` : t.key && !t.on && s.key ? `${p}${s.key}${t.key}${RESET}${look} ${label}${p}` : drawn;
     const body = look + (t.hint || label !== t.label ? fullText(t.hint ?? t.label, marked) : marked) + RESET;
     text += (o.tag && !tail ? o.tag(body, i) : body) + gap;
     under += (t.on && s.under ? s.under + "▀".repeat(n) + RESET : " ".repeat(n)) + " ".repeat(width(gap));
-    if (t.hit) hits.push({ from: at0 + x, to: at0 + x + n, ...t.hit });
+    if (t.hit) hits.push({ from: (o.at ?? 0) + x, to: (o.at ?? 0) + x + n, ...t.hit });
     x += n + width(gap);
   };
   shown.forEach((t, i) => put(t, i));
-  if (more) put({ label: `… ${more} more`, ...(o.moreHit ? { hit: o.moreHit } : {}) }, -1, true);
-  rows.push({ text, hits, under: s.under && under, cells: x });
+  if (more) put({ label: `… ${more} more`, hit: o.moreHit }, -1, true);
+  rows.push({ text, hits, under: s.under && under });
   return rows;
 }
 

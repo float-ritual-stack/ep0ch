@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Art, Cell } from "../src/ansi";
 import { App, type Screen } from "../src/app";
 import type { Msg } from "../src/board";
-import { densest, logoCells, orderWelcome, WELCOME_VIEW_TEXT, tabKey, type WelcomeDetail, type WelcomeList, type WelcomePreview } from "../src/hub/welcome";
+import { densest, logoCells, orderWelcome, WELCOME_VIEW_TEXT, type WelcomeDetail, type WelcomeList, type WelcomePreview } from "../src/hub/welcome";
 import { BacklinksPane } from "../src/desk/backlinks-pane";
 import { Desk } from "../src/desk/desk";
 import { ReaderPane } from "../src/desk/panes";
@@ -30,9 +30,6 @@ describe("which notes are welcome notes, in what order", () => {
     expect(orderWelcome(list, ["one", "two", "ten"]).map(m => m.id)).toEqual(["one", "two", "ten", "a", "z"]);
     // With no Welcome view: by title, whatever the values are (a number is no longer a place).
     expect(orderWelcome(list).map(m => m.id)).toEqual(["a", "two", "ten", "one", "z"]);
-  });
-  test("the keys: 1-9 then 0 for the tenth; none after", () => {
-    expect([0, 8, 9, 10].map(tabKey)).toEqual(["1", "9", "0", null]);
   });
 });
 
