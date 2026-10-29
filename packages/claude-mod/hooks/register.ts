@@ -39,7 +39,7 @@ import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, dropp
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, stampOf, unwrapPeer } from './peer-log'
 import { answerOf, approveWaitMs, askOutlineOf, askPageCreateArgv, askPageFindArgv, askReadOf, askText, ASK_STEPS, byThePerson, closedText } from './approve'
-import { addressedWakeText, askKey, asksOf, mentionArgs, newAsks, PERSONA_NAME, readArgs, repliesArgs, shownAsks, threadsToRead, type Ask } from './addressed'
+import { addressedWakeText, askKey, asksOf, mentionArgs, newAsks, notesToRead, PERSONA_NAME, readArgs, repliesArgs, shownAsks, threadsToRead, type Ask } from './addressed'
 import { baselineOf, DEFAULT_OUTLINES, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
 import { type StatusInput, tileMark, tmuxPassthrough } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
@@ -524,7 +524,9 @@ export function register(on: On, options: PluginOptions): void {
     settleStarting = undefined
     $.clock.after(0, () => void startSettleOnce($, option))
     // Comments that say @<this session's persona>, on the same clock (hooks/addressed.ts).
+    // A new or cleared conversation hears every ask still open, as a new session does.
     addressedStarting = undefined
+    toldAsks.clear()
     $.clock.after(0, () => void startAddressedOnce($, option))
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     showStatus($, null)
@@ -878,8 +880,8 @@ export function register(on: On, options: PluginOptions): void {
     if (e.agentId === undefined) reportStatus($, turnEnded(e.reason, e.answer))
     // A module reloaded mid-session never sees its session.start.
     if (!references) $.clock.after(0, () => void loadReferences($, option))
-    if (!settleStarting) $.clock.after(0, () => void startSettleOnce($, option))
     if (!addressedStarting) $.clock.after(0, () => void startAddressedOnce($, option))
+    if (!settleStarting) $.clock.after(0, () => void startSettleOnce($, option))
     // The binding read again now and then, so the status line follows a door's upgrade or reconnect, or a new .ep0ch.
     else if ((await $.clock.now()) - bindingReadAt >= BINDING_REFRESH_MS) $.clock.after(0, () => void readBinding($, option, true).catch(() => {}))
     if (!isIngestible(e)) return result
@@ -2174,11 +2176,11 @@ async function runAddressed($: EngineInterface, option: PluginOptions, persona: 
     for (const o of await addressedOutlines($, option, here)) {
       try {
         const mentioning = await cli(o, mentionArgs(persona))
-        if (!mentioning.complete) addressedToast($, `${outlineLabel(o)} has more comments naming @${persona} than one read holds; the newest are checked.`)
+        if (!mentioning.complete) addressedToast($, `${outlineLabel(o)} has more comments naming @${persona} than one read holds; the ones past it are not checked.`)
         const { threads, roots } = threadsToRead(mentioning.blocks)
         if (!threads.length) continue
         const first = roots.length ? await cli(o, readArgs(roots)) : { blocks: [], complete: true }
-        const notes = [...new Set([...mentioning.blocks, ...first.blocks].filter(b => b.properties.some(p => p.key === 'type' && p.value === 'annotation')).map(b => b.parentId).filter((id): id is string => !!id))]
+        const notes = notesToRead([...mentioning.blocks, ...first.blocks])
         const [read, ...replies] = await Promise.all([notes.length ? cli(o, readArgs(notes)) : Promise.resolve({ blocks: [], complete: true }), ...repliesArgs(threads).map(args => cli(o, args))])
         if (replies.some(r => !r.complete)) addressedToast($, `${outlineLabel(o)}: a thread has more replies than one read holds; its answer may be missed.`)
         asks.push(...asksOf(persona, o === here ? o.outline : outlineLabel(o), mentioning.blocks, [...first.blocks, ...read!.blocks], replies.flatMap(r => r.blocks)))

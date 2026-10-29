@@ -58,6 +58,10 @@ describe('an ask', () => {
     expect(asks('loki', [quoted])).toEqual([])
   })
 
+  test('a reply from a machine\'s client that names no persona (loki@host) is not loki answering', () => {
+    expect(asks('loki', [root(T1, '@loki which bed?', 60, EVAN), reply('r1', T1, 'Sunny.', 30, { author: 'agent', actorId: 'loki@garden-host' })])).toHaveLength(1)
+  })
+
   test('any persona works the same: @kitty is kitty\'s, not loki\'s', () => {
     const blocks = [root(T1, '@kitty a gentler wind-down list?', 30, EVAN)]
     expect(asks('kitty', blocks)).toHaveLength(1)
