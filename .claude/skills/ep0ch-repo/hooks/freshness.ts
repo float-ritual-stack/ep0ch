@@ -99,7 +99,8 @@ const noneOf = (w: readonly string[], refused: RegExp) => !w.slice(1).some(a => 
  * write a file or run another command (sed's `w` and `e`, sort's `-o`, rg's `--pre`, awk, xargs) isn't here.
  */
 const READ_PROGRAMS: Record<string, (w: readonly string[]) => boolean> = {
-  cat: () => true, head: () => true,
+  // cd only moves where the next command reads (`cd ~/projects/ep0ch && git rev-parse HEAD` over ssh).
+  cd: () => true, cat: () => true, head: () => true,
   // A follow never ends: the sweep would hang on it.
   tail: w => noneOf(w, /^(-f|-F|--follow)/), wc: () => true, ls: () => true, grep: () => true,
   stat: () => true, date: () => true, pwd: () => true, echo: () => true, cut: () => true, tr: () => true,
@@ -122,8 +123,9 @@ const READ_PROGRAMS: Record<string, (w: readonly string[]) => boolean> = {
     return w[1] === 'api' && noneOf(w, /^(-[fFX]|--(field|raw-field|input|method))/)
   },
   ep0ch: w => ['show', 'find', 'where', 'status', 'help'].includes(w[1] ?? '') || (w[1] === 'outline' && w[2] === 'list') || (w[1] === 'echo' && w[2] === 'status'),
-  // systemctl --user <read verb> …: the verb is its first operand.
-  systemctl: w => w.includes('--user') && ['status', 'is-active', 'is-enabled', 'is-failed', 'list-units', 'list-timers', 'show', 'cat'].includes(operands(w)[0] ?? ''),
+  // systemctl --user <read verb> …: the verb is its first operand, and none means list-units (`systemctl --user
+  // --failed`, the health check loki's checklist runs).
+  systemctl: w => w.includes('--user') && ['list-units', 'status', 'is-active', 'is-enabled', 'is-failed', 'list-timers', 'show', 'cat'].includes(operands(w)[0] ?? 'list-units'),
   journalctl: w => noneOf(w, /^(-f|--follow|--(rotate|vacuum|flush|sync|relinquish|setup-keys|update-catalog))/),
   tailscale: w => w[1] === 'status',
   // ssh <machine> '<command>', no options (an option can run a command here): as read-only as the command it runs there.
