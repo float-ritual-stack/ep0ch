@@ -1,9 +1,6 @@
-# Tidy (an agent you address while you write)
+# Tidy
 
-The example for **agents in the note** (PIE-501). Write a line that starts with `@tidy` and keep
-typing. Once the line has been quiet for a moment, the service asks the agent, and the paragraph
-above is tidied in place: bullets as `-`, one space after list markers and `#`, no runs of spaces,
-no trailing spaces, and two spaces per nesting level with no jumps. Links, references, properties and code are never touched by the formatter.
+Write `@tidy` on a line and the paragraph or list above it is tidied in place, or rewritten as you say.
 
 ```text
 Morning plan
@@ -12,48 +9,65 @@ Morning plan
 @tidy                              ← tidies the two lines above, as ext:tidy
 ```
 
-- In the door, `@` at the start of a line offers the agents the outline's extensions serve, `@tidy` among them,
-  with what each does: choosing one writes `@tidy ` and you go on typing (PIE-592).
-- Bare `@tidy` and `@tidy all` run the deterministic formatter (all never includes the title). Its count names actual changes: `fixed nesting in 3 items, trimmed 1 line`, or `nothing to tidy above`.
-- `@tidy <instruction>` rewrites the paragraph or list above, skipping adjacent ask lines. For example, `@tidy remove the cruft and wrap each item in a callout` returns one patch, not a chat answer. It uses `claude -p --model haiku --tools ""`, pie’s cheap text model, with a 20-second extension deadline.
-- Like marginalia, `config.answer` in `config.json` names a command: prompt on stdin, answer on stdout. Tidy expects JSON `{ "replacement": "the full rewritten passage", "message": "rewrote 4 items as callouts" }`. An empty command list disables the model and says so. Command failures, invalid JSON and deadline failures show on the ask line; the answer tile shows the same result even when there is no answer fold.
-- Repeated asks share a run and its outcome; each spelling of the line receives the result.
-- The edit is an ordinary attributed edit (`author: agent`, `ext:tidy`, `ext.tidy.agent.tidy` in
-  the change feed) applied through `draft.patch` with the `edit` policy. If you are typing in that
-  passage in the door, it becomes a proposal beside the note, drawn under the line, instead (apply or dismiss it).
-- Under the line, the note shows what it did (`formatted 2 lines`). `r` on the line asks again.
-- A `@tidy` line written by an agent lands held (`held: <agent> may not wake @tidy · r to send`) and waits for a person's `r`, so agents can't set each other off.
+## What you do
 
-Install: `outliner ext add tidy`. See [the four kinds](../../docs/extensions/README.md#agents-in-the-note).
+- **Pick it:** in the door, type `@` at the start of a line to see the agents, `@tidy` among them (PIE-592).
+  - Choosing it writes `@tidy ` and you go on typing.
+- **Format:** bare `@tidy` or `@tidy all` runs the formatter once the line has been quiet for a moment.
+  - It sets bullets as `-`, one space after list markers and `#`, no runs of spaces, no trailing spaces, and two spaces per nesting level.
+  - Links, references, properties and code are never touched; `all` never includes the title.
+- **Rewrite:** `@tidy <instruction>` rewrites the paragraph or list above, such as `@tidy remove the cruft and wrap each item in a callout`.
+  - It returns one patch, not a chat answer.
+- **See what it did:** the line shows a result such as `formatted 2 lines`, or `nothing to tidy above`.
+- **Ask again:** press `r` on the line.
+- **Typing in that passage?** The edit becomes a proposal beside the note, drawn under the line; apply or dismiss it.
+
+## Good to know
+
+- **Agents can't set each other off.** A `@tidy` line an agent wrote lands held (`held: <agent> may not wake @tidy · r to send`) until a person presses `r`.
+- **Counts are real.** The formatter's message names actual changes, such as `fixed nesting in 3 items, trimmed 1 line`.
+- **Repeated asks share one run,** and each spelling of the line gets the result.
+- **Edits are attributed:** `author: agent`, `ext:tidy`, `ext.tidy.agent.tidy` in the change feed.
+  - They go through `draft.patch` with the `edit` policy.
+- **Failures show on the ask line:** a failed command, invalid JSON or a missed deadline, and in the answer tile even with no answer fold.
+
+## Setup
+
+- **Install:** `ep0ch ext add tidy`.
+- **The model:** `config.answer` in `config.json` names a command that reads the prompt on stdin and prints the answer.
+  - The default is `claude -p --model haiku --tools ""`, with a 20-second deadline.
+  - An empty command list turns the model off and says so.
+- **Its answer:** JSON `{ "replacement": "the full rewritten passage", "message": "rewrote 4 items as callouts" }`.
 
 ## Resolving a stale proposal
 
-`outline_proposal_resolve` (service: `draft.proposal.resolve`) merges the proposal's original revision,
-the current note, and the original with the proposal's patches applied. The shared outline-core diff
-compares lines, then words within overlapping line changes. Independent changes merge without a model call.
-Only conflicts go to the responder, as `{ region_base, region_ours, region_theirs, proposal_note }`.
-The added author note accompanies the conflict; the rest of the note and proposal do not.
-The same `config.answer` command as an instructed tidy returns `{ "replacement": "merged region" }`
-or `{ "ambiguous": "both conflicting readings in one line" }`. A replacement occupies only that region;
-an ambiguous answer leaves the entire proposal open with its reason and the target unchanged.
-
-The router applies the merged text through `draft.patch` with policy `prose`, preserving links, anchors,
-properties and the proposal's request-line boundary. It writes as `ext:tidy` and marks the proposal resolved
-with a link and `[from::]` the proposer. `extensions.undo` takes its receipt back in one step; the door
-records that receipt for Ctrl+Z in the reader. Receipts last for this host process.
-
-Automatic resolution is off until the outline contains this rule note:
+- **What it does:** `outline_proposal_resolve` (service: `draft.proposal.resolve`) merges the proposal into the changed note.
+  - It compares the proposal's original revision, the current note, and the original with the proposal applied.
+  - The shared outline-core diff compares lines, then words within overlapping line changes.
+- **Independent changes merge** without a model call.
+- **Only conflicts go to the responder,** as `{ region_base, region_ours, region_theirs, proposal_note }`, with the proposer's note.
+  - The same `config.answer` command answers `{ "replacement": "merged region" }` or `{ "ambiguous": "both readings in one line" }`.
+  - A replacement fills only that region; an ambiguous answer leaves the whole proposal open with its reason.
+- **Turn it on** by adding this rule note to the outline:
 
 ```text
 Resolve stale proposals [rule-name::resolve-stale-proposals] [rule-on::tidy/resolve] [rule-match::type=proposal stale=true]
 ```
 
-Proposal creation and target edits maintain the proposal's `stale` property. The rule engine supplies its
-ordinary quiet wait and loop guard; resolution writes carry `trigger:` attribution and resolved proposals
-carry `[via-trigger::]`. A failed resolution leaves the existing proposal open, never another proposal.
-For deployment, enable this note in pie and float-hub after updating their hosts and clients together.
-This change does not modify either live outline. A wire change requires a protocol bump at final rebase.
+- **Off until then.** Pie and float-hub get it once their hosts and clients are updated together; nothing here changes either live outline.
 
-A text resolution in an extension write group retains its structural operations: the existing group writer
-checks and lands them in the same transaction and undo receipt. A proposal with no text passage has nothing
-for the resolver to rewrite; it stays open for apply or dismiss.
+## How it works
+
+- **The write:** the router applies the merge through `draft.patch` with policy `prose`.
+  - It keeps links, anchors, properties and the proposal's request-line boundary, and writes as `ext:tidy`.
+- **The proposal** is marked resolved with a link and `[from::]` the proposer; resolved ones carry `[via-trigger::]`.
+- **Undo:** `extensions.undo` takes the receipt back in one step; the door records it for Ctrl+Z in the reader.
+  - Receipts last for this host process.
+- **Staleness:** proposal creation and target edits maintain the proposal's `stale` property.
+  - The rule engine supplies its ordinary quiet wait and loop guard.
+- **A failed resolution** leaves the existing proposal open, never another proposal.
+- **Structural operations** in an extension write group land in the same transaction and undo receipt.
+  - A proposal with no text passage stays open for apply or dismiss.
+- **A wire change** requires a protocol bump at final rebase.
+
+See [the four kinds](../../docs/extensions/README.md#agents-in-the-note) of extension.

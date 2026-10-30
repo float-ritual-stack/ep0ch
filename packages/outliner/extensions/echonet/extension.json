@@ -3,36 +3,36 @@
   "id": "echonet",
   "version": 8,
   "name": "EchoNet",
-  "description": "This outline as a node on a FidoNet-style network of outlines: named views and tagged notes as areas, subscriptions by node mask that copy them in (copies that drift, never a sync), netmail both ways on marks, seen-by marks, a nodelist and a toss log. Nodes mail: each publishes a bulletin and hands packets to the others, and each outline's own tosser writes only its own notes.",
+  "description": "Notes from your other outlines, and other people's, copied into this one by subscription.",
   "run": ["bun", "echonet.ts"],
   "deadline": "4m",
   "configSchema": {
     "type": "object",
     "properties": {
-      "offline": { "type": "array", "items": { "type": "string" }, "description": "Nodes (name@machine) to treat as unreachable this toss: a lid shut on purpose" },
+      "offline": { "type": "array", "items": { "type": "string" }, "description": "Nodes (name@machine) to treat as unreachable" },
       "keepLogs": { "type": "integer", "minimum": 1, "maximum": 200, "description": "How many toss logs stay under the nodelist (default 20)" },
-      "cap": { "type": "integer", "minimum": 1, "maximum": 500, "description": "New messages copied per source each toss when a subscription has no [cap::n] (default 25)" },
-      "undeliverableAfter": { "type": "integer", "minimum": 1, "maximum": 50, "description": "Tosses netmail waits for an original that is gone before it becomes an undeliverable note (default 3)" }
+      "cap": { "type": "integer", "minimum": 1, "maximum": 500, "description": "New messages per source per toss (default 25)" },
+      "undeliverableAfter": { "type": "integer", "minimum": 1, "maximum": 50, "description": "Tosses netmail waits for a gone original (default 3)" }
     },
     "additionalProperties": false
   },
   "actions": [
     {
       "id": "toss", "label": "Toss mail", "on": "outline", "effects": "write",
-      "description": "Copies new messages from every subscribed area, marks copies whose original is newer or gone, carries netmail both ways, writes the nodelist and a toss log",
+      "description": "Copies new messages, carries netmail, writes the nodelist",
       "schedule": { "every": "30m" }
     },
     {
       "id": "nodelist", "label": "Write the nodelist", "on": "outline", "effects": "write",
-      "description": "Writes the nodelist again without tossing: each known node, reachable or not, its access, areas and subscriptions"
+      "description": "Writes the nodelist again without tossing"
     },
     {
       "id": "take-newer", "label": "Take the newer version", "on": "block", "effects": "write",
-      "description": "On an EchoNet copy: replaces its text with the original's current one (its own edits go; its history keeps them)"
+      "description": "On a copy: replaces its text with the original's"
     },
     {
       "id": "compare-newer", "label": "Compare with the newer version", "on": "block", "effects": "write",
-      "description": "On an EchoNet copy: proposes the original's current text beside it, the difference shown, to apply or dismiss"
+      "description": "On a copy: proposes the original's text beside it"
     }
   ],
   "components": [

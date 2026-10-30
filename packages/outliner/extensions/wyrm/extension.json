@@ -3,7 +3,7 @@
   "id": "wyrm",
   "version": 1,
   "name": "Legend of the Ep0ch Wyrm",
-  "description": "A BBS door game in the outline: players are notes, stats are chips, fifteen forest fights a day, and the town's Daily News.",
+  "description": "A BBS door game in the outline: forest fights, a town and its Daily News.",
   "demo": "demo",
   "scripts": [
     {

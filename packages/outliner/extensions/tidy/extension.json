@@ -3,7 +3,7 @@
   "id": "tidy",
   "version": 1,
   "name": "Tidy",
-  "description": "@tidy formats the passage above; @tidy <instruction> rewrites it as asked.",
+  "description": "Ask @tidy to format the passage above, or to rewrite it as you say.",
   "run": [
     "bun",
     "tidy.ts"
@@ -24,7 +24,7 @@
         "items": {
           "type": "string"
         },
-        "description": "The command that answers @tidy: the prompt on its stdin, a JSON replacement and message on its stdout (a resolution answers a conflict-region replacement, or ambiguous). Left out, Haiku through claude",
+        "description": "The command that answers @tidy: prompt on stdin, JSON replacement and message on stdout; left out, Haiku through claude",
         "default": ["claude", "-p", "--model", "haiku", "--tools", ""]
       }
     },

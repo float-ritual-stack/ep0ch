@@ -216,7 +216,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
             await force();
             click("REC stop");
             await until(() => !app.recording.active, "the recording chip stops recording");
-            await until(() => app.messages.rows.some(m => m.message.startsWith("Saved recording-")), "the recording is saved");
+            await until(() => app.messages.rows.some(m => m.message.startsWith("Saved recorded-")), "the recording is saved");
           }
           if (app.drawer.open) await app.dispatch.act({ action: "host.toggle" }, USER);
           while (app.screens().length > 1) app.pop();
