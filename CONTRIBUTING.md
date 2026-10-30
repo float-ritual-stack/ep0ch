@@ -28,7 +28,6 @@ Before a PR claims a change works:
    `../outliner` (`test/scratch.ts`; `EP0CH_OUTLINER` overrides it). outline-core's tests are pure. The Claude mod's
    run under `claude plugin test` (`claude` on PATH).
    - **Focused runs on float-2** go through `scripts/agent-env <name> --test -- timeout 900 bun test <files>`: two at
-<<<<<<< HEAD
      once on the machine at most (`EP0CH_TEST_SLOTS`), each capped in a systemd user scope (`EP0CH_TEST_CPU`,
      `EP0CH_TEST_MEM`), in the foreground, never `--parallel`. Each door `parity-*` file takes two to four minutes
      whole (a scenario is held to `PARITY_BUDGET_MS`, 60 s); run the scenarios you touched with `PARITY_ONLY` (see the
@@ -42,26 +41,12 @@ Before a PR claims a change works:
      run (PIE-998): one per worktree (`--replace` stops the old one), at most `EP0CH_BOX_SLOTS` (default 2) at once,
      each killed whole on exit, a leaked process fails it (exit 97). `--each` runs the door's files each alone: a file
      that loads only because another loaded a module first passes in one process and fails alone (#204).
-=======
-     once on the machine at most (`EP0CH_TEST_SLOTS`), each capped in a systemd user scope (`EP0CH_TEST_CPU`, `EP0CH_TEST_MEM`), in the
-     foreground, never `--parallel`: five agents' parallel runs once froze float-2. Each door `parity-*` file takes
-     two to four minutes whole (a scenario well under a minute, held to `PARITY_BUDGET_MS`, 60 s: past it the scenario fails by
-     name with its slowest key); run it in parts with `PARITY_ONLY` (see the ep0ch-core skill), or in a box.
-     Name the files from the package or from the root (`packages/door/test/edit.test.ts`): from the root, the root
-     `bunfig.toml` runs every package's own `test/preload.ts` (`scripts/test-preload.ts`), which Bun otherwise reads
-     only from the folder it starts in.
-   - Before merging a series, and in every review round, run the door's files each alone too
-     (`scripts/box-test --each`, or `bun run test:each` in packages/door with file names to run a few;
-     `TEST_EACH_JOBS` runs several at once): `bun test` loads every file into one process, so a file that only
-     loads because another loaded a module first passes there and fails alone. #204's import cycle left 13 files
-     unable to load alone for a day, and nobody saw.
    - **A door test file leaves nothing for the next** (PIE-1412). Between files the door's preload
      (`packages/door/test/preload.ts`) retires the earlier file's Apps (which unbinds the extensions they read), stops
      its scratch hosts, puts the environment back and unbinds an extension list it bound itself; a scratch host still
      running or an extension list still bound is named (`test leak: <file> left behind: …`) and fails the run. Stop
      what you start in `afterAll` (`scratch.dispose()`, `bindExtensions(null)`, `app.quit()`); a part with
      process-wide state of its own registers it with the check, as `src/extensions.ts` does.
->>>>>>> origin/main
 3. A change to what one package prints or answers that another reads is tested against the real other side,
    not a fake: the mod's readers over the real `ep0ch` (`packages/door/test/claude-mod-contract.test.ts`), the
    outliner's CLI under the mod's work tools (`packages/outliner/test/work-tools.test.ts`). Stderr another program
