@@ -43,7 +43,8 @@ export function matchGroups(notes: readonly Msg[], groups: readonly QuestionGrou
   if (!groups) return [...out, { value: null, label: "Matches", count: matched, notes: notes.filter(m => !pins.has(m.id)) }];
   for (const g of groups) {
     const mine = g.ids.flatMap(id => (pins.has(id) ? [] : byId.has(id) ? [byId.get(id)!] : []));
-    if (mine.length) out.push({ value: g.value, label: bucketLabel(g.value), count: g.count, notes: mine });
+    // Its count leaves out the pinned notes it holds, which are counted under Pinned.
+    if (mine.length) out.push({ value: g.value, label: bucketLabel(g.value), count: g.count - g.ids.filter(id => pins.has(id)).length, notes: mine });
   }
   return out;
 }

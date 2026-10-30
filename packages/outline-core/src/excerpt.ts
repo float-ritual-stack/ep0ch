@@ -2,6 +2,18 @@
 // with their markup taken out. The service answers it as the `excerpt` read field, so every client shows the same line.
 import { noteTitleLine } from "./property-parse";
 import { withoutPropertyTokens } from "./property-grammar";
+import { blockReferenceOccurrences, labelBar, pageLinkSpans } from "./link-syntax";
+
+/** A line's links as their words, by the one link scan: `((id|label))` its label, `((id))` and `!((id))` nothing, `[[page|label]]` its label, `[[page]]` the page. */
+function linkWords(line: string): string {
+  const spans = [
+    ...blockReferenceOccurrences(line).map(r => ({ start: line[r.start - 1] === "!" ? r.start - 1 : r.start, end: r.end, words: r.label?.trim() ?? "" })),
+    ...pageLinkSpans(line).filter(p => p.depth === 0).map(p => { const inside = line.slice(p.start + 2, p.end - 2), bar = labelBar(inside); return { start: p.start, end: p.end, words: bar < 0 ? inside : inside.slice(bar + 1) }; }),
+  ].sort((a, b) => b.start - a.start);
+  let out = line;
+  for (const s of spans) out = out.slice(0, s.start) + s.words + out.slice(s.end);
+  return out;
+}
 
 /** How long an excerpt is when no length is asked: about two rows of a list pane. */
 export const EXCERPT_LENGTH = 160;
@@ -18,13 +30,16 @@ export function noteExcerpt(text: string, max = EXCERPT_LENGTH): string {
   if (h.line < 0) return "";
   const words: string[] = [];
   let length = 0, fenced = false;
+  let component = false;
   for (const raw of text.split("\n").slice(h.line + 1)) {
     if (/^\s*(?:`{3,}|~{3,})/.test(raw)) { fenced = !fenced; continue; }
+    // A component block (`::graph-stat` … `::`) is a figure, not words: its YAML is never the preview.
+    if (!fenced && /^\s*::[\w-]+\s*$/.test(raw)) { component = true; continue; }
+    if (component) { if (/^\s*::\s*$/.test(raw)) component = false; continue; }
     if (fenced || SKIP.test(raw)) continue;
     // Tags at a line's end are the note's chips, which a row draws as chips: the excerpt keeps the words.
-    const line = withoutPropertyTokens(raw).replace(LEAD, "").replace(/(?:^|\s+)(?:#[\p{L}\p{N}_][\p{L}\p{M}\p{N}_/-]*\s*)+$/u, "")
-      .replace(/\(\([^)|]*\|([^)]*)\)\)/g, "$1").replace(/\(\([^)]*\)\)/g, "")
-      .replace(/\[\[([^\]|]*\|)?([^\]]*)\]\]/g, "$2")
+    // Nothing a terminal acts on (an escape pasted into a note) reaches a row.
+    const line = linkWords(withoutPropertyTokens(raw).replace(/[\u0000-\u001f\u007f-\u009f]/g, "").replace(LEAD, "").replace(/(?:^|\s+)(?:#[\p{L}\p{N}_][\p{L}\p{M}\p{N}_/-]*\s*)+$/u, ""))
       .replace(/(\*\*|__|~~|`)(.+?)\1/g, "$2").replace(/(^|\W)[*_](\S(?:.*?\S)?)[*_](?=\W|$)/g, "$1$2")
       .replace(/\s+/g, " ").trim();
     if (!line) continue;

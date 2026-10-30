@@ -102,7 +102,6 @@ export class FacetsPane implements Pane {
   /** The cursor: an index into the rows. */
   at = 0;
   private view = new RowView();
-  private matches = new RowView();
   share = 0.4;
   private divider = -1;
   private bodyRoom = 0;
@@ -146,7 +145,7 @@ export class FacetsPane implements Pane {
   }
 
   /** The selection as the query the service is asked: the picks, then the calendar's day. */
-  query(): string { return [selectionQuery(this.clauses, this.raw), this.day ? dayClause(this.day) : ""].filter(Boolean).join(" "); }
+  query(): string { const q = selectionQuery(this.clauses, this.raw); return [this.day && /\bOR\b/.test(q) ? `(${q})` : q, this.day ? dayClause(this.day) : ""].filter(Boolean).join(" "); }
   /** A saved view the tile lists as a shortcut, by id. */
   viewNamed(id: string): Msg | undefined { return this.views.find(v => v.id === id || (id.length >= 8 && v.id.startsWith(id))); }
   /** The pane whose wires a pick and an open go through: the Matches tile while there is one, else this. */
@@ -314,7 +313,11 @@ export class FacetsPane implements Pane {
       if (!m) throw new ActionRefused(`the selection leaves no note ${id}`);
       return m;
     }
-    if (n !== undefined) { const r = this.rows()[n - 1]; if (r?.kind === "note") return r.note; throw new ActionRefused(`row ${n} isn't a note (facets.list names the notes Matches lists)`); }
+    if (n !== undefined) {
+      // In a tile of its own, Matches' rows are its own (1 is its first note); here they follow the tree's.
+      if (this.place === "tile") { const m = this.list.pickable(who)[n - 1]?.source; if (m) return m; throw new ActionRefused(`Matches has notes 1 to ${this.list.pickable(who).length}`); }
+      const r = this.rows()[n - 1]; if (r?.kind === "note") return r.note; throw new ActionRefused(`row ${n} isn't a note (facets.list names the notes Matches lists)`);
+    }
     const r = this.current();
     if (r?.kind === "note" && who === PERSON) return r.note;
     const picked = this.list.picked(who)?.source;
@@ -369,7 +372,8 @@ export class FacetsPane implements Pane {
     if (a?.hint) push(fg(C.yellow) + " " + a.hint + RESET);
     const top = lines.length;
     this.bodyRoom = Math.max(0, h - top - 1);
-    const inline = this.place === "inline", split = this.place === "split" && w >= 60;
+    // Split with no room for two lists side by side draws as inline (a 44-column tile), and is still split when it widens.
+    const split = this.place === "split" && w >= 60, inline = this.place === "inline" || (this.place === "split" && !split);
     const noteRoom = inline ? (this.bodyRoom > 1 ? clamp(Math.round(this.bodyRoom * this.share), 1, this.bodyRoom - 1) : this.bodyRoom) : 0;
     this.noteRoom = noteRoom;
     const listW = split ? clamp(Math.round(w * 0.55), 30, w - 24) : w, treeW = split ? w - listW - 1 : w;
@@ -649,6 +653,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       if (!rows.length) throw new ActionRefused("the facets tile lists nothing yet");
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("facets.pick takes n or by");
       if (part !== undefined && part !== "keys" && part !== "matches") throw new ActionRefused("part is keys or matches");
+      if (part === "matches" && p.place === "tile") throw new ActionRefused("Matches is in a tile of its own: facets.match picks there (id=, by=)");
       const walk = rows.flatMap((r, i) => part === undefined || (r.kind === "note") === (part === "matches") ? [i] : []);
       if (!walk.length) throw new ActionRefused(`no ${part} rows are listed`);
       const at = walk.indexOf(p.at);

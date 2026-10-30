@@ -39,6 +39,8 @@ describe("a note's excerpt", () => {
     // Tags ending a line are chips, drawn as chips; a tag in the words stays.
     expect(noteExcerpt("Standpipe\nThe lagging is on the top shelf. #frost/water #shed\n#compost")).toBe("The lagging is on the top shelf.");
     expect(noteExcerpt("Frost\n#frost lists every job.")).toBe("#frost lists every job.");
+    // A figure is no preview; an embed says nothing; a labelled link says its label; an escape is dropped.
+    expect(noteExcerpt("Board\n::graph-stat\n---\ntitle: Now\n---\n::\nSee ((7d9a1f40-0000-4000-8000-000000000001|the plan)) and !((7d9a1f40-0000-4000-8000-000000000002)) \u001b[31mnow.")).toBe("See the plan and [31mnow.");
     expect(noteExcerpt(`Long\n${"word ".repeat(100)}`, 40).length).toBeLessThanOrEqual(40);
   });
 
