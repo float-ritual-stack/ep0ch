@@ -24,6 +24,8 @@ export const marks: Record<string, string[]> = {
   sources: ["Which issue is the swap, see [[seed", "issue"],
   // A note's edit open with a / line, the actions that apply here asked for at it (PIE-1076).
   "one-completer": ["Seed tray jobs", "editing · Seed tray jobs"],
+  // A note to ask about beside wren, a demo agent session (PIE-1437).
+  "ask-agent": ["Potting bench rota", "wren, a demo agent"],
   twins: ["Fix the back gate latch", "Queued"],
   "at-revision": ["Jev's suggestions", "Each finding, newest first", "Roof on"],
   "write-review": ["Shed status tonight", "Jev's suggestions", "Each finding, newest first"],

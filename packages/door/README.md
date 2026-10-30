@@ -2116,9 +2116,15 @@ kitchen sink's actions section.
 - **Typed:** tiles, the outline's notes (the service's one search, nearer notes first, Jev re-ordering after a pause
   where it's set up), the actions you can do here (the focused tile's menu first, each with its key), what changed and
   the screens, each under its heading.
-- **One scope:** start with `%` tiles, `/` notes, `>` actions, `+` recent, `@` screens, `&` extensions, or an extension's own prefix
+- **One scope:** start with `%` tiles, `/` notes, `>` actions, `+` recent, `:` screens, `&` extensions, or an extension's own prefix
   (`~` for the glyphs example); alt+← and alt+→ cycle (or a click on a scope), backspace on an empty line keeps the scope. The desk's `/`
   and a river column's `g` open it in its notes scope.
+- **Ask an agent (PIE-1437):** `@` first stays on the line: `@wr` and tab give `@wren ` (the agent panel's sessions that
+  write as a persona, then the outline's agent configs), then what you ask, `[[` a page, `((` a note (its words or a
+  short id) and `%` a tile on this screen, each completed in place. ⏎ (or a click on the `ask @wren` row) runs
+  `agent.ask`: the line as a comment naming `@wren` on the note in front of you (addressed mail, PIE-1404), each `%tile`
+  named on a line of its own; wren's sessions hear it at their addressed check and answer in the thread. `@` on a row
+  of the agent panel opens the bar with that agent's name on the line.
 - **Editing:** the shared editor supports mouse drag or double-click selection, Shift+arrows, delete, Ctrl+X cut,
   paste and Ctrl+Z undo. Ctrl+U clears the line; Alt+Backspace or Ctrl+W deletes the preceding word.
 - **Completing:** Tab extends the common prefix of rows starting with your text, otherwise advances the lit row

@@ -136,6 +136,7 @@ export const SEED = {
   stickyPlan: "Raised beds plan",
   stickyPad: "Sticky pad",
   oneCompleter: "Seed tray jobs",
+  askAgent: "Potting bench rota",
   shedPlan: "Shed rebuild plan",
   shedPad: "Shed sticky pad",
   zoomPlan: "Orchard winter plan",

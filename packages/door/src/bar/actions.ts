@@ -10,6 +10,7 @@ import type { PowerBar } from "./bar";
 import { clearPrivateForm, formFocus, formLine, formOpen, formRun, formSet, formState } from "./ask";
 import { formFor, openActionForm } from "./form";
 import { barSource, barSources, type BarHost } from "./source";
+import { askAgent, askedWords, type Asked } from "./ask-agent";
 
 /** What the bar's actions run on: the door's open bar (the person's), and how to make one (the person's, or an agent's own unseen). */
 export interface BarOn {
@@ -45,12 +46,12 @@ const scopes = () => barSources().map(s => ({ scope: s.id, prefix: s.prefix, tit
 
 export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", {
   "bar.open": def({
-    summary: "the power bar: one palette over every screen. With nothing typed it lists the tiles open on every screen and in your drawer (indented as each screen's layout tree, with the note each shows), then what others changed since you looked; typed, the tiles, the outline's notes (the service's one search), the actions you can do here (with their keys), what changed and the screens, each under its heading; scope=tiles|notes|actions|recent|screens|extensions or an extension's (or its prefix: % / > + @ &, ~ and so on) lists one. The person's opens it with their keys in it (query= typed in); an agent's answers the rows it would list (numbered from 1, with scope=, query=) and opens nothing",
+    summary: "the power bar: one palette over every screen. With nothing typed it lists the tiles open on every screen and in your drawer (indented as each screen's layout tree, with the note each shows), then what others changed since you looked; typed, the tiles, the outline's notes (the service's one search), the actions you can do here (with their keys), what changed and the screens, each under its heading; scope=tiles|notes|actions|recent|screens|agents|extensions or an extension's (or its prefix: % / > + : @ &, ~ and so on) lists one; @ stays on the line, an ask line agent.ask sends. The person's opens it with their keys in it (query= typed in); an agent's answers the rows it would list (numbered from 1, with scope=, query=) and opens nothing",
     keys: [{ keys: "ctrl+k cmd+k alt+k", does: "on every screen and in your drawer, not while typing, in a terminal tile or the drawer's program (cmd+k where the terminal sends it; alt+k is PIE-1346)" }, { keys: "alt+left alt+right alt+b alt+f", does: "in the open bar, move between scopes" }, { keys: "click", does: "on a scope in the open bar, or on the status bar's ^K" }, { via: "a prefix typed on the bar's empty line" }, { keys: "✦p", does: "hyper chord, also while typing" }, { keys: "✦g", does: "hyper chord, in the bar's screens scope" }, { keys: "/", does: "on the desk and the screens on it" }, { keys: "g", does: "in a river column, the notes scope" }, { keys: "^W ?", does: "on the desk: the actions scope on the ^W keys, to filter and press one" }],
     touches: "nothing", replay: "safe",
     args: {
       query: { type: "string", optional: true, about: "what's typed in it" },
-      scope: { type: "string", optional: true, about: "one source: tiles, notes, actions, recent, screens, extensions, an extension's (ext.<id>.<source>), or its prefix; all (the default) lists every one" },
+      scope: { type: "string", optional: true, about: "one source: tiles, notes, actions, recent, screens, agents, extensions, an extension's (ext.<id>.<source>), or its prefix; all (the default) lists every one" },
       by: { type: "number", optional: true, about: "the person's open bar: the next scope (1) or the one before (-1), round again, keeping what's typed" },
       keep: { type: "boolean", optional: true, about: "the person's open bar: change only its scope, keeping what's typed (its scope tabs and prefixes)" },
     },
@@ -211,6 +212,27 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
       on.close();
       clearPrivateForm();
       return { closed: true };
+    },
+  }),
+  "agent.ask": def({
+    summary: "ask an agent (PIE-1437): the words as a comment naming @to on a note, addressed mail, which every session writing as that persona hears at its addressed check and answers in the thread. [[pages]] and ((notes)) in the words stay links; each %tile gets a line naming that tile in this door. The note: note=, else (the person's) the note in front of them, else the first note the words link to. The person's says what was sent where; an agent's is attributed to it",
+    keys: [{ keys: "enter", does: "on an ask line in the power bar: @name and the words" }, { keys: "click", does: "on the bar's ask @name row" }, { keys: "@", does: "on a row of the agent panel: the bar with @name on its line" }],
+    touches: "nothing", replay: "ask",
+    says: (out: Asked) => askedWords(out),
+    args: {
+      to: { type: "string", kind: "agent", about: "the agent's persona (loki, kitty): the agents here are listed, and any persona's name is sent as typed" },
+      text: { type: "string", about: "what you ask, with [[pages]], ((notes)) and %tiles in it" },
+      note: { type: "string", optional: true, kind: "note", about: "the note it's a comment on; left out, the note in front of you, else the first one the words link to" },
+    },
+    examples: [
+      { act: 'agent.ask to=wren text="looking at [[seed trays]] can you pop it into %jobs"', does: "a comment naming @wren on the note in front of you, %jobs named as this door's tile" },
+      { act: 'agent.ask to=wren text="sort these" note="[[seed trays]]"', does: "asks wren on the seed trays page" },
+    ],
+    async run({ to, text, note }, { on }, actor: Actor) {
+      const host = on.host(), out = await askAgent(host, { to, text, ...(note ? { note } : {}) }, actor);
+      // The person's is said where they look; an agent's is said by the dispatcher, attributed (`says`).
+      if (actor.kind !== "agent") host.ctx.flash(askedWords(out));
+      return out;
     },
   }),
 });
