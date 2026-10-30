@@ -60,6 +60,11 @@ export interface BarHost {
   near(): string | null;
   /** Read a note: none when it's gone; a read that fails (offline, refused) throws, so a caller never takes it for gone. */
   note(id: string): Promise<Msg | null>;
+  /**
+   * The screen the rows are for, where it isn't where the person's keys are: a draft's own (PIE-1439), so a note's edit
+   * lists its tile's actions first even while the keys are still outside it (a showcase stage). Default: the keys' screen.
+   */
+  here?: Screen;
 }
 
 export interface BarSource {

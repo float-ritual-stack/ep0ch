@@ -182,6 +182,8 @@ export interface SurfaceHost {
   overlay?(p: ListPicker<any, any>): void;
   contextFor?(note: Msg | null): Ctx;
   ctx: Ctx;
+  /** The screen this reader is on (its desk): what an edit's actions here are listed for (PIE-1439). */
+  screen?(): import("../app").Screen | undefined;
   redraw(): void;
   /**
    * The look (PIE-673) the host resolved for where this reader is (its tile kind, its screen, the note): its margin,
@@ -3599,7 +3601,9 @@ export class NoteSurface {
    * its own headings (`((#`), as typed so far; a comment or reply has no note of its own.
    */
   completer(d: Draft, host: SurfaceHost) {
-    return completerFor(d, host.ctx.board, () => host.redraw(), () => (d === this.draft ? { blockId: d.blockId, text: d.text } : undefined));
+    const c = completerFor(d, host.ctx.board, () => host.redraw(), () => (d === this.draft ? { blockId: d.blockId, text: d.text } : undefined));
+    if (c && host.screen) c.where = () => host.screen?.();
+    return c;
   }
 
   /**

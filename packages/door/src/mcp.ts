@@ -886,7 +886,7 @@ function toolsFor(outlines: McpOutlines) {
 
 const snapshotDefinition = (outline: Record<string, unknown>) => ({
   name: "outline_snapshot",
-  description: "Download a consistent, integrity-checked SQLite copy for read-only analysis. Requires read access or higher. Returns url, expiresAt, bytes, sha256, schema, asOf and a one-line curl command. The share link works once, expires in 15 minutes (ttl up to 24h), and is revocable through share_revoke or ep0ch share revoke. Add ?gz=1 for gzip; bytes and sha256 describe the uncompressed SQLite file. Includes the entire database, including private notes. An outline of another machine is snapshotted from this server's read-only copy of it: the answer's source, asOf, stale and note say how fresh the copy is. The file stays out of chat. Show the curl command and URL only inside a fenced code block, never as a clickable link: chat clients may preview links and interrupt the download.",
+  description: "Download a consistent, integrity-checked SQLite copy for read-only analysis. Requires read access or higher. Returns url, expiresAt, bytes, sha256, schema, asOf and a one-line curl command. The share link works once, expires in 15 minutes (ttl up to 24h), and is revocable through share_revoke or ep0ch share revoke. Add ?gz=1 for gzip; bytes and sha256 describe the uncompressed SQLite file. Includes the entire database, including private notes. An outline of another machine is snapshotted from this server's read-only copy of it: the answer's source, asOf (the copy's newest change), stale and note say how fresh the copy is, and snapshotAt when the snapshot was made. The file stays out of chat. Show the curl command and URL only inside a fenced code block, never as a clickable link: chat clients may preview links and interrupt the download.",
   inputSchema: { type: "object", properties: { outline, ttl: { type: "string", description: "15m by default, 1m to 24h" } }, additionalProperties: false },
 });
 
@@ -946,8 +946,11 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
         mutation: caller ? { author: "agent", ...actorOf(caller) } : { author: "agent", actorId: "mcp" },
       }, 120_000);
       const how = "Show the curl command with its URL inside a fenced code block, never as a clickable link, to avoid chat link previews.";
-      // The copy's provenance first: the snapshot's own asOf is the file's.
-      return toolText({ ...copyFields(target), ...snapshot, said: target.home ? `${copyLine(target, "A snapshot of", snapshot.asOf)} ${how}` : how });
+      // From a copy, the headline is the copy's newest change (PIE-1439: a snapshot made at 23:46 of a copy whose newest
+      // change was 23:16 is as of 23:16); the snapshot's own time is its own field, snapshotAt.
+      if (!target.home) return toolText({ ...snapshot, said: how });
+      const { asOf: snapshotAt, ...made } = snapshot;
+      return toolText({ ...copyFields(target), ...made, asOf: target.served.asOf, snapshotAt, said: `${copyLine(target, "A snapshot of")} ${how}` });
     }
     if (name === "reader_view") {
       const seen = await readerView(board);
@@ -977,7 +980,7 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
 const copyFields = (target: McpBoard) => target.home ? target.served : {};
 
 /** One line for an answer from a copy: as of when, and how fresh, in the words reads use (the mirror's note, which says a stale copy is). */
-const copyLine = ({ board, served }: McpBoard, what: string, asOf = served.asOf) => `${what} ${board.address.outline} as of ${asOf}: ${served.note ?? "read-only copy"}.`;
+const copyLine = ({ board, served }: McpBoard, what: string) => `${what} ${board.address.outline} as of ${served.asOf}: ${served.note ?? "read-only copy"}.`;
 
 /** A share of an outline served from its copy: refused, with why and the two ways out. */
 const awayShareRefusal = (outlines: McpOutlines, { board, served, home }: McpBoard, args: Record<string, unknown>) =>

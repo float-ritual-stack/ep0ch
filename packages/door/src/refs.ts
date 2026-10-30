@@ -372,6 +372,21 @@ function tagsIn(noteText: string, src: Source | null | undefined): { raw: string
 const plainWords = (words: string) => words.replace(/[*_~\\]/g, "\\$&");
 
 /**
+ * A line of words that may name notes (a status message, a refusal): each labelled reference said as its label, as a
+ * reader draws one (`((id|Seed order))` reads "Seed order", PIE-1439), by outline-core's one scan; an unlabelled one stays
+ * as written, since its id is all it says. For one row of words with no note to resolve against; a note is presentLinks'.
+ */
+export function referenceWords(text: string): string {
+  let out = "", at = 0;
+  for (const r of blockReferenceOccurrences(text, "inline")) {
+    if (r.label === undefined) continue;
+    out += text.slice(at, r.start) + r.label;
+    at = r.end;
+  }
+  return at ? out + text.slice(at) : text;
+}
+
+/**
  * `site`: the note this text is drawn for. Its `{{ }}` are drawn as the service's `site.answer` reads them (PIE-533 S2):
  * the value in place, in italics as computed (a URL as a link), or an unresolved one dimmed as typed with the nearest key.
  * Each is an element: ⏎ or a click shows the line the value is written on. Without `site`, or while the answer is on its
