@@ -157,7 +157,7 @@ describe("pickInto on a screen with tiles: the picker beside the note", () => {
   test("a picker that fails beside the note keeps its tile, so what it said stays on screen; one that closes cleanly goes", async () => {
     const d = draft("as it was", 2), kept: boolean[] = [];
     const r = await withEnv({ EP0CH_PICKER: "sh -c 'exit 1' sh" }, () => pickInto(tiles([], [], kept), d, OUTLINE));
-    expect(r).toEqual({ nothing: expect.stringMatching(/exited 1 .*what it said stays in its tile/) });
+    expect(r).toEqual({ nothing: "sh -c 'exit 1' sh ep0ch exited 1; nothing inserted · what it said is in its tile: the x on its title closes it" });
     await withEnv({ EP0CH_PICKER: "true" }, () => pickInto(tiles([], [], kept), d, OUTLINE));
     expect(kept).toEqual([true, false]);
     expect(d.text).toBe("as it was");

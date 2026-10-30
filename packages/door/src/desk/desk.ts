@@ -6768,11 +6768,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!p.actor || p.actor.kind === "user") {
       this.focus = id; this.ptyIn = pane;
       // The drawer up over this screen would hide the program where it opened (the reader's lower half, or all of it):
-      // it's put away, as going to a tile on the screen puts it away (`goTo`); alt+a brings it back. Only on the screen
-      // shown's own desk (a group's inner desk places its tiles in its own frame).
+      // it's put away, as going to a tile on the screen puts it away (`revealPane` up through the groups holding it, then
+      // `goTo`); alt+a brings it back. Whether it hides it is asked of the screen's own tile: in a group, the group's.
       const host = this.ctx?.hostLayer, drawn = host?.drawnRect();
-      if (host && drawn && !host.isDrawer(this) && host.desks().includes(this) && r0 && overlaps(r0, drawn)) {
-        try { host.goTo(pane, p.actor ?? USER); } catch (e) { if (!(e instanceof ActionRefused)) throw e; }
+      let top: Desk = this, held: Pane | null = null;
+      for (let h = top.holder, up = h?.desk(); h && up; h = up.holder, up = h?.desk()) { held = h.tile; top = up; }
+      const r = held ? top.placed.rects.get(top.idOf(held)!) : r0;
+      if (host && drawn && !host.isDrawer(top) && host.desks().includes(top) && r && overlaps(r, drawn)) {
+        try { this.revealPane(pane, p.actor ?? USER, true); } catch (e) { if (!(e instanceof ActionRefused)) throw e; }
       }
     }
     this.redraw();

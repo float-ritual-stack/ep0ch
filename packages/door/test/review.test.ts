@@ -328,6 +328,25 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     D().closeId(idOf("pick"));
   });
 
+  test("ctrl+t's picker in a group under the drawer: the drawer is put away there too", async () => {
+    await mine("tile.group", { with: "now", name: "pair" }, "middle");
+    render();
+    await app.dispatch.act({ action: "host.toggle", args: { open: true } }, { kind: "user" });
+    await app.dispatch.act({ action: "host.leave", args: {} }, { kind: "user" }).catch(() => {});
+    render(); (app as any).paint?.();
+    const host = app.hostLayer;
+    await until(() => !!host.drawnRect(), "the drawer up over the desk");
+    const inner = D().pane("pair").inner;
+    inner.render(inner.ctx ?? D().ctx);
+    const reader = [...inner.panes.keys()].find((i: number) => inner.nameOf(i) === "middle");
+    inner.focus = reader;
+    expect(inner.inTile({ cmd: ["sleep", "5"], name: "pick", wide: true }, () => {})).toBe(true);
+    expect(host.drawnRect()).toBeNull();
+    const pick = [...inner.panes.keys()].find((i: number) => inner.nameOf(i) === "pick");
+    inner.closeId(pick);
+    await mine("tile.group", { on: false }, "pair");
+  });
+
   test("S1: leaving the desk keeps it and its programs; D on the menu brings the same desk back; quitting asks", async () => {
     D().focus = idOf("tree");
     const pid = tile("claude").terminal.pid;

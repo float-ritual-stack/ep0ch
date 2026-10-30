@@ -135,4 +135,4 @@ code.
   reads the file when tv exits. `--inline`, because tv's fullscreen mode (0.15.9) asks where the cursor is on its
   stdout, which is that file: no answer comes and tv crashes ("The cursor position could not be read"). Inline mode
   asks on `/dev/tty`, and in a fresh tile it fills the tile. A picker that exits with an error puts nothing in; its tile
-  stays with what it said until `^W x`.
+  stays with what it said until the x on its title closes it.

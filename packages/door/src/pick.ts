@@ -144,11 +144,12 @@ export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: stri
     // tv exits 0 with nothing printed on esc, fzf 130; tv exits 1 on a channel it doesn't have and when it crashes (its
     // error goes to its screen: in a tile, the tile stays to show it); 127 is sh's "not found".
     if (failed(code)) {
-      const said = tile ? " · what it said stays in its tile beside: ^W x closes it" : "";
-      return { nothing: code === 127 ? `${picker} exited 127: not found (EP0CH_PICKER names the picker); nothing inserted${said}`
+      // In a tile, what it said is in front of the person, so the line stays short enough to read whole.
+      if (tile) return { nothing: `${picker} exited ${code}; nothing inserted · what it said is in its tile: the x on its title closes it` };
+      return { nothing: code === 127 ? `${picker} exited 127: not found (EP0CH_PICKER names the picker); nothing inserted`
         // tv: a crash, or a channel it doesn't have; fzf: no match.
-        : code === 1 ? `${picker} exited 1 (an error, no ${channel ? `"${channel}"` : "such"} channel: tv's come from ext/television, ep0ch install --apply; or no match); nothing inserted${said}`
-        : `${picker} exited ${code}; nothing inserted${said}` };
+        : code === 1 ? `${picker} exited 1 (an error, no ${channel ? `"${channel}"` : "such"} channel: tv's come from ext/television, ep0ch install --apply; or no match); nothing inserted`
+        : `${picker} exited ${code}; nothing inserted` };
     }
     // 143 or 129: ended by a signal (its terminal hung up) before a choice.
     if (code === 143 || code === 129) return { nothing: `${picker} closed before a choice; nothing inserted` };
