@@ -250,6 +250,7 @@ What the fields mean:
 - `badge`: `label`, `tone?`, `act?`. `button`: `label`, `act`, `tone?`. `stat`: `label`, `value` (text or number), `unit?`, `tone?`. `bar`: `label`, `value`, `max` (> 0).
 - `table`: `columns` (1 to 12 names), `rows` (up to 200, each as long as `columns`, cells text or numbers; `""` is a valid empty cell, a number is shown as written), `links?` (one per row:
   a block id, a `file:`/`web:`/`resource:` ref, or `null`; Enter or a click opens it), `acts?` (an action line per row or `null`, pressed in place of its link).
+  A cell may be `{ text, act?, link?, tone? }`: a cell of its own that presses its `act` or opens its `link` (never both), the rest of the row keeping the row's; so one row opens its note from the title and changes a property from another column (the lens extension). Everywhere that only draws text (Markdown, CSV, a run note), it reads as its `text`.
 - `checklist`: `items: [{ label, done }]`. `sparkline`: `values` (1 to 200 numbers), `label?`.
 - `card`: `title`, `subtitle?`, `badge?: { label, tone? }`, `link?`, `act?`, `children?`. `box`: `title?`, `children`. `stack`: `children`
   one under another. `row`: `children` side by side, stacked when narrower than `minWidth` (4 to 200, default 12 characters).

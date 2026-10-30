@@ -59,6 +59,15 @@ test("views are checked against the catalogue with a path to what is wrong", () 
   expect(() => validatePrimitive({ type: "row", minWidth: 2, children: [] })).toThrow("view.minWidth must be a whole number from 4 to 200");
   expect(() => validatePrimitive({ type: "box", children: [{ type: "bar", label: "x", value: 1, max: 0 }] })).toThrow("view.children[0].max must be more than 0");
   expect(() => validatePrimitive({ type: "table", columns: ["a"], rows: [["1", "2"]] })).toThrow("view.rows[0] must have 1 cells");
+  // A cell of its own (PIE-1461): text with an act or a link, never both; it reads as its text everywhere that only draws text.
+  const id = "aaaaaaaa-1111-4222-8333-444444444444";
+  const cells = validatePrimitive({ type: "table", columns: ["Job", "Stage"], rows: [[{ text: "Fix the gate", link: id }, { text: "queued", act: "lens-set note=x key=stage next=1", tone: "accent" }]] });
+  expect(cells).toEqual({ type: "table", columns: ["Job", "Stage"], rows: [[{ text: "Fix the gate", link: id }, { text: "queued", act: "lens-set note=x key=stage next=1", tone: "accent" }]] });
+  expect(() => validatePrimitive({ type: "table", columns: ["a"], rows: [[{ text: "x", act: "go", link: id }]] })).toThrow("view.rows[0][0] a cell presses or opens, not both");
+  expect(() => validatePrimitive({ type: "table", columns: ["a"], rows: [[{ text: "x", colour: "red" }]] })).toThrow("has a field it doesn't know: colour");
+  expect(renderComponent({ data: null, view: cells as never }, "markdown").body).toContain("| Fix the gate | queued |");
+  expect(renderComponent({ data: null, view: cells as never }, "html").body).toContain(`<a href="#${id}">Fix the gate</a>`);
+  expect(renderComponent({ data: null, view: cells as never }, "csv").body).toBe("Job,Stage\nFix the gate,queued");
   expect(() => validatePrimitive({ type: "text", text: "hi", colour: "red" })).toThrow("has a field it doesn't know: colour");
   expect(() => validateComponent({ view: { type: "text", text: "no data" } })).toThrow("returns data");
   let deep: Record<string, unknown> = { type: "text", text: "bottom" };
