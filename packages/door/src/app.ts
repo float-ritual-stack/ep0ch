@@ -147,6 +147,8 @@ export interface HostLayer {
   away(name: string, actor: Actor): TileDone;
   /** Every agent session this door holds (PIE-737): the agent panel's rows. */
   sessions?(): AgentSession[];
+  /** What a new session can run (the outline's agent configs, then the agents installed here), each with the persona it writes as. */
+  programs?(): Promise<{ name: string; persona?: string }[]>;
 }
 
 /** The test run's registry of Apps (test/preload.ts), by a global symbol so the app needs no import from the tests. */

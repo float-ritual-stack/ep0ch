@@ -1923,6 +1923,21 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     ],
     run({ session }, { drawer }, actor) { return drawer.pullSession(session, actor); },
   }),
+  "agents.ask": def({
+    summary: "ask an agent session (session=…): the power bar with @<its persona> on its line, to type what you ask and send it (agent.ask, PIE-1437). The person's only: it opens their bar; an agent asks with agent.ask to=<persona> text=…",
+    keys: [{ keys: "@", does: "on a row of the agent panel" }],
+    touches: "nothing", replay: "safe",
+    person: "it opens the person's power bar; an agent runs agent.ask itself",
+    args: { session: { type: "string", about: "as agents.go's" } },
+    examples: [
+      { act: "agents.ask session=1", does: "opens the bar with the first session's @persona on its line" },
+    ],
+    run({ session }, { drawer, ctx }) {
+      const s = drawer.sessionOf(session);
+      if (!s.persona) throw new ActionRefused(`${s.id} writes as no persona, so no @mail reaches it · start one with agent.start persona=<name>`);
+      return ctx.press?.("bar.open", { query: `@${s.persona} ` }) ?? { query: `@${s.persona} ` };
+    },
+  }),
   "agents.dock": def({
     summary: "dock an agent session on the screen shown (session=…), out of your drawer or off another screen: the same process and conversation, now a tile here",
     keys: "d on a row of the agent panel; ^W A on its tab in the drawer",

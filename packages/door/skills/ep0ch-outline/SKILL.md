@@ -129,7 +129,8 @@ revision, so concurrent edits rarely collide.
   instead, and each change after it (`stale`, `applied`, `dismissed`, `resolved`), oldest first, once each, with the
   note, who and why; pass its `cursor` as `since` next time. With the Claude mod you don't poll: the next prompt
   carries what changed, and a stale one wakes a persona's idle session. A stale one is a task: re-read the note and
-  send the edit again, or dismiss your proposal.
+  send the edit again, or dismiss your proposal. An empty list says why (`said`): with no persona, only this session's
+  proposals are yours, and it counts the ones other sessions left.
 - A refusal is an answer: read again and retry, or leave it. Never route around it.
 - A write's `warnings` are answers too, and each one that starts "fix before you call this done" is a gate: a long
   title, a wall, a buried question (the floor, under "Shaping a note"). A `((` that leads nowhere (with a did-you-mean), and each construct you
@@ -839,7 +840,7 @@ usual start (a table of a note's children with a computed column). Two traps to 
 empty (use `q("parent:this")` or `read(this.id)`), and a `q` row has no properties (read the row: one `read()` per row).
 More traps: a render script run as an action leaves a run note (31 KB with `[results::keep]`); `script_run` runs a
 script the way a person's press does only with `this` (the note it is about) and `slots` (`{ card: "lamplighter" }`,
-its `props`); and pass `persona` when you aren't the connector's owner, or the write is recorded as theirs.
+its `props`), and its answer's `changed` lists the notes the run changed (`written` is its own run notes); and pass `persona` when you aren't the connector's owner, or the write is recorded as theirs.
 
 The short form for working in an outline is [references/scripts.md](references/scripts.md).
 
