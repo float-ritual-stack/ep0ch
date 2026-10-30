@@ -101,14 +101,16 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     await until(() => !!D().describe().panes.find((p: any) => p.kind === "matches"), "the matches tile");
     const m = D().describe().panes.find((p: any) => p.kind === "matches");
     expect(await act("list.blocks", {}, m.name)).toMatchObject({ lists: [{ title: "Matches" }] });
-    // The person's keys in it are every list's (PIE-1457): Home and g to the first note, End and G to the last, space a page on.
+    // The person's keys in it are every list's (PIE-1457): Home and g to the first note, End and G to the last; space opens.
     await D().dispatch.act({ action: "tile.focus", tile: m.name }, USER);
     const mine = () => tilePane().list.picked("you")?.id;
     const ids = today().notes.map((n: any) => n.id);
-    for (const [k, to] of [[{ kind: "end" }, ids.at(-1)], [{ kind: "home" }, ids[0]], [{ kind: "char", ch: "G" }, ids.at(-1)], [{ kind: "char", ch: "g" }, ids[0]], [{ kind: "char", ch: " " }, ids[8]]] as const) {
+    for (const [k, to] of [[{ kind: "end" }, ids.at(-1)], [{ kind: "home" }, ids[0]], [{ kind: "char", ch: "G" }, ids.at(-1)], [{ kind: "char", ch: "g" }, ids[0]]] as const) {
       key(k as Key);
       await until(() => mine() === to, `${JSON.stringify(k)} picks ${to}`);
     }
+    key({ kind: "char", ch: " " });
+    await until(() => (app as any).message.includes("opened in"), "space opens the picked note");
     await D().dispatch.act({ action: "tile.focus", tile: "1" }, USER);
     await act("facets.place", { place: "inline" });
   }, 60_000);

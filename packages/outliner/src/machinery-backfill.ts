@@ -88,6 +88,7 @@ export async function runMachineryCommand(args: readonly string[], env: NodeJS.P
     if (values.json) console.log(JSON.stringify({ applied: values.apply === true, report }));
     else {
       for (const r of report) console.log(`${r.producer}: ${values.apply ? "stamped" : "would stamp"} ${r.atLeast ? "at least " : ""}${r.stamped}${r.skipped ? `, ${r.skipped} changed meanwhile or refused: run it again` : ""}`);
+      if (values.apply) console.log("Each stamped note kept its updated date: none of them shows as changed today.");
       if (!values.apply) console.log("A dry run. To stamp them: ep0ch machinery backfill" + (values.ws ? ` --ws ${values.ws}` : "") + " --apply");
     }
     return 0;

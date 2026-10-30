@@ -2749,7 +2749,7 @@ export class NoteSurface {
       // An artifact's card (PIE-793): its file read through the service, the card drawn again once it's read.
       ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: name => src.board.request<ArtifactInfo>("artifacts.show", { name }), changed: () => src.redraw() }) } : {}),
       folds: { points, folded: this.effectiveFolds(m), selected: this.foldSel, preview: new Set(points.filter(p => this.previews(p)).map(p => p.key)) },
-      link: (block, x, figure, query, at) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
+      link: (block, x, figure, query, at, cell) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}), ...(cell ? { cell: true } : {}) }, x),
       figures: this.printed ? { all: true, seen: f => figures.push(f) } : {
         ui: key => this.figureUI.get(key),
         tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.tab ?? `≡ density ${this.figureUI.get(c.figure)?.density ?? ""}`.trim() }, x),
@@ -2914,7 +2914,7 @@ export class NoteSurface {
           const ps = projected.get(line)?.filter(({ p }) => p.output?.component?.placement !== "replace");
           return ps ? { rows: ps.flatMap(({ p }) => extensionRegion(p, width, Date.now(), (to, text) => tagged(drawn, to, text), { note: target.id, markdown: inert, row: (block, text) => tagged(drawn, { block, role: "row" }, text) }).rows) } : [];
         },
-        link: (block, t, figure, query, at) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}) }, t),
+        link: (block, t, figure, query, at, cell) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}), ...(cell ? { cell: true } : {}) }, t),
         // The template is the definition (`self`); the chain says the host is `this`, so a figure over `{{this.project}}` reads the host.
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
@@ -2934,7 +2934,7 @@ export class NoteSurface {
       const call: SiteCall = { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) };
       return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
         ...childEnv(env, { off: 0, end: lines.length, width }), heroLine: -1, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined, regions: undefined, outputs: undefined,
-        link: (block, t, figure, query, at) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}) }, t),
+        link: (block, t, figure, query, at, cell) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}), ...(cell ? { cell: true } : {}) }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
         use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1),
@@ -6627,9 +6627,9 @@ export class NoteSurface {
     // an alt-, ctrl- or middle-click opens it fresh (alt+⏎); the click that gives the reader the keys only selects.
     const lbk = link.listRow;
     // A figure's row is a list row like any other (Evan, Oct 21: a click selects and previews; it never opens at once).
-    // A row that stands for a query, not a note (a live calendar's day, an activity cell), has nothing to preview: one
-    // click lists its notes, as ⏎ on it does (PIE-1457).
-    if (e && (lbk?.row || e.link?.inlineList) && link.query === undefined && !host.opensOnClick?.(link)) {
+    // A grid's cell (a live calendar's day, an activity cell) has nothing to preview: one click lists its notes, as ⏎
+    // on it does (PIE-1457).
+    if (e && (lbk?.row || e.link?.inlineList) && !link.cell && !host.opensOnClick?.(link)) {
       const i = this.elems.indexOf(e), inline = e.link?.inlineList;
       const presses = inline ? this.inlineLists.get(inline.key)!.view : this.linkPresses;
       const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was });

@@ -58,7 +58,7 @@ describe.skipIf(!outliner)("opens into the desk's readers keep every column read
     board = new SocketBoard(await scratch.start());
     await board.info();
     const mk = async (text: string) => (await board.get((await board.request<any>("create", { parentId: null, text, author: "agent" })).id))!;
-    notes.shed = await mk("Bike shed\nThe door sticks in the rain.");
+    notes.shed = await mk("Bike shed by the long fence behind the greenhouse, the one with the leaking roof\nThe door sticks in the rain.");
     notes.peas = await mk("Pea packet\nSow by the fence in March.");
     notes.rake = await mk("Rake handle\nSand it before the oil.");
     app = new App(term as any, board, Date.now(), () => {});

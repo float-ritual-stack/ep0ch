@@ -410,7 +410,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   const key = `${title}#${same}`;
   // All kinds lend their row targets the same figure identity, including rows outside the current viewport.
   const rowLink = link;
-  link = rowLink ? (block, text, _figure, query, at) => rowLink(block, text, key, query, at) : undefined;
+  link = rowLink ? (block, text, _figure, query, at, cell) => rowLink(block, text, key, query, at, cell) : undefined;
   const chosen = figures?.ui?.(key);
   const writtenLines = props.lines === undefined ? undefined : Number(props.lines);
   const validLines = writtenLines === undefined || Number.isSafeInteger(writtenLines) && writtenLines >= 0;

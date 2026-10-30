@@ -573,12 +573,13 @@ export class FacetsPane implements Pane, AttachedOwner {
   attachedKey(_a: Attachment, k: Key, desk: DeskApi): boolean {
     if (this.list.typing && k.kind !== "mouse") return this.filterKey(k, desk);
     if (ch(k) === "/") { this.listHost(desk).type(this.listHost(desk).lists()[0]!); return true; }
-    // Every list's keys (PIE-1457): Home and g to the first note, End and G to the last, space a page on.
-    const c = ch(k), by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" || c === " " ? 8 : k.kind === "pgup" ? -8
+    // Every list's keys (PIE-1457): Home and g to the first note, End and G to the last; space opens, as it does on a
+    // note in the facets tile's own Matches.
+    const c = ch(k), by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8
       : k.kind === "home" || c === "g" ? -1e9 : k.kind === "end" || c === "G" ? 1e9 : 0;
     const run = (name: string, args: Record<string, unknown> = {}) => { void desk.press?.(this, FACETS_ACTIONS, name, args); return true; };
     if (by) return run("facets.match", { by });
-    if (k.kind === "enter") return run("facets.open");
+    if (k.kind === "enter" || c === " ") return run("facets.open");
     if (k.kind === "alt-enter") return run("facets.open", { fresh: true });
     if (k.kind === "char" && k.ctrl && k.ch === "o") return run("facets.place");
     if (c === "*") return run("facets.pin");
@@ -881,7 +882,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.open": def({
     summary: "open a note the selection leaves, as ⏎ does in a list (the desk's open rule: the tile's link, or its container's): n (its row, from 1), id, or the row the cursor is on; fresh opens a new detail beside",
-    keys: [{ keys: "⏎", does: "on a note" }, { keys: "double-click", does: "a note" }, { keys: "alt+⏎", does: "fresh", says: "open the selected note in a new detail beside" }],
+    keys: [{ keys: "⏎ space", does: "on a note" }, { keys: "double-click", does: "a note" }, { keys: "alt+⏎", does: "fresh", says: "open the selected note in a new detail beside" }],
     touches: "nothing", replay: "safe", says: r => `opened "${String(r.title)}"`,
     args: {
       n: { type: "number", optional: true, about: "its row, from 1" },
@@ -1019,7 +1020,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.match": def({
     summary: "pick a note in Matches (the notes the selection leaves): id, or by=<notes> from the one picked; it previews where the tile's selection goes (its Matches tile's wires, while Matches is in one). An agent's pick is its own, drawn in its tint: the person's stays",
-    keys: [{ keys: "j k ↑ ↓ pgup pgdn space", does: "in Matches' own tile", says: "pick the next or previous note in Matches' own tile" }, { keys: "home g end G", does: "in Matches' own tile", says: "pick the first or last note in Matches' own tile" }, { keys: "click wheel", does: "on Matches", says: "pick a note in Matches by clicking or scrolling it" }],
+    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "in Matches' own tile", says: "pick the next or previous note in Matches' own tile" }, { keys: "home g end G", does: "in Matches' own tile", says: "pick the first or last note in Matches' own tile" }, { keys: "click wheel", does: "on Matches", says: "pick a note in Matches by clicking or scrolling it" }],
     touches: "nothing", replay: "safe", says: r => `picked "${String(r.title)}"`,
     args: { id: { type: "string", optional: true, about: "a note's block id (or its first 8+ characters)" }, by: { type: "number", optional: true, about: "notes on from the one picked (negative: up)" } },
     examples: [{ act: "facets.match by=1 tile=facets", does: "picks the next note in Matches; a reader wired to it shows it" }],
