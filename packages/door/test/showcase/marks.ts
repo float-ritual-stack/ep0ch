@@ -197,6 +197,7 @@ export const marks: Record<string, string[]> = {
   neat: ["A neat workbench", "[neat]"],
   wyrm: ["Wyrmhold", "join the realm", "Dozing Gerald"],
   lens: ["Jobs", "Fix the gate latch", "Seed order"],
+  workbench: ["Garden collection workbench", "Table", "Cards"],
   scripts: ["Seed report", "Press alt+S"],
   "button-sequences": ["One button, two tiles", "Fold the bottom", "Sugar"],
   "pick-a-tile": ["Pick a tile instead of typing its id", "pop it", "misread"],
