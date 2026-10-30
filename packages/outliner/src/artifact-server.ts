@@ -62,8 +62,11 @@ export async function artifactAccess(root: string, request: Request, access: Art
 }
 
 export async function artifactResponse(root: string, request: Request, ancestors: string, access: ArtifactAccess = {}): Promise<Response> {
+  // What claude.ai's artifact runtime lets a page do, since artifacts are made there: its own workers, worklets and
+  // generated code, from blob: and data: URLs (Tone.js's clock and audio worklet need them). An artifact still reaches
+  // no other origin: connect-src names none, and scripts load only from the listed CDNs.
   const headers = {
-    "Content-Security-Policy": `default-src 'self'; script-src 'self' 'unsafe-inline' ${ARTIFACT_SCRIPT_SOURCES}; style-src 'self' 'unsafe-inline'; img-src * data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' https:; frame-ancestors ${ancestors}; object-src 'none'`,
+    "Content-Security-Policy": `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: ${ARTIFACT_SCRIPT_SOURCES}; worker-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; img-src * data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; frame-src 'self' https:; frame-ancestors ${ancestors}; object-src 'none'`,
     "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store",
   };
   const missing = () => new Response("Not found", { status: 404, headers });

@@ -369,6 +369,14 @@ test("a named folder goes through the service and snapshots keep its earlier byt
   expect(await (await fetch(liveFrame)).text()).toBe("Saved by sync");
   const response = await fetch(liveFrame);
   expect(response.headers.get("content-security-policy")).toContain("frame-ancestors https://notes.example.test");
+  // A page may run what it generates, as on claude.ai (Tone.js's blob: worker and worklet), and still reach no other origin.
+  const csp = response.headers.get("content-security-policy")!;
+  const directive = (name: string) => csp.split("; ").find(part => part.startsWith(`${name} `))!;
+  expect(directive("script-src")).toContain("blob:");
+  expect(directive("script-src")).toContain("'unsafe-eval'");
+  expect(directive("worker-src")).toBe("worker-src 'self' blob: data:");
+  expect(directive("media-src")).toBe("media-src 'self' data: blob:");
+  expect(directive("connect-src")).toBe("connect-src 'self' data: blob:");
   expect(response.headers.get("set-cookie")).toBeNull();
   expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   expect((await fetch(new URL("assets/", liveFrame))).status).toBe(404);
