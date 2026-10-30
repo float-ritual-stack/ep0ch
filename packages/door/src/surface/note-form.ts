@@ -37,6 +37,8 @@ export class NoteForm {
   fields: FormField[] = [];
   /** The note's button and target (`[form-submit::…]`, `[form-into::…]`); one it can't read draws today's, and the fill says why. */
   settings: FormSettings = { into: { kind: "child" } };
+  /** The first of those chips it can't read, said where the landing would be: the fill refuses with the same words. */
+  settingsProblem: string | undefined;
   chips: ReturnType<typeof parsePropertyRecords> = [];
   private answers = new Map<string, Map<string, LineField>>();
   private warnings = new Map<string, string>();
@@ -49,7 +51,9 @@ export class NoteForm {
     const chips = parsePropertyRecords(source).filter(p => p.key === FORM_FIELD_KEY);
     const parsed = formFields(chips.map(p => p.value));
     this.fields = parsed.fields;
-    this.settings = formSettings(parsePropertyRecords(source), parsed.fields).settings;
+    const read = formSettings(parsePropertyRecords(source), parsed.fields);
+    this.settings = read.settings;
+    this.settingsProblem = read.problems[0]?.message;
     this.chips = chips.filter((_, index) => !parsed.problems.some(p => p.index === index));
     const at = this.fields.findIndex(f => f.name === focused);
     this.focus = at < 0 ? Math.min(this.focus, this.fields.length) : at;
@@ -129,7 +133,7 @@ export class NoteForm {
     for (const l of [submit.top(), submit.row(tag("@submit", button, "form.submit")), submit.bottom()]) line(indent + l);
     const warning = this.warnings.get(partyOf(USER));
     if (warning) line(fg(C.yellow) + printable(warning) + RESET);
-    for (const text of wrap(printable(landing(this.settings.into)), inner)) line(fg(C.dark) + text + RESET);
+    for (const text of wrap(printable(this.settingsProblem ?? landing(this.settings.into)), inner)) line(fg(this.settingsProblem ? C.yellow : C.dark) + text + RESET);
     for (const text of ["* required", ...wrap(modeHint(FORM_KEYS, () => undefined), inner)]) line(text);
     rows.push(f.bottom());
     return rows;
