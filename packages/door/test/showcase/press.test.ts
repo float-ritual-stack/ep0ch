@@ -161,6 +161,39 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     } finally { while (app.screens().at(-1) !== desk && app.screens().includes(desk)) app.pop(); app.pop(); desk.dispose(); }
   });
 
+  test("a fix in a message reads as written, and [ ] then enter opens a message's link by keys (PIE-1455)", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "message-log" } }, USER);
+    const shed = seeded.notes.shed!.id;
+    await until(() => screen().includes("the shed note"), "the refusal drawn with its label");
+    // The fix is what to type: the property and its reference as written, never the note's title.
+    expect(screen()).toContain(`[form-into::((${shed.slice(0, 8)}))]`);
+    expect(screen()).toContain("[page::Shed]");
+    const desk = openScreen("desk") as Desk;
+    app.push(desk);
+    try {
+      press({ kind: "alt", ch: "M" });
+      expect(app.screens().at(-1)?.title).toBe("message log");
+      const read = await app.dispatch.act({ action: "list.read" }, USER) as { rows: { title: string }[] };
+      const row = read.rows.findIndex(r => r.title.includes("form-into")) + 1;
+      expect(row).toBeGreaterThan(0);
+      await app.dispatch.act({ action: "list.select", args: { n: row } }, USER);
+      ch("]");
+      const log = app.screens().at(-1)!, top = () => log.render(app).lines.join("\n");
+      await until(() => top().includes("enter opens it"), "the link lit by ]");
+      // Lit in the reader's way: underlined in the accent.
+      expect(top()).toContain("\x1b[4mthe shed note");
+      press({ kind: "enter" });
+      await until(() => app.screens().at(-1) === desk, "back on the desk");
+      await until(() => [...(desk as any).panes.values()].some((p: any) => p.msg?.id === shed), "the shed note opened from the log by keys");
+      // ] on a message that names no note says so, and enter still goes back to its note or tile.
+      press({ kind: "alt", ch: "M" });
+      const rows = await app.dispatch.act({ action: "list.read" }, USER) as { rows: { title: string }[] };
+      const plain = rows.rows.findIndex(r => r.title.includes("garden gate needs attention")) + 1;
+      await app.dispatch.act({ action: "list.select", args: { n: plain } }, USER);
+      await expect(app.dispatch.act({ action: "status.element", args: { by: 1 } }, USER)).rejects.toThrow("names no note");
+    } finally { while (app.screens().includes(desk) && app.screens().at(-1) !== desk) app.pop(); app.pop(); desk.dispose(); }
+  });
+
   test("a message's link opens where the reader's would: another outline's note there, a page not yet read (PIE-1453)", async () => {
     const journal = prop(seeded.notes.crossOutline, "foreign-note")!;
     const desk = openScreen("desk") as Desk;

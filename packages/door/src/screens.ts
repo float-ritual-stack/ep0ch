@@ -22,7 +22,7 @@ import { artBlock, cloneGrid, locate, stamp } from "./art-view";
 import type { Ctx, Frame, Screen } from "./app";
 import { subject, type Msg } from "./board";
 import { artNamed, loadArt, members, PACK_DIR, packs, type Member } from "./packs";
-import { balanceStyles, C, center, chip, extractLinks, fg, pad, paint, RESET, selectedRow, visible, width } from "./style";
+import { balanceStyles, C, center, chip, extractLinks, fg, glyphWidth, graphemes, pad, paint, RESET, selectedRow, visible, width } from "./style";
 import { presentLinks, type LinkTarget } from "./refs";
 import { openAddress, readTarget } from "./desk/outline-boards";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
@@ -1309,9 +1309,25 @@ const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("sta
     examples: [{ act: "status.scroll by=10", does: "reads ten rows further down" }],
     run({ by }, { list, ctx }) { list.scroll(by); ctx.redraw(); return { scrolled: by }; },
   }),
+  "status.element": def({
+    summary: "put the [ ] position on a link in the selected message, as a reader's [ ] steps through a note's elements: by=1 / by=-1 the next or previous link, n= the nth, n=0 lets go; ⏎ then opens it (status.link)",
+    keys: [{ keys: "[ ]", does: "the previous or next link in the selected message" }],
+    touches: "screen", replay: "safe",
+    args: {
+      n: { type: "number", optional: true, about: "which link of the selected message, from 1; 0 lets go" },
+      by: { type: "number", optional: true, about: "1 the next link, -1 the previous one" },
+    },
+    examples: [{ act: "status.element by=1", does: "lights the next link in the selected message; enter opens it" }],
+    run({ n, by }, { list, ctx }) {
+      if ((n === undefined) === (by === undefined)) throw new ActionRefused("say n= (a link, 0 lets go) or by=1 / by=-1");
+      const lit = list.stepLink(n !== undefined ? { n: n - 1 } : { by: by! < 0 ? -1 : 1 }, ctx);
+      ctx.redraw();
+      return lit;
+    },
+  }),
   "status.link": def({
     summary: "open a note a message in the log names: its labelled references and [[pages]] are drawn as the reader draws them, by their labels, and open where opens land",
-    keys: [{ keys: "click", does: "on a link in a message" }],
+    keys: [{ keys: "click", does: "on a link in a message" }, { keys: "[ ] then enter", does: "the link the [ ] position is on" }],
     touches: "screen", replay: "safe",
     args: {
       n: { type: "number", optional: true, about: "which link of the message, from 1; default the first" },
@@ -1330,6 +1346,9 @@ export class StatusMessages extends BbsList {
   holdsKeys() { return this.searching; }
   private view = new RowView();
   private entries: StatusMessage[] = [];
+  /** The [ ] position (PIE-1455): which link of the selected message is lit, -1 for none; of the message `litOf`. */
+  private lit = -1;
+  private litOf: string | null = null;
   constructor(private readonly log?: StatusLog) { super(); }
   enter(ctx: Ctx) { const first = this.ctx === null; this.ctx = ctx; if (first) this.reload(); }
   reload() {
@@ -1356,12 +1375,33 @@ export class StatusMessages extends BbsList {
   /** Where each drawn link is on screen, for a click. */
   private linkBoxes: { row: number; from: number; to: number; i: number; n: number }[] = [];
   private source(ctx: Ctx) { return ctx.board ? { board: ctx.board, redraw: () => ctx.redraw() } : null; }
-  /** Message `i`'s words drawn as a reader draws them (`((id|in Inbox))` reads "in Inbox"), its links collected. */
+  /**
+   * Message `i`'s words drawn as a reader draws them (`((id|in Inbox))` reads "in Inbox"), its links collected. A
+   * `[key::value]` and a code span stay as written (PIE-1455): a refusal's fix is what to type, not a title.
+   */
   private drawn(r: StatusMessage, ctx: Ctx): string {
     const sink: LinkTarget[] = [];
-    const text = presentLinks(r.message, false, this.source(ctx), r.message, sink);
+    const text = presentLinks(r.message, false, this.source(ctx), r.message, sink, [], undefined, { properties: true });
     this.links.set(r.id, sink);
     return text;
+  }
+  /** The lit link of the selected message, or -1: a light on another message (the selection moved) is let go. */
+  litLink(): number {
+    const r = this.rows()[this.sel];
+    return r && r.id === this.litOf ? this.lit : -1;
+  }
+  /** Steps the [ ] position through the selected message's links, wrapping as the reader's does; `n` -1 lets go. */
+  stepLink(to: { n: number } | { by: 1 | -1 }, ctx: Ctx): { link: number | null; of: number } {
+    const r = this.rows()[this.sel];
+    if (!r) throw new ActionRefused("the message log is empty");
+    if (!this.links.has(r.id)) this.drawn(r, ctx);
+    const count = this.links.get(r.id)!.length, now = this.litLink();
+    if ("n" in to && to.n < 0) { this.lit = -1; this.litOf = null; return { link: null, of: count }; }
+    if (!count) throw new ActionRefused("this message names no note");
+    const next = "n" in to ? to.n : now < 0 ? (to.by > 0 ? 0 : count - 1) : (now + to.by + count) % count;
+    if (next >= count) throw new ActionRefused(`there is no link ${next + 1}; the message names ${count}`);
+    this.lit = next; this.litOf = r.id;
+    return { link: next + 1, of: count };
   }
   async openLink(i: number, n: number, ctx: Ctx, actor: Actor) {
     const r = this.rows()[i];
@@ -1393,6 +1433,9 @@ export class StatusMessages extends BbsList {
     // Esc leaves the log as q does (Evan, Oct 21: "my instinct was to hit escape to dismiss"), through screen.back.
     if (k.kind === "esc") return back(this, ctx);
     if (ch(k) === "r") { void this.dispatch.press("status.reload"); return; }
+    // The reader's element keys (PIE-1455): [ ] light a link in the selected message, ⏎ opens the lit one.
+    if (ch(k) === "]" || ch(k) === "[") { void this.dispatch.press("status.element", { by: ch(k) === "]" ? 1 : -1 }); return; }
+    if (k.kind === "enter" && this.litLink() >= 0) { void this.dispatch.press("status.link", { n: this.litLink() + 1 }); return; }
     if (ch(k) === "/") { void this.dispatch.press("status.filter", { editing: true }); return; }
     if (k.kind === "pgup" || k.kind === "pgdn" || k.kind === "mouse" && (k.action === "wheel-up" || k.action === "wheel-down")) {
       const by = k.kind === "mouse" ? k.action === "wheel-up" ? -1 : 1 : (k.kind === "pgup" ? -1 : 1) * Math.max(1, ctx.t.rows - 5);
@@ -1423,16 +1466,28 @@ export class StatusMessages extends BbsList {
       // The lit row is drawn behind its bar, one cell in unless it starts with a space (selectedRow).
       const shift = r.i === this.sel && !visible(plain!).startsWith(" ") ? 1 : 0;
       for (const g of ranges) this.linkBoxes.push({ row: lines.length, from: g.from + shift, to: g.to + shift, i: r.i, n: g.n });
-      lines.push(r.i === this.sel ? selectedRow(visible(plain!), w) : plain! + RESET);
+      const lit = r.i === this.sel ? ranges.find(g => g.n === this.litLink()) : undefined;
+      lines.push(r.i === this.sel ? selectedRow(lit ? litCells(visible(plain!), lit.from, lit.to) : visible(plain!), w) : plain! + RESET);
     }
     while (lines.length < h - 1) lines.push("");
-    lines.push(hotLine(this.ptr, lines.length, w, ["|08/ search, enter return, PgUp/PgDn scroll, ", ["r reload", char("r")], ", q back"]));
+    lines.push(hotLine(this.ptr, lines.length, w, [this.litLink() >= 0 ? "|08[ ] link, enter opens it, " : "|08/ search, [ ] link, enter return, PgUp/PgDn scroll, ", ["r reload", char("r")], ", q back"]));
     return { lines };
   }
   override readonly dispatch = new Dispatcher({ title: "message log", ctx: () => this.ctx }, [
     { set: LIST_ACTIONS, takes: "none", on: (_, how) => ({ list: this, ctx: how.ctx }) },
     { set: STATUS_LIST_ACTIONS, takes: "none", on: (_, how) => ({ list: this, ctx: how.ctx }) },
   ]);
+}
+
+/** `text` (visible cells) with cells `from` to `to` drawn as the lit link: underlined in the accent, the row's look after it. */
+function litCells(text: string, from: number, to: number): string {
+  let out = "", col = 0;
+  for (const g of graphemes(text)) {
+    if (col === from) out += fg(C.yellow) + "\x1b[4m";
+    out += g; col += glyphWidth(g);
+    if (col === to) out += RESET;
+  }
+  return out;
 }
 
 function mergeOverlays(list: Overlay[]): Overlay[] {
