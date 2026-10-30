@@ -490,7 +490,7 @@ export class OutlinerServer {
     readonly socketPath: string,
     readonly herdrRegistry?: HerdrRuntimeRegistry,
     private readonly promptDirectory?: string,
-    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; ruleQuietMs?: number; /** How long a script ask waits for the run's own answer before it says the run is still going (default 3 s). */ scriptAnswerMs?: number; routeQuietMs?: number; readOnly?: boolean;
+    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; /** When a long answer says it's working, and how often it says how it's going (5 s, 60 s; tests). */ agentWorkingMs?: { after: number; every: number }; ruleQuietMs?: number; /** How long a script ask waits for the run's own answer before it says the run is still going (default 3 s). */ scriptAnswerMs?: number; routeQuietMs?: number; readOnly?: boolean;
       /** The host's outlines folder: where this machine's own name is kept (`.host/machine-name`). */
       outlinesFolder?: string;
       /** How often due schedules are looked for (default 15 s), and the clock they read (tests). */
@@ -612,6 +612,7 @@ export class OutlinerServer {
         id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.agent", sequence: this.store.sequence, blockId, ...(ask ? { ask } : {}),
       }),
       ...(options.agentRequestQuietMs !== undefined ? { quietMs: options.agentRequestQuietMs } : {}),
+      ...(options.agentWorkingMs ? { workingAfterMs: options.agentWorkingMs.after, progressMs: options.agentWorkingMs.every } : {}),
     });
     this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, extensionRuntime, {
       undoDrafts: (edits, by, write) => this.draftPatches.undoScript(edits, by, write),

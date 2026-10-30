@@ -295,7 +295,7 @@ extensions/horoscope/
 | `id` | Lowercase name; must match the folder's name. Its properties are `<id>.<field>`. |
 | `version` | An integer. Raise it when output changes meaning: read handlers run again on open. |
 | `run` | The program each call starts. Needed by handlers and actions; a tile-only extension can leave it out. |
-| `deadline` | How long one call may take (`30s`, `2m`); default 15 s, at most 5 m. A handler may set its own. |
+| `deadline` | How long one call may take (`30s`, `2m`); default 15 s, at most 5 m (an agent's own, 2 h). A handler may set its own. |
 | `configSchema`, `secrets` | A JSON schema for `config.json`'s `config`, and the secrets it needs by name. |
 | `secretGroups` | `with-secrets` groups a call may ask for while it runs, by name, or `["*"]` for any ([chosen at run time](#secrets-chosen-at-run-time)). |
 | `env` | Host variables its process gets besides the base ones, by name (`["GH_CONFIG_DIR"]`), when the service has them. Never a secret: those are `secrets` and `secretGroups`. The service's own (`PATH`, `HOME`, `EP0CH_*`, …) are refused. |
@@ -1373,8 +1373,16 @@ lands in the note while he goes on. That needs a door that says when he types in
 
 [tidy](../../extensions/tidy) is the example: it tidies the paragraph above the line (or, with
 `@tidy all`, everything above it) and never runs a model. A model-backed agent is the same folder
-with `respond` calling one: `"effects": "spend"`, a `"deadline"` up to `"5m"`, and its key as a
+with `respond` calling one: `"effects": "spend"`, a `"deadline"`, and its key as a
 secret reference.
+
+- **A long answer (PIE-1452).** An agent's `deadline` may run to `"2h"` (every other call stops at `"5m"`), so a
+  job like "a page for each plugin" runs to the end. Once it has run 5 s its request line, or a thread's reply, says
+  "working on it" with how long; every minute after, also the notes it has written so far. The thread's reply then
+  becomes the answer. Past the deadline the answer says it stopped, and where to raise it.
+- **Its programs write as the agent.** `respond`'s process gets `EP0CH_AGENT=<name>`, so a `claude` it runs signs its
+  notes `<name>/claude-code@<machine>` (the mod's persona). The notes it wrote while answering are linked under the
+  answer (`Wrote 2 notes: ((id|Title)), …`): they're found by that persona, not by the extension's `ext:<id>`.
 
 ## Kind 4: a whole tile
 

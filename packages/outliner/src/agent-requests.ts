@@ -69,6 +69,16 @@ const MAX_NOTE_TEXT = 64 * 1024;
 const MAX_REPLY = 64 * 1024;
 const MAX_PATCHES = 20;
 const DEFAULT_QUIET_MS = 1_500;
+/**
+ * A long answer says it's working (PIE-1452): a thread gets a reply saying so once an answer has run this long, and
+ * every PROGRESS_MS after that it (and a note's request line) says how long and what the agent has written so far.
+ */
+const WORKING_AFTER_MS = 5_000;
+const PROGRESS_MS = 60_000;
+/** The first words of a thread's "working" reply, until the answer takes its place. */
+export const WORKING_MARK = "⋯ working";
+/** How many of the notes an answer wrote its reply links. */
+const MAX_WROTE_LINKS = 20;
 /** How long a removed request line's answer is kept, so undoing the removal doesn't ask again. */
 const REMOVED_KEPT_MS = 10 * 60_000;
 const REMOVED_KEPT_MAX = 500;
@@ -100,6 +110,20 @@ export function requestLines(text: string, names: ReadonlySet<string> | null): R
   return found;
 }
 
+/** The notes an answer wrote, as links: `wrote 2 notes: ((id|Title)), ((id|Title))`. */
+function wroteLinks(wrote: readonly { id: string; title: string }[]): string {
+  const label = (title: string) => title.replace(/[|()[\]\n]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60) || "a note";
+  return `wrote ${wrote.length === 1 ? "a note" : `${wrote.length}${wrote.length === MAX_WROTE_LINKS ? "+" : ""} notes`}: ${wrote.map((w) => `((${w.id}|${label(w.title)}))`).join(", ")}`;
+}
+
+/** A deadline that ended an agent's answer, said with where to raise it (PIE-1452). */
+function deadlineHit(error: unknown, agent: string, extensionName: string, deadlineMs: number): string {
+  const said = message(error);
+  if (!/timed out/.test(said)) return said;
+  const took = deadlineMs % 3_600_000 === 0 ? `${deadlineMs / 3_600_000}h` : deadlineMs % 60_000 === 0 ? `${deadlineMs / 60_000}m` : `${Math.round(deadlineMs / 1000)}s`;
+  return `stopped after ${took}, its deadline: raise agents/${agent}/deadline in ${extensionName}'s extension.json (up to 2h)`;
+}
+
 export interface AgentRequestDeps {
   runSource?(blockId: string, clientId: string | undefined): Promise<ExtensionActResult>;
   script?(request: ExtensionActRequest): Promise<ExtensionActResult & { error?: string }>;
@@ -111,6 +135,9 @@ export interface AgentRequestDeps {
   changed(blockId: string, ask?: import("@ep0ch/outline-core/protocol").AskProgress): void;
   /** How long a person's request line must stay unchanged before it runs (default 1.5 s). */
   readonly quietMs?: number;
+  /** How long an answer runs before its thread says it's working (5 s), and how often it then says what it wrote (60 s). */
+  readonly workingAfterMs?: number;
+  readonly progressMs?: number;
   readonly now?: () => number;
   /** Yolo is on (PIE-973): an agent's `r` is the person's, so it asks the lines that wait for a person too. */
   yolo?(): boolean;
@@ -239,6 +266,26 @@ export class AgentRequests {
   }
 
   /**
+   * What `@agent` has written in this outline since `since` (PIE-1452), newest first: the notes the programs its answer
+   * ran signed as it (the service hands them `EP0CH_AGENT`, so a `claude` writes as `margin/claude-code@…`). The one
+   * place both a thread's reply and a note's answer read it from.
+   */
+  private wrote(agent: string, since: string): { id: string; title: string }[] {
+    try {
+      return this.store.blocksWrittenBy(agent, since, MAX_WROTE_LINKS).map((block) => ({ id: block.id, title: blockDisplayTitle(block) }));
+    } catch {
+      return [];
+    }
+  }
+
+  /** How a long answer is going, in a line: how long it has run and what it has written so far. */
+  private progress(agent: string, started: number): string {
+    const minutes = Math.floor((this.now - started) / 60_000);
+    const wrote = this.wrote(agent, new Date(started).toISOString());
+    return `@${agent} is working on it (${minutes < 1 ? "under a minute" : `${minutes} min`})${wrote.length ? ` · so far ${wroteLinks(wrote)}` : ""}`;
+  }
+
+  /**
    * The service started. A request a restart cut off says so (it isn't "working on it" forever), and once per
    * outline every note with `@name` lines and no baseline (written before this feature) gets one: its lines
    * are old, so its first unrelated save doesn't run them.
@@ -269,6 +316,19 @@ export class AgentRequests {
       }
     }
     this.timers.clear();
+    // A thread's "working" reply whose answer this stop cuts off says so, with what it had written (PIE-1452).
+    for (const [id, { agent, extensionId, started }] of this.workingReplies) {
+      try {
+        const now = this.store.getAnnotation(id);
+        if (!now.body.startsWith(WORKING_MARK)) continue;
+        const wrote = this.wrote(agent, new Date(started).toISOString());
+        const body = `@${agent} was cut off: the outline service stopped while it worked · ask again with @${agent}${wrote.length ? ` · before that it ${wroteLinks(wrote)}` : ""}`;
+        this.store.updateAnnotation({ annotationId: id, expectedRevision: now.block.revision, body }, { author: "agent", actorId: extensionActorId(extensionId) });
+      } catch {
+        // The store is closing or the thread went.
+      }
+    }
+    this.workingReplies.clear();
   }
 
   /** Every `@name` line's key, whatever the name: what a later save is compared with. */
@@ -674,6 +734,17 @@ export class AgentRequests {
     const replyGroup = crypto.randomUUID();
     let blocks = 0;
     let answer: Pick<AgentRequestRow, "status" | "message" | "reply" | "proposalId"> | null = null;
+    // A long answer says how it's going on its line (PIE-1452): how long, and what it has written so far.
+    const started = this.now;
+    const tick = () => {
+      if (this.stopped || !this.running.has(key)) return;
+      const said = this.progress(line.agent, started);
+      this.store.putAgentRequest({ ...base, status: "running", message: said });
+      this.deps.changed(blockId, { line: line.text, state: "working", warning: said, ...(blocks ? { blocks, beside: true } : {}) });
+    };
+    let ticker: ReturnType<typeof setInterval> | undefined;
+    const first = setTimeout(() => { tick(); ticker = setInterval(tick, this.deps.progressMs ?? PROGRESS_MS); }, this.deps.workingAfterMs ?? WORKING_AFTER_MS);
+    const deadline = durationMs(agent.deadline) ?? durationMs(extension.manifest.deadline) ?? DEFAULT_DEADLINE_MS;
     try {
       const draft = await this.deps.readDraft(blockId);
       // The person changed or removed the line meanwhile: that is a new request (or none), not this one.
@@ -690,6 +761,34 @@ export class AgentRequests {
         return;
       }
       const context = this.store.blockContext(blockId);
+      const stream = async (chunk: string) => {
+        if (this.stopped) throw new Error("the service stopped while answering");
+        const text = cleanExtensionText(chunk, true);
+        if (!text) return;
+        streamed += text;
+        if (Buffer.byteLength(streamed) > MAX_REPLY) throw new Error("reply must be text up to 64 KiB");
+        const current = await this.deps.readDraft(blockId);
+        const mark = requestLines(current.text, this.registry.agentNames()).find(candidate => candidate.requestKey === requestKey);
+        if (!mark) throw new Error("the ask changed while answering");
+        const start = mark.end - mark.text.length;
+        const after = current.text.slice(start + replySpan.length);
+        if (replySpan !== line.text && ((after && !after.startsWith("\n")) || after.startsWith("\n>"))) {
+          throw new Error("the answer changed while streaming; your text was kept");
+        }
+        const replacement = `${line.text}\n> [!note]- @${line.agent} answered\n${streamed.split("\n").map(l => `> ${l}`).join("\n")}`;
+        // Keep an existing quotation outside the answer fold, including while it is edited.
+        const separator = replySpan === line.text && after.startsWith("\n>") ? "\n" : "";
+        const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
+        const outcome = await this.store.changes.run(
+          this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
+          () => this.deps.patch({ blockId, revision: current.revision, mutation: actor, current: true,
+            replyTo: line.text, replyGroup, patches: [{ observed: replySpan, replacement: replacement + separator, range: { start, end: start + replySpan.length } }] }),
+        );
+        if (outcome.outcome !== "applied") throw new Error(`answer proposed instead: ${outcome.reason}`);
+        replySpan = replacement;
+        blocks = streamed.split(/\n\s*\n/).filter(part => part.trim()).length;
+        this.deps.changed(blockId, { line: line.text, state: "working", blocks, beside: true });
+      };
       const result = await this.runtime.invokeLoaded(extension, "respond", {
         agent: line.agent,
         request: line.request,
@@ -700,38 +799,12 @@ export class AgentRequests {
           children: context.children.slice(0, 50).map((child) => ({ id: child.id, text: child.text.slice(0, 2_000) })),
           now: new Date(this.now).toISOString(),
         },
-      }, durationMs(agent.deadline) ?? durationMs(extension.manifest.deadline) ?? DEFAULT_DEADLINE_MS, {
+      }, deadline, {
         writes: agent.effects === "write", requestedBy: base.requestedBy.startsWith("agent:")
           ? { author: "agent", actorId: base.requestedBy.slice(6) } : { author: "user" },
         label: `ext.${extension.id}.agent.${line.agent}`,
-        reply: async chunk => {
-          if (this.stopped) throw new Error("the service stopped while answering");
-          const text = cleanExtensionText(chunk, true);
-          if (!text) return;
-          streamed += text;
-          if (Buffer.byteLength(streamed) > MAX_REPLY) throw new Error("reply must be text up to 64 KiB");
-          const current = await this.deps.readDraft(blockId);
-          const mark = requestLines(current.text, this.registry.agentNames()).find(candidate => candidate.requestKey === requestKey);
-          if (!mark) throw new Error("the ask changed while answering");
-          const start = mark.end - mark.text.length;
-          const after = current.text.slice(start + replySpan.length);
-          if (replySpan !== line.text && ((after && !after.startsWith("\n")) || after.startsWith("\n>"))) {
-            throw new Error("the answer changed while streaming; your text was kept");
-          }
-          const replacement = `${line.text}\n> [!note]- @${line.agent} answered\n${streamed.split("\n").map(l => `> ${l}`).join("\n")}`;
-          // Keep an existing quotation outside the answer fold, including while it is edited.
-          const separator = replySpan === line.text && after.startsWith("\n>") ? "\n" : "";
-          const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
-          const outcome = await this.store.changes.run(
-            this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
-            () => this.deps.patch({ blockId, revision: current.revision, mutation: actor, current: true,
-              replyTo: line.text, replyGroup, patches: [{ observed: replySpan, replacement: replacement + separator, range: { start, end: start + replySpan.length } }] }),
-          );
-          if (outcome.outcome !== "applied") throw new Error(`answer proposed instead: ${outcome.reason}`);
-          replySpan = replacement;
-          blocks = streamed.split(/\n\s*\n/).filter(part => part.trim()).length;
-          this.deps.changed(blockId, { line: line.text, state: "working", blocks, beside: true });
-        },
+        agent: line.agent,
+        reply: stream,
       });
       let respond: RespondValue;
       try {
@@ -741,8 +814,12 @@ export class AgentRequests {
       }
       // Reworded while it ran: the answer was to a request that isn't there any more.
       if (!stillThere((await this.deps.readDraft(blockId)).text)) return;
+      // What it changed, as links under its answer (PIE-1452): the notes its programs wrote as it meanwhile.
+      const wrote = this.wrote(line.agent, new Date(started).toISOString());
+      const links = wrote.length ? wroteLinks(wrote) : "";
       if (streamed) {
         if (respond.patches.length || respond.reply !== undefined) throw new Error("a streamed answer finishes with message only, not another reply or patches");
+        if (links) await stream(`${streamed.endsWith("\n") ? "\n" : "\n\n"}${links.replace(/^w/, "W")}`);
         answer = { status: "replied", message: respond.message ?? "answer in the note" };
       } else if (respond.patches.length) {
         const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
@@ -753,11 +830,12 @@ export class AgentRequests {
           () => this.deps.patch({ blockId, revision: draft.revision, patches: respond.patches, mutation: actor, mark: { text: line.text, blockId }, current: true }),
         );
         answer = outcome.outcome === "applied"
-          ? { status: "applied", message: respond.message ?? `applied ${respond.patches.length === 1 ? "an edit" : `${respond.patches.length} edits`}`, reply: respond.reply ?? null }
+          ? { status: "applied", message: `${respond.message ?? `applied ${respond.patches.length === 1 ? "an edit" : `${respond.patches.length} edits`}`}${links ? ` · ${links}` : ""}`, reply: respond.reply ?? null }
           : { status: "proposed", message: `proposed instead: ${outcome.reason}`, proposalId: outcome.proposalId, reply: respond.reply ?? null };
       } else if (respond.reply !== undefined) {
         const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
         let body = this.checkedQueries(respond.reply);
+        if (links) body += `\n\n${links.replace(/^w/, "W")}`;
         if (parsePropertyRecords(body.split("\n", 1)[0]!).some(p => p.key === "script")) {
           const source = this.store.changes.run(
             this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor }),
@@ -779,11 +857,14 @@ export class AgentRequests {
           ? { status: "replied", message: respond.message ?? "answer in the note" }
           : { status: "proposed", message: outcome.reason, proposalId: outcome.proposalId };
       } else {
-        answer = { status: "nothing", message: respond.message ?? "nothing to change" };
+        answer = { status: links ? "replied" : "nothing", message: `${respond.message ?? (links ? "done" : "nothing to change")}${links ? ` · ${links}` : ""}` };
       }
     } catch (error) {
-      answer = { status: "failed", message: message(error) };
+      const wrote = this.wrote(line.agent, new Date(started).toISOString());
+      answer = { status: "failed", message: `${deadlineHit(error, line.agent, extension.name, deadline)}${wrote.length ? ` · before that it ${wroteLinks(wrote)}` : ""}` };
     } finally {
+      clearTimeout(first);
+      if (ticker) clearInterval(ticker);
       this.running.delete(key);
       this.live.delete(key);
       const current = this.store.get(blockId);
@@ -911,6 +992,11 @@ export class AgentRequests {
     const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extension.id) };
     let reply: string;
     let next: string | undefined;
+    const deadline = durationMs(agent.deadline) ?? durationMs(extension.manifest.deadline) ?? DEFAULT_DEADLINE_MS;
+    // A long answer says so in the thread (PIE-1452): a reply that it's working, then what it has written, until the
+    // answer takes its place. A TL;DR never: it would be the thread's face.
+    const started = this.now;
+    const working = tldr ? null : this.workingInThread(rootId, line.agent, extension.id, started);
     try {
       const result = await this.runtime.invokeLoaded(extension, "respond", {
         agent: line.agent,
@@ -925,7 +1011,7 @@ export class AgentRequests {
         properties: root.properties ?? {},
         ...(properties?.kind?.[0] === TLDR_KIND ? { tldr: true } : {}),
         context: { now: new Date(this.now).toISOString() },
-      }, durationMs(agent.deadline) ?? durationMs(extension.manifest.deadline) ?? DEFAULT_DEADLINE_MS);
+      }, deadline, { agent: line.agent });
       const respond = validateRespond(result.value);
       if (respond.patches.length) throw new Error("an answer in a thread can't edit the note: reply only");
       // A TL;DR is the thread's face: one the agent didn't write (no reply, only a message saying why) is never posted.
@@ -935,10 +1021,15 @@ export class AgentRequests {
     } catch (error) {
       // Nor is an error: it would become the face.
       if (tldr) return { refused: `@${line.agent} couldn't write the TL;DR: ${message(error)}` };
-      reply = `@${line.agent} couldn't answer: ${message(error)}`;
+      reply = `@${line.agent} couldn't answer: ${deadlineHit(error, line.agent, extension.name, deadline)}`;
+    } finally {
+      working?.stop();
     }
     if (this.stopped) return;
     if (still && !still()) return { refused: "the TL;DR was taken away while it was being written" };
+    // What it changed, as links (PIE-1452): the notes its programs wrote as it while it answered.
+    const wrote = tldr ? [] : this.wrote(line.agent, new Date(started).toISOString());
+    if (wrote.length) reply = `${reply}\n\n${wroteLinks(wrote).replace(/^w/, "W")}`;
     const attribution = this.store.changes.attribution({ action: `ext.${extension.id}.agent.${line.agent}`, actor });
     this.store.changes.run(attribution, () => {
       // Its session goes on the thread first, so the next @margin resumes it even if this reply is read at once.
@@ -947,9 +1038,69 @@ export class AgentRequests {
           this.store.setAnnotationProperties(rootId, { [key]: [next] }, actor);
         } catch { /* the thread changed or went: the answer still lands, and the next ask starts afresh */ }
       }
-      this.store.replyToAnnotation(crypto.randomUUID(), { annotationId: rootId, body: reply, source: "agent", ...(properties ? { properties } : {}) }, "agent", { actorId: actor.actorId! });
+      // The "working" reply becomes the answer; with none (a quick answer, or the reply edited meanwhile), a new one.
+      if (!working?.finish(reply, actor)) {
+        this.store.replyToAnnotation(crypto.randomUUID(), { annotationId: rootId, body: reply, source: "agent", ...(properties ? { properties } : {}) }, "agent", { actorId: actor.actorId! });
+      }
     });
     this.deps.changed(note?.id && !note.id.startsWith("resource:") ? note.id : rootId);
+  }
+
+  /** The threads' "working" replies still in flight, so a stopping service says it cut them off. */
+  private readonly workingReplies = new Map<string, { agent: string; extensionId: string; started: number }>();
+
+  /**
+   * A thread's "working" reply for a long answer (PIE-1452): posted once the answer has run WORKING_AFTER_MS, then
+   * every PROGRESS_MS rewritten with how long and what it has written so far. `finish` turns it into the answer (false
+   * when there's none, or the person changed it); `stop` ends the timers.
+   */
+  private workingInThread(rootId: string, agent: string, extensionId: string, started: number) {
+    const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extensionId) };
+    const attribution = () => this.store.changes.attribution({ action: `ext.${extensionId}.agent.${agent}`, actor });
+    let id: string | undefined, said = "";
+    const say = () => {
+      if (this.stopped) return;
+      const body = `${WORKING_MARK}: ${this.progress(agent, started)}`;
+      if (body === said) return;
+      try {
+        this.store.changes.run(attribution(), () => {
+          if (!id) {
+            const receipt = this.store.replyToAnnotation(crypto.randomUUID(), { annotationId: rootId, body, source: "agent" }, "agent", { actorId: actor.actorId! });
+            id = receipt.annotations.at(-1)?.block.id;
+            if (id) this.workingReplies.set(id, { agent, extensionId, started });
+          } else {
+            const now = this.store.getAnnotation(id);
+            if (!now.body.startsWith(WORKING_MARK)) return;
+            this.store.updateAnnotation({ annotationId: id, expectedRevision: now.block.revision, body }, actor);
+          }
+        });
+        said = body;
+        this.deps.changed(rootId);
+      } catch { /* the thread went, or the reply changed: the answer still lands as a reply of its own */ }
+    };
+    let ticker: ReturnType<typeof setInterval> | undefined;
+    const first = setTimeout(() => {
+      say();
+      ticker = setInterval(say, this.deps.progressMs ?? PROGRESS_MS);
+    }, this.deps.workingAfterMs ?? WORKING_AFTER_MS);
+    return {
+      stop: () => {
+        clearTimeout(first);
+        if (ticker) clearInterval(ticker);
+      },
+      finish: (body: string, mutation: MutationProvenance): boolean => {
+        if (!id) return false;
+        this.workingReplies.delete(id);
+        try {
+          const now = this.store.getAnnotation(id);
+          if (!now.body.startsWith(WORKING_MARK)) return false;
+          this.store.updateAnnotation({ annotationId: id, expectedRevision: now.block.revision, body }, mutation);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    };
   }
 
   /**
@@ -1036,7 +1187,7 @@ export class AgentRequests {
         if (!row) {
           return { ...base, status: "not-run" as const, reason: scheduled ? `@${candidate.agent} answers once the line is quiet` : `r asks @${candidate.agent}` };
         }
-        if (row.status === "running") return { ...base, status: "not-run" as const, fetching: true, reason: `@${candidate.agent} is working on it` };
+        if (row.status === "running") return { ...base, status: "not-run" as const, fetching: true, reason: row.message ?? `@${candidate.agent} is working on it` };
         if (row.status === "waiting") return { ...base, status: "not-run" as const, reason: row.message ?? `r asks @${candidate.agent}` };
         if (row.status === "failed") return { ...base, status: "unavailable" as const, reason: row.message ?? "it failed", fetchError: row.message ?? "it failed" };
         const at = row.answeredAt ?? row.requestedAt;
