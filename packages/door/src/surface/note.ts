@@ -6582,7 +6582,9 @@ export class NoteSurface {
     // an alt-, ctrl- or middle-click opens it fresh (alt+⏎); the click that gives the reader the keys only selects.
     const lbk = link.listRow;
     // A figure's row is a list row like any other (Evan, Oct 21: a click selects and previews; it never opens at once).
-    if (e && (lbk?.row || e.link?.inlineList) && !host.opensOnClick?.(link)) {
+    // A row that stands for a query, not a note (a live calendar's day, an activity cell), has nothing to preview: one
+    // click lists its notes, as ⏎ on it does (PIE-1457).
+    if (e && (lbk?.row || e.link?.inlineList) && link.query === undefined && !host.opensOnClick?.(link)) {
       const i = this.elems.indexOf(e), inline = e.link?.inlineList;
       const presses = inline ? this.inlineLists.get(inline.key)!.view : this.linkPresses;
       const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was });

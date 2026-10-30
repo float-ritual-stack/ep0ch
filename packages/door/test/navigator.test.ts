@@ -23,6 +23,8 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
   const tile = () => pane("facets");
   const groups = () => (tile().matches?.groups ?? []).map((g: any) => `${g.label}:${g.notes.map((n: any) => n.title).join(",")}`);
   let seed: string, trellis: string, view: string;
+  let key: (k: Key) => void = () => {};
+  const click = (x: number, y: number) => { key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y }); };
 
   beforeAll(async () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
@@ -33,7 +35,7 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     seed = await make("Seed order [plot::beds] #garden\nForty packets of sugar snap.");
     await make("Shed roof [plot::shed]\nA quote for the felt.");
     view = await make("Bed notes [type::virtual-branch] [query::plot=beds]");
-    const term = { info: { cols: 177, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(_: (k: Key) => void) {}, onResize() {}, stop() {}, resume() {} };
+    const term = { info: { cols: 177, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: (k: Key) => void) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
     app.push(new MainMenu());
@@ -99,6 +101,15 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     await until(() => !!D().describe().panes.find((p: any) => p.kind === "matches"), "the matches tile");
     const m = D().describe().panes.find((p: any) => p.kind === "matches");
     expect(await act("list.blocks", {}, m.name)).toMatchObject({ lists: [{ title: "Matches" }] });
+    // The person's keys in it are every list's (PIE-1457): Home and g to the first note, End and G to the last, space a page on.
+    await D().dispatch.act({ action: "tile.focus", tile: m.name }, USER);
+    const mine = () => tilePane().list.picked("you")?.id;
+    const ids = today().notes.map((n: any) => n.id);
+    for (const [k, to] of [[{ kind: "end" }, ids.at(-1)], [{ kind: "home" }, ids[0]], [{ kind: "char", ch: "G" }, ids.at(-1)], [{ kind: "char", ch: "g" }, ids[0]], [{ kind: "char", ch: " " }, ids[8]]] as const) {
+      key(k as Key);
+      await until(() => mine() === to, `${JSON.stringify(k)} picks ${to}`);
+    }
+    await D().dispatch.act({ action: "tile.focus", tile: "1" }, USER);
     await act("facets.place", { place: "inline" });
   }, 60_000);
 
@@ -162,5 +173,24 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     await screen.openQuery(reader, `updated >= "${words}" updated <= "${words}"`, USER);
     expect(facets().day).toBe(day);
     expect(screen.layoutGet().tiles.some((t: any) => t.kind === "query")).toBe(false);
+    // The person's single click on a day of a live calendar in the reader lands there (PIE-1457: it only selected).
+    const mine = (action: string, args: Record<string, unknown>, tile: string) => screen.dispatch.act({ action, args, tile }, USER);
+    await mine("facets.day", { day: "" }, "facets");
+    await until(() => !facets().day, "the day dropped");
+    const cal = (await board.request<any>("create", { parentId: null, text: "Garden month\n::graph-calendar\n---\nquery: plot=beds\ndate: updated\n---\n::", author: "agent" })).id;
+    await mine("tile.focus", {}, "reader");
+    await mine("open", { id: cal }, "reader");
+    await until(() => reader.msg?.id === cal && !reader.msg.partial, "the calendar note in the reader");
+    const r = screen.layoutGet().tiles.find((t: any) => t.name === "reader").rect;
+    const today = `[${String(d.getDate()).padStart(2)}]`;
+    const at = () => {
+      const lines = (screen.render(D().ctx).lines as string[]).map(l => l.replace(/\x1b\[[\d;]*m|\x1b\]8;;[^\x1b]*\x1b\\\\/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, ""));
+      for (let y = r.row; y < r.row + r.rows; y++) { const x = (lines[y] ?? "").indexOf(today, r.col); if (x >= r.col && x < r.col + r.cols) return { x: x + 1, y }; }
+      return null;
+    };
+    await until(() => !!at(), "today drawn in the calendar");
+    const p = at()!;
+    click(p.x, p.y);
+    await until(() => facets().day === day, "one click on the day sets the facets tile's day", 5000);
   }, 20_000);
 });

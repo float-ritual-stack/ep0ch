@@ -2698,6 +2698,8 @@ export type OutlinerRequestAction =
       expectedRevision: number;
       operations: PropertyPatchOperation[];
       mutation: MutationProvenance;
+      /** A stamp, not an edit (PIE-1457): the block keeps its updated date, so views sorted by it don't take it as news. */
+      keepUpdated?: boolean;
     }
   | {
       id: string;

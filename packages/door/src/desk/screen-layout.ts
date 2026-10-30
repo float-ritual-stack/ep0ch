@@ -762,6 +762,10 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
           return cover === undefined || cover === "spine" ? leaves(k).map(t => [t, true] as const) : [];
         })) : s.collapsed;
         let edge = row?.dir === "row" ? spineEdge(row, folded, target, space.spines, before) : null;
+        // On a desk (a row that isn't a flow) a book or centre spine sits beside the reader it came from, on the side the
+        // policy picks: the spread's edge there is often the tree, and a spine left of it took column 0 and tile 1 (PIE-1457).
+        // Only start and end gather spines at the row's edge, as asked.
+        if (edge && row?.t !== "flow" && (space.spines === "book" || space.spines === "centre")) edge = { target, dir: edge.dir };
         // An agent's kept page never goes in left of the tile the person is typing in: it would shift their text along (PIE-1294).
         const typing = ctx.protectTyping && ctx.person.typingIn !== null && row ? row.kids.findIndex(k => leaves(k).includes(ctx.person.typingIn!)) : -1;
         if (edge && typing >= 0 && row!.kids.findIndex(k => leaves(k).includes(edge!.target)) + (edge.dir === "right" ? 1 : 0) <= typing) edge = spineEdge(row!, folded, target, "end", before);
@@ -826,7 +830,11 @@ function spineFits<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed" | 
   const tree = putAt(clone(s.tree), spine, keep.at);
   spineWeights(tree, keep.tile, spine, before);
   const after = rects({ ...s, tree, collapsed: new Map([...s.collapsed, [spine, {}]]), zoom: null }, area);
-  return [...before].every(([id, r]) => s.collapsed.has(id) || !reads(r) || reads(after.get(id)));
+  // A tile that reads stays readable; one already under the reading width (a narrow group) gets no narrower (PIE-1457).
+  return [...before].every(([id, r]) => {
+    const now = after.get(id);
+    return s.collapsed.has(id) || (reads(r) ? reads(now) : !now || now.cols >= r.cols && now.rows >= r.rows);
+  });
 }
 
 /** Tile `id` is a reader that can take an open now: shown, not a list or preview, not pinned, edited or holding work. */

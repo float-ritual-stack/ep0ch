@@ -573,7 +573,9 @@ export class FacetsPane implements Pane, AttachedOwner {
   attachedKey(_a: Attachment, k: Key, desk: DeskApi): boolean {
     if (this.list.typing && k.kind !== "mouse") return this.filterKey(k, desk);
     if (ch(k) === "/") { this.listHost(desk).type(this.listHost(desk).lists()[0]!); return true; }
-    const c = ch(k), by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
+    // Every list's keys (PIE-1457): Home and g to the first note, End and G to the last, space a page on.
+    const c = ch(k), by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" || c === " " ? 8 : k.kind === "pgup" ? -8
+      : k.kind === "home" || c === "g" ? -1e9 : k.kind === "end" || c === "G" ? 1e9 : 0;
     const run = (name: string, args: Record<string, unknown> = {}) => { void desk.press?.(this, FACETS_ACTIONS, name, args); return true; };
     if (by) return run("facets.match", { by });
     if (k.kind === "enter") return run("facets.open");
@@ -684,7 +686,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   key(k: Key, desk: DeskApi): boolean {
     if (this.draft !== null && k.kind !== "mouse") return this.draftKey(k, desk);
     const n = this.rows().length, c = ch(k), row = this.current();
-    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
+    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : k.kind === "home" || c === "g" ? -1e9 : k.kind === "end" || c === "G" ? 1e9 : 0;
     if (by) { if (n) this.act(desk, "facets.pick", { by }); return true; }
     if (k.kind === "char" && k.ctrl && k.ch === "o") { this.act(desk, "facets.place"); return true; }
     if (k.kind === "enter" || c === " ") {
@@ -790,7 +792,7 @@ const pathy = (p: FacetsPane, key: string, path: string) => p.hasBelow(key, path
 export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   "facets.pick": def({
     summary: "move the cursor in the facets tile (tile=<its name>): n (from 1), or by=<rows> from where it is",
-    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "pick a row" }, { keys: "wheel", does: "pick a row" }],
+    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "pick a row" }, { keys: "home g end G", does: "the first or last row" }, { keys: "wheel", does: "pick a row" }],
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's cursor (facets.list reads the rows, facets.set picks a value by name)",
     args: { n: { type: "number", optional: true, about: "the row, from 1" }, by: { type: "number", optional: true, about: "rows on from the cursor (negative: up)" }, part: { type: "string", optional: true, about: "keys or matches; left out, both" } },
     examples: [
@@ -1017,7 +1019,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.match": def({
     summary: "pick a note in Matches (the notes the selection leaves): id, or by=<notes> from the one picked; it previews where the tile's selection goes (its Matches tile's wires, while Matches is in one). An agent's pick is its own, drawn in its tint: the person's stays",
-    keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "in Matches' own tile", says: "pick the next or previous note in Matches' own tile" }, { keys: "click wheel", does: "on Matches", says: "pick a note in Matches by clicking or scrolling it" }],
+    keys: [{ keys: "j k ↑ ↓ pgup pgdn space", does: "in Matches' own tile", says: "pick the next or previous note in Matches' own tile" }, { keys: "home g end G", does: "in Matches' own tile", says: "pick the first or last note in Matches' own tile" }, { keys: "click wheel", does: "on Matches", says: "pick a note in Matches by clicking or scrolling it" }],
     touches: "nothing", replay: "safe", says: r => `picked "${String(r.title)}"`,
     args: { id: { type: "string", optional: true, about: "a note's block id (or its first 8+ characters)" }, by: { type: "number", optional: true, about: "notes on from the one picked (negative: up)" } },
     examples: [{ act: "facets.match by=1 tile=facets", does: "picks the next note in Matches; a reader wired to it shows it" }],

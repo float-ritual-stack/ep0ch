@@ -12,6 +12,7 @@ import { register } from "../src/desk/screen-notes";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
+import { visible as plain } from "../src/style";
 import { outliner, Scratch, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -32,15 +33,16 @@ describe.skipIf(!outliner)("opens into the desk's readers keep every column read
   const notes: Record<string, any> = {};
   let n = 0;
 
-  /** A fresh desk on the four-column layout, at `cols` wide. */
-  const open = async (cols: number) => {
+  /** A fresh desk on the four-column layout, at `cols` wide; `unfedFirst` puts the reader nothing feeds second, left of the tree's. */
+  const open = async (cols: number, unfedFirst = false) => {
     if (desk) { app.pop(); D().dispose(); }
     term.info.cols = cols;
     const name = `room-${++n}`;
     register({
       name, title: name, id: `00000000-0000-4000-8000-00000000${String(1300 + n).padStart(4, "0")}`, revision: 1,
       spec: { name, title: name, layouts: true, layout: { focus: "tree", root: { t: "split", dir: "row", weights: [0.25, 0.25, 0.25, 0.25], kids: [
-        leaf("tree", "tree", { wires: [{ verb: "select", to: "reader" }, { verb: "open", to: "reader" }] }), leaf("reader", "reader"), leaf("reader", "reader2"),
+        leaf("tree", "tree", { wires: [{ verb: "select", to: "reader" }, { verb: "open", to: "reader" }] }),
+        ...(unfedFirst ? [leaf("reader", "reader2"), leaf("reader", "reader")] : [leaf("reader", "reader"), leaf("reader", "reader2")]),
         { t: "split", dir: "col", weights: [0.58, 0.42], kids: [leaf("backlinks", "replies", { source: "tile:reader", linkGroups: "children", subject: "follows" }), leaf("activity", "activity")] },
       ] } } } as any,
     });
@@ -89,10 +91,47 @@ describe.skipIf(!outliner)("opens into the desk's readers keep every column read
       // No room for a spine: the open replaced, said with it, the old note a step back.
       expect(spine).toBeUndefined();
       expect(message()).toContain("no room for a spine · alt← returns Bike shed");
+      // Read where the person reads it: the bar, and the rows over it that say a cut message whole (PIE-1457).
+      let shown: string[] = [];
+      (app as any).display.show = (lines: string[]) => { shown = lines; };
+      (app as any).paint();
+      expect(shown.slice(-5).map(plain).join("\n")).toContain("alt← returns Bike shed");
       await mine("tile.focus", {}, "reader2");
       await mine("back", {}, "reader2");
       await until(() => pane("reader2").msg?.id === notes.shed.id, "back to the note it showed");
     }
+  });
+
+  // PIE-1457: a kept spine sits beside the reader it came from, never at column 0 left of the tree, so the tree stays
+  // tile 1; and a reader already under the reading width never gets narrower for one.
+  test("a spine kept in the reader beside the tree sits beside that reader, and the tree stays tile 1", async () => {
+    await open(177, true);
+    await mine("tile.focus", {}, "reader2");
+    await mine("open", { id: notes.shed.id });
+    await mine("tile.focus", {}, "reader2");
+    await mine("open", { id: notes.rake.id });
+    expect(pane("reader2").msg?.id).toBe(notes.rake.id);
+    const spine = get().tiles.find((t: any) => t.collapsed);
+    expect(spine?.showing.id).toBe(notes.shed.id);
+    const r = tile("reader2").rect;
+    expect([r.col - spine.rect.cols, r.col + r.cols]).toContain(spine.rect.col);
+    expect(names()[0]).toBe("tree");
+    expect(tile("tree").rect.col).toBe(0);
+    expect(unreadable()).toEqual([]);
+  });
+
+  test("a reader already narrower than the reading width keeps no spine: the open replaces, and no column narrows", async () => {
+    await open(100);
+    await mine("tile.focus", {}, "reader2");
+    await mine("open", { id: notes.shed.id });
+    const before = tile("reader2").rect.cols;
+    expect(before).toBeLessThan(OPEN_READS.cols);
+    await mine("tile.focus", {}, "reader2");
+    await mine("open", { id: notes.peas.id });
+    expect(pane("reader2").msg?.id).toBe(notes.peas.id);
+    expect(get().tiles.find((t: any) => t.collapsed)).toBeUndefined();
+    expect(tile("reader2").rect.cols).toBe(before);
+    expect(message()).toContain("no room for a spine · alt← returns Bike shed");
   });
 
   test("an open aimed at a pinned reader uses the idle reader beside it before any split", async () => {

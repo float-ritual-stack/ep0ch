@@ -2892,6 +2892,7 @@ export class OutlinerStore {
     expectedRevision: number,
     operations: PropertyPatchOperation[],
     mutation: MutationProvenance = { author: "system" },
+    keepUpdated = false,
   ): Block {
     if (operations.length === 0) throw new Error("Property patch requires at least one operation");
     const existing = this.requireActive(id);
@@ -2899,7 +2900,7 @@ export class OutlinerStore {
       throw new Error(`Block changed since editing began: ${id}`);
     }
     const text = patchPropertyText(existing.text, operations);
-    return this.update(id, text, expectedRevision, mutation, "properties");
+    return this.update(id, text, expectedRevision, mutation, "properties", [], keepUpdated ? existing.updatedAt : undefined);
   }
 
   /**
