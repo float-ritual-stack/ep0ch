@@ -23,7 +23,7 @@ import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
-import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList, type Trail, type TrailStop } from "../surface/note";
+import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList, type TileHeader, type Trail, type TrailStop } from "../surface/note";
 import { artLines, C, dim, fg, pad, RESET, selectedRow, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rowLines, ago, wrap } from "../text";
@@ -39,6 +39,8 @@ export interface DeskApi {
   ctx: Ctx;
   /** The screen this desk is (the Desk itself): what a reader's edit lists its actions for (PIE-1439). */
   screen?(): import("../app").Screen;
+  /** The title written on tile `p` (`tile.title`) as it reads now, when one is shown in place of the system's (PIE-1248: its reader's header says it). */
+  writtenTitle?(p: Pane): string | undefined;
   /** The look (PIE-673) the desk resolved for tile `p` as it drew it last: its spacing, list density and where each comes from. */
   lookOf?(p: Pane): Look | undefined;
   /** What the tune inspector sees of tile `name`: its look, kind, title, content width, and in a reader the `::box` its `[ ]` is in. */
@@ -285,6 +287,8 @@ export interface Pane {
   instanceLook?: Record<string, string>;
   writtenTitle?: string;
   systemTitle?: boolean;
+  /** Its own header (PIE-1248, `tile.header`): a reader's rows above the note, over the note's `[header::…]`; absent, the note's. Saved with the layout. */
+  tileHeader?: TileHeader;
   /** Closing clears its content but keeps this slot in the layout. */
   clearsOnClose?(): boolean;
   clearContent?(): void;
@@ -403,6 +407,8 @@ export class ReaderPane implements Pane, AttachedOwner {
   get titleNote() { const m = this.msg; return m && this.surface.draft ? { ...m, text: this.surface.draft.text } : m; }
   subject() { const m = this.surface.msg; return m && isOutlineNote(m) ? m.id : null; }
   claims(k: Key): boolean { return !this.holdsKeys && this.surface.claims(k); }
+  /** Its own header (PIE-1248, `tile.header`), over the note's `[header::…]`. */
+  tileHeader?: TileHeader;
   /** Pinned (`p`, `reader.pin`): it keeps its note, every open lands elsewhere, and a restart brings it back on it. */
   pinned = false;
   /** The page it's pinned to, if any (`[[page]]`): it shows that page each time it starts, not the last note it showed. */
@@ -616,6 +622,9 @@ export class ReaderPane implements Pane, AttachedOwner {
       ...(desk.showFrom ? { preview: (m: Msg) => desk.showFrom!(this, m) } : {}),
       // Its look (PIE-673), as the desk resolved it for this tile: margin, list density, heading spacing.
       get look() { return desk.lookOf?.(pane); },
+      // Its own header and written title (PIE-1248): what the tile says over what the note says.
+      get tileHeader() { return pane.tileHeader; },
+      get tileTitle() { return desk.writtenTitle?.(pane); },
       startSession: desk.startSession ? (kind, opener) => desk.startSession!(this, kind, opener) : undefined,
       ...(desk.writeFrom ? { writeNew: async (m: Msg) => {
         const at = await desk.writeFrom!(this, m);

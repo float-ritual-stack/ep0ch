@@ -1246,6 +1246,17 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "tile-header", need: "give a tile the header it needs: the whole header, the title alone, or none, and a title of your own over the note's",
+    part: "the tile's own header (PIE-1248): tile.header (^W b, the tile menu's header row, act) sets full, title (one line) or none on a reader tile, saved with the layout and over the note's `[header::…]`; mode=note gives it back to the note; a note that is only embeds starts with none. One answer for which rows are drawn (headerShown, beside headerOmits); tile.title's written title heads the reader, its frame and its spine (displayTitle)",
+    files: "src/surface/note.ts (headerShown, embedOnly, headerBlock), src/desk/desk.ts (headerTile, headerNow, writtenTitle), src/desk/tile-actions.ts (tile.header), src/desk/tiles.ts (TileSpec.header), src/desk/wkeys.ts",
+    aside: "two readers on the allotment notebook: ^W b (or the tile menu's header row) steps one through full, title only and none; none starts the note on its first row and the frame names it · ^W n and a title with spaces (Beds this spring) writes it on the tile: its header, frame and spine say it, the note keeps its own · mode=note gives the note its say back ([header::none] on a dashboard is the note's) · with no byline the tile menu still has comment on the whole note, comments, properties and sources · it is saved with the layout: in a group, in the drawer, after a restart · act: tile.header mode=none tile=right, tile.title text=\"Beds this spring\" tile=left",
+    stage(n, show) {
+      const left = new ReaderPane(true), right = new ReaderPane(true);
+      return deskOf({ title: "showcase · tile header", panes: [left, right], names: ["left", "right"],
+        layout: ([a, b]) => row(0.5, a!, b!) }, show, [[left, n.notebook], [right, n.notebook]]);
+    },
+  },
+  {
     key: "artifacts", need: "open a live artifact folder or a frozen snapshot without pasting source into notes", part: "the media line and NoteSurface artifact card; artifact.open asks artifacts.show for the artifact's page in the web client (never the artifact host's address, PIE-1266); put and the watcher reuse publish-artifacts.ts", files: "outline-core/src/artifacts.ts, src/artifacts.ts, src/doc.ts, src/surface/note.ts, outliner/src/artifact-store.ts, outliner/src/artifact-server.ts, outliner/src/publish-media.ts",
     aside: "[ ] to a card, then ⏎, or a click on it or its [open ↗]: it opens running in the browser, on the note's web page · [share] (artifact.share) gives someone outside a link to that artifact alone, copied for you, and ends with share.revoke · over ssh or on a headless host, your laptop link opens it on your own machine; without a link it is copied and the flash is clickable · an agent: images lists them (kind artifact), artifact.open n=1 gives the address · + - and ← → size and place it as an image's (its frame on the web page) · no script runs in the terminal",
     stage(n, show) {
@@ -1683,7 +1694,7 @@ export class Showcase implements Screen {
     this.reconnectsSeen = ctx.reconnects ?? 0;
     loadShowcase(ctx.board).then(s => {
       if (!s) this.problem = "This outline has no showcase: the showcase runs on its own seeded outline. From a shell: ep0ch try --showcase (add --reset to start it over).";
-      else this.notes = s.notes;
+      else { this.notes = s.notes; this.openStage(); }
       ctx.redraw();
     }, e => { this.problem = `couldn't read the outline: ${e instanceof Error ? e.message : String(e)}`; ctx.redraw(); });
   }
@@ -1723,6 +1734,7 @@ export class Showcase implements Screen {
         this.reseeding = false;
         this.notes = s.notes;
         this.problem = "";
+        this.openStage();
         this.ctx.flash("the showcase was reset · its notes read again");
         this.ctx.redraw();
       }, () => { if (!this.disposed && this.reseeding) this.reread(); });
@@ -1743,6 +1755,19 @@ export class Showcase implements Screen {
     return f;
   }
 
+  /**
+   * The shown section's stage, built and opened here, never in render (PIE-1315): opening one reads the outline and lays
+   * its desk out, which asks for redraws, and a render that did it painted inside its own paint.
+   */
+  private openStage() {
+    const f = this.stage(this.sel);
+    if (!f || f.isOpen) return;
+    // At the size render gives it (stageRect), so it lays out once for where it's drawn.
+    const { cols, rows } = this.ctx.t, x = Math.min(indexWidth(cols), cols) + 1;
+    f.w = Math.max(1, cols - x); f.h = Math.max(1, rows - 6);
+    f.open();
+  }
+
   /** Screen.tilesHere: the section shown is a desk: a tile taken out of the drawer here (tile.drawer on=false) lands in it. */
   enterTiles() { void this.dispatch.pressIn(SHOWCASE_ACTIONS, "section.try", {}); }
   tilesHere(): Desk | undefined { const t = this.stage(this.sel)?.top; return t instanceof Desk ? t : undefined; }
@@ -1755,6 +1780,7 @@ export class Showcase implements Screen {
   pick(i: number, enter = false) {
     this.sel = Math.max(0, Math.min(SECTIONS.length - 1, i));
     this.focus = enter && this.notes ? "stage" : "index";
+    this.openStage();
     if (this.focus === "stage") this.stage(this.sel)?.top.enterTiles?.();
     this.ctx.redraw();
   }
@@ -1788,8 +1814,12 @@ export class Showcase implements Screen {
     this.stageRect = { col: x, row: 4, cols: w, rows: Math.max(1, H - 5) };
     if (this.problem) wrap(this.problem, w).forEach((line, i) => canvas.text(x, 5 + i, paint(`|12${line}`), w));
     else if (!this.notes) canvas.text(x, 5, paint("|08reading the showcase outline…"), w);
-    else {
-      const f = this.stage(this.sel)!;
+    else if (!this.stages.get(this.sel)?.isOpen) {
+      // Not opened yet (the notes came another way): opened after this frame, outside render, which paints it then.
+      canvas.text(x, 5, paint("|08opening the section…"), w);
+      queueMicrotask(() => { if (this.disposed || !this.notes) return; this.openStage(); this.ctx.redraw(); });
+    } else {
+      const f = this.stages.get(this.sel)!;
       const r = this.stageRect;
       if (f.top instanceof Desk) f.top.screenOrigin = { col: r.col, row: r.row };
       const frame = f.render(r.cols, r.rows, `s${this.sel}`);
