@@ -359,8 +359,8 @@ export interface Screen {
    * one they type in, whether anything here holds their keys. The shell's whereabouts query reads it.
    */
   keys?(): ScreenKeys;
-  /** What this screen shows, for agents (`ep0ch-door peek`). */
-  describe?(): unknown;
+  /** What this screen shows, for agents (`ep0ch-door peek`); `full` false asks each tile for its brief description, as layout.get does (PIE-1447). */
+  describe?(o?: { full?: boolean }): unknown;
   /** Put a block in front of the user (`ep0ch-door open <id>`). */
   openBlock?(m: import("./board").Msg): void;
   /** The note in the reader the person is in here, where a new note goes under (PIE-544, `note.new`); none: the Inbox. */
@@ -1124,7 +1124,7 @@ export class App implements Ctx {
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
       layout: this.screenDesk()?.layoutAll(!!o.full) ?? this.drawer.made?.layoutAll(!!o.full),
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
-      ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.() ?? null };
+      ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.({ full: !!o.full }) ?? null };
   }
 
   /**

@@ -469,6 +469,9 @@ describe("peek, read by the mod's own reader and by a script (PIE-1308, PIE-1302
       expect(typeof full.text).toBe("string");
       expect(peekOf(speed.stdout, "section")).toEqual({ section: JSON.parse(speed.stdout) });
       expect(peekArgv({ section: "speed", full: true })).toContain("one part of the state");
+      // Each tile whole is its own ask (PIE-1447): `full` stays the whole state, each tile still in brief.
+      expect(peekArgv({ section: "layout", tiles: "full" })).toEqual({ argv: ["ep0ch", "peek", "layout", "--full"], reads: "section" });
+      expect(peekArgv({ tiles: "full" })).toEqual({ argv: ["ep0ch", "peek", "--json", "--full"], reads: "full" });
       // A name every object has is no section.
       const proto = await run(["ep0ch", "peek", "constructor"], { env });
       expect(proto.exitCode).toBe(1);

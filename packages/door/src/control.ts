@@ -241,11 +241,11 @@ export function peekAsk(args: readonly string[]): PeekAsk | { error: string } {
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
     if ((VALUE_FLAGS as readonly string[]).includes(a)) { i++; continue; }
-    if (a.startsWith("--") || a === "full=true") continue;
+    if (a.startsWith("--") || a.startsWith("full=")) continue;
     section.push(a);
   }
   if (section.length > 1) return { error: `peek takes one section (\`ep0ch peek speed\`), not ${section.join(" ")} · \`ep0ch peek --json\` has them all` };
-  return { json: args.includes("--json"), xray: args.includes("--xray"), full: args.includes("--full") || args.includes("full=true"), section: section[0] ?? null };
+  return { json: args.includes("--json"), xray: args.includes("--xray"), full: args.includes("--full") || args.some(a => /^full=(true|1|yes)$/.test(a)), section: section[0] ?? null };
 }
 
 /** The state as the compact peek heads it: where the door is and who it is for, in lines an agent reads at a glance. */
@@ -325,7 +325,8 @@ export async function controlClient(args: string[]): Promise<number> {
     req = cmd === "snap" ? (arg ? { cmd, data: true } : { cmd })
       : fileTarget !== null ? { cmd: "act", ...(await parseActArgs(["open", `file=${fileTarget}`, ...commandArgs.slice(2)])) }
       : cmd === "open" ? { cmd: "act", ...(openTarget!.address ? { address: openTarget!.address } : {}), ...(await parseActArgs(["open", `id=${openTarget!.blockId}`, ...(openTarget!.fragment ? [`fragment=${openTarget!.fragment}`] : []), ...commandArgs.slice(2)])) }
-      : cmd === "act" ? { cmd, ...(await parseActArgs(commandArgs.slice(1))) } : { cmd, ...(cmd === "peek" && peeked && !("error" in peeked) ? { ...(peeked.xray ? { xray: true } : {}), ...(peeked.full ? { full: true } : {}) } : {}) };
+      : cmd === "act" ? { cmd, ...(await parseActArgs(commandArgs.slice(1))) } : { cmd, ...(cmd === "peek" && peeked && !("error" in peeked) ? { ...(peeked.xray ? { xray: true } : {}), // Each tile whole only where it is printed (the JSON, a section): the compact text never shows the layout.
+        ...(peeked.full && (peeked.json || peeked.xray || peeked.section) ? { full: true } : {}) } : {}) };
   } catch (e) { console.error((e as Error).message); return 1; }
   // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act and open), or its folder's .ep0ch does.
   if (req.cmd === "act") { const as = actAs(req.as, process.env, process.cwd()); if (as) req.as = as; }

@@ -3494,8 +3494,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return r.length ? `${r.map(p => p.title()).join(", ")} ${r.length === 1 ? "is" : "are"} running in a tile · quitting ends ${r.length === 1 ? "it" : "them"} · again within 3s quits` : null;
   }
 
-  describe(): Record<string, unknown> {
-    const order = this.all();
+  describe(o: { full?: boolean } = {}): Record<string, unknown> {
+    const order = this.all(), full = o.full ?? true;
     const brief = (m: Msg | null | undefined) => (m ? { id: m.id, title: subject(m), workId: prop(m, "work-id") ?? prop(m, "ticket") } : {});
     // What its tiles' kinds say about the screen (the welcome's notes, the brief's day) beside the tiles.
     const peeks = Object.assign({}, ...order.map(id => { const p = this.panes.get(id)!; return kindOf(p)?.peek?.(p, this) ?? {}; }), ...[...this.models.values()].map(m => m.peek?.() ?? {}));
@@ -3520,7 +3520,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // Every reader holding a note, as its surface says it, and whether it's folded (with comments since).
       collapsedReaders: this.namedReaders().filter(r => this.collapsed.has(r.id)).map(r => r.name),
       readers: this.namedReaders().filter(r => r.pane.msg).map(r => { const c = this.collapsed.get(r.id); return { name: r.name, focused: r.id === this.focus, ...r.pane.describe(), ...(c ? { collapsed: true, ...(c.by ? { collapsedBy: c.by } : {}), newComments: r.pane.newComments() } : { collapsed: false }) }; }),
-      panes: order.map((id, i) => this.tileView(id, i + 1)),
+      panes: order.map((id, i) => this.tileView(id, i + 1, undefined, full)),
     };
   }
 

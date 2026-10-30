@@ -80,8 +80,12 @@ describe.skipIf(!outliner)("an agent's open on the person's desk (PIE-1444)", ()
     try {
       await d.act("tile.open", { kind: "facets", name: "nav", where: "down" }, "reader");
       await until(() => ((d.desk as any).describe().panes.find((p: any) => p.name === "nav")?.facets ?? []).length > 0, "the facets");
-      const brief = (d.app.describe() as any).layout, full = (d.app.describe({ full: true }) as any).layout;
       const nav = (a: any) => a.tiles.find((t: any) => t.name === "nav");
+      const peek = d.app.describe() as any, whole = d.app.describe({ full: true }) as any;
+      const brief = peek.layout, full = whole.layout;
+      // The screen's own tiles (state.panes) the same: in brief unless full.
+      expect(nav({ tiles: peek.state.panes }).notes).toBeUndefined();
+      expect(Array.isArray(nav({ tiles: whole.state.panes }).facets)).toBe(true);
       expect(brief).toEqual(await d.act("layout.get"));
       expect(nav(brief).notes).toBeUndefined();
       expect(Array.isArray(nav(full).facets)).toBe(true);
