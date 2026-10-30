@@ -691,8 +691,9 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     if (!fresh) result.giveNewKeys = false;
   }
   else {
-    const target = route && "to" in route ? route.to : ctx.tile(from).notes ? from :
-      leaves(s.tree).find(id => { const f = ctx.tile(id); return f.notes && !f.follower && !f.lists && !f.pinned && !s.collapsed.has(id) && f.available !== false; });
+    // No route: the first reader that isn't pinned, else the first pinned one (whose open then lands beside it, below).
+    const readers = route && "to" in route ? [] : leaves(s.tree).filter(id => { const f = ctx.tile(id); return f.notes && !f.follower && !f.lists && !s.collapsed.has(id) && f.available !== false; });
+    const target = route && "to" in route ? route.to : ctx.tile(from).notes ? from : readers.find(id => !ctx.tile(id).pinned) ?? readers[0];
     if (target === undefined) {
       if (ctx.outward) result.destination = { kind: "across", target: ctx.outward, rule: "tile", source: true };
       return result;

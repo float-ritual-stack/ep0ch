@@ -2040,7 +2040,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const target = dest.tile === id ? "itself" : this.nameOf(dest.tile);
       return { short: target, says: dest.tile === id ? "itself (its note is replaced; back returns)" : `${target} (the first reader not pinned)`, change };
     }
-    if (dest.kind === "new" && p instanceof ReaderPane && p.pinned) return { short: "a reader beside it", says: "a reader beside it (it's pinned)", change };
+    if (dest.kind === "new" && plan.besideOf !== undefined) {
+      const by = plan.besideOf === id ? "it" : this.nameOf(plan.besideOf);
+      return { short: `a reader beside ${by}`, says: `a reader beside ${by} (${by === "it" ? "it's" : `${by} is`} pinned)`, change };
+    }
     return { short: "nowhere", says: "nowhere: alt+l wires it to a reader", change };
   }
   /** The open target is picked on screen, as with alt+l. */
@@ -8566,7 +8569,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   }),
   "open": def({
     answer: { tile: { type: "string|null", kind: "tile", about: "the destination tile's stable id, or null when no tile opened" }, name: { type: "string", about: "the destination's displayed name" }, id: { type: "string", kind: "note", about: "the note shown" } },
-    summary: "show a note only where it lands (PIE-1207: a wire, the screen's rule, else the first reader not pinned; a pinned reader's lands beside it). Show it in tile=<tile name, id or #number> (a detail holds it); or, with from=<tile>, where that tile's opens land (its link; unlinked, where the desk's own open puts it; fresh=true: a new tile there). On a screen whose opens land in a container (the board's readers row), tile=detail is the tile an open lands in there, new-detail a new one, float a new one floating. An agent's naming neither (`ep0ch open <id>`) lands where the focused tile's opens go, else a reader that follows, never one the person is typing in. A program in a tile passes from=$EP0CH_TILE_ID (or $EP0CH_TILE), the tile it was told it runs in, so it never has to know which reader that is. The person's own open gives that reader the keys, an agent's never moves them", keys: [{ keys: "enter", does: "in the outline" }, { keys: "/", does: "search", says: "search for a note by its words, then open the hit" }, { keys: "⏎ alt+⏎", does: "in a reader that follows (where its opens land)" }],
+    summary: "show a note only where it lands (PIE-1207: a wire, the screen's rule, else the first reader not pinned; a pinned reader's lands beside it). Show it in tile=<tile name, id or #number> (a detail holds it); or, with from=<tile>, where that tile's opens land (its link; unlinked, where the desk's own open puts it; fresh=true: a new tile there). On a screen whose opens land in a container (the board's readers row), tile=detail is the tile an open lands in there, new-detail a new one, float a new one floating. An agent's naming neither (`ep0ch open <id>`) lands where the focused tile's opens go, else the first reader not pinned, never one the person is typing in. A program in a tile passes from=$EP0CH_TILE_ID (or $EP0CH_TILE), the tile it was told it runs in, so it never has to know which reader that is. The person's own open gives that reader the keys, an agent's never moves them", keys: [{ keys: "enter", does: "in the outline" }, { keys: "/", does: "search", says: "search for a note by its words, then open the hit" }, { keys: "⏎ alt+⏎", does: "in a list, where its opens land" }],
     // A reader named (tile=) is moved: an agent's is refused in the one the person has. Naming none (or a place word),
     // it lands where opens land: maybe the note they're reading, said on screen, never their keys or a reader they type in.
     touches: "tile", touchesWith: (_, tile) => (tile !== undefined ? "tile" : "nothing"), way: "opening a note there would move what they're reading · name another reader with tile=, or name none (ep0ch open <id>): it lands where opens land, never their keys or a reader they type in",

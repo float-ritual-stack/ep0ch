@@ -13,7 +13,7 @@ import { canonSpec } from "../src/desk/tiles";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, showIn, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 
@@ -177,6 +177,20 @@ describe.skipIf(!outliner)("a reader's pin, against a scratch outline", () => {
     key(char("p"));
     await until(() => tile(name).pinned === true, "p on the new detail");
     await mine("tile.close", {}, name);
+  });
+
+  test("a tree carried into the drawer, with no wire, opens on the screen shown: in its first reader not pinned", async () => {
+    await act("reader.pin", { on: false }, "reader");
+    for (const t of get().tiles) if (t.kind === "reader" && !t.pinned) showIn(desk, notes.plan, t.name);
+    await mine("tile.drawer", {}, "tree");
+    const drawer = () => (app.drawer as any).d as Desk;
+    const dtree = () => (drawer() as any).paneNamed("tree");
+    await until(() => !!dtree() && dtree().list().some((r: any) => r.m?.id === notes.beans.id), "the tree in the drawer, its rows read");
+    const n = dtree().list().findIndex((r: any) => r.m?.id === notes.beans.id) + 1;
+    await (drawer() as any).dispatch.act({ action: "tree.pick", tile: "tree", args: { n, open: true } }, { kind: "user" });
+    await until(() => get().tiles.some((t: any) => t.kind === "reader" && !t.pinned && t.showing?.id === notes.beans.id), "the note in a reader on the screen");
+    await (drawer() as any).dispatch.act({ action: "tile.drawer", tile: "tree" }, { kind: "user" });
+    await until(() => !!tile("tree"), "the tree back on the screen");
   });
 
   test("a pin survives a restart; the desk's tree is wired to its reader", async () => {
