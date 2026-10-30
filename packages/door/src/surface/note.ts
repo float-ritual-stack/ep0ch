@@ -752,7 +752,10 @@ function readableSourceOf(m: Msg, tokens: ReturnType<typeof tokensOf>): Readable
   // The title may come from a later line (a marker or a props-only line first): what's above it isn't body.
   const title = Math.max(0, titleLine(m.text).line);
   const all = m.text.split("\n"), code = codeFenceLines(all);
-  const rows = all.map((l, i) => ({ l, i })).filter(({ i }) => i > title && (!hidden.has(i) || mentionsExtensionLine(all[i]!)) && !lit.markers.has(i))
+  // A note that is only embeds (PIE-1248) has its first embed on the title line: it is the body, drawn as its words
+  // without the chips (its header starts as none, so nothing else would show it).
+  const head = embedOnly(m) ? headerLine(m.text) : null, embedTitle = head?.line === title ? head : null;
+  const rows = all.map((l, i) => ({ l: embedTitle && i === title ? embedTitle.prose : l, i })).filter(({ i }) => (i > title || (!!embedTitle && i === title)) && (!hidden.has(i) || mentionsExtensionLine(all[i]!)) && !lit.markers.has(i))
     // A stable fragment anchor (`## Beds ^beds`) is an address, not prose: read mode hides it, as Detail does.
     .map(({ l, i }) => {
       const a = code[i]! >= 0 ? null : fragmentAnchorMatch(l);
@@ -1886,7 +1889,8 @@ export class NoteSurface {
     const wholeMarks: NonNullable<HeaderBlock["wholeMarks"]> = [];
     // A folded whole-note thread's [+] is after the title, never in the gutter (PIE-1255: a row of them there pushed
     // the body over); the ones that don't fit go on a row of their own under it, so none is lost in a narrow tile.
-    if (!this.printed && !omit.title) {
+    // The title-only header (PIE-1248) is one row: the whole-note threads are the tile menu's comments row there.
+    if (!this.printed && !omit.title && !omit.oneLine) {
       let col = width(lines.at(-1) ?? ""), row = titled.length - 1, n = 0;
       const put = () => { if (n) titled[row] = pad(titled[row]!.replace(/ *\x1b\[0m$/, "") + fg(C.yellow) + ` [+]`.repeat(n) + RESET, w); };
       for (const c of (this.comments ?? []).filter(c => isWholeNote(c) && !this.threadShown(c.id))) {
@@ -1897,7 +1901,7 @@ export class NoteSurface {
       put();
     }
     const titleControls: NonNullable<HeaderBlock["titleControls"]> = [];
-    if (!this.printed && !this.raw && !omit.title && isOutlineNote(m)) {
+    if (!this.printed && !this.raw && !omit.title && !omit.oneLine && isOutlineNote(m)) {
       for (const decoration of decorationsOf(m, src).filter(d => d.place === "title")) {
         const tags: Link[] = [];
         const drawn = decorationRows(decoration, w, {

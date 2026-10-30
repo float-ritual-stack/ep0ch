@@ -16,7 +16,7 @@ are its record. The outliner's entries from then are kept below, under
 - **The tile wins over the note:** a dashboard with `[header::none]` shows its header in a tile set to full; a note that is only embeds starts with none.
 - **Hidden parts stay in the menu:** with no byline, the tile menu (⋯) still has comment on the whole note, comments, properties and sources; the frame names the note.
 - **Your title heads it:** a title written with `^W n` (`tile.title`) heads the reader's header, its frame and its spine; the note keeps its own.
-- **Saved with the layout:** on the desk, in a group and in the drawer, after a restart; `layout.get` says each reader's `header`.
+- **Saved with the layout:** on the desk, in a group and in the drawer, after a restart; `layout.get` says each reader's `tileHeader`.
 - **One paint at a time:** a redraw asked while the door draws a frame waits for the next frame, once, never a paint inside a paint; the showcase opens a section's stage outside drawing.
 - **Run:** `ep0ch install --apply`.
 

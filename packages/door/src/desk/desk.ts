@@ -3590,7 +3590,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       label: this.displayTitle(id),
       showing: m ? { id: m.id, title: subject(m) } : undefined,
       // Its header (PIE-1248): the tile's own setting, or the note's, and what that comes to.
-      header: (() => { const h = this.headerNow(this.tileId(id)); return h ? { own: h.own ?? "note", shown: h.shown } : undefined; })(),
+      tileHeader: (() => { const h = this.headerNow(this.tileId(id)); return h ? { own: h.own ?? "note", shown: h.shown } : undefined; })(),
       agent: p instanceof ReaderPane ? p.surface.agent ?? undefined : undefined,
       editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.changedElsewhere, conflict: p.draft.conflict } : undefined,
       commenting: p instanceof ReaderPane && p.session ? p.session.describe() : undefined,
