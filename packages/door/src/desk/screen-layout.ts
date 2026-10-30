@@ -118,7 +118,10 @@ export interface TileFacts {
   notes?: boolean;
   /** This tile keeps a NoteSurface reading trail that can receive another reader's history. */
   history?: boolean;
-  /** A reader the person owns that no list's select wire feeds (PIE-1207: wires, not a mode): an unwired open into it keeps its old note as a spine. */
+  /**
+   * A reader the person owns that no list's select wire feeds (PIE-1207: wires, not a mode): an open aimed at it (its own
+   * link, `to`, a wire from another reader) keeps its old note as a spine; an open naming no tile replaces.
+   */
   held?: boolean;
   /** Made explicitly with split or tile.open; moves keep this fact on the tile. */
   deliberate?: boolean;
@@ -566,7 +569,8 @@ function besideReader<I>(s: Pick<LayoutState<I>, "names">, ctx: Ctx<I>, id: I): 
  * The one place that decides where an open lands. A new-note place, explicit container/place or named tile wins;
  * otherwise the wire, nearest container, home and flow rule are read in that order. A missing container falls
  * back to a visible reader only for the person. An unlinked reader takes its own open. A busy named destination
- * refuses an agent; the person's open keeps the edit and uses a reader beside it. An unwired held note is kept as a spine
+ * refuses an agent; the person's open keeps the edit and uses a reader beside it. An unwired open aimed at a reader no list
+ * feeds (PIE-1207), or a request that says `keep`, keeps its old note as a spine
  * at its container policy's stack front; a wire aimed at a tile replaces its note with history. New-note tabs that cannot fit float instead.
  * Automatic opens reuse the note already here; a history landing folds its duplicate into that tile, keeping the trail,
  * unless the tile is wired either way or follows a selection (a preview stepping onto its source's note shows it, PIE-1426).
@@ -740,7 +744,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       if (result.giveNewKeys) result.keys = target;
       const chain = chainOf(s.tree, target);
       const space = effective([{ by: "screen", policy: s.policy }, ...chain.map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
-      if (request.keep !== false && !s.wires.some(w => w.from === from && w.verb === verb && w.to === target) && (!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held || request.keep) && facts.showing && facts.showing !== note && !allTiles(s).some(id => id !== target && ctx.tile(id).notes && !ctx.tile(id).follower && !ctx.tile(id).lists && ctx.tile(id).showing === facts.showing) && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
+      if (request.keep !== false && !s.wires.some(w => w.from === from && w.verb === verb && w.to === target) && (!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held && !request.default || request.keep) && facts.showing && facts.showing !== note && !allTiles(s).some(id => id !== target && ctx.tile(id).notes && !ctx.tile(id).follower && !ctx.tile(id).lists && ctx.tile(id).showing === facts.showing) && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
         const order = leaves(s.tree), before = from === target ? order.indexOf(target) > 0 : order.indexOf(from) < order.indexOf(target);
         const row = parentOf(s.tree, target)?.parent;
         const flowCovers = row?.t === "flow" ? coversOf(s, row, ctx.area, id => !!ctx.tile(id).holds) : undefined;

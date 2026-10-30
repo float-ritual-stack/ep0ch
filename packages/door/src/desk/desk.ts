@@ -1886,10 +1886,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * list's ⏎, the tree's ⏎; `fresh`: alt+⏎) lands where `placement()` says (`landFrom`, the one landing path); with no
    * reader to take it, the person is told how to give it one. A bare selection shows where the tile's select wires go.
    */
-  openFromTile(m: Msg, opts: { reveal?: boolean; from?: Pane; to?: Pane; keys?: false } & OpenHow) {
+  openFromTile(m: Msg, opts: { reveal?: boolean; from?: Pane; to?: Pane; keys?: false; keep?: true } & OpenHow) {
     const by = opts.by ?? USER;
     if (opts.to) {
-      this.placeNote(m, { from: this.idOf(opts.from) ?? this.focus, to: this.idOf(opts.to)!, note: m.id, keys: opts.keys }, by);
+      // `keep`: the opener's book (the welcome's detail) keeps the note it replaces as a spine.
+      this.placeNote(m, { from: this.idOf(opts.from) ?? this.focus, to: this.idOf(opts.to)!, note: m.id, keys: opts.keys, ...(opts.keep ? { keep: true } : {}) }, by);
       return;
     }
     // An open fresh (alt+⏎, a ctrl- or alt-click) from one of its tiles runs the screen's own action for it, as whoever

@@ -63,8 +63,8 @@ describe("the squeeze: full → peek → spine around the wide column", () => {
     const spine = 1;
     expect(p.covers!.get(spine)).toBe("spine");
     const context = ctxOf(PERSON, {});
-    context.tile = id => ({ ...facts(id), held: true, showing: `old-page-${id}` });
-    const kept = placement(s, { from: spine, to: spine, note: "new-page" }, context).keep!;
+    context.tile = id => ({ ...facts(id), showing: `old-page-${id}` });
+    const kept = placement(s, { from: spine, to: spine, note: "new-page", keep: true }, context).keep!;
     expect(kept.at).toMatchObject({ kind: "split", dir: "right" });
     expect(p.rects.get(spine)!.col).toBeGreaterThan(p.rects.get(4)!.col);
   });
@@ -74,10 +74,10 @@ describe("the squeeze: full → peek → spine around the wide column", () => {
     const f = flowOf(Array.from({ length: 5 }, (_, i) => leaf(i + 1)), { anchor: 1, policy: { "min-width": 70, spines: "book" } });
     const s = init({ tree: f, names: new Map(Array.from({ length: 5 }, (_, i) => [i + 1, `c${i + 1}`])) });
     const p = place(s, AREA), context = ctxOf(PERSON, {});
-    context.tile = id => ({ ...facts(id), held: true, showing: `old-page-${id}` });
+    context.tile = id => ({ ...facts(id), showing: `old-page-${id}` });
     expect(p.covers!.get(3)).toBe("spine");
     expect(p.rects.get(3)!.col).toBeGreaterThan(p.rects.get(1)!.col);
-    expect(placement(s, { from: 3, to: 3, note: "new-page" }, context).keep!.at).toMatchObject({ kind: "split", dir: "right" });
+    expect(placement(s, { from: 3, to: 3, note: "new-page", keep: true }, context).keep!.at).toMatchObject({ kind: "split", dir: "right" });
   });
 
   test("a zero minimum keeps every page open even in a narrow flow", () => {

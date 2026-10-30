@@ -58,7 +58,7 @@ export interface DeskApi {
    * `to`, the screen's rule, else the first reader not pinned), never in a hidden current note. `link`, `fresh`, `agent`:
    * how a reader opened it (OpenHow, PIE-441); `reveal`: the person's open shows it in the outline too.
    */
-  openFromTile(m: Msg, opts: { reveal?: boolean; from?: Pane; to?: Pane; keys?: false } & OpenHow): void;
+  openFromTile(m: Msg, opts: { reveal?: boolean; from?: Pane; to?: Pane; keys?: false; keep?: true } & OpenHow): void;
   focusKind(kind: TileKindName, actor?: Actor): void;
   redraw(): void;
   /** Save the screen's layout now (a reader's history changed, PIE-643). */

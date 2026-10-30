@@ -355,7 +355,7 @@ export class WelcomeList implements Pane {
     // so it empties rather than show something the detail no longer points at. An agent's leaves what the person
     // may be reading there. Either way the preview never repeats the note read.
     const other = d.msg?.id !== m.id, pv = this.preview(desk), standing = standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile");
-    if (other) desk.openFromTile(m, { from: this, to: d, by: actor, ...(focus ? {} : { keys: false as const }) });
+    if (other) desk.openFromTile(m, { from: this, to: d, keep: true, by: actor, ...(focus ? {} : { keys: false as const }) });
     const here = d.msg?.id === m.id;
     if (pv && (pv.msg?.id === m.id || (other && standing && here))) pv.show(null, desk);
     if (here && focus && standing && !desk.holdsKeys?.()) desk.focusPane?.(d, actor);
