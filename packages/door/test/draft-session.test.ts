@@ -403,6 +403,31 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
   }, 30_000);
   afterAll(async () => { board?.close(); other?.close(); await scratch.dispose(); });
 
+  test("a hold let go before the service granted it is released before an undo asks: ctrl+z right after closing an edit isn't refused as held", async () => {
+    const id = await create("Sow the beans");
+    const m = (await board.get(id))!;
+    const sent: string[] = [], request = board.request.bind(board);
+    let grant!: () => void;
+    const granted = new Promise<void>(r => { grant = r; });
+    // The grant comes back late, as it did under load: the edit closed (and ctrl+z pressed) before it landed.
+    (board as any).request = async (action: string, ...rest: [Record<string, unknown>?, number?, AbortSignal?]) => {
+      sent.push(action);
+      const r = await request(action, ...rest);
+      if (action === "drafts.hold") await granted;
+      if (action === "drafts.release") sent.push("released");
+      return r;
+    };
+    try {
+      board.holdDraft(id, m.revision!, () => ({ kind: "busy" } as unknown as DraftAnswer))!.release();
+      const undo = board.undoExtension("not-an-undo").catch((e: Error) => e);
+      await Bun.sleep(100);
+      expect(sent).toEqual(["drafts.hold"]);
+      grant();
+      await undo;
+      expect(sent).toEqual(["drafts.hold", "drafts.release", "released", "extensions.undo"]);
+    } finally { delete (board as any).request; }
+  }, 30_000);
+
   test("a block: saved against its revision, held while open; a stale one is refused and kept; ctrl+r starts over", async () => {
     const id = await create("Prune the apple\nin winter");
     const m = (await board.get(id))!;
