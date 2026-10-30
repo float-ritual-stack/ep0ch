@@ -75,8 +75,8 @@ export interface HostApi {
   readonly tools: readonly string[];
   /** One tool by name: what `api.tool[name](input)` does, for a name chosen at run time. */
   call(name: string, input?: Record<string, unknown>): Promise<unknown>;
-  /** The blocks a query in the views' grammar holds for (outline_find with `query`): `q("type=ticket due <= +3d")`. */
-  q(query: string, options?: { under?: string; limit?: number }): Promise<unknown>;
+  /** The blocks a query in the views' grammar holds for (outline_find with `query`): `q("type=ticket due <= +3d")`; `properties: true` puts each row's properties on it (no read per row). */
+  q(query: string, options?: { under?: string; limit?: number; properties?: boolean }): Promise<unknown>;
   /** A note as its record (id, parent, title, header, body, text, properties, fields, tasks, links, backlinks…) with its children (outline_read's, to `depth`): `read("PIE-123", { depth: 2 })`. */
   read(ref: string, options?: { depth?: number; limit?: number }): Promise<unknown>;
   /** A path as `{{ }}` answers it for this run's Site (`this.owner`, `props.week`, `this.tasks | status=todo`): `{ values }` or `{ problem }`. */
@@ -223,7 +223,7 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     }
     return tool(input);
   };
-  const q = async (query: string, opts: { under?: string; limit?: number } = {}) => {
+  const q = async (query: string, opts: { under?: string; limit?: number; properties?: boolean } = {}) => {
     const found = await call("outline_find", { query, ...opts }) as { blocks?: { id?: unknown }[] } | null;
     if (options.onQuery && opts.under === undefined && Array.isArray(found?.blocks)) options.onQuery({ query, limit: opts.limit ?? 20, ids: found.blocks.flatMap(row => typeof row.id === "string" ? [row.id] : []) });
     return found;
