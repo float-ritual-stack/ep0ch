@@ -182,6 +182,24 @@ let showQueue: Promise<unknown> = Promise.resolve()
  * the facts the binding card reads.
  */
 let whereLoad: Promise<WhereRun> | undefined
+/**
+ * This session takes no tools from plugins (`--tools ""`, `--bare`): a one-shot the mod stays out of, its start,
+ * prompts, turns and status alike.
+ */
+let oneShot = false
+/**
+ * Registers `show`, the first of the mod's tools: `refused` when the session takes no plugin tools (the engine's
+ * "refused: this session has no built-in tools" or "… runs with --bare"), `failed` for any other failure, which
+ * leaves the session's start to go on and `show` to be tried again with the rest.
+ */
+async function registerShow($: EngineInterface): Promise<'registered' | 'refused' | 'failed'> {
+  try {
+    await $.tool.register({ name: SHOW_TOOL.name, description: SHOW_TOOL.description, inputSchema: SHOW_TOOL.inputSchema })
+    return 'registered'
+  } catch (error) {
+    return / refused: this session /.test(error instanceof Error ? error.message : String(error)) ? 'refused' : 'failed'
+  }
+}
 /** Where this Claude is bound (hooks/binding.ts): the load in flight, and when the last one started (the session clock). */
 let bindingLoad: Promise<BindingFacts> | undefined
 let bindingReadAt = -Infinity
@@ -197,6 +215,7 @@ let statusAsked: StatusInput | null = null
 
 /** Say what this Claude is doing to its terminal, off the event's dispatch, in order. Nothing when the terminal doesn't speak it. */
 function reportStatus($: EngineInterface, r: StatusInput): void {
+  if (oneShot) return
   statusAsked = r
   statusChain = statusChain.then(async () => {
     statusWanted ??= (async () => statusSetting(await $.env.get('EP0CH_PROGRAM_STATUS'))
@@ -396,6 +415,7 @@ export function register(on: On, options: PluginOptions): void {
   // A registration is one session: the folder it started in is read anew, never the last registration's (a test file
   // registers once per case, each in a folder of its own).
   sessionCwd = null
+  oneShot = false
   // Recent mentions in Claude Code itself (hooks/mentions-view.ts): a band above the prompt or a pane, over the
   // outline's own mentions.list, each press opened by openNote like every other click.
   // The band above the prompt: the binding card (at the start and after /clear, until hidden) over Recent mentions.
@@ -494,11 +514,13 @@ export function register(on: On, options: PluginOptions): void {
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
-    // A session with no tools (`claude -p --tools ""`: tidy's and marginalia's answer command) is a one-shot text call:
-    // it takes no tools from plugins (registering one throws) and has no use for the binding, the workboard or mentions,
-    // whose `ep0ch` calls would only spend its deadline. Evan's laptop, Oct 26: tidy's call warned "session.start hook
-    // skipped: threw … no built-in tools".
-    if (!e.isInteractive && !(await $.tool.list()).length) return result
+    // A session that takes no tools from plugins (`claude -p --tools ""`: tidy's and marginalia's answer command;
+    // `--bare`) is a one-shot text call with no use for the binding, the workboard or mentions, whose `ep0ch` calls
+    // would only spend its deadline. Only the registration says so: its MCP servers' tools are still listed. Evan's
+    // laptop, Oct 26 and 29: tidy's call failed with "session.start hook skipped: threw … \"show\" refused".
+    const show = await registerShow($)
+    oneShot = show === 'refused'
+    if (oneShot) return result
     reportStatus($, sessionStarted())
     sessionCwd = typeof e.cwd === 'string' && e.cwd ? e.cwd : null
     rebound = null; touchGlobs = null
@@ -534,7 +556,6 @@ export function register(on: On, options: PluginOptions): void {
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     showStatus($, null)
     $.clock.after(0, () => void readBinding($, option, false).catch(() => {}))
-    await $.tool.register({ name: SHOW_TOOL.name, description: SHOW_TOOL.description, inputSchema: SHOW_TOOL.inputSchema })
     // Off the start's dispatch: each registration republishes the tool server (~20ms), and these tools are
     // loaded on demand, so the session never waits for them. The door tools act in the door this Claude runs
     // in: only in a door tile, where EP0CH_CONTROL names it.
@@ -542,7 +563,7 @@ export function register(on: On, options: PluginOptions): void {
       // Offered when a door is reachable (PIE-715): EP0CH_CONTROL, or, for a Claude that does not descend from a tile
       // (a background job, a resumed session), the door of the folder's outline, by `ep0ch where`'s own resolution.
       const door = (await $.env.get('EP0CH_CONTROL'))?.trim() || (await whereLoad)?.facts?.reach?.control
-      const tools = [...WORK_TOOLS, ...OUTLINE_TOOLS, COMPONENTS_TOOL, BIND_TOOL, ...(door ? DOOR_TOOLS : [])]
+      const tools = [...(show === 'failed' ? [SHOW_TOOL] : []), ...WORK_TOOLS, ...OUTLINE_TOOLS, COMPONENTS_TOOL, BIND_TOOL, ...(door ? DOOR_TOOLS : [])]
       for (const tool of tools) {
         // The core ones in the prompt's tool list, not behind tool search (PIE-721): what a session reads and writes notes with.
         await $.tool.register({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema, ...(UPFRONT_TOOLS.includes(tool.name) ? { isDeferred: false } : {}) })
@@ -555,6 +576,7 @@ export function register(on: On, options: PluginOptions): void {
   // the variables alone. Nothing is added outside a door, and a failure adds nothing.
   on('prompt.context', async ($, e, next) => {
     const result = await next(e)
+    if (oneShot) return result
     try {
       const env = await doorEnvOf($)
       // Before session.start's work is queued (or after a reload): start it once, here.
@@ -607,7 +629,7 @@ export function register(on: On, options: PluginOptions): void {
   // What became of this session's proposals since its last prompt rides with the next one too (PIE-1086), once each.
   on('prompt.submit', async ($, e0, next) => {
     const e = heardPending.length ? { ...e0, context: [...(e0.context ?? []), `<${HEARD_BLOCK}>\n${heardText(heardPending.splice(0))}\n</${HEARD_BLOCK}>`] } : e0
-    if (splitSaid) return next(e)
+    if (oneShot || splitSaid) return next(e)
     const waited = Symbol('waited')
     const split = await Promise.race([splitLoad ?? readSplit($), $.clock.sleep(BINDING_WAIT_MS).then(() => waited)]).catch(() => null)
     // Still being read: the next prompt carries it, once it has landed.
@@ -906,6 +928,8 @@ export function register(on: On, options: PluginOptions): void {
       for (const ask of left) await closeAsk($, ask, answeredInSession(over, stampOf(await $.clock.now())), true).catch(() => {})
     })())
     const result = await next(e)
+    // A one-shot's answer is its caller's (tidy's rewrite), never a mention.
+    if (oneShot) return result
     // The main loop's turn (a subagent's isn't the session's): done, idle when interrupted, error when it failed.
     if (e.agentId === undefined) reportStatus($, turnEnded(e.reason, e.answer))
     // A module reloaded mid-session never sees its session.start.
