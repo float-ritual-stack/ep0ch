@@ -68,7 +68,7 @@ describe("showcase: one completer (PIE-1076)", () => {
     bar().draw(120, 60);
     const drawn = (await import("../../src/surface/completer")).completerOf(bar().input)!.drawn!, docs = bar().previewRect, at = bar().rect;
     expect(docs).toBeTruthy();
-    expect(drawn.col + drawn.cols).toBeLessThanOrEqual(at.col + docs.col);
+    expect(drawn.col! + drawn.cols!).toBeLessThanOrEqual(at.col + docs.col);
     // ⏎ takes the lit tile; esc closes a list and leaves the line.
     press({ kind: "enter" });
     await until(() => /^tile\.zoom tile=\S+$/.test(bar().query), "a tile chosen", 8000);
