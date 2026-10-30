@@ -1524,13 +1524,26 @@ changed by this PR. The sync command is run by Evan on his laptop.
 
 #### Deploying an artifact repo
 
-Write `[artifact::github.com/ep0ch-artifacts/my-repo]` or
-`[artifact::ep0ch-artifacts/my-repo]` on a note. The seeded `deploy-artifact` rule
-runs the saved script after the note is quiet. Both it and the local agent tool
-`artifact_deploy({ repo: "ep0ch-artifacts/my-repo" })` call the same service action
-as `ep0ch artifact deploy my-repo --ws pie --machine float-2`. Removing the rule
-stops automatic deployment; the service seeds it only once. Bare store artifact
-names keep their existing meaning and do not deploy repos.
+Write `[artifact::https://github.com/ep0ch-artifacts/my-repo]`,
+`[artifact::github.com/ep0ch-artifacts/my-repo]` or `[artifact::ep0ch-artifacts/my-repo]`
+on a note: on its header, or on a line of its own (a card). The seeded `deploy-artifact`
+rule (`[property-scope::all]`, so a line's own `[artifact::]` matches) runs the saved
+script after the note is quiet; the script calls `artifact_deploy({ note: this.id })`,
+which deploys every repo the note names. It and `artifact_deploy({ repo: "ep0ch-artifacts/my-repo" })`
+call the same service action as `ep0ch artifact deploy my-repo --ws pie --machine float-2`.
+Removing the rule stops automatic deployment; the service seeds it once, and brings an
+earlier copy nobody edited up to date. Bare store artifact names keep their existing
+meaning and do not deploy repos.
+
+The card follows the deployment (PIE-1060): `artifacts.show` answers a repo from the
+deployment records (by repo, else by name, so an imported deployment of a fork counts)
+with `deploy`: deploying, live at its URL, failed or not deployed (why, and the command
+that fixes it), or refused (another owner: the fork command), and its newest run note.
+`[open ↗]` opens the live site. The door card and the published page draw the same
+answer; the public page leaves out why it isn't live. Run notes are filed under the
+`[[artifacts]]` catalogue with `[repo::]` and `[status::]`; a save that changes nothing
+refreshes the newest run rather than adding one. A repo line never gets `[url::]` written
+onto it (that would stop it being an artifact line); a header `[artifact::]` still does.
 
 The host clones into `~/artifact-deploys/<repo>`. A package build/start script,
 Next, Vite, SvelteKit or API routes chooses Vercel in the CLI's default context; otherwise tracked static files go through the existing store/compiler.

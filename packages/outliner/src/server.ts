@@ -3,7 +3,8 @@ import { completionRows, PICKS_METADATA_KEY, readPicks } from "./completion-sour
 import { recordPick } from "@ep0ch/outline-core/completion-source";
 import { replaceSectionText, refuseDroppedStructure } from "./work-tools";
 import { waitingAsks } from "./waiting-you";
-import { deployArtifact, artifactDns, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
+import { artifactRepoRef } from "@ep0ch/outline-core/media-line";
+import { deployArtifact, deployNote, artifactDns, artifactRepoInfo, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
 import { ArtifactStore } from "./artifact-store";
 import type { ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { moveNote } from "./note-move";
@@ -2116,7 +2117,9 @@ export class OutlinerServer {
       try {
         if (this.readOnly && !["artifacts.show", "artifacts.list", "artifacts.versions"].includes(request.action)) throw new Error("This outline is read-only.");
         const result = request.action === "artifacts.lease" ? this.uploadLease(request)
-          : request.action === "artifacts.deploy" ? await deployArtifact(this.artifacts(), this.store, request.repo, request.mutation, request.domain)
+          : request.action === "artifacts.deploy" ? (request.note ? await deployNote(this.artifacts(), this.store, request.note, request.mutation) : await deployArtifact(this.artifacts(), this.store, request.repo ?? "", request.mutation, request.domain))
+          // A repo an artifact line names is answered from the deploy's records (PIE-1060), never read as a file.
+          : request.action === "artifacts.show" && artifactRepoRef(request.name) ? artifactRepoInfo(this.artifacts(), this.store, request.name)!
           : request.action === "artifacts.dns" ? await artifactDns(request.name, request.to)
           : request.action === "artifacts.backfill" ? await backfillArtifacts(this.artifacts(), this.store, request.catalogue)
           : await this.artifacts().request(request as import("@ep0ch/outline-core/artifacts").ArtifactRequest, this.store.workspaceRoot, this.outline?.name);

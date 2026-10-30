@@ -4595,8 +4595,10 @@ export class OutlinerStore {
    * `text` (every word, any order) and `subtreeRootId` (that block and those under it) narrow it as in `blocks.query`;
    * with either, the expression may be left out.
    */
-  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown; this?: unknown } = {}, binder?: ValueBinder, draft?: BlockRecord): { blockIds: string[] } {
+  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown; this?: unknown; propertyScope?: PropertyQueryScope } = {}, binder?: ValueBinder, draft?: BlockRecord): { blockIds: string[] } {
     const { text, subtreeRootId, this: thisId } = narrow;
+    // Which chips the query reads (a rule's `[property-scope::]`, as a view's): left out, the header's.
+    const scope = narrow.propertyScope ?? "block";
     if (thisId !== undefined && (typeof thisId !== "string" || !thisId)) throw new Error("Query match this must be a block ID");
     if (text !== undefined && typeof text !== "string") throw new Error("Query match text must be a string");
     if (subtreeRootId !== undefined && (typeof subtreeRootId !== "string" || !subtreeRootId)) throw new Error("Query match subtreeRootId must be a block ID");
@@ -4624,9 +4626,11 @@ export class OutlinerStore {
         blockIds: (ids as string[]).filter(id => {
           const saved = this.getFromCurrentRead(id);
           const block = saved && draft?.id === id ? { ...saved, text: draft.text, properties: draft.properties.flatMap(p => p.values.map(value => ({ key: p.key, value }))) } : saved;
-          return !!block && !block.effectiveDeletedRootId && matchesFilters(block.properties, filters) &&
+          if (!block || block.effectiveDeletedRootId) return false;
+          const records = scope === "block" || draft?.id === id ? block.properties : this.questionRecordsFromCurrentRead(block);
+          return matchesFilters(records, filters, scope) &&
             terms.every(term => block.text.toLowerCase().includes(term)) && under(block) &&
-            (!test || test({ ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, block.properties));
+            (!test || test({ ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, records, scope));
         }),
       };
     }).deferred();

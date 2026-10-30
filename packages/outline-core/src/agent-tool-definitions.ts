@@ -123,9 +123,9 @@ const nonEmpty = (value: unknown): value is string => typeof value === "string" 
 export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
   {
     name: "artifact_deploy", operation: "artifact-deploy", writes: true,
-    description: "Deploy an ep0ch-artifacts repo, register it and update notes that name it. The repo decides static store or Vercel.",
-    example: { repo: "ep0ch-artifacts/moth-garden" }, properties: { repo: { type: "string" }, domain: { type: "string" } }, required: ["repo"],
-    command(input) { return { operation: "artifact-deploy", input: inputOf(input, ["repo", "domain"]) }; },
+    description: "Deploy an ep0ch-artifacts repo (`repo`), or every one the note `note` names on an [artifact::] line, register it and update notes that name it. The repo decides static store or Vercel.",
+    example: { repo: "ep0ch-artifacts/moth-garden" }, properties: { repo: { type: "string" }, note: { type: "string" }, domain: { type: "string" } }, required: [],
+    command(input) { return { operation: "artifact-deploy", input: inputOf(input, ["repo", "note", "domain"]) }; },
   },
   {
     name: "outline_read",

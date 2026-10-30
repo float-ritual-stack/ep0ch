@@ -2,7 +2,8 @@ import { expandsEmbeds } from "./embed-policy";
 import { clipText } from "./overflow";
 import { componentRowFields } from "./look";
 import { heroLook } from "./surface/hero-look";
-import { isArtifactName } from "@ep0ch/outline-core/artifacts";
+import { isArtifactName, type ArtifactDeployState } from "@ep0ch/outline-core/artifacts";
+import { artifactRepoRef } from "@ep0ch/outline-core/media-line";
 import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-core/table-shape";
 // Render a note body into terminal lines: headings, lists, code fences, Obsidian-style
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
@@ -1093,17 +1094,21 @@ function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: nu
  * `ref.row` is its title's row: the element a click or [ ] lands on.
  */
 function artifactCard(spec: MediaSpec, facts: ArtifactFacts, W: number, env: DocEnv, line: number, ref: DocMedia, out: string[], edge: (row: number) => void) {
-  const kind = facts.kind ? `${ARTIFACT_KIND_LABELS[facts.kind]} artifact` : "artifact";
-  const name = env.printed ? spec.path : fileName(spec.path);
-  const shown = env.image && (facts.kind || isArtifactName(spec.path));
-  const open = shown ? fg(C.cyan) + env.image!(line, { open: true }, "[open ↗]") + " " + env.image!(line, { share: true }, "[share]") + RESET : "";
+  const repo = artifactRepoRef(spec.path), deploy = facts.deploy;
+  const kind = repo ? "repo" : facts.kind ? `${ARTIFACT_KIND_LABELS[facts.kind]} artifact` : "artifact";
+  const name = env.printed || repo ? (repo?.repo ?? spec.path) : fileName(spec.path);
+  // A repo opens its live site, once there is one; its site is already public, so there's nothing to share.
+  const shown = env.image && (repo ? !!deploy?.url : facts.kind || isArtifactName(spec.path));
+  const open = !shown ? "" : fg(C.cyan) + env.image!(line, { open: true }, "[open ↗]") + (repo ? "" : " " + env.image!(line, { share: true }, "[share]")) + RESET;
   const said = [
     facts.state === "missing" ? `✗ can't read it: ${facts.reason ?? "missing"}` : facts.state === "reading" ? "◌ reading…" : "",
+    ...(deploy ? deployLines(deploy) : []),
     ...(facts.warning ? [`⚠ ${facts.warning}`] : []),
     ...spec.problems.map(p => `⚠ ${p}`),
   ].filter(Boolean);
-  const facts2 = [name !== facts.title ? name : "", spec.height ? `${spec.height} rows` : "", sizeText(spec.size), facts.kind ? "runs on its web page" : ""].filter(Boolean).join(" · ");
-  const ink = facts.state === "missing" ? C.lred : C.magenta;
+  const facts2 = [name !== facts.title ? name : "", deploy?.where && deploy.where !== "unknown" ? deploy.where : "", deploy?.commit && deploy.commit !== "unknown" ? deploy.commit.slice(0, 7) : "",
+    spec.height ? `${spec.height} rows` : "", sizeText(spec.size), facts.kind ? "runs on its web page" : ""].filter(Boolean).join(" · ");
+  const ink = facts.state === "missing" || deploy?.state === "failed" || deploy?.state === "refused" ? C.lred : C.magenta;
   // Too narrow for a frame: one line, its kind, title and open.
   if (W < 24) {
     ref.row = out.length;
@@ -1118,9 +1123,26 @@ function artifactCard(spec: MediaSpec, facts: ArtifactFacts, W: number, env: Doc
   const title = ellipsize(facts.title, Math.max(4, inner - vwidth(open) - 1));
   out.push(row(fg(C.white) + BOLD + title + UNBOLD + RESET + " ".repeat(Math.max(1, inner - vwidth(title) - vwidth(open))) + open));
   if (facts2) out.push(row(fg(C.dark) + ellipsize(facts2, inner)));
-  for (const x of said) out.push(row(fg(x.startsWith("✗") ? C.lred : x.startsWith("⚠") ? C.yellow : C.dark) + ellipsize(x, inner)));
+  for (const x of said) {
+    const ink = fg(x.startsWith("✗") ? C.lred : x.startsWith("⚠") ? C.yellow : x.startsWith("●") ? C.lgreen : x.startsWith("run: ") ? C.cyan : C.dark);
+    // Why a repo isn't live and the command that fixes it are read whole, wrapped on a narrow card; the rest is cut.
+    const whole = deploy && /^(?:✗|●|run: )/.test(x) ? wrap(x, inner).slice(0, 4) : [ellipsize(x, inner)];
+    for (const part of whole) out.push(row(ink + part));
+  }
   edge(out.length);
   out.push(f.bottom());
+}
+
+/** What a repo's card says of its deploy (PIE-1060): where it's live, or why not and the command that fixes it, and its last run. */
+function deployLines(d: ArtifactDeployState): string[] {
+  const at = d.run ? new Date(d.run.at) : null;
+  const when = at && !Number.isNaN(at.getTime()) ? ` · ${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")} ${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}` : "";
+  const state = d.state === "live" ? `● live at ${d.url}${d.recorded ? ` · deployed from ${d.recorded}` : ""}`
+    : d.state === "deploying" ? `◌ deploying…${d.url ? ` (live at ${d.url} until it's done)` : ""}`
+    : d.state === "failed" ? `✗ deploy failed: ${d.said ?? "its last run failed"}`
+    : d.state === "refused" ? `✗ ${d.said ?? "this repo can't deploy"}`
+    : `○ not deployed${d.said ? `: ${d.said}` : " yet"}`;
+  return [state, ...(d.state === "failed" && d.url ? [`● still live at ${d.url}`] : []), ...(d.command && d.state !== "live" && d.state !== "deploying" ? [`run: ${d.command}`] : []), ...(d.run ? [`last run: ${d.run.title}${when}`] : [])];
 }
 
 /**

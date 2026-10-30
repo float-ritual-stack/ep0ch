@@ -99,6 +99,15 @@ describe("rulesFromBlocks", () => {
       { name: "meetings", block: "11111111-0000-4000-8000-000000000002", match: { query: "type=meeting" }, place: "append", decorate: { use: "card", fields: ["attendees", "when"] } },
     ]);
   });
+  test("[property-scope::] has a rule's query read a line's chips, as a view's does; a bad one is said", () => {
+    const { rules, problems } = rulesFromBlocks([
+      block("11111111-0000-4000-8000-000000000003", { "rule-name": "repos", "rule-match": "artifact", "property-scope": "all", "rule-on": "deploy/run" }),
+      block("11111111-0000-4000-8000-000000000004", { "rule-name": "odd", "rule-match": "artifact", "property-scope": "everywhere", "rule-on": "deploy/run" }),
+    ]);
+    expect(rules[0]!.match).toEqual({ query: "artifact", propertyScope: "all" });
+    expect(rules[1]!.match).toEqual({ query: "artifact" });
+    expect(problems).toEqual(['note 11111111: property-scope "everywhere" isn\'t block, line, inline or all, so its query reads the header\'s chips']);
+  });
   test("the old placement words are refused with the new ones named", () => {
     const { rules, problems } = rulesFromBlocks([
       { id: "33333333-0000-4000-8000-000000000001", properties: [{ key: "rule-name", value: "x" }, { key: "rule-match", value: "type=a" }, { key: "rule-decorate", value: "badge" }, { key: "rule-place", value: "above" }] },

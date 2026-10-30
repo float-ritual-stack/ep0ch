@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A repo on an artifact line shows its deployment and deploys on save (PIE-1060)
+
+- **The card is the repo:** `[artifact::https://github.com/ep0ch-artifacts/plastik-loop]` (or `github.com/…`, or `ep0ch-artifacts/plastik-loop`) on a line draws a repo card, not "can't read …/https:/github.com/…" and "isn't an artifact".
+- **It says its deploy state:** live at its address, deploying, failed (why, and `run: ep0ch artifact deploy …`), not deployed (the command), or another owner's (the `gh repo fork … --org ep0ch-artifacts` command), with what its last run did. The state comes from the deploy's own records, so an imported deployment counts (plastik-loop's, deployed from the repo it was forked from).
+- **[open ↗] opens the live site;** a repo that isn't live says why when opened, and `[share]` is left off (its site is already public).
+- **Saving deploys it:** the deploy rule now reads an `[artifact::]` on a line of its own (`[property-scope::all]` on the rule; rules take it as views do). Before, it read only the note's header, so a repo on a line never deployed and nothing came of the save. The rule and script your outline has are brought up to date when nobody edited them.
+- **Runs are filed and kept short:** a run's note goes under the `[[artifacts]]` page with `[repo::]` and `[status::]`, and a save that changes nothing refreshes the last run instead of adding a note per edit.
+- **On the published page:** the repo's name links its live site; why it isn't live is shown to you, not to the public.
+- **Try it:** `ep0ch --showcase`, section "artifacts", its last two cards.
+- **Run:** `ep0ch install --apply` (PROTOCOL bump: `artifacts.show` answers `deploy`, `artifacts.deploy` takes `note`; GRAMMAR 16). The host's restart updates the seeded rule and script in pie and gurgle.
+
 ### The door's tests that were written off as "known" are green again (PIE-1441, PIE-1446)
 
 - **ctrl+z right after closing an edit undoes:** an extension's undo (a margin quote) sent the moment an edit closed was refused "open in a draft" when the service's hold grant was still on its way; the undo now waits for that release.

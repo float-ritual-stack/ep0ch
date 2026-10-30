@@ -940,7 +940,7 @@ Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] 
 Shouting [rule-name::shouting] [rule-text::(\S.*?)!!!$] [rule-decorate::text] [rule-tone::warn]
 ```
 
-`rule-match` (a query; a tag is one, `[rule-match::#pie-request]`), `rule-view`, `rule-under`, `rule-text` (a `]` is written `\x5d`) and `rule-kind` match;
+`rule-match` (a query; a tag is one, `[rule-match::#pie-request]`; with `[property-scope::all]` it reads the chips on any line too, as a view's does), `rule-view`, `rule-under`, `rule-text` (a `]` is written `\x5d`) and `rule-kind` match;
 `rule-decorate`, `rule-place`, `rule-label`, `rule-tone`, `rule-fields`, `rule-pattern`, `rule-align` and `rule-style` (a heading style by name) draw.
 `rule-on` (`<extension>/<action>`, run when a block starts matching), `rule-on-stop` and `rule-on-change` run an
 installed extension's action, with `rule-quiet`, `rule-from`, `rule-batch`, `rule-cap` and `rule-skip` as `on`'s
