@@ -188,6 +188,11 @@ export interface ExtensionActResult {
    * for its own record (its log note), which the threads and runbooks embed.
    */
   changed?: { id: string; title: string; change: "created" | "edited" | "moved" | "trashed" | "restored" }[];
+  /**
+   * A script run's writes that became proposals instead (PIE-1436): each proposal's id (an edit's proposal, or the comment
+   * thread a create, a move or a trash became), the note it is for and that note's title.
+   */
+  proposed?: { id: string; note: string; title: string }[];
   /** Text the action hands back for the person's clipboard (copy with a citation): the client copies it. */
   readonly copy?: string;
   /** What the client opens where opens land (PIE-754): a block id, or a Resource ref (`file:`, `web:`, `resource:`). */

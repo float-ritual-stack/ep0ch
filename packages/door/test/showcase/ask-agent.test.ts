@@ -3,7 +3,10 @@
 // Driven by the person's keys as Evan would. Scratch service, fictional notes and a made-up demo agent.
 import { describe, expect, test } from "bun:test";
 import { completionOf } from "../../src/surface/completer";
-import { askOf } from "../../src/bar/ask-agent";
+import { askAgent, askOf } from "../../src/bar/ask-agent";
+import type { BarHost } from "../../src/bar/source";
+import { ActionRefused } from "../../src/surface/actions";
+import type { Actor } from "../../src/socket";
 import { until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
@@ -28,8 +31,12 @@ describe("showcase: ask an agent (PIE-1437)", () => {
     await until(() => (h.app as any).noteInFront() === rota().id, "the rota in front", 8000);
     press({ kind: "char", ch: "k", ctrl: true });
     await until(() => !!bar(), "the power bar", 4000);
+    // A bare @ is an ask line: the agents come first, the first of them lit (never another source's row matching "@").
+    type("@");
+    await until(() => bar().describe().rows?.[0]?.source === "agents", "an agent lit for a bare @", 8000);
+    expect(bar().describe().rows.filter((r: { source: string }) => r.source === "agents").map((r: { label: string }) => r.label)).toContain("@wren");
     // @ stays on the line (the screens moved to :), and lists the agent panel's personas.
-    type("@wr");
+    type("wr");
     expect(bar().query).toBe("@wr");
     await listed("wren among the agents here", labels => labels.includes("@wren"));
     press({ kind: "tab" });
@@ -47,10 +54,13 @@ describe("showcase: ask an agent (PIE-1437)", () => {
     await until(() => bar().describe().rows?.[0]?.label === "ask @wren", "the ask row first", 8000);
     const said: string[] = [], flash = h.app.flash.bind(h.app);
     h.app.flash = ((text: string, ...rest: unknown[]) => { said.push(text); return (flash as any)(text, ...rest); }) as typeof h.app.flash;
+    // What's on the line is what's sent, even when ⏎ comes before the rows are asked again (a completion lands after
+    // its check): the ask row's words are the line's now, never the ones it was listed for.
+    bar().input.splice(bar().query.length, 0, "please");
     press({ kind: "enter" });
     let body = "";
     await until(() => { void h.board.comments(rota().id).then(cs => { body = cs.find(c => c.body.startsWith("@wren"))?.body ?? ""; }); return !!body; }, "the comment on the rota", 8000);
-    expect(body).toStartWith("@wren looking at [[Raised beds plan]] can you pop it into %rota");
+    expect(body).toStartWith("@wren looking at [[Raised beds plan]] can you pop it into %rota please");
     expect(body).toContain("- %rota: the tile rota in the door");
     await until(() => said.some(t => t.startsWith("· asked @wren on Potting bench rota")), "said where the person looks", 8000);
     // Sent: the bar is put away, the line kept under "this session" with what it did.
@@ -70,6 +80,11 @@ describe("showcase: ask an agent (PIE-1437)", () => {
     await until(() => !!bar(), "the power bar", 4000);
     type("@wren sort these");
     await until(() => bar().describe().rows?.[0]?.label === "ask @wren", "the ask row first", 8000);
+    // The preview says what ⏎ will do, from the same answer: here, that it can't be sent and why.
+    const lit = (bar() as any).items[0];
+    const preview = await lit.source.preview(lit.row, (bar() as any).host) as { markdown: string };
+    expect(preview.markdown).toContain("Can't be sent yet");
+    expect(preview.markdown).toContain("the ask goes as a comment on a note");
     press({ kind: "enter" });
     await until(() => (h.app as any).barRuns?.some((r: { refused: boolean }) => r.refused), "the refusal said", 8000);
     expect(bar()).toBeTruthy();
@@ -89,7 +104,20 @@ describe("showcase: ask an agent (PIE-1437)", () => {
     expect(askOf("@wren, sort the rota")).toEqual({ to: "wren", text: "sort the rota" });
     expect(askOf("@wren: sort it")).toEqual({ to: "wren", text: "sort it" });
     expect(askOf("@wren. sort it")).toBeNull();
+    // A note the words name that isn't there: refused before anything is sent, saying so.
+    await expect(h.app.act({ action: "agent.ask", args: { to: "wren", text: "sort [[No such bed]]" }, as: "test-agent" })).rejects.toThrow("No such bed");
     // Nothing to ask is refused with what to write.
     await expect(h.app.act({ action: "agent.ask", args: { to: "wren", text: " " }, as: "test-agent" })).rejects.toThrow("what should @wren do?");
   }, 30_000);
+});
+
+test("an ask with the outline host down says so and names the commands that start it, not a bare socket error", async () => {
+  const down = () => Promise.reject(new Error("connect ENOENT /tmp/scratch-outlines/.host/host.sock"));
+  const host = { near: () => "4f2a9c1e-0000-4000-8000-000000000001", note: down, ctx: { board: { resolveRefs: down } } } as unknown as BarHost;
+  const refused = await askAgent(host, { to: "wren", text: "water the beds" }, { kind: "user" } as Actor).then(() => null, (e: Error) => e);
+  expect(refused).toBeInstanceOf(ActionRefused);
+  expect(refused!.message).toContain("the outline host isn't answering");
+  expect(refused!.message).toContain("nothing was sent");
+  expect(refused!.message).toContain("ep0ch status");
+  expect(refused!.message).toContain("ep0ch doctor");
 });

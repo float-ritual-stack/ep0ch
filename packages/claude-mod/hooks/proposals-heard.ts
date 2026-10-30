@@ -68,7 +68,7 @@ const SAID: Record<OutcomeState, string> = {
 export function outcomeLine(o: Outcome): string {
   const title = label(o.title, o.note), edit = `((${o.proposal}|your edit of ${title}))`, note = `((${o.note}|${title}))`
   const why = o.reason ? `: ${o.reason}` : ''
-  if (o.state === 'stale') return `- gone stale: ${edit} no longer fits ${note}, which ${!o.by ? 'someone' : o.by === 'user' ? 'Evan' : o.by} changed since${why}`
+  if (o.state === 'stale') return `- gone stale: ${edit} no longer fits ${note}: ${!o.by ? 'someone' : o.by === 'user' ? 'Evan' : o.by} changed the note after it was proposed${o.reason ? `; ${o.reason}` : ''}`
   return `- ${SAID[o.state] ?? o.state}${byOf(o.state === 'proposed' ? undefined : o.by)}: ${edit} on ${note}${why}`
 }
 

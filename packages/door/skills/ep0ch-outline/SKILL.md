@@ -840,7 +840,7 @@ usual start (a table of a note's children with a computed column). Two traps to 
 empty (use `q("parent:this")` or `read(this.id)`), and a `q` row has no properties (read the row: one `read()` per row).
 More traps: a render script run as an action leaves a run note (31 KB with `[results::keep]`); `script_run` runs a
 script the way a person's press does only with `this` (the note it is about) and `slots` (`{ card: "lamplighter" }`,
-its `props`), and its answer's `changed` lists the notes the run changed (`written` is its own run notes); and pass `persona` when you aren't the connector's owner, or the write is recorded as theirs.
+its `props`), and its answer's `changed` lists the notes the run changed (never bookkeeping; `written` is its own run notes) and `proposed` the writes that became proposals (an edit's proposal, or the comment a create, move or trash became), each with its note; `tools.outline_create({ parent: "root" })` makes a top-level note (at full access); and pass `persona` when you aren't the connector's owner, or the write is recorded as theirs.
 
 The short form for working in an outline is [references/scripts.md](references/scripts.md).
 
