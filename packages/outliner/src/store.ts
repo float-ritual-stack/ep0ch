@@ -253,6 +253,9 @@ const kindOrder = (kind: string) => kind === "page" ? 0 : kind === "work-id" ? 1
 const byAddress = (a: PageAddressMatchRow, b: PageAddressMatchRow) =>
   kindOrder(a.kind) - kindOrder(b.kind) || a.normalized_address.localeCompare(b.normalized_address) || a.block_id.localeCompare(b.block_id);
 const addressTitle = (row: PageAddressMatchRow) => firstLineWithoutPropertyTokens(row.text)?.trim() || row.block_id;
+/** Page addresses as the search matcher reads them: found by what they say (and their note's title), never by an id. */
+const pageAddressDocuments = (rows: readonly PageAddressMatchRow[]) =>
+  rows.map(row => ({ id: "", title: row.display_address, subtitle: subtitleOf(row), text: `${row.display_address}\n${addressTitle(row)}`, row }));
 /** What a did-you-mean for a missing page offers (PIE-1449): the matcher's kinds about the same words, typos included. */
 const NEAR_PAGE: ReadonlySet<SearchMatchKind> = new Set(["exact-title", "title-prefix", "title-contains", "text-contains", "title-terms", "text-terms", "typo-terms"]);
 
@@ -3511,10 +3514,12 @@ export class OutlinerStore {
       const mean = near.length ? { didYouMean: near.join(" or ") } : {};
       if (titled.length) {
         // Said in words (PIE-1449): the notes share the title, so each is told apart by where it is, never by a row of ((ids)).
+        // Each a labelled reference (`((id|in Garden))`): a reader draws where it is, an agent gets the id to act on.
         const places = titled.map(id => this.placeWords(id)), many = titled.length > 1;
+        const refs = titled.map((id, i) => `((${id.slice(0, 8)}|${places[i]}))`);
         const said = many
-          ? `${titled.length} notes are titled ${text} (${places.join(", and ")}), but none is a page: add [page::${text}] to one`
-          : `a note is titled ${text}, but it isn't a page: add [page::${text}] to it`;
+          ? `${titled.length} notes are titled ${text}, ${refs.slice(0, -1).join(", ")} and ${refs.at(-1)}, but none is a page: add [page::${text}] to one`
+          : `a note is titled ${text}, ${refs[0]}, but it isn't a page: add [page::${text}] to it`;
         return { kind: "missing", message: `no page [[${text}]]: ${said}${near.length ? `; did you mean ${near.join(" or ")}?` : ""}`, ...mean, titled: { ids: titled, said, places } };
       }
       return { kind: "missing", message: `no page ${text}`, ...mean };
@@ -3532,15 +3537,22 @@ export class OutlinerStore {
     // title as drawn decides, spaces collapsed.
     // SQLite's lower() folds ASCII only, so the word is folded the same way here.
     const word = title.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0]!.replace(/[A-Z]/g, c => c.toLowerCase());
-    const rows = this.database.query("SELECT id FROM blocks WHERE effective_deleted_root_id IS NULL AND instr(lower(text), ?) > 0 LIMIT 500")
+    const rows = this.database.query("SELECT id FROM blocks WHERE effective_deleted_root_id IS NULL AND instr(lower(text), ?) > 0 ORDER BY created_at, id LIMIT 500")
       .all(word) as { id: string }[];
     return rows.map(row => this.getFromCurrentRead(row.id)!).filter(block => words(blockDisplayTitle(block)) === want).slice(0, 3).map(block => block.id);
   }
 
-  /** Where a note sits, in words: `in Garden` (its parent's title), or `at the top`. */
+  /** The titles of a note's parents, outermost first, at most four: where it sits (`refCandidate`, `placeWords`). */
+  private parentTitles(id: string): string[] {
+    const block = this.getFromCurrentRead(id), path: string[] = [];
+    for (let at = block?.parentId ? this.getFromCurrentRead(block.parentId) : null; at && path.length < 4; at = at.parentId ? this.getFromCurrentRead(at.parentId) : null) path.unshift(blockDisplayTitle(at));
+    return path;
+  }
+
+  /** Where a note sits, in words: `in Notes › Garden`, or `at the top`. */
   private placeWords(id: string): string {
-    const parentId = this.getFromCurrentRead(id)?.parentId, parent = parentId ? this.getFromCurrentRead(parentId) : null;
-    return parent ? `in ${blockDisplayTitle(parent)}` : "at the top";
+    const path = this.parentTitles(id);
+    return path.length ? `in ${path.join(" › ")}` : "at the top";
   }
 
   /**
@@ -3550,15 +3562,13 @@ export class OutlinerStore {
    */
   private nearPageAddressesFromCurrentRead(text: string, limit = 3): string[] {
     const rows = this.pageAddressRows();
-    const matches = rankTextSearchMatches(rows.map(row => ({ id: "", title: row.display_address, subtitle: subtitleOf(row), text: `${row.display_address}\n${addressTitle(row)}`, row })), text);
+    const matches = rankTextSearchMatches(pageAddressDocuments(rows), text);
     return [...new Set(matches.filter(m => NEAR_PAGE.has(m.kind)).map(m => `[[${m.document.row.display_address}]]`))].slice(0, limit);
   }
 
   /** A note offered for a reference: its id, its title and where it sits (`id title · in A › B`). */
   private refCandidate(id: string): string {
-    const block = this.getFromCurrentRead(id)!;
-    const path: string[] = [];
-    for (let at = block.parentId ? this.getFromCurrentRead(block.parentId) : null; at && path.length < 4; at = at.parentId ? this.getFromCurrentRead(at.parentId) : null) path.unshift(blockDisplayTitle(at));
+    const block = this.getFromCurrentRead(id)!, path = this.parentTitles(id);
     return `${id} ${blockDisplayTitle(block)} · in ${path.length ? path.join(" › ") : "(root)"}`;
   }
 
@@ -4042,7 +4052,7 @@ export class OutlinerStore {
       return { addresses: [], completeness: { kind: "complete" } };
     }
     return this.database.transaction(() => {
-      const rows = this.pageAddressRows(), titleOf = addressTitle;
+      const rows = this.pageAddressRows();
       let context: SearchContext | null = null;
       let byId: Map<string, Block> = new Map();
       if (contextBlockId !== undefined) {
@@ -4053,7 +4063,7 @@ export class OutlinerStore {
       if (query?.trim()) {
         // No id: an address is found by what it says, never by the uuid of the note it names.
         // A title's letters scattered in order (`text-fuzzy`) are too loose for an address: the address's own are kept.
-        const matches = rankTextSearchMatches(rows.map(row => ({ id: "", title: row.display_address, subtitle: subtitleOf(row), text: `${row.display_address}\n${titleOf(row)}`, row })), query.trim())
+        const matches = rankTextSearchMatches(pageAddressDocuments(rows), query.trim())
           .filter(match => match.kind !== "text-fuzzy");
         if (context) {
           const sorted = sortByContext(matches.map(match => ({ match, block: byId.get(match.document.row.block_id)!, kind: match.kind, inTitle: match.inTitle, edits: match.edits })).filter(entry => entry.block), context,

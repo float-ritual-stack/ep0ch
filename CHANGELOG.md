@@ -15,6 +15,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Enter, then Esc, in a new note's float closes it:** a new note holding only line breaks or spaces is nothing written, so Esc closes the float and the note goes to the trash, said once. It used to say "dropped 1 stray character" and stay open.
 - **A form's page refusal says where the note is, not its id:** "a note is titled Bird list, but it isn't a page"; two by that title are told apart by where each sits ("at the top, and in Garden"). Its did-you-mean names only pages about the same words, typos included, never one that shares a single word.
 - **^K stays on the status bar while a message is up:** the message takes the room beside it, so a click on ^K still opens the power bar.
+
 ### The navigator: browse by property, see the notes by day, read one beside (PIE-1443)
 
 - **One screen:** `ep0ch --screen navigator` (any outline; `--screen navigator '#tag'` starts on a query) puts the facets tree, its Matches and a reader side by side; at 44 columns the others fold to spines and ⏎ brings the reader forward.

@@ -244,7 +244,7 @@ export class DraftSession {
     if (!this.open) return { left: "nothing" };
     const d = this.draft, t = this.target;
     if (d.busy) return { left: t.verb === "send" ? "sending" : t.verb === "create" ? "creating" : "saving" };
-    if (!d.dirty) { this.end("closed"); return { left: "closed" }; }
+    if (!d.written) { this.end("closed"); return { left: "closed" }; }
     // An edit put aside, brought back and left as it came: a click away puts it aside again. Only typing (or
     // ctrl+s) says the person means to write it now; a click elsewhere never writes it over the note.
     if (t.leaveWrites && d.restored !== null && d.restored === d.text) {
@@ -283,7 +283,7 @@ export class DraftSession {
     if (!this.open) return { closed: false };
     if (this.draft.busy) throw new ActionRefused(`the ${this.target.verb} is still landing`);
     // Only spaces and line breaks in what started empty (a new note's Enter) is nothing written: it just closes.
-    if (this.draft.dirty && !this.draft.blank) {
+    if (this.draft.written) {
       if (!discard) throw new ActionRefused("there's unsaved text; discard=true puts it aside as unsent");
       const said = this.putAside();
       this.end("aside");
@@ -300,7 +300,7 @@ export class DraftSession {
   discard(): { said: string } {
     if (!this.open) return { said: "" };
     if (this.draft.busy) throw new ActionRefused(`the ${this.target.verb} is still landing`);
-    const copy = this.draft.dirty ? this.draft.copyOut(this.target.label) : null;
+    const copy = this.draft.written ? this.draft.copyOut(this.target.label) : null;
     this.end("closed");
     return { said: copy ? `discarded ${this.target.what} · a copy is at ${tidy(copy)}` : "closed" };
   }

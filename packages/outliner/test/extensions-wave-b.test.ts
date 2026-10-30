@@ -630,20 +630,20 @@ test("a form says where each entry lands: under it, under a page, or as a line i
   await create("Grocery list [page::Grocery list]");
   await create("Bird lists [page::Bird lists]");
   const refused = await fill(birds.id, { book: "Moss" }).then(() => "", (e: Error) => e.message);
-  expect(refused).toContain(`a note is titled Bird list, but it isn't a page: add [page::Bird list] to it, or write [form-into::((${titled.id.slice(0, 8)}))]; did you mean [[Bird lists]]?`);
+  expect(refused).toContain(`a note is titled Bird list, ((${titled.id.slice(0, 8)}|at the top)), but it isn't a page: add [page::Bird list] to it, or write [form-into::((${titled.id.slice(0, 8)}))]; did you mean [[Bird lists]]?`);
   expect(refused).not.toContain("(((");
   expect(refused).not.toContain("Grocery list");
   expect(live(titled.id)).toEqual([]);
   // Two by that title: where each one is, and which one the ((id)) names.
   const garden = await create("Garden");
-  await create("Bird list\nherons", garden.id);
+  const herons = await create("Bird list\nherons", garden.id);
   const two = await fill(birds.id, { book: "Moss" }).then(() => "", (e: Error) => e.message);
-  expect(two).toContain(`2 notes are titled Bird list (at the top, and in Garden), but none is a page: add [page::Bird list] to one, or write [form-into::((${titled.id.slice(0, 8)}))] for the one at the top`);
+  expect(two).toContain(`2 notes are titled Bird list, ((${titled.id.slice(0, 8)}|at the top)) and ((${herons.id.slice(0, 8)}|in Garden)), but none is a page: add [page::Bird list] to one, or write [form-into::((${titled.id.slice(0, 8)}))] for the one at the top`);
   expect(two).not.toContain("(((");
   // Its title after properties, or with its spaces doubled, is still that title.
-  await create("[kind::list] Moth  list");
+  const propped = await create("[kind::list] Moth  list");
   const moths = await create(`Moth form [form-into::[[Moth list]]]\n${fields}`);
-  await expect(fill(moths.id, { book: "Moss" })).rejects.toThrow(`a note is titled Moth list, but it isn't a page`);
+  await expect(fill(moths.id, { book: "Moss" })).rejects.toThrow(`a note is titled Moth list, ((${propped.id.slice(0, 8)}|at the top)), but it isn't a page`);
   const word = await create(`Word log [form-into::inlne]\n${fields}`);
   expect(store.get(word.id)!.text).toContain("[form-into::inlne]");
   await expect(fill(word.id, { book: "Moss" })).rejects.toThrow(/did you mean inline\?/);
