@@ -87,6 +87,20 @@ describe("a component's view in the terminal", () => {
     expect(primitiveLines({ type: "text", text: "a\x1b[2Jb" }, 40).map(plain)).toEqual(["ab"]);
   });
 
+  test("a table cell of its own presses or opens, and the rest of the row keeps the row's link (PIE-1461)", () => {
+    const view = { type: "table", columns: ["Job", "Stage"], rows: [
+      [{ text: "Fix the gate", link: "aaaaaaaa-1111-4222-8333-444444444444" }, { text: "queued", act: "lens-set note=aaaaaaaa-1111-4222-8333-444444444444 key=stage next=1", tone: "accent" }],
+      ["Paint the shed", { text: "done", act: "lens-set note=bbbbbbbb-1111-4222-8333-444444444444 key=stage next=1" }],
+    ], links: [null, "bbbbbbbb-1111-4222-8333-444444444444"] };
+    const linked: string[] = [], pressed: string[] = [];
+    const lines = primitiveLines(view, 60, { link: (block, text) => { linked.push(block); return text; }, press: (act, text) => { pressed.push(`${act}|${text.trim()}`); return text; } });
+    expect(lines.map(plain).map(l => l.trimEnd())).toEqual(["Job             Stage", "──────────────  ──────", "Fix the gate    queued", "Paint the shed  done"]);
+    // The title cell opens its note; the stage cell presses its act; the second row's title takes the row's link.
+    expect(linked).toEqual(["aaaaaaaa-1111-4222-8333-444444444444", "bbbbbbbb-1111-4222-8333-444444444444"]);
+    expect(pressed).toEqual(["lens-set note=aaaaaaaa-1111-4222-8333-444444444444 key=stage next=1|queued", "lens-set note=bbbbbbbb-1111-4222-8333-444444444444 key=stage next=1|done"]);
+    expect(lines[2]).toContain(fg(C.lcyan));                                     // accent on the pressable cell
+  });
+
   test("a row stacks below its minWidth; its blockdown is drawn by the reader's own drawer", () => {
     const row = { type: "row", minWidth: 24, children: [
       { type: "box", title: "Concept", children: [{ type: "blockdown", text: "## Idea\n- one" }] },

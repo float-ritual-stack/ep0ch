@@ -1,0 +1,20 @@
+{
+  "contract": 2,
+  "id": "lens",
+  "version": 1,
+  "name": "Lens",
+  "description": "One line in any note draws a live table of what a query holds, relative to that note: columns, computed columns, sums, groups, and cells that press to change a property.",
+  "demo": "demo",
+  "scripts": [
+    {
+      "name": "lens",
+      "file": "scripts/lens.js",
+      "about": "lens:: query=\"type=meeting when={{this.page}}\" columns=title,when,status edit=status sort=when — a live table, drawn where the line is"
+    },
+    {
+      "name": "lens-set",
+      "file": "scripts/lens-set.js",
+      "about": "lens-set note=<id> key=status value=done, or next=1 to step to the next value: what a lens cell's press runs"
+    }
+  ]
+}

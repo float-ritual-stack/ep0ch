@@ -166,7 +166,10 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
     }
     case "table": {
       const columns = (Array.isArray(n.columns) ? n.columns : []).map(one);
-      const rows = (Array.isArray(n.rows) ? n.rows as unknown[][] : []).map(r => (Array.isArray(r) ? r : []).map(one));
+      // A cell is text, or `{ text, act?, link?, tone? }`: one that presses or opens on its own (PIE-1461).
+      const cellOf = (c: unknown) => (c && typeof c === "object" && !Array.isArray(c) ? c as Node : null);
+      const rawRows = (Array.isArray(n.rows) ? n.rows as unknown[][] : []).map(r => (Array.isArray(r) ? r : []));
+      const rows = rawRows.map(r => r.map(c => { const o = cellOf(c); return one(o ? o.text : c); }));
       const links = Array.isArray(n.links) ? n.links : [], acts = Array.isArray(n.acts) ? n.acts : [];
       if (!columns.length) throw new PrimitiveUnknown("a table needs columns");
       const widths = columns.map((c, i) => Math.max(vwidth(c), ...rows.map(r => vwidth(r[i] ?? ""))));
@@ -182,9 +185,23 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
         fg(C.dark) + widths.map(x => "─".repeat(x)).join("  ") + RESET,
         ...rows.flatMap((r, k) => {
           const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!));
+          const own = rawRows[k]!.map(cellOf);
+          // A row with a cell of its own draws cell by cell: that cell presses or opens, the rest take the row's link or act.
+          const byCell = own.some(Boolean);
           return Array.from({ length: Math.max(...cells.map(c => c.length)) }, (_, j) => {
-            const text = line(cells.map(c => c[j] ?? ""));
-            return fg(C.white) + (links[k] ? tag(links[k], text) : press(acts[k], text)) + RESET;
+            if (!byCell) {
+              const text = line(cells.map(c => c[j] ?? ""));
+              return fg(C.white) + (links[k] ? tag(links[k], text) : press(acts[k], text)) + RESET;
+            }
+            const parts = cells.map((c, i) => {
+              const padded = i === cells.length - 1 ? pad(c[j] ?? "", widths[i]!).trimEnd() : pad(c[j] ?? "", widths[i]!);
+              const o = own[i];
+              const ink = fg(o?.tone ? toned(o.tone) : C.white);
+              if (o?.link) return ink + tag(o.link, padded) + RESET;
+              if (o?.act) return ink + press(o.act, padded) + RESET;
+              return ink + (links[k] ? tag(links[k], padded) : press(acts[k], padded)) + RESET;
+            });
+            return parts.join("  ");
           });
         }),
       ];
