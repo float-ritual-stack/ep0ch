@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Desk } from "../../src/desk/desk";
+import { OPEN_READS } from "../../src/desk/screen-layout";
 import { USER } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -111,4 +112,28 @@ describe.skipIf(!outliner)("explicit agent focus in the showcase", () => {
     h.app.pop();
   }, 30_000);
 
+});
+
+describe.skipIf(!outliner)("an agent's open in the showcase's agent focus section", () => {
+  const h = useShowcaseScreen();
+
+  test("in yolo too, an agent's tile.open leaves the person's keys, and one naming no place that would be too narrow floats, said (PIE-1444)", async () => {
+    await h.app.act({ action: "section", args: { name: "agent-focus" }, as: "tester" });
+    await until(() => h.screen().includes("@fern"), "the pointer readers");
+    await h.app.dispatch.act({ action: "section.try", args: {} }, USER);
+    await h.app.dispatch.act({ action: "tile.focus", args: {}, tile: "person" }, USER);
+    h.app.event({ domain: "agents", action: "agents.yolo", yolo: true, sequence: 1 } as any);
+    try {
+      expect(h.app.person().yolo).toBe(true);
+      const before = h.app.person().focus;
+      const r = await h.app.act({ action: "tile.open", args: { kind: "reader", name: "aside" }, as: "fern" }) as { where: string; why?: string };
+      // Beside the person's tile when that reads, below it when that does, else a float that says why.
+      expect(["right", "down", "float"]).toContain(r.where);
+      if (r.where === "float") expect(r.why).toContain("beside person it is");
+      const aside = (await h.app.act({ action: "layout.get", as: "fern" }) as { tiles: { name: string; rect?: { cols: number } }[] }).tiles.find(t => t.name === "aside")!;
+      expect(aside.rect!.cols).toBeGreaterThanOrEqual(OPEN_READS.cols);
+      expect(h.app.person().focus).toBe(before);
+      await h.app.act({ action: "tile.close", tile: "aside", as: "fern" });
+    } finally { h.app.event({ domain: "agents", action: "agents.yolo", yolo: false, sequence: 2 } as any); }
+  }, 30_000);
 });

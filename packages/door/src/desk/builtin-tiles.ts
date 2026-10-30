@@ -211,7 +211,7 @@ const builtins = (): TileKind[] => [
     },
     shows: p => (p as QueryPane).card() ?? null,
     view: p => { const q = p as QueryPane, m = q.card(); return { viewport: { view: q.view, lane: q.name, selected: m?.id ?? null, title: m ? subject(m) : null } }; },
-    describe: p => (p as QueryPane).describe(),
+    describe: (p, full) => { const { cards, ...d } = (p as QueryPane).describe() as ReturnType<QueryPane["describe"]> & { cards?: unknown[] }; return full && cards ? { ...d, cards } : d; },
   },
   {
     kind: "tune", openArgs: ["source"], about: "the tune inspector on another tile (source=tile:<name>): its look's spacing, list, surface and frame values, where each comes from, nudged, taken back and saved (PIE-673, PIE-675)",

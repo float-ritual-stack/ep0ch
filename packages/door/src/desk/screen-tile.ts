@@ -272,7 +272,7 @@ export class ScreenTile implements Pane {
     const d = this.inner;
     const what = { screen: this.screen, ...(Object.keys(this.args).length ? { args: this.args } : {}), ...(this.part ? { part: this.part } : {}), group: this.group, in: this.inside, title: this.title(), ...(this.problem ? { problem: this.problem } : {}) };
     if (!d) return { mount: what };
-    const l = d.layoutGet();
+    const l = full ? d.layoutGet() : d.layoutHead();
     return { mount: { ...what, ...(full ? { layout: l } : { rev: l.rev, focus: l.focus, tree: l.tree }) } };
   }
 }
