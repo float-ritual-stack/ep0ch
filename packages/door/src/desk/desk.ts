@@ -52,7 +52,7 @@ import { newNoteOffer, newNoteOpens, type NewNoteHow } from "../new-note";
 import { layoutStanding, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
-import { armsEdit, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList, type TrailStop } from "../surface/note";
+import { armsEdit, headerShown, isTileHeader, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList, type TileHeader, type TrailStop } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRows, pickRow } from "../surface/picker";
@@ -413,6 +413,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     },
   };
   lookOf(p: Pane): Look | undefined { return this.looks.get(p); }
+  /** DeskApi.writtenTitle: the title written on `p` as its frame shows it (displayTitle), while it shows that one. */
+  writtenTitle(p: Pane): string | undefined {
+    const id = p.writtenTitle && !p.systemTitle ? this.idOf(p) : undefined;
+    return id === undefined ? undefined : this.displayTitle(id);
+  }
   tileLook(name: string) {
     const id = this.idNamed(name), p = id !== undefined ? this.panes.get(id) : undefined, look = p && this.looks.get(p);
     if (id === undefined || !p || !look) return null;
@@ -1098,6 +1103,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (l.slot ?? l.name) slots.set((l.slot ?? l.name)!, id);
       this.panes.get(id)!.writtenTitle = l.writtenTitle;
       this.panes.get(id)!.systemTitle = l.systemTitle;
+      this.panes.get(id)!.tileHeader = isTileHeader(l.header) ? l.header : undefined;
       used.add(id);
       // A kind nobody has registered (an extension not loaded yet) says so in its place; its spec is kept as saved.
       // A tile the host gave (an exhibit) is its own kind, never one waiting for its extension.
@@ -1576,6 +1582,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(slot ? { slot } : {}),
       ...tileRegistry.saved(p),
       ...(p.writtenTitle !== undefined ? { writtenTitle: p.writtenTitle, systemTitle: p.systemTitle ?? false } : {}),
+      ...(p.tileHeader ? { header: p.tileHeader } : {}),
       ...this.sourceAcross(p),
       ...(this.selectSeeds.has(id) ? { selectFrom: this.selectSeeds.get(id) } : {}),
       ...(this.collapsed.has(id) ? { collapsed: this.collapsed.get(id)!.dir === "h" ? "h" as const : true as const } : {}),
@@ -3582,6 +3589,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       title: this.frameTitle(id, r?.rows),
       label: this.displayTitle(id),
       showing: m ? { id: m.id, title: subject(m) } : undefined,
+      // Its header (PIE-1248): the tile's own setting, or the note's, and what that comes to.
+      header: (() => { const h = this.headerNow(this.tileId(id)); return h ? { own: h.own ?? "note", shown: h.shown } : undefined; })(),
       agent: p instanceof ReaderPane ? p.surface.agent ?? undefined : undefined,
       editing: p instanceof ReaderPane && p.draft ? { id: p.draft.blockId, dirty: p.draft.dirty, changedElsewhere: p.draft.changedElsewhere, conflict: p.draft.conflict } : undefined,
       commenting: p instanceof ReaderPane && p.session ? p.session.describe() : undefined,
@@ -4278,7 +4287,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private frameTitle(id: number, rows?: number): string {
     const p = this.panes.get(id)!, m = this.noteOf(id);
     if ((p.writtenTitle && !p.systemTitle) || !m || (tabsOf(this.root, id)?.ids.length ?? 0) > 1) return this.displayTitle(id);
-    if (rows !== undefined && p instanceof ReaderPane && !p.surface.titleShown(rows - 2)) {
+    if (rows !== undefined && p instanceof ReaderPane && !p.surface.titleShown(rows - 2, p.tileHeader)) {
       // A note that leaves its title out (PIE-1319) is named here alone, its Work ID first as everywhere (PIE-1356).
       return [p.surface.state(), headedTitle(m)].filter(Boolean).join(" · ");
     }
@@ -4339,6 +4348,34 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     this.save(); this.redraw();
     return { ...this.tileAnswer(t.id), title: this.displayTitle(t.id), writtenTitle: p.writtenTitle ?? "", systemTitle: !!p.systemTitle };
+  }
+
+  /**
+   * A reader tile's header as it is now (PIE-1248): `own`, what the tile says (`tile.header`), or null when the note
+   * decides; `shown`, what its rows come to (full, the title alone, none), from the one answer (headerShown).
+   */
+  headerNow(sel: string | undefined): { own: TileHeader | null; shown: TileHeader } | null {
+    const p = this.panes.get(this.tile(sel).id);
+    if (!(p instanceof ReaderPane) || !p.msg) return null;
+    const rows = headerShown(p.msg, p.tileHeader);
+    return { own: p.tileHeader ?? null, shown: rows.title ? "none" : rows.crumbs && rows.byline ? "title" : "full" };
+  }
+
+  /**
+   * `tile.header` (^W b, the tile menu): a reader tile's own header, saved with the layout. `mode` full, title (alone,
+   * one line) or none; note gives the choice back to the note's `[header::…]`; left out, the next after what it shows
+   * (full, title, none, full). A tile that draws no header above a note (a terminal, a list) has none to set.
+   */
+  headerTile(sel: string | undefined, mode: TileHeader | "note" | undefined, actor: Actor): TileDone {
+    const t = this.tile(sel), p = this.panes.get(t.id)!;
+    if (!(p instanceof ReaderPane)) throw new ActionRefused(`${t.name} draws no header above a note: only a reader has one to set`);
+    const now = this.headerNow(this.tileId(t.id));
+    const next = mode ?? (now ? ({ full: "title", title: "none", none: "full" } as const)[now.shown] : "title");
+    const was = p.tileHeader;
+    p.tileHeader = next === "note" ? undefined : next;
+    const changed = was !== p.tileHeader;
+    if (changed) { this.save(); this.redraw(); }
+    return { ...this.tileAnswer(t.id), header: p.tileHeader ?? "note", shown: this.headerNow(this.tileId(t.id))?.shown ?? null, changed, by: actor.kind === "user" ? "you" : actor.id };
   }
 
   private plainName(id: number) {

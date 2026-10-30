@@ -1246,6 +1246,17 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "tile-header", need: "give a tile the header it needs: the whole header, the title alone, or none, and a title of your own over the note's",
+    part: "the tile's own header (PIE-1248): tile.header (^W b, the tile menu's header row, act) sets full, title (one line) or none on a reader tile, saved with the layout and over the note's `[header::…]`; mode=note gives it back to the note; a note that is only embeds starts with none. One answer for which rows are drawn (headerShown, beside headerOmits); tile.title's written title heads the reader, its frame and its spine (displayTitle)",
+    files: "src/surface/note.ts (headerShown, embedOnly, headerBlock), src/desk/desk.ts (headerTile, headerNow, writtenTitle), src/desk/tile-actions.ts (tile.header), src/desk/tiles.ts (TileSpec.header), src/desk/wkeys.ts",
+    aside: "two readers on the allotment notebook: ^W b (or the tile menu's header row) steps one through full, title only and none; none starts the note on its first row and the frame names it · ^W n and a title with spaces (Beds this spring) writes it on the tile: its header, frame and spine say it, the note keeps its own · mode=note gives the note its say back ([header::none] on a dashboard is the note's) · with no byline the tile menu still has comment on the whole note, comments, properties and sources · it is saved with the layout: in a group, in the drawer, after a restart · act: tile.header mode=none tile=right, tile.title text=\"Beds this spring\" tile=left",
+    stage(n, show) {
+      const left = new ReaderPane(true), right = new ReaderPane(true);
+      return deskOf({ title: "showcase · tile header", panes: [left, right], names: ["left", "right"],
+        layout: ([a, b]) => row(0.5, a!, b!) }, show, [[left, n.notebook], [right, n.notebook]]);
+    },
+  },
+  {
     key: "artifacts", need: "open a live artifact folder or a frozen snapshot without pasting source into notes", part: "the media line and NoteSurface artifact card; artifact.open asks artifacts.show for the artifact's page in the web client (never the artifact host's address, PIE-1266); put and the watcher reuse publish-artifacts.ts", files: "outline-core/src/artifacts.ts, src/artifacts.ts, src/doc.ts, src/surface/note.ts, outliner/src/artifact-store.ts, outliner/src/artifact-server.ts, outliner/src/publish-media.ts",
     aside: "[ ] to a card, then ⏎, or a click on it or its [open ↗]: it opens running in the browser, on the note's web page · [share] (artifact.share) gives someone outside a link to that artifact alone, copied for you, and ends with share.revoke · over ssh or on a headless host, your laptop link opens it on your own machine; without a link it is copied and the flash is clickable · an agent: images lists them (kind artifact), artifact.open n=1 gives the address · + - and ← → size and place it as an image's (its frame on the web page) · no script runs in the terminal",
     stage(n, show) {

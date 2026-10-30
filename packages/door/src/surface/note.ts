@@ -20,6 +20,7 @@ import { withFigureBoard } from "../graphs";
 import { outlineBoards, readNote, type NoteAddress } from "../desk/outline-boards";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { HEADER_VALUES } from "@ep0ch/outline-core/component-schemas-blocks";
+import { headerLine } from "@ep0ch/outline-core/header-line";
 import { InlineList, inlineRowKey } from "./inline-list";
 import { LISTVIEW_ACTIONS, listNamed, type ListHost } from "./list-actions";
 import { ListView, listRowLines, listRowsOf, PERSON, selectable, type ListHandle, type ListViewRow } from "./list-view";
@@ -93,7 +94,7 @@ import type { Scroll } from "../canvas";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
 import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject } from "../socket";
 import { lastTrashed } from "../note-trash";
-import { blockRefText } from "@ep0ch/outline-core/link-syntax";
+import { blockRefText, embedOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { BUTTON_GROUP, deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
 import { markReveal, revealOn } from "../reveal";
 import { drawRevision, openingRow, revisionFacts, type RevisionAgainst, type RevisionView } from "./revision-compare";
@@ -255,6 +256,10 @@ export interface SurfaceHost {
    * focus mark and the property panel still follow it, and clicks and `[ ]` count its rows.
    */
   header?(m: Msg, w: number, info: HeaderInfo): string[];
+  /** The tile's own header (PIE-1248, `tile.header`), over the note's `[header::…]`; absent: the note decides. */
+  readonly tileHeader?: TileHeader;
+  /** A title written on the tile (`tile.title`), shown in the header in place of the note's; absent: the note's. */
+  readonly tileTitle?: string;
   /**
    * A view's own rows after the note's body (EchoNet's FidoNet footer: the tear line, the origin, SEEN-BY): read and
    * scrolled with the note, never its elements.
@@ -489,6 +494,38 @@ export function headerOmits(m: Pick<Msg, "properties">): { crumbs: boolean; titl
   const said = new Set(propValues(m, "header").map(v => v.trim().toLowerCase()));
   const is = (v: keyof typeof HEADER_VALUES) => said.has(v) || said.has("none");
   return { crumbs: is("crumbs"), title: is("title"), byline: is("none") };
+}
+
+/** A tile's own header (PIE-1248, `tile.header`): what its reader draws above the note, whatever the note says. */
+export const TILE_HEADERS = {
+  full: "the crumbs, the title and the byline",
+  title: "the title alone, on one line",
+  none: "no header: the note starts on the first row",
+} as const;
+export type TileHeader = keyof typeof TILE_HEADERS;
+export const isTileHeader = (v: unknown): v is TileHeader => typeof v === "string" && v in TILE_HEADERS;
+
+/** A note that is only embeds (a figure or a part shown on its own), properties aside: nothing of its own to head. */
+export function embedOnly(m: Pick<Msg, "text">): boolean {
+  const embeds = embedOccurrences(m.text);
+  if (!embeds.length) return false;
+  let rest = "", at = 0;
+  for (const e of embeds) { rest += m.text.slice(at, e.start); at = e.end; }
+  rest += m.text.slice(at);
+  const h = headerLine(rest);
+  return h.line < 0 || (!h.prose.trim() && rest.split("\n").slice(h.line + 1).every(l => !l.trim()));
+}
+
+/**
+ * The reader's header rows left out, one answer for every reader (PIE-1248): the tile's own setting when it has one
+ * (`tile.header`: full, title alone on one line, none), else the note's `[header::…]` (PIE-1319), else none for a note
+ * that is only embeds (an attached figure), else all of them. `oneLine`: the title isn't wrapped.
+ */
+export function headerShown(m: Pick<Msg, "properties" | "text">, tile?: TileHeader): { crumbs: boolean; title: boolean; byline: boolean; oneLine: boolean } {
+  if (tile === "full") return { crumbs: false, title: false, byline: false, oneLine: false };
+  if (tile === "title") return { crumbs: true, title: false, byline: true, oneLine: true };
+  if (tile === "none" || (!propValues(m, "header").length && embedOnly(m))) return { crumbs: true, title: true, byline: true, oneLine: false };
+  return { ...headerOmits(m), oneLine: false };
 }
 
 /** The reader's header rows (NoteSurface.headerBlock): where its summary line is and its links, and its title's row. */
@@ -1801,11 +1838,14 @@ export class NoteSurface {
     // A note with a Work ID shows it first, in the accent (PIE-809: `HOME-011 · <title>`), said once (outline-core's rule).
     // The rows the note leaves out (PIE-1319). `ep0ch show` (printed) keeps them all: its first line is what a script reads.
     // Zoomed into a part (PIE-780), the part fills the tile: one row above it says what it is and how back goes.
-    const omit = this.printed ? { crumbs: false, title: false, byline: false } : this.zoom ? { crumbs: false, title: true, byline: true } : headerOmits(m);
+    // The tile can set its own (PIE-1248): full, the title alone on one line, or none; one answer, headerShown.
+    const omit = this.printed ? { crumbs: false, title: false, byline: false, oneLine: false } : this.zoom ? { crumbs: false, title: true, byline: true, oneLine: false } : headerShown(m, host?.tileHeader);
     // The rows above the title: the crumbs, unless the note leaves them out.
     const above = omit.crumbs ? 0 : 1;
     // The one name (board's headedTitle); its two parts colour it, the ID in the accent.
-    const named = workIdTitle(subject(m), prop(m, "work-id")), focused = host?.focused !== false, title = headedTitle(m);
+    // A title written on the tile (tile.title) heads it in place of the note's, as its frame and spine say it.
+    const written = this.printed ? undefined : host?.tileTitle;
+    const named = written ? { workId: null } : workIdTitle(subject(m), prop(m, "work-id")), focused = host?.focused !== false, title = written ?? headedTitle(m);
     // In the theme's heading colour (PIE-809): the theme caps white near the body text's grey, so a white title read as
     // body; the note's top heading is drawn as its headings are.
     const ink = (focused ? fg(C.yellow) : fgRgb(theme().palette[C.yellow]!.map(c => Math.round(c * TITLE_UNFOCUSED)) as unknown as Rgb)) + BOLD;
@@ -1840,7 +1880,8 @@ export class NoteSurface {
     const links = !summary ? [] : summaryLinks.map(l => ({ ...l, from: l.from + summaryFrom, to: l.to + summaryFrom })).filter(l => l.from < w);
     // The whole title, wrapped onto as many lines as it needs (PIE-815: a question's title is the question; cutting it
     // here was the bug). The Work ID keeps the accent at the start of the first line.
-    const lines = width(title) <= w ? [title] : wrap(title, w);
+    // The tile's title-only header keeps it to one line, cut with an ellipsis.
+    const lines = width(title) <= w ? [title] : omit.oneLine ? [ellipsize(title, w)] : wrap(title, w);
     const titled = lines.map((l, i) => (i === 0 && named.workId && l.startsWith(`${named.workId} · `) ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${l.slice(named.workId.length + 3)}`, w) : ink + pad(l, w)) + RESET);
     const wholeMarks: NonNullable<HeaderBlock["wholeMarks"]> = [];
     // A folded whole-note thread's [+] is after the title, never in the gutter (PIE-1255: a row of them there pushed
@@ -1873,7 +1914,7 @@ export class NoteSurface {
         }
       }
     }
-    const subtitle = subtitleOf(m);
+    const subtitle = omit.oneLine ? undefined : subtitleOf(m);
     const subRows = subtitle ? [fg(C.dark) + pad(printable(subtitle, " "), w) + RESET] : [];
     const titleRows = omit.title ? [] : [...titled, ...subRows];
     // The byline's row: after the crumbs and the title, as many of them as are drawn.
@@ -2988,7 +3029,7 @@ export class NoteSurface {
    * needn't say it again (a short tile, a host's own header or an edit in its place, or a note that leaves its title out
    * with `[header::…]`, PIE-1319, leaves the title to the frame).
    */
-  titleShown(rows: number): boolean { return !!this.msg && rows >= 2 && !this.modes.covers && !headerOmits(this.msg).title; }
+  titleShown(rows: number, tile?: TileHeader): boolean { return !!this.msg && rows >= 2 && !this.modes.covers && !headerShown(this.msg, tile).title; }
 
   /** What a host's header is told (SurfaceHost.header). */
   private headerInfo(m: Msg, properties: number): HeaderInfo {
