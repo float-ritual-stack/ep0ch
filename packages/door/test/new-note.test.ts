@@ -336,7 +336,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     try {
       desk.render(desk.ctx);
       await until(() => desk.panes.size > 0, "the desk's tiles", 10_000);
-      await app.act({ action: "tile.open", args: { kind: "detail", note: notes.plot.id, name: "plotf" } });
+      await app.act({ action: "tile.open", args: { kind: "detail", note: notes.plot.id, name: "plotf", where: "right" } });
       const plot = desk.panes.get(desk.idNamed("plotf")) as any;
       await until(() => plot?.msg?.id === notes.plot.id, "the detail on the plot notes");
       desk.focusOn("plotf");
@@ -413,7 +413,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     try {
       desk.render(desk.ctx);
       await until(() => desk.panes.size > 0, "the desk's tiles", 10_000);
-      await app.act({ action: "tile.open", args: { kind: "detail", note: notes.plot.id, name: "plotp" } });
+      await app.act({ action: "tile.open", args: { kind: "detail", note: notes.plot.id, name: "plotp", where: "right" } });
       await until(() => (desk.panes.get(desk.idNamed("plotp")) as any)?.msg?.id === notes.plot.id, "the detail on the plot notes");
       desk.focusOn("plotp");
       key(ctrl("n"));

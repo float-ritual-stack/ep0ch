@@ -69,8 +69,7 @@ describe.skipIf(!outliner)("an agent's open on the person's desk (PIE-1444)", ()
       expect(nav(brief)).toMatchObject({ kind: "facets", query: "", facets: expect.any(Number) });
       expect(nav(brief).notes).toBeUndefined();
       expect(Array.isArray(nav(full).facets)).toBe(true);
-      expect(brief.layers.every((l: any) => l.tiles === undefined && l.tree)).toBe(true);
-      expect(full.layers.every((l: any) => Array.isArray(l.tiles))).toBe(true);
+      expect(brief.layers.every((l: any) => Array.isArray(l.tiles) && l.tree)).toBe(true);
       expect(brief.brief).toContain("full=true");
       expect(JSON.stringify(brief).length).toBeLessThan(JSON.stringify(full).length / 2);
     } finally { d.quit(); }
@@ -81,11 +80,21 @@ describe.skipIf(!outliner)("an agent's open on the person's desk (PIE-1444)", ()
     const d = await door(yolo);
     try {
       expect(d.focus()).toBe("r1");
-      // Beside r1 (12 columns) it would be 6: it floats, readable, and the answer says why.
+      // Beside r1 (12 columns) it would be 6, and no where= named a place: it floats, readable, and the answer says why.
       const r = await d.act("tile.open", { kind: "facets", name: "nav" });
-      expect(r).toMatchObject({ name: "nav", where: "float", why: expect.stringContaining("beside r1 it would be 6×") });
+      expect(r).toMatchObject({ name: "nav", where: "float", why: expect.stringContaining("beside r1 it is 6×") });
       const nav = d.desk.layoutGet().floats.find((f: any) => f.name === "nav")!;
       expect(nav.rect!.cols).toBeGreaterThanOrEqual(OPEN_READS.cols);
+      expect(d.focus()).toBe("r1");
+    } finally { d.quit(); }
+  });
+
+  test("a place the agent named is where it goes, narrow or not, and the answer says it's narrow", async () => {
+    const d = await door(yolo);
+    try {
+      const r = await d.act("tile.open", { kind: "facets", name: "nav", where: "right" }, "r1");
+      expect(r).toMatchObject({ name: "nav", where: "right", why: expect.stringContaining("as asked") });
+      expect(d.desk.layoutGet().tiles.find((t: any) => t.name === "nav")!.float).toBeUndefined();
       expect(d.focus()).toBe("r1");
     } finally { d.quit(); }
   });

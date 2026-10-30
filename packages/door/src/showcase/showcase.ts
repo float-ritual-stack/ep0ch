@@ -821,7 +821,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "agent-focus", need: "give each agent its own pointer without taking your keys", part: "the dispatcher targets explicit pointers kept by whereabouts; the tile footer and WhoPane show them", files: "src/surface/dispatch.ts, src/whereabouts.ts, src/desk/desk.ts, src/desk/panes.ts",
-    aside: "@fern points to the game, @moss to its second reader. Click a dim name to take your keys there. Agents set agent.focus tile=game line=3; no arguments clears it. An agent without a pointer works where your focus is, as before. An agent's tile.open never takes your keys, in yolo too (PIE-1444): try act tile.open kind=facets tile=copy --as fern, and one that would be too narrow to read beside its tile floats instead, its answer saying why; act layout.get --as fern answers each tile in brief, full=true in whole.",
+    aside: "@fern points to the game, @moss to its second reader. Click a dim name to take your keys there. Agents set agent.focus tile=game line=3; no arguments clears it. An agent without a pointer works where your focus is, as before. An agent's tile.open never takes your keys, in yolo too (PIE-1444): try act tile.open kind=facets --as fern: naming no tile and no where=, one that would be too narrow to read beside your tile floats instead, its answer saying why; act layout.get --as fern answers each tile in brief, full=true in whole.",
     stage(n, show) {
       const person = detailPane(), game = detailPane(), copy = detailPane(), who = new WhoPane();
       return deskOf({ title: "showcase · agent focus", panes: [person, game, copy, who], names: ["person", "game", "copy", "who"],

@@ -865,7 +865,8 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     const tile = (name: string) => tiles().find(x => x.name === name);
     const at = () => S().stageRect;
     const click = (x: number, y: number, mods?: number) => { press({ kind: "mouse", action: "down", button: 0, x, y, ...(mods ? { mods } : {}) }); press({ kind: "mouse", action: "up", button: 0, x, y, ...(mods ? { mods } : {}) }); };
-    const get = async () => (await app.act({ action: "layout.get", args: {}, as: "test-agent" })) as any;
+    // full=true: a mount's own layout whole (in brief, its tree and focus; PIE-1444).
+    const get = async () => (await app.act({ action: "layout.get", args: { full: true }, as: "test-agent" })) as any;
     // layout.get: each mount says what it mounts, and its own layout under its own ids; the lanes alone are filled, the place holder gone.
     await until(() => { sc.render(app); const m = stage().pane("lanes")?.layoutOf(true).mount; return m?.layout?.tiles.length > 0 && m.layout.tiles.every((t: any) => t.kind === "query"); }, "the lanes mount filled", 8000);
     const l0 = await get();

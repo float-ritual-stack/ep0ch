@@ -5637,7 +5637,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * `tile.open`: a new tile beside (or in the tabs of) tile `at`. `link`: the tile whose opens land in it, linked in the
    * same layout step (tile.preview); `keys: false` leaves the person's keys where they are.
    */
-  async openTile(given: NewTile, at: string | undefined, where: Where, actor: Actor, also: { link?: number; verb?: WireVerb; keys?: false } = {}): Promise<TileDone> {
+  async openTile(given: NewTile, at: string | undefined, where: Where, actor: Actor, also: { link?: number; verb?: WireVerb; keys?: false; fits?: boolean } = {}): Promise<TileDone> {
     const t = canonSpec(given);
     if (t.outline) await outlineBoards(this.ctx).on({ outline: t.outline, machine: t.machine });
     const k = kindOf({ kind: t.kind } as Pane);
@@ -5683,9 +5683,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.startTile(id);
     this.arrived(id, actor);
     this.save(); this.redraw();
-    // Too narrow to read beside base (an agent's open, PIE-1444): it floated, and the answer says why.
+    // Too narrow to read beside base (an agent's open, PIE-1444): it floated, or went where asked, and the answer says so.
     const why = typeof r.answer.why === "string" ? r.answer.why : undefined;
-    return { ...this.tileAnswer(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where: why ? "float" : where, ...(why ? { why } : {}), ...(also.link !== undefined ? { from: this.tileId(also.link), fromName: this.nameOf(also.link) } : {}) };
+    return { ...this.tileAnswer(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where: this.isFloat(id) && !empty ? "float" : where, ...(why ? { why } : {}), ...(also.link !== undefined ? { from: this.tileId(also.link), fromName: this.nameOf(also.link) } : {}) };
   }
 
   // ── mounts and groups (PIE-651) ──
@@ -6619,8 +6619,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   layouts() { return { current: this.layoutName, layouts: layoutNames() }; }
   /**
    * The layout as layout.get answers it: every desk on the screen (the drawer's and the groups' too) with its tree and its
-   * tiles. Each tile as its kind describes itself briefly, unless `full` (the tiles' whole descriptions, and each layer's
-   * tiles again under it).
+   * tiles. Each tile as its kind describes itself briefly, unless `full` (the tiles' whole descriptions). Scripts read a
+   * layer's tiles (neat), so each layer keeps them.
    */
   layoutAll(full = true) {
     const root = this.ctx?.hostLayer?.desks().find(d => !this.ctx.hostLayer!.isDrawer(d)) ?? this.top();
@@ -6630,7 +6630,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       tree: describeLayout(d.layout, id => d.nameOf(id), id => d.tileId(id)),
       tiles: d.all().map(id => ({ ...d.tileView(id, undefined, rects, full), path: root.pathTo(d.panes.get(id)!) })) }; });
     const { tiles: _own, ...top } = root.layoutGet(full);
-    return { ...top, ...(full ? {} : { brief: "each tile as its kind describes itself in brief; full=true gives their whole descriptions" }), layers: full ? layers : layers.map(({ tiles: _t, ...l }) => l) as typeof layers, tiles: layers.flatMap(l => l.tiles) };
+    return { ...top, ...(full ? {} : { brief: "each tile as its kind describes itself in brief; full=true gives their whole descriptions" }), layers, tiles: layers.flatMap(l => l.tiles) };
   }
   layoutGet(full = true) {
     const rects = this.rectsNow();
@@ -6674,9 +6674,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // In a flow (the river's columns) it is the next column, at reading width; elsewhere it splits beside, or below for a
     // program that wants width (a picker's list) when beside would leave it narrower than tall (`splitAxis`, the layout's
     // one rule). A tile not placed yet splits beside.
-    const r0 = this.placed.rects.get(at);
+    // From a float (an agent's open that had no room, PIE-1444): beside the tile under it, as tile.open does.
+    const beside = this.isFloat(at) ? this.grounded() ?? at : at;
+    const r0 = this.placed.rects.get(beside);
     const dir = p.wide && r0 && splitAxis(r0, true) === "col" ? "down" : "right";
-    const where: At<number> = this.inFlow(at) ? { kind: "next", from: at } : { kind: "split", target: at, dir };
+    const where: At<number> = this.inFlow(beside) ? { kind: "next", from: beside } : { kind: "split", target: beside, dir };
     const r = this.ask({ op: "open", tile: this.nextId, kind: "pty", name: p.name, loose: true, at: where }, p.actor);
     if (!r.ok) return false;
     // Never kept in a layout (its program and files go with the door), so its spec is the door's own, never a saved one.

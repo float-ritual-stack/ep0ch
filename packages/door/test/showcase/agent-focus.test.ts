@@ -112,7 +112,12 @@ describe.skipIf(!outliner)("explicit agent focus in the showcase", () => {
     h.app.pop();
   }, 30_000);
 
-  test("in yolo too, an agent's tile.open leaves the person's keys, and one too narrow beside its tile floats, said (PIE-1444)", async () => {
+});
+
+describe.skipIf(!outliner)("an agent's open in the showcase's agent focus section", () => {
+  const h = useShowcaseScreen();
+
+  test("in yolo too, an agent's tile.open leaves the person's keys, and one naming no place that would be too narrow floats, said (PIE-1444)", async () => {
     await h.app.act({ action: "section", args: { name: "agent-focus" }, as: "tester" });
     await until(() => h.screen().includes("@fern"), "the pointer readers");
     await h.app.dispatch.act({ action: "section.try", args: {} }, USER);
@@ -122,10 +127,10 @@ describe.skipIf(!outliner)("explicit agent focus in the showcase", () => {
       expect(h.app.person().yolo).toBe(true);
       const before = h.app.person().focus;
       const layout = await h.app.act({ action: "layout.get", as: "fern" }) as { tiles: { name: string; rect?: { cols: number } }[] };
-      const narrow = Math.floor(layout.tiles.find(t => t.name === "copy")!.rect!.cols / 2) < OPEN_READS.cols;
-      const r = await h.app.act({ action: "tile.open", tile: "copy", args: { kind: "reader", name: "aside" }, as: "fern" }) as { where: string; why?: string };
+      const narrow = Math.floor(layout.tiles.find(t => t.name === "person")!.rect!.cols / 2) < OPEN_READS.cols;
+      const r = await h.app.act({ action: "tile.open", args: { kind: "reader", name: "aside" }, as: "fern" }) as { where: string; why?: string };
       expect(r.where).toBe(narrow ? "float" : "right");
-      if (narrow) expect(r.why).toContain("beside copy it would be");
+      if (narrow) expect(r.why).toContain("beside person it is");
       expect(h.app.person().focus).toBe(before);
       await h.app.act({ action: "tile.close", tile: "aside", as: "fern" });
     } finally { h.app.event({ domain: "agents", action: "agents.yolo", yolo: false, sequence: 2 } as any); }
