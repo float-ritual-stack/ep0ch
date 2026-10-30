@@ -25,5 +25,20 @@ Reading log
 - **Change the form where it's used:** edit the note's chips, and the next run asks the new fields. The action is told
   them too (`input.fields`, in the note's order), so it knows which answers are the note's.
 
+## Where it lands and what the button says
+
+- **The button's words:** `[form-submit::Log it]` on the note; without it the button says Fill in the form.
+- **Under the note:** `[form-into::child]`, or no `form-into` at all: each entry is a child note, its answers as chips.
+- **Under a page:** `[form-into::[[Reading log]]]` (or a `((block))`) writes each entry under that note instead.
+- **A line in the note:** `[form-into::inline]` adds a line at the end of the form's own note; no child is made.
+- **The line's shape:** `[form-line::- {book}: {pages} pages]` fills each `{field}` with its answer; without it the line is `- ` and the answers joined by ` · `.
+- **A target it can't read:** `[form-into::inlne]` or a page nobody has is saved as written and warned on (`did you mean inline?`); the fill refuses, writing nothing.
+
+```text
+Pages read [form-submit::Add it] [form-into::inline] [form-line::- {book}: {pages} pages]
+[form-field::book text required] [form-field::pages number]
+- The Lantern Shed: 212 pages        ← added by Add it
+```
+
 How an action asks for a note's fields: `"fieldsFrom": "block"` in `extension.json` (the contract's
 [declared arguments](../../docs/extensions/README.md)). Install: `outliner ext add form`.

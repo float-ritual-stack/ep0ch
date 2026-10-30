@@ -81,7 +81,7 @@ import { DEEP_LINKS, ONE_COMPLETER, TRAIL_STOPS, trailStopText, backHubText, bac
 import { LIST_FOLDS } from "./seed/list-folds";
 import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
-import { ALMANAC, FORM_READING, FORM_REPAIRS, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
+import { ALMANAC, FORM_READING, FORM_REPAIR_LIST, FORM_REPAIRS, FORM_WATERING, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
 import { HEADINGS, LOOKS_LAB, OLD_LOOK, SPACING_LAB, SINGLE_LIST, STYLE_MIDDLE_LIST, DISPATCH_SKIN } from "./seed/looks";
 import { seedAccess } from "./seed/access";
 import { scriptExamples } from "@ep0ch/outliner/script-examples";
@@ -705,9 +705,12 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
       await Bun.sleep(100);
     }
   }
-  // A form written in each note it's used on (PIE-828): one action, ext.form.fill, asks each note for its own fields.
+  // A form written in each note it's used on (PIE-828): one action, ext.form.fill, asks each note for its own fields;
+  // each lands its entries where it says (PIE-1442): under it, under a page, or as a line in it.
   notes.formReading = await make(notes.root.id, FORM_READING);
   notes.formRepairs = await make(notes.root.id, FORM_REPAIRS);
+  notes.formRepairList = await make(notes.root.id, FORM_REPAIR_LIST);
+  notes.formWatering = await make(notes.root.id, FORM_WATERING);
   // The gallery (PIE-827): its cards first, so the line's first run draws them.
   // Machinery (PIE-867): one question asked twice, of what people wrote and of what tools stamped for their own bookkeeping.
   const MACHINERY_QUERY = "[query::type=chore OR type=toss OR type=backup-run OR type=file-touch OR notify.key]";

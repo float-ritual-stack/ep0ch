@@ -1101,13 +1101,13 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "forms", need: "enter data through a form written in the note it's for: one action, each note its own fields",
-    part: "the action's arguments (PIE-784) from the note (PIE-828): an action with fieldsFrom: block asks for the [form-field::<name> <type> …] chips of the block it runs on (outline-core's form-fields.ts reads them; the service checks the answers as declared arguments, extensions.args lists them on that block); NoteSurface draws one form in place, text and number boxes using the shared Draft editor, choices as radio chips, defaults selected and required warnings kept beside the answers; ext.form.fill submits through the existing action; an agent gives them in with=; a chip that can't be read is saved and warned on, with a did-you-mean",
-    files: "outline-core/src/form-fields.ts, outliner src/extension-calls.ts (argsOn), src/surface/note-form.ts, src/surface/note.ts, src/extensions.ts (askingFirst)",
-    aside: "the outliner's example Form extension: click a box to type, or use [ ] then Enter to enter the form; Tab/shift+Tab moves between fields, left/right chooses a radio chip, Enter or the button submits, Esc leaves with answers kept; each entry lands under its note with its answers as properties · change a note's [form-field::] chips and the next run asks the new form · an agent: act ext.form.fill block=<id> with='{\"part\":\"roof\",\"what\":\"a slipped tile\"}'",
+    key: "forms", need: "enter data through a form written in the note it's for: one action, each note its own fields, its own button and where each entry lands",
+    part: "the action's arguments (PIE-784) from the note (PIE-828): an action with fieldsFrom: block asks for the [form-field::<name> <type> …] chips of the block it runs on (outline-core's form-fields.ts reads them; the service checks the answers as declared arguments, extensions.args lists them on that block); NoteSurface draws one form in place, text and number boxes using the shared Draft editor, choices as radio chips, defaults selected and required warnings kept beside the answers; ext.form.fill submits through the existing action; an agent gives them in with=; a chip that can't be read is saved and warned on, with a did-you-mean; the note's [form-submit::…] names the button and [form-into::…] where each entry lands (PIE-1442: outline-core's formSettings reads them, the service's formOf finds a [[page]] and tells the action, the extension writes a child there or adds the note's [form-line::…] to it)",
+    files: "outline-core/src/form-fields.ts (formSettings), outliner src/extension-calls.ts (argsOn, formOf), extensions/form/form.ts, src/surface/note-form.ts, src/surface/note.ts, src/extensions.ts (askingFirst)",
+    aside: "the outliner's example Form extension: click a box to type, or use [ ] then Enter to enter the form; Tab/shift+Tab moves between fields, left/right chooses a radio chip, Enter or the button submits, Esc leaves with answers kept; left: Log it writes each book under the note · middle: Report it writes each report under [[Repair list]] · right: Add it adds a line to the note itself · change a note's [form-field::] chips and the next run asks the new form · an agent: act ext.form.fill block=<id> with='{\"part\":\"roof\",\"what\":\"a slipped tile\"}'",
     stage(n, show) {
-      const reading = new ReaderPane(), repairs = new ReaderPane();
-      return deskOf({ title: "showcase · forms", panes: [reading, repairs], layout: ([a, b]) => row(0.5, a!, b!) }, show, [[reading, n.formReading], [repairs, n.formRepairs]]);
+      const reading = new ReaderPane(), repairs = new ReaderPane(), watering = new ReaderPane();
+      return deskOf({ title: "showcase · forms", panes: [reading, repairs, watering], layout: ([a, b, c]) => pair("row", 0.67, row(0.5, a!, b!), leaf(c!)) }, show, [[reading, n.formReading], [repairs, n.formRepairs], [watering, n.formWatering]]);
     },
   },
   {

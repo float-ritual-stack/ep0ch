@@ -3,19 +3,34 @@ import { type SocketBoard } from "../../socket";
 import { installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } from "../tickets/install";
 import { SEED } from "./names";
 
-/** Two notes with different forms (PIE-828): each says its own fields; the Form extension's one action asks for them. */
+/**
+ * Three notes with different forms (PIE-828), each landing its entries somewhere else (PIE-1442): each says its own
+ * fields, its button's words and where an entry lands; the Form extension's one action asks for them.
+ */
 export const FORM_READING = [
-  SEED.formReading,
+  `${SEED.formReading} [form-submit::Log it]`,
   "What the plot's book club read over the winter. Fill in the form below and each book lands under this note with its answers as properties.",
   "",
   "[form-field::book text required] [form-field::pages number] [form-field::mood choice gripping|slow|abandoned default=slow]",
 ].join("\n");
 
 export const FORM_REPAIRS = [
-  SEED.formRepairs,
-  "The same action, another form: this note asks which part, what's wrong and whether it's urgent.",
+  `${SEED.formRepairs} [form-submit::Report it] [form-into::[[${SEED.formRepairList}]]]`,
+  `The same action, another form: this note asks which part, what's wrong and whether it's urgent, and each report lands under [[${SEED.formRepairList}]].`,
   "",
   "[form-field::part choice door|roof|window|gutter required] [form-field::what text required] [form-field::urgent choice yes|no default=no]",
+].join("\n");
+
+/** The page the repairs form's reports land under. */
+export const FORM_REPAIR_LIST = `${SEED.formRepairList} [page::${SEED.formRepairList}]\nEvery report from [[${SEED.formRepairs}]] lands here.`;
+
+export const FORM_WATERING = [
+  `${SEED.formWatering} [form-submit::Add it] [form-into::inline] [form-line::- {bed}: {litres} l]`,
+  "A third: no notes made, each answer a line added below.",
+  "",
+  "[form-field::bed choice beans|leeks|squash required] [form-field::litres number required]",
+  "",
+  "- beans: 6 l",
 ].join("\n");
 
 /**

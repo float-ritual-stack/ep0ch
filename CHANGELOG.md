@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A form names its button and where each entry lands (PIE-1442)
+
+- **The button says your words:** `[form-submit::Log it]` on a form's note, and the door draws Log it where it drew Fill in the form.
+- **Where an entry lands:** `[form-into::child]` (still the default), `[form-into::[[Reading log]]]` to write it under that page, or `[form-into::inline]` to add a line to the form's own note.
+- **An inline line's shape:** `[form-line::- {book}: {pages} pages]`; without it the line is the answers joined by ` · `.
+- **Said under the button:** "each entry lands under this note", "under [[Repair list]]" or "is a line added to this note".
+- **A typo saves and says so:** `[form-into::inlne]` or a page nobody has is warned on with a did-you-mean; the fill refuses and writes nothing.
+- **Run:** `ep0ch install --apply` (GRAMMAR 14: an older door draws Fill in the form and keeps working); the form extension is version 2.
+
 ### Open a note as it was at a revision, beside how it is now (PIE-1433)
 
 - **From Jev's suggestions:** a row opens its note with the revision the review read beside it, marked against the next one (`-` was there, `+` came next).

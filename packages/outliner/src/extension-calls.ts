@@ -28,7 +28,8 @@ import type { ExtensionActionEntry, ExtensionRegistry } from "./extension-regist
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { textRecord } from "./block-records";
-import { FORM_FIELD_KEY, formFields } from "@ep0ch/outline-core/form-fields";
+import { titleWords } from "@ep0ch/outline-core/header-line";
+import { FORM_FIELD_KEY, formFields, formSettings } from "@ep0ch/outline-core/form-fields";
 import type { ResourceProjection } from "./resource-projection";
 import type { ExtensionCallFor, ResourceExtensionRuntime } from "./resource-extensions";
 import type { ExtensionOutputRow, OutlinerStore } from "./store";
@@ -1400,6 +1401,8 @@ export class ExtensionCalls {
     if (!action) throw new Error(`No action ${actionId} in ${extensionId} here (outliner ext ls lists them)`);
     const block = blockId ? this.store.get(blockId) : null;
     if (blockId && (!block || block.effectiveDeletedRootId)) throw new Error(`Block not found: ${blockId}`);
+    // A form whose entries can't land is refused before it is asked (PIE-1442), with the words the fill would use.
+    this.formOf(action, block);
     return { extension: extensionId, action: action.id, args: this.argsOn(action, block).map((arg) => {
       const choices = this.choicesFor(arg, block);
       const value = this.defaultOf(arg, block);
@@ -1424,10 +1427,33 @@ export class ExtensionCalls {
     return [...declared, ...fields.map((field) => ({ ...field, fromBlock: true as const }))];
   }
 
-  /** The note's form as the action is told it (`fields`, in the note's order): which of its `args` are the note's own. */
-  private formOf(action: ExtensionActionEntry, block: Block | null): { fields?: ExtensionActionArg[] } {
+  /**
+   * The note's form as the action is told it: `fields` (in the note's order, which of its `args` are the note's own),
+   * and `form` (PIE-1442): its button's words, where an entry lands (`into`, a page or block resolved to its id; an
+   * inline one with the note's whole text, to add its line to) and an inline entry's `line`. A target it can't read,
+   * or a page nobody has, is refused here with what it may have meant; the note itself was saved as written.
+   */
+  private formOf(action: ExtensionActionEntry, block: Block | null): { fields?: ExtensionActionArg[]; form?: Record<string, unknown> } {
     if (action.fieldsFrom !== "block") return {};
-    return { fields: this.argsOn(action, block).filter((arg) => arg.fromBlock).map(({ fromBlock: _, ...field }) => field) };
+    const fields = this.argsOn(action, block).filter((arg) => arg.fromBlock).map(({ fromBlock: _, ...field }) => field);
+    const { settings, problems } = formSettings(parsePropertyRecords(block!.text), fields);
+    if (problems.length) throw new Error(`${action.name}: the note's form can't be read: ${problems.map((problem) => problem.message).join(" · ")}`);
+    const { into } = settings;
+    let landing: Record<string, unknown> = { kind: into.kind, blockId: block!.id, title: titleWords(block!.text) };
+    if (into.kind === "inline") landing = { ...landing, revision: block!.revision, text: block!.text };
+    else if (into.kind === "page") {
+      const found = this.store.resolvePageAddress(into.address);
+      if (found.status !== "resolved" || !found.block) {
+        const near = this.store.rankPageAddresses(into.address, 1).addresses[0];
+        throw new Error(`${action.name}: the note's entries land under [[${into.address}]], and there is no page [[${into.address}]]${found.status === "deleted" ? " (it is in the Trash)" : ""}${near ? `; did you mean [[${near.address}]]?` : ""} Fix [form-into::…], or make the page first`);
+      }
+      landing = { kind: "page", blockId: found.block.id, title: into.address };
+    } else if (into.kind === "block") {
+      const target = this.store.get(into.id);
+      if (!target || target.effectiveDeletedRootId) throw new Error(`${action.name}: the note's entries land under ((${into.id})), and that note is gone or in the Trash; fix [form-into::…]`);
+      landing = { kind: "block", blockId: target.id, title: titleWords(target.text) };
+    }
+    return { fields, form: { ...(settings.submit ? { submit: settings.submit } : {}), into: landing, ...(settings.line !== undefined ? { line: settings.line } : {}) } };
   }
 
   /** What may be chosen for an argument: a choice's options; a property's fixed options, then the keys `from` has. */

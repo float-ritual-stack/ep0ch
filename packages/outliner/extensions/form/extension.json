@@ -1,7 +1,7 @@
 {
   "contract": 2,
   "id": "form",
-  "version": 1,
+  "version": 2,
   "name": "Form",
   "description": "A form written in the note it's used on: [form-field::…] chips say its fields, and one action asks for them and writes an entry under the note with its answers as properties.",
   "run": ["bun", "form.ts"],

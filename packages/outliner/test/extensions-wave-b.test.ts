@@ -587,3 +587,39 @@ test("an extension of your own that isn't a built-in's copy carries no built-in 
   const listed = await list(true);
   expect(listed.extensions.find(e => e.id === "garden")!.builtIn).toBeUndefined();
 });
+
+test("a form says where each entry lands: under it, under a page, or as a line in it (PIE-1442)", async () => {
+  const { create, store, list, client } = await setup({ install: ["form"] });
+  await list(true);
+  const fill = (blockId: string, args: Record<string, string>) =>
+    client.request<{ written: string[]; message?: string }>({ action: "extensions.act", extension: "form", extensionAction: "fill", blockId, args, mutation: PERSON });
+  const live = (id: string) => store.children(id).filter((child) => !child.effectiveDeletedRootId).map((child) => child.text);
+  const fields = "[form-field::book text required] [form-field::pages number]";
+
+  const child = await create(`Reading log [form-submit::Log it]\n${fields}`);
+  await fill(child.id, { book: "Moss", pages: "90" });
+  expect(live(child.id)).toEqual(["Moss [book::Moss] [pages::90]"]);
+
+  const shelf = await create("Shelf [page::Shelf]");
+  const paged = await create(`Book form [form-into::[[Shelf]]]\n${fields}`);
+  expect((await fill(paged.id, { book: "Tide", pages: "12" })).message).toContain("Shelf");
+  expect(live(paged.id)).toEqual([]);
+  expect(live(shelf.id)).toEqual(["Tide [book::Tide] [pages::12]"]);
+
+  const inline = await create(`Pages read [form-into::inline] [form-line::{book}: {pages} pages]\n${fields}\nSo far:`);
+  await fill(inline.id, { book: "Lantern", pages: "40" });
+  await fill(inline.id, { book: "Fern" });
+  expect(store.get(inline.id)!.text).toBe(`Pages read [form-into::inline] [form-line::{book}: {pages} pages]\n${fields}\nSo far:\nLantern: 40 pages\nFern:  pages`);
+  expect(live(inline.id)).toEqual([]);
+  const plain = await create(`Quick log [form-into::inline]\n${fields}`);
+  await fill(plain.id, { book: "Moss", pages: "3" });
+  expect(store.get(plain.id)!.text.split("\n").at(-1)).toBe("- Moss · 3");
+
+  // A page nobody has yet, or a target it can't read: saved as written, and the fill refuses with what it may have meant, writing nothing.
+  const typo = await create(`Typo log [form-into::[[Shelff]]]\n${fields}`);
+  await expect(fill(typo.id, { book: "Moss" })).rejects.toThrow(/no page \[\[Shelff\]\].*did you mean \[\[Shelf\]\]\?/);
+  const word = await create(`Word log [form-into::inlne]\n${fields}`);
+  expect(store.get(word.id)!.text).toContain("[form-into::inlne]");
+  await expect(fill(word.id, { book: "Moss" })).rejects.toThrow(/did you mean inline\?/);
+  expect([...live(typo.id), ...live(word.id), ...live(shelf.id).slice(1)]).toEqual([]);
+});

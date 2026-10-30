@@ -179,6 +179,9 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await until(() => screen().includes("book *"), "the reading log's labelled form", 3000);
     expect(screen()).not.toContain("[form-field::");
     expect(screen()).toContain("(*) slow");
+    // Each note names its button and says where an entry lands (PIE-1442).
+    for (const said of ["Log it", "Report it", "Add it", "lands under this note", "lands under [[Repair list]]", "a line added to this note"]) expect(screen()).toContain(said);
+    expect(screen()).not.toContain("Fill in the form │");
     const click = (text: string, offset = 1) => {
       const rows = screen().split("\n"), right = rows.find(row => row.includes("2 Shed repairs"))!.indexOf("2 Shed repairs");
       const y = rows.findIndex(row => row.includes(text) && row.indexOf(text) < right);
@@ -220,7 +223,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await until(() => screen().includes("(*) slow"), "clicked slow radio");
     click("( ) gripping");
     await until(() => screen().includes("(*) gripping"), "clicked gripping radio");
-    click("Fill in the form │");
+    click("Log it │");
     const reading = seeded.notes.formReading.id;
     await untilAsync(async () => (await board.children(reading)).some(m => m.text === "Piranesi [book::Piranesi] [pages::272] [mood::gripping]"), "the clicked form's child").catch(async e => { throw new Error(`${e.message}\n${JSON.stringify(await board.children(reading))}\n${screen()}`); });
     await app.act({ action: "form.set", tile: "reader", args: { field: "book", value: "The Dispossessed" }, as: "user" });
@@ -405,7 +408,14 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     // The repairs note asks for other fields; an agent gives them at once and is never asked, its default filled in.
     await expect(app.act({ action: "ext.form.fill", args: { block: repairs.id, with: JSON.stringify({ part: "roof" }) }, as: "test-agent" })).rejects.toThrow(/needs what=.*with=/);
     await app.act({ action: "ext.form.fill", args: { block: repairs.id, with: JSON.stringify({ part: "roof", what: "a slipped tile over the bench" }) }, as: "test-agent" });
-    expect(await kids(repairs.id)).toEqual(["a slipped tile over the bench [part::roof] [what::a slipped tile over the bench] [urgent::no]"]);
+    // The repairs note says its reports land under [[Repair list]] (PIE-1442): none under the form.
+    expect(await kids(repairs.id)).toEqual([]);
+    expect(await kids(seeded.notes.formRepairList.id)).toEqual(["a slipped tile over the bench [part::roof] [what::a slipped tile over the bench] [urgent::no]"]);
+    // The watering log adds a line to itself, from its [form-line::…].
+    const watering = seeded.notes.formWatering;
+    await app.act({ action: "ext.form.fill", args: { block: watering.id, with: JSON.stringify({ bed: "leeks", litres: "4" }) }, as: "test-agent" });
+    expect((await board.get(watering.id))!.text.split("\n").slice(-2)).toEqual(["- beans: 6 l", "- leeks: 4 l"]);
+    expect(await kids(watering.id)).toEqual([]);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 

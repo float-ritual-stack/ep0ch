@@ -1206,6 +1206,12 @@ actions yet; `r` is its path today.
   refuses with the same words, as it does a field named like a declared argument, or a note with no form and no
   declared arguments. The door asks for every field the person didn't give (a text or number typed, an optional one left
   empty); an agent gives them in `with=` as JSON. The example is `extensions/form` (`Fill in the form`).
+  The note also says its button and where an entry lands (PIE-1442): `[form-submit::Log it]` is the button's words
+  where the door draws the form, and `[form-into::…]` is `child` (the default), `inline`, a `[[page]]` or a
+  `((block))`, with `[form-line::{book} · {pages} pages]` the line an `inline` entry adds. The service tells the action
+  them as `input.form`: `{ submit?, into: { kind, blockId, title, revision?, text? }, line? }`, a page found to its
+  block and an inline target with the note's whole text and revision. A target it can't read, or a page nobody has, is
+  saved as written, warned on with a did-you-mean, and refused when the action runs, writing nothing.
 
   ```json
   { "id": "sort-blocks", "label": "Sort the children", "on": "block", "effects": "write", "args": [

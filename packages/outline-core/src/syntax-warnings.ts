@@ -10,7 +10,7 @@ import { LINK_BLOCK_KINDS } from "./link-blocks";
 import { pageLinkSpans } from "./link-syntax";
 import { offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges } from "./code-ranges";
 import { isEscapedAt, PROPERTY_KEY_SOURCE, propertyTokenMatches } from "./property-grammar";
-import { formFieldChipProblems } from "./form-fields";
+import { formFieldChipProblems, formSettingChipProblems } from "./form-fields";
 import { USE_NAME, useCallsOf } from "./template-use";
 import { BUTTON_NAME, buttonCallsOf } from "./button-call";
 import { graphKind, propsWithoutRules } from "./figure-props";
@@ -95,7 +95,7 @@ export function syntaxWarnings(text: string): SyntaxWarning[] {
   for (const call of useCallsOf(text)) if (call.problem) out.push({ kind: "component", line: call.line, message: `the ::use on line ${call.line + 1} names no template: ${call.problem.replace(/^::use needs /, "write ")}` });
 
   // A form's field chip that can't be read (PIE-828): saved as written, its action says the same when it runs.
-  for (const { start, problem } of formFieldChipProblems(text)) {
+  for (const { start, problem } of [...formFieldChipProblems(text), ...formSettingChipProblems(text)]) {
     const line = lineOf(start);
     out.push({ kind: "form-field", line, message: `${problem.message} (line ${line + 1})` });
   }
