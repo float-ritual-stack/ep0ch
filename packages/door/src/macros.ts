@@ -16,7 +16,8 @@ export class MacroRecording {
     if (this.saving) throw new ActionRefused("The previous recording is saving; keep working, then macro.record starts the next one");
     if (this.recording) throw new ActionRefused("Already recording; macro.stop saves it first");
     this.recording = { name, near, steps: [] };
-    return { recording: name ?? "unnamed" };
+    // Unnamed, the name comes when it stops (macro.stop answers it as `script`).
+    return name ? { recording: name } : {};
   }
 
   run(req: ActRequest, replay: Replay, work: () => unknown): unknown {
@@ -48,14 +49,14 @@ export class MacroRecording {
     // Its day and second keep two recordings of the same first action apart (a script name binds one script).
     const at = new Date(), two = (n: number) => String(n).padStart(2, "0");
     const when = `${at.toLocaleString("en", { month: "short" }).toLowerCase()}${at.getDate()}-${two(at.getHours())}${two(at.getMinutes())}${two(at.getSeconds())}`;
-    const name = recording.name ?? `recorded-${(actions[0] ?? "nothing").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${when}`;
-    const title = recording.name ?? `Recorded: ${actions.slice(0, 3).join(", ")}${actions.length > 3 ? ` and ${actions.length - 3} more` : ""}`;
+    const name = recording.name ?? `recorded-${(actions[0] ?? "nothing").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase()}-${when}`;
+    const title = recording.name ?? (actions.length ? `Recorded: ${actions.slice(0, 3).join(", ")}${actions.length > 3 ? ` and ${actions.length - 3} more` : ""}` : "Recorded: nothing yet");
     const fence = "`".repeat(Math.max(3, ...[...body.matchAll(/`+/g)].map(m => m[0].length + 1)));
     const text = `${title} [script::${name}] [effects::write]\n${replay}\n\n${fence}actions\n${body}\n${fence}`;
     try {
       const saved = await ctx.board.newNote(text, recording.near, USER);
       ctx.flash(`Saved ${name} · ${lines.length} actions · ((${saved.note.id})) · run it from ^K`);
-      return { block: saved.note.id, actions: lines.length };
+      return { block: saved.note.id, actions: lines.length, script: name };
     } catch (error) {
       this.recording = recording;
       throw error;

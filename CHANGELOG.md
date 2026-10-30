@@ -16,7 +16,7 @@ are its record. The outliner's entries from then are kept below, under
 - **One line each, in plain words:** every extension's description (the hub, its page, the `&` list, the install preview) says what you get, not what kind of part it is.
 - **A page can't ship as a wall:** a test runs the write review's code rubric (walls, stacked bullets, long titles, prose alone) over every bundled page as the host writes it.
 - **Settings on a page:** one line per setting with its default, under a lead saying where to change them.
-- **The `&` list is one row per extension:** a row says its settings only when they need you (needs setup, failing); its preview says them in words, and `settings <name>` typed finds its form. The separate settings list is gone.
+- **The `&` list is one row per extension:** a row says its settings only when they need you (needs setup, failing), with a settings row for just those; every preview says them in words, and `settings <id>` typed finds any form.
 - **A recording gets a real name:** unnamed, it's named after what it did (`recorded-note-open-oct29-151402`, titled "Recorded: note.open, …"), never `recording-<timestamp>`.
 - **Run:** `ep0ch install --apply`; pages are written again on the next reload. A recording saved before keeps its old name: rename its note.
 

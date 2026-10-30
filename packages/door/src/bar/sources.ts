@@ -30,7 +30,7 @@ import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
 import { extensionList, extensionParts, PART_KINDS, partKind, scriptActions, type ExtensionEntry, type ExtensionList } from "../extensions";
 import { openActionForm } from "./form";
-import { settingsChip, settingsMarkdown, settingsNeedYou, shownValue } from "../extension-settings";
+import { settingsChip, settingsMarkdown, settingsNeedYou, settingsWords, shownValue } from "../extension-settings";
 
 /** The arguments action `name` declares, as the door lists it now. */
 const actionArgs = (host: BarHost, name: string) => host.dispatch.list().actions.find(a => a.name === name)?.args ?? {};
@@ -482,17 +482,13 @@ function summaryOf(e: ExtensionEntry, l: ExtensionList): string {
   return part ? `${partKind(part.kind)} ${part.name}${part.about ? ` · ${firstSentence(part.about)}` : ""}` : "";
 }
 
-/** Its settings in a sentence for its preview: their state, and how to change them. */
-const settingsWords = (name: string, s: NonNullable<ExtensionEntry["settings"]>) =>
-  `Settings: ${s.state === "failing" ? "failing" : s.state === "missing" ? "it needs setting up first" : s.state === "set" ? "set by you" : "it runs on its defaults"}. Type \`settings ${name}\` here for its form.`;
-
 /** An installed extension as its preview reads it: its id and version, its state and settings, where it lives, its words, what it adds. */
 function extensionFacts(e: ExtensionEntry, then: string): string {
   const parts = extensionParts(e), override = e.builtIn && overrideWords(e.id, e.builtIn);
   return [
     `**${e.name ?? e.id}** \`${e.id}\`${e.version !== undefined ? ` v${e.version}` : ""} · ${e.state}`,
     ...(e.error ? ["", `> [!warning] ${e.error}`] : []), ...(e.script && e.summary ? ["", e.summary] : []), "", e.description ?? "",
-    ...(e.settings ? ["", settingsWords(e.name ?? e.id, e.settings)] : []),
+    ...(e.settings ? ["", settingsWords(e.id, e.settings)] : []),
     ...(parts.length ? ["", "It adds:", ...parts.map(p => `- ${partKind(p.kind)} **${p.name}**${p.about ? ` · ${p.about}` : ""}`)] : []),
     ...(e.directory ? ["", `\`${e.directory}\``] : []),
     // A copy of a built-in (PIE-1283): this copy runs, the built-in never does in place; both folders said.
@@ -527,9 +523,10 @@ const EXTENSIONS: BarSource = {
       const these = installed.filter(e => kindOf(e) === kind);
       for (const e of these) rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [e.state === "active" ? "" : e.state, e.builtIn ? overrideWords(e.id, e.builtIn) : "", settingsNeedYou(e.settings) ? settingsChip(e.settings!) : "", summaryOf(e, l)].filter(Boolean).join(" · "), group: `installed · ${kind} · ${these.length}`, chip: partKind(kind), oneLine: true, ...(l.pages?.[e.id] ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(l.pages?.[e.id] ? { block: l.pages[e.id] } : {}), about: e.description } satisfies ExtRow });
     }
-    // Its settings (PIE-1343): a row each once something is typed (`settings tidy`), as removing is; the list itself is one
-    // row per extension, its preview saying its settings in words. ⏎ opens the form its configSchema draws.
-    if (q.trim()) for (const e of installed.filter(e => e.settings)) rows.push({ key: `settings:${e.id}`, label: `settings ${e.name ?? e.id}`, detail: settingsChip(e.settings!), oneLine: true, data: { kind: "settings", id: e.id } satisfies ExtRow });
+    // Its settings (PIE-1343): ⏎ opens the form its configSchema draws. Listed only where they need you (needs setup,
+    // failing) until something is typed (`settings tidy`), as removing is: the rest are in each one's preview, in words.
+    const needing = installed.filter(e => settingsNeedYou(e.settings));
+    for (const e of q.trim() ? installed.filter(e => e.settings) : needing) rows.push({ key: `settings:${e.id}`, label: `settings ${e.name ?? e.id}`, detail: settingsChip(e.settings!), ...(q.trim() ? {} : { group: `settings that need you · ${needing.length}` }), oneLine: true, data: { kind: "settings", id: e.id } satisfies ExtRow });
     for (const a of l.available ?? []) rows.push({ key: `install:${a.id}`, label: `install ${a.name}`, detail: firstSentence(a.description), group: `not installed · ${l.available!.length}`, oneLine: true, data: { kind: "install", id: a.id, about: a.description, scripts: a.scripts } satisfies ExtRow });
     // Removing one is offered once its name is typed, both ways, so the demo notes never go by a stray ⏎.
     if (q.trim()) for (const e of installed) {

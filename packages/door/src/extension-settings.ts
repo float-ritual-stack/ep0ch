@@ -102,6 +102,10 @@ export function settingsChip(s: ExtensionSettings): string {
   return s.state === "set" ? "set" : "its defaults";
 }
 
+/** Its settings in a sentence for an extension's preview: their state in the chip's words, and where its form is (by id, as `ext.<id>.settings` names it). */
+export const settingsWords = (id: string, s: ExtensionSettings): string =>
+  `Settings: ${settingsChip(s)}${s.error ? ` (${s.error.replace(/\s+/g, " ")})` : ""}. Type \`settings ${id}\` here for its form.`;
+
 /** Whether a row should say anything of its settings: only when they need the person (setup, a failure). */
 export const settingsNeedYou = (s: ExtensionSettings | undefined): boolean => s?.state === "failing" || s?.state === "missing";
 

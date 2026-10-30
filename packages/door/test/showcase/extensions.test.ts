@@ -99,7 +99,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     // Each kind's group sits under installed and says its count; then what the repo has that isn't. Settings aren't a
     // second list of the installed ones: an extension's row says them only when they need you, its preview in words.
     expect(groups.filter(g => KIND.test(g)).length).toBeGreaterThan(1);
-    expect(groups.some(g => g.startsWith("settings"))).toBe(false);
+    expect(groups.filter(g => g.startsWith("settings")).every(g => /^settings that need you · \d+$/.test(g))).toBe(true);
     for (const r of rows.rows) expect(r.detail ?? "").not.toMatch(/default settings|settings set|default: /);
     expect(groups.findIndex(g => g.startsWith("not installed"))).toBeGreaterThan(groups.findIndex(g => KIND.test(g)));
     expect(rows.rows.find(r => r.label === "Extensions")?.detail).toMatch(/\d+ of \d+ installed/);

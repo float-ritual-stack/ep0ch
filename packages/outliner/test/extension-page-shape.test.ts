@@ -22,6 +22,12 @@ test("every bundled extension's page reads in ten seconds: no wall, no stacked b
   const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
   process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
   process.env.OUTLINER_RESOURCE_EXTENSIONS = join(root, "no-legacy-registry.json");
+  cleanups.push(() => {
+    for (const [key, value] of [["OUTLINER_EXTENSIONS_DIR", previous.dir], ["OUTLINER_RESOURCE_EXTENSIONS", previous.registry]] as const) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    rmSync(root, { recursive: true, force: true });
+  });
   const outline = join(root, "outline");
   mkdirSync(join(outline, "extensions"), { recursive: true });
   const ids = readdirSync(BUNDLED, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
@@ -31,13 +37,7 @@ test("every bundled extension's page reads in ten seconds: no wall, no stacked b
   const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, stateDirectory: join(root, "state"), scheduleTickMs: 3_600_000 });
   server.setOutline({ name: "shape-scratch" });
   await server.start();
-  cleanups.push(async () => {
-    await server.close(); store.close();
-    for (const [key, value] of [["OUTLINER_EXTENSIONS_DIR", previous.dir], ["OUTLINER_RESOURCE_EXTENSIONS", previous.registry]] as const) {
-      if (value === undefined) delete process.env[key]; else process.env[key] = value;
-    }
-    rmSync(root, { recursive: true, force: true });
-  });
+  cleanups.push(async () => { await server.close(); store.close(); });
   const client = new OutlinerClient(socket, 20_000);
   const listed = await client.request<{ pages: Record<string, string> }>({ action: "extensions.list", reload: true });
   // Every bundled folder has a page (the outline's own script notes may add more, which aren't held here).
