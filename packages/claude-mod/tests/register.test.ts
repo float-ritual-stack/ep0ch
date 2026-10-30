@@ -66,6 +66,13 @@ function sessionIn(
     return Box({ key: 'engine-prompt', children: Text({ children: e.props.text }) })
   })
   on('session.id', () => ({ value: 'session-1' }))
+  // The engine takes the mod's tools, unless a test sets `refuse` to the engine's refusal (a one-shot session).
+  const registered: string[] = []
+  const tools = { refuse: null as string | null }
+  on('tool.register', ($, e) => {
+    registered.push(e.name)
+    return tools.refuse ? { deny: `"${e.name}" refused: ${tools.refuse}` } : { value: { tool: `mcp__ep0ch__${e.name}` } }
+  })
   on('session.cwd', () => ({ value: typeof cwd === 'function' ? cwd() : cwd }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('process.run', async ($, e) => {
@@ -95,7 +102,7 @@ function sessionIn(
   }
   /** The runs after the session's workspace was found: its Herdr discovery is dropped. */
   const delivered = () => runs.slice(1)
-  return { runs, bindings, toasts, clock, begin, delivered }
+  return { runs, bindings, toasts, clock, begin, delivered, registered, tools }
 }
 
 const START = { surface: 'terminal', isInteractive: true, cwd: WORKSPACE } as const
@@ -134,15 +141,39 @@ function succeeding(run: Run): ProcessRunResult {
 
 describe('register', () => {
   // Evan's laptop, Oct 26: tidy's answer command (`claude -p --tools ""`) warned "session.start hook skipped: threw …
-  // $.tool.register: "show" refused: this session has no built-in tools". A tool-less one-shot gets nothing from the mod.
-  test('a non-interactive session with no tools registers no tools and runs no ep0ch', async ($, on) => {
+  // $.tool.register: "show" refused: this session has no built-in tools". A one-shot that takes no plugin tools
+  // (`--bare` refuses them the same way) gets nothing from the mod: no ep0ch run, no context.
+  test('a --bare session refuses the first tool: nothing more is registered, no ep0ch runs, no context, no mention', async ($, on) => {
     const session = sessionIn(on, WORKSPACE, succeeding)
-    const registered: string[] = []
-    on('tool.register', ($, e) => { registered.push(e.name); return { value: { tool: `mcp__ep0ch__${e.name}` } } })
-    await session.begin(() => $.session.start({ surface: null, isInteractive: false, cwd: WORKSPACE }))
+    session.tools.refuse = 'this session runs with --bare, which takes tools from the plugins its command line names and from no built-in one'
+    on('prompt.context', ($, e) => ({ blocks: e.blocks }))
+    await $.session.start({ surface: null, isInteractive: false, cwd: WORKSPACE })
+    const { blocks } = await $.prompt.context({ blocks: [] })
+    // Its answer is the caller's (tidy's rewrite), never a mention.
+    await $.turn.complete(ANSWER)
     await session.clock.settle()
-    expect(registered).toEqual([])
+    expect(session.registered).toEqual(['show'])
+    expect(blocks).toEqual([])
     expect(session.runs).toEqual([])
+    expect(session.bindings).toEqual([])
+  })
+
+  // Evan's laptop, Oct 29: the same command still failed ("answer command exited 1 … session.start hook skipped:
+  // threw ep0ch: $.tool.register: \"show\" refused"). Its MCP servers' tools were listed, so the session looked like
+  // it had tools; only the registration says it takes none from plugins. The refusal ends the mod's start, quietly.
+  test('a session that refuses plugin tools while listing MCP ones starts clean and runs no ep0ch', async ($, on) => {
+    const session = sessionIn(on, WORKSPACE, succeeding)
+    on('tool.list', () => ({ value: [{ name: 'mcp__slack__send_message' }] }))
+    session.tools.refuse = 'this session has no built-in tools (--tools ""), so it takes none from plugins'
+    on('prompt.context', ($, e) => ({ blocks: e.blocks }))
+    await $.session.start({ surface: null, isInteractive: false, cwd: WORKSPACE })
+    // Only a start that ended cleanly leaves the first prompt alone: one that threw would still make its context.
+    const { blocks } = await $.prompt.context({ blocks: [] })
+    await session.clock.settle()
+    expect(blocks).toEqual([])
+    expect(session.registered).toEqual(['show'])
+    expect(session.runs).toEqual([])
+    expect(session.bindings).toEqual([])
   })
 
   test('a bound folder: the answer is ingested into its outline after the turn', async ($, on) => {
@@ -257,7 +288,6 @@ describe('register', () => {
     {
       const cwd = WORKSPACE
       const session = sessionIn(on, cwd, succeeding, `${WORKSPACE}-listed`)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start({ ...START, cwd }))
       await $.turn.complete(ANSWER)
       await session.clock.settle()
@@ -621,7 +651,6 @@ describe('register', () => {
       opened = true
       return result(0, answer, '')
     })
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See PIE-7.')
 
@@ -637,7 +666,6 @@ describe('register', () => {
 
   test('the show tool puts a reference in the Outliner Detail beside Claude and reports it', async ($, on) => {
     const session = sessionIn(on, WORKSPACE, succeeding)
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start(START))
 
     const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
@@ -665,8 +693,7 @@ describe('register', () => {
 
     test('the door tools are offered, and act on the door `ep0ch where` found, in the session\'s folder', async ($, on) => {
       const session = sessionIn(on, WORKSPACE, answering(FOLDER), '', STALE)
-      const registered: string[] = []
-      on('tool.register', ($, e) => { registered.push(e.name); return { value: { tool: `mcp__ep0ch__${e.name}` } } })
+      const { registered } = session
       await session.begin(() => $.session.start(START))
       expect(registered).toEqual(expect.arrayContaining(['door_where', 'door_peek', 'door_act', 'door_open']))
 
@@ -679,8 +706,7 @@ describe('register', () => {
 
     test('with no door running the tools are not offered, and a call says why with the command that starts one', async ($, on) => {
       const session = sessionIn(on, WORKSPACE, answering(NONE), '', STALE)
-      const registered: string[] = []
-      on('tool.register', ($, e) => { registered.push(e.name); return { value: { tool: `mcp__ep0ch__${e.name}` } } })
+      const { registered } = session
       await session.begin(() => $.session.start(START))
       expect(registered.some(name => name.startsWith('door_'))).toBe(false)
       const called = await $.tool.call({ tool: 'mcp__ep0ch__door_peek' })
@@ -705,7 +731,6 @@ describe('register', () => {
     for (const [name, control] of [['a Claude with no EP0CH_CONTROL at all', ''], ['a stale EP0CH_CONTROL', STALE_SOCK]] as const) {
       test(`${name}: the press opens in the door \`ep0ch where\` found, not the mentions pane`, async ($, on) => {
         const session = sessionIn(on, WORKSPACE, answers(FOUND), '', { ...NOT_IN_HERDR, EP0CH_CONTROL: control })
-        on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
         await session.begin(() => $.session.start(START))
         const drawn = await mountReply($, 'See [[Daily notes]].')
         await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
@@ -726,7 +751,6 @@ describe('register', () => {
           if (run.argv[1] === 'act') { asked.push([...run.argv]); return result(0, json, '') }
           return answers(FOUND)(run)
         }, '', { ...NOT_IN_HERDR, EP0CH_CONTROL: '', SSH_CONNECTION: '10.0.0.2 51234 10.0.0.3 22' })
-        on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
         await session.begin(() => $.session.start(START))
         const drawn = await mountReply($, 'See [[Daily notes]].')
         await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
@@ -745,7 +769,6 @@ describe('register', () => {
         if (run.argv[1] === 'act') { asked.push([...run.argv]); return result(0, '{"tile":"t-0e6c7a52-3f1d-4b8e-9c2a-5d7f1e3b9a40","name":"loki","by":"mark"}', '') }
         return answers(FOUND)(run)
       }, '', { ...NOT_IN_HERDR, EP0CH_CONTROL: '' })
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See [[Daily notes]].')
       await drawn.press({ key: 'https://my.ep0ch.sh/pub/o/garden/p/Daily%20notes' })
@@ -762,7 +785,6 @@ describe('register', () => {
 
     test('with no door answering the toast says so, with the command that starts one', async ($, on) => {
       const session = sessionIn(on, WORKSPACE, answers(MISSING), '', { ...NOT_IN_HERDR, EP0CH_CONTROL: STALE_SOCK })
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       on('ui.open', () => ({ value: { isPlaced: false, reason: 'opened unasked under 144 columns (120 now)' } }))
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See [[Daily notes]].')
@@ -891,7 +913,6 @@ describe('register', () => {
       panesIn(on)
       const copied: string[] = []
       on('ui.copy', ($, e) => { copied.push(e.text); return { value: { isCopied: true } } })
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
       const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
       expect(shown).toMatchObject({ result: 'Showing Daily notes in the mentions pane beside this conversation.' })
@@ -940,7 +961,6 @@ describe('register', () => {
     test("no ep0ch with export: the outliner's read, laid out the same way, its links still links", async ($, on) => {
       const session = sessionIn(on, WORKSPACE, answering({ export: false }), '', NOT_IN_HERDR)
       panesIn(on)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
       await $.tool.call({ tool: 'mcp__ep0ch__show', reference: `((${BLOCK}))` })
       await session.clock.settle()
@@ -958,7 +978,6 @@ describe('register', () => {
     test('show opened unasked on a narrow terminal: the pane waits, and show says so', async ($, on) => {
       const session = sessionIn(on, WORKSPACE, answering(), '', NOT_IN_HERDR)
       panesIn(on, false)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
       const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
       expect(shown).toMatchObject({ result: 'Showing Daily notes in the mentions pane beside this conversation (the pane is not on screen yet: opened unasked under 144 columns (120 now)).' })
@@ -967,7 +986,6 @@ describe('register', () => {
     test("a folder bound to no outline: nothing to read it in, so show says so with the command and the ((id)) to copy", async ($, on) => {
       const session = sessionIn(on, '/elsewhere', answering(), '', NOT_IN_HERDR)
       const opened = panesIn(on)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
       const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: `((${BLOCK}))` })
       expect(shown.deny).toBe(`Can't open ${BLOCK} here: this session is not in an ep0ch-door tile, nor in Herdr. Read it with \`ep0ch show ${BLOCK}\`, or copy ((${BLOCK})) to open it in the Outliner.`)
@@ -984,7 +1002,6 @@ describe('register', () => {
       const session = sessionIn(on, WORKSPACE, run =>
         run.argv.includes('door-open') ? result(0, '{"tile":"t-fixture","name":"centre","id":"x"}\n', '') : succeeding(run),
       '', DOOR)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
 
       const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
@@ -1008,7 +1025,6 @@ describe('register', () => {
           ? run.argv.includes('--reader') ? result(1, '', "error: middle has the person's keys; an agent doesn't open there\n") : result(0, '{"tile":"t-fixture","name":"side","id":"x"}\n', '')
           : succeeding(run),
       '', { ...DOOR, EP0CH_TILE: 'claude-gone' })
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
 
       const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
@@ -1023,7 +1039,6 @@ describe('register', () => {
       const session = sessionIn(on, WORKSPACE, run =>
         run.argv.includes('door-open') ? result(0, '{"tile":"t-fixture","name":"centre","id":"x"}\n', '') : succeeding(run),
       '', { ...DOOR, OUTLINER_ACTOR: 'garden-agent', EP0CH_AGENT: 'loki' })
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
       await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
       const opened = doorOpenOf(session.runs)!
@@ -1035,7 +1050,6 @@ describe('register', () => {
       const session = sessionIn(on, WORKSPACE, run =>
         run.argv.includes('door-open') ? result(3, '', 'error: no door at /state/x (ECONNREFUSED)\n') : succeeding(run),
       '', DOOR)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
 
       const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
@@ -1050,7 +1064,6 @@ describe('register', () => {
           ? result(1, '', "error: the menu screen can't open blocks; open the board or desk first\n")
           : succeeding(run),
       '', DOOR)
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
 
       const shown = await $.tool.call({ tool: 'mcp__ep0ch__show', reference: '[[Daily notes]]' })
@@ -1114,7 +1127,6 @@ describe('register', () => {
       const session = sessionIn(on, WORKSPACE, run =>
         run.argv.includes('door-open') ? result(0, '{}\n', '') : succeeding(run),
       '', { ...DOOR, EP0CH_AGENT: 'door-claude' })
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
 
       await $.tool.call({ tool: 'mcp__ep0ch__show', reference: `((${BLOCK}))` })
@@ -1130,7 +1142,6 @@ describe('register', () => {
       run.argv[0] === 'ep0ch' && run.argv[1] === 'where' ? result(0, JSON.stringify({ inDoor: false, here: { machine: 'garden-host', folder: WORKSPACE, persona } }), '')
         : run.argv.includes('work') ? result(0, '{"workId":"PIE-008","workStage":"review","revision":4}\n', '') : succeeding(run),
     )
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start(START))
     await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'review', expectedRevision: 3 })
     const run = session.runs.find(candidate => candidate.argv.includes('work'))!
@@ -1146,7 +1157,6 @@ describe('register', () => {
         run.argv[0] === 'ep0ch' && run.argv[1] === 'where' ? result(0, JSON.stringify({ inDoor: false, here: { machine: 'garden-host', folder: WORKSPACE, persona } }), '') : succeeding(run),
         '', env,
       )
-      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       const seen: Record<string, unknown>[] = []
       const logged: string[] = []
       on('tool.call', { tool: /^mcp__claude_ai_ep0ch__/ }, ($, e) => {
@@ -1214,7 +1224,6 @@ describe('register', () => {
     const session = sessionIn(on, `${WORKSPACE}/projects/mod`, run =>
       run.argv.includes('work') ? result(0, '{"workId":"PIE-008","workStage":"review","revision":4}\n', '') : succeeding(run),
     )
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: `${WORKSPACE}/projects/mod` }))
 
     const staged = await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'review', expectedRevision: 3 })
@@ -1266,7 +1275,6 @@ describe('register', () => {
         ? result(1, '', 'error: Unknown work stage "shipping"; use one of queued, doing\n')
         : succeeding(run),
     )
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start(START))
 
     const refused = await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'shipping' })
@@ -1282,7 +1290,6 @@ describe('register', () => {
 
   test('in a folder bound to no outline, workboard tools change nothing', async ($, on) => {
     const session = sessionIn(on, '/elsewhere', succeeding)
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
     const denied = await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'doing' })
     expect(denied.deny).toContain('not bound to an Outliner outline')
@@ -1294,7 +1301,6 @@ describe('register', () => {
     let bound = false
     const session = sessionIn(on, '/elsewhere', succeeding, '', {}, folder =>
       bound ? result(0, JSON.stringify({ bound: true, folder: '/elsewhere', outline: 'garden' }), '') : result(0, boundToWorkspace(folder), ''))
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
     const denied = await $.tool.call({ tool: 'mcp__ep0ch__work_stage', item: 'PIE-8', stage: 'doing' })
     expect(denied.deny).toContain('not bound to an Outliner outline')
@@ -1306,7 +1312,6 @@ describe('register', () => {
   test('a shell cd elsewhere does not unbind the tools: the lookup stays on the starting folder (PIE-755)', async ($, on) => {
     let cwd = WORKSPACE
     const session = sessionIn(on, () => cwd, succeeding)
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start(START))
     cwd = '/opt/boards'
     // The binding read again (/outline, a turn now and then) while the shell is elsewhere.
@@ -1342,7 +1347,6 @@ describe('a session names its outline, and the shell\'s folder never picks it (P
   test('with EP0CH_WS set and the shell in /tmp, the session stays bound: no folder lookup, the run lands on that outline', async ($, on) => {
     let cwd = '/tmp'
     const session = sessionIn(on, () => cwd, answering, '', { EP0CH_WS: 'gurgle', EP0CH_CONTROL: '/run/door.sock' })
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/tmp' }))
     cwd = '/opt/elsewhere'
     const allowed = await $.tool.call(stage)
@@ -1356,7 +1360,6 @@ describe('a session names its outline, and the shell\'s folder never picks it (P
 
   test('EP0CH_MACHINE goes with EP0CH_WS; a name that is not one is said, with the call that fixes it', async ($, on) => {
     const session = sessionIn(on, '/tmp', answering, '', { EP0CH_WS: 'garden', EP0CH_MACHINE: 'far-box' })
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/tmp' }))
     await $.tool.call(stage)
     expect(stageRuns(session.runs).at(-1)!.init?.env).toMatchObject({ EP0CH_WS: 'garden', EP0CH_MACHINE: 'far-box' })
@@ -1365,7 +1368,6 @@ describe('a session names its outline, and the shell\'s folder never picks it (P
   test('after a lost binding every refusal names the call, and outline_bind brings it back (a shell cd does not matter)', async ($, on) => {
     let cwd = '/elsewhere'
     const session = sessionIn(on, () => cwd, answering)
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
     const denied = await $.tool.call(stage)
     expect(denied.deny).toContain('not bound to an Outliner outline')
@@ -1394,7 +1396,6 @@ describe('a session names its outline, and the shell\'s folder never picks it (P
 
   test('/outline <name> is the same call and beats EP0CH_WS, which itself beats an opted-out folder', async ($, on) => {
     const session = sessionIn(on, '/tmp', answering, '/tmp', { EP0CH_WS: 'garden', PI_OUTLINER_MENTIONS_MODE: 'folder' })
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/tmp' }))
     expect((await $.tool.call(stage)).deny).toBeUndefined()
     expect(stageRuns(session.runs).at(-1)!.init?.env).toMatchObject({ EP0CH_WS: 'garden' })
@@ -1408,7 +1409,6 @@ describe('a session names its outline, and the shell\'s folder never picks it (P
 
   test('an EP0CH_WS that is not a name is refused saying so, with the call that fixes it', async ($, on) => {
     const session = sessionIn(on, '/tmp', answering, '', { EP0CH_WS: 'Not A Name' })
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     await session.begin(() => $.session.start({ ...START, cwd: '/tmp' }))
     const denied = await $.tool.call(stage)
     expect(denied.deny).toContain("isn't an outline name")
@@ -1454,7 +1454,6 @@ describe('the settle check (PIE-1268)', () => {
       if (query.includes('type=build-log')) return result(0, JSON.stringify({ blocks: [{ id: LOG, title: 'Build log, Oct 25', properties: [], createdAt: '2026-10-25T00:00:00Z' }] }), '')
       return succeeding(run)
     }, '', { EP0CH_SETTLE_OUTLINES: 'garden', ...env })
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     // A store that already holds a check (the first one only records a baseline).
     mock.store(on, config.fresh ? {} : { 'settle.threads': {} })
     on('fs.read', ($, e, next) => (e.path.endsWith('/.ep0ch/config.toml') && config.toml !== undefined ? { value: config.toml } : next(e)) as any)
@@ -1753,7 +1752,6 @@ describe('addressed mail: an @persona comment wakes its sessions (PIE-1404)', ()
       }
       return succeeding(run)
     }, '', { EP0CH_SETTLE: 'off', EP0CH_SETTLE_OUTLINES: 'garden' })
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     mock.store(on, {})
     const wakes: string[] = []
     on('prompt.submit', ($, e) => { wakes.push(e.text); return { text: e.text } as any })
@@ -1996,7 +1994,6 @@ describe('what became of a proposal reaches its session once (PIE-1086)', () => 
       }
       return succeeding(run)
     }, '', { EP0CH_SETTLE: 'off' })
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     mock.store(on, {})
     const wakes: string[] = []
     on('prompt.submit', ($, e) => { if (e.text !== 'plant the beans') wakes.push(e.text); return { text: e.text, context: e.context ?? [] } as any })
