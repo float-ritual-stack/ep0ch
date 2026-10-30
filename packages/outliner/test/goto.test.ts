@@ -97,7 +97,11 @@ describe("Goto search", () => {
     const weak = await ask([0.2, 2.8], 0.79);
     expect(weak.semantic).toMatchObject({ verdict: "weak", label: "not sure" });
     expect(weak.semantic.said).toMatch(/^not sure it's the one: “.*” \(2\.8 of 3, sure 0\.8\)$/);
-    // A top under a match's Score is still no strong match.
+    // Under a sure answer's Score, a top Jev still scores as a match is not sure too (PIE-1409: a right Seed swap at
+    // 1.9 read "no strong match"); under that line it is no strong match.
+    const near = await ask([0.2, 1.9], 0.9);
+    expect(near.semantic).toMatchObject({ verdict: "weak", label: "not sure" });
+    expect(near.semantic.said).toStartWith("not sure it's the one:");
     const low = await ask([0.2, 1.4], 0.9);
     expect(low.semantic).toMatchObject({ verdict: "weak", label: "no strong match" });
     expect(low.semantic.said).toStartWith("no strong match: the closest is");

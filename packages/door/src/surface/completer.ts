@@ -482,8 +482,9 @@ export class Completer {
         if (!this.current(turn) || now.index !== index || now.items[index]?.insertion !== chosen || this.accepting || this.d.busy) { now.jev = undefined; this.redraw(); return; }
         // A row the person moved to stays lit wherever Jev puts it; the top row (never moved off) is Jev's best, not
         // the old best followed down the list (PIE-1409: a 0.0/3 row lit at 19/20).
-        // A new page alone on the list stays lit with Jev's finds above it: Enter stays the draft's until one is chosen.
-        const follow = now.moved || !!now.items[index]?.newPage;
+        // A new page alone on the list stays lit with Jev's finds above it (Enter stays the draft's until one is chosen),
+        // unless Jev is sure of its top find: the sure answer takes the cursor (PIE-1409: Tab Tab made a page, not the link).
+        const follow = now.moved || (!!now.items[index]?.newPage && r.sure?.verdict !== "strong");
         const at = follow ? r.items.findIndex(i => i.insertion === chosen) : 0;
         if (at < 0 || !r.items.length) { now.jev = undefined; this.redraw(); return; }
         this.state = { ...r, target, picked: now.picked, moved: now.moved, line: now.line, index: at, loading: false, at: now.at };
