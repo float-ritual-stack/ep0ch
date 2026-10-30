@@ -218,7 +218,9 @@ export async function changeDiff(board: Pick<SocketBoard, "get" | "revisions" | 
 
 /** A revision's text: the note's own when it's the current one, else the service's kept text (block.revisions). */
 async function textAt(board: Pick<SocketBoard, "get" | "revisionText">, list: BlockRevisions, rev: number): Promise<string> {
-  return rev === list.revision ? (await board.get(list.blockId))?.text ?? "" : (await board.revisionText(list.blockId, rev)).text;
+  // The note now only while it is still that revision: a save since the list was read is read by its number.
+  const now = rev === list.revision ? await board.get(list.blockId) : null;
+  return now && now.revision === rev ? now.text : (await board.revisionText(list.blockId, rev)).text;
 }
 
 /** Two of a note's revisions compared: `from`'s text against `to`'s, as diff rows (`-` only in `from`, `+` only in `to`). */

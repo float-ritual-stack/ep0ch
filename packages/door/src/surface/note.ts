@@ -1498,8 +1498,9 @@ export class NoteSurface {
       return { lines: [pad(title + (mode.truncated ? " · cut short" : ""), cols), ...shown.map(r => r.text)] };
     });
     // A revision compare (PIE-1433): beside the note as THREAD is (the attached surface's split), the note as it is now beside it.
+    // A comment being written is drawn instead, wherever it sits: its keys are its own meanwhile.
     const rv = this.revisionMode;
-    if (rv && rv.blockId === this.msg?.id) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
+    if (rv && rv.blockId === this.msg?.id && !this.session) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
       rv.rect = { x: col, y: row, w: cols, h: rows };
       const d = drawRevision(rv.view, cols, rows);
       rv.controls = d.controls; rv.body = d.body;
@@ -10523,7 +10524,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const rows = list.revisions.filter(r => r.revision < list.revision);
       if (!rows.length) throw new ActionRefused(`no earlier text is kept for this note (it is at revision ${list.revision})`);
       if (!host.overlay) throw new ActionRefused(`this screen can't list the history over it · revision.compare revision=${rows[0]!.revision} opens the last change`);
-      const line = (r: (typeof rows)[number]) => `${String(r.revision).padStart(4)}  ${whenPut(Date.parse(r.savedAt)).padEnd(12)} ${revisionByline(r) || "·"}  ${r.firstLine}`;
+      const line = (r: (typeof rows)[number]) => `${String(r.revision).padStart(4)}  ${whenPut(Date.parse(r.savedAt)).padEnd(12)} ${revisionByline(r) || "·"}  ${printable(r.firstLine)}`;
       const picker = new ListPicker<(typeof rows)[number], unknown>({
         name: "history", items: () => rows, clickChooses: true,
         row: (r, _i, on, w) => [pickRow(line(r), on, w)],

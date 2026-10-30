@@ -245,3 +245,12 @@ test("an existing suggestions page gains at: revision on its review tables, and 
   expect(tables.filter(t => t.includes("at: revision")).length).toBe(2);
   expect(upgradeSuggestionsPage(up)).toBe(up);
 });
+
+test("a review table that names its own at: keeps it, wherever it is written", async () => {
+  const { SUGGESTIONS_PAGE, upgradeSuggestionsPage } = await import("../src/jev-suggestions");
+  const own = SUGGESTIONS_PAGE.split("\n").filter(l => l !== "at: revision").join("\n").replace("title: what each writer was told", "title: what each writer was told\nat: seen-at");
+  const up = upgradeSuggestionsPage(own);
+  const first = up.split("::graph-table")[1]!;
+  expect(first.slice(0, first.indexOf("\n::")).match(/^at:/gm)).toEqual(["at:"]);
+  expect(first).toContain("at: seen-at");
+});

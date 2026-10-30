@@ -16,7 +16,7 @@ are its record. The outliner's entries from then are kept below, under
 - **From any note:** the tile menu's **history** lists its revisions; a row opens the same compare.
 - **Keys:** ← → older and newer, `n` against the note now, Esc back to the note. Beside the text in a wide tile, below it in a narrow one.
 - **Tables:** `at: <property>` on a live `::graph-table` with `link:` opens each row's note at the revision that property holds.
-- **Run:** nothing beyond the usual `ep0ch install --apply` (GRAMMAR 13: an older door opens the note without the compare); pie's suggestions page gains `at: revision` on its own.
+- **Run:** nothing beyond the usual `ep0ch install --apply` (GRAMMAR 13: an older door opens the note without the compare); pie's suggestions page gains `at: revision` on its own at the next review Jev records after the install (until then its rows open the note without the compare; adding `at: revision` under `link: note` by hand does it at once).
 
 ### A new ticket's twin shows on its title, and `work try` points at pages (PIE-1258)
 
