@@ -32,6 +32,11 @@ export interface ListViewRow<S = unknown> extends ListRow {
   paintDetail?: (detail: string) => string;
   pick?: boolean;
   source?: S;
+  /**
+   * Lines drawn under the label, hanging under it, one row each (cut to the width): a card's preview line and its chips
+   * (the navigator's rows, PIE-1443). Painted by the host; dim unless it painted them.
+   */
+  body?: string[];
 }
 
 const TONE_INK: Record<ListTone, number> = { default: C.white, good: C.lgreen, warn: C.yellow, bad: C.lred, dim: C.dark, accent: C.lcyan };
@@ -66,6 +71,8 @@ export function listRowLines<S>(r: ListViewRow<S>, o: RowDraw<S>): string[] {
   const detail = r.detail ? (r.join ?? " · ") + (r.paintDetail ? r.paintDetail(r.detail) : r.detail) : "";
   const text = head + r.label + fg(C.dark) + detail + RESET;
   const lines = rowLines(o.tag ? o.tag(r, text) : text, o.cols - (o.selected && !head.startsWith(" ") ? 1 : 0), o.lines, { hang: width(head) });
+  const indent = " ".repeat(width(head));
+  for (const b of r.body ?? []) lines.push(fg(C.dark) + rowLines(indent + b, o.cols - (o.selected ? 1 : 0), 1)[0]! + RESET);
   return lines.map(line => {
     if (o.selected) return selectedRow(line, o.cols, o.focused ?? true, "idleRow");
     const body = pad(fg(colour) + line, o.cols) + RESET;

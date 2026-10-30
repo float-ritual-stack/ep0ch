@@ -431,16 +431,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * back to the reader.
    */
   composerTile(r: ReaderPane, on: boolean, keys = true, side?: Dir): Promise<unknown> {
-    return this.attachedTile(r, "comment", on, keys, side);
+    return this.ownTile(r, "comment", on, keys, side);
   }
-  listPreviewTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> { return this.attachedTile(r, "list-preview", on, false, side); }
+  listPreviewTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> { return this.ownTile(r, "list-preview", on, false, side); }
   hasListPreviewTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "list-preview"); }
-  editPreviewTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> { return this.attachedTile(r, "edit-preview", on, false, side); }
+  editPreviewTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> { return this.ownTile(r, "edit-preview", on, false, side); }
   hasEditPreviewTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "edit-preview"); }
   sourcesTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> {
-    return this.attachedTile(r, "sources", on, true, side);
+    return this.ownTile(r, "sources", on, true, side);
   }
-  private async attachedTile(r: ReaderPane, attachment: "comment" | "sources" | "list-preview" | "edit-preview", on: boolean, keys: boolean, side?: Dir): Promise<unknown> {
+  /** Tile `p`'s attachment in a tile of its own (a facets tile's Matches, PIE-1443): the reader's attached tiles, any owner. */
+  attachedTile(p: Pane, attachment: "matches", on: boolean, side?: Dir): Promise<unknown> { return this.ownTile(p, attachment, on, false, side); }
+  private async ownTile(r: Pane, attachment: AttachedKind, on: boolean, keys: boolean, side?: Dir): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     if (at === undefined) return null;
     const reader = this.nameOf(at);
@@ -518,7 +520,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Reader `r`'s comment tile is open. */
   hasComposerTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "comment"); }
   hasSourcesTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "sources"); }
-  private hasAttachedTile(r: ReaderPane, attachment: "comment" | "sources" | "list-preview" | "edit-preview"): boolean {
+  hasAttachedTile(r: Pane, attachment: AttachedKind): boolean {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     return at !== undefined && [...this.panes.values()].some(p => p instanceof AttachedTilePane && p.attachment === attachment && p.source === this.nameOf(at));
   }
@@ -8272,6 +8274,9 @@ export interface TileLine {
 
 export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean; links?: ExtLink[]; agents?: AgentLevel; fold?: Fold }
 /** A link whose far end is on another desk of the family (a group's tile and one outside it): its pane, or its path until it is found. */
+/** What a tile's attachment is: a reader's comment, Sources, list or edit preview; a facets tile's Matches (PIE-1443). */
+type AttachedKind = "comment" | "sources" | "list-preview" | "edit-preview" | "matches";
+
 export interface ExtLink { pane?: Pane; path?: string; verb: WireVerb; rule?: AltRule; found?: boolean }
 
 /** Where `where` (a tile action's place) puts a tile, by tile `at`: beside it, into its tabs, or along an outer edge. */

@@ -29,6 +29,8 @@ export interface Msg {
    * Readers fetch the whole note before showing, editing or commenting on it.
    */
   partial?: boolean;
+  /** The words after the title as one line, when a list asked for it (the service's `excerpt` field). */
+  excerpt?: string;
   /** In the Trash (it or an ancestor was deleted); still readable. */
   deleted?: boolean;
   /**
