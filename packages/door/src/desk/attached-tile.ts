@@ -7,6 +7,7 @@ import type { Key } from "../term";
 import type { TileKind } from "./tile-kinds";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { RowPress } from "../scroll";
+import { isListTile, type ListHost } from "../surface/list-actions";
 import type { SurfaceHost } from "../surface/note";
 import type { AttachedSide } from "../surface/attached";
 
@@ -93,6 +94,13 @@ export class AttachedTilePane implements Pane {
   }
 
   key(k: Key, desk: DeskApi): boolean { return !!this.owned(desk)?.attachedKey(this.attachment, k, desk); }
+
+  /** Its owner's list, when its owner draws one (Matches): `list.*` with tile= this one reach it. */
+  listHost(desk: DeskApi): ListHost {
+    const o = this.owned(desk);
+    if (isListTile(o)) return o.listHost(desk) as ListHost;
+    return { lists: () => [], current: () => null, none: `${this.title()} holds no list`, picked() {}, open: async () => null, enter() {}, type() {}, redraw: () => desk.redraw() };
+  }
 
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
     const o = this.owned(desk);

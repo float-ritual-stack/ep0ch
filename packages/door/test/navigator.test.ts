@@ -67,6 +67,11 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     expect(await act("facets.pin", { id: trellis })).toMatchObject({ pinned: false });
     await until(() => groups().length === 1, "unpinned");
     expect((await board.get(trellis))!.revision).toBe(before);
+    // A note pinned only by its own [pinned::true], with the pins page there: unpinning takes the property off.
+    const own = (await board.request<any>("create", { parentId: null, text: "Cloche notes [plot::beds] [pinned::true]", author: "agent" })).id;
+    await until(() => groups()[0]?.startsWith("Pinned:") && groups()[0]!.includes("Cloche notes"), "pinned by its property");
+    expect(await act("facets.pin", { id: own })).toMatchObject({ pinned: false });
+    expect((await board.get(own))!.text).not.toContain("[pinned::true]");
   }, 20_000);
 
   test("every group can be reached: past the first page a group says how many more, and reading it lists them all (PIE-1448)", async () => {
@@ -79,6 +84,22 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     expect(await act("facets.more", { group: "Today" })).toMatchObject({ group: "Today", notes: 205 });
     expect(today()).toMatchObject({ count: 205, more: 0 });
     expect(today().notes.length).toBe(205);
+    // A note written meanwhile (agents write all day) keeps the group read and the pick (this agent's own) where they were.
+    const tilePane = () => D().panes.get([...D().panes].find(([, x]: any) => x.kind === "facets")![0]);
+    const picked = today().notes[150].id;
+    await act("facets.match", { id: picked });
+    expect(tilePane().list.picked(AS)?.id).toBe(picked);
+    await board.request<any>("create", { parentId: null, text: "Seedling late [tray::bulk]", author: "agent" });
+    await until(() => tile().matched === 206, "the new note counted");
+    expect(today()).toMatchObject({ count: 206, more: 0 });
+    expect(today().notes.length).toBe(206);
+    expect(tilePane().list.picked(AS)?.id).toBe(picked);
+    // Matches answers the lists' actions in its own tile too.
+    await act("facets.place", { place: "tile" });
+    await until(() => !!D().describe().panes.find((p: any) => p.kind === "matches"), "the matches tile");
+    const m = D().describe().panes.find((p: any) => p.kind === "matches");
+    expect(await act("list.blocks", {}, m.name)).toMatchObject({ lists: [{ title: "Matches" }] });
+    await act("facets.place", { place: "inline" });
   }, 60_000);
 
   test("saving the pick as a view: a pick already saved is refused with that view's name", async () => {

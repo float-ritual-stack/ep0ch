@@ -287,12 +287,21 @@ export class ListView<S = unknown> {
     const selAt = mine ? rows.findIndex(r => r.id === mine.id) : -1;
     let headAt = selAt;
     while (headAt > 0 && !selectable(rows[headAt - 1]!)) headAt--;
+    // The heading the selected row sits under, however far above it: when it has scrolled off, it is drawn on its own
+    // at the top, over its rows (a sticky heading), so the 11th note of Today still says Today.
+    let groupHead = selAt - 1;
+    while (groupHead >= 0 && selectable(rows[groupHead]!)) groupHead--;
     if (!rows.length) push(fg(C.dark) + (o.empty ?? "nothing here yet") + RESET, null);
     else if (o.look) {
       const { slots, at: starts } = listSlots(rows.length, o.look, i => !!o.divide?.(rows[i]!), drawn.map(r => r.length));
       const sel = selAt;
-      const room = o.room === undefined ? slots.length : Math.max(1, o.room - says - lines.length);
-      const top = this.view.place(sel < 0 ? null : sel, slots.length, room, sel < 0 ? null : [starts[headAt] ?? starts[sel] ?? 0, (starts[sel] ?? 0) + (drawn[sel]?.length ?? 1) - 1]);
+      let room = o.room === undefined ? slots.length : Math.max(1, o.room - says - lines.length);
+      const reveal = sel < 0 ? null : [starts[headAt] ?? starts[sel] ?? 0, (starts[sel] ?? 0) + (drawn[sel]?.length ?? 1) - 1] as [number, number];
+      let top = this.view.place(sel < 0 ? null : sel, slots.length, room, reveal);
+      if (groupHead >= 0 && room > 2 && top > (starts[groupHead] ?? 0)) {
+        room -= 1; top = this.view.place(sel, slots.length, room, reveal);
+        push(drawn[groupHead]![0]!, groupHead);
+      }
       for (const slot of slots.slice(top, top + room)) {
         if ("item" in slot) push(zebraRow(drawn[slot.item]![slot.line ?? 0]!, slot.item, lw, o.look, slot.item === sel), slot.item);
         else push("divider" in slot ? dividerLine(o.look, lw) : "", null);
@@ -301,8 +310,14 @@ export class ListView<S = unknown> {
       const flat = drawn.flatMap((ls, i) => ls.map(l => [l, i] as const));
       const sel = selAt;
       const first = drawn.slice(0, Math.max(sel, 0)).reduce((n, l) => n + l.length, 0), head = drawn.slice(0, Math.max(headAt, 0)).reduce((n, l) => n + l.length, 0);
-      const room = o.room === undefined ? flat.length : Math.max(1, o.room - says - lines.length);
-      const top = this.view.place(sel < 0 ? null : sel, flat.length, room, sel < 0 ? null : [Math.max(0, Math.min(head, first)), first + (drawn[sel]?.length ?? 1) - 1]);
+      let room = o.room === undefined ? flat.length : Math.max(1, o.room - says - lines.length);
+      const reveal = sel < 0 ? null : [Math.max(0, Math.min(head, first)), first + (drawn[sel]?.length ?? 1) - 1] as [number, number];
+      let top = this.view.place(sel < 0 ? null : sel, flat.length, room, reveal);
+      const headLine = groupHead >= 0 ? drawn.slice(0, groupHead).reduce((n, l) => n + l.length, 0) : -1;
+      if (groupHead >= 0 && room > 2 && top > headLine) {
+        room -= 1; top = this.view.place(sel, flat.length, room, reveal);
+        push(drawn[groupHead]![0]!, groupHead);
+      }
       for (const [l, i] of flat.slice(top, top + room)) push(l, i);
     }
     // Each agent's own pick and filter, in its tint: it never moved the person's.

@@ -146,6 +146,8 @@ export class FacetsPane implements Pane, AttachedOwner {
   private extra = new Map<string, Msg[]>();
   /** The groups whose last page read was full: their more row stays. */
   private extraMore = new Map<string, boolean>();
+  /** The selection the expanded groups were read for. */
+  private extraFor: string | null = null;
   /** The titles of the notes Matches' rows live under, by id: where a note lives, said on its row. */
   private homes = new Map<string, string>();
   /** The page whose links pin notes (PIE-1448): pinning writes there, never in the note pinned. */
@@ -235,7 +237,21 @@ export class FacetsPane implements Pane, AttachedOwner {
       this.answer = now; this.all = all ?? now; this.error = null;
       this.pinned = pinned?.notes ?? [];
       if (views) this.views = views.notes;
-      this.extra.clear(); this.extraMore.clear();
+      // A refresh of the same selection (a note written meanwhile) reads the groups that were expanded again, so the
+      // rows read and the pick stay; a new selection starts from its first page.
+      const reread = q === this.extraFor ? [...this.extra.keys()] : [];
+      this.extra.clear(); this.extraMore.clear(); this.extraFor = q;
+      if (reread.length) {
+        const groups = matchGroups(now.notes, now.groups, this.pinned, now.matched);
+        const pages = await Promise.all(reread.map(async label => {
+          const g = groups.find(x => x.label === label), clause = g ? bucketWhere(this.group, g.value) : null;
+          if (!clause) return null;
+          const r = await board.facetList([q && /\bOR\b/.test(q) ? `(${q})` : q, clause].filter(Boolean).join(" "), 1000, { facets: false, sort: "updated desc", excerpt: true }).catch(() => null);
+          return r ? [label, r] as const : null;
+        }));
+        if (n !== this.asked) return true;
+        for (const page of pages) if (page) { this.extra.set(page[0], page[1].notes); this.extraMore.set(page[0], page[1].truncated); }
+      }
       // Where each row lives is read after the rows are drawn: it fills in, it never holds them back.
       void this.readHomes(desk, [...now.notes, ...this.pinned, ...this.views]).then(() => { if (n === this.asked) { this.setRows(); desk.redraw(); } });
       this.dayCounts = new Map((days?.groups ?? []).flatMap(g => (g.value ? [[g.value, g.count] as [string, number]] : [])));
@@ -1050,8 +1066,8 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       const page = await board.resolvePage(p.pins);
       const pins = page.status === "resolved" && page.block ? await board.get(page.block.id) : null;
       if (pins) p.pinsPageIs(pins.id);
-      // Pinned by the page as the list reads it (linkedfrom), however the link is written.
-      const linked = p.pinnedIds().has(m.id) && !!pins;
+      // Pinned by the page: the page links to it, as the list reads it (linkedfrom), however the link is written.
+      const linked = !!pins && (await board.queryNotes(`linkedfrom:${pins.id}`, 1000)).notes.some(x => x.id === m.id);
       const own = await board.propertyTokens(m.id, p.pin);
       const byProperty = own.tokens.filter(t => t.value.trim().toLowerCase() === "true");
       const pinned = linked || byProperty.length > 0, want = on ?? !pinned;
