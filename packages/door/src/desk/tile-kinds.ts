@@ -92,6 +92,11 @@ export interface TileKind {
   readonly follower?: boolean;
   /** Its note rows are wire sources: the frame offers select, open and alt through the desk's shared routing. */
   readonly previews?: true;
+  /**
+   * A tile that narrows by a query takes the ones a reader on its screen opens (a `#tag`, a figure row's query, a
+   * calendar day: PIE-1448), instead of a list tile opening beside the reader: the facets tile's selection becomes it.
+   */
+  takesQuery?(p: Pane, query: string, desk: DeskApi, actor: Actor): Promise<{ query: string; notes: { id: string; title: string }[] }>;
   /** In the drawer, opens without a wire use the screen shown. Local and cross-edge wires take precedence. */
   readonly opensOnScreen?: true;
   /**

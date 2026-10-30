@@ -2454,6 +2454,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const rid = this.idOf(r);
     if (rid === undefined) throw new ActionRefused("that reader isn't on this screen");
     const home = this.nameOf(rid);
+    // A tile on this screen that narrows by queries (the navigator's facets) takes it: its list follows, no new tile.
+    const taker = this.all().find(i => { const p = this.panes.get(i); return !!p && !!kindOf(p)?.takesQuery; });
+    if (taker !== undefined) {
+      const p = this.panes.get(taker)!;
+      const r = await kindOf(p)!.takesQuery!(p, query, this, actor);
+      this.save(); this.redraw();
+      return { ...this.tileAnswer(taker), ...r };
+    }
     let id = this.all().find(i => { const p = this.panes.get(i); return p instanceof QueryPane && p.query !== null && this.homeName(i) === this.pathTo(r) && !p.held; });
     const opened = id === undefined;
     // The person's list stays as it is (its tag, its selection): an agent reads the notes carrying the tag instead.

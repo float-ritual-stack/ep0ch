@@ -26,9 +26,10 @@ import { prop, propValues } from "../props";
 import { ListView, PERSON, actorKey, type ListViewRow } from "../surface/list-view";
 import type { ListHost } from "../surface/list-actions";
 import { ATTACHED_PLACES, AttachedTile, attachedPlaceOf, attachedRect, drawAttachedFloat, nextPlace, type AttachedPlace, type AttachedSide } from "../surface/attached";
+import type { AttachedOwner, Attachment } from "./attached-tile";
 import { drawCalendar } from "../figures/days";
 import { chipsOf, matchGroups, matchRows, MORE, type MatchGroup } from "./facets-matches";
-import { bucketWhere } from "@ep0ch/outline-core/date-buckets";
+import { bucketWhere, dayBound } from "@ep0ch/outline-core/date-buckets";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
 
@@ -58,8 +59,14 @@ const HINT = "j k pick · ⏎ or click includes a value, again excludes it, agai
 const SHOW = ["tag"];
 /** A day picked on the calendar, as the views' grammar writes it (the service's day, as `updated >= YYYY-MM-DD` reads). */
 export const dayClause = (day: string) => { const d = dayWords(day); return `updated >= "${d}" updated <= "${d}"`; };
+/** The day a query is, when it is exactly a day's clause as the calendar writes it (`updated >= "29 Oct 2026" updated <= "29 Oct 2026"`). */
+export function parseDayClause(q: string): string | null {
+  const m = /^\s*updated >= "(\d{1,2}) (\w{3}) (\d{4})" updated <= "\1 \2 \3"\s*$/.exec(q);
+  const mo = m ? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(m[2]!) : -1;
+  return m && mo >= 0 ? `${m[3]}-${String(mo + 1).padStart(2, "0")}-${m[1]!.padStart(2, "0")}` : null;
+}
 /** A day as the query grammar reads it on the host's wall clock (`29 Oct 2026`; a bare YYYY-MM-DD is a UTC day). */
-const dayWords = (day: string) => { const [y, m, d] = day.split("-").map(Number) as [number, number, number]; return `${d} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m - 1]} ${y}`; };
+const dayWords = (day: string) => { const [y, m, d] = day.split("-").map(Number) as [number, number, number]; return dayBound(y, m, d).slice(1, -1); };
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 /** The rows the calendar takes at the foot of the tree: a month heading, the weekdays and up to six weeks. */
@@ -91,7 +98,7 @@ export function selectionQuery(clauses: readonly Clause[], raw: string): string 
   return [raw.trim() ? (terms.length && /\b(?:OR|AND|NOT)\b/.test(raw) ? `(${raw.trim()})` : raw.trim()) : "", ...terms].filter(Boolean).join(" ");
 }
 
-export class FacetsPane implements Pane {
+export class FacetsPane implements Pane, AttachedOwner {
   clauses: Clause[] = [];
   /** A query typed by hand (`e`, `facets.query`): kept, with the picks after it. */
   raw = "";
@@ -406,7 +413,7 @@ export class FacetsPane implements Pane {
   /** Matches drawn `cols` × `room`: the lines, and which note each line belongs to. */
   matchLines(cols: number, room: number, focused: boolean): { lines: string[]; notes: (string | null)[] } {
     const a = this.answer, visible = this.list.visible();
-    const d = this.list.draw({ cols, focused, selection: true, room, filterLine: false,
+    const d = this.list.draw({ cols, focused, selection: true, room,
       empty: !a ? " loading…" : this.query() ? " No matching notes." : " No notes yet." });
     // Each line's row: a note's id, or a group's "more" row (MORE + its label); headings and spacing are null.
     const notes = d.rowAt.map(i => (i === null ? null : visible[i]?.source?.id ?? (visible[i]?.id.startsWith(MORE) ? visible[i]!.id : null)));
@@ -525,14 +532,16 @@ export class FacetsPane implements Pane {
     return this.place;
   }
   /** The Matches tile's lines (its pane draws them, with its side chips under them). */
-  attachedView(w: number, h: number, focused: boolean): PaneView {
+  attachedView(_a: Attachment, w: number, h: number, focused: boolean): PaneView {
     const m = this.matchLines(w, h, focused);
     this.tileNotes = m.notes;
     return { lines: m.lines };
   }
   private tileNotes: (string | null)[] = [];
   /** A key in the Matches tile: the list's own walk, open, pin, tag, and ctrl+o to move it. */
-  attachedKey(k: Key, desk: DeskApi): boolean {
+  attachedKey(_a: Attachment, k: Key, desk: DeskApi): boolean {
+    if (this.list.typing && k.kind !== "mouse") return this.filterKey(k, desk);
+    if (ch(k) === "/") { this.listHost(desk).type(this.listHost(desk).lists()[0]!); return true; }
     const c = ch(k), by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : 0;
     const run = (name: string, args: Record<string, unknown> = {}) => { void desk.press?.(this, FACETS_ACTIONS, name, args); return true; };
     if (by) return run("facets.match", { by });
@@ -543,7 +552,7 @@ export class FacetsPane implements Pane {
     if (c === "t") return run("facets.tag");
     return false;
   }
-  attachedMouse(k: Extract<Key, { kind: "mouse" }>, _x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
+  attachedMouse(_a: Attachment, k: Extract<Key, { kind: "mouse" }>, _x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
     if (k.action === "wheel-up" || k.action === "wheel-down") { if (this.list.pickable(PERSON).length) void desk.press?.(this, FACETS_ACTIONS, "facets.match", { by: wheelRows(k.action === "wheel-up" ? -1 : 1) }); return true; }
     if (k.action !== "down") return true;
     const id = this.tileNotes[y];
@@ -558,8 +567,42 @@ export class FacetsPane implements Pane {
     void desk.press?.(this, FACETS_ACTIONS, "facets.match", { id });
     if (g === "open" || g === "fresh") void desk.press?.(this, FACETS_ACTIONS, "facets.open", { id, ...(g === "fresh" ? { fresh: true } : {}) });
   }
+  /**
+   * Matches lent to the lists' actions (`list.pick`, `list.step`, `list.open`, `list.filter`, `list.blocks`, PIE-1448),
+   * as the links tile lends its own: the same keys and the same agent picks as every list in the door.
+   */
+  listHost(desk: DeskApi): ListHost {
+    return {
+      lists: () => [{ n: 1, key: "matches", title: "Matches", view: this.list, entered: false, about: this.query() || "every note", detail: { place: this.place, groups: this.groupsKept.map(g => g.label) } }],
+      current: () => "matches",
+      none: "Matches is still being read",
+      picked: (_l, row) => { void desk.press?.(this, FACETS_ACTIONS, "facets.match", { id: row.id }, true); },
+      open: async (_l, row, where, actor) => {
+        if (row.id.startsWith(MORE)) return this.readGroup(desk, row.id.slice(MORE.length));
+        const m = row.source as Msg | undefined;
+        if (!m) throw new ActionRefused(`${row.label} is a heading: it opens nothing`);
+        desk.setCurrent(m, { from: this.source(), link: true, ...(where === "new" ? { fresh: true } : {}), by: actor });
+        return { id: m.id, title: subject(m) };
+      },
+      enter: () => { throw new ActionRefused("Matches has the keys whenever its tile does: focus it (tile.focus) rather than going into it"); },
+      type: () => { this.list.startTyping(was => new LineField(was, false, { complete: false })); desk.redraw(); },
+      redraw: () => desk.redraw(),
+    };
+  }
+  /** Typing Matches' filter (`/`): letters narrow the rows as they're typed, ⏎ keeps them, esc goes back. */
+  private filterKey(k: Key, desk: DeskApi): boolean {
+    if (k.kind === "enter") this.list.stopTyping(true);
+    else if (k.kind === "esc") this.list.stopTyping(false);
+    else if (!this.list.typing?.take(k)) return k.kind !== "tab" && k.kind !== "backtab";
+    this.rowsKept = null; desk.redraw();
+    return true;
+  }
+
   attachedTitle(): string { return `matches ${this.answer?.matched ?? "…"}${this.query() ? ` · ${this.query()}` : ""}`; }
   attachedHint(): string { return "j k pick · ⏎ open · alt+⏎ beside · * pin · t tag · ctrl+o moves it"; }
+  attachedSide(_a: Attachment, side: AttachedSide, desk: DeskApi) { void this.placeMatches("tile", desk, side); }
+  attachedSideWords(): string { return "beside the facets"; }
+  attachedTileIs(_a: Attachment, tile: Pane | null) { this.matchesPane = tile; }
 
   private line(r: Row, on: boolean, focused: boolean, w: number): string[] {
     const style = (text: string, colour: string) => rowLines(text, w).map(text => (on ? selectedRow(text.replace(/\x1b\[(?!777;|778m)[\d;]*m/g, ""), w, focused, "idleRow") : colour + pad(text, w) + RESET));
@@ -1123,6 +1166,17 @@ const kindOf = (kind: "facets" | "tags", about: string, key: string): TileKind =
   describe: (p, full) => { const d = (p as FacetsPane).describe(); return full ? d : { query: d.query, total: d.total, matched: d.matched, facets: d.facets.length, matches: d.matches.place, ...(d.day ? { day: d.day } : {}), ...(d.error ? { error: d.error } : {}) }; },
   peek: p => ({ facets: (p as FacetsPane).describe() }),
 });
-export const FACETS_KIND: TileKind = kindOf("facets", "the properties the notes have, each opening to its values with uses and last use: include or exclude values (ORed in a facet, ANDed across them), path values as a tree, the selection as the views' query text, editable and savable as a view (PIE-881); query=<a starting query>", "f");
+/**
+ * A query a reader on this screen opens (a `#tag`, a figure row's, a calendar day's) becomes the facets tile's selection
+ * (PIE-1448): one written as the calendar's own day clause picks that day, keeping the picks; anything else replaces them.
+ */
+async function takeQuery(p: Pane, query: string, desk: DeskApi, actor: Actor) {
+  const f = p as FacetsPane, day = parseDayClause(query);
+  if (day) await desk.within!("facets.day", { day }, actor, f);
+  else await desk.within!("facets.query", { text: query }, actor, f);
+  return { query: f.query(), notes: f.notes().map(m => ({ id: m.id, title: subject(m) })) };
+}
+
+export const FACETS_KIND: TileKind = { ...kindOf("facets", "the properties the notes have, each opening to its values with uses and last use: include or exclude values (ORed in a facet, ANDed across them), path values as a tree, the selection as the views' query text, editable and savable as a view (PIE-881); query=<a starting query>", "f"), takesQuery: takeQuery };
 /** The same tile opened on the tags facet (`#tag` is a facet like any property). */
 export const TAGS_KIND: TileKind = kindOf("tags", "the facets tile opened on the tags: every tag with its uses and last use, faceted so picking a tag leaves the tags that still narrow the results (PIE-881)", "#");

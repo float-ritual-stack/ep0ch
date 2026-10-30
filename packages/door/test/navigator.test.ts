@@ -9,7 +9,7 @@ import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -132,5 +132,14 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     expect(layout.tiles.map((t: any) => t.kind)).toEqual(expect.arrayContaining(["facets", "matches", "reader"]));
     const matches = layout.tiles.find((t: any) => t.kind === "matches");
     expect(matches.wires?.find((w: any) => w.verb === "select")).toBeTruthy();
+    // A day a reader's ::graph-calendar opens (its link's query) is the facets tile's day, not a list tile beside it.
+    const reader = screen.pane("reader"), facets = () => screen.describe().panes.find((p: any) => p.name === "facets");
+    await until(() => !!facets()?.matches, "the screen's facets");
+    const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const words = `${d.getDate()} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getMonth()]} ${d.getFullYear()}`;
+    // The person's click on the day (an agent's would be refused: the facets tile has the person's keys).
+    await screen.openQuery(reader, `updated >= "${words}" updated <= "${words}"`, USER);
+    expect(facets().day).toBe(day);
+    expect(screen.layoutGet().tiles.some((t: any) => t.kind === "query")).toBe(false);
   }, 20_000);
 });
