@@ -26,7 +26,7 @@ export const FORM_CHOICE_KEYS: readonly ModeKey[] = keyTable("form choice", "a c
 ]);
 
 /** Where a form's entries land, in words (PIE-1442): what the note's `[form-into::…]` says, under its button. */
-function landing(into: FormSettings["into"]): string {
+function landsLine(into: FormSettings["into"]): string {
   if (into.kind === "inline") return "each entry is a line added to this note";
   if (into.kind === "page") return `each entry lands under [[${into.address}]]`;
   if (into.kind === "block") return `each entry lands under ((${into.id.slice(0, 8)}))`;
@@ -133,7 +133,7 @@ export class NoteForm {
     for (const l of [submit.top(), submit.row(tag("@submit", button, "form.submit")), submit.bottom()]) line(indent + l);
     const warning = this.warnings.get(partyOf(USER));
     if (warning) line(fg(C.yellow) + printable(warning) + RESET);
-    for (const text of wrap(printable(this.settingsProblem ?? landing(this.settings.into)), inner)) line(fg(this.settingsProblem ? C.yellow : C.dark) + text + RESET);
+    for (const text of wrap(printable(this.settingsProblem ?? landsLine(this.settings.into)), inner)) line(fg(this.settingsProblem ? C.yellow : C.dark) + text + RESET);
     for (const text of ["* required", ...wrap(modeHint(FORM_KEYS, () => undefined), inner)]) line(text);
     rows.push(f.bottom());
     return rows;
