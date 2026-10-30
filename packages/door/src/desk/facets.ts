@@ -1021,7 +1021,8 @@ const kindOf = (kind: "facets" | "tags", about: string, key: string): TileKind =
   save: p => (p as FacetsPane).spec(),
   check: s => (s.query !== undefined && !s.query.trim() ? "a facets tile's query is the views' grammar, or left out" : null),
   shows: p => { const f = p as FacetsPane, r = f.current(); return r?.kind === "note" ? r.note : f.list.picked(PERSON)?.source ?? null; },
-  describe: p => (p as FacetsPane).describe(),
+  // In brief (layout.get without full=true), its selection, counts and where Matches is: the lists are the facets tile's own read (facets.list).
+  describe: (p, full) => { const d = (p as FacetsPane).describe(); return full ? d : { query: d.query, total: d.total, matched: d.matched, facets: d.facets.length, matches: d.matches.place, ...(d.day ? { day: d.day } : {}), ...(d.error ? { error: d.error } : {}) }; },
   peek: p => ({ facets: (p as FacetsPane).describe() }),
 });
 export const FACETS_KIND: TileKind = kindOf("facets", "the properties the notes have, each opening to its values with uses and last use: include or exclude values (ORed in a facet, ANDed across them), path values as a tree, the selection as the views' query text, editable and savable as a view (PIE-881); query=<a starting query>", "f");
