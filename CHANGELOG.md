@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One place decides where your key goes (PIE-1438)
+
+- **Whatever is in front of you gets the key:** the power bar, a status-bar menu, the message log, a tile menu or a
+  float takes Esc, and nothing reaches the terminal under it. The door now asks one answer (where you are) for this,
+  so a new overlay can't let a key leak to the program behind it; `ep0ch peek`'s `person` names that layer too.
 ### Shares' Start a public link works again
 
 - **The site's own forms post:** pages behind sign-in were sent with `Referrer-Policy: no-referrer`, under which a browser sends `Origin: null` on a form POST, so the site's own check refused Shares' "Start a public link" ("A change comes from this site's own pages"). They now say `same-origin`: no link leaving the site carries a referrer, as before, and the site's own forms post.
