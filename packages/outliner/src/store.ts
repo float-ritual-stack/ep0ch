@@ -1683,20 +1683,20 @@ export class OutlinerStore {
       const pr = input.pullRequest;
       if (!Number.isSafeInteger(pr.number) || pr.number < 1 ||
         pr.url !== `https://github.com/${delivery.repository}/pull/${pr.number}` ||
-        !["OPEN", "CLOSED", "MERGED"].includes(pr.state) ||
+        !["OPEN", "CLOSED", "MERGED"].includes(pr.state) || typeof pr.baseBranch !== "string" ||
         (pr.state === "MERGED" && !pr.mergeCommit) ||
         (pr.mergedAt != null && !Number.isFinite(Date.parse(pr.mergedAt)))) {
         throw new Error("Invalid pull request facts for this delivery");
       }
       // The PR number is the delivery's identity, its base only where it merges today: GitHub retargets a stacked
       // PR to main when its base merges, and the delivery follows (PIE-1440).
-      if (pr.baseBranch !== undefined && pr.baseBranch !== delivery.baseBranch) {
+      if (pr.baseBranch !== delivery.baseBranch) {
         if (!isValidGitBranchName(pr.baseBranch)) throw new Error(`Invalid delivery base branch: ${pr.baseBranch}`);
         if (delivery.pullRequestNumber !== pr.number) throw new Error(`Delivery ${delivery.key} has conflicting base-branch`);
       }
       const nextStage = delivery.stage === "complete" ? "complete" : pr.state === "MERGED" ? "validate" : "review";
       const values: Record<string, string> = { "delivery-stage": nextStage,
-        ...(pr.baseBranch !== undefined ? { "base-branch": pr.baseBranch } : {}),
+        "base-branch": pr.baseBranch,
         "pull-request-number": String(pr.number), "pull-request-url": pr.url, "pull-request-state": pr.state.toLowerCase() };
       if (pr.mergeCommit) values["merge-commit"] = normalizeRoadmapText(pr.mergeCommit, "Merge commit");
       // When it merged, as GitHub says: a day's "merged today" reads `merged-at`, never `updated` (PIE-1352).

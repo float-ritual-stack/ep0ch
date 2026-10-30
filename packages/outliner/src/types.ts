@@ -1109,7 +1109,7 @@ export interface DeliverySyncInput {
    */
   pullRequest: {
     number: number; url: string; state: "OPEN" | "CLOSED" | "MERGED"; mergeCommit: string | null; mergedAt?: string | null;
-    baseBranch?: string;
+    baseBranch: string;
   };
 }
 

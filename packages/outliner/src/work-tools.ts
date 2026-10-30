@@ -484,7 +484,8 @@ export function defaultDeliveryKey(
  * Records a pull request as one of the item's deliveries (`deliveries.ensure`)
  * and syncs its facts (`deliveries.sync`): open → Review, merged → Validate.
  * The PR must be the delivery's branch into its base, so a wrong number is
- * refused rather than recorded. `deliveryKey` is a name (`door`) or a full key
+ * refused rather than recorded; the PR the delivery already records may have a
+ * new base (GitHub retargeted it), which the sync records (PIE-1440). `deliveryKey` is a name (`door`) or a full key
  * (`PIE-123/door`); omitted, `defaultDeliveryKey` chooses one.
  */
 export async function deliverPullRequest(
