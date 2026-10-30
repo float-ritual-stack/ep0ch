@@ -514,6 +514,27 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { size.cols = 220; app.flash(""); }
   });
 
+  test("a message beside it never hides ^K: a click on it opens the power bar at 177 and 44 columns (PIE-1449)", async () => {
+    try {
+      for (const cols of [177, 44]) {
+        size.cols = cols;
+        app.flash("a long message about something that just happened, long enough to push the location off the bar".repeat(2));
+        const line = bar();
+        expect(line.trimStart().startsWith("^K ")).toBe(true);
+        const power = (await app.dispatch.act({ action: "status.bar.items" }, USER) as any).items.find((i: any) => i.id === "power");
+        expect(line.slice(power.from, power.to)).toBe("^K");
+        const ran: string[] = [];
+        const stop = traceActions(a => ran.push(a.name));
+        try {
+          click("^K");
+          await until(() => ran.includes("bar.open"), "the click on ^K opens the power bar");
+          expect(ran).not.toContain("status.log");
+        } finally { stop(); }
+        press({ kind: "esc" });
+      }
+    } finally { size.cols = 220; app.flash(""); }
+  });
+
   test("a message on a full bar leaves no hit box where nothing is drawn: every clickable item is on the bar as drawn (PIE-1410, PIE-1415)", async () => {
     const note = await board.createBlock(null, 'Full status [status-bar::true]\n- brand\n- screen\n- machine\n::button{label="Collapse" act="status.log"}\n::button{label="yolo" act="status.log"}\n::button{label="neat" act="status.log"}\nbogus\n- theme\n- video\n- uptime\n- clock');
     try {

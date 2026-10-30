@@ -9340,7 +9340,7 @@ export class NoteSurface {
   closeDraftAction(discard: boolean): { closed: boolean; keptAt?: string; said?: string } {
     const s = this.drafting;
     if (!s) return { closed: false };
-    if (s.dirty && !discard && !s.busy) throw new ActionRefused("the draft has unsaved changes; edit.save saves it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
+    if (s.draft.written && !discard && !s.busy) throw new ActionRefused("the draft has unsaved changes; edit.save saves it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
     return this.replyParent && discard ? { closed: true, ...s.discard() } : s.close(discard);
   }
 
