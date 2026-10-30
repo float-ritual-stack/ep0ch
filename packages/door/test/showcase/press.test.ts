@@ -18,6 +18,7 @@ import { Conferences } from "../../src/screens";
 import { openScreen } from "../../src/desk/screen-specs";
 import { ReaderPane } from "../../src/desk/panes";
 import { Desk } from "../../src/desk/desk";
+import { prop } from "../../src/props";
 import { USER } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -158,6 +159,26 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
       expect(opened.id).toBe(seeded.notes.shed!.id);
       expect(app.screens().at(-1)).toBe(desk);
     } finally { while (app.screens().at(-1) !== desk && app.screens().includes(desk)) app.pop(); app.pop(); desk.dispose(); }
+  });
+
+  test("a message's link opens where the reader's would: another outline's note there, a page not yet read (PIE-1453)", async () => {
+    const journal = prop(seeded.notes.crossOutline, "foreign-note")!;
+    const desk = openScreen("desk") as Desk;
+    app.push(desk);
+    try {
+      // Read the moment it's listed: no frame has drawn it, so nothing has asked for the page yet.
+      app.flash(`Filed nowhere: [[Seed report]] has no form, and ((showcase-orchard:${journal}|the orchard journal)) is another outline's`, 4000, { kind: "refusal" });
+      const rowOf = async () => {
+        await app.dispatch.act({ action: "status.log" }, USER);
+        const read = await app.dispatch.act({ action: "list.read" }, USER) as { rows: { title: string }[] };
+        return read.rows.findIndex(r => r.title.startsWith("Filed nowhere")) + 1;
+      };
+      const page = await app.dispatch.act({ action: "status.link", args: { row: await rowOf(), n: 1 } }, USER) as { id: string };
+      expect((await board.get(page.id))!.text).toContain("[page::Seed report]");
+      const foreign = await app.dispatch.act({ action: "status.link", args: { row: await rowOf(), n: 2 } }, USER) as { id: string };
+      expect(foreign.id).toBe(journal);
+      expect([...(desk as any).panes.values()].some((p: any) => p.msg?.id === journal && p.msg.address?.outline === "showcase-orchard")).toBe(true);
+    } finally { while (app.screens().includes(desk) && app.screens().at(-1) !== desk) app.pop(); app.pop(); desk.dispose(); }
   });
 
   test("launch buttons run by click and enter from the desk, drawer and Welcome", async () => {

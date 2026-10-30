@@ -23,7 +23,8 @@ import type { Ctx, Frame, Screen } from "./app";
 import { subject, type Msg } from "./board";
 import { artNamed, loadArt, members, PACK_DIR, packs, type Member } from "./packs";
 import { balanceStyles, C, center, chip, extractLinks, fg, pad, paint, RESET, selectedRow, visible, width } from "./style";
-import { pageOf, presentLinks, type LinkTarget } from "./refs";
+import { presentLinks, type LinkTarget } from "./refs";
+import { openAddress, readTarget } from "./desk/outline-boards";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import { ARM_MS, editArmMs, useEditArm } from "./arm";
 import { hyperOn, useHyper } from "./hyper";
@@ -1368,8 +1369,11 @@ export class StatusMessages extends BbsList {
     if (!this.links.has(r.id)) this.drawn(r, ctx);
     const links = this.links.get(r.id)!, to = links[n];
     if (!to) throw new ActionRefused(links.length ? `there is no link ${n + 1}; the message names ${links.length}` : "this message names no note");
-    const id = to.block ?? (to.page !== undefined ? pageOf(to.page, this.source(ctx))?.block?.id : undefined);
-    if (!id) throw new ActionRefused(to.page !== undefined ? `no note is called ${to.page}` : `${to.label ?? to.url ?? "that link"} isn't a note`);
+    if (to.block === undefined && to.page === undefined) throw new ActionRefused(`${to.label ?? to.url ?? "that link"} isn't a note`);
+    // Read as the power bar and the links tile read a link (readTarget): another outline's in its own, a page asked for and awaited.
+    const m = await readTarget(ctx, to);
+    if (!m || m.deleted) throw new ActionRefused(`nothing answers at ${to.page !== undefined ? `[[${to.page}]]` : to.block}${to.outline ? ` in ${to.outline}` : ""}`);
+    const id = await openAddress(ctx, m);
     ctx.pop();
     try { return await ctx.dispatch!.act({ action: "open", args: { id, ...(to.fragment ? { fragment: to.fragment } : {}) } }, actor); }
     catch (e) { ctx.push(this); throw e; }

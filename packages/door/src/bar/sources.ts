@@ -1,5 +1,5 @@
 import { overrideWords } from "@ep0ch/outliner/extension-update";
-import { outlineBoards, readTarget } from "../desk/outline-boards";
+import { openAddress, outlineBoards, readTarget } from "../desk/outline-boards";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { addressOf } from "../open";
@@ -181,8 +181,7 @@ async function addressedRows(to: NonNullable<ReturnType<typeof addressOf>>, host
   // Named once, on one line (PIE-1405): the row is the id (or the reference's label, the id then said after it).
   if (!m || m.deleted) return [{ key: `address:${named}`, label: to.label ?? named!, exact: true, oneLine: true,
     refused: to.label ? `no note ${named} in ${to.outline ?? "this outline"}` : to.outline ? `no such note in ${to.outline}` : "no such note in this outline; one from another outline opens by its ep0ch:// or web link" }];
-  const there = m.address, c = there ? await outlineBoards(host.ctx).on(there) : null;
-  const key = there ? formatEp0chBlockUri({ outline: there.outline, machine: there.machine ?? c!.machine ?? (await c!.board.info()).machine!, blockId: m.id }) : m.id;
+  const there = m.address, key = await openAddress(host.ctx, m);
   const detail = [there?.outline, to.fragment ? `line ^${to.fragment}` : ""].filter(Boolean).join(" · ");
   return [{ ...noteRow(m), key, exact: true, oneLine: true, ...(detail ? { detail, subtitle: undefined } : {}), note: { id: m.id, ...(there ? { outline: there.outline } : {}) }, data: { fragment: to.fragment } }];
 }
