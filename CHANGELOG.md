@@ -14,7 +14,7 @@ are its record. The outliner's entries from then are kept below, under
 
 - **A kept spine sits beside its reader:** on a desk, the old note's spine goes next to the reader it came from, never at column 0 left of the tree, so the tree stays tile 1.
 - **A narrow reader keeps no spine:** a reader already under 28 columns (a narrow group) is never made narrower for a spine; the open replaces and says "no room for a spine · alt← returns <note>".
-- **Matches keys:** in the Matches tile Home and `g` go to the first note, End and `G` to the last, space opens as ⏎ does; Home, End, `g` and `G` work in the facets tile too.
+- **Matches keys:** in the Matches tile Home and `g` go to the first note, End and `G` to the very last (reading the rest of a group past its first 200 on the way), space opens as ⏎ does; Home, End, `g` and `G` work in the facets tile too.
 - **One click on a calendar day:** a live `::graph-calendar` day (or an activity cell) lists its notes on a single click; a figure's note rows still select first.
 - **Backfill keeps dates:** `ep0ch machinery backfill --apply` stamps without bumping a note's updated date (`properties.patch keepUpdated`), so stamped boards and views don't flood Today.
 - **neat's README** says what it does: the top note over what the focused reader shows.
