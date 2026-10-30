@@ -31,10 +31,12 @@ export function noteExcerpt(text: string, max = EXCERPT_LENGTH): string {
   const words: string[] = [];
   let length = 0, fenced = false;
   let component = false;
-  for (const raw of text.split("\n").slice(h.line + 1)) {
+  const lines = text.split("\n").slice(h.line + 1);
+  for (const [i, raw] of lines.entries()) {
     if (/^\s*(?:`{3,}|~{3,})/.test(raw)) { fenced = !fenced; continue; }
-    // A component block (`::graph-stat` … `::`) is a figure, not words: its YAML is never the preview.
-    if (!fenced && /^\s*::[\w-]+\s*$/.test(raw)) { component = true; continue; }
+    // A component whose body is YAML (`::graph-stat` then `---` … `::`) is a figure, not words; a container's
+    // (`::box` then prose) are words.
+    if (!fenced && /^\s*::[\w-]+\s*$/.test(raw) && /^\s*---\s*$/.test(lines[i + 1] ?? "")) { component = true; continue; }
     if (component) { if (/^\s*::\s*$/.test(raw)) component = false; continue; }
     if (fenced || SKIP.test(raw)) continue;
     // Tags at a line's end are the note's chips, which a row draws as chips: the excerpt keeps the words.

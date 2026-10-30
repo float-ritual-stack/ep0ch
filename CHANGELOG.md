@@ -19,6 +19,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Shortcuts and a calendar:** saved views sit at the top of the tree, a click sets the selection; a click on a day narrows to the notes changed that day (`d` today, `,` `.` step).
 - **Matches goes where you want it:** ctrl+o or its ⧉ chip puts it inline, split, floating, in a popup or in a tile of its own, as Sources and comments are.
 - **For other clients:** `blocks.query` takes `group=updated:recent` (any date key), and `blocks.read`/`blocks.query` answer an `excerpt` field.
+- **Days are the host's:** `created:day` / `updated:day` (and week, month, year) now bucket a note's own time by the host's wall clock, as property dates and `today` already did; on a UTC host (float-2) nothing changes, on the laptop an evening's edit stays that day.
 - **Run:** `ep0ch install --apply` on float-2 and the laptop (a PROTOCOL bump: the host and every door together).
 
 ### A revision compare opened with a comment half-written shows both (PIE-1433)

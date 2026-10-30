@@ -53,7 +53,9 @@ const HINT = "j k pick · ⏎ or click includes a value, again excludes it, agai
 /** What the Matches list shows of a row unless the tile says (`show=`): its tags. Any key goes (properties are open). */
 const SHOW = ["tag"];
 /** A day picked on the calendar, as the views' grammar writes it (the service's day, as `updated >= YYYY-MM-DD` reads). */
-export const dayClause = (day: string) => `updated >= ${day} updated <= ${day}`;
+export const dayClause = (day: string) => { const d = dayWords(day); return `updated >= "${d}" updated <= "${d}"`; };
+/** A day as the query grammar reads it on the host's wall clock (`29 Oct 2026`; a bare YYYY-MM-DD is a UTC day). */
+const dayWords = (day: string) => { const [y, m, d] = day.split("-").map(Number) as [number, number, number]; return `${d} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m - 1]} ${y}`; };
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 /** The rows the calendar takes at the foot of the tree: a month heading, the weekdays and up to six weeks. */
@@ -180,7 +182,7 @@ export class FacetsPane implements Pane {
     try {
       const pinQ = `${this.pin}=true`, within = q ? (/\bOR\b/.test(q) ? `(${q}) ${pinQ}` : `${q} ${pinQ}`) : pinQ;
       const { year, month } = this.month, from = `${year}-${String(month).padStart(2, "0")}-01`, to = isoDay(new Date(year, month, 0));
-      const plain = selectionQuery(this.clauses, this.raw), monthQ = [plain && /\bOR\b/.test(plain) ? `(${plain})` : plain, `updated >= ${from} updated <= ${to}`].filter(Boolean).join(" ");
+      const plain = selectionQuery(this.clauses, this.raw), monthQ = [plain && /\bOR\b/.test(plain) ? `(${plain})` : plain, `updated >= "${dayWords(from)}" updated <= "${dayWords(to)}"`].filter(Boolean).join(" ");
       const [now, all, pinned, views, days] = await Promise.all([
         board.facetList(q, 200, { group: this.group, sort: "updated desc", excerpt: true }),
         q ? board.facetList("", 0) : null,
@@ -578,10 +580,11 @@ export class FacetsPane implements Pane {
       this.act(desk, "facets.resize", { share: (this.divider + this.noteRoom - y) / Math.max(1, this.bodyRoom) });
       return true;
     }
-    const hit = this.hits.find(h => h.y === y && x >= h.x0 && x < h.x1);
+    // A note drawn on the row (split's list runs down beside the Matches line) wins over the line's chips.
+    const hit = this.hits.find(h => h.note && h.y === y && x >= h.x0 && x < h.x1) ?? this.hits.find(h => h.y === y && x >= h.x0 && x < h.x1);
+    if (k.action === "down" && hit?.note) { this.pressNote(hit.note, k, desk, press); return true; }
     if (k.action === "down" && hit?.act) { this.act(desk, hit.act[0], hit.act[1]); return true; }
     if (k.action === "down" && y === this.divider) { if (this.place === "inline") this.dragging = true; return true; }
-    if (k.action === "down" && hit?.note) { this.pressNote(hit.note, k, desk, press); return true; }
     const cal = this.cal;
     if (k.action === "down" && cal && y >= cal.y && y < cal.y + 6) {
       const day = (y - cal.y) * 7 + Math.floor((x - cal.x) / 4) - cal.lead + 1;

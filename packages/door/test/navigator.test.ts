@@ -74,7 +74,7 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
   test("a day on the calendar narrows the selection, and Matches follows; a saved view sets the selection", async () => {
     const today = new Date(), iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
     expect(await act("facets.day", { day: iso })).toMatchObject({ day: iso });
-    expect(tile().query).toContain(`updated >= ${iso}`);
+    expect(tile().query).toContain(`updated >= "${today.getDate()} `);
     expect(tile().matched).toBeGreaterThan(0);
     expect(await act("facets.day", { day: "2001-01-01" })).toMatchObject({ day: "2001-01-01" });
     await until(() => tile().matched === 0, "nothing that day");

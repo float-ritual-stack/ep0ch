@@ -59,7 +59,9 @@ export function questionGroups(matches: readonly Block[], rows: readonly Block[]
   const date = dateGroupOf(group);
   const wall = wallClock(now);
   const keysOf = (block: Block): (string | null)[] => {
-    if (date && "field" in date) return [dateBucket(block[date.field], date.unit, now)];
+    // A block's own time is bucketed by this machine's wall clock, as a property's dates are and as `today` reads (an
+    // evening's edit in Toronto is that day's, not the next UTC day's).
+    if (date && "field" in date) { const at = Date.parse(block[date.field]); return [Number.isFinite(at) ? dateBucket(date.unit === "recent" ? block[date.field] : new Date(wallClock(at)).toISOString(), date.unit, now) : null]; }
     if (date) {
       // A span's bucket is its first day's.
       const days = valuesOf(block, date.key).map(v => readDate(v, wall)).map(when => when && dateBucket(new Date(date.unit === "recent" ? fromWallClock(when.from) : when.from).toISOString(), date.unit, now));

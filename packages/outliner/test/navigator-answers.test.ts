@@ -22,6 +22,12 @@ describe("relative date buckets", () => {
     expect(recentBucket("not a date", NOW)).toBeNull();
   });
 
+  test("a block's own day is this machine's wall-clock day, as a property's is", () => {
+    const evening = new Date(2026, 9, 29, 23, 30).toISOString();
+    const groups = questionGroups([{ id: "a", updatedAt: evening, createdAt: evening, properties: [] } as unknown as Block], [], "updated:day", () => [], NOW);
+    expect(groups.map(g => g.value)).toEqual(["2026-10-29"]);
+  });
+
   test("updated:recent is a group the service takes, its groups newest first", () => {
     expect(normalizeGroupField("updated:recent")).toBe("updated:recent");
     expect(normalizeGroupField("due:recent")).toBe("due:recent");
@@ -39,6 +45,7 @@ describe("a note's excerpt", () => {
     // Tags ending a line are chips, drawn as chips; a tag in the words stays.
     expect(noteExcerpt("Standpipe\nThe lagging is on the top shelf. #frost/water #shed\n#compost")).toBe("The lagging is on the top shelf.");
     expect(noteExcerpt("Frost\n#frost lists every job.")).toBe("#frost lists every job.");
+    expect(noteExcerpt("Shed\n::box\nThe roof leaks.\n::")).toBe("The roof leaks.");
     // A figure is no preview; an embed says nothing; a labelled link says its label; an escape is dropped.
     expect(noteExcerpt("Board\n::graph-stat\n---\ntitle: Now\n---\n::\nSee ((7d9a1f40-0000-4000-8000-000000000001|the plan)) and !((7d9a1f40-0000-4000-8000-000000000002)) \u001b[31mnow.")).toBe("See the plan and [31mnow.");
     expect(noteExcerpt(`Long\n${"word ".repeat(100)}`, 40).length).toBeLessThanOrEqual(40);
