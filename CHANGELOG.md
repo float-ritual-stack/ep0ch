@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A long @margin job runs to the end and says it's working; an answered ask leaves your list (PIE-1452, PIE-1451)
+
+- **@margin can do a job, not only answer:** "make a page for each plugin" runs up to an hour (it was cut off at 2 minutes, twice, on Oct 30). An agent's `deadline` in `extension.json` may now be up to `2h`; past it, the answer says it stopped and where to raise it.
+- **It says it's working:** after 5 s, the thread gets `⋯ working: @margin is working on it (3 min)`, and every minute what it has written so far; a note's `@margin` line says the same. The working reply becomes the answer.
+- **Its notes are signed margin and linked:** the `claude` it runs writes as `margin/claude-code@<machine>`, and the answer ends `Wrote 13 notes: ((…|Lantern plugin)), …`.
+- **A restart says it cut a job off,** with what it had written, instead of "working" forever.
+- **An ask whose session ends leaves Waiting on Evan by itself:** "The session ended (other) at 3:26 AM before anyone answered: it didn't run." Answered in the dialog or by a tick, as before.
+- **A closed ask takes no more ticks:** its steps become `✓ **allow this once**` and struck lines, not boxes.
+- **Run:** `ep0ch install --apply` (no PROTOCOL or schema change); it refreshes an unchanged marginalia copy, else `ep0ch ext update marginalia`.
+
 ### A link in a figure's cell reads and clicks like a link in prose (PIE-1334)
 
 - **Table and compare cells draw their links:** a `[[page]]`, `((id|label))` or `((outline:id|label))` in a `::graph-table` or `::graph-compare` cell shows its label, not its markup; `[ ]` stops on it, ⏎ or a click follows it where the tile's wires say, and `act elements` lists it. Bold and code spans in a cell draw as in prose. Check, decision and timeline rows already did; every figure now goes through the same inline renderer.

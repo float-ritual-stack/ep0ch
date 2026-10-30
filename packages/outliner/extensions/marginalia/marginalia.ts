@@ -90,7 +90,7 @@ function prompt(input: Record<string, any>, resumed: boolean): string {
   return [
     resumed
       ? "The reader asks again in the same margin thread. Here is the thread and the page as they are now."
-      : "You answer in the margin of a note, beside the passage a reader asked about. Plain text, under 120 words. The first sentence answers. Don't write query or view syntax ([query::], [sort::]) unless you checked it against the outline; the outline checks any you write and says so under your answer.",
+      : "You answer in the margin of a note, beside the passage a reader asked about. Plain text, under 120 words. The first sentence answers. Don't write query or view syntax ([query::], [sort::]) unless you checked it against the outline; the outline checks any you write and says so under your answer. When the reader asks for a job in the outline (write, split or move notes), do it with your outline tools, under the note it's about unless they say where; take as long as it needs, and the notes you write are linked under your answer, so say what you did, not each link.",
     "", "THE NOTE:", text.slice(0, 20_000), "",
     p ? `THE PASSAGE: "${p.quote}"` : "THE PASSAGE: (the whole note)",
     ...(before.length ? ["", "THE THREAD SO FAR (the reader's own notes between asks included):", ...before.map(said)] : []),

@@ -1952,6 +1952,51 @@ describe('approve from the phone (PIE-1386)', () => {
     expect(ask.edits.at(-1)).not.toContain('[needs::')
   })
 
+  test("a turn that ends under the dialog (the session stopped) closes the ask without saying anyone answered (PIE-1451)", async ($, on) => {
+    let release = () => {}
+    const held = new Promise<void>(r => { release = r })
+    const ask = asking(on, [untouched], { CLAUDE_JOB_DIR: '/jobs/j1' }, { sleep: () => held })
+    on('tool.call', { tool: 'Bash' }, () => new Promise(() => {}))
+    await ask.session.begin(() => $.session.start(START))
+    void $.tool.call({ tool: 'Bash', command: 'touch walk.txt' } as any)
+    const answer = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'touch walk.txt' } })
+    await ask.made
+    await $.turn.complete({ reason: 'other', answer: '' } as any)
+    expect((await answer).decision).toBeUndefined()
+    release()
+    expect(ask.edits.at(-1)).toMatch(/The session's turn ended at .+ before anyone answered: it didn't run\.$/)
+    expect(ask.edits.at(-1)).not.toContain('[needs::')
+  })
+
+  test('the session ends with its dialog open: the ask leaves the list by itself, saying so, and its boxes take no more ticks (PIE-1451)', async ($, on) => {
+    let release = () => {}
+    const held = new Promise<void>(r => { release = r })
+    const ask = asking(on, [untouched], { CLAUDE_JOB_DIR: '/jobs/j1' }, { sleep: () => held })
+    on('session.end', () => ({ sessionId: 'session-1' }))
+    // The dialog waits, and nobody answers it: a one-shot whose run is stopped, a background job that exits.
+    on('tool.call', { tool: 'Bash' }, () => new Promise(() => {}))
+    await ask.session.begin(() => $.session.start(START))
+    void $.tool.call({ tool: 'Bash', command: 'claude plugin --help' } as any)
+    void $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'claude plugin --help' } })
+    await ask.made
+    // The note written: the hook now holds it open, waiting on a tick (its sleeps held).
+    await new Promise(r => setTimeout(r, 50))
+    await $.session.end({ reason: 'other' } as any)
+    release()
+    const closed = ask.edits.at(-1)!
+    expect(closed).not.toContain('[needs::')
+    expect(closed).toMatch(/The session ended \(other\) at .+ before anyone answered: it didn't run\.$/)
+    expect(closed).not.toContain('- [ ]')
+    expect(closed).toContain('- ~~allow this once~~\n- ~~allow `claude plugin --help` for this session~~\n- ~~deny~~')
+  })
+
+  test("a tick that answers: that step stays ticked in bold, the others are struck, so none takes a tick later (PIE-1451)", async ($, on) => {
+    const ask = asking(on, [{ text: tick('allow this once'), author: 'user' }])
+    await ask.session.begin(() => $.session.start(START))
+    expect((await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })).decision).toMatchObject({ behavior: 'allow' })
+    expect(ask.edits.at(-1)).toContain('- ✓ **allow this once**\n- ~~allow `ls` for this session~~\n- ~~deny~~')
+  })
+
   test('nobody ticks: the ask leaves the list when the wait runs out, saying the dialog still waits in the session', async ($, on) => {
     const quiet = asking(on, [untouched], { CLAUDE_JOB_DIR: '/jobs/j1', EP0CH_APPROVE_WAIT: '30' })
     await quiet.session.begin(() => $.session.start(START))
