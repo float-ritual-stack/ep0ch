@@ -18,7 +18,7 @@ import type { Placement } from "../kitty";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selectedRow } from "../style";
 import { wrap } from "../text";
-import { ch, isUp, isDown, type Key } from "../term";
+import { ch, isUp, isDown, type Key, type TileExit } from "../term";
 import { ActionRefused, actionSet, def, keysText, type ActionInfo, type ActRequest } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { screenKeys } from "../whereabouts";
@@ -914,6 +914,11 @@ export const SECTIONS: Section[] = [
     key: "figure-steps", need: "work through a test plan in place: copy its URL, follow its link and tick each step, in a ::graph-check as on a plain line", part: "a component's words drawn through the reader's inline pipeline (PIE-864: palette.ts RowInline and inlineRows, DocEnv.present: code spans copy, links follow, emphasis drawn) and a ::graph-check row's box as a checklist step (outline-core's figureSteps; the service's checklist.query and checklist.update rewrite a written row's box; a live row's mark writes the property its done: names, liveMark); the same on the web page, the boxes as buttons", files: "outline-core/src/figure-props.ts (figureSteps), outline-core/src/figure-live.ts (liveMark), src/figures/palette.ts, src/graphs.ts, src/doc.ts, src/surface/note.ts (liveStep, markLiveRow), outliner src/checklist-items.ts, src/publish-live.ts, src/publish-figures.ts",
     aside: "a click on the URL in the You test figure copies it, as on the line above; [ ] stops on [[Shed roof build log]] in a row and ⏎ follows it · [ ] to a row's box, ⏎ (or a click) opens its choices: x done, o to do, + - w !, space toggles; the figure's line in the note gets the mark · the live jobs below are the note's children: x on one writes its [status::done], o writes [status::todo] · ctrl+z undoes either · `act task.status n=4 to=done` does it for an agent; on the note's web page the same boxes are buttons",
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · figure steps", panes: [r], names: ["test plan"] }, show, [[r, n.testPlan]]); },
+  },
+  {
+    key: "figure-cells", need: "write a link in a figure's cell (a table, a compare, a decision, a timeline) and have it read and click as the same link in prose", part: "one cell renderer for every figure (PIE-1334): each cell's words go through the reader's inline pipeline (palette.ts presentRow and inlineRows over RowInline, DocEnv.present: presentLinks' labels, link tags and the hit map), measured as drawn; outline-core's figure Markdown keeps a link's own `|`, `: ` and ` — ` in the link (splitOutsideLinks); on the web page the publisher's inline renderer (publish-figures.ts words)", files: "outline-core/src/figure-markdown.ts (splitOutsideLinks), src/figures/palette.ts (presentRow), src/graphs.ts (table), src/figures/compare.ts, outliner src/publish-figures.ts",
+    aside: "every [[page]], ((id|label)) and ((outline:id|label)) in the table, the compare, the decision and the timeline draws as its label, as the prose line at the top does · [ ] stops on each, ⏎ or a click follows it where the tile's wires say · narrow the tile under 48 columns and the table reads as cards, its links still followable · `act elements` lists them as links; on the note's web page each is a real link",
+    stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · links in figure cells", panes: [r], names: ["figure cells"] }, show, [[r, n.figureCells]]); },
   },
   {
     key: "resource-comments", need: "comment on a Resource (a file, a fetched page): select text, C", part: "comments on a Resource's stored text (PIE-650): the reader showing a Resource takes C and m like a note; the thread is stored in the outline (annotations.batch resource-comment, threads through annotations.reconcile), quoting the selection from the file's own source and keeping the note whose link opened it as its reference context; the file is never written", files: "src/authored.ts (resourceNote, alignComments), src/socket.ts (commentOnResource, comments), src/desk/panes.ts (ReaderPane.refuses), src/draft-session.ts, outliner src/resource-comments.ts",
@@ -1865,7 +1870,7 @@ export class Showcase implements Screen {
     };
   }
 
-  inTile(p: import("../term").TileProgram, done: (code: number | null) => void): boolean { return this.stage(this.sel)?.top.inTile?.(p, done) ?? false; }
+  inTile(p: import("../term").TileProgram, done: TileExit): boolean { return this.stage(this.sel)?.top.inTile?.(p, done) ?? false; }
 
   /**
    * The showcase's dispatcher: its own actions (which section), then the shown section's stage: its screen's own

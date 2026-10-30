@@ -285,4 +285,36 @@ export const TEST_PLAN = [
   ...fig("check", ["title: The door's jobs (live)", 'query: "parent:this type=door-job"', 'done: "status=done"']),
 ].join("\n");
 
+/**
+ * Links in a figure's cells (PIE-1334): a table, a compare, a decision and a timeline whose cells hold a `[[page]]`, a
+ * `((id|label))` by its short id and a `((outline:id|label))`, each drawn as its label and followed as the same link in
+ * the prose line above is.
+ */
+export function figureCellsText(greenhouse: string, testPlan: string): string {
+  const g = `((${greenhouse.slice(0, 8)}|the greenhouse))`, plan = `((${testPlan}|door test plan))`;
+  return [
+    SEED.figureCells,
+    // The greenhouse is named only in cells (its short id), never in prose: a cell's references are found by themselves.
+    "In prose: [[Shed roof build log]] and ((plotnet:0a1b2c3d|the society's gate log)).",
+    "",
+    ...fig("table", ["title: Asks with no reply", "headers: [Ask, From, Now]", "rows:",
+      `  - ["[[Shed roof build log]] felt or slate?", "Ana", "answered"]`,
+      `  - ["${g} shade cloth", "Ben", "open"]`,
+      `  - ["${plan} the latch", "Ana", "**done**, see \`latch.md\`"]`,
+      `  - ["((plotnet:0a1b2c3d|the society's gate log))", "Ben", "open"]`]),
+    ...mdFig("compare", ["title: Where the seedlings go", "columns: [Now, After]"], [
+      `- shelter: ${g} | [[Shed roof build log]]`,
+      `- **checked by: ${plan} | nobody yet**`,
+    ]),
+    ...mdFig("decision", ["title: Roof"], [
+      `- **felt** — ${plan} says it lasts`,
+      `- *slate* — [[Shed roof build log]]: too heavy`,
+    ]),
+    ...mdFig("timeline", ["title: Shed"], [
+      `- Mar: ${g} glazed`,
+      "- **Apr: [[Shed roof build log]] felted**",
+    ]),
+  ].join("\n");
+}
+
 export const TEST_PLAN_JOBS = ["Plane the door's bottom edge [type::door-job] [status::todo]", "Oil the hinges [type::door-job] [status::done]"];

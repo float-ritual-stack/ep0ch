@@ -499,6 +499,63 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
   }, 40_000);
 
 
+  test("figure cells (PIE-1334): a [[page]], ((id|label)) and ((outline:id|label)) in a table, compare, decision or timeline cell draws as its label and follows, by keys, click and act, as in prose", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "figure-cells" }, as: "test-agent" })).toMatchObject({ key: "figure-cells" });
+    await until(() => screen().includes("ASKS WITH NO REPLY") && screen().includes("WHERE THE SEEDLINGS GO"), "the figure cells note", 8000);
+    // The reader's lines (the stage, right of the section list): every cell's link reads as its label, as the prose
+    // line does; no markup is left.
+    const drawn = sc.render(app).lines.map(plain).map(l => l.slice(S().stageRect.col)).filter(l => l.includes("┊") || l.includes("In prose")).join("\n");
+    expect(drawn).toContain("┊ the greenhouse shade cloth");
+    expect(drawn).not.toMatch(/\[\[|\(\(/);
+    expect(drawn).toContain("the greenhouse shade cloth");
+    expect(drawn).toContain("door test plan the latch");
+    expect(drawn).toContain("done, see latch.md");
+    const els = async () => { screen(); return ((await app.act({ action: "elements", tile: "figure cells", as: "test-agent" })) as any).elements as { n: number; kind: string; label: string; current?: boolean }[]; };
+    const links = (await els()).filter(e => e.kind === "link");
+    // Each is an element wherever it's written: the prose line, the table, the compare, the decision, the timeline.
+    // The greenhouse is only in cells (the table, the compare, the timeline), by its short id.
+    expect(links.filter(e => e.label.includes("the greenhouse")).length).toBe(3);
+    expect(links.filter(e => e.label.includes("door test plan")).length).toBe(3);
+    expect(links.filter(e => e.label.includes("Shed roof build log")).length).toBe(5);
+    expect(links.filter(e => e.label.includes("gate log")).length).toBe(2);
+    // An agent follows the table's ((short id|label)) cell: the greenhouse opens, said as the agent's, the person's
+    // reader left where it is.
+    const greenhouse = links.filter(e => e.label.includes("the greenhouse"))[0]!;
+    expect(await app.act({ action: "element.open", tile: "figure cells", args: { n: greenhouse.n }, as: "test-agent" })).toMatchObject({ kind: "link" });
+    await until(() => screen().includes("an agent (test-agent) opened the greenhouse"), "the agent's open, said", 5000);
+    expect(screen()).toContain("ASKS WITH NO REPLY");
+    // At 44 columns (a drawer, a river column) the table reads as cards, and its cells' links still read as labels.
+    const narrow = (await drawNote(board, seeded.notes.figureCells.id, 44))!.map(plain).join("\n");
+    expect(narrow).toContain("┊ the greenhouse shade cloth");
+    expect(narrow).toContain("┊ Now: done, see latch.md");
+    expect(narrow).toContain("┊   Now    the greenhouse");
+    expect(narrow).not.toMatch(/\[\[|\(\(/);
+    // By keys: into the stage, [ ] to the table's greenhouse (a reference by its short id), ⏎ opens it; back.
+    press({ kind: "enter" });
+    for (let i = 0; i < 60 && !(await els()).find(e => e.current && e.n === greenhouse.n); i++) ch("]");
+    press({ kind: "enter" });
+    await until(() => screen().includes("once they have two leaves"), "the greenhouse open by ⏎", 5000);
+    press({ kind: "backspace" });
+    await until(() => screen().includes("ASKS WITH NO REPLY"), "back on the figures");
+    // Then the table's door test plan link, ⏎ opens the test plan.
+    const plan = (await els()).filter(e => e.kind === "link" && e.label.includes("door test plan"))[1]!;
+    for (let i = 0; i < 60 && !(await els()).find(e => e.current && e.n === plan.n); i++) ch("]");
+    expect((await els()).find(e => e.current)?.n).toBe(plan.n);
+    press({ kind: "enter" });
+    await until(() => screen().includes("lift the latch twice"), "the test plan open", 5000);
+    press({ kind: "backspace" });
+    await until(() => screen().includes("ASKS WITH NO REPLY"), "back on the figures");
+    // By mouse: a click on the compare's [[Shed roof build log]] cell selects it, a second opens it.
+    const rows = () => sc.render(app).lines.map(plain);
+    const y = rows().findIndex(l => l.includes("shelter") && l.includes("Shed roof build log")), x = rows()[y]!.indexOf("Shed roof build log");
+    expect(y).toBeGreaterThan(0);
+    for (let k = 0; k < 2; k++) { press({ kind: "mouse", action: "down", button: 0, x: x + 2, y }); press({ kind: "mouse", action: "up", button: 0, x: x + 2, y }); }
+    await until(() => screen().includes("felt from the merchant"), "the build log open", 5000);
+    press({ kind: "backspace" });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
   test("tabs: a live figure's tabs and density, switched through act, by keys and by click; the note never written", async () => {
     const id = seeded.notes.plotJobs.id, before = (await board.get(id))!.text;
     (app as any).lastInput = 0;
