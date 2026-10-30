@@ -64,7 +64,8 @@ test("only placement applies note opens", () => {
         const declaration = checker.getResolvedSignature(node)?.declaration;
         const declaredIn = declaration?.getSourceFile().fileName ?? "";
         const method = declaration && "name" in declaration ? (declaration.name as ts.Node | undefined)?.getText() : undefined;
-        const landing = ts.isIdentifier(node.expression) && node.expression.text === "landing";
+        // Placement's own landing, by where it's declared: a form's landing (the words for where its entries go) is another function.
+        const landing = ts.isIdentifier(node.expression) && node.expression.text === "landing" && declaredIn.endsWith("/desk/screen-layout.ts");
         const legacy = ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "openNewIn";
         const hold = method === "hold" && /\/(?:desk\/panes|river\/column)\.ts$/.test(declaredIn);
         const take = method === "take" && declaredIn.endsWith("/desk/tile-kinds.ts");
