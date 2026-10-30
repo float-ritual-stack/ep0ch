@@ -564,7 +564,7 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
       : s.status === "ranked" ? { status: "ranked", said: "ranked by Jev over the text matches" }
       : { status: s.status, said: `text matches only${s.message ? ` (${s.message})` : ""}` };
     return {
-      blocks: ids.flatMap(id => { const b = by.get(id); if (!b) return []; const score = scores.get(id); return [{ ...findRow(b), ...(score !== undefined ? { score } : {}), ...(byMeaning.has(id) ? { byMeaning: true } : {}) }]; }),
+      blocks: ids.flatMap(id => { const b = by.get(id); if (!b) return []; const score = scores.get(id); return [{ ...findRow(b, input.properties === true), ...(score !== undefined ? { score } : {}), ...(byMeaning.has(id) ? { byMeaning: true } : {}) }]; }),
       complete: found.completeness.kind === "complete" && found.matches.length <= shown, search,
     };
   }

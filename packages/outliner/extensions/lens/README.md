@@ -7,7 +7,7 @@ to change a property. The spike for PIE-1461: what Datacore reaches for, on the 
 ```text
 lens:: query="type=meeting when={{this.page}}" columns=title,who,status edit=status sort=when
 lens:: query="type=seed-line under:this" columns=title,qty,price,cost cost="qty * price" sum=cost,qty
-lens:: view=[[Open jobs]] group=priority edit=stage choices-stage="todo|doing|done"
+lens:: view="[[open-jobs]]" group=priority edit=stage choices-stage="todo|doing|done"
 ```
 
 ## Where to look
@@ -22,7 +22,7 @@ lens:: view=[[Open jobs]] group=priority edit=stage choices-stage="todo|doing|do
 | Slot | Means |
 |---|---|
 | `query="…"` | the views' grammar; `{{this.page}}`, `under:this`, `parent:this`, relative dates all work |
-| `view=[[name]]` | a saved view's `[query::]` (and its `[sort::]`) instead of `query=` |
+| `view="[[page]]"` or `view=((id))` | a saved view's `[query::]` (and its `[sort::]`) instead of `query=`; a `[[page]]` needs the view to carry `[page::…]`, and quotes when it has a space |
 | `under=<ref>` | only under that note |
 | `columns=a,b,c` | `title`, `created`, `updated`, `id`, any property, any computed column (default: title, the computed ones, updated) |
 | `<name>="<expression>"` | a computed column: JavaScript over the row's properties (hyphens read as underscores, numbers as numbers) and `row` (`title`, `created`, `updated`, `props`, `n(key)`, `list(key)`, `get(key)`) |

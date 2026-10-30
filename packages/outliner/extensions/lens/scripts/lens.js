@@ -12,7 +12,7 @@
 //
 //   lens:: query="type=meeting when={{this.page}}" columns=title,when,who,status edit=status sort=when
 //   lens:: query="type=line" columns=title,qty,price,cost cost="qty * price" sum=cost,qty
-//   lens:: view=[[Open tickets]] group=priority
+//   lens:: view="[[open-tickets]]" group=priority
 //
 // The query is the outline's one grammar (it reads `this`); the shape is this script's: columns, computed
 // columns, sort, group, footer sums, and cells that press to change a property. Every other slot word is a
@@ -24,21 +24,27 @@ const slots = { ...props };
 const one = key => slots[key]?.[0];
 const list = key => (one(key) ?? "").split(",").map(s => s.trim()).filter(Boolean);
 const fmt = n => Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
-const ident = key => key.replace(/[^A-Za-z0-9_$]/g, "_").replace(/^(\d)/, "_$1");
+// A property key as a JavaScript name: hyphens to underscores, a leading digit prefixed, a reserved word suffixed
+// (`[default::yes]` on one row must not stop every computed column compiling).
+const RESERVED_WORDS = new Set("break case catch class const continue debugger default delete do else enum export extends false finally for function if import in instanceof new null return super switch this throw true try typeof var void while with yield let static await arguments eval row".split(" "));
+const ident = key => { const name = key.replace(/[^A-Za-z0-9_$]/g, "_").replace(/^(\d)/, "_$1"); return RESERVED_WORDS.has(name) ? `${name}_` : name; };
 const bad = (what, detail) => view.text({ text: `${what}: ${detail}`, tone: "bad" });
 
 // --- the rows ------------------------------------------------------------------------------------------------------
 let query = one("query");
 if (!query && one("view")) {
-  const saved = await read(one("view"));
+  let saved;
+  try { saved = await read(one("view")); } catch (e) { return bad("lens", `view=${one("view")}: ${e.message}`); }
   const q = saved.properties.find(p => p.key === "query")?.values[0];
   if (!q) return bad("lens", `${saved.title} has no [query::]: name a saved view, or write query=`);
   query = q;
   if (!one("sort")) { const s = saved.properties.find(p => p.key === "sort")?.values[0]; if (s) slots.sort = [s]; }
 }
-if (!query) return bad("lens", 'needs query="…" (the views\' grammar, {{this.page}} and this allowed) or view=[[a saved view]]');
+if (!query) return bad("lens", 'needs query="…" (the views\' grammar, {{this.page}} and this allowed) or view="[[a saved view]]"');
 const limit = Math.max(1, Math.min(200, Number(one("limit")) || 200));
-const found = await q(query, { limit, properties: true, ...(one("under") ? { under: one("under") } : {}) });
+let found;
+try { found = await q(query, { limit, properties: true, ...(one("under") ? { under: one("under") } : {}) }); }
+catch (e) { return bad("lens", `query="${query}": ${e.message}`); }
 const rows = (found.blocks ?? []).map(b => {
   const props = {};
   for (const p of b.properties ?? []) props[p.key] = p.values;
@@ -86,10 +92,12 @@ const groups = groupKey ? [...rows.reduce((m, r) => { const k = shown(valueOf(r,
 // --- the table ---------------------------------------------------------------------------------------------------------
 const linkCol = one("link") === "none" ? null : one("link") ?? (columns.includes("title") ? "title" : null);
 const choicesFor = key => one(`choices-${key}`);
+// A property column shows the value as written (`02134`, `1.50`); the number it reads as is for sorting and sums.
+const asWritten = (r, col) => col in compiled || col === "title" || col === "created" || col === "updated" || col === "id" ? null : (r.props[col]?.join(", ") ?? "");
 const cellOf = (r, col) => {
   const v = valueOf(r, col);
-  const text = shown(v);
-  if (typeof v === "object" && v?.error) { if (!errors.includes(v.error)) errors.push(`${col}: ${v.error}`); return { text: "!", tone: "bad" }; }
+  const text = asWritten(r, col) ?? shown(v);
+  if (typeof v === "object" && v?.error) { const said = `${col}: ${v.error}`; if (!errors.includes(said)) errors.push(said); return { text: "!", tone: "bad" }; }
   if (editable.has(col)) {
     const choices = choicesFor(col);
     const quoted = s => `"${String(s).replace(/(["\\])/g, "\\$1")}"`;

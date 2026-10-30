@@ -5,5 +5,5 @@ A lens line draws a live table of what a query holds, where the line is. The que
 - **Computed columns** are any other slot: `cost="qty * price"` is JavaScript over the row's properties (hyphens read as underscores, numbers as numbers), then `sum=cost`.
 - **Press a cell** in an `edit=` column to step its property to the next value (the `choices-status="todo|doing|done"` you give, else every value that key has). One attributed write; ctrl+z takes it back.
 - **Agents** run the same line a press runs: `lens-set note=<id> key=status value=done`.
-- **A saved view** works too: `lens:: view=[[Open jobs]]`.
+- **A saved view** works too: `lens:: view="[[open-jobs]]"` (a view with `[page::open-jobs]`), or `view=((its id))`.
 - The lab below has three: ((day-one|a day note)), ((seed-order|a seed order with a computed column)), ((jobs|jobs grouped by priority)).

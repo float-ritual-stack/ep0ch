@@ -89,6 +89,22 @@ test("the line's words are checked, and uninstalling keeps the notes", async () 
     expect(await drawn(broken.id, "lens:")).toMatch(/cost="qty \\?\*": unexpected token/);
     const empty = create('Empty\nlens:: query="type=nothing-has-this" empty="no rows yet"');
     expect(await drawn(empty.id, "no rows yet")).toContain("no rows yet");
+    // A reserved word as a key ([default::…]) doesn't stop the computed column compiling; a value shows as written.
+    create("Zip [type::crate] [qty::2] [price::1.50] [default::yes] [zip::02134]");
+    create("Zap [type::crate] [qty::3] [price::2]");
+    const crates = create('Crates\nlens:: query="type=crate" columns=title,zip,price,cost cost="qty * price" sum=cost sort=title');
+    const drawnCrates = await drawn(crates.id, "| Σ |");
+    expect(drawnCrates).toContain("| Zip | 02134 | 1.50 | 3 |");
+    expect(drawnCrates).toContain("| Σ |  |  | 9 |");
+    // A typo in an expression is said once, not once per row.
+    const typo = create('Typo\nlens:: query="type=crate" columns=title,cost cost="qty * prise"');
+    const said = await drawn(typo.id, "prise");
+    expect(said.split("prise is not defined").length - 1).toBe(1);
+    // A view that doesn't resolve, and a query the grammar refuses, are said by the lens, not the runtime.
+    const noView = create('No view\nlens:: view="[[no-such-view]]"');
+    expect(await drawn(noView.id, "lens: view=")).toContain("no-such-view");
+    const badQuery = create('Bad query\nlens:: query="(type=crate" columns=title');
+    expect(await drawn(badQuery.id, "lens: query=")).toContain("Unclosed (");
     await client.request({ action: "extensions.uninstall", extension: "lens", demo: "keep" });
     expect(store.require(byTitle("Seed order").id).text).toContain("lens::");
     await expect(client.request({ action: "extensions.act", extension: "script:lens-set", extensionAction: "run", args: { note: "x", key: "y", value: "z" }, clientId: "lens-reader" }))
