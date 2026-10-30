@@ -1683,7 +1683,7 @@ export class Showcase implements Screen {
     this.reconnectsSeen = ctx.reconnects ?? 0;
     loadShowcase(ctx.board).then(s => {
       if (!s) this.problem = "This outline has no showcase: the showcase runs on its own seeded outline. From a shell: ep0ch try --showcase (add --reset to start it over).";
-      else this.notes = s.notes;
+      else { this.notes = s.notes; this.openStage(); }
       ctx.redraw();
     }, e => { this.problem = `couldn't read the outline: ${e instanceof Error ? e.message : String(e)}`; ctx.redraw(); });
   }
@@ -1723,6 +1723,7 @@ export class Showcase implements Screen {
         this.reseeding = false;
         this.notes = s.notes;
         this.problem = "";
+        this.openStage();
         this.ctx.flash("the showcase was reset · its notes read again");
         this.ctx.redraw();
       }, () => { if (!this.disposed && this.reseeding) this.reread(); });
@@ -1743,6 +1744,19 @@ export class Showcase implements Screen {
     return f;
   }
 
+  /**
+   * The shown section's stage, built and opened here, never in render (PIE-1315): opening one reads the outline and lays
+   * its desk out, which asks for redraws, and a render that did it painted inside its own paint.
+   */
+  private openStage() {
+    const f = this.stage(this.sel);
+    if (!f || f.isOpen) return;
+    // At the size render gives it (stageRect), so it lays out once for where it's drawn.
+    const { cols, rows } = this.ctx.t, x = Math.min(indexWidth(cols), cols) + 1;
+    f.w = Math.max(1, cols - x); f.h = Math.max(1, rows - 6);
+    f.open();
+  }
+
   /** Screen.tilesHere: the section shown is a desk: a tile taken out of the drawer here (tile.drawer on=false) lands in it. */
   enterTiles() { void this.dispatch.pressIn(SHOWCASE_ACTIONS, "section.try", {}); }
   tilesHere(): Desk | undefined { const t = this.stage(this.sel)?.top; return t instanceof Desk ? t : undefined; }
@@ -1755,6 +1769,7 @@ export class Showcase implements Screen {
   pick(i: number, enter = false) {
     this.sel = Math.max(0, Math.min(SECTIONS.length - 1, i));
     this.focus = enter && this.notes ? "stage" : "index";
+    this.openStage();
     if (this.focus === "stage") this.stage(this.sel)?.top.enterTiles?.();
     this.ctx.redraw();
   }
@@ -1788,8 +1803,12 @@ export class Showcase implements Screen {
     this.stageRect = { col: x, row: 4, cols: w, rows: Math.max(1, H - 5) };
     if (this.problem) wrap(this.problem, w).forEach((line, i) => canvas.text(x, 5 + i, paint(`|12${line}`), w));
     else if (!this.notes) canvas.text(x, 5, paint("|08reading the showcase outline…"), w);
-    else {
-      const f = this.stage(this.sel)!;
+    else if (!this.stages.get(this.sel)?.isOpen) {
+      // Not opened yet (the notes came another way): opened after this frame, outside render, which paints it then.
+      canvas.text(x, 5, paint("|08opening the section…"), w);
+      queueMicrotask(() => { if (this.disposed || !this.notes) return; this.openStage(); this.ctx.redraw(); });
+    } else {
+      const f = this.stages.get(this.sel)!;
       const r = this.stageRect;
       if (f.top instanceof Desk) f.top.screenOrigin = { col: r.col, row: r.row };
       const frame = f.render(r.cols, r.rows, `s${this.sel}`);
