@@ -524,7 +524,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     // A click in the comment's text gives the middle reader the keys and puts the cursor there.
-    const textRow = () => { const rows = sc.render(app).lines.map(plain); const y = rows.findIndex(l => l.includes("» comment")); const x = rows[y]!.indexOf("comment"); return { rows, y, x }; };
+    const textRow = () => { const rows = sc.render(app).lines.map(plain); const y = rows.findIndex(l => l.includes("» comment")); const x = rows[y]!.indexOf("» comment") + 2; return { rows, y, x }; };
     let at = textRow();
     expect(at.y).toBeGreaterThan(0);
     const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
@@ -608,7 +608,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     // A click in the comment's text gives the guide's tile the keys.
-    let r = rows(), y = r.findIndex(l => l.includes("» comment")), x = r[y]!.indexOf("comment");
+    let r = rows(), y = r.findIndex(l => l.includes("» comment")), x = r[y]!.indexOf("» comment") + 2;
     click(x + 2, r.findIndex((l, i) => i > y && /─{5,}/.test(l.slice(x))) + 1);
     await until(() => stage().describe().focusName === "guide", "the comment has the keys");
     // Typed, then a doubled word dragged across with the mouse and taken out.

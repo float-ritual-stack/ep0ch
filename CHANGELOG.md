@@ -21,6 +21,13 @@ are its record. The outliner's entries from then are kept below, under
 - **Try it:** `ep0ch --showcase`, section "artifacts", its last two cards.
 - **Run:** `ep0ch install --apply` (PROTOCOL bump: `artifacts.show` answers `deploy`, `artifacts.deploy` takes `note`; GRAMMAR 16). The host's restart updates the seeded rule and script in pie and gurgle.
 
+### The door's tests that were written off as "known" are green again (PIE-1441, PIE-1446)
+
+- **ctrl+z right after closing an edit undoes:** an extension's undo (a margin quote) sent the moment an edit closed was refused "open in a draft" when the service's hold grant was still on its way; the undo now waits for that release.
+- **The drawer's parity case runs in 8 s, not 60:** typing into the drawer's terminal is the program's, not a new door input state to probe (399 builds, was 890).
+- **The comments showcase's deep-links test clicks the comment box,** not the section list beside it.
+- **Run:** `ep0ch install --apply`.
+
 ### A long @margin job runs to the end and says it's working; an answered ask leaves your list (PIE-1452, PIE-1451)
 
 - **@margin can do a job, not only answer:** "make a page for each plugin" runs up to an hour (it was cut off at 2 minutes, twice, on Oct 30). An agent's `deadline` in `extension.json` may now be up to `2h`; past it, the answer says it stopped and where to raise it.
