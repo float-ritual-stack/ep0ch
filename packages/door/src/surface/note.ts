@@ -10489,6 +10489,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "revision.against": def({
     summary: "in the revision compare, mark the revision against the note as it is now, or (again) against the next revision", keys: modeActionKeys(ATTACHED_KEYS, "revision.against"),
     touches: "tile", replay: "safe", args: { to: { type: "string", optional: true, about: "now or next; left out, the other one" } },
+    examples: [{ act: "revision.against to=now", does: "marks the revision shown against the note as it is now" }, { act: "revision.against to=next", does: "marks it against the revision after it again" }],
     async run({ to }, { surface, host }) {
       const v = surface.revisionMode?.view;
       if (!v) throw new ActionRefused("open the revision compare first (revision.compare)");
@@ -10499,6 +10500,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "revision.scroll": def({
     summary: "scroll the revision compare's rows", keys: modeActionKeys(ATTACHED_KEYS, "revision.scroll"),
     touches: "tile", replay: "safe", args: { by: { type: "number", about: "rows, down when positive" } },
+    examples: [{ act: "revision.scroll by=8", does: "scrolls the compare down a page" }, { act: "revision.scroll by=-1", does: "scrolls it up a row" }],
     run({ by }, { surface, host }) {
       const mode = surface.revisionMode;
       if (!mode) throw new ActionRefused("open the revision compare first (revision.compare)");

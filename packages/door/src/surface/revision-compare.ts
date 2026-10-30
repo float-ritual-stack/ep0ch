@@ -27,8 +27,8 @@ export function revisionTitle(v: RevisionView): string {
 }
 
 const CONTROL_WORDS: Record<(typeof REVISION_CONTROLS)[number], (v: RevisionView) => string> = {
-  "revision.older": () => "‹ older",
-  "revision.newer": () => "newer ›",
+  "revision.older": () => "« older",
+  "revision.newer": () => "newer »",
   "revision.against": v => (v.against === "now" ? "against next" : "against now"),
   "revision.close": () => "esc back",
 };

@@ -30,7 +30,7 @@ describe.skipIf(!outliner)("showcase: at a revision (PIE-1433)", () => {
     for (let i = 0; i < 2; i++) { h.press({ kind: "mouse", action: "down", button: 0, x, y } as never); h.press({ kind: "mouse", action: "up", button: 0, x, y } as never); }
     await until(() => h.screen().includes("REVISION 1 → 2 (now)"), "the compare beside the note", 15_000);
     const screen = h.screen();
-    expect(screen).toContain("[‹ older] [newer ›] [against now] [esc back]");
+    expect(screen).toContain("[« older] [newer »] [against now] [esc back]");
     expect(screen).toContain("+ - **Roof on** at nine");
     // Beside: the compare and the note as it is now on the same rows.
     const row = screen.split("\n").find(l => l.includes("REVISION 1 → 2"))!;
