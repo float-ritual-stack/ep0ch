@@ -15,6 +15,13 @@ are its record. The outliner's entries from then are kept below, under
 - **Whatever is in front of you gets the key:** the power bar, a status-bar menu, the message log, a tile menu or a
   float takes Esc, and nothing reaches the terminal under it. The door now asks one answer (where you are) for this,
   so a new overlay can't let a key leak to the program behind it; `ep0ch peek`'s `person` names that layer too.
+
+### A chat reads an away outline from its copy (PIE-1091)
+
+- **Snapshot and read while the laptop's away:** `outline_snapshot` and `reader_view` on an outline whose home is another machine (float-hub@laptop) are answered from float-2's read-only copy, each answer saying the copy's source, how fresh it is and whether it's stale. The snapshot link is float-2's web client's, works once and expires as any snapshot does.
+- **Shares stay home:** `share_start` on an away outline is refused and names the command to run on its own machine (`ep0ch share start <ref> --ws float-hub`); listing and revoking the copy's own links work.
+- **Run:** nothing beyond the usual `ep0ch install --apply` (it restarts the gateway and the publishers).
+
 ### Esc closes the message log too, never the terminal behind it (PIE-1431)
 
 - **The message log is over your terminal like the power bar is:** Esc closes it, and a second Esc right after goes
@@ -60,10 +67,10 @@ are its record. The outliner's entries from then are kept below, under
 - **At 40 columns:** the keys tile opens below, at the screen's width, instead of a 20-column strip beside.
 ### Search reads right wherever you search (PIE-1409)
 
-- **How sure, in plain words:** a right first result Jev isn't certain of says "not sure" instead of "no strong match" (the 0.8 line stays: measured on 204 cases).
-- **`[[` by meaning:** page completion finds pages by meaning too, as `((` does; after the re-rank the cursor stays on the row you were on.
+- **How sure, in plain words:** a right first result Jev isn't certain of (a score from 1.5 to 2 of 3) says "not sure" instead of "no strong match"; the 0.8 line for "sure" stays (both measured on 204 cases).
+- **`[[` by meaning:** page completion finds pages by meaning too, as `((` does; when Jev is sure of a find the cursor lands on it (Tab links it), otherwise it stays on the row you were on.
 - **At 40 columns** the search footer reads whole; **on the phone** Sources' download buttons are 70×46 px.
-- **The search evals page** shows hit@1, hit@5 and cost in plain words (`ep0ch search eval --into pie` refreshes it).
+- **The search evals page** shows hit@1, hit@5 and cost in plain words, as "7 of 12" rather than bare counts (`ep0ch search eval --into pie` refreshes it).
 - **Still open:** daily digests can outrank real notes; it stays on the ticket.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
 
