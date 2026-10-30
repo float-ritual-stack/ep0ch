@@ -85,6 +85,8 @@ export interface OutlineHostOptions {
    * (`READ_ONLY_ACTIONS`) and `outlines.list`. It never creates, imports or deletes an outline.
    */
   readOnly?: boolean;
+  /** A read-only copy of another machine's outline: what its OutlinerServer is told (its `copy` option, PIE-1091). */
+  copy?: { address: string; state: string };
 }
 
 // `web.sessions.*`: the signed-in web client's sessions (web-sessions.ts), the host's own since one opens every outline.
@@ -693,7 +695,7 @@ export class OutlineHost {
     try {
       const promptDirectory = aiPromptDirectory(this.options.promptDirectory ?? join(stateDirectory, "prompts"));
       if (this.options.promptDirectory === undefined && !this.options.readOnly) await initializeAiPrompts(promptDirectory);
-      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder });
+      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder, ...(this.options.copy ? { copy: this.options.copy } : {}) });
       server.setOutline({ name });
       server.setHost(() => this.status());
       server.setUploadLeases(input => this.startUploadLease(input));

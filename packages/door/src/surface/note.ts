@@ -137,7 +137,7 @@ import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTar
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
-import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
+import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_MOVE, COMPLETION_ACCEPT, COMPLETION_ASK, COMPLETION_DISMISS, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, actionHereAt, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "@ep0ch/outline-core/completion-triggers";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -412,11 +412,20 @@ export function historyKey(k: Key): -1 | 1 | 0 {
  * `<title> · forward →` on the right, each a click (`hits`, in the row's cells). Null with nowhere to go.
  */
 export function historyRow(w: number, back: string | null, forward: string | null, trail = true): { line: string; hits: { from: number; to: number; dir: TrailDir }[] } | null {
-  if ((!back && !forward) || w < 12) return null;
+  if ((!back && !forward) || w < 8) return null;
   // The trail's chip (PIE-208) after back, where the row has room for it beside both titles.
   const chip = trail && w >= TRAIL_CHIP_MIN ? TRAIL_CHIP : "", chipW = chip ? width(chip) + 2 : 0;
   const room = back && forward ? Math.floor((w - 3 - chipW) / 2) : w - 2 - chipW;
-  const b = back ? drawEllipsized(`${fg(C.lcyan)}← back${fg(C.dark)} · ${printable(back)}`, room) : "", f = forward ? drawEllipsized(`${fg(C.dark)}${printable(forward)} · ${fg(C.lcyan)}forward →`, room) : "";
+  // Narrow (a preview at 40 columns, PIE-1426): the title goes before the words do, and the words before the arrow,
+  // so the row always says which way each click goes, never "← ba…".
+  const side = (word: string, title: string, arrow: string, before: boolean) => {
+    if (room >= width(word) + 6) {
+      const t = `${fg(C.dark)}${drawEllipsized(printable(title), room - width(word) - 3)}`;
+      return before ? `${fg(C.lcyan)}${word}${fg(C.dark)} · ${t}` : `${t}${fg(C.dark)} · ${fg(C.lcyan)}${word}`;
+    }
+    return `${fg(C.lcyan)}${room >= width(word) ? word : arrow}`;
+  };
+  const b = back ? side("← back", back, "←", true) : "", f = forward ? side("forward →", forward, "→", false) : "";
   const hits: { from: number; to: number; dir: TrailDir }[] = [];
   let line = "", at = 0;
   if (b) { line += " " + b + RESET; hits.push({ from: 0, to: 1 + width(b), dir: -1 }); at = 1 + width(b); }
@@ -3488,6 +3497,13 @@ export class NoteSurface {
     if (this.replyParent && ch(k) === '"' && this.selection) { void this.runKey("note.quote", {}, host); return true; }
     if (this.replyParent && (k.kind === "pgup" || k.kind === "pgdn")) { this.scrollKey(k, host); return true; }
     if (elementEdit(s.draft).key(k, (action, args = {}) => { void this.runKey(action, args, host); })) { host.redraw(); return true; }
+    // A note's own edit runs actions where the person types (PIE-1076): ctrl+k lists them, ⏎ on a / line runs it.
+    if (s.draft === this.draft && !completionOf(s.draft)?.items.length) {
+      if (k.kind === "char" && k.ctrl && k.ch === "k" && !k.shift) { void this.runKey("edit.actions", {}, host); return true; }
+      // Only a line that names an action, with the cursor at its end: `/tmp is full` is prose, and ⏎ is its new line.
+      const line = s.draft.lines[s.draft.row] ?? "", here = k.kind === "enter" && s.draft.col === line.length ? actionHereAt(line, line.length, s.draft.lines, s.draft.row) : null;
+      if (here && host.ctx.dispatch?.has(here.query.split(/\s/)[0]!)) { void this.runKey("edit.run", {}, host); return true; }
+    }
     // What ends or hands off the draft is an action (PIE-506); the rest is typing.
     s.key(k, {
       completer: this.completer(s.draft, host),
@@ -10237,7 +10253,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "complete": def({
     words: "complete what you're typing: a page, a reference, a file, a callout or a property",
     summary: "completion, as typing [[, ((, [file::, > [!, ::component, a property's [key:: or a figure's YAML offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/, [heading-pattern::, or a ::graph-meter block's lines ending in ti), or at the open draft's cursor; insert=n puts the nth into the draft (expect=<its insertion> refuses it if the list changed meanwhile); refine=^ or refine=# opens the finished ((reference)) at the draft's cursor again to search inside its note, as typing ^ or # in it does (PIE-762): a passage with no anchor gets one when inserted. Property keys and values come from the component schemas (PIE-618)",
-    keys: [{ via: "typing [[ (( [file:: > [! ::component or [key:: while writing" }, { keys: "tab ctrl+space", does: "open the completion" }, { keys: "↑ ↓", does: "move in it" }, { keys: "enter tab", does: "choose" }, { keys: "esc", does: "close it" }, { keys: "^ #", does: "in a ((reference))" }],
+    keys: [{ via: "typing [[ (( [file:: > [! ::component or [key:: while writing" }, { keys: "tab ctrl+space", does: "open the completion" }, { keys: "↑ ↓", does: "move in it" }, { keys: "enter tab", does: "choose", says: "insert the lit completion" }, { keys: "esc", does: "close it", says: "close the completion list" }, { keys: "^ #", does: "in a ((reference))" }],
     // Looking candidates up reads; putting one in types in the draft at its cursor: an agent's only in a draft it
     // opened and alone typed in, or one the person invited it into (an @name line; the insert uses the invitation up).
     touches: "draft", draft: "type", replay: "ask",
@@ -10317,7 +10333,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "edit": def({
-    summary: "open the note for editing (its whole text, at the revision the service has now); external=true opens it in $EDITOR (a reader's ctrl+e; in an open edit, or a comment or reply being written, edit.external, ctrl+x ctrl+e, hands that over). The person's e arms it first (edit.arm) and ⏎ or e again opens it; a click on an edit control opens it at once", keys: "e then ⏎/e, ctrl+e then ⏎/ctrl+e (e or ctrl+e alone with edit.arm.set on=false)",
+    summary: "open the note for editing (its whole text, at the revision the service has now); external=true opens it in $EDITOR (a reader's ctrl+e; in an open edit, or a comment or reply being written, edit.external, ctrl+x ctrl+e, hands that over). The person's e arms it first (edit.arm) and ⏎ or e again opens it; a click on an edit control opens it at once", keys: "e then ⏎/e, ctrl+e then ⏎/ctrl+e (e or ctrl+e alone when arming is off)",
     touches: "draft", draft: "write", replay: "ask",
     menu: noteRow("edit", "e", { now: ({ surface }) => (surface.draft ? { hide: true } : null) }),
     personWith: a => (a.external ? "the $EDITOR handoff takes over the person's terminal; send the text with edit.text" : null),
@@ -10627,6 +10643,78 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: {},
     run: (_, { surface, host }, actor) => saveDraft(surface, host, actor),
   }),
+  "edit.actions": def({
+    words: "run an action from where you're typing",
+    summary: "list the actions that apply here at the cursor, in the edit's own completion float (PIE-1076): a `/` line under the cursor's (or the cursor's own line, when empty), then the action's arguments in place as you choose it; ⏎ runs it (edit.run). ctrl+k is the power bar's key everywhere else, and its actions here",
+    keys: [{ keys: "ctrl+k", does: "in a note's edit" }, { keys: "/", does: "first on a line of a note's edit" }], touches: "draft", draft: "type", replay: "safe",
+    args: {},
+    examples: [{ act: "edit.actions", does: "puts a / line under the cursor's line and lists the actions that apply here" }],
+    async run(_, { surface, host }, actor) {
+      const d = surface.draft;
+      if (!d) throw new ActionRefused("nothing is being edited here · e edits the note, then ctrl+k or / lists its actions");
+      if (d.busy) throw new ActionRefused("the save is still landing");
+      if (!actionHereAt((d.lines[d.row] ?? ""), d.col, d.lines, d.row)) {
+        if ((d.lines[d.row] ?? "").trim()) { d.place(d.row, (d.lines[d.row] ?? "").length); d.pasteText("\n", actor); }
+        d.pasteText("/", actor);
+      }
+      const c = surface.completer(d, host);
+      await c?.refresh(true);
+      host.redraw();
+      return { rows: c?.shown?.items.length ?? 0, line: d.row + 1 };
+    },
+  }),
+  "edit.run": def({
+    words: "run the action typed on its / line",
+    summary: "run the action on the cursor's `/` line (or line=, an act line without the /) on this note: the line is taken out, the edit saved (it leaves, as ctrl+s does) and the action run here as the power bar would run it; its result is one undo step (ctrl+z in the reader)",
+    keys: [{ keys: "enter", does: "on a / line of a note's edit, with no list open" }], touches: "draft", draft: "leave", replay: "ask",
+    args: { line: { type: "string", optional: true, about: "the act line to run (ext.structure.sort-list by=title); default the cursor's / line" } },
+    examples: [{ act: 'edit.run line="ext.structure.sort-list order=desc"', does: "saves the edit and sorts the note's list, last first" }],
+    async run({ line }, { surface, host }, actor) {
+      const d = surface.draft;
+      if (!d) throw new ActionRefused("nothing is being edited here");
+      if (d.busy) throw new ActionRefused("the save is still landing");
+      const here = line === undefined ? actionHereAt((d.lines[d.row] ?? ""), (d.lines[d.row] ?? "").length, d.lines, d.row) : null;
+      const typed = line ?? (here ? (d.lines[d.row] ?? "").slice(here.start + 1) : null);
+      if (!typed?.trim()) throw new ActionRefused("the cursor isn't on a / line · ctrl+k or / first on a line lists the actions here");
+      const req = actRequestOf(lineWords(typed.trim()));
+      const dispatch = host.ctx.dispatch, info = dispatch?.list().actions.find(a => a.name === req.action);
+      if (!dispatch || !info) throw new ActionRefused(`no action ${req.action} here · / lists the ones that apply`);
+      // What the host binds, from here: this note (an agent's run reaches it as the person's does), and that its
+      // arguments were asked in place, so what's left out takes its default instead of a form over the note.
+      const blockId = d.blockId;
+      req.args = { ...(info.args.block?.context && req.args?.block === undefined && blockId ? { block: blockId } : {}), ...(info.args.asked?.context ? { asked: true } : {}), ...req.args };
+      // The / line goes before the save: what's saved is the note as written, never the command.
+      // Checked before anything moves (a value it doesn't take, a note it can't act on): the line stays to correct.
+      const refused = dispatch.refusedNow(req, actor);
+      if (refused) throw new ActionRefused(`${refused} · the line stays: correct it and ⏎ again`);
+      const row = d.row, before = d.text, command = d.lines[row] ?? "";
+      if (here) {
+        surface.drafting!.replace(d.lines.filter((_, i) => i !== row).join("\n"), actor);
+        d.place(Math.min(row, d.lines.length - 1), 0);
+      }
+      // Capture first: a save that didn't land keeps the edit as it was typed, its / line too, with why.
+      const saved = d.dirty ? await saveDraft(surface, host, actor).catch((e: Error) => e) : (surface.closeDraftAction(false), null);
+      if (surface.draft) {
+        if (here && surface.draft === d) { surface.drafting!.replace(before, actor); d.place(row, command.length); }
+        throw new ActionRefused(saved instanceof Error ? saved.message : d.note || "the edit didn't save, so the action didn't run");
+      }
+      try {
+        const answer = await dispatch.as(actor, req);
+        host.redraw();
+        return { ran: actionLine(req), answer };
+      } catch (e) {
+        // Refused as it ran (an agent's act throws; the person's press says it): the edit opens again with the line.
+        if (here) {
+          const { draft: again } = await surface.ensureDraft(host);
+          again.place(Math.min(row, again.lines.length), 0);
+          again.pasteText(command + "\n", actor);
+          again.place(row, command.length);
+          host.redraw();
+        }
+        throw e;
+      }
+    },
+  }),
   "edit.reload": def({
     summary: "after the note changed elsewhere: start over from its current text (the draft is copied to disk first)", keys: "ctrl+r",
     touches: "draft", draft: "type", replay: "ask",
@@ -10742,7 +10830,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run({ n, by }, { surface, host }) { surface.scrollInline(n, by); host.redraw(); return {}; },
   }),
   "element.select": def({
-    summary: "put the person's [ ] position on the nth element (elements lists them), or by=1 / by=-1 the next or previous one (from the view when none is current); n=0 lets go of it. row= picks a row inside that element's inline list. The reading ruler follows. An agent's is refused: the position is the person's (block.tint marks something for them)", keys: "[ ], click, esc lets go",
+    summary: "put the person's [ ] position on the nth element (elements lists them), or by=1 / by=-1 the next or previous one (from the view when none is current); n=0 lets go of it. row= picks a row inside that element's inline list. The reading ruler follows. An agent's is refused: the position is the person's (block.tint marks something for them)", keys: [{ keys: "[ ]", does: "the previous or next element" }, { keys: "click", does: "an element" }, { keys: "esc", does: "lets go", says: "let go of the element you are on" }],
     touches: "tile", replay: "safe", person: "the [ ] position is the person's; block.tint marks a block for them without moving it",
     args: {
       n: { type: "number", optional: true, about: "which element, from 1, as elements lists them; 0 lets go" },
@@ -11221,7 +11309,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "passage.act": def({
     summary: "act on a passage (ADR 0004 contract 5): comment on it, ask the agent that answers in threads about it (its answer lands in the passage's margin thread), have it explained, or run an extension's passage action (marginalia's highlight, define, cite). The passage is exact source text: the words named with quote= (near= among repeats), else the actor's own selection (the person's for the person; an agent's own, never the person's). The service checks it before anything is written",
-    keys: [{ keys: "a then c", does: "comment, while text is selected" }, { keys: "a then a", does: "ask" }, { keys: "a then e", does: "explain" }, { keys: "a then h", does: "highlight" }, { keys: "a then d", does: "define" }, { keys: "a then k", does: "cite with marginalia" }, { keys: "click", does: "its chip on the selection's line" }],
+    keys: [{ keys: "a then c", does: "comment, while text is selected" }, { keys: "a then a", does: "ask", says: "ask the agent about the selected passage" }, { keys: "a then e", does: "explain", says: "have the selected passage explained" }, { keys: "a then h", does: "highlight", says: "highlight the selected passage" }, { keys: "a then d", does: "define", says: "define the selected passage" }, { keys: "a then k", does: "cite with marginalia" }, { keys: "click", does: "its chip on the selection's line" }],
     touches: "draft", draft: "type", replay: "ask",
     args: {
       action: { type: "string", about: "comment, ask, explain, or an extension's passage action by its name (ext.<id>.<action>; passage.choices lists them)" },
@@ -11477,7 +11565,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "comment.leaving": def({
     summary: "answer \"about to leave an unsent comment\" (PIE-785), asked when the person follows a link, a comment mark, back or forward while their comment is unsent: save keeps it as unsent where it was written (opening it again brings it back) and goes on; keep goes back to writing; discard lets it go (a copy stays on disk) and goes on. The person's choice: an agent's action never asks it",
-    keys: [{ keys: "⏎ click", does: "the power bar's rows" }, { keys: "esc", does: "keeps writing" }],
+    keys: [{ keys: "⏎ click", does: "the power bar's rows" }, { keys: "esc", does: "keeps writing", says: "keep writing the comment" }],
     touches: "draft", draft: "leave", replay: "ask", person: "leaving the person's unsent comment is their choice",
     args: { choice: { type: "string", about: "save, keep or discard" } },
     examples: [
@@ -11802,7 +11890,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "props": def({
-    summary: "open the property panel: every property token (repeats and block/line/inline scope kept), with the summary line's keys", keys: "i, I (full)",
+    summary: "open the property panel: every property token (repeats and block/line/inline scope kept), with the summary line's keys", keys: [{ keys: "i", does: "open the property panel" }, { keys: "I", does: "full", says: "open the property panel filling the reader" }],
     touches: "nothing", replay: "safe",
     menu: noteRow("properties", "i", { busy: true }),
     args: { full: { type: "boolean", optional: true, about: "fill the reader instead of sitting above the note" } },
@@ -12185,7 +12273,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "list.preview": def({
     summary: "show this list's selected item's children in an attached preview; reading state only",
-    keys: [{ keys: "p", does: "fold chip" }, { via: "reader menu" }], touches: "tile", while: "typing", replay: "safe",
+    keys: [{ keys: "p", does: "fold chip", says: "preview the children of the selected list item" }, { via: "reader menu" }], touches: "tile", while: "typing", replay: "safe",
     menu: noteRow("preview list children", ""),
     args: { ...FOLD_ARGS, on: { type: "boolean", optional: true, about: "preview children instead of unfolding in place" } },
     examples: [{ act: 'list.preview text="Keep the beans" on=true', does: "previews the children of this list" }],
@@ -12794,7 +12882,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "sources.open": def({
     summary: "open the Sources inspector on this note (PIE-956): every generated region (handler lines, ::=, ::use, figures, ::fields, ::if, written output) with when it last read, from the service's one answer (site.sources), beside the note when the reader is wide. A page shows none of its mechanics by default; this is where \"where this comes from\" goes. An agent's call answers the same list and opens nothing in the person's reader",
-    keys: [{ keys: "S", does: "open sources" }, { keys: "click", does: "the header's [sources]" }],
+    keys: [{ keys: "S", does: "open sources", says: "show where this note's generated parts come from" }, { keys: "click", does: "the header's [sources]" }],
     touches: "shape", replay: "safe", says: () => "opened the sources", way: "the inspector opens beside their note · an agent reads the list in the answer, or sources.at line=",
     menu: noteRow("where this comes from (sources)", "S", { now: ({ surface }) => (!surface.msg || !isOutlineNote(surface.msg) || surface.msg.partial ? { hide: true } : null) }),
     args: {},

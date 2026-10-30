@@ -21,6 +21,8 @@ export interface ModeKey {
   readonly action: string;
   readonly args?: Record<string, unknown>;
   readonly label?: string;
+  /** The whole sentence the keys window lists for this row (TableRow.says). */
+  readonly says?: string;
 }
 
 export function modeBinding(keys: readonly ModeKey[], key: Key): ModeKey | undefined {

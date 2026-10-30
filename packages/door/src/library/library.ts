@@ -544,6 +544,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     },
   }),
   "library.width": def({
+    words: "draw the library at a chosen width",
     summary: `draw the variations at cols=${WIDTHS.join(", ")} columns, or all=true at every one of them one under another (without either, the next of these): the narrow fallback, a reader, a wide screen; wider than the tile is cut at its edge`,
     keys: "w, or a click on a width", touches: "screen", replay: "safe",
     args: { cols: { type: "number", optional: true, about: WIDTHS.join(", ") }, all: { type: "boolean", optional: true, about: "draw at every width" } },

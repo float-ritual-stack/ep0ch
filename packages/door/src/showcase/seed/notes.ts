@@ -400,6 +400,19 @@ export const STICKY_PLAN = [
   "The rest of the plan: rotations, seed orders, who has the van.",
 ].join("\n");
 export const STICKY_JOBS = ["Turn the compost", "Mend the north bed"];
+/** The one completer (PIE-1076): a list to sort from inside its own edit, with the keys that do it written beside it. */
+export const ONE_COMPLETER = [
+  SEED.oneCompleter,
+  "",
+  "- Water the leeks",
+  "- Label the chilli trays",
+  "- Sow the broad beans",
+  "",
+  "- **From where you type:** in the edit, ctrl+k (or `/` first on a line) lists the actions that apply here; type `sort list` and ⏎.",
+  "- **Its arguments in place:** `o` then tab gives `order=`, ↓ and ⏎ choose `desc`; ⏎ on the line runs it and saves the note; ctrl+z in the reader takes it back.",
+  "- **The same list in the power bar:** ctrl+k outside the edit, `tile.zoom t`, tab gives `tile=`, and the list is this screen's tiles by the names `tile=` takes; `%` first in a value lists tiles whatever it takes.",
+].join("\n");
+
 export const STICKY_PAD = [
   SEED.stickyPad,
   `One part of the [[${SEED.stickyPlan}]], kept beside the long note:`,

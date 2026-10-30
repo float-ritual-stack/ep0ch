@@ -288,7 +288,7 @@ export const SECTIONS: Section[] = [
   {
     key: "back-anywhere", need: "go back in any tile to what it showed before, whichever tile or key changed it: a preview changed by a list's pick, a link's open or b, and the links tile changed by b", part: "each tile's own back and forward (PIE-1426, Pane.trail): a reader's is its surface's stacks (NoteSurface.track, now around a wired preview too: Desk.previewIntoPane), the links tile's the notes it listed (BacklinksPane.trail); back and forward in a reader, tile.travel in the links tile (alt+←), the trail lists both",
     files: "src/desk/desk.ts (previewIntoPane, travelTile), src/desk/panes.ts (TileTrail, ReaderPane.trail), src/desk/backlinks-pane.ts (trail), src/desk/tile-actions.ts (tile.travel)",
-    aside: "Evan's layout: the detail up top opens and picks into the preview below; the links tile beside it lists the detail's links and its pick shows in the preview too · pick two rows in the links tile, ⏎ on a link up top, then b in the preview and a row in the links tile · alt+← in the preview steps back through each in order · alt+← in the links tile lists the note it listed before b · agents: act back tile=preview (the links tile's back is the person's)",
+    aside: "Evan's layout: the detail up top opens and picks into the preview below; the links tile beside it lists the detail's links and its pick shows in the preview too · pick two rows in the links tile, ⏎ on a link up top, then b in the preview and a row in the links tile · alt+← in the preview steps back through each in order · alt+← in the links tile lists the note it listed before b · back and forward onto the detail's own note show it in the preview, the layout as it was · agents: act back tile=preview (the links tile's back is the person's)",
     stage(n, show) {
       const detail = detailPane(), links = new BacklinksPane("detail", true), preview = new PreviewPane({ tile: "" });
       return deskOf({
@@ -322,6 +322,19 @@ export const SECTIONS: Section[] = [
         void d.press(r, NOTE_ACTIONS, "passage.select")
           .then(() => d.press(r, NOTE_ACTIONS, "comment.write", { body: "Ask about the beds, see ((Gree" }))
           .then(() => d.press(r, NOTE_ACTIONS, "complete.ask"));
+      });
+    },
+  },
+  {
+    key: "one-completer", need: "complete an action and its arguments where you type: in a note's edit (ctrl+k, or / first on a line) and on the power bar's line, the same rows from the same completer (PIE-1076)",
+    part: "the one completer (PIE-1076): the editing component's Completer is every place's, the power bar's line too (LineField with grammar act); an act line's arguments and values are commandRows (src/bar/command.ts), from each ArgSpec and its kind's values (src/bar/arg-kinds.ts: a tile by the name tile= takes, from the layout), shared by the bar's line, a note's ::button step and an edit's / line; a sigil first in a value names its kind (% tiles, / notes, [[ pages, : screens); the actions here are the power bar's > rows; edit.actions (ctrl+k in an edit) and edit.run (⏎ on a / line) take the line out, save and run it, what it leaves out taking its default (ASKED_IN_PLACE: nothing asked again in the bar); arguments the host binds (ArgSpec.context: block, quote, with) are never offered",
+    files: "src/surface/completer.ts (DOOR_SOURCES here, here-args, steps; actionHereAt), src/bar/command.ts (commandRows, VALUE_SIGILS), src/bar/bar.ts (lineCompletes, drawLineCompletion), src/surface/note.ts (edit.actions, edit.run), src/extensions.ts (ASKED_IN_PLACE)",
+    aside: "Go in (⏎): the note is open in its edit with the actions that apply here listed at the cursor · type sort list, ⏎ (or tab) chooses it and its arguments are listed next · o, tab: order= and its values · ↓ ⏎ chooses desc · ⏎ on the line runs it: the list is sorted, last first, the edit saved and closed; ctrl+z takes it back · esc closes a list and leaves the line · in the power bar (ctrl+k outside the edit): tile.zoom t, tab: tile=, then this screen's tiles · act: edit.actions, complete.accept n=, edit.run",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · one completer", panes: [r], names: ["jobs"] }, show, [[r, n.oneCompleter]], d => {
+        // The person's own keys would do this: e, then ctrl+k in the edit.
+        void d.press(r, NOTE_ACTIONS, "edit").then(() => d.press(r, NOTE_ACTIONS, "edit.actions"));
       });
     },
   },
@@ -677,9 +690,9 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "twins", need: "file a ticket without filing a twin: open work like the new one is offered before it's filed, attach the ask there or file it anyway, never blocked (PIE-1258)",
-    part: "twins at filing (outliner src/work-twins.ts): the service's roadmap.items.similar (the search matcher's candidates over open items, one Jev request with a Noul per candidate, code's truth table; a strong title match alone when Jev is off), an agent's roadmap.items.create refused with the twins and the two calls (attach, new: true), a person's never; roadmap.items.attach adding the ask under the twin in its writer's words, dated; work-twin records of each offer and what became of it. In the door: the new card's composer draws the offer on a row of its own (renderEditor's twin row: [attach here] [file new]), ctrl+s again files it new, ctrl+x a or card.attach attaches it",
-    files: "outliner src/work-twins.ts, src/work-jev.ts, src/server.ts (roadmap.items.similar, .attach, the create gate), src/work-tools.ts (attachToItem), claude-mod hooks/work-tools.ts (work_create attach, new), src/desk/lanes.ts (createItem, attachCard, card.attach), src/surface/editor.ts (the twin row), src/socket.ts (similarItems, attachToItem)",
-    aside: "the board: Fix the back gate latch is queued · n in Queued, type Fix the back gate latch again, ctrl+s: the composer says it looks like that card, with [attach here] and [file new] · [attach here] (or ctrl+x a) adds your words, dated, at the end of the card · ctrl+s again, or [file new], files it anyway, said in the new card as filed beside it · an agent's work_create or card.create is refused with the twin named and the two calls",
+    part: "twins at filing (outliner src/work-twins.ts): the service's roadmap.items.similar (the search matcher's candidates over open items, one Jev request with a Noul per candidate, code's truth table; a strong title match alone when Jev is off), an agent's roadmap.items.create refused with the twins and the two calls (attach, new: true), a person's never; roadmap.items.attach adding the ask under the twin in its writer's words, dated; work-twin records of each offer and what became of it. In the door: the new card's composer asks on its title as it settles, before any chips (watchTwin), and draws the offer on a row of its own (renderEditor's twin row: [attach here] [file new]); once shown, ctrl+s files it new, ctrl+x a or card.attach attaches it; ctrl+s on a title alone says the twin before the missing chips (twinAtSave)",
+    files: "outliner src/work-twins.ts, src/work-jev.ts, src/server.ts (roadmap.items.similar, .attach, the create gate), src/work-tools.ts (attachToItem), claude-mod hooks/work-tools.ts (work_create attach, new), src/desk/lanes.ts (watchTwin, twinAtSave, createItem, attachCard, card.attach), src/surface/editor.ts (the twin row), src/socket.ts (similarItems, attachToItem)",
+    aside: "the board: Fix the back gate latch is queued · n in Queued, type Fix the back gate latch again and pause: before any chips, the composer says it looks like that card, with [attach here] and [file new] · [attach here] (or ctrl+x a) adds your words, dated, at the end of the card · once it's shown, ctrl+s (with the chips), or [file new], files it anyway, said in the new card as filed beside it · an agent's work_create or card.create is refused with the twin named and the two calls",
     stage(n) { return openScreen("board", { hub: n.hub?.id, persist: false }); },
   },
   {

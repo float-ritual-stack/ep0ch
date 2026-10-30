@@ -53,6 +53,23 @@ describe.skipIf(!outliner)("showcase: back anywhere (PIE-1426)", () => {
     await mine("tile.focus", {}, "links");
     h.press({ kind: "alt-left" } as never);
     await until(() => L().target?.id === n.backHub.id, "the links tile lists the hub's links again", 10_000);
+    // b in the preview on the shed: the links tile's pick shows the hub, the detail's own note; back, then forward onto
+    // it again, and the preview stays a preview: three tiles, the detail's wires as they were (PIE-1426).
+    const wires = () => JSON.stringify(stage().layout.wires);
+    const wired = wires();
+    await mine("tile.focus", {}, "detail");
+    for (let i = 0; i < 20 && !String(pane("detail").surface.describe().elements?.current?.label ?? "").includes("shed"); i++) { h.ch("]"); h.screen(); }
+    h.press({ kind: "enter" } as never);
+    await shows("preview", n.backShed.id);
+    await mine("tile.focus", {}, "preview");
+    h.ch("b");
+    await shows("preview", n.backHub.id);
+    await mine("tile.focus", {}, "preview");
+    h.press({ kind: "alt-left" } as never); await shows("preview", n.backShed.id);
+    h.press({ kind: "alt-right" } as never); await shows("preview", n.backHub.id);
+    h.screen();
+    expect(["detail", "links", "preview"].every(t => !!pane(t))).toBe(true);
+    expect(wires()).toBe(wired);
     for (let i = 0; i < 4 && h.S().focus === "stage"; i++) h.press({ kind: "esc" } as never);
   }, 90_000);
 });

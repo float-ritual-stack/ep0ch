@@ -230,6 +230,8 @@ export interface Pane {
    * stacks (PIE-453); the links tile's, the notes it listed. `tile.travel` walks it, the trail lists it.
    */
   readonly trail?: TileTrail;
+  /** The scope its keys run in now (`?` opens the keys window on `in:<it>`, PIE-1425); left out, its kind's action set's. */
+  keysScope?(): string;
   /** `typing`: the person is typing in it (a terminal shows its cursor then). */
   render(w: number, h: number, focused: boolean, desk: DeskApi, typing?: boolean): PaneView;
   /** Return true when the pane used the key. */
@@ -489,6 +491,8 @@ export class ReaderPane implements Pane {
     return this.msg ? ["detail", st].filter(Boolean).join(" · ") : "detail · empty";
   }
   hint() { return this.surface.hint(this.follows ? (this.holding ? "p follow · " : "p hold · ") : ""); }
+  /** A reader's keys are its note's (NOTE_ACTIONS). */
+  keysScope(): string { return NOTE_ACTIONS.scope; }
   /**
    * The frame and policy panel share the words for the reader's state.
    */
@@ -952,7 +956,7 @@ export class ArtPane implements Pane {
 export const ACTIVITY_ACTIONS = actionSet<{ pane: ActivityPane; desk: DeskApi; standing: boolean }>()("activity", {
   "activity.pick": def({
     summary: "pick a row of the activity tile (last callers, live): n from 1, else the selected one; open=true makes its note the current one, as ⏎ does. An agent's pick answers the row and moves nothing of the person's",
-    keys: "j k ↑ ↓ click wheel, ⏎ (open)",
+    keys: [{ keys: "j k ↑ ↓", does: "a row" }, { keys: "click wheel", does: "a row" }, { keys: "⏎", does: "open", says: "open the picked row of the activity tile" }],
     touches: "nothing", replay: "safe", says: r => (r.opened ? `opened ${String(r.title)}` : null),
     args: { n: { type: "number", optional: true, about: "the row, from 1" }, open: { type: "boolean", optional: true, about: "make its note the current one, as ⏎ does" } },
     examples: [

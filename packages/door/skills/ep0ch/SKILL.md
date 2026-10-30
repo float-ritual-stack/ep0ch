@@ -313,7 +313,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   it can move; `keys.tab tab=unbound tile=keys` lists the actions no key reaches (`rows`). `keys.rebind id=<act line> key=<its key now> to=<new key> tile=keys` saves a rebind in
   `keybindings.json` (said on screen; `keys.unbind`, `keys.reset id=`, `keys.undo`). Only when the person asks: it's
   their keyboard.
-- **The power bar** (PIE-656): the person's `ctrl+k` palette (alt+← alt+→ change scope, tab completes the line). `bar.open query=… scope=tiles|notes|actions|recent|screens`
+- **The power bar** (PIE-656): the person's `ctrl+k` palette (alt+← alt+→ change scope, tab completes the line; past an action's name it lists the arguments and values in place, the same rows a note's `/` line and a `::button` step get: PIE-1076). `bar.open query=… scope=tiles|notes|actions|recent|screens`
   answers what it lists (every tile on every screen and in the drawer with its depth in the tree, notes from the one
   search, actions with their keys, what changed, screens, an extension's rows) and opens nothing; `bar.pick n=… query=…`
   picks as you, through the row's own path and its rules (a tile on a screen not shown is refused). While the person's

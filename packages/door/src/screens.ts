@@ -566,6 +566,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "changes.machinery": def({
+    words: "include or leave out the tools' bookkeeping when counting what changed",
     summary: "whether \"what changed\" (the status bar's +N new, the new scan) includes machinery: what tools wrote for their own bookkeeping (notes stamped [machine::…], tosses, file touches, deliveries) and extensions' writes (a refreshed Jira ticket, `ext:…`); include=true or false sets it, else it toggles. Off by default. The person's view: an agent's is refused",
     keys: "a click on the status bar's +N machine",
     touches: "screen", replay: "safe",
@@ -859,6 +860,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "edit.arm.set": def({
+    words: "choose whether e arms the edit first or opens it at once",
     summary: "whether the person's e (and ctrl+e) in a reader arms the edit first (edit.arm: the status bar asks, ⏎ or e again opens it) or opens it at once, and how long it waits. Kept for the next start (EP0CH_EDIT_ARM overrides it). An agent's own edit always opens at once",
     keys: [{ via: "`ep0ch act edit.arm.set on=false`" }],
     touches: "screen", replay: "ask", says: out => `· ${out.armed ? `e asks first (${out.ms} ms)` : "e opens an edit at once"}`,
@@ -953,6 +955,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "reader.overscroll": def({
+    words: "set how far readers scroll past their last line",
     summary: "how far readers (detail, preview, the desk's, a river column, the BBS reader) and drafts scroll past their last line (PIE-622): rows=half (the last line can come up to the middle, the default), none (it stops on the bottom edge), or a number of rows. End or G goes to the last line first, and again past it. Every reader and draft at once, kept for the next start",
     keys: [{ via: "`ep0ch act reader.overscroll rows=none`" }, { via: "`ep0ch act reader.overscroll rows=half`" }, { via: "`ep0ch act reader.overscroll rows=5`" }],
     touches: "screen", replay: "ask", says: out => `· readers scroll ${out.rows === "none" ? "to their last line" : out.rows === "half" ? "past their end to the middle" : `${out.rows} rows past their end`}`,
@@ -1279,7 +1282,7 @@ abstract class BbsList implements Screen {
 const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("status", {
   "status.filter": def({
     summary: "search the message log's whole messages, actions and tiles; text= sets the query, editing=true opens its line",
-    keys: "/ opens search; enter or esc finishes search",
+    keys: [{ keys: "/", does: "opens search", says: "start searching the message log" }, { keys: "enter esc", does: "finishes search", says: "finish searching the message log" }],
     touches: "screen", replay: "safe",
     args: { text: { type: "string", optional: true, about: "the search words" }, editing: { type: "boolean", optional: true, about: "show the search cursor" } },
     examples: [{ act: 'status.filter text="layout load"', does: "finds messages about loading a layout" }],
@@ -1292,7 +1295,7 @@ const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("sta
   }),
   "status.reload": def({
     summary: "refresh the message log with the latest 500 messages; its rows stay still between refreshes so a row you read is the one you open",
-    keys: "r reload; click r reload",
+    keys: [{ keys: "r", does: "reload", says: "refresh the message log" }, { keys: "click", does: "on r reload" }],
     touches: "screen", replay: "safe", args: {},
     run(_, { list, ctx }) { list.reload(); ctx.redraw(); return { rows: list.listRows().length }; },
   }),

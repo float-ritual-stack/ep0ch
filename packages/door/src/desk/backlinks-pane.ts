@@ -776,7 +776,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
   }),
   "backlinks.view": def({
     summary: "change a backlinks tile's view as Detail's controls do: filter (text to match), kind (a kind or all), stage (all, open, waiting, draft, active, done), resolved, related, sort (updated, created, title, -asc or -desc); step=filter starts typing one (the person's)",
-    keys: "K w h n s, click on the status line; / then typing, backspace ctrl+u, ⏎ keeps it, esc goes back",
+    keys: [{ keys: "K w h n s", does: "a setting of the view" }, { keys: "click", does: "on the status line" }, { keys: "/", does: "then typing sets the filter" }, { keys: "backspace ctrl+u", does: "edit the filter" }, { keys: "⏎", does: "keeps it", says: "keep the typed filter" }, { keys: "esc", does: "goes back", says: "leave the filter box" }],
     touches: "nothing", replay: "safe", says: r => (r.said ? `· ${r.said}` : "changed the backlinks view"),
     args: {
       filter: { type: "string", optional: true, about: "text to match, as / filters (empty clears)" },

@@ -817,6 +817,17 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   revision it made. A read that falls back to the mirror lays the caller's own such writes over the note (`pending`)
   until the copy reaches that revision, says `staleSince` (the revision, when, and what it means) when the copy is older
   than a write made through this server, and `list_outlines` carries `staleSince` for the outline.
+- **Snapshots and reader view of an away outline (PIE-1091).** `outline_snapshot` on another machine's outline is made
+  from its copy here, even while that machine answers, so the link is this machine's web client's
+  (`EP0CH_WEB_URL`, else `https://my.ep0ch.sh`: `…/pub/o/float-hub@laptop/s/<token>/snapshot.sqlite`), works once and
+  expires as any snapshot does. The answer carries the copy's `source`, `asOf`, `copy`, `stale` and `note`, and `said`
+  begins with them. `reader_view` served from the copy says what this machine's web pages of the copy have in front of
+  them (the copy's pages report presence too), with the same fields. The links, their files and that presence are kept
+  in `<EP0CH_MCP_MIRROR_DIR>/.shares/<machine>/<name>/`, shared by the gateway and the web client, which each serve the
+  copy from a host of their own; a copy writes no snapshot note (its session is the record). `share_list` and
+  `share_revoke` on an outline served from its copy list and end those snapshot links. `share_start` stays refused
+  there (a share is live and takes comments), saying the `ep0ch share start …` to run on its machine and that
+  `outline_snapshot` and `outline_read` read it now.
 - **Revoking.** `ep0ch mcp access none --ws <name>` (or `read`) stops reads (or writes) at once; a write already queued
   for another machine is dropped when it arrives, if its outline no longer takes writes there. Removing a subject from
   `EP0CH_MCP_ALLOWED_SUBJECTS` (or a client from `EP0CH_MCP_ALLOWED_CLIENTS`) and restarting stops that person (or
@@ -1296,7 +1307,8 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Tab` / `Shift+Tab`, `1`–`9`, click | focus |
 | `alt+n` / `alt+p` | next / previous tab |
 | `alt+d` | load the `daily` layout |
-| `ctrl+k`, `cmd+k`, `alt+k`, a click on `^K` (the status bar's left) | the power bar over any screen ([The power bar](#the-power-bar-pie-656)): the tiles open everywhere, then what changed; type to look through tiles, notes, actions, what changed and screens at once, or start with `%` `/` `>` `+` `@` `&` (alt+← alt+→ cycle; tab completes the line) for one; ⏎ goes, alt+⏎ zooms a tile or opens a note in a new detail, esc puts it away. Never in a draft (there `ctrl+k` cuts to the line's end), a filter, a picker or a terminal tile |
+| `ctrl+k`, `cmd+k`, `alt+k`, a click on `^K` (the status bar's left) | the power bar over any screen ([The power bar](#the-power-bar-pie-656)): the tiles open everywhere, then what changed; type to look through tiles, notes, actions, what changed and screens at once, or start with `%` `/` `>` `+` `@` `&` (alt+← alt+→ cycle; tab completes the line) for one; past an action's name tab lists its arguments and their values in place (`tile.zoom t`, tab: `tile=`, then this screen's tiles), ↑↓ ⏎ tab esc the list's keys; ⏎ goes, alt+⏎ zooms a tile or opens a note in a new detail, esc puts it away. Never in a filter, a picker or a terminal tile; in a note's edit `ctrl+k` lists the actions that apply here at the cursor instead (next row) |
+| `ctrl+k` in a note's edit, `/` first on a line | the actions that apply here, in the edit's completion float (PIE-1076): type `sort list`, ⏎ or tab takes it and lists its arguments, ⏎ on the line runs it (the line goes, the note saves; ctrl+z in the reader takes it back). A sigil first in a value names its kind: `%` tiles, `/` notes, `[[` pages, `:` screens. `act`: `edit.actions`, `edit.run line=…` |
 | `ctrl+n` | a new note floating over the screen, opened to be written (again for another; from an edit too, what you typed saved first): under the note in the reader you're in, else at the top of the Inbox ([New notes and pages](#new-notes-and-pages-pie-544)); on every screen, never in a filter, a picker or a terminal tile. On the board's lanes: a new card in that lane |
 | `alt+l` | pick a wire target (open by default; `s` select, `o` open, `a` alt, then a click, `h j k l` or a number) |
 | `Z`, `K/J` or `alt+↑` `alt+↓` in a reader | move the note shown (`note.move`, PIE-943): `Z` asks in the power bar where (its parents first, then the notes changed lately, the Inbox, then any note by its words), `alt+↑` `alt+↓` put it up or down among its siblings; `ctrl+z` puts it back. Works in a reader of the note surface on an outline note (desk reader, detail, preview, welcome and board readers, the BBS message reader), not on a file or Resource preview. In the outline tile the same keys move the selected row (`I` `O` indent and outdent; `K` `J` for up and down on a terminal that doesn't send Option+arrows); in a river column, the selected card (`column.move`). Replies in the reader’s thread panel and BBS message lists take `K/J` or `alt+↑/↓` to reorder, `I/O` to indent/outdent, `Z` for the picker and `ctrl+z` to undo. Drag onto a row to nest; drop on its left mark to reorder. In river columns, start a move drag on the left mark; dragging text still selects it. Reader `I/O` keep properties/preview; a floating tile keeps `J/K` for moving the tile |

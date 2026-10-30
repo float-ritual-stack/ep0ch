@@ -25,6 +25,8 @@ export interface KeyBinding {
   key: string;
   action: string;
   label?: string;
+  /** The whole sentence the keys window lists for it (TableRow.says). */
+  says?: string;
   args?: Record<string, unknown>;
   /** The tile it runs in (by name); left out, the action's own default (the focused tile, or the one tile of its kind). */
   tile?: string;
@@ -128,6 +130,7 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
     return {
       key: b.key, action: b.action,
       ...(typeof b.label === "string" ? { label: b.label } : {}),
+      ...(typeof b.says === "string" ? { says: b.says } : {}),
       ...(b.args && typeof b.args === "object" && !Array.isArray(b.args) ? { args: { ...b.args } } : {}),
       ...(typeof b.tile === "string" ? { tile: b.tile } : {}),
       ...(kinds(b.unless) ? { unless: kinds(b.unless)! } : {}),

@@ -1810,6 +1810,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     run(_, { drawer, ctx }) { return { waiting: waitingOnYou(drawer).map((r, i) => rowFacts(r, i + 1)), messages: ctx.messages?.rows ?? [] }; },
   }),
   "host.tileOf": def({
+    words: "find the terminal tile a process is drawn in",
     summary: "which terminal tile (the drawer's or the screen's) a process is drawn in, read: mark=<token> finds the tile whose program wrote the marker OSC 7501 ; ?mark=<token> to its terminal (over ssh, or through tmux's passthrough: a program that can't read its own input, PIE-1306; waited for up to 400ms); pid=<pid> finds the tile whose program is that process or its ancestor; port=<n> the tile whose program, or a descendant of it, holds a TCP connection with that local port (the ssh client in a tile, for the sshd on the far end: its client port is the second field of SSH_CONNECTION). Answers {tile, id, by} with tile null when none matches. Changes nothing and says nothing on the screen: the Claude mod asks it to open a pressed reference where the tile's opens go",
     keys: [{ via: "ep0ch act host.tileOf mark=<token>|pid=<pid>|port=<n>" }],
     touches: "nothing", replay: "safe",

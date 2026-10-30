@@ -777,7 +777,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   }),
   "tune.nudge": def({
     summary: "nudge a look value by steps (by=1 or -1): a number by its step (columns by 2, rows by 1: cells are twice as tall as wide; pad and margin move a row and two columns), on/off flipped, a choice to the next. A Hero row (row=hero.tint, …: the reader's header image) is written on the hero's own line at once (image.look). It draws in the next frame, from memory; s saves it. level= and width= (all, or this: the breakpoint the tile is in now) default to the inspector's. Where something nearer wins over the level (or the width) it writes, it asks first: shadow=anyway (nudge it; it shows only where nothing nearer sets it), shadow=instead (nudge what wins), shadow=clear (take what wins away, then nudge)",
-    keys: [{ keys: "+ = l →", does: "nudge up" }, { keys: "- h ←", does: "nudge down" }, { keys: "click", does: "on [−] [+]" }, { keys: "wheel", does: "over a value" }, { keys: "a o c", does: "on a row that asks" }, { keys: "click", does: "on a choice of a row that asks" }],
+    keys: [{ keys: "+ = l →", does: "nudge up", says: "nudge the look value up a step" }, { keys: "- h ←", does: "nudge down", says: "nudge the look value down a step" }, { keys: "click", does: "on [−] [+]" }, { keys: "wheel", does: "over a value" }, { keys: "a o c", does: "on a row that asks" }, { keys: "click", does: "on a choice of a row that asks" }],
     touches: "nothing", replay: "ask", says: out => (out.refused ? null : out.offered ? `· ${out.row}: ${out.why}` : out.at === "the hero line" ? `· ${out.row} ${out.value}, written on the hero line` : `· ${out.row} ${out.value} (${out.at}) · s saves`),
     args: {
       by: { type: "number", about: "steps: 1 up, -1 down" },
@@ -1068,7 +1068,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   }),
   "tune.cancel": def({
     summary: "keep the changes and dismiss the tune confirmation",
-    keys: [{ keys: "esc", does: "cancel" }, { via: "any other key" }, { keys: "click", does: "on [cancel]" }], touches: "tile", replay: "safe", args: {},
+    keys: [{ keys: "esc", does: "cancel", says: "dismiss the confirmation and keep the changes" }, { via: "any other key" }, { keys: "click", does: "on [cancel]" }], touches: "tile", replay: "safe", args: {},
     run(_, { pane, desk }) { pane.armed = null; pane.offer = null; desk.redraw(); return { cancelled: true }; },
   }),
   "tune.revert": def({

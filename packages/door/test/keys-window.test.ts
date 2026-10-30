@@ -363,4 +363,39 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
     key({ kind: "esc" });
     await until(() => focusedKind() !== "keys", "closed");
   });
+
+  test("at 40 columns ? opens the keys tile below, the screen's width, never a strip beside (PIE-1425)", async () => {
+    cols = 40; rows = 50;
+    try {
+      lines();
+      const before = tiles();
+      key(char("?"));
+      await until(() => tiles() === before + 1 && focusedKind() === "keys", "the keys tile", 8000);
+      lines();
+      const id = [...desk().panes.entries()].find(([, p]: any) => p.kind === "keys")![0];
+      expect(desk().placed.rects.get(id).cols).toBeGreaterThanOrEqual(36);
+      // The selected row's sentence is said whole under the list, wrapped, where the list's row is cut.
+      const long = bindings().find(b => b.key && b.does.length > 45)!;
+      await act("keys.filter", { text: long.id });
+      const found: any = await act("keys.find", {});
+      await act("keys.select", { n: found.bindings.findIndex((b: any) => b.key === long.key && b.id === long.id) + 1 });
+      const said = (keysPane().render(40, 50, true, desk()).lines.map(visible) as string[]).map(l => l.replace(/^[║│]\s*|\s*[║│█]$/g, "").trim()).join(" ");
+      expect(said.replace(/\s+/g, " ")).toContain(long.does);
+      key({ kind: "esc" });
+      await until(() => tiles() === before, "esc closed it");
+    } finally { cols = 177; rows = 60; lines(); }
+  });
+});
+
+test("? on a river column opens on the river's keys, its h l x p among them; in an edit, the note's (PIE-1425)", async () => {
+  const { RiverColumn } = await import("../src/river/column");
+  const { matches } = await import("../src/desk/keys-window");
+  const library = new RiverColumn({ kind: "roots" } as any);
+  expect(library.keysScope()).toBe("river");
+  const shown = bindings().filter(b => matches(b, `in:${library.keysScope()}`));
+  for (const action of ["tile.focus", "tile.close", "tile.hold"]) expect(shown.some(b => b.action === action && b.scope === "river column")).toBe(true);
+  // Its card moves (K J I O) too, and nothing of another place named alike (`in:status` isn't the status bar's).
+  expect(shown.some(b => b.action === "column.move")).toBe(true);
+  expect(bindings().filter(b => matches(b, "in:status")).every(b => b.scope === "status")).toBe(true);
+  expect(shown.some(b => b.scope === "note")).toBe(false);
 });
