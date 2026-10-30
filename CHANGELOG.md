@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Shares' Start a public link works again
+
+- **The site's own forms post:** pages behind sign-in were sent with `Referrer-Policy: no-referrer`, under which a browser sends `Origin: null` on a form POST, so the site's own check refused Shares' "Start a public link" ("A change comes from this site's own pages"). They now say `same-origin`: no link leaving the site carries a referrer, as before, and the site's own forms post.
+- **Run:** nothing beyond the usual `ep0ch install --apply` (it restarts the publishers).
+
 ### Open a note as it was at a revision, beside how it is now (PIE-1433)
 
 - **From Jev's suggestions:** a row opens its note with the revision the review read beside it, marked against the next one (`-` was there, `+` came next).
