@@ -423,7 +423,10 @@ export interface Screen {
   hostMode?(): HostMode;
   /** The tiles shown here, when they're a desk inside this screen (the showcase's stage): where a tile taken out of the drawer lands. */
   tilesHere?(): Desk | undefined;
-  /** A click in a tile lifted out of this screen enters its existing tile host. */
+  /**
+   * The person's keys come into this screen's tiles from outside it: a click in a tile lifted out of it, a frame's stage
+   * gone into. Its tile host takes them (the showcase: its stage; a desk: the edit of theirs left open on its focused reader).
+   */
   enterTiles?(): void;
 }
 

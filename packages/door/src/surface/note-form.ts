@@ -72,6 +72,18 @@ export class NoteForm {
     d.splice(0, d.text.length, value, {}, actor);
     this.clearWarning(actor);
   }
+  /**
+   * After a submit that landed (PIE-1445): this actor's answers that are still what it `sent` go back to their defaults,
+   * and the person's focus to the first field, ready for the next entry. One typed while it was landing stays, and so
+   * does their focus.
+   */
+  reset(actor: Actor, sent: Record<string, string>) {
+    const drafts = this.answers.get(partyOf(actor));
+    let kept = false;
+    for (const [name, d] of drafts ?? []) if (d.text === sent[name]) drafts!.delete(name); else kept = true;
+    this.clearWarning(actor);
+    if (actor.kind === "user" && !kept) this.focus = 0;
+  }
   clearWarning(actor: Actor) { this.warnings.delete(partyOf(actor)); }
   warning(actor: Actor, text: string) { this.warnings.set(partyOf(actor), text); }
   check(actor: Actor) {
