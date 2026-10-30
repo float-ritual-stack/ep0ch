@@ -61,7 +61,7 @@ export interface BarHost {
   /** The screens, the one shown last; and those kept in the background. */
   screens(): readonly Screen[];
   kept(): readonly Screen[];
-  /** The note in the reader the person is in, or the screen's current one: the notes search starts near it. */
+  /** The note in front of the person (the reader they're in, else what their tile shows): the notes search starts near it. */
   near(): string | null;
   /** Read a note: none when it's gone; a read that fails (offline, refused) throws, so a caller never takes it for gone. */
   note(id: string): Promise<Msg | null>;

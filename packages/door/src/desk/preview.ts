@@ -1,5 +1,5 @@
 import type { SurfaceHost } from "../surface/note";
-// Preview tiles (PIE-473): a reader that follows a source instead of the desk's current note. The source is
+// Preview tiles (PIE-473): a reader that follows a source: what its select wire sends it. The source is
 // a tile (its selection: the tree's row, a reader's note, the board's card) or a file on disk (a draft
 // being written in nvim beside it). Either way it is the shared note surface (a ReaderPane): the same
 // body, embeds resolved through the outline, links that open where this tile's opens go. There is no
@@ -65,8 +65,6 @@ export class PreviewPane extends ReaderPane {
   }
   override hint() { return this.fileNow() ? "follows the file as it's saved · links open where this tile's go" : super.hint(); }
 
-  /** The desk's current note moved: a preview follows its source, not that. */
-  override select() {}
   /** Its source tile selected `m`. */
   follow(m: Msg | null, desk: DeskApi) { if (m && m.id !== this.msg?.id) this.show(m, desk); }
   /** A terminal tile it follows is editing `path` now (nvim changed buffer): show that file, re-read as it's saved. */

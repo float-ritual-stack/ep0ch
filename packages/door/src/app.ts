@@ -281,7 +281,7 @@ export interface Ctx {
   eventsAll?: number;
   /** Times the outline connection came back (a `reconnected` or `reset`): a screen that wasn't on top then checks on its next render. */
   reconnects?: number;
-  /** The note in the reader the person is in, else the note the screen shows as its current one (the power bar's `near`). */
+  /** The note in front of the person (the power bar's `near`): the reader they're in, else what the tile with their keys shows. */
   noteInFront?(): string | null;
   /** The screen stack, bottom first (the shell's actions read it: `screen.list`, what `screen.back` leaves). */
   screens?(): readonly Screen[];
@@ -581,9 +581,9 @@ export class App implements Ctx {
 
   /** The power bar while it's open (PIE-656): over every screen and the drawer, with the person's keys. */
   bar: PowerBar | null = null;
-  /** The note in the reader the person is in, else the note the screen shows as its current one. */
+  /** The note in front of the person (the power bar's "this note"): the reader they're in, else, on a desk, what its focused tile shows (`frontNote`). */
   noteInFront(): string | null {
-    try { const s = this.stack.at(-1); return s?.noteContext?.() ?? tilesOf(s)?.current?.id ?? null; } catch { return null; }
+    try { const s = this.stack.at(-1); const d = tilesOf(s); return s?.noteContext?.() ?? (d && (d as unknown) === s ? d.frontNote() : null); } catch { return null; }
   }
   /** What the bar's sources reach: this door, its dispatcher, its screens, the note the person is on. */
   private readonly barRuns: import("./bar/command").BarRun[] = [];

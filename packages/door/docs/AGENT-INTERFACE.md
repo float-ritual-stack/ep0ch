@@ -459,7 +459,7 @@ It is enforced for agents only, in the places that already hold the person's rul
 operation that would move, close, swap, float, dock, fold, zoom, retarget or tab-into a limited tile, and a layout load
 over a screen that has one) and the dispatcher's actor rule (any action that runs in a limited tile: `edit` lets the
 `draft` and `nothing` touches through, `off` only the safe reads). An open that names no tile skips limited tiles:
-the current note changes, but a limited reader keeps its note, and an open into a container picks or makes another tile.
+a limited reader keeps its note, and an open into a container picks or makes another tile.
 A refusal names the policy and the person's command:
 
 ```
@@ -604,7 +604,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `layout.move` | `tile`, `to`, `where` (left, right, up, down, tabs, edge-*), `index` | never the tile the person is typing in; their tab stays shown |
 | `layout.resize` | `split` (its id from `layout.get`) or `path` (with `expected`), `border`, `share`; answers the split's `id`, `path` and `tiles` | a dragged border runs this, by the split's id. An agent's never resizes the tile the person is typing in |
 | `layout.even`, `layout.swap` | `to` | an agent's even-out is refused when it would resize the tile the person is typing in; a swap never moves it |
-| `tile.open` | `kind` (`reader`; `detail` reads as a reader with `mode=held`, or `pinned` with `page=`), `mode` (`held`, `pinned`), `page`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `view` (a `query` tile: a saved view's block id), `to`, `where` | focus stays where it is; a new tab isn't shown over the person's |
+| `tile.open` | `kind` (`reader`; `detail` reads as a reader, or a pinned one with `page=`), `mode` (`pinned`; `held` is every reader now and reads as left out), `page`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `view` (a `query` tile: a saved view's block id), `to`, `where` | focus stays where it is; a new tab isn't shown over the person's |
 | `tile.close` | `tile` | never the person's tile, never a running program |
 | `tile.focus` | `tile`, `dir` (left, right, up, down: the tile that way; in a flow, the column before or after) | refused while the person is typing, and within 2s of their last key |
 | `tile.link` | `tile`, `to`, `role` (`preview` follows the source's selection; `target` takes only opens) | |
@@ -617,7 +617,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `element.quote` | `tile`, `line` or `anchor`, `into`, `at`, `copy` | puts a part of the reader's note into another note after line `at`, as a reference (`!((note^anchor))` for a figure or callout, `((note^anchor))` for prose) or a copy of its lines; a draft.patch, so an edit open there takes it in place and a line rewritten since makes it a proposal; the person's own drop is their own draft.patch, which their open edit takes in place past the typing guard, one undo step; an agent's there is a proposal (PIE-1357). It lands after the block it was dropped on and a blank line goes around it (outline-core `block-insert.ts`, the rule the drop line shows) |
 | `element.zoom` | `tile`, `line` or `anchor`, `on` | zooms a reader into a part of its note (PIE-780): the figure, table, heading's section, callout, list item or paragraph the service's `fragments.at` says holds the line fills the tile; where it was goes on the reader's back trail (`back` or `on=false` returns, `forward` zooms again); answers the part's kind, label and lines. Nothing is written. Refused on the reader the person has focused (name another with `tile=`), and on a line no part holds |
 | `reader.reveal` | `tile` | the person's (`alt+r`, a click on a reader's crumbs): the outline's cursor moves to the reader's note (its dock slides open if it's shut); the current note, the reader and the keys stay; an agent is refused and reads where a note sits with `outline_read` or `peek` |
-| `reader.mode` | `tile`, `mode` (`follows`, `held`, `pinned`; left out, the toggle of follows and held), `page` (pinned: the page's name; left out, the shown note's own page) | sets how any reader shows notes: follows the current note, is held on the note it shows, or is pinned to a page (shown again each time it starts); said on screen. A former `detail` is a held reader and takes it too. Refused while the reader holds an edit, and where there is no page to pin to (the answer names the command) |
+| `reader.pin` | `tile`, `on` (`true` pins, `false` lets go; left out, `p`'s toggle), `page` (pin it on that page's note, shown again each time it starts) | pins any reader the person owns (PIE-1207): it keeps its note, every open aimed at it (a wire, `tile=`, its own link) lands in the reader beside it, its hint row says where, and it comes back pinned after a restart; said on screen. Refused while the reader holds an edit, on an empty reader with no page, and on a page the outline hasn't (the answer names the command). `reader.mode` and `reader.hold` answer with this call |
 | `tile.travel` | `tile`, `dir` (back, the default, or forward) | the person's keys go back to the column this one was opened from, or forward again (the river's alt+← backspace alt+b, alt+→ alt+f). The person's: an agent's is refused, its way named (open beside) |
 | `tile.float`, `float.place` | `tile`; `dx` `dy` `col` `row` `cols` `rows` | a tile out of the tree as a float over everything, its own rectangle (kept on screen), or put back in the layout; never the person's tile |
 | `query.pick`, `query.reload` | `tile` (a query tile), `n`, `id` or `by`, `open` | on the desk: an agent's pick is its own (the person's cursor stays); `open=true` opens the card where the tile's opens go. On the board the lanes' own `card.select` moves cursors |
@@ -950,7 +950,7 @@ where they are. `hint.get`, `hint.pin`, and `hint.dismiss` inspect or manage it.
 
 The action registry checks allowed values with a did-you-mean and checks `implies` (one of the declared
 argument combinations) and `conflicts` before running a typed action. A kind's `openArgs` and `check` own
-what `tile.open` reads: `tile.open kind=reader note=<id>` holds that note without needing `mode=held`.
+what `tile.open` reads: `tile.open kind=reader note=<id>` starts on that note; `mode=pinned` pins it there.
 An argument for a different kind is refused with a corrected call.
 
 Tile actions and desk opens return `tile` as the stable tile id and `name` as its display name. Pass `tile`

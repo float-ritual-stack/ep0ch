@@ -227,7 +227,7 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
       const w = pane as WaitingYouPane, ask = heldOf(w, a);
       const m = await desk.ctx.board.get(ask.blockId);
       if (!m) throw new ActionRefused("that note is gone");
-      await desk.setCurrent(m, { from: w, link: true, fresh: a.fresh, by: actor });
+      await desk.openFromTile(m, { from: w, link: true, fresh: a.fresh, by: actor });
       return { n: w.asks().length + w.held().indexOf(ask) + 1, id: ask.blockId, title: ask.title };
     },
   }),
@@ -254,7 +254,7 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     async run(a, { pane, desk }, actor) {
       const w = pane as WaitingYouPane, ask = askOf(w, a.n);
       const m = await askNote(desk, ask, actor);
-      await desk.setCurrent(m, { from: w, link: true, fresh: a.fresh, by: actor });
+      await desk.openFromTile(m, { from: w, link: true, fresh: a.fresh, by: actor });
       return { id: m.id };
     },
   }),

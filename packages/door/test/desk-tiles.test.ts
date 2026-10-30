@@ -421,7 +421,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     expect(tile("card").source).toBe("tile:river");
     render();
     await until(() => D().render(D().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "").includes("Library"), "the Library column drawn");
-    expect(D().rule).toBe("current");
+    expect(D().rule).toBe("reader");
     // The person's pick in a column is what the card shows (the preview follows the river).
     const lib = (D() as Desk).pane("library") as any;
     await until(() => (lib.items?.length ?? 0) > 1, "the Library's notes", 10_000);

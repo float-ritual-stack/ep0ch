@@ -12,7 +12,7 @@ import { Desk } from "../src/desk/desk";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, showIn, until } from "./scratch";
 
 describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () => {
   const scratch = new Scratch();
@@ -59,7 +59,7 @@ describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () =
 
   test("a followed link opens in the next column; the person's keys go there, an agent's follow leaves them", async () => {
     expect(flow()).toBeTruthy();
-    await mine("open", { id: notes.trip.id }, "c1");
+    showIn(desk, (await board.get(notes.trip.id))!, "c1");
     await until(() => tile("c1")?.showing?.id === notes.trip.id, "the trip in c1");
     await follow("c1");
     await until(() => columns().length === 2, "a second column");
@@ -160,7 +160,7 @@ describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () =
 
   test.each(["split", "tile.open"])("review: a %s reader stays independent inside a group, after spilling, and in the drawer", async kind => {
     await loadReaders(`purpose-${kind.replace(".", "-")}`, { t: "split", dir: "row", kids: [reader("original", notes.trip.id), reader("anchor")] });
-    const made = await mine(kind === "split" ? "pane.split" : "tile.open", { kind: "reader", ...(kind === "split" ? { dir: "row" } : { mode: "follows" }) }, "anchor") as { name: string };
+    const made = await mine(kind === "split" ? "pane.split" : "tile.open", { kind: "reader", ...(kind === "split" ? { dir: "row" } : {}) }, "anchor") as { name: string };
     const group = await mine("tile.group", { with: "original" }, made.name) as { name: string };
     const inner = () => pane(group.name).inner;
     const check = async (d: Desk) => {

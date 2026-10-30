@@ -478,7 +478,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
       key({ kind: "alt-enter" });
       await until(() => readers().length === 2 && r0.msg?.id === n.beans.id, "a new desk reader");
       expect(readers()[1]!.msg!.id).toBe(n.jobs.id);
-      expect(readers()[1]!.describe().held).toBe(true);
+      expect(readers()[1]!.describe().pinned).toBe(false);
     } finally { app.pop(); }
   }, 30_000);
 

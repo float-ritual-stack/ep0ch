@@ -194,7 +194,7 @@ export interface SurfaceHost {
   readonly externalGutter?: number;
   readonly innerFrame?: FloatRect;
   readonly heroBounds?: { col: number; row: number; cols: number };
-  /** A followed link or `u` (up): the host decides where the note opens (in place, or as the current note). */
+  /** A followed link or `u` (up): the host decides where the note opens (in place, or where its wires say). */
   navigate(m: Msg, how?: OpenHow): void;
   /**
    * The click being handled is an alt-, ctrl- or middle-click, which the host opens fresh (its `navigate` for this
@@ -8347,8 +8347,7 @@ export class NoteSurface {
    * Run a navigation (a followed link, `u`, or a host opening a note into this reader on purpose: an agent's
    * `open`, a card's ⏎ into a detail, a selection wired to it: a links tile's pick, a preview's source, PIE-1426) so
    * that, when it leaves this reader on another note, back comes here, whichever tile changed it (a wired preview is
-   * tracked whether it is held or follows). A desk reader following the current note isn't navigating, so the host
-   * shows it without this.
+   * tracked too).
    */
   track<T>(open: () => T): T {
     const from = this.place();

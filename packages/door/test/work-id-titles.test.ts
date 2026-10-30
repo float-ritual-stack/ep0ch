@@ -11,7 +11,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { visible } from "../src/style";
 import { completerFor, completionKey, renderCompletion } from "../src/surface/completer";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, showIn, until } from "./scratch";
 
 const TITLE = "PC-582 acceptance summary for the intake desk: invited patients and their follow-up calls";
 const plain = (s: string) => visible(s);
@@ -43,7 +43,7 @@ describe.skipIf(!outliner)("a Work ID first wherever a note's title is drawn (PI
     afterAll(() => { app?.quit(); });
 
     test("the tile bar and the outline tile's row say HUB-062 first; a dashed title isn't doubled", async () => {
-      desk.setCurrent(note);
+      showIn(desk, note);
       const r = () => D().pane("reader") as ReaderPane;
       await until(() => r().msg?.id === note.id, "the reader on the note");
       await until(() => lines().some(l => l.includes("PC-5")), "the note drawn");

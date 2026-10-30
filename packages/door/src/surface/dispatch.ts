@@ -31,7 +31,8 @@ import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, chordNa
 /** `tile=<mount>/<tile>`: a tile of a screen mounted in a tile (PIE-651); names never hold a `/`. */
 /** Actions that were renamed: a call to the old name is answered with the call that works (PIE-660: say the right thing). */
 export const GONE_ACTIONS: Record<string, string> = {
-  "reader.hold": "reader.hold is now reader.mode (PIE-705, any reader or detail): act reader.mode tile=<reader> mode=held | follows | pinned [page=<name>]; with no mode it toggles follows and held, as on= did",
+  "reader.hold": "reader.hold is now reader.pin (PIE-1207): every reader keeps what's opened into it; act reader.pin tile=<reader> [on=true|false] [page=<name>] pins it, so opens land beside it",
+  "reader.mode": "reader.mode is now reader.pin (PIE-1207: there is no current note to follow, and held is every reader): act reader.pin tile=<reader> [on=true|false] [page=<name>]; act reader.follow tile=<reader> source=<tile> wires a list's selection to it",
   // The lists' actions are one set (PIE-747): a reader's inline lists and the links tile's rows answer to the same names.
   "links.blocks": "links.blocks is now list.blocks (PIE-747): act list.blocks tile=<reader> reads every list it draws, an inline ::links component or an extension's list view",
   "links.pick": "links.pick is now list.pick (PIE-747): act list.pick tile=<reader> [list=<number|^name|title>] n=<row> | id=<block>; list.step by=1 is the old by=",

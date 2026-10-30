@@ -748,7 +748,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     run({ n, id, fresh }, { pane, desk, standing }, actor) {
       const p = pane as FacetsPane;
       const note = p.noteFor({ n, id });
-      desk.setCurrent(note, { from: p.source(), link: true, ...(fresh ? { fresh: true } : {}), by: actor });
+      desk.openFromTile(note, { from: p.source(), link: true, ...(fresh ? { fresh: true } : {}), by: actor });
       // In a flow too narrow for every column (the navigator at 44), the reader it landed in comes to the wide place.
       const landed = !fresh && standing ? desk.linked?.(p.source()) : undefined;
       if (landed && desk.coverOf?.(landed) !== "full" && desk.coverOf?.(landed) !== undefined) void desk.perform?.("tile.widen", {}, actor, landed);

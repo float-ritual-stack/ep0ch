@@ -179,7 +179,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
   const flashes: string[] = [];
   const desk = () => ({
     ctx: { board, flash: (m: string) => flashes.push(m), redraw() {}, suspend: (run: () => void) => run(), t: { cellW: 9, cellH: 18 }, graphics: false },
-    current: null, setCurrent() {}, focusKind() {}, redraw() {},
+    openFromTile() {}, focusKind() {}, redraw() {},
   }) as unknown as DeskApi;
   const create = (text: string) => board.request("create", { parentId: null, text, author: "agent" });
   const current = async (id: string) => (await other.request("blocks.context", { blockId: id })).selected;

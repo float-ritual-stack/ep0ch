@@ -19,7 +19,7 @@ import { KeyDecoder } from "../src/term";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
 import type { Key } from "../src/term";
-import { outliner, Scratch, until as untilQuick } from "./scratch";
+import { outliner, Scratch, showIn, until as untilQuick } from "./scratch";
 
 const until = (ok: () => boolean, what: string, ms = 15_000) => untilQuick(ok, what, Math.max(ms, 15_000));
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -162,7 +162,7 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     app.push(new MainMenu());
     desk = new Desk({ name: "one", title: "one reader", layout: { root: { t: "leaf", kind: "reader", name: "reader" }, focus: "reader" } });
     app.push(desk);
-    desk.setCurrent(n.plan);
+    showIn(desk, n.plan);
     await until(() => reader().msg?.id === n.plan.id && !reader().msg!.partial, "the plan in the reader");
   }, 60_000);
 
@@ -186,15 +186,15 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     expect(board.sent.slice(before)).not.toContain("resources.follow-authored");
     // ⏎ registers it (one step) and shows what it holds.
     key({ kind: "enter" });
-    await until(() => (desk.current?.text ?? "").includes("Mondays: the north beds"), "the file's text, opened");
+    await until(() => (reader().msg?.text ?? "").includes("Mondays: the north beds"), "the file's text, opened");
     expect(board.sent.slice(before)).toContain("resources.follow-authored");
     // The reader shows the file now (a Resource has no links); back on the plan, its row says it's registered.
-    desk.setCurrent(n.plan);
+    showIn(desk, n.plan);
     await until(() => (rows().find(r => r.kind === "resource")?.context ?? "").includes("filesystem"), "the row says it's registered");
   }, 60_000);
 
   test("the filter narrows all three groups; . folds a group", async () => {
-    desk.setCurrent(n.plan);
+    showIn(desk, n.plan);
     D().focus = D().idNamed("backlinks");
     await until(() => rows().some(r => r.kind === "outlink"), "the plan's links");
     await app.act({ action: "backlinks.view", tile: "backlinks", args: { filter: "shed" } });
@@ -213,7 +213,7 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
 
   test("an agent's links reads them: the person's keys, their list's note and its selection stay as they were", async () => {
     D().focus = D().idNamed("reader");
-    desk.setCurrent(n.notes);
+    showIn(desk, n.notes);
     await until(() => reader().msg?.id === n.notes.id, "another note in the reader");
     // The list keeps its subject as the reader moves on (PIE-794): b aims it.
     expect(list().target?.id).not.toBe(n.notes.id);
@@ -239,15 +239,15 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
   test("refusals: a resource has no links; a screen without room says so; an agent doesn't fold a river column's groups", async () => {
     // A Resource shown in the reader isn't a block.
     const res = { id: "resource:made-up", text: "rota.md\n\nnothing", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "resource", properties: [] };
-    desk.setCurrent(res as Msg);
+    showIn(desk, res as Msg);
     await until(() => reader().msg?.id === res.id, "the resource in the reader");
     await expect(D().dispatch.act({ action: "links", tile: "reader" }, USER)).rejects.toThrow("isn't a block");
-    desk.setCurrent(n.plan);
+    showIn(desk, n.plan);
     await until(() => reader().msg?.id === n.plan.id, "the plan again");
   }, 60_000);
 
   test("::resources and ::backlinks in a note draw the same rows inline; a row is a link the reader opens", async () => {
-    desk.setCurrent(n.inline);
+    showIn(desk, n.inline);
     await until(() => lines().join("\n").includes("♦ rota.md") && lines().join("\n").includes("← Compost notes"), "the inline rows");
     const drawn = lines().join("\n");
     expect(drawn).toContain("[ RESOURCES ]");
@@ -255,18 +255,18 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     expect(drawn).toMatch(/♦ rota\.md · (Filesystem|not registered)/);
     expect(drawn).toMatch(/← Compost notes —/);
     // A click on the backlink row selects it (PIE-794: as a links tile's row); a double click opens its note in this
-    // reader, its home, which follows the current note: the current note moves.
+    // reader, its home: it replaces what the reader shows.
     const ls = lines(), y = ls.findIndex(l => l.includes("← Compost notes")), x = ls[y]!.indexOf("Compost notes") + 2;
     D().focus = D().idNamed("reader");
     key({ kind: "mouse", action: "down", button: 0, x, y });
     key({ kind: "mouse", action: "up", button: 0, x, y });
     await Bun.sleep(100);
-    expect(desk.current?.id).toBe(n.inline.id);
+    expect(reader().msg?.id).toBe(n.inline.id);
     expect(reader().surface.inView()?.link?.listRow?.row).toBeDefined();
     key({ kind: "mouse", action: "down", button: 0, x, y });
     key({ kind: "mouse", action: "up", button: 0, x, y });
-    await until(() => desk.current?.id === n.notes.id, "the backlink's note opened from the inline row");
-    expect(reader().followMode).toBe("follows");
+    await until(() => reader().msg?.id === n.notes.id, "the backlink's note opened from the inline row");
+    expect(reader().pinned).toBe(false);
   }, 60_000);
 
   test("::links with a query (PIE-693) by keys and mouse: [ ] onto a row previews it, the note keeps the keys; ⏎ on ⏎ in goes in: j k, / filter, esc out; a click selects, a double click opens", async () => {
@@ -274,7 +274,7 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     const kale = await create(null, "Sow the kale [type::seed-job] [stage::waiting]\nIn the cold frame, two rows.");
     const peas = await create(null, "Stake the peas [type::seed-job] [stage::waiting]\nHazel sticks from the hedge.");
     const plan = await create(null, "Sunday jobs\n::links{query=\"type=seed-job\" preview=right title=\"Seed jobs\"}\n::\nAfter the list.");
-    desk.setCurrent(plan);
+    showIn(desk, plan);
     D().focus = D().idNamed("reader");
     const s = () => reader().surface, b = () => s().linkBlocksDrawn[0], rows = () => b()?.view.pickable() ?? [], opens = (r: any) => r.do?.open as string;
     await until(() => rows().length === 2 && b()!.detail!.preview !== null, "the two jobs, the first previewed");
@@ -305,7 +305,7 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     const ls = lines(), y = ls.findIndex(l => l.includes("∙ Stake the peas")), x = ls[y]!.indexOf("Stake the peas") + 2;
     key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => b()?.detail?.preview === peas.id, "a click selecting the row");
-    expect(desk.current?.id).toBe(plan.id);
+    expect(reader().msg?.id).toBe(plan.id);
     key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => reader().msg?.id === peas.id, "a double click opening it");
     expect([kale.id, peas.id]).toContain(firstId!);

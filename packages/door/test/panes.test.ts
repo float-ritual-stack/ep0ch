@@ -102,7 +102,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     try {
       await B().fill();
       await until(() => !!(b.pane("Harvest") as any)?.items?.length, "the new lane starts");
-      b.setCurrent(card, { from: b.pane("Harvest")! });
+      b.showFrom(b.pane("Harvest")!, card);
       expect(B().preview.msg?.id).toBe(card.id);
     } finally {
       await (b as any).dispatch.act({ action: "layout.lock", args: { on: false } }, { kind: "user" });
@@ -124,7 +124,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
         (b as any).build(saved, false);
         await B().fill();
         await until(() => B().lanes.every((l: any) => l.items?.length), "the rebuilt lanes");
-        b.setCurrent(B().lanes[0].items[0], { from: B().lanes[0] });
+        b.showFrom(B().lanes[0], B().lanes[0].items[0]);
         await whole(B().preview);
         await mine(route, { source: "none" }, "preview");
       }
@@ -132,7 +132,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
       const kept = B().preview.msg?.id;
       await B().fill();
       const card = B().lanes[1].items[0];
-      b.setCurrent(card, { from: B().lanes[1] });
+      b.showFrom(B().lanes[1], card);
       expect(B().preview.msg?.id).toBe(kept);
       const saved = (b as any).layoutSpec();
       (b as any).build(saved, false);
@@ -186,30 +186,30 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     key({ kind: "esc" });
   });
 
-  test("PIE-705: the readers row holds reader tiles in mode held, named and labelled as the details always were; p and reader.mode switch them", async () => {
+  test("PIE-705, PIE-1207: the readers row holds reader tiles, named and labelled as the details always were; p and reader.pin pin them", async () => {
     await withDetails();
     const tiles = () => B().layoutGet().tiles as any[];
     const t = (n: string) => tiles().find(x => x.name === n);
-    expect(t("detail1")).toMatchObject({ kind: "reader", mode: "held" });
-    expect(t("detail2")).toMatchObject({ kind: "reader", mode: "held" });
+    expect(t("detail1")).toMatchObject({ kind: "reader" });
+    expect(t("detail2")).toMatchObject({ kind: "reader" });
     expect(t("preview").kind).toBe("preview");
     expect(t("detail1").title).toMatch(/^detail 1\b/);
-    // The board's readers row reads as before: the same row, names and labels, in mode held.
     expect(row()).toEqual(["preview", "detail1", "detail2"]);
-    // An agent switches one by name; the person's keys stay on the lanes.
-    expect(await act("reader.mode", { mode: "follows" }, "detail2")).toMatchObject({ name: "detail2", mode: "follows", held: false });
-    expect(t("detail2").mode).toBe("follows");
+    // An agent pins one by name; the person's keys stay on the lanes.
+    expect(await act("reader.pin", { on: true }, "detail2")).toMatchObject({ name: "detail2", pinned: true });
+    expect(t("detail2").pinned).toBe(true);
     expect(focus()).toBe("lanes");
-    expect(await act("reader.mode", { mode: "held" }, "detail2")).toMatchObject({ mode: "held" });
-    // The person: tab to detail1, p lets it follow the lanes' selection, p again keeps what it shows; its label stays.
+    expect(await act("reader.pin", { on: false }, "detail2")).toMatchObject({ pinned: false });
+    // The person: tab to detail1, p pins it, p again lets it go; its label stays and it keeps its note.
     key({ kind: "tab" }); key({ kind: "tab" });
     expect(focus()).toBe("detail1");
+    const kept = details()[0]!.msg?.id;
     key(char("p"));
-    expect(t("detail1")).toMatchObject({ mode: "follows" });
+    await until(() => t("detail1").pinned === true, "p pins detail1");
     expect(t("detail1").title).toMatch(/^detail 1\b/);
-    expect(details()[0]!.msg?.id).toBe(B().preview.msg?.id);   // let go, it shows the board's current card as the preview does
     key(char("p"));
-    expect(t("detail1")).toMatchObject({ mode: "held" });
+    await until(() => t("detail1").pinned === undefined, "p lets it go");
+    expect(details()[0]!.msg?.id).toBe(kept);
     expect(t("detail1").title).toMatch(/^detail 1\b/);
   });
 
@@ -395,7 +395,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(focus()).toBe("detail1");
     const mine = details()[0], held = details()[1], prior = mine.msg.id;
     const note = B().lanes[1].items[0];
-    b.setCurrent(note, { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
+    b.openFromTile(note, { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
     expect(mine.msg.id).toBe(note.id);
     expect(held.draft).toBeTruthy();
     expect(focus()).toBe("detail1");

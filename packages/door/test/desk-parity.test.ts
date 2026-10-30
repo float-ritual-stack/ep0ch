@@ -69,7 +69,7 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     for (const c of "Thin the plums") key(char(c));
     await until(() => (app as any).bar.items.length > 0, "the search hits", 5000);
     expect(await ran({ kind: "enter" })).toEqual(["bar.pick", "open"]);
-    await until(() => desk.current?.id === notes.plums.id, "the plums note opened");
+    await until(() => (desk.layoutGet().tiles as any[]).some(t => t.showing?.id === notes.plums.id), "the plums note opened");
     expect((app as any).bar).toBeNull();
   });
 
