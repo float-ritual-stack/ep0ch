@@ -86,7 +86,7 @@ describe.skipIf(!outliner)("opens into the desk's readers keep every column read
       expect(spine?.showing.id).toBe(notes.shed.id);
       // The spine sits beside the reader it came from, not inside the replies and activity column.
       expect(spine.rect.col).toBe(tile("reader2").rect.col + tile("reader2").rect.cols);
-      expect(message()).toContain("Bike shed kept as a spine");
+      expect(message()).toContain("the leaking roof kept as a spine");
     } else {
       // No room for a spine: the open replaced, said with it, the old note a step back.
       expect(spine).toBeUndefined();

@@ -809,18 +809,25 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("facets.pick takes n or by");
       if (part !== undefined && part !== "keys" && part !== "matches") throw new ActionRefused("part is keys or matches");
       if (part === "matches" && p.place === "tile") throw new ActionRefused("Matches is in a tile of its own: facets.match picks there (id=, by=)");
-      const walk = rows.flatMap((r, i) => part === undefined || (r.kind === "note" || r.kind === "more") === (part === "matches") ? [i] : []);
-      if (!walk.length) throw new ActionRefused(`no ${part} rows are listed`);
-      const at = walk.indexOf(p.at);
-      const i = by !== undefined ? walk[clamp((at < 0 ? (by > 0 ? -1 : walk.length) : at) + Math.trunc(by), 0, walk.length - 1)]! : n! - 1;
-      if (!(i >= 0 && i < rows.length)) throw new ActionRefused(`the tile has ${rows.length} rows; n is 1-${rows.length}`);
-      p.at = i;
-      const row = rows[i];
-      if (row?.kind === "note") desk.showFrom?.(p.source(), row.note, actor);
-      // Reaching a group's "more" row reads the rest of the group: scrolling on goes on into it.
-      if (row?.kind === "more") return p.readGroup(desk, row.group).then(r => ({ n: i + 1, ...r }));
-      desk.redraw();
-      return { n: i + 1 };
+      const go = (rows: ReturnType<FacetsPane["rows"]>): unknown => {
+        const walk = rows.flatMap((r, i) => part === undefined || (r.kind === "note" || r.kind === "more") === (part === "matches") ? [i] : []);
+        if (!walk.length) throw new ActionRefused(`no ${part} rows are listed`);
+        const at = walk.indexOf(p.at);
+        const i = by !== undefined ? walk[clamp((at < 0 ? (by > 0 ? -1 : walk.length) : at) + Math.trunc(by), 0, walk.length - 1)]! : n! - 1;
+        if (!(i >= 0 && i < rows.length)) throw new ActionRefused(`the tile has ${rows.length} rows; n is 1-${rows.length}`);
+        p.at = i;
+        const row = rows[i];
+        if (row?.kind === "note") desk.showFrom?.(p.source(), row.note, actor);
+        // Reaching a group's "more" row reads the rest of the group: scrolling on goes on into it, and End on to the last
+        // row (PIE-1457), while a read brings rows.
+        if (row?.kind === "more") return p.readGroup(desk, row.group).then(r => {
+          const now = p.rows();
+          return by !== undefined && by >= PAST_END && now.length > rows.length ? go(now) : { n: i + 1, ...r };
+        });
+        desk.redraw();
+        return { n: i + 1 };
+      };
+      return go(rows);
     },
   }),
   "facets.set": def({
@@ -1031,9 +1038,14 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       const p = pane as FacetsPane, who = standing ? PERSON : actorKey(actor);
       if ((id === undefined) === (by === undefined)) throw new ActionRefused("facets.match takes id or by");
       const go = (): unknown => {
+        const had = p.list.pickable(who).length;
         const row = id !== undefined ? p.list.pick(who, p.noteFor({ id }).id) : p.list.step(who, by!) ?? p.list.picked(who);
-        // End (a step past every row, PAST_END) reads a group's rest on the way and lands on the last note (PIE-1457).
-        if (row?.id.startsWith(MORE)) { const read = p.readGroup(desk, row.id.slice(MORE.length)); return by !== undefined && by >= PAST_END ? read.then(r => (r.notes ? go() : r)) : read; }
+        // End (a step past every row, PAST_END) reads a group's rest on the way and lands on the last note (PIE-1457),
+        // while a read brings rows (notes sharing one time can page the same rows again).
+        if (row?.id.startsWith(MORE)) {
+          const read = p.readGroup(desk, row.id.slice(MORE.length));
+          return by !== undefined && by >= PAST_END ? read.then(r => (p.list.pickable(who).length > had ? go() : r)) : read;
+        }
         const m = row?.source;
         if (!m) throw new ActionRefused("Matches lists no note yet");
         if (standing) { const at = p.rows().findIndex(r => r.kind === "note" && r.note.id === m.id); if (at >= 0) p.at = at; desk.showFrom?.(p.source(), m, actor); }

@@ -88,6 +88,7 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     expect(today().notes.length).toBe(205);
     // A note written meanwhile (agents write all day) keeps the group read and the pick (this agent's own) where they were.
     const tilePane = () => D().panes.get([...D().panes].find(([, x]: any) => x.kind === "facets")![0]);
+    const ids0 = () => today().notes.find((n: any) => n.title === "Seedling 0")?.id;
     const picked = today().notes[150].id;
     await act("facets.match", { id: picked });
     expect(tilePane().list.picked(AS)?.id).toBe(picked);
@@ -100,6 +101,13 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     await act("facets.query", { text: "tray=bulk updated >= -7d" });
     await until(() => today()?.more === 6, "a fresh first page");
     expect(await act("facets.match", { by: 1e9 })).toMatchObject({ title: "Seedling 0" });
+    expect(today()).toMatchObject({ more: 0 });
+    // The same from the facets tile's own Matches (the person's End there).
+    await act("facets.query", { text: "tray=bulk updated >= -6d" });
+    await until(() => today()?.more === 6, "another fresh first page");
+    await D().dispatch.act({ action: "facets.pick", tile: "facets", args: { by: 1e9, part: "matches" } }, USER);
+    const at = tilePane().rows()[tilePane().at];
+    expect(at?.kind === "note" && at.note.id).toBe(ids0());
     expect(today()).toMatchObject({ more: 0 });
     // Matches answers the lists' actions in its own tile too.
     await act("facets.place", { place: "tile" });

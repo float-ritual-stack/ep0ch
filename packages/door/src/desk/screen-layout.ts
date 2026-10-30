@@ -762,10 +762,10 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
           return cover === undefined || cover === "spine" ? leaves(k).map(t => [t, true] as const) : [];
         })) : s.collapsed;
         let edge = row?.dir === "row" ? spineEdge(row, folded, target, space.spines, before) : null;
-        // On a desk (a row that isn't a flow) a book or centre spine sits beside the reader it came from, on the side the
-        // policy picks: the spread's edge there is often the tree, and a spine left of it took column 0 and tile 1 (PIE-1457).
-        // Only start and end gather spines at the row's edge, as asked.
-        if (edge && row?.t !== "flow" && (space.spines === "book" || space.spines === "centre")) edge = { target, dir: edge.dir };
+        // On a desk (a row that isn't a flow) a book spine sits beside the reader it came from, on the side the policy picks:
+        // the spread's edge there is often the tree, and a spine left of it took column 0 and tile 1 (PIE-1457). Start, end
+        // and centre gather spines at the row's edges, as asked.
+        if (edge && row?.t !== "flow" && space.spines === "book") edge = { target, dir: edge.dir };
         // An agent's kept page never goes in left of the tile the person is typing in: it would shift their text along (PIE-1294).
         const typing = ctx.protectTyping && ctx.person.typingIn !== null && row ? row.kids.findIndex(k => leaves(k).includes(ctx.person.typingIn!)) : -1;
         if (edge && typing >= 0 && row!.kids.findIndex(k => leaves(k).includes(edge!.target)) + (edge.dir === "right" ? 1 : 0) <= typing) edge = spineEdge(row!, folded, target, "end", before);
