@@ -2039,11 +2039,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const plan = this.placeFrom(id), dest = plan.destination;
     if (dest.kind === "swap") {
       const target = dest.tile === id ? "itself" : this.nameOf(dest.tile);
-      return { short: target, says: dest.tile === id ? "itself (its note is replaced; back returns)" : `${target} (the first reader not pinned)`, change };
+      const why = plan.besideOf === id ? "it's pinned: the idle reader takes its opens" : "the first reader not pinned";
+      return { short: target, says: dest.tile === id ? "itself (its note is replaced; back returns)" : `${target} (${why})`, change };
     }
     if (dest.kind === "new" && plan.besideOf !== undefined) {
       const by = plan.besideOf === id ? "it" : this.nameOf(plan.besideOf);
-      return { short: `a reader beside ${by}`, says: `a reader beside ${by} (${by === "it" ? "it's" : `${by} is`} pinned)`, change };
+      return { short: `beside ${by}`, says: `a reader beside ${by} (${by === "it" ? "it's" : `${by} is`} pinned)`, change };
     }
     return { short: "nowhere", says: "nowhere: alt+l wires it to a reader", change };
   }
@@ -2087,7 +2088,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** Inspect the same placement that the open will apply, so headers and actions agree. */
   private placeFrom(from: number, fresh = false, by: Actor = USER, note = "") {
-    return placement(this.layout, { from, fresh, note }, this.layoutCtx(by));
+    return placement(this.layout, { from, fresh, note, inspect: true }, this.layoutCtx(by));
   }
 
   private landFrom(at: number, m: Msg, opts: OpenHow & { reveal?: boolean }, by: Actor): boolean {
@@ -2190,7 +2191,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       rec.active = id;
     }
     if (plan.reveal) this.revealElsewhere(m, landed, request.from);
-    this.arrived(landed, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : undefined);
+    // No room for a spine (PIE-1207): the note it showed is a step back, said with the open.
+    this.arrived(landed, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : plan.noSpine && prior ? `${subject(prior)} is a step back (alt←): no room for a spine` : undefined);
+    // The idle reader a pinned one's open went to takes the next one aimed there too, as a reader opened beside it does.
+    if (dest.kind === "swap" && plan.besideOf !== undefined) this.besides.set(plan.besideOf, dest.tile);
     this.save(); this.redraw();
     if (plan.why) this.ctx.flash(plan.why);
     return { desk: this, id: landed, ...(plan.why ? { why: plan.why } : {}) };

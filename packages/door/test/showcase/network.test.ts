@@ -139,7 +139,7 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     expect(tile("reader").showing.id).toBe(kept);
     const reader = [...stage().panes.entries()].find(([id]: any) => stage().nameOf(id) === "reader")![1] as any;
     screen();
-    expect(reader.hint()).toContain(`pinned: opens land in ${opened.name}`);
+    expect(reader.hint()).toContain(`▣ pinned · opens → ${opened.name}`);
     expect(reader.headControls(40, stage())[0].text).toBe("▣ pinned");
     // Let go: the next ⏎ lands in it again.
     await app.act({ action: "reader.pin", tile: "reader", args: { on: false }, as: "test-agent" });
