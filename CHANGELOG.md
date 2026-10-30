@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The door stands on its own: old drawer tiles go quietly, messages name what's there, door tests pass alone (PIE-1455, PIE-1460)
+
+- **An old drawer tile is left out, said once:** a saved layout naming a retired built-in kind (`drawer.own`, `dock.own`, from before the drawer's agent became a tab) loads without it, says so once in the message log with what replaced it, and saves without it; nothing reads "isn't available here". The one-off `drawer-words.ts` migration script and its test are gone.
+- **"nothing to filter" names the tile:** a links tile with no note to list names its source by its name ("what activity shows"), never its id.
+- **`]` in the message log lights a link that leads somewhere:** the first stop steps past a `[[page]]` nobody has written yet; when every link of a message leads nowhere, the hint row says why ("no note is [[…]] yet").
+- **A lock refusal names a chip you can see:** with your drawer open over the screen, a refusal from the locked screen says "alt+a puts your drawer away, then a click on ▣ screen locked"; with a drawer tile lifted over the screen, it names the power bar's "unlock the screen".
+- **`ep0ch find --machinery hide|only|show`:** a query that left out machinery notes (peer messages, tosses, fetched notifications) says `--machinery show` on stderr, and the flag finds them.
+- **`%name` in the power bar puts that tile first:** a field typed whole (a tile's name) ranks before a row listed earlier that only mentions it.
+- **The river keeps a spine again:** a flow's peeks give a cell to a kept spine as the flow lays out any new column; the readable-tiles check no longer refused every spine in a crowded river.
+- **Every door test passes alone:** power-bar, flow, showcase/hints and claude-mod-contract were red alone (and the flow, hints and mod ones red in any order): two door fixes above, a test that matched a label also drawn behind the bar, and one that read a reader's header the written title now heads (PIE-1248).
+- **Run:** `ep0ch install --apply`.
+
 ### A refusal never covers the lock chip it names (PIE-1456)
 
 - **The ▣ stays clickable under a message:** a status message the bar cuts short is said whole above it, and on a desk it now sits above the hint row instead of over it (with a tile lifted, beside the drawer and in the showcase too), so its chips, dock handles and ▣ screen locked stay drawn and clickable at any width; a click on ▣ right after a refusal that says to click it unlocks (a click on the message still opens the log).

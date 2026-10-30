@@ -264,6 +264,8 @@ export type LinkTarget = {
    * figure the row is in (`figure` only), so the figure's keys work while the row is current (src/graphs.ts).
    */
   figure?: FigureControl;
+  /** The service answered that nothing is at this address (drawn `label ◌`): a page not written yet, a gone id (PIE-1455). */
+  missing?: true;
   /** A grid's cell (role "row": a live calendar's day, an activity cell): one click opens it, a row's selects (PIE-1457). */
   cell?: true;
   /**
@@ -450,7 +452,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   };
   // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).
   const mark = (v: LinkView, to: LinkTarget, external = false) => {
-    const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];
+    const [on, off] = sink ? [linkTag(sink.push(v.missing ? { ...to, missing: true } : to) - 1), LINK_END] : ["", ""];
     const block = to.block;
     const text = block && to.label === undefined
       ? v.text.replace(shortId(block), () => drawShortId(block)) : v.text;

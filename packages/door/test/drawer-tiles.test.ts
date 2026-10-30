@@ -1309,6 +1309,41 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
+  // PIE-1455 (found validating PIE-1456): a refusal names the control to click only while it's on screen. The drawer open
+  // over the screen draws its own hint row where the screen's ▣ chip was.
+  test("the screen's lock refusal says how to reach its chip when the drawer covers it", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "layout.lock", args: { on: true } }, USER);
+      d.paint();
+      const refusal = async () => { const said = await d.desk.dispatch.act({ action: "layout.even", args: {}, tile: "kettle" }, USER).then(() => "not refused", e => String((e as Error).message)); d.paint(); return said; };
+      expect(await refusal()).toContain("a click on ▣ screen locked (or ^W P) unlocks it");
+      d.key({ kind: "alt", ch: "a" });
+      const covered = d.paint();
+      expect(d.app.drawer.open).toBe(true);
+      // (The refusal said a moment ago may still be on the message line: only a chip, never the words around it, counts.)
+      expect(covered.some(l => l.includes("▣ screen locked") && !l.includes("locked the screen"))).toBe(false);
+      const said = await refusal();
+      expect(said).toContain("the screen is locked");
+      expect(said).not.toContain("a click on ▣ screen locked (or ^W P)");
+      expect(said).toContain("alt+a puts your drawer away");
+      // As it says: alt+a (esc would go to the program in the drawer's tab), and the chip is there to click.
+      d.key({ kind: "alt", ch: "a" });
+      const shown = d.paint();
+      expect(d.app.drawer.open).toBe(false);
+      expect(shown.some(l => l.includes("▣ screen locked") && !l.includes("locked the screen") && !l.includes("refused"))).toBe(true);
+      expect(await refusal()).toContain("a click on ▣ screen locked (or ^W P) unlocks it");
+      // The drawer's agent lifted over the whole screen: its row shows the drawer's lock, so the screen's is reached by the bar.
+      await d.app.dispatch.press("agent.lift", { reach: "full", drawer: true });
+      await until(() => !!d.app.drawer.made?.liftedDesk, "the drawer's agent lifted");
+      d.paint();
+      const lifted = await refusal();
+      expect(lifted).not.toContain("a click on ▣ screen locked (or ^W P)");
+      expect(lifted).toContain(`the power bar's "unlock the screen" unlocks it`);
+      await d.app.dispatch.press("agent.lift", { on: false });
+    } finally { d.app.quit(); }
+  });
+
   test("a lock names its layout: the drawer's is said, shown, refused in its name and unlocked where it says; the screen's stays as it was (PIE-1346)", async () => {
     const d = await door();
     try {
@@ -1731,6 +1766,39 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         expect(e.paint().join("\n")).not.toContain("isn't available here");
       } finally { e.app.quit(); }
     } finally { d.app.quit(); }
+  });
+
+  // PIE-1455: an older door's drawer saved its own program as a drawer.own tile (dock.own before the words swapped). The
+  // laptop still has such layouts: the next door leaves the tile out, says so once, and saves the drawer without it.
+  test("a saved drawer naming a retired kind (drawer.own, dock.own) loads without it, says so once, and saves without it", async () => {
+    const d = await door();
+    await d.app.act({ action: "tile.drawer", args: {}, tile: "replies", as: AS });
+    d.app.quit();
+    const file = join(outlineState(), "drawer-tiles.json");
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    saved.root = { t: "split", dir: "row", weights: [0.4, 0.3, 0.3], kids: [saved.root, { t: "leaf", kind: "drawer.own", name: "own" }, { t: "tabs", active: 0, tabs: [{ t: "leaf", kind: "dock.own", name: "older" }] }] };
+    writeFileSync(file, JSON.stringify(saved));
+    const e = await door();
+    try {
+      e.paint();
+      if (!e.app.drawer.open) e.key({ kind: "alt", ch: "a" });
+      const drawn = e.paint().join("\n");
+      expect(drawn).not.toContain("isn't available here");
+      // The kept tab comes back (renamed beside the screen's own thread, as any restored drawer tab is).
+      expect(e.inDrawer("replies2")).toBe(true);
+      expect(e.app.drawer.tabs().map(t => t.name)).not.toContain("own");
+      const said = e.app.messages.rows.filter(m => m.message.includes("retired kind"));
+      expect(said).toHaveLength(1);
+      expect(said[0]!.message).toContain("drawer.own");
+      expect(said[0]!.message).toContain("dock.own");
+      const after = readFileSync(file, "utf8");
+      expect(after).not.toContain("drawer.own");
+      expect(after).not.toContain("dock.own");
+      expect(after).toContain("replies");
+    } finally { e.app.quit(); }
+    // The next door has nothing left to say.
+    const f = await door();
+    try { f.paint(); expect(f.app.messages.rows.some(m => m.message.includes("retired kind"))).toBe(false); } finally { f.app.quit(); }
   });
 
   test("saved: the next door's drawer has the tile back (drawer-tiles.json), the dock as it was", async () => {

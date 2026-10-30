@@ -17,6 +17,7 @@ import { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import { Offline, SocketBoard, USER, type Actor } from "../src/socket";
 import { askInBar } from "../src/bar/ask";
+import { filtered } from "../src/bar/filter";
 import { notePageUrl } from "../src/open";
 import { KeyDecoder, type Key } from "../src/term";
 import { outliner, Scratch, showIn, until } from "./scratch";
@@ -26,6 +27,12 @@ const AGENT: Actor = { kind: "agent", id: "wren-agent" };
 const ch = (c: string): Key => ({ kind: "char", ch: c });
 const ctrlK: Key = { kind: "char", ch: "k", ctrl: true };
 setDefaultTimeout(30_000);
+
+test("a tile's name typed whole comes first, before a row listed earlier that only mentions it (PIE-1460)", () => {
+  const rows = [{ label: "Seed order", name: "detail", about: "opened from tree" }, { label: "outline", name: "tree", about: "tree" }];
+  expect(filtered(rows, "tree", r => [r.label, r.name, r.about]).map(r => r.name)).toEqual(["tree", "detail"]);
+  expect(filtered(rows, "tre", r => [r.label, r.name, r.about]).map(r => r.name)).toEqual(["detail", "tree"]);
+});
 
 describe.skipIf(!outliner)("the power bar", () => {
   const scratch = new Scratch();
@@ -931,8 +938,9 @@ describe.skipIf(!outliner)("the power bar", () => {
   test("a click lights a row and shows its preview; the next click on it runs it, as enter does (PIE-1405)", async () => {
     key(ctrlK); type("%");
     // The row lit when the bar opened is a first click's: one click on it previews, never runs.
-    const top = frame().findIndex(l => l.includes(peek().bar.rows[0].label));
-    const tx = frame()[top]!.indexOf(peek().bar.rows[0].label) + 1;
+    // Found by its label and its detail: the label alone ("outline") is also a tile's title behind the bar.
+    const first = peek().bar.rows[0], top = frame().findIndex(l => l.includes(first.label) && l.includes(`${first.detail.split(" · ")[0]} ·`));
+    const tx = frame()[top]!.indexOf(`${first.label} ·`) + 1;
     key({ kind: "mouse", action: "down", x: tx, y: top, button: 0 } as Key); key({ kind: "mouse", action: "up", x: tx, y: top, button: 0 } as Key);
     expect(peek().bar).toBeDefined();
     await Bun.sleep(450);

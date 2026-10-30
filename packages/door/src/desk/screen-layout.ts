@@ -35,7 +35,7 @@ import { agentRefusal, type AgentLevel } from "../surface/agent-level";
 // ── what the module reads: the tree queries, re-exported so callers import only this module ──
 export {
   chainOf, columnsOf, dividerAt, pinnedTiles, dragShare, dockOf, docks, EDGE_GLYPH, EDGE_WORD, effective, flowOf, isDir, isLine, kidsOf, leaf, leaves, neighbour, node, nodeById,
-  pair, parentNode, parentOf, policyOf, revive as reviveTree, shown, splitAxis, splitOf, tabsOf, visible, POLICY_KEYS,
+  pair, parentNode, parentOf, policyOf, remove as removeLeaf, revive as reviveTree, shown, splitAxis, splitOf, tabsOf, visible, POLICY_KEYS,
 } from "./layout";
 /** A copy of a tree to build on (a screen's preset as it's made); the state's own is never changed in place. */
 export { clone as copyTree } from "./layout";
@@ -199,7 +199,11 @@ export interface Ctx<I = number> {
 }
 
 /** A layout as the person reads about it: `name` in a sentence ("your drawer is locked"), `chip` on its ▣ chip ("▣ drawer locked"); a group has none. */
-export interface LayoutSelf { name: string; chip?: string }
+export interface LayoutSelf {
+  name: string; chip?: string;
+  /** Its chip is drawn, but something lies over it now (PIE-1455): the drawer open over the hint row, or a drawer tile lifted over the screen. */
+  covered?: "drawer" | "lift";
+}
 export const SCREEN_SELF: LayoutSelf = { name: "the screen", chip: "screen" };
 /** A locked layout's ▣ chip, padded as a chip is drawn (the hint row's, the drawer frame's): what its refusals tell the person to click. */
 export const lockChipText = (self: LayoutSelf): string => ` ▣ ${self.chip ?? self.name} locked `;
@@ -268,7 +272,13 @@ export type Result<I = number> =
   | { ok: false; refused: string };
 
 /** How a locked layout is unlocked, said with every refusal it causes (no key: the lock is rare, PIE-1346). */
-export const unlockHow = (self: LayoutSelf = SCREEN_SELF): string => (self.chip ? `a click on ${lockChipText(self).trim()} (or ^W P) unlocks it` : `^W P in it, or the power bar's "unlock ${self.name}", unlocks it`);
+export const unlockHow = (self: LayoutSelf = SCREEN_SELF): string => {
+  const chip = lockChipText(self).trim();
+  // A refusal names a control the person can see (PIE-1455): one under the drawer or a lifted tile is reached past it.
+  if (self.chip && self.covered === "drawer") return `alt+a puts your drawer away, then a click on ${chip} unlocks it (or ^W P with the keys in ${self.name})`;
+  if (self.chip && self.covered === "lift") return `the power bar's "unlock ${self.name}" unlocks it (its ${chip} chip is under the lifted tile)`;
+  return self.chip ? `a click on ${chip} (or ^W P) unlocks it` : `^W P in it, or the power bar's "unlock ${self.name}", unlocks it`;
+};
 
 /** A refusal inside an operation: caught by `apply`, which answers it with nothing changed. */
 class Refused extends Error {}
@@ -831,9 +841,11 @@ function spineFits<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed" | 
   spineWeights(tree, keep.tile, spine, before);
   const after = rects({ ...s, tree, collapsed: new Map([...s.collapsed, [spine, {}]]), zoom: null }, area);
   // A tile that reads stays readable; one already under the reading width (a narrow group) gets no narrower (PIE-1457).
+  // A flow's peek is the flow's squeeze, never a tile being read: it gives a column to the spine as the flow lays out
+  // any new column (PIE-1460: the river kept no spine at all once a peek was a cell narrower).
   return [...before].every(([id, r]) => {
     const now = after.get(id);
-    return s.collapsed.has(id) || (reads(r) ? reads(now) : !now || now.cols >= r.cols && now.rows >= r.rows);
+    return s.collapsed.has(id) || (reads(r) ? reads(now) : !now || flowHolding(s.tree, id) !== null || now.cols >= r.cols && now.rows >= r.rows);
   });
 }
 

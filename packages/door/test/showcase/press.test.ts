@@ -211,6 +211,31 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     } finally { app.pop(); }
   });
 
+  test("] in the message log lights the first link that leads somewhere; with none, the hint row says why (PIE-1455)", async () => {
+    // The section's own message: a page not written yet, then the shed note.
+    await app.dispatch.act({ action: "section", args: { name: "message-log" } }, USER);
+    app.flash("Not filed: [[Another unwritten bed]] has no form", 4000, { kind: "refusal" });
+    const log = new StatusMessages(app.messages);
+    app.push(log);
+    try {
+      const top = () => log.render(app).lines.join("\n");
+      const rowOf = async (start: string) => {
+        const read = await app.dispatch.act({ action: "list.read" }, USER) as { rows: { title: string }[] };
+        await app.dispatch.act({ action: "list.select", args: { n: read.rows.findIndex(r => r.title.includes(start)) + 1 } }, USER);
+      };
+      await rowOf("Unwritten seed bed");
+      // The page is asked for as the message is drawn; once the outline says nothing is there, it is drawn ◌.
+      await until(() => top().includes("Unwritten seed bed ◌"), "the missing page answered");
+      ch("]");
+      expect(top()).toContain("\x1b[4mthe potting shed");
+      expect(top()).toContain("enter opens it");
+      await rowOf("Another unwritten bed");
+      await until(() => top().includes("Another unwritten bed ◌"), "the missing page answered");
+      ch("]");
+      expect(top().replace(/\x1b\[[\d;]*[A-Za-z]/g, "")).toContain("no note is [[Another unwritten bed]] yet");
+    } finally { app.pop(); }
+  });
+
   test("/ in a links tile with nothing listed says so and takes no keys (PIE-1459)", async () => {
     const d = new Desk({ name: "empty-links", title: "empty links", layout: { focus: "links", root: { t: "leaf", kind: "backlinks", name: "links" } } });
     app.push(d);
@@ -230,6 +255,24 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
       ch("/"); ch("q");
       expect(drawn()).toContain("Filter: q");
       press({ kind: "esc" });
+    } finally { app.pop(); d.dispose(); }
+  });
+
+  test("a links tile with nothing to filter names its source tile by its name, not its id (PIE-1455)", async () => {
+    const d = new Desk({ name: "links-of-activity", title: "links of activity", layout: { focus: "links", root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "activity", name: "activity" }, { t: "leaf", kind: "backlinks", name: "links", source: "tile:activity" }] } as any } });
+    app.push(d);
+    try {
+      // A saved layout loaded again names its source by the tile's id (build's references).
+      const links = d.pane("links") as any;
+      links.source = d.tileInfo("activity").tile;
+      expect(links.source).toStartWith("t-");
+      await d.dispatch.act({ action: "tile.focus", tile: "links" }, USER);
+      const before = app.messages.rows.length;
+      ch("/");
+      await until(() => app.messages.rows.length > before, "a word on why / does nothing");
+      const said = app.messages.rows.at(-1)!.message;
+      expect(said).toContain("what activity shows");
+      expect(said).not.toContain("t-");
     } finally { app.pop(); d.dispose(); }
   });
 
