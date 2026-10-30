@@ -64,7 +64,7 @@ import { containerKeys, leafNames, slotNames, madeScreen, mountProblem, newNoteR
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
 import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, tailFrom, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme, themed } from "../theme";
-import { ch, isHover, type Key, type TileProgram } from "../term";
+import { ch, isHover, type Key, type TileExit, type TileProgram } from "../term";
 import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
@@ -3483,8 +3483,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     });
     // Opening one gives it the keys: they go back to the tile that had them (the tune inspector beside a comment). A
     // comment's own tile isn't kept: the comment opening in it again gives it the keys (PIE-846).
-    const at = this.nameOf(this.focus);
-    return steps.length && steps.at(-1)!.tile !== at && !(this.panes.get(this.focus) instanceof AttachedTilePane) ? [...steps, { action: "tile.focus", tile: at }] : steps;
+    // A program's tile beside its reader (ctrl+t's picker, ctrl+e's editor) never comes back: the keys go to the reader.
+    const f = this.panes.get(this.focus);
+    const to = f instanceof PtyPane && f.run.temp ? this.openerOf(this.focus) : this.focus;
+    if (to === undefined) return steps;
+    const at = this.nameOf(to);
+    return steps.length && steps.at(-1)!.tile !== at && !(this.panes.get(to) instanceof AttachedTilePane) ? [...steps, { action: "tile.focus", tile: at }] : steps;
   }
   /** ctrl+e editors still open when the door ends: their files copied to drafts/ (keepEditFile). */
   keepEdits() { return [...this.panes.values()].flatMap(p => p instanceof PtyPane && p.run.temp && p.run.file ? [keepEditFile(p.run.file)].filter((x): x is string => !!x) : []); }
@@ -6709,7 +6713,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * terminal tile with their keys, not over the whole door; when it exits, `done` hears its code, the tile closes and the
    * keys go back to the reader.
    */
-  inTile(p: TileProgram, done: (code: number | null) => void): boolean {
+  inTile(p: TileProgram, done: TileExit): boolean {
     const at = this.focus;
     // A locked screen keeps its shape: the program runs over the whole door instead (as on a screen without tiles).
     if (!this.panes.has(at) || this.screenLocked()) return false;
@@ -6735,13 +6739,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     pane.onExit = code => {
       // Its tile closed first (^W x, the door ending): it was ended, whatever it printed on its way out (a program that
       // reads its tile sees end-of-input), so it gave no answer: no code, and nothing it wrote is taken.
-      done(this.panes.has(id) ? code : null);
+      // A program that says so (a picker that failed) keeps its tile, with what it said, until ^W x; the keys still go back.
+      const keep = done(this.panes.has(id) ? code : null) === true;
       if (p.retain) { this.redraw(); return; }
+      // Kept to be read, not run again: what heard its answer is gone.
+      if (keep) pane.run.rerun = () => { throw new ActionRefused(`${p.name} ended; run it again from where it was opened`); };
       // Its keys come back to the reader when they were in the tile as it ended; a tile the person closed themselves
       // (^W x) gave them back to the reader as it closed (`openedFrom`), and they go on into the edit.
       const back = this.panes.has(id) ? this.focus === id : this.focus === at;
       this.keysBack.delete(id);
-      if (this.panes.has(id)) this.closeId(id);
+      if (this.panes.has(id) && !keep) this.closeId(id);
       if (back && this.panes.has(at)) {
         this.keysTo(at);
         if (wasIn && from instanceof ReaderPane && this.panes.get(at) === from && from.sessionOf() === wasIn) this.entered.enter(from);
@@ -6758,7 +6765,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       stop: () => pane.kill(),
       dismiss: () => { if (this.panes.has(id)) this.closeId(id); this.redraw(); },
     });
-    if (!p.actor || p.actor.kind === "user") { this.focus = id; this.ptyIn = pane; }
+    if (!p.actor || p.actor.kind === "user") {
+      this.focus = id; this.ptyIn = pane;
+      // The drawer up over this screen would hide the program where it opened (the reader's lower half, or all of it):
+      // it's put away, as going to a tile on the screen puts it away (`revealPane` up through the groups holding it, then
+      // `goTo`); alt+a brings it back. Whether it hides it is asked of the screen's own tile: in a group, the group's.
+      const host = this.ctx?.hostLayer, drawn = host?.drawnRect();
+      let top: Desk = this, held: Pane | null = null;
+      for (let h = top.holder, up = h?.desk(); h && up; h = up.holder, up = h?.desk()) { held = h.tile; top = up; }
+      const r = held ? top.placed.rects.get(top.idOf(held)!) : r0;
+      if (host && drawn && !host.isDrawer(top) && host.desks().includes(top) && r && overlaps(r, drawn)) {
+        try { this.revealPane(pane, p.actor ?? USER, true); } catch (e) { if (!(e instanceof ActionRefused)) throw e; }
+      }
+    }
     this.redraw();
     return true;
   }

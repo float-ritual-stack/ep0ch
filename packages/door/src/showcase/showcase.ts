@@ -18,7 +18,7 @@ import type { Placement } from "../kitty";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selectedRow } from "../style";
 import { wrap } from "../text";
-import { ch, isUp, isDown, type Key } from "../term";
+import { ch, isUp, isDown, type Key, type TileExit } from "../term";
 import { ActionRefused, actionSet, def, keysText, type ActionInfo, type ActRequest } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { screenKeys } from "../whereabouts";
@@ -1865,7 +1865,7 @@ export class Showcase implements Screen {
     };
   }
 
-  inTile(p: import("../term").TileProgram, done: (code: number | null) => void): boolean { return this.stage(this.sel)?.top.inTile?.(p, done) ?? false; }
+  inTile(p: import("../term").TileProgram, done: TileExit): boolean { return this.stage(this.sel)?.top.inTile?.(p, done) ?? false; }
 
   /**
    * The showcase's dispatcher: its own actions (which section), then the shown section's stage: its screen's own
