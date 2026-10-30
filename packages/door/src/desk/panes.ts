@@ -987,7 +987,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
       if (!("block" in r)) throw new ActionRefused("the service put it into a note, not a block of its own");
       let opened: unknown = null;
       // A tile that can't open there (a locked screen, a tile that isn't one) takes the detached block back: nothing is left behind.
-      try { opened = desk.perform ? await desk.perform("tile.open", { kind: "reader", mode: "held", note: r.block.id, where: where ?? "right", ...(to ? { to } : {}) }, actor, to ?? pane) : null; } catch (err) {
+      try { opened = desk.perform ? await desk.perform("tile.open", { kind: "reader", note: r.block.id, where: where ?? "right", ...(to ? { to } : {}) }, actor, to ?? pane) : null; } catch (err) {
         if (r.undo) await desk.ctx.board.undoExtension(r.undo, actor).catch(() => undefined);
         throw err;
       }

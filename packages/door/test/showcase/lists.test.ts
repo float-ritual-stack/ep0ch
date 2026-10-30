@@ -185,11 +185,10 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await person("list.pick", { n });
     await until(() => shows("preview") === row.id, "the preview following the row", 5000);
     expect(shows("detail")).toBe(seeded.notes.shed.id);
-    // The person's open swaps the held detail and moves current, revealing it in the outline.
+    // The person's open swaps the detail's note, revealing it in the outline.
     await person("list.open", { n });
     await until(() => shows("detail") === row.id, "the detail holds the row's note", 5000);
-    expect(tiles().find(t => t.name === "detail").mode).toBe("held");
-    expect(stage().current?.id ?? null).toBe(row.id);
+    expect(tiles().find(t => t.name === "detail").pinned).toBeUndefined();
     await until(() => tree().selected()?.id === row.id, "the person's open reveals the note in the outline");
     // alt+r, or a click on the crumbs: the outline's cursor goes to it. An agent's is refused: the cursor is the person's.
     await expect(app.act({ action: "reader.reveal", tile: "detail", as: "test-agent" })).rejects.toThrow(/person/);
@@ -206,9 +205,9 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(tiles().filter(t => t.kind === "reader" && t.showing?.id === row.id)).toHaveLength(1);
     expect(tiles().length).toBe(before);
     expect(shows("detail")).toBe(row.id);
-    const made = () => tiles().filter(t => t.kind === "reader" && t.mode === "held").map(t => t.name as string);
+    const made = () => tiles().filter(t => t.kind === "reader").map(t => t.name as string);
     for (const note of [seeded.notes.notebook, seeded.notes.shed]) {
-      stage().setCurrent(note, { from: stage().pane("detail"), link: true, fresh: true });
+      stage().openFromTile(note, { from: stage().pane("detail"), link: true, fresh: true });
       expect(tiles().some(t => t.kind === "reader" && t.showing?.id === note.id && !t.collapsed)).toBe(true);
       expect(tiles().filter(t => t.kind === "reader" && t.showing?.id === note.id)).toHaveLength(1);
     }
@@ -524,13 +523,13 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await until(() => screen().includes("test-agent: ◆ ") && screen().includes("test-agent: / titles"), "the agent's say-so lines on the lists", 5000);
     // Going in is the person's.
     await expect(app.act({ action: "list.enter", tile: "reader", args: { list: "2" }, as: "test-agent" })).rejects.toThrow(/the person's/);
-    // The person goes in and types a filter by keys: every letter is the filter's, a `p` too (it holds a following reader otherwise).
+    // The person goes in and types a filter by keys: every letter is the filter's, a `p` too (it pins the reader otherwise).
     press({ kind: "enter" });
     await person("list.enter", { list: "2" });
     ch("/");
     for (const c of "copy") ch(c);
     await until(() => { screen(); return reader().surface.listsDrawn[1].view.filter() === "copy" && reader().surface.listsDrawn[1].view.visible().filter((r: any) => r.pick !== false).length === 2; }, "the typed filter narrowing the shelf to its two copy rows", 5000);
-    expect(reader().followMode).toBe("follows");
+    expect(reader().pinned).toBe(false);
     press({ kind: "esc" }); press({ kind: "esc" });
     expect(reader().surface.listIn).toBeNull();
     press({ kind: "esc" });          // back from the stage to the sections

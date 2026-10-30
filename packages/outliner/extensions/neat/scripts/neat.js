@@ -26,7 +26,7 @@ const tiles = async () => (await act('layout.get')).layers.find(x => !x.drawer).
 async function readerFor(id, name, except) {
   const t = (await tiles()).find(x => x.kind === 'reader' && x.showing?.id === id && x.tile !== except);
   if (t) return t.tile;
-  const r = await step('tile.open', { kind: 'reader', mode: 'held', note: id, name });
+  const r = await step('tile.open', { kind: 'reader', note: id, name });
   return r?.tile ?? name;
 }
 const A = await readerFor(BRIEF, 'brief');

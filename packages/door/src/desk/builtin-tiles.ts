@@ -78,7 +78,8 @@ const builtins = (): TileKind[] => [
   },
   {
     kind: "reader", openArgs: ["mode", "note", "page", "outline", "machine", "label"], about: "a reader of notes (a detail): it keeps the note opened into it (note=<id> to start on one); mode=pinned pins it, on that note or page=<name>, so every open aimed at it lands beside it",
-    keys: [{ key: "r", label: "reader" }, { key: "d", label: "detail" }],
+    // ^W o d names it a detail (`mode: held` reads as no pin); ^W o r a reader. They're the same tile (PIE-1207).
+    keys: [{ key: "r", label: "reader" }, { key: "d", label: "detail", spec: () => ({ mode: "held" }) }],
     make: s => {
       const r = new ReaderPane(true);
       if (s.outline) r.noteAddress = { outline: s.outline, ...(s.machine ? { machine: s.machine } : {}) };

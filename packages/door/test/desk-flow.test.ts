@@ -160,7 +160,7 @@ describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () =
 
   test.each(["split", "tile.open"])("review: a %s reader stays independent inside a group, after spilling, and in the drawer", async kind => {
     await loadReaders(`purpose-${kind.replace(".", "-")}`, { t: "split", dir: "row", kids: [reader("original", notes.trip.id), reader("anchor")] });
-    const made = await mine(kind === "split" ? "pane.split" : "tile.open", { kind: "reader", ...(kind === "split" ? { dir: "row" } : { mode: "follows" }) }, "anchor") as { name: string };
+    const made = await mine(kind === "split" ? "pane.split" : "tile.open", { kind: "reader", ...(kind === "split" ? { dir: "row" } : {}) }, "anchor") as { name: string };
     const group = await mine("tile.group", { with: "original" }, made.name) as { name: string };
     const inner = () => pane(group.name).inner;
     const check = async (d: Desk) => {

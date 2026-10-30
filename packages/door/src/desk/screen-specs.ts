@@ -42,7 +42,7 @@ export function registerBuiltinScreens(): void {
     const note = typeof args?.note === "string" ? args.note : "";
     return {
       name: "detail", title: "detail", lands: "detail", digits: false,
-      layout: { focus: "detail", root: { t: "leaf", kind: "reader", name: "detail", mode: "held", ...(note ? { note } : {}) } },
+      layout: { focus: "detail", root: { t: "leaf", kind: "reader", name: "detail", ...(note ? { note } : {}) } },
     };
   }, "note");
   // The home base (src/home.ts): what bare `ep0ch` opens where no outline is named; its args are where it was opened.
@@ -56,7 +56,7 @@ export function registerBuiltinScreens(): void {
     layout: { focus: "facets", root: { t: "flow", key: "navigator", anchor: 1, held: [0, 1, 2], kids: [
       { t: "leaf", kind: "facets", name: "facets", args: { place: "tile", open: ["views"] }, ...(typeof args?.query === "string" && args.query.trim() ? { query: args.query.trim() } : {}) },
       { t: "leaf", kind: "matches", name: "matches", source: "tile:facets", wires: [{ verb: "select", to: "reader" }, { verb: "open", to: "reader" }] },
-      { t: "leaf", kind: "reader", name: "reader", mode: "held" },
+      { t: "leaf", kind: "reader", name: "reader" },
     ] } },
   }), "query");
   // The BBS menu's W and L: the who and activity tiles as screens (the activity's ⏎ shows its note in the reader).

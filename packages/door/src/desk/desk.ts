@@ -5367,7 +5367,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const hit = kindForKey(c);
       if (!hit) return this.redraw();
       const s0 = hit.key.spec?.({ name: me, pane: this.panes.get(this.focus)! }) ?? {};
-      const extra: Partial<NewTile> = { ...(s0.cmd ? { cmd: s0.cmd.join(" ") } : {}), ...(s0.file ? { file: s0.file } : {}), ...(s0.source ? { source: s0.source } : {}), ...(s0.view ? { view: s0.view } : {}), ...(s0.mode === "pinned" ? { mode: s0.mode } : {}), ...(s0.name ? { name: this.idNamed(s0.name) === undefined ? s0.name : this.autoName(s0.name) } : {}) };
+      const extra: Partial<NewTile> = { ...(s0.cmd ? { cmd: s0.cmd.join(" ") } : {}), ...(s0.file ? { file: s0.file } : {}), ...(s0.source ? { source: s0.source } : {}), ...(s0.view ? { view: s0.view } : {}), ...(s0.mode ? { mode: s0.mode } : {}), ...(s0.name ? { name: this.idNamed(s0.name) === undefined ? s0.name : this.autoName(s0.name) } : {}) };
       return this.run("tile.open", { kind: hit.kind.kind, ...extra, where: mode === "addtab" ? "tabs" : "right" }, me);
     }
     const dir = MOVE[c], n = dir ? neighbour(this.rectsNow(), this.focus, dir) : null;

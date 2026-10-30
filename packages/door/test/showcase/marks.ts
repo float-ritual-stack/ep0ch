@@ -4,7 +4,7 @@
 export const marks: Record<string, string[]> = {
   note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook", "↗"],
   // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
-  detail: ["Allotment notebook", "Our plot at the Elm Row allotments.", "p follow", "↑↓ j k blocks"],
+  detail: ["Allotment notebook", "Our plot at the Elm Row allotments.", "p pin", "↑↓ j k blocks"],
   // A long note to scroll past the end of (PIE-622), a short one beside it.
   scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
   // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
@@ -64,7 +64,7 @@ export const marks: Record<string, string[]> = {
   // Three readers at the three levels of what an agent may do to a tile: the chips on the edit and hands-off tiles.
   agents: ["say what an agent may do to each tile", "* agents: edit only", "! agents: hands off"],
   preview: ["outline"],
-  "reader-modes": ["outline", "stays put", "▣"],
+  "reader-pins": ["outline", "▣", "detail"],
   screen: ["board ·", "· lanes", "HOME-003", "True the front wheel"],
   spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
   entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "↓ children (2)", "Puncture kit", "← backlinks (", "resources (1)"],

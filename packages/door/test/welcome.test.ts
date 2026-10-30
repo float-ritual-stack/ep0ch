@@ -391,9 +391,9 @@ describe.skipIf(!outliner)("a backlinks tile on the desk", () => {
     await Bun.sleep(200);
     expect(reader.msg?.id).toBe(lamp.id);
     expect(bl.target?.id).toBe(lamp.id);
-    // ⏎ opens it: the reader follows the current note, as an open from any list does.
+    // ⏎ opens it in the links tile's home, the reader, as an open from any list does.
     await app.act({ action: "list.open", args: { id: a.id } });
-    await until(() => reader.msg?.id === a.id, "⏎: the source is the current note");
+    await until(() => reader.msg?.id === a.id, "⏎: the source in the reader");
     void b;
   }, 30_000);
 });

@@ -499,5 +499,5 @@ export function serviceKind(o: { kind: TileKindName; about: string; noun?: strin
   };
 }
 
-/** A reader's one mode (PIE-1207): pinned, or left out. */
-export const READER_MODES = ["pinned"] as const;
+/** A reader's one mode (PIE-1207): pinned, or left out; `held` (every reader now) reads as left out, for scripts that say it. */
+export const READER_MODES = ["pinned", "held"] as const;

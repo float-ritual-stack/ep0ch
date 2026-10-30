@@ -90,21 +90,22 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     expect(s).not.toContain("Done already");
     expect(s.indexOf("Ada · 1 waiting")).toBeLessThan(s.indexOf("Brook · 1 waiting"));
     expect(s).toMatch(/JAM-1 +which shelf/);
-    await until(() => top().current?.id === ada.id, "the longest wait picked and read");
+    const read = () => (top().pane("reader") as any)?.msg?.id;
+    await until(() => read() === ada.id, "the longest wait picked and read");
     ch("j");
     await until(() => screen().includes("The body of the ask."), "j picks the next; the reader follows");
     ch("j");                                                                       // the last item: j stays
-    expect(top().current?.id).toBe(brook.id);
+    expect(read()).toBe(brook.id);
     expect((app.describe() as any).state).toMatchObject({ kind: "waiting", picked: 2, waiting: [{ who: "Ada" }, { who: "Brook" }] });
   });
 
   test("agents pick by act, said on screen; never while the person is typing; bad picks are refused", async () => {
     expect((app.actions() as any).actions.map((a: any) => a.name)).toEqual(expect.arrayContaining(["waiting.pick", "waiting.reload", "pane.split"]));
     (app as any).lastInput = 0;                                                     // the person is idle
-    const current = top().current?.id;
     expect(await app.act({ action: "waiting.pick", args: { id: ada.id }, as: "test-agent" })).toMatchObject({ n: 1, of: 2, id: ada.id, who: "Ada" });
     expect((app as any).message).toContain("an agent (test-agent) showed what Ada owes (1 of 2)");
-    expect(top().current?.id).toBe(current);
+    // Shown where the list's select wire goes, as a tree's pick by an agent is (PIE-1207: no current note to keep).
+    expect((top().pane("reader") as any).msg?.id).toBe(ada.id);
     await expect(app.act({ action: "waiting.pick", args: { n: 3 }, as: "test-agent" })).rejects.toThrow(/pick 1 to 2/);
     await expect(app.act({ action: "waiting.pick", args: { id: "nope" }, as: "test-agent" })).rejects.toThrow(/no waiting item nope/);
     await expect(app.act({ action: "waiting.pick", args: {}, as: "test-agent" })).rejects.toThrow(/n or id/);

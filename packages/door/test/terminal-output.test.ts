@@ -289,11 +289,12 @@ process.stdout.write(JSON.stringify({ ok: true, value: r.operation === "act" ? {
   });
 
   test("a wide title in the hint row keeps the row in the screen, and the lock chip where its click lands", async () => {
-    // The daily layout's readers are held: an open lands in one and moves nothing else (PIE-794), so the current note is moved here.
+    // The wide note in the reader the keys are in: the hint row names the note the person is on.
     const desk = screen() as Desk & Record<string, any>;
-    desk.setCurrent(wide);
+    const on = desk.paneNamed("middle") ?? desk.paneNamed("reader");
+    (on as any).hold(wide, desk);
     app.redraw();
-    await until(() => desk.current?.id === wide.id, "the wide note is current");
+    await until(() => (on as any).msg?.id === wide.id, "the wide note shown");
     const row = desk.render((desk as any).ctx ?? app).lines[ROWS - 2]!;
     expect(cells(row)).toBe(COLS);
     const plain = visible(row);

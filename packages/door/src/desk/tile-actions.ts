@@ -48,7 +48,7 @@ const TILE = "Tile";
 export interface TileDone { tile: string; [k: string]: unknown }
 
 /** A new tile: its kind and what it needs (the fields of a saved tile). */
-export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; outline?: string; machine?: string; page?: string; mode?: "pinned"; cwd?: string; view?: string; query?: string; screen?: string; part?: string; target?: string; inner?: unknown; args?: Record<string, unknown>; label?: string; /** A kind's own state to start with (the keys window's filter), opened in code. */ state?: Record<string, unknown> }
+export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; outline?: string; machine?: string; page?: string; mode?: "pinned" | "held"; cwd?: string; view?: string; query?: string; screen?: string; part?: string; target?: string; inner?: unknown; args?: Record<string, unknown>; label?: string; /** A kind's own state to start with (the keys window's filter), opened in code. */ state?: Record<string, unknown> }
 
 /**
  * What a tile action runs on: the desk, and the tile `tile=` named (by its name: the dispatcher read the grammar).
@@ -180,7 +180,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       cmd: { type: "string", optional: true, about: "pty: the command line (default $SHELL)" },
       file: { type: "string", optional: true, about: "pty: the file it edits; preview: the file it shows" },
       source: { type: "string", optional: true, about: "preview: tile:<name> or file:<path>" },
-      mode: { type: "string", optional: true, choices: READER_MODES, about: "reader: pinned (on note=, or on page=): every open aimed at it lands beside it, and it comes back pinned after a restart; left out, opens land in it" },
+      mode: { type: "string", optional: true, choices: READER_MODES, about: "reader: pinned (on note=, or on page=): every open aimed at it lands beside it, and it comes back pinned after a restart; left out (or held, which every reader is now), opens land in it" },
       outline: { type: "string", optional: true, kind: "outline", about: "the outline the reader reads and saves in (default: this door)" },
       machine: { type: "string", optional: true, implies: [{ outline: null }], about: "the outline host machine (default: this door's host)" },
       note: { type: "string", optional: true, kind: "note", about: "reader: the note it starts on and keeps" },
@@ -202,7 +202,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     ],
     async run({ kind, to, where, mode, id, ...t }, { d, reader }, actor) {
       if (id !== undefined && t.note === undefined) t.note = id;
-      const opening = canonSpec({ kind: kind as TileKindName, ...(mode !== undefined ? { mode: mode as "pinned" } : {}), ...t });
+      const opening = canonSpec({ kind: kind as TileKindName, ...(mode !== undefined ? { mode: mode as "pinned" | "held" } : {}), ...t });
       const wrong = tileKind(opening.kind)?.check?.({ ...opening, cmd: opening.cmd === undefined ? undefined : lineWords(opening.cmd) }, opening);
       if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
       return await d.openTile(opening, to ?? reader, whereOf(where, "tile.open", "right"), actor, { unnamed: to === undefined && reader === undefined && where === undefined });

@@ -559,9 +559,9 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     for (const c of "))") ch(c);
     await until(() => !completionOf(d()!)?.items.length, "no popup over the fixed reference");
     expect(d()!.text).toBe(`Beans look very good see ${ref}`);
-    // While it's open: another tile changes the current note, and an agent opens a note. The comment stays put.
+    // While it's open: another tile opens a note, and an agent opens one. The comment stays put.
     const shed = seeded.notes.shed;
-    stage().setCurrent(shed, { from: stage().pane("reader3"), reveal: true });
+    stage().openFromTile(shed, { from: stage().pane("reader3"), reveal: true });
     await app.act({ action: "open", args: { id: seeded.notes.whiteboard.id }, as: "test-agent" }).catch(() => null);
     expect([reader().msg?.id, cs()?.mode, d()?.text, stage().describe().focusName]).toEqual([notebook.id, "compose", `Beans look very good see ${ref}`, "reader2"]);
     // Typed keys still land in the comment.

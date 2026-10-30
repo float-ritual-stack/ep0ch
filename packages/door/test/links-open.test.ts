@@ -69,9 +69,8 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     key({ kind: "enter" });
     await until(() => reader("reader").msg?.id === porch.id, "⏎: the home detail holds the pick");
     expect(get().tiles.find((t: any) => t.name === "reader").showing.id).toBe(porch.id);
-    // The person moved the current note; the list keeps its own subject.
+    // The list keeps its own subject.
     render();
-    expect(D().current?.id).toBe(porch.id);
     expect(links().target?.id).toBe(lamp.id);
     await pickRow(hall.id);
     key({ kind: "enter" });

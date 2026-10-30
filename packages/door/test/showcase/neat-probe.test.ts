@@ -74,8 +74,6 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     const d = new Desk({ name: "probe", title: "Probe", layout: { root: { t: "split", dir: "row", ratio: 0.5,
       a: { t: "leaf", kind: "reader", name: "briefing" }, b: { t: "leaf", kind: "reader", name: "other" } } } });
     app.push(d);
-    await app.dispatch.act({ action: "reader.mode", tile: "briefing", args: { mode: "held" } }, USER);
-    await app.dispatch.act({ action: "reader.mode", tile: "other", args: { mode: "held" } }, USER);
     await app.dispatch.act({ action: "open", tile: "briefing", args: { id: briefing.id } }, USER);
     await app.dispatch.act({ action: "open", tile: "other", args: { id: testing.id } }, USER);
     await app.dispatch.act({ action: "tile.focus", tile: "briefing" }, USER);
@@ -105,7 +103,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
         { action: "tile.open", args: { kind: "echo.reader", note: s.testing.id } },
         { action: "tile.open", args: { kind: "reader", machine: "garden-host" } },
         { action: "tile.open", args: { kind: "preview", source: "file:/tmp/seeds.md", file: "/tmp/beans.md" } },
-        { action: "reader.mode", tile: "other", args: { mode: "held", page: "garden" } },
+        { action: "reader.pin", tile: "other", args: { page: "no-such-garden-page" } },
       ]) await expect(app.dispatch.act(request, USER)).rejects.toThrow();
     } finally { s.done(); }
   });
@@ -128,7 +126,6 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     const s = await twoReaders();
     try {
       await app.dispatch.act({ action: "tile.open", tile: "other", args: { kind: "seed-reader", name: "seeds" } }, USER);
-      await app.dispatch.act({ action: "reader.mode", tile: "seeds", args: { mode: "held" } }, USER);
       await app.dispatch.act({ action: "open", tile: "seeds", args: { id: s.testing.id } }, USER);
       await app.dispatch.act({ action: "tile.focus", tile: "briefing" }, USER);
       const before = s.d.layoutAll();
@@ -279,7 +276,6 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       const s = await placed();
       try {
         const other = placement === "screen" ? "other" : "nest/other";
-        await s.owner.dispatch.act({ action: "reader.mode", tile: s.tile, args: { mode: "follows" } }, USER);
         const before = JSON.stringify(await s.owner.dispatch.act({ action: "tile.info", tile: s.tile }, USER));
         const note = await board.createBlock(null, "Fresh seedlings\nPlant these tomorrow.");
         await s.owner.dispatch.act({ action: "open", tile: other, args: { id: note.id } }, { kind: "agent", id: "garden-helper" });
