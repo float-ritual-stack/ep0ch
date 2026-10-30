@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Desk } from "../../src/desk/desk";
+import { OPEN_READS } from "../../src/desk/screen-layout";
 import { USER } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -111,4 +112,22 @@ describe.skipIf(!outliner)("explicit agent focus in the showcase", () => {
     h.app.pop();
   }, 30_000);
 
+  test("in yolo too, an agent's tile.open leaves the person's keys, and one too narrow beside its tile floats, said (PIE-1444)", async () => {
+    await h.app.act({ action: "section", args: { name: "agent-focus" }, as: "tester" });
+    await until(() => h.screen().includes("@fern"), "the pointer readers");
+    await h.app.dispatch.act({ action: "section.try", args: {} }, USER);
+    await h.app.dispatch.act({ action: "tile.focus", args: {}, tile: "person" }, USER);
+    h.app.event({ domain: "agents", action: "agents.yolo", yolo: true, sequence: 1 } as any);
+    try {
+      expect(h.app.person().yolo).toBe(true);
+      const before = h.app.person().focus;
+      const layout = await h.app.act({ action: "layout.get", as: "fern" }) as { tiles: { name: string; rect?: { cols: number } }[] };
+      const narrow = Math.floor(layout.tiles.find(t => t.name === "copy")!.rect!.cols / 2) < OPEN_READS.cols;
+      const r = await h.app.act({ action: "tile.open", tile: "copy", args: { kind: "reader", name: "aside" }, as: "fern" }) as { where: string; why?: string };
+      expect(r.where).toBe(narrow ? "float" : "right");
+      if (narrow) expect(r.why).toContain("beside copy it would be");
+      expect(h.app.person().focus).toBe(before);
+      await h.app.act({ action: "tile.close", tile: "aside", as: "fern" });
+    } finally { h.app.event({ domain: "agents", action: "agents.yolo", yolo: false, sequence: 2 } as any); }
+  }, 30_000);
 });

@@ -163,6 +163,8 @@ export interface Person<I = number> {
 export interface Ctx<I = number> {
   actor: Actor;
   standing: boolean;
+  /** An open in this step takes the person's keys (layoutStanding's `keys`): never an agent's, yolo or not. Left out, `standing`. */
+  keys?: boolean;
   /** Uninvited agents keep typing guards, except in yolo; a press acts as the person. */
   protectTyping: boolean;
   person: Person<I>;
@@ -591,14 +593,15 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       if (path !== undefined) { route = { across: path, rule: "tile" }; inward = true; }
     }
   }
-  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, current: ctx.standing, route, giveNewKeys: ctx.standing && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
+  const keys = ctx.keys ?? ctx.standing;
+  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, current: ctx.standing, route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
   if (request.newNote) {
     const policy = policyAt(s, from, ctx.tile(from));
     const tabs = ctx.tile(from).tabs;
     const tab = request.newNote === "tab" && !isFloat(s, from) && visible(s.tree).includes(from)
       && (!policy.locked || ctx.person.yolo) && policy.droppable && (!policy.accepts || policy.accepts.includes("reader")) && (!tabs || tabs.includes("reader"));
     result.destination = { kind: "new", at: tab ? { kind: "tabs", target: from } : { kind: "float" } };
-    result.giveNewKeys = ctx.standing;
+    result.giveNewKeys = keys;
     if (request.newNote === "tab" && !tab) result.why = "not a tab here: it floats instead";
     return result;
   }
@@ -621,7 +624,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
         const container = node(s.tree, route.into);
         if (container?.t === "flow" && leaves(container).includes(existing)) result.nextFrom = leaves(container).includes(from) ? from : leaves(container).at(-1);
       }
-      if (ctx.standing && request.keys !== false && !ctx.person.busy) result.keys = existing;
+      if (keys && request.keys !== false && !ctx.person.busy) result.keys = existing;
       if (request.history) result.merge = from;
       return result;
     }
@@ -637,7 +640,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     if (target === undefined) return { ...result, destination: { kind: "none", reason: why } };
     return { ...placement(s, { ...request, container: undefined, at: undefined, to: target }, ctx), why };
   }
-  if (request.at) { result.destination = { kind: "new", at: request.at }; result.giveNewKeys = ctx.standing && request.keys !== false; return result; }
+  if (request.at) { result.destination = { kind: "new", at: request.at }; result.giveNewKeys = keys && request.keys !== false; return result; }
   if (route && "across" in route) result.destination = { kind: "across", target: route.across, rule: route.rule, ...(inward ? { source: true as const } : {}) };
   else if (route && "into" in route) {
     const container = node(s.tree, route.into);
@@ -663,7 +666,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     result.nextFrom = from;
     const existing = !fresh && flow ? leaves(flow.flow).find(id => id !== from && ctx.tile(id).showing === note && !ctx.tile(id).editing && !ctx.tile(id).lists) : undefined;
     result.destination = existing !== undefined ? { kind: "swap", tile: existing } : { kind: "new", at: { kind: "next", from } };
-    if (existing !== undefined && ctx.standing && request.keys !== false && !ctx.person.busy) result.keys = existing;
+    if (existing !== undefined && keys && request.keys !== false && !ctx.person.busy) result.keys = existing;
   }
   else if (route && "tab" in route) result.destination = { kind: "new", at: { kind: "tabs", target: route.tab } };
   else if (route && "beside" in route) {
@@ -825,12 +828,16 @@ export function serialize<I, L>(s: LayoutState<I>, leafOf: (id: I) => L, skip?: 
 export const FLOAT_MIN = { cols: 20, rows: 5 };
 /** A new float's least size where the screen has room: a note's reading width and a few paragraphs. */
 const FLOAT_READS = { cols: 64, rows: 20 };
+/** The least a tile an agent opens beside another is given (PIE-1444); under it, it floats (Step.tooNarrow). */
+export const OPEN_READS = { cols: 28, rows: 6 };
 
 const AGENT_ORDER: Record<AgentLevel, number> = { free: 0, edit: 1, off: 2 };
 
 class Step<I> {
   constructor(private readonly d: Draft<I>, private readonly ctx: Ctx<I>) {}
   private get agent() { return !this.ctx.standing; }
+  /** This step's opens take the person's keys (Ctx.keys): the person's, never an agent's, yolo or not (PIE-1444). */
+  private get takesKeys() { return this.ctx.keys ?? this.ctx.standing; }
   /** An agent in yolo: the person handed it the door, so their locks don't hold it either. */
   private get yolo() { return this.ctx.actor.kind === "agent" && !!this.ctx.person.yolo; }
   private name(id: I) { return this.d.names.get(id) ?? String(id); }
@@ -1189,28 +1196,31 @@ class Step<I> {
     let name = op.name;
     if (name !== undefined && named(this.d, name) !== undefined) { if (op.loose) name = undefined; else refuse(`there's already a tile named ${name}`); }
     const label = name ?? `a new ${op.kind} tile`;
-    this.into(op.kind, label, op.at);
+    // An agent's tile that would land too narrow to read beside its target floats instead, said (PIE-1444: 11 columns between five readers).
+    const narrow = this.takesKeys ? null : this.tooNarrow(op.at);
+    const at: At<I> = narrow ? { kind: "float" } : op.at;
+    this.into(op.kind, label, at);
     this.d.names.set(op.tile, name ?? autoName(this.d, op.kind));
     if (op.alt) this.d.altReaders.add(op.tile);
-    if (op.at.kind === "float") {
-      const r = op.at.rect ?? this.newFloatRect();
+    if (at.kind === "float") {
+      const r = at.rect ?? this.newFloatRect();
       this.d.floats.push({ id: op.tile, rect: this.onScreen({ ...r }) });
     } else {
       const wasShown = shown(this.d.tree);
-      this.putAt(op.tile, op.at);
+      this.putAt(op.tile, at);
       const row = parentOf(this.d.tree, op.tile)?.parent;
       if (row && isLine(row) && row.t !== "flow" && this.ofNode(row).spines === "centre") this.centreSpines(row);
       // An agent's new tab is added without being shown over the tab the person has there.
-      if (this.agent && wasShown.includes(this.d.focus) && !shown(this.d.tree).includes(this.d.focus)) activate(this.d.tree, this.d.focus);
-      if (op.at.kind === "next") {
+      if (!this.takesKeys && wasShown.includes(this.d.focus) && !shown(this.d.tree).includes(this.d.focus)) activate(this.d.tree, this.d.focus);
+      if (at.kind === "next") {
         const f = flowHolding(this.d.tree, op.tile)!;
-        setFrom(f.flow, f.ci, op.at.from);
+        setFrom(f.flow, f.ci, at.from);
       }
     }
     this.d.zoom = null;
-    // The person's new tile takes their keys (unless the view gives them elsewhere: `keys: false`); an agent's never does.
-    if (!this.agent && op.keys !== false) {
-      const from = op.at.kind === "next" ? op.at.from : undefined;
+    // The person's new tile takes their keys (unless the view gives them elsewhere: `keys: false`); an agent's never does, in yolo too.
+    if (this.takesKeys && op.keys !== false) {
+      const from = at.kind === "next" ? at.from : undefined;
       this.give(op.tile);
       if (from !== undefined) { const f = flowHolding(this.d.tree, op.tile)!; this.rememberFlowSides(f.flow); arrive(f.flow, f.ci, columnOf(f.flow, from), coversOf(this.d, f.flow, this.ctx.area, id => !!this.facts(id).holds), this.d.touched); }
     }
@@ -1219,13 +1229,26 @@ class Step<I> {
     // Opened as where another tile's opens land (tile.preview): linked in the same step, by link's rules.
     if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
     for (const from of op.selectFrom ?? []) this.linkTo(from, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, "select");
-    this.d.answer = { tile: this.d.names.get(op.tile), ...(!automatic ? { deliberate: op.deliberate ?? true } : {}), ...(op.link !== undefined ? { link: this.name(op.link) } : {}) };
+    this.d.answer = { tile: this.d.names.get(op.tile), ...(!automatic ? { deliberate: op.deliberate ?? true } : {}), ...(op.link !== undefined ? { link: this.name(op.link) } : {}), ...(narrow ? { why: narrow } : {}) };
+  }
+  /**
+   * Why a new tile at `at` would be too narrow (or short) to read, or null: its half of the tile it splits is under
+   * OPEN_READS. Only a split is measured; a tab, an edge, a container or a flow column has its own room.
+   */
+  private tooNarrow(at: At<I>): string | null {
+    if (at.kind !== "split") return null;
+    const r = rects({ ...this.d, zoom: null }, this.ctx.area).get(at.target);
+    if (!r) return null;
+    const share = at.weight ?? 0.5, across = at.dir === "left" || at.dir === "right";
+    const cols = across ? Math.floor(r.cols * share) : r.cols, rows = across ? r.rows : Math.floor(r.rows * share);
+    if (cols >= OPEN_READS.cols && rows >= OPEN_READS.rows) return null;
+    return `beside ${this.name(at.target)} it would be ${cols}×${rows}, under the ${OPEN_READS.cols}×${OPEN_READS.rows} a tile reads at, so it floats (layout.move tile=<it> to=<a tile> places it)`;
   }
   /** The person's open found the column already open: back from there returns to where they opened it from. */
   private reach(id: I, from: I, keys = true) {
     const f = flowHolding(this.d.tree, id);
     if (!f) refuse(`${this.name(id)} isn't in a flow`);
-    if (this.agent) { this.d.changed = false; return; }
+    if (!this.takesKeys) { this.d.changed = false; return; }
     const fromCol = columnOf(f!.flow, from);
     if (fromCol >= 0 && fromCol !== f!.ci) setFrom(f!.flow, f!.ci, from);
     if (keys) this.give(id);

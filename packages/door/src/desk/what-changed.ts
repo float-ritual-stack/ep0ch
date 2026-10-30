@@ -450,5 +450,5 @@ export const WHAT_CHANGED_KIND: TileKind = {
   kind: WHAT_CHANGED_KIND_NAME, previews: true, opensOnScreen: true, about: "the notes others changed since you last looked: who, when, what (from the service's change feed)", noun: "the what-changed list",
   make: () => new WhatChangedPane(), actions: WHAT_CHANGED_ACTIONS,
   peek: p => ({ whatChanged: (p as WhatChangedPane).describe() }),
-  describe: p => ({ rows: (p as WhatChangedPane).describe() }),
+  describe: (p, full) => { const rows = (p as WhatChangedPane).describe(); return full ? { rows } : { count: rows.length }; },
 };

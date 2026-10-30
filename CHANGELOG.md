@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An agent's tile opens beside you, readable, and never takes your keys (PIE-1444)
+
+- **Your focus stays, in yolo too:** an agent's `tile.open` (and any open it makes) leaves your keys on your tile, on the desk, in a group and while you type in the drawer. Yolo still lets an agent move your keys on purpose (`tile.focus`, the drawer); an open no longer does it on the way.
+- **Wide enough to read:** an agent's tile that would land under 28 columns (or 6 rows) beside the tile it names floats instead, and its answer (and the status line) says why. Your own opens split where you ask.
+- **`layout.get` in brief:** each tile as its kind describes itself in a line (a facets tile's selection and counts, a query tile without its cards); `full=true` gives today's whole answer. An eight-tile desk answered 336 KB.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### @tidy and @margin answer with the Claude mod installed
 
 - **A one-shot Claude starts clean:** `claude -p --tools ""` (tidy's answer command) and `--bare` exit 0 with the ep0ch mod loaded; it no longer fails with "session.start hook skipped: threw … \"show\" refused".

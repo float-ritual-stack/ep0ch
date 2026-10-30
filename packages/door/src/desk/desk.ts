@@ -812,7 +812,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return {
       ...(this.ctx?.hostLayer?.isDrawer(this) ? { empties: true } : {}), self: this.layoutSelf(),
       beside: this.besides, opened: this.opened, inside: id => this.inside(id, actor), outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileRegistry.knownId(this.holder.tile) : undefined, otherNames: this.otherNames(),
-      actor, standing: who.standing, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
+      actor, standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: this.area, tile: id => { let f = facts.get(id); if (!f) facts.set(id, f = this.facts(id, actor)); return f; },
       person: { focus: this.focus, typingIn: typing, busy: w.busy, held: who.held, here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };
@@ -3509,7 +3509,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return c?.key ?? this.nameOf(this.focus);
   }
 
-  private tileView(id: number, n = this.numberOf(id), rects?: ReadonlyMap<number, Rect>) {
+  /** Tile `id` as layout.get and describe give it; `full` false asks its kind for its brief description (PIE-1444: a facets tile's whole list was most of 336 KB). */
+  private tileView(id: number, n = this.numberOf(id), rects?: ReadonlyMap<number, Rect>, full = true) {
     const p = this.panes.get(id)!; const r = rects ? rects.get(id) : this.placed.rects.get(id) ?? this.hits.find(([x]) => x === id)?.[1];
     const set = tabsOf(this.root, id);
     const link = wireTarget(this.layout, id), into = this.linkOf(id);
@@ -3526,7 +3527,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(this.chainWords(id).trim() ? { chain: this.chainWords(id).trim() } : {}),
       ...this.dockView(id),
       ...this.policyView(id),
-      ...(kindOf(p)?.describe?.(p, true) ?? {}),
+      ...(kindOf(p)?.describe?.(p, full) ?? {}),
       ...(kindOf(p)?.follower && !(p instanceof PreviewPane && "file" in p.source) && (this.selectSeeds.has(id) || this.followsOf(id).source !== undefined) ? { source: `tile:${this.selectSeeds.get(id) ?? this.nameOf(this.followsOf(id).source!)}` } : {}),
       title: this.frameTitle(id, r?.rows),
       label: this.displayTitle(id),
@@ -5682,7 +5683,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.startTile(id);
     this.arrived(id, actor);
     this.save(); this.redraw();
-    return { ...this.tileAnswer(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where, ...(also.link !== undefined ? { from: this.tileId(also.link), fromName: this.nameOf(also.link) } : {}) };
+    // Too narrow to read beside base (an agent's open, PIE-1444): it floated, and the answer says why.
+    const why = typeof r.answer.why === "string" ? r.answer.why : undefined;
+    return { ...this.tileAnswer(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where: why ? "float" : where, ...(why ? { why } : {}), ...(also.link !== undefined ? { from: this.tileId(also.link), fromName: this.nameOf(also.link) } : {}) };
   }
 
   // ── mounts and groups (PIE-651) ──
@@ -6614,18 +6617,24 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   screensToOpen() { return screensToOpen(); }
 
   layouts() { return { current: this.layoutName, layouts: layoutNames() }; }
-  layoutAll() {
+  /**
+   * The layout as layout.get answers it: every desk on the screen (the drawer's and the groups' too) with its tree and its
+   * tiles. Each tile as its kind describes itself briefly, unless `full` (the tiles' whole descriptions, and each layer's
+   * tiles again under it).
+   */
+  layoutAll(full = true) {
     const root = this.ctx?.hostLayer?.desks().find(d => !this.ctx.hostLayer!.isDrawer(d)) ?? this.top();
     // The drawer's layer reads its rect where `peek` does (the host layer's); folded to a strip, its tiles are not drawn, so none has a rect.
     const host = this.ctx?.hostLayer;
     const layers = root.relatives().map(d => { const rects = host?.isDrawer(d.top()) && host.folded ? new Map<number, Rect>() : d.rectsNow(); return { screen: d.spec.name, focus: d.panes.has(d.focus) ? d.tileId(d.focus) : null, zoom: d.zoom !== null ? d.tileId(d.zoom) : null, drawer: !!this.ctx?.hostLayer?.isDrawer(d.top()), ...(host?.isDrawer(d.top()) ? { rect: host.drawnRect() } : {}),
       tree: describeLayout(d.layout, id => d.nameOf(id), id => d.tileId(id)),
-      tiles: d.all().map(id => ({ ...d.tileView(id, undefined, rects), path: root.pathTo(d.panes.get(id)!) })) }; });
-    return { ...root.layoutGet(), layers, tiles: layers.flatMap(l => l.tiles) };
+      tiles: d.all().map(id => ({ ...d.tileView(id, undefined, rects, full), path: root.pathTo(d.panes.get(id)!) })) }; });
+    const { tiles: _own, ...top } = root.layoutGet(full);
+    return { ...top, ...(full ? {} : { brief: "each tile as its kind describes itself in brief; full=true gives their whole descriptions" }), layers: full ? layers : layers.map(({ tiles: _t, ...l }) => l) as typeof layers, tiles: layers.flatMap(l => l.tiles) };
   }
-  layoutGet() {
+  layoutGet(full = true) {
     const rects = this.rectsNow();
-    return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ ...this.tileAnswer(f.id), rect: this.floatRect(f) })), tiles: this.all().map(id => this.tileView(id, undefined, rects)) };
+    return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ ...this.tileAnswer(f.id), rect: this.floatRect(f) })), tiles: this.all().map(id => this.tileView(id, undefined, rects, full)) };
   }
 
   /**

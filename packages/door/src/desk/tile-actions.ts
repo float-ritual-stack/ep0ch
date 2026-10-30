@@ -15,7 +15,7 @@ import { TXN } from "../surface/txn";
 import { USER, type Actor } from "../socket";
 import { ActionRefused, actionSet, asActor, def, lineWords, type ArgsOf } from "../surface/actions";
 import { AGENT_WORDS, isAgentLevel, type AgentLevel } from "../surface/agent-level";
-import { EDGE_WORD, isDir, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
+import { EDGE_WORD, isDir, OPEN_READS, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
 import type { Desk } from "./desk";
 import { lastTrashed, trashConfirm, trashNote, trashPlan, untrashNote } from "../note-trash";
 import { subject } from "../board";
@@ -121,11 +121,11 @@ const asking = new WeakMap<Desk, { id: string; again: boolean }>();
 
 export const TILE_ACTIONS = actionSet<On>()("tile", {
   "layout.get": def({
-    answer: { tiles: { type: "array", about: "tiles on the screen, in groups and in the drawer" }, layers: { type: "array", about: "each desk's tree and tiles" }, tree: { type: "object", about: "the screen layout tree" } },
-    summary: "the layout as data: its revision (rev), the tile tree (each split with its id, path and shares, each tab set with its id and the tab shown) and each tile's id, kind, name, source, note, link, dock state and rect",
+    answer: { tiles: { type: "array", about: "tiles on the screen, in groups and in the drawer" }, layers: { type: "array", about: "each desk's tree (its tiles too with full=true)" }, brief: { type: "string", about: "said when tiles are described in brief (no full=true)" }, tree: { type: "object", about: "the screen layout tree" } },
+    summary: "the layout as data: its revision (rev), the tile tree (each split with its id, path and shares, each tab set with its id and the tab shown) and each tile's id, kind, name, path, source, note, link, wires, dock state and rect, as its kind describes itself in brief; full=true adds each tile's whole description (a tree's rows, a facets tile's lists, a group's own layout) and each layer's tiles again",
     touches: "nothing", replay: "safe",
-    args: {},
-    run(_, { d }) { return d.layoutAll(); },
+    args: { full: { type: "boolean", optional: true, about: "each tile's whole description too (a tree's rows, a facets tile's lists): large on a busy desk" } },
+    run({ full }, { d }) { return d.layoutAll(!!full); },
   }),
   "layout.list": def({
     summary: "the layouts this screen can be laid out as: the built-ins and the screens people made (screen notes)",
@@ -166,10 +166,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.open": def({
     words: "open a new tile beside this one, or as a tab",
-    answer: { tile: { type: "string", kind: "tile", about: "the new tile's stable id; pass it back as tile=" }, name: { type: "string", about: "its displayed name" }, kind: { type: "string", about: "the tile kind" } },
-    summary: "open a new tile beside tile=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=screen (screen=<name> target=<its hub or note> part=<a container>: a screen mounted here, PIE-651), tree, reader (follows the current note; mode=held note=<id> keeps one; mode=pinned page=<name> pins [[name]]; kind=detail is a held reader), preview (source=tile:<name> or file:<path>), pty (cmd=\"nvim draft.md\", file=<path it edits>), query (view=<a saved view's block id>: its cards, as a board lane; or query=<a query, #tag> source=tile:<its home reader>), board, river, brief, thread, activity, who, art. name= already there delivers note= to that tile when its kind matches; a different kind names the call to use. The person's focus stays where it is",
+    answer: { tile: { type: "string", kind: "tile", about: "the new tile's stable id; pass it back as tile=" }, name: { type: "string", about: "its displayed name" }, kind: { type: "string", about: "the tile kind" }, where: { type: "string", about: "where it landed: the where= asked, or float" }, why: { type: "string", about: "only when an agent's tile too narrow to read beside to= floats instead, and this says why" } },
+    summary: `open a new tile beside tile=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=screen (screen=<name> target=<its hub or note> part=<a container>: a screen mounted here, PIE-651), tree, reader (follows the current note; mode=held note=<id> keeps one; mode=pinned page=<name> pins [[name]]; kind=detail is a held reader), preview (source=tile:<name> or file:<path>), pty (cmd="nvim draft.md", file=<path it edits>), query (view=<a saved view's block id>: its cards, as a board lane; or query=<a query, #tag> source=tile:<its home reader>), board, river, brief, thread, activity, who, art. name= already there delivers note= to that tile when its kind matches; a different kind names the call to use. The person's focus stays where it is, in yolo too. An agent's tile that would be narrower than ${OPEN_READS.cols} columns (or shorter than ${OPEN_READS.rows} rows) beside to= floats instead, and the answer's why says so`,
     keys: [{ keys: "^W o", does: "then the key of the kind to open" }, { keys: "^W O", does: "then the key of the kind to open as a tab" }, { keys: "⏎ double-click", does: "on a view in ^W o q's picker" }],
-    touches: "shape", landing: true, replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind, r.name)} in ${r.n} · ${r.name ?? r.tile}`,
+    touches: "shape", landing: true, replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind, r.name)} in ${r.n} · ${r.name ?? r.tile}${r.why ? ` · ${r.why}` : ""}`,
     args: {
       kind: { type: "string", kind: "tile-kind", about: "what the tile shows" },
       name: { type: "string", optional: true, about: "its name (default: its kind, numbered)" },

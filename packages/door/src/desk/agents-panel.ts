@@ -131,5 +131,5 @@ export const AGENTS_KIND: TileKind = {
   kind: AGENTS_KIND_NAME, about: "every agent session the door holds: program, folder, persona, what it's doing and where it's shown (PIE-737)", noun: "the agent panel",
   make: () => new AgentsPane(), actions: AGENTS_ACTIONS,
   peek: p => ({ agents: (p as AgentsPane).describe() }),
-  describe: p => ({ rows: (p as AgentsPane).describe() }),
+  describe: (p, full) => { const rows = (p as AgentsPane).describe(); return full ? { rows } : { count: rows.length }; },
 };
