@@ -1236,7 +1236,16 @@ class Step<I> {
     // Opened as where another tile's opens land (tile.preview): linked in the same step, by link's rules.
     if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
     for (const from of op.selectFrom ?? []) this.linkTo(from, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, "select");
-    this.d.answer = { tile: this.d.names.get(op.tile), ...(!automatic ? { deliberate: op.deliberate ?? true } : {}), ...(op.link !== undefined ? { link: this.name(op.link) } : {}), ...(narrow ? { why: `${narrow}, ${floats ? "so it floats (layout.move tile=<it> to=<a tile> places it)" : "as asked (naming neither tile= nor where=, it floats)"}` } : roomBelow ? { why: `${wide}, so it went below it`, where: "down" } : {}) };
+    this.d.answer = { tile: this.d.names.get(op.tile), ...(!automatic ? { deliberate: op.deliberate ?? true } : {}), ...(op.link !== undefined ? { link: this.name(op.link) } : {}), ...(narrow ? { why: `${narrow}, ${floats ? "so it floats (layout.move tile=<it> to=<a tile> places it)" : this.stayedBeside(op, at)}` } : roomBelow ? { why: `${wide}, so it went below it`, where: "down" } : {}) };
+  }
+  /**
+   * Why a narrow open went beside its target anyway (PIE-1450): where it was asked to go, by the place the open named, or
+   * beside the tile the person types in, which a float would cover.
+   */
+  private stayedBeside(op: { unnamed?: boolean }, at: At<I>): string {
+    if (at.kind !== "split") return "where it was asked to go";
+    const place = `${({ left: "left of", right: "right of", up: "above", down: "below" } as const)[at.dir]} ${this.name(at.target)}`;
+    return op.unnamed ? `so it went ${place}: floating, it would cover the tile being typed in` : `and it went ${place}, as asked`;
   }
   /**
    * How a new tile `id` at `at` would be too narrow (or short) to read, or null: as drawn after the split, under

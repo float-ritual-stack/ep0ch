@@ -145,8 +145,9 @@ export class NoteForm {
     const submit = stringFrame(width(button) + 4, { glyphs: LINE_BOX });
     for (const l of [submit.top(), submit.row(tag("@submit", button, "form.submit")), submit.bottom()]) line(indent + l);
     const warning = this.warnings.get(partyOf(USER));
-    // A labelled reference in a refusal reads as its label (`((id|in Garden))`), as on the status bar.
-    if (warning) line(fg(C.yellow) + printable(referenceWords(warning)) + RESET);
+    // A labelled reference in a refusal reads as its label (`((id|in Garden))`), as on the status bar, and the refusal
+    // reads whole, wrapped to the form's width: what to do is often its last words (PIE-1453).
+    if (warning) for (const text of wrap(printable(referenceWords(warning)), inner)) line(fg(C.yellow) + text + RESET);
     for (const text of wrap(printable(this.settingsProblem ?? landsLine(this.settings.into)), inner)) line(fg(this.settingsProblem ? C.yellow : C.dark) + text + RESET);
     for (const text of ["* required", ...wrap(modeHint(FORM_KEYS, () => undefined), inner)]) line(text);
     rows.push(f.bottom());

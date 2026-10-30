@@ -246,6 +246,34 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   }, 40_000);
 
 
+  test("with Form not installed, a form's submit names Form and its install row, whole in the form (PIE-1453)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "forms" }, as: "test-agent" });
+    await until(() => screen().includes("book *"), "the reading log's form", 3000);
+    await app.dispatch.act({ action: "extensions.uninstall", args: { id: "form", demo: "keep" } }, USER);
+    await app.loadExtensions(true);
+    try {
+      await until(() => !extensionNamed("form"), "Form removed from the door");
+      // The person's own answers and submit: the form draws their refusal.
+      await app.dispatch.act({ action: "form.set", tile: "reader", args: { field: "book", value: "Kindred" } }, USER);
+      await app.dispatch.act({ action: "form.set", tile: "reader", args: { field: "pages", value: "264" } }, USER);
+      const refused = await app.dispatch.act({ action: "form.submit", tile: "reader" }, USER).then(() => "", (e: Error) => e.message);
+      expect(refused).toContain("ext.form.fill is Form's, which isn't installed");
+      expect(refused).toContain(`"install Form" row in the power bar's extensions`);
+      expect(refused).toContain("ep0ch act extensions.install id=form");
+      // The form says it whole, wrapped under its button, the install command included: never cut at one row.
+      await until(() => screen().replace(/[│\s]+/g, " ").includes("extensions.install id=form"), "the whole refusal in the form").catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+      // The row the refusal names is there to press.
+      const rows = await app.dispatch.act({ action: "bar.open", args: { scope: "&", query: "form" } }, { kind: "agent", id: "test-agent" }) as { rows: { label: string }[] };
+      expect(rows.rows.some(r => r.label === "install Form")).toBe(true);
+    } finally {
+      await app.dispatch.act({ action: "bar.close" }, USER).catch(() => {});
+      await app.dispatch.act({ action: "extensions.install", args: { id: "form" } }, USER);
+      await app.loadExtensions(true);
+      await until(() => !!extensionNamed("form"), "Form back");
+    }
+  }, 40_000);
+
   test("the form draws and submits from a river column (PIE-1212)", async () => {
     const river = openScreen("river") as Desk;
     app.push(river);

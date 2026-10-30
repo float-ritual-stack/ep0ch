@@ -358,6 +358,11 @@ const NUMBER = /^#?([1-9][0-9]{0,2})$/;
 type Found = { tile: TileRef; dispatch: Dispatcher } | null;
 let listing: Map<Dispatcher, { where?: Whereabouts; tiles?: TileRef[]; resolved: Map<string, Found>; hosted: Map<string, Found> }> | null = null;
 
+/** Words for an action nobody here answers to that an uninstalled extension would (set once by src/extensions.ts). */
+let notInstalled: (name: string) => string | null = () => null;
+/** Every dispatcher's unknown-action refusal asks this first, so the refusal names what to install wherever it lands. */
+export function explainNotInstalled(words: (name: string) => string | null) { notInstalled = words; }
+
 export class Dispatcher {
   private nextConfirmation = 0;
   private saidConfirmation = 0;
@@ -462,6 +467,9 @@ export class Dispatcher {
   }
 
   unknownAction(name: string): string {
+    // An action something not installed here would answer (an extension's `ext.form.fill`, a kit's script): its name and install.
+    const missing = notInstalled(name);
+    if (missing) return missing;
     const near = rankTextSearchMatches(this.list().actions.map(a => ({ id: a.name, title: a.name, text: "" })), name, 3).map(m => m.document.title);
     return `nothing here answers to ${name}; \`actions\` lists them${near.length ? `; did you mean ${near.join(", ")}?` : ""}`;
   }

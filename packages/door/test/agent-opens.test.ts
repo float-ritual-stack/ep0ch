@@ -126,7 +126,8 @@ describe.skipIf(!outliner)("an agent's open on the person's desk (PIE-1444)", ()
     const d = await door(yolo);
     try {
       const r = await d.act("tile.open", { kind: "facets", name: "nav", where: "right" }, "r1");
-      expect(r).toMatchObject({ name: "nav", where: "right", why: expect.stringContaining("as asked") });
+      // The why says where it was asked to go and went, never that it named nothing (PIE-1450).
+      expect(r).toMatchObject({ name: "nav", where: "right", why: expect.stringMatching(/^beside r1 it is \d+×\d+, .*, and it went right of r1, as asked$/) });
       expect(d.desk.layoutGet().tiles.find((t: any) => t.name === "nav")!.float).toBeUndefined();
       expect(d.focus()).toBe("r1");
     } finally { d.quit(); }
