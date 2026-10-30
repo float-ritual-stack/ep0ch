@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { SocketBoard, USER } from "../src/socket";
 import { completionOf } from "../src/surface/completer";
-import { callSplice, starterComponent } from "../src/surface/component-new";
+import { callSplice, makeComponent, starterComponent, type ComponentBoard } from "../src/surface/component-new";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -18,6 +18,19 @@ describe("the pure half", () => {
     expect(text.split("\n")[0]).toBe("Open count [script::open-count] [mode::render] [form-field::where query default=type=task]");
     expect(text).toContain("\n::open-count{}\n");
     expect(text).toContain("```tsx\n");
+  });
+  test("a name any script answers to is refused, a render script's or an action's; a folder extension's title isn't a name", async () => {
+    const wrote: string[] = [];
+    const board = (extensions: { name?: string; state?: string; script?: object; handlers?: { key: string }[] }[]): ComponentBoard => ({
+      listExtensions: async () => ({ extensions: extensions.map(e => ({ handlers: [], ...e })) }),
+      followPage: async () => ({ status: "ok", note: { id: "components-page", text: "Components" } }),
+      createBlock: async (_parent: string, text: string) => { wrote.push(text); return { id: "made" }; },
+    }) as unknown as ComponentBoard;
+    await expect(makeComponent(board([{ name: "stale", script: { keys: [] } }]), "stale", USER)).rejects.toThrow("stale is taken");
+    await expect(makeComponent(board([{ name: "lanes", handlers: [{ key: "stale" }] }]), "stale", USER)).rejects.toThrow("stale is taken");
+    expect(wrote).toEqual([]);
+    await makeComponent(board([{ name: "stale", state: "disabled", script: { keys: [] } }, { name: "stale" }]), "stale", USER);
+    expect(wrote).toHaveLength(1);
   });
   test("the call goes on the cursor's line when blank, else on a line of its own after it", () => {
     expect(callSplice("  ", "stale")).toEqual({ start: 0, end: 2, text: "::stale{}" });

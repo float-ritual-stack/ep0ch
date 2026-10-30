@@ -23,7 +23,7 @@ Turns a quick `::=` line into a named component: its code moves to a note of its
 ## Refusals
 
 - **No name, or not a slug:** `keep needs name=`, with what a name may hold.
-- **A taken name:** it names the note that already says `[script::<name>]`.
+- **A taken name:** it names the note that already says `[script::<name>]`, or who else has the name (a built-in component, an extension).
 - **A changed note:** the line is patched at the revision keep read; a note saved since refuses it, and no note is made.
 
 ## The errand board demo

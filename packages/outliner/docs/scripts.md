@@ -153,7 +153,7 @@ The code is the body of an async function: `await` and `return` work at the top.
 | `props` | The slots, **every key a list of strings**: `week=42` is `props.week[0]`, an absent slot is `undefined`. Render lines and `of=` buttons keep repeats (`tag=a tag=b` is two values); other action run paths give one value per key. | `packages/outliner/src/script-runtime.ts:27` |
 | `view` | The builders of [view.*](#view). | `packages/outliner/src/script-runtime.ts:37` |
 | `tools` | The agent tools, `await tools.outline_read({ ref })`. See [tools.*](#tools). | `packages/outliner/src/script-runtime.ts:89` |
-| `text(value)`, `console.log(...)` | Keep a line as run-note output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:513` |
+| `text(value)`, `console.log(...)` | Keep a line as run-note output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:535` |
 | `exit()` | Ends the script successfully, keeping its output (the sandbox's own). | |
 
 `text`, `console`, `exit`, `store`/`load` and `ALL_TOOLS` come from the QuickJS sandbox
@@ -172,11 +172,12 @@ write `rows.map(x => this.title + x)`, not `rows.map(function (x) { return this.
 | `q(query, { under?, limit? })` | `{ blocks: [{ id, title, revision, parentId, created, updated }], complete }`. `query` is the views' grammar (`type=ticket due <= +3d`, `parent:this`, `#tag`); `limit` 1 to 200, default 20; `under` is a ref. **Rows carry no properties**: read the row to get them. | `packages/outliner/src/host-api.ts:298` |
 | `read(ref, { depth?, limit? })` | The note's [record](#record-shapes) plus `outline_read`'s `children` (`[{ id, text, revision }]`, to `depth`, default 1), `revision`, `complete`. `ref` is an id, `((id))`, `[[page]]` or a Work ID. | `packages/outliner/src/host-api.ts:303` |
 | `resolve(path)` | What `{{ path }}` says here, through the one resolver: `{ path, values: string[], links?, lines?, route }`, or `{ path, problem: { message, didYouMean }, route }`. Never an empty string for a typo. `this.owner`, `props.week`, `now.date`, `((id)).crop`, `this.tasks \| status=todo`. | `packages/outliner/src/host-api.ts:155` |
-| `query({ where, group?, sort?, limit?, facets? })` | `{ rows: [{ id, title, props }], groups?: [{ value, count, rows }], facets?, hint?, total, complete }`. Rows **carry their properties** (`props.status[0]`); `group` is a property key; `facets: true` counts every key and value the matches carry; `limit` default 200, at most 1000; `parent:this` means the note the run is about. A render redraws when the answer changes. | `packages/outliner/src/host-api.ts:309` |
+| `query({ where, group?, sort?, limit?, facets? })` | `{ rows: [{ id, title, props }], groups?: [{ value, count, rows }], facets?, hint?, total, complete }`. Rows **carry their properties** (`props.status[0]`); `group` is a property key; `facets: true` counts every key and value the matches carry; `limit` default 200, at most 1000; `parent:this` means the note the run is about. A render redraws when the answer changes. | `packages/outliner/src/host-api.ts:312` |
 | `read([ref, …])` | A list of refs (at most 200) reads them all: each answer in its place, or `{ ref, problem }` for one that can't be read. | `packages/outliner/src/host-api.ts:303` |
-| `act(name, args?)` | Dispatches an action and answers what it did. `act("ext.<id>.<action>", { block })` runs an extension's action (a script's `ext.<id>.run`) **with no door**, and answers its `state`, `message` and `answer`. Any other name is a door action (`await act("tile.open", { kind: "query", query: "#beans" })`), which needs a door (run from the power bar or a live draft); a saved ask or rule has none. Action runs only. | `packages/outliner/src/host-api.ts:448` |
+| `act(name, args?)` | Dispatches an action and answers what it did. `act("ext.<id>.<action>", { block })` runs an extension's action (a script's `ext.<id>.run`) **with no door**, and answers its `state`, `message` and `answer`. Any other name is a door action (`await act("tile.open", { kind: "query", query: "#beans" })`), which needs a door (run from the power bar or a live draft); a saved ask or rule has none. Action runs only. | `packages/outliner/src/host-api.ts:461` |
 | `sh(argv, { cwd?, stdin?, timeoutMs? })` | `{ exit, stdout, stderr, truncated? }`. Runs a command as the person, with no shell (`sh(["gh", "issue", "list"])`). A failing command answers its exit code; the run's deadline or `timeoutMs` kills it. Each stream is capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:395` |
 | `fetch(url, { method?, headers?, body?, timeoutMs? })` | `{ status, headers, text, truncated? }`, for http(s) URLs. Capped at 1 MiB. Action runs only. | `packages/outliner/src/host-api.ts:425` |
+| `components()` | Every name a `::name` or a script answers to here, as `[{ name, origin }]`: the built-ins (`origin: "built-in"`), the extensions' and the scripts'. Action runs only. | `packages/outliner/src/host-api.ts:448` |
 | `wait(ms)` | Sleeps, then goes on. Ends with the run: its deadline or a stop cuts it short. | `packages/outliner/src/script-runtime.ts:103` |
 
 There is no `stop()` inside a script. Ending a run is the service's `scripts.stop` (see [Lifecycle](#lifecycle)).
@@ -299,7 +300,7 @@ The returned value becomes text, the same way in a run note and a drawn line:
 |---|---|---|
 | `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:47` |
 | `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:44` |
-| `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:307` |
+| `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:310` |
 | `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:47` |
 
 ## Record shapes
@@ -332,7 +333,7 @@ examples lean on:
 
 | Mode | Written | Runs | Draws or writes | Source |
 |---|---|---|---|---|
-| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:239` |
+| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:236` |
 | render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:160` |
 | `componentCalls` (the `::name{}` line) | `::board{where="type=errand" group=status}` | the same as `board::`: a second spelling of a render script's line | the returned value, under the line | `packages/outliner/src/extension-handlers.ts:191` |
 | `pipelineCalls` (the `::=` line) | `::= (await resolve("this.owner")).values[0]` | like a render script whose code is `return (expression);` | the value, under the line | `packages/outliner/src/extension-handlers.ts:153` |
@@ -393,7 +394,7 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 |---|---|
 | `schemaOfScript` (the note's chips as a component schema) | `packages/outline-core/src/script-component.ts:58` |
 | `oneLineCalls` (the `::name{}` lines a text holds) | `packages/outline-core/src/script-component.ts:105` |
-| `linkScript` (imports by name) | `packages/outliner/src/script-link.ts:68` |
+| `linkScript` (imports by name) | `packages/outliner/src/script-link.ts:83` |
 | `transpileScript` (tsx and jsx fences) | `packages/outliner/src/script-runtime.ts:14` |
 
 ## Effects, access and attribution
@@ -402,7 +403,8 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
   Effects also keep their restart replay meaning: an `actions` macro marked as writing is not re-run by itself after a restart.
 - **Trust the source.** Code in this outline runs as whoever caused it, with no gate: no exact-text approval, no hash.
   Every write is attributed (`script:<name>`, with `requestedBy`), undoable as one, and shown in Sources; `sh`, `fetch`
-  and `act` are steps on the run note. The only boundary is the MCP access level, for outside agents. EchoNet packets
+  and `act` are steps on the run note. A run that `act("ext.…")` starts is asked by the same `requestedBy` and is its own
+  undo step; scripts start each other at most four deep, never one already in the chain, and stopping the caller stops it. The only boundary is the MCP access level, for outside agents. EchoNet packets
   never execute.
 - **Who wrote it.** A run somebody asked for (a press, `act`, `script_run`, the CLI) writes as them: `author: user` for the
   person at their keyboard, `author: agent` with the agent's own actor id for an agent, the run's undo id as the session, and
@@ -424,7 +426,7 @@ return <row>{groups.map(g => <Lane title={g.value ?? "none"} rows={g.rows}/>)}</
 
 | Entry | Source |
 |---|---|
-| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:292` |
+| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:295` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:795` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1800` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |

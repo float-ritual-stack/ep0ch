@@ -63,6 +63,15 @@ test("keep refuses a taken name and a note with no ::= line, writing nothing; pr
     const taken = await keep(host.id, { name: "seed-tally" });
     expect(taken.reason).not.toBe("done");
     expect(taken.message).toContain("seed-tally is taken");
+    // A built-in component's id and a folder script's name are taken too, and refused before anything is written.
+    const builtIn = await keep(host.id, { name: "table" });
+    expect(builtIn.reason).not.toBe("done");
+    expect(builtIn.message).toContain("table is taken");
+    const own = await keep(host.id, { name: "keep" });
+    expect(own.reason).not.toBe("done");
+    expect(own.message).toContain("keep is taken");
+    expect(store.require(host.id).text).toBe("Potting shed\n::= 'pots: ' + props.pots?.[0]\n::= 'trays'");
+    expect(store.children(host.id)).toHaveLength(0);
     const plain = create("Watering rota");
     const none = await keep(plain.id, { name: "rota" });
     expect(none.message).toContain("has no ::= line to keep");

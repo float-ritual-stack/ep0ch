@@ -95,7 +95,7 @@ export class ScriptRuns {
     private readonly writes: ExtensionWrites, private readonly client: AgentToolsClient,
     private readonly publish: (changes: readonly OutlinerChange[]) => void,
     private readonly inverse: (run: string) => Promise<import("./draft-patch").DraftPatchEdit[]>,
-    private readonly act: (clientId: string | undefined, name: string, args: Record<string, unknown>, actor: MutationProvenance, signal: AbortSignal, meta: { requestedBy: MutationProvenance; invitation?: string }) => Promise<unknown>,
+    private readonly act: (clientId: string | undefined, name: string, args: Record<string, unknown>, actor: MutationProvenance, signal: AbortSignal, meta: { requestedBy: MutationProvenance; invitation?: string; chain: readonly string[]; mcpAccess?: ExtensionActRequest["mcpAccess"] }) => Promise<unknown>,
     /** A run ended (PIE-957): done, stopped or failed. The door holding its layout transaction closes it by that. */
     private readonly ended?: (e: import("@ep0ch/outline-core/protocol").ScriptEnded) => void,
     /** How long `answered` waits for a run to end before it says the run is still going. */
@@ -225,6 +225,9 @@ export class ScriptRuns {
       if (!result.ok) throw new Error(`${result.error.message}\n${RENDER_ERROR}`);
       const drew = result.value === undefined ? null : scriptView(result.value);
       return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(untracked ? { untracked: true as const } : {}) };
+    } catch (error) {
+      // What it read before it failed goes with the error: a change to one of them (a module fixed) draws the line again.
+      throw Object.assign(error instanceof Error ? error : new Error(String(error)), { reads: [...reads].map(([id, revision]) => ({ id, revision })), queries });
     } finally { clearTimeout(timer); }
   }
 
@@ -378,7 +381,14 @@ export class ScriptRuns {
       const on = proposal?.outcome === "proposed" && proposal.detail?.thread ? /^\(\(([^)|]+)/.exec(proposal.uri ?? "")?.[1] : undefined;
       if (on) commented.push({ id: proposal!.detail!.thread!, note: on });
       if (s.phase === "start") return;
-      lines.push(`\n${s.seq}. ${s.tool}: ${s.phase === "done" ? JSON.stringify(s.result) : s.error}`);
+      const reached = s.tool === "sh" || s.tool === "fetch";
+      // A command or URL is said with how it ended: the run note is its record.
+      lines.push(`\n${s.seq}. ${s.tool}: ${s.phase === "done" ? JSON.stringify(s.result) : s.error}${reached ? ` · ${JSON.stringify(s.input)}` : ""}`);
+      // A run that reached outside (a command, a URL) always leaves its run note: it is the only record of that reach.
+      if (!log && reached) {
+        try { keep(); } catch (error) { controller.abort(error); }
+        return;
+      }
       // A tight host-call loop must not flood readers and delay the person's save behind progress events.
       if (log) progress ??= setTimeout(() => {
         progress = undefined;
@@ -437,7 +447,19 @@ export class ScriptRuns {
       mcpAccess: request.mcpAccess,
       // The door it asks is the one that started the run (or `door=`); with none, the service picks the only door or says which there are.
       act: async (name: string, args: Record<string, unknown>) => {
-        const answer = await this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, ...(request.invitation ? { invitation: request.invitation } : {}) });
+        // An extension's action is a step on the run note, as sh and fetch are, and leaves that note.
+        const said = (what: string) => {
+          if (!name.startsWith("ext.")) return;
+          lines.push(`\nact ${name}: ${what}`);
+          try { if (log) update(); else keep(); } catch (error) { controller.abort(error); }
+        };
+        let answer: unknown;
+        try {
+          answer = await this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, chain: [...(request.chain ?? []), extension.id],
+            ...(request.invitation ? { invitation: request.invitation } : {}), ...(request.mcpAccess ? { mcpAccess: request.mcpAccess } : {}) });
+        } catch (error) { said(error instanceof Error ? error.message : String(error)); throw error; }
+        const ended = answer as { state?: string; message?: string; error?: string } | undefined;
+        said([ended?.state ?? "done", ended?.error ?? ended?.message].filter(Boolean).join(" · "));
         if (trace) { actionAnswer = answer; effects.push(`${name}: ${JSON.stringify(answer)}`); }
         return answer;
       },

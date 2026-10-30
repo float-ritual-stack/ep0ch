@@ -2,7 +2,7 @@
 // cycle, an unknown name and too deep a chain are refused by name; editing a module draws its importers again.
 // Scratch service (script-harness.ts) and made-up notes only.
 import { expect, test } from "bun:test";
-import { linkScript, MAX_IMPORT_DEPTH, ScriptLinkError, type ModuleLookup } from "../src/script-link";
+import { importedNames, linkScript, MAX_IMPORT_DEPTH, ScriptLinkError, type ModuleLookup } from "../src/script-link";
 import { setup, until } from "./script-harness";
 
 const modules = (code: Record<string, string>) => (name: string): ModuleLookup =>
@@ -26,6 +26,45 @@ test("a cycle is named, an unknown name points at ext ls, and a chain past the l
   const chain = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`m${i + 1}`, i + 1 < n ? `import { v } from "m${i + 2}"\nreturn { v }` : "return { v: 1 }"]));
   expect(linkScript({ name: "top", code: 'import { v } from "m1"' }, modules(chain(MAX_IMPORT_DEPTH))).moduleIds).toHaveLength(MAX_IMPORT_DEPTH);
   expect(refused(() => linkScript({ name: "top", code: 'import { v } from "m1"' }, modules(chain(MAX_IMPORT_DEPTH + 1))))).toContain(`Imports nest deeper than ${MAX_IMPORT_DEPTH}`);
+});
+
+test("only the script's head imports: an import line in a string or a comment is text", () => {
+  const find = modules({ kit: "return { a: 1 }" });
+  const template = 'import { a } from "kit"\nconst snippet = `\nimport { Lane } from "ui-kit"\n`\nreturn snippet + a';
+  const linked = linkScript({ name: "snippets", code: template }, find);
+  expect(linked.code).toContain('`\nimport { Lane } from "ui-kit"\n`');
+  expect(linked.moduleIds).toEqual(["note-kit"]);
+  const commented = '// ep0ch-script effects=read\n/* import { Old } from "gone-kit"\n*/\n/* a note */ import { a } from "kit"\nreturn a';
+  expect(importedNames(commented)).toEqual(["kit"]);
+  expect(importedNames('return `\nimport { Lane } from "ui-kit"\n`')).toEqual([]);
+  expect(importedNames('const a = 1\nimport { b } from "kit"\nreturn b')).toEqual([]);
+  expect(importedNames('import("kit")')).toEqual([]);
+  expect(linkScript({ name: "plain", code: 'return `\nimport x from "nowhere"\n`' }, () => undefined).moduleIds).toEqual([]);
+});
+
+test("fixing a broken module draws its importers again at once, as editing a good one does", async () => {
+  const { store, create, output, draw } = await setup();
+  const kit = create("Broken kit [script::broken-kit] [mode::module]\n```ts\nconst = 1\nreturn { word: 'mended' }\n```");
+  create("Mender [script::mender] [mode::render]\n```ts\nimport { word } from \"broken-kit\"\nreturn word\n```");
+  const note = create("Workbench\nmender::");
+  await draw(note.id);
+  const row = () => store.extensionOutputs(note.id).find(r => r.handlerKey === "mender");
+  await until("the compile error", () => row()?.error?.includes("doesn't compile"));
+  const fixed = store.get(kit.id)!;
+  store.update(kit.id, fixed.text.replace("const = 1\n", ""), fixed.revision, { author: "user" });
+  await until("the mended word", () => output(note.id)[0] === "mended", 3_000);
+});
+
+test("a render that throws after reading a note draws again when that note changes", async () => {
+  const { store, create, output, draw } = await setup();
+  const fuel = create("Fuel gauge\nempty");
+  create(`Burner [script::burner] [mode::render]\n\`\`\`ts\nconst r = await read("${fuel.id}")\nif (r.text.includes("empty")) throw new Error("no fuel")\nreturn "lit"\n\`\`\``);
+  const note = create("Stove\nburner::");
+  await draw(note.id);
+  await until("the failure", () => store.extensionOutputs(note.id).find(r => r.handlerKey === "burner")?.error?.includes("no fuel"));
+  const gauge = store.get(fuel.id)!;
+  store.update(fuel.id, "Fuel gauge\nfull", gauge.revision, { author: "user" });
+  await until("the burner lit", () => output(note.id)[0] === "lit", 3_000);
 });
 
 test("the nearest definition of a name wins, and a tsx module draws through a ts render", async () => {

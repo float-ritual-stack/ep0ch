@@ -178,12 +178,29 @@ export interface ComponentBlock { name: string; args: string | null; start: numb
  * and an unclosed one is plain text. The one place a client finds where a figure or a `::links` starts and ends.
  */
 export function componentBlocks(lines: readonly string[]): ComponentBlock[] {
-  return scanComponents(lines, false, (start, fence) => fenceEnd(lines, start, fence).end);
+  const fenceStop = (start: number, fence: CodeFence) => fenceEnd(lines, start, fence).end;
+  // A braced `::name{…}` may be a one-line call (a note component's, `::fields{…}`) or a block closed by `::`; only
+  // the names say which. When reading it as a block takes the `::` an enclosing box needed, leaving the box
+  // unclosed, it is the one-line call: read again with it inline, until every enclosing frame closes.
+  const inlineAt = new Set<number>();
+  for (;;) {
+    const frames = scanFrames(lines, false, fenceStop, inlineAt);
+    const taker = [...frames].reverse().find(f => f.closed && f.block.args === null && f.block.attrs !== undefined &&
+      f.block.end > f.block.start && f.parent && !f.parent.closed);
+    if (!taker) return frames.filter(frame => frame.closed).map(frame => frame.block);
+    inlineAt.add(taker.block.start);
+  }
 }
 
 /** One forward walk owns nesting for both the whole-note reader and the prefix reader. */
 function scanComponents(lines: Iterable<string>, firstOnly = false, fenceStop?: (start: number, fence: CodeFence) => number): ComponentBlock[] {
-  type Frame = { block: ComponentBlock; fence: CodeFence | "yaml" | null; yamlSeen: boolean; closed: boolean };
+  return scanFrames(lines, firstOnly, fenceStop).filter(frame => frame.closed).map(frame => frame.block);
+}
+
+type Frame = { block: ComponentBlock; fence: CodeFence | "yaml" | null; yamlSeen: boolean; closed: boolean; parent?: Frame };
+
+/** The walk itself: every frame it opened, closed or not, each with the frame it sits in. `inlineAt`: openers read as one line. */
+function scanFrames(lines: Iterable<string>, firstOnly: boolean, fenceStop?: (start: number, fence: CodeFence) => number, inlineAt?: ReadonlySet<number>): Frame[] {
   const frames: Frame[] = [], stack: Frame[] = [];
   const finish = (end?: number) => {
     const frame = stack.pop()!;
@@ -221,9 +238,9 @@ function scanComponents(lines: Iterable<string>, firstOnly = false, fenceStop?: 
     if (open) {
       const block: ComponentBlock = { name: open[1]!, args: open[2] ?? null, start: i, end: i,
         ...(open[3] ? { attrs: open[3].slice(1, -1) } : {}), ...(open[4] ? { id: open[4] } : {}) };
-      const inline = block.name === "use" || block.name === "button" && block.attrs !== undefined &&
+      const inline = block.name === "use" || inlineAt?.has(i) || block.name === "button" && block.attrs !== undefined &&
         componentAttrs(block.attrs).pairs.some(p => p.key.toLowerCase() === "act" || p.key.toLowerCase() === "of");
-      const frame: Frame = { block, fence: null, yamlSeen: false, closed: !!inline };
+      const frame: Frame = { block, fence: null, yamlSeen: false, closed: !!inline, ...(parent ? { parent } : {}) };
       frames.push(frame);
       if (!inline) stack.push(frame);
       else if (firstOnly && !stack.length) break;
@@ -242,7 +259,7 @@ function scanComponents(lines: Iterable<string>, firstOnly = false, fenceStop?: 
   }
   // Unclosed components stay plain text; no suffix is retried for an unfinished child.
   while (stack.length) finish();
-  return frames.filter(frame => frame.closed).map(frame => frame.block);
+  return frames;
 }
 
 /**

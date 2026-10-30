@@ -93,6 +93,7 @@ export async function runScript(source: string, api: HostApi | RenderHostApi, si
       ...("act" in api ? [
         { name: "sh", spread: true as const, execute: (args: unknown) => { const [argv, options] = args as Parameters<HostApi["sh"]>; return api.sh(argv, options, signal); } },
         { name: "fetch", spread: true as const, execute: (args: unknown) => { const [url, init] = args as Parameters<HostApi["fetch"]>; return api.fetch(url, init, signal); } },
+        { name: "components", spread: true as const, execute: () => api.components() },
       ] : []),
       { name: "q", spread: true, execute: args => api.q(...args as Parameters<HostApi["q"]>) },
       { name: "read", spread: true, execute: args => api.read(...args as Parameters<HostApi["read"]>) },

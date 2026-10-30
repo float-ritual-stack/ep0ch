@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { COMPONENT_OPEN, componentAttrs, componentBlockAt, componentBlocks } from "../src/component-block";
+import { COMPONENT_OPEN, componentAttrs, componentBlockAt, componentBlocks, noteStructure } from "../src/component-block";
 import { interpolationSpans } from "../src/interpolation";
 import { COMARK_NOTE, COMARK_NOTE_BLOCKS } from "./fixtures/component-notes";
 import * as modCopy from "../../claude-mod/hooks/link-grammar.js";
@@ -114,4 +114,16 @@ test("a {word} inside a component's braces (a button's slot) keeps it one opener
   expect(COMPONENT_OPEN.exec('::button{label="a" act="go tile={target}" target=}')?.[1]).toBe("button");
   expect(COMPONENT_OPEN.exec("::button{of=neat page={page1} page1=}")?.[3]).toBe("{of=neat page={page1} page1=}");
   expect(COMPONENT_OPEN.exec("::box{pad=1} ^name")?.[4]).toBe("name");
+});
+
+test("a braced call inside a box is one line when reading it as a block would leave the box unclosed", () => {
+  const note = 'Daily\n::box\nErrands this week\n::board{where="type=errand"}\n::'.split("\n");
+  expect(componentBlocks(note)).toEqual([
+    { name: "box", args: null, start: 1, end: 4 },
+    { name: "board", args: null, start: 3, end: 3, attrs: 'where="type=errand"' },
+  ]);
+  expect(noteStructure(note)).toEqual([-1, 1, -1, 3, 1]);
+  // A braced block with a body that closes inside a closed box keeps its body.
+  const card = "::box\n::status-card{status=paused}\n- body\n::\n::".split("\n");
+  expect(componentBlocks(card).map(b => [b.name, b.start, b.end])).toEqual([["box", 0, 4], ["status-card", 1, 3]]);
 });

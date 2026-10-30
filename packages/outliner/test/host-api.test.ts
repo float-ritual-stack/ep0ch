@@ -493,3 +493,18 @@ test("a block script's sh is a step on its run note", async () => {
   expect(log).toContain('1. sh: {"exit":0');
   expect(log).toContain('"lines":"two trays\\n"');
 });
+
+test("a run that reached outside leaves its run note even when it returns nothing", async () => {
+  const { client, store } = await setup();
+  const api = hostApi(client, { actorId: "seed-author" });
+  // No [results::keep], no printed text, no return value: the sh step alone keeps the note.
+  await api.call("outline_create", { parent: "root", text: `Quiet seed [script::quiet-seed] [effects::write]\n\`\`\`js\nawait sh(${JSON.stringify([process.execPath, "-e", "console.log('three trays')"])});\n\`\`\`` });
+  const listed = await client.request<{ extensions: { id: string; name?: string }[] }>({ action: "extensions.list", reload: true });
+  const extension = listed.extensions.find(e => e.name === "quiet-seed")!;
+  const run = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });
+  const note = () => store.children(store.queryBlocks({ where: "script=quiet-seed" }).blocks[0]!.id).find(b => b.text.includes(`script-run::${run.undo}`) && !b.text.split("\n")[0]!.includes("working"));
+  for (let i = 0; i < 200 && !note(); i++) await Bun.sleep(25);
+  const log = note()!;
+  expect(log.text).toContain('sh: {"exit":0');
+  expect(log.text).toContain(process.execPath);
+});

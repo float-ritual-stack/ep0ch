@@ -546,8 +546,12 @@ function givenArgs(a: ExtensionAction, raw: Record<string, unknown>): Record<str
   return out;
 }
 
-/** A field of type `tag` (a template's prop, PIE-533 S4) is asked as text, typed as written (`#garden`). */
-const asQuestion = <Q extends { type: string }>(x: Q) => (x.type === "tag" ? { ...x, type: "text", free: true } : x) as Q & { type: BarQuestion["type"] };
+/**
+ * A field of type `tag` (a template's prop, PIE-533 S4) is asked as text, typed as written (`#garden`), and so is a
+ * `query` (a render script's `[form-field::where query]`), in the saved views' grammar: the bar has no other way to take one.
+ */
+export const asQuestion = <Q extends { type: string; description?: string }>(x: Q) => (x.type === "tag" ? { ...x, type: "text", free: true }
+  : x.type === "query" ? { ...x, type: "text", free: true, description: x.description ?? "a query, in the saved views' grammar" } : x) as Q & { type: BarQuestion["type"] };
 
 /** An argument the door asks the person for when they didn't give it: a choice or a property (from its choices), or a needed one. */
 const asks = (x: ExtensionActionArg) => x.type === "choice" || x.type === "property" || (!!x.required && x.default === undefined && !x.defaultProperty);

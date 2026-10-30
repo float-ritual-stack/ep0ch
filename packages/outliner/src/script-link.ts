@@ -34,18 +34,33 @@ export class ScriptLinkError extends Error {
 /** How deep imports may nest: a module importing a module… eight times. */
 export const MAX_IMPORT_DEPTH = 8;
 
-// `import { A, B as C } from "kit"`, `import * as kit from "kit"`, `import kit from "kit"` or `import "kit"`, at a line's start.
-const IMPORT = /^import\s+(?:(\{[^}]*\})|\*\s*as\s+([A-Za-z_$][\w$]*)|([A-Za-z_$][\w$]*))\s*from\s*(["'])([^"'\n]+)\4[ \t]*;?|^import\s*(["'])([^"'\n]+)\6[ \t]*;?/gm;
+// `import { A, B as C } from "kit"`, `import * as kit from "kit"`, `import kit from "kit"` or `import "kit"`.
+const IMPORT = /import\s+(?:(\{[^}]*\})|\*\s*as\s+([A-Za-z_$][\w$]*)|([A-Za-z_$][\w$]*))\s*from\s*(["'])([^"'\n]+)\4[ \t]*;?|import\s*(["'])([^"'\n]+)\6[ \t]*;?/y;
+const BLANK = /(?:\s+|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*/y;
+
+/** The import statements at the head of a script, before its first line of code: an import line inside a string or a comment is text. */
+function importsOf(code: string): RegExpExecArray[] {
+  const found: RegExpExecArray[] = [];
+  for (let at = 0; ;) {
+    BLANK.lastIndex = at;
+    BLANK.exec(code);
+    IMPORT.lastIndex = BLANK.lastIndex;
+    const match = IMPORT.exec(code);
+    if (!match) return found;
+    found.push(match);
+    at = IMPORT.lastIndex;
+  }
+}
 
 /** The names a script's code imports, in order. */
 export function importedNames(code: string): string[] {
-  return [...new Set([...code.matchAll(IMPORT)].map(m => (m[5] ?? m[7])!))];
+  return [...new Set(importsOf(code).map(m => (m[5] ?? m[7])!))];
 }
 
 const definitionName = (id: string) => `__ep0ch_module_${id.replace(/[^A-Za-z0-9_]/g, "_")}`;
 
 /** One import statement as a call of the module's definition; the lines it spanned stay lines, so errors keep their line. */
-function callOf(match: RegExpMatchArray, definition: string): string {
+function callOf(match: RegExpExecArray, definition: string): string {
   const call = `await ${definition}.call(__this)`;
   const pad = "\n".repeat((match[0].match(/\n/g) ?? []).length);
   if (match[1] !== undefined) {
@@ -71,8 +86,7 @@ export function linkScript(root: { name: string; code: string; id?: string }, fi
   const moduleIds: string[] = [];
   const found = new Map<string, ModuleLookup>();
   const lookup = (name: string) => { if (!found.has(name)) found.set(name, find(name)); return found.get(name); };
-  const rewrite = (code: string, chain: { id?: string; name: string }[]): string => code.replace(IMPORT, (...args) => {
-    const match = args.slice(0, 8) as unknown as RegExpMatchArray;
+  const rewrite = (code: string, chain: { id?: string; name: string }[]): string => importsOf(code).reduceRight((text, match) => {
     const name = (match[5] ?? match[7])!;
     const importer = chain[chain.length - 1]!.name;
     const module = lookup(name);
@@ -101,8 +115,8 @@ export function linkScript(root: { name: string; code: string; id?: string }, fi
       }
       definitions.set(module.id, js);
     }
-    return callOf(match, definition);
-  });
+    return text.slice(0, match.index) + callOf(match, definition) + text.slice(match.index + match[0].length);
+  }, code);
   let code: string;
   try { code = rewrite(root.code, [{ ...(root.id ? { id: root.id } : {}), name: root.name }]); }
   catch (error) { if (error instanceof ScriptLinkError) error.moduleIds = moduleIds; throw error; }

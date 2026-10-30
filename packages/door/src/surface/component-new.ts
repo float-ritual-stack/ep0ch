@@ -37,13 +37,13 @@ export type ComponentBoard = Pick<SocketBoard, "followPage" | "createBlock" | "l
 
 /**
  * Write the starter note for `::name` under the page `under` (made when missing, where new pages go), as `by`. Refused
- * for a name a component can't have, or one a script already answers to.
+ * for a name a component can't have, or one a script already answers to (an action script's too: two would answer it).
  */
 export async function makeComponent(board: ComponentBoard, name: string, by: Actor, under = COMPONENTS_PAGE): Promise<{ note: Msg; page: Msg; said: string }> {
   if (!COMPONENT_NAME.test(name)) throw new ActionRefused(`${JSON.stringify(name)} isn't a component's name: lowercase letters, digits and -, starting with a letter`);
   const listed = await board.listExtensions().catch(() => null);
-  if (listed?.extensions.some(e => e.state !== "disabled" && (e.script?.keys.includes(name) || e.handlers.some(h => h.key === name))))
-    throw new ActionRefused(`::${name} is a component already: write ::${name}{} or pick another name`);
+  if (listed?.extensions.some(e => e.state !== "disabled" && ((e.script && e.name === name) || e.handlers.some(h => h.key === name))))
+    throw new ActionRefused(`${name} is taken: a script answers to it already; call it, or pick another name`);
   const page = await board.followPage(under, by).catch((e: Error) => { throw new ActionRefused(`no page ${under}: ${e.message}`); });
   if (!page.note) throw new ActionRefused(page.status === "deleted" ? `[[${under}]] is a page in the trash: restore it there` : `no page ${under} (${page.status})`);
   const note = await board.createBlock(page.note.id, starterComponent(name), by);

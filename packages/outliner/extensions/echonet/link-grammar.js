@@ -758,9 +758,17 @@ function componentAttrs(attrs) {
   return { classes, pairs };
 }
 function componentBlocks(lines) {
-  return scanComponents(lines, false, (start, fence) => fenceEnd(lines, start, fence).end);
+  const fenceStop = (start, fence) => fenceEnd(lines, start, fence).end;
+  const inlineAt = new Set;
+  for (;; ) {
+    const frames = scanFrames(lines, false, fenceStop, inlineAt);
+    const taker = [...frames].reverse().find((f) => f.closed && f.block.args === null && f.block.attrs !== undefined && f.block.end > f.block.start && f.parent && !f.parent.closed);
+    if (!taker)
+      return frames.filter((frame) => frame.closed).map((frame) => frame.block);
+    inlineAt.add(taker.block.start);
+  }
 }
-function scanComponents(lines, firstOnly = false, fenceStop) {
+function scanFrames(lines, firstOnly, fenceStop, inlineAt) {
   const frames = [], stack = [];
   const finish = (end) => {
     const frame = stack.pop();
@@ -812,8 +820,8 @@ function scanComponents(lines, firstOnly = false, fenceStop) {
           ...open[3] ? { attrs: open[3].slice(1, -1) } : {},
           ...open[4] ? { id: open[4] } : {}
         };
-        const inline = block.name === "use" || block.name === "button" && block.attrs !== undefined && componentAttrs(block.attrs).pairs.some((p) => p.key.toLowerCase() === "act" || p.key.toLowerCase() === "of");
-        const frame = { block, fence: null, yamlSeen: false, closed: !!inline };
+        const inline = block.name === "use" || inlineAt?.has(i) || block.name === "button" && block.attrs !== undefined && componentAttrs(block.attrs).pairs.some((p) => p.key.toLowerCase() === "act" || p.key.toLowerCase() === "of");
+        const frame = { block, fence: null, yamlSeen: false, closed: !!inline, ...parent ? { parent } : {} };
         frames.push(frame);
         if (!inline)
           stack.push(frame);
@@ -837,7 +845,7 @@ function scanComponents(lines, firstOnly = false, fenceStop) {
     }
   while (stack.length)
     finish();
-  return frames.filter((frame) => frame.closed).map((frame) => frame.block);
+  return frames;
 }
 
 // packages/outline-core/src/code-ranges.ts

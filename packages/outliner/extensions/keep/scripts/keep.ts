@@ -7,6 +7,9 @@ const name = (props.name?.[0] ?? '').trim();
 if (!/^[a-z][a-z0-9-]{0,31}$/.test(name)) throw new Error(`keep needs name=: lower case letters, digits and hyphens, starting with a letter (open-count)${name ? `; ${name} isn't one` : ''}`);
 const taken = (await q(`script=${name}`, { limit: 1 })).blocks[0];
 if (taken) throw new Error(`${name} is taken: ((${taken.id})) is [script::${name}]; pick another name`);
+// A built-in's id (::table would draw the table, not this) or a name a folder's script or an extension has.
+const owner = (await components()).find(c => c.name === name);
+if (owner) throw new Error(`${name} is taken: ${owner.origin} has it; pick another name`);
 
 const host = await tools.outline_read({ ref: this.id, depth: 0 });
 const lines = host.text.split('\n');

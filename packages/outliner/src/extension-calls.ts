@@ -177,7 +177,15 @@ export interface ExtensionActRequest {
    * (`blockId` the first). Its writes carry the trigger's marks, so no rule is set off by them.
    */
   readonly trigger?: { readonly rule: string; readonly blocks?: readonly string[] };
+  /**
+   * The script runs whose `act("ext.…")` started this one, outermost first (their extension ids): a run's `ext.*` call
+   * is refused past MAX_ACT_DEPTH or when it would start one already in the chain, so scripts can't start runs without end.
+   */
+  readonly chain?: readonly string[];
 }
+
+/** How deep scripts may start each other's runs through `act("ext.…")`. */
+export const MAX_ACT_DEPTH = 4;
 
 export interface ExtensionActResult {
   runbook?: RunbookPlan;
@@ -871,7 +879,8 @@ export class ExtensionCalls {
         return row.error === null || this.now - Date.parse(row.attemptedAt) > RETRY_FAILED_MS;
       }
     }
-    if (row.result === null || row.error !== null) return row.error !== null && this.now - Date.parse(row.attemptedAt) > RETRY_FAILED_MS;
+    // A failed line waits to be tried again, unless what it read changed: the module that broke it was fixed.
+    if (row.result === null || row.error !== null) return row.error !== null && (this.now - Date.parse(row.attemptedAt) > RETRY_FAILED_MS || this.scriptChanged(row, block, extension));
     // What it read changed (a script's notes or queries): it redraws without r.
     if (this.scriptChanged(row, block, extension)) return true;
     const stale = durationMs(handler?.staleAfter);
@@ -1011,7 +1020,14 @@ export class ExtensionCalls {
       // A note it read changed while it ran: what it drew is already out of date.
       if (reads?.some(read => this.revisionOf(read.id) !== read.revision)) void this.refreshOutput(block.id, "open").catch(() => {});
     } catch (error) {
-      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, request: { ...base.request, ...(queried ? { queryHash: queried.hash } : {}) }, error: message(error) });
+      // A render that failed says what it read before it did: the row keeps that, and a change to one comes back here.
+      const failed = extension.script ? error as { reads?: typeof reads; queries?: typeof queries } : undefined;
+      reads = failed?.reads ?? reads;
+      queries = failed?.queries ?? queries;
+      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, error: message(error), request: { ...base.request, ...(queried ? { queryHash: queried.hash } : {}),
+        ...(extension.script && reads ? { reads, queries: queries ?? [], stamp: extension.stamp } : {}) } });
+      for (const read of reads ?? []) this.watching(read.id, block.id);
+      if (queries?.length) this.watchQueries(block.id);
       this.state.set(key, { running: false, error: message(error) });
     }
     this.options.changed?.(block.id);

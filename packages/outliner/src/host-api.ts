@@ -132,6 +132,8 @@ export interface HostApi {
   sh(argv: readonly string[], options?: ShOptions, signal?: AbortSignal): Promise<ShResult>;
   /** An http(s) request (`fetch(url, { method, headers, body })`): `{ status, headers, text }`, recorded as a step like `sh`. */
   fetch(url: string, init?: FetchInit, signal?: AbortSignal): Promise<FetchResult>;
+  /** Every name a `::name` or a script answers to here, with who has it: the built-ins, the extensions' and the scripts'. */
+  components(): Promise<{ name: string; origin: string }[]>;
   /** Every tool, by its name (`outline_read`, `outline_patch`, `view_order`…). */
   readonly tool: Readonly<Record<string, HostTool>>;
   /** The tools this API offers, by name. */
@@ -265,7 +267,7 @@ export const SCRIPT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = AGENT_TOO
  * actor id; a run's `sessionId` names the run). Reads need no actor; a write without one is refused, never written as
  * nobody. Every call is a plain promise: a script awaits what it needs and starts the rest side by side.
  */
-export type RenderHostApi = Omit<HostApi, "act" | "place" | "sh" | "fetch">;
+export type RenderHostApi = Omit<HostApi, "act" | "place" | "sh" | "fetch" | "components">;
 
 export function hostApi(client: AgentToolsClient, actor: undefined, options: HostApiOptions & { kind: "render" }): RenderHostApi;
 export function hostApi(client: AgentToolsClient, actor?: AgentActor, options?: HostApiOptions): HostApi;
@@ -444,6 +446,18 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
     }, answer => ({ status: answer.status, bytes: answer.bytes, ...(answer.text ? { lines: firstLines(answer.text) } : {}), ...(answer.truncated ? { truncated: true } : {}) }))
       .then(({ bytes: _b, ...answer }) => answer);
   };
+  const components = () => reach("components", {}, async () => {
+    const [{ schemas }, { extensions }] = await Promise.all([
+      client.request<{ schemas: { id: string; origin?: string }[] }>({ action: "components.schemas" }),
+      client.request<{ extensions: { id: string; name?: string; state?: string; script?: unknown; handlers?: { key: string }[] }[] }>({ action: "extensions.list" }),
+    ]);
+    const named = new Map(schemas.map(s => [s.id, s.origin ?? "built-in"]));
+    for (const e of extensions) {
+      if (e.state === "disabled") continue;
+      for (const name of [...(e.script && e.name ? [e.name] : []), ...(e.handlers ?? []).map(h => h.key)]) if (!named.has(name)) named.set(name, e.id);
+    }
+    return [...named].map(([name, origin]) => ({ name, origin }));
+  }, answer => ({ names: answer.length }));
   const act = (name: string, args: Record<string, unknown> = {}) => options.mcpAccess && options.mcpAccess !== "full"
     ? Promise.reject(belowFull("dispatch door actions (act)"))
     : options.act
@@ -452,5 +466,5 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
   const place = (content: string, opts: PlaceOptions = {}) => options.place
     ? options.place(String(content), opts ?? {})
     : Promise.reject(new WorkToolRefusal("place writes into this run's note: run this script from a note (this run has none)"));
-  return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, query, act, sh, fetch: fetchUrl, resolve, place });
+  return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, query, act, sh, fetch: fetchUrl, components, resolve, place });
 }
