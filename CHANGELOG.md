@@ -23,6 +23,23 @@ are its record. The outliner's entries from then are kept below, under
 - **outline_snapshot of a copy:** `asOf` is the copy's newest change, and the headline says it; `snapshotAt` is when
   the snapshot was made.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
+### One place decides where your key goes (PIE-1438)
+
+- **Whatever is in front of you gets the key:** the power bar, a status-bar menu, the message log, a tile menu or a
+  float takes Esc, and nothing reaches the terminal under it. The door now asks one answer (where you are) for this,
+  so a new overlay can't let a key leak to the program behind it; `ep0ch peek`'s `person` names that layer too.
+### Shares' Start a public link works again
+
+- **The site's own forms post:** pages behind sign-in were sent with `Referrer-Policy: no-referrer`, under which a browser sends `Origin: null` on a form POST, so the site's own check refused Shares' "Start a public link" ("A change comes from this site's own pages"). They now say `same-origin`: no link leaving the site carries a referrer, as before, and the site's own forms post.
+- **Run:** nothing beyond the usual `ep0ch install --apply` (it restarts the publishers).
+
+### Open a note as it was at a revision, beside how it is now (PIE-1433)
+
+- **From Jev's suggestions:** a row opens its note with the revision the review read beside it, marked against the next one (`-` was there, `+` came next).
+- **From any note:** the tile menu's **history** lists its revisions; a row opens the same compare.
+- **Keys:** ← → older and newer, `n` against the note now, Esc back to the note. Beside the text in a wide tile, below it in a narrow one.
+- **Tables:** `at: <property>` on a live `::graph-table` with `link:` opens each row's note at the revision that property holds.
+- **Run:** nothing beyond the usual `ep0ch install --apply` (GRAMMAR 13: an older door opens the note without the compare); pie's suggestions page gains `at: revision` on its own at the next review Jev records after the install (until then its rows open the note without the compare; adding `at: revision` under `link: note` by hand does it at once).
 
 ### A chat reads an away outline from its copy (PIE-1091)
 

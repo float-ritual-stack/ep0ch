@@ -484,7 +484,8 @@ export function defaultDeliveryKey(
  * Records a pull request as one of the item's deliveries (`deliveries.ensure`)
  * and syncs its facts (`deliveries.sync`): open → Review, merged → Validate.
  * The PR must be the delivery's branch into its base, so a wrong number is
- * refused rather than recorded. `deliveryKey` is a name (`door`) or a full key
+ * refused rather than recorded; the PR the delivery already records may have a
+ * new base (GitHub retargeted it), which the sync records (PIE-1440). `deliveryKey` is a name (`door`) or a full key
  * (`PIE-123/door`); omitted, `defaultDeliveryKey` chooses one.
  */
 export async function deliverPullRequest(
@@ -515,7 +516,9 @@ export async function deliverPullRequest(
     ? defaultDeliveryKey(workId, deliveries, input.repository, workBranch)
     : deliveryKeyFor(workId, input.deliveryKey);
   const existing = deliveries.find((delivery) => delivery.key === deliveryKey);
-  if (existing && (existing.repository !== input.repository || existing.workBranch !== workBranch || existing.baseBranch !== baseBranch)) {
+  // The same PR number is the same delivery: a new base is GitHub retargeting it, which the sync records (PIE-1440).
+  const retargeted = existing?.pullRequestNumber === pr.number && existing.baseBranch !== baseBranch;
+  if (existing && (existing.repository !== input.repository || existing.workBranch !== workBranch || (existing.baseBranch !== baseBranch && !retargeted))) {
     throw new WorkToolRefusal(
       `${existing.key} already records ${existing.repository}:${existing.workBranch} into ${existing.baseBranch}; ` +
         `pass --key <name> to record ${input.repository}:${workBranch} as another delivery`,
@@ -527,7 +530,7 @@ export async function deliverPullRequest(
       taskBlockId: task.id,
       deliveryKey,
       repository: input.repository,
-      baseBranch,
+      baseBranch: existing?.baseBranch ?? baseBranch,
       workBranch,
     },
     author: actor.author,
@@ -540,7 +543,7 @@ export async function deliverPullRequest(
       deliveryBlockId: ensured.delivery.id,
       expectedDeliveryRevision: ensured.delivery.revision,
       expectedTaskRevision: ensured.task.revision,
-      pullRequest: { number: pr.number, url: pr.url, state: pr.state, mergeCommit: pr.mergeCommit, mergedAt: pr.mergedAt },
+      pullRequest: { number: pr.number, url: pr.url, state: pr.state, mergeCommit: pr.mergeCommit, mergedAt: pr.mergedAt, baseBranch },
     },
     mutation: mutationOf(actor),
   });
@@ -571,7 +574,7 @@ export interface WorkLandResult {
   pullRequest: { number: number; url: string; state: string; mergeCommit: string | null; mergedAt: string | null };
   /** The deliveries that record this PR, synced again so each says it merged and when. */
   deliveries: Array<WorkDeliverResult["delivery"] & { workId: string }>;
-  /** Deliveries that couldn't be synced (a PR retargeted since it was recorded), with why: the row is written anyway. */
+  /** Deliveries that couldn't be synced, with why: the row is written anyway. A retargeted PR syncs (PIE-1440). */
   failed: Array<{ deliveryKey: string; blockId: string; error: string }>;
 }
 
@@ -669,7 +672,7 @@ export async function landPullRequest(
     try {
       const synced = await deliverPullRequest(client, {
         address: recorded.block.parentId!, repository: input.repository, pullRequest: pr,
-        baseBranch: recorded.baseBranch, workBranch: recorded.workBranch, deliveryKey: recorded.key,
+        workBranch: recorded.workBranch, deliveryKey: recorded.key,
       }, actor, { land: false });
       deliveries.push({ ...synced.delivery, workId: synced.workId });
     } catch (error) {

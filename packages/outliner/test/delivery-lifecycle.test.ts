@@ -262,4 +262,17 @@ describe("delivery lifecycle", () => {
       ]),
     })]);
   });
+
+  test("a delivery recording a PR finds it by number after GitHub retargets it (PIE-1440)", async () => {
+    const pulls = [
+      { number: 8, url: "https://github.com/org/repo/pull/8", state: "CLOSED", baseRefName: "feat/stack", headRefName: "feature/pie-204", mergeCommit: null },
+      { number: 9, url: "https://github.com/org/repo/pull/9", state: "MERGED", baseRefName: "main", headRefName: "feature/pie-204", mergeCommit: { oid: "def456" } },
+    ];
+    const fakeExec: ExtensionExec = async () => ({ code: 0, killed: false, stderr: "", stdout: JSON.stringify(pulls) });
+    const stacked = { ...delivery("feature/pie-204", "org/repo"), baseBranch: "feat/stack" };
+    expect(await inspectPullRequest(fakeExec, { ...stacked, pullRequestNumber: 9 }))
+      .toMatchObject({ number: 9, state: "MERGED", baseBranch: "main", mergeCommit: "def456" });
+    // Recording no PR yet, the base still picks it.
+    expect(await inspectPullRequest(fakeExec, stacked)).toMatchObject({ number: 8, baseBranch: "feat/stack" });
+  });
 });

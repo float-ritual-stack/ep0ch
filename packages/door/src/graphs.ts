@@ -291,6 +291,8 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     // Narrow with more than two columns (PIE-1402: a 44-column tile hid a record's passage and what was said behind
     // "+4 columns"): each row is a card, its title column first and every other cell under it as `header: value`,
     // wrapped, so nothing is hidden. Each line is its row's note (a cell naming a note, that note), as a row's are.
+    // `at:` (PIE-1433): the revision each row's link opens its note at, beside how it is now.
+    const revisionOf = (i: number): number | undefined => { const n = Number(p.rowRevisions?.[i]); return Number.isInteger(n) && n > 0 ? n : undefined; };
     if (tier(w) === "narrow" && remaining > 2 && rows.length) {
       const blocks: unknown[] = p.blocks ?? [];
       const named: (string | null)[][] = Array.isArray(p.cellBlocks) ? p.cellBlocks.map((r: (string | null)[]) => keepCols(r)) : [];
@@ -298,6 +300,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       const most = { compact: 1, cozy: 4, comfortable: 12 }[density];
       const card = (r: string[], i: number) => {
         const linkOf = (k: number) => named[i]?.[k] ?? blocks[i];
+        const at = (to: unknown) => (to === blocks[i] ? revisionOf(i) : undefined);
         const lead = rowLines(r[tcol] ?? "", w, Math.max(2, most)).map(l => fg(HI) + BOLD + l + UNBOLD + RESET);
         const cells = r.map((value, k) => {
           if (k === tcol || !value.trim()) return [];
@@ -306,8 +309,8 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
         });
         // A card whose cells all open one note is one row (one element, walked and scrolled as one); else each cell its own.
         const targets = new Set(r.map((_, k) => linkOf(k)));
-        if (targets.size === 1) return rowLinks(link, linkOf(tcol), [...lead, ...cells.flat()], ui?.key);
-        return [...rowLinks(link, linkOf(tcol), lead, ui?.key), ...cells.flatMap((lines, k) => rowLinks(link, linkOf(k), lines, ui?.key))];
+        if (targets.size === 1) return rowLinks(link, linkOf(tcol), [...lead, ...cells.flat()], ui?.key, undefined, at(linkOf(tcol)));
+        return [...rowLinks(link, linkOf(tcol), lead, ui?.key, undefined, at(linkOf(tcol))), ...cells.flatMap((lines, k) => rowLinks(link, linkOf(k), lines, ui?.key, undefined, at(linkOf(k))))];
       };
       return rows.flatMap((r, i) => [...(i ? [fg(DIM) + rep("·", Math.min(w, 12)) + RESET] : []), ...card(r, i)]);
     }
@@ -330,9 +333,9 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const density = ui?.density ?? (isDensity(p.density) ? p.density : "cozy"), most = ui?.lines ?? 2;
     const tc = tcol;
     /** A row's lines; `linkOf(k)`, when given, is the note cell k links (each cell its own element), else the row is one. */
-    const drawRow = (r: string[], linkOf?: (k: number) => unknown) => {
+    const drawRow = (r: string[], linkOf?: (k: number) => unknown, at?: (to: unknown) => number | undefined) => {
       const cells = r.map((c, k) => rowLines(c, cw[k]!, most));
-      const tag = (text: string, k: number) => (linkOf ? rowLinks(link, linkOf(k), [text], ui?.key)[0]! : text);
+      const tag = (text: string, k: number) => (linkOf ? rowLinks(link, linkOf(k), [text], ui?.key, undefined, at?.(linkOf(k)))[0]! : text);
       return Array.from({ length: Math.max(...cells.map(c => c.length)) }, (_, i) => linkOf
         ? r.map((_, k) => tag(fg(INK) + cell(cells[k]![i] ?? "", k), k)).join(fg(DIM) + " ┊ ") + RESET
         : line(cells.map(c => c[i] ?? ""), fg(INK)));
@@ -340,7 +343,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const blocks: unknown[] = p.blocks ?? [];
     // A cell naming a note (PIE-1388, figure-live's cellBlocks) is that note's link; the row's other cells stay its own note's.
     const named: (string | null)[][] = Array.isArray(p.cellBlocks) ? p.cellBlocks.map((r: (string | null)[]) => keepCols(r)) : [];
-    const body = rows.flatMap((r, i) => [...(density === "comfortable" && i ? [""] : []), ...(named[i]?.some(Boolean) && link ? drawRow(r, k => named[i]![k] ?? blocks[i]) : rowLinks(link, blocks[i], drawRow(r), ui?.key))]);
+    const body = rows.flatMap((r, i) => [...(density === "comfortable" && i ? [""] : []), ...(named[i]?.some(Boolean) && link ? drawRow(r, k => named[i]![k] ?? blocks[i], to => (to === blocks[i] ? revisionOf(i) : undefined)) : rowLinks(link, blocks[i], drawRow(r), ui?.key, undefined, revisionOf(i)))]);
     return [line(head, fg(HI)), rule, ...body, ...(foot ? [rule, line(foot, fg(HI))] : []), ...(dropped ? [fg(DIM) + `+${dropped} column${dropped === 1 ? "" : "s"} · widen to see` + RESET] : [])];
   },
 
@@ -401,7 +404,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   const key = `${title}#${same}`;
   // All kinds lend their row targets the same figure identity, including rows outside the current viewport.
   const rowLink = link;
-  link = rowLink ? (block, text, _figure, query) => rowLink(block, text, key, query) : undefined;
+  link = rowLink ? (block, text, _figure, query, at) => rowLink(block, text, key, query, at) : undefined;
   const chosen = figures?.ui?.(key);
   const writtenLines = props.lines === undefined ? undefined : Number(props.lines);
   const validLines = writtenLines === undefined || Number.isSafeInteger(writtenLines) && writtenLines >= 0;

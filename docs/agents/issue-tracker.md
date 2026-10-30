@@ -69,7 +69,8 @@ If there is none, `work_create` and give back the Work ID and its `((ref))`; it 
 
 Open PR: `work_deliver` (the item goes to review). Merged: validate, with `merged-at`. Every merge, ticket
 or not, gets a merge row: `work_deliver` with no `ref` after the merge (the repository mod runs it after
-`gh pr merge`). Accepted with linked proof:
+`gh pr merge`). A PR GitHub retargeted (stacked on a branch that merged) is still its delivery: the same
+PR number follows its new base. Accepted with linked proof:
 `work_complete`. `done` is never set with `work_stage`. Retire an item into a replacement with
 `work-stage=superseded` and `superseded-by`. That doesn't count as shipped.
 

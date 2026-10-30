@@ -147,13 +147,13 @@ async function signIn(gate: SignInGate, next = "/pub/", options: { bindCookie?: 
   return { response, ...(token ? { cookie: `${SESSION_COOKIE}=${token}` } : {}) };
 }
 
-test("signed out, every page is the sign-in page: dark, noindex, no-referrer, nothing from the outline; an API call is 401", async () => {
+test("signed out, every page is the sign-in page: dark, noindex, no cross-site referrer, nothing from the outline; an API call is 401", async () => {
   const gate = gateFor();
   for (const path of ["/pub/", `/pub/p/${survey.id}`, "/pub/o/orchard/", "/pub/sessions", "/"]) {
     const page = await at(gate, path);
     expect(page.status).toBe(401);
     expect(page.headers.get("x-robots-tag")).toBe("noindex, nofollow");
-    expect(page.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(page.headers.get("referrer-policy")).toBe("same-origin");
     const body = await page.text();
     expect(body).toContain('<meta name="color-scheme" content="dark">');
     expect(body).toContain("Sign in with GitHub");
