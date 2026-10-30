@@ -441,11 +441,6 @@ export type ExtensionFolderConfig = Static<typeof FolderConfig>;
 
 const MAX_FILE_BYTES = 64 * 1024;
 export const MAX_DEADLINE_MS = 5 * 60_000;
-/**
- * An agent's answer (`agents[].deadline`) may run this long (PIE-1452): a job like "a page for each plugin" outlasts
- * five minutes, and it says it's working meanwhile. Everything else keeps MAX_DEADLINE_MS.
- */
-export const MAX_AGENT_DEADLINE_MS = 2 * 60 * 60_000;
 export const DEFAULT_DEADLINE_MS = 15_000;
 
 /** Variables the service sets for every call: a manifest's `env` can't name them. */
@@ -651,7 +646,7 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
     if (agentNames.has(agent.name)) throw new ExtensionLoadError(`extension.json: agents/${index}/name ${agent.name} is declared twice`);
     agentNames.add(agent.name);
     const agentDeadline = durationMs(agent.deadline);
-    if (agentDeadline !== undefined && agentDeadline > MAX_AGENT_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: agents/${index}/deadline is longer than 2h`);
+    if (agentDeadline !== undefined && agentDeadline > MAX_DEADLINE_MS) throw new ExtensionLoadError(`extension.json: agents/${index}/deadline is longer than 5m`);
   }
   const ruleIds = new Set<string>();
   let codeRules = 0;

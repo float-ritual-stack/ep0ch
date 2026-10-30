@@ -6674,6 +6674,7 @@ export class NoteSurface {
   /** A link to this artifact alone for someone outside (PIE-1266), copied for the person; an agent is given it in the answer. */
   async shareArtifact(ref: ImageRef, ttl: string | undefined, host: SurfaceHost, actor: Actor): Promise<{ share: ShareSession; said?: string }> {
     const artifact = await host.ctx.board.request<ArtifactInfo>("artifacts.show", { name: ref.path });
+    if (artifact.deploy) throw new ActionRefused(`${artifact.deploy.repo} is a repo: its site${artifact.url ? ` (${artifact.url})` : ""} is public already, and a share gives a stored artifact alone; artifact.open opens the site`);
     const started = await startShare(host.ctx.board, { artifact: artifact.version ? `${artifact.name}@${artifact.version}` : artifact.name, ...(ttl ? { ttl } : {}) }, actor);
     const { share } = started;
     if (actor.kind === "user" && share.url) host.ctx.copy?.(share.url, "share link");
@@ -6683,6 +6684,8 @@ export class NoteSurface {
 
   async openArtifact(ref: ImageRef, host: SurfaceHost): Promise<Outside> {
     const artifact = await host.ctx.board.request<ArtifactInfo>("artifacts.show", { name: ref.path });
+    // A repo opens its live site; one that isn't live says why and the command that deploys it (PIE-1060).
+    if (artifact.deploy && !artifact.url) throw new ActionRefused(`${artifact.deploy.repo} isn't live: ${artifact.deploy.said ?? artifact.deploy.state}${artifact.deploy.command ? `; run ${artifact.deploy.command}` : ""}`);
     if (!artifact.url) throw new ActionRefused("Set EP0CH_WEB_URL on the outline host to the web client's address (https://my.ep0ch.sh): an artifact opens as its page there.");
     return this.openOutside("browser", artifact.url, host);
   }

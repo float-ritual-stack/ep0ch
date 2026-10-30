@@ -51,31 +51,7 @@ console.log("turn " + memory.asked.length + "; first you asked: " + memory.asked
 
 const PLAN = "Greenhouse plan for the spring\nWater the tomatoes at dawn, before the glass warms.\nKeep the soil pH near 6.5 for the peppers.";
 
-/**
- * A made-up job (PIE-1452): pauses, writes a page as whatever persona the service handed it (`EP0CH_AGENT`, as the mod
- * signs a `claude`'s notes), pauses, writes another, pauses, then answers. Stands in for `claude -p` doing a long job.
- */
-const FAKE_JOB = `
-const net = require("node:net");
-const pause = Number(process.argv[2]);
-await Bun.stdin.text();
-const write = (text) => new Promise((ok, no) => {
-  const c = net.connect(process.env.EP0CH_SOCKET);
-  let b = "";
-  c.setEncoding("utf8");
-  c.on("data", (d) => { b += d; if (b.includes("\\n")) { c.end(); const r = JSON.parse(b); if (r.ok) ok(r); else no(new Error(r.error)); } });
-  c.on("error", no);
-  c.write(JSON.stringify({ id: crypto.randomUUID(), action: "create", text, parentId: null, author: "agent", provenance: { actorId: (process.env.EP0CH_AGENT || "nobody") + "/claude-code@test-box" } }) + "\\n");
-});
-await Bun.sleep(pause);
-await write("Lantern plugin\\nWhat the lantern plugin does.");
-await Bun.sleep(pause);
-await write("Kettle plugin\\nWhat the kettle plugin does.");
-await Bun.sleep(pause);
-console.log("Done: a page for each plugin.");
-`;
-
-async function setup(model: boolean | { job: number; deadline?: string } = true, options: { working?: { after: number; every: number } } = {}) {
+async function setup(model = true) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-margin-")));
   const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
   process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
@@ -87,15 +63,7 @@ async function setup(model: boolean | { job: number; deadline?: string } = true,
   const memory = join(root, "model");
   mkdirSync(memory);
   writeFileSync(join(root, "model.ts"), FAKE_MODEL);
-  if (typeof model === "object") {
-    writeFileSync(join(root, "job.ts"), FAKE_JOB);
-    writeFileSync(join(kit, "config.json"), JSON.stringify({ config: { answer: [process.execPath, join(root, "job.ts"), String(model.job)] } }));
-    if (model.deadline) {
-      const manifest = JSON.parse(readFileSync(join(kit, "extension.json"), "utf8"));
-      manifest.agents[0].deadline = model.deadline;
-      writeFileSync(join(kit, "extension.json"), JSON.stringify(manifest));
-    }
-  } else if (model) {
+  if (model) {
     writeFileSync(join(kit, "config.json"), JSON.stringify({ config: {
       answer: [process.execPath, join(root, "model.ts"), memory],
       session: { start: ["--session-id", "{{props.id}}"], resume: ["--resume", "{{props.id}}"] },
@@ -103,7 +71,7 @@ async function setup(model: boolean | { job: number; deadline?: string } = true,
   }
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outline });
   const socket = join(root, "outliner.sock");
-  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: 80, ...(options.working ? { agentWorkingMs: options.working } : {}) });
+  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: 80 });
   await server.start();
   const client = new OutlinerClient(socket, 15_000);
   cleanups.push(async () => {
@@ -126,7 +94,7 @@ async function setup(model: boolean | { job: number; deadline?: string } = true,
     client.request<AnnotationBatchReceipt>({ action: "annotations.reply", requestId, author: "user", input: { annotationId, body, source: "user" } });
   const answers = async (id: string) => (await threads()).find(t => t.block.id === id)!.replies.filter(r => r.block.actorId === "ext:marginalia");
   const ids = async (where: string) => (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where, limit: 100 } })).blocks.map(b => b.id);
-  return { store, client, note, threads, comment, reply, answers, ids, memory, server };
+  return { store, client, note, threads, comment, reply, answers, ids, memory };
 }
 
 test("a margin thread is one conversation: @margin resumes its session, a reply without it is a note to self, and the agent sees the thread and the page", async () => {
@@ -176,59 +144,6 @@ test("two asks in a row are answered in turn, the second knowing the first answe
   const both = await until("both answers", async () => { const a = await answers(id); return a.length === 2 && a; });
   expect(both[0]!.body).toStartWith("turn 1; first you asked: why dawn?");
   expect(both[1]!.body).toBe("turn 2; first you asked: why dawn?; I saw an earlier answer.");
-});
-
-test("a long @margin job in a thread: it says it's working and what it has written, then the same reply becomes the answer, linking the notes it signed as margin (PIE-1452)", async () => {
-  const { comment, answers, store } = await setup({ job: 700 }, { working: { after: 100, every: 100 } });
-  const id = await comment("ask", "tomatoes at dawn", "@margin make a page for each plugin");
-  const working = await until("the working reply", async () => (await answers(id)).find(r => r.body.startsWith("⋯ working")));
-  expect(working.body).toBe("⋯ working: @margin is working on it (under a minute)");
-  const sofar = await until("what it has written so far", async () => (await answers(id)).find(r => r.body.includes("so far wrote a note")));
-  expect(sofar.block.id).toBe(working.block.id);
-  const done = await until("the answer", async () => (await answers(id)).find(r => r.body.startsWith("Done")), 15_000);
-  // The working reply became the answer: one reply from margin, not two.
-  expect(done.block.id).toBe(working.block.id);
-  expect(await answers(id)).toHaveLength(1);
-  const pages = store.blocksWrittenBy("margin", "2000-01-01T00:00:00.000Z");
-  expect(pages.map(p => p.actorId)).toEqual(["margin/claude-code@test-box", "margin/claude-code@test-box"]);
-  expect(done.body).toBe(`Done: a page for each plugin.\n\nWrote 2 notes: ((${pages[0]!.id}|Kettle plugin)), ((${pages[1]!.id}|Lantern plugin))`);
-  // A page the person corrects afterwards is still one margin wrote.
-  store.update(pages[1]!.id, "Lantern plugin\nWhat the lantern plugin does, corrected.", pages[1]!.revision, { author: "user" });
-  expect(store.blocksWrittenBy("margin", "2000-01-01T00:00:00.000Z").map(p => p.id).sort()).toEqual(pages.map(p => p.id).sort());
-});
-
-test("a long @margin job on a note's line: the line says how it's going, and the answer folds in under it with links to what it wrote (PIE-1452)", async () => {
-  const { client, store } = await setup({ job: 700 }, { working: { after: 100, every: 100 } });
-  const note = await client.request<{ id: string }>({ action: "create", text: "Plugins we use\n@margin make a page for each plugin", parentId: null, author: "user" });
-  const row = () => store.agentRequests(note.id)[0];
-  const going = await until("its line saying what it has written so far", () => row()?.status === "running" && row()!.message?.includes("so far wrote a note") && row());
-  expect(going.message).toMatch(/^@margin is working on it \(under a minute\) · so far wrote a note: \(\([0-9a-f-]+\|Lantern plugin\)\)$/);
-  await until("the answer", () => row()?.status === "replied", 15_000);
-  const [kettle, lantern] = store.blocksWrittenBy("margin", "2000-01-01T00:00:00.000Z");
-  expect(store.get(note.id)!.text).toBe(`Plugins we use\n@margin make a page for each plugin\n> [!note]- @margin answered\n> Done: a page for each plugin.\n> \n> Wrote 2 notes: ((${kettle!.id}|Kettle plugin)), ((${lantern!.id}|Lantern plugin))`);
-});
-
-test("a working reply a stopping service cuts off says so, with what it had written, instead of 'working' forever (PIE-1452)", async () => {
-  const { comment, answers, server, store } = await setup({ job: 400 }, { working: { after: 100, every: 100 } });
-  const id = await comment("ask", "tomatoes at dawn", "@margin make a page for each plugin");
-  await until("a page written while it works", async () => (await answers(id)).find(r => r.body.includes("so far wrote a note")));
-  await server.close();
-  const [lantern] = store.blocksWrittenBy("margin", "2000-01-01T00:00:00.000Z");
-  const replies = store.listAnnotationThreads({ subject: store.getAnnotation(id).originalTarget.representation.subject as never, includeResolved: true }).find(t => t.block.id === id)!.replies;
-  expect(replies.map(r => r.body)).toEqual([`@margin was cut off: the outline service stopped while it worked · ask again with @margin · before that it wrote a note: ((${lantern!.id}|Lantern plugin))`]);
-});
-
-test("an answer past its deadline says so in the thread, with where to raise it; an agent may have up to 2h, anything else 5m (PIE-1452)", async () => {
-  const { comment, answers } = await setup({ job: 1500, deadline: "1s" });
-  const id = await comment("ask", "soil pH", "@margin make a page for each plugin");
-  const said = await until("the deadline said", async () => (await answers(id))[0], 15_000);
-  expect(said.body).toBe("@margin couldn't answer: stopped after 1s, its deadline: raise agents/margin/deadline in Marginalia's extension.json (up to 2h)");
-  const { loadExtensionManifest } = await import("../src/extension-manifest");
-  const manifest = (agentDeadline: string, deadline = "2m") => ({ directory: "/made-up/lamp", origin: "user" as const, configRaw: "{}", expectedId: "lamp", idFrom: "the folder's name",
-    manifestRaw: JSON.stringify({ contract: 2, id: "lamp", version: 1, name: "Lamp", run: ["true"], deadline, agents: [{ name: "lamp", description: "a lamp", effects: "spend", deadline: agentDeadline }] }) });
-  expect(loadExtensionManifest(manifest("2h")).manifest.agents?.[0]?.deadline).toBe("2h");
-  expect(() => loadExtensionManifest(manifest("3h"))).toThrow(/agents\/0\/deadline is longer than 2h/);
-  expect(() => loadExtensionManifest(manifest("1m", "1h"))).toThrow(/deadline is longer than 5m/);
 });
 
 test("Recent replies: replies on the reader's threads, not their own; unread until the thread is read, and again when a new reply lands", async () => {

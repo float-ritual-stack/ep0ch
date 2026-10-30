@@ -27,6 +27,6 @@
     { "id": "cite", "label": "Cite", "key": "k", "on": "passage", "effects": "read", "description": "Copy the passage with a citation to where it is from" }
   ],
   "agents": [
-    { "name": "margin", "description": "Answers a question about a passage in its margin thread; a later @margin there resumes it", "effects": "spend", "deadline": "1h", "threads": true }
+    { "name": "margin", "description": "Answers a question about a passage in its margin thread; a later @margin there resumes it", "effects": "spend", "deadline": "2m", "threads": true }
   ]
 }

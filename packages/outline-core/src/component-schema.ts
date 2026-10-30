@@ -189,6 +189,7 @@ const RULE: ComponentSchema = {
   props: [
     { key: "rule-name", where: "note", type: "name", meaning: "declares a rule by this name (lowercase letters, digits, - and _)", samples: ["meeting"] },
     { key: "rule-match", where: "note", type: "query", complete: "query", meaning: "a query in the saved views' grammar: the blocks it holds for match", samples: ["type=meeting"] },
+    { key: "property-scope", where: "note", type: "enum", meaning: "which chips rule-match reads, as on a view", values: enumOf({ block: "the note's header (the default)", line: "a line's own chips", inline: "chips inside a line", all: "any of them: an [artifact::…] on a line of its own matches" }) },
     { key: "rule-view", where: "note", type: "ref", meaning: "a saved view ((id)): the blocks its query holds for match" },
     { key: "rule-under", where: "note", type: "ref", meaning: "only blocks under this one ((id)) match" },
     { key: "rule-text", where: "note", type: "pattern", meaning: "a pattern tested line by line outside code; (?i) ignores case, ] is written \\x5d", samples: ["!!(.+)!!"] },

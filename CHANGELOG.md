@@ -10,15 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
-### A long @margin job runs to the end and says it's working; an answered ask leaves your list (PIE-1452, PIE-1451)
+### A repo on an artifact line shows its deployment and deploys on save (PIE-1060)
 
-- **@margin can do a job, not only answer:** "make a page for each plugin" runs up to an hour (it was cut off at 2 minutes, twice, on Oct 30). An agent's `deadline` in `extension.json` may now be up to `2h`; past it, the answer says it stopped and where to raise it.
-- **It says it's working:** after 5 s, the thread gets `⋯ working: @margin is working on it (3 min)`, and every minute what it has written so far; a note's `@margin` line says the same. The working reply becomes the answer.
-- **Its notes are signed margin and linked:** the `claude` it runs writes as `margin/claude-code@<machine>`, and the answer ends `Wrote 13 notes: ((…|Lantern plugin)), …`.
-- **A restart says it cut a job off,** with what it had written, instead of "working" forever.
-- **An ask whose session ends leaves Waiting on Evan by itself:** "The session ended (other) at 3:26 AM before anyone answered: it didn't run." Answered in the dialog or by a tick, as before.
-- **A closed ask takes no more ticks:** its steps become `✓ **allow this once**` and struck lines, not boxes.
-- **Run:** `ep0ch install --apply` (no PROTOCOL or schema change); it refreshes an unchanged marginalia copy, else `ep0ch ext update marginalia`.
+- **The card is the repo:** `[artifact::https://github.com/ep0ch-artifacts/plastik-loop]` (or `github.com/…`, or `ep0ch-artifacts/plastik-loop`) on a line draws a repo card, not "can't read …/https:/github.com/…" and "isn't an artifact".
+- **It says its deploy state:** live at its address, deploying, failed (why, and `run: ep0ch artifact deploy …`), not deployed (the command), or another owner's (the `gh repo fork … --org ep0ch-artifacts` command), with what its last run did. The state comes from the deploy's own records, so an imported deployment counts (plastik-loop's, deployed from the repo it was forked from).
+- **[open ↗] opens the live site;** a repo that isn't live says why when opened, and `[share]` is left off (its site is already public).
+- **Saving deploys it:** the deploy rule now reads an `[artifact::]` on a line of its own (`[property-scope::all]` on the rule; rules take it as views do). Before, it read only the note's header, so a repo on a line never deployed and nothing came of the save. The rule and script your outline has are brought up to date when nobody edited them.
+- **Runs are filed and kept short:** a run's note goes under the `[[artifacts]]` page with `[repo::]` and `[status::]`, and a save that changes nothing refreshes the last run instead of adding a note per edit.
+- **On the published page:** the repo's name links its live site; why it isn't live is shown to you, not to the public.
+- **Try it:** `ep0ch --showcase`, section "artifacts", its last two cards.
+- **Run:** `ep0ch install --apply` (PROTOCOL bump: `artifacts.show` answers `deploy`, `artifacts.deploy` takes `note`; GRAMMAR 16). The host's restart updates the seeded rule and script in pie and gurgle.
 
 ### A link in a figure's cell reads and clicks like a link in prose (PIE-1334)
 

@@ -172,13 +172,8 @@ export function callEndOf(r: { deny?: unknown; isError?: unknown; text?: unknown
   return { ran: !r?.deny && !r?.isError, ...(line ? { said: line.length > 120 ? `${line.slice(0, 119)}…` : line } : {}) }
 }
 
-/** What a turn's end says of a call it never settled when it wasn't interrupted: nobody answered (PIE-1451). */
-export const TURN_ENDED = 'the turn ended without it'
-
 /** The close-out line for an ask the dialog answered in the session before any tick. */
 export function answeredInSession(end: CallEnd, at: string): string {
-  // A turn that ended under the dialog (the session stopped): nobody answered it, so it doesn't say anyone did.
-  if (!end.ran && end.said === TURN_ENDED) return `The session's turn ended at ${at} before anyone answered: it didn't run.`
   return end.ran
     ? `Answered in the session (the dialog) at ${at}: it ran.`
     : `Answered in the session (the dialog) at ${at}: it didn't run${end.said ? ` (${end.said.replace(/[[\]]/g, '')})` : ''}.`
@@ -224,27 +219,11 @@ export class CallsUnderWay {
   }
 }
 
-/**
- * The note once answered: its `needs` chip gone (it waits on nobody), its steps no longer boxes (PIE-1451: a tick after
- * the answer would answer nothing), the one ticked kept as `✓ **…**` and the rest struck, and who answered, how and when.
- */
+/** The note once answered: its `needs` chip gone (it waits on nobody), and who answered, how and when. */
 export function closedText(text: string, said: string): string {
   const [first = '', ...rest] = text.split('\n')
   const head = first.replace(/\s*\[needs::[^\]]*\]/, '').replace(/^Allow /, 'Asked: allow ')
-  let fenced = false
-  const steps = rest.map(line => {
-    if (/^\s*(`{3,}|~{3,})/.test(line)) fenced = !fenced
-    const m = fenced ? null : /^(\s*[-*+]\s+)(\[.\])\s+(.+?)(?:\s+\^[A-Za-z0-9][\w-]*)?\s*$/.exec(line)
-    if (!m) return line
-    const status = boxStatus(m[2]!)
-    return status === 'done' || status === 'approved' ? `${m[1]}✓ **${m[3]}**` : `${m[1]}~~${m[3]}~~`
-  })
-  return [head, ...steps, '', said].join('\n')
-}
-
-/** The close-out line for an ask whose session ended before any answer (PIE-1451): the dialog went with it. */
-export function sessionEndedLine(reason: string, at: string): string {
-  return `The session ended (${reason.replace(/[[\]]/g, '')}) at ${at} before anyone answered: it didn't run.`
+  return [head, ...rest, '', said].join('\n')
 }
 
 /** A tick that counts: the note's last write is the person's (`author: user`), never an agent's or the system's. */

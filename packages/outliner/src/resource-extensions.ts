@@ -17,7 +17,6 @@ import type { MutationProvenance } from "./types";
 import {
   CredentialSchema,
   ExtensionLoadError,
-  MAX_AGENT_DEADLINE_MS,
   MAX_DEADLINE_MS,
   RESERVED_EXTENSION_ENV,
   folderStamp,
@@ -311,11 +310,6 @@ export interface ExtensionCallFor {
   readonly wrote?: { blockId?: string; parentId?: string | null; previousParentId?: string | null }[];
   /** Stops the call (a completion ask the person typed past): its process is ended and its answer dropped. */
   readonly signal?: AbortSignal;
-  /**
-   * The agent this call answers as (`respond`, PIE-1452): its deadline may run to MAX_AGENT_DEADLINE_MS, and the
-   * programs it starts write as that persona (`EP0CH_AGENT`), so a `claude` it runs signs its notes `margin/…`.
-   */
-  readonly agent?: string;
 }
 
 type ExtensionOperation = "resolve" | "read" | "changed" | "run" | "act" | "respond" | "decorate" | "bar" | "source";
@@ -548,7 +542,7 @@ export class ResourceExtensionRuntime {
     callFor: ExtensionCallFor,
     unchanged: () => Promise<boolean>,
   ): Promise<ExtensionResult> {
-    const deadline = Math.min(callFor.agent ? MAX_AGENT_DEADLINE_MS : MAX_DEADLINE_MS, deadlineMs ?? this.timeoutMs);
+    const deadline = Math.min(MAX_DEADLINE_MS, deadlineMs ?? this.timeoutMs);
     signal = AbortSignal.any([
       ...(signal ? [signal] : []),
       AbortSignal.timeout(deadline),
@@ -663,7 +657,6 @@ export class ResourceExtensionRuntime {
       // An outline host's own socket says where its outlines are: a program it starts (`claude` for @margin) finds the
       // same host and folder, and the mod knows the socket is this machine's.
       ...(outlinesOfHostSocket(connection.socket) ? { EP0CH_OUTLINES: outlinesOfHostSocket(connection.socket)! } : {}),
-      ...(callFor.agent ? { EP0CH_AGENT: callFor.agent } : {}),
     };
     let output: string, replyTail = "";
     const deliverReply = async (chunk: string, final = false) => {

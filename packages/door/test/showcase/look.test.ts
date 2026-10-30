@@ -1014,6 +1014,22 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
   }, 30_000);
 
 
+  test("artifacts: a repo's card says its deploy state and the command that fixes it, and open says why it can't yet", async () => {
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "artifacts" }, as: "test-agent" });
+    await until(() => screen().includes("Orbit lamp pinned"), "the artifacts note", 8000);
+    // The repo cards are at the note's end: scrolled to, the [ ] position left where it was.
+    await app.act({ action: "scroll", args: { to: "end" }, as: "test-agent" });
+    await until(() => screen().includes("orbit-lamp-site --org"), "the repo cards", 8000);
+    expect(screen()).toContain("◇ repo");
+    expect(screen()).toContain("○ not deployed");
+    expect(screen()).toContain("run: ep0ch artifact deploy ep0ch-artifacts/orbit-lamp-site");
+    expect(screen()).not.toContain("isn't an artifact");
+    await expect(app.act({ action: "artifact.open", args: { n: 4 }, as: "test-agent" })).rejects.toThrow(/ep0ch-artifacts\/orbit-lamp-site isn't live: .*run ep0ch artifact deploy ep0ch-artifacts\/orbit-lamp-site/);
+    await app.act({ action: "scroll", args: { to: "top" }, as: "test-agent" });
+  }, 30_000);
+
   test("artifacts: file paths, live and pinned cards open the static URLs by key, mouse and agent action", async () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     (app as any).lastInput = 0;
@@ -1062,6 +1078,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(await app.act({ action: "artifact.open", args: { n: 1 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: last.url, launched: false });
     expect((await board.get(note.id))!.text).toBe(text);
   }, 30_000);
+
 
   test("artifacts from a remote session use the laptop link or copy a clickable URL", async () => {
     const session = new SessionTerm(), bytes: string[] = [];

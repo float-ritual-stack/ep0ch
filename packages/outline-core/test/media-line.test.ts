@@ -1,6 +1,6 @@
 // The media line's grammar is shared (PIE-598): the service's property parser and every client agree on it.
 import { describe, expect, test } from "bun:test";
-import { artifactKind, artifactTitle, HERO_PROP_NAMES, heroPropSet, heroPropStep, heroFromRetired, heroPropText, imagePrimitiveSpec, imageSource, isMediaLine, parseMediaLine, rewriteMediaLine, withHeroLine } from "../src/media-line";
+import { artifactKind, artifactRepoRef, artifactTitle, HERO_PROP_NAMES, heroPropSet, heroPropStep, heroFromRetired, heroPropText, imagePrimitiveSpec, imageSource, isMediaLine, parseMediaLine, rewriteMediaLine, withHeroLine } from "../src/media-line";
 
 test("a media line is an image or video reference and its layout, nothing else", () => {
   expect(isMediaLine("[img::/p/beds.jpg] [hero-focus::0.8,0.6] [alt::the beds]")).toBe(true);
@@ -108,4 +108,12 @@ describe("the retired look keys' migration (PIE-1365): what a move writes on the
     // A picture in a fence is an example, and one of the same name elsewhere is another picture: a new line for both.
     expect(withHeroLine("Seed shed\n\n```\n[img::media/shed.png]\n```\n\n[img::old/shed.png]", "media/shed.png", {}).line).toBe(1);
   });
+});
+
+test("an artifact line may name a GitHub repo (PIE-1060): a URL, github.com/… or owner/name, never a file or another host", () => {
+  for (const value of ["https://github.com/ep0ch-artifacts/moth-garden", "github.com/ep0ch-artifacts/moth-garden.git", "ep0ch-artifacts/moth-garden/"])
+    expect(artifactRepoRef(value)).toEqual({ owner: "ep0ch-artifacts", name: "moth-garden", repo: "ep0ch-artifacts/moth-garden" });
+  for (const value of ["shots/lamp.html", "https://example.com/a/b", "/home/someone/lamp", "~/lamp/site", "moth-garden", "https://github.com/a/b/tree/main"])
+    expect(artifactRepoRef(value)).toBeNull();
+  expect(parseMediaLine("[artifact::https://github.com/ep0ch-artifacts/moth-garden]")).toMatchObject({ kind: "artifact", problems: [] });
 });

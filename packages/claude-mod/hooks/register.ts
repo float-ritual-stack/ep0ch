@@ -38,7 +38,7 @@ import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-pers
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekArgv, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, stampOf, unwrapPeer } from './peer-log'
-import { answeredInSession, answerOf, approveWaitMs, askOutlineOf, askPageCreateArgv, askPageFindArgv, askReadOf, askText, byThePerson, callEndOf, callKey, CallsUnderWay, closedText, sessionEndedLine, sessionGrantOf, stepWords, TURN_ENDED, type CallEnd } from './approve'
+import { answeredInSession, answerOf, approveWaitMs, askOutlineOf, askPageCreateArgv, askPageFindArgv, askReadOf, askText, byThePerson, callEndOf, callKey, CallsUnderWay, closedText, sessionGrantOf, stepWords, type CallEnd } from './approve'
 import { HEARD_EVERY_MS, heardText, outcomeKey, outcomesPageOf, proposalsInput, untold, wakes, type Outcome } from './proposals-heard'
 import { addressedWakeText, askKey, asksOf, mentionArgs, newAsks, notesToRead, PERSONA_NAME, readArgs, repliesArgs, shownAsks, threadsToRead, type Ask } from './addressed'
 import { baselineOf, DEFAULT_OUTLINES, facetCountsOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
@@ -648,12 +648,6 @@ export function register(on: On, options: PluginOptions): void {
 
   // /clear starts the conversation afresh: the card shows again, read anew, and the next first prompt carries it.
   on('session.end', async ($, e, next) => {
-    // Its asks leave the person's list with it (PIE-1451): the dialog they stood for is gone, so a later tick answers
-    // nothing. Awaited: the process may be going away. A /clear ends the dialog too.
-    if (openAsks.size) {
-      const at = stampOf(await $.clock.now())
-      await Promise.all([...openAsks.values()].map(ask => closeAsk($, ask, sessionEndedLine(String(e.reason ?? 'other'), at), true).catch(() => {})))
-    }
     const result = await next(e)
     // Its program status: a /clear is a fresh conversation at its prompt; an end takes the record away.
     reportStatus($, e.reason === 'clear' ? sessionStarted() : sessionEnded())
@@ -927,7 +921,7 @@ export function register(on: On, options: PluginOptions): void {
   on('turn.complete', async ($, e, next) => {
     // A dialog's No interrupts the turn and its call never settles: the turn's end settles the loop's calls under way.
     // A dialog's No interrupts the turn, and the hook that asked can no longer write: the turn's end closes its asks.
-    const over: CallEnd = { ran: false, said: e.reason === 'aborted' ? 'the turn was interrupted' : TURN_ENDED }
+    const over: CallEnd = { ran: false, said: e.reason === 'aborted' ? 'the turn was interrupted' : 'the turn ended without it' }
     callsUnderWay.endLoop(e.agentId, over)
     const left = [...openAsks.values()].filter(a => a.agentId === e.agentId)
     if (left.length) $.clock.after(0, () => void (async () => {

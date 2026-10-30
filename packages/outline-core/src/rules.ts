@@ -261,7 +261,8 @@ export const RULE_NAME = /^[a-z0-9][a-z0-9_-]{0,39}$/;
  * also the property case), `view` (a saved view's query, by its block), `under` (only blocks under this one), `text`
  * (a pattern, line by line, outside code) and `kind` (a construct). Without `text` or `kind` the whole block matches.
  */
-export interface RuleMatch { query?: string; view?: string; under?: string; text?: string; kind?: string }
+/** `propertyScope`: which chips its query reads, as a view's `[property-scope::]` says (left out, the note's own header's). */
+export interface RuleMatch { query?: string; view?: string; under?: string; text?: string; kind?: string; propertyScope?: "line" | "inline" | "all" }
 
 /** An extension's action a rule runs: `[rule-on::intake/prior-art]`. */
 export interface ActionRef { extension: string; action: string }
@@ -354,7 +355,8 @@ const blockRef = (raw: string) => {
  * - what it matches: `[rule-match::type=meeting]` (a query, a tag too: `[rule-match::#pie-request]`; a comment or a
  *   reply is matched like a note), `[rule-view::((id))]`, `[rule-under::((id))]`,
  *   `[rule-text::!!(.+)!!]` (a pattern; `]` written `\x5d`), `[rule-kind::heading:1]`; at least one of match, view,
- *   text or kind;
+ *   text or kind; `[property-scope::all]` has its query read the chips on any line too, as a view's does (an
+ *   `[artifact::…]` on a line of its own, PIE-1060);
  * - what it draws: `[rule-decorate::band]` (band, card, badge, text, box, divider), `[rule-place::replace]` (prepend,
  *   append, replace, around), `[rule-label::{{this.title}}]`, `[rule-tone::accent]`, `[rule-fields::attendees, when]`,
  *   `[rule-pattern::stack]`, `[rule-align::center]`, `[rule-style::plot]` (a heading style by name, PIE-599: a band or
@@ -377,6 +379,9 @@ export function rulesFromBlocks(blocks: readonly RuleDeclaringBlock[]): { rules:
     const match: RuleMatch = {};
     const query = prop("rule-match"), text = prop("rule-text"), kind = prop("rule-kind");
     if (query) match.query = query;
+    const scope = prop("property-scope")?.toLowerCase();
+    if (scope === "line" || scope === "inline" || scope === "all") match.propertyScope = scope;
+    else if (scope !== undefined && scope !== "block") problems.push(`${where}: property-scope ${JSON.stringify(scope)} isn't block, line, inline or all, so its query reads the header's chips`);
     if (text) {
       const compiled = compileRulePattern(text);
       if ("problem" in compiled) { problems.push(`${where}: ${compiled.problem}`); continue; }
