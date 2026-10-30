@@ -864,6 +864,23 @@ for (const [cols, fits] of [[177, true], [120, false]] as const) test(`a kept sp
   } finally { extra = {}; }
 });
 
+test("an open into a folded reader replaces its note: no second spine for its unfolding to squeeze the others", () => {
+  const s = { ...init({ tree: splitOf("row", [leaf(2), leaf(5)], [1, 1]), names: new Map([[2, "reader"], [5, "reader2"]]) }), collapsed: new Map([[2, {}]]) };
+  extra = { 2: { notes: true, held: true, showing: "old" }, 5: { notes: true, held: true, showing: "other" } };
+  try { expect(placement(s, { from: 5, to: 2, note: "new" }, ctxOf(PERSON, { focus: 5 }, { ...AREA, cols: 80 })).keep).toBeUndefined(); } finally { extra = {}; }
+});
+
+test("a list's ⏎ aimed at a pinned reader lands in the idle reader and leaves the person's keys on the list", () => {
+  const s = init({ tree: splitOf("row", [leaf(1), leaf(2), leaf(5)], [1, 1, 1]), names: new Map([[1, "tree"], [2, "reader"], [5, "reader2"]]), wires: [{ from: 1, verb: "open", to: 2 }] });
+  extra = { 1: { lists: true }, 2: { pinned: true, held: true, showing: "kept" }, 5: { held: true } };
+  try {
+    const plan = placement(s, { from: 1, note: "new" }, ctxOf(PERSON, { focus: 1 }));
+    expect(plan.destination).toEqual({ kind: "swap", tile: 5 });
+    expect(plan.keys).toBeUndefined();
+    expect(plan.why).toContain("reader is pinned: opened in reader2");
+  } finally { extra = {}; }
+});
+
 describe("renaming a tile (PIE-1283)", () => {
   test("the name changes where a name is looked up, a taken name is refused, and the open rules that name it follow", () => {
     const into = ok(fresh(), { op: "policy", tile: 3, set: { opensInto: "reader" }, clear: [] }).state;

@@ -712,12 +712,12 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       const again = besideReader(s, ctx, target);
       const name = String(s.names.get(target));
       // It replaces there (no spine kept): the reader beside a pinned one is where its opens go, one at a time.
-      if (again !== undefined) return { ...placement(s, { ...request, default: false, to: again, keep: false }, ctx), route };
+      if (again !== undefined) return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: again, keep: false }, ctx), route };
       // Else a reader on the screen that sits idle (no list feeds it, nothing pinned or typed in it), an empty one first:
       // it takes the open before the pinned one is split in two (PIE-1207).
       const idle = visible(s.tree).filter(id => id !== target && takesOpen(s, ctx, id) && ctx.tile(id).held);
       const free = idle.find(id => !ctx.tile(id).showing) ?? idle[0];
-      if (free !== undefined) return { ...placement(s, { ...request, default: false, to: free, keep: false }, ctx), route, besideOf: target, why: `${name} is pinned: opened in ${String(s.names.get(free))} · p in ${name} unpins it` };
+      if (free !== undefined) return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: free, keep: false }, ctx), route, besideOf: target, why: `${name} is pinned: opened in ${String(s.names.get(free))} · p in ${name} unpins it` };
       // A floating one has no split beside it: a float near it takes the open.
       result.destination = { kind: "new", at: isFloat(s, target) ? { kind: "float", near: target } : { kind: "split", target, dir: "right" } };
       result.besideOf = target;
@@ -753,7 +753,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       if (result.giveNewKeys) result.keys = target;
       const chain = chainOf(s.tree, target);
       const space = effective([{ by: "screen", policy: s.policy }, ...chain.map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
-      if (request.keep !== false && !s.wires.some(w => w.from === from && w.verb === verb && w.to === target) && (!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held && !request.default || request.keep) && facts.showing && facts.showing !== note && !allTiles(s).some(id => id !== target && ctx.tile(id).notes && !ctx.tile(id).follower && !ctx.tile(id).lists && ctx.tile(id).showing === facts.showing) && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
+      if (request.keep !== false && !s.wires.some(w => w.from === from && w.verb === verb && w.to === target) && (!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held && !request.default || request.keep) && !s.collapsed.has(target) && facts.showing && facts.showing !== note && !allTiles(s).some(id => id !== target && ctx.tile(id).notes && !ctx.tile(id).follower && !ctx.tile(id).lists && ctx.tile(id).showing === facts.showing) && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
         const order = leaves(s.tree), before = from === target ? order.indexOf(target) > 0 : order.indexOf(from) < order.indexOf(target);
         const row = parentOf(s.tree, target)?.parent;
         const flowCovers = row?.t === "flow" ? coversOf(s, row, ctx.area, id => !!ctx.tile(id).holds) : undefined;
