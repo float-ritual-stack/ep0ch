@@ -194,6 +194,28 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     } finally { while (app.screens().includes(desk) && app.screens().at(-1) !== desk) app.pop(); app.pop(); desk.dispose(); }
   });
 
+  test("/ in a links tile with nothing listed says so and takes no keys (PIE-1459)", async () => {
+    const d = new Desk({ name: "empty-links", title: "empty links", layout: { focus: "links", root: { t: "leaf", kind: "backlinks", name: "links" } } });
+    app.push(d);
+    try {
+      await d.dispatch.act({ action: "tile.focus", tile: "links" }, USER);
+      const before = app.messages.rows.length;
+      ch("/");
+      await until(() => app.messages.rows.length > before, "a word on why / does nothing");
+      expect(app.messages.rows.at(-1)!.message).toContain("nothing to filter");
+      // The next key is the tile's again, not a filter's nobody can see.
+      expect((d.pane("links") as any).draft).toBe(null);
+      // Aimed at a note nothing links to, / draws the filter it types into.
+      const lone = await board.createBlock(seeded.notes.root.id, "A lone seed tray", USER);
+      await d.dispatch.act({ action: "backlinks", tile: "links", args: { id: lone.id } }, USER);
+      const pane = d.pane("links") as any, drawn = () => pane.render(60, 10, true, d).lines.map((l: string) => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, "")).join("\n");
+      await until(() => !drawn().includes("asking the service"), "the empty links read");
+      ch("/"); ch("q");
+      expect(drawn()).toContain("Filter: q");
+      press({ kind: "esc" });
+    } finally { app.pop(); d.dispose(); }
+  });
+
   test("a message's link opens where the reader's would: another outline's note there, a page not yet read (PIE-1453)", async () => {
     const journal = prop(seeded.notes.crossOutline, "foreign-note")!;
     const desk = openScreen("desk") as Desk;
