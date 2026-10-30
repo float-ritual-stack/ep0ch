@@ -169,3 +169,28 @@ test("a component's brief: purpose in a line, where, each property as key: value
   expect(brief).not.toContain("```text");
   expect(componentBriefs([schema("rule"), schema("callout")])).toContain("\n```\n\n## callout\n");
 });
+
+test("an extension's origin is kept when it says one, ext:<id> when not; a clash names the origin it hit", () => {
+  const ext: ComponentSchema = { ...schema("graph-spark"), id: "lanes", title: "Lanes", origin: undefined };
+  const { schemas, problems } = mergeComponentSchemas({ extensions: [
+    { id: "s-lanes", components: [ext], origin: "note:((0a1b2c3d))" },
+    { id: "kit", components: [{ ...ext, id: "lanes-too" }] },
+    { id: "s-again", components: [ext], origin: "note:((feedbeef))" },
+    { id: "s-callout", components: [{ ...ext, id: "callout" }], origin: "note:((11111111))" },
+  ] });
+  expect(schemas.find(s => s.id === "lanes")!.origin).toBe("note:((0a1b2c3d))");
+  expect(schemas.find(s => s.id === "lanes-too")!.origin).toBe("ext:kit");
+  expect(problems).toEqual([
+    "extension s-again: component lanes is note:((0a1b2c3d))'s already; give it another id",
+    "extension s-callout: component callout is a built-in's already; give it another id",
+  ]);
+});
+
+test("zero props pass only for a note's schema; required is a boolean", () => {
+  const good = { id: "count", group: "this outline's", title: "Count", intro: "A count.", where: "on a line", props: [], source: { use: "::count{}" }, example: {}, sweep: [], grids: [], space: [] };
+  expect(componentSchemaProblem({ ...good, origin: "note:((0a1b2c3d))" })).toBeNull();
+  expect(componentSchemaProblem(good)).toBe("props is a list of 1 to 32 properties");
+  const prop = { key: "where", where: "line", type: "query", meaning: "which notes" };
+  expect(componentSchemaProblem({ ...good, props: [{ ...prop, required: true }] })).toBeNull();
+  expect(componentSchemaProblem({ ...good, props: [{ ...prop, required: "yes" }] })).toBe("props/0/required is true or false");
+});

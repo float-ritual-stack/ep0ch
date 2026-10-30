@@ -52,6 +52,8 @@ export interface PropSchema {
   max?: number;
   /** What it is when left out. */
   default?: string;
+  /** A call must give it (a note component's `[form-field::where query required]`). */
+  required?: boolean;
   /** Values worth drawing for a type with no list (a room, a text): the axis a page sweeps. */
   samples?: string[];
   /**
@@ -105,7 +107,7 @@ export interface ComponentSchema {
   grids: [string, string][];
   /** The axes of the whole cartesian space (filtered, never dumped). */
   space: string[];
-  /** `built-in`, or `ext:<id>` for an extension's. */
+  /** `built-in`, `ext:<id>` for an extension's, or `note:((id))` for a render script's (script-component.ts). */
   origin?: string;
 }
 
@@ -313,7 +315,8 @@ export const BUILTIN_COMPONENT_SCHEMAS: readonly ComponentSchema[] = [HEADING_ST
 export interface ComponentDeclarations {
   headingStyles?: readonly HeadingStyle[];
   calloutTypes?: readonly CalloutType[];
-  extensions?: readonly { id: string; components: readonly ComponentSchema[] }[];
+  /** `origin`: what the schemas are marked, `ext:<id>` when left out (a script note's: `note:((id))`). */
+  extensions?: readonly { id: string; components: readonly ComponentSchema[]; origin?: string }[];
 }
 
 /**
@@ -343,7 +346,7 @@ export function mergeComponentSchemas(d: ComponentDeclarations = {}): { schemas:
   for (const ext of d.extensions ?? []) for (const c of ext.components) {
     const taken = schemas.find(s => s.id === c.id);
     if (taken) { problems.push(`extension ${ext.id}: component ${c.id} is ${taken.origin === "built-in" ? "a built-in's" : `${taken.origin}'s`} already; give it another id`); continue; }
-    schemas.push(filled({ ...c, origin: `ext:${ext.id}` }));
+    schemas.push(filled({ ...c, origin: ext.origin ?? `ext:${ext.id}` }));
   }
   return { schemas, problems };
 }
@@ -357,14 +360,16 @@ const isRecordOfStrings = (x: unknown): x is Record<string, string> => !!x && ty
 
 /**
  * Why `raw` isn't a component schema (as `extension.json`'s `components[]` writes one), naming the field; null when it
- * is one. Every property the axes and the example name must be one of its props.
+ * is one. Every property the axes and the example name must be one of its props. A render script's (origin
+ * `note:((id))`) may take no props: `::open-count{}` draws with none.
  */
 export function componentSchemaProblem(raw: unknown): string | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "a component is an object";
   const c = raw as Record<string, unknown>;
   if (!isStr(c.id) || !SLUG.test(c.id)) return "id is a slug (lowercase letters, digits and -)";
   for (const f of ["title", "intro", "where", "group"] as const) if (!isStr(c[f]) || !(c[f] as string).trim()) return `${f} is words`;
-  if (!Array.isArray(c.props) || !c.props.length || c.props.length > 32) return "props is a list of 1 to 32 properties";
+  const fromNote = typeof c.origin === "string" && c.origin.startsWith("note:");
+  if (!Array.isArray(c.props) || (!c.props.length && !fromNote) || c.props.length > 32) return `props is a list of ${fromNote ? 0 : 1} to 32 properties`;
   const keys = new Set<string>();
   for (const [i, p] of (c.props as unknown[]).entries()) {
     const at = `props/${i}`;
@@ -382,6 +387,7 @@ export function componentSchemaProblem(raw: unknown): string | null {
     if (q.samples !== undefined && (!Array.isArray(q.samples) || q.samples.length > 16 || !q.samples.every(s => isStr(s, 300)))) return `${at}/samples is a list of values`;
     for (const f of ["default", "token", "use"] as const) if (q[f] !== undefined && !isStr(q[f])) return `${at}/${f} is text`;
     if (q.complete !== undefined && q.complete !== "query") return `${at}/complete is query`;
+    if (q.required !== undefined && typeof q.required !== "boolean") return `${at}/required is true or false`;
     if (q.valuesFrom !== undefined && q.valuesFrom !== "heading-styles" && q.valuesFrom !== "callout-types") return `${at}/valuesFrom is heading-styles or callout-types`;
   }
   if (c.propsFrom !== undefined && (!isStr(c.propsFrom) || !keys.has(c.propsFrom))) return "propsFrom names one of its props";
