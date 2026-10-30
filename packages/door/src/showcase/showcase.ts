@@ -1478,6 +1478,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "lens", need: "draw a live, editable table of what a query holds, from one line in any note", part: "the query grammar reading this, q() rows with properties, a file render script, table cells that press or open, outline_set_property", files: "outliner/extensions/lens/scripts/ (lens.js, lens-set.js), outliner/extensions/lens/demo/",
+    aside: "Lens, installed with its lab. Jobs: press a stage cell to step it todo → doing → done (ctrl+z takes it back); the table redraws from the change · the day note's line reads {{this.page}}, so the same line in the next day shows that day's meetings · Seed order: cost=\"qty * price\" is a computed column, sum=cost its footer; edit a quantity and the sum follows · group=priority folds rows into boxes · lens:: view=[[Meetings]] draws a saved view · an agent runs what a press runs: lens-set note=<id> key=stage value=done",
+    stage(n, show) {
+      const a = new ReaderPane(true), b = new ReaderPane(true), c = new ReaderPane(true);
+      return deskOf({ title: "showcase · lens", panes: [a, b, c], names: ["jobs", "day", "order"], layout: ([x, y, z]) => pair("col", 0.5, leaf(x!), row(0.5, y!, z!)) }, show, [[a, n.lensJobs], [b, n.lensDay], [c, n.lensOrder]]);
+    },
+  },
+  {
     key: "scripts", need: "bind scripts to keys, names, rules and asks without waiting", part: "the dispatcher, action lines, QuickJS and run undo", files: "outliner/src/script-runs.ts, src/extensions.ts",
     aside: "alt+S runs seed-report · ^K or / then seed-report runs by name · slots are name=value · @seed-count runs in a note; rule-on::script:seed-count uses the same trigger path · alt+Q or click ⇧⌥Q starts recording · open a query tile with ^K tile.open kind=query query=\"#beans\" · alt+Q or REC stop saves a [script::] note · edit #beans to #{tag}; Run recording from ^K asks for tag · agent actions stay out · Run seed-report streams results below its source; ext.undo takes back its writes together",
     stage(n, show) {

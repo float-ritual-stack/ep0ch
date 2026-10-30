@@ -196,6 +196,7 @@ export const marks: Record<string, string[]> = {
   asks: ["Keep writing while the answer arrives"],
   neat: ["A neat workbench", "[neat]"],
   wyrm: ["Wyrmhold", "join the realm", "Dozing Gerald"],
+  lens: ["Jobs", "Fix the gate latch", "Seed order"],
   scripts: ["Seed report", "Press alt+S"],
   "button-sequences": ["One button, two tiles", "Fold the bottom", "Sugar"],
   "pick-a-tile": ["Pick a tile instead of typing its id", "pop it", "misread"],
