@@ -1526,7 +1526,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     await until(() => a.screen().includes("chard-42"), "the desk with its shell", 10_000);
     // The fake agent is the shell the first test opened: a program in a tile, kept through every handover.
     const shell = await shellPid();
-    const tile = ((await control({ cmd: "peek" })).screen.state.panes as any[]).find(p => p?.terminal?.pid === shell)!.id as string;
+    const tile = ((await control({ cmd: "peek", full: true })).screen.state.panes as any[]).find(p => p?.terminal?.pid === shell)!.id as string;
     const before = daemonPid();
     expect(await request({ t: "upgrade" })).toMatchObject({ t: "ask", message: "handed over" });
     await until(() => a.closed, "the old daemon to let the terminal go", 5000);
