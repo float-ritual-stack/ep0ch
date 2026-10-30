@@ -1810,7 +1810,7 @@ export class Showcase implements Screen {
     canvas.text(x, 1, paint(`|14${this.sel + 1} · ${s.need} |08· |15${s.part}`), w);
     canvas.text(x, 2, paint(`|08${s.files}`), w);
     if (s.aside) canvas.text(x, 3, paint(`|13${s.aside}`), w);
-    let placements: Placement[] = [];
+    let placements: Placement[] = [], chrome = 1;
     this.stageRect = { col: x, row: 4, cols: w, rows: Math.max(1, H - 5) };
     if (this.problem) wrap(this.problem, w).forEach((line, i) => canvas.text(x, 5 + i, paint(`|12${line}`), w));
     else if (!this.notes) canvas.text(x, 5, paint("|08reading the showcase outline…"), w);
@@ -1825,9 +1825,11 @@ export class Showcase implements Screen {
       const frame = f.render(r.cols, r.rows, `s${this.sel}`);
       frame.lines.forEach((l, i) => canvas.text(r.col, r.row + i, l, r.cols));
       placements = (frame.placements ?? []).map(p => ({ ...p, col: p.col + r.col, row: p.row + r.row }));
+      // The stage's chrome (its desk's hint row) right above this hint row is chrome too: a message said whole sits above both (PIE-1456).
+      if (frame.chrome && r.row + frame.lines.length === H - 1) chrome += frame.chrome;
     }
     canvas.text(0, H - 1, this.hints(cols), cols);
-    return { lines: canvas.lines(), placements };
+    return { lines: canvas.lines(), placements, chrome };
   }
 
   private hints(cols: number): string {

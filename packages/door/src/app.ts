@@ -1793,6 +1793,8 @@ export class App implements Ctx {
     nextFrame();
     const frame = withRowLimit(lookFor(this, { screen: s.title }, cols).values["rows.lines"], () => s.render(this));
     let lines = frame.lines.slice(0, rows - 1);
+    // Where the screen's own chrome starts (a desk's hint row, PIE-1456): a frame drawn shorter (beside a drawer) ends higher.
+    let chromeAt = lines.length - Math.min(frame.chrome ?? 0, lines.length);
     while (lines.length < rows - 1) lines.push("");
     let placements = this.graphics ? [...(frame.placements ?? [])] : [];
     // The layers over the screen's tiles, bottom first (layerOrder, PIE-1221): the drawer and the screen's floats in the
@@ -1836,6 +1838,7 @@ export class App implements Ctx {
         lines.forEach((line, row) => canvas.text(0, row, line, cols));
         const lift = lifted.paintLift(canvas, { col: 0, row: 0, cols, rows: rows - 1 });
         lines = lift.lines;
+        chromeAt = lines.length - Math.min(lift.chrome ?? 0, lines.length);
         placements = [...uncover(placements, lift.covered), ...(lift.placements ?? [])];
       }
     }
@@ -1851,10 +1854,10 @@ export class App implements Ctx {
     // Longer than its four rows, it ends "… more alt+M"; a click on it (or alt+M) opens the message log, which has it whole (PIE-1453).
     const whole = this.messageCut && this.message ? referenceWords(this.message) : "";
     // Above the screen's own bottom chrome (a desk's hint row, PIE-1456): the ▣ a refusal says to click stays there to click.
-    const chrome = Math.max(0, Math.min(frame.chrome ?? 0, lines.length - 1));
-    if (whole) lines = [...withWhole(lines.slice(0, lines.length - chrome), whole, cols, this.messageWarning), ...lines.slice(lines.length - chrome)];
-    const said = whole ? Math.min(4, wrap(printable(whole, " "), Math.max(1, cols - 2)).length, lines.length - chrome) : 0;
-    this.whole = { top: lines.length - chrome - said, rows: said };
+    const at = Math.max(1, Math.min(chromeAt, lines.length));
+    if (whole) lines = [...withWhole(lines.slice(0, at), whole, cols, this.messageWarning), ...lines.slice(at)];
+    const said = whole ? Math.min(4, wrap(printable(whole, " "), Math.max(1, cols - 2)).length, at) : 0;
+    this.whole = { top: at - said, rows: said };
     lines.push(bar);
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     const readable = this.overflow.draw(lines, cols, Date.now());

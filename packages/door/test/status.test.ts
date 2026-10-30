@@ -549,27 +549,35 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { size.cols = 220; app.flash(""); await board.trash(inbox.id, USER); }
   });
 
-  test("a refusal said whole sits above the desk's hint row: its ▣ screen locked unlocks on a click at 44 and 160 columns (PIE-1456)", async () => {
+  test("a refusal said whole sits above the desk's hint row: its ▣ screen locked unlocks on a click, at 44 and 160 columns, with a tile lifted and with the drawer beside (PIE-1456)", async () => {
     const said = "an agent (a-probe) · tile.close refused: the screen is locked: closing replies is refused · a click on ▣ screen locked (or ^W P) unlocks it";
+    const desk = () => app.screens().at(-1) as any;
+    const as = (action: string, args: Record<string, unknown> = {}, tile?: string) => app.act({ action, args, ...(tile ? { tile } : {}), as: "a-probe" });
+    const unlocksByClick = async (where: string) => {
+      await as("layout.lock", { on: true }, desk().layoutGet().tiles[0].name);
+      app.flash(said, 60_000, { kind: "refusal" });
+      await until(() => { app.flush(); return painted.some(l => visible(l).includes("closing replies")); }, `the refusal said whole, ${where}`);
+      // The hint row keeps its chip under the message (its ▣ is ◙ in some video modes), and a click on it is the chip's.
+      const rows = painted.slice(0, -1).map(l => visible(l)), y = rows.findLastIndex(l => l.includes("screen locked"));
+      expect(rows.findIndex(l => l.includes("unlocks it")), where).toBeLessThan(y);
+      const ran: string[] = [];
+      const stop = traceActions(a => ran.push(a.name));
+      try {
+        press({ kind: "mouse", action: "down", button: 0, x: rows[y]!.indexOf("screen locked"), y });
+        await until(() => ran.includes("layout.lock"), `the chip pressed, ${where}`);
+        expect(ran, where).not.toContain("status.log");
+      } finally { stop(); }
+      expect(desk().layoutGet().locked, where).toBe(false);
+      app.flash("");
+    };
     try {
-      for (const cols of [44, 160]) {
-        size.cols = cols;
-        await app.act({ action: "layout.lock", args: { on: true }, as: "a-probe" });
-        app.flash(said, 60_000, { kind: "refusal" });
-        await until(() => { app.flush(); return painted.slice(-6, -1).map(l => visible(l)).join(" ").includes("closing replies"); }, `the refusal said whole at ${cols}`);
-        // The hint row is the screen's last, under the message: its chip is drawn, and a click on it is the chip's.
-        const hint = visible(painted.at(-2) ?? ""), x = hint.indexOf("screen locked");      // its ▣ is ◙ in some video modes
-        expect(x).toBeGreaterThanOrEqual(0);
-        expect(hint).not.toContain("closing replies");
-        const ran: string[] = [];
-        const stop = traceActions(a => ran.push(a.name));
-        try {
-          press({ kind: "mouse", action: "down", button: 0, x, y: 38 });
-          await until(() => ran.includes("layout.lock"), `the chip pressed at ${cols}`);
-          expect(ran).not.toContain("status.log");
-        } finally { stop(); }
-        expect(((app.screens().at(-1) as any).layoutGet()).locked).toBe(false);
-      }
+      for (const cols of [44, 160]) { size.cols = cols; await unlocksByClick(`at ${cols} columns`); }
+      await as("tile.zoom", { reach: "column" }, desk().layoutGet().tiles[0].name);
+      try { await unlocksByClick("with a tile lifted"); } finally { await as("tile.zoom", { on: false }, desk().layoutGet().tiles[0].name); }
+      await as("layout.policy", { node: "screen", host: "beside" });
+      await app.dispatch.act({ action: "host.toggle" }, USER);
+      expect(app.drawer.mode).toBe("beside");
+      try { await unlocksByClick("with the drawer beside"); } finally { await as("layout.policy", { node: "screen", clear: "host" }); }
     } finally { size.cols = 220; app.flash(""); }
   });
 
