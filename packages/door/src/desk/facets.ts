@@ -29,7 +29,7 @@ import { ATTACHED_PLACES, AttachedTile, attachedPlaceOf, attachedRect, drawAttac
 import type { AttachedOwner, Attachment } from "./attached-tile";
 import { drawCalendar } from "../figures/days";
 import { chipsOf, matchGroups, matchRows, MORE, type MatchGroup } from "./facets-matches";
-import { bucketWhere, dayBound } from "@ep0ch/outline-core/date-buckets";
+import { bucketWhere, dayBound, dayOfClause } from "@ep0ch/outline-core/date-buckets";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
 
@@ -59,12 +59,6 @@ const HINT = "j k pick · ⏎ or click includes a value, again excludes it, agai
 const SHOW = ["tag"];
 /** A day picked on the calendar, as the views' grammar writes it (the service's day, as `updated >= YYYY-MM-DD` reads). */
 export const dayClause = (day: string) => { const d = dayWords(day); return `updated >= "${d}" updated <= "${d}"`; };
-/** The day a query is, when it is exactly a day's clause as the calendar writes it (`updated >= "29 Oct 2026" updated <= "29 Oct 2026"`). */
-export function parseDayClause(q: string): string | null {
-  const m = /^\s*updated >= "(\d{1,2}) (\w{3}) (\d{4})" updated <= "\1 \2 \3"\s*$/.exec(q);
-  const mo = m ? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(m[2]!) : -1;
-  return m && mo >= 0 ? `${m[3]}-${String(mo + 1).padStart(2, "0")}-${m[1]!.padStart(2, "0")}` : null;
-}
 /** A day as the query grammar reads it on the host's wall clock (`29 Oct 2026`; a bare YYYY-MM-DD is a UTC day). */
 const dayWords = (day: string) => { const [y, m, d] = day.split("-").map(Number) as [number, number, number]; return dayBound(y, m, d).slice(1, -1); };
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -158,6 +152,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   pins = "pins";
   /** The pins page's id, once it exists. */
   private pinsPage: string | null = null;
+  private pinsMissAt = 0;
   private dayCounts = new Map<string, number>();
   private groupsKept: MatchGroup[] = [];
 
@@ -179,6 +174,12 @@ export class FacetsPane implements Pane, AttachedOwner {
     for (const v of this.views) if (v.parentId) n.set(v.parentId, (n.get(v.parentId) ?? 0) + 1);
     return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   }
+  /** The pins page, once a pin found or made it: the Pinned list reads it from the next load on. */
+  pinsPageIs(id: string) { this.pinsPage = id; }
+  /** The notes the pins page links to, as the Pinned list read them. */
+  pinnedIds(): Set<string> { return new Set(this.pinned.map(m => m.id)); }
+  /** A view just saved: first among the views (the ones changed last come first). */
+  viewSaved(v: Msg) { this.views = [v, ...this.views.filter(x => x.id !== v.id)]; this.rowsKept = null; }
   /** A note's title, when this tile has read it (a view's hub, a row's home). */
   homeName(id: string): string | undefined { return this.homes.get(id); }
   /** A saved view the tile lists as a shortcut, by id. */
@@ -214,7 +215,11 @@ export class FacetsPane implements Pane, AttachedOwner {
     const n = ++this.asked, board = desk.ctx.board, q = this.query();
     try {
       // Pinned: the notes the pins page links to, and any that carry the pin key itself.
-      if (!this.pinsPage) { const r = await board.resolvePage(this.pins).catch(() => null); this.pinsPage = r?.status === "resolved" && r.block ? r.block.id : null; }
+      if (!this.pinsPage && Date.now() - this.pinsMissAt > 30_000) {
+        const r = await board.resolvePage(this.pins).catch(() => null);
+        this.pinsPage = r?.status === "resolved" && r.block ? r.block.id : null;
+        if (!this.pinsPage) this.pinsMissAt = Date.now();
+      }
       const pinQ = this.pinsPage ? `(${this.pin}=true OR linkedfrom:${this.pinsPage})` : `${this.pin}=true`, within = q ? (/\bOR\b/.test(q) ? `(${q}) ${pinQ}` : `${q} ${pinQ}`) : pinQ;
       const { year, month } = this.month, from = `${year}-${String(month).padStart(2, "0")}-01`, to = isoDay(new Date(year, month, 0));
       const plain = selectionQuery(this.clauses, this.raw), monthQ = [plain && /\bOR\b/.test(plain) ? `(${plain})` : plain, `updated >= "${dayWords(from)}" updated <= "${dayWords(to)}"`].filter(Boolean).join(" ");
@@ -231,7 +236,8 @@ export class FacetsPane implements Pane, AttachedOwner {
       this.pinned = pinned?.notes ?? [];
       if (views) this.views = views.notes;
       this.extra.clear(); this.extraMore.clear();
-      await this.readHomes(desk, [...now.notes, ...this.pinned, ...this.views]);
+      // Where each row lives is read after the rows are drawn: it fills in, it never holds them back.
+      void this.readHomes(desk, [...now.notes, ...this.pinned, ...this.views]).then(() => { if (n === this.asked) { this.setRows(); desk.redraw(); } });
       this.dayCounts = new Map((days?.groups ?? []).flatMap(g => (g.value ? [[g.value, g.count] as [string, number]] : [])));
       this.setRows();
       // The cursor stays on the row it was on (by what it is), not its place.
@@ -312,11 +318,12 @@ export class FacetsPane implements Pane, AttachedOwner {
     // A page at a time, older than the last one read (a group past 1,000 notes keeps its more row); an answer that lands
     // after the selection changed is dropped, never put under the new selection's group.
     const asked = this.asked, q = this.query(), had = this.extra.get(label), was = new Set(g.notes.map(m => m.id));
-    const older = had?.length ? ` updated < ${new Date(had[had.length - 1]!.updatedAt).toISOString()}` : "";
+    // `<=` the last one read: notes sharing its time (a batch written at once) aren't skipped; those already read drop out.
+    const older = had?.length ? ` updated <= ${new Date(had[had.length - 1]!.updatedAt).toISOString()}` : "";
     const got = await desk.ctx.board.facetList([q && /\bOR\b/.test(q) ? `(${q})` : q, clause].filter(Boolean).join(" ") + older, 1000, { facets: false, sort: "updated desc", excerpt: true });
     await this.readHomes(desk, got.notes);
     if (asked !== this.asked) return { group: label, notes: 0 };
-    const all = [...(had ?? []), ...got.notes];
+    const seen = new Set((had ?? []).map(m => m.id)), all = [...(had ?? []), ...got.notes.filter(m => !seen.has(m.id))];
     this.extra.set(label, all);
     this.extraMore.set(label, got.truncated);
     this.setRows();
@@ -890,7 +897,8 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       const p = pane as FacetsPane;
       return p.serial(async () => {
         const before = { raw: p.raw, clauses: p.clauses };
-        p.raw = text.trim(); p.clauses = [];
+        // It replaces every pick, the calendar's day too.
+        p.raw = text.trim(); p.clauses = []; p.day = null;
         if (!(await p.load(desk))) { const why = p.describe().error; p.raw = before.raw; p.clauses = before.clauses; throw new ActionRefused(`that query wasn't answered${why ? `: ${why}` : ""}`); }
         desk.keepLayout?.(); desk.redraw();
         return { query: p.query(), notes: p.describe().matched };
@@ -915,6 +923,8 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       const save = async (label: string, hub: string | null) => {
         const title = (label.trim() || q).replace(/[\[\]\n]/g, " ").slice(0, 60);
         const made = await board.createBlock(hub, `${title} [type::virtual-branch] [query::${q}]`, actor);
+        // Listed at once, whether the views are open or folded: the next v on this pick names it.
+        p.viewSaved(made);
         desk.ctx.flash(`saved "${title}" as a view${hub ? ` under ${p.homeName(hub) ?? "its hub"}` : ""}`);
         await p.refresh(desk);
         return { id: made.id, title, parent: hub, query: q };
@@ -1039,16 +1049,22 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       const p = pane as FacetsPane, m = p.noteFor({ id, n }, standing ? PERSON : actorKey(actor)), board = desk.ctx.board;
       const page = await board.resolvePage(p.pins);
       const pins = page.status === "resolved" && page.block ? await board.get(page.block.id) : null;
-      const linked = !!pins && pins.text.includes(m.id);
+      if (pins) p.pinsPageIs(pins.id);
+      // Pinned by the page as the list reads it (linkedfrom), however the link is written.
+      const linked = p.pinnedIds().has(m.id) && !!pins;
       const own = await board.propertyTokens(m.id, p.pin);
       const byProperty = own.tokens.filter(t => t.value.trim().toLowerCase() === "true");
       const pinned = linked || byProperty.length > 0, want = on ?? !pinned;
       if (want && !pinned) {
         const line = `- ${blockRefText(m.id, subject(m).replace(/[|()\]\[]/g, " ").slice(0, 60))}`;
         if (pins) await board.update(pins.id, `${pins.text.replace(/\s+$/, "")}\n${line}`, pins.revision!, actor);
-        else await board.createBlock(null, `Pins [page::${p.pins}]\nThe notes the navigator pins, one link a line: a pin never edits its note.\n\n${line}`, actor);
+        else p.pinsPageIs((await board.createBlock(null, `Pins [page::${p.pins}]\nThe notes the navigator pins, one link a line: a pin never edits its note.\n\n${line}`, actor)).id);
       }
-      if (!want && linked) await board.update(pins!.id, pins!.text.split("\n").filter(l => !l.includes(m.id)).join("\n"), pins!.revision!, actor);
+      if (!want && linked) {
+        const kept = pins!.text.split("\n").filter(l => !l.includes(m.id.slice(0, 8)));
+        if (kept.length === pins!.text.split("\n").length) throw new ActionRefused(`"${subject(m)}" is pinned by a link written another way on [[${p.pins}]]: take that line out there`);
+        await board.update(pins!.id, kept.join("\n"), pins!.revision!, actor);
+      }
       // Pinned by hand in the note itself: unpinning takes the property off (the one case that edits it).
       if (!want && byProperty.length) await board.patchProperties(m.id, own.revision, byProperty.map(t => ({ op: "remove" as const, ordinal: t.ordinal })), actor);
       await p.refresh(desk);
@@ -1179,7 +1195,7 @@ const kindOf = (kind: "facets" | "tags", about: string, key: string): TileKind =
  * (PIE-1448): one written as the calendar's own day clause picks that day, keeping the picks; anything else replaces them.
  */
 async function takeQuery(p: Pane, query: string, desk: DeskApi, actor: Actor) {
-  const f = p as FacetsPane, day = parseDayClause(query);
+  const f = p as FacetsPane, day = dayOfClause(query);
   if (day) await desk.within!("facets.day", { day }, actor, f);
   else await desk.within!("facets.query", { text: query }, actor, f);
   return { query: f.query(), notes: f.notes().map(m => ({ id: m.id, title: subject(m) })) };

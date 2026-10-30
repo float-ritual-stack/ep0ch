@@ -282,16 +282,15 @@ export class ListView<S = unknown> {
     const sayers = others.filter(a => a.row || a.filter).slice(0, o.room === undefined ? undefined : Math.max(0, o.room - 1 - lines.length));
     const says = sayers.length;
     const drawn = rows.map((r, i) => listRowLines(r, { cols: lw, lines: o.lines, selected: r.id === mine?.id, focused: o.focused, agent: agentRows.has(r.id), ...(o.tag ? { tag: o.tag } : {}) }));
-    if (!rows.length) push(fg(C.dark) + (o.empty ?? "nothing here yet") + RESET, null);
     // The selected row is shown with the heading it sits under (a group's, PIE-1448): the rows that can't be picked just
     // above it come into view with it, so the list's first group never scrolls its heading away.
     const selAt = mine ? rows.findIndex(r => r.id === mine.id) : -1;
     let headAt = selAt;
     while (headAt > 0 && !selectable(rows[headAt - 1]!)) headAt--;
-    if (!rows.length) { /* said above */ }
+    if (!rows.length) push(fg(C.dark) + (o.empty ?? "nothing here yet") + RESET, null);
     else if (o.look) {
       const { slots, at: starts } = listSlots(rows.length, o.look, i => !!o.divide?.(rows[i]!), drawn.map(r => r.length));
-      const sel = mine ? rows.findIndex(r => r.id === mine.id) : -1;
+      const sel = selAt;
       const room = o.room === undefined ? slots.length : Math.max(1, o.room - says - lines.length);
       const top = this.view.place(sel < 0 ? null : sel, slots.length, room, sel < 0 ? null : [starts[headAt] ?? starts[sel] ?? 0, (starts[sel] ?? 0) + (drawn[sel]?.length ?? 1) - 1]);
       for (const slot of slots.slice(top, top + room)) {
@@ -300,7 +299,7 @@ export class ListView<S = unknown> {
       }
     } else {
       const flat = drawn.flatMap((ls, i) => ls.map(l => [l, i] as const));
-      const sel = mine ? rows.findIndex(r => r.id === mine.id) : -1;
+      const sel = selAt;
       const first = drawn.slice(0, Math.max(sel, 0)).reduce((n, l) => n + l.length, 0), head = drawn.slice(0, Math.max(headAt, 0)).reduce((n, l) => n + l.length, 0);
       const room = o.room === undefined ? flat.length : Math.max(1, o.room - says - lines.length);
       const top = this.view.place(sel < 0 ? null : sel, flat.length, room, sel < 0 ? null : [Math.max(0, Math.min(head, first)), first + (drawn[sel]?.length ?? 1) - 1]);

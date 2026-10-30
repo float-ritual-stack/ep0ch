@@ -57,7 +57,7 @@ export function matchGroups(notes: readonly Msg[], groups: readonly QuestionGrou
   return out;
 }
 
-const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+import { MONTH_ABBREVIATIONS as MONTH_ABBR } from "@ep0ch/outline-core/figure-props";
 /** When a note last changed, as a row says it: the time today, the day this year, the day and year before. */
 export function whenOf(ms: number, now = new Date()): string {
   const at = new Date(ms), hm = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;

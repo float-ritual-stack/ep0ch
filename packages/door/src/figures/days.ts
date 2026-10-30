@@ -135,10 +135,11 @@ export function drawCalendar(p: Props, w: number, link?: RowLink): string[] {
     const num = String(d).padStart(2);
     const ink = m ? (m.muted ? fg(INK) : fg(ACCENT) + BOLD) : fg(INK);
     // `dots`: a marked day says so with a dot after it, not only its ink (the navigator's days with notes, PIE-1448).
-    // A day is a link to its notes (PIE-1448): its query, the days' clause of the figure's date (`updated` unless it says);
+    // A live calendar's day is a link to its notes (PIE-1448): the day's clause on the figure's `date` property;
     // a reader lists it, or the screen's facets tile takes it as its day.
-    const field = typeof p.date === "string" && p.date.trim() ? p.date.trim() : "updated", bound = dayBound(year, month, d);
-    const dayNum = link ? link("", num, undefined, `${field} >= ${bound} ${field} <= ${bound}`) : num;
+    // Only a live calendar's days stand for notes: a calendar of marks written by hand isn't a query.
+    const field = typeof p.date === "string" && p.date.trim() ? p.date.trim() : null, bound = dayBound(year, month, d);
+    const dayNum = link && field ? link("", num, undefined, `${field} >= ${bound} ${field} <= ${bound}`) : num;
     line += isToday ? fg(HI) + "[" + ink + dayNum + UNBOLD + fg(HI) + "]" : " " + ink + dayNum + UNBOLD + (m && p.dots ? fg(ACCENT) + "·" : " ");
     if ((lead + d) % 7 === 0 || d === days) { out.push(line + RESET); line = ""; }
   }

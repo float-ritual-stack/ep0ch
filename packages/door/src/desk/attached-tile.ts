@@ -7,10 +7,12 @@ import type { Key } from "../term";
 import type { TileKind } from "./tile-kinds";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { RowPress } from "../scroll";
+import type { SurfaceHost } from "../surface/note";
+import type { AttachedSide } from "../surface/attached";
 
 /** What an attached tile draws: a reader's comment, Sources, list or edit preview, a facets tile's Matches. */
-export type Attachment = "comment" | "sources" | "list-preview" | "edit-preview" | "matches";
-export type AttachedSide = "left" | "right" | "up" | "down";
+export type Attachment = NonNullable<SurfaceHost["attachment"]> | "matches";
+export type { AttachedSide };
 
 /** A tile that owns attachments: it draws each, takes its keys and clicks, names it, and moves its tile round itself. */
 export interface AttachedOwner {

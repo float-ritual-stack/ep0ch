@@ -6,8 +6,9 @@
 /** The relative buckets, in the order a list shows them (newest first); a month after them is `YYYY-MM`. */
 export const RECENT_BUCKETS = ["Later", "Today", "Yesterday", "Previous 7 days", "Previous 30 days"] as const;
 
+import { MONTH_ABBREVIATIONS as MONTHS } from "./figure-props";
+
 const pad = (n: number) => String(n).padStart(2, "0");
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /**
  * The relative bucket an ISO time falls in, by this machine's wall clock: Today, Yesterday, Previous 7 days, Previous
@@ -28,6 +29,16 @@ export function recentBucket(iso: string, now = Date.now()): string | null {
 
 /** A calendar day as the grammar reads it on the wall clock (`"29 Oct 2026"`: a bare YYYY-MM-DD is a UTC day). */
 export const dayBound = (y: number, m: number, d: number) => `"${d} ${MONTHS[m - 1]} ${y}"`;
+
+/**
+ * The day a query is, when it is exactly one day of `field` as `dayBound` writes it (`updated >= "29 Oct 2026"
+ * updated <= "29 Oct 2026"`), as YYYY-MM-DD; null for anything else. The reverse of a day's clause, beside it.
+ */
+export function dayOfClause(query: string, field = "updated"): string | null {
+  const m = new RegExp(`^\\s*${field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} >= "(\\d{1,2}) (\\w{3}) (\\d{4})" ${field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} <= "\\1 \\2 \\3"\\s*$`).exec(query);
+  const mo = m ? (MONTHS as readonly string[]).indexOf(m[2]!) : -1;
+  return m && mo >= 0 ? `${m[3]}-${pad(mo + 1)}-${pad(Number(m[1]))}` : null;
+}
 
 const DATE_GROUP = /^([A-Za-z][A-Za-z0-9_.-]*):(day|week|month|year|recent)$/;
 
