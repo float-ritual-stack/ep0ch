@@ -139,6 +139,8 @@ export function tableOf(p: Props, items: readonly FigureItem[], titles?: Readonl
     // `link: <property>`: a row opens the note its property names (a record's `note`), where it names one; else its own.
     headers: p.headers ?? cols, rows, blocks: items.map(m => (typeof p.link === "string" && cellBlockId(itemField(m, p.link))) || m.id), titleColumn: Math.max(0, cols.indexOf("title")),
     ...(named.some(r => r.some(Boolean)) ? { cellBlocks: named } : {}),
+    // `at: <property>` (PIE-1433): the revision a row's link opens its note at (a review record's `revision`), beside how it is now.
+    ...(typeof p.at === "string" ? { rowRevisions: items.map(m => Number(itemField(m, p.at)) || null) } : {}),
   };
 }
 

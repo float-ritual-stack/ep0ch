@@ -19,6 +19,14 @@ are its record. The outliner's entries from then are kept below, under
   history" wraps under the draft's status instead of being cut.
 - **A link followed in a message reader is on its trail:** in a reader `ep0ch open` put over a menu screen, follow a
   link, then alt+T lists where you came from; a pick goes back there.
+### Open a note as it was at a revision, beside how it is now (PIE-1433)
+
+- **From Jev's suggestions:** a row opens its note with the revision the review read beside it, marked against the next one (`-` was there, `+` came next).
+- **From any note:** the tile menu's **history** lists its revisions; a row opens the same compare.
+- **Keys:** ← → older and newer, `n` against the note now, Esc back to the note. Beside the text in a wide tile, below it in a narrow one.
+- **Tables:** `at: <property>` on a live `::graph-table` with `link:` opens each row's note at the revision that property holds.
+- **Run:** nothing beyond the usual `ep0ch install --apply` (GRAMMAR 13: an older door opens the note without the compare); pie's suggestions page gains `at: revision` on its own at the next review Jev records after the install (until then its rows open the note without the compare; adding `at: revision` under `link: note` by hand does it at once).
+
 ### A new ticket's twin shows on its title, and `work try` points at pages (PIE-1258)
 
 - **On the title:** a new card in a roadmap lane asks for open work like it as soon as its title settles, before any

@@ -381,8 +381,11 @@ export class ReaderPane implements Pane {
   gutterCols = 0;
   innerFrame?: Rect;
   heroBounds?: { col: number; row: number; cols: number };
-  /** The margin's side column, when the note has cards (ADR 0004 contract 6): the measure keeps room for it. */
-  beside() { return this.surface.marginBeside() + (this.surface.previewPoint() ? 72 : 0); }
+  /**
+   * The margin's side column, when the note has cards (ADR 0004 contract 6): the measure keeps room for it; and the
+   * split beside the note for a list's children or a revision compare (PIE-1433), so a wide tile puts it beside the text.
+   */
+  beside() { return this.surface.marginBeside() + (this.surface.previewPoint() || this.surface.revisionMode ? 72 : 0); }
   private held = false;
   /**
    * `follows`: this reader has a mode (PIE-705): it follows the view's current note, is held on the note it shows, or is
