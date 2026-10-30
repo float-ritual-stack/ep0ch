@@ -115,6 +115,10 @@ describe.skipIf(!outliner)("an away outline read from its copy here: snapshot, r
     expect(snapshot.url).toStartWith(`https://${TAILNET}/pub/o/garden-notes@${FAR}/s/`);
     expect(snapshot.said).toContain("read-only copy");
     expect(snapshot.said).toContain(snapshot.asOf);
+    // The headline is the copy's newest change, never the moment the snapshot was made (PIE-1439): that is snapshotAt.
+    const made = snapshot as unknown as { snapshotAt: string };
+    expect(Date.parse(made.snapshotAt)).toBeGreaterThan(Date.parse(snapshot.asOf));
+    expect(snapshot.said).not.toContain(made.snapshotAt);
     expect(Date.parse(snapshot.expiresAt)).toBeGreaterThan(Date.now());
     const got = await fetchWeb(snapshot.url);
     expect(got.status).toBe(200);
