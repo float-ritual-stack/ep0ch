@@ -162,6 +162,8 @@ export const SEED = {
   datesBoard: "Plot calendar board",
   formReading: "Reading log",
   formRepairs: "Shed repairs",
+  formRepairList: "Repair list",
+  formWatering: "Watering log",
 } as const;
 
 export type SeedName = keyof typeof SEED;

@@ -1,4 +1,4 @@
-import { formFields, FORM_FIELD_KEY, type FormField } from "@ep0ch/outline-core/form-fields";
+import { formFields, formSettings, FORM_FIELD_KEY, type FormField, type FormSettings } from "@ep0ch/outline-core/form-fields";
 import { keyTable } from "./keymap";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { tabStrip } from "./chip-rows";
@@ -25,8 +25,20 @@ export const FORM_CHOICE_KEYS: readonly ModeKey[] = keyTable("form choice", "a c
   { key: "click", action: "form.set" },
 ]);
 
+/** Where a form's entries land, in words (PIE-1442): what the note's `[form-into::…]` says, under its button. */
+function landing(into: FormSettings["into"]): string {
+  if (into.kind === "inline") return "each entry is a line added to this note";
+  if (into.kind === "page") return `each entry lands under [[${into.address}]]`;
+  if (into.kind === "block") return `each entry lands under ((${into.id.slice(0, 8)}))`;
+  return "each entry lands under this note";
+}
+
 export class NoteForm {
   fields: FormField[] = [];
+  /** The note's button and target (`[form-submit::…]`, `[form-into::…]`); one it can't read draws today's, and the fill says why. */
+  settings: FormSettings = { into: { kind: "child" } };
+  /** The first of those chips it can't read, said where the landing would be: the fill refuses with the same words. */
+  settingsProblem: string | undefined;
   chips: ReturnType<typeof parsePropertyRecords> = [];
   private answers = new Map<string, Map<string, LineField>>();
   private warnings = new Map<string, string>();
@@ -39,6 +51,9 @@ export class NoteForm {
     const chips = parsePropertyRecords(source).filter(p => p.key === FORM_FIELD_KEY);
     const parsed = formFields(chips.map(p => p.value));
     this.fields = parsed.fields;
+    const read = formSettings(parsePropertyRecords(source), parsed.fields);
+    this.settings = read.settings;
+    this.settingsProblem = read.problems[0]?.message;
     this.chips = chips.filter((_, index) => !parsed.problems.some(p => p.index === index));
     const at = this.fields.findIndex(f => f.name === focused);
     this.focus = at < 0 ? Math.min(this.focus, this.fields.length) : at;
@@ -113,11 +128,12 @@ export class NoteForm {
         line(" ".repeat(labelWidth) + cell.bottom());
       }
     });
-    const indent = " ".repeat(labelWidth), button = "Fill in the form";
+    const indent = " ".repeat(labelWidth), button = printable(this.settings.submit ?? "Fill in the form");
     const submit = stringFrame(width(button) + 4, { glyphs: LINE_BOX });
     for (const l of [submit.top(), submit.row(tag("@submit", button, "form.submit")), submit.bottom()]) line(indent + l);
     const warning = this.warnings.get(partyOf(USER));
     if (warning) line(fg(C.yellow) + printable(warning) + RESET);
+    for (const text of wrap(printable(this.settingsProblem ?? landing(this.settings.into)), inner)) line(fg(this.settingsProblem ? C.yellow : C.dark) + text + RESET);
     for (const text of ["* required", ...wrap(modeHint(FORM_KEYS, () => undefined), inner)]) line(text);
     rows.push(f.bottom());
     return rows;

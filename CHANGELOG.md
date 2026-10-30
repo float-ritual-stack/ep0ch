@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A form names its button and where each entry lands (PIE-1442)
+
+- **The button says your words:** `[form-submit::Log it]` on a form's note, and the door draws Log it where it drew Fill in the form.
+- **Where an entry lands:** `[form-into::child]` (still the default), `[form-into::[[Reading log]]]` to write it under that page, or `[form-into::inline]` to add a line to the form's own note.
+- **An inline line's shape:** `[form-line::- {book}: {pages} pages]`; without it the line is the answers joined by ` · `.
+- **Said under the button:** "each entry lands under this note", "under [[Repair list]]" or "is a line added to this note".
+- **A typo saves and says so:** `[form-into::inlne]` or a page nobody has is warned on with a did-you-mean; the fill refuses and writes nothing.
+- **Run:** `ep0ch install --apply` (GRAMMAR 14: an older door draws Fill in the form and keeps working); the form extension is version 2.
 ### Extension pages and the power bar's extensions say what each one does for you
 
 - **Every extension's page leads with what it does for you:** where to look, then what you do, as short lines; setup, how it works and the builder's guide sit lower. All 24 bundled pages rewritten, notify first.

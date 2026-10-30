@@ -116,3 +116,81 @@ export function formFieldChipProblems(text: string): { start: number; problem: F
   const template = parsePropertyRecords(text).some(r => r.syntax !== "hashtag" && ((r.key === "type" && r.value.trim().toLowerCase() === "template") || r.key === "template-for"));
   return formFields(chips.map(chip => chip.value), template ? new Set<string>(RESERVED_PROPS) : RESERVED_ARG_NAMES).problems.map(({ index, ...problem }) => ({ start: chips[index]!.start, problem }));
 }
+
+/** The button's words (PIE-1442): `[form-submit::Log it]`; without one the button says the action's own words. */
+export const FORM_SUBMIT_KEY = "form-submit";
+/** Where each entry lands: `child` (the default), `inline` (a line added to the form's note), `[[page]]` or `((id))` (a child of that note). */
+export const FORM_INTO_KEY = "form-into";
+/** The line an `inline` entry adds, its `{field}`s filled with the answers: `[form-line::{book} · {pages} pages]`. */
+export const FORM_LINE_KEY = "form-line";
+export const FORM_INTO_WORDS = ["child", "inline"] as const;
+/** How long a button's words may be. */
+export const FORM_SUBMIT_LIMIT = 40;
+
+export type FormInto = { kind: "child" } | { kind: "inline" } | { kind: "page"; address: string } | { kind: "block"; id: string };
+/** A form's own settings, beside its fields: its button's words, where an entry lands, and an inline entry's line. */
+export interface FormSettings { submit?: string; into: FormInto; line?: string }
+
+/** A line's `{field}`s: each a field's name in braces. */
+const PLACEHOLDER = /\{([^{}\s]*)\}/g;
+
+/**
+ * A form's settings read from its chips (each `{key, value}` of the note's properties, in its order) against its
+ * fields: `form-submit`, `form-into` and `form-line`, each once. A chip that can't be read is a problem said with what
+ * it may have meant, its index in `records`, and leaves today's form (a child, the action's button) in its place.
+ */
+export function formSettings(records: readonly { key: string; value: string }[], fields: readonly FormField[]): { settings: FormSettings; problems: (FormFieldProblem & { index: number })[] } {
+  const settings: FormSettings = { into: { kind: "child" } }, problems: (FormFieldProblem & { index: number })[] = [];
+  const seen = new Set<string>();
+  let lineAt = -1;
+  records.forEach(({ key, value }, index) => {
+    const k = key.toLowerCase();
+    if (k !== FORM_SUBMIT_KEY && k !== FORM_INTO_KEY && k !== FORM_LINE_KEY) return;
+    const written = value.trim();
+    const bad = (message: string) => problems.push({ written, index, message: `[${k}::${written}]: ${message}` });
+    if (seen.has(k)) return bad(`the note already says its ${k === FORM_SUBMIT_KEY ? "button's words" : k === FORM_INTO_KEY ? "target" : "line"}; remove one`);
+    seen.add(k);
+    if (k === FORM_SUBMIT_KEY) {
+      if (!written) return bad(`it names no words: write the button's, e.g. [${FORM_SUBMIT_KEY}::Log it]`);
+      if (written.length > FORM_SUBMIT_LIMIT) return bad(`a button's words are at most ${FORM_SUBMIT_LIMIT} characters`);
+      settings.submit = written;
+    } else if (k === FORM_INTO_KEY) {
+      const page = /^\[\[([^[\]]+)\]\]$/.exec(written), block = /^\(\(([0-9a-f-]{8,})\)\)$/i.exec(written);
+      if (page) settings.into = { kind: "page", address: page[1]!.trim() };
+      else if (block) settings.into = { kind: "block", id: block[1]!.toLowerCase() };
+      else if ((FORM_INTO_WORDS as readonly string[]).includes(written.toLowerCase())) settings.into = { kind: written.toLowerCase() as "child" | "inline" };
+      else {
+        const near = written && !/\s/.test(written) ? closest(written, FORM_INTO_WORDS) : undefined;
+        bad(`it isn't a place an entry lands (child, inline, a [[page]] or a ((block)))${near ? `; did you mean ${near}?` : written ? `; did you mean [[${written}]]?` : ""}`);
+      }
+    } else {
+      const names = fields.map(field => field.name);
+      const unknown = [...written.matchAll(PLACEHOLDER)].map(m => m[1]!).find(name => !names.includes(name));
+      if (!written) return bad(`it says no line: write one with the fields in braces, e.g. [${FORM_LINE_KEY}::${names.slice(0, 2).map(n => `{${n}}`).join(" · ") || "{name}"}]`);
+      if (unknown !== undefined) {
+        const near = closest(unknown, names);
+        return bad(`{${unknown}} isn't one of the form's fields (${names.join(", ") || "none yet"})${near ? `; did you mean {${near}}?` : ""}`);
+      }
+      settings.line = written;
+      lineAt = index;
+    }
+  });
+  if (settings.line !== undefined && settings.into.kind !== "inline") {
+    problems.push({ written: settings.line, index: lineAt, message: `[${FORM_LINE_KEY}::${settings.line}]: a line is added only to a form that says [${FORM_INTO_KEY}::inline]; add that, or remove the line` });
+    delete settings.line;
+  }
+  return { settings, problems: problems.sort((a, b) => a.index - b.index) };
+}
+
+/**
+ * The form-setting chips of `text` that can't be read, each at its offset: what a save says (syntax-warnings.ts), as
+ * the action would. A note with no `[form-field::…]` isn't a form, so its chips aren't read.
+ */
+export function formSettingChipProblems(text: string): { start: number; problem: FormFieldProblem }[] {
+  const literal = scanPropertyLiteralRanges(text);
+  const chips = propertyTokenMatches(text).filter(token => !isEscapedAt(text, token.start) && !codeHides(token, literal));
+  const fieldChips = chips.filter(chip => chip.key.toLowerCase() === FORM_FIELD_KEY);
+  if (!fieldChips.length) return [];
+  const { problems } = formSettings(chips, formFields(fieldChips.map(chip => chip.value)).fields);
+  return problems.map(({ index, ...problem }) => ({ start: chips[index]!.start, problem }));
+}

@@ -20,6 +20,21 @@ Reading log
   - `ep0ch act ext.form.fill block=<id> with='{"book":"Moss","pages":"90"}'`
   - Or `ep0ch ext act form fill --block <id> --arg book=Moss --arg pages=90`.
 
+## Where it lands and what the button says
+
+- **The button's words:** `[form-submit::Log it]` on the note; without it the button says Fill in the form.
+- **Under the note:** `[form-into::child]`, or no `form-into` at all: each entry is a child note, its answers as chips.
+- **Under a page:** `[form-into::[[Reading log]]]` (or a `((block))`) writes each entry under that note instead.
+- **A line in the note:** `[form-into::inline]` adds a line at the end of the form's own note; no child is made.
+- **The line's shape:** `[form-line::- {book}: {pages} pages]` fills each `{field}` with its answer; without it the line is `- ` and the answers joined by ` · `.
+- **A target it can't read:** `[form-into::inlne]` or a page nobody has is saved as written and warned on (`did you mean inline?`); the fill refuses, writing nothing.
+
+```text
+Pages read [form-submit::Add it] [form-into::inline] [form-line::- {book}: {pages} pages]
+[form-field::book text required] [form-field::pages number]
+- The Lantern Shed: 212 pages        ← added by Add it
+```
+
 ## Fields
 
 - **Shape:** `[form-field::<name> <type> [<options>] [required] [default=<value>]]`.
