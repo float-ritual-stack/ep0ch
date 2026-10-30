@@ -596,7 +596,7 @@ export class FacetsPane implements Pane, AttachedOwner {
         if (row.id.startsWith(MORE)) return this.readGroup(desk, row.id.slice(MORE.length));
         const m = row.source as Msg | undefined;
         if (!m) throw new ActionRefused(`${row.label} is a heading: it opens nothing`);
-        desk.setCurrent(m, { from: this.source(), link: true, ...(where === "new" ? { fresh: true } : {}), by: actor });
+        desk.openFromTile(m, { from: this.source(), link: true, ...(where === "new" ? { fresh: true } : {}), by: actor });
         return { id: m.id, title: subject(m) };
       },
       enter: () => { throw new ActionRefused("Matches has the keys whenever its tile does: focus it (tile.focus) rather than going into it"); },
@@ -877,7 +877,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     run({ n, id, fresh }, { pane, desk, standing }, actor) {
       const p = pane as FacetsPane;
       const note = p.noteFor({ n, id });
-      desk.setCurrent(note, { from: p.source(), link: true, ...(fresh ? { fresh: true } : {}), by: actor });
+      desk.openFromTile(note, { from: p.source(), link: true, ...(fresh ? { fresh: true } : {}), by: actor });
       // In a flow too narrow for every column (the navigator at 44), the reader it landed in comes to the wide place.
       const landed = !fresh && standing ? desk.linked?.(p.source()) : undefined;
       if (landed && desk.coverOf?.(landed) !== "full" && desk.coverOf?.(landed) !== undefined) void desk.perform?.("tile.widen", {}, actor, landed);

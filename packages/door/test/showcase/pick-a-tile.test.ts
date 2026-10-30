@@ -202,15 +202,17 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     // An agent names the line; it never reads the person's cursor.
     await expect(act("note.copy-ref", { kind: "line" }, "notes", AGENT)).rejects.toThrow(/line=/);
     const line = (await text()).split("\n").findIndex(l => l.startsWith("Press pop it")) + 1;
+    // A line's reference is placed in the text the reader read, so a copy from a reader behind the service is refused ("read
+    // again, copy once more"): an earlier test's write reaches the reader with its event, after the service has it on a loaded box.
+    const current = () => untilAsync(async () => (desk().pane("notes") as any)?.msg?.revision === (await board.get(note))!.revision, "the reader on the note as the service has it");
+    await current();
     const first = await act("note.copy-ref", { kind: "line", line }, "notes", AGENT);
     expect(first).toMatchObject({ line, created: true, clipboard: false });
     expect(first.text).toBe(`((${note}^${first.anchor}|${first.text.slice(first.text.indexOf("|") + 1, -2)}))`);
     await untilAsync(() => text().then(t => t.includes(`^${first.anchor}`)), "the anchor in the note");
-    // Again: the same anchor, nothing written.
+    // Again, once the reader has the anchor's write: the same anchor, nothing written.
+    await current();
     expect(await act("note.copy-ref", { kind: "line", line }, "notes", AGENT)).toMatchObject({ anchor: first.anchor, created: false });
-    // The person's copy reads the reader's text, which takes the anchor's write when its event comes: on a loaded box
-    // that's after the service has it, and a copy from the older text is refused (PIE-1412).
-    await untilAsync(async () => (desk().pane("notes") as any)?.msg?.revision === (await board.get(note))!.revision, "the reader on the anchored note");
     // The person's, with nothing selected, names the part being read (the title at the top takes no anchor: the first part from there).
     const read = await act("note.copy-ref", { kind: "line" }, "notes");
     expect(read).toMatchObject({ clipboard: true });
@@ -247,8 +249,8 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await until(() => (d.pane(tree) as any).list().length > 1, "the tree's rows");
     // The person's selection, on a row that is a note.
     for (let n = 1; !d.pane(tree).subject?.() && n < 8; n++) await act("tree.pick", { n }, tree);
-    // The pick opens its note, and the tree reveals the note it opened: wait for the selection to settle.
-    await until(() => !!d.pane(tree).subject?.() && d.pane(tree).subject!() === (d as any).current?.id, "the pick shown and the tree's selection on it");
+    // The stage opens on the notebook and reveals it in the tree: wait for the selection to settle there.
+    await until(() => d.pane(tree).subject?.() === seeded.notes.notebook.id, "the tree's selection on the notebook");
     const notebook = d.pane(tree).subject!()!;
     const title = subject((await board.get(notebook))!);
     expect(await act("note.copy-ref", { kind: "ref" }, tree, AGENT)).toMatchObject({ id: notebook, text: `((${notebook}|${title}))`, clipboard: false });

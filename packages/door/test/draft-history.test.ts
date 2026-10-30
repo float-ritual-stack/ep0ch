@@ -283,7 +283,7 @@ describe.skipIf(!outliner)("against a scratch outline: past a save, and back to 
   const flashes: string[] = [];
   const desk = () => ({
     ctx: { board, flash: (m: string) => flashes.push(m), redraw() {}, suspend: (run: () => void) => run(), t: { cellW: 9, cellH: 18 }, graphics: false },
-    current: null, setCurrent() {}, focusKind() {}, redraw() {},
+    openFromTile() {}, focusKind() {}, redraw() {},
   }) as unknown as DeskApi;
   const open = async (id: string) => {
     const pane = new ReaderPane(), d = desk();

@@ -10,7 +10,7 @@ import { Desk } from "../src/desk/desk";
 import { ReaderPane } from "../src/desk/panes";
 import { SocketBoard, type Actor } from "../src/socket";
 import type { Key } from "../src/term";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, showIn, until } from "./scratch";
 
 const AGENT: Actor = { kind: "agent", id: "fern-agent" };
 
@@ -79,7 +79,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
     });
     app.push(desk);
     render();
-    desk.setCurrent(notes.start!);
+    showIn(desk, notes.start!, "reader9");
     await until(() => showing("reader9") === notes.start!.id, "reader9 on the start note");
     await act("tile.link", { to: "reader10" }, "reader9");
     reader("reader10").hold(notes.plan!, desk as any);
@@ -95,7 +95,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
   /** The cell in the middle of a tile of the screen (after a paint). */
   const centre = (name: string) => { paint(); const r = tile(name).rect as { col: number; row: number; cols: number; rows: number }; return { x: r.col + Math.floor(r.cols / 2), y: r.row + Math.floor(r.rows / 2) }; };
 
-  test("setup: three notes changed, the chain is reader9 (follows) → reader10 (held on the plan)", async () => {
+  test("setup: three notes changed, the chain is reader9 → reader10 (on the plan)", async () => {
     // One at a time, each heard before the next: the feed's events arrive as they come.
     let n = 0;
     for (const name of ["hens", "beans", "gate"]) { await edit(name, `${notes[name]!.text.split("\n")[0]}\nchanged`); n++; await until(() => app.whatChanged.count() >= n, `change ${n} heard (heard ${heard.join(" ")})`, 8_000); }
@@ -104,14 +104,14 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
     await setup();
     expect(list()).toBeDefined();
     expect(shows()).toEqual({ r9: id("start"), r10: id("plan") });
-    expect(reader("reader10").holding).toBe(true);
-    expect(reader("reader9").holding).toBe(false);
+    expect(reader("reader10").pinned).toBe(false);
+    expect(reader("reader9").pinned).toBe(false);
   }, 30_000);
 
   describe("without a link from what-changed: the documented rule, from wherever the keys were last", () => {
     test("1. focus 9, follow a link in it: it opens in 10, 9 stays", async () => {
       await act("tile.focus", {}, "reader9");
-      desk.setCurrent(notes.beans!, { from: reader("reader9"), link: true });
+      desk.openFromTile(notes.beans!, { from: reader("reader9"), link: true });
       await until(() => showing("reader10") === id("beans"), "the link opened in reader10");
       expect(shows()).toEqual({ r9: id("start"), r10: id("beans") });
     });
@@ -182,7 +182,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
 
     test("following a link in reader9 still opens reader10; opening into reader9 again leaves it", async () => {
       await act("tile.focus", {}, "reader9");
-      desk.setCurrent(notes.shed!, { from: reader("reader9"), link: true });
+      desk.openFromTile(notes.shed!, { from: reader("reader9"), link: true });
       await until(() => showing("reader10") === id("shed"), "reader10 on the shed");
       expect(showing("reader9")).toBe(id("gate"));
       await goInList("hens");
@@ -203,7 +203,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
       const nine = showing("reader9");
       await goInList("hens");
       await until(() => showing("reader10") === id("hens"), "reader10 on hens");
-      expect(showing("reader9")).toBe(id("hens"));
+      expect(showing("reader9")).toBe(nine);                // no hidden current note moves it (PIE-1207)
       await dact("tile.link", { to: "@chain/reader9" }, "what-changed");
       await goInList("beans");
       await until(() => showing("reader9") === id("beans"), "reader9 on beans");

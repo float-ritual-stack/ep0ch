@@ -23,6 +23,93 @@ are its record. The outliner's entries from then are kept below, under
 - **List keys:** Matches answers `list.pick`, `list.step`, `list.open`, `list.filter`; `/` filters it.
 - **Run:** `ep0ch install --apply`, then `ep0ch machinery backfill --apply` once per outline (pie, float-hub) to stamp the peer messages already there.
 
+### An agent's answers read right, round two: script runs, asks from the bar (PIE-1436)
+
+- **A script run lists only what it changed:** `changed` leaves out what another writer made meanwhile (Jev's review records and suggestions page, the first time a create is reviewed) and any `[machine::…]` bookkeeping.
+- **A script run says what became a proposal:** at propose access (or with the note open in a draft), the answer's `proposed` lists each proposal (an edit's, or the comment a create, a move or a trash became) with its note and that note's title.
+- **A script can create at the top level:** `tools.outline_create({ parent: "root" })` works as the tool and the CLI do; at propose access it is refused with why (a proposal needs a note) and what to do.
+- **A bare `@` in the power bar lights an agent:** the agents come first and the preview is an agent's, never another source's row.
+- **The ask's preview says where it will land, or why it can't:** it reads the same answer ⏎ does, so "can't be sent yet" and the reason show before you press it.
+- **An ask with the outline host down says so:** "the outline host isn't answering … nothing was sent", with `ep0ch status` and `ep0ch doctor` (which names the command that starts it), not a bare `connect ENOENT`.
+- **Plainer words:** an empty proposals answer says "1 change to proposals by … is left out" and who a persona hears; a stale proposal says "Evan changed the note after it was proposed", once.
+- **Run:** `ep0ch install --apply` (outliner, door and the Claude mod; PROTOCOL bumps at merge: script runs carry `proposed`).
+
+### No hidden current note: wires decide every open, and `p` pins a reader (PIE-1207)
+
+- **An open lands where a wire, your own target or the screen's rule puts it:** the desk's invisible "current note", and readers that silently followed it, are gone. With no wire, an open goes to the first reader that isn't pinned; with none, it says so (alt+l wires one).
+- **A list shows its pick by its select wire:** the desk's outline, the waiting list and a list in a saved screen show what they select in the reader they're wired to (`select → reader` on the frame); nothing else moves.
+- **`p` pins a reader:** ▣ pinned, it keeps its note, every open aimed at it (a wire, `tile=`, its own link) lands in a reader beside it (the same one next time), and its hint row says where. A click on its □ pin chip does the same; `reader.pin [on=] [page=<name>]` pins it as an agent, said on screen. It comes back pinned after a restart, on its note or its page.
+- **Spines follow wires, not a mode:** a reader no list feeds keeps its old note as a spine when you follow a link in it or aim an open at it, as a detail did; the reader a list's select wire feeds (the desk's, a former follower) replaces its note, and an open naming no tile replaces too.
+- **Saved screens load as they were:** a reader that followed the old current note loads on the note it showed, and the screen's first list (the outline, a links list) is wired to it once, said on the status line; `^W w` keeps it.
+- **Changed:** `reader.mode` is `reader.pin` (the old name answers with the new call), `tile.open mode=` takes `pinned` (`held` is every reader now), the open rule `current` is `reader`, and `peek` no longer has a `current` field: each tile's `showing` says what's where.
+- **Try it:** `ep0ch --showcase`, section "reader-pins".
+- **Run:** `ep0ch install --apply` (door only; no PROTOCOL or schema change).
+
+### One line asks an agent, and an agent's tool answers say what happened (PIE-1437, PIE-1436)
+
+- **Ask from the power bar:** `@wr` and tab give `@wren `, then what you ask; `[[` a page, `((` a note (its words or a
+  short id) and `%` a tile on this screen complete in place. ⏎ (or a click on the `ask @wren` row, or
+  `act agent.ask to=wren text=…`) sends it as addressed mail: a comment naming `@wren` on the note in front of you,
+  each `%tile` named on a line of its own. wren's sessions hear it at their addressed check and answer in the thread.
+- **`@` lists the agents here:** the agent panel's sessions that write as a persona, then the outline's agent configs
+  that name one; any persona typed whole is sent as typed. `@` on a row of the agent panel starts the line.
+- **Key move:** the bar's screens scope is `:` now (was `@`), as `:` already named a screen in an action's value.
+- **outline_proposals says why it's empty** (`said`): nothing changed in the window, or, for a client with no persona,
+  that only this session's proposals are its own and how many from other sessions were left out.
+- **Wake lines label each link by its note:** `((…|your edit of Bean rota))`, and a stale one says who changed the note.
+- **script_run lists the notes it changed** (`changed`: id, title, created / edited / moved / trashed / restored),
+  beside `written`, its own run notes.
+
+### An install over the link finds your tools (PIE-1243)
+
+- **The link agent carries your PATH:** `ep0ch install --apply` writes the machine link's launchd agent (`~/Library/LaunchAgents/io.ep0ch.link.plist`) or systemd unit with the PATH of the shell it ran in, refreshed on every install. An install sent over the link then finds Herdr, restic and with-secrets in Homebrew and `~/.local/bin`, so the plugin link, the backups and the PATH link run instead of being reported missing.
+- **A missing tool says where it looked:** "Herdr isn't installed (checked PATH=…)", and the same on the backups and PATH-link steps, so an install run in the wrong environment shows itself.
+- **Run once on a connecting machine (the laptop):** `ep0ch install --apply` in your own terminal. Installs sent over the link don't rewrite the agent, so the first one after this change still runs on launchd's bare PATH.
+
+### Every message reads whole and tells the truth (PIE-1453, PIE-1450)
+
+- **A long refusal at 44 columns says "… more":** the four rows said above the status bar end "… more alt+M" when the message is longer; a click on them (or alt+M) opens the message log, which draws it whole.
+- **A form's refusal reads whole in the form:** wrapped under its button, what to do and the did-you-mean included, never cut at one row.
+- **The message log draws links as a reader does:** `((id|in Inbox))` reads "in Inbox" and `[[page]]` its name; a click on one opens the note (`status.link row=<n> n=<link>` for an agent).
+- **A missing extension says its name:** Enter on a form with Form not installed says "ext.form.fill is Form's, which isn't installed", with its "install Form" row in the power bar's extensions (ctrl+k then &) and `ep0ch act extensions.install id=form`. Every unknown action that an uninstalled extension would answer says so, wherever it's refused.
+- **An agent's narrow open says where it went:** `tile.open … tile=r1 where=right` landing under 28×6 says "…, and it went right of r1, as asked", not "naming neither tile= nor where=".
+- **Try it:** `ep0ch --showcase`, section "message-log".
+- **Run:** `ep0ch install --apply` (door only; no PROTOCOL or schema change).
+
+### The open door shows @margin's "working" and its answer, and a tick in the door closes its ask (PIE-1452, PIE-1451)
+
+- **A long `@margin` job shows in the thread as it runs:** the reader hears an extension's reply being made and rewritten under a thread (a plain create and edit, not an `annotate`), so `⋯ working: … (2 min)` and then the answer appear in the open note by themselves. Before, they showed only after reopening the note or after some other change repainted it.
+- **A tick on a permission ask in the door or on the web page closes it:** the tick gives its step an id (`^t-…`) and the service refuses an edit that drops one, so the mod's close-out was refused (silently) and the ask stayed on Waiting on Evan with live boxes. The close-out keeps each step's id: `✓ **allow this once** ^t-…`.
+- **Run:** `ep0ch install --apply` (the door and the mod change; no PROTOCOL bump).
+
+### A repo on an artifact line shows its deployment and deploys on save (PIE-1060)
+
+- **The card is the repo:** `[artifact::https://github.com/ep0ch-artifacts/plastik-loop]` (or `github.com/…`, or `ep0ch-artifacts/plastik-loop`) on a line draws a repo card, not "can't read …/https:/github.com/…" and "isn't an artifact".
+- **It says its deploy state:** live at its address, deploying, failed (why, and `run: ep0ch artifact deploy …`), not deployed (the command), or another owner's (the `gh repo fork … --org ep0ch-artifacts` command), with what its last run did. The state comes from the deploy's own records, so an imported deployment counts (plastik-loop's, deployed from the repo it was forked from).
+- **[open ↗] opens the live site;** a repo that isn't live says why when opened, and `[share]` is left off (its site is already public).
+- **Saving deploys it:** the deploy rule now reads an `[artifact::]` on a line of its own (`[property-scope::all]` on the rule; rules take it as views do). Before, it read only the note's header, so a repo on a line never deployed and nothing came of the save. The rule and script your outline has are brought up to date when nobody edited them.
+- **Runs are filed and kept short:** a run's note goes under the `[[artifacts]]` page with `[repo::]` and `[status::]`, and a save that changes nothing refreshes the last run instead of adding a note per edit.
+- **On the published page:** the repo's name links its live site; why it isn't live is shown to you, not to the public.
+- **Try it:** `ep0ch --showcase`, section "artifacts", its last two cards.
+- **Run:** `ep0ch install --apply` (PROTOCOL bump: `artifacts.show` answers `deploy`, `artifacts.deploy` takes `note`; GRAMMAR 16). The host's restart updates the seeded rule and script in pie and gurgle.
+
+### The door's tests that were written off as "known" are green again (PIE-1441, PIE-1446)
+
+- **ctrl+z right after closing an edit undoes:** an extension's undo (a margin quote) sent the moment an edit closed was refused "open in a draft" when the service's hold grant was still on its way; the undo now waits for that release.
+- **The drawer's parity case runs in 8 s, not 60:** typing into the drawer's terminal is the program's, not a new door input state to probe (399 builds, was 890).
+- **The comments showcase's deep-links test clicks the comment box,** not the section list beside it.
+- **Run:** `ep0ch install --apply`.
+
+### A long @margin job runs to the end and says it's working; an answered ask leaves your list (PIE-1452, PIE-1451)
+
+- **@margin can do a job, not only answer:** "make a page for each plugin" runs up to an hour (it was cut off at 2 minutes, twice, on Oct 30). An agent's `deadline` in `extension.json` may now be up to `2h`; past it, the answer says it stopped and where to raise it.
+- **It says it's working:** after 5 s, the thread gets `⋯ working: @margin is working on it (3 min)`, and every minute what it has written so far; a note's `@margin` line says the same. The working reply becomes the answer.
+- **Its notes are signed margin and linked:** the `claude` it runs writes as `margin/claude-code@<machine>`, and the answer ends `Wrote 13 notes: ((…|Lantern plugin)), …`.
+- **A restart says it cut a job off,** with what it had written, instead of "working" forever.
+- **An ask whose session ends leaves Waiting on Evan by itself:** "The session ended (other) at 3:26 AM before anyone answered: it didn't run." Answered in the dialog or by a tick, as before.
+- **A closed ask takes no more ticks:** its steps become `✓ **allow this once**` and struck lines, not boxes.
+- **Run:** `ep0ch install --apply` (no PROTOCOL or schema change); it refreshes an unchanged marginalia copy, else `ep0ch ext update marginalia`.
+
 ### A link in a figure's cell reads and clicks like a link in prose (PIE-1334)
 
 - **Table and compare cells draw their links:** a `[[page]]`, `((id|label))` or `((outline:id|label))` in a `::graph-table` or `::graph-compare` cell shows its label, not its markup; `[ ]` stops on it, ⏎ or a click follows it where the tile's wires say, and `act elements` lists it. Bold and code spans in a cell draw as in prose. Check, decision and timeline rows already did; every figure now goes through the same inline renderer.

@@ -88,7 +88,7 @@ export function outcomesOf(store: OutlinerStore, proposalId: string): ProposalOu
     const now = stateOf(t.text);
     if (!was) push("proposed", { ...t, by: proposal?.actor.actorId ?? t.by }, proposal?.reason);
     else if (now.status !== was.status && SETTLED.has(now.status)) push(now.status as ProposalOutcomeState, t);
-    else if (now.status === "open" && now.stale && !was.stale) push("stale", t, "the note changed since it was proposed: re-read it and send the edit again, or leave the proposal to Evan");
+    else if (now.status === "open" && now.stale && !was.stale) push("stale", t, "re-read the note and send the edit again, or leave the proposal to Evan");
     was = now;
   }
   return out;

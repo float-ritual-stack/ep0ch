@@ -524,7 +524,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     // A click in the comment's text gives the middle reader the keys and puts the cursor there.
-    const textRow = () => { const rows = sc.render(app).lines.map(plain); const y = rows.findIndex(l => l.includes("» comment")); const x = rows[y]!.indexOf("comment"); return { rows, y, x }; };
+    const textRow = () => { const rows = sc.render(app).lines.map(plain); const y = rows.findIndex(l => l.includes("» comment")); const x = rows[y]!.indexOf("» comment") + 2; return { rows, y, x }; };
     let at = textRow();
     expect(at.y).toBeGreaterThan(0);
     const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
@@ -559,9 +559,9 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     for (const c of "))") ch(c);
     await until(() => !completionOf(d()!)?.items.length, "no popup over the fixed reference");
     expect(d()!.text).toBe(`Beans look very good see ${ref}`);
-    // While it's open: another tile changes the current note, and an agent opens a note. The comment stays put.
+    // While it's open: another tile opens a note, and an agent opens one. The comment stays put.
     const shed = seeded.notes.shed;
-    stage().setCurrent(shed, { from: stage().pane("reader3"), reveal: true });
+    stage().openFromTile(shed, { from: stage().pane("reader3"), reveal: true });
     await app.act({ action: "open", args: { id: seeded.notes.whiteboard.id }, as: "test-agent" }).catch(() => null);
     expect([reader().msg?.id, cs()?.mode, d()?.text, stage().describe().focusName]).toEqual([notebook.id, "compose", `Beans look very good see ${ref}`, "reader2"]);
     // Typed keys still land in the comment.
@@ -608,7 +608,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     // A click in the comment's text gives the guide's tile the keys.
-    let r = rows(), y = r.findIndex(l => l.includes("» comment")), x = r[y]!.indexOf("comment");
+    let r = rows(), y = r.findIndex(l => l.includes("» comment")), x = r[y]!.indexOf("» comment") + 2;
     click(x + 2, r.findIndex((l, i) => i > y && /─{5,}/.test(l.slice(x))) + 1);
     await until(() => stage().describe().focusName === "guide", "the comment has the keys");
     // Typed, then a doubled word dragged across with the mouse and taken out.

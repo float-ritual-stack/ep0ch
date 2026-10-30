@@ -40,7 +40,7 @@ test("each proposal's outcome reaches its author once, in order: proposed, stale
   const states = (id: string) => next.outcomes.filter(o => o.proposal === id).map(o => o.state);
   expect(states(dropped)).toEqual(["stale", "dismissed"]);
   expect(states(kept)[0]).toBe("stale");
-  expect(next.outcomes.find(o => o.state === "stale")!.reason).toContain("the note changed since");
+  expect(next.outcomes.find(o => o.state === "stale")!.reason).toContain("re-read the note");
   expect(next.outcomes.find(o => o.state === "dismissed")!.by).toBe("user");
   // Asked again from the cursor, nothing comes twice.
   const again = await runAgentOperation(client, "proposals", { since: next.cursor }, { actorId: WREN.actorId }) as ProposalOutcomesPage;
@@ -65,6 +65,72 @@ test("script-run gives the script `this` and its slots, as a press in that note 
   // Without `this` the run has no note, as an MCP run had before (PIE-1272): the script says so.
   expect(bare.message).toContain("this run has no note");
   await expect(runAgentOperation(client, "script-run", { ref: script.id, slots: { card: ["a"] } }, { actorId: WREN.actorId })).rejects.toThrow("one line of text");
+});
+
+test("an empty outline_proposals says why: a client with no persona hears only its own session's (PIE-1436)", async () => {
+  const { client, create, store } = await setup();
+  const note = create("Tool shed\nOil the hinges.");
+  const plain = { author: "agent" as const, actorId: "claude-code@scratch-box" };
+  const now = store.require(note.id);
+  await client.request<DraftPatchResult>({ action: "draft.patch", propose: true, blockId: note.id, revision: now.revision, patches: [{ observed: "Oil the hinges.", replacement: "Oil the hinges in spring." }], mutation: { ...plain, sessionId: "session-one" } });
+  const other = await runAgentOperation(client, "proposals", {}, { actorId: plain.actorId, sessionId: "session-two" }) as ProposalOutcomesPage & { said?: string };
+  expect(other.outcomes).toEqual([]);
+  expect(other.said).toContain("no persona");
+  expect(other.said).toContain("this session");
+  expect(other.said).toContain("1 change to proposals by");
+  expect(other.said).toContain("is left out");
+  // A persona with none says so too, and names the window it looked in.
+  const none = await runAgentOperation(client, "proposals", {}, { actorId: "mcp:heron/claude.ai" }) as ProposalOutcomesPage & { said?: string };
+  expect(none.outcomes).toEqual([]);
+  expect(none.said).toMatch(/^no proposals by heron/);
+});
+
+test("script-run says which notes the run changed, not only its log (PIE-1436)", async () => {
+  const { client, create, extensionOf, store } = await setup();
+  store.configureMcpAccess("full");
+  const script = create("Pack up [script::pack-up] [effects::write]\n```js\nawait tools.outline_set_property({ ref: this.id, key: 'packing', value: 'ready', revision: this.revision });\nreturn 'packed';\n```");
+  await extensionOf("pack-up");
+  const bag = create("Camping bag");
+  const ran = await runAgentOperation(client, "script-run", { ref: script.id, this: bag.id }, { actorId: WREN.actorId }) as { message: string; changed?: { id: string; title: string; change: string }[] };
+  expect(ran.message).toBe("packed");
+  expect(store.require(bag.id).text).toContain("[packing::ready]");
+  expect(ran.changed).toEqual([{ id: bag.id, title: "Camping bag", change: "edited" }]);
+  // At propose access the write is a proposal beside the note: no note changed, and none is said to have.
+  store.configureMcpAccess("propose");
+  const tent = create("Tent bag");
+  const proposed = await runAgentOperation(client, "script-run", { ref: script.id, this: tent.id }, { actorId: WREN.actorId }) as { changed?: unknown[] };
+  expect(store.require(tent.id).text).not.toContain("[packing::ready]");
+  expect(proposed.changed).toBeUndefined();
+});
+
+test("script-run lists the notes it made, never a tool's bookkeeping; creates at root; says what became a proposal (PIE-1436)", async () => {
+  const { client, create, extensionOf, store } = await setup();
+  store.configureMcpAccess("full");
+  const script = create("Sow list [script::sow-list] [effects::write]\n```js\nconst top = await tools.outline_create({ parent: 'root', text: 'Sowing week' });\nawait tools.outline_create({ parent: this.id, text: 'Sow the peas' });\n// Bookkeeping, as a tool's figure-fit record is: never a note the run changed.\nawait tools.outline_create({ parent: 'root', text: 'Sowing tally [machine::record]' });\nreturn top.id;\n```");
+  await extensionOf("sow-list");
+  const shed = create("Potting shed");
+  const ran = await runAgentOperation(client, "script-run", { ref: script.id, this: shed.id }, { actorId: WREN.actorId }) as { message: string; changed?: { id: string; title: string; change: string }[] };
+  const top = store.require(ran.message.trim());
+  expect(top.parentId).toBeNull();
+  expect(ran.changed?.map(c => [c.title, c.change])).toEqual([["Sowing week", "created"], ["Sow the peas", "created"]]);
+  // At propose access an edit is a proposal beside the note, and the answer names it.
+  const tag = create("Label pots [script::label-pots] [effects::write]\n```js\nawait tools.outline_set_property({ ref: this.id, key: 'labelled', value: 'yes', revision: this.revision });\nreturn 'labelled';\n```");
+  await extensionOf("label-pots");
+  store.configureMcpAccess("propose");
+  const pots = create("Clay pots");
+  const offered = await runAgentOperation(client, "script-run", { ref: tag.id, this: pots.id }, { actorId: WREN.actorId }) as { changed?: unknown[]; proposed?: { id: string; note: string; title: string }[] };
+  expect(offered.changed).toBeUndefined();
+  expect(offered.proposed).toHaveLength(1);
+  expect(offered.proposed![0]).toMatchObject({ note: pots.id, title: "Clay pots" });
+  expect(store.require(offered.proposed![0]!.id).text).toContain("[type::draft-proposal]");
+  // A new note under one, at propose access, is a comment on it: named too.
+  const sow = create("Sow under [script::sow-under] [effects::write]\n```js\nawait tools.outline_create({ parent: this.id, text: 'Sow the beans' });\nreturn 'asked';\n```");
+  await extensionOf("sow-under");
+  const asked = await runAgentOperation(client, "script-run", { ref: sow.id, this: pots.id }, { actorId: WREN.actorId }) as { proposed?: { id: string; note: string; title: string }[] };
+  expect(asked.proposed).toEqual([expect.objectContaining({ note: pots.id, title: "Clay pots" })]);
+  // A new top-level note has no note to be proposed on: refused with what to do.
+  const again = await runAgentOperation(client, "script-run", { ref: script.id, this: shed.id }, { actorId: WREN.actorId }) as { message: string };
+  expect(again.message).toContain("A new top-level note can't be proposed");
 });
 
 test("a persona answers for its own clients only; a principal is only itself", async () => {

@@ -11,10 +11,13 @@ export function linkInstallStep(f: Facts, codeUpdates: boolean): Step | undefine
   const c = f.linkConfig, bun = f.bun.path;
   if (!bun || f.platform === "other") return { id: "machine-link", title: "Install the machine link", status: "manual", why: "Bun and launchd or systemd are required", commands: [] };
   const argv = [bun, f.repo.entry, "link", c.mode];
+  // launchd's PATH is /usr/bin:/bin:/usr/sbin:/sbin and a user unit's is as bare: the agent carries the PATH of the
+  // install that writes it, so an install run over the link finds Homebrew's and ~/.local/bin's tools (PIE-1243).
+  const PATH = f.pathDirs.join(":");
   const path = f.platform === "linux" ? join(f.home, ".config/systemd/user/ep0ch-link.service") : join(f.home, "Library/LaunchAgents/io.ep0ch.link.plist");
   const text = f.platform === "linux"
-    ? `[Unit]\nDescription=ep0ch outbound machine link\nAfter=network-online.target\n\n[Service]\nExecStart=${argv.map(unit).join(" ")}\nEnvironment=${unit(`EP0CH_OUTLINES=${f.host.folder}`)}\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n`
-    : `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>io.ep0ch.link</string><key>ProgramArguments</key><array>${argv.map(a => `<string>${xml(a)}</string>`).join("")}</array><key>EnvironmentVariables</key><dict><key>EP0CH_OUTLINES</key><string>${xml(f.host.folder)}</string></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>5</integer><key>StandardErrorPath</key><string>${xml(join(f.home, "Library/Logs/ep0ch-link.log"))}</string></dict></plist>\n`;
+    ? `[Unit]\nDescription=ep0ch outbound machine link\nAfter=network-online.target\n\n[Service]\nExecStart=${argv.map(unit).join(" ")}\nEnvironment=${unit(`EP0CH_OUTLINES=${f.host.folder}`)}\nEnvironment=${unit(`PATH=${PATH}`)}\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n`
+    : `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>io.ep0ch.link</string><key>ProgramArguments</key><array>${argv.map(a => `<string>${xml(a)}</string>`).join("")}</array><key>EnvironmentVariables</key><dict><key>EP0CH_OUTLINES</key><string>${xml(f.host.folder)}</string><key>PATH</key><string>${xml(PATH)}</string></dict><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>5</integer><key>StandardErrorPath</key><string>${xml(join(f.home, "Library/Logs/ep0ch-link.log"))}</string></dict></plist>\n`;
   const changed = !existsSync(path) || readFileSync(path, "utf8") !== text;
   if (!changed && !codeUpdates && f.linkState?.running && f.linkState.enabled)
     return { id: "machine-link", title: "Install the machine link", status: "skip", why: "already installed and running", commands: [] };

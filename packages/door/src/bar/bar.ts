@@ -11,7 +11,7 @@ import { outlineBoards } from "../desk/outline-boards";
 // screen is shown and the drawer, as the drawer is: it takes every key while it's open (the person is busy), and
 // esc clears text, then closes an empty line; a click outside puts it away. What it lists is its sources' (src/bar/source.ts): with nothing typed, the
 // tiles and then what changed; typed, every source that answers in the main list, each under its heading; after a
-// prefix (`%` `/` `>` `+` `@`, an extension's) or alt+← alt+→, one source; tab fills the line with the lit row's words. A pick is the `bar.pick` action (⏎, a double click;
+// prefix (`%` `/` `>` `+` `:`, an extension's; `@` stays on the line, an ask line) or alt+← alt+→, one source; tab fills the line with the lit row's words. A pick is the `bar.pick` action (⏎, a double click;
 // alt+⏎ or an alt-click is the alternate), which hands the row back to its source.
 //
 // The preview is drawn by the readers' renderers, never one of the bar's own: a note through a note surface, Markdown
@@ -189,7 +189,7 @@ export class PowerBar {
       return true;
     }
     if (k.kind === "char" && !k.ctrl && !this.input.text && !this.scope) {
-      const s = barSources().find(x => x.prefix === k.ch);
+      const s = barSources().find(x => x.prefix === k.ch && !x.inline);
       if (s) { void this.host.dispatch.press("bar.open", { scope: s.id, keep: true }); return true; }
     }
     if (k.kind === "up" && this.scope !== "ask" && !this.query && this.host.runs.length) { void this.host.dispatch.press("bar.command", { op: "recall" }); return true; }
@@ -718,7 +718,7 @@ export class PowerBar {
   keepsRun(n: number): boolean {
     const it = this.items[n - 1];
     if (!it) return false;
-    if (it.source.id === "runs") return true;
+    if (it.source.id === "runs" || it.row.holds) return true;
     if (it.source.id !== "actions") return false;
     const d = it.row.data as { action: string; form?: boolean };
     // Only a typed act line stays with its answer; a picked action row runs and closes, as it always has.
@@ -741,11 +741,17 @@ export class PowerBar {
     const it = this.items[n - 1];
     if (!it) throw new Error(this.items.length ? `pick 1 to ${this.items.length}` : "the bar lists nothing to pick");
     this.picker.sel = n - 1;
-    const keep = actor.kind === "user" && this.keepsRun(n), line = keep ? this.commandLine(n) : "";
-    if (keep) { this.input.splice(0, this.query.length, line); this.refresh(); }
+    const keep = actor.kind === "user" && this.keepsRun(n), holds = keep && !!it.row.holds;
+    const line = holds ? this.query : keep ? this.commandLine(n) : "";
+    if (keep && !holds) { this.input.splice(0, this.query.length, line); this.refresh(); }
     try {
-      const result = await it.source.pick(it.row, this.host, { alt, actor }) ?? null;
-      if (keep) this.recordRun(line, result, false);
+      // A held row sends what's on the line now: named again from it, never the words it was listed for (⏎ can come
+      // before the rows are asked again, as after a completion that lands after its check).
+      const row = holds && it.source.named ? it.source.named(line, this.host) ?? it.row : it.row;
+      const result = await it.source.pick(row, this.host, { alt, actor }) ?? null;
+      // A held line is sent: the bar's done with it (an answer of its own said what happened).
+      if (holds) { this.host.runs.push({ line, answer: runAnswer(this.commandLine(n), result), refused: false }); if (this.host.runs.length > 8) this.host.runs.shift(); void this.host.dispatch.press("bar.close"); }
+      else if (keep) this.recordRun(line, result, false);
       return { picked: rowFacts(it, n), result };
     } catch (e) {
       if (keep) this.recordRun(line, e instanceof Error ? e.message : String(e), true);

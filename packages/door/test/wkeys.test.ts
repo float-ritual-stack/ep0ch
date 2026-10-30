@@ -15,7 +15,7 @@ import { SocketBoard } from "../src/socket";
 import type { MenuRow } from "../src/surface/dispatch";
 import { paint, visible, width } from "../src/style";
 import type { Key } from "../src/term";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, showIn, until } from "./scratch";
 
 const ch = (c: string): Key => ({ kind: "char", ch: c });
 const ctrlW: Key = { kind: "char", ch: "w", ctrl: true };
@@ -100,7 +100,7 @@ describe.skipIf(!outliner)("^W keys, the keys box and the ^W list (PIE-704)", ()
     await app.loadExtensions(true);
     desk = openScreen("desk") as Desk;
     app.push(desk);
-    desk.setCurrent(notes.garden!);
+    showIn(desk, notes.garden!);
     await Bun.sleep(100);
   }, 30_000);
   beforeEach(away);

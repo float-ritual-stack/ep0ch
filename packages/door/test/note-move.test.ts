@@ -244,9 +244,10 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     const parent = await board.createBlock(null, "Orchard replies");
     const alpha = await board.createBlock(parent.id, `Alpha [replyto::${parent.id}]`);
     const beta = await board.createBlock(parent.id, `Beta [replyto::${parent.id}]`);
-    await D().dispatch.press("open", { id: parent.id });
-    await until(() => [...D().panes.values()].some((p: any) => p.surface?.msg?.id === parent.id), "reader");
-    const reader: ReaderPane = [...D().panes.values()].find((p: any) => p.surface?.msg?.id === parent.id);
+    // Into the desk's reader by name (PIE-1207: the focused tile here is the river column, and no current note follows).
+    await D().dispatch.press("open", { id: parent.id }, "reader");
+    await until(() => D().pane("reader")?.surface?.msg?.id === parent.id, "reader");
+    const reader: ReaderPane = D().pane("reader");
     const readerName = D().nameOfPane(reader);
     await D().dispatch.press("tile.focus", {}, readerName);
     letter("t");

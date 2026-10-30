@@ -4,7 +4,7 @@
 export const marks: Record<string, string[]> = {
   note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook", "↗"],
   // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
-  detail: ["Allotment notebook", "Our plot at the Elm Row allotments.", "p follow", "↑↓ j k blocks"],
+  detail: ["Allotment notebook", "Our plot at the Elm Row allotments.", "p pin", "↑↓ j k blocks"],
   // A long note to scroll past the end of (PIE-622), a short one beside it.
   scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
   // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
@@ -24,6 +24,8 @@ export const marks: Record<string, string[]> = {
   sources: ["Which issue is the swap, see [[seed", "issue"],
   // A note's edit open with a / line, the actions that apply here asked for at it (PIE-1076).
   "one-completer": ["Seed tray jobs", "editing · Seed tray jobs"],
+  // A note to ask about beside wren, a demo agent session (PIE-1437).
+  "ask-agent": ["Potting bench rota", "wren, a demo agent"],
   twins: ["Fix the back gate latch", "Queued"],
   "at-revision": ["Jev's suggestions", "Each finding, newest first", "Roof on"],
   "write-review": ["Shed status tonight", "Jev's suggestions", "Each finding, newest first"],
@@ -64,7 +66,7 @@ export const marks: Record<string, string[]> = {
   // Three readers at the three levels of what an agent may do to a tile: the chips on the edit and hands-off tiles.
   agents: ["say what an agent may do to each tile", "* agents: edit only", "! agents: hands off"],
   preview: ["outline"],
-  "reader-modes": ["outline", "stays put", "▣"],
+  "reader-pins": ["outline", "▣", "detail"],
   screen: ["board ·", "· lanes", "HOME-003", "True the front wheel"],
   spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
   entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "↓ children (2)", "Puncture kit", "← backlinks (", "resources (1)"],
@@ -106,6 +108,8 @@ export const marks: Record<string, string[]> = {
   steps: ["Shed roof build log", "Needs you", "felt from the merchant", "screws, not nails"],
   values: ["Vent rail demo", "Owner: Ada", "did you mean owner?", "Spring sowing jobs"],
   "figure-steps": ["Shed door test plan", "YOU TEST", "lift the latch twice", "Plane the door"],
+  // Links in a figure's cells (PIE-1334): the table drawn, a reference only a cell holds drawn as its label.
+  "figure-cells": ["ASKS WITH NO REPLY", "the greenhouse shade cloth"],
   "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", " (M)"],
   // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
   marginalia: ["Greenhouse plan for the spring", "question · ", "cold-frame-guide.md", "Marginalia notebook"],

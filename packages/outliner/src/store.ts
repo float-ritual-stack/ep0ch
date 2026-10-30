@@ -2902,6 +2902,23 @@ export class OutlinerStore {
     return this.update(id, text, expectedRevision, mutation, "properties");
   }
 
+  /**
+   * The notes a persona wrote since `since` (PIE-1452), most recently written first: `margin` matches `margin` and
+   * `margin/<client>@<machine>` (the mod signs a `claude`'s notes so). New notes too, which edit activity doesn't hold,
+   * and a note someone else has edited since (its earlier revision still says who wrote it).
+   */
+  blocksWrittenBy(persona: string, since: string, limit = 20): Block[] {
+    const like = `${persona.replace(/[\\%_]/g, "\\$&")}/%`;
+    const rows = this.database.query(`
+      SELECT id, MAX(at) AS at FROM (
+        SELECT id, updated_at AS at FROM blocks WHERE updated_at >= ? AND (actor_id = ? OR actor_id LIKE ? ESCAPE '\\')
+        UNION ALL
+        SELECT block_id AS id, saved_at AS at FROM block_revisions WHERE saved_at >= ? AND (actor_id = ? OR actor_id LIKE ? ESCAPE '\\')
+      ) GROUP BY id ORDER BY at DESC, id LIMIT ?`)
+      .all(since, persona, like, since, persona, like, limit * 2) as { id: string }[];
+    return rows.flatMap(({ id }) => { const block = this.get(id); return block && !block.effectiveDeletedRootId ? [block] : []; }).slice(0, limit);
+  }
+
   recentEditActivity(options: {
     afterCursor?: number;
     since?: string;
@@ -4578,8 +4595,10 @@ export class OutlinerStore {
    * `text` (every word, any order) and `subtreeRootId` (that block and those under it) narrow it as in `blocks.query`;
    * with either, the expression may be left out.
    */
-  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown; this?: unknown } = {}, binder?: ValueBinder, draft?: BlockRecord): { blockIds: string[] } {
+  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown; this?: unknown; propertyScope?: PropertyQueryScope } = {}, binder?: ValueBinder, draft?: BlockRecord): { blockIds: string[] } {
     const { text, subtreeRootId, this: thisId } = narrow;
+    // Which chips the query reads (a rule's `[property-scope::]`, as a view's): left out, the header's.
+    const scope = narrow.propertyScope ?? "block";
     if (thisId !== undefined && (typeof thisId !== "string" || !thisId)) throw new Error("Query match this must be a block ID");
     if (text !== undefined && typeof text !== "string") throw new Error("Query match text must be a string");
     if (subtreeRootId !== undefined && (typeof subtreeRootId !== "string" || !subtreeRootId)) throw new Error("Query match subtreeRootId must be a block ID");
@@ -4607,9 +4626,11 @@ export class OutlinerStore {
         blockIds: (ids as string[]).filter(id => {
           const saved = this.getFromCurrentRead(id);
           const block = saved && draft?.id === id ? { ...saved, text: draft.text, properties: draft.properties.flatMap(p => p.values.map(value => ({ key: p.key, value }))) } : saved;
-          return !!block && !block.effectiveDeletedRootId && matchesFilters(block.properties, filters) &&
+          if (!block || block.effectiveDeletedRootId) return false;
+          const records = scope === "block" || draft?.id === id ? block.properties : this.questionRecordsFromCurrentRead(block);
+          return matchesFilters(records, filters, scope) &&
             terms.every(term => block.text.toLowerCase().includes(term)) && under(block) &&
-            (!test || test({ ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, block.properties));
+            (!test || test({ ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, records, scope));
         }),
       };
     }).deferred();

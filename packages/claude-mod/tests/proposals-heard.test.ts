@@ -15,7 +15,7 @@ const outcome = (proposal: string, state: Outcome['state'], revision: number, mo
 
 describe('what became of a proposal', () => {
   test('each outcome is told once, in order, with the note and the proposal as links', () => {
-    const page = outcomesPageOf(JSON.stringify({ actor: 'wren', outcomes: [outcome(P1, 'proposed', 1, { reason: 'the note is open in a draft' }), outcome(P1, 'stale', 2, { by: 'user', reason: 'the note changed since it was proposed' })], cursor: at(2), complete: true }))!
+    const page = outcomesPageOf(JSON.stringify({ actor: 'wren', outcomes: [outcome(P1, 'proposed', 1, { reason: 'the note is open in a draft' }), outcome(P1, 'stale', 2, { by: 'user', reason: 're-read the note and send the edit again, or leave the proposal to Evan' })], cursor: at(2), complete: true }))!
     expect(page.cursor).toBe(at(2))
     const told = new Set<string>()
     const first = untold(page.outcomes, told)
@@ -23,8 +23,9 @@ describe('what became of a proposal', () => {
     for (const o of first) told.add(outcomeKey(o))
     const later = [...page.outcomes, outcome(P1, 'dismissed', 3, { by: 'user' })]
     expect(untold(later, told).map(o => o.state)).toEqual(['dismissed'])
-    expect(outcomeLine(first[1]!)).toBe(`- gone stale by Evan: your proposal ((${P1}|proposal)) on ((${NOTE}|Seed swap)): the note changed since it was proposed`)
-    expect(outcomeLine(first[0]!)).toContain('proposed instead of applied: your proposal')
+    expect(outcomeLine(first[1]!)).toBe(`- gone stale: ((${P1}|your edit of Seed swap)) no longer fits ((${NOTE}|Seed swap)): Evan changed the note after it was proposed; re-read the note and send the edit again, or leave the proposal to Evan`)
+    expect(outcomeLine(first[0]!)).toContain('proposed instead of applied: ((')
+    expect(outcomeLine(first[0]!)).not.toContain('|proposal))')
   })
 
   test('only a stale proposal asks the session to act, and says how', () => {

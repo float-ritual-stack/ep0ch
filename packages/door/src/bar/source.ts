@@ -36,6 +36,11 @@ export interface BarRow {
   group?: string;
   /** What's typed names this row outright (an action line with its arguments): the main list puts its source first, so ⏎ picks it. */
   exact?: true;
+  /**
+   * Its pick sends what the person typed (an ask line, PIE-1437): the line stays as typed while it runs, the bar closes
+   * when it's done, and a refusal keeps the line to fix, its reason under "this session". What's typed always lands.
+   */
+  holds?: true;
   /** The note it stands for (a notes hit), in another outline when `outline` says: its row menu copies its address (note.copy-ref). */
   note?: { id: string; outline?: string };
   data?: unknown;
@@ -56,7 +61,7 @@ export interface BarHost {
   /** The screens, the one shown last; and those kept in the background. */
   screens(): readonly Screen[];
   kept(): readonly Screen[];
-  /** The note in the reader the person is in, or the screen's current one: the notes search starts near it. */
+  /** The note in front of the person (the reader they're in, else what their tile shows): the notes search starts near it. */
   near(): string | null;
   /** Read a note: none when it's gone; a read that fails (offline, refused) throws, so a caller never takes it for gone. */
   note(id: string): Promise<Msg | null>;
@@ -74,6 +79,8 @@ export interface BarSource {
   title: string;
   /** Typed first, it scopes the bar to this source (`%` tiles, `/` notes). */
   prefix: string;
+  /** Its prefix stays on the line as typed instead of scoping the bar (`@`, an ask line: its words complete as any line's do). */
+  inline?: true;
   /** What it lists, for `bar.open`'s answer and the bar's foot. */
   about: string;
   /** Its rows join the main list (no scope chosen): with nothing typed (`empty`), and as the person types (`typed`). */

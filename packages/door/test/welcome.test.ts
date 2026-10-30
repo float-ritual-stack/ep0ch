@@ -12,7 +12,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { landingOf, startScreens, type ScreenRequest } from "../src/start";
 import type { Key } from "../src/term";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, showIn, until } from "./scratch";
 import { prop } from "../src/props";
 import { traceRequests } from "../src/surface/dispatch";
 
@@ -382,7 +382,7 @@ describe.skipIf(!outliner)("a backlinks tile on the desk", () => {
     const desk = new Desk({ name: "test", title: "test", layout: { root: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "reader", name: "reader" }, b: { t: "leaf", kind: "backlinks", name: "backlinks", source: "tile:reader", groups: "open" } } } });
     const reader = desk.pane("reader") as ReaderPane, bl = desk.pane("backlinks") as BacklinksPane;
     app.push(desk);
-    desk.setCurrent(lamp);
+    showIn(desk, lamp);
     await until(() => bl.target?.id === lamp.id && bl.data !== null && bl.rows().some(r => r.kind === "backlink"), "the lamp's backlinks");
     await app.act({ action: "tile.focus", tile: "backlinks" });
     const d = desk as any;
@@ -391,9 +391,9 @@ describe.skipIf(!outliner)("a backlinks tile on the desk", () => {
     await Bun.sleep(200);
     expect(reader.msg?.id).toBe(lamp.id);
     expect(bl.target?.id).toBe(lamp.id);
-    // ⏎ opens it: the reader follows the current note, as an open from any list does.
+    // ⏎ opens it in the links tile's home, the reader, as an open from any list does.
     await app.act({ action: "list.open", args: { id: a.id } });
-    await until(() => reader.msg?.id === a.id, "⏎: the source is the current note");
+    await until(() => reader.msg?.id === a.id, "⏎: the source in the reader");
     void b;
   }, 30_000);
 });

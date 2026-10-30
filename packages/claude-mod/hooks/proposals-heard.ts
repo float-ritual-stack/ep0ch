@@ -60,9 +60,16 @@ const SAID: Record<OutcomeState, string> = {
   resolved: 'resolved',
 }
 
-/** One outcome's line: what it became, on which note, who made it so, and why. */
+/**
+ * One outcome's line: what it became, on which note, who made it so, and why. Each link is labelled by its note (PIE-1436):
+ * the proposal as "your edit of <title>", never a bare "proposal". Stale is something that happened to the note, not
+ * something its changer did to the proposal, so it says who changed the note.
+ */
 export function outcomeLine(o: Outcome): string {
-  return `- ${SAID[o.state] ?? o.state}${byOf(o.state === 'proposed' ? undefined : o.by)}: your proposal ((${o.proposal}|proposal)) on ((${o.note}|${label(o.title, o.note)}))${o.reason ? `: ${o.reason}` : ''}`
+  const title = label(o.title, o.note), edit = `((${o.proposal}|your edit of ${title}))`, note = `((${o.note}|${title}))`
+  const why = o.reason ? `: ${o.reason}` : ''
+  if (o.state === 'stale') return `- gone stale: ${edit} no longer fits ${note}: ${!o.by ? 'someone' : o.by === 'user' ? 'Evan' : o.by} changed the note after it was proposed${o.reason ? `; ${o.reason}` : ''}`
+  return `- ${SAID[o.state] ?? o.state}${byOf(o.state === 'proposed' ? undefined : o.by)}: ${edit} on ${note}${why}`
 }
 
 /** Outcomes one message lists; the rest are counted. */

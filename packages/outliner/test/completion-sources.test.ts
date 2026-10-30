@@ -133,3 +133,13 @@ test("(( answers the notes and their anchors from the service, as the door and D
   expect(list1[0]).toMatchObject({ label: "Greenhouse meeting", kind: "block" });
   expect(list1.map(row => row.kind)).toContain("anchor");
 });
+
+test("(( with a short id offers the note it names first, its title as the label (PIE-1437)", async () => {
+  const { create, rows } = await setup();
+  await create("Seed tray rota\nWho waters which tray.");
+  const note = await create("Compost turning\nEvery second Sunday.");
+  const short = note.id.slice(0, 8);
+  const list1 = merged(await rows("block", short), short);
+  expect(list1[0]).toMatchObject({ label: "Compost turning", kind: "block", blockId: note.id });
+  expect(insertText(list1[0]!.insert)).toBe(`((${note.id}))`);
+});

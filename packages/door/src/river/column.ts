@@ -243,8 +243,6 @@ export class RiverColumn extends ReaderPane {
     const hold = this.surface.draft ? "✎" : this.surface.session ? "¶" : "";
     return { title: this.titleOf(), marks: [hold ? fg(C.yellow) + hold + RESET : fg(C.dark) + "·" + RESET] };
   }
-  /** The desk's current note moved: a column keeps its own. */
-  override select() {}
   /** Typing a filter, choosing a property, or selecting text by keys: its keys are its own. */
   typing() { return this.mode !== "" || !!this.text?.keys; }
   lineField() { return this.mode === "filter" ? this.input : null; }

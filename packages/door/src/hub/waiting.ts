@@ -101,7 +101,8 @@ export class WaitingPane implements Pane {
     const keep = was ? list.findIndex(m => m.id === was) : -1;
     this.at = keep >= 0 ? keep : list.length ? 0 : -1;
     const m = list[this.at];
-    if (m && m.id !== desk.current?.id) desk.setCurrent(m, { from: this });
+    // The reader its select wire goes to shows the pick (PIE-1207): when it changed, or nothing is shown there yet.
+    if (m && (m.id !== was || desk.previewsEmpty?.(this))) desk.showFrom?.(this, m);
     desk.redraw();
   }
 
@@ -174,7 +175,7 @@ function pick(list: WaitingPane, desk: DeskApi, which: { n?: number; id?: string
   if (i < 0 || i >= items.length) throw new ActionRefused(which.id !== undefined ? `no waiting item ${which.id}` : `pick 1 to ${items.length}`);
   const m = items[i]!;
   list.at = i;
-  desk.setCurrent(m, { from: list, by: actor });
+  desk.showFrom?.(list, m, actor);
   return { n: i + 1, of: items.length, id: m.id, who: waitingOn(m).who, title: subject(m) };
 }
 
@@ -208,10 +209,10 @@ export const WAITING_KIND: TileKind = {
   peek: p => { const w = p as WaitingPane; return { picked: w.at >= 0 ? w.at + 1 : null, waiting: w.items ? w.describe() : null, problem: w.problem || undefined }; },
 };
 
-/** Waiting on others: the list beside a reader that follows what it picks. */
+/** Waiting on others: the list beside a reader, wired to show what it picks (⏎ takes the keys there). */
 export function waitingSpec(): ScreenSpec {
   return {
     name: "waiting", title: "waiting on others",
-    layout: { focus: "waiting", root: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "waiting", name: "waiting" }, b: { t: "leaf", kind: "reader", name: "reader" } } },
+    layout: { focus: "waiting", root: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "waiting", name: "waiting", wires: [{ verb: "select", to: "reader" }] }, b: { t: "leaf", kind: "reader", name: "reader" } } },
   };
 }

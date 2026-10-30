@@ -701,10 +701,11 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     await stage().dispatch.act({ action: "open", args: { from: b.name, id: seeded.notes.notebook.id } }, USER);
     unique();
     expect(tiles().find(t => t.name === a.name).collapsed).toBeUndefined();
-    for (const kind of ["split", "tile.open", "pinned"] as const) {
+    // A pinned reader takes no opens (PIE-1207: they land beside it), so its history is checked below, from its source.
+    for (const kind of ["split", "tile.open"] as const) {
       const made = await stage().dispatch.act(kind === "split"
         ? { action: "pane.split", tile: a.name, args: { kind: "reader", dir: "row" } }
-        : { action: "tile.open", tile: a.name, args: { kind: "reader", mode: kind === "pinned" ? "pinned" : "held", ...(kind === "pinned" ? { page: "Allotment notebook" } : { note: seeded.notes.notebook.id }) } }, USER);
+        : { action: "tile.open", tile: a.name, args: { kind: "reader", note: seeded.notes.notebook.id } }, USER);
       await stage().dispatch.act({ action: "open", tile: made.name, args: { id: seeded.notes.notebook.id } }, USER);
       await stage().dispatch.act({ action: "open", tile: made.name, args: { id: seeded.notes.shed.id } }, USER);
       await stage().dispatch.act({ action: "back", tile: made.name, args: {} }, USER);
@@ -717,7 +718,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     await until(() => tiles().find(t => t.name === pinned.name)?.showing?.id === seeded.notes.notebook.id, "the pinned page");
     await stage().dispatch.act({ action: "open", tile: source, args: { id: seeded.notes.shed.id } }, USER);
     await stage().dispatch.act({ action: "back", tile: source, args: {} }, USER);
-    expect(tiles().find(t => t.name === pinned.name)?.mode).toBe("pinned");
+    expect(tiles().find(t => t.name === pinned.name)?.pinned).toBe(true);
     expect(tiles().find(t => t.name === source)?.showing?.id).toBe(seeded.notes.notebook.id);
     await stage().dispatch.act({ action: "tile.close", tile: pinned.name, args: {} }, USER);
     await stage().dispatch.act({ action: "layout.policy", tile: source, args: { closable: false } }, USER);

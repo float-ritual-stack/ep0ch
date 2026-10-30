@@ -20,7 +20,7 @@ import type { Desk } from "./desk";
 import { lastTrashed, trashConfirm, trashNote, trashPlan, untrashNote } from "../note-trash";
 import { subject } from "../board";
 import { renamedPagesNote } from "@ep0ch/outline-core/protocol";
-import { FOLLOW_MODES, tileKind, tileNoun, type TileKindName } from "./tile-kinds";
+import { READER_MODES, tileKind, tileNoun, type TileKindName } from "./tile-kinds";
 
 export type Where = Dir | "tabs" | "next" | "edge-left" | "edge-right" | "edge-up" | "edge-down";
 export const WHERE: readonly Where[] = ["left", "right", "up", "down", "tabs", "next", "edge-left", "edge-right", "edge-up", "edge-down"];
@@ -48,7 +48,7 @@ const TILE = "Tile";
 export interface TileDone { tile: string; [k: string]: unknown }
 
 /** A new tile: its kind and what it needs (the fields of a saved tile). */
-export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; outline?: string; machine?: string; page?: string; mode?: "follows" | "held" | "pinned"; cwd?: string; view?: string; query?: string; screen?: string; part?: string; target?: string; inner?: unknown; args?: Record<string, unknown>; label?: string; /** A kind's own state to start with (the keys window's filter), opened in code. */ state?: Record<string, unknown> }
+export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; outline?: string; machine?: string; page?: string; mode?: "pinned" | "held"; cwd?: string; view?: string; query?: string; screen?: string; part?: string; target?: string; inner?: unknown; args?: Record<string, unknown>; label?: string; /** A kind's own state to start with (the keys window's filter), opened in code. */ state?: Record<string, unknown> }
 
 /**
  * What a tile action runs on: the desk, and the tile `tile=` named (by its name: the dispatcher read the grammar).
@@ -109,7 +109,7 @@ const POLICY_ARGS = {
   locked: { type: "boolean", optional: true, about: "its shape is fixed, its contents live" },
   altOpens: { type: "string", optional: true, choices: ALT_RULES, about: "alt-open rule (default beside); alt readers keep what fits and older ones fold" },
   opensInto: { type: "string", optional: true, kind: "tile", choices: [""], about: "the tile its tiles' opens land in (empty clears)" },
-  opens: { type: "string", optional: true, choices: ["current", "next", "beside"], about: "the open rule: current (the current note) or next (a new column after the tile's own, in a flow)" },
+  opens: { type: "string", optional: true, choices: ["reader", "next", "beside"], about: "the open rule: reader (the first reader that isn't pinned, the default), next (a new column after the tile's own, in a flow) or beside (a reader beside the tile)" },
   agents: { type: "string", optional: true, choices: ["free", "edit", "off"], about: "what an agent may do to the tiles under it (free, edit, off; PIE-639): node=screen is the screen's default, a tile's own wins (tile.agent); free clears" },
   host: { type: "string", optional: true, choices: ["over", "beside", "none"], about: "node=screen: where the host layer (the agent, terminals) may appear over this screen: over, beside or none" },
   clear: { type: "string", optional: true, about: "fields to take away, comma-separated" },
@@ -171,7 +171,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "tile.open": def({
     words: "open a new tile beside this one, or as a tab",
     answer: { tile: { type: "string", kind: "tile", about: "the new tile's stable id; pass it back as tile=" }, name: { type: "string", about: "its displayed name" }, kind: { type: "string", about: "the tile kind" }, where: { type: "string", about: "where it landed: the where= asked, or float" }, why: { type: "string", about: "only when an agent's tile is too narrow to read beside to=: it floated (no tile= nor where= named) or went where asked, and this says so" } },
-    summary: `open a new tile beside tile=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=screen (screen=<name> target=<its hub or note> part=<a container>: a screen mounted here, PIE-651), tree, reader (follows the current note; mode=held note=<id> keeps one; mode=pinned page=<name> pins [[name]]; kind=detail is a held reader), preview (source=tile:<name> or file:<path>), pty (cmd="nvim draft.md", file=<path it edits>), query (view=<a saved view's block id>: its cards, as a board lane; or query=<a query, #tag> source=tile:<its home reader>), board, river, brief, thread, activity, who, art. name= already there delivers note= to that tile when its kind matches; a different kind names the call to use. The person's focus stays where it is, in yolo too. An agent's tile that would be narrower than ${OPEN_READS.cols} columns (or shorter than ${OPEN_READS.rows} rows) floats when the call names neither a tile nor where=, and goes where asked when it names one; the answer's why says so either way`,
+    summary: `open a new tile beside tile=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=screen (screen=<name> target=<its hub or note> part=<a container>: a screen mounted here, PIE-651), tree, reader (note=<id> it shows and keeps; mode=pinned pins it on that note, or page=<name> on [[name]], so opens land beside it; kind=detail is a reader), preview (source=tile:<name> or file:<path>), pty (cmd="nvim draft.md", file=<path it edits>), query (view=<a saved view's block id>: its cards, as a board lane; or query=<a query, #tag> source=tile:<its home reader>), board, river, brief, thread, activity, who, art. name= already there delivers note= to that tile when its kind matches; a different kind names the call to use. The person's focus stays where it is, in yolo too. An agent's tile that would be narrower than ${OPEN_READS.cols} columns (or shorter than ${OPEN_READS.rows} rows) floats when the call names neither a tile nor where=, and goes where asked when it names one; the answer's why says so either way`,
     keys: [{ keys: "^W o", does: "then the key of the kind to open" }, { keys: "^W O", does: "then the key of the kind to open as a tab" }, { keys: "⏎ double-click", does: "on a view in ^W o q's picker" }],
     touches: "shape", landing: true, replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind, r.name)} in ${r.n} · ${r.name ?? r.tile}${r.why ? ` · ${r.why}` : ""}`,
     args: {
@@ -180,11 +180,11 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       cmd: { type: "string", optional: true, about: "pty: the command line (default $SHELL)" },
       file: { type: "string", optional: true, about: "pty: the file it edits; preview: the file it shows" },
       source: { type: "string", optional: true, about: "preview: tile:<name> or file:<path>" },
-      mode: { type: "string", optional: true, choices: FOLLOW_MODES, about: "reader: held (it keeps note=, the current note never moves it) or pinned (to page=); left out it follows the current note. kind=detail is kind=reader mode=held" },
+      mode: { type: "string", optional: true, choices: READER_MODES, about: "reader: pinned (on note=, or on page=): every open aimed at it lands beside it, and it comes back pinned after a restart; left out (or held, which every reader is now), opens land in it" },
       outline: { type: "string", optional: true, kind: "outline", about: "the outline the reader reads and saves in (default: this door)" },
       machine: { type: "string", optional: true, implies: [{ outline: null }], about: "the outline host machine (default: this door's host)" },
-      note: { type: "string", optional: true, kind: "note", about: "reader, held: the note it keeps" },
-      id: { type: "string", optional: true, kind: "note", conflicts: ["note"], about: "reader, held: the same as note=" },
+      note: { type: "string", optional: true, kind: "note", about: "reader: the note it starts on and keeps" },
+      id: { type: "string", optional: true, kind: "note", conflicts: ["note"], about: "reader: the same as note=" },
       page: { type: "string", optional: true, kind: "page", about: "reader, pinned: the page it's pinned to, as in [[name]]" },
       cwd: { type: "string", optional: true, about: "pty: the folder it runs in" },
       view: { type: "string", optional: true, kind: "view", about: "query: the saved view (virtual branch) whose cards it lists" },
@@ -197,12 +197,12 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       where: { type: "string", optional: true, choices: WHERE, about: "left, right, up, down or tabs (default right); next: the column after its own in a flow" },
     },
     examples: [
-      { act: "tile.open kind=reader mode=held note=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=tree where=right", does: "opens a reader beside the tree that keeps the seed-swap note" },
+      { act: "tile.open kind=reader note=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=tree where=right", does: "opens a reader beside the tree on the seed-swap note" },
       { act: "tile.open kind=pty cmd=\"nvim garden.md\" file=garden.md where=down", does: "opens a terminal below running nvim on garden.md" },
     ],
     async run({ kind, to, where, mode, id, ...t }, { d, reader }, actor) {
       if (id !== undefined && t.note === undefined) t.note = id;
-      const opening = canonSpec({ kind: kind as TileKindName, ...(mode !== undefined ? { mode: mode as "follows" | "held" | "pinned" } : {}), ...t });
+      const opening = canonSpec({ kind: kind as TileKindName, ...(mode !== undefined ? { mode: mode as "pinned" | "held" } : {}), ...t });
       const wrong = tileKind(opening.kind)?.check?.({ ...opening, cmd: opening.cmd === undefined ? undefined : lineWords(opening.cmd) }, opening);
       if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
       return await d.openTile(opening, to ?? reader, whereOf(where, "tile.open", "right"), actor, { unnamed: to === undefined && reader === undefined && where === undefined });
@@ -522,7 +522,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.preview": def({
-    summary: "Open a preview beside or below a list, connected by a select wire; selections show there without moving the current note. On a reader, open a detail where its opens land, connected by an open wire. A terminal's preview follows its file. Again reveals the existing target. where=right, down, left or up.",
+    summary: "Open a preview beside or below a list, connected by a select wire; selections show there and nowhere else. On a reader, open a detail where its opens land, connected by an open wire. A terminal's preview follows its file. Again reveals the existing target. where=right, down, left or up.",
     keys: "O in a reader; ^W v beside, ^W V below",
     // Said to the person too (confirms): ^W v on a tile already linked shows the one there, which looked like nothing happening.
     touches: "shape", replay: "safe", confirms: true,

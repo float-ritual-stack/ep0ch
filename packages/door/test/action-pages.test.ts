@@ -182,8 +182,8 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
       expect(info.name).toBe(answer.name);
       }
       if (page.name === "tile.open" && line.includes("kind=reader")) {
-        await until(() => d.tileInfo(answer.tile).showing?.id === note.id, "the example's held note");
-        expect((d.pane(answer.tile) as ReaderPane).followMode).toBe("held");
+        await until(() => d.tileInfo(answer.tile).showing?.id === note.id, "the example's note");
+        expect((d.pane(answer.tile) as ReaderPane).pinned).toBe(false);
       }
     } finally {
       process.chdir(cwd);

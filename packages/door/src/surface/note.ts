@@ -115,7 +115,7 @@ import { composerBody, composerBox, placeBox, type ComposerBox } from "./compose
 import { AttachedTile, attachedAt, attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedTileHost, type AttachedSide, type AttachedPlace, type AttachedSplit, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, nextPlace, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
 import { pickerCwd, pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
-import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, scriptInstallWords, threadAgents } from "../extensions";
+import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, installWords, threadAgents } from "../extensions";
 import { actionLine, actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { INVITES } from "./invite";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
@@ -194,7 +194,7 @@ export interface SurfaceHost {
   readonly externalGutter?: number;
   readonly innerFrame?: FloatRect;
   readonly heroBounds?: { col: number; row: number; cols: number };
-  /** A followed link or `u` (up): the host decides where the note opens (in place, or as the current note). */
+  /** A followed link or `u` (up): the host decides where the note opens (in place, or where its wires say). */
   navigate(m: Msg, how?: OpenHow): void;
   /**
    * The click being handled is an alt-, ctrl- or middle-click, which the host opens fresh (its `navigate` for this
@@ -3637,6 +3637,9 @@ export class NoteSurface {
   dispose() {
     this.endPreviewDraft();
     this.drafting?.dispose();
+    // A comment read an event asked for (onEvent) doesn't go out for a reader that's gone.
+    if (this.commentTimer) clearTimeout(this.commentTimer);
+    this.commentTimer = null;
   }
 
   /**
@@ -4967,7 +4970,7 @@ export class NoteSurface {
       if (!d.takes(d.requestIn(req, messageContext.getStore()?.tile))) {
         const { listed, scripts } = await this.scriptsNamed(action, p.block || this.msg?.id, p.line, host);
         if (!scripts.length) {
-          throw new ActionRefused(scriptInstallWords(action, listed.available) ?? d.unknownAction(action));
+          throw new ActionRefused(installWords(action, listed.available) ?? d.unknownAction(action));
         }
         if (scripts[0]!.state === "failed") throw new ActionRefused(scripts[0]!.error!);
         if (scripts.length > 1) host.ctx.flash(scripts[0]!.description ?? "");
@@ -6674,6 +6677,7 @@ export class NoteSurface {
   /** A link to this artifact alone for someone outside (PIE-1266), copied for the person; an agent is given it in the answer. */
   async shareArtifact(ref: ImageRef, ttl: string | undefined, host: SurfaceHost, actor: Actor): Promise<{ share: ShareSession; said?: string }> {
     const artifact = await host.ctx.board.request<ArtifactInfo>("artifacts.show", { name: ref.path });
+    if (artifact.deploy) throw new ActionRefused(`${artifact.deploy.repo} is a repo: its site${artifact.url ? ` (${artifact.url})` : ""} is public already, and a share gives a stored artifact alone; artifact.open opens the site`);
     const started = await startShare(host.ctx.board, { artifact: artifact.version ? `${artifact.name}@${artifact.version}` : artifact.name, ...(ttl ? { ttl } : {}) }, actor);
     const { share } = started;
     if (actor.kind === "user" && share.url) host.ctx.copy?.(share.url, "share link");
@@ -6683,6 +6687,8 @@ export class NoteSurface {
 
   async openArtifact(ref: ImageRef, host: SurfaceHost): Promise<Outside> {
     const artifact = await host.ctx.board.request<ArtifactInfo>("artifacts.show", { name: ref.path });
+    // A repo opens its live site; one that isn't live says why and the command that deploys it (PIE-1060).
+    if (artifact.deploy && !artifact.url) throw new ActionRefused(`${artifact.deploy.repo} isn't live: ${artifact.deploy.said ?? artifact.deploy.state}${artifact.deploy.command ? `; run ${artifact.deploy.command}` : ""}`);
     if (!artifact.url) throw new ActionRefused("Set EP0CH_WEB_URL on the outline host to the web client's address (https://my.ep0ch.sh): an artifact opens as its page there.");
     return this.openOutside("browser", artifact.url, host);
   }
@@ -8341,8 +8347,7 @@ export class NoteSurface {
    * Run a navigation (a followed link, `u`, or a host opening a note into this reader on purpose: an agent's
    * `open`, a card's ⏎ into a detail, a selection wired to it: a links tile's pick, a preview's source, PIE-1426) so
    * that, when it leaves this reader on another note, back comes here, whichever tile changed it (a wired preview is
-   * tracked whether it is held or follows). A desk reader following the current note isn't navigating, so the host
-   * shows it without this.
+   * tracked too).
    */
   track<T>(open: () => T): T {
     const from = this.place();

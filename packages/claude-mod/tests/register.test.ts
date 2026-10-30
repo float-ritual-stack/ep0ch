@@ -1868,6 +1868,8 @@ describe('approve from the phone (PIE-1386)', () => {
     expect(ask.polled()).toBe(4)
     expect(ask.edits.at(-1)).not.toContain('[needs::')
     expect(ask.edits.at(-1)).toContain('Answered **allow this once** by the person (web:session-7)')
+    // The tick gave its step an id; the close-out keeps it (the service refuses an edit that drops a list item's id).
+    expect(ask.edits.at(-1)).toContain('✓ **allow this once** ^t-c03671')
   })
 
   test('the person denies: the call is denied, with where the answer came from', async ($, on) => {
@@ -1952,6 +1954,51 @@ describe('approve from the phone (PIE-1386)', () => {
     expect(ask.edits.at(-1)).not.toContain('[needs::')
   })
 
+  test("a turn that ends under the dialog (the session stopped) closes the ask without saying anyone answered (PIE-1451)", async ($, on) => {
+    let release = () => {}
+    const held = new Promise<void>(r => { release = r })
+    const ask = asking(on, [untouched], { CLAUDE_JOB_DIR: '/jobs/j1' }, { sleep: () => held })
+    on('tool.call', { tool: 'Bash' }, () => new Promise(() => {}))
+    await ask.session.begin(() => $.session.start(START))
+    void $.tool.call({ tool: 'Bash', command: 'touch walk.txt' } as any)
+    const answer = $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'touch walk.txt' } })
+    await ask.made
+    await $.turn.complete({ reason: 'other', answer: '' } as any)
+    expect((await answer).decision).toBeUndefined()
+    release()
+    expect(ask.edits.at(-1)).toMatch(/The session's turn ended at .+ before anyone answered: it didn't run\.$/)
+    expect(ask.edits.at(-1)).not.toContain('[needs::')
+  })
+
+  test('the session ends with its dialog open: the ask leaves the list by itself, saying so, and its boxes take no more ticks (PIE-1451)', async ($, on) => {
+    let release = () => {}
+    const held = new Promise<void>(r => { release = r })
+    const ask = asking(on, [untouched], { CLAUDE_JOB_DIR: '/jobs/j1' }, { sleep: () => held })
+    on('session.end', () => ({ sessionId: 'session-1' }))
+    // The dialog waits, and nobody answers it: a one-shot whose run is stopped, a background job that exits.
+    on('tool.call', { tool: 'Bash' }, () => new Promise(() => {}))
+    await ask.session.begin(() => $.session.start(START))
+    void $.tool.call({ tool: 'Bash', command: 'claude plugin --help' } as any)
+    void $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'claude plugin --help' } })
+    await ask.made
+    // The note written: the hook now holds it open, waiting on a tick (its sleeps held).
+    await new Promise(r => setTimeout(r, 50))
+    await $.session.end({ reason: 'other' } as any)
+    release()
+    const closed = ask.edits.at(-1)!
+    expect(closed).not.toContain('[needs::')
+    expect(closed).toMatch(/The session ended \(other\) at .+ before anyone answered: it didn't run\.$/)
+    expect(closed).not.toContain('- [ ]')
+    expect(closed).toContain('- ~~allow this once~~\n- ~~allow `claude plugin --help` for this session~~\n- ~~deny~~')
+  })
+
+  test("a tick that answers: that step stays ticked in bold, the others are struck, so none takes a tick later (PIE-1451)", async ($, on) => {
+    const ask = asking(on, [{ text: tick('allow this once'), author: 'user' }])
+    await ask.session.begin(() => $.session.start(START))
+    expect((await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })).decision).toMatchObject({ behavior: 'allow' })
+    expect(ask.edits.at(-1)).toContain('- ✓ **allow this once** ^t-c03671\n- ~~allow `ls` for this session~~\n- ~~deny~~')
+  })
+
   test('nobody ticks: the ask leaves the list when the wait runs out, saying the dialog still waits in the session', async ($, on) => {
     const quiet = asking(on, [untouched], { CLAUDE_JOB_DIR: '/jobs/j1', EP0CH_APPROVE_WAIT: '30' })
     await quiet.session.begin(() => $.session.start(START))
@@ -2022,12 +2069,12 @@ describe('what became of a proposal reaches its session once (PIE-1086)', () => 
     await s.session.clock.set(Date.parse('2026-10-29T12:00:00Z'))
     await s.session.begin(() => $.session.start(START))
     s.outcomes.push({ proposal: P, note: NOTE, title: 'Bean rota', state: 'proposed', at: at(1), revision: 1, reason: 'the note is open in a draft' })
-    s.outcomes.push({ proposal: P, note: NOTE, title: 'Bean rota', state: 'stale', at: at(1.5), revision: 2, by: 'user', reason: 'the note changed since it was proposed' })
+    s.outcomes.push({ proposal: P, note: NOTE, title: 'Bean rota', state: 'stale', at: at(1.5), revision: 2, by: 'user', reason: 're-read the note and send the edit again, or leave the proposal to Evan' })
     await s.session.clock.advance(2 * MIN + 1000)
     expect(s.asked[0]!.argv).toContain('--actor')
     expect(JSON.parse(s.asked[0]!.stdin!)).toEqual({ since: '2026-10-29T12:00:00.000Z' })
     expect(s.wakes).toHaveLength(1)
-    expect(s.wakes[0]).toContain(`- gone stale by Evan: your proposal ((${P}|proposal)) on ((${NOTE}|Bean rota))`)
+    expect(s.wakes[0]).toContain(`- gone stale: ((${P}|your edit of Bean rota)) no longer fits ((${NOTE}|Bean rota)): Evan changed the note after it was proposed`)
     expect(s.wakes[0]).toContain('proposed instead of applied')
     // The next look starts where the last ended; told ones are not told again.
     s.outcomes.push({ proposal: P, note: NOTE, title: 'Bean rota', state: 'applied', at: at(4), revision: 3, by: 'user' })
@@ -2036,7 +2083,7 @@ describe('what became of a proposal reaches its session once (PIE-1086)', () => 
     expect(s.wakes).toHaveLength(1)
     const context = ((await $.prompt.submit({ text: 'plant the beans', wait: false })).context ?? []) as string[]
     const heard = context.find(c => c.startsWith('<ep0ch-proposals>'))!
-    expect(heard).toContain('- applied by Evan: your proposal')
+    expect(heard).toContain('- applied by Evan: ((')
     expect(heard).not.toContain('gone stale')
     const later = ((await $.prompt.submit({ text: 'plant the beans', wait: false })).context ?? []) as string[]
     expect(later.some(c => c.startsWith('<ep0ch-proposals>'))).toBe(false)
@@ -2050,10 +2097,10 @@ describe('what became of a proposal reaches its session once (PIE-1086)', () => 
     expect(s.asked).toEqual([])
     const patched = await $.tool.call({ tool: 'mcp__ep0ch__outline_patch', ref: NOTE, revision: 1, patches: [{ observed: 'Mondays', replacement: 'Tuesdays' }] })
     expect(JSON.stringify(patched)).toContain('proposed')
-    s.outcomes.push({ proposal: P, note: NOTE, title: 'Bean rota', state: 'stale', at: at(1), revision: 2, by: 'user', reason: 'the note changed since it was proposed' })
+    s.outcomes.push({ proposal: P, note: NOTE, title: 'Bean rota', state: 'stale', at: at(1), revision: 2, by: 'user', reason: 're-read the note and send the edit again, or leave the proposal to Evan' })
     await s.session.clock.advance(2 * MIN + 1000)
     expect(s.wakes).toEqual([])
     const context = ((await $.prompt.submit({ text: 'plant the beans', wait: false })).context ?? []) as string[]
-    expect(context.find(c => c.startsWith('<ep0ch-proposals>'))).toContain('gone stale by Evan')
+    expect(context.find(c => c.startsWith('<ep0ch-proposals>'))).toContain('Evan changed the note after it was proposed')
   })
 })

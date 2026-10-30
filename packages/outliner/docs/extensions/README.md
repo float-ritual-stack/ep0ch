@@ -295,7 +295,7 @@ extensions/horoscope/
 | `id` | Lowercase name; must match the folder's name. Its properties are `<id>.<field>`. |
 | `version` | An integer. Raise it when output changes meaning: read handlers run again on open. |
 | `run` | The program each call starts. Needed by handlers and actions; a tile-only extension can leave it out. |
-| `deadline` | How long one call may take (`30s`, `2m`); default 15 s, at most 5 m. A handler may set its own. |
+| `deadline` | How long one call may take (`30s`, `2m`); default 15 s, at most 5 m (an agent's own, 2 h). A handler may set its own. |
 | `configSchema`, `secrets` | A JSON schema for `config.json`'s `config`, and the secrets it needs by name. |
 | `secretGroups` | `with-secrets` groups a call may ask for while it runs, by name, or `["*"]` for any ([chosen at run time](#secrets-chosen-at-run-time)). |
 | `env` | Host variables its process gets besides the base ones, by name (`["GH_CONFIG_DIR"]`), when the service has them. Never a secret: those are `secrets` and `secretGroups`. The service's own (`PATH`, `HOME`, `EP0CH_*`, …) are refused. |
@@ -940,7 +940,7 @@ Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] 
 Shouting [rule-name::shouting] [rule-text::(\S.*?)!!!$] [rule-decorate::text] [rule-tone::warn]
 ```
 
-`rule-match` (a query; a tag is one, `[rule-match::#pie-request]`), `rule-view`, `rule-under`, `rule-text` (a `]` is written `\x5d`) and `rule-kind` match;
+`rule-match` (a query; a tag is one, `[rule-match::#pie-request]`; with `[property-scope::all]` it reads the chips on any line too, as a view's does), `rule-view`, `rule-under`, `rule-text` (a `]` is written `\x5d`) and `rule-kind` match;
 `rule-decorate`, `rule-place`, `rule-label`, `rule-tone`, `rule-fields`, `rule-pattern`, `rule-align` and `rule-style` (a heading style by name) draw.
 `rule-on` (`<extension>/<action>`, run when a block starts matching), `rule-on-stop` and `rule-on-change` run an
 installed extension's action, with `rule-quiet`, `rule-from`, `rule-batch`, `rule-cap` and `rule-skip` as `on`'s
@@ -1373,8 +1373,16 @@ lands in the note while he goes on. That needs a door that says when he types in
 
 [tidy](../../extensions/tidy) is the example: it tidies the paragraph above the line (or, with
 `@tidy all`, everything above it) and never runs a model. A model-backed agent is the same folder
-with `respond` calling one: `"effects": "spend"`, a `"deadline"` up to `"5m"`, and its key as a
+with `respond` calling one: `"effects": "spend"`, a `"deadline"`, and its key as a
 secret reference.
+
+- **A long answer (PIE-1452).** An agent's `deadline` may run to `"2h"` (every other call stops at `"5m"`), so a
+  job like "a page for each plugin" runs to the end. Once it has run 5 s its request line, or a thread's reply, says
+  "working on it" with how long; every minute after, also the notes it has written so far. The thread's reply then
+  becomes the answer. Past the deadline the answer says it stopped, and where to raise it.
+- **Its programs write as the agent.** `respond`'s process gets `EP0CH_AGENT=<name>`, so a `claude` it runs signs its
+  notes `<name>/claude-code@<machine>` (the mod's persona). The notes it wrote while answering are linked under the
+  answer (`Wrote 2 notes: ((id|Title)), …`): they're found by that persona, not by the extension's `ext:<id>`.
 
 ## Kind 4: a whole tile
 

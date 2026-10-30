@@ -30,6 +30,7 @@ import { findPassage, isMiss, missMessage, passageAt, type Passage } from "@ep0c
 import { printable } from "./text";
 import { partyOf, UndoHistory } from "./steps";
 import { ActionRefused, ActionSet, actionSet, asActor, def, shownLine, type ActionDef } from "./surface/actions";
+import { explainNotInstalled } from "./surface/dispatch";
 import { kindsChanged, registerTileKind, serviceKind, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
 import type { Policy } from "./desk/screen-layout";
 import type { DeskApi } from "./desk/panes";
@@ -275,13 +276,18 @@ export function extensionParts(e: ExtensionEntry, l: ExtensionList | null = curr
 }
 
 /**
- * What to run when a script isn't installed here but an extension the repo offers adds it (`extensions.list`'s `available`):
- * its install, as the refusal says it, or null when no extension adds a script of that name.
+ * What to run when an action isn't here but an extension the repo offers adds it (`extensions.list`'s `available`): a
+ * script of that name, or `ext.<id>.<action>` of an extension not installed (Form's `ext.form.fill`, PIE-1453). Its install,
+ * as the refusal says it (the power bar's install row, and `act`), or null when no extension the repo offers adds it.
  */
-export function scriptInstallWords(name: string, available: readonly AvailableExtension[] | undefined = current?.available): string | null {
-  const provider = available?.find(e => e.scripts?.some(s => s.name === name));
-  return provider ? `Script ${name} is not installed; install with ep0ch act extensions.install id=${provider.id}` : null;
+export function installWords(name: string, available: readonly AvailableExtension[] | undefined = current?.available): string | null {
+  const script = available?.find(e => e.scripts?.some(s => s.name === name));
+  if (script) return `Script ${name} is not installed; install with ep0ch act extensions.install id=${script.id}`;
+  const id = /^ext\.([^.]+)\./.exec(name)?.[1];
+  const ext = id === undefined ? undefined : available?.find(e => e.id === id);
+  return ext ? `${name} is ${ext.name}'s, which isn't installed: install it from its "install ${ext.name}" row in the power bar's extensions (ctrl+k then &) or with ep0ch act extensions.install id=${ext.id}` : null;
 }
+explainNotInstalled(name => installWords(name));
 
 export function scriptBindings() {
   return scriptActions().flatMap(s => s.extension.script!.keys.map(key => ({ key, action: s.action.name })));

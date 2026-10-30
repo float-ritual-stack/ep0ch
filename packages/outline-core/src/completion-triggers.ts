@@ -15,9 +15,9 @@ import { workIdReferences as configuredWorkIds } from "./work-ids";
 
 /**
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
- * `yaml-value` the same inside a component block's YAML.
+ * `yaml-value` the same inside a component block's YAML. `tile`: a `%tile` in an ask line (the door's alone: its tiles).
  */
-export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value" | "attribute" | "attribute-value" | "fence-setting" | "button-step" | "action";
+export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value" | "attribute" | "attribute-value" | "fence-setting" | "button-step" | "action" | "tile";
 
 export interface CompletionTarget {
   kind: CompletionKind;

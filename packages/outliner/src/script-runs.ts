@@ -1,6 +1,7 @@
+import { DRAFT_PROPOSAL_TYPE } from "./draft-patch";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
-import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
+import { DEFAULT_MACHINERY, isMachinery } from "@ep0ch/outline-core/machinery";
 import { rebaseSpans, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { createPatch } from "diff";
 import { buttonCallAt, type ButtonCall } from "@ep0ch/outline-core/button-call";
@@ -17,6 +18,7 @@ import { hostApi, type HostApi, type HostStep } from "./host-api";
 import { runScript, type ScriptSiteGlobals } from "./script-runtime";
 import { PRIMITIVE_TYPES, renderComponent, validateComponent, type ComponentOutput, type Primitive } from "./component-primitives";
 import { textRecord } from "./block-records";
+import { blockDisplayTitle } from "./references";
 import { visibleMatches } from "./site-producers";
 import { bind, answerSite } from "./site-answer";
 import { scriptFence } from "./script-sources";
@@ -62,6 +64,13 @@ export interface ScriptRendered { markdown: string; /** The view it drew, when i
 interface SiteBinding { globals: ScriptSiteGlobals; thisId?: string; resolve?: HostApi["resolve"] }
 
 /** Runs outlive the action that starts them; progress is ordinary outline content beside the source. */
+type ChangeWord = NonNullable<ExtensionActResult["changed"]>[number]["change"];
+/** What a run's change says it did to a note (PIE-1436), and which word wins when it did several. */
+const CHANGED: Partial<Record<OutlinerChange["kind"], ChangeWord>> = { create: "created", edit: "edited", draft: "edited", move: "moved", reorder: "moved", delete: "trashed", restore: "restored" };
+const RANK: readonly ChangeWord[] = ["edited", "moved", "restored", "trashed", "created"];
+/** Blocks a run writes that aren't notes it changed: its proposals and comments (PIE-1436). */
+const NOT_NOTES: ReadonlySet<string> = new Set([DRAFT_PROPOSAL_TYPE, "annotation", "annotation-reply"]);
+
 export class ScriptRuns {
   private readonly running = new Set<AbortController>();
   /** The runs that are going, by their undo id (a run note's `script-run::`): what `stop(run)` ends. */
@@ -268,11 +277,20 @@ export class ScriptRuns {
       `Author: ${actor.actorId ?? actor.author} · revision ${source.revision} · onBehalfOf: ${requestedBy.actorId ?? requestedBy.author}${button ? ` · button by ${button.author} in ((${button.block}))` : ""}`,
       ...(old !== undefined && old !== source.code ? ["", "```diff", createPatch(extension.name, old, source.code), "```"] : []),
     ];
+    const changed = new Map<string, ChangeWord>();
     const captured = <T>(work: () => T): T => {
       const before = new Map<string, Block>();
       const attribution = this.store.changes.attribution({ action: `script:${extension.name}`, actor, requestedBy, collect: true });
       const finish = () => {
         const changes = this.store.changes.committed(attribution);
+        for (const c of changes) {
+          // Only the run's own writes, and an extension's it asked for (`act`): a write another writer made meanwhile under
+          // the same capture (Jev's review records and its suggestions page, made the first time a create is reviewed) is
+          // not the run's (PIE-1436).
+          if (c.actor?.actorId && c.actor.actorId !== actor.actorId && c.requestedBy?.actorId !== actor.actorId) continue;
+          const how = CHANGED[c.kind];
+          if (c.blockId && how && (RANK.indexOf(how) > RANK.indexOf(changed.get(c.blockId) ?? "edited") || !changed.has(c.blockId))) changed.set(c.blockId, how);
+        }
         this.writes.recordRun(undo, before, changes);
         this.publish(changes);
       };
@@ -315,8 +333,13 @@ export class ScriptRuns {
     let effects: string[] = [], actionAnswer: unknown, sequenceAct = sequence !== undefined;
     // What the presser hears when a step stops the sequence, in their words (PIE-1418); Sources keeps each step's spelling.
     let stoppedSaid: string | undefined;
+    // Writes that became proposals as comments (a create, a move or a trash at propose access): the thread and its note.
+    const commented: { id: string; note: string }[] = [];
     const step = (s: HostStep) => {
       if (trace && s.phase === "done" && s.writes) effects.push(`${s.tool}: ${JSON.stringify(s.result)}`);
+      const proposal = s.phase === "done" ? s.result as { outcome?: string; uri?: string; detail?: { thread?: string } } | undefined : undefined;
+      const on = proposal?.outcome === "proposed" && proposal.detail?.thread ? /^\(\(([^)|]+)/.exec(proposal.uri ?? "")?.[1] : undefined;
+      if (on) commented.push({ id: proposal!.detail!.thread!, note: on });
       if (s.phase === "start") return;
       lines.push(`\n${s.seq}. ${s.tool}: ${s.phase === "done" ? JSON.stringify(s.result) : s.error}`);
       // A tight host-call loop must not flood readers and delay the person's save behind progress events.
@@ -493,6 +516,26 @@ export class ScriptRuns {
           result.message = failure !== undefined ? stoppedSaid ?? `${failure || "Script failed"} · check the script and run it again`
             : reason === "done" ? message : "Script stopped; run it again when ready";
           result.state = reason;
+          // Notes only: never its own log, a proposal or comment it wrote (at propose access a write is one), a tool's
+          // bookkeeping ([machine::…], a figure-fit record a create leaves), nor a note it made and trashed again in the same run.
+          const notes = [...changed].flatMap(([id, change]) => {
+            const b = this.store.get(id), type = b?.properties.find(p => p.key === "type")?.value;
+            if (!b || id === log?.id || NOT_NOTES.has(type ?? "") || isMachinery(b.properties) || (change === "created" && b.effectiveDeletedRootId)) return [];
+            return [{ id, title: blockDisplayTitle(b) || id.slice(0, 8), change }];
+          });
+          if (notes.length) result.changed = notes;
+          // The writes that became proposals (propose access, or a note open in a draft): an edit's proposal beside its
+          // note, and a create's, a move's or a trash's comment on it (its thread), each with the note it is for.
+          const beside = [...changed].flatMap(([id, change]) => {
+            const b = this.store.get(id);
+            if (change !== "created" || !b || b.effectiveDeletedRootId || b.properties.find(p => p.key === "type")?.value !== DRAFT_PROPOSAL_TYPE) return [];
+            return [{ id, note: b.parentId ?? "" }];
+          });
+          const proposed = [...beside, ...commented.filter(c => !beside.some(b => b.id === c.id))].map(({ id, note }) => {
+            const on = note ? this.store.get(note) : undefined;
+            return { id, note, title: on ? blockDisplayTitle(on) : "" };
+          });
+          if (proposed.length) result.proposed = proposed;
           if (returned !== undefined && returned !== result.message) result.answer = returned;
           if (trace && failure) { trace.problem = failure; trace.result.text += `\n${failure}`; }
           this.ended?.({ run: undo, reason, ...(sequence ? { sequence: true } : {}), message: result.message, written, requestedBy, undo: (sequence !== undefined || reason === "done") && undoAvailable,

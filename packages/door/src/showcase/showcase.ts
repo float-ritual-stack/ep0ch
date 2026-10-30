@@ -70,8 +70,10 @@ type Notes = Partial<Record<SeedName, Msg>>;
  * The program status section's fake deploy (OSC 7501): it reports each step to its terminal tile, waits for the person
  * to approve production, and finishes done (y) or failed (anything else); then it's a shell, to run it again.
  */
-/** A reader held on the note opened into it (a detail): the exhibit builds one directly, as the desk would from `mode: held`. */
-const detailPane = (): ReaderPane => { const r = new ReaderPane(true); r.holdOn(); return r; };
+/** The stage readers named `detail` (a reader the exhibit puts its own note in), not filled by the stage's opening note. */
+const details = new WeakSet<ReaderPane>();
+/** A reader named `detail` on its stage: it keeps the note the exhibit opens into it. */
+const detailPane = (): ReaderPane => { const r = new ReaderPane(true); details.add(r); return r; };
 
 export const STATUS_DEMO = [
   `s() { printf '\\033]7501;%s\\033\\\\' "$1"; }`,
@@ -117,12 +119,26 @@ interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNod
  */
 function stageDesk(st: Stage): Desk {
   const names = new Map<number, string>();
-  st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p instanceof ReaderPane && p.kind === "reader" && p.holding ? "detail" : p.kind)));
+  st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p instanceof ReaderPane && p.kind === "reader" && details.has(p) ? "detail" : p.kind)));
   const ids = st.panes.map((_, i) => i);
   st.roles?.forEach((role, i) => { if (role) tileRegistry.setRole(st.panes[i]!, role); });
   const tree = st.layout ? st.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, leaf(id)), leaf(0));
   const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.panes[i] instanceof PreviewPane && "tile" in st.panes[i].source ? { source: `tile:${st.panes[i].source.tile}` } : {}), ...(st.panes[i]!.deliberate ? { deliberate: true } : {}), ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}), ...(st.wires?.[i]?.length ? { wires: st.wires[i]!.map(w => ({ verb: w.verb, to: names.get(w.to)! })) } : {}) })) as SavedTree;
-  return new Desk({ name: "showcase", title: st.title, layout: { root, focus: names.get(0) } }, { given: new Map(st.panes.map((p, i) => [names.get(i)!, p])) });
+  const d = new Desk({ name: "showcase", title: st.title, layout: { root, focus: names.get(0) } }, { given: new Map(st.panes.map((p, i) => [names.get(i)!, p])) });
+  stagePanes.set(d, st.panes);
+  return d;
+}
+/** Each stage's own tiles, as it made them. */
+const stagePanes = new WeakMap<Desk, Pane[]>();
+/**
+ * The stage opens on `m` (PIE-1207: there is no current note to follow): each of its own readers still empty shows it,
+ * but a `detail`; `reveal`, the outline's cursor goes to it too, as the person's open does.
+ */
+function fill(d: Desk, m: Msg, reveal = false) {
+  for (const p of stagePanes.get(d) ?? []) {
+    if (p instanceof ReaderPane && p.kind === "reader" && !details.has(p) && !p.msg) p.show(m, d);
+    else if (reveal) void (p as Pane).reveal?.(m, d);
+  }
 }
 /** A stage whose readers show `notes` (one each, in order) once it opens. */
 function deskOf(st: Stage, show: Shower, readers: [ReaderPane, Msg | undefined][], then?: (d: Desk) => void): Desk {
@@ -203,8 +219,8 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const r = new ReaderPane();
       // The BBS message reader hosts the same surface (PIE-426): its header, the surface's body and keys.
-      const bbs = new ScreenTile("exhibit", {}, { label: "the same NoteSurface, as the BBS reader · src/screens.ts", make: m => (m ? new MessageReader([m], 0) : null) });
-      return deskOf({ title: "showcase · note", panes: [r, bbs], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+      const bbs = new ScreenTile("exhibit", {}, { label: "the same NoteSurface, as the BBS reader · src/screens.ts", make: () => (n.notebook ? new MessageReader([n.notebook], 0) : null) });
+      return deskOf({ title: "showcase · note", panes: [r, bbs], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) fill(d, n.notebook); });
     },
   },
   {
@@ -246,7 +262,7 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const r = new ReaderPane();
       // The bar's notes scope asks from the desk's current note, as the person's / does: nearer notes first, and Jev told it.
-      return deskOf({ title: "showcase · search", panes: [r] }, show, [[r, n.finding]], d => { if (n.finding) d.setCurrent(n.finding); });
+      return deskOf({ title: "showcase · search", panes: [r] }, show, [[r, n.finding]], d => { if (n.finding) fill(d, n.finding); });
     },
   },
   {
@@ -336,6 +352,19 @@ export const SECTIONS: Section[] = [
         // The person's own keys would do this: e, then ctrl+k in the edit.
         void d.press(r, NOTE_ACTIONS, "edit").then(() => d.press(r, NOTE_ACTIONS, "edit.actions"));
       });
+    },
+  },
+  {
+    key: "ask-agent", need: "ask an agent from one line: @name, then what you ask with [[pages]], ((notes)) and %tiles, each completed by its own sigil, and ⏎ sends it (PIE-1437)",
+    part: "asking an agent (PIE-1437, src/bar/ask-agent.ts): an ask line in the power bar (`@` stays on the line: the agents source is inline) completes through the one completer, its agent from agentsHere (the agent panel's sessions that write as a persona, then the outline's agent configs that name one: the agent ArgKind), [[ and (( from the service, % from the tile kind's values; ⏎ (or a click on the ask row) runs agent.ask, which sends it as addressed mail (PIE-1404): a comment naming @name on the note in front of you, each %tile named on a line of its own; @ on an agent panel row opens the bar with @persona on its line",
+    files: "src/bar/ask-agent.ts (askOf, askTargetAt, agentsHere, askAgent, AGENTS), src/bar/actions.ts (agent.ask), src/surface/completer.ts (the sessions and tiles door sources), src/desk/agents-panel.ts (@)",
+    aside: "wren, a made-up demo agent, runs in the tile on the right; the rota is in front of you · ctrl+k, @wr, tab: @wren · type looking at [[Raised beds p, ⏎ takes the page; can you pop it into %ro, tab takes the tile · ⏎ sends it: a comment naming @wren on the rota, which wren's sessions hear at their addressed check · a bare @ lights an agent first · the preview says the note ⏎ sends it to, or why it can't be sent yet (esc out of the stage and type @wren sort these) · the bar's : is the screens now · act: agent.ask to=wren text=…",
+    stage(n, show) {
+      const { bench } = demoFolders();
+      const r = new ReaderPane();
+      // temp: an exhibit no layout brings back. Its persona is what @ lists.
+      const wren = new PtyPane({ cmd: ["sh", "-c", DEMO_AGENT, "demo-agent", "wren"], cwd: bench, label: "wren", shows: "demo-agent", temp: true, session: { program: "demo-agent", persona: "wren" } });
+      return deskOf({ title: "showcase · ask an agent", panes: [r, wren], names: ["rota", "wren"] }, show, [[r, n.askAgent]]);
     },
   },
   {
@@ -429,7 +458,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "while-typing", need: "let agents work in the door while the person types: nothing an agent does replaces the note being edited, takes the person's keys or moves their focus, and a refusal says why in the same words on every screen",
-    aside: "the left reader is in the person's edit, keys and all · try, as an agent: act open id=<the shed note's id, or its first 8 characters> --as fern lands beside it (the edit stays on its note, its size too); act tile.open kind=reader --as fern is refused: a new tile beside the edit would narrow it; act link.follow tile=1 --as fern and act reader.mode tile=1 --as fern are refused in the words every screen says it; act comment.add tile=2 … --as fern comments on the right reader's note and the keys stay put; act access.apply --as fern is the person's alone, on their press too · a button the person presses runs as them: their keystroke (PIE-1186)",
+    aside: "the left reader is in the person's edit, keys and all · try, as an agent: act open id=<the shed note's id, or its first 8 characters> --as fern lands beside it (the edit stays on its note, its size too); act tile.open kind=reader --as fern is refused: a new tile beside the edit would narrow it; act link.follow tile=1 --as fern and act reader.pin tile=1 --as fern are refused in the words every screen says it; act comment.add tile=2 … --as fern comments on the right reader's note and the keys stay put; act access.apply --as fern is the person's alone, on their press too · a button the person presses runs as them: their keystroke (PIE-1186)",
     part: "the one owners (PIE-1294): the actor rule (actorRule, checked by the dispatcher and Dispatcher.rule for a step), placement() for where an open lands (the layout's keepsRect: never resizing the tile the person types in), typingIn and heldBack for a typing refusal's words, ReaderPane.keepsOff and holdsEdit for a reader that keeps its note, recorded() for who a write is recorded as, ActionDef.person and personAlways for what's the person's; test/one-owner.test.ts fails when a screen decides one itself",
     files: "src/surface/dispatch.ts, src/desk/screen-layout.ts, src/desk/panes.ts, src/whereabouts.ts, src/socket.ts, test/one-owner.test.ts",
     stage(n, show) {
@@ -495,7 +524,7 @@ export const SECTIONS: Section[] = [
       return deskOf({
         title: "showcase · panes", panes: [tree, r, th, act],
         layout: ([t, rd, h, a]) => pair("row", 0.24, { t: "dock", kid: leaf(t!), edge: "left", open: true }, pair("row", 0.62, leaf(rd!), { t: "tabs", ids: [h!, a!], active: 0 })),
-      }, show, [], d => { Object.assign(r, { writtenTitle: "Reading {{this.title}}" }); Object.assign(act, { writtenTitle: "Visitors" }); if (n.notebook) d.setCurrent(n.notebook, { reveal: true }); });
+      }, show, [], d => { Object.assign(r, { writtenTitle: "Reading {{this.title}}" }); Object.assign(act, { writtenTitle: "Visitors" }); if (n.notebook) fill(d, n.notebook, true); });
     },
   },
   {
@@ -507,7 +536,7 @@ export const SECTIONS: Section[] = [
       return deskOf({
         title: "showcase · folds", panes: [tree, r, th, act],
         layout: ([t, rd, h, a]) => pair("row", 0.28, leaf(t!), pair("col", 0.55, leaf(rd!), pair("row", 0.5, leaf(h!), leaf(a!)))),
-      }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook, { reveal: true }); });
+      }, show, [], d => { if (n.notebook) fill(d, n.notebook, true); });
     },
   },
   {
@@ -516,7 +545,7 @@ export const SECTIONS: Section[] = [
     files: "src/desk/screen-layout.ts, src/desk/layout.ts, src/desk/tile-actions.ts, src/desk/wkeys.ts",
     aside: "Two pages open in the spread, page edges at the sides. Click a spine: it joins the spread with an even share. Below min-width (40), the page touched longest ago folds to its own side. A hand fold stays where it is. The container menu offers align left (^W {), centre (^W |) and right (^W }). Centre splits spines evenly, with an odd one on the right. Follow a link with alt+Enter, go back with alt+Left, then alt-open again three times: the note has one tile, never another copy in the spines. A split, tile.open or pinned reader stays yours. The alignment sticks as spines=end, centre or start; sides keeps book placement. invoker keeps the old placement toward the tile an open came from.",
     stage(n, show) {
-      const readers = Array.from({ length: 16 }, () => { const r = new ReaderPane(true); r.holdOn(); return r; });
+      const readers = Array.from({ length: 16 }, () => detailPane());
       const names = ["birch", "cedar", "elm", "fir", "oak", ...Array.from({ length: 11 }, (_, i) => `page-${i + 1}`)];
       const first = [n.whiteboard, n.shed, n.heap, n.notebook];
       const notes = [...first, ...Object.values(n).filter(m => !first.includes(m))].slice(0, readers.length);
@@ -563,7 +592,7 @@ export const SECTIONS: Section[] = [
     aside: "The shell prints an OSC 8 link: use your terminal's link gesture on Example website » to open it in your browser. Resize the tile or scroll away and back: the link stays inside its text. Drag across the line in the shell: it's selected and copied when you let go (\"copied from sh\"), as in a reader; a program that has asked for the mouse (Claude Code's fullscreen, vim's mouse=a) keeps plain drags, and shift+drag or alt+drag selects for the door · `act terminal.copy tile=<tile>` copies the person's selection again (never an agent's) · the drawer (next section; src/drawer.ts, PIE-498) runs your agents too, each in a tab of its own, pulled up over (or beside) any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (host.toggle, host.size) · where a program runs: EP0CH_NEST, ep0ch where",
     stage(n, show) {
       const term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: sh in a pty the door owns'; printf '\\033]8;id=example;https://example.com\\033\\\\Example website »\\033]8;;\\033\\\\\\n'; echo 'drag across this line: Plant out the courgettes'; echo 'copy from it as Claude Code does:'; printf '%s\\n' \"  printf '\\\\033]52;c;%s\\\\007' \\\"\\$(printf hello | base64)\\\"\"; exec sh"], label: "shell" }), r = new ReaderPane(true);
-      return deskOf({ title: "showcase · terminal", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+      return deskOf({ title: "showcase · terminal", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) fill(d, n.notebook); });
     },
   },
   {
@@ -574,7 +603,7 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · addresses", panes: [first, second, third], names: ["first", "second", "third"], roles: [undefined, "stage", undefined] }, show, [], d => {
         // The third was opened beside the second: its opener is the second's id, kept with it.
         tileRegistry.setOpener(third, (d.layoutGet().tiles as { name: string; tile: string }[]).find(t => t.name === "second")?.tile);
-        if (n.notebook) d.setCurrent(n.notebook);
+        if (n.notebook) fill(d, n.notebook);
       });
     },
   },
@@ -583,7 +612,7 @@ export const SECTIONS: Section[] = [
     aside: "The frame's lift chip raises the briefing over the drawer. Work in the other tile or drawer to drop it. The tree stays exactly where it was. The power bar lists lift and the tile keys show its two reaches. Layers (PIE-1221): alt+a opens the drawer, ^W f floats other; drag its title down over the drawer and it stays whole above it. Click in the drawer and the drawer comes above; click the float and it is back on top. Its ⋯ menu opened low runs down over the drawer, never cut off.",
     stage(n, show) {
       const brief = new ReaderPane(true), other = new ReaderPane(true);
-      return deskOf({ title: "showcase · lift", panes: [brief, other], names: ["brief", "other"], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+      return deskOf({ title: "showcase · lift", panes: [brief, other], names: ["brief", "other"], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) fill(d, n.notebook); });
     },
   },
   {
@@ -594,7 +623,7 @@ export const SECTIONS: Section[] = [
       const links = new BacklinksPane("reader", true);
       const group = new ScreenTile("screen", { inner: { root: { t: "leaf", kind: "backlinks", name: "drawer-links" } } }, undefined, new Map([["drawer-links", links]]));
       return deskOf({ title: "showcase · drawer", panes: [kettle, r, group], names: ["kettle", "reader", "linkbox"] }, show, [], d => {
-        if (n.notebook) d.setCurrent(n.notebook);
+        if (n.notebook) fill(d, n.notebook);
         if (d.pane("linkbox")) d.ctx.hostLayer?.put(d, "linkbox", SHOWCASE_AGENT);
       });
     },
@@ -659,16 +688,16 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "reader-modes", need: "choose whether a reader follows the current note, keeps one, or is pinned to a page", part: "the reader tile's mode (PIE-705): ReaderPane.followMode and setMode, the mode chip on its frame (headControls), `p`, reader.mode; what it follows (PIE-814): the chip names it (follows · current, follows · tree (docked), held) and a click or P picks it, reader.follow source=current|none|<tile>, a tile's link with the preview role saved with the layout; a saved `detail` reads as a held reader (canonSpec)", files: "src/desk/panes.ts, src/desk/builtin-tiles.ts, src/desk/tiles.ts",
-    aside: "three readers, one kind: reader shows the current note, detail stays put on the shed, now stays put with a page lock (▣) on the notebook · p switches states; the state chip or P opens Shows and the page lock in the policy panel · to show a selection here, use alt+l s on its source and click this reader · act reader.follow tile=detail source=tree and act reader.mode tile=<name> mode=follows|held|pinned do it as an agent, attributed, without taking your keys · a detail is a reader that starts in stays put (^W o d)",
+    key: "reader-pins", need: "keep a reader on its note while opens go elsewhere, and know where they go: no hidden current note decides it", part: "the reader's pin (PIE-1207): ReaderPane.pinned and setPin, the pin chip on its frame (headControls), `p`, reader.pin (page= pins it on a page); placement() sends an open aimed at a pinned reader (a wire, tile=, its own link) to the reader opened beside it, else a new one there (Ctx.beside), and its hint row says where (opensOf); with no wire an open lands in the first reader not pinned; select wires (alt+l s, reader.follow source=<tile>) are what a reader shows; a saved reader that followed the old current note loads on its note and the screen's first list is wired to it (canonSpec, wireFollowers)", files: "src/desk/panes.ts, src/desk/screen-layout.ts, src/desk/desk.ts, src/desk/builtin-tiles.ts, src/desk/tiles.ts",
+    aside: "the tree is wired to reader (select shows, ⏎ opens) · detail is pinned on the shed and now is pinned to the notebook's page (▣) · j k in the tree: only reader moves · press p in reader (or click its □ pin chip): ▣, and the hint row says where opens land now · ⏎ in the tree: the note opens in a new detail beside the pinned reader, said once; the next ⏎ reuses that one · p again unpins it · act reader.pin tile=<name> (page=<name>) and act reader.follow tile=<name> source=tree do it as an agent, attributed, never taking your keys · a pin survives a restart: the screen saves mode=pinned with its note",
     stage(n, show) {
-      const tree = new TreePane(), follows = new ReaderPane(true), held = new ReaderPane(true), pinned = new ReaderPane(true);
-      held.holdOn();
-      if (n.notebook) pinned.pinTo(SEED.notebook);
+      const tree = new TreePane(), reader = new ReaderPane(true), held = detailPane(), page = new ReaderPane(true);
+      if (n.notebook) page.pinTo(SEED.notebook);
       return deskOf({
-        title: "showcase · reader modes", panes: [tree, follows, held, pinned], names: ["tree", "reader", "detail", "now"],
+        title: "showcase · reader pins", panes: [tree, reader, held, page], names: ["tree", "reader", "detail", "now"],
+        wires: [[{ verb: "select", to: 1 }, { verb: "open", to: 1 }], [], [], []],
         layout: ([t, f, h, p]) => pair("row", 0.26, leaf(t!), pair("row", 0.34, leaf(f!), pair("row", 0.5, leaf(h!), leaf(p!)))),
-      }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); if (n.shed) held.hold(n.shed, d); });
+      }, show, [], d => { if (n.notebook) fill(d, n.notebook); if (n.shed) { held.pinTo(); held.hold(n.shed, d); } });
     },
   },
   {
@@ -685,7 +714,7 @@ export const SECTIONS: Section[] = [
           pair("row", 0.62, pair("col", 0.6, leaf(b!), leaf(l!)), pair("col", 0.45, leaf(c!), { t: "tabs", ids: [rd!, h!, a!], active: 0 })),
           pair("row", 0.72, row(0.5, src!, dst!), leaf(out!))),
       }, show, [[source, n.shed], [detail, n.notebook], [outside, n.shed]], d => {
-        if (n.notebook) d.setCurrent(n.notebook);
+        if (n.notebook) fill(d, n.notebook);
         d.linkTile("source", "detail", USER);
         d.groupTile("source", { name: "a", label: "Group A" }, USER);
         d.groupTile("detail", { name: "b", label: "Group B" }, USER);
@@ -710,7 +739,7 @@ export const SECTIONS: Section[] = [
     aside: "An away machine leaves the answering outlines visible, with a dim line naming its copy and time, or not asked (PIE-1057). One model, one row: the tree's L (tree.links), the links tile under the reader (b; the board's dock, section 5) and the shed note's own ::links are the same rows (src/links.ts linkRows, linkRowLines) · Outlinks and Resources from blocks.authored-links, Backlinks grouped and filtered as Detail does · moving onto a resource shows what the service stores for it, read only; ⏎ registers and opens · the mouse as the keys: a click selects, a double click is ⏎, an alt-, ctrl- or middle-click alt+⏎",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = repliesTile(), links = new BacklinksPane("reader", true);
-      return deskOf({ title: "showcase · entity", panes: [tree, r, links, th], layout: ([a, b, c, e]) => pair("row", 0.3, leaf(a!), pair("row", 0.66, pair("col", 0.62, leaf(b!), leaf(c!)), leaf(e!))) }, show, [], d => { if (n.shed) { d.setCurrent(n.shed); void tree.showLinksOf(n.shed, d); } });
+      return deskOf({ title: "showcase · entity", panes: [tree, r, links, th], layout: ([a, b, c, e]) => pair("row", 0.3, leaf(a!), pair("row", 0.66, pair("col", 0.62, leaf(b!), leaf(c!)), leaf(e!))) }, show, [], d => { if (n.shed) { fill(d, n.shed); void tree.showLinksOf(n.shed, d); } });
     },
   },
   {
@@ -730,7 +759,7 @@ export const SECTIONS: Section[] = [
       const tree = new TreePane(), detail = detailPane();
       return deskOf({ title: "showcase · tree, preview, detail from scratch", panes: [tree, detail], names: ["tree", "detail"], layout: ([a, b]) => row(0.4, a!, b!) }, show, [], d => {
         void (async () => {
-          if (n.shed) { await tree.reveal(n.shed, d); d.setCurrent(n.shed); detail.hold(n.shed, d); }
+          if (n.shed) { await tree.reveal(n.shed, d); fill(d, n.shed); detail.hold(n.shed, d); }
           await d.previewTile("tree", "down", USER);
           d.linkTile("tree", "detail", USER);
         })();
@@ -738,7 +767,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "links-open", need: "open a picked link for real, not as a preview: in the reader it came from, or in a new detail", part: "the links tile's open (backlinks.open: ⏎ and a double click in its home reader or the tile linked to it as a target, alt+⏎ and an alt-click in a new detail beside it; the list keeps its subject until b) over one preview following its selection; independent select and open wires (tile.link verb=select|open), said on the header", files: "src/desk/backlinks-pane.ts, src/desk/desk.ts (setCurrent, showFrom, openFrom), src/desk/screen-layout.ts (placement, selectTargets)",
+    key: "links-open", need: "open a picked link for real, not as a preview: in the reader it came from, or in a new detail", part: "the links tile's open (backlinks.open: ⏎ and a double click in its home reader or the tile linked to it as a target, alt+⏎ and an alt-click in a new detail beside it; the list keeps its subject until b) over one preview following its selection; independent select and open wires (tile.link verb=select|open), said on the header", files: "src/desk/backlinks-pane.ts, src/desk/desk.ts (openFromTile, showFrom, openFrom), src/desk/screen-layout.ts (placement, selectTargets)",
     aside: "each backlink row quotes the line that links here and the anchor it names; opening it lands on that line (marked, esc lets go) · the stage is what `b` makes in a detail: j k flip through the previews, ⏎ opens the pick in the detail (the list keeps the shed's links: ⏎ again opens the next row; b, in the detail or the list, aims it at what the detail shows now), alt+⏎ opens it in a new detail beside; tile.link verb=open to a reader from the list keeps it still while the preview flips, and ⏎ lands in it · the header's Kind, Stage and Sort (K w s, or a click) narrow and order all three groups (a link's target decides: its kind, stage and dates), the counters X with →outlinks ♦resources ←backlinks beside it, and each control stays in its slot whatever its value · an agent's open is the same action, attributed, and never takes your keys",
     stage(n, show) {
       const d = detailPane(), links = new BacklinksPane("detail", true), p = new PreviewPane({ tile: "backlinks" });
@@ -762,7 +791,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "lists-open", need: "open notes from any list the same way (a links tile, a ::links block in a note, a river column's links): select and preview, replace in the list's home, a new detail beside; and find where a held reader is in the outline", part: "one list model (PIE-794): a list's home and subject; Desk.setCurrent → landFrom asks landing() (its link, a container's opens-into, its home, a flow's next column), a reader's take keeps its mode, held means local; an inline row's click selects (SurfaceHost.preview → showFrom); reader.reveal (alt+r, a click on the crumbs); growth by room (the policy's readable, the layout's room operation) and a spine's ×", files: "src/desk/desk.ts (setCurrent, landFrom, revealInOutline, makeRoom), src/desk/screen-layout.ts (landing, room), src/desk/builtin-tiles.ts (take), src/surface/note.ts (inline rows, previewRow), src/desk/backlinks-pane.ts (home, subject)",
+    key: "lists-open", need: "open notes from any list the same way (a links tile, a ::links block in a note, a river column's links): select and preview, replace in the list's home, a new detail beside; and find where a reader is in the outline", part: "one list model (PIE-794): a list's home and subject; Desk.openFromTile → landFrom asks landing() (its link, a container's opens-into, its home, a flow's next column), a reader's take keeps its pin; an inline row's click selects (SurfaceHost.preview → showFrom); reader.reveal (alt+r, a click on the crumbs); growth by room (the policy's readable, the layout's room operation) and a spine's ×", files: "src/desk/desk.ts (openFromTile, landFrom, revealInOutline, makeRoom), src/desk/screen-layout.ts (landing, room), src/desk/builtin-tiles.ts (take), src/surface/note.ts (inline rows, previewRow), src/desk/backlinks-pane.ts (home, subject)",
     aside: "the detail in the middle is held on the Bike shed, whose own ::links lists its links: a click on a row selects it and the preview on the right follows (it previews the detail's selection), as j k in a links tile · a double click (or ⏎ on the row) replaces the detail's note, kept in its history (alt+← comes back) · the detail is held, so its navigation is its own: the outline on the left stays where it was; alt+r, or a click on the detail's crumbs, shows the note there · in the Herdr Tree, alt+r likewise reveals the selected row at its physical source (PIE-995) · an alt-click opens a new detail beside it; keep alt-clicking and, past a readable width (the layout's `readable`, ^W P), the earlier details fold to spines (never the first), and a spine's × closes it without opening it · b in the detail opens its links tile, which keeps the shed's links as you open them, until b again",
     stage(n, show) {
       const tree = new TreePane(), d = detailPane(), p = new PreviewPane({ tile: "detail" });
@@ -989,7 +1018,7 @@ export const SECTIONS: Section[] = [
     aside: "made-up tickets from a made-up extension (src/showcase/tickets, a contract 2 folder); the service fetches and keeps them as blocks, the door only reads",
     stage(n, show) {
       const r = new ReaderPane(), th = repliesTile();
-      return deskOf({ title: "showcase · projection", panes: [r, th], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.tickets]], d => { if (n.tickets) d.setCurrent(n.tickets); });
+      return deskOf({ title: "showcase · projection", panes: [r, th], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.tickets]], d => { if (n.tickets) fill(d, n.tickets); });
     },
   },
   {
@@ -1019,7 +1048,7 @@ export const SECTIONS: Section[] = [
         },
       }).make({ kind: "showcase.extensions" });
       const r = new ReaderPane();
-      return deskOf({ title: "showcase · extensions", panes: [r, list], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.omens]], d => { if (n.omens) d.setCurrent(n.omens); });
+      return deskOf({ title: "showcase · extensions", panes: [r, list], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.omens]], d => { if (n.omens) fill(d, n.omens); });
     },
   },
   {
@@ -1126,7 +1155,6 @@ export const SECTIONS: Section[] = [
       show(ctx => {
         if (!n.rules) return;
         r.show(n.rules, d);
-        d.setCurrent(n.rules);
         // The job done-stamp watches is under the meeting: read it, then show it beside.
         void ctx.board.children(n.rules.id).then(kids => { const m = kids.find(k => k.text.startsWith("Mend the water butt")); if (m) job.show(m, d); }, () => {});
       });
@@ -1246,7 +1274,7 @@ export const SECTIONS: Section[] = [
     aside: "the left reader has the keys: press ⏎ to go in, [ ] to walk the rows of the figures: the figure keeps its amber tint (it has the cursor) and the row under the cursor is a blue band with a bar at its left edge · the right reader doesn't have the keys · `act theme.set name=calm|night|classic` redraws both in each theme · classic uses readable grey text on the selected band, including formerly dim metadata and blue text; calm and night keep their row colours · click the outline tile on the right and press j/k: its selected row has the same band and ▌ marker; click back to the figures to see the outline's idle band (PIE-999)",
     stage(n, show) {
       const a = new ReaderPane(true), b = new ReaderPane(true);
-      a.holdOn(); b.holdOn();
+      details.add(a); details.add(b);
       return deskOf({ title: "showcase · focus levels", panes: [a, b, new TreePane()], names: ["figures", "reader", "outline"], layout: ([x, y, z]) => pair("row", 0.7, row(0.6, x!, y!), leaf(z!)) }, show, [[a, n.markdownFigures], [b, n.keys]]);
     },
   },
@@ -1280,7 +1308,7 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       // A program that asks for the mouse (as vim's mouse=a and claude do), so its right-clicks stay its own.
       const term = new PtyPane({ cmd: ["sh", "-c", "printf '\\033[?1000h\\033[?1006h'; echo 'this program asked for the mouse: a right-click here is its own; the ⋯ above opens the tile menu'; exec cat >/dev/null"], label: "clicks" }), r = new ReaderPane(true);
-      return deskOf({ title: "showcase · menu", panes: [r, term], names: ["reader", "clicks"], layout: ([a, b]) => row(0.6, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+      return deskOf({ title: "showcase · menu", panes: [r, term], names: ["reader", "clicks"], layout: ([a, b]) => row(0.6, a!, b!) }, show, [], d => { if (n.notebook) fill(d, n.notebook); });
     },
   },
   {
@@ -1288,7 +1316,7 @@ export const SECTIONS: Section[] = [
     aside: "press ^W and pause: a panel over the screen lists every ^W key under its group (PIE-1304), each row in its action's own words, after a first group in the accent, \"this tile: <name>\", the focused tile's own keys, its ⋯ menu's rows that have a key (PIE-1338: typed once the panel is closed; a click runs the row in the tile); a click on a row runs it as the key would, esc closes it, a fast typist never sees it (the hint row says only \"all keys · esc\") · ^W o and ^W O open the same panel of the kinds they open · `act keys.panel` opens it at once; an agent's answers the groups and nothing moves · ? (or a click on \"all keys\") opens the whole list: every ^W key under its group (focus & move, size & shape, tabs, open, mounts & groups, drawer, layouts & more) with its keycap · type to filter (\"gather\", \"drawer\", \"zoom\"), ⏎ or a click presses it, as the key would · a key that waits for another (m, t, o) leaves the desk waiting for it · `act bar.open scope=actions query=\"^W \"` answers the same rows to an agent, and `act bar.pick query=\"^W zoom\" scope=actions` runs one as the agent, never taking your focus",
     stage(n, show) {
       const a = new ReaderPane(true), b = detailPane();
-      return deskOf({ title: "showcase · ^W keys", panes: [a, b], names: ["reader", "shed"], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[b, n.shed]], d => { if (n.notebook) d.setCurrent(n.notebook); });
+      return deskOf({ title: "showcase · ^W keys", panes: [a, b], names: ["reader", "shed"], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[b, n.shed]], d => { if (n.notebook) fill(d, n.notebook); });
     },
   },
   {
@@ -1304,7 +1332,7 @@ export const SECTIONS: Section[] = [
     aside: "^W n renames the reader: type a name past the field's width and it scrolls sideways, a « where its start is off the line and a » where it goes on (home brings the start back), never only its last piece, drag across a word to select it, backspace deletes it, ctrl+z brings it back, ctrl+y takes it away again · double click a word, a paste replaces it · ctrl+w (or alt+backspace) erases the word before the cursor; while a line has the keys, ^W waits: esc, then ^W · backspace takes a whole character, an emoji family or a flag too · the same keys in a river column's / filter, the property panel's value (i, ⏎ on a row), the message log's /, the tile menu's search and the power bar · `act tile.title tile=reader` opens the prompt for you; `act tile.title tile=reader text=Seedlings` renames it as an agent",
     stage(n, show) {
       const a = new ReaderPane(true), b = detailPane();
-      return deskOf({ title: "showcase · one line field", panes: [a, b], names: ["reader", "shed"], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[b, n.shed]], d => { if (n.notebook) d.setCurrent(n.notebook); });
+      return deskOf({ title: "showcase · one line field", panes: [a, b], names: ["reader", "shed"], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[b, n.shed]], d => { if (n.notebook) fill(d, n.notebook); });
     },
   },
   {
@@ -1369,7 +1397,7 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "bar", need: "find anything from anywhere: a tile on any screen, a note, an action, what changed, a screen, an extension's rows", part: "the power bar (PIE-656, src/bar/): one palette over every screen and the drawer (ctrl+k, cmd+k, the status bar's ^K; the desk's / and the river's g in its notes scope), a list picker with its line, scopes along the top (% tiles, / notes, > actions, + recent, @ screens, & extensions, an extension's own prefix; alt+← alt+→ cycle; tab fills the line with the lit row's words), the lit row read on the right by the readers' renderers; its rows are sources' (registerBarSource): the layout tree's tiles (Desk.tileOutline), the service's one search, the dispatcher's actions (the focused tile's menu, then every action; one that takes arguments opens its form, PIE-1031: a field per argument with its values from its ArgSpec's kind and choices, src/bar/arg-kinds.ts, and the act line under them, through askInBar), the what-changed store, screen.list, and an extension's sources[] with a prefix through extensions.bar; a pick is bar.pick, through the drawer's goTo (a spine opened, its screen brought up), open, the dispatcher's press or extensions.act", files: "src/bar/bar.ts, src/bar/source.ts, src/bar/sources.ts, src/bar/actions.ts, src/bar/form.ts, src/bar/arg-kinds.ts, src/bar/ask.ts, src/extensions.ts (bar sources), src/app.ts, outliner src/extension-calls.ts (extensions.bar)",
+    key: "bar", need: "find anything from anywhere: a tile on any screen, a note, an action, what changed, a screen, an extension's rows", part: "the power bar (PIE-656, src/bar/): one palette over every screen and the drawer (ctrl+k, cmd+k, the status bar's ^K; the desk's / and the river's g in its notes scope), a list picker with its line, scopes along the top (% tiles, / notes, > actions, + recent, : screens, @ agents (an ask line), & extensions, an extension's own prefix; alt+← alt+→ cycle; tab fills the line with the lit row's words), the lit row read on the right by the readers' renderers; its rows are sources' (registerBarSource): the layout tree's tiles (Desk.tileOutline), the service's one search, the dispatcher's actions (the focused tile's menu, then every action; one that takes arguments opens its form, PIE-1031: a field per argument with its values from its ArgSpec's kind and choices, src/bar/arg-kinds.ts, and the act line under them, through askInBar), the what-changed store, screen.list, and an extension's sources[] with a prefix through extensions.bar; a pick is bar.pick, through the drawer's goTo (a spine opened, its screen brought up), open, the dispatcher's press or extensions.act", files: "src/bar/bar.ts, src/bar/source.ts, src/bar/sources.ts, src/bar/actions.ts, src/bar/form.ts, src/bar/arg-kinds.ts, src/bar/ask.ts, src/extensions.ts (bar sources), src/app.ts, outliner src/extension-calls.ts (extensions.bar)",
     aside: "Try tile.colapse tile=reader on=true direction=h: the row marks both corrections; enter runs the corrected command and keeps its answer here. Tab or right at the end completes argument names and values from the form pickers. Alt+o copies ep0ch act, Alt+y copies a note button, Alt+i inserts it into your note as one unsaved draft step; Alt+m or right-click a command/run opens its copy menu. Up on an empty line recalls the last run. Wheel over the docs or Alt+j/k scrolls; drag selects and copies; Alt+v gives docs the keys (arrows, page up/down, y copy, enter on an example, esc back to the line). Click an example to edit it on the line. ctrl+k (or a click on ^K at the status bar's left), anywhere: with nothing typed, this screen's tiles, indented as its layout tree (● has the keys, ▸ a spine, ⧉ a float, ⇤ docked), then what others changed · type to look through everything at once, or start with % / > + @ (alt+← alt+→ cycle) for one source, and press tab to extend the matching rows' common prefix, then advance a word per press; the fill is selected, so typing replaces it and backspace removes it. Drag or double-click the line, or shift+arrows, to select; ctrl+x cuts, ctrl+z undoes, paste replaces the selection, alt+backspace or ctrl+w deletes a word and ctrl+u clears (the shared Draft editor) · type >so then backspace four times: actions stays scoped; alt+left changes scope explicitly (PIE-1101) · ⏎ or a double click goes: a tile gets the keys (the folded detail here opens from its spine; one on a screen under this one brings it up), a note opens where opens land, an action runs; type >layout.move and press ⏎: its form, a field per argument (tile, to, where...) with what each means, the act line under them; type shed and ⏎ (the tile field lists this screen's tiles), reader and ⏎, tabs and ⏎ (where= lists its choices), then click the act line and ⏎: the shed is a tab beside the reader. alt+⏎ answers and runs at once, shift+tab goes back a field, an example row fills the form; paste an action line with its arguments (tile.open kind=query query=\"#seeds\", quoted as a shell quotes) and it's the first row in any scope, ⏎ runs it as typed; try > agents.yolo on=true to hand the scratch door to agents, then > agents.yolo on=false to take it back (repeating either keeps that state); alt+⏎ zooms a tile or opens a note in a new detail · esc clears the line keeping its scope; esc again closes · with the outliner's glyphs example installed, ~shade lists its rows, and on a note it offers to rule it · every scope finds a note by what names it: its title, its work id (PLOT-4) and its page name, and its rows read the way /notes does, `PLOT-4 Order the seed potatoes` · / with nothing typed lists the notes changed most recently first (the service's recency and what others changed, agents included), so / then ⏎ opens the latest; type and it runs the one search · `act bar.open query=… scope=…` answers the rows to an agent and opens nothing; `act bar.pick n=… query=…` picks as the agent, never your keys",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), a = detailPane(), b = detailPane();
@@ -1377,7 +1405,7 @@ export const SECTIONS: Section[] = [
       return deskOf({
         title: "showcase · power bar", panes: [tree, r, a, b], names: ["outline", "reader", "shed", "pears"],
         layout: ([t, rd, x, y]) => pair("row", 0.28, leaf(t!), pair("col", 0.5, leaf(rd!), pair("row", 0.5, leaf(x!), leaf(y!)))),
-      }, show, [[a, n.shed], [b, n.notebook]], d => { if (n.whiteboard) d.setCurrent(n.whiteboard, { reveal: true }); void d.collapseTile("pears", true, USER); });
+      }, show, [[a, n.shed], [b, n.notebook]], d => { if (n.whiteboard) fill(d, n.whiteboard, true); void d.collapseTile("pears", true, USER); });
     },
   },
   {
@@ -1385,7 +1413,7 @@ export const SECTIONS: Section[] = [
     aside: "off by default: `ep0ch act hyper.set on=true` (or EP0CH_HYPER=1) turns it on, and the hint row ends ✦ hyper · then ✦p the power bar, ✦h ✦j ✦k ✦l move the keys, ✦1-✦9 a tile, ✦- ✦= fold and open it, ✦z zoom, ✦n a new note, ✦g a screen: from inside a draft (the edit is left or kept as a click away would) and from inside the shell on the right · each is also a key, a click and an act · `ep0ch act keys.probe` (or a click on the ✦ hyper chip) then any chord: the status bar shows its bytes, modifiers and the key the door read, which is how you learn what your terminal, Herdr and ssh pass · a terminal that sends no Kitty reports can't send hyper at all",
     stage(n, show) {
       const r = new ReaderPane(true), term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: with the layer on, a hyper chord still reaches the door from here'; exec sh"], label: "shell" });
-      return deskOf({ title: "showcase · hyper", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+      return deskOf({ title: "showcase · hyper", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) fill(d, n.notebook); });
     },
   },
   {
@@ -1393,7 +1421,7 @@ export const SECTIONS: Section[] = [
     aside: "matches stay visible below the keys: drag the Matches divider, click less/more or press [ ] to resize their share · a key row has [+] to require any value and [-] to require its absence; + and - on the key do the same, and 0 drops it · the tags facet is open: ⏎ or a click on #frost-jobs includes it (+), again excludes it (−), again drops it · the query line shows the selection in the views' grammar (`#frost-jobs NOT #compost`): e types one, v saves it as a view on the board hub · ⏎ on a facet (▸) opens its values; path values group as a tree · s or a click on a header word sorts by uses, name or last use · z lists what the selection leaves at 0, dimmed · x clears · ⏎ on a note opens it in the reader beside · the tile is the service's answer: write a #tag or [key::value] in any note and the counts move · agents: facets.set key=tag value=compost mode=exclude, facets.query text=…, facets.save, facets.list",
     stage(n, show) {
       const t = new FacetsPane("tags"), r = new ReaderPane();
-      return deskOf({ title: "showcase · tags", panes: [t, r], names: ["tags", "reader"], layout: ([x, y]) => row(0.45, x!, y!) }, show, [[r, n.notebook]], d => { if (n.notebook) d.setCurrent(n.notebook); });
+      return deskOf({ title: "showcase · tags", panes: [t, r], names: ["tags", "reader"], layout: ([x, y]) => row(0.45, x!, y!) }, show, [[r, n.notebook]], d => { if (n.notebook) fill(d, n.notebook); });
     },
   },
   {
@@ -1506,11 +1534,15 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "message-log", need: "read a message after its status flash has gone", part: "App.flash appends to the session's StatusLog; the BBS list actions and RowView show every wrapped line, LineField and the shared search matcher search it", files: "src/status-log.ts, src/app.ts, src/screens.ts",
-    aside: "Click the status line or press alt+M from any screen. / searches whole messages, actions and tiles; r refreshes the rows; enter goes to the note or tile, PgUp/PgDn or the wheel reads a long message, q comes back. ep0ch log prints the session file; --follow tails it; peek includes the last 500 messages. Error stacks stay in the file.",
-    stage(_n, show) {
+    key: "message-log", need: "read a message after its status flash has gone", part: "App.flash appends to the session's StatusLog; the BBS list actions and RowView show every wrapped line, its words drawn by the reader's inline renderer (presentLinks: a labelled reference by its label, a click opens it), LineField and the shared search matcher search it; withWhole says a cut message above the bar", files: "src/status-log.ts, src/app.ts, src/screens.ts",
+    aside: "Click the status line or press alt+M from any screen. / searches whole messages, actions and tiles; r refreshes the rows; enter goes to the note or tile, PgUp/PgDn or the wheel reads a long message, q comes back. A note a message names reads by its label, as a reader draws it, and a click on it opens the note (status.link n=1). At 44 columns a message too long for the four rows above the bar ends … more alt+M: a click on it opens this log. ep0ch log prints the session file; --follow tails it; peek includes the last 500 messages. Error stacks stay in the file.",
+    stage(n, show) {
       const list = new StatusMessages();
-      show(ctx => { ctx.flash("The garden gate needs attention; this message stays in the log after its flash ends."); list.enter(ctx); list.reload(); });
+      show(ctx => {
+        ctx.flash("The garden gate needs attention; this message stays in the log after its flash ends.");
+        ctx.flash(`Nothing was filed: ((${n.shed!.id}|the shed note)) is no page; add [page::Shed] to it, or name another with [form-into::…]`, 4000, { kind: "refusal" });
+        list.enter(ctx); list.reload();
+      });
       return list;
     },
   },

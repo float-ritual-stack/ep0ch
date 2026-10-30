@@ -1,5 +1,5 @@
 // Tiles and named layouts (PIE-413, PIE-474). A tile is a view in the layout tree: the outline tree, a
-// reader that follows the current note, a detail that keeps its note, a preview following a tile or a
+// reader (a detail) that keeps the note opened into it, pinned or not, a preview following a tile or a
 // file, a program in a terminal, a whole screen (board, river), the brief, and the desk's other panes. A
 // layout is the tree of splits and tab sets over tiles, with each tile's name, where its opens land (its
 // link), whether it slides over as a dock, and the layout's open rule. It is data: a screen saved by name is a
@@ -37,12 +37,18 @@ export interface TileSpec {
   systemTitle?: boolean;
   /** Its id (`t<n>`, PIE-491), kept so a restarted door gives the tile the same one. */
   id?: string;
-  /** A held reader's note (block id): it starts on it and keeps it. */
+  /** A reader's note (block id): it starts on it and keeps it. */
   note?: string;
   outline?: string;
   machine?: string;
-  /** How a reader shows notes (PIE-705): omitted it follows the current note; `held` keeps `note`; `pinned` keeps the page named by `page`. */
-  mode?: "follows" | "held" | "pinned";
+  /**
+   * A reader's pin (PIE-1207): `pinned` keeps `note` (or the page named by `page`) and every open aimed at it lands
+   * beside it. A saved `held` reads as no pin; `follows` (the hidden current note, gone) as `wasFollowing`. A query
+   * list's `held` (PIE-855) keeps what it lists.
+   */
+  mode?: "pinned" | "held";
+  /** Saved following the current note (PIE-1207: gone): it loads on the note it showed, and the desk wires a list to it once. */
+  wasFollowing?: boolean;
   /** A reader's place and back and forward stacks (NoteSurface.saveNav, PIE-643): read by version, dropped when it isn't this one's. */
   nav?: unknown;
   /** A reader's margin when it isn't trim (PIE-873): "off" (marks only) or "full". */
@@ -107,8 +113,8 @@ export interface TileSpec {
 export type SavedTree = BinaryForm<TileSpec> | NaryForm<TileSpec>;
 
 /**
- * Where an open from a tile goes when it has no link: the current note, or (`next`) a new column after its own in
- * its flow. A layout's `rule` is read into its screen policy's `opens` (PIE-513: the open rule is policy now).
+ * Where an open from a tile goes when it has no link: the first reader that isn't pinned, (`next`) a new column after
+ * its own in its flow, or (`beside`) a reader beside it. A layout's `rule` is read into its screen policy's `opens` (PIE-513: the open rule is policy now).
  */
 export type { OpenRule } from "./screen-layout";
 import type { OpenRule } from "./screen-layout";
@@ -160,10 +166,15 @@ export { isTileKind };
  * A spec as a saved layout, a screen spec or an agent wrote it, in the kinds there are now. `detail` was a kind of its
  * own (PIE-705): it reads as a reader that starts held, or pinned when it names a `page`.
  */
-export function canonSpec<S extends { kind: TileKindName; page?: string; mode?: "follows" | "held" | "pinned"; link?: string; linkRole?: string; source?: string; wires?: TileSpec["wires"]; selectFrom?: string }>(s: S): S & { selectFrom?: string } {
+export function canonSpec<S extends { kind: TileKindName; page?: string; mode?: string; note?: string; nav?: unknown; wasFollowing?: boolean; link?: string; linkRole?: string; source?: string; wires?: TileSpec["wires"]; selectFrom?: string }>(s: S): S & { selectFrom?: string } {
   const { link, linkRole, ...rest } = s;
   const out = { ...rest, ...(link ? { wires: [...(s.wires ?? []), ...(!s.wires?.some(w => w.verb === "open") ? [{ verb: "open" as const, to: link }] : []), ...(!s.wires?.some(w => w.verb === "select") && (linkRole ?? (s.kind === "backlinks" ? "target" : "preview")) === "preview" ? [{ verb: "select" as const, to: link }] : [])] } : {}) };
   if (out.kind === "detail") { out.kind = "reader"; out.mode ??= s.page ? "pinned" : "held"; }
+  // The reader modes before the pin (PIE-1207): `held` is any reader now (it names a new tile a detail, and the reader
+  // ignores it); one that followed the current note (saved with its place and no note and no mode, or `mode: follows`)
+  // loads on the note it showed, and the desk wires a list to it once.
+  if (out.kind === "reader" && out.mode === "follows") { out.wasFollowing = true; delete out.mode; }
+  else if (out.kind === "reader" && out.mode === undefined && out.note === undefined && out.nav !== undefined) out.wasFollowing = true;
   if (out.kind === "preview" && out.source?.startsWith("tile:")) {
     out.selectFrom = out.source.slice(5);
     delete out.source;
@@ -203,18 +214,18 @@ export function builtin(name: string): LayoutSpec | null {
     const draft = dailyDraft();
     return {
       // The agent is the host layer's (alt+a), beside the desk, never a tile of its own here (PIE-513).
-      name, rule: "current", focus: "tree", policy: { host: "beside" },
+      name, focus: "tree", policy: { host: "beside" },
       root: serial(splitOf("row", [
         T("reader", "now", { link: "middle", mode: "pinned", page: nowPage().address }),
-        splitOf("col", [splitOf("col", [T("tree", "tree", { wires: [{ verb: "open", to: "middle" }] }), T("preview", "preview", { source: "tile:tree" })], [0.6, 0.4]), T("reader", "middle", { mode: "held" })], [0.6, 0.4]),
-        splitOf("col", [T("pty", "draft", { cmd: [...words(editor()), draft], file: draft }), T("reader", "side", { link: "middle", mode: "held" })], [0.6, 0.4]),
+        splitOf("col", [splitOf("col", [T("tree", "tree", { wires: [{ verb: "open", to: "middle" }] }), T("preview", "preview", { source: "tile:tree" })], [0.6, 0.4]), T("reader", "middle")], [0.6, 0.4]),
+        splitOf("col", [T("pty", "draft", { cmd: [...words(editor()), draft], file: draft }), T("reader", "side", { link: "middle" })], [0.6, 0.4]),
       ], [0.34, 0.33, 0.33])),
     };
   }
   // The river's columns are a flow on the desk itself (PIE-515), a preview following whichever column the keys are in.
-  if (name === "river") return { name, rule: "current", focus: "library", root: { t: "split", dir: "row", weights: [0.7, 0.3], kids: [{ t: "flow", key: "river", kids: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" }] }, { t: "leaf", kind: "preview", name: "card", source: "tile:river" }] } as SavedTree };
-  if (name === "board") return { name, rule: "current", focus: "board", root: serial(splitOf("col", [T("board", "board", { preview: false }), splitOf("row", [T("preview", "card", { source: "tile:board" }), T("detail", "detail")], [0.5, 0.5])], [0.62, 0.38])) };
-  if (name === "desk") return { name, rule: "current", focus: "reader", root: serial(splitOf("row", [T("tree", "tree"), splitOf("row", [T("reader", "reader"), splitOf("col", [T("backlinks", "replies", { source: "tile:reader", linkGroups: "children", subject: "follows" }), T("activity", "activity")], [0.58, 0.42])], [0.66, 0.34])], [0.24, 0.76])) };
+  if (name === "river") return { name, focus: "library", root: { t: "split", dir: "row", weights: [0.7, 0.3], kids: [{ t: "flow", key: "river", kids: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" }] }, { t: "leaf", kind: "preview", name: "card", source: "tile:river" }] } as SavedTree };
+  if (name === "board") return { name, focus: "board", root: serial(splitOf("col", [T("board", "board", { preview: false }), splitOf("row", [T("preview", "card", { source: "tile:board" }), T("detail", "detail")], [0.5, 0.5])], [0.62, 0.38])) };
+  if (name === "desk") return { name, focus: "reader", root: serial(splitOf("row", [T("tree", "tree", { wires: [{ verb: "select", to: "reader" }] }), splitOf("row", [T("reader", "reader"), splitOf("col", [T("backlinks", "replies", { source: "tile:reader", linkGroups: "children", subject: "follows" }), T("activity", "activity")], [0.58, 0.42])], [0.66, 0.34])], [0.24, 0.76])) };
   return null;
 }
 export const BUILTIN = ["daily", "river", "board", "desk"] as const;

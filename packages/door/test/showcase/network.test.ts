@@ -111,29 +111,41 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
   }, 20_000);
 
 
-  test("reader modes (PIE-705): the section's readers follow, hold and pin; an agent switches each by reader.mode, attributed, and never takes the person's keys", async () => {
+  test("reader pins (PIE-1207): the tree is wired to its reader; pinned, the reader keeps its note, an open lands beside it and the hint row says where; an agent pins by reader.pin, attributed, never taking the person's keys", async () => {
     (app as any).lastInput = 0;
-    expect(await app.act({ action: "section", args: { name: "reader-modes" }, as: "test-agent" })).toMatchObject({ key: "reader-modes" });
-    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "reader-modes")).top; };
+    expect(await app.act({ action: "section", args: { name: "reader-pins" }, as: "test-agent" })).toMatchObject({ key: "reader-pins" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "reader-pins")).top; };
     const tiles = () => stage().layoutGet().tiles as any[];
     const tile = (name: string) => tiles().find(t => t.name === name);
-    await until(() => tile("now")?.showing?.id === seeded.notes.notebook.id && tile("detail")?.showing?.id === seeded.notes.shed.id, "the held and the pinned reader on their notes", 5000);
-    expect(tile("reader")).toMatchObject({ kind: "reader", mode: "follows" });
-    expect(tile("detail")).toMatchObject({ kind: "reader", mode: "held" });
-    expect(tile("now")).toMatchObject({ kind: "reader", mode: "pinned", page: prop(seeded.notes.notebook, "page") });
-    // The held one lets go and follows the outline's selection; held again, it keeps what it shows.
-    expect(await app.act({ action: "reader.mode", tile: "detail", args: { mode: "follows" }, as: "test-agent" })).toMatchObject({ name: "detail", mode: "follows", held: false });
+    await until(() => tile("now")?.showing?.id === seeded.notes.notebook.id && tile("detail")?.showing?.id === seeded.notes.shed.id && !!tile("reader")?.showing, "the readers on their notes", 5000);
+    expect(tile("now")).toMatchObject({ kind: "reader", pinned: true, page: prop(seeded.notes.notebook, "page") });
+    expect(tile("detail")).toMatchObject({ kind: "reader", pinned: true });
+    expect(tile("reader").pinned).toBeUndefined();
+    expect(tile("tree").wires).toContainEqual({ verb: "select", to: tile("reader").tile });
+    // The tree's pick shows in the reader alone: no hidden current note moves the pinned ones.
+    await until(() => (tile("tree")?.rows?.length ?? 0) > 1 || ((stage().pane("tree") as any)?.list().length ?? 0) > 1, "the tree's rows", 5000);
+    await app.act({ action: "tree.pick", tile: "tree", args: { n: 2 }, as: "test-agent" });
+    await Bun.sleep(200);                                        // the tree's pick settles (its 90ms read)
+    expect(tile("detail").showing.id).toBe(seeded.notes.shed.id);
+    expect(tile("now").showing.id).toBe(seeded.notes.notebook.id);
+    // An agent pins the reader: said with its name; the person's keys stay where they were.
+    expect(await app.act({ action: "reader.pin", tile: "reader", args: { on: true }, as: "test-agent" })).toMatchObject({ name: "reader", pinned: true });
     expect((app as any).message).toContain("test-agent");
-    expect(tile("detail").mode).toBe("follows");
-    expect(await app.act({ action: "reader.mode", tile: "reader", args: { mode: "held" }, as: "test-agent" })).toMatchObject({ name: "reader", mode: "held", held: true });
-    expect(await app.act({ action: "reader.mode", tile: "now", args: { mode: "follows" }, as: "test-agent" })).toMatchObject({ name: "now", mode: "follows" });
-    // What it follows (PIE-814): the detail follows the tree by a link, and its chip says so; none lets go.
-    expect(await app.act({ action: "reader.follow", tile: "detail", args: { source: "tree" }, as: "test-agent" })).toMatchObject({ name: "detail", source: tile("tree").tile });
-    expect(tile("tree").wires).toContainEqual({ verb: "select", to: tile("detail").tile });
-    const detail = [...stage().panes.entries()].find(([id]: any) => stage().nameOf(id) === "detail")![1] as any;
-    expect(detail.headControls(40, stage())[0].text).toBe("stays put");
-    await app.act({ action: "reader.follow", tile: "detail", args: { source: "none" }, as: "test-agent" });
-    expect(tile("tree").link).toBeFalsy();
+    const kept = tile("reader").showing.id, before = tiles().length;
+    // The tree's ⏎ aimed at the pinned reader: a new reader beside it takes the note, said once; the hint row names it.
+    const opened = await app.act({ action: "open", args: { id: seeded.notes.whiteboard.id, from: "tree" }, as: "test-agent" }) as any;
+    expect(tiles().length).toBe(before + 1);
+    expect(opened.name).not.toBe("reader");
+    expect(tile("reader").showing.id).toBe(kept);
+    const reader = [...stage().panes.entries()].find(([id]: any) => stage().nameOf(id) === "reader")![1] as any;
+    screen();
+    expect(reader.hint()).toContain(`pinned: opens land in ${opened.name}`);
+    expect(reader.headControls(40, stage())[0].text).toBe("▣ pinned");
+    // Let go: the next ⏎ lands in it again.
+    await app.act({ action: "reader.pin", tile: "reader", args: { on: false }, as: "test-agent" });
+    await app.act({ action: "open", args: { id: seeded.notes.whiteboard.id, from: "tree" }, as: "test-agent" });
+    expect(tile("reader").showing.id).toBe(seeded.notes.whiteboard.id);
+    await app.act({ action: "tile.close", tile: opened.name, as: "test-agent" }).catch(() => null);
     expect(S().focus).toBe("index");
   }, 20_000);
 

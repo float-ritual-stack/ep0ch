@@ -488,8 +488,6 @@ export class EchoReader extends ReaderPane {
     return m && this.area ? `${this.area.tag.toUpperCase()} · message ${m.n} of ${this.list.length}` : this.msg ? `reading · ${subject(this.msg)}` : "message reader";
   }
   override hint() { return this.message ? `} { next prev · r reply · q quote · ${super.hint()}` : super.hint(); }
-  /** It reads what its list opens: the desk's current note doesn't move it. */
-  override select() {}
   protected override emptyFor(): string { return "⏎ on a message in the list reads it here · } { then step through the area · r replies · q quotes"; }
 
   override host(desk: DeskApi): SurfaceHost {

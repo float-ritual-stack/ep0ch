@@ -10,7 +10,7 @@ import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
 import { Selection } from "../src/surface/selection";
 import { SocketBoard } from "../src/socket";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, showIn, until } from "./scratch";
 
 const QUESTION = "When the allotment committee moves the spring seed swap to the community hall, who carries the trestle tables over, and does the borrowed urn still need returning to the church by Sunday?";
 
@@ -36,7 +36,7 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     app.push(new MainMenu());
     desk = new Desk({ name: "q", title: "q", layout: { focus: "tree", root: { t: "split", dir: "row", weights: [0.3, 0.7], kids: [{ t: "leaf", kind: "tree", name: "tree" }, { t: "leaf", kind: "reader", name: "reader" }] } } } as any);
     app.push(desk);
-    desk.setCurrent(note);
+    showIn(desk, note);
     const r = () => D().pane("reader") as ReaderPane;
     await until(() => r().msg?.id === note.id, "the reader on the note");
     const lines = () => (desk.render(D().ctx).lines as string[]).map(plain);
@@ -74,10 +74,10 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
   }, 30_000);
 
   for (const sized of [false, true]) for (const tile of [
-    { kind: "reader", mode: "follows" },
+    { kind: "reader" },
     { kind: "preview", source: "tile:detail" },
-    { kind: "reader", mode: "held" },
-    { kind: "reader", mode: "held", name: "research-notes-for-the-next-planning-session", cols: 60 },
+    { kind: "reader", mode: "pinned" },
+    { kind: "reader", mode: "pinned", name: "research-notes-for-the-next-planning-session", cols: 60 },
     { kind: "welcome.detail", source: "tile:welcome" },
     { kind: "welcome.preview", source: "tile:detail" },
     { kind: "river.column" },
@@ -96,7 +96,7 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     await until(() => (desk.render(D().ctx).lines as string[]).map(plain).some(l => l.includes("Bring the spare key.")), "the note drawn");
     if (tile.kind === "welcome.preview") await until(() => plain(reader.surface.render(100, 30, reader.host(desk)).lines[0]!).includes("top level"), "breadcrumb");
     const all = (desk.render(D().ctx).lines as string[]).map(plain);
-    if ("cols" in tile) expect(all[0]).toContain("stays put");
+    if ("cols" in tile) expect(all[0]).toContain("▣ pinned");
     expect(all.slice(1).join("\n").match(/The orchard gate/g)?.length).toBe(1);
     expect(all[0]).toContain("\u2261");
     const titleRow = all.findIndex((l, i) => i > 0 && l.includes("The orchard gate"));
@@ -106,11 +106,11 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
       expect(all.join("\n")).toContain("read here");
     }
     if ("cols" in tile) {
-      const x = all[0]!.indexOf("stays put");
+      // A click on the pin chip lets it go (reader.pin), as p does.
+      const x = all[0]!.indexOf("▣ pinned");
       key({ kind: "mouse", action: "down", button: 0, x, y: 0 });
       key({ kind: "mouse", action: "up", button: 0, x, y: 0 });
-      expect(D().overlaid()).toBe(true);
-      key({ kind: "esc" });
+      await until(() => !reader.pinned, "the chip unpins it");
       await D().dispatch.press("edit", {}, name);
       expect(plain((desk.render(D().ctx).lines as string[])[0]!)).toContain("editing");
     }

@@ -147,9 +147,9 @@ if (scenario === "titles") {
   const note = await board.createBlock(null, "yo yo yo this is a test\n\nA made-up note to check the reader title.");
   app.push(new MainMenu());
   for (const [label, tile] of [
-    ["desk", { kind: "reader", mode: "follows" }],
+    ["desk", { kind: "reader" }],
     ["preview", { kind: "preview", source: "tile:detail" }],
-    ["detail", { kind: "reader", mode: "held" }],
+    ["detail", { kind: "reader", mode: "pinned" }],
     ["welcome-preview", { kind: "welcome.preview", source: "tile:detail" }],
     ["welcome-detail", { kind: "welcome.detail", source: "tile:welcome" }],
     ["river", { kind: "river.column", source: `block:${note.id}` }],
@@ -177,7 +177,7 @@ if (scenario === "doc") {
     "::graph-gantt", "---", "title: launch", "progress: 0.58", "ticks: [q1, q2, q3, q4]", "items:", "  - { label: design, start: 0, end: 0.35, complete: 1 }", "  - { label: build, start: 0.2, end: 0.75, complete: 0.55 }", "  - { label: ship, start: 0.85, end: 1, complete: 0 }", "---", "::", "",
     "pasted from the mdxcn docs:", "```", "+------------------- [ LAUNCH ] -------------------+", "|                                                  |", "| [x]  freeze tokens                               |", "| [ ]  write the postmortem  still open            |", "|                                                  |", "+--------------------------------------------------+", "```"].join("\n");
   const pane = new ReaderPane();
-  const api: any = { ctx: app, current: null, setCurrent() {}, focusKind() {}, redraw: () => app.redraw() };
+  const api: any = { ctx: app, openFromTile() {}, focusKind() {}, redraw: () => app.redraw() };
   pane.show({ id: "demo", text, parentId: null, childIds: [], createdAt: Date.now(), updatedAt: Date.now(), author: "you", properties: [] }, api);
   onMediaChange(() => app.redraw());
   // Same note twice: a narrow reader beside a wide one.
@@ -205,7 +205,7 @@ if (scenario === "figures") {
     ...f("timeline", ["title: the plot"], ["- Feb: dig over", "- **Mar: seed potatoes** — after the frost", "- *Apr: beans*"]),
     "> [!quote] On sheds", "> Shacks, not cathedrals.", ">", "> — shypht, the ep0ch BBS"].join("\n");
   const pane = new ReaderPane();
-  const api: any = { ctx: app, current: null, setCurrent() {}, focusKind() {}, redraw: () => app.redraw() };
+  const api: any = { ctx: app, openFromTile() {}, focusKind() {}, redraw: () => app.redraw() };
   pane.show({ id: "figures", text, parentId: null, childIds: [], createdAt: Date.now(), updatedAt: Date.now(), author: "you", properties: [] }, api);
   const narrow = new ReaderPane(); narrow.show((pane as any).msg, api);
   for (const [i, top] of [0, 70].entries()) {
@@ -226,7 +226,7 @@ if (scenario === "live") {
     "::graph-rank", "---", "title: outbox by ticket", "query: \"type=outbox-item\"", "group: ticket", "---", "::", "",
     "::graph-check", "---", "title: doing (saved view)", `view: ((${process.env.VIEW}))`, "note: ticket", "---", "::"].join("\n");
   const pane = new ReaderPane();
-  const api: any = { ctx: app, current: null, setCurrent() {}, focusKind() {}, redraw: () => app.redraw() };
+  const api: any = { ctx: app, openFromTile() {}, focusKind() {}, redraw: () => app.redraw() };
   pane.show({ id: "demo", text, parentId: null, childIds: [], createdAt: Date.now(), updatedAt: Date.now(), author: "you", properties: [] }, api);
   app.push({ title: "live", render: (ctx: any) => ({ lines: pane.render(110, ctx.t.rows - 2, true, api).lines.map((l: string) => "  " + l) }), key() {} } as any);
   await snap("1-asking", 200);
@@ -629,7 +629,7 @@ if (scenario === "complete") {
   press({ kind: "esc" }); press({ kind: "esc" }); press({ kind: "esc" });
   const example = await board.createBlock(null, "Completion examples\n");
   const desk = openScreen("desk") as Desk;
-  app.push(desk); desk.setCurrent(example);
+  app.push(desk); desk.openFromTile(example, { from: desk.paneNamed("reader")!, link: true });
   await Bun.sleep(300);
   ch("e"); press({ kind: "enter" }); await Bun.sleep(300);
   press({ kind: "down" }); press({ kind: "end" }); press({ kind: "enter" }); type("::graph-meter");

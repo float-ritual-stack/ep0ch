@@ -565,10 +565,10 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       expect(FRAME.test(joined.top)).toBe(false);
       expect(joined.side).toBe(" ");
       expect(joined.tint).toBe(true);
-      // A reader that follows the current note, beside a tree, is joined too; border=line frames it.
-      await d.reader().setMode("follows", d.desk);
-      (d.desk as any).focusTile("outline", { kind: "user" });
+      // A reader a tree's select wire feeds, beside the tree, is joined too; border=line frames it.
       const readerName = (d.desk as any).nameOf([...(d.desk as any).panes].find(([, p]: any) => p.kind === "reader")[0]);
+      await d.desk.dispatch.act({ action: "reader.follow", tile: readerName, args: { source: "outline" } }, { kind: "user" });
+      (d.desk as any).focusTile("outline", { kind: "user" });
       expect(FRAME.test(edges(readerName).top)).toBe(false);
       (d.desk as any).tileLooks.set((d.desk as any).tileId((d.desk as any).idNamed(readerName)), { border: "line" });
       expect(FRAME.test(edges(readerName).top)).toBe(true);

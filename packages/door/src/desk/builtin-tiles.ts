@@ -40,14 +40,13 @@ const reading: Pick<TileKind, "previews" | "accepts" | "holdsWork" | "shows" | "
   accepts: { notes: true },
   // Its header's backdrop (PIE-598), when it draws one or the setting turned it off.
   describe: p => { const h = (p as ReaderPane).surface.headerBackdrop(); return h.backdrop || !h.on ? { header: h } : {}; },
-  // A note opened into it replaces its own, kept in its history (PIE-453): back returns to what it showed. Its mode
-  // stays. Placement owns whether the current note moves; taking a note only changes this reader.
+  // A note opened into it replaces its own, kept in its history (PIE-453): back returns to what it showed. Its pin
+  // stays (placement never sends an open into a pinned reader); taking a note only changes this reader.
   take: (p, m, desk, by) => {
     const r = p as ReaderPane;
     if (r.holdsKeys || r.editing) return holdsEdit("the reader", sessionName(r));
     // An explicit open wins over a saved-history read still in flight.
     if (r.wantNote() !== m.id) r.dropWant();
-    if (r.follows && !r.holding) { r.show(m, desk); return null; }
     r.hold(m, desk);
     return null;
   },
@@ -78,38 +77,39 @@ const builtins = (): TileKind[] => [
     peek: (p, desk) => { const open = desk.shownNow?.(p) ?? true; return { outline: { open, pinned: !desk.inDock?.(p), side: desk.sideOf?.(p) ?? "left", ...(open ? { rows: (p as TreePane).describe() } : {}) } }; },
   },
   {
-    kind: "reader", openArgs: ["mode", "note", "page", "outline", "machine", "label"], about: "a reader of notes: it follows the current note, is held on one (a detail), or is pinned to a page (mode=follows|held|pinned; note=<id> for a held one, page=<name> for a pinned one)",
+    kind: "reader", openArgs: ["mode", "note", "page", "outline", "machine", "label"], about: "a reader of notes (a detail): it keeps the note opened into it (note=<id> to start on one); mode=pinned pins it, on that note or page=<name>, so every open aimed at it lands beside it",
+    // ^W o d names it a detail (`mode: held` reads as no pin); ^W o r a reader. They're the same tile (PIE-1207).
     keys: [{ key: "r", label: "reader" }, { key: "d", label: "detail", spec: () => ({ mode: "held" }) }],
     make: s => {
       const r = new ReaderPane(true);
       if (s.outline) r.noteAddress = { outline: s.outline, ...(s.machine ? { machine: s.machine } : {}) };
-      if (s.mode === "pinned" && s.page) r.pinTo(s.page);
-      else if (s.note || s.mode === "held" || s.mode === "pinned") { r.holdOn(); if (s.note) r.want = s.note; }
+      if (s.mode === "pinned") r.pinTo(s.page);
+      if (s.note && !s.page) r.want = s.note;
+      if (s.wasFollowing) r.wasFollowing = true;
       if (s.label) r.label = s.label;
       if (s.nav) r.wantNav = s.nav;
       r.takeMargin(s.margin);
       return r;
     },
     ...reading, actions: READER_ACTIONS,
-    check: s => s.mode === "pinned" && !s.page ? "a pinned reader names its page: ep0ch act tile.open kind=reader mode=pinned page=<name>"
-      : s.page && s.mode !== "pinned" ? "page= needs mode=pinned: ep0ch act tile.open kind=reader mode=pinned page=<name>"
-      : s.note && (s.mode === "pinned" || s.mode === "follows") ? "note= keeps a note: ep0ch act tile.open kind=reader note=<id>; pinned uses page=" : null,
-    // layout.get and peek say how it shows notes (PIE-705): follows, held, or pinned to a page.
-    describe: (p, full) => { const r = p as ReaderPane; return { ...reading.describe!(p, full), ...(r.follows ? { mode: r.followMode, ...(r.pinPage ? { page: r.pinPage } : {}) } : {}) }; },
+    check: s => s.page && s.mode !== "pinned" ? "page= needs mode=pinned: ep0ch act tile.open kind=reader mode=pinned page=<name>"
+      : s.page && s.note ? "a pinned reader keeps note= or page=, not both: ep0ch act tile.open kind=reader mode=pinned page=<name>" : null,
+    // layout.get and peek say whether it's pinned (PIE-1207), and on which page.
+    describe: (p, full) => { const r = p as ReaderPane; return { ...reading.describe!(p, full), ...(r.pinnable && r.pinned ? { pinned: true, ...(r.pinPage ? { page: r.pinPage } : {}) } : {}) }; },
     // The note it showed when the layout was saved (a restart, a handover) is shown again, with its history (PIE-643), unless something is already there.
     start: async (p, env) => {
       const r = p as ReaderPane;
       try { await r.connect(env.desk); } catch (e) { env.desk.ctx.flash((e as Error).message, undefined, errorDetails(e)); return; }
       if (r.pinPage && !r.msg) {
         const page = r.pinPage;
-        r.context(env.desk).board.resolvePage(page).then(res => { if (res.status === "resolved" && res.block && r.pinPage === page) { r.pinned(res.block, env.desk); env.desk.redraw(); } }, () => {});
+        r.context(env.desk).board.resolvePage(page).then(res => { if (res.status === "resolved" && res.block && r.pinPage === page) { r.pinnedTo(res.block, env.desk); env.desk.redraw(); } }, () => {});
       }
       if (r.want && !r.msg && !r.pinPage) {
         const want = r.want;
         // A note the outline hasn't (purged, or the screen saved on another outline): the empty tile says so.
         readNote(env.desk.ctx, want, r.noteAddress).then(m => {
-          // Still the held reader that wanted it (a switch to following, or a note opened into it, meanwhile, wins).
-          const wanted = !r.msg && r.want === want && r.followMode === "held";
+          // Still the reader that wanted it (a note opened into it meanwhile wins).
+          const wanted = !r.msg && r.want === want && !r.pinPage;
           if (m && wanted) r.hold(m, env.desk); else if (!m && wanted) r.missing = want;
           env.desk.redraw();
         }, () => {});

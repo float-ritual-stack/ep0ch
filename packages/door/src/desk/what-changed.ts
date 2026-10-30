@@ -408,7 +408,7 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
       const m = await desk.ctx.board.get(row.blockId);
       if (!m) throw new ActionRefused("that note is gone (trashed notes open from the trash)");
       if (standing) w.at = n - 1;
-      await desk.setCurrent(m, { from: w, link: true, ...(fresh ? { fresh: true } : {}), by: actor });
+      await desk.openFromTile(m, { from: w, link: true, ...(fresh ? { fresh: true } : {}), by: actor });
       desk.redraw();
       return { n, id: row.blockId, title: subject(m) };
     },

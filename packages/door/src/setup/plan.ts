@@ -106,6 +106,9 @@ export function repoStep(f: Facts): Step {
   return { id: "repo", title: "Update the ep0ch checkout", ...checkoutStep(f.repo.checkout, f.repo.deps, "the ep0ch checkout") };
 }
 
+/** What a missing-tool report says it searched, so an install run with the wrong environment shows itself (PIE-1243). */
+export const checkedPath = (f: Facts) => `checked PATH=${f.pathDirs.join(":") || "(empty)"}`;
+
 /** The commands that point Herdr's plugin at this checkout's packages/outliner. */
 export const relinkCommands = (f: Facts) => [`herdr plugin unlink ${PLUGIN_ID}`, `herdr plugin link ${f.repo.outliner} --enabled`];
 
@@ -117,7 +120,7 @@ export const relinkCommands = (f: Facts) => [`herdr plugin unlink ${PLUGIN_ID}`,
 export function pluginStep(f: Facts): Step {
   const title = "The Outliner plugin in Herdr";
   const p = f.plugin;
-  if (!f.herdr.path) return { id: "plugin", title, status: "manual", why: "Herdr isn't installed; install it (https://herdr.dev), then link the plugin:", commands: [`herdr plugin link ${f.repo.outliner} --enabled`] };
+  if (!f.herdr.path) return { id: "plugin", title, status: "manual", why: `Herdr isn't installed (${checkedPath(f)}); install it (https://herdr.dev), then link the plugin:`, commands: [`herdr plugin link ${f.repo.outliner} --enabled`] };
   if (!p) return { id: "plugin", title, status: "manual", why: "the Outliner plugin isn't in Herdr; link it to this checkout (its install.sh also binds keys and the Claude mod):", commands: [`herdr plugin link ${f.repo.outliner} --enabled`] };
   if (p.kind === "local") {
     if (resolve(p.root) === resolve(f.repo.outliner)) return { id: "plugin", title, status: "skip", why: `linked to ${p.root}: updated with the ep0ch checkout`, commands: [] };
@@ -158,7 +161,7 @@ export function linkStep(f: Facts): Step {
   }
   if (!dir) {
     return { id: "link", title, status: "manual",
-      why: `none of ${f.linkDirs.map(d => d.dir).join(", ")} is both on PATH and writable (install never uses sudo); mkdir -p ~/.local/bin, add it to PATH, then rerun`, commands: [] };
+      why: `none of ${f.linkDirs.map(d => d.dir).join(", ")} is both on PATH and writable (${checkedPath(f)}; install never uses sudo); mkdir -p ~/.local/bin, add it to PATH, then rerun`, commands: [] };
   }
   const existing = f.linkDirs.find(d => d.dir === dir)?.existing;
   if (existing === "broken-link") return { id: "link", title, status: "do", why: `replace the broken link ${dir}/ep0ch (the first writable PATH directory)`, commands: [`ln -sfn ${entry} ${dir}/ep0ch`] };
@@ -622,7 +625,8 @@ export function sessionStep(f: Facts, repo: Pick<Step, "status">): Step {
 export function backupsStep(f: Facts): Step | null {
   if (!f.restic || !f.databases.length) return null;
   const p = backupPlan(f.restic);
-  return { id: "backups", title: "Back up the outlines to restic every 15 minutes", status: p.status, why: p.why, commands: p.commands, ...(p.writes.length ? { writes: p.writes } : {}) };
+  const looked = p.status === "manual" && (!f.restic.restic || !f.restic.groups) ? `; ${checkedPath(f)}` : "";
+  return { id: "backups", title: "Back up the outlines to restic every 15 minutes", status: p.status, why: p.why + looked, commands: p.commands, ...(p.writes.length ? { writes: p.writes } : {}) };
 }
 
 /** The whole plan, in order: backup first, whenever anything after it will change something. */

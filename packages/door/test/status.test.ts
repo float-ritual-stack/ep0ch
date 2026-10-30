@@ -514,6 +514,40 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { size.cols = 220; app.flash(""); }
   });
 
+  test("at 44 columns a refusal past four rows says … more; a click opens the log, which draws it whole with its label, and the label opens (PIE-1453)", async () => {
+    const inbox = await board.createBlock(null, "Inbox");
+    size.cols = 44;
+    try {
+      const said = `2 notes are titled Bird list, in ((${inbox.id}|in Inbox)) and in a garden note, but none is a page: add [page::Bird list] to one, or name the page this form writes into with [form-into::…]; did you mean [[Bird lists]]?`;
+      app.flash(said, 60_000, { kind: "refusal" });
+      await until(() => { app.flush(); return / more alt\+M$/.test(visible(painted.at(-2) ?? "").trimEnd()); }, "… more at the end of the fourth row");
+      const band = painted.slice(-5, -1).map(l => visible(l));
+      expect(band.join(" ")).toContain("in Inbox");
+      expect(band.join(" ")).not.toContain(inbox.id);
+      const ran: string[] = [];
+      const stop = traceActions(a => ran.push(a.name));
+      try {
+        press({ kind: "mouse", action: "down", button: 0, x: 10, y: 37 });
+        await until(() => ran.includes("status.log"), "the click on the whole message opens the log");
+      } finally { stop(); }
+      // The log reads it whole at 44 columns: the reference by its label, the did-you-mean at its end.
+      await until(() => { app.flush(); return painted.map(l => visible(l)).join(" ").replace(/\s+/g, " ").includes("did you mean Bird lists?"); }, "the whole refusal in the log");
+      const log = painted.map(l => visible(l));
+      expect(log.join(" ")).not.toContain(inbox.id);
+      // In a link's colour, never the renderer's marks drawn as characters (each would take a cell and cut the row).
+      // Lit or not (the lit row is drawn plain behind its bar).
+      const log0 = app.screens().at(-1)!;
+      expect(log0.render(app).lines.join("")).not.toMatch(/[\uE000-\uE00A]/);
+      app.flash("the shed is locked"); press({ kind: "char", ch: "r" }); press({ kind: "up" });
+      expect(log0.render(app).lines.filter(l => visible(l).includes("in Inbox")).join("")).not.toMatch(/[\uE000-\uE00A]/);
+      await until(() => { app.flush(); return painted.some(l => visible(l).includes("the shed is locked")); }, "the later message listed");
+      const now = painted.map(l => visible(l));
+      const row = now.findIndex(l => l.includes("in Inbox")), col = now[row]!.indexOf("in Inbox");
+      press({ kind: "mouse", action: "down", button: 0, x: col + 1, y: row });
+      await until(() => app.screens().every(s => s.title !== "message log"), "the label opened its note, the log closed");
+    } finally { size.cols = 220; app.flash(""); await board.trash(inbox.id, USER); }
+  });
+
   test("a message beside it never hides ^K: a click on it opens the power bar at 177 and 44 columns (PIE-1449)", async () => {
     try {
       for (const cols of [177, 44]) {

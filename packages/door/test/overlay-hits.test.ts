@@ -109,11 +109,10 @@ describe.skipIf(!outliner)("in a door, the pointer over the power bar reads only
       try {
         // Evan's desk: four 44-column tiles, a reader leftmost whose byline is cut short there and runs on under the bar.
         const note = await board.createBlock(null, `Seed swap at the allotment [kind::plan] [season::spring] [plot::north-bed] [crop::beans] [owner::committee] [type::note]\nbring jars`, { kind: "agent", id: "claude-code:allotment-box" });
-        const reader = (name: string) => ({ t: "leaf" as const, kind: "reader", name, mode: "held" as const, note: note.id });
+        const reader = (name: string) => ({ t: "leaf" as const, kind: "reader", name, note: note.id });
         const s = screen === "river" ? openScreen("river") as Desk
           : new Desk({ name: "four", title: "four", layout: { focus: "a", root: { t: "split", dir: "row", weights: [1, 1, 1, 1], kids: [reader("a"), reader("b"), { t: "leaf", kind: "tree", name: "tree" }, { t: "leaf", kind: "activity", name: "activity" }] } } });
         app.push(s);
-        if (screen === "river") s.setCurrent(note);
         await Bun.sleep(150);
         // The frame as composed, before the hit map reads it (what's painted has the marks taken out).
         let composed: string[] = [];

@@ -51,6 +51,8 @@ import type { ListSource } from "../outline-lists";
 import { drawVariation, drawComponentProps } from "../library/draw";
 import { openNote, barSource, type BarHost } from "../bar/source";
 import { commandRows, type CommandRow } from "../bar/command";
+import { agentsHere, askTargetAt } from "../bar/ask-agent";
+import { argKind } from "../bar/arg-kinds";
 import { Gesture, Selection, rowsOf, paintRange, selectText, SELECT_BG } from "./selection";
 import { visible, width as cells, ellipsize } from "../style";
 import { JEV_PAUSE_MS, SearchSchedule, SearchTurn, TYPING_PAUSE_MS } from "../search-schedule";
@@ -196,6 +198,20 @@ const DOOR_SOURCES: readonly DoorSource[] = [
   { decl: door("here-args", "arguments", true), kinds: ["action"], async rows({ board, target, opts }) {
     const host = hostOf(board, opts);
     return (host && await argRows(target.query, host, opts, line => "/" + line)) || { rows: [] };
+  } },
+  // `@` where no note is being edited (the power bar's ask line, a comment): the agents here by persona, whose sessions
+  // hear addressed mail (PIE-1437); the service answers the outline's own agents beside them.
+  { decl: door("sessions", "agents here"), kinds: ["agent"], async rows({ board, own, opts }) {
+    const host = hostOf(board, opts);
+    if (!host || own) return { rows: [] };
+    return { rows: (await agentsHere(host)).map(a => ({ label: a.label, insertion: `@${a.value} `, ...(a.detail ? { detail: a.detail } : {}), kind: "agent" })) };
+  } },
+  // `%` in an ask line: the tiles on the screen shown, by the names `tile=` takes (the tile kind's values).
+  { decl: door("tiles", "tiles"), kinds: ["tile"], async rows({ board, target, opts }) {
+    const host = hostOf(board, opts);
+    if (!host) return { rows: [] };
+    const tiles = await argKind("tile")?.(target.query, host, {}) ?? [];
+    return { rows: tiles.map(t => ({ label: t.value, insertion: `%${t.value} `, ...(t.detail ? { detail: t.detail } : {}), ...(t.preview && "note" in t.preview ? { blockId: t.preview.note } : {}), kind: "tile" })) };
   } },
   // Matched by the one matcher against their words (`sort list` finds "Sort the list in this block").
   { decl: door("here", "actions here"), kinds: ["action"], async rows({ board, target, opts }) {
@@ -427,7 +443,8 @@ export class Completer {
     const f = this.d, line = f.lines[f.row] ?? "", c = f.complete;
     if (c && c.grammar === "filter") { const t = filterTargetAtCursor(line, f.col); return t && { ...t, words: true }; }
     // An act line (the power bar's): past an action's name, the whole line through the cursor is one button step.
-    if (c && c.grammar === "act") { const host = this.barHost(); return host && actLineArgs(line.slice(0, f.col), host) ? { kind: "button-step", start: 0, end: wordEnd(line, f.col), query: line.slice(0, f.col) } : null; }
+    // An ask line (`@loki …`, PIE-1437): its agent's name, then each `[[`, `((` and `%` by its own sigil.
+    if (c && c.grammar === "act") { const host = this.barHost(); return host && actLineArgs(line.slice(0, f.col), host) ? { kind: "button-step", start: 0, end: wordEnd(line, f.col), query: line.slice(0, f.col) } : askTargetAt(line, f.col); }
     // `/` at a line's start in a note's own edit: the actions that apply here, then their arguments (PIE-1076). Past a
     // real action's name the line is its arguments' even where a value starts `[[` (the sigil's rows, quoted for act).
     const here = !c && this.own() ? actionHereAt(line, f.col, f.lines, f.row) : null, host = this.barHost();
@@ -1054,7 +1071,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   }
   const header = h >= 3, footer = h >= 2 && (!reference || h >= 6);
   const out: string[] = [];
-  const heading = { attribute: "attributes", "attribute-value": "values", component: "components", agent: "agents", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values", "button-step": ({ value: "values", argument: "arguments" } as Record<string, string>)[s.items[0]?.kind ?? ""] ?? "actions", action: ({ value: "values", argument: "arguments" } as Record<string, string>)[s.items[0]?.kind ?? ""] ?? "actions here" }[s.target?.kind as string] ?? "references";
+  const heading = { attribute: "attributes", "attribute-value": "values", component: "components", agent: "agents", tile: "tiles", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values", "button-step": ({ value: "values", argument: "arguments" } as Record<string, string>)[s.items[0]?.kind ?? ""] ?? "actions", action: ({ value: "values", argument: "arguments" } as Record<string, string>)[s.items[0]?.kind ?? ""] ?? "actions here" }[s.target?.kind as string] ?? "references";
   const ranking = !footer && s.jev ? ` · jev ${s.jev}` : "";
   if (header) rows.push(null), out.push(fg(C.lcyan) + pad(` ${printable(s.heading ?? heading, " ")} ${s.index + 1}/${s.items.length}${echo}${ranking}${scopes ? ` ${scopes}` : ""}${s.loading ? " · finding..." : ""}`, w) + RESET);
   const picker = completionPicker(s);

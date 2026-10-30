@@ -124,7 +124,7 @@ describe("one operation, one transaction", () => {
     expect(s.wires).toEqual([{ from: 1, verb: "select", to: 4 }, { from: 1, verb: "open", to: 2 }]);
     extra = {};
   });
-  test("alt rules resolve through landing, with a screen default and a first unheld reader", () => {
+  test("alt rules resolve through landing, with a screen default and the first reader not pinned (first-unheld)", () => {
     let s = ok(fresh(), { op: "link", tile: 1, to: 2 }).state;
     expect(placement(s, { from: 1, fresh: true, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ beside: 2 });
     for (const rule of ["tab", "beside", "tile"] as const) {
@@ -133,7 +133,7 @@ describe("one operation, one transaction", () => {
     }
     s = ok(s, { op: "link", tile: 1, verb: "alt" }).state;
     s = ok(s, { op: "policy", set: { altOpens: "first-unheld" }, clear: [] }).state;
-    extra = { 2: { held: true }, 3: { notes: true } };
+    extra = { 2: { pinned: true }, 3: { notes: true } };
     try { expect(placement(s, { from: 1, fresh: true, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ to: 3 }); }
     finally { extra = {}; }
   });
@@ -385,7 +385,8 @@ describe("agents never take the person's place (C3, C4)", () => {
       const r = run(s, { op: "open", tile: 9, placement });
       if (!r.ok) throw new Error(`refused: ${r.refused}`);
       expect(r1(r.state)).toEqual(before);
-      expect(leaves(r.state.tree)).toContain(9);
+      // Aimed nowhere, it replaces another reader's note (PIE-1207); aimed from r1, it keeps that note as a spine.
+      if (!placement.default) expect(leaves(r.state.tree)).toContain(9);
     }
     // The person's own open from the tile they type in still opens beside it, as before.
     const own = run(s, { op: "open", tile: 9, placement: { from: 1, note: "n" } }, PERSON);
@@ -796,7 +797,7 @@ describe("replace: a new tile in another's place (PIE-565, the blank tile's rows
 });
 
 test("room never folds ordinary readers to make another reader fit", () => {
-  extra = { 2: { held: true }, 5: { held: true }, 6: { held: true } };
+  extra = {};
   try {
     let s = fresh(splitOf("row", [leaf(2), leaf(5)], [80, 80]), new Map([[2, "first"], [5, "earlier"]]));
     s = ok(s, { op: "open", tile: 6, kind: "reader", name: "newest", at: { kind: "split", target: 5, dir: "right" } }).state;
@@ -823,8 +824,8 @@ for (const cols of [160, 250]) for (const target of [1, 2]) test(`placement keep
   const fixed = place(s, area).rects.get(other)!;
   try {
     for (let i = 0; i < 10; i++) {
-      extra[target] = { notes: true, held: true, showing: `old-${i}` };
-      const r = apply(s, { op: "open", tile: 10 + i, placement: { from: target, to: target, note: `new-${i}` } }, ctxOf(PERSON, { focus: target }, area));
+      extra[target] = { notes: true, showing: `old-${i}` };
+      const r = apply(s, { op: "open", tile: 10 + i, placement: { from: target, to: target, note: `new-${i}`, keep: true } }, ctxOf(PERSON, { focus: target }, area));
       if (!r.ok) throw new Error(r.refused);
       s = r.state;
       const kept = Array.from({ length: i + 1 }, (_, n) => 10 + n);

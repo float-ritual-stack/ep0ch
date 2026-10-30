@@ -246,7 +246,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     expect(focusName()).toBe("reader");
     D().focus = [...D().panes.entries()].find(([, p]: any) => p.kind === "tree")![0];
     clickTree("the shed list → Tool shed");
-    await until(() => desk.current?.id === n.shed.id, "the outlink shown where the tree's selection goes");
+    await shows(n.shed.id);                                                   // shown where the tree's selection goes
     expect(focusName()).toBe("tree");
     await Bun.sleep(450);                                                     // two clicks apart are two single clicks
     clickTree("the shed list → Tool shed");

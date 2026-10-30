@@ -1,6 +1,6 @@
 import { ageSince } from "@ep0ch/outline-core/age";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
-import { type ArtifactInfo, type ArtifactReader } from "@ep0ch/outline-core/artifacts";
+import { type ArtifactDeployState, type ArtifactInfo, type ArtifactReader } from "@ep0ch/outline-core/artifacts";
 import { pageSources, SOURCE_ROUTE, sourceAt, sourceFile, SOURCES_STYLE, visibleSources } from "./publish-sources";
 import type { SiteAnswer, SiteAnswerRequest, SiteLink } from "@ep0ch/outline-core/site";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
@@ -18,7 +18,7 @@ import { publishedValueWords, readPageValues } from "./publish-values";
 import { substituteValues } from "@ep0ch/outline-core/site-values";
 import type { SiteValue } from "@ep0ch/outline-core/site";
 import { ARTIFACT_PATH, drawNoteMedia, fileName, MEDIA_PATH, MEDIA_STYLE, mediaHtml, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
-import { artifactPagePath, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
+import { artifactPagePath, artifactRepoRef, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
 import { renderComponent, validatePrimitive, viewImages } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
 import { isMachinery } from "@ep0ch/outline-core/machinery";
@@ -2541,9 +2541,20 @@ export class Publisher {
     const artifactUrls = new Map<string, string>();
     // Where each framed artifact opens on its own: this page's route, never the artifact host's address.
     const artifactPages = new Map<string, string>();
+    // A repo a line names: its deploy state from the service's records (PIE-1060); the reasons only for the owner.
+    const repos = new Map<string, ArtifactDeployState>();
     if (!linked.labelsOnly) {
       for (const row of rows) for (const [line, spec] of noteMediaLines(row.block.text ?? "")) {
         if (spec.kind !== "artifact" || artifacts.size >= MAX_PUBLISHED_COMPONENTS) continue;
+        if (artifactRepoRef(spec.path)) {
+          const info = await this.client.request<ArtifactInfo>({ action: "artifacts.show", name: spec.path }).catch(() => null);
+          if (info?.deploy) {
+            const { said, command, ...open } = info.deploy;
+            repos.set(`${row.block.id}:${line}`, audience === "tailnet" && !share ? info.deploy : open);
+            artifacts.set(`${row.block.id}:${line}`, spec.alt ?? info.name);
+          }
+          continue;
+        }
         const { framed: artifact, withheld } = await this.frameOf(spec.path, audience, share);
         if (artifact) {
           artifacts.set(`${row.block.id}:${line}`, spec.alt ?? artifact.name);
@@ -2563,7 +2574,7 @@ export class Publisher {
         ? (artifactUrls.get(`${blockId}:${line}`) ?? null)
         : !linked.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${base}${mediaPath(blockId, line)}` : null,
       { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec),
-      (blockId, line) => artifactPages.get(`${blockId}:${line}`));
+      (blockId, line) => artifactPages.get(`${blockId}:${line}`), (blockId, line) => repos.get(`${blockId}:${line}`));
     if ((options.format ?? "html") === "html") drawNoteButtons(rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), components, drawn);
     // HTML pages carry source-line destinations; only tailnet pages also identify blocks for presence.
     const anchors = options.anchors;

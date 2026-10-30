@@ -46,6 +46,19 @@ describe("the surface without a service", () => {
   });
   const TEXT = "Plan the allotment [stage::queued]\nBeans along the fence, squash by the compost.\n\n> [!note] Frost dates\n> Nothing out before mid May.\n\n- [ ] dig the bed\n- [ ] buy canes\n\n| crop | row |\n|---|---|\n| beans | 1 |";
 
+  test("a reader that's gone reads no comments: the read an outline change asked for is called off", async () => {
+    let asked = 0;
+    const h: SurfaceHost = { ...host(), ctx: { ...host().ctx, board: { ancestors: async () => [], comments: async () => { asked++; return []; } } } as any };
+    const s = new NoteSurface();
+    s.show(note("Seed swap\nTrays by the door."), h);
+    await Bun.sleep(20);
+    const before = asked;
+    s.onEvent(h);
+    s.dispose();
+    await Bun.sleep(900);
+    expect(asked).toBe(before);
+  });
+
   test("a figure written without its --- lines is listed as left open, and drawn saying where its props go (PIE-941)", () => {
     const s = new NoteSurface(), h = host();
     s.show(note("Deploys\n\n::graph-table\nquery: type=deploy\ncolumns: [title, created]\n::"), h);
