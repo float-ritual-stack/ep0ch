@@ -75,6 +75,35 @@ describe.skipIf(!outliner)("an agent's open on the person's desk (PIE-1444)", ()
     } finally { d.quit(); }
   });
 
+  test("peek carries the layout in brief, as layout.get does; full=true the whole (PIE-1447)", async () => {
+    const d = await door();
+    try {
+      await d.act("tile.open", { kind: "facets", name: "nav", where: "down" }, "reader");
+      await until(() => ((d.desk as any).describe().panes.find((p: any) => p.name === "nav")?.facets ?? []).length > 0, "the facets");
+      const brief = (d.app.describe() as any).layout, full = (d.app.describe({ full: true }) as any).layout;
+      const nav = (a: any) => a.tiles.find((t: any) => t.name === "nav");
+      expect(brief).toEqual(await d.act("layout.get"));
+      expect(nav(brief).notes).toBeUndefined();
+      expect(Array.isArray(nav(full).facets)).toBe(true);
+      expect(JSON.stringify(brief).length).toBeLessThan(JSON.stringify(full).length / 2);
+    } finally { d.quit(); }
+  });
+
+  test("a group's tiles hear the person's whereabouts as the desk does: yolo and idle (PIE-1447)", async () => {
+    const d = await door(true);
+    try {
+      await d.desk.dispatch.act({ action: "tile.group", args: { with: "r2", name: "pair" }, tile: "r1" }, USER);
+      const group = d.desk.pane("pair") as any;
+      const desk = d.desk.dispatch.where(), inner = group.inner.dispatch.where();
+      // Before the group is first drawn too: the shell's one answer, read through, not the inner desk's keys alone.
+      expect(group.inner.ctx).toBeUndefined();
+      expect(desk.yolo).toBe(true);
+      expect(inner.yolo).toBe(true);
+      expect(Math.abs(inner.idle - desk.idle)).toBeLessThan(1000);
+      expect({ away: inner.away, screen: inner.screen, keys: inner.keys }).toEqual({ away: desk.away, screen: desk.screen, keys: desk.keys });
+    } finally { d.quit(); }
+  });
+
   for (const yolo of [false, true]) describe(yolo ? "in yolo" : "agents held back", () => {
   test("on the desk: the person's focus stays on their tile", async () => {
     const d = await door(yolo);

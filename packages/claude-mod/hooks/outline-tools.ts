@@ -128,7 +128,7 @@ export const DOOR_TOOLS: readonly DoorToolDefinition[] = [
     description:
       'What the door shows the person now (ep0ch peek): by default the compact text, a few lines of state (where, ' +
       'the person, the door\'s speed) and the screen as text, a few KB. `full: true` is the whole structured state as ' +
-      'well (ep0ch peek --json: layout, drawer, tiles, hundreds of KB); `section` is one top-level part of it ' +
+      'well (ep0ch peek --json: layout in brief, drawer, tiles, tens of KB); `section` is one top-level part of it ' +
       '(speed, person, layout, drawer, state, …). Only reads.',
     inputSchema: {
       type: 'object',

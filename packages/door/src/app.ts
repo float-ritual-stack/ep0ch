@@ -1104,7 +1104,8 @@ export class App implements Ctx {
   }
   private remoteSaid: { id?: string; verb: string; at: number } | null = null;
 
-  describe() {
+  /** The door's state as `peek` answers it; the layout in brief, as layout.get gives it, unless `full` (PIE-1447). */
+  describe(o: { full?: boolean } = {}) {
     const s = this.stack.at(-1);
     const b = this.board;
     const service = { protocol: b.protocol, offline: this.offline, sequence: b.lastSequence };
@@ -1121,7 +1122,7 @@ export class App implements Ctx {
       // Where the pointer rests on a cut-short value, and whether that value is being read in full (the pointer is the person's: this only says).
       hover: this.overflow.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
-      layout: this.screenDesk()?.layoutAll() ?? this.drawer.made?.layoutAll(),
+      layout: this.screenDesk()?.layoutAll(!!o.full) ?? this.drawer.made?.layoutAll(!!o.full),
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
       ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.() ?? null };
   }

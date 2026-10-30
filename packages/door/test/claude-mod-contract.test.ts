@@ -444,6 +444,12 @@ describe("peek, read by the mod's own reader and by a script (PIE-1308, PIE-1302
       expect(lines.stdout).toBe(whole.text.join("\n") + "\n");
       expect(JSON.parse((await run(["ep0ch", "peek", "text", "--json"], { env })).stdout)).toEqual(whole.text);
       expect(JSON.parse((await run(["ep0ch", "peek", "--json", "speed"], { env })).stdout)).toEqual(JSON.parse(speed.stdout));
+      // The layout is in brief, as layout.get gives it; --full (or full=true) has each tile whole (PIE-1447).
+      expect(whole.layout.brief).toContain("full=true");
+      const fullLayout = JSON.parse((await run(["ep0ch", "peek", "layout", "--full"], { env })).stdout);
+      expect(fullLayout.brief).toBeUndefined();
+      expect(fullLayout.tiles.map((t: any) => t.tile)).toEqual(whole.layout.tiles.map((t: any) => t.tile));
+      expect(JSON.parse((await run(["ep0ch", "peek", "layout", "full=true"], { env })).stdout).brief).toBeUndefined();
       // The default is text a few KB long, not the state.
       const compact = await run(["ep0ch", "peek"], { env });
       expect(compact.exitCode).toBe(0);

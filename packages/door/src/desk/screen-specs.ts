@@ -74,7 +74,7 @@ export function openScreen(name: string, args?: Record<string, unknown>): Screen
  * (its file read, never written); a part's takes only what its models kept (the hub the board remembers).
  */
 export function mountDesk(m: { screen: string | null; args?: Record<string, unknown>; part?: string | null; saved?: unknown; label?: string; given?: ReadonlyMap<string, Pane>; chain?: readonly string[] },
-  opts: Pick<DeskOpts, "onSave" | "outward">): Desk {
+  opts: Pick<DeskOpts, "onSave" | "outward" | "where">): Desk {
   const chain = m.chain ?? [];
   if (!m.screen) {
     const root = (m.saved as { root?: unknown } | undefined)?.root;
