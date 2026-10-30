@@ -38,13 +38,13 @@ export class AttachedTilePane implements Pane {
   constructor(public source: string, readonly attachment: "comment" | "sources" | "list-preview" | "edit-preview" | "matches" = "comment") {}
 
   renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
-  title() { if (this.attachment === "matches") return this.ownerTitle; if (this.attachment === "edit-preview") return `edit preview · ${this.source}`; if (this.attachment === "list-preview") return `list children · ${this.source}`; if (this.attachment === "sources") return `sources · ${this.source}`; return `${this.listing ? "comments" : "comment"} · ${this.source}`; }
+  title() { if (this.attachment === "matches") return this.ownerPane?.attachedTitle() ?? "matches"; if (this.attachment === "edit-preview") return `edit preview · ${this.source}`; if (this.attachment === "list-preview") return `list children · ${this.source}`; if (this.attachment === "sources") return `sources · ${this.source}`; return `${this.listing ? "comments" : "comment"} · ${this.source}`; }
   /** It shows the reader's thread list (m), not a comment being written. */
   private listing = false;
   private owner: ReaderPane | null = null;
-  private ownerTitle = "matches";
-  private ownerHint = "";
-  hint() { if (this.attachment === "matches") return this.ownerHint; return this.attachment === "list-preview" ? "list children · click placement chip to move · click text to edit" : this.owner?.surface.attachmentHint(this.attachment) ?? ""; }
+  /** The tile whose attachment this draws, as of the last frame (its title and hint are its). */
+  private ownerPane: AttachedOwner | null = null;
+  hint() { if (this.attachment === "matches") return this.ownerPane?.attachedHint() ?? ""; return this.attachment === "list-preview" ? "list children · click placement chip to move · click text to edit" : this.owner?.surface.attachmentHint(this.attachment) ?? ""; }
   /** The last row's side chips as drawn: a click puts the tile on that side of its note. */
   private sides: { from: number; to: number; side: Side }[] = [];
   spec() { return { source: `tile:${this.source}` }; }
@@ -93,8 +93,7 @@ export class AttachedTilePane implements Pane {
     if (this.attachment === "matches") {
       const o = this.owned(desk);
       if (!o) return { lines: [fg(C.dark) + pad(` no facets tile ${this.source} on this screen`, w) + RESET] };
-      o.matchesPane = this;
-      this.ownerTitle = o.attachedTitle(); this.ownerHint = o.attachedHint();
+      o.matchesPane = this; this.ownerPane = o;
       const v = o.attachedView(w, Math.max(1, h - 1), _focused);
       return { lines: [...v.lines.slice(0, Math.max(1, h - 1)), this.sideRow(w)] };
     }

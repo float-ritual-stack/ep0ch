@@ -1,6 +1,6 @@
 // A note's excerpt (PIE-1443): the line of preview a list row shows under its title, the words after the header line
 // with their markup taken out. The service answers it as the `excerpt` read field, so every client shows the same line.
-import { headerLine } from "./header-line";
+import { noteTitleLine } from "./property-parse";
 import { withoutPropertyTokens } from "./property-grammar";
 
 /** How long an excerpt is when no length is asked: about two rows of a list pane. */
@@ -13,14 +13,16 @@ const LEAD = /^\s*(?:#{1,6}\s+|(?:>\s*)+(?:\[![\w-]+\][+-]?\s*)?|[-*+]\s+(?:\[[ 
 
 /** The words of `text` after its title, as one line of at most `max` characters (an ellipsis when cut). */
 export function noteExcerpt(text: string, max = EXCERPT_LENGTH): string {
-  const h = headerLine(text);
+  // After the line the title is read from (a first line of properties alone is no title: the next line is).
+  const h = noteTitleLine(text);
   if (h.line < 0) return "";
   const words: string[] = [];
   let length = 0, fenced = false;
   for (const raw of text.split("\n").slice(h.line + 1)) {
     if (/^\s*(?:`{3,}|~{3,})/.test(raw)) { fenced = !fenced; continue; }
     if (fenced || SKIP.test(raw)) continue;
-    const line = withoutPropertyTokens(raw).replace(LEAD, "")
+    // Tags at a line's end are the note's chips, which a row draws as chips: the excerpt keeps the words.
+    const line = withoutPropertyTokens(raw).replace(LEAD, "").replace(/(?:^|\s+)(?:#[\p{L}\p{N}_][\p{L}\p{M}\p{N}_/-]*\s*)+$/u, "")
       .replace(/\(\([^)|]*\|([^)]*)\)\)/g, "$1").replace(/\(\([^)]*\)\)/g, "")
       .replace(/\[\[([^\]|]*\|)?([^\]]*)\]\]/g, "$2")
       .replace(/(\*\*|__|~~|`)(.+?)\1/g, "$2").replace(/(^|\W)[*_](\S(?:.*?\S)?)[*_](?=\W|$)/g, "$1$2")

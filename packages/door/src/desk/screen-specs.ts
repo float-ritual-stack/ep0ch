@@ -49,14 +49,16 @@ export function registerBuiltinScreens(): void {
   add("home", args => homeSpec(args ?? {}));
   // The navigator (PIE-1443): the facets tile (properties, tags, saved views, the calendar), its Matches in a tile of
   // its own (grouped Pinned, Today, Yesterday, Previous 7 days, months) and a reader its picks preview and open in.
-  add("navigator", () => ({
+  add("navigator", args => ({
     name: "navigator", title: "navigator", lands: "reader",
-    layout: { focus: "facets", root: { t: "split", dir: "row", weights: [0.28, 0.36, 0.36], kids: [
-      { t: "leaf", kind: "facets", name: "facets", args: { place: "tile", open: ["views"] } },
+    // A flow of three columns around Matches: narrower than three readable columns (a phone's 44), the ones further
+    // from it go to peeks and spines, as the river's do; focusing one never moves a column.
+    layout: { focus: "facets", root: { t: "flow", key: "navigator", anchor: 1, held: [0, 1, 2], kids: [
+      { t: "leaf", kind: "facets", name: "facets", args: { place: "tile", open: ["views"] }, ...(typeof args?.query === "string" && args.query.trim() ? { query: args.query.trim() } : {}) },
       { t: "leaf", kind: "matches", name: "matches", source: "tile:facets", wires: [{ verb: "select", to: "reader" }, { verb: "open", to: "reader" }] },
       { t: "leaf", kind: "reader", name: "reader", mode: "held" },
     ] } },
-  }));
+  }), "query");
   // The BBS menu's W and L: the who and activity tiles as screens (the activity's ⏎ shows its note in the reader).
   add("who", () => ({ name: "who", title: "who's online", layout: { focus: "who", root: { t: "leaf", kind: "who", name: "who" } } }));
   add("lastcall", () => ({ name: "lastcall", title: "last callers", layout: { focus: "activity", root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "activity", name: "activity" }, { t: "leaf", kind: "reader", name: "reader" }] } } }));

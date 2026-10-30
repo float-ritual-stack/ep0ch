@@ -36,6 +36,9 @@ describe("a note's excerpt", () => {
   test("the first lines after the title, properties and markup out, cut to length", () => {
     expect(noteExcerpt("Pea trellis plan [type::task]\n[stage::next]\n\nNetting arrives **Thursday**; see [[Garden]].\n- posts first")).toBe("Netting arrives Thursday; see Garden. posts first");
     expect(noteExcerpt("Only a title")).toBe("");
+    // Tags ending a line are chips, drawn as chips; a tag in the words stays.
+    expect(noteExcerpt("Standpipe\nThe lagging is on the top shelf. #frost/water #shed\n#compost")).toBe("The lagging is on the top shelf.");
+    expect(noteExcerpt("Frost\n#frost lists every job.")).toBe("#frost lists every job.");
     expect(noteExcerpt(`Long\n${"word ".repeat(100)}`, 40).length).toBeLessThanOrEqual(40);
   });
 

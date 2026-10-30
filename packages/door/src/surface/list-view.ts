@@ -10,7 +10,7 @@ import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { dividerLine, listSlots, zebraRow } from "../list-look";
 import { RowView, type RowGesture, type RowPress } from "../scroll";
 import type { Actor } from "../socket";
-import { C, fg, pad, RESET, selectedRow, tint, width } from "../style";
+import { C, ellipsize, fg, pad, RESET, selectedRow, tint, width } from "../style";
 import { rowLines } from "../text";
 import type { LineField } from "./line";
 import { paintRange } from "./selection";
@@ -72,7 +72,8 @@ export function listRowLines<S>(r: ListViewRow<S>, o: RowDraw<S>): string[] {
   const text = head + r.label + fg(C.dark) + detail + RESET;
   const lines = rowLines(o.tag ? o.tag(r, text) : text, o.cols - (o.selected && !head.startsWith(" ") ? 1 : 0), o.lines, { hang: width(head) });
   const indent = " ".repeat(width(head));
-  for (const b of r.body ?? []) lines.push(fg(C.dark) + rowLines(indent + b, o.cols - (o.selected ? 1 : 0), 1)[0]! + RESET);
+  // Cut plainly: a body line is a preview, so the selection never reveals what it cut (the label's line does).
+  for (const b of r.body ?? []) lines.push(fg(C.dark) + ellipsize(indent + b, o.cols - (o.selected ? 1 : 0)) + RESET);
   return lines.map(line => {
     if (o.selected) return selectedRow(line, o.cols, o.focused ?? true, "idleRow");
     const body = pad(fg(colour) + line, o.cols) + RESET;

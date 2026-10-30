@@ -19,6 +19,7 @@ import { ch, isDown, isUp, type Key } from "../term";
 import { ago, rowLines } from "../text";
 import { RowView, wheelRows, clamp, type RowPress } from "../scroll";
 import { LineField } from "../surface/line";
+import { askInBar } from "../bar/ask";
 import { findBoards } from "./query";
 import { prop, propValues } from "../props";
 import { ListView, PERSON, actorKey, type ListViewRow } from "../surface/list-view";
@@ -736,6 +737,9 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       const p = pane as FacetsPane;
       const note = p.noteFor({ n, id });
       desk.setCurrent(note, { from: p.source(), link: true, ...(fresh ? { fresh: true } : {}), by: actor });
+      // In a flow too narrow for every column (the navigator at 44), the reader it landed in comes to the wide place.
+      const landed = !fresh && standing ? desk.linked?.(p.source()) : undefined;
+      if (landed && desk.coverOf?.(landed) !== "full" && desk.coverOf?.(landed) !== undefined) void desk.perform?.("tile.widen", {}, actor, landed);
       desk.redraw();
       return { id: note.id, title: subject(note) };
     },
@@ -904,18 +908,21 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     ],
     async run({ id, key, value }, { pane, desk, standing }, actor) {
       const p = pane as FacetsPane, m = p.noteFor({ id }, standing ? PERSON : actorKey(actor));
-      const tag = value?.trim().startsWith("#") && key === undefined;
-      const k = tag ? "tag" : key?.trim().replace(/^#$/, "tag"), v = tag ? value!.trim().slice(1) : value?.trim();
-      if (!k || !v) {
-        if (!standing) throw new ActionRefused("facets.tag takes key= and value= (value=#word alone is a tag)");
-        const name = desk.nameOfPane?.(p);
-        await desk.perform?.("bar.form", { op: "open", line: `facets.tag id=${m.id}${k ? ` key=${k}` : ""}${name ? ` tile=${name}` : ""}` }, USER);
-        return { id: m.id, title: subject(m), asking: true };
-      }
-      const { revision } = await board(desk).propertyTokens(m.id, k);
-      await board(desk).patchProperties(m.id, revision, [{ op: "append", key: k, value: v }], actor);
-      await p.refresh(desk);
-      return { id: m.id, title: subject(m), key: k, value: v };
+      const write = async (key: string | undefined, value: string | undefined) => {
+        const tag = !key?.trim() && value?.trim().startsWith("#");
+        const k = tag ? "tag" : key?.trim().replace(/^#$/, "tag"), v = (tag ? value!.trim().slice(1) : value?.trim())?.replace(/^#/, "");
+        if (!k || !v) throw new ActionRefused("facets.tag takes key= and value= (value=#word alone is a tag)");
+        const { revision } = await board(desk).propertyTokens(m.id, k);
+        await board(desk).patchProperties(m.id, revision, [{ op: "append", key: k, value: v }], actor);
+        await p.refresh(desk);
+        return { id: m.id, title: subject(m), key: k, value: v };
+      };
+      if ((key?.trim() && value?.trim()) || value?.trim().startsWith("#") || !standing) return write(key, value);
+      // The person is asked in the power bar: the key from the outline's keys, then that key's values (the one completer).
+      return askInBar(desk.ctx as never, `Tag or property on "${subject(m)}"`, [
+        { name: "key", label: "key", type: "text", kind: "key", free: true, required: true, description: "the property: tag for a #tag, or any key the outline has (or a new one)" },
+        { name: "value", label: "value", type: "text", kind: "value", of: "key", free: true, required: true, description: "its value" },
+      ], key?.trim() ? { key: key.trim() } : {}, actor, answers => write(answers.key, answers.value));
     },
   }),
   "facets.day": def({
