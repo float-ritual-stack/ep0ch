@@ -284,9 +284,10 @@ export class ScriptRuns {
       const finish = () => {
         const changes = this.store.changes.committed(attribution);
         for (const c of changes) {
-          // Only the run's own writes: a write another writer made meanwhile under the same capture (Jev's review
-          // records and its suggestions page, made the first time a create is reviewed) is not the run's (PIE-1436).
-          if (c.actor?.actorId && c.actor.actorId !== actor.actorId) continue;
+          // Only the run's own writes, and an extension's it asked for (`act`): a write another writer made meanwhile under
+          // the same capture (Jev's review records and its suggestions page, made the first time a create is reviewed) is
+          // not the run's (PIE-1436).
+          if (c.actor?.actorId && c.actor.actorId !== actor.actorId && c.requestedBy?.actorId !== actor.actorId) continue;
           const how = CHANGED[c.kind];
           if (c.blockId && how && (RANK.indexOf(how) > RANK.indexOf(changed.get(c.blockId) ?? "edited") || !changed.has(c.blockId))) changed.set(c.blockId, how);
         }
@@ -515,7 +516,7 @@ export class ScriptRuns {
           const notes = [...changed].flatMap(([id, change]) => {
             const b = this.store.get(id), type = b?.properties.find(p => p.key === "type")?.value;
             if (!b || id === log?.id || NOT_NOTES.has(type ?? "") || isMachinery(b.properties) || (change === "created" && b.effectiveDeletedRootId)) return [];
-            return [{ id, title: firstLineWithoutPropertyTokens(b.text)?.trim() || id.slice(0, 8), change }];
+            return [{ id, title: blockDisplayTitle(b) || id.slice(0, 8), change }];
           });
           if (notes.length) result.changed = notes;
           // The edits that became proposals (propose access, or a note open in a draft): each beside the note it is for.
