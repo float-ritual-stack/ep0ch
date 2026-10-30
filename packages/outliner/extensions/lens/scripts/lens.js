@@ -1,5 +1,14 @@
 // ep0ch-script mode=render
 // A lens: one line in any note draws a live table of what a query holds, relative to that note (PIE-1461).
+// [form-field::query text]: the views' grammar; {{this.page}} and this read the note the line is in
+// [form-field::view note]: a saved view to draw instead of query= (its [query::] and [sort::])
+// [form-field::columns property]: the columns, comma-separated: title, created, updated, any property, any computed column
+// [form-field::edit property]: columns whose cells press to step the property to its next value
+// [form-field::sort property]: the column the rows are sorted by
+// [form-field::group property]: a box per value of this column
+// [form-field::sum property]: columns summed in a footer, comma-separated
+// [form-field::limit number]: the most rows (200)
+// (an action declares at most 8 slots; dir=asc|desc, avg=, title=, empty=, link= and <name>="<expression>" work undeclared)
 //
 //   lens:: query="type=meeting when={{this.page}}" columns=title,when,who,status edit=status sort=when
 //   lens:: query="type=line" columns=title,qty,price,cost cost="qty * price" sum=cost,qty

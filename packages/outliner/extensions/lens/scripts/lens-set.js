@@ -2,6 +2,11 @@
 // Changes one property of one note, the way a lens cell's press asks: `lens-set note=<id> key=status value=done`,
 // or `next=1` to step to the next value (the choices given, else every value that key has in the outline, then
 // unset). One attributed, undoable write of the note's first line; an agent runs the same line.
+// [form-field::note note required]: the note whose property changes
+// [form-field::key property required]: the property
+// [form-field::value text]: the new value (left out with next=1)
+// [form-field::next choice 1]: step to the next value instead of value=
+// [form-field::choices text]: the values next=1 steps through, a|b|c (else every value the key has)
 
 const note = props.note?.[0], key = props.key?.[0];
 if (!note || !key) throw new Error("lens-set needs note=<id> key=<property> and value=… (or next=1 to step through the key's values)");
