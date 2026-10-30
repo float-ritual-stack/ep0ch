@@ -234,10 +234,12 @@ export function closedText(text: string, said: string): string {
   let fenced = false
   const steps = rest.map(line => {
     if (/^\s*(`{3,}|~{3,})/.test(line)) fenced = !fenced
-    const m = fenced ? null : /^(\s*[-*+]\s+)(\[.\])\s+(.+?)(?:\s+\^[A-Za-z0-9][\w-]*)?\s*$/.exec(line)
+    const m = fenced ? null : /^(\s*[-*+]\s+)(\[.\])\s+(.+?)(\s+\^[A-Za-z0-9][\w-]*)?\s*$/.exec(line)
     if (!m) return line
     const status = boxStatus(m[2]!)
-    return status === 'done' || status === 'approved' ? `${m[1]}✓ **${m[3]}**` : `${m[1]}~~${m[3]}~~`
+    // A step's id (`^t-…`, which the person's tick gave it) stays: the service refuses an edit that drops a list item's id.
+    const id = m[4] ?? ''
+    return status === 'done' || status === 'approved' ? `${m[1]}✓ **${m[3]}**${id}` : `${m[1]}~~${m[3]}~~${id}`
   })
   return [head, ...steps, '', said].join('\n')
 }

@@ -1868,6 +1868,8 @@ describe('approve from the phone (PIE-1386)', () => {
     expect(ask.polled()).toBe(4)
     expect(ask.edits.at(-1)).not.toContain('[needs::')
     expect(ask.edits.at(-1)).toContain('Answered **allow this once** by the person (web:session-7)')
+    // The tick gave its step an id; the close-out keeps it (the service refuses an edit that drops a list item's id).
+    expect(ask.edits.at(-1)).toContain('✓ **allow this once** ^t-c03671')
   })
 
   test('the person denies: the call is denied, with where the answer came from', async ($, on) => {
@@ -1994,7 +1996,7 @@ describe('approve from the phone (PIE-1386)', () => {
     const ask = asking(on, [{ text: tick('allow this once'), author: 'user' }])
     await ask.session.begin(() => $.session.start(START))
     expect((await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })).decision).toMatchObject({ behavior: 'allow' })
-    expect(ask.edits.at(-1)).toContain('- ✓ **allow this once**\n- ~~allow `ls` for this session~~\n- ~~deny~~')
+    expect(ask.edits.at(-1)).toContain('- ✓ **allow this once** ^t-c03671\n- ~~allow `ls` for this session~~\n- ~~deny~~')
   })
 
   test('nobody ticks: the ask leaves the list when the wait runs out, saying the dialog still waits in the session', async ($, on) => {
