@@ -18,7 +18,7 @@ import {
   type RenderTarget,
   type RenderedComponent,
 } from "./component-primitives";
-import { handlerCalls, mayHaveHandlerLines, pipelineCalls, PIPELINE, type HandlerCall } from "./extension-handlers";
+import { componentCalls, handlerCalls, mayHaveHandlerLines, pipelineCalls, PIPELINE, type HandlerCall } from "./extension-handlers";
 import { DEFAULT_DEADLINE_MS, durationMs, loadExtensionManifest, manifestSources, type ExtensionActionArg, type ExtensionHandler, type LoadedExtension, type ScriptSource } from "./extension-manifest";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
 import type { DraftGroupInput } from "./draft-patch-router";
@@ -388,8 +388,8 @@ export function validateRecord(value: unknown, fallbackTitle = "Collection"): Ex
   return { record, members: { records, complete: answer.complete === true } };
 }
 
-function validateAct(value: unknown, blockOk: (id: string) => boolean): { message?: string; writes: ExtensionWrite[]; copy?: string; open?: string; runbook?: RunbookPlan } {
-  if (!isObject(value)) throw new Error("an action returns { message?, writes?, copy?, open? }");
+function validateAct(value: unknown, blockOk: (id: string) => boolean): { message?: string; writes: ExtensionWrite[]; copy?: string; open?: string; runbook?: RunbookPlan; answer?: string } {
+  if (!isObject(value)) throw new Error("an action returns { message?, writes?, copy?, open?, answer? }");
   // What the client opens once the action answers (PIE-754): a block, or a Resource by its ref.
   if (value.open !== undefined) {
     if (typeof value.open !== "string") throw new Error("open must be a block id or a Resource ref (file:/path, web:https://…, resource:<id>)");
@@ -400,6 +400,8 @@ function validateAct(value: unknown, blockOk: (id: string) => boolean): { messag
   }
   if (value.message !== undefined && (typeof value.message !== "string" || value.message.length > 500)) throw new Error("message must be text up to 500 characters");
   if (value.copy !== undefined && (typeof value.copy !== "string" || value.copy.length > 8_000)) throw new Error("copy must be text up to 8000 characters");
+  // What it answers its caller whole (a script's `act("ext.…")`), when one line of `message` can't hold it.
+  if (value.answer !== undefined && (typeof value.answer !== "string" || Buffer.byteLength(value.answer) > MAX_WRITE_TEXT)) throw new Error("answer must be text up to 64 KiB");
   const writes = value.writes ?? [];
   if (!Array.isArray(writes) || writes.length > MAX_WRITES) throw new Error(`writes must be a list of at most ${MAX_WRITES}`);
   return {
@@ -407,6 +409,7 @@ function validateAct(value: unknown, blockOk: (id: string) => boolean): { messag
     ...(typeof value.copy === "string" ? { copy: cleanExtensionText(value.copy, true) } : {}),
     ...(typeof value.open === "string" ? { open: value.open } : {}),
     ...(value.runbook ? { runbook: value.runbook as RunbookPlan } : {}),
+    ...(typeof value.answer === "string" ? { answer: value.answer } : {}),
     writes: writes.map((write, index) => {
       if (!isObject(write)) throw new Error(`writes[${index}] must be an object`);
       if (write.op === "annotate") {
@@ -692,7 +695,7 @@ export class ExtensionCalls {
   calls(blockId: string): { block: Block; calls: HandlerCall[] } | null {
     const block = this.store.get(blockId);
     if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return null;
-    const calls = [...this.handlerCalls(block), ...pipelineCalls(block.text)];
+    const calls = [...this.handlerCalls(block), ...pipelineCalls(block.text), ...componentCalls(block.text, this.registry)];
     return { block, calls: calls.length > 1 ? calls.sort((a, b) => a.line - b.line) : calls };
   }
 
@@ -1342,6 +1345,7 @@ export class ExtensionCalls {
     else if (block && (touched || applied.proposalId)) this.options.changed?.(block.id);
     const said = applied.proposed ?? parsed.message;
     return { extension: extension.id, action: action.id, ...(said ? { message: said } : {}), written,
+      ...(parsed.answer !== undefined ? { answer: parsed.answer } : {}),
       ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}),
       ...(parsed.open !== undefined ? { open: parsed.open } : {}),
       ...(parsed.runbook ? { runbook: parsed.runbook } : {}),

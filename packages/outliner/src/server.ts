@@ -1,4 +1,4 @@
-import type { ExtensionActRequest } from "./extension-calls";
+import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
 import { completionRows, PICKS_METADATA_KEY, readPicks } from "./completion-sources";
 import { recordPick } from "@ep0ch/outline-core/completion-source";
 import { replaceSectionText, refuseDroppedStructure } from "./work-tools";
@@ -667,6 +667,10 @@ export class OutlinerServer {
       requireCompatibleService: async () => undefined,
       request: <T>(input: RequestInput): Promise<T> => this.own.request<T>(input),
     }, changes => this.publishChanges(undefined, changes), run => this.draftPatches.scriptInverse(run), (clientId, action, args, actor, signal, meta) => {
+      // An extension's action (`ext.<id>.<action>`, a script's `ext.script:<name>.run`) is the service's own: it runs
+      // here with no door, asked by the run that called it, and answers once it has ended.
+      const ext = /^ext\.(.+)\.([a-z][\w-]*)$/.exec(action);
+      if (ext) return this.actExtension(ext[1]!, ext[2]!, args, actor, signal);
       // The door that asked, else the only door here; none or several is refused with which there are (PIE-957).
       const doors = [...this.subscribers.values()].filter(c => c.app === "door").map(c => c.clientId);
       if (clientId === undefined) {
@@ -741,6 +745,38 @@ export class OutlinerServer {
       ...(hub ? { hub } : {}), pages: this.extensionPages.pages(), demos: this.extensionPages.demoCounts(), available: this.extensionPages.availableNow(),
       ...(this.extensionPages.problem ? { pagesProblem: this.extensionPages.problem } : {}),
     };
+  }
+
+  /**
+   * A script's `act("ext.<id>.<action>", args)`: `extensions.act` as the run asks it (its actor is `requestedBy`, so
+   * what the action writes is the run's to show), with `block=` (or `blockId=`) and `line=` taken from the args. A
+   * script it starts is waited for, so the caller gets its last word and whole `answer`; its writes stay that run's
+   * own undo step. The calling run ending stops the wait, not the action.
+   */
+  private async actExtension(extension: string, action: string, args: Record<string, unknown>, requestedBy: MutationProvenance, signal: AbortSignal): Promise<ExtensionActResult & { error?: string }> {
+    const slots: Record<string, string> = {};
+    let blockId: string | undefined, line: number | undefined;
+    for (const [key, value] of Object.entries(args ?? {})) {
+      if (value === undefined || value === null) continue;
+      if ((key === "block" || key === "blockId") && typeof value === "string") blockId = value.replace(/^\(\((.*)\)\)$/, "$1");
+      else if (key === "line" && typeof value === "number" && Number.isSafeInteger(value)) line = value;
+      else if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") slots[key] = String(value);
+      else throw new Error(`ext.${extension}.${action}: ${key} must be text, a number or true/false (an action's args are words)`);
+    }
+    // In the background: no door is told of it, and its run is kept for `finished` (which says how it ended).
+    const result = await this.extensionCalls.act({ extension, action, requestedBy, background: true, ...(blockId ? { blockId } : {}), ...(line !== undefined ? { line } : {}), ...(Object.keys(slots).length ? { args: slots } : {}) });
+    if (!result.undo || !this.extensionRegistry.extension(extension)?.script) return result;
+    let stop = () => {};
+    const ended = new Promise<never>((_, reject) => {
+      stop = () => reject(new Error("The script run ended"));
+      if (signal.aborted) stop();
+      else signal.addEventListener("abort", stop, { once: true });
+    });
+    ended.catch(() => {});
+    try {
+      const error = await Promise.race([this.scriptRuns.finished(result.undo), ended]);
+      return { ...result, ...(error !== undefined ? { error } : {}) };
+    } finally { signal.removeEventListener("abort", stop); }
   }
 
   /**

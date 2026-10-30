@@ -1,0 +1,15 @@
+{
+  "contract": 2,
+  "id": "keep",
+  "version": 1,
+  "name": "Keep",
+  "description": "Turns a quick ::= line into a named component you can call anywhere.",
+  "demo": "demo",
+  "scripts": [
+    {
+      "name": "keep",
+      "file": "scripts/keep.ts",
+      "about": "Keeps a ::= line as a component: keep name=open-count makes a [script::open-count] [mode::render] note under it and writes ::open-count{} on the line. One undo takes both back."
+    }
+  ]
+}

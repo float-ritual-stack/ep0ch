@@ -10,6 +10,7 @@ import { runScript } from "../src/script-runtime";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { scratchOutline } from "./scratch-outline";
+import { setup as scriptService, until } from "./script-harness";
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -29,7 +30,7 @@ test("QuickJS calls the real host API and streams completed writes before the ru
   const value = result.value as { id: string; text: string; network: string; disk: string };
   expect(store.get(value.id)?.actorId).toBe("seed-script");
   expect(value.text).toContain("Seed labels");
-  expect(value.network).toBe("undefined");
+  expect(value.network).toBe("function"); // an action run's fetch (host-api.ts), recorded as a step
   expect(value.disk).toBe("undefined");
   expect(seen).toContain("outline_create");
 });
@@ -352,4 +353,143 @@ test("an unreadable script is listed without hiding other scripts", async () => 
   expect(listed.extensions.find(e => e.name === "readable")?.state).toBe("active");
   expect(listed.extensions.some(e => e.error?.includes("unreadable.ts"))).toBe(true);
   expect(await cliExt()).toContain("unreadable.ts");
+});
+
+test("query() answers rows with their props, groups with their rows, facets, and a hint for a key no note has", async () => {
+  const { store, client } = await setup();
+  const errands = store.create("Errands", null, "user");
+  for (const [title, status, owner] of [["Mend the gate", "open", "sam"], ["Wash the shed", "doing", "robin"], ["Oil the hinge", "open", "robin"]])
+    store.create(`${title} [type::errand] [status::${status}] [owner::${owner}]`, errands.id, "user");
+  const api = hostApi(client, undefined, { kind: "render", thisId: errands.id });
+  const result = await runScript(`return {
+    grouped: await query({ where: "type=errand parent:this", group: "status", facets: true }),
+    sorted: await query({ where: "type=errand", sort: "title", limit: 2 }),
+    unknown: await query({ where: "colr=red" }),
+  };`, api);
+  if (!result.ok) throw new Error(result.error.message);
+  const { grouped, sorted, unknown } = result.value as Record<string, import("../src/host-api").ScriptQueryAnswer>;
+  expect(grouped.rows).toHaveLength(3);
+  expect(grouped.rows.find(r => r.title === "Mend the gate")?.props).toMatchObject({ type: ["errand"], status: ["open"], owner: ["sam"] });
+  const open = grouped.groups!.find(g => g.value === "open")!;
+  expect(open.count).toBe(2);
+  expect(open.rows.map(r => r.title).sort()).toEqual(["Mend the gate", "Oil the hinge"]);
+  expect(grouped.facets!.find(f => f.key === "owner")?.values.find(v => v.value === "robin")?.count).toBe(2);
+  expect(sorted.rows.map(r => r.title)).toEqual(["Mend the gate", "Oil the hinge"]);
+  expect(sorted.complete).toBe(false);
+  expect(unknown.rows).toEqual([]);
+  expect(unknown.hint).toContain("colr");
+});
+
+test("read() takes a list of notes, in order, and at most 200 at once", async () => {
+  const { store, client } = await setup();
+  const a = store.create("Seed trays [type::supply]", null, "user");
+  const b = store.create("Twine [type::supply]", null, "user");
+  const api = hostApi(client, undefined, { kind: "render" });
+  const both = await api.read([a.id, "no-such-note", b.id]) as { id?: string; title?: string; problem?: string }[];
+  expect(both.map(r => r.id ?? r.problem?.slice(0, 0))).toEqual([a.id, "", b.id]);
+  expect(both[1]).toMatchObject({ ref: "no-such-note" });
+  await expect(api.read(Array.from({ length: 201 }, () => a.id))).rejects.toThrow("at most 200 notes");
+});
+
+test("a render that draws query() is drawn again when a new note matches", async () => {
+  const { create, output, draw } = await scriptService();
+  create("Open errands [script::open-errands] [mode::render]\n```tsx\nconst { groups } = await query({ where: \"type=errand\", group: \"status\" });\nreturn <stack>{groups.map(g => <text>{g.value}: {g.count}</text>)}</stack>\n```");
+  create("Mend the gate [type::errand] [status::open]");
+  const note = create("Today\nopen-errands::");
+  await draw(note.id);
+  expect(await until("one open", () => output(note.id)[0])).toContain("open: 1");
+  create("Oil the hinge [type::errand] [status::open]");
+  await until("two open", () => output(note.id)[0]?.includes("open: 2"));
+});
+
+test("sh and fetch hand the script their whole output and record a step with its first lines", async () => {
+  const { client } = await setup();
+  const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: request => new Response(`seed ${request.method}\n${Array.from({ length: 30 }, (_, i) => `tray ${i + 1}`).join("\n")}`, { status: 201, headers: { "x-garden": "plot-4" } }) });
+  cleanups.push(async () => { await server.stop(true); });
+  const steps: import("../src/host-api").HostStep[] = [];
+  const api = hostApi(client, { actorId: "seed-script" }, { onStep: s => { if (s.phase !== "start") steps.push(s); } });
+  const result = await runScript(`
+    const listed = await sh([process_exec, "-e", "for (let i = 1; i <= 30; i++) console.log('row ' + i)"]);
+    const failed = await sh([process_exec, "-e", "console.error('no twine'); process.exit(3)"]);
+    const piped = await sh([process_exec, "-e", "process.stdin.pipe(process.stdout)"], { stdin: "seed list" });
+    const got = await fetch(url, { method: "post", body: "x" });
+    return { lines: listed.stdout.split("\\n").length, failed, piped: piped.stdout, got: { status: got.status, garden: got.headers["x-garden"], first: got.text.split("\\n")[0], size: got.text.split("\\n").length } };
+  `.replaceAll("process_exec", JSON.stringify(process.execPath)).replace("url,", `${JSON.stringify(server.url.href)},`), api);
+  if (!result.ok) throw new Error(result.error.message);
+  expect(result.value).toEqual({ lines: 31, failed: { exit: 3, stdout: "", stderr: "no twine\n" }, piped: "seed list", got: { status: 201, garden: "plot-4", first: "seed POST", size: 31 } });
+  await Bun.sleep(0);
+  const sh = steps.filter(s => s.tool === "sh");
+  expect(sh.map(s => s.phase)).toEqual(["done", "done", "done"]);
+  expect(sh[0]!.input).toMatchObject({ argv: [process.execPath, "-e", expect.any(String)] });
+  const first = sh[0]!.result as { exit: number; bytes: number; lines: string };
+  expect(first.exit).toBe(0);
+  expect(first.bytes).toBeGreaterThan(150);
+  expect(first.lines.split("\n")).toHaveLength(21); // 20 lines and an ellipsis
+  expect(first.lines).toEndWith("row 20\n…");
+  expect(sh[1]!.result).toMatchObject({ exit: 3, stderr: "no twine\n" });
+  expect(sh[2]!.input).toMatchObject({ stdin: "9 chars" });
+  const fetched = steps.find(s => s.tool === "fetch")!;
+  expect(fetched.input).toMatchObject({ url: server.url.href, method: "POST" });
+  expect(fetched.result).toMatchObject({ status: 201 });
+  expect((fetched.result as { lines: string }).lines).toStartWith("seed POST\ntray 1");
+
+  // Past 1 MiB a stream is cut and says so; the step never carries more than its first lines.
+  const big = await api.sh([process.execPath, "-e", "process.stdout.write('x'.repeat(1536 * 1024))"]);
+  expect(big.stdout.length).toBe(1024 * 1024);
+  expect(big.truncated).toBe(true);
+  await Bun.sleep(0);
+  expect(JSON.stringify(steps.at(-1)!.result).length).toBeLessThan(2100);
+  await expect(api.sh("gh issue list" as never)).rejects.toThrow("with no shell");
+  await expect(api.fetch("file:///etc/hostname")).rejects.toThrow("http or https URL");
+}, 30_000);
+
+test("the run's deadline kills sh, and timeoutMs stops one command", async () => {
+  const { client, root } = await setup();
+  const api = hostApi(client, { actorId: "seed-script" });
+  const pidFile = join(root, "sleeper.pid");
+  const sleeper = `await Bun.write(${JSON.stringify(pidFile)}, String(process.pid)); await Bun.sleep(60000)`;
+  const run = new AbortController();
+  setTimeout(() => run.abort(new Error("The script ran past its deadline (1s)")), 1000);
+  const started = Date.now();
+  const result = await runScript(`return await sh(${JSON.stringify([process.execPath, "-e", sleeper])});`, api, run.signal);
+  expect(result.ok).toBe(false);
+  expect(Date.now() - started).toBeLessThan(10_000);
+  const pid = Number(await Bun.file(pidFile).text());
+  await until("the sleeper is gone", () => { try { process.kill(pid, 0); return false; } catch { return true; } });
+  await expect(api.sh([process.execPath, "-e", "await Bun.sleep(60000)"], { timeoutMs: 200 })).rejects.toThrow("ran past its timeoutMs (200 ms)");
+}, 30_000);
+
+test("a render has no sh or fetch, and below full MCP access they are refused in act's words", async () => {
+  const { client } = await setup();
+  const render = hostApi(client, undefined, { kind: "render" });
+  const drawn = await runScript(`return [typeof sh, typeof fetch];`, render);
+  if (!drawn.ok) throw new Error(drawn.error.message);
+  expect(drawn.value).toEqual(["undefined", "undefined"]);
+  expect("sh" in render).toBe(false);
+
+  const refusals: string[] = [];
+  const proposing = hostApi(client, { actorId: "mcp:seed-agent" }, { mcpAccess: "propose", onStep: s => { if (s.phase === "refused") refusals.push(`${s.tool}: ${s.error}`); } });
+  await expect(proposing.act("tile.open")).rejects.toThrow("MCP access is propose: a run may not dispatch door actions (act); ep0ch mcp access full lets it");
+  await expect(proposing.sh(["true"])).rejects.toThrow("MCP access is propose: a run may not run commands (sh); ep0ch mcp access full lets it");
+  await expect(proposing.fetch("http://127.0.0.1:9/")).rejects.toThrow("MCP access is propose: a run may not fetch URLs (fetch); ep0ch mcp access full lets it");
+  await Bun.sleep(0);
+  expect(refusals).toEqual([
+    "sh: MCP access is propose: a run may not run commands (sh); ep0ch mcp access full lets it",
+    "fetch: MCP access is propose: a run may not fetch URLs (fetch); ep0ch mcp access full lets it",
+  ]);
+  const full = hostApi(client, { actorId: "mcp:seed-agent" }, { mcpAccess: "full" });
+  expect((await full.sh(["true"])).exit).toBe(0);
+});
+
+test("a block script's sh is a step on its run note", async () => {
+  const { client, store } = await setup();
+  const api = hostApi(client, { actorId: "seed-author" });
+  await api.call("outline_create", { parent: "root", text: `Seed echo [script::seed-echo] [results::keep]\n\`\`\`js\nconst out = await sh(${JSON.stringify([process.execPath, "-e", "console.log('two trays')"])});\nreturn out.stdout.trim();\n\`\`\`` });
+  const listed = await client.request<{ extensions: { id: string; name?: string }[] }>({ action: "extensions.list", reload: true });
+  const extension = listed.extensions.find(e => e.name === "seed-echo")!;
+  const run = await client.request<{ written: string[]; message: string; state: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });
+  expect(run).toMatchObject({ message: "two trays", state: "done" });
+  const log = store.get(run.written[0]!)!.text;
+  expect(log).toContain('1. sh: {"exit":0');
+  expect(log).toContain('"lines":"two trays\\n"');
 });
