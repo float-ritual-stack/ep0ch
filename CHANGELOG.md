@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An agent's answers read right, round two: script runs, asks from the bar (PIE-1436)
+
+- **A script run lists only what it changed:** `changed` leaves out a tool's bookkeeping (`[machine::…]` notes, such as a figure-fit record a create leaves behind).
+- **A script run says what became a proposal:** at propose access (or with the note open in a draft), the answer's `proposed` lists each proposal with the note it is beside and that note's title.
+- **A script can create at the top level:** `tools.outline_create({ parent: "root" })` works as the tool and the CLI do; at propose access it is refused with why (a proposal needs a note) and what to do.
+- **A bare `@` in the power bar lights an agent:** the agents come first and the preview is an agent's, never another source's row.
+- **The ask's preview says where it will land, or why it can't:** it reads the same answer ⏎ does, so "can't be sent yet" and the reason show before you press it.
+- **An ask with the outline host down says so:** "the outline host isn't answering … nothing was sent", with `ep0ch status` and `ep0ch doctor` (which names the command that starts it), not a bare `connect ENOENT`.
+- **Plainer words:** an empty proposals answer says "1 change to proposals by … is left out" and who a persona hears; a stale proposal says "Evan changed the note after it was proposed", once.
+- **Run:** `ep0ch install --apply` (outliner, door and the Claude mod; PROTOCOL bumps at merge: script runs carry `proposed`).
+
 ### No hidden current note: wires decide every open, and `p` pins a reader (PIE-1207)
 
 - **An open lands where a wire, your own target or the screen's rule puts it:** the desk's invisible "current note", and readers that silently followed it, are gone. With no wire, an open goes to the first reader that isn't pinned; with none, it says so (alt+l wires one).

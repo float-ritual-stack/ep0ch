@@ -23,7 +23,7 @@ describe('what became of a proposal', () => {
     for (const o of first) told.add(outcomeKey(o))
     const later = [...page.outcomes, outcome(P1, 'dismissed', 3, { by: 'user' })]
     expect(untold(later, told).map(o => o.state)).toEqual(['dismissed'])
-    expect(outcomeLine(first[1]!)).toBe(`- gone stale: ((${P1}|your edit of Seed swap)) no longer fits ((${NOTE}|Seed swap)), : Evan changed the note after it was proposed: re-read the note and send the edit again, or leave the proposal to Evan`)
+    expect(outcomeLine(first[1]!)).toBe(`- gone stale: ((${P1}|your edit of Seed swap)) no longer fits ((${NOTE}|Seed swap)): Evan changed the note after it was proposed; re-read the note and send the edit again, or leave the proposal to Evan`)
     expect(outcomeLine(first[0]!)).toContain('proposed instead of applied: ((')
     expect(outcomeLine(first[0]!)).not.toContain('|proposal))')
   })

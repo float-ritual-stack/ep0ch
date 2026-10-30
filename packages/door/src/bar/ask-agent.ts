@@ -11,7 +11,8 @@ import { agentAtCursor, completionTargetAtCursor, type CompletionTarget } from "
 import { PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
 import { ActionRefused, shownLine } from "../surface/actions";
 import { headedTitle } from "../board";
-import type { Actor } from "../socket";
+import { Refused, type Actor } from "../socket";
+import type { Msg } from "../board";
 import { tildeOf } from "../desk/agent-sessions";
 import { registerArgKind, type KindValue } from "./arg-kinds";
 import { filtered } from "./filter";
@@ -74,8 +75,38 @@ const firstRef = (text: string) => /\[\[([^\]]+)\]\]|\(\(([^)]+)\)\)/.exec(text)
 export interface Asked { to: string; note: string; title: string; thread: string; tiles: string[]; heard: string }
 
 /**
- * Ask `to`: the words as a comment naming `@to` on `note` (left out: the note in front of the person, else the first note
- * the words link to), with a line naming each `%tile` as the door has it, so the agent can act on it (`door_act tile=`).
+ * The note an ask lands on, or why it can't land: `note` when given, else the note in front of the person (an agent's
+ * has none), else the first note the words link to, resolved by the service. The one place that decides it: the
+ * preview says what ⏎ will do, and ⏎ does it.
+ */
+export async function askLanding(host: BarHost, o: { text: string; note?: string }, actor: Pick<Actor, "kind">): Promise<{ note: Msg } | { refused: string }> {
+  const named = o.note?.trim() || (actor.kind === "agent" ? null : host.near()) || firstRef(o.text);
+  if (!named) return { refused: "the ask goes as a comment on a note: open one, name one in the words ([[page]] or ((id))), or give note=" };
+  const [hit] = await hostAnswers(() => host.ctx.board.resolveRefs([named]), false);
+  if (!hit?.id) return { refused: `${o.note?.trim() ? "note=" : ""}${named}: ${hit?.error ?? "no such note"}; the ask goes as a comment on a note: open one, or name one that is there` };
+  const note = await hostAnswers(() => host.note(hit.id!), false);
+  return note ? { note } : { refused: `${named} is gone (in the Trash?)` };
+}
+
+/** A connection that never opened (no socket, nobody on it): nothing reached the outline host. */
+const NEVER_REACHED = /\b(ENOENT|ECONNREFUSED|ENOTSOCK)\b|^offline\b/;
+
+/**
+ * `work` against the outline host, or, when the host doesn't answer (stopped, its socket gone), a refusal that says so
+ * and names the commands that tell why and start it: never a bare `connect ENOENT …/host.sock`. A refusal the service
+ * gave stays its own. `sent`: whether a write may have reached it before the connection failed.
+ */
+async function hostAnswers<T>(work: () => Promise<T>, sent: boolean): Promise<T> {
+  try { return await work(); } catch (e) {
+    if (e instanceof ActionRefused || e instanceof Refused) throw e;
+    const why = e instanceof Error ? e.message : String(e), never = NEVER_REACHED.test(why);
+    throw new ActionRefused(`the outline host isn't answering (${why}): ${!sent || never ? "nothing was sent" : "the ask may not have been sent: look for it on the note before sending it again"}. ep0ch status says whether it runs; ep0ch doctor names the command that starts it`);
+  }
+}
+
+/**
+ * Ask `to`: the words as a comment naming `@to` on the note `askLanding` picks, with a line naming each `%tile` as the
+ * door has it, so the agent can act on it (`door_act tile=`).
  */
 export async function askAgent(host: BarHost, o: { to: string; text: string; note?: string }, actor: Actor): Promise<Asked> {
   const to = o.to.trim().replace(/^@/, "");
@@ -83,13 +114,9 @@ export async function askAgent(host: BarHost, o: { to: string; text: string; not
   let words = o.text.trim();
   if (askOf(words)?.to === to) words = askOf(words)!.text;
   if (!words) throw new ActionRefused(`what should @${to} do? text="…" (in the bar: @${to} and then the words)`);
-  const board = host.ctx.board;
-  const named = o.note?.trim() || (actor.kind === "agent" ? null : host.near()) || firstRef(words);
-  if (!named) throw new ActionRefused(`the ask goes as a comment on a note: open one, name one in the words ([[page]] or ((id))), or give note=`);
-  const [hit] = await board.resolveRefs([named]);
-  if (!hit?.id) throw new ActionRefused(`note=${named}: ${hit?.error ?? "no such note"}`);
-  const note = await host.note(hit.id);
-  if (!note) throw new ActionRefused(`note=${named} is gone (in the Trash?)`);
+  const landing = await askLanding(host, { text: words, ...(o.note ? { note: o.note } : {}) }, actor);
+  if ("refused" in landing) throw new ActionRefused(landing.refused);
+  const note = landing.note;
   const { shownTileRows } = await import("./sources");
   const tiles = tilesIn(words);
   const tileLines = tiles.map(name => {
@@ -97,7 +124,7 @@ export async function askAgent(host: BarHost, o: { to: string; text: string; not
     return `- %${name}: ${row ? `the tile ${name} in the door${row.detail ? ` (${row.detail})` : ""}` : `no tile ${name} on the screen shown now`} · door_act tile=${name}`;
   });
   const body = [`@${to} ${words}`, ...(tileLines.length ? ["", ...tileLines] : [])].join("\n");
-  const receipt = await board.comment(crypto.randomUUID(), note.id, note.revision ?? 0, body, null, actor);
+  const receipt = await hostAnswers(() => host.ctx.board.comment(crypto.randomUUID(), note.id, note.revision ?? 0, body, null, actor), true);
   const title = headedTitle(note);
   return { to, note: note.id, title, thread: receipt.id, tiles, heard: `a comment naming @${to}: each session writing as ${to} hears it at its next addressed check (the Claude mod's settle clock) and answers in the thread` };
 }
@@ -124,13 +151,18 @@ export const AGENTS: BarSource = {
     const a = askOf(scope === "agents" && !q.trimStart().startsWith("@") ? `@${q}` : q) ?? ((scope === "agents" && !q.trim()) || q.trim() === "@" ? { to: "", text: "" } : null);
     if (!a) return [];
     if (a.text) return [askRow(a)];
-    return filtered(await agentsHere(host), a.to, r => [r.value, r.detail ?? ""]).map(v => ({ key: `agent:${v.value}`, label: v.label, fill: `@${v.value} `, ...(v.detail ? { detail: v.detail } : {}), data: { to: v.value, text: "" } }));
+    // A line that starts with @ is this source's (an ask): in the main list its agents come first, the first lit, so
+    // the preview reads an agent and ⏎ picks one, never another source's row that happens to match "@".
+    const first = !scope && q.trimStart().startsWith("@");
+    return filtered(await agentsHere(host), a.to, r => [r.value, r.detail ?? ""]).map(v => ({ key: `agent:${v.value}`, label: v.label, fill: `@${v.value} `, ...(v.detail ? { detail: v.detail } : {}), ...(first ? { exact: true as const } : {}), data: { to: v.value, text: "" } }));
   },
   async preview(row, host) {
     const a = row.data as { to: string; text: string };
     if (!a.text) return { markdown: `**@${a.to}**\n\n${row.detail ?? ""}\n\n⏎ puts @${a.to} on the line: type what to ask, then ⏎ sends it.` };
-    const near = host.near(), note = near ? await host.note(near).catch(() => null) : null;
-    return { markdown: `**Ask @${a.to}**\n\n> @${a.to} ${a.text}\n\nSent as a comment on ${note ? `**${headedTitle(note)}**` : "the first note it links to"}; @${a.to}'s sessions hear it at their addressed check and answer in the thread.` };
+    // What ⏎ will do, from the same answer ⏎ reads: the note it lands on, or why it can't be sent.
+    const landing = await askLanding(host, { text: a.text }, { kind: "user" }).catch((e: unknown) => ({ refused: e instanceof Error ? e.message : String(e) }));
+    if ("refused" in landing) return { markdown: `**Ask @${a.to}**\n\n> @${a.to} ${a.text}\n\n**Can't be sent yet:** ${landing.refused}.` };
+    return { markdown: `**Ask @${a.to}**\n\n> @${a.to} ${a.text}\n\nSent as a comment on **${headedTitle(landing.note)}**; @${a.to}'s sessions hear it at their addressed check and answer in the thread.` };
   },
   // The note it lands on goes in the line, so the copy runs the same ask from a shell or an agent.
   command: (row, host) => { const a = row.data as { to: string; text: string }, note = host.near(); return a.text ? shownLine("agent.ask", { to: a.to, text: a.text, ...(note ? { note } : {}) }) : null; },
