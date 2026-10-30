@@ -705,7 +705,8 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       const name = String(s.names.get(target));
       // It replaces there (no spine kept): the reader beside a pinned one is where its opens go, one at a time.
       if (again !== undefined) return { ...placement(s, { ...request, default: false, to: again, keep: false }, ctx), route };
-      result.destination = { kind: "new", at: { kind: "split", target, dir: "right" } };
+      // A floating one has no split beside it: a float near it takes the open.
+      result.destination = { kind: "new", at: isFloat(s, target) ? { kind: "float", near: target } : { kind: "split", target, dir: "right" } };
       result.besideOf = target;
       result.why = `${name} is pinned: opened beside it · p in ${name} unpins it`;
       return result;

@@ -1011,6 +1011,8 @@ export function policyOf(x: unknown): Policy {
   if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)).map(canonKind))];
   if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;
   if (o.opens === "reader" || o.opens === "next" || o.opens === "beside") out.opens = o.opens;
+  // The open rule before PIE-1207 (the hidden current note) is the first reader not pinned now.
+  else if (o.opens === "current") out.opens = "reader";
   if (SPINES.includes(o.spines as Spines)) out.spines = o.spines as Spines;
   if (ALT_RULES.includes(o.altOpens as AltRule)) out.altOpens = o.altOpens as AltRule;
   if (o.host === "beside" || o.host === "over" || o.host === "none") out.host = o.host;

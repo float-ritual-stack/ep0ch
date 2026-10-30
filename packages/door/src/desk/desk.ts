@@ -1174,7 +1174,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const f = typeof spec.focus === "string" ? [...names].find(([id, n]) => this.tileId(id) === (references.get(String(spec.focus)) ?? spec.focus) || n === spec.focus)?.[0] : ids[typeof spec.focus === "number" ? spec.focus : 0];
     this.focus = f !== undefined && ids.includes(f) ? f : ids[0]!;
     this.keysTo(this.focus);
-    if (this.ctx) { this.claimIds(); for (const id of fresh) this.startTile(id); }
+    if (this.ctx) { this.claimIds(); this.wireFollowers(); for (const id of fresh) this.startTile(id); }
     this.settled = this.snapshotShape();
   }
   /** The keys on tile `id`, as the person's own: shown in its tab set (nothing else moves). */

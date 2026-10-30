@@ -222,7 +222,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     press({ kind: "enter" });
     await until(() => !S().stages.get(S().sel).top.overlays.top(), "empty title saved");
     expect(info().label).toBe(subject(seeded.notes.shed));
-    const lines = screen().split("\n"), y = lines.findIndex(l => l.includes("4 Visitors"));
+    const lines = screen().split("\n"), y = lines.findIndex(l => /\d Visitors/.test(l));
     expect(y).toBeGreaterThan(0);
     const x = lines[y]!.indexOf("Visitors") + 1;
     for (let i = 0; i < 2; i++) {

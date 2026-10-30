@@ -10,6 +10,7 @@ import { Desk } from "../src/desk/desk";
 import { ReaderPane } from "../src/desk/panes";
 import { register } from "../src/desk/screen-notes";
 import { canonSpec } from "../src/desk/tiles";
+import { policyOf } from "../src/desk/layout";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
@@ -26,6 +27,8 @@ describe("the reader modes before the pin, as saved layouts and agents wrote the
     expect(canonSpec({ kind: "reader", name: "e", nav: { v: 1 } })).toMatchObject({ kind: "reader", wasFollowing: true });
     expect(canonSpec({ kind: "reader", name: "f" })).toEqual({ kind: "reader", name: "f" });
     expect(canonSpec({ kind: "query", name: "q", mode: "held" })).toMatchObject({ kind: "query", mode: "held" });
+    // A saved open rule `current` is the first reader not pinned now, never dropped (a flow would read it as `next`).
+    expect(policyOf({ opens: "current" })).toEqual({ opens: "reader" });
   });
 });
 
@@ -179,6 +182,20 @@ describe.skipIf(!outliner)("a reader's pin, against a scratch outline", () => {
     await mine("tile.close", {}, name);
   });
 
+  test("a pinned reader floating: an open aimed at it lands in a float near it", async () => {
+    await mine("tile.float", {}, "keeps");
+    await act("reader.pin", { on: true }, "keeps");
+    const kept = pane("keeps").msg?.id, before = new Set(names());
+    await act("open", { id: notes.beans.id }, "keeps");
+    const made = names().find(n => !before.has(n))!;
+    expect(made).toBeTruthy();
+    expect(tile(made)).toMatchObject({ float: true, showing: { id: notes.beans.id } });
+    expect(pane("keeps").msg?.id).toBe(kept);
+    await mine("tile.close", {}, made);
+    await act("reader.pin", { on: false }, "keeps");
+    await mine("tile.float", {}, "keeps");
+  });
+
   test("a tree carried into the drawer, with no wire, opens on the screen shown: in its first reader not pinned", async () => {
     await act("reader.pin", { on: false }, "reader");
     for (const t of get().tiles) if (t.kind === "reader" && !t.pinned) showIn(desk, notes.plan, t.name);
@@ -228,5 +245,18 @@ describe.skipIf(!outliner)("a reader's pin, against a scratch outline", () => {
     expect(at("tree").wires).toContainEqual({ verb: "select", to: at("reader").tile });
     app.pop();
     O.dispose();
+  });
+
+  test("layout.load of a screen saved with a following reader wires its list to it too", async () => {
+    const nav = pane("reader").surface.saveNav();
+    register({
+      name: "older-follow", title: "older-follow", id: "00000000-0000-4000-8000-0000000007a6", revision: 1,
+      spec: { name: "older-follow", title: "older-follow", layouts: true, layout: { focus: "outline", root: { t: "split", dir: "row", weights: [0.4, 0.6], kids: [
+        leaf("tree", "outline"), leaf("reader", "follower", { nav }),
+      ] } } } as any,
+    });
+    await mine("layout.load", { name: "older-follow" });
+    await until(() => !!tile("follower") && !!tile("outline"), "the older screen laid out");
+    expect(tile("outline").wires).toContainEqual({ verb: "select", to: tile("follower").tile });
   });
 });
