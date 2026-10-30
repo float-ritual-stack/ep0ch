@@ -951,7 +951,8 @@ this tile; other tiles keep their own bindings. The count stays above both lists
 In Matches (PIE-1443) `*` pins or unpins the note (`facets.pin`), `t` asks for a tag or a
 property (`facets.tag`), `d` narrows to today and `,` `.` step the day (`facets.day`), and
 ctrl+o moves Matches to its next place (`facets.place`). In the `matches` tile `j k` walk
-its notes (`facets.match`), ⏎ opens and alt+⏎ opens beside.
+its notes (`facets.match`), Home and `g` go to the first, End and `G` to the last (PIE-1457), ⏎ or space
+opens and alt+⏎ opens beside. Home, End, `g` and `G` go to the first and last row of the facets tile too.
 
 ### Hint controls (PIE-1096)
 

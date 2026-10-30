@@ -22,7 +22,7 @@ Two notes side by side, the other tiles folded to spines, and the left note's li
 
 ## Defaults
 
-- **No first page:** it uses this outline's `[welcome::1]` note, then `[page::home]`, then the current note's top ancestor.
+- **No first page:** it uses this outline's `[welcome::1]` note, then `[page::home]`, then the top note over what the focused reader shows (with no reader focused, over the note that holds the button).
 - **No second page:** it uses the reader with the person's keys.
 - **Press from a reader** when you use these defaults.
 

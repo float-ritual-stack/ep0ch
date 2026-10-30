@@ -92,7 +92,7 @@ function policyChange({ clear, accepts, opensInto, opens, altOpens, host, agents
 }
 /** What `layout.policy` sets: the schema `act` checks, and so its arguments' type. */
 const POLICY_ARGS = {
-  spines: { type: "string", optional: true, choices: SPINES, about: "book slides pages to their own side, start gathers left, end right, centre balances both sides, invoker keeps them toward the invoking tile" },
+  spines: { type: "string", optional: true, choices: SPINES, about: "book slides pages to their own side, start gathers left, end right, centre balances both sides, invoker keeps them toward the invoking tile; on a desk row (not a flow) a book spine kept by an open sits beside its reader (PIE-1457)" },
   "min-width": { type: "number", optional: true, about: "minimum open page width (default 40); opening a spine shares evenly and folds the least recently touched open page below this; 0 keeps all open, -1 clears" },
   node: { type: "string", optional: true, about: "the container's id, or screen" },
   draggable: { type: "boolean", optional: true, about: "its tiles can be dragged out" },

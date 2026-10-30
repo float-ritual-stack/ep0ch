@@ -263,6 +263,8 @@ export type LinkTarget = {
    * figure the row is in (`figure` only), so the figure's keys work while the row is current (src/graphs.ts).
    */
   figure?: FigureControl;
+  /** A grid's cell (role "row": a live calendar's day, an activity cell): one click opens it, a row's selects (PIE-1457). */
+  cell?: true;
   /**
    * The `¶` on a `::fields` row (role "row"): it anchors that row's line when pressed (`fields.anchor`): the `::fields` of
    * that `key`, its `n`th row.

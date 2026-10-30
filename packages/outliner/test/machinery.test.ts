@@ -132,9 +132,14 @@ test("the backfill stamps what tools wrote before they stamped, says so first, a
   expect(dry.find(r => r.producer === "file-touch views")?.stamped).toBe(1);
   const still = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=toss", machinery: "show" } as never })).blocks[0]!;
   expect(still.properties.some(p => p.key === "machine")).toBe(false);
+  const after = async (id: string) => (await client.request<Block>({ action: "get", blockId: id } as never));
+  const dated = async () => Promise.all([toss, view, lane].map(async b => (await after(b.id)).updatedAt));
+  const datedBefore = await dated();
+  await Bun.sleep(5);
   const done = await backfill(client as never, true);
   expect(done.find(r => r.producer === "echonet")?.stamped).toBe(1);
-  const after = async (id: string) => (await client.request<Block>({ action: "get", blockId: id } as never));
+  // A stamp is not news (PIE-1457): each note keeps its updated date, so old boards don't flood Today.
+  expect(await dated()).toEqual(datedBefore);
   expect((await after(toss.id)).properties.find(p => p.key === "machine")?.value).toBe("echonet");
   expect((await after(touch.id)).properties.find(p => p.key === "machine")?.value).toBe("file-touch");
   expect((await after(view.id)).properties.find(p => p.key === "machinery")?.value).toBe("show");
