@@ -95,16 +95,19 @@ export function changeOf(s: ExtensionSettings, given: Record<string, unknown>): 
   return out;
 }
 
-/** The few words a row's chip says of an extension's settings: what to do about them first. */
+/** The few words a row says of an extension's settings, what to do about them first: words, never a raw value (the preview has those). */
 export function settingsChip(s: ExtensionSettings): string {
   if (s.state === "failing") return "failing";
   if (s.state === "missing") return "needs setup";
-  if (s.state === "set") return "settings set";
-  const defaults = s.fields.filter(f => f.default !== undefined);
-  // One default says what it does: a command as its words (tidy's `default: claude -p …`), anything else by its name.
-  const one = defaults.length === 1 ? defaults[0]! : undefined;
-  return !one ? "default settings" : `default: ${one.type === "command" ? "" : `${one.name} `}${shownValue(one, one.default)}`;
+  return s.state === "set" ? "set" : "its defaults";
 }
+
+/** Its settings in a sentence for an extension's preview: their state in the chip's words, and where its form is (by id, as `ext.<id>.settings` names it). */
+export const settingsWords = (id: string, s: ExtensionSettings): string =>
+  `Settings: ${settingsChip(s)}${s.error ? ` (${s.error.replace(/\s+/g, " ")})` : ""}. Type \`settings ${id}\` here for its form.`;
+
+/** Whether a row should say anything of its settings: only when they need the person (setup, a failure). */
+export const settingsNeedYou = (s: ExtensionSettings | undefined): boolean => s?.state === "failing" || s?.state === "missing";
 
 /** The settings as the settings row's preview reads them: each field and secret, where they live, and why it's failing. */
 export function settingsMarkdown(e: ExtensionEntry, s: ExtensionSettings): string {

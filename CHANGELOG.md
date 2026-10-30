@@ -25,6 +25,210 @@ are its record. The outliner's entries from then are kept below, under
 - **script_run lists the notes it changed** (`changed`: id, title, created / edited / moved / trashed / restored),
   beside `written`, its own run notes.
 
+### An install over the link finds your tools (PIE-1243)
+
+- **The link agent carries your PATH:** `ep0ch install --apply` writes the machine link's launchd agent (`~/Library/LaunchAgents/io.ep0ch.link.plist`) or systemd unit with the PATH of the shell it ran in, refreshed on every install. An install sent over the link then finds Herdr, restic and with-secrets in Homebrew and `~/.local/bin`, so the plugin link, the backups and the PATH link run instead of being reported missing.
+- **A missing tool says where it looked:** "Herdr isn't installed (checked PATH=…)", and the same on the backups and PATH-link steps, so an install run in the wrong environment shows itself.
+- **Run once on a connecting machine (the laptop):** `ep0ch install --apply` in your own terminal. Installs sent over the link don't rewrite the agent, so the first one after this change still runs on launchd's bare PATH.
+
+### Every message reads whole and tells the truth (PIE-1453, PIE-1450)
+
+- **A long refusal at 44 columns says "… more":** the four rows said above the status bar end "… more alt+M" when the message is longer; a click on them (or alt+M) opens the message log, which draws it whole.
+- **A form's refusal reads whole in the form:** wrapped under its button, what to do and the did-you-mean included, never cut at one row.
+- **The message log draws links as a reader does:** `((id|in Inbox))` reads "in Inbox" and `[[page]]` its name; a click on one opens the note (`status.link row=<n> n=<link>` for an agent).
+- **A missing extension says its name:** Enter on a form with Form not installed says "ext.form.fill is Form's, which isn't installed", with its "install Form" row in the power bar's extensions (ctrl+k then &) and `ep0ch act extensions.install id=form`. Every unknown action that an uninstalled extension would answer says so, wherever it's refused.
+- **An agent's narrow open says where it went:** `tile.open … tile=r1 where=right` landing under 28×6 says "…, and it went right of r1, as asked", not "naming neither tile= nor where=".
+- **Try it:** `ep0ch --showcase`, section "message-log".
+- **Run:** `ep0ch install --apply` (door only; no PROTOCOL or schema change).
+
+### The open door shows @margin's "working" and its answer, and a tick in the door closes its ask (PIE-1452, PIE-1451)
+
+- **A long `@margin` job shows in the thread as it runs:** the reader hears an extension's reply being made and rewritten under a thread (a plain create and edit, not an `annotate`), so `⋯ working: … (2 min)` and then the answer appear in the open note by themselves. Before, they showed only after reopening the note or after some other change repainted it.
+- **A tick on a permission ask in the door or on the web page closes it:** the tick gives its step an id (`^t-…`) and the service refuses an edit that drops one, so the mod's close-out was refused (silently) and the ask stayed on Waiting on Evan with live boxes. The close-out keeps each step's id: `✓ **allow this once** ^t-…`.
+- **Run:** `ep0ch install --apply` (the door and the mod change; no PROTOCOL bump).
+
+### A repo on an artifact line shows its deployment and deploys on save (PIE-1060)
+
+- **The card is the repo:** `[artifact::https://github.com/ep0ch-artifacts/plastik-loop]` (or `github.com/…`, or `ep0ch-artifacts/plastik-loop`) on a line draws a repo card, not "can't read …/https:/github.com/…" and "isn't an artifact".
+- **It says its deploy state:** live at its address, deploying, failed (why, and `run: ep0ch artifact deploy …`), not deployed (the command), or another owner's (the `gh repo fork … --org ep0ch-artifacts` command), with what its last run did. The state comes from the deploy's own records, so an imported deployment counts (plastik-loop's, deployed from the repo it was forked from).
+- **[open ↗] opens the live site;** a repo that isn't live says why when opened, and `[share]` is left off (its site is already public).
+- **Saving deploys it:** the deploy rule now reads an `[artifact::]` on a line of its own (`[property-scope::all]` on the rule; rules take it as views do). Before, it read only the note's header, so a repo on a line never deployed and nothing came of the save. The rule and script your outline has are brought up to date when nobody edited them.
+- **Runs are filed and kept short:** a run's note goes under the `[[artifacts]]` page with `[repo::]` and `[status::]`, and a save that changes nothing refreshes the last run instead of adding a note per edit.
+- **On the published page:** the repo's name links its live site; why it isn't live is shown to you, not to the public.
+- **Try it:** `ep0ch --showcase`, section "artifacts", its last two cards.
+- **Run:** `ep0ch install --apply` (PROTOCOL bump: `artifacts.show` answers `deploy`, `artifacts.deploy` takes `note`; GRAMMAR 16). The host's restart updates the seeded rule and script in pie and gurgle.
+
+### The door's tests that were written off as "known" are green again (PIE-1441, PIE-1446)
+
+- **ctrl+z right after closing an edit undoes:** an extension's undo (a margin quote) sent the moment an edit closed was refused "open in a draft" when the service's hold grant was still on its way; the undo now waits for that release.
+- **The drawer's parity case runs in 8 s, not 60:** typing into the drawer's terminal is the program's, not a new door input state to probe (399 builds, was 890).
+- **The comments showcase's deep-links test clicks the comment box,** not the section list beside it.
+- **Run:** `ep0ch install --apply`.
+
+### A long @margin job runs to the end and says it's working; an answered ask leaves your list (PIE-1452, PIE-1451)
+
+- **@margin can do a job, not only answer:** "make a page for each plugin" runs up to an hour (it was cut off at 2 minutes, twice, on Oct 30). An agent's `deadline` in `extension.json` may now be up to `2h`; past it, the answer says it stopped and where to raise it.
+- **It says it's working:** after 5 s, the thread gets `⋯ working: @margin is working on it (3 min)`, and every minute what it has written so far; a note's `@margin` line says the same. The working reply becomes the answer.
+- **Its notes are signed margin and linked:** the `claude` it runs writes as `margin/claude-code@<machine>`, and the answer ends `Wrote 13 notes: ((…|Lantern plugin)), …`.
+- **A restart says it cut a job off,** with what it had written, instead of "working" forever.
+- **An ask whose session ends leaves Waiting on Evan by itself:** "The session ended (other) at 3:26 AM before anyone answered: it didn't run." Answered in the dialog or by a tick, as before.
+- **A closed ask takes no more ticks:** its steps become `✓ **allow this once**` and struck lines, not boxes.
+- **Run:** `ep0ch install --apply` (no PROTOCOL or schema change); it refreshes an unchanged marginalia copy, else `ep0ch ext update marginalia`.
+
+### A link in a figure's cell reads and clicks like a link in prose (PIE-1334)
+
+- **Table and compare cells draw their links:** a `[[page]]`, `((id|label))` or `((outline:id|label))` in a `::graph-table` or `::graph-compare` cell shows its label, not its markup; `[ ]` stops on it, ⏎ or a click follows it where the tile's wires say, and `act elements` lists it. Bold and code spans in a cell draw as in prose. Check, decision and timeline rows already did; every figure now goes through the same inline renderer.
+- **Columns are measured as drawn:** a cell's width is its label's, so a long id no longer widens its column; under 48 columns a table's cards keep their links too.
+- **A link's own `|` stays in the link:** `- shelter: ((0a1b2c3d|the greenhouse)) | [[Shed roof]]` is two cells, and a `: ` or ` — ` inside a link's label no longer splits a row's label or side note.
+- **A short-id reference follows:** `((0a1b2c3d|label))`, in prose or a cell, opens its note by ⏎ or a click (it used to say "nothing answers at 0a1b2c3d").
+- **On the published page:** every body cell is drawn as the note's prose is, so its links are real links; a reference written by its short id (`((0a1b2c3d|label))`) now links on the page, in prose as in a cell, as the service resolves it.
+- **Try it:** `ep0ch --showcase`, section "figure-cells".
+- **Run:** `ep0ch install --apply` (GRAMMAR 15; an older renderer warns once and keeps working).
+
+### ctrl+t opens television beside the edit again
+
+- **It loads:** tv 0.15.9 crashed the moment the door ran it (its fullscreen mode asks where the cursor is on its stdout, which the door sends to a file), and the door pasted the query it printed into the draft. The door now runs `tv --inline`, which asks on the terminal and fills the tile.
+- **It's seen:** with the drawer up over the desk, the picker opened under it, keys and all; the drawer is put away now, as going to a tile on the screen puts it away (alt+a brings it back).
+- **A failure says why:** a picker that exits with an error puts nothing in, whatever it printed; the edit says which code and why, and its tile stays with what it said until the x on its title closes it (the keys are back in the edit, so `^W x` there would act on the reader).
+- **Handovers:** a session handed over while the picker had the keys gives them back to the edit, without "tile.focus in pick: no tile pick".
+- **Run:** `ep0ch install --apply`. `EP0CH_PICKER=tv` set by hand needs `--inline` too.
+
+### Refusals and the status line read in words; Esc in a new note's float does what you mean (PIE-1449)
+
+- **Enter, then Esc, in a new note's float closes it:** a new note holding only line breaks or spaces is nothing written, so Esc closes the float and the note goes to the trash, said once. It used to say "dropped 1 stray character" and stay open.
+- **A form's page refusal says where the note is, not its id:** "a note is titled Bird list, but it isn't a page"; two by that title are told apart by where each sits ("at the top, and in Garden"). Its did-you-mean names only pages about the same words, typos included, never one that shares a single word.
+- **^K stays on the status bar while a message is up:** the message takes the room beside it, so a click on ^K still opens the power bar.
+
+### A delivery follows its PR when GitHub moves it to main (PIE-1440)
+
+- **Stacked PRs close:** a PR first opened into another branch and retargeted to main by GitHub is the same delivery: `work deliver PIE-n --pr N` (and the merge hook) update its base and merged state, so the ticket can close.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### The navigator: browse by property, see the notes by day, read one beside (PIE-1443)
+
+- **One screen:** `ep0ch --screen navigator` (any outline; `--screen navigator '#tag'` starts on a query) puts the facets tree, its Matches and a reader side by side; at 44 columns the others fold to spines and ⏎ brings the reader forward.
+- **Matches by day:** the notes the selection leaves, grouped Today, Yesterday, Previous 7 days, Previous 30 days, then by month; each row its line of preview and its tags.
+- **Pinned first:** `*` pins or unpins a note (`[pinned::true]`); pinned notes head the list.
+- **Tag a row:** `t` asks for a tag or any property in the power bar, keys and values from the outline.
+- **Shortcuts and a calendar:** saved views sit at the top of the tree, a click sets the selection; a click on a day narrows to the notes changed that day (`d` today, `,` `.` step).
+- **Matches goes where you want it:** ctrl+o or its ⧉ chip puts it inline, split, floating, in a popup or in a tile of its own, as Sources and comments are.
+- **For other clients:** `blocks.query` takes `group=updated:recent` (any date key), and `blocks.read`/`blocks.query` answer an `excerpt` field.
+- **Days are the host's:** `created:day` / `updated:day` (and week, month, year) now bucket a note's own time by the host's wall clock, as property dates and `today` already did; on a UTC host (float-2) nothing changes, on the laptop an evening's edit stays that day.
+- **Run:** `ep0ch install --apply` on float-2 and the laptop (a PROTOCOL bump: the host and every door together).
+
+### An agent gets the same answers inside a group as on the desk; peek is light (PIE-1447)
+
+- **Yolo and idle reach a group's tiles:** an agent acting in a group before it was first drawn saw no yolo and no idle, so a rule reading them held it back there and not on the desk. A group's tiles now read the person's whereabouts through their frame from the start.
+- **`peek` gives the layout in brief,** as `layout.get` does: each tile as its kind describes itself briefly. `ep0ch peek layout --full` (or `full=true`) has each tile whole. door_peek's screen text is unchanged.
+
+### Closing a float puts you back where you were typing; a form clears after its submit (PIE-1445)
+
+- **Back in your terminal:** a float you open while typing in a terminal tile (a new note from the power bar, ctrl+n) gives your keys back to that terminal when it closes (^W x, or Esc on an empty new note). The next key, Esc too, is its program's; it used to land on tile 1, and Esc then put the drawer away.
+- **A form clears after a submit that lands:** its fields go back to their defaults for the next entry, so a second click no longer writes the same entry twice. A refused submit keeps what you typed.
+- **A form pointing at a note that isn't a page says so:** `[form-into::[[Reading log]]]` where a note is titled Reading log with no `[page::]` names that note and says to add `[page::Reading log]` or write `[form-into::((id))]`.
+- **The one-completer demo's list shows at the first ⏎:** going into a showcase stage puts you in the edit open there, so the actions list is drawn under the `/` at once.
+
+### An agent's tile opens beside you, readable, and never takes your keys (PIE-1444)
+
+- **Your focus stays, in yolo too:** an agent's `tile.open` (and any open it makes) leaves your keys on your tile, on the desk, in a group and while you type in the drawer. Yolo still lets an agent move your keys on purpose (`tile.focus`, the drawer); an open no longer does it on the way.
+- **Wide enough to read:** an agent's `tile.open` that names neither a tile nor `where=` and would land under 28 columns (or 6 rows) beside your tile goes below it when that reads, else floats; one that names a place goes there. An agent moving or floating a tile doesn't take your keys in yolo either. Either way its answer (and the status line) says it was narrow. Your own opens split where you ask.
+- **`layout.get` in brief:** each tile as its kind describes itself in a line (a facets tile's selection and counts, a query tile without its cards); `full=true` gives today's whole answer. An eight-tile desk answered 336 KB.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### A revision compare opened with a comment half-written shows both (PIE-1433)
+
+- **Both draw:** the compare sits beside the note (below it when narrow) and the comment you were writing stays where you left it; a split comment shows as a popup on the note's side. Before, the comment drew and the compare was hidden while its keys were live.
+- **The comment keeps the keys:** ← and → still move the comment's cursor; a click in the compare gives it the keys (Esc closes it), a click in the comment returns them (`revision.focus` for agents and keys).
+- **The controls row stays put:** `[« older] [newer »] [against now] [esc back]` is the compare's top row, so a second click lands where the first did at 44 columns, however the title wraps.
+- **Two ← in one go step twice:** each step goes from the revision asked last, and only the last answer is drawn.
+- **Run:** `ep0ch install --apply`.
+
+### @tidy and @margin answer with the Claude mod installed
+
+- **A one-shot Claude starts clean:** `claude -p --tools ""` (tidy's answer command) and `--bare` exit 0 with the ep0ch mod loaded; it no longer fails with "session.start hook skipped: threw … \"show\" refused".
+- **The mod stays out of it:** no tools, no `ep0ch` calls, no context, no status line and no Recent Mentions entry for its answer, so the call keeps its whole deadline.
+- **Even with MCP servers connected:** the session's refusal of the mod's first tool decides it, not whether any tool is listed.
+- **Run:** `ep0ch install --apply` on each machine (the laptop too).
+
+### A form names its button and where each entry lands (PIE-1442)
+
+- **The button says your words:** `[form-submit::Log it]` on a form's note, and the door draws Log it where it drew Fill in the form.
+- **Where an entry lands:** `[form-into::child]` (still the default), `[form-into::[[Reading log]]]` to write it under that page, or `[form-into::inline]` to add a line to the form's own note.
+- **An inline line's shape:** `[form-line::- {book}: {pages} pages]`; without it the line is the answers joined by ` · `.
+- **Said under the button:** "each entry lands under this note", "under [[Repair list]]" or "is a line added to this note".
+- **A typo saves and says so:** `[form-into::inlne]` or a page nobody has is warned on with a did-you-mean; the fill refuses and writes nothing.
+- **Run:** `ep0ch install --apply` (GRAMMAR 14: an older door draws Fill in the form and keeps working); the form extension is version 2.
+
+### Extension pages and the power bar's extensions say what each one does for you
+
+- **Every extension's page leads with what it does for you:** where to look, then what you do, as short lines; setup, how it works and the builder's guide sit lower. All 24 bundled pages rewritten, notify first.
+- **One line each, in plain words:** every extension's description (the hub, its page, the `&` list, the install preview) says what you get, not what kind of part it is.
+- **A page can't ship as a wall:** a test runs the write review's code rubric (walls, stacked bullets, long titles, prose alone) over every bundled page as the host writes it.
+- **Settings on a page:** one line per setting with its default, under a lead saying where to change them.
+- **The `&` list is one row per extension:** a row says its settings only when they need you (needs setup, failing), with a settings row for just those; every preview says them in words, and `settings <id>` typed finds any form.
+- **A recording gets a real name:** unnamed, it's named after what it did (`recorded-note-open-oct29-151402`, titled "Recorded: note.open, …"), never `recording-<timestamp>`.
+- **Run:** `ep0ch install --apply`; pages are written again on the next reload. A recording saved before keeps its old name: rename its note.
+
+### What the new screens say is true at every width (PIE-1439)
+
+- **The keys window:** in the river, x, h, w and I no longer say a main-menu letter takes them first; a key says
+  "taken by" only where both keys work, and Conflicts agrees. `in:river` lists the ^W chords too.
+- **At 40 columns:** rows that read alike once cut keep the word that differs (`… left`, `… right`), and the hint row
+  keeps esc.
+- **A failed run:** the status line says a note's label, never a raw `((id|label))`; the message log keeps it whole.
+- **The power bar:** an argument's list keeps off the docs beside it; a note's edit lists its tile's actions first
+  from the start, as ctrl+k and / do.
+- **The twin row at 40 columns:** the offer gets a row of its own with its Work ID, the controls whole under it.
+- **outline_snapshot of a copy:** `asOf` is the copy's newest change, and the headline says it; `snapshotAt` is when
+  the snapshot was made.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### One place decides where your key goes (PIE-1438)
+
+- **Whatever is in front of you gets the key:** the power bar, a status-bar menu, the message log, a tile menu or a
+  float takes Esc, and nothing reaches the terminal under it. The door now asks one answer (where you are) for this,
+  so a new overlay can't let a key leak to the program behind it; `ep0ch peek`'s `person` names that layer too.
+
+### Shares' Start a public link works again
+
+- **The site's own forms post:** pages behind sign-in were sent with `Referrer-Policy: no-referrer`, under which a browser sends `Origin: null` on a form POST, so the site's own check refused Shares' "Start a public link" ("A change comes from this site's own pages"). They now say `same-origin`: no link leaving the site carries a referrer, as before, and the site's own forms post.
+- **Run:** nothing beyond the usual `ep0ch install --apply` (it restarts the publishers).
+
+### Open a note as it was at a revision, beside how it is now (PIE-1433)
+
+- **From Jev's suggestions:** a row opens its note with the revision the review read beside it, marked against the next one (`-` was there, `+` came next).
+- **From any note:** the tile menu's **history** lists its revisions; a row opens the same compare.
+- **Keys:** ← → older and newer, `n` against the note now, Esc back to the note. Beside the text in a wide tile, below it in a narrow one.
+- **Tables:** `at: <property>` on a live `::graph-table` with `link:` opens each row's note at the revision that property holds.
+- **Run:** nothing beyond the usual `ep0ch install --apply` (GRAMMAR 13: an older door opens the note without the compare); pie's suggestions page gains `at: revision` on its own at the next review Jev records after the install (until then its rows open the note without the compare; adding `at: revision` under `link: note` by hand does it at once).
+
+### A chat reads an away outline from its copy (PIE-1091)
+
+- **Snapshot and read while the laptop's away:** `outline_snapshot` and `reader_view` on an outline whose home is another machine (float-hub@laptop) are answered from float-2's read-only copy, each answer saying the copy's source, how fresh it is and whether it's stale. The snapshot link is float-2's web client's, works once and expires as any snapshot does.
+- **Shares stay home:** `share_start` on an away outline is refused and names the command to run on its own machine (`ep0ch share start <ref> --ws float-hub`); listing and revoking the copy's own links work.
+- **Run:** nothing beyond the usual `ep0ch install --apply` (it restarts the gateway and the publishers).
+
+### Esc closes the message log too, never the terminal behind it (PIE-1431)
+
+- **The message log is over your terminal like the power bar is:** Esc closes it, and a second Esc right after goes
+  nowhere instead of into the terminal tile or the drawer's agent ("nothing to close · pause, then esc is the program's").
+  Whatever is over the program you type in now counts, a new overlay included.
+- **At 40 columns the undo ask reads whole:** "saved · ctrl+z again undoes past it · …; revision N stays in its
+  history" wraps under the draft's status instead of being cut.
+- **A link followed in a message reader is on its trail:** in a reader `ep0ch open` put over a menu screen, follow a
+  link, then alt+T lists where you came from; a pick goes back there.
+
+### A new ticket's twin shows on its title, and `work try` points at pages (PIE-1258)
+
+- **On the title:** a new card in a roadmap lane asks for open work like it as soon as its title settles, before any
+  priority, arc or track: the composer's row says `looks like PIE-n … [attach here] [file new]`. Attaching needs no
+  chips; once the row has shown, ctrl+s with the chips files it new, never a second offer.
+- **Pressed early:** ctrl+s on a title alone says the twin first, not the missing chips.
+- **`ep0ch work try` opens pages too:** besides actions, it names the outline's pages and views to open, each with its
+  `screen.open` call: those that link the ticket first, then by words and by meaning (Jev). PIE-1388 and PIE-1252
+  now point at Jev's suggestions.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### One completer: an action and its arguments complete where you type (PIE-1076)
 
 - **In a note's edit, ctrl+k** (or `/` first on a line) lists the actions that apply here at the cursor, in the edit's
@@ -42,12 +246,75 @@ are its record. The outliner's entries from then are kept below, under
 - **The keys card keeps a `::button{…}` example whole** (`ep0ch actions --doc agent.lift`).
 - **Run:** nothing.
 
+### Back and forward keep your layout; the keys window speaks where you are (PIE-1426, PIE-1425)
+
+- **Your layout stays:** back or forward in a preview onto the note its detail shows (after `b`, say) shows it there; the preview no longer closes and the detail's wires stay.
+- **Narrow back row:** at 40 columns a reader's back row keeps `← back` and `forward →` whole, dropping the title first.
+- **The keys window where you are:** `?` in the river's Library opens on the river's keys (`in:river`), not a note's editing keys.
+- **Whole sentences:** every row reads as one ("give your keys to the column on the left", not "…, columns"; "close this tile", not "close tile=<tile>").
+- **At 40 columns:** the keys tile opens below, at the screen's width, instead of a 20-column strip beside.
+
+### Search reads right wherever you search (PIE-1409)
+
+- **How sure, in plain words:** a right first result Jev isn't certain of (a score from 1.5 to 2 of 3) says "not sure" instead of "no strong match"; the 0.8 line for "sure" stays (both measured on 204 cases).
+- **`[[` by meaning:** page completion finds pages by meaning too, as `((` does; when Jev is sure of a find the cursor lands on it (Tab links it), otherwise it stays on the row you were on.
+- **At 40 columns** the search footer reads whole; **on the phone** Sources' download buttons are 70×46 px.
+- **The search evals page** shows hit@1, hit@5 and cost in plain words, as "7 of 12" rather than bare counts (`ep0ch search eval --into pie` refreshes it).
+- **Still open:** daily digests can outrank real notes; it stays on the ticket.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### ctrl+z in a reader undoes that note's last change (PIE-1435)
+
+- **Your change first:** ctrl+z in a reader undoes its own last change (your edit, or an extension's or agent's write you can see), never a tile move you made somewhere else afterwards; the layout's undo gets the key only when the reader has nothing of its own. A trash newer than the reader's change still comes back first.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
+
+### Margin comments read as comments, and a quote lands where you are (PIE-1255, PIE-1184)
+
+- **A card opens the moment you press its `[+]`,** in marks mode too: it comes into view instead of opening above
+  the window (it used to need a scroll down and back up).
+- **Whole-note comments have one `[+]` each, after the title,** never a row of them in the gutter pushing the text over.
+- **The comment count says what you see:** "short cards", "whole", "as marks", and M says
+  what each does as it changes.
+- **A comment looks like a comment:** each card on its own dark surface in its tone, jutting into the margin under its
+  passage; the side column grows with a wide tile.
+- **[Quote] asks "under this note" first** and opens the quote where your new notes open (a float beside what you read, unless `note.opens` says otherwise), lit as just arrived, in
+  your edit at the end of the quote: nothing to hunt for.
+
+### The write review flags only what's really wrong (PIE-1428, PIE-1417, PIE-1427, PIE-1388)
+
+- **No false asks:** a note's own instruction ("check the water butt; write it on the shed door") is not a QA question, and a ticked checkbox (any mark: x ~ ! - ✓) is an answered one, so its patch never puts `[needs::sysop]` back on a done ticket.
+- **Patches ship:** once a finding's patch is applied the note can ship; a told patch keeps the verdict at fix until what it named is fixed, and the checkbox patch leaves no double blank line.
+- **No future times:** a build-log line stamped later than now is a finding when it's written (a row still to come is marked *next*).
+- **Jev's record reads true:** a figure suggestion counts as followed only when its own section changed; reviews where Jev had nothing to say are recorded live, in a "Reviewed, nothing to fix" table with when.
+- **Quieter recent activity:** notify's pull page carries `[machine::notify]`, so a chat's "what changed lately" leaves it out; extension pages stay in search and the bar.
+- **Run:** nothing beyond the usual `ep0ch install --apply`; pie's suggestions page adds its new table at the next review.
+
+### Esc closes what's in front of you, never the Claude tile by mistake (PIE-1431, PIE-1428)
+
+- **Esc over a terminal you type in** (a terminal tile, the drawer's agent) closes the power bar or the menu over it,
+  whichever opened it: a click on the status bar's ^K, a status-bar group, a tile's ⋯. It never reaches the program.
+- **A second Esc right after** goes nowhere and says so on the status line; a moment later (0.6 s) Esc is the program's
+  again. Under the Kitty keyboard protocol too.
+- **A status-bar group in a group** opens its menu beside its parent's, which stays open: Esc closes the inner, then the outer.
+- **"pin to status bar"** is the tile menu's first row when you right-click a button.
+- **alt+o in the power bar** says what it copied on the status line and in the log, not only in the toast.
+- **At 40 columns,** a pasted link's explanation and the undo ask at a save read whole. A message the status bar cuts
+  short (a Pipe or Fold refusal) is said whole just above it while it's up. The BBS reader's Number, Refer# and Reply
+  take a row of their own, and a figure's warning wraps.
+- **alt+T in the BBS reader** lists the trail over it, as its footer says. In the river at 40 columns, alt+T on a
+  squeezed column lists the trail over the screen, not in a one-letter-wide tile.
+- **For agents:** a refusal about the tile the person types in reads one way: "the person is typing in <tile>; an
+  agent doesn't <what> · <what to do>", never `drawer.tiles`. `button.press note=` takes the 8-character short id,
+  a Work ID or a [[page]], as `open id=` does.
+- **Run:** nothing.
+
 ### A drawer Claude is its own session, and a program with no tile is listed and put back (PIE-1432)
 
 - **Its own name:** the door drops the Claude settings it inherited (`CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_PID`, `CLAUDE_JOB_DIR`, `AI_AGENT`) when it starts its terminal host and every tile, so a Claude started in your drawer shows its own name and saves its transcript.
 - **Where you left it:** a tile you dragged out of the drawer comes back on that screen after a restart; the old drawer-only key and its conversion step are gone (PIE-1332).
 - **Never lost:** a program the terminal host still keeps with no tile shows in the agents tab (alt+g) as "no tile" with when it last wrote, and ⏎ puts it back in a tile, the same process.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### An agent hears what became of its edits, and MCP does what a script does (PIE-1086, PIE-1272)
 
 - **Proposals answer back:** an agent's edit that was proposed instead of applied, and every change after it (gone
@@ -69,6 +336,7 @@ are its record. The outliner's entries from then are kept below, under
 - **"float-2 via ssh" is said once,** when a command starts the forward, not on every call (`EP0CH_VERBOSE=1`: every time).
 - **The ssh door's script is in the repository** (`packages/door/scripts/ssh-door.sh`): it logs a hangup, and resets
   the terminal when the door client crashes.
+
 ### The door's tests pass together as alone (PIE-1412)
 
 - **For builders:** a door test file that leaves a scratch host running or an extension list bound is named
@@ -77,6 +345,7 @@ are its record. The outliner's entries from then are kept below, under
   the kitchen sink's panes and regions marks, the kettle's close click, the no-op repaint count, the copy-ref and
   motion checks, and the drawer program's handovers.
 - **Run:** nothing.
+
 ### Back goes back in every tile, whichever tile changed it (PIE-1426)
 
 - **A preview steps back through what it showed:** a pick in the links tile, a link opened up top into it, a source
@@ -107,6 +376,7 @@ are its record. The outliner's entries from then are kept below, under
   forward goes to the column opened from this one. Read's `n` and `p` leave a trail too (back, alt+T).
 - **On the web:** an error page has a way back to the outline (or the share's first page), and the trail's rows read as
   links.
+
 ### Nothing decided quietly disappears: the groom's cut keeps, and later gives back (PIE-1421)
 
 - **`ep0ch work groom --park`** is the cut: queued items untouched for `--older-than` (30d) go to later with
@@ -235,10 +505,12 @@ are its record. The outliner's entries from then are kept below, under
 - **Not yet:** the hint rows written by hand on some screens still say the built-in key; a key bound to several
   meanings under one name (^W h j k l) or after another key (`a then c`) can't be moved alone, and the window says so.
 - **Run:** nothing; no protocol or schema change.
+
 ### Send to ep0ch from your phone in one tap (PIE-1408)
 
 - **One link, one tap:** open the Send to ep0ch page on my.ep0ch.sh on your iPhone, tap Add Shortcut, and "Send to ep0ch" is in your share sheet; a PDF or photo you share to it lands as a card in today's note. The Shortcut is signed and carries its own device link, so there is nothing to copy or edit.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
+
 ### @loki in a comment reaches loki, and stays on its list until it answers (PIE-1404)
 
 - **Write `@loki …` (or `@daddy`, `@kitty`) in a comment on any note,** from the door, a web page on your phone or
@@ -247,6 +519,7 @@ are its record. The outliner's entries from then are kept below, under
 - **It stays on the list** in every wake until the persona replies in the thread or the thread is resolved; a session
   started later hears what's still open within a minute of starting.
 - Nothing to run: it ships with the Claude mod (`ep0ch install --apply`).
+
 ### A bulk job never freezes the host: your door answers at once while thousands of records are written (PIE-1413)
 
 - **What you'll notice:** a write-review backfill, an import or an agent's bulk writes no longer stall the outline
@@ -287,6 +560,7 @@ are its record. The outliner's entries from then are kept below, under
 - **The backfill:** a note Jev read and said nothing of is kept as quiet, so a rerun asks only about what's new; a
   run keeps one row; its records look the Records page and templates up once. The host's own load under a backfill
   is PIE-1413's.
+
 ### A note written in the river opens with its text, and neat speaks plainly (PIE-1403)
 
 - **Reopened, it shows what you wrote:** a note written in a float over the river, saved and opened again from the
@@ -339,6 +613,7 @@ are its record. The outliner's entries from then are kept below, under
   (`status.bar.menu group=Tools` by act).
 - **A list item holds a button,** in any note: `- ::button{…}` draws after its bullet and presses; the publisher shows
   its label, and `button.press` finds buttons in list items and quotes too.
+
 ### Agents work in your door while you type, and every refusal says the same thing (PIE-1294)
 
 - **Your edit is yours:** an agent's open never replaces the note you're editing, on any screen; on Welcome your own
@@ -360,6 +635,7 @@ are its record. The outliner's entries from then are kept below, under
   from the layout, the action rule and the draft rule alike (four forms before).
 - **A short id opens:** `ep0ch open 221caa3c` (or `open id=PIE-1294`) resolves as `show` and `find` do.
 - **Kitchen sink:** `ep0ch --showcase`, section while-typing.
+
 ### Jev's review and twins read right where Evan looks (PIE-1402)
 
 - **Jev's suggestions at 44 columns:** a table of three or more columns in a narrow tile draws each row as a card, its
@@ -390,6 +666,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Docs-only deploys keep your door:** `ep0ch install --apply` hands a door session over only when the door code it
   runs changed, and says `session unchanged: no handover (a → b changed N files, none it runs)` otherwise.
 - **Run:** nothing extra; `ep0ch install --apply` as usual.
+
 ### Answer your agents from the phone (PIE-1235, PIE-1386, PIE-1383, PIE-926)
 
 - **Approve from the phone:** a background session's permission dialog now waits up to 10 minutes as an ask note
@@ -410,6 +687,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Changed:** `outline_read` (and `ep0ch agent read`) says who last wrote the note, as it always claimed, not who
   made it.
 - **Run:** nothing beyond the next `ep0ch install --apply` (the publisher and the Claude mod pick it up).
+
 ### Search says how sure it is, finds by meaning, and the Jev pin moves only on evals (PIE-1197–1200)
 
 - **No confident wrong answer:** a ranked search (the power bar's `/`, `[[` and `((`, `ep0ch find`, `outline_find`)
@@ -482,6 +760,7 @@ are its record. The outliner's entries from then are kept below, under
   so two up works there as on the desk.
 - **Writing components:** ⏎ after `::box{…}` (any component with a body) brings its closing `::`; a query's values
   in completion are their words, without a glimpse of the figure's example.
+
 ### The backlog is checked by Jev, a new ticket meets its twin first, and validation starts from what to try (PIE-1258)
 
 - **Twins at filing:** `work_create` (MCP, `ep0ch work create`, the board's new card) asks the service for open items
@@ -501,6 +780,7 @@ are its record. The outliner's entries from then are kept below, under
   `cost` in dollars; Jev's suggestions page has a section for the loops. All wording is in `prompts/work-jev.json`.
 - **What to run:** `PROTOCOL` is 279 (`roadmap.items.similar`, `roadmap.items.attach`, `new` on
   `roadmap.items.create`): `ep0ch install --apply` on float-2, float-box and the laptop.
+
 ### A script's empty slots ask in order, in the kind the script declares (PIE-1298)
 
 - **In the order written:** a button that runs a script (neat's "two up") asks for page 1, then page 2, as the line
@@ -541,6 +821,7 @@ are its record. The outliner's entries from then are kept below, under
 - **`ep0ch review backfill --ws <name> [--since 7d] [--into <name>]`** reviews what agents already wrote, read only,
   counted by rubric, rule and writer with samples and Jev's tokens; `--into` keeps it as records for the page.
 - **What to run:** `GRAMMAR` is 11; an older renderer warns once until `ep0ch install --apply`.
+
 ### A copy of a built-in extension lists once and says it overrides the built-in (PIE-1283)
 
 - **One row:** a copy of neat (or any built-in) in your extensions folder is one row in `ep0ch ext ls`, the power
@@ -550,6 +831,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Two renames:** a tile's menu has "rename this tile…" and, when the tile shows a note, "rename this
   note…" (`note.rename text=`). That one changes the note's title only; its first line's properties and its body
   stay.
+
 ### One search scheduler: the completer waits for typing, and a replaced search stops (PIE-1382)
 
 - **The completer waits for a pause:** `((garden` typed quickly asks the service once, 150 ms after the last key, as
@@ -581,6 +863,7 @@ are its record. The outliner's entries from then are kept below, under
   once when the line has none. Another outline's note copies as `((outline:id|title))`.
 - **Two keys:** `^W y` copies the reference of the note the tile points at; `^W ,` shows a tile's id, place and wires
   in a card, with its copy rows. `act note.copy-ref kind=id|ref|link|line` does the same for an agent.
+
 ### An open that names no tile reaches a mounted screen's reader (PIE-1306)
 
 - **Mounts take opens:** on a screen whose only readers sit inside mounted screens, `ep0ch open` and an agent's open
@@ -772,6 +1055,7 @@ are its record. The outliner's entries from then are kept below, under
   showing, and the wide tune's cut names.
 - GRAMMAR 7 → 8 (the style tokens). No PROTOCOL or schema change; `ep0ch install --apply` as usual. A note with old
   `style.header.image…` keys: move what's wanted onto its hero line (the tune names each one).
+
 ### An outline tells its agents where to start: `[orient::<agent>]` (PIE-1353)
 
 - **A note carrying `[orient::<agent>]` or `[orient::all]`** is read by the Claude mod at session start and again
@@ -811,6 +1095,7 @@ are its record. The outliner's entries from then are kept below, under
   "drop: embed or copy here" on the hint row.
 - **A blank line before and after** a landed part, unless one is there already or it ends the note; the same in the
   saved note and in your edit.
+
 ### A note's Work ID comes first wherever its title is drawn (PIE-1356)
 
 - **One name, ID first.** A note with `[work-id::HUB-062]` titled "PC-582 acceptance summary…" reads
@@ -864,6 +1149,7 @@ are its record. The outliner's entries from then are kept below, under
   `element.quote`, and MCP `outline_quote` with `elements`, `where: detached`, `into`/`at`/`as`.
 - The kitchen sink's `detach` section shows it. **Run after updating:** `ep0ch install --apply` (the protocol changed:
   the `quote` action).
+
 ### An agent's write to the laptop's outline lands as soon as the link is back (PIE-1351)
 
 - **Queued writes drain over the link.** A write to an outline on another machine already went live when that machine
@@ -1047,6 +1333,7 @@ are its record. The outliner's entries from then are kept below, under
   groups, drawer, layouts & more), each in its action's own words; a click on a row runs it, esc closes it. A fast typist
   never sees it. `^W o` and `^W O` show the kinds they open the same way. `act keys.panel` opens it at once; an agent's
   answers the groups and moves nothing. The short keys box it replaces is gone.
+
 ### Views, finds and agents read a line's properties, not only the note's header (PIE-1277)
 
 - **A view says `[property-scope::all]`** and its query reads every chip in the note: a `- [ ] … [needs::sysop: …]`
@@ -1082,6 +1369,7 @@ are its record. The outliner's entries from then are kept below, under
   ways in. `ep0ch show` keeps the title first, as scripts read its first line.
 - **It describes itself:** the component library has a `header` page, and `[header::` completes its three values
   with what each leaves out. The showcase's `header` section is a dashboard in a reader and a river column.
+
 ### A button asks for what it's missing; copy any tile's or note's address; a `::button` line is read as you type (PIE-1298, PIE-1297, PIE-1312)
 
 - **An empty slot asks.** `::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}`: pressed with `target=`
@@ -1694,6 +1982,7 @@ writes are read as the same references. Reload the mod (`/reload-plugins`) in a 
 The wheel over a tile's ⋯ menu scrolls its rows (the cursor goes to a row in view, so ⏎ never runs one off the screen),
 a thumb on the box's right edge shows how far down it is, and the foot (the hint) and the last rows stay reachable at
 any height; the arrows still move the cursor. A `ListPicker` takes `scrolls: true` for the same.
+
 ### The access view reads the machine that serves the gateway (PIE-1037)
 
 "Who can reach what" (the tile, `ep0ch mcp access --matrix`, `mcp.access.matrix`) read the caps (`mcp.env`) and the usage
@@ -1740,6 +2029,7 @@ rule; its order is the rules' order. `ep0ch route <note> --dry-run` and `ep0ch r
 would move where and why; `ep0ch route <note>` and `--all` move them; in the door, `alt+z` on a note routes it
 (`alt+Z` says what would move, `ctrl+z` puts it back; the tile menu's "route by rules"). New wire request:
 `notes.route`; `notes.create`'s placement gains `rule: "route"`. Showcase: "Notes that file themselves".
+
 ### One view of who can reach what (PIE-1034)
 
 - **New:** `ep0ch mcp access --matrix` (and a tile in the door: `ctrl+k`, `access.open`) shows every MCP caller (daddy, gpty,
@@ -1751,6 +2041,7 @@ would move where and why; `ep0ch route <note>` and `--all` move them; in the doo
   grant, the path's cap, or both) and whom it affects, and `⏎` applies it. Only you apply it; an agent reads the matrix
   (`mcp.access.matrix`) and can ask what a change would do (`access.plan`). `ep0ch mcp access --cap gpty@gurgle=full` is the
   cap write on its own.
+
 ### An action's documentation is drawn with components, with real examples (PIE-1032)
 
 - **Changed:** the power bar's preview of an action is its page, not a paragraph: its one line, its keys as keycaps, one
@@ -2691,6 +2982,7 @@ PROTOCOL 169: `annotations.tldr` takes `remove`, and an ask can be refused (an o
 - **Fixed:** an expanded thread shows its TL;DR once, as its face, not again as a reply under it.
 - **Fixed:** a thread you put away (seen) leaves no card under its passage in a narrow reader, TL;DR or not, as the
   side column already did; and asking for a TL;DR doesn't bring a seen thread back.
+
 ### The links list keeps the row you moved to (PIE-854)
 
 - **Fixed:** a links tile re-reads its list after an outline change (the list asks again, half a second after the
@@ -2914,6 +3206,7 @@ From Evan's comments written in the floating editor while using it.
   its rules, so the Detail people use never showed them.
 - **Changed:** `OUTLINER_DEBUG_KEYS=1` (open the key inspector on startup, for keys the host intercepts) now works in
   the Detail Herdr opens; it only worked in the ANSI host before.
+
 ### A form written in the note it's for (PIE-828)
 
 - **Added:** an extension action can ask for the fields of the note it runs on: `"fieldsFrom": "block"` in its
@@ -3421,6 +3714,7 @@ From Evan's comments written in the floating editor while using it.
 - **Changed:** `Y` on a selection with a link or bold inside copies exactly those words' source (the whole link, the
   whole bold run), not the whole line.
 - **Run:** PROTOCOL 128. Update the outline host and every door together (`ep0ch install --apply`).
+
 ### One kind of agent session: started from any folder, shown in the drawer or a tile, listed in one panel (PIE-737)
 
 - **Added:** `ep0ch agent` in any folder starts that folder's agent session in the door on its outline, or names the one
@@ -3438,6 +3732,7 @@ From Evan's comments written in the floating editor while using it.
   (`ep0ch act host.agent name=… in=<that folder>`), then drop it from your shell's profile.
 - *Why it matters:* "talk to an agent here" was three things that looked alike and acted differently (a claude in a shell
   tile, the daily agent, the drawer's); it is one now, wherever it was started.
+
 ### A lost patch's proposal sits beside its note, and a retry returns the open one (PIE-725)
 
 - **Changed:** when an agent's patch loses its race (the note changed since it read it, a door holds a draft, or the
@@ -3534,6 +3829,7 @@ From Evan's comments written in the floating editor while using it.
   list's opens land, alt+⏎ a new detail); `thread.pick` and `thread.up` are gone (`u` in the reader goes up).
 - **Run:** PROTOCOL 124 (`blocks.facets`, new). After `ep0ch install --apply` on each machine, restart the host, then the
   doors. No schema change.
+
 ### A chain of linked readers: what-changed opens into reader 9, reader 9's links into reader 10 (PIE-700)
 
 - Opening a note from outside a reader (the what-changed list in the drawer, `ep0ch open`) no longer asks the link of the reader your keys were last in. Before, with the keys last in reader 9 (linked to reader 10), ⏎ on a what-changed row moved both 9 and 10; now it opens in the reader that follows the current note and 10 only changes when a link is followed in 9.
@@ -3632,6 +3928,7 @@ After `^W`, the keys box now shows the most-used keys grouped (focus and move, s
   span it is about (`raw: true` gives either as stored). `seen: ["id@rev", …]` on `outline_read`, `outline_query` and
   `outline_find` returns `{id, revision, unchanged: true}` for any block the caller holds at that revision, like
   If-None-Match; a block that changed since comes back whole. No wire change, no `PROTOCOL` bump.
+
 ### The query grammar can ask about relations: `#tag`, `links:`, `under:`, `title~` and `text~` (PIE-554)
 
 - **New:** every client that queries (saved views, live figures, board lanes, `ep0ch find --query`, MCP `outline_query`)
@@ -3669,6 +3966,7 @@ After `^W`, the keys box now shows the most-used keys grouped (focus and move, s
   proposal); a live write says how many of the caller's queued writes to that note still wait; a live read still shows
   them as `pending`. `list_outlines` gives each mirrored outline's `route`. `EP0CH_MCP_LIVE=0` turns it off. No
   `PROTOCOL` change: restart the gateway (`ep0ch install --apply` on float-2) to get it.
+
 ### A property value holding links parses whole (PIE-663)
 
 - **Fixed:** `[related::[[PC-967]], ((id|daytime plan step 6))]` was read as `[[PC-967`. A value now runs to the
@@ -3842,6 +4140,7 @@ After `^W`, the keys box now shows the most-used keys grouped (focus and move, s
   the later change; a stale follower loses a tie. `ep0ch doctor` gives an erroring follower
   (`error applying updates`) its fresh-restore command.
 - **Run:** on the machine behind (the laptop): `ep0ch backup run --force` once, so the mirror gets a current snapshot.
+
 ### A kept edit says what it changes, and asks for nothing (PIE-637)
 
 - **Changed:** the notice under a note for an edit you started and didn't save no longer compares the draft with the note
@@ -3891,6 +4190,7 @@ After `^W`, the keys box now shows the most-used keys grouped (focus and move, s
 - **Run:** PROTOCOL 107 and schema version 4: `ep0ch install --apply` on both machines. It stops the outline host,
   runs `packages/outliner/scripts/migrations/0004-block-revisions.ts` on every outline at schema 3 and starts it
   again; then restart the doors.
+
 ### Completion wherever you write (PIE-626, #278)
 
 - **New:** `[`, `[[`, `((`, `[file::` and a callout's `> [!` complete in every place the door takes outline text, not
@@ -3901,6 +4201,7 @@ After `^W`, the keys box now shows the most-used keys grouped (focus and move, s
   (the search overlay, the links filter, a layout's name, the home base) opts out.
 - **Agents:** `complete text=… key=heading` lists what a property's value offers; `column.complete text=…` what a
   filter's word offers. No protocol or schema change.
+
 ### The outline host keeps answering after a change and a restart (PIE-625, #276)
 
 - **Fixed:** requests to the outline host timed out at 3 s in bursts, and for about a minute after each restart. Each
@@ -3967,6 +4268,7 @@ After `^W`, the keys box now shows the most-used keys grouped (focus and move, s
   something seen is the person's: an agent never clears a done they haven't seen.
 - **Run:** nothing beyond the usual `ep0ch install --apply`; a Claude started before the mod changed reports once
   restarted (`alt+R` in the drawer).
+
 ### Scroll past the end (PIE-622, #269)
 
 - **A note's last line no longer hugs the bottom edge.** In every reader (detail, preview, the desk's, a river column,
@@ -4131,6 +4433,7 @@ After `^W`, the keys box now shows the most-used keys grouped (focus and move, s
   written in a narrow one beside it.
 - **Run:** PROTOCOL is now 100 (a new read, `headings.styles`). Every client and the outline host must be on this
   code together, so run `ep0ch install --apply` on each machine (it restarts the host).
+
 ### Backups you can stop thinking about (PIE-607, #252)
 
 - **Every 15 minutes, each outline that changed goes to restic.** `ep0ch install --apply` sets up the job on Linux
@@ -4596,6 +4899,7 @@ The river's replies under a note are read again the same way. Restart the door (
   header; or click its caption's `[−][+] [◂][▸] [▀]`. Each is one save of that line, recorded as you; `ctrl+z` undoes
   it. Agents: `act images`, `image.size n=1 to=50%`, `image.align`, `image.hero`, `image.undo`.
 - The showcase has an `images` section.
+
 ### New notes from anywhere (PIE-544)
 
 - **`ctrl+n` on every screen** makes a new note and opens it to be written where the screen's opens land, in the
@@ -4619,6 +4923,7 @@ The river's replies under a note are read again the same way. Restart the door (
 - **An empty outline offers a note:** the welcome's list, an empty board, the brief and waiting screens show
   `+ New note · ctrl+n` (a click is `ctrl+n`); `ctrl+n` in a BBS message reader opens the note in a reader over it. A note still empty isn't the Inbox agent's to file.
 - **Protocol 86:** restart the outline host on this code (`ep0ch install --apply`), then the doors.
+
 ### Sort by a property
 
 - **A saved view, a live figure or a `blocks.query` sorts by any property**, not only `created` and `updated`:

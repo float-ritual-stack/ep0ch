@@ -113,7 +113,9 @@ const sha = (text: string) => createHash("sha256").update(text).digest();
 const same = (a: string, b: string) => timingSafeEqual(sha(a), sha(b));
 const random = () => randomBytes(32).toString("base64url");
 
-const GATE_HEADERS = { "x-robots-tag": "noindex, nofollow", "referrer-policy": "no-referrer", "cache-control": "no-store", "x-content-type-options": "nosniff" };
+// same-origin, not no-referrer: no link leaving the site carries a referrer either way, but under no-referrer a browser
+// sends Origin: null on a form POST, and the CSRF check below then refuses the site's own forms (Shares' Start).
+const GATE_HEADERS = { "x-robots-tag": "noindex, nofollow", "referrer-policy": "same-origin", "cache-control": "no-store", "x-content-type-options": "nosniff" };
 
 function withGateHeaders(response: Response, cookies: string[] = []): Response {
   // A response from elsewhere may be immutable: copy it.

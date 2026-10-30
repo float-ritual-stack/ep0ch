@@ -288,6 +288,18 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       await reads(async () => !(await childrenOf(notes.plot.id)).includes(""), "the empty note trashed", 5000);
       await until(() => desk.idOf(r) === undefined, "its float gone with it", 5000);
       expect(plot.msg?.id).toBe(notes.plot.id);
+      // Enter, then esc (PIE-1449): only a line break is nothing written, never "1 stray character": the note goes and its float with it.
+      desk.focusOn("plotd");
+      key(ctrl("n"));
+      await until(() => !!editing() && desk.entered.in(editing()), "a second new note's edit", 8000);
+      const blankFloat = editing(), blankId = blankFloat.surface.draft.blockId;
+      key({ kind: "enter" });
+      expect(blankFloat.surface.draft.text).toBe("\n");
+      key({ kind: "esc" });
+      await reads(async () => !(await board.get(blankId)) || !(await childrenOf(notes.plot.id)).includes(""), "the blank note trashed", 5000);
+      await until(() => desk.idOf(blankFloat) === undefined, "its float gone with it", 5000);
+      await until(() => String((app as any).message).includes("the empty new note went to the trash"), "said");
+      expect((app as any).messages.rows.some((m: any) => /stray character/.test(m.message))).toBe(false);
       // ctrl+n while the person types in an edit (PIE-591): that edit stays open where it is, as it was (PIE-812), and a
       // new note floats over the screen with the keys.
       const plotName = desk.nameOf([...desk.panes].find(([, p]: any) => p === plot)![0]);
@@ -336,7 +348,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     try {
       desk.render(desk.ctx);
       await until(() => desk.panes.size > 0, "the desk's tiles", 10_000);
-      await app.act({ action: "tile.open", args: { kind: "detail", note: notes.plot.id, name: "plotf" } });
+      await app.act({ action: "tile.open", args: { kind: "detail", note: notes.plot.id, name: "plotf", where: "right" } });
       const plot = desk.panes.get(desk.idNamed("plotf")) as any;
       await until(() => plot?.msg?.id === notes.plot.id, "the detail on the plot notes");
       desk.focusOn("plotf");
@@ -413,7 +425,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     try {
       desk.render(desk.ctx);
       await until(() => desk.panes.size > 0, "the desk's tiles", 10_000);
-      await app.act({ action: "tile.open", args: { kind: "detail", note: notes.plot.id, name: "plotp" } });
+      await app.act({ action: "tile.open", args: { kind: "detail", note: notes.plot.id, name: "plotp", where: "right" } });
       await until(() => (desk.panes.get(desk.idNamed("plotp")) as any)?.msg?.id === notes.plot.id, "the detail on the plot notes");
       desk.focusOn("plotp");
       key(ctrl("n"));

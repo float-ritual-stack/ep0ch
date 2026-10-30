@@ -137,6 +137,15 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     app.flash("");
   });
 
+  test("a message naming a note by a labelled reference says its label, not the raw ((id|label)) (PIE-1439)", () => {
+    app.flash("couldn't run it: ((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34|Seed order)) changed since you read it");
+    const line = bar();
+    expect(line).toContain("couldn't run it: Seed order changed since you read it");
+    expect(line).not.toContain("((");
+    // The message log keeps it as said, the reference whole, so it still finds the note.
+    expect(app.messages.rows.at(-1)?.message).toContain("((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34|Seed order))");
+  });
+
   test("a clipped clickable flash leaves the clock outside its hyperlink", async () => {
     const url = "https://example.test/" + "garden/".repeat(30);
     for (const cols of [80, 50]) {
@@ -207,7 +216,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
             await force();
             click("REC stop");
             await until(() => !app.recording.active, "the recording chip stops recording");
-            await until(() => app.messages.rows.some(m => m.message.startsWith("Saved recording-")), "the recording is saved");
+            await until(() => app.messages.rows.some(m => m.message.startsWith("Saved recorded-")), "the recording is saved");
           }
           if (app.drawer.open) await app.dispatch.act({ action: "host.toggle" }, USER);
           while (app.screens().length > 1) app.pop();
@@ -452,7 +461,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { await board.trash(note.id, USER); }
   });
 
-  test("a group inside a group opens its menu where the click was, under its outer group, not at column 1 (PIE-1415)", async () => {
+  test("a group inside a group opens its menu beside its outer group's, which stays open, never at column 1 (PIE-1415, PIE-1428)", async () => {
     // On the right of the bar, so column 1 is far from the click.
     const note = await board.createBlock(null, 'Nested status [status-bar::true]\n- brand\n- clock\n- Tools\n  - theme\n  - More\n    - ::button{label="Video" act="video.cycle"}');
     try {
@@ -468,12 +477,96 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
         press({ kind: "mouse", action: "up", button: 0, x: col, y: row });
         await until(() => painted.slice(0, -1).some(l => visible(l).includes("[Video]")), "the inner menu");
         const inner = painted.findIndex(l => visible(l).includes("[Video]")), at = visible(painted[inner]!).indexOf("[Video]");
-        // Where the outer menu stood (it opened above Tools), never pulled to the left edge.
-        expect(Math.abs(at - col)).toBeLessThanOrEqual(4);
+        // Beside the outer menu (to its right, or its left at the bar's right end), which stays open and in sight (PIE-1428),
+        // never pulled to the left edge; Esc closes it, then the outer.
+        // (At 44 columns two menus don't fit side by side: the inner is drawn over the outer, which is there again after Esc.)
+        if (cols >= 70) expect(painted.slice(0, -1).some(l => visible(l).includes("More ▲"))).toBe(true);
+        expect(at).toBeGreaterThan(1);
         expect(tools).toBeGreaterThan(cols / 2);
         press({ kind: "esc" });
+        await until(() => !painted.slice(0, -1).some(l => visible(l).includes("[Video]")), "the inner menu closed");
+        expect(painted.slice(0, -1).some(l => visible(l).includes("More ▲"))).toBe(true);
+        press({ kind: "esc" });
+        await until(() => !painted.slice(0, -1).some(l => visible(l).includes("More ▲")), "the outer menu closed");
       }
+      // A row in the inner menu runs, and both menus close: one choice, as from one menu.
+      click("Tools");
+      await until(() => painted.slice(0, -1).some(l => visible(l).includes("More ▲")), "the outer menu again");
+      const mr = painted.findIndex(l => visible(l).includes("More ▲")), mc = visible(painted[mr]!).indexOf("More ▲");
+      press({ kind: "mouse", action: "down", button: 0, x: mc, y: mr }); press({ kind: "mouse", action: "up", button: 0, x: mc, y: mr });
+      await until(() => painted.slice(0, -1).some(l => visible(l).includes("[Video]")), "the inner menu again");
+      const vr = painted.findIndex(l => visible(l).includes("[Video]")), vc = visible(painted[vr]!).indexOf("[Video]"), video = app.video;
+      press({ kind: "mouse", action: "down", button: 0, x: vc, y: vr }); press({ kind: "mouse", action: "up", button: 0, x: vc, y: vr });
+      await until(() => app.video !== video, "Video pressed from the inner menu");
+      await until(() => !painted.slice(0, -1).some(l => visible(l).includes("More ▲") || visible(l).includes("[Video]")), "both menus closed");
     } finally { await board.trash(note.id, USER); size.cols = 220; }
+  });
+
+  test("at 40 columns a message the bar cuts short is said whole just above it while it's up (PIE-1428)", async () => {
+    size.cols = 40;
+    try {
+      const said = "Pipe stopped at step 2 of 3: no note named Seed swap; the step before it ran";
+      app.flash(said, 4000, { kind: "warning" });
+      await until(() => { app.flush(); return painted.slice(-6, -1).map(l => visible(l).trim()).join(" ").replace(/\s+/g, " ").includes(said); }, "the whole sentence above the bar");
+      app.flash("short");
+      app.flush();
+      expect(painted.slice(-6, -1).map(l => visible(l)).join(" ")).not.toContain("Pipe stopped");
+    } finally { size.cols = 220; app.flash(""); }
+  });
+
+  test("at 44 columns a refusal past four rows says … more; a click opens the log, which draws it whole with its label, and the label opens (PIE-1453)", async () => {
+    const inbox = await board.createBlock(null, "Inbox");
+    size.cols = 44;
+    try {
+      const said = `2 notes are titled Bird list, in ((${inbox.id}|in Inbox)) and in a garden note, but none is a page: add [page::Bird list] to one, or name the page this form writes into with [form-into::…]; did you mean [[Bird lists]]?`;
+      app.flash(said, 60_000, { kind: "refusal" });
+      await until(() => { app.flush(); return / more alt\+M$/.test(visible(painted.at(-2) ?? "").trimEnd()); }, "… more at the end of the fourth row");
+      const band = painted.slice(-5, -1).map(l => visible(l));
+      expect(band.join(" ")).toContain("in Inbox");
+      expect(band.join(" ")).not.toContain(inbox.id);
+      const ran: string[] = [];
+      const stop = traceActions(a => ran.push(a.name));
+      try {
+        press({ kind: "mouse", action: "down", button: 0, x: 10, y: 37 });
+        await until(() => ran.includes("status.log"), "the click on the whole message opens the log");
+      } finally { stop(); }
+      // The log reads it whole at 44 columns: the reference by its label, the did-you-mean at its end.
+      await until(() => { app.flush(); return painted.map(l => visible(l)).join(" ").replace(/\s+/g, " ").includes("did you mean Bird lists?"); }, "the whole refusal in the log");
+      const log = painted.map(l => visible(l));
+      expect(log.join(" ")).not.toContain(inbox.id);
+      // In a link's colour, never the renderer's marks drawn as characters (each would take a cell and cut the row).
+      // Lit or not (the lit row is drawn plain behind its bar).
+      const log0 = app.screens().at(-1)!;
+      expect(log0.render(app).lines.join("")).not.toMatch(/[\uE000-\uE00A]/);
+      app.flash("the shed is locked"); press({ kind: "char", ch: "r" }); press({ kind: "up" });
+      expect(log0.render(app).lines.filter(l => visible(l).includes("in Inbox")).join("")).not.toMatch(/[\uE000-\uE00A]/);
+      await until(() => { app.flush(); return painted.some(l => visible(l).includes("the shed is locked")); }, "the later message listed");
+      const now = painted.map(l => visible(l));
+      const row = now.findIndex(l => l.includes("in Inbox")), col = now[row]!.indexOf("in Inbox");
+      press({ kind: "mouse", action: "down", button: 0, x: col + 1, y: row });
+      await until(() => app.screens().every(s => s.title !== "message log"), "the label opened its note, the log closed");
+    } finally { size.cols = 220; app.flash(""); await board.trash(inbox.id, USER); }
+  });
+
+  test("a message beside it never hides ^K: a click on it opens the power bar at 177 and 44 columns (PIE-1449)", async () => {
+    try {
+      for (const cols of [177, 44]) {
+        size.cols = cols;
+        app.flash("a long message about something that just happened, long enough to push the location off the bar".repeat(2));
+        const line = bar();
+        expect(line.trimStart().startsWith("^K ")).toBe(true);
+        const power = (await app.dispatch.act({ action: "status.bar.items" }, USER) as any).items.find((i: any) => i.id === "power");
+        expect(line.slice(power.from, power.to)).toBe("^K");
+        const ran: string[] = [];
+        const stop = traceActions(a => ran.push(a.name));
+        try {
+          click("^K");
+          await until(() => ran.includes("bar.open"), "the click on ^K opens the power bar");
+          expect(ran).not.toContain("status.log");
+        } finally { stop(); }
+        press({ kind: "esc" });
+      }
+    } finally { size.cols = 220; app.flash(""); }
   });
 
   test("a message on a full bar leaves no hit box where nothing is drawn: every clickable item is on the bar as drawn (PIE-1410, PIE-1415)", async () => {

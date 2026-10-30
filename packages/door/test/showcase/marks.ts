@@ -27,8 +27,9 @@ export const marks: Record<string, string[]> = {
   // A note to ask about beside wren, a demo agent session (PIE-1437).
   "ask-agent": ["Potting bench rota", "wren, a demo agent"],
   twins: ["Fix the back gate latch", "Queued"],
+  "at-revision": ["Jev's suggestions", "Each finding, newest first", "Roof on"],
   "write-review": ["Shed status tonight", "Jev's suggestions", "Each finding, newest first"],
-  "search-sure": ["Search evals", "EVERY RUN, PER MODEL", "Cases by source"],
+  "search-sure": ["Search evals", "EVERY RUN, NEWEST FIRST", "Cases by source"],
   // Four readers on one note, each writing a comment in another place (PIE-770).
   composer: ["Writing in the margin", "[inline ▸]", "[floating ▸]", "[split ▸]", "[popup ▸]"],
   // A comment on the whole note in its own tile beside the reader (PIE-846); the note's whole-note thread in the margin.
@@ -107,7 +108,9 @@ export const marks: Record<string, string[]> = {
   steps: ["Shed roof build log", "Needs you", "felt from the merchant", "screws, not nails"],
   values: ["Vent rail demo", "Owner: Ada", "did you mean owner?", "Spring sowing jobs"],
   "figure-steps": ["Shed door test plan", "YOU TEST", "lift the latch twice", "Plane the door"],
-  "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", "shown (M)"],
+  // Links in a figure's cells (PIE-1334): the table drawn, a reference only a cell holds drawn as its label.
+  "figure-cells": ["ASKS WITH NO REPLY", "the greenhouse shade cloth"],
+  "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", " (M)"],
   // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
   marginalia: ["Greenhouse plan for the spring", "question · ", "cold-frame-guide.md", "Marginalia notebook"],
   // The pump rota's margin: its current comment and the kept one's TL;DR face; the seen one is off the margin.
@@ -127,8 +130,8 @@ export const marks: Record<string, string[]> = {
   "line-asks": ["Club asks, header only", "Club asks, any line", "line 12 to do"],
   runbook: ["Try a terminal runbook", "[run]"],
   // The Extensions hub beside the notifications hub's page: its README, and its demo boards under it.
-  "ext-pages": ["Extensions", "## Installed", "Notifications hub", "A deterministic fetcher"],
-  "ext-settings": ["Bare @tidy"],
+  "ext-pages": ["Extensions", "## Installed", "Notifications hub", "Your GitHub notifications"],
+  "ext-settings": ["Agents can't set each other off"],
   // Two notes, each writing its own form: the reading log and the shed repairs, side by side.
   forms: ["Reading log", "Shed repairs"],
   // The outliner's example rules, installed by the seed: meeting-card's card, shout's band, the job done-stamp watches.
@@ -185,6 +188,8 @@ export const marks: Record<string, string[]> = {
   hyper: ["Allotment notebook", "a terminal tile: with the layer on", "reach the door"],
   // The tags tile beside a reader: every tag with its uses, sorted, and picked to narrow.
   "facets": ["#frost-jobs", "uses▾", "facets"],
+  // The navigator (PIE-1443): the facets on #frost-jobs, its Matches in a tile with the pinned note first, a reader.
+  "navigator": ["☼ views", "▾ Pinned", "Lag the standpipe", "« "],
   "rich-edit": ["Seed inventory", "Beans", "Packets"],
   asks: ["Keep writing while the answer arrives"],
   neat: ["A neat workbench", "[neat]"],

@@ -182,3 +182,31 @@ test("each model is asked the request search sends, cached by it, and scored aga
   await runModel("jev-1.14.0", cases, o);
   expect(asked).toHaveLength(2);
 });
+
+test("[[ finds a page by meaning: none of its words typed, Jev reads every addressed note (PIE-1409)", async () => {
+  const { store, client } = await setup({ best: "Compost turning", exists: 0.6 });
+  store.create("Compost turning schedule [page::heap-rota]\nTurn the heap every two weeks in summer.");
+  store.create("Bin repairs [page::bin-repairs]\nThe lid hinge.");
+  store.create("Compost turning notes, not a page\nloose thoughts");
+  const r = await client.request<{ addresses: { address: string; blockId: string }[]; semantic: GotoSearchCollection["semantic"] }>({ action: "pages.complete", query: "rotating the pile", limit: 10, semantic: true });
+  expect(r.addresses[0]!.address).toBe("heap-rota");
+  expect(r.semantic).toMatchObject({ status: "ranked", label: "not sure", deep: { status: "found" } });
+});
+
+test("a search eval run is kept in plain words: hit@5, said sure and sure-but-wrong, and its cost as a chip the page's table reads (PIE-1409)", async () => {
+  const { client } = await setup({ best: "none", exists: 0.5 });
+  const { keepRun, EVALS_PAGE } = await import("../src/search-eval");
+  // A page made before its figure changed, and a jev-run template from when cost was words.
+  await client.request({ action: "create", text: "Search evals [page::search-evals] [system-view::search-evals]\n\nold figure", parentId: null });
+  const score = { model: "jev-1.13.0", cases: 4, positives: 2, reachable: 2, negatives: 2, asked: 4, unavailable: 0, hit1: 1, hit5: 2, lexHit1: 0, lexHit5: 1, existsAnswered: 0.7, existsNot: 0.4, sureRight: 1, sureWrong: 0, sureNothing: 1, quietRight: 1, quietWrong: 1, tokensIn: 0, tokensOut: 0, setIn: 1_000_000, setOut: 10 };
+  await keepRun(client, [score], [{ model: "jev-1.13.0", results: [], promptRev: "p", prompt: [] }], "Search eval report [type::snapshot]", "2026-10-29");
+  const [run] = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "type=jev-run experiment=search-eval", machinery: "show" } })).blocks;
+  const own = Object.fromEntries(run!.properties.map(p => [p.key, p.value]));
+  // Block chips, so the live table's columns read them.
+  expect(own).toMatchObject({ items: "2", agreed: "1", hit5: "2", quiet: "2", suggested: "2", different: "1", cost: "0.000000" });
+  // And what the page's table shows: each count out of what it counts, never a bare number.
+  expect(own).toMatchObject({ "hit-1": "1 of 2", "hit-5": "2 of 2", "said-sure": "2 of 4", "sure-wrong": "1 of 2" });
+  const page = (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: "system-view=search-evals", machinery: "show" } })).blocks[0]!;
+  expect(page.text).toBe(EVALS_PAGE);
+  expect(page.text).toContain("columns: [model, items, hit-1, hit-5, said-sure, sure-wrong, cost]");
+});

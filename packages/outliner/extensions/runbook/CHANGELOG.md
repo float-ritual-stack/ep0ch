@@ -2,9 +2,9 @@
 
 ## 6 (2026-10-19)
 
-- Runnable fences run independently with document-order context, private prompts, login shells and separate run records (PIE-1098).
-- Removes walks, modes, host execution, SSH flags, kept answers and the props form.
-
+- **Each step runs on its own,** with document-order context, private prompts and a login shell (PIE-1098).
+- **Each run is recorded separately** as a child `[type::run]` note.
+- **Removed:** walks, modes, host execution, SSH flags, kept answers and the props form.
 
 ## 5 (2026-10-19)
 

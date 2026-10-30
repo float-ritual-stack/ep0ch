@@ -23,7 +23,7 @@ import { TXN, takeReserved } from "./txn";
 import type { KeyBinding } from "../desk/screen-spec";
 import { Offline, USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
-import { heldBack, NOBODY, SHELL_IDLE_MS, typingIn, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
+import { heldBack, keysIn, NOBODY, SHELL_IDLE_MS, typingIn, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
 import { agentRefusal, type AgentLevel } from "./agent-level";
 import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, chordName, declaredKeys, isKeyName, keyCaption, type ActionDef, type Keys, type KeyRow, type ActionInfo, type Touches, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
@@ -101,6 +101,8 @@ export interface MenuRow {
   action: string; args: Record<string, unknown>; tile: string; label: string; group: string; key?: string; refused?: string;
   /** The tile's own row: its set runs in the tile itself (its kind's, a reader's note and list actions), not the screen's every-tile rows. */
   own?: true;
+  /** It opens a menu of its own beside this one (a status-bar group in a group): the menu stays open under it (PIE-1428). */
+  submenu?: true;
 }
 /**
  * An action's keys as they are now: its def's, with the person's keymap applied (keysNow), and the screen's own bindings
@@ -232,7 +234,11 @@ type NamedBy = "name" | "id" | "place" | "block" | "focused" | "default";
 
 /** Standing comes from a press, never from a script's attribution or requestedBy. */
 export function standsAsPerson(actor: Actor, where: Whereabouts, touch: InviteScope): boolean {
-  return actor.kind === "user" || !!where.yolo || INVITES.covers(actor.invitation, touch, actor.run);
+  return !!where.yolo || pressedBy(actor, touch);
+}
+/** The person, or an agent their press invited for `touch`: standing without yolo (what moves their keys, PIE-1444). */
+function pressedBy(actor: Actor, touch: InviteScope): boolean {
+  return actor.kind === "user" || INVITES.covers(actor.invitation, touch, actor.run);
 }
 
 /** Where a step reaches (Dispatcher.rule): the tile, how a refusal names it, what an agent does instead, and `host`. */
@@ -248,9 +254,12 @@ export function stepRule(touches: "tile" | "screen", actor: Actor, where: Wherea
  * (`held`, given what the step would do: "shut the dock they have"). The one answer (PIE-1294), so the two contexts
  * can't drift apart.
  */
-export function layoutStanding(actor: Actor, where: Whereabouts, o: { host?: true; action?: string } = {}): { standing: boolean; protectTyping: boolean; held: (what: string) => string | null } {
+export function layoutStanding(actor: Actor, where: Whereabouts, o: { host?: true; action?: string } = {}): { standing: boolean; keys: boolean; protectTyping: boolean; held: (what: string) => string | null } {
   const standing = standsAsPerson(actor, where, "shape");
-  return { standing, protectTyping: actor.kind === "agent" && !standing, held: what => actorRule({ touches: "screen", ...(o.host ? { host: true as const } : {}) }, actor, where, { what, ...(o.action ? { action: o.action } : {}) }) };
+  // Whether a step's opens take the person's keys: theirs, or an agent they invited for the shape. Yolo lifts every guard
+  // but never this: an agent's open lands beside them and their focus stays (PIE-1444; an agent's tile.focus still moves it).
+  const keys = pressedBy(actor, "shape");
+  return { standing, keys, protectTyping: actor.kind === "agent" && !standing, held: what => actorRule({ touches: "screen", ...(o.host ? { host: true as const } : {}) }, actor, where, { what, ...(o.action ? { action: o.action } : {}) }) };
 }
 
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */
@@ -304,8 +313,7 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       const typing = where.typingIn === t.name;
       const theirs = def.while === "typing" ? typing : typing || (!standing && where.focus === t.name);
       if (!theirs) return null;
-      const why = typing ? `the person is typing in ${label}` : `${label} has the person's keys`;
-      return def.way ? `${why}; ${def.way}` : heldBack(why, "act there");
+      return def.way ? `${typing ? `the person is typing in ${label}` : `${label} has the person's keys`}; ${def.way}` : keysIn(label, "act there", typing);
     }
     case "screen": {
       const what = at.what ?? "move the screen or their keys now";
@@ -349,6 +357,11 @@ const NUMBER = /^#?([1-9][0-9]{0,2})$/;
  */
 type Found = { tile: TileRef; dispatch: Dispatcher } | null;
 let listing: Map<Dispatcher, { where?: Whereabouts; tiles?: TileRef[]; resolved: Map<string, Found>; hosted: Map<string, Found> }> | null = null;
+
+/** Words for an action nobody here answers to that an uninstalled extension would (set once by src/extensions.ts). */
+let notInstalled: (name: string) => string | null = () => null;
+/** Every dispatcher's unknown-action refusal asks this first, so the refusal names what to install wherever it lands. */
+export function explainNotInstalled(words: (name: string) => string | null) { notInstalled = words; }
 
 export class Dispatcher {
   private nextConfirmation = 0;
@@ -454,6 +467,9 @@ export class Dispatcher {
   }
 
   unknownAction(name: string): string {
+    // An action something not installed here would answer (an extension's `ext.form.fill`, a kit's script): its name and install.
+    const missing = notInstalled(name);
+    if (missing) return missing;
     const near = rankTextSearchMatches(this.list().actions.map(a => ({ id: a.name, title: a.name, text: "" })), name, 3).map(m => m.document.title);
     return `nothing here answers to ${name}; \`actions\` lists them${near.length ? `; did you mean ${near.join(", ")}?` : ""}`;
   }
@@ -1056,6 +1072,7 @@ const kindNoun = (t: TileRef) => nounOf(t.kind);
 
 export const POINTER_ACTIONS = actionSet<{ dispatcher: Dispatcher; at: Target }>()("agent focus", {
   "agent.focus": def({
+    words: "point at a tile, note or line of your own",
     summary: "set your own pointer with tile=, note= and line=, without moving the person's keys; no arguments or clear=true drops it (agents only)",
     touches: "nothing", replay: "safe",
     args: {

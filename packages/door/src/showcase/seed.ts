@@ -74,14 +74,14 @@ async function keepSearchEval(board: SocketBoard, root: Msg, cases: { query: str
 }
 import { ECHO_COPIES, ECHO_NODELIST, ECHO_POSTS, ECHO_SEEN_BY, ECHO_TOSSER, ECHO_TOSSES } from "./seed/echonet";
 import { PROJECT_FIGURE, PROJECT_TICKETS, VENT_RAIL } from "./seed/self";
-import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, COPY_PAGE, COPY_CRATES, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, laneQuery, societyText } from "./seed/work";
+import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, COPY_PAGE, COPY_CRATES, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, figureCellsText, laneQuery, societyText } from "./seed/work";
 import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, KEYS_TEXT, dashboardText, figuresText, markdownFiguresText } from "./seed/figures";
 import { SEARCH_EVAL_SCORES, SEARCH_EVAL_SWEEP } from "./seed/notes";
-import { ASK_AGENT, DEEP_LINKS, ONE_COMPLETER, TRAIL_STOPS, trailStopText, backHubText, backJobText, SHED_JOBS, SHED_PAD, SHED_PLAN, ZOOM_JOBS, ZOOM_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, WRITE_REVIEW, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
+import { ASK_AGENT, DEEP_LINKS, ONE_COMPLETER, TRAIL_STOPS, trailStopText, backHubText, backJobText, SHED_JOBS, SHED_PAD, SHED_PLAN, ZOOM_JOBS, ZOOM_PLAN, STICKY_JOBS, STICKY_PAD, STICKY_PLAN, SOURCES, WRITE_REVIEW, WRITE_REVIEW_FIXED, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
 import { LIST_FOLDS } from "./seed/list-folds";
 import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
-import { ALMANAC, FORM_READING, FORM_REPAIRS, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
+import { ALMANAC, FORM_READING, FORM_REPAIR_LIST, FORM_REPAIRS, FORM_WATERING, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
 import { HEADINGS, LOOKS_LAB, OLD_LOOK, SPACING_LAB, SINGLE_LIST, STYLE_MIDDLE_LIST, DISPATCH_SKIN } from "./seed/looks";
 import { seedAccess } from "./seed/access";
 import { scriptExamples } from "@ep0ch/outliner/script-examples";
@@ -474,7 +474,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   ].join("\n"));
   await make(notes.root.id, "Fleece over the brassicas\nTwo layers on the north bed; weigh the edges with bricks. #frost-jobs");
   await make(notes.root.id, "Lift the dahlias\nDry the tubers in the shed; the stems go on the heap. #frost-jobs #compost");
-  await make(notes.root.id, "Lag the standpipe\nThe lagging is in the shed, top shelf. #frost-jobs/water");
+  await make(notes.root.id, "Lag the standpipe [pinned::true]\nThe lagging is in the shed, top shelf. #frost-jobs/water");
   // A thread whose replies carry stages (PIE-693): the links tile's Children group, narrowed by Stage like any other group.
   // Where it meets is a property whose value is a link (PIE-874): the shed lists the swap among its backlinks, as "meets-at".
   notes.swap = await make(notes.root.id, `${SEED.swap} [type::thread] [meets-at::[[${SEED.shed}]]]\nWho brings what to the seed swap on Saturday.`);
@@ -550,6 +550,8 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   // asks no Jev), kept as the service keeps a review, which makes Jev's suggestions page with its first finding.
   notes.writeReview = await make(notes.root.id, WRITE_REVIEW, { kind: "agent", id: "moss" });
   notes.jevPage = await keepReview(board, notes.writeReview);
+  // The writer follows the finding (PIE-1433): a second revision, so the page's row opens revision 1 beside it.
+  notes.writeReview = await board.update(notes.writeReview.id, WRITE_REVIEW_FIXED, notes.writeReview.revision!, { kind: "agent", id: "moss" });
   // Search says how sure it is (PIE-1197, PIE-1198): the eval's page and a run's report, as `ep0ch search eval --into` keeps them.
   ({ page: notes.searchEvals } = await keepSearchEval(board, notes.root, [
     { query: "what should I bring to the swap", expect: notes.jevPage },
@@ -618,6 +620,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.buildLog = await make(notes.root.id, BUILD_LOG);
   notes.testPlan = await make(notes.root.id, TEST_PLAN);
   for (const job of TEST_PLAN_JOBS) await make(notes.testPlan.id, job);
+  notes.figureCells = await make(notes.root.id, figureCellsText(notes.greenhouse.id, notes.testPlan.id));
   // Notes that read themselves (PIE-533 S2): the fixture under a project, with the notes its placeholders read from.
   // Templates (PIE-533 S4): the meeting template, three pages that use it live, the daily template and where its stamp lands.
   await make(notes.root.id, "Meeting greeting [page::meeting-greeting] [type::template]\n[form-field::with text required]\nWelcome {{props.with}} to {{this.title}}.");
@@ -704,9 +707,12 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
       await Bun.sleep(100);
     }
   }
-  // A form written in each note it's used on (PIE-828): one action, ext.form.fill, asks each note for its own fields.
+  // A form written in each note it's used on (PIE-828): one action, ext.form.fill, asks each note for its own fields;
+  // each lands its entries where it says (PIE-1442): under it, under a page, or as a line in it.
   notes.formReading = await make(notes.root.id, FORM_READING);
   notes.formRepairs = await make(notes.root.id, FORM_REPAIRS);
+  notes.formRepairList = await make(notes.root.id, FORM_REPAIR_LIST);
+  notes.formWatering = await make(notes.root.id, FORM_WATERING);
   // The gallery (PIE-827): its cards first, so the line's first run draws them.
   // Machinery (PIE-867): one question asked twice, of what people wrote and of what tools stamped for their own bookkeeping.
   const MACHINERY_QUERY = "[query::type=chore OR type=toss OR type=backup-run OR type=file-touch OR notify.key]";

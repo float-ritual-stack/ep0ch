@@ -247,7 +247,7 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     },
   }),
   "ask.open": def({
-    summary: "open an outline ask where this tile's opens land", keys: "⏎ alt+⏎ double click",
+    summary: "open an outline ask where this tile's opens land", keys: [{ keys: "⏎ alt+⏎ double-click", does: "open", says: "open the ask where this tile's opens land" }],
     touches: "nothing", replay: "safe",
     args: { n: { type: "number", optional: true, about: "row number from peek" }, fresh: { type: "boolean", optional: true, about: "use the alt wire" } },
     examples: [{ act: "ask.open n=1", does: "opens the first outline ask where this tile opens notes" }],
@@ -314,5 +314,5 @@ export const WAITING_YOU_KIND: TileKind = {
   kind: WAITING_YOU_KIND_NAME, previews: true, opensOnScreen: true, about: "decisions, proposals, calls, held requests and programs waiting on you", noun: "the waiting-on-you list",
   make: () => new WaitingYouPane(), actions: WAITING_YOU_ACTIONS,
   peek: p => ({ waitingOnYou: (p as WaitingYouPane).describe() }),
-  describe: p => ({ rows: (p as WaitingYouPane).describe() }),
+  describe: (p, full) => { const rows = (p as WaitingYouPane).describe(); return full ? { rows } : { count: rows.length }; },
 };

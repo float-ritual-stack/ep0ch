@@ -16,5 +16,9 @@ describe.skipIf(!outliner)("showcase: search says how sure (PIE-1198)", () => {
     expect(screen).toContain("jev-1.13.0");
     expect(screen).toContain("agents read");
     expect(screen).toContain("the note made after");
+    // In plain words (PIE-1409): how often the label came first and in the first five, and what a run cost.
+    expect(screen).toContain("hit@5");
+    expect(screen).toContain("7 of 12");                                 // hit@1, out of the cases with an answer
+    expect(screen).toContain("0.001722");
   });
 });

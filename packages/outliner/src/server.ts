@@ -3,7 +3,8 @@ import { completionRows, PICKS_METADATA_KEY, readPicks } from "./completion-sour
 import { recordPick } from "@ep0ch/outline-core/completion-source";
 import { replaceSectionText, refuseDroppedStructure } from "./work-tools";
 import { waitingAsks } from "./waiting-you";
-import { deployArtifact, artifactDns, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
+import { artifactRepoRef } from "@ep0ch/outline-core/media-line";
+import { deployArtifact, deployNote, artifactDns, artifactRepoInfo, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
 import { ArtifactStore } from "./artifact-store";
 import type { ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { moveNote } from "./note-move";
@@ -174,7 +175,7 @@ import {
   type RenderedNote,
 } from "./types";
 import { blockPublishIntent, Publisher, publisherUrl, type PublishClient } from "./publish";
-import { ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
+import { fileStorage, ReaderPresence, shareAllowMail, ShareSessions, SHARES_METADATA_KEY, shareOnWire, shareTtlMs, shareVia, type ShareResolution } from "./share-sessions";
 import { dialsIn, localMachineAliases, localMachineName } from "./machine-name";
 import { ECHONET_MAIL_ACTIONS, putPacket, readBulletin, takePackets } from "./echonet-mail";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
@@ -373,7 +374,10 @@ export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "p
  * What a read-only copy answers: those reads, and the ones the web client's pages of it make (publish-remote.ts: another
  * machine's outline read from its mirror while that machine is away), with the change feed it subscribes to.
  */
-const READ_ONLY_COPY_ACTIONS: ReadonlySet<string> = new Set([...READ_ONLY_ACTIONS, "artifacts.show", "artifacts.list", "artifacts.versions", "events.subscribe", "children", "blocks.read", "transclusions.read", "callouts.types", "extensions.list"]);
+const READ_ONLY_COPY_ACTIONS: ReadonlySet<string> = new Set([...READ_ONLY_ACTIONS, "artifacts.show", "artifacts.list", "artifacts.versions", "events.subscribe", "children", "blocks.read", "transclusions.read", "callouts.types", "extensions.list",
+  // A snapshot is a read (PIE-1091): made from the copy, downloaded once from this machine's web client, listed and
+  // revoked here; and what its pages here have in front of them. Starting a share stays the outline's own machine's.
+  "outline.snapshot", "shares.snapshot.take", "shares.snapshot.finish", "shares.list", "shares.revoke", "reader.report", "reader.view"]);
 
 export class OutlinerServer {
   private readonly mentions: MentionRepository;
@@ -387,9 +391,11 @@ export class OutlinerServer {
   /** The live drafts doors hold (PIE-501), and the requests to them waiting for an answer. */
   private readonly draftHolds = new DraftHolds();
   /** Short-lived public links (share-sessions.ts), kept in the outline's metadata. */
-  private readonly shares = new ShareSessions({ read: () => this.store.readMetadata(SHARES_METADATA_KEY), write: (value) => this.store.writeMetadata(SHARES_METADATA_KEY, value) });
+  private readonly shares: ShareSessions;
   /** What each reader of the web client has in front of them (presence, in memory). */
-  private readonly readers = new ReaderPresence();
+  private readonly readers: ReaderPresence;
+  /** A read-only copy of another machine's outline: its address on the web client, and where its shares are kept. */
+  private readonly copy?: { address: string; state: string };
   private readonly snapshots: OutlineSnapshots;
   /** `shares.start` calls waiting for their tunnel's report (`shares.tunnel`), by share id. */
   private readonly tunnelWaits = new Map<string, () => void>();
@@ -485,7 +491,7 @@ export class OutlinerServer {
     readonly socketPath: string,
     readonly herdrRegistry?: HerdrRuntimeRegistry,
     private readonly promptDirectory?: string,
-    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; ruleQuietMs?: number; /** How long a script ask waits for the run's own answer before it says the run is still going (default 3 s). */ scriptAnswerMs?: number; routeQuietMs?: number; readOnly?: boolean;
+    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; /** When a long answer says it's working, and how often it says how it's going (5 s, 60 s; tests). */ agentWorkingMs?: { after: number; every: number }; ruleQuietMs?: number; /** How long a script ask waits for the run's own answer before it says the run is still going (default 3 s). */ scriptAnswerMs?: number; routeQuietMs?: number; readOnly?: boolean;
       /** The host's outlines folder: where this machine's own name is kept (`.host/machine-name`). */
       outlinesFolder?: string;
       /** How often due schedules are looked for (default 15 s), and the clock they read (tests). */
@@ -493,12 +499,21 @@ export class OutlinerServer {
       /** The clock an extension's calls are told (`context.now`; tests pin a date-seeded extension's answer). */
       extensionNow?: () => number;
       /** Providers a store's own remote-entity client serves without an extension folder (a test's fixture client). */
-      resourceProviders?: readonly ResourceProviderEntry[] } = {},
+      resourceProviders?: readonly ResourceProviderEntry[];
+      /**
+       * A read-only copy of another machine's outline (outline-mirror.ts, PIE-1091): its address on this machine's web
+       * client (`float-hub@laptop`, the path a snapshot link names) and the folder beside the mirror its snapshot
+       * sessions, files and readers are kept in, shared by every process that serves the copy and every generation.
+       */
+      copy?: { address: string; state: string } } = {},
   ) {
     this.fixtureProviders = options.resourceProviders ?? [];
     this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
-    this.snapshots = new OutlineSnapshots(store, this.shares, join(this.stateDirectory, "snapshots"));
     this.readOnly = options.readOnly === true;
+    if (options.copy) this.copy = options.copy;
+    this.shares = new ShareSessions(this.copy ? fileStorage(join(this.copy.state, "shares.json")) : { read: () => this.store.readMetadata(SHARES_METADATA_KEY), write: (value) => this.store.writeMetadata(SHARES_METADATA_KEY, value) });
+    this.readers = new ReaderPresence(Date.now, this.copy ? fileStorage(join(this.copy.state, "readers.json")) : undefined);
+    this.snapshots = new OutlineSnapshots(store, this.shares, join(this.copy?.state ?? this.stateDirectory, "snapshots"), !this.readOnly);
     this.outlinesFolder = options.outlinesFolder;
     this.watches = new QueryWatches({
       answer: request => this.handle(request as unknown as OutlinerRequest),
@@ -598,6 +613,7 @@ export class OutlinerServer {
         id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.agent", sequence: this.store.sequence, blockId, ...(ask ? { ask } : {}),
       }),
       ...(options.agentRequestQuietMs !== undefined ? { quietMs: options.agentRequestQuietMs } : {}),
+      ...(options.agentWorkingMs ? { workingAfterMs: options.agentWorkingMs.after, progressMs: options.agentWorkingMs.every } : {}),
     });
     this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, extensionRuntime, {
       undoDrafts: (edits, by, write) => this.draftPatches.undoScript(edits, by, write),
@@ -846,8 +862,9 @@ export class OutlinerServer {
     this.stopping = false;
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
     this.hosted = true;
-    // A read-only copy runs nothing of its own: no agents answer its `@name` lines, and no extension fetches.
-    if (this.readOnly) return;
+    // A read-only copy runs nothing of its own: no agents answer its `@name` lines, and no extension fetches. Its
+    // snapshot links still end on time.
+    if (this.readOnly) { if (this.copy) this.snapshots.start(); return; }
     // The host opens each outline here, not through start(): requests a restart cut off, and `@name` lines
     // from before agent requests, are seen to the same way, once per outline.
     this.snapshots.start();
@@ -1501,19 +1518,26 @@ export class OutlinerServer {
    * added to the text's candidates and the whole ranked again, so they're scored and said as any hit is. Never throws.
    */
   private async deepen(query: string, ranked: GotoSearchCollection, note: { note?: { title: string; path: string } }): Promise<GotoSearchCollection> {
-    if (query.trim().length < 3 || ranked.matches[0]?.exact || ranked.semantic.verdict === "strong") {
-      return { ...ranked, semantic: { ...ranked.semantic, deep: { status: "skipped" } } };
-    }
-    const found = await deepCandidates(this.store.searchPool(), query, { jev: { promptDirectory: this.promptDirectory } });
-    if ("unavailable" in found) return { ...ranked, semantic: { ...ranked.semantic, deep: { status: "unavailable", message: found.unavailable } } };
-    const have = new Set(ranked.matches.map(m => m.block.id));
-    const added = this.store.searchMatches(found.candidates.map(c => c.id).filter(id => !have.has(id)), query);
-    const deep = { status: "found" as const, windows: found.windows, found: added.length, elapsedMs: found.elapsedMs, ...(found.reading?.usage ? { inputTokens: found.reading.usage.input } : {}) };
-    if (found.reading) this.tallySearch({ status: "ranked", model: found.reading.model, promptRevisions: found.reading.prompt, candidateCount: found.windows, ...(found.reading.usage ? { inputTokens: found.reading.usage.input, outputTokens: found.reading.usage.output } : {}) });
+    const found = await this.deepFinds(query, ranked.semantic, ranked.matches[0]?.exact, new Set(ranked.matches.map(m => m.block.id)));
+    if (!("ids" in found)) return { ...ranked, semantic: { ...ranked.semantic, deep: found } };
+    const added = this.store.searchMatches(found.ids, query), deep = { ...found.deep, found: added.length };
     if (!added.length) return { ...ranked, semantic: { ...ranked.semantic, deep } };
     // Jev's finds first: the "is it among these?" Noul reads the first candidates, and these are the ones it hasn't seen.
     const again = await rankSearchWithJev(query, { ...ranked, matches: [...added, ...ranked.matches.map(({ score: _s, ...m }) => m)] }, { promptDirectory: this.promptDirectory, ...note });
     return { ...again, semantic: { ...again.semantic, deep } };
+  }
+
+  /**
+   * The one deep pass (search-deep.ts) both searches take, `/`'s notes and `[[`'s pages (`where`): asked when the ranked
+   * search isn't sure, the ids Jev found that the words didn't (`have`), or why it wasn't asked. Counted on the day's run.
+   */
+  private async deepFinds(query: string, semantic: GotoSearchCollection["semantic"], exact: boolean | undefined, have: ReadonlySet<string>, where?: (b: Block) => boolean): Promise<{ ids: string[]; deep: NonNullable<GotoSearchCollection["semantic"]["deep"]> } | NonNullable<GotoSearchCollection["semantic"]["deep"]>> {
+    if (query.trim().length < 3 || exact || semantic.verdict === "strong") return { status: "skipped" };
+    const found = await deepCandidates(this.store.searchPool(), query, { ...(where ? { where } : {}), jev: { promptDirectory: this.promptDirectory } });
+    if ("unavailable" in found) return { status: "unavailable", message: found.unavailable };
+    if (found.reading) this.tallySearch({ status: "ranked", model: found.reading.model, promptRevisions: found.reading.prompt, candidateCount: found.windows, ...(found.reading.usage ? { inputTokens: found.reading.usage.input, outputTokens: found.reading.usage.output } : {}) });
+    const ids = found.candidates.map(c => c.id).filter(id => !have.has(id));
+    return { ids, deep: { status: "found", windows: found.windows, found: ids.length, elapsedMs: found.elapsedMs, ...(found.reading?.usage ? { inputTokens: found.reading.usage.input } : {}) } };
   }
 
   private readonly searchTallies = new SearchTallies();
@@ -2093,7 +2117,9 @@ export class OutlinerServer {
       try {
         if (this.readOnly && !["artifacts.show", "artifacts.list", "artifacts.versions"].includes(request.action)) throw new Error("This outline is read-only.");
         const result = request.action === "artifacts.lease" ? this.uploadLease(request)
-          : request.action === "artifacts.deploy" ? await deployArtifact(this.artifacts(), this.store, request.repo, request.mutation, request.domain)
+          : request.action === "artifacts.deploy" ? (request.note ? await deployNote(this.artifacts(), this.store, request.note, request.mutation) : await deployArtifact(this.artifacts(), this.store, request.repo ?? "", request.mutation, request.domain))
+          // A repo an artifact line names is answered from the deploy's records (PIE-1060), never read as a file.
+          : request.action === "artifacts.show" && artifactRepoRef(request.name) ? artifactRepoInfo(this.artifacts(), this.store, request.name)!
           : request.action === "artifacts.dns" ? await artifactDns(request.name, request.to)
           : request.action === "artifacts.backfill" ? await backfillArtifacts(this.artifacts(), this.store, request.catalogue)
           : await this.artifacts().request(request as import("@ep0ch/outline-core/artifacts").ArtifactRequest, this.store.workspaceRoot, this.outline?.name);
@@ -2255,8 +2281,22 @@ export class OutlinerServer {
         if (request.query?.trim() && this.activeGotoRankings < 2) {
           this.activeGotoRankings++;
           try {
-            const candidates = ranked.addresses.map(address => ({ address, title: address.title.slice(0, 250), path: address.address, snippet: (this.store.get(address.blockId)?.text ?? "").slice(0, 1000), exact: address.exact }));
-            const reordered = await rankSearchWithJev(request.query, { matches: candidates, completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...(ranked.context ? { note: { title: ranked.context.title, path: ranked.context.path } } : {}) });
+            const candidate = (address: (typeof ranked.addresses)[number]) => ({ address, title: address.title.slice(0, 250), path: address.address, snippet: (this.store.get(address.blockId)?.text ?? "").slice(0, 1000), exact: address.exact });
+            const note = ranked.context ? { note: { title: ranked.context.title, path: ranked.context.path } } : {};
+            let reordered = await rankSearchWithJev(request.query, { matches: ranked.addresses.map(candidate), completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...note });
+            // `[[` by meaning (PIE-1409): when no page its words found is sure (or none was), Jev reads every page, as
+            // `//` reads every note, and its finds are ranked with the rest.
+            if (reordered.semantic.status === "ranked" || !ranked.addresses.length) {
+              const paged = this.store.pagedBlockIds();
+              const found = await this.deepFinds(request.query, reordered.semantic, ranked.addresses[0]?.exact, new Set(ranked.addresses.map(a => a.blockId)), b => paged.has(b.id));
+              const added = "ids" in found ? this.store.pageAddressesFor(found.ids) : [];
+              if (added.length) {
+                const limit = request.limit ?? ranked.addresses.length, all = [...added.map(candidate), ...ranked.addresses.map(candidate)];
+                const again = await rankSearchWithJev(request.query, { matches: all, completeness: ranked.completeness, semantic: { status: "lexical" } }, { promptDirectory: this.promptDirectory, ...note });
+                // Still the request's limit: the finds take the places of the weakest.
+                reordered = { ...again, matches: again.matches.slice(0, limit), completeness: all.length > limit ? { kind: "truncated", limit } : ranked.completeness, semantic: { ...again.semantic, deep: { ...(found as { deep: NonNullable<GotoSearchCollection["semantic"]["deep"]> }).deep, found: added.length } } };
+              } else reordered = { ...reordered, semantic: { ...reordered.semantic, deep: "ids" in found ? { ...found.deep, found: 0 } : found } };
+            }
             // A model answer cannot resurrect an address renamed or deleted while it ranked.
             result = { addresses: reordered.matches.map(match => { const { exact: _exact, ...address } = match.address; return { ...address, ...(match.score !== undefined ? { score: match.score } : {}) }; }).filter(address => this.store.pageAddressLive(address.normalizedAddress, address.blockId)), completeness: ranked.completeness, semantic: reordered.semantic, ...context };
             this.tallySearch(reordered.semantic);
@@ -4453,8 +4493,8 @@ export class OutlinerServer {
         const address = this.publisherAddress();
         const root = address.url ? new URL(address.url).pathname.replace(/\/o\/[^/]+\/?$/, "").replace(/\/+$/, "") : "/pub";
         const publicAddress = this.publisherAddress(true);
-        const name = this.outline?.name ?? basename(this.store.database.filename, ".sqlite");
-        const origin = request.webUrl ? `${new URL(request.webUrl).origin}${root}/o/${encodeURIComponent(name)}`
+        const name = this.copy?.address ?? this.outline?.name ?? basename(this.store.database.filename, ".sqlite");
+        const origin = request.webUrl ? `${new URL(request.webUrl).origin}${root}/o/${encodeURIComponent(name).replace("%40", "@")}`
           : publicAddress.publicUrl ? publicAddress.tailnetUrl ?? publicAddress.url ?? new URL(publicAddress.publicUrl).origin
           : this.snapshotAddress?.() ?? address.tailnetUrl ?? address.url;
         const result = await this.snapshots.create(request, origin);

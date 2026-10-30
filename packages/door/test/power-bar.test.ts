@@ -841,6 +841,8 @@ describe.skipIf(!outliner)("the power bar", () => {
     const command = await app.dispatch.press("bar.command", { op: "copy" }) as { text: string };
     const button = await app.dispatch.press("bar.command", { op: "button" }) as { text: string };
     expect(command.text).toStartWith("ep0ch act tile.title");
+    // alt+o says it copied, on the status line and in its log, not only in the toast that's gone in a moment (PIE-1428).
+    expect((app as any).message).toContain("copied as a note button");
     // The CLI copy is the same words, each shell-quoted, so pasting it into a shell runs what the button runs.
     expect(command.text).toBe(["ep0ch", "act", ...lineWords(buttonCallsOf(button.text)[0]!.act!)].map(shellWord).join(" "));
     await app.dispatch.press("bar.edit", { op: "clear" });
@@ -963,6 +965,9 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(row.label).toBe(id);
     expect(row.refused).not.toContain("0b5c2d11");
     expect(row.refused).toContain("this outline");
+    // Its refusal reads whole at 40 columns, the how-to included, wrapped under the id rather than cut (PIE-1428).
+    const drawn = ((app as any).bar.draw(40, 30) as { lines: string[] }).lines.map(plain).map(l => l.replace(/^[^│]*│|│[^│]*$/g, "").trim()).join(" ").replace(/\s+/g, " ");
+    expect(drawn).toContain("opens by its ep0ch:// or web link");
   });
 
 });

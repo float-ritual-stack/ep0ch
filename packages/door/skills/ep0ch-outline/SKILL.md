@@ -28,7 +28,7 @@ For changing the code instead, use `ep0ch-core`. For driving their door (peek, a
 4. **Look before you make.** Find the existing owner and the vocabulary in use (`outline_find` by text,
    `property`, `hasKey` or `query`) before creating a note, a key or a view. Text alone is the ranked search: each row
    its `score`, and `search.verdict` says whether the top answers it; "no strong match" means it likely doesn't exist
-   yet, so make it rather than reuse the closest.
+   yet, so make it rather than reuse the closest; "not sure" means the top scores as a match: read it before deciding.
 
 ## Tools
 
@@ -391,7 +391,8 @@ needed: the publisher's tailnet URL plus `/p/<id>` (on pie, `https://my.ep0ch.sh
 the note's text, its children as links, breadcrumbs back up. They can highlight, comment and ask `@margin` there;
 it lands as their own threads in the outline, so "go check the notes I left" means reading the note's threads.
 In the door a reader draws its comments as cards in the margin; to keep just the marks, `M` (or a click on the
-comment count after the note's date) cycles cards a row each, whole, and **marks only**, kept with the tile.
+comment count after the note's date, which says which: "short cards", "whole", "as marks") cycles them, kept with
+the tile. Quoting a comment (`[Quote]`) opens the new note beside them to write in, under the note by default.
 
 ## Shaping a note: a floor, not a ceiling
 

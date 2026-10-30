@@ -356,6 +356,32 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     expect(answer.deps).toContain(note);
   });
 
+  test("an ask the person ticked in the door closes through the real service: the ticked step keeps the id the tick gave it (PIE-1451)", async () => {
+    const { askText, askReadOf, closedText } = await mod("approve.ts");
+    const agent = async (operation: string, input: unknown) => {
+      const p = Bun.spawn(["bun", OUTLINER_CLI, "agent", operation, "--stdin", "--actor", "claude-code@test"], { stdin: new Blob([JSON.stringify(input)]), stdout: "pipe", stderr: "pipe", env: { ...clean, ...env } });
+      const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+      return { out, err, code };
+    };
+    const made = await agent("create", { parent: note, text: askText("Bash", { command: "touch notes.txt" }, "loki in garden", "2026-10-30 08:00", "allow every `touch` command for this session") });
+    expect(made.code, made.err).toBe(0);
+    const id = (JSON.parse(made.out) as { id: string }).id;
+    // The person's tick, as the door and the web page make it: one `checklist.update`, which gives the step an id of its own.
+    const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
+    try {
+      const read = await board.checklist(id, 100);
+      await board.setStep(id, read.items[0]!, read.revision, "approved");
+    } finally { board.close(); }
+    const ticked = askReadOf((await agent("read", { ref: id, depth: 0 })).out);
+    expect(ticked?.text).toMatch(/- \[✓\] allow this once \^t-/);
+    // What the mod writes when it closes the ask: refused by the service when it drops the step's id.
+    const closed = await agent("edit", { ref: id, expectedRevision: ticked!.revision, text: closedText(ticked!.text, "Answered **allow this once** by the person.") });
+    expect(closed.code, closed.err).toBe(0);
+    const after = askReadOf((await agent("read", { ref: id, depth: 0 })).out)!;
+    expect(after.text.split("\n")[0]).not.toContain("[needs::");
+    expect(after.text).toContain("✓ **allow this once**");
+  });
+
   test("a refusal reaches the mod plain, with its reason, even under FORCE_COLOR", async () => {
     const { failureReasonOf } = await mod("mention-message.ts");
     const { loadBlockView, forgetEp0chHelp } = await mod("block-view.ts");
@@ -444,6 +470,12 @@ describe("peek, read by the mod's own reader and by a script (PIE-1308, PIE-1302
       expect(lines.stdout).toBe(whole.text.join("\n") + "\n");
       expect(JSON.parse((await run(["ep0ch", "peek", "text", "--json"], { env })).stdout)).toEqual(whole.text);
       expect(JSON.parse((await run(["ep0ch", "peek", "--json", "speed"], { env })).stdout)).toEqual(JSON.parse(speed.stdout));
+      // The layout is in brief, as layout.get gives it; --full (or full=true) has each tile whole (PIE-1447).
+      expect(whole.layout.brief).toContain("full=true");
+      const fullLayout = JSON.parse((await run(["ep0ch", "peek", "layout", "--full"], { env })).stdout);
+      expect(fullLayout.brief).toBeUndefined();
+      expect(fullLayout.tiles.map((t: any) => t.tile)).toEqual(whole.layout.tiles.map((t: any) => t.tile));
+      expect(JSON.parse((await run(["ep0ch", "peek", "layout", "full=true"], { env })).stdout).brief).toBeUndefined();
       // The default is text a few KB long, not the state.
       const compact = await run(["ep0ch", "peek"], { env });
       expect(compact.exitCode).toBe(0);
@@ -463,6 +495,9 @@ describe("peek, read by the mod's own reader and by a script (PIE-1308, PIE-1302
       expect(typeof full.text).toBe("string");
       expect(peekOf(speed.stdout, "section")).toEqual({ section: JSON.parse(speed.stdout) });
       expect(peekArgv({ section: "speed", full: true })).toContain("one part of the state");
+      // Each tile whole is its own ask (PIE-1447): `full` stays the whole state, each tile still in brief.
+      expect(peekArgv({ section: "layout", tiles: "full" })).toEqual({ argv: ["ep0ch", "peek", "layout", "--full"], reads: "section" });
+      expect(peekArgv({ tiles: "full" })).toEqual({ argv: ["ep0ch", "peek", "--json", "--full"], reads: "full" });
       // A name every object has is no section.
       const proto = await run(["ep0ch", "peek", "constructor"], { env });
       expect(proto.exitCode).toBe(1);

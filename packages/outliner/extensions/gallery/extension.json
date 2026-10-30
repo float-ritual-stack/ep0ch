@@ -3,7 +3,7 @@
   "id": "gallery",
   "version": 2,
   "name": "Gallery",
-  "description": "Rich component: pictures in a view, drawn as a note's image lines are. gallery:: shows the notes under it as cards with their [cover::] picture; pic:: shows one picture.",
+  "description": "Pictures as cards: the notes under a line, each shown by its cover picture.",
   "run": ["bun", "gallery.ts"],
   "handlers": [
     {
@@ -12,7 +12,7 @@
       "effects": "read",
       "staleAfter": "1m",
       "description": "The notes under this block as cards, each with its [cover::] picture",
-      "argument": { "name": "size", "required": false, "pattern": "^([1-9]|[1-5][0-9]|60)$", "description": "rows each cover takes, 1 to 60 (default 6)" }
+      "argument": { "name": "size", "required": false, "pattern": "^([1-9]|[1-5][0-9]|60)$", "description": "rows tall, 1 to 60 (default 6)" }
     },
     {
       "key": "pic",
@@ -20,7 +20,7 @@
       "effects": "read",
       "staleAfter": "1m",
       "description": "One picture, from a path the outline names",
-      "argument": { "name": "path", "required": true, "description": "the picture's path (a note's [img::] path), or file:/path" }
+      "argument": { "name": "path", "required": true, "description": "the picture's path, or file:/path" }
     }
   ]
 }

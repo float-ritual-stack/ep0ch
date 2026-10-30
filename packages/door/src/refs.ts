@@ -18,7 +18,7 @@ import type { DocImage, ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { resourceProviderKeys } from "./resource-providers";
 import { codeHides, codeSpanRanges, structuralLiteralLines } from "@ep0ch/outline-core/code-ranges";
-import { blockReferenceOccurrences, linkOccurrences, qualifiedReference, pageAddressText } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceOccurrences, linkOccurrences, qualifiedReference, pageAddressText, referencesToResolve } from "@ep0ch/outline-core/link-syntax";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, pairValues, problemWords, readerWords } from "@ep0ch/outline-core/site-values";
@@ -97,7 +97,8 @@ const BLOCK_ID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 function refsOf(text: string): { text: string; ids: string[] } {
   const refs = new Set<string>(), ids = new Set<string>();
   let rest = "", at = 0;
-  for (const r of blockReferenceOccurrences(text)) {
+  // A figure's cells name notes too (PIE-1334): found as prose's are, code still left out.
+  for (const r of referencesToResolve(text)) {
     refs.add(`((${refKey(r.blockId, r.fragmentId, r.outline)}))`); ids.add(r.blockId);
     rest += text.slice(at, r.start) + " "; at = r.end;
   }
@@ -113,8 +114,15 @@ function refsOf(text: string): { text: string; ids: string[] } {
 export function referencesIn(text: string, src: Source | null | undefined): Map<string, ReferenceResolution> | null {
   const refs = refsOf(text);
   if (!refs.text) return new Map();
-  return ask(refsBy, src, refs.text, async b => new Map((await b.resolveReferences(refs.text)).map(r => [refKey(r.blockId, r.fragmentId, r.requestedOutline), r])),
-    c => changedSince(c.at, refs.ids))?.value ?? null;
+  return ask(refsBy, src, refs.text, async b => {
+    const answers = await b.resolveReferences(refs.text), byKey = new Map(answers.map(r => [refKey(r.blockId, r.fragmentId, r.requestedOutline), r]));
+    // One answer per reference asked, in order, each naming the whole id: a reference written by its short id
+    // (`((0a1b2c3d|label))`, PIE-1334) is found by what was written too.
+    const asked = blockReferenceOccurrences(refs.text);
+    if (asked.length === answers.length) asked.forEach((q, k) => { const key = refKey(q.blockId, q.fragmentId, q.outline); if (!byKey.has(key)) byKey.set(key, answers[k]!); });
+    return byKey;
+    // Asked again when a note it names changes: a short id's change is told by the whole id it resolved to (PIE-1334).
+  }, c => changedSince(c.at, c.value ? [...refs.ids, ...[...c.value.values()].map(r => r.blockId)] : refs.ids))?.value ?? null;
 }
 
 type CommentSubject = { kind: "block"; blockId: string } | { kind: "resource"; resourceId: string };
@@ -247,6 +255,8 @@ export type LinkTarget = {
   resource?: AuthoredResourceLink;
   /** A Resource an extension's view links to (PIE-754): `file:/path`, `web:https://…` or `resource:<id>`. */
   resourceRef?: string;
+  /** With `block`: open it at this revision, beside how it is now (PIE-1433; a live table's `at:` row). */
+  revision?: number;
   block?: string; fragment?: string; at?: number; atLabel?: string; /** With `at`: what the lit line is (a `::fields` row's: "the line it was written on"). */ atSays?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout" | "figure" | "image" | "picture"; reason?: string;
   /**
    * A live figure's control (role "figure"): one of a tabs figure's tabs, or its density; on a row (role "row"), the
@@ -368,6 +378,21 @@ function tagsIn(noteText: string, src: Source | null | undefined): { raw: string
 
 /** A value's words with the characters inline Markdown would take for emphasis kept as typed. */
 const plainWords = (words: string) => words.replace(/[*_~\\]/g, "\\$&");
+
+/**
+ * A line of words that may name notes (a status message, a refusal): each labelled reference said as its label, as a
+ * reader draws one (`((id|Seed order))` reads "Seed order", PIE-1439), by outline-core's one scan; an unlabelled one stays
+ * as written, since its id is all it says. For one row of words with no note to resolve against; a note is presentLinks'.
+ */
+export function referenceWords(text: string): string {
+  let out = "", at = 0;
+  for (const r of blockReferenceOccurrences(text, "inline")) {
+    if (r.label === undefined) continue;
+    out += text.slice(at, r.start) + r.label;
+    at = r.end;
+  }
+  return at ? out + text.slice(at) : text;
+}
 
 /**
  * `site`: the note this text is drawn for. Its `{{ }}` are drawn as the service's `site.answer` reads them (PIE-533 S2):
@@ -494,7 +519,9 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
       } else if (!l.embed || !embeds) {
         const answer = resolved.get(refKey(l.blockId, l.fragmentId, l.outline));
         const v = refView(l.blockId, l.fragmentId, l.label, answer);
-        const to: LinkTarget = { block: l.blockId, ...(answer?.outline || l.outline ? { outline: answer?.outline ?? l.outline, machine: answer?.machine } : {}), ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
+        // A reference written by its short id (`((0a1b2c3d|label))`) follows the whole id the service resolved it to
+        // (PIE-1334): `board.get` takes only a whole one.
+        const to: LinkTarget = { block: answer?.status === "resolved" && answer.blockId.length > l.blockId.length ? answer.blockId : l.blockId, ...(answer?.outline || l.outline ? { outline: answer?.outline ?? l.outline, machine: answer?.machine } : {}), ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
         spans.push({ ...l, draw: () => (l.embed ? `!${mark(v, to)} · embed not expanded here` : mark(v, to)) + sourceMark(l) });
       }
     }

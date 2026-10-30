@@ -182,6 +182,11 @@ export class RemoteOutline {
       : `${this.outline} is at MCP access ${level} on ${this.machine}, so pages here only read it. On ${this.machine}: ep0ch mcp access full --ws ${this.outline}`;
   }
 
+  /** The copy's publisher, whether or not the machine answers: a snapshot link minted from the copy is its (PIE-1091). */
+  copyPublisher(): Promise<Publisher | { error: string }> {
+    return this.stopped ? Promise.resolve({ error: "the web client is stopping" }) : this.fromCopy();
+  }
+
   /** The read-only copy here, its publisher started for the generation now served (a newer copy gets a new one). */
   private async fromCopy(): Promise<Publisher | { error: string }> {
     const away = this.failed?.why ?? "it didn't answer";
@@ -195,7 +200,8 @@ export class RemoteOutline {
       const publisher = this.options.publisher(new OutlinerClient(read.board.socket, 30_000, this.outline), {
         provenance: () => `${this.outline} · ${this.machine} · as of ${asOf.slice(0, 16).replace("T", " ")} UTC (${this.machine} asleep)`,
         writes: async () => `${this.machine} is asleep: this is its copy as of ${asOf.slice(0, 16).replace("T", " ")} UTC, read-only. Comments and marks are taken again when ${this.machine} answers.`,
-        presence: false,
+        // Kept beside the mirror (outline-mirror.ts), where the gateway's reader_view reads it.
+        presence: true,
       });
       const started = publisher.start().then(() => publisher);
       started.catch(() => { if (this.copy?.publisher === started) this.copy = null; void publisher.stop(); });

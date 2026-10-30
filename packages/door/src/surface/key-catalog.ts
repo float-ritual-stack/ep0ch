@@ -8,19 +8,23 @@ import { hyperLabel } from "../hyper";
 import { keyAlternatives } from "../figures/keys";
 import { allActionSets, chordName, declaredKeys, keyCaption, type ActionDef, type KeyRow } from "./actions";
 import { bindingId, effective, keymapEntries, keyTables, rebindable, type KeymapEntry, type TableRow } from "./keymap";
+import { screenNames } from "../desk/screen-spec";
 
 /**
  * The layers a key passes through, first first (App.route, then the desk's key, then its tile's): the hyper layer, the
  * person's keymap, the drawer, the door's keys on every screen, the ^W keys, a mode (an edit, a comment, a panel), the
- * focused tile's keys, then the screen's own. A key a layer takes never reaches the ones under it.
+ * screen's own (its spec's keys, which Desk.boundKey presses before any tile's: the river's x, PIE-1439), then the
+ * focused tile's keys. A key a layer takes never reaches the ones under it.
  */
-export const LAYERS = ["hyper", "yours", "drawer", "every screen", "^W", "mode", "tile", "screen"] as const;
+export const LAYERS = ["hyper", "yours", "drawer", "every screen", "^W", "mode", "screen", "tile"] as const;
 export type Layer = (typeof LAYERS)[number];
 
 /** Where an action set's keys work: its scope's layer. */
 const SCOPE_LAYER: Record<string, Layer> = {
   shell: "every screen", "status bar": "every screen", bar: "every screen", macros: "every screen", new: "every screen", host: "every screen",
-  message: "every screen", status: "every screen", registry: "every screen", hint: "every screen",
+  hint: "every screen",
+  // A screen's own sets: the message reader's (opened from a list), the message log's, the showcase's registry.
+  message: "screen", status: "screen", registry: "screen",
   drawer: "drawer", agents: "drawer", "agent focus": "drawer",
   draft: "mode", completion: "mode",
   board: "screen", river: "screen", desk: "screen", home: "screen", welcome: "screen", echo: "screen", showcase: "screen", brief: "screen",
@@ -38,6 +42,8 @@ export interface Binding {
   id: string;
   /** Where it works: the action set's scope (note, tile, shell) or the table's (^W, sources, comment). */
   scope: string;
+  /** The action set whose place its table is part of (KeyTable.within: the river column's tables, `river`). */
+  within?: string;
   layer: Layer;
   /** What it does there, in its own words: the row's, the table's label, else the action's summary. */
   does: string;
@@ -45,6 +51,8 @@ export interface Binding {
   about: string;
   /** Where it comes from: an action's own keys, a key table, or the keymap file (a key it gives). */
   from: "action" | "table" | "yours" | "unbound";
+  /** `does` is the row's own whole sentence (`says`), not the action's words and then the row's. */
+  said?: true;
   /** It can be moved through the keymap: true, or why not. */
   rebind: true | string;
   /** The keymap gives it this key (it's not the built-in). */
@@ -58,8 +66,8 @@ export interface Binding {
 /** A screen's row's kinds of focused tile (KeyBinding's `only`, `unless`). */
 const kinds = (r: TableRow & { only?: readonly string[]; unless?: readonly string[] }) => ({ ...(r.only ? { only: r.only } : {}), ...(r.unless ? { unless: r.unless } : {}) });
 const clause = (summary: string) => summary.split(/[.:;(]/)[0]!.trim();
-/** A table row's words: its label where it says something (`close sources`), else the action's words with it (`query` alone isn't). */
-const tableWords = (label: string | undefined, about: string) => (!label ? about : label.trim().split(/\s+/).length > 1 ? label : whole(about, label, ""));
+/** A table row's words: its `says`, else its label where it says something (`close sources`), else the action's words with it (`query` alone isn't). */
+const tableWords = (r: TableRow, about: string) => r.says ?? (!r.label ? about : r.label.trim().split(/\s+/).length > 1 ? r.label : whole(about, r.label, ""));
 /** An action's own words for a row: its `words`, else its summary's first clause. */
 const aboutOf = (def: ActionDef<any, any>) => def.words ?? clause(def.summary);
 /**
@@ -102,8 +110,8 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
       const yours = keymapEntries().some(e => e.id === id && e.keys.includes(key));
       held.add(`${key} ${r.action}`);
       out.push({
-        key, cap: capOf(key), action: r.action, args, id, scope: t.scope, layer: t.screen || (t.scope === screenName && screen.length) ? "screen" : tableLayer(t.scope),
-        does: tableWords((r as { label?: string }).label, summary(r.action)), about: summary(r.action), from: yours ? "yours" : "table",
+        key, cap: capOf(key), action: r.action, args, id, scope: t.scope, ...(t.within ? { within: t.within } : {}), layer: t.screen || (t.scope === screenName && screen.length) ? "screen" : tableLayer(t.scope),
+        does: tableWords(r, summary(r.action)), about: summary(r.action), from: yours ? "yours" : "table",
         rebind: t.prefix === "hyper+" ? `a hyper chord: the window can't read one (the door takes it first), so give it another in keybindings.json ("${bindingId(r.action, r.args ?? {})}": [..., "hyper+<key>"])` : rebindable(t.rows, r) ? true : `${r.action} is bound to several keys here, each a different way (${rows.filter(x => x.action === r.action && !GESTURES.has(x.key)).map(x => capOf(tableKey(t.prefix, x.key))).join(" ")}): they move together in code, not one at a time`,
         ...(yours ? { yours: true as const } : {}), table,
         ...kinds(r),
@@ -128,7 +136,10 @@ export function bindings(screen: readonly TableRow[] = [], screenName = "screen"
         seen.add(key);
         const gone = entry && !entry.keys.includes(key);
         if (gone) continue;
-        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope, layer: SCOPE_LAYER[scope] ?? "tile", does: whole(aboutOf(def), row.does, capOf(key)), about: aboutOf(def), from: "action", rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
+        // A row that names its place (`on`) is that place's own key: a screen's (the menu's letters) in its layer, a tile
+        // kind's (the tune inspector's) in the tile layer.
+        const on = row.on;
+        out.push({ key, cap: capOf(key), action, args: {}, id: bindingId(action), scope: on ?? scope, layer: on ? SCOPE_LAYER[on] ?? "tile" : SCOPE_LAYER[scope] ?? "tile", does: row.says ?? whole(aboutOf(def), row.does, capOf(key)), about: aboutOf(def), from: "action", ...(row.says ? { said: true as const } : {}), rebind: key.includes(" ") && !key.startsWith("ctrl+w ") ? "a key after another key (a then c): the keymap binds one key or a ^W chord" : true });
       }
     }
     // A key the keymap gives the whole action that it didn't declare.
@@ -173,12 +184,33 @@ export function strayEntries(): KeymapEntry[] {
  */
 export function shadowsOf(b: Binding, all: readonly Binding[]): { under: Binding[]; over: Binding[]; terminal: boolean } {
   const at = LAYERS.indexOf(b.layer);
-  const same = all.filter(x => x !== b && x.key === b.key && x.id !== b.id);
+  const same = all.filter(x => x !== b && x.key === b.key && x.id !== b.id && together(x, b));
   return {
     under: same.filter(x => LAYERS.indexOf(x.layer) > at),
     over: same.filter(x => LAYERS.indexOf(x.layer) < at),
     terminal: !(b.layer === "hyper" || b.key === ESCAPE_CHORD),
   };
+}
+
+/** The one screen a binding's key works on: a screen's own key (its scope), or a table's place (the river column's, `river`). */
+const placeOf = (b: Binding): string | undefined => (b.layer === "screen" ? b.scope : b.within);
+/** A screen of tiles (a registered screen spec: the desk, the board, the river), where tiles' keys, modes and ^W work. */
+const tiled = (screen: string) => screenNames().includes(screen);
+/** The layers only a screen of tiles has: a tile's keys, a mode's, the ^W keys. */
+const TILE_LAYERS: ReadonlySet<Layer> = new Set(["^W", "mode", "tile"]);
+/**
+ * Whether two bindings can both be live on one screen (PIE-1439): two screens' own keys never meet, and a screen with no
+ * tiles (the main menu) has no tile, mode or ^W keys. The keys window says a key "taken by" only where both are.
+ */
+function together(a: Binding, b: Binding): boolean {
+  const pa = placeOf(a), pb = placeOf(b);
+  if (pa && pb) return pa === pb;
+  const lone = (p: string | undefined, other: Binding) => !!p && !tiled(p) && TILE_LAYERS.has(other.layer);
+  return !lone(pa, b) && !lone(pb, a);
+}
+/** Whether binding `b` works on screen or in place `where` (`in:river`): its scope, the set its table is part of, its layer, or a ^W chord on a screen of tiles. */
+export function worksIn(b: Binding, where: string): boolean {
+  return b.scope.toLowerCase() === where || b.within === where || b.layer === where || (b.layer === "^W" && tiled(where));
 }
 
 /** Whether two rows of one table can be live at once: the kinds of focused tile each runs for meet. */
@@ -230,7 +262,8 @@ export function rebindEffects(b: Binding, key: string, all: readonly Binding[]):
   if (GESTURES.has(name)) return { takes: [], under: [], over: [], problem: "a mouse gesture isn't a key: clicks stay where they are" };
   if (b.key && b.key.startsWith("ctrl+w ") !== name.startsWith("ctrl+w ")) return { takes: [], under: [], over: [], problem: b.key.startsWith("ctrl+w ") ? `${b.cap} is a ^W key: press ^W, then the key` : "a ^W chord goes to a ^W key; this one is a key of its own" };
   if (b.key.startsWith("hyper+") !== name.startsWith("hyper+")) return { takes: [], under: [], over: [], problem: "a hyper chord goes to a hyper chord: hold ⌃⌥⇧⌘ and press the key" };
-  const there = all.filter(x => x.key === name && x.id !== b.id);
+  // Only where both can work (PIE-1439): another screen's own key loses nothing, as the rows say.
+  const there = all.filter(x => x.key === name && x.id !== b.id && together(x, b));
   // A key given to an action with none is pressed through the App's keymap layer, over the screens' own.
   const at = LAYERS.indexOf(!b.key || b.layer === "yours" ? "yours" : b.layer);
   // A key given to an action with none takes it only from your other keymap entries (setKeys moves those); a built-in

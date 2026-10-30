@@ -18,6 +18,7 @@ import { Conferences } from "../../src/screens";
 import { openScreen } from "../../src/desk/screen-specs";
 import { ReaderPane } from "../../src/desk/panes";
 import { Desk } from "../../src/desk/desk";
+import { prop } from "../../src/props";
 import { USER } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -78,7 +79,8 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
       await app.dispatch.act({ action: "open", args: { id: note.id } }, USER);
       const drawn = () => desk.render(app).lines.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, "")).join("\n");
       await until(() => drawn().includes("[Video]"), "video buttons drawn");
-      for (const args of [{ label: "Video" }, { note: note.id, label: "Video" }]) {
+      // note= by its id, or by its first 8 characters as open id= takes them (PIE-1428).
+      for (const args of [{ label: "Video" }, { note: note.id, label: "Video" }, { note: note.id.slice(0, 8), label: "Video" }]) {
         const result = await app.dispatch.act({ action: "button.press", args }, USER);
         expect(result).toMatchObject({ act: "video.cycle" });
         const refused = await app.dispatch.act({ action: "button.press", args: { ...args, label: "Vid" } }, USER).then(() => "", (e: Error) => e.message);
@@ -119,8 +121,11 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     try {
       const text = "The watering schedule needs attention. " + "Keep the entire message. ".repeat(25) + "END OF MESSAGE";
       app.flash(text);
-      click(1, app.t.rows - 1);
-      await Bun.sleep(50);
+      // A click on the message where the bar draws it: ^K keeps its place at the bar's left while a message is up (PIE-1449).
+      const bar = () => { (app as any).paint(); return (h.painted.at(-1) ?? "").replace(/\x1b\[[\d;]*[A-Za-z]/g, ""); };
+      await until(() => bar().includes("The watering schedule"), "the message on the status bar");
+      click(bar().indexOf("The watering schedule") + 2, app.t.rows - 1);
+      await until(() => app.screens().at(-1)?.title === "message log", "the message log open");
       const read = await app.dispatch.act({ action: "list.read" }, USER) as { rows: { title: string }[] };
       expect(read.rows.some(r => r.title === text)).toBe(true);
       await app.dispatch.act({ action: "status.filter", args: { text: "watering schedule" } }, USER);
@@ -136,6 +141,44 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
       for (let i = 0; i < 4 && !end; i++) { press({ kind: "pgdn" }); end = view.render(app).lines.join("\n").includes("END OF TALL MESSAGE"); }
       expect(end).toBe(true);
     } finally { if (app.screens().at(-1)?.title === "message log") app.pop(); }
+  });
+
+  test("a message in the log names a note by its label, as a reader does, and status.link opens it (PIE-1453)", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "message-log" } }, USER);
+    await until(() => screen().includes("the shed note"), "the refusal drawn with its label");
+    expect(screen()).not.toContain(`((${seeded.notes.shed!.id}|`);
+    // From the log over a desk (alt+M): the label opens its note there, where opens land.
+    const desk = openScreen("desk") as Desk;
+    app.push(desk);
+    try {
+      await app.dispatch.act({ action: "status.log" }, USER);
+      const read = await app.dispatch.act({ action: "list.read" }, USER) as { rows: { title: string }[] };
+      const row = read.rows.findIndex(r => r.title.includes("the shed note")) + 1;
+      expect(row).toBeGreaterThan(0);
+      const opened = await app.dispatch.act({ action: "status.link", args: { row, n: 1 } }, USER) as { id: string };
+      expect(opened.id).toBe(seeded.notes.shed!.id);
+      expect(app.screens().at(-1)).toBe(desk);
+    } finally { while (app.screens().at(-1) !== desk && app.screens().includes(desk)) app.pop(); app.pop(); desk.dispose(); }
+  });
+
+  test("a message's link opens where the reader's would: another outline's note there, a page not yet read (PIE-1453)", async () => {
+    const journal = prop(seeded.notes.crossOutline, "foreign-note")!;
+    const desk = openScreen("desk") as Desk;
+    app.push(desk);
+    try {
+      // Read the moment it's listed: no frame has drawn it, so nothing has asked for the page yet.
+      app.flash(`Filed nowhere: [[Seed report]] has no form, and ((showcase-orchard:${journal}|the orchard journal)) is another outline's`, 4000, { kind: "refusal" });
+      const rowOf = async () => {
+        await app.dispatch.act({ action: "status.log" }, USER);
+        const read = await app.dispatch.act({ action: "list.read" }, USER) as { rows: { title: string }[] };
+        return read.rows.findIndex(r => r.title.startsWith("Filed nowhere")) + 1;
+      };
+      const page = await app.dispatch.act({ action: "status.link", args: { row: await rowOf(), n: 1 } }, USER) as { id: string };
+      expect((await board.get(page.id))!.text).toContain("[page::Seed report]");
+      const foreign = await app.dispatch.act({ action: "status.link", args: { row: await rowOf(), n: 2 } }, USER) as { id: string };
+      expect(foreign.id).toBe(journal);
+      expect([...(desk as any).panes.values()].some((p: any) => p.msg?.id === journal && p.msg.address?.outline === "showcase-orchard")).toBe(true);
+    } finally { while (app.screens().includes(desk) && app.screens().at(-1) !== desk) app.pop(); app.pop(); desk.dispose(); }
   });
 
   test("launch buttons run by click and enter from the desk, drawer and Welcome", async () => {

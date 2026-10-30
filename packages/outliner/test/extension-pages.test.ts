@@ -88,11 +88,11 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
   expect(hub.text.split("\n")[0]).toBe("Extensions [page::extensions]");
   expect(hub).toMatchObject({ author: "agent", actorId: "ext:extension-pages" });
   // The hub: each installed one a link to its page; what the repo has that isn't installed, with how to install it.
-  expect(hub.text).toContain(`((${listed.pages.notify}|Notifications hub)) \`notify\` v4`);
+  expect(hub.text).toContain(`((${listed.pages.notify}|Notifications hub)) \`notify\` v5`);
   expect(listed.available.map((entry) => entry.id)).toContain("moon");
   expect(listed.available.map((entry) => entry.id)).not.toContain("notify");
   expect(hub.text).toMatch(/\*\*Moon\*\* `moon` v\d/);
-  expect(hub.text).toContain("gets `[done-at::<date>]`");
+  expect(hub.text).toContain("Stamps the date on a note when its status becomes done");
   // The page: README body (its # title is the page's), what it adds, the changelog's newest entry, the demo under it.
   const page = store.require(listed.pages.runbook!);
   expect(page.parentId).toBe(hub.id);

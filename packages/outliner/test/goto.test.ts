@@ -86,18 +86,25 @@ describe("Goto search", () => {
     expect(result.semantic).toMatchObject({ status: "ranked", candidateCount: 2, inputTokens: 123, outputTokens: 4 });
     expect(result.matches.map(m => m.score)).toEqual([2.8, 0.2]);
   });
-  test("says how sure it is: strong when the top and the Noul agree, else no strong match", async () => {
+  test("says how sure it is: strong when the top and the Noul agree, not sure over a match it can't claim, else no strong match", async () => {
     const candidates = gotoCandidates(notes, "terminal");
     const ask = (scores: number[], exists?: number) => rankGotoWithJev("terminal", candidates, { apiKey: "fixture", fetch: fakeFetch(scores, exists) });
     const strong = await ask([0.2, 2.8], 0.95);
     expect(strong.semantic).toMatchObject({ verdict: "strong", exists: 0.95, top: 2.8 });
     expect(strong.semantic.said).toStartWith("strong match:");
-    // A confident #1 the Noul doesn't back is named, not claimed.
-    const weak = await ask([0.2, 2.8], 0.5);
-    expect(weak.semantic).toMatchObject({ verdict: "weak" });
-    expect(weak.semantic.said).toStartWith("no strong match: the closest is");
+    // A confident #1 the Noul doesn't back is named, not claimed: "not sure", never "no strong match" over a row that
+    // reads 2.8/3 (PIE-1409).
+    const weak = await ask([0.2, 2.8], 0.79);
+    expect(weak.semantic).toMatchObject({ verdict: "weak", label: "not sure" });
+    expect(weak.semantic.said).toMatch(/^not sure it's the one: “.*” \(2\.8 of 3, sure 0\.8\)$/);
+    // Under a sure answer's Score, a top Jev still scores as a match is not sure too (PIE-1409: a right Seed swap at
+    // 1.9 read "no strong match"); under that line it is no strong match.
+    const near = await ask([0.2, 1.9], 0.9);
+    expect(near.semantic).toMatchObject({ verdict: "weak", label: "not sure" });
+    expect(near.semantic.said).toStartWith("not sure it's the one:");
     const low = await ask([0.2, 1.4], 0.9);
-    expect(low.semantic.verdict).toBe("weak");
+    expect(low.semantic).toMatchObject({ verdict: "weak", label: "no strong match" });
+    expect(low.semantic.said).toStartWith("no strong match: the closest is");
     const none = await ask([0.2, 2.4], 0.1);
     expect(none.semantic).toMatchObject({ verdict: "none", said: "no strong match: nothing here looks like what was asked for" });
     // No Noul back: the Score decides alone.

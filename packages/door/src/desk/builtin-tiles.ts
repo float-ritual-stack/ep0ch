@@ -29,7 +29,7 @@ import { AGENTS_KIND } from "./agents-panel";
 import { FACETS_KIND, TAGS_KIND } from "./facets";
 import { ANSWER_TILE } from "./answer-tile";
 import { TRAIL_TILE } from "./trail-tile";
-import { COMMENT_TILE, SOURCES_TILE, LIST_PREVIEW_TILE, EDIT_PREVIEW_TILE } from "./attached-tile";
+import { COMMENT_TILE, SOURCES_TILE, LIST_PREVIEW_TILE, EDIT_PREVIEW_TILE, MATCHES_TILE } from "./attached-tile";
 import { WHAT_CHANGED_KIND } from "./what-changed";
 import { recordFacts } from "./program-status";
 import { prop } from "../props";
@@ -211,7 +211,7 @@ const builtins = (): TileKind[] => [
     },
     shows: p => (p as QueryPane).card() ?? null,
     view: p => { const q = p as QueryPane, m = q.card(); return { viewport: { view: q.view, lane: q.name, selected: m?.id ?? null, title: m ? subject(m) : null } }; },
-    describe: p => (p as QueryPane).describe(),
+    describe: (p, full) => { const { cards, ...d } = (p as QueryPane).describe() as ReturnType<QueryPane["describe"]> & { cards?: unknown[] }; return full && cards ? { ...d, cards } : d; },
   },
   {
     kind: "tune", openArgs: ["source"], about: "the tune inspector on another tile (source=tile:<name>): its look's spacing, list, surface and frame values, where each comes from, nudged, taken back and saved (PIE-673, PIE-675)",
@@ -249,6 +249,6 @@ const builtins = (): TileKind[] => [
 
 /** Register the built-ins (once: the desk's module and a test's both ask), and the hub source the board's lanes come from. */
 export function registerBuiltinTiles(): void {
-  for (const k of [...builtins(), riverColumnKind(), WAITING_YOU_KIND, ACCESS_MATRIX_KIND, WHAT_CHANGED_KIND, AGENTS_KIND, FACETS_KIND, TAGS_KIND, COMMENT_TILE, SOURCES_TILE, LIST_PREVIEW_TILE, EDIT_PREVIEW_TILE, ANSWER_TILE, TRAIL_TILE]) if (!tileKind(k.kind)) registerTileKind(k);
+  for (const k of [...builtins(), riverColumnKind(), WAITING_YOU_KIND, ACCESS_MATRIX_KIND, WHAT_CHANGED_KIND, AGENTS_KIND, FACETS_KIND, TAGS_KIND, COMMENT_TILE, SOURCES_TILE, LIST_PREVIEW_TILE, EDIT_PREVIEW_TILE, MATCHES_TILE, ANSWER_TILE, TRAIL_TILE]) if (!tileKind(k.kind)) registerTileKind(k);
   if (!tileSource(`${HUB_SOURCE.name}:`)) registerTileSource(HUB_SOURCE);
 }

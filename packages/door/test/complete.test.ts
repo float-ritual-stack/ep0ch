@@ -67,6 +67,12 @@ describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, th
   });
   const draw = (s: CompletionState, w: number) => renderCompletion(s, w, 14, [], 4).map(visible);
 
+  test("at 40 columns how sure Jev is reads whole beside a note about the list (PIE-1409)", () => {
+    const s = state("see ((gree", { jev: "ranked", sure: { verdict: "weak", label: "no strong match", said: "" }, message: "showing the first 20 matches" });
+    // The popup at 40 columns, beside its anchor: about 30 wide.
+    expect(draw(s, 30).some(l => l.includes("no strong match · show"))).toBe(true);
+  });
+
   test("at 120 columns the docs wrap beside the list, the first word drawn and none cut; each row has its kind at the right", () => {
     const s = state(), lines = draw(s, 120);
     const row = lines.find(l => l.includes("Greenhouse meeting"))!;
@@ -364,6 +370,18 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
     expect(renderCompletion(c.state!, 60, 8).map(visible).join("\n")).toContain("jev ranked");
   });
 
+  test("a person who never moved off the top row stays on the top row: Jev's #1, not the old #1 wherever it sank (PIE-1409)", async () => {
+    const { board } = fake();
+    const d = new Draft("note-1", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "((party hats") completionKey(d, char(ch), c);
+    await until(() => !!c.state && !c.state.loading && c.state.items.length === 3, "the lexical lookup");
+    expect(c.state!.index).toBe(0);
+    await until(() => c.state?.jev === "ranked", "Jev's order");
+    expect(c.state!.items.map(i => i.blockId)).toEqual(["b3", "b1", "b2"]);
+    expect(c.state!.index).toBe(0);                                       // Fat cats, Jev's best, lit
+  });
+
   test("typing more selects the best match again; a re-ask of the same query keeps the pick", async () => {
     const { board } = fake();
     const d = new Draft("note-1", 1, "");
@@ -441,6 +459,50 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
     expect(c.state!.items[c.state!.index]!.blockId).toBe("p2");
     expect(asked.every(a => a.near === "note-7")).toBe(true);
     expect(asked.filter(a => a.semantic).map(a => a.query)).toEqual(["party"]);
+  });
+
+  test("[[ naming no page yet asks Jev, which finds one by meaning; the new page stays lit and Enter stays the draft's (PIE-1409)", async () => {
+    const found = { address: "heap-rota", blockId: "p9", kind: "page", title: "Compost turning schedule" };
+    const board = serviced({
+      completePages: async (_q: string | undefined, _l: number, opts: { semantic?: boolean } = {}) => opts.semantic
+        ? { addresses: [found], completeness: { kind: "complete" }, semantic: { status: "ranked", verdict: "weak", label: "no strong match", said: "" } }
+        : { addresses: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } },
+      completeFiles: async () => [],
+      searchBlocks: async () => ({ matches: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } }),
+      blockContext: async (id: string) => ({ selected: { id, text: "x" }, ancestors: [] }),
+      workIdPrefix: async () => "HOME",
+    });
+    const d = new Draft("note-1", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "[[rotating the pile") completionKey(d, char(ch), c);
+    await until(() => c.state?.jev === "ranked", "Jev's order");
+    expect(c.state!.items.map(i => i.blockId ?? i.newPage)).toEqual(["p9", "rotating the pile"]);
+    expect(c.state!.items[c.state!.index]!.newPage).toBe("rotating the pile");
+    expect(enterKeeps(c.state!)).toBe("new line");
+  });
+
+  test("[[ naming no page yet: a page Jev is sure of takes the cursor from the new page, and Tab links it (PIE-1409)", async () => {
+    const found = { address: "bike-shed", blockId: "p9", kind: "page", title: "Bike shed" };
+    const board = serviced({
+      // The words find no page; Jev finds Bike shed by meaning, and is sure. Inserting checks the address still names it.
+      completePages: async (q: string | undefined, _l: number, opts: { semantic?: boolean } = {}) => opts.semantic
+        ? { addresses: [found], completeness: { kind: "complete" }, semantic: { status: "ranked", verdict: "strong", label: "sure", said: "" } }
+        : { addresses: q === "bike-shed" ? [found] : [], completeness: { kind: "complete" }, semantic: { status: "lexical" } },
+      completeFiles: async () => [],
+      searchBlocks: async () => ({ matches: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } }),
+      blockContext: async (id: string) => ({ selected: { id, text: "x" }, ancestors: [] }),
+      workIdPrefix: async () => "HOME",
+      followPage: async () => { throw new Error("no page is made: the sure answer is linked"); },
+    });
+    const d = new Draft("note-1", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "[[where the bikes live") completionKey(d, char(ch), c);
+    await until(() => c.state?.jev === "ranked", "Jev's order");
+    expect(c.state!.items.map(i => i.blockId ?? i.newPage)).toEqual(["p9", "where the bikes live"]);
+    expect(c.state!.items[c.state!.index]!.blockId).toBe("p9");
+    completionKey(d, K("tab"), c);
+    await until(() => d.text.includes("]]"), "the link inserted");
+    expect(d.text).toBe("[[bike-shed]]");
   });
 
   test("a draft session that ends drops its popup, and the Jev ask waiting for its pause is never sent", async () => {

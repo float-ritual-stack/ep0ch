@@ -1,4 +1,4 @@
-import { heldBack, holdsEdit, MARK_THEM, typingIn } from "../whereabouts";
+import { heldBack, holdsEdit, keysIn, MARK_THEM, typingIn } from "../whereabouts";
 import type { AltRule } from "./layout";
 // The screen-layout module (PIE-513): the reducer in the door's one-way data flow. A screen's layout is one value
 // (its tree of containers and tiles, its floats, the tiles folded to a spine, the zoom, the links, the tiles' names,
@@ -163,6 +163,8 @@ export interface Person<I = number> {
 export interface Ctx<I = number> {
   actor: Actor;
   standing: boolean;
+  /** An open in this step takes the person's keys (layoutStanding's `keys`): never an agent's, yolo or not. Left out, `standing`. */
+  keys?: boolean;
   /** Uninvited agents keep typing guards, except in yolo; a press acts as the person. */
   protectTyping: boolean;
   person: Person<I>;
@@ -207,7 +209,8 @@ export type At<I = number> = Place<I>
 /** One layout operation. Each is applied for one actor, as one step: all of it, or none of it with the reason. */
 export type Op<I = number> =
   | { op: "open"; placement: PlacementRequest<I>; tile: I; name?: string; kind?: string }
-  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; deliberate?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb; selectFrom?: I[] }
+  /** `unnamed`: an open that named no place (an agent's `tile.open` with neither tile= nor where=): too narrow to read beside its target, it floats (PIE-1444). */
+  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; deliberate?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb; selectFrom?: I[]; unnamed?: boolean }
   | { op: "close"; tile: I; gone?: boolean }
   /** A new tile `with` of `kind` takes tile `tile`'s place whole (its weight, its tab, its dock), and `tile` goes: a blank tile's first step. */
   | { op: "replace"; tile: I; with: I; kind: string; name?: string; link?: I; verb?: WireVerb; selectFrom?: I[] }
@@ -557,7 +560,8 @@ export type NotePlacement<I = number> = {
  * back to a visible reader only for the person. An unlinked reader takes its own open. A busy named destination
  * refuses an agent; the person's open keeps the edit and uses a reader beside it. An unwired held note is kept as a spine
  * at its container policy's stack front; a wire aimed at a tile replaces its note with history. New-note tabs that cannot fit float instead.
- * Automatic opens reuse the note already here; a history landing folds its duplicate into that tile, keeping the trail.
+ * Automatic opens reuse the note already here; a history landing folds its duplicate into that tile, keeping the trail,
+ * unless the tile is wired either way or follows a selection (a preview stepping onto its source's note shows it, PIE-1426).
  * Explicitly made tiles and pinned readers stay independent.
  * Floats, tabs, docks and shapes that cannot take a spine swap with reader history only.
  * Only the person's standing moves the current note or keys; an invitation is already resolved by the dispatcher.
@@ -590,14 +594,15 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       if (path !== undefined) { route = { across: path, rule: "tile" }; inward = true; }
     }
   }
-  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, current: ctx.standing, route, giveNewKeys: ctx.standing && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
+  const keys = ctx.keys ?? ctx.standing;
+  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, current: ctx.standing, route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
   if (request.newNote) {
     const policy = policyAt(s, from, ctx.tile(from));
     const tabs = ctx.tile(from).tabs;
     const tab = request.newNote === "tab" && !isFloat(s, from) && visible(s.tree).includes(from)
       && (!policy.locked || ctx.person.yolo) && policy.droppable && (!policy.accepts || policy.accepts.includes("reader")) && (!tabs || tabs.includes("reader"));
     result.destination = { kind: "new", at: tab ? { kind: "tabs", target: from } : { kind: "float" } };
-    result.giveNewKeys = ctx.standing;
+    result.giveNewKeys = keys;
     if (request.newNote === "tab" && !tab) result.why = "not a tab here: it floats instead";
     return result;
   }
@@ -612,7 +617,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     const removable = policyAt(s, from, source);
     const flow = flowHolding(s.tree, from);
     const held = flow?.flow.held?.some(id => columnOf(flow.flow, id) === flow.ci);
-    if (existing !== undefined && (!request.history || !source.deliberate && !held && !source.pinned && !source.clearsOnClose && removable.closable && (!removable.locked || ctx.person.yolo) && !s.wires.some(w => w.from === from))) {
+    if (existing !== undefined && (!request.history || !source.deliberate && !source.follower && !held && !source.pinned && !source.clearsOnClose && removable.closable && (!removable.locked || ctx.person.yolo) && !s.wires.some(w => w.from === from || w.to === from))) {
       result.destination = { kind: "swap", tile: existing };
       result.reuse = { reveal: !ctx.protectTyping || ctx.person.typingIn === null };
       if (route && "next" in route && flow && leaves(flow.flow).includes(existing)) result.nextFrom = from;
@@ -620,7 +625,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
         const container = node(s.tree, route.into);
         if (container?.t === "flow" && leaves(container).includes(existing)) result.nextFrom = leaves(container).includes(from) ? from : leaves(container).at(-1);
       }
-      if (ctx.standing && request.keys !== false && !ctx.person.busy) result.keys = existing;
+      if (keys && request.keys !== false && !ctx.person.busy) result.keys = existing;
       if (request.history) result.merge = from;
       return result;
     }
@@ -636,7 +641,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     if (target === undefined) return { ...result, destination: { kind: "none", reason: why } };
     return { ...placement(s, { ...request, container: undefined, at: undefined, to: target }, ctx), why };
   }
-  if (request.at) { result.destination = { kind: "new", at: request.at }; result.giveNewKeys = ctx.standing && request.keys !== false; return result; }
+  if (request.at) { result.destination = { kind: "new", at: request.at }; result.giveNewKeys = keys && request.keys !== false; return result; }
   if (route && "across" in route) result.destination = { kind: "across", target: route.across, rule: route.rule, ...(inward ? { source: true as const } : {}) };
   else if (route && "into" in route) {
     const container = node(s.tree, route.into);
@@ -662,7 +667,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     result.nextFrom = from;
     const existing = !fresh && flow ? leaves(flow.flow).find(id => id !== from && ctx.tile(id).showing === note && !ctx.tile(id).editing && !ctx.tile(id).lists) : undefined;
     result.destination = existing !== undefined ? { kind: "swap", tile: existing } : { kind: "new", at: { kind: "next", from } };
-    if (existing !== undefined && ctx.standing && request.keys !== false && !ctx.person.busy) result.keys = existing;
+    if (existing !== undefined && keys && request.keys !== false && !ctx.person.busy) result.keys = existing;
   }
   else if (route && "tab" in route) result.destination = { kind: "new", at: { kind: "tabs", target: route.tab } };
   else if (route && "beside" in route) {
@@ -824,15 +829,21 @@ export function serialize<I, L>(s: LayoutState<I>, leafOf: (id: I) => L, skip?: 
 export const FLOAT_MIN = { cols: 20, rows: 5 };
 /** A new float's least size where the screen has room: a note's reading width and a few paragraphs. */
 const FLOAT_READS = { cols: 64, rows: 20 };
+/** The least a tile an agent opens beside another reads at (PIE-1444): under it, an open that named no place floats, one that did is said (Step.tooNarrow). */
+export const OPEN_READS = { cols: 28, rows: 6 };
 
 const AGENT_ORDER: Record<AgentLevel, number> = { free: 0, edit: 1, off: 2 };
 
 class Step<I> {
   constructor(private readonly d: Draft<I>, private readonly ctx: Ctx<I>) {}
   private get agent() { return !this.ctx.standing; }
+  /** This step's opens take the person's keys (Ctx.keys): the person's, never an agent's, yolo or not (PIE-1444). */
+  private get takesKeys() { return this.ctx.keys ?? this.ctx.standing; }
   /** An agent in yolo: the person handed it the door, so their locks don't hold it either. */
   private get yolo() { return this.ctx.actor.kind === "agent" && !!this.ctx.person.yolo; }
   private name(id: I) { return this.d.names.get(id) ?? String(id); }
+  /** Why an agent leaves the tile with the person's keys alone, in the one wording (keysIn): typing in it, or only focused there. */
+  private theirs(id: I, what: string) { return keysIn(this.name(id), what, this.ctx.person.typingIn === id); }
   /** This layout as the person reads about it: the screen, or your drawer. */
   private get self(): LayoutSelf { return this.ctx.self ?? SCREEN_SELF; }
   private facts(id: I): TileFacts { return this.ctx.tile(id); }
@@ -977,7 +988,7 @@ class Step<I> {
         // Popping a tile out or putting it back moves the tile the person has: an agent doesn't, typing or not (as it
         // doesn't close or fold it).
         if (this.ctx.protectTyping && op.tile === this.ctx.person.typingIn) refuse(typingIn(this.name(op.tile), "float it"));
-        if (this.agent && op.tile === this.d.focus) refuse(`${this.name(op.tile)} has the person's keys; an agent doesn't float it`);
+        if (this.agent && op.tile === this.d.focus) refuse(this.theirs(op.tile, "float it"));
         return this.isFloat(op.tile) ? this.land(op.tile, op.at) : this.float(op.tile);
       case "place": return this.place(op);
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
@@ -1186,28 +1197,37 @@ class Step<I> {
     let name = op.name;
     if (name !== undefined && named(this.d, name) !== undefined) { if (op.loose) name = undefined; else refuse(`there's already a tile named ${name}`); }
     const label = name ?? `a new ${op.kind} tile`;
-    this.into(op.kind, label, op.at);
+    // An agent's tile too narrow to read beside its target (PIE-1444: 11 columns between five readers): naming no place
+    // (no tile, no where=), it goes below when that reads (`splitAxis`'s other side), else it floats; a place it named is
+    // where it goes, said. (Beside the tile the person types in, the typing guard answers instead: a float would cover it.)
+    const wide = this.takesKeys ? null : this.tooNarrow(op.at, op.tile);
+    const below: At<I> | null = wide && op.unnamed && op.at.kind === "split" && (op.at.dir === "left" || op.at.dir === "right") ? { ...op.at, dir: "down" } : null;
+    const roomBelow = below !== null && this.tooNarrow(below, op.tile) === null;
+    const narrow = roomBelow ? null : wide;
+    const floats = !!narrow && !!op.unnamed && !(op.at.kind === "split" && this.ctx.protectTyping && op.at.target === this.ctx.person.typingIn);
+    const at: At<I> = floats ? { kind: "float" } : roomBelow ? below! : op.at;
+    this.into(op.kind, label, at);
     this.d.names.set(op.tile, name ?? autoName(this.d, op.kind));
     if (op.alt) this.d.altReaders.add(op.tile);
-    if (op.at.kind === "float") {
-      const r = op.at.rect ?? this.newFloatRect();
+    if (at.kind === "float") {
+      const r = at.rect ?? this.newFloatRect();
       this.d.floats.push({ id: op.tile, rect: this.onScreen({ ...r }) });
     } else {
       const wasShown = shown(this.d.tree);
-      this.putAt(op.tile, op.at);
+      this.putAt(op.tile, at);
       const row = parentOf(this.d.tree, op.tile)?.parent;
       if (row && isLine(row) && row.t !== "flow" && this.ofNode(row).spines === "centre") this.centreSpines(row);
       // An agent's new tab is added without being shown over the tab the person has there.
-      if (this.agent && wasShown.includes(this.d.focus) && !shown(this.d.tree).includes(this.d.focus)) activate(this.d.tree, this.d.focus);
-      if (op.at.kind === "next") {
+      if (!this.takesKeys && wasShown.includes(this.d.focus) && !shown(this.d.tree).includes(this.d.focus)) activate(this.d.tree, this.d.focus);
+      if (at.kind === "next") {
         const f = flowHolding(this.d.tree, op.tile)!;
-        setFrom(f.flow, f.ci, op.at.from);
+        setFrom(f.flow, f.ci, at.from);
       }
     }
     this.d.zoom = null;
-    // The person's new tile takes their keys (unless the view gives them elsewhere: `keys: false`); an agent's never does.
-    if (!this.agent && op.keys !== false) {
-      const from = op.at.kind === "next" ? op.at.from : undefined;
+    // The person's new tile takes their keys (unless the view gives them elsewhere: `keys: false`); an agent's never does, in yolo too.
+    if (this.takesKeys && op.keys !== false) {
+      const from = at.kind === "next" ? at.from : undefined;
       this.give(op.tile);
       if (from !== undefined) { const f = flowHolding(this.d.tree, op.tile)!; this.rememberFlowSides(f.flow); arrive(f.flow, f.ci, columnOf(f.flow, from), coversOf(this.d, f.flow, this.ctx.area, id => !!this.facts(id).holds), this.d.touched); }
     }
@@ -1216,13 +1236,34 @@ class Step<I> {
     // Opened as where another tile's opens land (tile.preview): linked in the same step, by link's rules.
     if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
     for (const from of op.selectFrom ?? []) this.linkTo(from, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, "select");
-    this.d.answer = { tile: this.d.names.get(op.tile), ...(!automatic ? { deliberate: op.deliberate ?? true } : {}), ...(op.link !== undefined ? { link: this.name(op.link) } : {}) };
+    this.d.answer = { tile: this.d.names.get(op.tile), ...(!automatic ? { deliberate: op.deliberate ?? true } : {}), ...(op.link !== undefined ? { link: this.name(op.link) } : {}), ...(narrow ? { why: `${narrow}, ${floats ? "so it floats (layout.move tile=<it> to=<a tile> places it)" : this.stayedBeside(op, at)}` } : roomBelow ? { why: `${wide}, so it went below it`, where: "down" } : {}) };
+  }
+  /**
+   * Why a narrow open went beside its target anyway (PIE-1450): where it was asked to go, by the place the open named, or
+   * beside the tile the person types in, which a float would cover.
+   */
+  private stayedBeside(op: { unnamed?: boolean }, at: At<I>): string {
+    if (at.kind !== "split") return "where it was asked to go";
+    const place = `${({ left: "left of", right: "right of", up: "above", down: "below" } as const)[at.dir]} ${this.name(at.target)}`;
+    return op.unnamed ? `so it went ${place}: floating, it would cover the tile being typed in` : `and it went ${place}, as asked`;
+  }
+  /**
+   * How a new tile `id` at `at` would be too narrow (or short) to read, or null: as drawn after the split, under
+   * OPEN_READS. Only a split is measured; a tab, an edge, a container or a flow column has its own room.
+   */
+  private tooNarrow(at: At<I>, id: I): string | null {
+    if (at.kind !== "split" || !has(this.d.tree, at.target)) return null;
+    // Measured as it would be drawn: the split made on a copy of the tree, borders and all.
+    const tree = normalise(besideSlot(clone(this.d.tree), at.target, leaf(id), at.dir, at.weight ?? 0.5, !!at.pair));
+    const r = rects({ ...this.d, tree, zoom: null }, this.ctx.area).get(id);
+    if (!r || r.cols >= OPEN_READS.cols && r.rows >= OPEN_READS.rows) return null;
+    return `beside ${this.name(at.target)} it is ${r.cols}×${r.rows}, under the ${OPEN_READS.cols}×${OPEN_READS.rows} a tile reads at`;
   }
   /** The person's open found the column already open: back from there returns to where they opened it from. */
   private reach(id: I, from: I, keys = true) {
     const f = flowHolding(this.d.tree, id);
     if (!f) refuse(`${this.name(id)} isn't in a flow`);
-    if (this.agent) { this.d.changed = false; return; }
+    if (!this.takesKeys) { this.d.changed = false; return; }
     const fromCol = columnOf(f!.flow, from);
     if (fromCol >= 0 && fromCol !== f!.ci) setFrom(f!.flow, f!.ci, from);
     if (keys) this.give(id);
@@ -1252,7 +1293,7 @@ class Step<I> {
       const own = chainOf(this.d.tree, id).find(c => c.id === e.by.closable && c.t === "tabs" && c.ids.length === 1);
       if (!e.closable && !(f.clearsOnClose && e.by.closable === `${f.kind} tiles`)) refuse(own ? `${name} stays: its place (${own.id}) keeps it${fold} · ^W P there turns closable on` : this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles${fold} · ^W P there turns closable on`));
       if (f.keeps) refuse(`${name} stays: ${f.keeps}${fold}`);
-      if (this.agent && id === this.d.focus && (!f.clearsOnClose || this.ctx.person.here !== false)) refuse(`${name} has the person's keys; an agent doesn't close it`);
+      if (this.agent && id === this.d.focus && (!f.clearsOnClose || this.ctx.person.here !== false)) refuse(this.theirs(id, "close it"));
       if (this.agent && f.running) refuse(`${name} is running ${f.running}; an agent doesn't end it`);
     }
     if (!f.clearsOnClose) this.lift(id);
@@ -1278,7 +1319,7 @@ class Step<I> {
     if (!e.closable) refuse(this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles · ^W P there turns closable on`));
     if (e.accepts && !e.accepts.includes(op.kind)) refuse(`${this.whose(e.by.accepts)} takes only ${e.accepts.join(", ") || "nothing"}: not a ${op.kind} tile`);
     // The person's keys on it: an agent replaces only a place holder (the blank tile), and never where they're typing.
-    if (this.agent && id === this.d.focus && !f.placeholder) refuse(`${name} has the person's keys; an agent doesn't replace it`);
+    if (this.agent && id === this.d.focus && !f.placeholder) refuse(this.theirs(id, "replace it"));
     this.guard(id, "replace");
     let newName = op.name;
     if (newName !== undefined && named(this.d, newName) !== undefined && named(this.d, newName) !== id) refuse(`there's already a tile named ${newName}`);
@@ -1310,7 +1351,7 @@ class Step<I> {
     if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
     if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
     if (!heir && !this.ctx.empties && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
-    if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't take it away`);
+    if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(this.theirs(id, "take it away"));
     if (heir) {
       if (this.all().includes(heir.id)) refuse(`${this.name(heir.id)} is in the layout already`);
       const float = this.d.floats.find(x => x.id === id);
@@ -1344,7 +1385,7 @@ class Step<I> {
       const e = this.policyAt(t), f = this.facts(t);
       if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
       if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
-      if (this.agent && this.ctx.person.here !== false && t === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't gather it into a group`);
+      if (this.agent && this.ctx.person.here !== false && t === this.d.focus) refuse(this.theirs(t, "gather it into a group"));
     }
     // A container that keeps its tiles from data (a board's lanes: their source fills them) isn't gathered: its tiles would leave their source.
     if (target && target.t === "columns" && target.source) refuse(`${op.node} is filled from ${target.source}: its tiles come and go with the data, so it isn't gathered (mount the screen's part instead: tile.open kind=screen part=)`);
@@ -1370,7 +1411,7 @@ class Step<I> {
     this.notFloat(op.tile, `spilling ${name}`);
     this.shape(op.tile, `spilling ${name}`);
     this.guard(op.tile, "spill");
-    if (this.agent && this.ctx.person.here !== false && op.tile === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't spill it`);
+    if (this.agent && this.ctx.person.here !== false && op.tile === this.d.focus) refuse(this.theirs(op.tile, "spill it"));
     const fresh = leaves(op.tree);
     if (!fresh.length) refuse(`${name} holds no tiles`);
     for (const t of fresh) if (this.all().includes(t)) refuse(`${this.name(t)} is in the layout already`);
@@ -1430,7 +1471,7 @@ class Step<I> {
     if (this.isFloat(src)) {
       this.d.floats = this.d.floats.filter(f => f.id !== src);
       this.putAt(src, to);
-      if (!this.agent) this.d.focus = src;
+      if (this.takesKeys) this.d.focus = src;
       return;
     }
     const next = move(this.d.tree, src, to);
@@ -1446,7 +1487,7 @@ class Step<I> {
     // An agent's move into the tabs the person has open leaves their tab shown.
     if (this.agent && wasShown.includes(this.d.focus) && !shown(this.d.tree).includes(this.d.focus)) activate(this.d.tree, this.d.focus);
     this.d.zoom = null;
-    if (!this.agent) this.d.focus = src;
+    if (this.takesKeys) this.d.focus = src;
   }
 
   private swap(a: I, b: I) {
@@ -1486,7 +1527,7 @@ class Step<I> {
     this.d.tree = normalise(remove(this.d.tree, id)!);
     this.d.collapsed.delete(id);
     this.d.floats.push({ id, rect: this.onScreen(this.newFloatRect()) });
-    if (!this.agent) this.d.focus = id;
+    if (this.takesKeys) this.d.focus = id;
     this.d.zoom = null;
     this.d.answer = { floated: true };
   }
@@ -1557,7 +1598,7 @@ class Step<I> {
     // would), then its dock wraps it, both in this one transaction (refused whole, it stays the float it was).
     // on=true puts it back pinned outright.
     if (this.isFloat(id)) {
-      if (this.agent && id === this.d.focus) refuse(`${this.name(id)} has the person's keys; an agent doesn't move it`);
+      if (this.agent && id === this.d.focus) refuse(this.theirs(id, "move it"));
       if (container !== undefined) refuse(`${this.name(id)} is a float: no container holds it · tile.dock without container= puts it in a dock of its own`);
       this.land(id);
       if (on === true) { this.d.answer = { pinned: true, floated: false }; return; }
@@ -1684,7 +1725,7 @@ class Step<I> {
     }
     const e = this.policyAt(id);
     if (!e.collapsible) refuse(`${name} stays open: ${e.by.collapsible} doesn't fold · ^W P there turns collapsible on`);
-    if (this.agent && this.foldSet(id).includes(this.d.focus)) refuse(`${this.name(this.d.focus)} has the person's keys; an agent doesn't fold it`);
+    if (this.agent && this.foldSet(id).includes(this.d.focus)) refuse(this.theirs(this.d.focus, "fold it"));
     const by = byOf(this.ctx.actor);
     for (const t of this.foldSet(id)) this.d.collapsed.set(t, { ...by, ...fold });
     this.d.answer = { collapsed: true, dir: fold.dir === "h" ? "h" : "v" };
@@ -1702,7 +1743,7 @@ class Step<I> {
   private foldColumn(id: I, f: { flow: Flow<I>; ci: number }) {
     const e = this.policyAt(id);
     if (!e.collapsible) refuse(`${this.name(id)} stays open: ${e.by.collapsible} doesn't fold · ^W P there turns collapsible on`);
-    if (this.agent && this.foldSet(id).includes(this.d.focus)) refuse(`${this.name(this.d.focus)} has the person's keys; an agent doesn't fold it`);
+    if (this.agent && this.foldSet(id).includes(this.d.focus)) refuse(this.theirs(this.d.focus, "fold it"));
     const open = (i: number) => leaves(f.flow.kids[i]!).some(t => !this.d.collapsed.has(t));
     if (columnOf(f.flow, f.flow.anchor) === f.ci) {
       const to = [...f.flow.kids.keys()].filter(i => i !== f.ci && open(i)).sort((a, b) => Math.abs(a - f.ci) - Math.abs(b - f.ci) || a - b)[0];

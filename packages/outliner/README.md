@@ -1168,7 +1168,8 @@ tailnet page, a phone, someone else). Narrowing it to one note and below is opt-
 
 **What's on screen.** Every web client page (tailnet and share) says what its reader has in front of them: the page,
 and the words selected (debounced, at most 2,000 characters) with the text either side and the note row they're in.
-The service keeps the latest per reader in memory (`reader.report`); `reader.view`, the MCP's `reader_view` and
+The service keeps the latest per reader in memory (`reader.report`; a mirror's copy keeps it beside the mirror, for
+the MCP gateway's reader_view, PIE-1091); `reader.view`, the MCP's `reader_view` and
 `ep0ch reader` read it, so an agent in chat can say "you have X selected" without fetching or navigating anything.
 A share's address is said without its token. The page also holds the selection in `#ep0ch-selection`
 (`aria-live`), for an agent driving a browser. With it go where the words are in the row's source (`offsets` at its
@@ -1523,13 +1524,26 @@ changed by this PR. The sync command is run by Evan on his laptop.
 
 #### Deploying an artifact repo
 
-Write `[artifact::github.com/ep0ch-artifacts/my-repo]` or
-`[artifact::ep0ch-artifacts/my-repo]` on a note. The seeded `deploy-artifact` rule
-runs the saved script after the note is quiet. Both it and the local agent tool
-`artifact_deploy({ repo: "ep0ch-artifacts/my-repo" })` call the same service action
-as `ep0ch artifact deploy my-repo --ws pie --machine float-2`. Removing the rule
-stops automatic deployment; the service seeds it only once. Bare store artifact
-names keep their existing meaning and do not deploy repos.
+Write `[artifact::https://github.com/ep0ch-artifacts/my-repo]`,
+`[artifact::github.com/ep0ch-artifacts/my-repo]` or `[artifact::ep0ch-artifacts/my-repo]`
+on a note: on its header, or on a line of its own (a card). The seeded `deploy-artifact`
+rule (`[property-scope::all]`, so a line's own `[artifact::]` matches) runs the saved
+script after the note is quiet; the script calls `artifact_deploy({ note: this.id })`,
+which deploys every repo the note names. It and `artifact_deploy({ repo: "ep0ch-artifacts/my-repo" })`
+call the same service action as `ep0ch artifact deploy my-repo --ws pie --machine float-2`.
+Removing the rule stops automatic deployment; the service seeds it once, and brings an
+earlier copy nobody edited up to date. Bare store artifact names keep their existing
+meaning and do not deploy repos.
+
+The card follows the deployment (PIE-1060): `artifacts.show` answers a repo from the
+deployment records (by repo, else by name, so an imported deployment of a fork counts)
+with `deploy`: deploying, live at its URL, failed or not deployed (why, and the command
+that fixes it), or refused (another owner: the fork command), and its newest run note.
+`[open ↗]` opens the live site. The door card and the published page draw the same
+answer; the public page leaves out why it isn't live. Run notes are filed under the
+`[[artifacts]]` catalogue with `[repo::]` and `[status::]`; a save that changes nothing
+refreshes the newest run rather than adding one. A repo line never gets `[url::]` written
+onto it (that would stop it being an artifact line); a header `[artifact::]` still does.
 
 The host clones into `~/artifact-deploys/<repo>`. A package build/start script,
 Next, Vite, SvelteKit or API routes chooses Vercel in the CLI's default context; otherwise tracked static files go through the existing store/compiler.
@@ -2474,8 +2488,10 @@ Property filters and catalogs default to `block` scope, so body examples and lin
 `blocks.query` answers a question, the same everywhere (a `::links` block's `query`, a `::graph-*` figure's YAML,
 `outliner_query`), and the service does all of it: no client narrows, groups, sorts or counts rows itself.
 
-- `group`: a property name, or a date bucket: `<property>:day|week|month|year` (`due:week`, read by outline-core
-  `dates.ts` however the date is written; a span goes in its first day's bucket), `created:…` or `updated:…`. The
+- `group`: a property name, or a date bucket: `<property>:day|week|month|year|recent` (`due:week`, read by outline-core
+  `dates.ts` however the date is written; a span goes in its first day's bucket), `created:…` or `updated:…`.
+  `recent` buckets relative to now on the host's wall clock (as `today` in a query): Today, Yesterday, Previous 7 days,
+  Previous 30 days, then each month (`2026-09`), newest first (PIE-1443). The
   answer's `groups` are `{ value, count, ids }`: `count` over every match, `ids` the returned rows in it. A property
   with several values puts a row in each of their groups; matches without it (or, for a date bucket, without a date
   in it) are the `null` group, last. Groups follow the property's value order (`work-stage` in the workboard's stage
@@ -2505,8 +2521,10 @@ List views should not fetch full documents to show titles and metadata.
 order, reduced to `fields`: `id` (always), `parent` (`parentId`, `position`),
 `title` (first content line without property tokens), `properties` (block
 scope), `revision`, `timestamps` (`createdAt`, `updatedAt`), `author` (with any
-actor/session/task provenance), `hasChildren` and opt-in `text`. Omitting
-`fields` returns everything except `text`. Every other id appears once in
+actor/session/task provenance), `hasChildren`, opt-in `text` and opt-in
+`excerpt` (the words after the title as one line, outline-core `noteExcerpt`:
+a list row's preview, PIE-1443). Omitting `fields` returns everything except
+`text` and `excerpt`. Every other id appears once in
 `unavailable` as `missing` or `trashed` (with its `deletedRootId`); one absent
 id never fails the batch. Duplicate ids collapse to their first occurrence.
 `blocks.query` accepts the same optional `fields` and then returns

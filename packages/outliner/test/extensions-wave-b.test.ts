@@ -587,3 +587,65 @@ test("an extension of your own that isn't a built-in's copy carries no built-in 
   const listed = await list(true);
   expect(listed.extensions.find(e => e.id === "garden")!.builtIn).toBeUndefined();
 });
+
+test("a form says where each entry lands: under it, under a page, or as a line in it (PIE-1442)", async () => {
+  const { create, store, list, client } = await setup({ install: ["form"] });
+  await list(true);
+  const fill = (blockId: string, args: Record<string, string>) =>
+    client.request<{ written: string[]; message?: string }>({ action: "extensions.act", extension: "form", extensionAction: "fill", blockId, args, mutation: PERSON });
+  const live = (id: string) => store.children(id).filter((child) => !child.effectiveDeletedRootId).map((child) => child.text);
+  const fields = "[form-field::book text required] [form-field::pages number]";
+
+  const child = await create(`Reading log [form-submit::Log it]\n${fields}`);
+  await fill(child.id, { book: "Moss", pages: "90" });
+  expect(live(child.id)).toEqual(["Moss [book::Moss] [pages::90]"]);
+
+  const shelf = await create("Shelf [page::Shelf]");
+  const paged = await create(`Book form [form-into::[[Shelf]]]\n${fields}`);
+  expect((await fill(paged.id, { book: "Tide", pages: "12" })).message).toContain("Shelf");
+  expect(live(paged.id)).toEqual([]);
+  expect(live(shelf.id)).toEqual(["Tide [book::Tide] [pages::12]"]);
+
+  // A block named by its id's first characters, as the door draws it.
+  const short = await create(`Short form [form-into::((${shelf.id.slice(0, 8)}))]\n${fields}`);
+  await fill(short.id, { book: "Fern" });
+  expect(live(shelf.id)).toEqual(["Tide [book::Tide] [pages::12]", "Fern [book::Fern]"]);
+
+  const inline = await create(`Pages read [form-into::inline] [form-line::{book}: {pages} pages]\n${fields}\nSo far:`);
+  await fill(inline.id, { book: "Lantern", pages: "40" });
+  await fill(inline.id, { book: "Fern" });
+  expect(store.get(inline.id)!.text).toBe(`Pages read [form-into::inline] [form-line::{book}: {pages} pages]\n${fields}\nSo far:\nLantern: 40 pages\nFern:  pages`);
+  expect(live(inline.id)).toEqual([]);
+  const plain = await create(`Quick log [form-into::inline]\n${fields}`);
+  await fill(plain.id, { book: "Moss", pages: "3" });
+  expect(store.get(plain.id)!.text.split("\n").at(-1)).toBe("- Moss · 3");
+
+  // A page nobody has yet, or a target it can't read: saved as written, and the fill refuses with what it may have meant, writing nothing.
+  const typo = await create(`Typo log [form-into::[[Shelff]]]\n${fields}`);
+  await expect(fill(typo.id, { book: "Moss" })).rejects.toThrow(/no page \[\[Shelff\]\].*did you mean \[\[Shelf\]\]\?/);
+  // A note titled as the page but with no [page::…] (PIE-1445): the refusal names it and says the two ways to point at it.
+  const titled = await create("Bird list\nwrens, finches");
+  const birds = await create(`Bird form [form-into::[[Bird list]]]\n${fields}`);
+  // Said in words (PIE-1449): the note by where it is, never a row of ((ids)); the did-you-mean names related pages only.
+  await create("Grocery list [page::Grocery list]");
+  await create("Bird lists [page::Bird lists]");
+  const refused = await fill(birds.id, { book: "Moss" }).then(() => "", (e: Error) => e.message);
+  expect(refused).toContain(`a note is titled Bird list, ((${titled.id.slice(0, 8)}|at the top)), but it isn't a page: add [page::Bird list] to it, or write [form-into::((${titled.id.slice(0, 8)}))]; did you mean [[Bird lists]]?`);
+  expect(refused).not.toContain("(((");
+  expect(refused).not.toContain("Grocery list");
+  expect(live(titled.id)).toEqual([]);
+  // Two by that title: where each one is, and which one the ((id)) names.
+  const garden = await create("Garden");
+  const herons = await create("Bird list\nherons", garden.id);
+  const two = await fill(birds.id, { book: "Moss" }).then(() => "", (e: Error) => e.message);
+  expect(two).toContain(`2 notes are titled Bird list, ((${titled.id.slice(0, 8)}|at the top)) and ((${herons.id.slice(0, 8)}|in Garden)), but none is a page: add [page::Bird list] to one, or write [form-into::((${titled.id.slice(0, 8)}))] for the one at the top`);
+  expect(two).not.toContain("(((");
+  // Its title after properties, or with its spaces doubled, is still that title.
+  const propped = await create("[kind::list] Moth  list");
+  const moths = await create(`Moth form [form-into::[[Moth list]]]\n${fields}`);
+  await expect(fill(moths.id, { book: "Moss" })).rejects.toThrow(`a note is titled Moth list, ((${propped.id.slice(0, 8)}|at the top)), but it isn't a page`);
+  const word = await create(`Word log [form-into::inlne]\n${fields}`);
+  expect(store.get(word.id)!.text).toContain("[form-into::inlne]");
+  await expect(fill(word.id, { book: "Moss" })).rejects.toThrow(/did you mean inline\?/);
+  expect([...live(typo.id), ...live(word.id), ...live(shelf.id).slice(2)]).toEqual([]);
+});

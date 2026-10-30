@@ -666,15 +666,12 @@ For each work package in this plan:
    Identify the corresponding real-service/UI journey and any missing harness control.
 3. Implement the smallest permanent fix, migrating all affected callers and
    removing superseded paths. Keep harness extensions bounded to the scenario.
-4. Run focused regressions while iterating. Once stable, run `bun run check`,
-   `bun test`, the existing Herdr baseline, and the package's application scenario.
+4. Run `bun run check`, the focused regressions and the package's application
+   scenario; whole suites run on the merge batch and nightly.
 5. Inspect the retained frames/ANSI and assertions at initial, failure, recovery,
    and final checkpoints. A pass line alone is not evidence that the correct
    checkout, pane, target, or failure path was exercised.
-6. Record exact tested source state, commands, versions, artifact locations,
-   changed behavior, cleanup outcome, and remaining coverage limits in the PR/proof.
-   Re-run affected checks after changes or conflict resolution. Verify the integrated
-   main checkout in a fresh private fixture after merge before claiming delivery.
+6. Say in the PR what ran, the journey driven, and what wasn't tested.
 
 Merged delivery and deployment to an existing user session are separate claims.
 Record the running service/client protocol alongside the tested revision. Follow
@@ -698,23 +695,8 @@ read does not establish popup, host mouse, resize, or multi-client correctness.
 
 Use private named sessions and fixture roots even when the coding agent itself
 runs inside Herdr. Verify socket/session provenance before control operations.
-Shared user panes and databases require a separately authorized live acceptance
-run. Keep runtime databases, logs, and screenshots out of commits.
-
-Suggested proof fields:
-
-```text
-Invariant / changed user behavior:
-Tested commit and dirty-tree evidence:
-Herdr / Pi / Bun versions and application protocol:
-Focused regression (including observed pre-fix failure):
-Static check / full suite:
-Actual application scenario and actions:
-Artifact directory and inspected checkpoints:
-Persisted-state assertions / cleanup outcome:
-Unverified behavior and blocking reason:
-Merged-main verification (when claiming delivered):
-```
+Never drive shared user panes or databases. Keep runtime databases, logs, and
+screenshots out of commits.
 
 The repository's [AGENTS.md](../../../AGENTS.md) directs implementation agents to these
 verification requirements. Keep completion evidence on the canonical work item;

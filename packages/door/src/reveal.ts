@@ -10,11 +10,13 @@ import type { Actor } from "./socket";
  * the reference as written there, so a note edited since the service read it is searched for it rather than trusted.
  * `says`: why the line is lit, when it is not a link's (a `{{ }}` value shows the line it is written on).
  */
-export interface Reveal { fragment?: string; at?: number; label?: string; says?: string }
+export interface Reveal { fragment?: string; at?: number; label?: string; says?: string;
+  /** Open the note at this revision, beside how it is now (PIE-1433: the reader's revision compare). */
+  revision?: number }
 
 export const revealOn = new WeakMap<Msg, Reveal & { by: Actor }>();
 
 /** Mark `note` (the object about to be shown) to be revealed at `reveal`, as `by` opened it. */
 export function markReveal(note: Msg, reveal: Reveal | undefined, by: Actor): void {
-  if (reveal && (reveal.fragment || reveal.at !== undefined)) revealOn.set(note, { ...reveal, by });
+  if (reveal && (reveal.fragment || reveal.at !== undefined || reveal.revision !== undefined)) revealOn.set(note, { ...reveal, by });
 }

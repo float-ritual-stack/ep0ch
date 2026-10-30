@@ -94,6 +94,7 @@ export const SEED = {
   remoteWrites: "Remote writes and the netmail queue",
   buildLog: "Shed roof build log",
   testPlan: "Shed door test plan",
+  figureCells: "Links in figure cells",
   templateMeeting: "Meeting note template",
   templateDaily: "Daily note template",
   dailyNotes: "Daily notes",
@@ -163,6 +164,8 @@ export const SEED = {
   datesBoard: "Plot calendar board",
   formReading: "Reading log",
   formRepairs: "Shed repairs",
+  formRepairList: "Repair list",
+  formWatering: "Watering log",
 } as const;
 
 export type SeedName = keyof typeof SEED;

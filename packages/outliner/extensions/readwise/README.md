@@ -1,8 +1,6 @@
-# Readwise (send to Reader, pull highlights and the Reader library back)
+# Readwise
 
-A Readwise and Readwise Reader client, built only from what any extension has (PIE-743): an action on a note, a
-scheduled action, a connection to the outline, a `with-secrets` key. Nothing in the outline's code knows about
-Readwise.
+Send a note to Readwise Reader, and get your highlights back on the note they came from. Your Reader library comes into the outline too.
 
 ```text
 garden outline                                   readwise outline
@@ -14,91 +12,79 @@ Pond notes            ── send ──▶  Reader         Readwise [page::read
       "Same heron as last spring?"
 ```
 
-- **`send`** (on a block): saves the note, and the notes under it, to Reader as one document, tagged `ep0ch`. It is
-  the note as its published page reads (`notes.render`, the publisher's renderer, published or not): properties left
-  out, links as their labels or web URLs. The document's URL is the note's link, and its first line is the note's
-  `ep0ch://` URI, so a highlight made on it in Reader comes back to that note.
-  - **Sending publishes the note.** It gets `[publish::public]` (an edit by `ext:readwise`, on behalf of whoever asked),
-    so it has a public page by its id: unlisted, reachable by link, in no index. That page is the URL Reader gets, so the
-    document opens as a real page. Unpublish it by removing the token; set config `publish` to `false` to send without
-    publishing.
-  - **`[publish::never]` wins.** A note locked that way, or under one, is not published and not sent: the answer says so.
-  - **No public address, no publishing.** A publisher serves one outline (`publish serve --ws <name>`) and needs a public
-    URL (`--public-url`, or `OUTLINER_PUBLIC_URL`). For an outline without one the note is sent with the placeholder URL
-    (below), the token is taken back off, and the answer names the command to start one.
-  Sending again says it's already there: Reader keeps the first copy (delete it in Reader to send a newer one).
-- **`pull`** (on the outline, every hour): Readwise's export of the highlights changed since the last pull. Reader's
-  highlights reach Readwise too, so this one feed has both.
-  - A highlight on a document `send` made becomes an **annotation on that note, at the passage**: `kind=highlight`, your
-    note on it as the body, its colour as a theme tone (`color`), its tags as `tags`. A passage in a note under it lands
-    on that note. If the words aren't in the note any more (edited since), it lands on the whole note with the quote in
-    the body and `[readwise.anchored::no]`, so nothing is lost.
-  - Every other highlight lands on the **readwise board**: a block per book and a block per highlight under it (the
-    quote, your note). Imported words stay words: a `[key::value]` or `[[page]]` in a highlight is escaped. What each
-    carries is under [Properties](#properties).
-  - **A tweet thread** (Readwise saves one as one book of category `tweets` whose highlights are the tweets) reads as
-    a thread: in order (`location` when each tweet has an order, else `highlighted_at`), the first tweet is the
-    thread's block under the book and the rest are its children. One level, not each under the one before: a long
-    thread stays two deep, and a tweet that arrives late never re-parents the ones after it. A block on the book,
-    **Thread, compiled** (`[readwise.compiled::<book id>]`), holds an embed `!((id))` of each tweet in order, so it
-    reads as one piece with no copy of the text. A pull that brings more tweets extends it, and one with nothing new
-    leaves it alone. A book of one tweet stays as any other.
-  - **Idempotent.** Each highlight is known by its Readwise id. A pull run twice writes nothing new; a field that
-    changed on Readwise (a note, a tag, a favourite, the author) updates the block's or annotation's properties in
-    place, and a property someone added by hand is left alone. Deleted highlights are skipped (what's already there stays).
-  - It stops after `minutes` (default 4) and leaves the rest for the next run, keeping its place on the board page
-    (`[readwise.next-page::…]`). A 429 from Readwise waits for its `Retry-After` when that fits, else stops the same way.
-  - A highlight whose words cross formatting in the note (bold, a link) is found in the rendered text Reader shows but
-    not in the note's source, so it lands on the whole note with its quote, as above.
+## Where to look
 
-- **`library`** (on the outline, every hour, once per host): your Reader library, not just its highlights. Reader's
-  document list (`/api/v3/list/`) since the last run becomes **a block per document** under the `reader` page of the
-  readwise board. Highlights and notes are documents too (they have a `parent_id`); they are skipped, because `pull`
-  brings the highlights.
-  - Matched by `reader.id`, so it is idempotent: a re-run writes nothing unless a field changed, and a document that
-    moves from later to archive is updated in place, never duplicated.
-  - The block's first line is the title; the properties are under [Reader documents](#reader-documents); the body is
-    the summary, then your note on the document.
-  - **Feed items stay out by default.** `locations` (default `["new", "later", "shortlist", "archive"]`) says which Reader
-    locations are mirrored; add `"feed"` to bring RSS items in. A large feed would otherwise swamp the board and the
-    backfill. Each location is listed on its own (`location=`), so a left-out one costs no requests.
-  - **Deleted is marked, not removed:** a document gets `[reader.deleted::true]` and stays, in two ways. Reader may say
-    so (`deleted`, `is_deleted` or `deleted_at` in its list entry). And a **full pass** (the first backfill, or one you
-    ask for by taking `[reader.synced::…]` off the Reader page) stamps each document it lists with `[reader.seen::<pass>]`;
-    when the pass has finished, a block it never listed is looked up in Reader by id, and marked deleted if Reader does
-    not have it. One that is still there, only outside `locations` (moved to feed, say), is left alone. Only a finished
-    full pass does this: an incremental run lists just what changed, and a partial or failed pass marks nothing.
-  - **One note with its highlights.** The export's book `external_id` is the Reader document's id when the source is
-    `reader`, so each of its highlights carries `[reader.doc::<id>]`, and the document's block holds a line
-    `Highlights: ((book|its highlights))` linking to its book on the board. Whichever arrives first, the next
-    `pull` or `library` adds the link.
-  - **The first run backfills.** Reader lists 100 documents a page and allows 20 requests a minute (a 429 waits for its
-    `Retry-After`), so about 7,000 documents take several runs: each stops after `minutes` (default 4) and leaves
-    `[reader.next-page::…]` on the page, and the next hourly run carries on. When it reaches the end it sets
-    `[reader.synced::…]`, and later runs ask only for `updatedAfter` that.
+- **Highlights on a note you sent:** annotations at the passage, on that note.
+- **Every other highlight:** the `readwise` page on the board outline, a block per book and a block per highlight.
+- **Your Reader library:** a block per document under the `reader` page of that board.
+- **Finding them:** see [Finding them](#finding-them) for queries.
+
+## What you do
+
+- **Send a note:** `act ext.readwise.send` in the door (or its key and click), or `ep0ch ext act readwise send --block <id>`.
+  - It saves the note and the notes under it to Reader as one document, tagged `ep0ch`.
+- **Pull now:** `ep0ch ext run readwise action:pull` (or `ep0ch ext act readwise pull`). It runs every hour too.
+- **Pull the library now:** `ep0ch ext run readwise action:library`.
+- **See the schedule:** `ep0ch ext ls --long` shows the next run and what the last one did.
+- **Highlight in Reader,** and the next pull brings it back to the note.
+
+## Good to know
+
+- **Sending publishes the note.** It gets `[publish::public]`: a public page by its id, unlisted, reachable by link, in no index.
+  - That page is the URL Reader gets. Remove the token to unpublish.
+  - Set config `publish` to `false` to send without publishing.
+- **`[publish::never]` wins.** A note locked that way, or under one, is not published and not sent; the answer says so.
+- **No public address, no publishing.** The note goes with the placeholder URL, and the answer names the command to start a publisher.
+  - A publisher serves one outline (`publish serve --ws <name>`) and needs `--public-url` or `OUTLINER_PUBLIC_URL`.
+- **Sending again** says it's already there, because Reader keeps the first copy.
+  - Delete it in Reader to send a newer one.
+- **What Reader gets:** the note as its published page reads, with properties left out and links as labels or web URLs.
+- **A pull is safe to repeat.** Each highlight is known by its Readwise id, so a second run writes nothing new.
+  - A changed note, tag, favourite or author updates in place; a property you added by hand is left alone.
+  - Deleted highlights are skipped, and what's already there stays.
+- **Imported words stay words:** a `[key::value]` or `[[page]]` in a highlight is escaped.
+
+## How a pull lands
+
+- **Reader's highlights** reach Readwise too, so one export feed has both.
+- **On a note you sent:** an annotation at the passage (`kind=highlight`).
+  - Your note on it is the body, its colour is a theme tone (`color`), its tags are `tags`.
+  - A passage in a note under it lands on that note.
+- **Words gone from the note** (edited since): it lands on the whole note with the quote in the body and `[readwise.anchored::no]`.
+- **Words crossing formatting** (bold, a link) are found in Reader's rendered text but not the source, so they land the same way.
+- **A tweet thread** (one book of category `tweets`) reads in order: `location` when tweets have one, else `highlighted_at`.
+  - The first tweet is the thread's block under the book, and the rest are its children, one level deep.
+  - A late tweet never re-parents the ones after it.
+  - **Thread, compiled** (`[readwise.compiled::<book id>]`) embeds each tweet with `!((id))`, so it reads as one piece with no copy.
+  - A pull with more tweets extends it; a book of one tweet stays as any other.
+- **Time limit:** a pull stops after `minutes` (default 4) and resumes next run, keeping its place in `[readwise.next-page::…]`.
+- **Rate limit:** a 429 waits for its `Retry-After` when that fits, else stops the same way.
+
+## How the library lands
+
+- **Documents only:** Reader's list since the last run, one block each under the `reader` page; highlights and notes (they have a `parent_id`) are skipped, because `pull` brings those.
+- **Matched by `reader.id`,** so a re-run writes nothing unless a field changed, and a move from later to archive updates in place.
+- **The block:** the first line is the title, the body is the summary then your note, and the properties are under [Reader documents](#reader-documents).
+- **Feed items stay out by default.** `locations` (default `["new", "later", "shortlist", "archive"]`) says which are mirrored; add `"feed"` for RSS.
+  - Each location is listed on its own, so a left-out one costs no requests.
+- **Its highlights:** each carries `[reader.doc::<id>]`, and the document's block gets `Highlights: ((book|its highlights))`.
+  - Whichever arrives first, the next `pull` or `library` adds the link.
+- **Deleted is marked, not removed:** a document gets `[reader.deleted::true]` and stays.
+  - Reader may say so (`deleted`, `is_deleted` or `deleted_at`).
+  - Or a finished **full pass** (the first backfill, or after you take `[reader.synced::…]` off the Reader page) never listed it, and Reader doesn't have it by id.
+  - A block still in Reader but outside `locations` is left alone, and a partial or incremental run marks nothing.
+- **The first run backfills.** Reader lists 100 documents a page at 20 requests a minute, so about 7,000 documents take several runs.
+  - Each stops after `minutes` and leaves `[reader.next-page::…]`; at the end it sets `[reader.synced::…]` and later runs ask for `updatedAfter` that.
 
 ## Setup
 
-1. The token, once, in the `with-secrets` group `readwise` (from readwise.io/access_token):
+1. **The token,** once, from readwise.io/access_token: `with-secrets --add readwise READWISE_TOKEN`.
+   - The service reads that one key at each call and hands it to this extension only; it never reaches the outline or a log.
+2. **The board outline,** once: `ep0ch init readwise`, or name another with `board`. The `readwise` page is made on the first pull.
+3. **Install** for every outline, so `send` works on any note: `ep0ch ext add readwise`.
 
-   ```sh
-   with-secrets --add readwise READWISE_TOKEN
-   ```
-
-   The service reads that one key at each call and hands it to this extension only; it is never in the outline,
-   never logged, and scrubbed from anything the extension returns.
-2. The board outline, once: `ep0ch init readwise` (or name another with `board`, below). The `readwise` page is made on
-   the first pull.
-3. Install it for every outline, so `send` works on any note: `ep0ch ext add readwise`.
-
-Then, on any note in the door: `act ext.readwise.send` (or its key and click, like any action); from a shell:
-`ep0ch ext act readwise send --block <id>`. Pull now: `ep0ch ext run readwise action:pull` (or
-`ep0ch ext act readwise pull`). `ep0ch ext ls --long` shows the schedule's next run and what the last one did.
-
-**One pull an hour, once per host.** Its schedule says `"once": "host"`: an extension in the user folder serves every
-outline the host has open, and the hourly pull runs in one of them (`ep0ch ext ls --long` says which, `runs in …`). Pulls
-run one at a time across the host, so one you ask for in another outline waits for a running one, then finds nothing
-new.
+- **One pull an hour, once per host.** An extension in the user folder serves every outline the host has open, and the pull runs in one of them (`ep0ch ext ls --long` says which).
+  - Pulls run one at a time across the host, so one you ask for elsewhere waits, then finds nothing new.
 
 ## Config
 
@@ -112,21 +98,25 @@ new.
 |---|---|---|
 | `board` | `readwise` | The outline other highlights land in (on this host) |
 | `page` | `readwise` | The page in it they land under |
-| `publish` | `true` | Sending publishes the note (`[publish::public]`, unlisted) so Reader gets its public page. `false` sends without publishing: a note already published still gets its permalink |
-| `link` | the note's public permalink, else `https://ep0ch.invalid/{{props.outline}}@{{props.machine}}/b/{{props.id}}` | The URL a sent note gets in Reader. Reader needs a unique web URL per document. A published note gets its page by id (`notes.address`'s `permalink`, from a publisher started with `--public-url`) with `?ep0ch=<outline>@<machine>`, so opening it in Reader opens the page; an unpublished one the `.invalid` form. A `link` you set must hold `{{props.outline}}` and `{{props.id}}`: the pull reads the note back out of it |
-| `machine` | the service's (`notes.address`) | This machine's name in `ep0ch://` links. A document sent from another machine lands on the board |
+| `publish` | `true` | Sending publishes the note, unlisted; `false` sends without publishing |
+| `link` | the note's permalink, else an `ep0ch.invalid` URL | The URL Reader gets; it must hold `{{props.outline}}` and `{{props.id}}` |
+| `machine` | the service's (`notes.address`) | This machine's name in `ep0ch://` links |
 | `tags` | `["ep0ch"]` | Tags a sent document gets in Reader |
-| `minutes` | `4` | How long one pull may work (1–4) before it leaves the rest for the next |
-| `locations` | `["new", "later", "shortlist", "archive"]` | Which Reader locations the library mirrors; add `"feed"` for RSS items |
-| `readerPage` | `reader` | The page in the board outline the Reader library lands under |
+| `minutes` | `4` | How long one pull may work (1 to 4) |
+| `locations` | `["new", "later", "shortlist", "archive"]` | Which Reader locations the library mirrors |
+| `readerPage` | `reader` | The page the Reader library lands under |
 | `api` | `https://readwise.io` | Readwise's address; the test points it at a fake |
+
+- **Why `link` is unique:** Reader needs a unique web URL per document, and the pull reads the note back out of it.
+  - A published note gets its page by id with `?ep0ch=<outline>@<machine>`; an unpublished one the `.invalid` form.
+- **A document from another machine** lands on the board.
 
 ## Properties
 
-Every field in the export a person could filter on is a property, and **every highlight carries its book's identity**
-(a query reads one block's own properties, not its parent's, so the author is copied onto each highlight). Empty
-values are left out. Plain keys where the meaning is general and another source can share it; `readwise.*` where it is
-Readwise's own.
+Every field in the export you could filter on is a property, and empty values are left out.
+
+- **Every highlight carries its book's identity,** because a query reads one block's own properties, not its parent's.
+- **Plain keys** where another source can share the meaning; `readwise.*` where it is Readwise's own.
 
 | Key | On | From |
 |---|---|---|
@@ -145,14 +135,12 @@ Readwise's own.
 
 A Reader highlight (a book whose `source` is `reader`) also carries `reader.doc`, the document's id.
 
-Why `tags` and `book-tags` are apart: `tags=moss` should mean a highlight you tagged moss, not every highlight in a
-book somebody tagged. The book's tags are `tags` on the book block itself and `book-tags` on each highlight. The
-document's note (`document_note`) stays in the book block's body.
-
-Dates are days, and the grammar compares any property's dates (PIE-769), so "since March" is
-`highlighted >= 2024-03-01` (`created` and `updated` are when the block was written, not when you highlighted).
-`highlighted-year` and `highlighted-month` stay as conveniences: "from 2024" is `highlighted-year=2024`, and
-`group=highlighted:month` groups by month without them.
+- **Why `tags` and `book-tags` are apart:** `tags=moss` should mean a highlight you tagged moss, not every highlight in a tagged book.
+  - The book's tags are `tags` on the book block and `book-tags` on each highlight.
+- **The document's note** (`document_note`) stays in the book block's body.
+- **Dates are days,** so "since March" is `highlighted >= 2024-03-01` (PIE-769).
+  - `created` and `updated` are when the block was written, not when you highlighted.
+- **Conveniences:** `highlighted-year=2024` for "from 2024"; `group=highlighted:month` groups by month without them.
 
 ### Reader documents
 
@@ -171,8 +159,7 @@ Dates are days, and the grammar compares any property's dates (PIE-769), so "sin
 
 ## Finding them
 
-Highlights are blocks with open properties, so the views' grammar (`where=`, `group=`, `sort=`) finds them. As the
-`where` of a view, a virtual branch, `ep0ch find --query` or `blocks.query`:
+Highlights are blocks with open properties. Use these as the `where` of a view, a virtual branch, `ep0ch find --query` or `blocks.query`:
 
 ```text
 All highlights by an author:   readwise.highlight AND author="Ann Example"
@@ -210,10 +197,11 @@ A saved view for the queue, in your own outline:
 Reading queue [type::virtual-branch] [query::reader.id AND location=later] [sort::saved]
 ```
 
-## Testing
+## For developers
 
-`test/readwise-extension.test.ts` runs it in a scratch outline host with two outlines, a `with-secrets` group in a
-temp folder and a fake Readwise on localhost, with made-up books, highlights, a tweet thread and Reader documents (paginated, moved, deleted, with highlight documents among them), in Readwise's export and Reader's list shapes. It asks `blocks.query` the questions above. It never calls the real API.
-
-Self-contained on purpose (it imports nothing from the outline's code), so a copy works anywhere.
-See [the four kinds](../../docs/extensions/README.md#extensions-as-programs).
+- **Built from what any extension has** (PIE-743): an action on a note, a scheduled action, a connection to the outline, a `with-secrets` key.
+  - Nothing in the outline's code knows about Readwise.
+- **Tests:** `test/readwise-extension.test.ts` runs it in a scratch host with two outlines and a fake Readwise on localhost.
+  - It uses made-up books, highlights, a tweet thread and Reader documents, and never calls the real API.
+- **Self-contained on purpose:** it imports nothing from the outline's code, so a copy works anywhere.
+- See [the four kinds](../../docs/extensions/README.md#extensions-as-programs).

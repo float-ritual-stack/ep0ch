@@ -3,7 +3,7 @@
   "id": "runbook",
   "version": 6,
   "name": "Runbook",
-  "description": "Run a fence at a time with context and a separate run record.",
+  "description": "Run a runbook one step at a time, each run recorded beside it.",
   "demo": "demo",
   "run": [
     "bun",

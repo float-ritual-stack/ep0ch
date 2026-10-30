@@ -30,25 +30,25 @@ import { tileMenu } from "./desk/tile-menu";
 import type { Reveal } from "./reveal";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { lineCompletionHooks } from "./surface/line-hooks";
-import { AgentPointers, screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
+import { AgentPointers, screenKeys, whereabouts, type KeyLayers, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
 import { NEW_NOTE_ACTIONS } from "./new-note";
 import { TEMPLATE_ACTIONS } from "./template-stamp";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
-import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
+import { bg, BOLD, C, chip, fg, headOf, pad, RESET, splitVisible, tailFrom, UNBOLD, width } from "./style";
 import { isBarKey } from "./shell-keys";
-import { printable, withRowLimit } from "./text";
+import { printable, withRowLimit, wrap } from "./text";
 import { SpeedMeter } from "./speed";
 import { CLAUDE_SPLIT_ACTIONS, SplitWatch } from "./claude-splits";
 import { realFleetIO } from "./agent-fleet";
-import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileProgram } from "./term";
+import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileExit, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
-import { unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, scriptInstallWords, connectScriptActions, scriptPressMessage } from "./extensions";
+import { unbindExtensions, EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
-import { outlineChanged } from "./refs";
+import { outlineChanged, referenceWords } from "./refs";
 import { componentsChanged } from "./component-schemas";
 import { doorNest } from "./nest";
 import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme";
@@ -68,6 +68,8 @@ import { describeKey } from "./key-probe";
 import { WhatChanged } from "./desk/what-changed";
 import { overBar, PowerBar } from "./bar/bar";
 import { tilesOf } from "./bar/sources";
+import { rawKey } from "./kbd";
+import type { ListPicker } from "./surface/picker";
 import { BAR_ACTIONS, type BarOn } from "./bar/actions";
 import { onBarSources, type BarHost } from "./bar/source";
 import type { Msg } from "./board";
@@ -272,7 +274,7 @@ export interface Ctx {
    * editor, ctrl+t's picker. True when the screen has tiles and opened one; `done` is called with its exit code when it
    * ends, and the tile closes.
    */
-  inTile?(p: TileProgram, done: (code: number | null) => void): boolean;
+  inTile?(p: TileProgram, done: TileExit): boolean;
   lastCall: number;
   events: number;          // outline changes seen since the menu last looked (the people's: machinery apart)
   /** Every change seen since the menu last looked, machinery too. */
@@ -359,8 +361,8 @@ export interface Screen {
    * one they type in, whether anything here holds their keys. The shell's whereabouts query reads it.
    */
   keys?(): ScreenKeys;
-  /** What this screen shows, for agents (`ep0ch-door peek`). */
-  describe?(): unknown;
+  /** What this screen shows, for agents (`ep0ch-door peek`); `full` false asks each tile for its brief description, as layout.get does (PIE-1447). */
+  describe?(o?: { full?: boolean }): unknown;
   /** Put a block in front of the user (`ep0ch-door open <id>`). */
   openBlock?(m: import("./board").Msg): void;
   /** The note in the reader the person is in here, where a new note goes under (PIE-544, `note.new`); none: the Inbox. */
@@ -409,7 +411,7 @@ export interface Screen {
   /** Leaving it loses something it doesn't keep itself (a screen built and not saved): said, and leaving asks twice. */
   shapeWarning?(): string | null;
   /** See Ctx.inTile. */
-  inTile?(p: TileProgram, done: (code: number | null) => void): boolean;
+  inTile?(p: TileProgram, done: TileExit): boolean;
   /** What the person sees, for `view.subscribe`: diffed after every paint and pushed as events. */
   viewState?(): ViewState;
   /** The edits open here, by tile: what a session's next daemon opens again after a handoff (src/session/restore.ts). */
@@ -423,7 +425,10 @@ export interface Screen {
   hostMode?(): HostMode;
   /** The tiles shown here, when they're a desk inside this screen (the showcase's stage): where a tile taken out of the drawer lands. */
   tilesHere?(): Desk | undefined;
-  /** A click in a tile lifted out of this screen enters its existing tile host. */
+  /**
+   * The person's keys come into this screen's tiles from outside it: a click in a tile lifted out of it, a frame's stage
+   * gone into. Its tile host takes them (the showcase: its stage; a desk: the edit of theirs left open on its focused reader).
+   */
   enterTiles?(): void;
 }
 
@@ -452,6 +457,8 @@ export function agentActor(as?: string): Actor {
 
 /** A frame: no screen paints more often than this, and no hover report is handled more often (App.redraw, App.key). */
 const FRAME_MS = 16;
+/** After an Esc that closed something over a terminal the person types in, a second Esc this soon is that one again, never the program's (PIE-1431). */
+export const ESC_SPENT_MS = 600;
 
 export class App implements Ctx {
   readonly overflow = new Overflow();
@@ -608,6 +615,12 @@ export class App implements Ctx {
     host: () => this.barHost(),
   };
   private statusBoxes: StatusHit[] = [];
+  /** The status bar's message didn't fit its row as last drawn: it's said whole above the bar (withWhole). */
+  private messageCut = false;
+  /** How many rows above the bar that whole message takes as last drawn: a click on them opens the message log. */
+  private wholeRows = 0;
+  /** The status-bar groups' menus the person opened, by the group's path: a nested group's opens beside its parent's. */
+  private readonly statusMenus = new Map<string, ListPicker<MenuRow, unknown>>();
   /** What the narrow bar put in its `+N` chip, in the bar's order (`status.bar.menu overflow=true` lists them). */
   private statusHidden: StatusItem[] = [];
   private readonly statusButtons = new NoteSurface();
@@ -641,12 +654,13 @@ export class App implements Ctx {
     this.drawer.run = (name, args) => this.dispatch.pressIn(DRAWER_ACTIONS, name, args);
     term.onKey(k => this.key(k));
     term.onBatch?.(run => this.batched(run));
-    // Raw input while the person types in the drawer or a terminal tile: the drawer first, then the
-    // screen says where it goes (Term keeps mouse and ctrl+]).
-    // In the drawer, the person's bytes are the drawer's alone (a picker, a reader tab): never the screen's terminal under it.
+    // Raw input (Term keeps mouse and ctrl+]): only while a program has the person's keys with nothing over it, as their
+    // whereabouts say (keyLayers, PIE-1438), then the layer it's in takes it: the drawer's tab, or the screen's terminal tile.
     (term as { rawSink?: unknown }).rawSink = () => {
-      const sink = this.probing ? null : this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
+      const { program } = this.keyLayers();
+      const sink = !program || program.over ? null : this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
       return sink ? (bytes: string) => {
+        if (this.escSpent(bytes)) return;
         this.drawer.desks().map(d => d.liftedDesk).find(Boolean)?.dropLiftElsewhere();
         sink(bytes);
       } : null;
@@ -773,7 +787,7 @@ export class App implements Ctx {
     this.flash(dirty.length ? "an edit isn't saved · ctrl+s saves it · again within 3s leaves (the draft is copied to disk)" : warn!);
     return false;
   }
-  inTile(p: TileProgram, done: (code: number | null) => void): boolean { return (this.drawer.entered ? this.drawer.desk : this.stack.at(-1))?.inTile?.(p, done) ?? false; }
+  inTile(p: TileProgram, done: TileExit): boolean { return (this.drawer.entered ? this.drawer.desk : this.stack.at(-1))?.inTile?.(p, done) ?? false; }
   confirmQuit(): boolean { return this.leaving([...this.stack, ...this.background], true); }
   get detaches(): boolean { return !!this.term.detachActive; }
   typingOn(): unknown { return this.term.typingOn?.() ?? null; }
@@ -1094,7 +1108,8 @@ export class App implements Ctx {
   }
   private remoteSaid: { id?: string; verb: string; at: number } | null = null;
 
-  describe() {
+  /** The door's state as `peek` answers it; the layout in brief, as layout.get gives it, unless `full` (PIE-1447). */
+  describe(o: { full?: boolean } = {}) {
     const s = this.stack.at(-1);
     const b = this.board;
     const service = { protocol: b.protocol, offline: this.offline, sequence: b.lastSequence };
@@ -1111,9 +1126,9 @@ export class App implements Ctx {
       // Where the pointer rests on a cut-short value, and whether that value is being read in full (the pointer is the person's: this only says).
       hover: this.overflow.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
-      layout: this.screenDesk()?.layoutAll() ?? this.drawer.made?.layoutAll(),
+      layout: this.screenDesk()?.layoutAll(!!o.full) ?? this.drawer.made?.layoutAll(!!o.full),
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
-      ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.() ?? null };
+      ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.({ full: !!o.full }) ?? null };
   }
 
   /**
@@ -1216,12 +1231,19 @@ export class App implements Ctx {
       flash: (text: string) => this.flash(text, 12_000),
       // A group's or the overflow's menu (PIE-1224, PIE-1213): the tile menu over the screen, above the bar item it opens from,
       // its rows run on this dispatcher (they are the bar's own clicks).
-      menu: (title: string, rows: MenuRow[], anchor: (item: StatusItem) => boolean) => {
+      menu: (title: string, rows: MenuRow[], anchor: (item: StatusItem) => boolean, group?: string) => {
         // Only over the screen the person sees: a desk under another screen would hold a menu nobody sees.
         const here = this.screenDesk();
         if (!here || here !== tilesOf(this.stack.at(-1))) return false;
         const hit = this.statusBoxes.find(h => anchor(h.item));
-        here.overlay(tileMenu({ title, rows, at: { col: hit?.from ?? 0, row: Math.max(0, this.term.info.rows - 2) }, host: { dispatch: { press: (a, args, tile) => this.dispatch.press(a, args, tile) }, ctx: this } }));
+        // A group in a group opens beside its parent's menu, still open under it (PIE-1428); the outermost, above its bar item.
+        const parent = group?.includes("/") ? this.statusMenus.get(group.slice(0, group.lastIndexOf("/"))) : undefined, box = parent && !parent.ended() ? parent.drawn() : null;
+        const at = box ? { col: box.col + box.cols, row: box.row } : { col: hit?.from ?? 0, row: Math.max(0, this.term.info.rows - 2) };
+        const menu = tileMenu({ title, rows, at, ...(box ? { beside: box } : {}), ...(group ? { name: `tile menu ${group}` } : {}), host: { dispatch: { press: (a, args, tile) => { if (a !== "status.bar.menu" || args?.overflow) this.closeStatusMenus(here); return this.dispatch.press(a, args, tile); } }, ctx: this } });
+        // A row that runs something (not a nested group's) closes the whole chain, as one choice from one menu did.
+        if (group !== undefined) this.statusMenus.set(group, menu);
+        else this.statusMenus.set("", menu);
+        here.overlay(menu);
         this.redraw();
         return true;
       },
@@ -1259,15 +1281,17 @@ export class App implements Ctx {
   /**
    * Where the person is (PIE-514): the top screen's own answer (its `keys`; else whether it holds their keys), the host
    * layer's drawer they may be typing in, the shell or editor the door is suspended under, and how long they've been idle.
+   * It is also who takes their next key (PIE-1438): the door's own layer over everything (`over`), the drawer or the
+   * screen (`keys`), and a program under them (`program`), as keyLayers works them out.
    */
   person(): Whereabouts {
     const s = this.stack.at(-1);
-    const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.entered, hostAddress: this.drawer.made?.keys().address, hostTile: ((t: string | null) => (t ? `drawer:${t}` : null))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
+    const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.entered, hostAddress: this.drawer.made?.keys().address, hostTile: ((t: string | null) => (t ? `drawer:${t}` : null))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor(), ...this.keyLayers() });
     const w: Whereabouts = this.agentsYolo ? { ...w0, yolo: true } : w0;
     // The power bar holds their keys while it's open.
     // (A hold on navigation alone, the showcase's, doesn't count as busy here: a real hold replaces it.)
     const free = !w.busy || !!w.navHold;
-    if (this.bar && free) { const { navHold: _n, ...rest } = w; return { ...rest, busy: true, why: "the person has the power bar open (ctrl+k)" }; }
+    if (w.over === "bar" && free) { const { navHold: _n, ...rest } = w; return { ...rest, busy: true, why: "the person has the power bar open (ctrl+k)" }; }
     // An armed edit holds the next key: the person is mid-gesture.
     const a = this.armedNow?.a;
     if (a && free) { const { navHold: _n, ...rest } = w; return { ...rest, busy: true, why: `the person is about to edit ${a.what} (e pressed; ⏎ opens it)` }; }
@@ -1283,7 +1307,7 @@ export class App implements Ctx {
     const who = agentLabel(actor);
     return messageContext.run({ action: req.action, ...(req.tile ? { tile: req.tile } : {}) }, async () => {
       try {
-        if (!this.dispatch.takes(req, actor)) throw new ActionRefused(GONE_ACTIONS[req.action] ?? scriptInstallWords(req.action) ?? this.dispatch.unknownAction(req.action));
+        if (!this.dispatch.takes(req, actor)) throw new ActionRefused(GONE_ACTIONS[req.action] ?? this.dispatch.unknownAction(req.action));
         this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);
         const r = await this.dispatch.act(req, actor);
         this.redraw();
@@ -1386,8 +1410,16 @@ export class App implements Ctx {
     // An Option character standing for an alt key is that key everywhere after this, the drawer's alt+a too.
     const k = this.optionAsAlt(typed);
     this.pressed(k);
+    // An Esc the door reads while the person types in a program: one for something over it (the bar, a menu) is spent
+    // there; one right after it is that one again, never the program's (PIE-1431). A screen that hands its terminal decoded
+    // keys (the showcase's stage) meets it here; raw bytes meet it in the raw sink (escSpent).
+    const layers = this.keyLayers(), program = k.kind === "esc" ? layers.program : undefined;
+    if (program) {
+      if (!program.over && this.heldEsc()) return;
+      if (program.over) this.escSpentAt = this.now();
+    }
     // The key typed, by its one name, while it's handled: an action it no longer runs (the person's keymap moved it) says so.
-    try { asTyped(k.kind === "mouse" || k.kind === "paste" ? null : keyName(k), () => this.route(k)); }
+    try { asTyped(k.kind === "mouse" || k.kind === "paste" ? null : keyName(k), () => this.route(k, layers)); }
     finally {
       // A chord waiting for its next key, a menu or picker open: the next press continues this gesture (refuse).
       if (pressOf(k) !== null) this.heldAfter = !!this.stack.at(-1)?.holdsKeys?.();
@@ -1401,21 +1433,22 @@ export class App implements Ctx {
 
   /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
   private xrayLeader = false;
-  private route(k: Key) {
+  /** `w`: which layer takes it, the door's own over everything first: the person's whereabouts' answer (keyLayers, PIE-1438). */
+  private route(k: Key, w: KeyLayers) {
     if (k.kind === "alt" && k.ch === "?") { void this.dispatch.press("text.reveal"); return; }
     if (k.kind === "mouse" && isHover(k)) void this.dispatch.press("text.hover", { x: k.x, y: k.y });
     else if (k.kind === "mouse") this.overflow.clear();
     else this.overflow.keys();
     if (k.kind === "modifier") {
-      if (!this.bar && this.dispatch.has("xray")) void this.dispatch.press("xray", k.event === "tap" ? {} : { on: k.event === "press" });
+      if (w.over !== "bar" && this.dispatch.has("xray")) void this.dispatch.press("xray", k.event === "tap" ? {} : { on: k.event === "press" });
       return;
     }
     const leader = this.xrayLeader;
-    if (k.kind !== "mouse") this.xrayLeader = !this.bar && k.kind === "char" && !!k.ctrl && k.ch === "]";
-    if (!this.bar && leader && k.kind === "char" && !k.ctrl && k.ch === "?" && this.dispatch.has("xray")) { void this.dispatch.press("xray"); return; }
+    if (k.kind !== "mouse") this.xrayLeader = w.over !== "bar" && k.kind === "char" && !!k.ctrl && k.ch === "]";
+    if (w.over !== "bar" && leader && k.kind === "char" && !k.ctrl && k.ch === "?" && this.dispatch.has("xray")) { void this.dispatch.press("xray"); return; }
 
     // keys.probe (PIE-699): describe the key, run nothing. A click still works (the status bar's chip, a tile), and esc ends it.
-    if (this.probing && k.kind !== "mouse") {
+    if (w.over === "probe" && k.kind !== "mouse") {
       if (k.kind === "esc") this.probeKeys(false);
       else if (k.kind === "paste") { this.flash(`✦ probe · a paste of ${[...k.text].length} characters (bracketed paste) · esc ends the probe`, 60_000); this.redraw(); }
       else { this.flash(describeKey(k, (this.term as { lastSeq?: string }).lastSeq ?? ""), 60_000); this.redraw(); }
@@ -1430,9 +1463,14 @@ export class App implements Ctx {
       if (confirms(armed, k)) { armed.run(k); return; }
     }
     // The power bar (PIE-656), while it's open, takes every key and click: esc or a click outside puts it away.
-    if (this.bar) {
-      if (!this.bar.ended()) this.bar.key(k, this);
+    if (w.over === "bar") {
+      if (!this.bar!.ended()) this.bar!.key(k, this);
       if (this.bar?.ended()) { this.bar.close(); this.bar = null; this.redraw(); }
+      return;
+    }
+    // The message said whole above the bar (withWhole): a click on it opens the message log, where it reads whole (PIE-1453).
+    if (k.kind === "mouse" && k.action === "down" && this.wholeRows && k.y < this.term.info.rows - 1 && k.y >= this.term.info.rows - 1 - this.wholeRows) {
+      void this.dispatch.press("status.log");
       return;
     }
     if (k.kind === "mouse" && k.y === this.term.info.rows - 1 && k.action === "down") {
@@ -1451,6 +1489,9 @@ export class App implements Ctx {
     // The hyper layer (PIE-699): ⌃⌥⇧⌘ and a key, before any tile's own keys (a draft's and a terminal tile's too). Each chord
     // presses an action that has other keys and a click (src/hyper.ts); the layer is off unless turned on.
     if (k.kind === "hyper") { this.hyper(k.ch); return; }
+    // A menu opened over the screen while the person is in the drawer (a status-bar group's) has the keys before the drawer
+    // and a tile of it lifted over the screen: Esc closes it, never the agent's (PIE-1431).
+    if (k.kind !== "mouse" && w.over === "menu") { this.stack.at(-1)!.key(k, this); return; }
     const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
     if (lifted?.liftInput(k, () => {
       if (this.drawer.made?.liftedDesk === lifted) this.drawerRun("host.enter", {});
@@ -1467,38 +1508,39 @@ export class App implements Ctx {
       if (k.action === "down") void this.dispatch.press("status.log");
       return;
     }
+    // The door's own keys on every screen: each asks the top screen, once, whether it's using the key (a terminal tile's
+    // program, an edit, a filter, a picker): its own answer. Which layer has the key was decided above (person()).
+    const top = this.stack.at(-1), raw = !!top?.rawKeys?.(), held = !!top?.holdsKeys?.(), drawerless = !!top?.noDrawer;
     // The person's keymap (src/surface/keymap.ts): a key it gives an action matched in code (the shell's alt+v, a reader's z)
     // presses that action here, before the shell's keys and the screen's; never while typing or in a terminal tile. A
     // table's keys (^W, a mode's) are the table's, which reads the file itself.
-    const typedName = k.kind === "mouse" ? null : keyName(k), mine = typedName ? layerEntry(typedName) : undefined, mTop = this.stack.at(-1);
-    if (mine && !mTop?.rawKeys?.() && !mTop?.holdsKeys?.() && this.dispatch.has(mine.action)) { void this.dispatch.press(mine.action, mine.args); return; }
-    if (k.kind === "alt" && k.ch === "Q" && !this.stack.at(-1)?.rawKeys?.() && (this.recording.active || !this.stack.at(-1)?.holdsKeys?.())) {
+    const typedName = k.kind === "mouse" ? null : keyName(k), mine = typedName ? layerEntry(typedName) : undefined;
+    if (mine && !raw && !held && this.dispatch.has(mine.action)) { void this.dispatch.press(mine.action, mine.args); return; }
+    if (k.kind === "alt" && k.ch === "Q" && !raw && (this.recording.active || !held)) {
       void this.dispatch.press(this.recording.active ? "macro.stop" : "macro.record"); return;
     }
     // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
-    if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
+    if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !raw) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
     // alt+y: the tune inspector on the focused tile (tile.tune, PIE-673), on the desk's screens, never in a terminal tile.
-    if (k.kind === "alt" && k.ch === "y" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.holdsKeys?.()) { void this.dispatch.press("tile.tune"); return; }
-    if (k.kind === "alt" && k.ch === "M" && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press("status.log"); return; }
+    if (k.kind === "alt" && k.ch === "y" && !raw && !held) { void this.dispatch.press("tile.tune"); return; }
+    if (k.kind === "alt" && k.ch === "M" && !raw) { void this.dispatch.press("status.log"); return; }
     // alt+w: what waits on you, the list in your drawer (host.waiting), on every screen but in a terminal tile (its program's).
-    if (k.kind === "alt" && k.ch === "w" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("host.waiting"); return; }
+    if (k.kind === "alt" && k.ch === "w" && !raw && !drawerless) { void this.dispatch.press("host.waiting"); return; }
     // alt+o: what changed since you looked, the list in your drawer (changes.open), on the same screens.
-    if (k.kind === "alt" && k.ch === "o" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("changes.open"); return; }
+    if (k.kind === "alt" && k.ch === "o" && !raw && !drawerless) { void this.dispatch.press("changes.open"); return; }
     // The power bar's keys (isBarKey): on every screen, never while typing or in a terminal tile; the drawer asks the same of its tab.
-    const kTop = this.stack.at(-1);
-    if (isBarKey(k) && !kTop?.rawKeys?.() && !kTop?.holdsKeys?.() && !kTop?.noDrawer) { void this.dispatch.press("bar.open"); return; }
+    if (isBarKey(k) && !raw && !held && !drawerless) { void this.dispatch.press("bar.open"); return; }
     // ctrl+n: a new note (PIE-544), on every screen, in an edit too (PIE-591), but never in a filter, a picker or a terminal tile.
-    const nTop = this.stack.at(-1);
-    if (k.kind === "char" && k.ctrl && k.ch === "n" && !nTop?.rawKeys?.() && (!nTop?.holdsKeys?.() || nTop.newNoteWhileTyping?.()) && !nTop?.noDrawer) { void this.dispatch.press("note.new"); return; }
+    if (k.kind === "char" && k.ctrl && k.ch === "n" && !raw && (!held || top?.newNoteWhileTyping?.()) && !drawerless) { void this.dispatch.press("note.new"); return; }
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
-    if (k.kind === "paste" && !this.stack.at(-1)?.rawKeys?.()) {
+    if (k.kind === "paste" && !raw) {
       // A paste of nothing at all (the clipboard held only a picture, PIE-592) is ctrl+v, which a draft takes as draft.image.
       if (k.text === "") { this.key({ kind: "char", ch: "v", ctrl: true }); return; }
       for (const key of pasteKeys(k.text)) this.key(key);
       return;
     }
     // ctrl+c: in a session the person's terminal detaches (nothing ends, nothing is asked); else the door quits, asking first.
-    if (k.kind === "char" && k.ctrl && k.ch === "c" && !this.stack.at(-1)?.rawKeys?.()) {
+    if (k.kind === "char" && k.ctrl && k.ch === "c" && !raw) {
       if (this.detaches) this.logoff();
       else if (this.leaving([...this.stack, ...this.background], true)) this.quit();
       return;
@@ -1506,15 +1548,14 @@ export class App implements Ctx {
     // cmd+c (super+c) is the copy wherever a reader or a draft has a selection (its copy action runs); where
     // nothing took it (no reader has the keys, or nothing ran and nothing was said), it says so. In a terminal
     // tile it's the program's, as it came (rawKeys).
-    const top = this.stack.at(-1);
-    if (isCopyKey(k) && top && !top.rawKeys?.()) {
+    if (isCopyKey(k) && top && !raw) {
       let ran = false;
       const said = this.flashes, stop = traceActions(() => { ran = true; });
       try { top.key(k, this); } finally { stop(); }
       if (!ran && this.flashes === said) this.refuse("nothing selected · drag across the text to copy it, or v and move then y");
       return;
     }
-    if (!top?.holdsKeys?.() && !top?.rawKeys?.() && !(k.kind === "char" && k.pasted)) {
+    if (!held && !raw && !(k.kind === "char" && k.pasted)) {
       const binding = scriptBindings().find(b => b.key === keyName(k));
       if (binding) {
         const problem = this.dispatch.bindingProblem(binding);
@@ -1523,11 +1564,67 @@ export class App implements Ctx {
       }
     }
     // ? on a screen that doesn't word it itself (a BBS list, the art viewer): the keys window, filtered to this screen (keys.open).
-    if (top && !top.ownsQuestion && k.kind === "char" && !k.ctrl && k.ch === "?" && !k.pasted && !top.holdsKeys?.() && !top.rawKeys?.() && this.dispatch.has("keys.open")) {
+    if (top && !top.ownsQuestion && k.kind === "char" && !k.ctrl && k.ch === "?" && !k.pasted && !held && !raw && this.dispatch.has("keys.open")) {
       void this.dispatch.press("keys.open", { filter: top.name ?? top.title }); return;
     }
     top?.key(k, this);
   }
+
+  /** Every status-bar menu the person opened (a group, its nested groups, the +N) closes: a row in one ran. */
+  private closeStatusMenus(here: Desk) { for (const m of this.statusMenus.values()) if (!m.ended()) m.close(here); this.statusMenus.clear(); this.redraw(); }
+  /** A menu or picker over the screen while the person types in the drawer (a status-bar group's): the keys are its until it closes (person()'s `over`). */
+  private overDrawer(): boolean {
+    if (!this.drawer.entered) return false;
+    // Only a menu the bar opened over the screen (a status-bar group's, +N): one left open on the screen before the person
+    // went into the drawer is the screen's, and their keys stay the drawer's.
+    const top = tilesOf(this.stack.at(-1));
+    return !!top && top !== this.drawer.made && top.overlaid() && [...this.statusMenus.values()].some(m => !m.ended());
+  }
+  /**
+   * Who takes the person's next key (PIE-1438), the part of their whereabouts the raw sink, the router and Esc's hold read
+   * on every key (person() carries it too): the door's own layer over everything, top first (the power bar, above the
+   * key probe since the probe takes keys and not clicks, then a status-bar menu over the drawer), and the program under
+   * it all. Nothing else decides it (test/one-owner.test.ts).
+   */
+  private keyLayers(): KeyLayers {
+    const over = this.bar ? "bar" as const : this.probing ? "probe" as const : this.overDrawer() ? "menu" as const : undefined, program = this.programUnder(!!over);
+    return { ...(over ? { over } : {}), ...(program ? { program } : {}) };
+  }
+  /**
+   * The program that has the person's keys under whatever is open (person()'s `program`, PIE-1431): a terminal tile's or
+   * the drawer's agent's, and whether something is open over it that an Esc closes first. What can be over it is one
+   * list, layer by layer from the top: the door's own (person()'s `over`: the key probe, the power bar, a menu the bar
+   * opened over the screen), a screen pushed over the desk or the drawer (the message log, a picker) and a menu or picker
+   * on the desk or a group in it. A new overlay is over the program by being one of these, never by a list of kinds.
+   * `door`: one of the door's own layers is open.
+   */
+  private programUnder(door: boolean): { over: boolean } | null {
+    // The drawer's tab, shown, or hidden by a screen pushed over it that has no drawer (the message log); a screen of
+    // tiles that has no drawer (a desk with host=none) has the keys itself.
+    if (this.drawer.keysIn && (this.drawer.entered || this.stack.length > 1 && !tilesOf(this.stack.at(-1)))) {
+      const p = this.drawer.desk?.programKeys();
+      return p?.typing ? { over: door || !this.drawer.entered || p.over } : null;
+    }
+    for (let i = this.stack.length - 1; i >= 0; i--) {
+      const s = this.stack[i]!, d = tilesOf(s), above = door || i < this.stack.length - 1;
+      if (!d) { if (s.rawKeys?.()) return { over: above }; continue; }
+      const p = d.programKeys();
+      // A screen that frames a desk (the showcase's stage) says whether the keys are in it at all.
+      return p.typing && (d === s || !!s.rawKeys?.()) ? { over: above || p.over } : null;
+    }
+    return null;
+  }
+  /** When an Esc last closed something over a terminal the person types in, or was held back for it. */
+  private escSpentAt = -Infinity;
+  /** An Esc right after one closed something over the program: held back, and said (PIE-1431). */
+  private heldEsc(): boolean {
+    // A fixed window from the Esc that closed something: a held one doesn't extend it, so tapping Esc gets through soon.
+    if (this.now() - this.escSpentAt >= ESC_SPENT_MS) return false;
+    this.flash("nothing to close · pause, then esc is the program's", 2500);
+    return true;
+  }
+  /** Raw bytes that are an Esc (legacy, or a Kitty report), held back as heldEsc says. */
+  private escSpent(bytes: string): boolean { return this.now() - this.escSpentAt < ESC_SPENT_MS && (/^\x1b+$/.test(bytes) || rawKey(bytes)?.kind === "esc") && this.heldEsc(); }
 
   private probing = false;
   probeKeys(on = !this.probing): boolean {
@@ -1732,7 +1829,13 @@ export class App implements Ctx {
       placements = uncover(placements, r);
     }
     if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
-    lines.push(this.statusBar(s, cols));
+    const bar = this.statusBar(s, cols);
+    // What the bar cuts short (a refusal at 40 columns) is said whole just above it while it's up (PIE-1428).
+    // Longer than its four rows, it ends "… more alt+M"; a click on it (or alt+M) opens the message log, which has it whole (PIE-1453).
+    const whole = this.messageCut && this.message ? referenceWords(this.message) : "";
+    if (whole) lines = withWhole(lines, whole, cols, this.messageWarning);
+    this.wholeRows = whole ? Math.min(4, wrap(printable(whole, " "), Math.max(1, cols - 2)).length) : 0;
+    lines.push(bar);
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     const readable = this.overflow.draw(lines, cols, Date.now());
     if (readable.overlay) placements = uncover(placements, readable.overlay);
@@ -1830,7 +1933,8 @@ export class App implements Ctx {
     const left = statusText(leftItems), right = statusText(rightItems);
     // A loud refusal (the same key refused again) is bold here too; the focused tile's frame says it in its place.
     const loud = this.refusedNow?.loud && this.refusedNow.text === this.message;
-    const message = this.message || this.linkLabel;
+    // A labelled reference in a message reads as its label, as in a reader (the log keeps it whole).
+    const message = referenceWords(this.message) || this.linkLabel;
     const middle = message ? ` ${fg(this.messageWarning ? C.yellow : C.lcyan)}${loud ? BOLD : ""}${message}${loud ? UNBOLD : ""}${fg(C.lcyan)}` : "";
     const room = Math.max(0, cols - width(right) - 3);
     const displaced = !!middle && width(left + middle) > room;
@@ -1838,14 +1942,16 @@ export class App implements Ctx {
     // as many as fit before it with a cell of the message: pins give way from the end, then the `!`, the `+N` (the way to
     // the rest) last. What is kept here is what is drawn and what a click finds (PIE-1415: a dropped `+N` had left its
     // hit box behind).
-    // From the items as they were before separating: a dropped neighbour's `│` never leads the kept ones.
-    let held = displaced ? items.filter(i => i.place === "left" && (i.id === "overflow" || (i.rank ?? RANK.builtin) >= RANK.pinned)) : [];
-    const own = (i: StatusItem) => i.id === "overflow" || i.id === "problems";
+    // From the items as they were before separating: a dropped neighbour's `│` never leads the kept ones. The ^K stays too
+    // (PIE-1449), the message beside it: the mouse's way to the power bar outlasts everything else here.
+    let held = displaced ? items.filter(i => i.place === "left" && (i.id === "power" || i.id === "overflow" || (i.rank ?? RANK.builtin) >= RANK.pinned)) : [];
+    const goesLast = ["problems", "overflow", "power"], own = (i: StatusItem) => goesLast.includes(i.id);
     while (held.length && width(statusText(separated(held, "left"))) >= room) {
       const last = held.findLastIndex(i => !own(i));
-      held = held.toSpliced(last >= 0 ? last : Math.max(0, held.findIndex(i => i.id === "problems")), 1);
+      held = held.toSpliced(last >= 0 ? last : Math.max(0, held.findIndex(i => i.id === goesLast.find(id => held.some(h => h.id === id)))), 1);
     }
     const kept = separated(held, "left"), keep = statusText(kept);
+    this.messageCut = !!this.message && width((displaced ? keep : left) + middle) > room;
     this.statusBoxes = [
       ...statusHits(displaced ? kept : leftItems, 0, displaced ? room : room - (width(left) > room ? 1 : 0)),
       ...statusHits(rightItems, Math.max(3, cols - width(right)), cols),
@@ -1880,6 +1986,22 @@ export function withToast(lines: string[], text: string, cols: number, ok = true
   const out = [...lines];
   const line = out[row] ?? "";
   out[row] = headOf(line, at) + RESET + chip(ok ? C.cyan : C.red) + pad(t, w) + RESET + tailFrom(line, at + w);
+  return out;
+}
+
+/** What withWhole puts at the end of its last row when the message is longer than its rows (PIE-1453): a click or alt+M reads it whole. */
+export const WHOLE_MORE = "… more alt+M";
+/**
+ * A message the status bar cut short, wrapped whole over the rows just above it (at most four), in the bar's ink. One
+ * longer than that ends its fourth row with WHOLE_MORE: the message log (status.log) draws it whole.
+ */
+export function withWhole(lines: string[], text: string, cols: number, warning = false): string[] {
+  const room = Math.max(1, cols - 2), all = wrap(printable(text, " "), room), rows = all.slice(0, 4), out = [...lines];
+  if (all.length > rows.length) {
+    const more = ` ${WHOLE_MORE}`, last = rows.length - 1;
+    rows[last] = splitVisible(rows[last]!, Math.max(0, room - width(more)))[0].trimEnd() + more;
+  }
+  rows.forEach((r, i) => { const at = out.length - rows.length + i; if (at >= 0) out[at] = STATUS_INK + fg(warning ? C.yellow : C.lcyan) + pad(` ${r}`, cols) + RESET; });
   return out;
 }
 

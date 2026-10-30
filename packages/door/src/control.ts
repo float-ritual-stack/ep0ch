@@ -102,7 +102,7 @@ export interface ControlDeps { app: App; mirror: Mirror; info: () => TermInfo }
 async function handle(req: any, d: ControlDeps): Promise<unknown> {
   // A session nobody watches renders no frames: the one skipped is drawn before anything reads the screen.
   d.app.catchUp();
-  if (req.cmd === "peek") return { screen: req.xray ? { ...d.app.describe(), xray: await d.app.dispatch.act({ action: "hint.get", args: { xray: true } }, { kind: "agent", id: "peek" }) } : d.app.describe(), text: d.mirror.text() };
+  if (req.cmd === "peek") return { screen: req.xray ? { ...d.app.describe({ full: !!req.full }), xray: await d.app.dispatch.act({ action: "hint.get", args: { xray: true } }, { kind: "agent", id: "peek" }) } : d.app.describe({ full: !!req.full }), text: d.mirror.text() };
   if (req.cmd === "snap") {
     // Render at the VGA font's own 9×16 cell, whatever the real terminal's cell size is.
     const png = () => d.mirror.snapshot({ ...d.info(), cellW: 9, cellH: 16 });
@@ -231,20 +231,21 @@ const OPEN_SPEC: ToolArgsSpec = { name: "ep0ch open", schema: { type: "object", 
 /**
  * What `peek` was asked for (PIE-1308, PIE-1302): by default the compact text, a few lines of state and the screen as
  * text; `--json` the whole state and the text as one JSON object and nothing else; a section (`peek speed`, `peek
- * person`, any top-level key of the state) just that, as JSON; `--xray` the state with every tile's card, as `--json`.
+ * person`, any top-level key of the state) just that, as JSON; `--xray` the state with every tile's card, as `--json`. The layout is in brief, as layout.get gives it; `--full` (or
+ * `full=true`) has each tile's whole description (PIE-1447).
  */
-export interface PeekAsk { json: boolean; xray: boolean; section: string | null }
+export interface PeekAsk { json: boolean; xray: boolean; full: boolean; section: string | null }
 export function peekAsk(args: readonly string[]): PeekAsk | { error: string } {
   const rest = args.slice(args.indexOf("peek") + 1);
   const section: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
     if ((VALUE_FLAGS as readonly string[]).includes(a)) { i++; continue; }
-    if (a.startsWith("--")) continue;
+    if (a.startsWith("--") || a.startsWith("full=")) continue;
     section.push(a);
   }
   if (section.length > 1) return { error: `peek takes one section (\`ep0ch peek speed\`), not ${section.join(" ")} · \`ep0ch peek --json\` has them all` };
-  return { json: args.includes("--json"), xray: args.includes("--xray"), section: section[0] ?? null };
+  return { json: args.includes("--json"), xray: args.includes("--xray"), full: args.includes("--full") || args.some(a => /^full=(true|1|yes)$/.test(a)), section: section[0] ?? null };
 }
 
 /** The state as the compact peek heads it: where the door is and who it is for, in lines an agent reads at a glance. */
@@ -270,7 +271,7 @@ export function peekOutput(result: { screen: Record<string, any>; text: string[]
   if (ask.json || ask.xray) return { out: JSON.stringify(whole, null, 2) + "\n" };
   let last = text.length;
   while (last > 0 && !text[last - 1]) last--;
-  return { out: [...peekHead(screen), "─".repeat(20), ...text.slice(0, last), "─".repeat(20), "more: `ep0ch peek --json` (all of the state, and this text), `ep0ch peek <section>` (layout, drawer, speed, state, …)"].join("\n") + "\n" };
+  return { out: [...peekHead(screen), "─".repeat(20), ...text.slice(0, last), "─".repeat(20), "more: `ep0ch peek --json` (all of the state, and this text), `ep0ch peek <section>` (layout, drawer, speed, state, …; layout in brief, `--full` has each tile whole)"].join("\n") + "\n" };
 }
 
 /** Client side: send one command to a running door and print the reply. */
@@ -324,7 +325,8 @@ export async function controlClient(args: string[]): Promise<number> {
     req = cmd === "snap" ? (arg ? { cmd, data: true } : { cmd })
       : fileTarget !== null ? { cmd: "act", ...(await parseActArgs(["open", `file=${fileTarget}`, ...commandArgs.slice(2)])) }
       : cmd === "open" ? { cmd: "act", ...(openTarget!.address ? { address: openTarget!.address } : {}), ...(await parseActArgs(["open", `id=${openTarget!.blockId}`, ...(openTarget!.fragment ? [`fragment=${openTarget!.fragment}`] : []), ...commandArgs.slice(2)])) }
-      : cmd === "act" ? { cmd, ...(await parseActArgs(commandArgs.slice(1))) } : { cmd, ...(cmd === "peek" && peeked && !("error" in peeked) && peeked.xray ? { xray: true } : {}) };
+      : cmd === "act" ? { cmd, ...(await parseActArgs(commandArgs.slice(1))) } : { cmd, ...(cmd === "peek" && peeked && !("error" in peeked) ? { ...(peeked.xray ? { xray: true } : {}), // Each tile whole only where it is printed (the JSON, a section): the compact text never shows the layout.
+        ...(peeked.full && (peeked.json || peeked.xray || peeked.section) ? { full: true } : {}) } : {}) };
   } catch (e) { console.error((e as Error).message); return 1; }
   // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act and open), or its folder's .ep0ch does.
   if (req.cmd === "act") { const as = actAs(req.as, process.env, process.cwd()); if (as) req.as = as; }

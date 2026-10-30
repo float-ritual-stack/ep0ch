@@ -1,6 +1,6 @@
 import { ageSince } from "@ep0ch/outline-core/age";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
-import { type ArtifactInfo, type ArtifactReader } from "@ep0ch/outline-core/artifacts";
+import { type ArtifactDeployState, type ArtifactInfo, type ArtifactReader } from "@ep0ch/outline-core/artifacts";
 import { pageSources, SOURCE_ROUTE, sourceAt, sourceFile, SOURCES_STYLE, visibleSources } from "./publish-sources";
 import type { SiteAnswer, SiteAnswerRequest, SiteLink } from "@ep0ch/outline-core/site";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
@@ -18,7 +18,7 @@ import { publishedValueWords, readPageValues } from "./publish-values";
 import { substituteValues } from "@ep0ch/outline-core/site-values";
 import type { SiteValue } from "@ep0ch/outline-core/site";
 import { ARTIFACT_PATH, drawNoteMedia, fileName, MEDIA_PATH, MEDIA_STYLE, mediaHtml, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
-import { artifactPagePath, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
+import { artifactPagePath, artifactRepoRef, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
 import { renderComponent, validatePrimitive, viewImages } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
 import { isMachinery } from "@ep0ch/outline-core/machinery";
@@ -61,7 +61,7 @@ import { completeAt, SEARCH_STYLE, searchForm, searchNotes, searchResultsHtml, s
 import { ANNOTATION_TYPE, extractAnnotationBody, isAnnotationBlock } from "./annotations";
 import { RECENT_REPLIES_QUERY, UNREAD_REPLIES_QUERY } from "@ep0ch/outline-core/recent-replies";
 import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
-import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceOccurrences, referencesToResolve } from "@ep0ch/outline-core/link-syntax";
 import { MAX_BLOCK_READ_IDS } from "./block-projection";
 import { codeLineSet, stripFragmentAnchors } from "./fragments";
 import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING, type TransclusionNode, type TransclusionRead } from "./transclusions";
@@ -80,7 +80,9 @@ import type {
   NotePublication,
   RenderedNote,
   ProjectedVisibleBlock,
+  ResolvedBlockReferences,
 } from "./types";
+import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 
 /**
  * Outline as server: an HTTP publisher for blocks carrying `[publish::…]`, and on
@@ -147,7 +149,12 @@ export interface PublishedIndex {
   labelsOnly?: boolean;
   /** A `#tag` links to the notes carrying it (`<base>/search?q=%23tag`, PIE-800): only where a search is served, a tailnet page or a share's. */
   tagSearch?: boolean;
+  /** A reference written by its short id (`((0a1b2c3d|label))`, as notes and figure cells hold them) to the whole id the service resolved it to (PIE-1334). */
+  refs?: ReadonlyMap<string, string>;
 }
+
+/** The whole id a written reference names: its short id as the service resolved it (PIE-1334), else as written. */
+const referenceTarget = (index: PublishedIndex, id: string) => index.refs?.get(id) ?? id;
 
 /**
  * What the publisher asks of the service: a socket client (`publish serve`), or the service itself in-process, which
@@ -212,7 +219,7 @@ export interface PublisherOptions {
    * takes them. `fresh`: a write is about to land, so nothing remembered from earlier answers.
    */
   writes?: (fresh: boolean) => Promise<string | null>;
-  /** Tell the service who reads which page (`reader.report`); a read-only copy can't keep it. Default true. */
+  /** Tell the service who reads which page (`reader.report`); a mirror's copy keeps it beside the mirror (outline-mirror.ts). Default true. */
   presence?: boolean;
   /** Offer `share…` on a note's page (the shares page starts it); a publisher with no public listener of its own doesn't. Default true. */
   shares?: boolean;
@@ -1960,7 +1967,7 @@ export class Publisher {
     const known = new Set(index.entries.map((entry) => entry.blockId));
     const embedded = embeds ? Object.values(embeds.read.blocks).map((block) => block.text) : [];
     const ids = [...new Set([
-      ...[...texts, ...embedded].flatMap((text) => [...blockReferenceOccurrences(text)].map((occurrence) => occurrence.blockId)),
+      ...[...texts, ...embedded].flatMap((text) => referencesToResolve(text).map((occurrence) => referenceTarget(index, occurrence.blockId))),
       ...pages.values(),
     ])].filter((id) => !known.has(id)).slice(0, MAX_BLOCK_READ_IDS);
     if (!ids.length) return index;
@@ -2312,6 +2319,26 @@ export class Publisher {
   }
 
   /** `[[page]]` addresses in `texts` resolved through the service's page registry, a few at a time. */
+  /**
+   * `index` knowing the whole id of each reference `texts` write by a short id (PIE-1334: `((0a1b2c3d|label))`, in prose
+   * or a figure's cell), as the service's references.resolve answers it, so the page links it as the door follows it.
+   * One request for them all; one it can't resolve stays its label.
+   */
+  private async withShortReferences(index: PublishedIndex, texts: readonly string[]): Promise<PublishedIndex> {
+    const known = new Map(index.refs ?? []);
+    const short = [...new Set(texts.flatMap((text) => referencesToResolve(text).filter((ref) => !ref.outline && !BLOCK_ID_PATTERN.test(ref.blockId)).map((ref) => ref.blockId)))]
+      .filter((id) => !known.has(id)).slice(0, MAX_BLOCK_READ_IDS);
+    if (!short.length) return index;
+    try {
+      const answer = await this.client.request<ResolvedBlockReferences>({ action: "references.resolve", text: short.map((id) => `((${id}))`).join(" ") });
+      // One answer per reference asked, in order, each naming the whole id it resolved to.
+      answer.references.forEach((ref, k) => { if (ref.status === "resolved" && short[k] && BLOCK_ID_PATTERN.test(ref.blockId)) known.set(short[k]!, ref.blockId); });
+    } catch (error) {
+      this.log(`publish: references.resolve: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return known.size ? { ...index, refs: known } : index;
+  }
+
   private async resolvePages(texts: readonly string[]): Promise<Map<string, string>> {
     const addresses = [...new Set(texts.flatMap((text) =>
       pageAddressReferences(text).map((reference) => reference.normalizedAddress)))].slice(0, PAGE_RESOLVE_LIMIT);
@@ -2415,8 +2442,9 @@ export class Publisher {
   private async linkable(index: PublishedIndex, texts: readonly string[], pages: ReadonlyMap<string, string>, embeds?: EmbedExpansion, audience: PublishAudience = "tailnet"): Promise<PublishedIndex> {
     const published = new Set(index.entries.map((entry) => entry.blockId));
     const embedded = embeds ? Object.values(embeds.read.blocks).map((block) => block.text) : [];
+    index = await this.withShortReferences(index, [...texts, ...embedded]);
     const targets = new Set([
-      ...[...texts, ...embedded].flatMap((text) => [...blockReferenceOccurrences(text)].map((occurrence) => occurrence.blockId)),
+      ...[...texts, ...embedded].flatMap((text) => referencesToResolve(text).map((occurrence) => referenceTarget(index, occurrence.blockId))),
       ...pages.values(),
     ].filter((id) => published.has(id)));
     if (!targets.size) return index;
@@ -2513,9 +2541,20 @@ export class Publisher {
     const artifactUrls = new Map<string, string>();
     // Where each framed artifact opens on its own: this page's route, never the artifact host's address.
     const artifactPages = new Map<string, string>();
+    // A repo a line names: its deploy state from the service's records (PIE-1060); the reasons only for the owner.
+    const repos = new Map<string, ArtifactDeployState>();
     if (!linked.labelsOnly) {
       for (const row of rows) for (const [line, spec] of noteMediaLines(row.block.text ?? "")) {
         if (spec.kind !== "artifact" || artifacts.size >= MAX_PUBLISHED_COMPONENTS) continue;
+        if (artifactRepoRef(spec.path)) {
+          const info = await this.client.request<ArtifactInfo>({ action: "artifacts.show", name: spec.path }).catch(() => null);
+          if (info?.deploy) {
+            const { said, command, ...open } = info.deploy;
+            repos.set(`${row.block.id}:${line}`, audience === "tailnet" && !share ? info.deploy : open);
+            artifacts.set(`${row.block.id}:${line}`, spec.alt ?? info.name);
+          }
+          continue;
+        }
         const { framed: artifact, withheld } = await this.frameOf(spec.path, audience, share);
         if (artifact) {
           artifacts.set(`${row.block.id}:${line}`, spec.alt ?? artifact.name);
@@ -2535,7 +2574,7 @@ export class Publisher {
         ? (artifactUrls.get(`${blockId}:${line}`) ?? null)
         : !linked.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${base}${mediaPath(blockId, line)}` : null,
       { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec),
-      (blockId, line) => artifactPages.get(`${blockId}:${line}`));
+      (blockId, line) => artifactPages.get(`${blockId}:${line}`), (blockId, line) => repos.get(`${blockId}:${line}`));
     if ((options.format ?? "html") === "html") drawNoteButtons(rows.map((row) => ({ id: row.block.id, text: row.block.text ?? "" })), components, drawn);
     // HTML pages carry source-line destinations; only tailnet pages also identify blocks for presence.
     const anchors = options.anchors;
@@ -2954,7 +2993,7 @@ function publishedText(text: string, context: TextContext, options: { keepProper
   const embedStarts = new Set(embeds ? [] : embedMatches(body).map((match) => match.index));
   for (const occurrence of [...blockReferenceOccurrences(body)].reverse()) {
     if (inCode(occurrence.start)) continue;
-    const target = byId.get(occurrence.blockId);
+    const target = byId.get(referenceTarget(index, occurrence.blockId));
     const replacement = link(occurrence.label?.trim() || target?.title || "unpublished note", target, occurrence.fragmentId);
     const start = embedStarts.has(occurrence.start - 1) ? occurrence.start - 1 : occurrence.start;
     body = body.slice(0, start) + replacement + body.slice(occurrence.end);

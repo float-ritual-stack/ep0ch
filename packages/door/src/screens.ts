@@ -1,5 +1,5 @@
 import { LIST_MOVE_KEYS } from "./surface/attached-keys";
-import { modeBinding, modeHint, modeActionKeys } from "./surface/modes";
+import { modeBinding, modeHint, modeActionKeys, Modes } from "./surface/modes";
 import { clipText } from "./overflow";
 import { errorDetails } from "./status-log";
 import { matchesSearchText } from "@ep0ch/outline-core/search-match";
@@ -22,7 +22,9 @@ import { artBlock, cloneGrid, locate, stamp } from "./art-view";
 import type { Ctx, Frame, Screen } from "./app";
 import { subject, type Msg } from "./board";
 import { artNamed, loadArt, members, PACK_DIR, packs, type Member } from "./packs";
-import { C, center, chip, fg, pad, paint, RESET, selectedRow, width } from "./style";
+import { balanceStyles, C, center, chip, extractLinks, fg, pad, paint, RESET, selectedRow, visible, width } from "./style";
+import { presentLinks, type LinkTarget } from "./refs";
+import { openAddress, readTarget } from "./desk/outline-boards";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import { ARM_MS, editArmMs, useEditArm } from "./arm";
 import { hyperOn, useHyper } from "./hyper";
@@ -32,7 +34,8 @@ import { RowView, RowPresses, overscroll, overscrollOf, useOverscroll } from "./
 import { composerPlace, useComposerPlace } from "./surface/composer";
 import { attachedPlaceOf } from "./surface/attached";
 import { ATTACHED_PLACES } from "./surface/attached";
-import { overflows, scrollPct } from "./canvas";
+import { Canvas, overflows, scrollPct } from "./canvas";
+import type { ListPicker } from "./surface/picker";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
@@ -42,7 +45,7 @@ import { madeScreen, resolveScreen, screenNames, screenTargetArg, screenTitle } 
 import { screenNoteProblems } from "./desk/screen-notes";
 import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
-import { bbsDate, printable, rowLines, rule, wrap } from "./text";
+import { bbsDate, colourInline, printable, rowLines, rule, wrap } from "./text";
 import { LISTVIEW_ACTIONS } from "./surface/list-actions";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { copyNoteById, NOTE_REF_ACTIONS, ownOutline, type NoteRefOn } from "./note-ref";
@@ -519,7 +522,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "status.log": def({
     summary: "open the session's message log: every status, warning, refusal and error, with time and the action and tile; / searches, enter returns to its note or tile, q or esc comes back; pressed again (a click on the status line, alt+M) it closes",
-    keys: "alt+M; click the status line",
+    keys: "alt+M; click the status line, or the message said whole above it (its \"… more alt+M\" when it's longer than four rows)",
     touches: "screen", host: true, replay: "safe",
     args: {},
     run(_, { ctx }) {
@@ -565,6 +568,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "changes.machinery": def({
+    words: "include or leave out the tools' bookkeeping when counting what changed",
     summary: "whether \"what changed\" (the status bar's +N new, the new scan) includes machinery: what tools wrote for their own bookkeeping (notes stamped [machine::…], tosses, file touches, deliveries) and extensions' writes (a refreshed Jira ticket, `ext:…`); include=true or false sets it, else it toggles. Off by default. The person's view: an agent's is refused",
     keys: "a click on the status bar's +N machine",
     touches: "screen", replay: "safe",
@@ -690,7 +694,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.open": def({
-    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: [{ keys: "N J K R W L F S Q B D G X T O C I E + A M n j k r w l f s q b d g x t o c i e a m", does: "the menu's letters open that screen" }, { keys: "⏎", does: "opens the lit menu item" }, { keys: "click", does: "on a menu item or its letter on the key line" }],
+    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: [{ keys: "N J K R W L F S Q B D G X T O C I E + A M n j k r w l f s q b d g x t o c i e a m", does: "the menu's letters open that screen", on: "menu" }, { keys: "⏎", does: "opens the lit menu item", on: "menu" }, { keys: "click", does: "on a menu item or its letter on the key line" }],
     touches: "screen", replay: "safe", says: out => (out?.opened ? { text: `· opened ${out.opened} · q goes back`, ms: 6000 } : null),
     // Logging off is the person's G alone, on their press too (an agent's never ends their session).
     personWith: a => ((itemNamed(a.name) ?? itemNamed(resolveScreen(a.name) ?? ""))?.key === "G" ? { always: "an agent doesn't log the person off; only G, pressed or clicked by them, does" } : null),
@@ -778,7 +782,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "session.end": def({
     summary: "end the session: the door stops, with every program in its terminal tiles and the drawer, and every attached terminal is let go (unsaved drafts are copied to disk and put aside, as when the door quits). Logging off (G, ctrl+c) only detaches the terminal you're on; this is how the session ends. With programs running or a draft unsaved it asks first: again within 3s ends it. The person's only",
-    keys: [{ keys: "E", does: "on the main menu" }, { keys: "click", does: "on End on the main menu's key line" }, { via: "`ep0ch session end [--ws <name>] [--yes]` from a shell (this folder's outline's session, or --ws's; --yes is force=true)" }],
+    keys: [{ keys: "E", does: "on the main menu", on: "menu" }, { keys: "click", does: "on End on the main menu's key line" }, { via: "`ep0ch session end [--ws <name>] [--yes]` from a shell (this folder's outline's session, or --ws's; --yes is force=true)" }],
     touches: "screen", replay: "ask",
     personAlways: "an agent doesn't end the person's session: it would stop the programs in their terminal tiles and let go of their terminals. A session an agent started on its own state dir it ends with `ep0ch session end` there",
     args: { force: { type: "boolean", optional: true, about: "end it even with programs running or a draft unsaved (the drafts are copied to disk and put aside); else it says what's running, and again within 3s ends it" } },
@@ -811,7 +815,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "screen.help": def({
     summary: "open the help screen over this one: every menu item and what it does (any key goes back; ? on the menu is the keys window, keys.open); an agent's waits until the person is idle and is said on the status bar",
-    keys: [{ keys: "H h", does: "on the main menu" }, { keys: "click", does: "on H help on the main menu's key line" }],
+    keys: [{ keys: "H h", does: "on the main menu", on: "menu" }, { keys: "click", does: "on H help on the main menu's key line" }],
     touches: "screen", replay: "safe", says: () => ({ text: "· opened help · any key goes back", ms: 6000 }),
     args: {},
     run(_, { ctx }) {
@@ -858,6 +862,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "edit.arm.set": def({
+    words: "choose whether e arms the edit first or opens it at once",
     summary: "whether the person's e (and ctrl+e) in a reader arms the edit first (edit.arm: the status bar asks, ⏎ or e again opens it) or opens it at once, and how long it waits. Kept for the next start (EP0CH_EDIT_ARM overrides it). An agent's own edit always opens at once",
     keys: [{ via: "`ep0ch act edit.arm.set on=false`" }],
     touches: "screen", replay: "ask", says: out => `· ${out.armed ? `e asks first (${out.ms} ms)` : "e opens an edit at once"}`,
@@ -952,6 +957,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "reader.overscroll": def({
+    words: "set how far readers scroll past their last line",
     summary: "how far readers (detail, preview, the desk's, a river column, the BBS reader) and drafts scroll past their last line (PIE-622): rows=half (the last line can come up to the middle, the default), none (it stops on the bottom edge), or a number of rows. End or G goes to the last line first, and again past it. Every reader and draft at once, kept for the next start",
     keys: [{ via: "`ep0ch act reader.overscroll rows=none`" }, { via: "`ep0ch act reader.overscroll rows=half`" }, { via: "`ep0ch act reader.overscroll rows=5`" }],
     touches: "screen", replay: "ask", says: out => `· readers scroll ${out.rows === "none" ? "to their last line" : out.rows === "half" ? "past their end to the middle" : `${out.rows} rows past their end`}`,
@@ -1278,7 +1284,7 @@ abstract class BbsList implements Screen {
 const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("status", {
   "status.filter": def({
     summary: "search the message log's whole messages, actions and tiles; text= sets the query, editing=true opens its line",
-    keys: "/ opens search; enter or esc finishes search",
+    keys: [{ keys: "/", does: "opens search", says: "start searching the message log" }, { keys: "enter esc", does: "finishes search", says: "finish searching the message log" }],
     touches: "screen", replay: "safe",
     args: { text: { type: "string", optional: true, about: "the search words" }, editing: { type: "boolean", optional: true, about: "show the search cursor" } },
     examples: [{ act: 'status.filter text="layout load"', does: "finds messages about loading a layout" }],
@@ -1291,7 +1297,7 @@ const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("sta
   }),
   "status.reload": def({
     summary: "refresh the message log with the latest 500 messages; its rows stay still between refreshes so a row you read is the one you open",
-    keys: "r reload; click r reload",
+    keys: [{ keys: "r", does: "reload", says: "refresh the message log" }, { keys: "click", does: "on r reload" }],
     touches: "screen", replay: "safe", args: {},
     run(_, { list, ctx }) { list.reload(); ctx.redraw(); return { rows: list.listRows().length }; },
   }),
@@ -1302,6 +1308,17 @@ const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("sta
     args: { by: { type: "number", about: "drawn rows, positive down" } },
     examples: [{ act: "status.scroll by=10", does: "reads ten rows further down" }],
     run({ by }, { list, ctx }) { list.scroll(by); ctx.redraw(); return { scrolled: by }; },
+  }),
+  "status.link": def({
+    summary: "open a note a message in the log names: its labelled references and [[pages]] are drawn as the reader draws them, by their labels, and open where opens land",
+    keys: [{ keys: "click", does: "on a link in a message" }],
+    touches: "screen", replay: "safe",
+    args: {
+      n: { type: "number", optional: true, about: "which link of the message, from 1; default the first" },
+      row: { type: "number", optional: true, about: "which message, from 1 as listed; default the selected one" },
+    },
+    examples: [{ act: "status.link n=1", does: "opens the first note the selected message names" }],
+    run({ n, row }, { list, ctx }, actor) { return list.openLink((row ?? list.sel + 1) - 1, (n ?? 1) - 1, ctx, actor); },
   }),
 });
 
@@ -1334,9 +1351,40 @@ export class StatusMessages extends BbsList {
     } catch (e) { ctx.push(this); throw e; }
   }
   scroll(by: number) { this.view.scroll(by); }
+  /** The links each message names, as the reader's inline renderer drew them (presentLinks), by message. */
+  private links = new Map<string, LinkTarget[]>();
+  /** Where each drawn link is on screen, for a click. */
+  private linkBoxes: { row: number; from: number; to: number; i: number; n: number }[] = [];
+  private source(ctx: Ctx) { return ctx.board ? { board: ctx.board, redraw: () => ctx.redraw() } : null; }
+  /** Message `i`'s words drawn as a reader draws them (`((id|in Inbox))` reads "in Inbox"), its links collected. */
+  private drawn(r: StatusMessage, ctx: Ctx): string {
+    const sink: LinkTarget[] = [];
+    const text = presentLinks(r.message, false, this.source(ctx), r.message, sink);
+    this.links.set(r.id, sink);
+    return text;
+  }
+  async openLink(i: number, n: number, ctx: Ctx, actor: Actor) {
+    const r = this.rows()[i];
+    if (!r) throw new ActionRefused(`there is no message ${i + 1}`);
+    if (!this.links.has(r.id)) this.drawn(r, ctx);
+    const links = this.links.get(r.id)!, to = links[n];
+    if (!to) throw new ActionRefused(links.length ? `there is no link ${n + 1}; the message names ${links.length}` : "this message names no note");
+    if (to.block === undefined && to.page === undefined) throw new ActionRefused(`${to.label ?? to.url ?? "that link"} isn't a note`);
+    // Read as the power bar and the links tile read a link (readTarget): another outline's in its own, a page asked for and awaited.
+    const m = await readTarget(ctx, to);
+    if (!m || m.deleted) throw new ActionRefused(`nothing answers at ${to.page !== undefined ? `[[${to.page}]]` : to.block}${to.outline ? ` in ${to.outline}` : ""}`);
+    const id = await openAddress(ctx, m);
+    ctx.pop();
+    try { return await ctx.dispatch!.act({ action: "open", args: { id, ...(to.fragment ? { fragment: to.fragment } : {}) } }, actor); }
+    catch (e) { ctx.push(this); throw e; }
+  }
   override key(k: Key, ctx: Ctx) {
     this.ctx = ctx;
     if (this.searching && k.kind === "mouse" && this.query.mouse(k)) { ctx.redraw(); return; }
+    if (!this.searching && k.kind === "mouse" && k.action === "down" && k.button === 0) {
+      const hit = this.linkBoxes.find(b => b.row === k.y && k.x >= b.from && k.x < b.to);
+      if (hit) { void this.dispatch.press("status.link", { row: hit.i + 1, n: hit.n + 1 }); return; }
+    }
     if (this.searching && k.kind !== "mouse") {
       if (k.kind === "enter" || k.kind === "esc") void this.dispatch.press("status.filter", { editing: false });
       else if (this.query.take(k)) { this.resetScroll(); ctx.redraw(); }
@@ -1359,12 +1407,23 @@ export class StatusMessages extends BbsList {
     const rows = this.rows();
     const lines = [pad(fg(C.white) + "Message log" + RESET, w), this.searching ? "/ " + this.query.show(w - 2) : `Search: ${this.query.text || "all messages"} (${rows.length})`];
     this.query.drawnAt(2, 1, w - 2);
-    const drawn = rows.flatMap((r, i) => `${new Date(r.time).toTimeString().slice(0, 8)} ${r.kind}${r.action ? " | " + r.action : ""}${r.tile ? " | " + r.tile : ""}\n${r.message}`.split("\n").flatMap(line => rowLines(line, w, Infinity)).map(text => ({ text, i })));
+    // Each message as a reader draws its words (PIE-1453): a labelled reference by its label, a link that a click opens.
+    const drawn = rows.flatMap((r, i) => [
+      ...rowLines(`${new Date(r.time).toTimeString().slice(0, 8)} ${r.kind}${r.action ? " | " + r.action : ""}${r.tile ? " | " + r.tile : ""}`, w - 1, Infinity),
+      // A cell short of the width: the lit row draws its bar before it, and a full row would lose its last letter.
+      ...balanceStyles(this.drawn(r, ctx).split("\n").flatMap(line => rowLines(line, w - 1, Infinity))),
+    ].map(text => ({ text, i })));
     const first = drawn.findIndex(r => r.i === this.sel), last = drawn.findLastIndex(r => r.i === this.sel);
     const top = this.view.place(this.sel, drawn.length, Math.max(1, h - lines.length - 1), [first, last]);
+    this.linkBoxes = [];
     for (const r of drawn.slice(top, top + h - lines.length - 1)) {
       this.ptr.row(lines.length, r.i, w);
-      lines.push(r.i === this.sel ? selectedRow(r.text, w) : r.text);
+      // Its link marks in a reader's colours (colourInline), then each link's cells for a click.
+      const { lines: [plain], ranges } = extractLinks([colourInline(r.text, C.grey, true)]);
+      // The lit row is drawn behind its bar, one cell in unless it starts with a space (selectedRow).
+      const shift = r.i === this.sel && !visible(plain!).startsWith(" ") ? 1 : 0;
+      for (const g of ranges) this.linkBoxes.push({ row: lines.length, from: g.from + shift, to: g.to + shift, i: r.i, n: g.n });
+      lines.push(r.i === this.sel ? selectedRow(visible(plain!), w) : plain! + RESET);
     }
     while (lines.length < h - 1) lines.push("");
     lines.push(hotLine(this.ptr, lines.length, w, ["|08/ search, enter return, PgUp/PgDn scroll, ", ["r reload", char("r")], ", q back"]));
@@ -1523,6 +1582,8 @@ export class MessageReader implements Screen {
   private replies: { for: string; n: number | null } | null = null;
   private shown = false;
   private ctx: Ctx | null = null;
+  /** Lists over the reader (the trail, alt+T, PIE-208): the first takes every key and click. */
+  private readonly overlays = new Modes<MessageReader, ListPicker<any, MessageReader>>();
   constructor(private readonly list: Msg[], private index: number) {}
 
   private get msg() { return this.list[this.index]!; }
@@ -1568,6 +1629,21 @@ export class MessageReader implements Screen {
         if (no) { ctx.flash(`not opened: ${subject(m)} · ${no}`); return; }
         ctx.push(new MessageReader([m], 0));
       },
+      // Back is the reader a link was followed from (PIE-1431): the trail is the readers under this one on the screen stack,
+      // read from it (a followed link pushes the next reader, q pops it), never a copy kept here.
+      history: {
+        peek: dir => (dir < 0 ? this.readersBelow(ctx)[0]?.title ?? null : null),
+        trail: () => ({ back: this.readersBelow(ctx), forward: [] }),
+        go: (dir, _actor, steps = 1) => {
+          const below = this.readersBelow(ctx).length;
+          if (dir > 0) return "nothing ahead: a reader gone back from is closed";
+          if (!below) return "nothing to go back to: this reader hasn't followed a link here";
+          if (steps > below) return `only ${below} back: steps=${below} at most (trail lists them)`;
+          for (let i = 0; i < steps; i++) ctx.pop();
+          return null;
+        },
+        agentRefusal: "back in the message reader closes the person's reader; an agent opens beside (open, link.follow) instead",
+      },
       header: (m, w, info) => this.header(m, w, info),
       // Back or forward along the trail landed on a message of the list: n and p go on from there.
       historyLanded: () => { const i = this.list.findIndex(x => x.id === this.surface.msg?.id); if (i >= 0) this.index = i; },
@@ -1575,10 +1651,22 @@ export class MessageReader implements Screen {
       gone: id => { if (this.list.length === 1 && this.msg.id === id && ctx.screens?.().at(-1) === this) ctx.pop(); },
       // What the surface doesn't take is the BBS reader's: next, previous, the thread, back.
       ownKeys: "nNpPtTqQU",
+      overlay: p => { this.overlays.push(p); ctx.redraw(); },
       // Its own keys and clicks run its note actions through the reader's dispatcher.
       press: (name, args, quiet, given) => this.dispatch.pressIn(NOTE_ACTIONS, name, args, READER, quiet, given),
       pressSet: (set, name, args, quiet, given) => this.dispatch.pressIn(set, name, args, READER, quiet, given),
     };
+  }
+
+  /** The readers this one was followed from, nearest first: the run of message readers under it on the screen stack. */
+  private readersBelow(ctx: Ctx): { id: string; title: string }[] {
+    const stack = ctx.screens?.() ?? [], out: { id: string; title: string }[] = [];
+    for (let i = stack.indexOf(this) - 1; i >= 0; i--) {
+      const r = stack[i];
+      if (!(r instanceof MessageReader) || !r.surface.msg) break;
+      out.push({ id: r.surface.msg.id, title: subject(r.surface.msg) });
+    }
+    return out;
   }
 
   /** The BBS message header, from the note the surface shows (the whole one once a list row is read). */
@@ -1588,11 +1676,13 @@ export class MessageReader implements Screen {
     const c = info.comments;
     const comments = c?.total ? ` |08· ${c.open ? `|14■ ${c.open} open comment${c.open === 1 ? "" : "s"}` : `■ ${c.total} resolved`} |08(m)` : "";
     const props = info.properties ? ` |08· i ${info.properties} propert${info.properties === 1 ? "y" : "ies"}` : "";
+    // Two fields a row where they fit; at 40 columns each on its own, so none is cut short (PIE-1428).
+    const two = (a: string, b: string) => (width(a) + width(b) <= w ? [a + b] : [a.trimEnd(), b]);
     return [
-      paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}|09Number: |15${prop(m, "work-id") ?? clipText(m.id, 8)} |08(${this.index + 1} of ${this.list.length})`),
+      ...two(paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}`), paint(`|09Number: |15${prop(m, "work-id") ?? clipText(m.id, 8)} |08(${this.index + 1} of ${this.list.length})`)),
       // Addressed with a `to::` property, else to everyone, as a BBS message is.
-      paint(`|09  To: |07${pad(prop(m, "to")?.trim() || "ALL", 24)}|09Refer#: |07${m.parentId ? clipText(m.parentId, 8) : "none"}`),
-      paint(`|09From: |14${pad(authorName(m.author), 23)} |09Reply: |07${replies === null ? "…" : replies}`),
+      ...two(paint(`|09  To: |07${pad(prop(m, "to")?.trim() || "ALL", 24)}`), paint(`|09Refer#: |07${m.parentId ? clipText(m.parentId, 8) : "none"}`)),
+      ...two(paint(`|09From: |14${pad(authorName(m.author), 23)} `), paint(`|09Reply: |07${replies === null ? "…" : replies}`)),
       // An edit armed here (e, src/arm.ts): the subject asks in the edit's colour until ⏎ opens it or a key lets it go.
       this.ctx?.armed?.()?.of === this.surface
         ? paint(`|09Subj: |14✎ edit? ${clipText(subject(m), Math.max(1, w - 14))} |06⏎ opens it`)
@@ -1656,7 +1746,12 @@ export class MessageReader implements Screen {
     const lines = v.lines.slice(0, h - 1);
     while (lines.length < h - 1) lines.push("");
     lines.push(this.hint(v.scroll, w));
-    return { lines, placements: v.placements };
+    if (!this.overlays.top()) return { lines, placements: v.placements };
+    const canvas = new Canvas(w, lines.length);
+    lines.forEach((l, row) => canvas.text(0, row, l, w));
+    const values = lookFor(ctx, { screen: this.title }, w).values;
+    for (const o of [...this.overlays.all()].reverse()) o.draw(canvas, { col: 0, row: 0, cols: w, rows: lines.length }, values);
+    return { lines: canvas.lines() };
   }
 
   /**
@@ -1672,6 +1767,7 @@ export class MessageReader implements Screen {
   key(k: Key, ctx: Ctx) {
     this.ctx = ctx;
     const host = this.host(ctx);
+    if (this.overlays.key(k, this) !== null) { ctx.redraw(); return; }
     if (k.kind === "mouse") return this.mouse(k, ctx, host);
     // An edit, a comment or the property panel takes every key, q and esc included, until it closes.
     if (this.surface.holdsKeys || this.surface.choosing) { this.surface.key(k, host); return; }
@@ -1715,7 +1811,7 @@ export class MessageReader implements Screen {
   /** Screen.dispose: the reader is closed; its draft's hold on the service is let go (PIE-501). */
   dispose() { this.surface.dispose(); }
   /** Screen.holdsKeys: an edit, a comment or the panel the person is in, or a step's status choice (as on the desk and the river). */
-  holdsKeys() { return this.surface.holdsKeys || this.surface.choosing; }
+  holdsKeys() { return this.surface.holdsKeys || this.surface.choosing || !!this.overlays.top(); }
   /** Screen.keys: the one reader has the person's focus; they type in it while it holds their keys. */
   keys() {
     const busy = this.holdsKeys();

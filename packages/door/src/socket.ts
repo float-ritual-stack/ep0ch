@@ -84,6 +84,8 @@ interface WireBlock {
   properties?: { key: string; value: string }[];
   /** A line-scope question's matches (PIE-1277). */
   propertyMatches?: PropertyMatch[];
+  /** The words after the title as one line (`fields: ["excerpt"]`, outline-core `noteExcerpt`): a list row's preview. */
+  excerpt?: string;
 }
 /** What `roadmap.items.create` takes (pi-herdr-outliner src/types.ts RoadmapItemCreateInput). */
 export interface RoadmapItemInput {
@@ -242,6 +244,7 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
   revision: b.revision,
   properties: (b.properties ?? []).map(p => ({ key: p.key, value: p.value })),
   ...(b.text === undefined ? { partial: true } : {}),
+  ...(b.excerpt ? { excerpt: b.excerpt } : {}),
   ...(b.deletedAt || b.effectiveDeletedRootId ? { deleted: true } : {}),
   ...(b.propertyMatches?.length ? { propertyMatches: b.propertyMatches } : {}),
 });
@@ -492,7 +495,11 @@ export interface SearchOptions { semantic?: boolean; /** With semantic: when the
 export interface FacetAnswer {
   facets: { key: string; count: number; more: number; values: { value: string; count: number; last: number }[] }[];
   notes: Msg[]; truncated: boolean; matched: number; hint?: string;
+  /** With `group=`: the service's groups of the notes (a date bucket's newest first), each its count over every match. */
+  groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[];
 }
+/** How the notes of a facet answer come: grouped by the service (`updated:recent`), sorted, each with its excerpt. */
+export interface FacetNotes { group?: string; sort?: string; excerpt?: boolean; facets?: boolean }
 
 export class SocketBoard implements Board {
   private sock: Socket | null = null;
@@ -650,7 +657,8 @@ export class SocketBoard implements Board {
    * Take an action's write group back whole (`extensions.undo`, PIE-784), as `actor`: its blocks to the Trash, its
    * edits, moves and orders put back in one step; refused with nothing changed when any of it changed since.
    */
-  undoExtension(undo: string, actor: Actor = USER): Promise<{ undone: string; extension: string; action: string; written: string[] }> {
+  async undoExtension(undo: string, actor: Actor = USER): Promise<{ undone: string; extension: string; action: string; written: string[] }> {
+    await Promise.all(this.releasing);
     return this.request("extensions.undo", { undo, mutation: requesterOf(actor) });
   }
 
@@ -1046,14 +1054,14 @@ export class SocketBoard implements Board {
    * `facets=true`, `facetValues`), with the notes themselves (up to `noteLimit`, none when `noteLimit` is 0). The door
    * never counts or narrows. `more`: values a key's list left out.
    */
-  async facetList(where: string, noteLimit = 200): Promise<FacetAnswer> {
-    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string; matched?: number }; facets?: { key: string; count: number; values: { value: string; count: number; last: string }[]; more?: number }[]; hint?: string }>(
-      "blocks.query", { query: { ...(where.trim() ? { where } : {}), facets: true, facetKeys: 1000, facetValues: 1000, limit: Math.max(1, Math.min(1000, noteLimit)) }, ...this.listFields(true) });
+  async facetList(where: string, noteLimit = 200, o: FacetNotes = {}): Promise<FacetAnswer> {
+    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string; matched?: number }; facets?: { key: string; count: number; values: { value: string; count: number; last: string }[]; more?: number }[]; hint?: string; groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[] }>(
+      "blocks.query", { query: { ...(where.trim() ? { where } : {}), ...(o.facets === false ? {} : { facets: true, facetKeys: 1000, facetValues: 1000 }), ...(o.group ? { group: o.group } : {}), ...(o.sort ? { sort: o.sort } : {}), limit: Math.max(1, Math.min(1000, noteLimit)) }, fields: o.excerpt ? [...LIST_FIELDS, "excerpt"] : LIST_FIELDS });
     const notes = noteLimit ? r.blocks.map(b => toMsg(b)) : [];
     const truncated = r.completeness?.kind === "truncated";
     return {
       facets: (r.facets ?? []).map(f => ({ key: f.key, count: f.count, more: f.more ?? 0, values: f.values.map(v => ({ value: v.value, count: v.count, last: Date.parse(v.last) || 0 })) })),
-      notes, truncated, matched: truncated ? r.completeness?.matched ?? notes.length : r.blocks.length, ...(r.hint ? { hint: r.hint } : {}),
+      notes, truncated, matched: truncated ? r.completeness?.matched ?? notes.length : r.blocks.length, ...(r.hint ? { hint: r.hint } : {}), ...(r.groups ? { groups: r.groups } : {}),
     };
   }
 
@@ -1787,7 +1795,13 @@ export class SocketBoard implements Board {
 
   // ── live drafts (PIE-501): held on the service, so draft.patch reaches them ─
 
-  private drafts = new Map<string, { progress?: (ask: import("@ep0ch/outline-core/protocol").AskProgress) => void; blockId: string; revision: number; holdId: string | null; answer: (r: DraftRequest) => DraftAnswer | Promise<DraftAnswer>; timer: Timer | null; touch: Timer | null; gone: boolean }>();
+  private drafts = new Map<string, { progress?: (ask: import("@ep0ch/outline-core/protocol").AskProgress) => void; blockId: string; revision: number; holdId: string | null; asking?: Promise<void>; answer: (r: DraftRequest) => DraftAnswer | Promise<DraftAnswer>; timer: Timer | null; touch: Timer | null; gone: boolean }>();
+  /**
+   * Releases on their way: a hold let go before the service granted it is released once the grant comes back, and until
+   * then the service still counts the note held. An undo that a held note refuses (`extensions.undo`) waits for these: an
+   * edit closed, then ctrl+z at once, was refused "open in a draft" when the grant took 250 ms under load.
+   */
+  private releasing = new Set<Promise<void>>();
 
   /**
    * Hold a live draft of `blockId` on the service: while it's held, an agent's `draft.patch` on that note comes
@@ -1834,12 +1848,18 @@ export class SocketBoard implements Board {
     catch (e) { if (/expired or was released/.test(e instanceof Error ? e.message : String(e))) { h.holdId = null; await this.holdOn(h); } }
   }
 
-  private async holdOn(h: { blockId: string; revision: number; holdId: string | null; gone: boolean }) {
-    try {
-      const r = await this.scriptRun.exit(() => this.request<{ holdId: string }>("drafts.hold", { blockId: h.blockId, clientId: this.clientId, revision: h.revision, leaseMs: DRAFT_LEASE_MS }));
-      if (h.gone) { void this.request("drafts.release", { holdId: r.holdId }).catch(() => {}); return; }
-      h.holdId = r.holdId;
-    } catch { h.holdId = null; /* tried again at the next heartbeat */ }
+  private holdOn(h: { blockId: string; revision: number; holdId: string | null; asking?: Promise<void>; gone: boolean }): Promise<void> {
+    let asking: Promise<void> | undefined;
+    asking = (async () => {
+      try {
+        const r = await this.scriptRun.exit(() => this.request<{ holdId: string }>("drafts.hold", { blockId: h.blockId, clientId: this.clientId, revision: h.revision, leaseMs: DRAFT_LEASE_MS }));
+        if (h.gone) { await this.request("drafts.release", { holdId: r.holdId }).catch(() => {}); return; }
+        h.holdId = r.holdId;
+      } catch { h.holdId = null; /* tried again at the next heartbeat */ }
+      finally { if (h.asking === asking) h.asking = undefined; }
+    })();
+    h.asking = asking;
+    return asking!;
   }
 
   private async renew(h: { blockId: string; revision: number; holdId: string | null; gone: boolean }) {
@@ -1849,12 +1869,13 @@ export class SocketBoard implements Board {
     catch { h.holdId = null; await this.holdOn(h); }
   }
 
-  private letGo(h: { blockId: string; holdId: string | null; timer: Timer | null; touch: Timer | null; gone: boolean }) {
+  private letGo(h: { blockId: string; holdId: string | null; asking?: Promise<void>; timer: Timer | null; touch: Timer | null; gone: boolean }) {
     h.gone = true;
     if (h.timer) clearInterval(h.timer);
     if (h.touch) clearTimeout(h.touch);
     if (this.drafts.get(h.blockId) === h) this.drafts.delete(h.blockId);
-    if (h.holdId) void this.request("drafts.release", { holdId: h.holdId }).catch(() => {});
+    const release = h.holdId ? this.request("drafts.release", { holdId: h.holdId }).then(() => {}, () => {}) : h.asking;
+    if (release) { const p = release.finally(() => this.releasing.delete(p)); this.releasing.add(p); }
   }
 
   /** The service asked about a draft this door holds: answer from the draft itself. */

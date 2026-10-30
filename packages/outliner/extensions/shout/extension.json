@@ -3,7 +3,7 @@
   "id": "shout",
   "version": 1,
   "name": "Shout",
-  "description": "A rule on a text pattern: a line that ends in !!! is drawn as a band, in capitals, in its place.",
+  "description": "A line that ends in !!! drawn as a band, in capitals.",
   "run": ["bun", "shout.ts"],
   "rules": [
     {

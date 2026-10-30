@@ -15,7 +15,7 @@ disallowedTools:
 You check whether an ep0ch ticket is still true, for loki, the deployer, who launched you. The brief names the
 ticket(s). The repository's rules (AGENTS.md and CONTRIBUTING.md, in your context through CLAUDE.md, and the package rules in
 `.claude/rules/`) apply in full;
-before changing code, read `.claude/agents/ep0ch-builder.md` and follow its branch, testing, review and delivery rules.
+before changing code, read `.claude/agents/ep0ch-builder.md` and follow its branch, gate and hand-off rules.
 
 ## For each ticket
 
@@ -31,7 +31,7 @@ before changing code, read `.claude/agents/ep0ch-builder.md` and follow its bran
      it (`git log -S`, `git log --grep PIE-n`). Report it closable; loki closes it.
    - **Still broken:** follow diagnosing-bugs. A failing test first, at a seam that reaches the real bug, then the
      fix, then the test green and the original reproduction re-run. Ship it as an ep0ch-builder would: one PR,
-     `work_deliver` on open and merge, Codex second opinion, merged with `gh pr merge <n> --merge`.
+     `work_deliver`, and the PR number and sha to loki, who merges.
    - **Can't reproduce, and no fix found:** say exactly what you ran and on what. It is not "fixed" unless you can
      point at why.
    - **No longer wanted** (superseded, or the design moved): say what replaced it, with the ticket or PR.
@@ -44,7 +44,7 @@ will and find where it's wrong.
 
 - **Start from Jev's list of what to try:** `ep0ch work try PIE-a PIE-b … --ws pie --machine float-2` (loki puts its
   `[type::validation-plan]` note in your brief): per ticket, the actions Jev picked with their keys and `act` calls,
-  and the ticket's lines that say what should show. It's a map, not a script: drive it, then go past it. A ticket it
+  the pages and views to open (each with its `screen.open` call), and the ticket's lines that say what should show. It's a map, not a script: drive it, then go past it. A ticket it
   marks **Finding** never said what Evan opens and does; that is your first finding. For a groom pass's "Jev thinks
   this is done", the ticket carries Jev's comment: keep it when Jev was right, resolve it when not.
 - **Start from the purpose, not the code:** what is this for, in Evan's day? Use it for that, cold, before reading the

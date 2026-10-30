@@ -101,6 +101,14 @@ export function blockReferenceOccurrences(text: string, code?: CodeScope): Block
 }
 
 /**
+ * Every block reference `text` names, for finding what it links to (PIE-1334): a figure's cells too (a component's
+ * YAML is the figure's words here), code still left out. Drawing and editing keep `blockReferenceOccurrences`' scope.
+ */
+export function referencesToResolve(text: string): BlockReferenceOccurrence[] {
+  return blockReferenceOccurrences(text, protectedCodeRanges(text, false));
+}
+
+/**
  * The block `input` names, when it is a block id or one block reference written whole (`((id))`, `((id^fragment))`,
  * `((id|label))`, blanks around it ignored), or null: what a value, a field or an argument naming a block unwraps
  * with, by the same scan that finds references in a note, so an id's first 8+ characters work as they do there, and a

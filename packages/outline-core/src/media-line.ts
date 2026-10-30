@@ -96,7 +96,7 @@ export function parseMediaLine(line: string): MediaSpec | null {
   if (media.length !== 1 || !media[0]!.value || t.toks.some(x => !MEDIA_KEY.test(x.key) && !ATTRS.has(x.key.toLowerCase()))) return null;
   const key = media[0]!.key.toLowerCase();
   const spec: MediaSpec = { kind: key === "video" ? "video" : key === "artifact" ? "artifact" : "img", path: media[0]!.value, problems: [] };
-  if (spec.kind === "artifact" && !artifactKind(spec.path) && !isArtifactName(spec.path)) spec.problems.push(`${fileName(spec.path)} isn't an artifact (${ARTIFACT_EXTENSIONS})`);
+  if (spec.kind === "artifact" && !artifactKind(spec.path) && !isArtifactName(spec.path) && !artifactRepoRef(spec.path)) spec.problems.push(`${fileName(spec.path)} isn't an artifact (${ARTIFACT_EXTENSIONS})`);
   const seen = new Set<string>();
   for (const { key, value } of t.toks) {
     const k = key.toLowerCase(), v = value.trim().toLowerCase();
@@ -188,6 +188,22 @@ const ARTIFACT_EXTENSIONS = ".jsx, .tsx, .html, .svg or .mermaid";
 export const ARTIFACT_KIND_LABELS: Readonly<Record<ArtifactKind, string>> = { react: "React", html: "HTML", svg: "SVG", mermaid: "Mermaid" };
 /** A file's name, never its folders. */
 export const fileName = (path: string) => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "file";
+/**
+ * The GitHub repo an artifact line names (PIE-1060): `https://github.com/<owner>/<name>`, `github.com/<owner>/<name>` or
+ * `<owner>/<name>` (a `.git` or a trailing `/` left off), never a file claude.ai runs (`shots/lamp.html` is a path).
+ * Null when the value isn't one. Which owners may deploy is the deploy's rule, not the grammar's.
+ */
+export function artifactRepoRef(value: string): { owner: string; name: string; repo: string } | null {
+  const trimmed = value.trim();
+  const url = /^(?:https?:\/\/)?(?:www\.)?github\.com\/(.*)$/i.exec(trimmed);
+  // An address on another host is a link, not a repo.
+  if (!url && /^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return null;
+  const parts = (url ? url[1]! : trimmed).replace(/\/+$/, "").replace(/\.git$/, "").split("/");
+  if (parts.length !== 2) return null;
+  const [owner, name] = parts as [string, string];
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(owner) || !/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(name) || artifactKind(name)) return null;
+  return { owner, name, repo: `${owner}/${name}` };
+}
 /** The kind of artifact `path` is, by its extension; null when it's none claude.ai runs. */
 export function artifactKind(path: string): ArtifactKind | null {
   const ext = /\.[A-Za-z0-9]+$/.exec(fileName(path))?.[0]?.toLowerCase();

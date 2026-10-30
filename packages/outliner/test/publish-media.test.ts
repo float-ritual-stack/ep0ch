@@ -191,3 +191,19 @@ test("an artifact runs only where its note is shown: never under [publish::never
   expect((await get(`/share/p/${open.id}/artifact/1`, "public")).status).toBe(404);
   expect((await get(`/p/${open.id}/media/1`)).status).toBe(404);
 });
+
+test("a repo line on a published page links its live site and says its state; why it isn't live only for the owner", async () => {
+  const { store, get, workspace } = await setup();
+  mkdirSync(join(workspace, "..", ".artifacts"), { recursive: true });
+  writeFileSync(join(workspace, "..", ".artifacts", "deployments.json"), JSON.stringify([{ name: "moth-garden", repo: "ep0ch-artifacts/moth-garden", where: "vercel", url: "https://moth-garden.example.test", commit: "abc123", deployedAt: "2026-10-01T00:00:00.000Z", reason: "package.json has a build script" }]));
+  const note = store.create("Desk sites [publish::public:desk-sites]\n[artifact::https://github.com/ep0ch-artifacts/moth-garden]\n[artifact::ep0ch-artifacts/lamp-yard]");
+  const html = await (await get("/p/desk-sites?view=html")).text();
+  expect(html).toContain('<a href="https://moth-garden.example.test" rel="noopener">moth-garden</a> <code>ep0ch-artifacts/moth-garden</code> · live at');
+  expect(html).toContain("not deployed yet");
+  expect(html).toContain("<code>ep0ch artifact deploy ep0ch-artifacts/lamp-yard</code>");
+  expect(html).not.toContain("isn&#39;t an artifact");
+  const shared = await (await get(`/share/p/${note.id}?view=html`, "public")).text();
+  expect(shared).toContain("moth-garden.example.test");
+  expect(shared).not.toContain("ep0ch artifact deploy");
+  expect(await (await get("/p/desk-sites?view=md")).text()).toContain("*repo: [moth-garden](https://moth-garden.example.test)* `ep0ch-artifacts/moth-garden`");
+});

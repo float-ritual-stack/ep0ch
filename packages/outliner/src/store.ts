@@ -39,7 +39,7 @@ import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./bac
 import { loosenTyped, questionFacets, questionGroups, questionHint, questionKeys, questionValueWarning } from "./question-answer";
 import { STATUS_FAMILY_PROPERTY, facetRulesFromBlocks, linkTargetFacets, type BacklinkFacetRules } from "./backlink-facets";
 import { rankBlockFocusMatches } from "./block-focus";
-import { rankTextSearchMatches, searchTextTerms } from "@ep0ch/outline-core/search-match";
+import { rankTextSearchMatches, searchTextTerms, type SearchMatchKind } from "@ep0ch/outline-core/search-match";
 import { normalizeBlockReadFields, normalizeBlockReadIds, projectBlock } from "./block-projection";
 import { gotoCandidates, gotoMatch } from "./goto-search";
 import { contextList, searchContext, sortByContext, type SearchContext } from "./search-context";
@@ -248,6 +248,16 @@ interface PageAddressRow {
 interface PageAddressMatchRow extends PageAddressRow {
   text: string;
 }
+/** How `[[` orders a note's addresses (page, Work ID, alias, then by address) and titles one: its note's first line. */
+const kindOrder = (kind: string) => kind === "page" ? 0 : kind === "work-id" ? 1 : 2;
+const byAddress = (a: PageAddressMatchRow, b: PageAddressMatchRow) =>
+  kindOrder(a.kind) - kindOrder(b.kind) || a.normalized_address.localeCompare(b.normalized_address) || a.block_id.localeCompare(b.block_id);
+const addressTitle = (row: PageAddressMatchRow) => firstLineWithoutPropertyTokens(row.text)?.trim() || row.block_id;
+/** Page addresses as the search matcher reads them: found by what they say (and their note's title), never by an id. */
+const pageAddressDocuments = (rows: readonly PageAddressMatchRow[]) =>
+  rows.map(row => ({ id: "", title: row.display_address, subtitle: subtitleOf(row), text: `${row.display_address}\n${addressTitle(row)}`, row }));
+/** What a did-you-mean for a missing page offers (PIE-1449): the matcher's kinds about the same words, typos included. */
+const NEAR_PAGE: ReadonlySet<SearchMatchKind> = new Set(["exact-title", "title-prefix", "title-contains", "text-contains", "title-terms", "text-terms", "typo-terms"]);
 
 interface WorkIdAllocatorRow {
   prefix: string;
@@ -259,7 +269,7 @@ export type BlockRefLookup =
   | { kind: "found"; block: Block; how: string }
   | { kind: "ambiguous"; ids: string[]; message: string }
   | { kind: "trashed"; message: string; id?: string }
-  | { kind: "missing"; message: string; didYouMean?: string };
+  | { kind: "missing"; message: string; didYouMean?: string; titled?: { ids: string[]; said: string; places: string[] } };
 
 // Singleton outline configuration uses the existing metadata table when it is not canonical user content
 // and needs no revisioned note body (same table as sequence/outline_instance_id/change-feed floor).
@@ -1678,13 +1688,20 @@ export class OutlinerStore {
       const pr = input.pullRequest;
       if (!Number.isSafeInteger(pr.number) || pr.number < 1 ||
         pr.url !== `https://github.com/${delivery.repository}/pull/${pr.number}` ||
-        !["OPEN", "CLOSED", "MERGED"].includes(pr.state) ||
+        !["OPEN", "CLOSED", "MERGED"].includes(pr.state) || typeof pr.baseBranch !== "string" ||
         (pr.state === "MERGED" && !pr.mergeCommit) ||
         (pr.mergedAt != null && !Number.isFinite(Date.parse(pr.mergedAt)))) {
         throw new Error("Invalid pull request facts for this delivery");
       }
+      // The PR number is the delivery's identity, its base only where it merges today: GitHub retargets a stacked
+      // PR to main when its base merges, and the delivery follows (PIE-1440).
+      if (pr.baseBranch !== delivery.baseBranch) {
+        if (!isValidGitBranchName(pr.baseBranch)) throw new Error(`Invalid delivery base branch: ${pr.baseBranch}`);
+        if (delivery.pullRequestNumber !== pr.number) throw new Error(`Delivery ${delivery.key} has conflicting base-branch`);
+      }
       const nextStage = delivery.stage === "complete" ? "complete" : pr.state === "MERGED" ? "validate" : "review";
       const values: Record<string, string> = { "delivery-stage": nextStage,
+        "base-branch": pr.baseBranch,
         "pull-request-number": String(pr.number), "pull-request-url": pr.url, "pull-request-state": pr.state.toLowerCase() };
       if (pr.mergeCommit) values["merge-commit"] = normalizeRoadmapText(pr.mergeCommit, "Merge commit");
       // When it merged, as GitHub says: a day's "merged today" reads `merged-at`, never `updated` (PIE-1352).
@@ -2885,6 +2902,23 @@ export class OutlinerStore {
     return this.update(id, text, expectedRevision, mutation, "properties");
   }
 
+  /**
+   * The notes a persona wrote since `since` (PIE-1452), most recently written first: `margin` matches `margin` and
+   * `margin/<client>@<machine>` (the mod signs a `claude`'s notes so). New notes too, which edit activity doesn't hold,
+   * and a note someone else has edited since (its earlier revision still says who wrote it).
+   */
+  blocksWrittenBy(persona: string, since: string, limit = 20): Block[] {
+    const like = `${persona.replace(/[\\%_]/g, "\\$&")}/%`;
+    const rows = this.database.query(`
+      SELECT id, MAX(at) AS at FROM (
+        SELECT id, updated_at AS at FROM blocks WHERE updated_at >= ? AND (actor_id = ? OR actor_id LIKE ? ESCAPE '\\')
+        UNION ALL
+        SELECT block_id AS id, saved_at AS at FROM block_revisions WHERE saved_at >= ? AND (actor_id = ? OR actor_id LIKE ? ESCAPE '\\')
+      ) GROUP BY id ORDER BY at DESC, id LIMIT ?`)
+      .all(since, persona, like, since, persona, like, limit * 2) as { id: string }[];
+    return rows.flatMap(({ id }) => { const block = this.get(id); return block && !block.effectiveDeletedRootId ? [block] : []; }).slice(0, limit);
+  }
+
   recentEditActivity(options: {
     afterCursor?: number;
     since?: string;
@@ -3491,18 +3525,67 @@ export class OutlinerStore {
     if (page?.status === "resolved" && page.block) return { kind: "found", block: page.block, how: parseWorkId(text) ? "Work ID" : "page address" };
     if (page?.status === "deleted") return trashed(page.block?.id);
     if (ref.trim().startsWith("[[")) {
-      const near = this.completePageAddresses(text, 3).addresses.map(page => `[[${page.address}]]`);
-      return { kind: "missing", message: `no page ${text}`, ...(near.length ? { didYouMean: near.join(" or ") } : {}) };
+      // A note titled as the page with no [page::…] isn't a page: said as itself, never as a different page (PIE-1445).
+      const titled = this.titledFromCurrentRead(text);
+      const near = this.nearPageAddressesFromCurrentRead(text);
+      const mean = near.length ? { didYouMean: near.join(" or ") } : {};
+      if (titled.length) {
+        // Said in words (PIE-1449): the notes share the title, so each is told apart by where it is, never by a row of ((ids)).
+        // Each a labelled reference (`((id|in Garden))`): a reader draws where it is, an agent gets the id to act on.
+        const places = titled.map(id => this.placeWords(id)), many = titled.length > 1;
+        const refs = titled.map((id, i) => `((${id.slice(0, 8)}|${places[i]}))`);
+        const said = many
+          ? `${titled.length} notes are titled ${text}, ${refs.slice(0, -1).join(", ")} and ${refs.at(-1)}, but none is a page: add [page::${text}] to one`
+          : `a note is titled ${text}, ${refs[0]}, but it isn't a page: add [page::${text}] to it`;
+        return { kind: "missing", message: `no page [[${text}]]: ${said}${near.length ? `; did you mean ${near.join(" or ")}?` : ""}`, ...mean, titled: { ids: titled, said, places } };
+      }
+      return { kind: "missing", message: `no page ${text}`, ...mean };
     }
     const mean = this.workIdDidYouMeanFromCurrentRead(text) ?? nearest;
     return { kind: "missing", message: `No ${noun} ${ref}${mean ? `: ${mean}` : ""} (an id, ((id)), an id's first 8+ characters, a Work ID or a [[page]] names one)`, ...(mean ? { didYouMean: mean } : {}) };
   }
 
+  /** The live notes titled `title` (case aside), at most three: what a [[page]] nobody has may have meant. */
+  private titledFromCurrentRead(title: string): string[] {
+    const words = (text: string) => text.trim().toLowerCase().split(/\s+/).join(" ");
+    const want = words(title);
+    if (!want) return [];
+    // Candidates hold the title's longest word anywhere (a title may follow properties, `[kind::list] Bird list`); the
+    // title as drawn decides, spaces collapsed.
+    // SQLite's lower() folds ASCII only, so the word is folded the same way here.
+    const word = title.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0]!.replace(/[A-Z]/g, c => c.toLowerCase());
+    const rows = this.database.query("SELECT id FROM blocks WHERE effective_deleted_root_id IS NULL AND instr(lower(text), ?) > 0 ORDER BY created_at, id LIMIT 500")
+      .all(word) as { id: string }[];
+    return rows.map(row => this.getFromCurrentRead(row.id)!).filter(block => words(blockDisplayTitle(block)) === want).slice(0, 3).map(block => block.id);
+  }
+
+  /** The titles of a note's parents, outermost first, at most four: where it sits (`refCandidate`, `placeWords`). */
+  private parentTitles(id: string): string[] {
+    const block = this.getFromCurrentRead(id), path: string[] = [];
+    for (let at = block?.parentId ? this.getFromCurrentRead(block.parentId) : null; at && path.length < 4; at = at.parentId ? this.getFromCurrentRead(at.parentId) : null) path.unshift(blockDisplayTitle(at));
+    return path;
+  }
+
+  /** Where a note sits, in words: `in Notes › Garden`, or `at the top`. */
+  private placeWords(id: string): string {
+    const path = this.parentTitles(id);
+    return path.length ? `in ${path.join(" › ")}` : "at the top";
+  }
+
+  /**
+   * The pages a [[address]] nobody has may have meant (PIE-1449): the `[[` completer's matches (outline-core's search
+   * matcher) that are about the same words (the whole address, every word, a typo of each), never a page that shares one
+   * word of several or a scatter of its letters, which a completer lists while typing and a did-you-mean must not.
+   */
+  private nearPageAddressesFromCurrentRead(text: string, limit = 3): string[] {
+    const rows = this.pageAddressRows();
+    const matches = rankTextSearchMatches(pageAddressDocuments(rows), text);
+    return [...new Set(matches.filter(m => NEAR_PAGE.has(m.kind)).map(m => `[[${m.document.row.display_address}]]`))].slice(0, limit);
+  }
+
   /** A note offered for a reference: its id, its title and where it sits (`id title · in A › B`). */
   private refCandidate(id: string): string {
-    const block = this.getFromCurrentRead(id)!;
-    const path: string[] = [];
-    for (let at = block.parentId ? this.getFromCurrentRead(block.parentId) : null; at && path.length < 4; at = at.parentId ? this.getFromCurrentRead(at.parentId) : null) path.unshift(blockDisplayTitle(at));
+    const block = this.getFromCurrentRead(id)!, path = this.parentTitles(id);
     return `${id} ${blockDisplayTitle(block)} · in ${path.length ? path.join(" › ") : "(root)"}`;
   }
 
@@ -3930,6 +4013,36 @@ export class OutlinerStore {
     return { addresses: addresses.map(({ exact: _exact, ...address }) => address), completeness, ...(context ? { context } : {}) };
   }
 
+  /**
+   * The notes that are pages, for `[[`'s deep pass (PIE-1409), and each found note's address as a completion row, its
+   * page first: what deep search found, in the order given.
+   */
+  pagedBlockIds(): Set<string> {
+    return new Set((this.database.query("SELECT DISTINCT block_id AS id FROM page_addresses WHERE kind = 'page'").all() as { id: string }[]).map(r => r.id));
+  }
+  pageAddressesFor(blockIds: readonly string[]): (PageAddressMatch & { exact: boolean })[] {
+    const rows = this.pageAddressRows(blockIds).sort(byAddress);
+    return blockIds.flatMap(id => {
+      const row = rows.find(r => r.block_id === id);
+      return row ? [this.pageAddressMatch(row, false)] : [];
+    });
+  }
+
+  /** The live notes' addresses (or `blockIds`' only), each with its note's text: what `[[` lists rows from. */
+  private pageAddressRows(blockIds?: readonly string[]): PageAddressMatchRow[] {
+    if (blockIds && !blockIds.length) return [];
+    return this.database.query(`
+      SELECT address.normalized_address, address.display_address, address.block_id, address.kind, block.text
+      FROM page_addresses address
+      JOIN blocks block ON block.id = address.block_id
+      WHERE block.effective_deleted_root_id IS NULL${blockIds ? ` AND address.block_id IN (${blockIds.map(() => "?").join(",")})` : ""}
+    `).all(...(blockIds ?? [])) as PageAddressMatchRow[];
+  }
+
+  private pageAddressMatch(row: PageAddressMatchRow, exact: boolean): PageAddressMatch & { exact: boolean } {
+    return { ...this.pageAddressRecord(row), title: addressTitle(row), subtitle: subtitleOf(row), exact };
+  }
+
   /** Whether `normalizedAddress` still names `blockId`, a live note (after a Jev ranking, which takes seconds). */
   pageAddressLive(normalizedAddress: string, blockId: string): boolean {
     return !!this.database.query(`
@@ -3956,16 +4069,7 @@ export class OutlinerStore {
       return { addresses: [], completeness: { kind: "complete" } };
     }
     return this.database.transaction(() => {
-      const rows = this.database.query(`
-        SELECT address.normalized_address, address.display_address, address.block_id, address.kind, block.text
-        FROM page_addresses address
-        JOIN blocks block ON block.id = address.block_id
-        WHERE block.effective_deleted_root_id IS NULL
-      `).all() as PageAddressMatchRow[];
-      const kindOrder = (kind: string) => kind === "page" ? 0 : kind === "work-id" ? 1 : 2;
-      const byAddress = (a: PageAddressMatchRow, b: PageAddressMatchRow) =>
-        kindOrder(a.kind) - kindOrder(b.kind) || a.normalized_address.localeCompare(b.normalized_address) || a.block_id.localeCompare(b.block_id);
-      const titleOf = (row: PageAddressMatchRow) => firstLineWithoutPropertyTokens(row.text)?.trim() || row.block_id;
+      const rows = this.pageAddressRows();
       let context: SearchContext | null = null;
       let byId: Map<string, Block> = new Map();
       if (contextBlockId !== undefined) {
@@ -3976,7 +4080,7 @@ export class OutlinerStore {
       if (query?.trim()) {
         // No id: an address is found by what it says, never by the uuid of the note it names.
         // A title's letters scattered in order (`text-fuzzy`) are too loose for an address: the address's own are kept.
-        const matches = rankTextSearchMatches(rows.map(row => ({ id: "", title: row.display_address, subtitle: subtitleOf(row), text: `${row.display_address}\n${titleOf(row)}`, row })), query.trim())
+        const matches = rankTextSearchMatches(pageAddressDocuments(rows), query.trim())
           .filter(match => match.kind !== "text-fuzzy");
         if (context) {
           const sorted = sortByContext(matches.map(match => ({ match, block: byId.get(match.document.row.block_id)!, kind: match.kind, inTitle: match.inTitle, edits: match.edits })).filter(entry => entry.block), context,
@@ -3999,7 +4103,7 @@ export class OutlinerStore {
         ranked = rows.map(row => ({ row, exact: false }));
       }
       return {
-        addresses: ranked.slice(0, limit).map(({ row, exact }) => ({ ...this.pageAddressRecord(row), title: titleOf(row), subtitle: subtitleOf(row), exact })),
+        addresses: ranked.slice(0, limit).map(({ row, exact }) => this.pageAddressMatch(row, exact)),
         completeness: ranked.length <= limit ? { kind: "complete" as const } : { kind: "truncated" as const, limit },
         ...(context ? { context: { blockId: context.block.id, ...context.note } } : {}),
       };
@@ -4491,8 +4595,10 @@ export class OutlinerStore {
    * `text` (every word, any order) and `subtreeRootId` (that block and those under it) narrow it as in `blocks.query`;
    * with either, the expression may be left out.
    */
-  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown; this?: unknown } = {}, binder?: ValueBinder, draft?: BlockRecord): { blockIds: string[] } {
+  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown; this?: unknown; propertyScope?: PropertyQueryScope } = {}, binder?: ValueBinder, draft?: BlockRecord): { blockIds: string[] } {
     const { text, subtreeRootId, this: thisId } = narrow;
+    // Which chips the query reads (a rule's `[property-scope::]`, as a view's): left out, the header's.
+    const scope = narrow.propertyScope ?? "block";
     if (thisId !== undefined && (typeof thisId !== "string" || !thisId)) throw new Error("Query match this must be a block ID");
     if (text !== undefined && typeof text !== "string") throw new Error("Query match text must be a string");
     if (subtreeRootId !== undefined && (typeof subtreeRootId !== "string" || !subtreeRootId)) throw new Error("Query match subtreeRootId must be a block ID");
@@ -4520,9 +4626,11 @@ export class OutlinerStore {
         blockIds: (ids as string[]).filter(id => {
           const saved = this.getFromCurrentRead(id);
           const block = saved && draft?.id === id ? { ...saved, text: draft.text, properties: draft.properties.flatMap(p => p.values.map(value => ({ key: p.key, value }))) } : saved;
-          return !!block && !block.effectiveDeletedRootId && matchesFilters(block.properties, filters) &&
+          if (!block || block.effectiveDeletedRootId) return false;
+          const records = scope === "block" || draft?.id === id ? block.properties : this.questionRecordsFromCurrentRead(block);
+          return matchesFilters(records, filters, scope) &&
             terms.every(term => block.text.toLowerCase().includes(term)) && under(block) &&
-            (!test || test({ ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, block.properties));
+            (!test || test({ ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, records, scope));
         }),
       };
     }).deferred();

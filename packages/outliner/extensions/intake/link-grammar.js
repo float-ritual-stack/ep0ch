@@ -1370,7 +1370,7 @@ function parseMediaLine(line) {
     return null;
   const key = media[0].key.toLowerCase();
   const spec = { kind: key === "video" ? "video" : key === "artifact" ? "artifact" : "img", path: media[0].value, problems: [] };
-  if (spec.kind === "artifact" && !artifactKind(spec.path) && !isArtifactName(spec.path))
+  if (spec.kind === "artifact" && !artifactKind(spec.path) && !isArtifactName(spec.path) && !artifactRepoRef(spec.path))
     spec.problems.push(`${fileName(spec.path)} isn't an artifact (${ARTIFACT_EXTENSIONS})`);
   const seen = new Set;
   for (const { key, value } of t.toks) {
@@ -1469,6 +1469,19 @@ var ARTIFACT_KINDS = {
 };
 var ARTIFACT_EXTENSIONS = ".jsx, .tsx, .html, .svg or .mermaid";
 var fileName = (path) => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "file";
+function artifactRepoRef(value) {
+  const trimmed = value.trim();
+  const url = /^(?:https?:\/\/)?(?:www\.)?github\.com\/(.*)$/i.exec(trimmed);
+  if (!url && /^[a-z][a-z0-9+.-]*:/i.test(trimmed))
+    return null;
+  const parts = (url ? url[1] : trimmed).replace(/\/+$/, "").replace(/\.git$/, "").split("/");
+  if (parts.length !== 2)
+    return null;
+  const [owner, name] = parts;
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(owner) || !/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(name) || artifactKind(name))
+    return null;
+  return { owner, name, repo: `${owner}/${name}` };
+}
 function artifactKind(path) {
   const ext = /\.[A-Za-z0-9]+$/.exec(fileName(path))?.[0]?.toLowerCase();
   return ext && ARTIFACT_KINDS[ext] || null;

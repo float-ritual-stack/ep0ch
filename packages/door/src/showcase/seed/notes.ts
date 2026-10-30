@@ -350,13 +350,23 @@ export const WRITE_REVIEW = [
   "- Board: 2 queued and 1 in review, with more coming tomorrow.",
 ].join("\n");
 
+/** The same note once its writer split the stacked bullet (PIE-1433's at-revision section opens revision 1 beside it). */
+export const WRITE_REVIEW_FIXED = [
+  SEED.writeReview,
+  "",
+  "- **Roof on** at nine; the felt was cut to size.",
+  "- **Tacks ran out** halfway; the second box came.",
+  "- **Nothing leaked.**",
+  "- Board: 2 queued and 1 in review, with more coming tomorrow.",
+].join("\n");
+
 /**
  * The search section (PIE-1197, PIE-1198): a made-up eval run, both models side by side, as `ep0ch search eval` scores
  * one (search-eval.ts ModelScore). The numbers are invented; the page around them is the real one.
  */
 const score = (model: string, hit1: number, hit5: number, sureRight: number, sureNothing: number) => ({
   model, cases: 24, positives: 12, reachable: 11, negatives: 12, asked: 22, unavailable: 0, hit1, hit5, lexHit1: 5, lexHit5: 9,
-  existsAnswered: 0.81, existsNot: 0.34, sureRight, sureWrong: 1, sureNothing, quietRight: 14, quietWrong: 2, tokensIn: 41000, tokensOut: 90,
+  existsAnswered: 0.81, existsNot: 0.34, sureRight, sureWrong: 1, sureNothing, quietRight: 14, quietWrong: 2, tokensIn: 41000, tokensOut: 90, setIn: 41000, setOut: 90,
 });
 export const SEARCH_EVAL_SCORES = [score("jev-1.13.0", 7, 10, 6, 1), score("jev-1.14.0", 7, 10, 6, 2)];
 export const SEARCH_EVAL_SWEEP = [

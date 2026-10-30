@@ -14,9 +14,9 @@
 import type { CompletionTarget } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 282;
+export const PROTOCOL = 285;
 /** Parse/draw rules, independent of whether a write can land correctly. */
-export const GRAMMAR = 12;
+export const GRAMMAR = 16;
 
 /** A stale renderer can keep working; surface this once in the client's own message channel. */
 export function grammarWarning(grammar: number): string | undefined {
@@ -154,7 +154,7 @@ export interface BlockRevisions {
  *
  * - `where`: the views' grammar (outline-core's atoms, the outliner's `block-query.ts`).
  * - `this`: the block `this` stands for in `where` (`links:this`). A `this` with none given is refused.
- * - `group`: a property name, or `created:day|week|month` / `updated:day|week|month`.
+ * - `group`: a property name, or a date bucket `<created|updated|property>:day|week|month|year|recent` (`recent`: Today, Yesterday, Previous 7 days, Previous 30 days, then months).
  * - `sort`: `"<property|created|updated|title>[ asc|desc]"`; `property:<name>` for a property so named. `work-stage`
  *   sorts in the workboard's stage order.
  * - `limit`: rows returned, 200 when left out, at most 1000. Groups and facets count every match.
@@ -745,7 +745,7 @@ export interface CompletionSourceAnswer extends SourceAnswer {
  * and only said by clients: `strong` when the top note answers it, `weak` when the closest is named but not claimed,
  * `none` when nothing here does. `said` is the sentence; `exists` Jev's "is it among these?" (0–1), `top` its best Score (0–3).
  */
-export interface SearchCertainty { verdict: "strong" | "weak" | "none"; said: string; exists?: number; top?: number; /** The short form a footer or a row draws: `sure` or `no strong match`. */ label?: string }
+export interface SearchCertainty { verdict: "strong" | "weak" | "none"; said: string; exists?: number; top?: number; /** The short form a footer or a row draws: `sure`, `not sure` (a top Jev scores as a match, its Noul unsettled) or `no strong match`. */ label?: string }
 
 /**
  * `search.picked`: the person opened a search's row (the power bar, `[[`, Tree's goto). Kept with the query and the row's

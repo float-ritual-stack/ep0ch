@@ -155,7 +155,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.filter": def({
     summary: "narrow a list to the rows its words match (the one search matcher, over a row's label and detail); words= \"\" clears it; list= which list. With no words the person starts typing one (/ in the list). An agent's filter is its own: the list it reads (list.blocks) narrows for it, the person's list is untouched and says so in the agent's tint",
-    keys: "/ in the list; ⏎ keeps it, esc goes back",
+    keys: [{ keys: "/", does: "in the list" }, { keys: "⏎", does: "keeps it", says: "keep the typed words as the list's filter" }, { keys: "esc", does: "goes back", says: "leave the filter box" }],
     touches: "nothing", replay: "safe", says: r => `filtered ${r.title}${r.filter ? ` to ${r.filter}` : ""}`,
     args: {
       list: LIST_ARG,
@@ -179,7 +179,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.enter": def({
     summary: "go into a list (on=true, the default), or come out of it (on=false): in it, j k Home End move its selection (the preview follows), ⏎ opens, alt+⏎ opens in a new detail, / filters its rows, esc comes out, and any other key leaves it and does what it does in the reader. list= which list. The person's: an agent reads it with list.blocks, picks with list.pick and opens a row with list.open",
-    keys: [{ keys: "⏎", does: "enter the list" }, { keys: "click", does: "the frame's ⏎ in" }, { keys: "esc", does: "come out" }, { keys: "click", does: "outside the frame comes out" }],
+    keys: [{ keys: "⏎", does: "enter the list" }, { keys: "click", does: "the frame's ⏎ in" }, { keys: "esc", does: "come out", says: "come out of the list you went into" }, { keys: "click", does: "outside the frame comes out" }],
     touches: "tile", replay: "safe", person: "going into a list is the person's; an agent reads it with list.blocks, picks with list.pick and opens a row with list.open",
     args: {
       list: LIST_ARG,

@@ -56,13 +56,14 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
     const blocks: unknown[] = p.blocks ?? [];
     const align: string[] = Array.isArray(p.align) ? p.align : [];
     const tc = Math.max(0, Number(p.titleColumn) || 0);
-    // A cell naming a note (PIE-1388, figure-live's cellBlocks) links that note, drawn by its title.
+    // A cell naming a note (PIE-1388, figure-live's cellBlocks) links that note, drawn by its title; any other body cell's
+    // words are drawn as the note's line (PIE-1334): its [[page]] and ((id|label)) links, code spans and emphasis.
     const named: (string | null)[][] = Array.isArray(p.cellBlocks) ? p.cellBlocks : [];
     // On a phone (PIE-1402) a table of three or more columns reads as cards: each cell labelled by its header (FIGURE_STYLE).
     const cards = Math.max(head.length, ...rows.map(r => r.length)) > 2;
     const cell = (tag: "td" | "th", text: string, k: number, block?: unknown, names?: unknown) => {
       const classes = [align[k] === "right" ? "num" : "", tag === "td" && k === tc ? "lead" : ""].filter(Boolean).join(" ");
-      return `<${tag}${classes ? ` class="${classes}"` : ""}${tag === "td" && cards && head[k] ? ` data-label="${esc(head[k]!)}"` : ""}>${typeof names === "string" ? rowText(text, names, href) : k === tc && block !== undefined ? rowText(text, block, href) : esc(text)}</${tag}>`;
+      return `<${tag}${classes ? ` class="${classes}"` : ""}${tag === "td" && cards && head[k] ? ` data-label="${esc(head[k]!)}"` : ""}>${typeof names === "string" ? rowText(text, names, href) : k === tc && block !== undefined ? rowText(text, block, href) : tag === "td" ? words(text) : esc(text)}</${tag}>`;
     };
     const foot: string[] | undefined = Array.isArray(p.footer) ? p.footer.map(String) : undefined;
     return `<div class="fig-scroll"><table${cards ? ` class="fig-cards"` : ""}>${head.length ? `<thead><tr>${head.map((h, k) => cell("th", h, k)).join("")}</tr></thead>` : ""}` +
@@ -254,7 +255,7 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
     const columns = named.length ? named : Array.from({ length: n }, (_, i) => String.fromCharCode(65 + i));
     return `<div class="fig-scroll"><table class="fig-compare"><thead><tr><th></th>${columns.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>` +
       entries.map(e => { const cells = Array.isArray(e.cells) ? e.cells.map(String) : [String(e.cells ?? "")];
-        return `<tr class="${e.accent ? "accent" : e.muted ? "muted" : ""}"><th>${rowText(e.label, e.block, href)}</th>${columns.map((_, k) => `<td>${esc(cells[k] ?? "")}</td>`).join("")}</tr>`; }).join("") +
+        return `<tr class="${e.accent ? "accent" : e.muted ? "muted" : ""}"><th>${rowText(e.label, e.block, href)}</th>${columns.map((_, k) => `<td>${words(cells[k] ?? "")}</td>`).join("")}</tr>`; }).join("") +
       `</tbody></table></div>`;
   },
 

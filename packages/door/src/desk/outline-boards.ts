@@ -1,4 +1,4 @@
-import { BLOCK_ID_PATTERN, parseAddressedBlock, parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { BLOCK_ID_PATTERN, formatEp0chBlockUri, parseAddressedBlock, parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { blockRefText } from "@ep0ch/outline-core/link-syntax";
 import { canonicalLocalMachineName, isLocalMachine } from "@ep0ch/outliner/machine-name";
 import type { Ctx } from "../app";
@@ -109,6 +109,17 @@ export async function readNote(ctx: Ctx, given: string, address?: NoteAddress): 
  * page or Work ID by `pages.resolve`, a short id (a reference's first 8+ characters) by the service's reading of it; the
  * note's `address` says which outline it is in when that's another's. None when nothing answers there.
  */
+/**
+ * How `open` names a note read through readTarget or readNote: its id here, else its `ep0ch://` address in the outline it
+ * lives in (the power bar's address rows, the message log's links), which `open id=` reads back with readNote.
+ */
+export async function openAddress(ctx: Ctx, m: Msg): Promise<string> {
+  const there = m.address;
+  if (!there) return m.id;
+  const c = await outlineBoards(ctx).on(there);
+  return formatEp0chBlockUri({ outline: there.outline, machine: there.machine ?? c.machine ?? (await c.board.info()).machine!, blockId: m.id });
+}
+
 export async function readTarget(ctx: Ctx, target: { block?: string; page?: string; outline?: string; machine?: string }): Promise<Msg | null> {
   const own = ctx.outline ?? ctx.board.outline ?? (await ctx.board.info()).outline;
   const foreign = target.outline && target.outline !== own ? { outline: target.outline, machine: target.machine ?? ctx.machine } : undefined;

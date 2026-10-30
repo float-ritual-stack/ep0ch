@@ -1,7 +1,19 @@
-# Marginalia (read with a pen)
+# Marginalia
 
-The forkable example for **passage actions** and **answers in a margin** (ADR 0004 contracts 5 and 6, PIE-751,
-PIE-753). Select words in a reader, then:
+Read with a pen: highlight a passage, look a word up, copy it with a citation, or ask `@margin` about it.
+
+## Where to look
+
+- **The margin:** annotations and answers sit beside the passage in the reader.
+- **The notebook:** a saved query over every annotation, exportable with `ep0ch export --view <its id>`.
+
+```text
+Marginalia notebook [type::virtual-branch] [query::type=annotation] [summary-properties::kind,tags]
+```
+
+## What you do
+
+Select words in a reader, then press a key or click the chips on the selection's line.
 
 ```text
 a h   highlight         an annotation with no body: [kind::highlight] [color::warn]
@@ -11,37 +23,47 @@ a a   ask               a comment on the words starting @margin; the answer land
 a c   comment           the door's own comment, on the words
 ```
 
-or click the chips on the selection's line. `M` in a reader changes how the margin reads (a row each, whole, off).
+- **Change the margin:** `M` in a reader changes how it reads (a row each, whole, off).
+- **Ask:** comment on a passage with `@margin what does this mean?`; the answer lands in that thread.
+- **Follow up:** reply in the thread with `@margin …` and the agent remembers the earlier turns.
+- **Give it a job:** `@margin make a page for each plugin under this note`. With `claude` as its model it writes the
+  notes itself, signed `margin/claude-code@<machine>`, for up to an hour.
+  - After 5 s the thread says `⋯ working: @margin is working on it (3 min) · so far wrote 4 notes: …`.
+  - That reply becomes the answer, with `Wrote 13 notes: ((…|Lantern plugin)), …` under it.
+  - A job past its hour stops and says so; raise `agents[0].deadline` in `extension.json` (up to `2h`).
+- **Write a glossary:** `define` reads lines like `**term**: meaning` or `term — meaning` in the note.
+- **Leave a note to self:** a reply without `@margin` is never sent or answered.
+- **Narrow the notebook:** `[query::type=annotation AND kind=highlight]` or `[query::type=annotation AND tags=soil]`.
+- **Files too:** select in a Resource a note links (a `[file::]` opened in a reader); the file is never written.
 
-- **Passage actions** (`"on": "passage"`): the service checks the passage before the action runs (the words where
-  they were, or found once with the words around them), sends it as `target.passage` with the note's text, and writes
-  what the action returns as `ext:marginalia`, with who asked beside it. An `annotate` write is an annotation on the
-  passage; properties are open, so a highlight is found like any block (`kind=highlight`, `tags=soil`).
-- **`@margin`** (`"threads": true`): a person's comment on a passage that starts `@margin …`, or a reply in its thread
-  that does, is sent to `respond` with the passage, the note, the whole thread and the page's other comments; the reply
-  goes in the thread. A reply without `@margin` is a note to self: never sent, never answered. An agent's own
-  `@margin` never sets it off.
-- **A thread is one conversation.** The first `@margin` starts a session and its id is kept on the thread
-  (`[margin-session::<id>]`); a later `@margin` there resumes it, so the agent remembers the earlier turns. `claude`
-  works as it is (`--session-id`, `--resume`); another command says how in `config.session`
-  (`{"start": ["--new", "{{props.id}}"], "resume": ["--continue", "{{props.id}}"]}`). A session that can't be resumed starts again
-  with the whole thread.
-- **Suggested queries are checked.** An answer that writes `[query::…]`, `[sort::…]` or `[group::…]` has it asked of the
-  outline before it lands; one that wouldn't work is marked under the answer with why.
-- **No model by default.** Set `config.answer` to a command that reads a prompt on stdin and prints an answer
-  (`["claude", "-p"]`, in `config.json`); without one `@margin` answers from the note's own sentences and says so,
-  and writes no TL;DR (PIE-860): a summary is a model's to write, so the ask says so with this fix and nothing is posted.
-- **Works on files too**: a Resource's passage (a `[file::]` the note links, opened in a reader) is annotated in the
-  outline; the file is never written.
+## Setup
 
-The notebook is a note, not code: a saved query over every annotation, in outline order so each note's sit together,
-exportable with `ep0ch export --view <its id>`:
+- **Install:** `ep0ch ext add marginalia`.
+- **A model:** set `config.answer` in `config.json` to a command that reads a prompt on stdin and prints an answer, such as `["claude", "-p"]`.
+  - Without one, `@margin` answers from the note's own sentences and says so.
+  - It writes no TL;DR (PIE-860): a summary is a model's to write, so the ask says so and nothing is posted.
+- **Another command:** say how it starts and resumes a session in `config.session`.
+  - For example `{"start": ["--new", "{{props.id}}"], "resume": ["--continue", "{{props.id}}"]}`.
+  - `claude` needs none (`--session-id`, `--resume`).
 
-```text
-Marginalia notebook [type::virtual-branch] [query::type=annotation] [summary-properties::kind,tags]
-```
+## How it works
 
-Narrow it as you like: `[query::type=annotation AND kind=highlight]`, `[query::type=annotation AND tags=soil]`.
+- **Passage actions** (`"on": "passage"`): the service checks the passage before the action runs.
+  - It finds the words where they were, or once with the words around them.
+  - It sends them as `target.passage` with the note's text.
+- **What gets written:** whatever the action returns, as `ext:marginalia`, with who asked beside it.
+  - An `annotate` write is an annotation on the passage.
+  - Properties are open, so a highlight is found like any block (`kind=highlight`, `tags=soil`).
+- **`@margin`** (`"threads": true`): a comment or reply starting `@margin …` is sent to `respond`.
+  - It carries the passage, the note, the whole thread and the page's other comments.
+  - The reply goes in the thread; an agent's own `@margin` never sets it off.
+- **A thread is one conversation:** the first `@margin` starts a session, kept as `[margin-session::<id>]`.
+  - A session that can't be resumed starts again with the whole thread.
+- **Suggested queries are checked:** an answer that writes `[query::…]`, `[sort::…]` or `[group::…]` has it asked of the outline first.
+  - One that wouldn't work is marked under the answer with why.
 
-Install: `outliner ext add marginalia`. Self-contained on purpose (it imports nothing from the outline's code), so a
-copy works anywhere. PDF and web pages are next (PIE-735 B6).
+## Making your own
+
+- **Forkable example** for passage actions and answers in a margin (ADR 0004 contracts 5 and 6, PIE-751, PIE-753).
+- **Self-contained on purpose:** it imports nothing from the outline's code, so a copy works anywhere.
+- **Next:** PDF and web pages (PIE-735 B6).

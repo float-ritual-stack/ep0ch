@@ -102,6 +102,9 @@ export const galleryCards = (dir = SHOWCASE_ASSETS) => [
 export const SHOWCASE_ARTIFACTS = ["pulse-pad.jsx", "orbit-lamp.html"] as const;
 
 export async function placeArtifacts(board: SocketBoard): Promise<string> {
+  // The showcase contacts no deployment account: its outline goes without the deploy rule, so its repo lines never clone.
+  const [rule] = (await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "rule-name=deploy-artifact" } })).blocks;
+  if (rule) await board.trash(rule.id);
   await board.request("artifacts.put", { name: "showcase-orbit", files: { "index.html": readFileSync(join(SHOWCASE_ASSETS, "artifacts", "orbit-lamp.html"), "utf8") } });
   const frozen = await board.request<{ version: number }>("artifacts.snapshot", { name: "showcase-orbit" });
   return `showcase-orbit@${frozen.version}`;
@@ -127,6 +130,14 @@ export const artifactsText = (pinned = "showcase-orbit@1") => [
   "Or name a file the host can read. Absolute paths, paths relative to the outline folder and ~/ paths enter the same store. The next read snapshots changed content; a deleted file keeps its last snapshot, with a warning on the card. The note keeps the path you wrote.",
   "",
   `[artifact::${join(SHOWCASE_ASSETS, "artifacts", "orbit-lamp.html")}] [alt::Orbit lamp from a file]`,
+  "",
+  "## A repo",
+  "",
+  "Name a GitHub repo on a line and the card follows its deployment: deploying, live at its address (Enter or [open ↗] opens the site), or why not with the command that fixes it, and what its last run did. In your outline, saving the note runs the deploy rule and the run's note is filed under the artifacts page. This showcase's outline has no deploy rule and no deployments, so the first card says how to deploy it and the second, outside ep0ch-artifacts, how to fork it there.",
+  "",
+  "[artifact::https://github.com/ep0ch-artifacts/orbit-lamp-site]",
+  "",
+  "[artifact::github.com/example-studio/orbit-lamp-site]",
 ].join("\n");
 
 /**

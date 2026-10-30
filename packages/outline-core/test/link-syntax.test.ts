@@ -10,6 +10,7 @@ import {
   pageAddressReferences,
   pageAddressText,
   pageLinkRanges,
+  referencesToResolve,
   referencedBlock,
   withoutFragmentAnchor,
 } from "../src/link-syntax";
@@ -118,4 +119,10 @@ test("blockRefText writes what the scan reads back: another outline's prefix, a 
   expect(written).toBe(`((orchard:${PAINT_ID}^coats|Paint the shed))`);
   expect(referencedBlock(written)).toEqual({ blockId: PAINT_ID, outline: "orchard", fragment: "coats", label: "Paint the shed" });
   expect(referencedBlock(blockRefText(PAINT_ID, "", { fragment: "coats" }))).toEqual({ blockId: PAINT_ID, fragment: "coats" });
+});
+
+test("a figure's cells name notes to resolve; its code doesn't (PIE-1334)", () => {
+  const note = ["Asks", "", "::graph-table", "---", "rows:", '  - ["((0a1b2c3d|the shed)) x", "`((9f8e7d6c))`"]', "---", "::", "", "```", "((1a2b3c4d))", "```"].join("\n");
+  expect(blockReferenceOccurrences(note)).toEqual([]);
+  expect(referencesToResolve(note).map(r => r.blockId)).toEqual(["0a1b2c3d"]);
 });

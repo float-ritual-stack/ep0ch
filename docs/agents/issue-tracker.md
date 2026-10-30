@@ -57,8 +57,9 @@ If there is none, `work_create` and give back the Work ID and its `((ref))`; it 
   queued with a line saying why; the rest gets the groom's shipped check, its comments kept with `--apply`. `type=groom-later outcome=restored` counts
   what came back.
 - **`ep0ch work try PIE-a PIE-b … [--into pie]`**: what a validator tries for a batch of merged items: the door's
-  actions Jev picks for each, with keys and `act` call, and the item's lines that say what should show. The
-  verifier's brief starts from it.
+  actions Jev picks for each, with keys and `act` call, the outline's pages and views to open (those that link the
+  item first, then by words and by meaning), and the item's lines that say what should show. The verifier's brief
+  starts from it.
 
 ## When a skill says "fetch the relevant ticket"
 
@@ -68,7 +69,8 @@ If there is none, `work_create` and give back the Work ID and its `((ref))`; it 
 
 Open PR: `work_deliver` (the item goes to review). Merged: validate, with `merged-at`. Every merge, ticket
 or not, gets a merge row: `work_deliver` with no `ref` after the merge (the repository mod runs it after
-`gh pr merge`). Accepted with linked proof:
+`gh pr merge`). A PR GitHub retargeted (stacked on a branch that merged) is still its delivery: the same
+PR number follows its new base. Accepted with linked proof:
 `work_complete`. `done` is never set with `work_stage`. Retire an item into a replacement with
 `work-stage=superseded` and `superseded-by`. That doesn't count as shipped.
 

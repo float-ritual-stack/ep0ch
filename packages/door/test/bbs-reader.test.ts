@@ -322,4 +322,41 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     await shows("Seed swap");
     expect(r.surface.msg?.id).toBe(n.second.id);
   }, 20_000);
+
+  test("alt+T, as its footer says, lists the trail over the reader; a pick goes back there and Esc closes it (PIE-1428)", async () => {
+    const r = await open(0);
+    key(char("n"));
+    await shows("Seed swap");
+    expect(text()).toContain("alt+T trail");
+    key({ kind: "alt", ch: "T" });
+    await until(() => text().includes("trail · where this reader has been"), "the trail over the reader");
+    key({ kind: "esc" });
+    await until(() => !text().includes("trail · where this reader has been"), "Esc closes it");
+    expect(r.surface.msg?.id).toBe(n.second.id);
+    key({ kind: "alt", ch: "T" });
+    await until(() => text().includes("trail · where this reader has been"), "the trail again");
+    key({ kind: "down" }); key({ kind: "enter" });
+    await shows("Bring the kettle");
+    expect(r.surface.msg?.id).toBe(n.first.id);
+  }, 20_000);
+
+  test("a link followed into the next reader is on its trail: alt+T lists where it came from, a pick goes back there (PIE-1431)", async () => {
+    // As `act open` puts a reader over a screen with no open of its own: a reader on one note.
+    while (stack() > 1) app.pop();
+    const r = new MessageReader([n.first], 0);
+    app.push(r);
+    await shows("Bring the kettle");
+    stepTo(r, "the kettle");
+    key({ kind: "enter" });
+    await until(() => top() !== r && top() instanceof MessageReader, "the linked note in the next reader");
+    await shows("Subj: Descale the kettle");
+    // An agent reads the same trail, and nothing opens over the person's screen.
+    expect(await app.act({ action: "trail", as: AS })).toMatchObject({ here: { id: n.kettle.id }, back: [{ id: n.first.id, title: "Committee meeting" }], forward: [], shown: false });
+    key({ kind: "alt", ch: "T" });
+    await until(() => text().includes("trail · where this reader has been"), "the trail over the reader");
+    expect(text()).toContain("← Committee meeting · 1 back");
+    key({ kind: "down" }); key({ kind: "enter" });
+    await until(() => top() === r, "back to the reader it came from");
+    expect(r.surface.msg?.id).toBe(n.first.id);
+  }, 20_000);
 });

@@ -227,6 +227,15 @@ describe("the lifecycle, on a fake target", () => {
     const a = DraftSession.open(unchanged.t, { text: "Fern", base: 1 });
     expect(await a.leave()).toEqual({ left: "closed" });
     expect(unchanged.sent).toEqual([]);
+    // A new note with only a line break in it is nothing written (PIE-1449): leaving, esc and a discard all just close it.
+    const blank = fake({ place: "edit:note-new", blockId: "note-new" });
+    const n = DraftSession.open(blank.t, { text: "", base: 1 });
+    expect(keys(n, [{ kind: "enter" }, ESC])).toEqual(["close"]);
+    expect(await n.leave()).toEqual({ left: "closed" });
+    expect(blank.sent).toEqual([]);
+    const n2 = DraftSession.open(fake({ place: "edit:note-new2", blockId: "note-new2" }).t, { text: "", base: 1 });
+    keys(n2, [{ kind: "enter" }]);
+    expect(n2.discard()).toEqual({ said: "closed" });
 
     const ok = fake({ place: "edit:note-ok", blockId: "note-ok" }, [{ ok: true, revision: 2 }]);
     const b = DraftSession.open(ok.t, { text: "Fern", base: 1 });
@@ -402,6 +411,31 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     await other.info();
   }, 30_000);
   afterAll(async () => { board?.close(); other?.close(); await scratch.dispose(); });
+
+  test("a hold let go before the service granted it is released before an undo asks: ctrl+z right after closing an edit isn't refused as held", async () => {
+    const id = await create("Sow the beans");
+    const m = (await board.get(id))!;
+    const sent: string[] = [], request = board.request.bind(board);
+    let grant!: () => void;
+    const granted = new Promise<void>(r => { grant = r; });
+    // The grant comes back late, as it did under load: the edit closed (and ctrl+z pressed) before it landed.
+    (board as any).request = async (action: string, ...rest: [Record<string, unknown>?, number?, AbortSignal?]) => {
+      sent.push(action);
+      const r = await request(action, ...rest);
+      if (action === "drafts.hold") await granted;
+      if (action === "drafts.release") sent.push("released");
+      return r;
+    };
+    try {
+      board.holdDraft(id, m.revision!, () => ({ kind: "busy" } as unknown as DraftAnswer))!.release();
+      const undo = board.undoExtension("not-an-undo").catch((e: Error) => e);
+      await Bun.sleep(100);
+      expect(sent).toEqual(["drafts.hold"]);
+      grant();
+      await undo;
+      expect(sent).toEqual(["drafts.hold", "drafts.release", "released", "extensions.undo"]);
+    } finally { delete (board as any).request; }
+  }, 30_000);
 
   test("a block: saved against its revision, held while open; a stale one is refused and kept; ctrl+r starts over", async () => {
     const id = await create("Prune the apple\nin winter");

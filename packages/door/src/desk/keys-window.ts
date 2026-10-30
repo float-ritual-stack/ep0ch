@@ -4,11 +4,12 @@
 // screen, `ep0ch --screen keys`); every key and click runs one of KEYS_WINDOW_ACTIONS, and its own keys are a table the
 // keymap moves like any other. It draws what the catalog says (src/surface/key-catalog.ts) and words nothing of its own
 // about a binding.
-import { C, chip, ellipsize, fg, pad, RESET, selectedRow, width } from "../style";
+import { C, chip, ellipsize, ellipsizeApart, fg, pad, RESET, selectedRow, width } from "../style";
 import { RowView, wheelRows } from "../scroll";
+import { wrap } from "../text";
 import { keycap } from "../figures/keys";
 import { ActionRefused, actionSet, actRequestOf, allActionSets, chordName, def, keyCaption, keyName, lineWords, shownLine } from "../surface/actions";
-import { bindings, conflicts, fightOf, LAYERS, rebindEffects, shadowsOf, strayEntries, unbound, type Binding } from "../surface/key-catalog";
+import { bindings, conflicts, fightOf, LAYERS, rebindEffects, shadowsOf, strayEntries, unbound, worksIn, type Binding } from "../surface/key-catalog";
 import { bindingId, entriesOf, keymapPath, keymapProblem, keymapVersion, keyTable, resetKeys, setKeys, undoKeymap } from "../surface/keymap";
 import { filterLine, type LineField } from "../surface/line";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
@@ -24,20 +25,22 @@ export const KEYS_TABS = ["bindings", "conflicts", "yours", "unbound"] as const;
 export type KeysTab = (typeof KEYS_TABS)[number];
 
 
-const row = (key: string, action: string, label: string, args?: Record<string, unknown>): ModeKey => ({ key, action, label, ...(args ? { args } : {}) });
+const row = (key: string, action: string, label: string, args?: Record<string, unknown>, says?: string): ModeKey => ({ key, action, label, ...(args ? { args } : {}), ...(says ? { says } : {}) });
 /** The window's own keys: a table like any mode's, so the keymap moves them and the hint row says them. */
 export const KEYS_WINDOW_KEYS: readonly ModeKey[] = keyTable("keys window", "the keys window (?)", [
   row("j", "keys.select", "select", { by: 1 }), row("down", "keys.select", "select", { by: 1 }),
   row("k", "keys.select", "select", { by: -1 }), row("up", "keys.select", "select", { by: -1 }),
-  row("pgdn", "keys.select", "page", { by: 10 }), row("pgup", "keys.select", "page", { by: -10 }),
+  // The way out early, so a hint row cut at 40 columns still says it (PIE-1439).
+  row("esc", "keys.close", "close"), row("q", "keys.close", "close"),
+  row("pgdn", "keys.select", "page", { by: 10 }, "select the binding a page down"), row("pgup", "keys.select", "page", { by: -10 }, "select the binding a page up"),
   // Tabs by digit (the screen has no tile digits); Tab stays the desk's focus key.
-  row("/", "keys.filter", "filter"), row("1", "keys.tab", "bindings", { tab: "bindings" }), row("2", "keys.tab", "conflicts", { tab: "conflicts" }), row("3", "keys.tab", "yours", { tab: "yours" }), row("4", "keys.tab", "unbound", { tab: "unbound" }),
-  row("r", "keys.rebind", "rebind"), row("u", "keys.unbind", "unbind"), row("d", "keys.reset", "built-in keys"),
-  row("enter", "keys.run", "run it"), row("ctrl+z", "keys.undo", "undo"), row("esc", "keys.close", "close"), row("q", "keys.close", "close"),
+  row("/", "keys.filter", "filter"), row("1", "keys.tab", "bindings", { tab: "bindings" }), row("2", "keys.tab", "conflicts", { tab: "conflicts" }), row("3", "keys.tab", "yours", { tab: "yours" }, "show the keys your keymap gives"), row("4", "keys.tab", "unbound", { tab: "unbound" }, "show the actions no key reaches"),
+  row("r", "keys.rebind", "rebind", undefined, "move the selected binding to another key"), row("u", "keys.unbind", "unbind", undefined, "take the selected binding's key away"), row("d", "keys.reset", "built-in keys"),
+  row("enter", "keys.run", "run it"), row("ctrl+z", "keys.undo", "undo", undefined, "undo the last change to your keymap made here"),
 ]);
 /** While the filter is typed: the line editor has every other key. */
 export const KEYS_FILTER_KEYS: readonly ModeKey[] = keyTable("keys filter", "the keys window's filter, being typed", [
-  row("enter", "keys.filter", "done", { done: true }), row("esc", "keys.filter", "clear", { text: "", done: true }),
+  row("enter", "keys.filter", "done", { done: true }, "keep the filter typed in the keys window"), row("esc", "keys.filter", "clear", { text: "", done: true }, "clear the keys window's filter"),
 ]);
 /** While a rebind waits for its key, and then for the person's yes. */
 export const KEYS_RECORD_KEYS: readonly ModeKey[] = keyTable("keys record", "a rebind waiting for the new key", [
@@ -50,12 +53,14 @@ interface Row { b: Binding; head?: string }
 /** The words a filter matches a binding by: its keys, action, scope, layer and what it does. */
 const words = (b: Binding) => `${b.cap} ${b.key} ${b.action} ${b.id} ${b.scope} ${b.layer} ${b.does}${b.yours ? " yours" : ""}`.toLowerCase();
 /**
- * Whether binding `b` has every word of a filter: a word is in its words, except `in:<scope>`, which is its scope or
- * layer exactly (`?` opens the window with `in:note` in a reader, `in:board` on the board).
+ * Whether binding `b` has every word of a filter: a word is in its words, except `in:<scope>`, which is where it works
+ * (the catalog's `worksIn`: its scope, the set its table is part of, `in:river` the river column's tables, its layer, and
+ * the ^W chords on a screen of tiles) (`?` opens the window with `in:note` in a
+ * reader, `in:board` on the board, `in:river` in the river's Library).
  */
 export function matches(b: Binding, filter: string): boolean {
   const w = words(b);
-  return filter.toLowerCase().split(/\s+/).filter(Boolean).every(x => (x.startsWith("in:") ? b.scope.toLowerCase() === x.slice(3) || b.layer === x.slice(3) : w.includes(x)));
+  return filter.toLowerCase().split(/\s+/).filter(Boolean).every(x => (x.startsWith("in:") ? worksIn(b, x.slice(3)) : w.includes(x)));
 }
 /** The bindings in the order the window lists them: by layer (the order a key passes them), then scope, as the parts say them. */
 const listed = (all: readonly Binding[]) => [...all].sort((a, b) => LAYERS.indexOf(a.layer) - LAYERS.indexOf(b.layer) || a.scope.localeCompare(b.scope));
@@ -152,6 +157,8 @@ export class KeysPane implements Pane {
     // The key column is as wide as the widest key shown (^W h to ctrl+space), so no key is cut.
     const shown = rows.slice(top, top + room);
     this.capW = Math.min(14, Math.max(listW < 60 ? 7 : 10, ...shown.map(r => (r.b.key ? width(r.b.cap) : listW < 60 ? 7 : 10))));
+    // Rows that would read alike once cut (h and l at 40 columns) keep the word that tells them apart.
+    this.shownDoes = shown.map(r => r.b.does);
     const listed = shown.map((r, i) => this.rowLine(r, top + i === this.at, listW));
     if (wide) {
       for (let i = 0; i < Math.max(room, 0); i++) {
@@ -170,12 +177,14 @@ export class KeysPane implements Pane {
 
   /** The key column's width as last drawn: the widest key shown. */
   private capW = 10;
+  /** What the rows drawn say, so a cut row keeps the word it differs from its neighbours by. */
+  private shownDoes: string[] = [];
   private rowLine(r: Row, on: boolean, w: number): string {
     // Narrow (a 44-column tile), the words get the room: the scope is in the detail, and the filter (`in:note`) says it.
     const narrow = w < 60, b = r.b, capW = this.capW + 2, cap = !b.key ? (narrow ? fg(C.brown) + ellipsize(b.scope, capW - 1) + RESET : fg(C.dark) + (b.rebind === true ? "no key" : "needs args") + RESET) : keycap(b.cap), scopeW = narrow ? 0 : Math.min(14, Math.max(6, Math.floor(w * 0.18)));
     const mark = b.yours ? fg(C.lcyan) + "●" + RESET : r.head ? fg(C.yellow) + "!" + RESET : " ";
     const scope = narrow ? "" : fg(C.brown) + pad(ellipsize(b.scope, scopeW), scopeW) + RESET + " ";
-    const text = mark + pad(cap, capW) + " " + scope + fg(C.grey) + ellipsize(b.does, Math.max(4, w - capW - scopeW - (narrow ? 3 : 4))) + RESET;
+    const text = mark + pad(cap, capW) + " " + scope + fg(C.grey) + ellipsizeApart(b.does, Math.max(4, w - capW - scopeW - (narrow ? 3 : 4)), this.shownDoes) + RESET;
     return on ? selectedRow(text, w) : text;
   }
 
@@ -187,7 +196,9 @@ export class KeysPane implements Pane {
     this.buttons = [];
     const out: string[] = [];
     const label = (k: string, v: string) => out.push(fg(C.dark) + pad(k, 9) + RESET + ellipsize(v, Math.max(4, w - 9)));
-    out.push((b.key ? keycap(b.cap) + " " : "") + fg(C.white) + ellipsize(b.does, Math.max(4, w - (b.key ? width(b.cap) + 4 : 1))) + RESET);
+    // The selected row's sentence whole, wrapped under its key where the list cut it (a 40-column tile, PIE-1425).
+    const capW = b.key ? width(b.cap) + 3 : 0, said = wrap(b.does, Math.max(8, w - capW - 1));
+    said.slice(0, 3).forEach((l, i) => out.push((i === 0 ? (b.key ? keycap(b.cap) + " " : "") : " ".repeat(capW)) + fg(C.white) + (i === 2 && said.length > 3 ? ellipsize(`${l} ${said.slice(3).join(" ")}`, Math.max(8, w - capW - 1)) : l) + RESET));
     label("runs", fg(C.yellow) + b.id + RESET + (b.about !== b.does ? fg(C.grey) + `: ${b.about}` + RESET : ""));
     label("where", `${b.scope} · ${b.layer === "yours" ? "your keymap's layer" : `the ${b.layer} layer`}`);
     const s = b.key ? shadowsOf(b, all) : { over: [], under: [], terminal: true };
@@ -418,6 +429,7 @@ export const KEYS_WINDOW_ACTIONS = actionSet<KindHost>()("keys window", {
     run(_, { pane }) { const p = paneOf(pane), undone = undoKeymap(); p.said = undone ? "the last change undone" : "nothing to undo here"; p.record = null; return { undone }; },
   }),
   "keys.find": def({
+    words: "list the bindings matching some words, as the keys window does",
     summary: "the bindings matching text= (words in their keys, action, scope or what they do), as the window lists them, each with where it works and whether it can move; moves nothing",
     touches: "nothing", replay: "safe",
     args: { text: { type: "string", optional: true, about: "the words; left out, the window's own filter" }, limit: { type: "number", optional: true, about: "at most this many (default 40)" } },

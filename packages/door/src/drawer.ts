@@ -70,7 +70,7 @@ import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, preset, agentLabel, type ActRequest, type Again } from "./surface/actions";
 import { layoutStanding, standsAsPerson, stepRule, type Dispatcher, type TileRef } from "./surface/dispatch";
-import { HOST_AGENT, NOBODY, type Whereabouts } from "./whereabouts";
+import { HOST_AGENT, HOST_TILES, NOBODY, type Whereabouts } from "./whereabouts";
 import { bg, C, chip as chipStyle, fg, pad, RESET, width } from "./style";
 import type { Key } from "./term";
 import type { Placement } from "./kitty";
@@ -80,7 +80,7 @@ export const MARK_WAIT_MS = 400;
 /** `drawer.agent`: the alias of `role:agent`, the agent tab used last (src/desk/tile-address.ts). */
 export { DRAWER_TILE_ID };
 /** The host layer's drawer holds the drawer's desk: one leaf, its tiles the drawer's tabs. */
-export const HOST_TILES = "drawer.tiles";
+export { HOST_TILES };
 /**
  * The drawer's desk as a screen spec: one tab set. Every agent in it is an ordinary terminal tab with role `agent`
  * (PIE-1331); the first pull of a drawer that has never been saved opens one running the last agent picked.
@@ -804,8 +804,13 @@ export class AgentDrawer {
    * The person is in the drawer: every key but ctrl+], alt+a, alt+A, alt+s and alt+g is the drawer's tab's. Never set by an
    * agent. With the drawer down, that's the tile of it they went into lifted (PIE-1359), while that lift lasts.
    */
-  get entered(): boolean {
-    if (this.keys === HOST_SCREEN || this.mode === "none") return false;
+  get entered(): boolean { return this.mode !== "none" && this.keysIn; }
+  /**
+   * The person's keys are the drawer's, shown or not: a screen with no drawer (the message log) hides it over them, and
+   * closing that screen hands them back to the drawer's tab (PIE-1431: an Esc there is that screen's, never the agent's).
+   */
+  get keysIn(): boolean {
+    if (this.keys === HOST_SCREEN) return false;
     return this.liftIn !== null ? this.inLift() : this.open;
   }
   /** The drawer's lift the person went into with the drawer down (put away or folded), else null. */
@@ -826,7 +831,7 @@ export class AgentDrawer {
   private ctx(actor: Actor, rows = 30, cols = 100): LayoutCtx<string> {
     const where = this.host.person?.() ?? NOBODY, who = layoutStanding(actor, where, { host: true });
     return {
-      actor, standing: who.standing, protectTyping: who.protectTyping, area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
+      actor, standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
       person: { focus: this.liftIn !== null && !this.inLift() ? HOST_SCREEN : this.keys, typingIn: this.entered ? HOST_TILES : null, busy: this.entered || where.busy, ...(this.host.person ? { held: who.held } : {}) },
     };
   }
@@ -1805,6 +1810,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     run(_, { drawer, ctx }) { return { waiting: waitingOnYou(drawer).map((r, i) => rowFacts(r, i + 1)), messages: ctx.messages?.rows ?? [] }; },
   }),
   "host.tileOf": def({
+    words: "find the terminal tile a process is drawn in",
     summary: "which terminal tile (the drawer's or the screen's) a process is drawn in, read: mark=<token> finds the tile whose program wrote the marker OSC 7501 ; ?mark=<token> to its terminal (over ssh, or through tmux's passthrough: a program that can't read its own input, PIE-1306; waited for up to 400ms); pid=<pid> finds the tile whose program is that process or its ancestor; port=<n> the tile whose program, or a descendant of it, holds a TCP connection with that local port (the ssh client in a tile, for the sshd on the far end: its client port is the second field of SSH_CONNECTION). Answers {tile, id, by} with tile null when none matches. Changes nothing and says nothing on the screen: the Claude mod asks it to open a pressed reference where the tile's opens go",
     keys: [{ via: "ep0ch act host.tileOf mark=<token>|pid=<pid>|port=<n>" }],
     touches: "nothing", replay: "safe",

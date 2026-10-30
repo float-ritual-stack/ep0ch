@@ -14,7 +14,7 @@ import { drawEllipsized, C, fg, pad, RESET, visible, width, type LinkRange } fro
 import { inWindow, type Placement } from "../kitty";
 import type { LinkTarget } from "../refs";
 import { rule, words } from "../text";
-import { ownTerminal, type Handover, type TileProgram, type Key } from "../term";
+import { ownTerminal, type Handover, type TileExit, type TileProgram, type Key } from "../term";
 import { agentLabel } from "./actions";
 import { popupHint, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
 
@@ -81,10 +81,14 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   // The destination gives way first, so [move ▸] is always there to see.
   const lands = f.lands ? (() => { const mv = "  [move ▸]", room = Math.max(1, w - mv.length), at = drawEllipsized(f.lands, room), t = `${at}${mv}`; controls.push({ row: 1 + f.status.length, from: 0, to: Math.min(w, width(t)), action: "lands" }); return [fg(C.lcyan) + pad(t, w) + RESET]; })() : [];
   const twin = f.twin ? (() => {
-    const at = "[attach here]", nw = "[file new]", room = Math.max(1, w - at.length - nw.length - 4), said = drawEllipsized(f.twin, room);
-    const row = 1 + f.status.length + lands.length, x0 = width(said) + 2;
-    controls.push({ row, from: x0, to: x0 + at.length, action: "attach" }, { row, from: x0 + at.length + 1, to: x0 + at.length + 1 + nw.length, action: "file-new" });
-    return [fg(C.yellow) + said + "  " + fg(C.lcyan) + at + " " + nw + RESET];
+    const at = "[attach here]", nw = "[file new]", row = 1 + f.status.length + lands.length;
+    // One row where the offer fits whole beside its controls; else the offer on its own row, its Work ID first, and the
+    // controls whole under it (PIE-1439: at 40 columns the cut took the ticket it would attach to).
+    const one = width(f.twin) + at.length + nw.length + 3 <= w;
+    const said = one ? f.twin : drawEllipsized(f.twin, Math.max(1, w)), crow = one ? row : row + 1, x0 = one ? width(said) + 2 : 0;
+    controls.push({ row: crow, from: x0, to: x0 + at.length, action: "attach" }, { row: crow, from: x0 + at.length + 1, to: x0 + at.length + 1 + nw.length, action: "file-new" });
+    const ctl = fg(C.lcyan) + at + " " + nw + RESET;
+    return one ? [fg(C.yellow) + said + "  " + ctl] : [fg(C.yellow) + said + RESET, ctl];
   })() : [];
   const top = [
     fg(C.yellow) + pad(`» ${f.title}`, tw) + ctls.map(c => " " + fg(C.lcyan) + c.text).join("") + RESET,
@@ -249,7 +253,7 @@ export function writtenBy(d: Draft, verb: "save" | "send"): string | null {
   return `${names.join(" and ")} typed this · ${verb === "save" ? `saved as whoever saves it, naming ${all}` : `sent as the agent's, naming ${all}`}`;
 }
 
-export interface Suspender { suspend(run: (terminal: Handover) => Promise<unknown>, what?: string): Promise<void>; inTile?(p: TileProgram, done: (code: number | null) => void): boolean }
+export interface Suspender { suspend(run: (terminal: Handover) => Promise<unknown>, what?: string): Promise<void>; inTile?(p: TileProgram, done: TileExit): boolean }
 
 /**
  * Ctrl+E: the draft goes to $VISUAL/$EDITOR in a temp file and comes back, replacing the draft's text.

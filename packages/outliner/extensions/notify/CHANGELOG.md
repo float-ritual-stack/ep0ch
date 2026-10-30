@@ -1,5 +1,14 @@
 # Changelog
 
+## 5 (2026-10-29)
+
+- **The notifications page is left out of "what changed lately"** (PIE-1427): it's stamped `[machine::notify]`, since
+  every pull rewrites its cursors.
+- **It still opens by `[[notifications]]`.** A page an earlier version made is stamped on the next pull, or by
+  `ep0ch machinery backfill --apply`.
+- **The boards stay unstamped:** they're your demo notes, and a stamped view would drop out of the door's boards.
+- **Its page reads in ten seconds:** what it does for you, where to look and what you do come first.
+
 ## 4 (2026-10-29)
 
 - Each notification is stamped `[machine::notification]` (PIE-1427), so lists and a chat's "what changed lately" leave

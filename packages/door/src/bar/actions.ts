@@ -107,7 +107,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
   }),
   "bar.edit": def({
     summary: "edit the power bar's shared line: clear, complete, paste, select, cut, delete-word or undo. An agent edits an unseen line supplied by query= and scope=",
-    keys: [{ keys: "esc", does: "with text in the line, clears it" }, { keys: "ctrl+u", does: "clear the line" }, { keys: "tab", does: "complete" }, { keys: "paste", does: "paste into the line" }, { keys: "shift+left shift+right shift+up shift+down", does: "select" }, { keys: "drag", does: "select" }, { keys: "double-click", does: "select" }, { keys: "ctrl+x", does: "cut" }, { keys: "ctrl+w", does: "delete a word" }, { keys: "ctrl+z", does: "undo" }],
+    keys: [{ keys: "esc", does: "with text in the line, clears it" }, { keys: "ctrl+u", does: "clear the line" }, { keys: "tab", does: "complete", says: "complete the word in the power bar's line" }, { keys: "paste", does: "paste into the line" }, { keys: "shift+left shift+right shift+up shift+down", does: "select", says: "select text in the power bar's line" }, { keys: "drag", does: "select" }, { keys: "double-click", does: "select" }, { keys: "ctrl+x", does: "cut", says: "cut the selection from the power bar's line" }, { keys: "ctrl+w", does: "delete a word" }, { keys: "ctrl+z", does: "undo", says: "undo the last change to the power bar's line" }],
     touches: "nothing", replay: "safe",
     args: {
       op: { type: "string", about: "clear, complete, paste, select, cut, delete-word or undo" },
@@ -143,7 +143,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
   }),
   "bar.command": def({
     summary: "copy the command as an ep0ch act line or a note button, recall the last run, or open its copy menu",
-    keys: "alt+o copy command, alt+y copy button, alt+m menu, up on an empty line recalls the last run; right click a row",
+    keys: [{ keys: "alt+o", does: "copy command", says: "copy the command as an act line" }, { keys: "alt+y", does: "copy button", says: "copy the command as a note button" }, { keys: "alt+m", does: "menu", says: "open the command's copy menu" }, { keys: "up", does: "on an empty line recalls the last run" }, { keys: "right-click", does: "a row" }],
     touches: "nothing", replay: "safe", person: "the bar and clipboard are the person's",
     args: { op: { type: "string", choices: ["copy", "button", "recall", "menu"], about: "copy, button, recall or menu" }, n: { type: "number", optional: true, about: "row from 1; default the lit row" } },
     examples: [{ act: "bar.command op=button", does: "copies the selected command as an authored note button" }],

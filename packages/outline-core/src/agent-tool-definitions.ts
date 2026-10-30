@@ -123,9 +123,9 @@ const nonEmpty = (value: unknown): value is string => typeof value === "string" 
 export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
   {
     name: "artifact_deploy", operation: "artifact-deploy", writes: true,
-    description: "Deploy an ep0ch-artifacts repo, register it and update notes that name it. The repo decides static store or Vercel.",
-    example: { repo: "ep0ch-artifacts/moth-garden" }, properties: { repo: { type: "string" }, domain: { type: "string" } }, required: ["repo"],
-    command(input) { return { operation: "artifact-deploy", input: inputOf(input, ["repo", "domain"]) }; },
+    description: "Deploy an ep0ch-artifacts repo (`repo`), or every one the note `note` names on an [artifact::] line, register it and update notes that name it. The repo decides static store or Vercel.",
+    example: { repo: "ep0ch-artifacts/moth-garden" }, properties: { repo: { type: "string" }, note: { type: "string" }, domain: { type: "string" } }, required: [],
+    command(input) { return { operation: "artifact-deploy", input: inputOf(input, ["repo", "note", "domain"]) }; },
   },
   {
     name: "outline_read",
@@ -167,7 +167,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "combine; view stands alone. propertyScope says which chips property, hasKey and query read: the note's own (block, the default), or `all` for a " +
       "`[needs::…]` on any line, each row then naming its `matches` (key, value, line, and task: an open `- [ ]` is todo, a ticked one no longer matches). " +
       "Text alone is a search, ranked as ep0ch find ranks it (Jev over the text matches, at most 30): each row its `score` (0 to 3), " +
-      "and `search` says how sure it is: verdict strong, or \"no strong match\" (weak: the closest named, not claimed; none: nothing here answers it), " +
+      "and `search` says how sure it is: verdict strong (\"sure\"), weak (\"not sure\" over a top Jev scores as a match, else \"no strong match\": the closest named, not claimed) or none (\"no strong match\": nothing here answers it), " +
       "with `exists` (Jev's \"is it among these?\", 0 to 1). With anything else, text is a filter (every word, any order). " +
       "Returns rows (id, title, revision, parentId, created, updated); read one with outline_read.",
     properties: {

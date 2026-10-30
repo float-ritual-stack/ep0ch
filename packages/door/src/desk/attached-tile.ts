@@ -5,6 +5,23 @@ import type { Key } from "../term";
 import type { TileKind } from "./tile-kinds";
 import type { SurfaceHost } from "../surface/note";
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "./panes";
+import type { RowPress } from "../scroll";
+
+/**
+ * A tile that owns an attachment of its own, not a reader's (a facets tile's Matches, PIE-1443): it draws it, takes its
+ * keys and clicks, and moves it. The attached tile only lends it its room, so there is one list, never a copy.
+ */
+export interface AttachedOwner {
+  attachedView(w: number, h: number, focused: boolean): PaneView;
+  attachedKey(k: Key, desk: DeskApi): boolean;
+  attachedMouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean;
+  attachedTitle(): string;
+  attachedHint(): string;
+  placeMatches(place: "tile", desk: DeskApi, side?: Side): Promise<unknown>;
+  /** The attached tile, while it shows the owner's attachment: its wires are the attachment's. */
+  matchesPane: Pane | null;
+}
+const isOwner = (p: Pane | undefined): p is Pane & AttachedOwner => typeof (p as Partial<AttachedOwner> | undefined)?.attachedView === "function";
 
 export const COMMENT_TILE_KIND = "comment";
 
@@ -18,14 +35,16 @@ export class AttachedTilePane implements Pane {
   private closing = false;
   private lastRow = -1;
   /** `source`: the reader whose comment it draws, by name. */
-  constructor(public source: string, readonly attachment: "comment" | "sources" | "list-preview" | "edit-preview" = "comment") {}
+  constructor(public source: string, readonly attachment: "comment" | "sources" | "list-preview" | "edit-preview" | "matches" = "comment") {}
 
   renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
-  title() { if (this.attachment === "edit-preview") return `edit preview · ${this.source}`; if (this.attachment === "list-preview") return `list children · ${this.source}`; if (this.attachment === "sources") return `sources · ${this.source}`; return `${this.listing ? "comments" : "comment"} · ${this.source}`; }
+  title() { if (this.attachment === "matches") return this.ownerPane?.attachedTitle() ?? "matches"; if (this.attachment === "edit-preview") return `edit preview · ${this.source}`; if (this.attachment === "list-preview") return `list children · ${this.source}`; if (this.attachment === "sources") return `sources · ${this.source}`; return `${this.listing ? "comments" : "comment"} · ${this.source}`; }
   /** It shows the reader's thread list (m), not a comment being written. */
   private listing = false;
   private owner: ReaderPane | null = null;
-  hint() { return this.attachment === "list-preview" ? "list children · click placement chip to move · click text to edit" : this.owner?.surface.attachmentHint(this.attachment) ?? ""; }
+  /** The tile whose attachment this draws, as of the last frame (its title and hint are its). */
+  private ownerPane: AttachedOwner | null = null;
+  hint() { if (this.attachment === "matches") return this.ownerPane?.attachedHint() ?? ""; return this.attachment === "list-preview" ? "list children · click placement chip to move · click text to edit" : this.owner?.surface.attachmentHint(this.attachment) ?? ""; }
   /** The last row's side chips as drawn: a click puts the tile on that side of its note. */
   private sides: { from: number; to: number; side: Side }[] = [];
   spec() { return { source: `tile:${this.source}` }; }
@@ -50,6 +69,11 @@ export class AttachedTilePane implements Pane {
     return { ...v, lines: [...v.lines.slice(0, Math.max(1, h - 1)), pad(row, w) + RESET] };
   }
 
+  private owned(desk: DeskApi): (Pane & AttachedOwner) | null {
+    const p = desk.paneNamed?.(this.source);
+    return isOwner(p) ? p : null;
+  }
+
   private reader(desk: DeskApi): ReaderPane | null {
     const p = desk.paneNamed?.(this.source);
     return p instanceof ReaderPane ? p : null;
@@ -66,6 +90,13 @@ export class AttachedTilePane implements Pane {
 
   render(w: number, h: number, _focused: boolean, desk: DeskApi): PaneView {
     this.lastRow = h - 1;
+    if (this.attachment === "matches") {
+      const o = this.owned(desk);
+      if (!o) return { lines: [fg(C.dark) + pad(` no facets tile ${this.source} on this screen`, w) + RESET] };
+      o.matchesPane = this; this.ownerPane = o;
+      const v = o.attachedView(w, Math.max(1, h - 1), _focused);
+      return { lines: [...v.lines.slice(0, Math.max(1, h - 1)), this.sideRow(w)] };
+    }
     const drawn = this.drawn(w, h, desk);
     this.listing = this.reader(desk)?.surface.session?.mode === "threads";
     if (drawn) { this.closing = false; return drawn; }
@@ -75,7 +106,22 @@ export class AttachedTilePane implements Pane {
     return { lines: [fg(C.dark) + pad(` no comment is being written in ${this.source}`, w) + RESET] };
   }
 
+  /** The side chips under it: a click puts the tile on that side of its owner. */
+  private sideRow(w: number): string {
+    this.sides = [];
+    const short = w < 48;
+    let row = short ? " " : fg(C.dark) + " beside the facets ", x = short ? 1 : width(" beside the facets ");
+    for (const [side, label] of SIDES) {
+      const chip = `[${short ? label.replace(/[a-z ]/g, "") : label}]`;
+      this.sides.push({ from: x, to: x + chip.length, side });
+      row += fg(C.lcyan) + chip + fg(C.dark) + " ";
+      x += chip.length + 1;
+    }
+    return pad(row, w) + RESET;
+  }
+
   key(k: Key, desk: DeskApi): boolean {
+    if (this.attachment === "matches") return !!this.owned(desk)?.attachedKey(k, desk);
     const r = this.reader(desk);
     if (this.attachment === "edit-preview") {
       if (!r) return false;
@@ -89,7 +135,14 @@ export class AttachedTilePane implements Pane {
     return handled;
   }
 
-  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean {
+  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
+    if (this.attachment === "matches") {
+      const o = this.owned(desk);
+      if (!o) return false;
+      const chip = this.sides.find(c => x >= c.from && x < c.to);
+      if (chip && y === this.lastRow) { if (k.action === "up") void o.placeMatches("tile", desk, chip.side); return true; }
+      return o.attachedMouse(k, x, y, desk, press);
+    }
     const r = this.reader(desk);
     if (!r) return false;
     // Its last row: a click on a side puts it there (comment.place side=, as ctrl+g and an arrow do).
@@ -143,6 +196,15 @@ export const LIST_PREVIEW_TILE: TileKind = {
   make: s => new AttachedTilePane(s.source?.startsWith("tile:") ? s.source.slice(5) : "reader", "list-preview"),
   openArgs: ["source"],
   check: COMMENT_TILE.check,
+  describe: COMMENT_TILE.describe,
+};
+
+export const MATCHES_TILE: TileKind = {
+  kind: "matches", noun: "a Matches tile", previews: true,
+  about: "a facets tile's Matches (PIE-1443: the notes its selection leaves, grouped Pinned, Today, Yesterday, Previous 7 days, then months) in a tile of its own beside it (source=tile:<the facets tile>); its select and open wires say where a pick previews and ⏎ opens. Opened by facets.place place=tile (ctrl+o), closed when Matches goes back",
+  make: s => new AttachedTilePane(s.source?.startsWith("tile:") ? s.source.slice(5) : "facets", "matches"),
+  openArgs: ["source"],
+  check: s => (s.source && !/^tile:./.test(s.source) ? "a Matches tile's source is tile:<name>, the facets tile it belongs to" : null),
   describe: COMMENT_TILE.describe,
 };
 

@@ -236,3 +236,86 @@ test("the CLI domain overrides the note domain, and saved notes use their domain
   expect(store.get(note.id)!.text).toContain("[url::https://glow.ep0ch.sh]");
   expect(readFileSync(join(root, "added-domain"), "utf8")).toBe("glow.ep0ch.sh");
 });
+
+type Shown = { name: string; url: string | null; deploy?: { repo: string; state: string; url?: string; recorded?: string; said?: string; command?: string; run?: { id: string; title: string } } };
+
+test("a repo on a line of a note, as a URL, deploys on save and artifacts.show answers its deploy state", async () => {
+  const { client, store, server, root } = await fixture();
+  const repo = "https://github.com/ep0ch-artifacts/moth-garden";
+  expect((await client.request<Shown>({ action: "artifacts.show", name: repo })).deploy).toMatchObject({ state: "not-deployed", command: "ep0ch artifact deploy ep0ch-artifacts/moth-garden" });
+  const note = await client.request<{ id: string }>({ action: "create", text: `Trying things\n\n[artifact::${repo}]`, author: "user" });
+  await server.extensionRules.settle();
+  const runs = () => store.queryBlocks({ where: "type=artifact-run" }).blocks;
+  for (const started = Date.now(); !runs().length && Date.now() - started < 5000;) await Bun.sleep(20);
+  const run = runs()[0]!;
+  expect(run.text).toContain("Artifact moth-garden: deployed");
+  // The run is filed under the catalogue, where the card's link leads, not loose at the top of the outline.
+  expect(run.parentId).toBe(store.resolveBlockRef("[[artifacts]]").id);
+  const shown = await client.request<Shown>({ action: "artifacts.show", name: repo });
+  expect(shown).toMatchObject({ name: "moth-garden", url: "https://artifacts.ep0ch.sh/moth-garden/", deploy: { repo: "ep0ch-artifacts/moth-garden", state: "live", run: { id: run.id, title: "Artifact moth-garden: deployed" } } });
+  // The line stays as written: a token added to it would stop it being an artifact line.
+  expect(store.get(note.id)!.text).toBe(`Trying things\n\n[artifact::${repo}]`);
+  // Saving again checks again and refreshes that run's note rather than adding one per edit.
+  await client.request({ action: "update", blockId: note.id, text: `${store.get(note.id)!.text}\nmore`, expectedRevision: store.get(note.id)!.revision, mutation: { author: "user" } });
+  await server.extensionRules.settle();
+  for (const started = Date.now(); !store.get(run.id)!.text.includes("Checked again") && Date.now() - started < 5000;) await Bun.sleep(20);
+  expect(runs()).toHaveLength(1);
+  // A failing run says why and what fixes it, and while one runs the card says it's deploying.
+  writeFileSync(join(root, "commit"), "def456"); writeFileSync(join(root, "clone-failure"), "");
+  const { rmSync: rm } = await import("node:fs"); rm(join(root, "clones"), { recursive: true, force: true });
+  const failing = client.request({ action: "artifacts.deploy", repo: "ep0ch-artifacts/moth-garden" }).catch(() => {});
+  expect((await client.request<Shown>({ action: "artifacts.show", name: repo })).deploy?.state).toBe("deploying");
+  await failing;
+  expect((await client.request<Shown>({ action: "artifacts.show", name: repo })).deploy).toMatchObject({ state: "failed", said: expect.stringContaining("gh auth setup-git"), command: "ep0ch artifact deploy ep0ch-artifacts/moth-garden" });
+});
+
+test("a repo outside ep0ch-artifacts is refused with the fork, and an imported deployment of a fork counts as live", async () => {
+  const { client, paths } = await fixture();
+  const refused = await client.request<Shown>({ action: "artifacts.show", name: "github.com/elsewhere/moth-garden" });
+  expect(refused.deploy).toMatchObject({ state: "refused", command: expect.stringContaining("gh repo fork https://github.com/elsewhere/moth-garden --org ep0ch-artifacts") });
+  mkdirSync(join(paths.outlines, ".artifacts"), { recursive: true });
+  writeFileSync(join(paths.outlines, ".artifacts", "deployments.json"), JSON.stringify([{ name: "lamp-loop", repo: "someone/lamp-loop-original", where: "vercel", url: "https://lamp-loop.ep0ch.sh", commit: "aaa111", deployedAt: "2026-10-01T00:00:00.000Z", reason: "Imported the existing deployment; no redeploy." }]));
+  const imported = await client.request<Shown>({ action: "artifacts.show", name: "https://github.com/ep0ch-artifacts/lamp-loop" });
+  expect(imported).toMatchObject({ url: "https://lamp-loop.ep0ch.sh", deploy: { state: "live", recorded: "someone/lamp-loop-original" } });
+});
+
+test("an earlier seeded deploy rule and script, never edited, are brought up to reading lines", async () => {
+  const root = mkdtempSync(join(tmpdir(), "deploy-seed-")), paths = scratchOutline(root);
+  cleanup.push(async () => rmSync(root, { recursive: true, force: true }));
+  let store = new OutlinerStore(paths.database, { workspaceRoot: root });
+  const actor = { actorId: "ext:artifact-deploy" };
+  const script = store.create('Deploy the repo named by this note [script::deploy-artifact] [effects::write] [deadline::5m]\n\n```js\nconst repo = this.properties.find(p => p.key === "artifact");\nif (repo?.values[0]?.includes("/")) text(await tools.artifact_deploy({ repo: repo.values[0], domain: this.properties.find(p => p.key === "domain")?.values[0] }));\n```', null, "agent", actor);
+  const { scriptSourceId } = await import("../src/script-sources");
+  const action = `${scriptSourceId(script.id)}/run`;
+  const rule = store.create(`Deploy repos named by notes [rule-name::deploy-artifact] [rule-match::artifact] [rule-on::${action}] [rule-on-change::${action}]\n\nOnly ep0ch-artifacts repos deploy. The repo decides the destination; remove this rule to stop automatic deployment.`, null, "agent", actor);
+  store.writeMetadata("artifacts.deploy-rule", rule.id);
+  const edited = store.create("Not ours [script::deploy-artifact]\n\n```js\ntext(1)\n```", null, "user");
+  store.close();
+  store = new OutlinerStore(paths.database, { workspaceRoot: root });
+  const server = new OutlinerServer(store, paths.socket, undefined, undefined, { outlinesFolder: paths.outlines });
+  await server.start();
+  cleanup.push(async () => { await server.close(); store.close(); });
+  expect(store.get(rule.id)!.text).toContain("[property-scope::all]");
+  expect(store.get(rule.id)!.text).toContain(`[rule-on::${action}]`);
+  expect(store.get(script.id)!.text).toContain("tools.artifact_deploy({ note: this.id })");
+  expect(store.get(edited.id)!.text).toContain("text(1)");
+});
+
+test("a seeded rule someone edited is left as they wrote it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "deploy-edited-")), paths = scratchOutline(root);
+  cleanup.push(async () => rmSync(root, { recursive: true, force: true }));
+  let store = new OutlinerStore(paths.database, { workspaceRoot: root });
+  const actor = { actorId: "ext:artifact-deploy" };
+  const script = store.create('Deploy the repo named by this note [script::deploy-artifact] [effects::write] [deadline::5m]\n\n```js\nconst repo = this.properties.find(p => p.key === "artifact");\nif (repo?.values[0]?.includes("/")) text(await tools.artifact_deploy({ repo: repo.values[0] }));\n```', null, "agent", actor);
+  const { scriptSourceId } = await import("../src/script-sources");
+  const action = `${scriptSourceId(script.id)}/run`;
+  const rule = store.create(`Deploy repos named by notes [rule-name::deploy-artifact] [rule-match::artifact] [rule-on::${action}] [rule-on-change::${action}] [rule-quiet::30s]\n\nMine now.`, null, "agent", actor);
+  store.writeMetadata("artifacts.deploy-rule", rule.id);
+  store.close();
+  store = new OutlinerStore(paths.database, { workspaceRoot: root });
+  const server = new OutlinerServer(store, paths.socket, undefined, undefined, { outlinesFolder: paths.outlines });
+  await server.start();
+  cleanup.push(async () => { await server.close(); store.close(); });
+  expect(store.get(rule.id)!.text).toContain("Mine now.");
+  expect(store.get(script.id)!.text).toContain("tools.artifact_deploy({ note: this.id })");
+});

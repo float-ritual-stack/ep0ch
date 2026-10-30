@@ -1,6 +1,6 @@
 import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
-import { READER_MOVE_KEYS, ZOOM_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
+import { READER_MOVE_KEYS, ZOOM_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, REVISION_KEYS, REVISION_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
 import { modeBinding, modeHint, modeActionKeys } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
@@ -94,8 +94,10 @@ import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
 import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recorded, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt, type QuoteSubject } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { blockRefText } from "@ep0ch/outline-core/link-syntax";
-import { deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
+import { BUTTON_GROUP, deliverNoteRef, noteRefText, type NoteRefKind } from "../note-ref";
 import { markReveal, revealOn } from "../reveal";
+import { drawRevision, openingRow, revisionFacts, type RevisionAgainst, type RevisionView } from "./revision-compare";
+import { revisionDiff } from "../desk/what-changed";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
 import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
 import { fieldsDrawn, type FieldsDrawing } from "../site-blocks";
@@ -113,7 +115,7 @@ import { composerBody, composerBox, placeBox, type ComposerBox } from "./compose
 import { AttachedTile, attachedAt, attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedTileHost, type AttachedSide, type AttachedPlace, type AttachedSplit, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, nextPlace, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
 import { pickerCwd, pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
-import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, scriptInstallWords, threadAgents } from "../extensions";
+import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, installWords, threadAgents } from "../extensions";
 import { actionLine, actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { INVITES } from "./invite";
 import { buttonCallAt, buttonCallsOf, slotArgs, withButtonSlot, type ButtonCall } from "@ep0ch/outline-core/button-call";
@@ -132,7 +134,7 @@ import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "../live";
 import { SocketBoard } from "../socket";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, routeNote, undoMove, type MoveArgs } from "../note-move";
-import { hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
+import { cardBg, hasCard, kindOf, MARGIN_MODE_WORDS, MARGIN_MODES, MARGIN_RESERVE, marginColumn, nextMargin, onCard, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
@@ -180,6 +182,8 @@ export interface SurfaceHost {
   overlay?(p: ListPicker<any, any>): void;
   contextFor?(note: Msg | null): Ctx;
   ctx: Ctx;
+  /** The screen this reader is on (its desk): what an edit's actions here are listed for (PIE-1439). */
+  screen?(): import("../app").Screen | undefined;
   redraw(): void;
   /**
    * The look (PIE-673) the host resolved for where this reader is (its tile kind, its screen, the note): its margin,
@@ -223,6 +227,8 @@ export interface SurfaceHost {
    * thread list (⏎ or a click on a comment mark), an armed edit confirmed (edit.arm). Without it the surface opens it itself.
    */
   startSession?(kind: SessionKind, opener?: Key): void | Promise<unknown>;
+  /** The person's new note `m` made from this reader, opened in their edit where their new notes open (`note.opens`), lit as arrived. */
+  writeNew?(m: Msg): Promise<{ tile: string; surface: NoteSurface } | null>;
   /**
    * The comment being written goes into a tile of its own beside this reader (`on`), or out of it (PIE-846): the host's
    * `comment` tile, which moves, sizes and docks as tiles do. Hosts with no tiles (the BBS reader, a river column) have
@@ -293,8 +299,13 @@ export interface SurfaceHost {
    * reader's `p`): an extension's key on a line never takes one of them (PIE-512).
    */
   ownKeys?: string;
-  /** The place in the door's undo order of the screen's newest layout change (PIE-957): a reader's ctrl+z yields to it when it is newer than the reader's own. */
+  /** The place in the door's undo order of the screen's newest layout change (PIE-957): a reader's ctrl+z yields to it only when the reader has nothing of its own to undo (PIE-1435). */
   layoutUndoSeq?(): number | undefined;
+  /**
+   * Bring back the note the person trashed last on `board` (the desk's note.untrash): a reader's ctrl+z, when that trash is
+   * newer than its own change. False when the desk can't: a reader on another outline's board.
+   */
+  untrash?(board: object): boolean;
   /**
    * This note's links (Outlinks, Resources, Backlinks) in the screen's links tile, as `b` asks: where the host has
    * one, or can open one beside the reader. Without it `b` says so and points at the inline `::links`.
@@ -405,11 +416,20 @@ export function historyKey(k: Key): -1 | 1 | 0 {
  * `<title> · forward →` on the right, each a click (`hits`, in the row's cells). Null with nowhere to go.
  */
 export function historyRow(w: number, back: string | null, forward: string | null, trail = true): { line: string; hits: { from: number; to: number; dir: TrailDir }[] } | null {
-  if ((!back && !forward) || w < 12) return null;
+  if ((!back && !forward) || w < 8) return null;
   // The trail's chip (PIE-208) after back, where the row has room for it beside both titles.
   const chip = trail && w >= TRAIL_CHIP_MIN ? TRAIL_CHIP : "", chipW = chip ? width(chip) + 2 : 0;
   const room = back && forward ? Math.floor((w - 3 - chipW) / 2) : w - 2 - chipW;
-  const b = back ? drawEllipsized(`${fg(C.lcyan)}← back${fg(C.dark)} · ${printable(back)}`, room) : "", f = forward ? drawEllipsized(`${fg(C.dark)}${printable(forward)} · ${fg(C.lcyan)}forward →`, room) : "";
+  // Narrow (a preview at 40 columns, PIE-1426): the title goes before the words do, and the words before the arrow,
+  // so the row always says which way each click goes, never "← ba…".
+  const side = (word: string, title: string, arrow: string, before: boolean) => {
+    if (room >= width(word) + 6) {
+      const t = `${fg(C.dark)}${drawEllipsized(printable(title), room - width(word) - 3)}`;
+      return before ? `${fg(C.lcyan)}${word}${fg(C.dark)} · ${t}` : `${t}${fg(C.dark)} · ${fg(C.lcyan)}${word}`;
+    }
+    return `${fg(C.lcyan)}${room >= width(word) ? word : arrow}`;
+  };
+  const b = back ? side("← back", back, "←", true) : "", f = forward ? side("forward →", forward, "→", false) : "";
   const hits: { from: number; to: number; dir: TrailDir }[] = [];
   let line = "", at = 0;
   if (b) { line += " " + b + RESET; hits.push({ from: 0, to: 1 + width(b), dir: -1 }); at = 1 + width(b); }
@@ -511,6 +531,17 @@ interface Laid {
 /** `scroll`: where a reading view is in its note (the frames draw a thumb and `· NN%` from it). */
 export interface SurfaceView { frame?: FloatRect; headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll }
 export type Link = LinkTarget;
+
+/**
+ * The compare a reader opens (PIE-1433): revision `revision` (left out: the one before the note now) against the next
+ * one kept, or against the note now. The person's and an agent's revision.compare both ask it.
+ */
+async function compareAt(board: SocketBoard, id: string, revision: number | undefined, against: RevisionAgainst) {
+  const list = await board.revisions(id);
+  const from = revision ?? list.revisions.find(r => r.revision < list.revision)?.revision;
+  if (from === undefined) throw new ActionRefused(`no earlier text is kept for this note (it is at revision ${list.revision}; the outline keeps a note's newest 100 texts)`);
+  return revisionDiff(board, id, from, against === "now" ? list.revision : undefined, list);
+}
 /** Two links name the same target the same way (a click finds the `[ ]` link it is). */
 /** The density after `d`, round again: compact, cozy, comfortable. */
 const nextDensity = (d: Density): Density => DENSITIES[(DENSITIES.indexOf(d) + 1) % DENSITIES.length]!;
@@ -586,11 +617,11 @@ export const COPY_ROWS = 4;
 /** What ⏎ does on an element, for the hint. `open`: a fold is folded, a comment mark's thread is expanded. */
 const verbOf = (e: Element, open: boolean) =>
   e.link?.ext ? extVerb(e.link.ext)
-  : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
+  : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "fold its card back to its [+]" : "open its card")
   : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : e.link.proposal.op === "resolve" ? "resolve it" : "dismiss it")
   : e.kind === "control" && e.link?.unsent ? UNSENT_VERB[e.link.unsent.op]
   : e.kind === "control" && e.link?.use ? "ask for what the ::use needs"
-  : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "edit" ? (e.value ? "edit the reply" : "edit the comment") : e.control === "card" ? "expand its thread" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.control === "tldr" ? "ask @margin for its TL;DR" : e.label.toLowerCase())
+  : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "edit" ? (e.value ? "edit the reply" : "edit the comment") : e.control === "card" ? "open its card" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.control === "tldr" ? "ask @margin for its TL;DR" : e.label.toLowerCase())
   : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "block" ? "copy it"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.value ? (e.link.value.problem ?? (e.link.at !== undefined ? "show the line it reads" : "say how it is computed")) : e.link?.media || e.link?.url ? "open" : "follow";
@@ -748,6 +779,8 @@ export { leaveSaid, propertyChange, type LeaveResult };
 interface Choice { id: string; label: string; key: string }
 interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, SurfaceHost>; note: string; busy: boolean; types?: CalloutRegistry }
 /** The reader's four modes (src/surface/modes.ts), each with what it's about. */
+/** A note at a revision, beside how it is now (PIE-1433): the compare's view, its header's controls and where it was drawn. */
+type RevisionMode = ReaderMode<SurfaceHost> & { blockId: string; view: RevisionView; want?: number; controls: { from: number; to: number; action: (typeof REVISION_CONTROLS)[number] }[]; body: number; rect: { x: number; y: number; w: number; h: number } };
 type ReplyLinksMode = ReaderMode<SurfaceHost> & { controls: { from: number; to: number; action: (typeof REPLIES_CONTROLS)[number] }[]; dragFrom?: { block: Msg; y: number }; truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; top: number; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[]; drawnItems: number[] };
 type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; reply?: Msg; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
@@ -808,7 +841,8 @@ export class NoteSurface {
   gutterWidth(): number {
     const counts = new Map<number, number>(), lineOf = lineAtOffset(this.msg?.text ?? "");
     for (const c of this.comments ?? []) {
-      const line = isWholeNote(c) ? -1 : c.start === null ? null : lineOf(c.start);
+      // A whole-note thread's mark is after the title (headerBlock), so it takes no gutter column.
+      const line = isWholeNote(c) || c.start === null ? null : lineOf(c.start);
       if (line !== null) counts.set(line, (counts.get(line) ?? 0) + 1);
     }
     return this.printed ? 0 : 1 + (counts.size ? 3 * Math.max(...counts.values()) : 0);
@@ -1090,6 +1124,7 @@ export class NoteSurface {
   get drafting(): DraftSession | null { return (this.modes.get("draft") as DraftMode | null)?.session ?? null; }
   /** The edit's text (the session's draft). */
   get replyLinks(): ReplyLinksMode | null { return this.modes.get("replies") as ReplyLinksMode | null; }
+  get revisionMode(): RevisionMode | null { return this.modes.get("revision") as RevisionMode | null; }
   get replyParent(): Msg | null { return (this.modes.get("draft") as DraftMode | null)?.reply ?? null; }
   get draft(): Draft | null { return this.drafting?.draft ?? null; }
   /** The draft session the reader holds: its edit's, else its comment's text (the draft rule asks it, PIE-514). */
@@ -1113,9 +1148,12 @@ export class NoteSurface {
   /** Commenting on `msg` (picking a passage, writing, the thread list). Holds keys and the note like a draft. */
   get session(): CommentSession | null { return (this.modes.get("comment") as CommentMode | null)?.session ?? null; }
   set session(s: CommentSession | null) {
-    if (s) { this.modes.push(this.commentMode(s)); return; }
+    // The person's comment takes the keys from the compare (an agent's never does), and gives them back when it closes.
+    const rv = this.revisionMode;
+    if (s) { this.modes.push(this.commentMode(s)); if (rv && s.startedBy.kind !== "agent") this.modes.focus(rv, false); return; }
     const cs = this.session;
     this.modes.drop("comment");
+    if (rv) this.modes.focus(rv, true);
     if (this.modes.get("grip")?.of === cs) this.modes.drop("grip");
     if (this.sourcesMode) this.modes.focus(this.sourcesMode, true);
     if (this.placementMenu?.target === "comment") this.modes.drop("placement");
@@ -1370,7 +1408,7 @@ export class NoteSurface {
     if (m && m.id === this.msg?.id && host.ctx.outline === this.msg.address?.outline) m.address ??= this.msg.address;
     this.use(host);
     if (m?.id !== this.msg?.id) { this.settled = null; this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
-    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.previewLists.clear(); this.previewOpen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.listViews.clear(); this.linkBlocksDrawn = []; this.modes.drop("list"); this.modes.drop("sources"); this.foldsOf = m?.id ?? null; this.zoom = null; this.zoomTurn++; }
+    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.previewLists.clear(); this.previewOpen.clear(); this.expanded.clear(); this.openedWhileOff.clear(); this.foldedThreads.clear(); this.figureUI.clear(); this.inlineLists.clear(); this.figuresDrawn = []; this.listViews.clear(); this.linkBlocksDrawn = []; this.modes.drop("list"); this.modes.drop("sources"); this.modes.drop("revision"); this.foldsOf = m?.id ?? null; this.zoom = null; this.zoomTurn++; }
     if (!this.draft) { this.position.view = null; this.position.reading = 0; this.position.cursor = { row: 0, col: 0 }; this.positionRows.reset(); }
     this.msg = m; if (!this.draft) this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
@@ -1464,6 +1502,16 @@ export class NoteSurface {
       });
       return { lines: [pad(title + (mode.truncated ? " · cut short" : ""), cols), ...shown.map(r => r.text)] };
     });
+    // A revision compare (PIE-1433): beside the note as THREAD is (the attached surface's split), the note as it is now beside it.
+    // A comment being written stays where it is on the note's side (a split one as a popup there), the keys its own
+    // until a click in the compare (revisionKeys).
+    const rv = this.revisionMode;
+    if (rv && rv.blockId === this.msg?.id) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
+      rv.rect = { x: col, y: row, w: cols, h: rows };
+      const d = drawRevision(rv.view, cols, rows);
+      rv.controls = d.controls; rv.body = d.body;
+      return { lines: d.lines };
+    }, undefined, (cols, rows) => this.renderReading(cols, rows, host, this.session?.place === "tile" ? null : this.composing(host)));
     const sm = this.sourcesMode;
     if (sm?.place === "inline") return this.renderComment(w, h, host);
     if (sm && sm.place !== "tile") {
@@ -1731,7 +1779,8 @@ export class NoteSurface {
     const chip = (sourcesOn ? `${fg(C.dark)} · ${fg(C.lcyan)}${SOURCES_CHIP}` : "") + (commentOn ? `${fg(C.dark)} · ${fg(C.lcyan)}${COMMENT_CHIP}` : "");
     // Marks only (PIE-873): the margin's off mode said where the comments are counted, so it's found and its way back is.
     const n = this.comments?.length ?? 0, off = this.marginMode === "off" && !this.printed;
-    const mode = off ? "marks" : this.marginMode === "full" ? "full" : "shown";
+    // The chip says what's drawn (PIE-1255), in the mode's own words; its hover, what each mode does.
+    const mode = MARGIN_MODE_WORDS[off ? "off" : this.marginMode].chip;
     let said = !this.comments?.length ? "" : `${fg(C.dark)} · ${fg(open ? C.yellow : C.dark)}■ ${n} comment${n === 1 ? "" : "s"} · ${mode} (M)`;
     // Detail's summary line: the chosen keys only; everything else is in the property panel (`i`).
     // A value that names a block, a page or a Work ID reads as a link, and a click opens it.
@@ -1794,17 +1843,17 @@ export class NoteSurface {
     const lines = width(title) <= w ? [title] : wrap(title, w);
     const titled = lines.map((l, i) => (i === 0 && named.workId && l.startsWith(`${named.workId} · `) ? pad(`${accent}${named.workId}${fg(C.dark)} · ${ink}${l.slice(named.workId.length + 3)}`, w) : ink + pad(l, w)) + RESET);
     const wholeMarks: NonNullable<HeaderBlock["wholeMarks"]> = [];
+    // A folded whole-note thread's [+] is after the title, never in the gutter (PIE-1255: a row of them there pushed
+    // the body over); the ones that don't fit go on a row of their own under it, so none is lost in a narrow tile.
     if (!this.printed && !omit.title) {
-      let col = width(lines.at(-1) ?? "");
+      let col = width(lines.at(-1) ?? ""), row = titled.length - 1, n = 0;
+      const put = () => { if (n) titled[row] = pad(titled[row]!.replace(/ *\x1b\[0m$/, "") + fg(C.yellow) + ` [+]`.repeat(n) + RESET, w); };
       for (const c of (this.comments ?? []).filter(c => isWholeNote(c) && !this.threadShown(c.id))) {
-        if (col + 4 > w) break; // The gutter remains available when the title fills its row.
-        wholeMarks.push({ thread: c.id, row: above + lines.length - 1, from: col + 1, to: col + 4 });
-        col += 4;
+        if (col + 4 > w && (col > 0 || n > 0)) { put(); titled.push(""); lines.push(""); row++; col = 0; n = 0; }
+        wholeMarks.push({ thread: c.id, row: above + row, from: col + 1, to: Math.min(w, col + 4) });
+        col += 4; n++;
       }
-      if (wholeMarks.length) {
-        const styled = titled[titled.length - 1]!.replace(/ *\x1b\[0m$/, "");
-        titled[titled.length - 1] = pad(styled + fg(C.yellow) + " [+]".repeat(wholeMarks.length) + RESET, w);
-      }
+      put();
     }
     const titleControls: NonNullable<HeaderBlock["titleControls"]> = [];
     if (!this.printed && !this.raw && !omit.title && isOutlineNote(m)) {
@@ -2045,8 +2094,13 @@ export class NoteSurface {
     // A whole-note thread's mark is on the title's row; a note that leaves its title out (PIE-1319) has it on the body's first.
     const wholeRow = title?.row ?? (own ? 1 : top);
     const gutterRow = (k: Mark) => whole.has(k.thread) ? wholeRow : top + k.row - this.scroll;
-    this.elems = laid.elems.map(e => e.kind === "comment" && whole.has(e.thread!)
-      ? { ...e, row: wholeRow, ruler: [wholeRow, wholeRow + 1] as [number, number] } : e);
+    // Its `[ ]` stop is its [+] after the title, while it's folded there; an open one's is its card's own [–] (a control).
+    const wholeAt = new Map((wholeMarks ?? []).map(k => [k.thread, k]));
+    this.elems = laid.elems.map(e => {
+      if (e.kind !== "comment" || !whole.has(e.thread!)) return e;
+      const k = wholeAt.get(e.thread!), row = k?.row ?? wholeRow;
+      return { ...e, row, ...(k ? { from: k.from, to: k.to } : {}), ruler: [row, row + 1] as [number, number] };
+    }).filter(e => e.kind !== "comment" || !whole.has(e.thread!) || wholeAt.has(e.thread!) || !this.threadShown(e.thread!));
 
     // An opened proposal's [apply] [dismiss] (in the header, so not part of the kept layout): elements and click targets.
     if (proposalHead) {
@@ -2095,6 +2149,16 @@ export class NoteSurface {
     this.lastReveal = this.reveal && !!current;
     if (this.reveal && current) bringIn([current.row, picks && this.picker?.key === current.key ? Math.max(current.row + 1, top + picks.at + picks.lines) : current.row + 1]);
     this.reveal = false;
+    // A card the person just opened comes into view (PIE-1255): spliced in above the row the reader keeps in place (a
+    // whole-note card is at the top of the body), it would otherwise open out of sight, until a scroll.
+    if (this.revealThread) {
+      // Rows went in where the card opened: what was at the top of the view stays at the top, not the line under them.
+      if (this.revealFrom !== null) { this.scroll = Math.min(this.revealFrom, this.maxScroll); room = roomAt(this.scroll); }
+      const side = laid.margin.cards.find(c => c.thread === this.revealThread);
+      const rows = side ? [side.at, side.at + side.rows.length - 1] : controls.filter(c => c.thread === this.revealThread).map(c => c.row);
+      if (rows.length) bringIn([top + Math.min(...rows), top + Math.max(...rows) + 2]);
+      this.revealThread = null; this.revealFrom = null;
+    }
     const markRows = this.focusMark ? this.focusRows(this.focusMark.spec, m, doc, noteLines, top) : null;
     // A followed fragment comes to the top (a line of what's above it kept); an agent's mark only as far as needed.
     if (this.revealMark && markRows) { if (this.focusMark?.fragment || this.focusMark?.line) this.scroll = Math.max(0, markRows[0] - top - Number(room > 1)); else bringIn(markRows); }
@@ -2173,7 +2237,8 @@ export class NoteSurface {
     }
     for (const k of this.printed ? [] : marks) {
       const row = gutterRow(k);
-      if (row >= (whole.has(k.thread) ? 0 : top) && row < top + room && (host?.externalGutter === undefined || (k.col ?? 0) + 4 <= host.externalGutter)) this.hits.push({ row, from: this.gutterStart + 1 + (k.col ?? 0), to: this.gutterStart + 1 + (k.col ?? 0) + 3, thread: k.thread, elem: `comment:${k.thread}` });
+      if (whole.has(k.thread)) continue;
+      if (row >= top && row < top + room && (host?.externalGutter === undefined || (k.col ?? 0) + 4 <= host.externalGutter)) this.hits.push({ row, from: this.gutterStart + 1 + (k.col ?? 0), to: this.gutterStart + 1 + (k.col ?? 0) + 3, thread: k.thread, elem: `comment:${k.thread}` });
     }
     for (const c of controls) {
       const row = c.row - this.scroll;
@@ -2329,7 +2394,7 @@ export class NoteSurface {
     }
     for (const k of this.printed ? [] : marks) {
       const row = gutterRow(k);
-      if (row < (whole.has(k.thread) ? 0 : top) || row >= top + room) continue;
+      if (whole.has(k.thread) || row < top || row >= top + room) continue;
       const glyph = this.threadShown(k.thread) ? "[–]" : "[+]";
       const old = gutterRows.get(row) ?? "";
       gutterRows.set(row, pad(old, 1 + (k.col ?? 0)) + fg(k.open ? C.yellow : C.dark) + glyph + RESET);
@@ -2369,9 +2434,7 @@ export class NoteSurface {
     const decorations = isOutlineNote(m) && !this.raw ? decorationsOf(m, src) : [];
     // The margin's side column (ADR 0004 contract 6): when the reader is wide and the note has cards to show.
     // The margin's default (PIE-791): current threads only; seen and resolved are on the thread list's earlier shelf.
-    const cardThreads = (this.commentsFor === m.id ? this.comments ?? [] : []).filter(c => (c.start !== null || isWholeNote(c)) && this.threadShown(c.id));
-    // Printed (`ep0ch show`), the threads are read with outline_threads: no cards in the drawing.
-    const mcols = marginColumn(w, this.printed ? "off" : this.marginMode, cardThreads.length);
+    const cardThreads = this.cardThreads(m), mcols = this.marginCols(m, w);
 
     // The outline's callout types too: a type declared (or its answer arriving) draws the note again.
     const writing = this.composing(host);
@@ -2513,7 +2576,15 @@ export class NoteSurface {
     }
     // The document keeps a minimum width of its own (callouts, tables); a narrower column clips it.
     const inset = " ".repeat(this.bx);
-    const body = doc.lines.map(l => (width(l) + this.bx > w ? pad(inset + l, w) : inset + l));
+    // A card under its passage juts into the body's inset (PIE-1255), on its own background, so it reads as beside
+    // the words, not in them; its cells (and its controls') stay where the body's are.
+    const jut = Math.max(0, Math.min(2, this.bx - (host?.externalGutter !== undefined ? 0 : this.gutterWidth())));
+    const cardAt = new Map<number, string>();
+    if (jut) for (const c of threads.cards) for (let r = c.at; r < c.at + c.rows; r++) cardAt.set(shift(r) + (listInline && listInline.at <= shift(r) ? listInline.rows : 0), c.bg);
+    const body = doc.lines.map((l, r) => {
+      const bg = cardAt.get(r), row = bg ? inset.slice(jut) + bg + " ".repeat(jut) + l : inset + l;
+      return width(row) > w ? pad(row, w) : row;
+    });
     const marks = this.commentMarks(m, doc, noteLines);
     if (this.printed) for (const row of new Set(marks.map(k => k.row))) if (body[row])
       body[row] = fg(marks.some(k => k.row === row && k.open) ? C.yellow : C.dark) + "▐" + RESET + body[row]!.slice(1);
@@ -2633,7 +2704,7 @@ export class NoteSurface {
       // An artifact's card (PIE-793): its file read through the service, the card drawn again once it's read.
       ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: name => src.board.request<ArtifactInfo>("artifacts.show", { name }), changed: () => src.redraw() }) } : {}),
       folds: { points, folded: this.effectiveFolds(m), selected: this.foldSel, preview: new Set(points.filter(p => this.previews(p)).map(p => p.key)) },
-      link: (block, x, figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
+      link: (block, x, figure, query, at) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
       figures: this.printed ? { all: true, seen: f => figures.push(f) } : {
         ui: key => this.figureUI.get(key),
         tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.tab ?? `≡ density ${this.figureUI.get(c.figure)?.density ?? ""}`.trim() }, x),
@@ -2798,7 +2869,7 @@ export class NoteSurface {
           const ps = projected.get(line)?.filter(({ p }) => p.output?.component?.placement !== "replace");
           return ps ? { rows: ps.flatMap(({ p }) => extensionRegion(p, width, Date.now(), (to, text) => tagged(drawn, to, text), { note: target.id, markdown: inert, row: (block, text) => tagged(drawn, { block, role: "row" }, text) }).rows) } : [];
         },
-        link: (block, t, figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row", ...(figure ? { figure: { figure } } : {}) }, t),
+        link: (block, t, figure, query, at) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}) }, t),
         // The template is the definition (`self`); the chain says the host is `this`, so a figure over `{{this.project}}` reads the host.
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
@@ -2818,7 +2889,7 @@ export class NoteSurface {
       const call: SiteCall = { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) };
       return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
         ...childEnv(env, { off: 0, end: lines.length, width }), heroLine: -1, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined, regions: undefined, outputs: undefined,
-        link: (block, t, figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row", ...(figure ? { figure: { figure } } : {}) }, t),
+        link: (block, t, figure, query, at) => tagged(drawn, { ...(query ? { query, label: query } : { block, ...(at !== undefined ? { revision: at } : {}) }), role: "row", ...(figure ? { figure: { figure } } : {}) }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
         use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1),
@@ -3222,10 +3293,11 @@ export class NoteSurface {
       title: `editing · ${subject({ ...m, text: d.text })}`,
       status: [
         fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
-        // Who typed it takes the hint's row, not a row of its own: an agent's patch landing never moves the text down.
-        d.note ? fg(C.cyan) + pad(d.note, w) + RESET
-          : by ? fg(C.lmagenta) + pad(by, w) + RESET
-          : fg(C.cyan) + pad("whole text: subject, body and [key::value] properties", w) + RESET,
+        // Who typed it takes the hint's row, not a row of its own: an agent's patch landing never moves the text down. What
+        // the draft says (an ask: the undo at a save) wraps onto up to three rows rather than being cut (PIE-1428).
+        ...d.note ? rowLines(d.note, w, 3).map(l => fg(C.cyan) + pad(l, w) + RESET)
+          : by ? [fg(C.lmagenta) + pad(by, w) + RESET]
+          : [fg(C.cyan) + pad("whole text: subject, body and [key::value] properties", w) + RESET],
       ],
     }, w, h) };
   }
@@ -3353,6 +3425,71 @@ export class NoteSurface {
   }
 
   closeReplyLinks() { this.modes.drop("replies"); }
+  closeRevision() { this.revisionAsk = null; this.modes.drop("revision"); }
+  /** The compare takes the keys (on), or leaves them to a comment being written: it opens without them over one. */
+  focusRevision(host: SurfaceHost, on: boolean) {
+    const rv = this.revisionMode;
+    if (!rv) throw new ActionRefused("open the revision compare first (revision.compare)");
+    this.modes.focus(rv, on);
+    if (on) host.enterMode?.();
+    host.redraw();
+    return { keys: on ? "revision" : "reader" };
+  }
+  /** The compare's last ask: only its answer is drawn, and none once the compare is closed. */
+  private revisionAsk: object | null = null;
+
+  /**
+   * Open (or move) the revision compare (PIE-1433): revision `revision` of this note (left out: the one before the
+   * note now) against the next one kept, or against the note now; scrolled to `passage` when given, else the first change.
+   */
+  async openRevision(host: SurfaceHost, revision: number | undefined, against: RevisionAgainst, passage?: string): Promise<RevisionView> {
+    const m = this.requireNote();
+    const ask = {};
+    this.revisionAsk = ask;
+    // A step that fails leaves the next one stepping from the revision drawn.
+    const diff = await compareAt(host.ctx.board, m.id, revision, against).catch((e: unknown) => { if (this.revisionAsk === ask) delete this.revisionMode?.want; throw e; });
+    const view: RevisionView = { diff, against, top: 0, opening: openingRow(diff.rows, passage), ...(passage ? { passage } : {}) };
+    if (this.msg?.id !== m.id) throw new ActionRefused("the reader moved to another note while the revision was read; open it again");
+    // Only the last ask lands (two ← in one chunk both ask, and the older's answer may come second), and none after Esc.
+    if (this.revisionAsk !== ask) return view;
+    const had = this.revisionMode;
+    if (had && had.blockId === m.id) { had.view = view; delete had.want; host.redraw(); return view; }
+    const run = (action: string, args: Record<string, unknown> = {}) => { void this.runKey(action as Parameters<NoteSurface["runKey"]>[0], args, host); };
+    const mode: RevisionMode = {
+      // It takes only its own keys (REVISION_KEYS): the desk's still work, and Esc closes it once its tile has the keys.
+      name: "revision", of: view, word: "revision", noun: "the revision compare", holdsKeys: false, keys: REVISION_KEYS,
+      blockId: m.id, view, controls: [], body: 2, rect: { x: 0, y: 0, w: 0, h: 0 },
+      editing: () => false, covers: () => false,
+      key: k => { const b = modeBinding(REVISION_KEYS, k); if (b) run(b.action, b.args); return !!b; },
+      click: (x, y) => {
+        y += this.drawn?.heroRows ?? 0;
+        const r = mode.rect;
+        // A click outside it while a comment is being written gives the comment its keys back; one in it, the compare.
+        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) { if (this.session && this.modes.active(mode)) run("revision.focus", { on: false }); return undefined; }
+        if (!this.modes.active(mode)) run("revision.focus", { on: true });
+        if (y === r.y) { const c = mode.controls.find(hit => x - r.x >= hit.from && x - r.x < hit.to); if (c) run(c.action); }
+        return true;
+      },
+      wheel: (dir, _host, at) => {
+        const r = mode.rect, y = at ? at.y + (this.drawn?.heroRows ?? 0) : -1;
+        if (!at || at.x < r.x || at.x >= r.x + r.w || y < r.y || y >= r.y + r.h) return false;
+        run("revision.scroll", { by: dir * 3 }); return true;
+      },
+      rows: () => null, leave: async () => { this.closeRevision(); return { left: "nothing" }; },
+      hint: () => modeHint(REVISION_KEYS, action => NOTE_ACTIONS.def(action)), state: () => (this.modes.active(mode) ? "revision" : null),
+      describe: () => revisionFacts(mode.view),
+      // The note was saved meanwhile (a new revision): a compare against the note now reads it again.
+      changed: (revision, partial) => {
+        const v = mode.view;
+        if (partial || mode.want !== undefined || revision === v.diff.current || (v.against !== "now" && v.diff.to.revision !== v.diff.current)) return;
+        void this.openRevision(host, v.diff.from.revision, v.against, v.passage).catch(() => {});
+      },
+    };
+    this.modes.push(mode);
+    if (this.session) this.modes.focus(mode, false);
+    host.redraw();
+    return view;
+  }
 
   async openReplyLinks(host: SurfaceHost, actor: Actor, refresh = false) {
     if (actor.kind === "user" && this.editing) throw new ActionRefused("finish the draft before opening its thread");
@@ -3487,7 +3624,9 @@ export class NoteSurface {
    * its own headings (`((#`), as typed so far; a comment or reply has no note of its own.
    */
   completer(d: Draft, host: SurfaceHost) {
-    return completerFor(d, host.ctx.board, () => host.redraw(), () => (d === this.draft ? { blockId: d.blockId, text: d.text } : undefined));
+    const c = completerFor(d, host.ctx.board, () => host.redraw(), () => (d === this.draft ? { blockId: d.blockId, text: d.text } : undefined));
+    if (c && host.screen) c.where = () => host.screen?.();
+    return c;
   }
 
   /**
@@ -3498,6 +3637,9 @@ export class NoteSurface {
   dispose() {
     this.endPreviewDraft();
     this.drafting?.dispose();
+    // A comment read an event asked for (onEvent) doesn't go out for a reader that's gone.
+    if (this.commentTimer) clearTimeout(this.commentTimer);
+    this.commentTimer = null;
   }
 
   /**
@@ -4683,11 +4825,14 @@ export class NoteSurface {
       if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
       const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["use.undo", this.useHistory.last("you", at)], ["sources.undo", this.sourceHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)], ["ext.undo", EXT_UNDO.last("you", at)], ["note.move.undo", MOVE_UNDO.last("you", at)]] as const)
         .reduce<{ name: "callout.undo" | "image.undo" | "use.undo" | "sources.undo" | "task.undo" | "ext.undo" | "note.move.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
-      // Nothing of this reader's to undo: the desk's ctrl+z brings back a note trashed (note.untrash).
+      // A note trashed after it comes back first (note.untrash). The layout isn't compared (PIE-1435): a tile moved elsewhere
+      // didn't happen to this note, so the desk's ctrl+z (layout.undo, or a trash newer than it) gets the key only when the
+      // reader has nothing of its own; with no layout change either, the reader's refusal says there's nothing to undo.
       const trashedAt = lastTrashed(host.ctx.board, USER)?.seq;
-      if (trashedAt !== undefined && trashedAt > last.seq) return false;
-      const laid = host.layoutUndoSeq?.();
-      if (laid !== undefined && laid > last.seq) return false;
+      if (trashedAt !== undefined && trashedAt > last.seq) {
+        return last.seq >= 0 && !!host.untrash?.(host.ctx.board);
+      }
+      if (last.seq < 0 && host.layoutUndoSeq?.() !== undefined) return false;
       void this.runKey(last.name, {}, host, true);
       return true;
     }
@@ -4825,7 +4970,7 @@ export class NoteSurface {
       if (!d.takes(d.requestIn(req, messageContext.getStore()?.tile))) {
         const { listed, scripts } = await this.scriptsNamed(action, p.block || this.msg?.id, p.line, host);
         if (!scripts.length) {
-          throw new ActionRefused(scriptInstallWords(action, listed.available) ?? d.unknownAction(action));
+          throw new ActionRefused(installWords(action, listed.available) ?? d.unknownAction(action));
         }
         if (scripts[0]!.state === "failed") throw new ActionRefused(scripts[0]!.error!);
         if (scripts.length > 1) host.ctx.flash(scripts[0]!.description ?? "");
@@ -5542,6 +5687,21 @@ export class NoteSurface {
 
   private openedWhileOff = new Set<string>();
 
+  /** The margin's side column at reader width `w`: 0 when the cards fold under their passages (or there are none). */
+  private marginCols(m: Msg, w: number): number {
+    // Printed (`ep0ch show`), the threads are read with outline_threads: no cards in the drawing.
+    return marginColumn(w, this.printed ? "off" : this.marginMode, this.cardThreads(m).length);
+  }
+  /** The threads drawn as cards. The margin's default (PIE-791): current threads only; seen and resolved are on the thread list's earlier shelf. */
+  private cardThreads(m: Msg): Comment[] {
+    return (this.commentsFor === m.id ? this.comments ?? [] : []).filter(c => (c.start !== null || isWholeNote(c)) && this.threadShown(c.id));
+  }
+  /** The thread the person just opened: the next frame brings its card into view. */
+  private revealThread: string | null = null;
+  private revealFrom: number | null = null;
+  /** The person opened a card: it comes into view on the next frame (an agent's open leaves their view where it is). */
+  revealCard(thread: string) { if (this.threadShown(thread)) { this.revealThread = thread; this.revealFrom = this.scroll; } }
+
   setMargin(mode: MarginMode) { this.keepCommentSelection(); this.marginMode = mode; this.openedWhileOff.clear(); }
 
   threadShown(thread: string): boolean {
@@ -5572,7 +5732,7 @@ export class NoteSurface {
       this.marginMode === "trim" && !this.expanded.has(c.id));
   }
 
-  private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number, fold = false, composer?: readonly string[], host?: SurfaceHost, drawn: Link[] = []): { doc: Doc; controls: Control[]; passage: [number, number] | null; composerAt: number | null } {
+  private threadPanels(m: Msg, doc: Doc, noteLines: number[], W: number, fold = false, composer?: readonly string[], host?: SurfaceHost, drawn: Link[] = []): { doc: Doc; controls: Control[]; cards: { at: number; rows: number; bg: string }[]; passage: [number, number] | null; composerAt: number | null } {
     // A narrow reader folds each annotation's card under its passage (ADR 0004 contract 6), unless the margin is off.
     // The passage of the comment being written (PIE-770): its rows, and its box under them (after its thread, if expanded).
     const span = this.session ? this.composerSpan(this.session, m) : null;
@@ -5586,9 +5746,9 @@ export class NoteSurface {
       return { passage: was, composerAt: box.length ? starts[n] ?? null : null };
     };
     if (!fold || this.printed) {
-      if (!box.length) return { doc, controls: [], passage: at, composerAt: null };
+      if (!box.length) return { doc, controls: [], cards: [], passage: at, composerAt: null };
       const { doc: out, starts } = withRows(doc, box);
-      return { doc: out, controls: [], ...placed(out, starts, 0) };
+      return { doc: out, controls: [], cards: [], ...placed(out, starts, 0) };
     }
     const cs = this.comments ?? [];
     const panels = this.commentMarks(m, doc, noteLines).flatMap(k => {
@@ -5596,7 +5756,7 @@ export class NoteSurface {
       if (!c || !fold || this.printed || !this.threadShown(c.id)) return [];
       return [{ at: k.rows[1], thread: c.id, ...this.threadCard(c, W, host, drawn) }];
     });
-    if (!panels.length && !box.length) return { doc, controls: [], passage: at, composerAt: null };
+    if (!panels.length && !box.length) return { doc, controls: [], cards: [], passage: at, composerAt: null };
     // A reply's box goes right under its own thread; a comment's after every thread on its passage.
     const t = this.session?.mode === "compose" ? this.session.target : null;
     const own = t && (t.kind === "reply" || t.kind === "edit") ? panels.findIndex(p => p.thread === t.thread.id) : -1;
@@ -5604,7 +5764,8 @@ export class NoteSurface {
     const all = [...panels.slice(0, n), ...box, ...panels.slice(n)];
     const { doc: out, starts } = withRows(doc, all);
     const shown = (i: number) => (i < n || !box.length ? i : i + 1);
-    return { doc: out, controls: panels.flatMap((p, i) => p.controls.map(c => ({ ...c, row: starts[shown(i)]! + c.row }))), ...placed(out, starts, n) };
+    return { doc: out, controls: panels.flatMap((p, i) => p.controls.map(c => ({ ...c, row: starts[shown(i)]! + c.row }))),
+      cards: panels.map((p, i) => ({ at: starts[shown(i)]!, rows: p.lines.length, bg: p.bg })), ...placed(out, starts, n) };
   }
 
   /** The note's `{{ }}` as the service read them, for the property panel (the draft's, while one is open). */
@@ -6516,6 +6677,7 @@ export class NoteSurface {
   /** A link to this artifact alone for someone outside (PIE-1266), copied for the person; an agent is given it in the answer. */
   async shareArtifact(ref: ImageRef, ttl: string | undefined, host: SurfaceHost, actor: Actor): Promise<{ share: ShareSession; said?: string }> {
     const artifact = await host.ctx.board.request<ArtifactInfo>("artifacts.show", { name: ref.path });
+    if (artifact.deploy) throw new ActionRefused(`${artifact.deploy.repo} is a repo: its site${artifact.url ? ` (${artifact.url})` : ""} is public already, and a share gives a stored artifact alone; artifact.open opens the site`);
     const started = await startShare(host.ctx.board, { artifact: artifact.version ? `${artifact.name}@${artifact.version}` : artifact.name, ...(ttl ? { ttl } : {}) }, actor);
     const { share } = started;
     if (actor.kind === "user" && share.url) host.ctx.copy?.(share.url, "share link");
@@ -6525,6 +6687,8 @@ export class NoteSurface {
 
   async openArtifact(ref: ImageRef, host: SurfaceHost): Promise<Outside> {
     const artifact = await host.ctx.board.request<ArtifactInfo>("artifacts.show", { name: ref.path });
+    // A repo opens its live site; one that isn't live says why and the command that deploys it (PIE-1060).
+    if (artifact.deploy && !artifact.url) throw new ActionRefused(`${artifact.deploy.repo} isn't live: ${artifact.deploy.said ?? artifact.deploy.state}${artifact.deploy.command ? `; run ${artifact.deploy.command}` : ""}`);
     if (!artifact.url) throw new ActionRefused("Set EP0CH_WEB_URL on the outline host to the web client's address (https://my.ep0ch.sh): an artifact opens as its page there.");
     return this.openOutside("browser", artifact.url, host);
   }
@@ -6617,7 +6781,7 @@ export class NoteSurface {
     }
     if (!target) { host.ctx.flash(`nothing answers at ${l.block ?? `[[${l.page}]]`}`); return null; }
     // `((id^fragment))` (PIE-425): the reader the note opens in scrolls to the fragment and marks it.
-    markReveal(target, { ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at, ...(l.atLabel ? { label: l.atLabel } : {}), ...(l.atSays ? { says: l.atSays } : l.value ? { says: `the line ${l.value.expression} reads` } : {}) } : {}) }, host.actor ?? USER);
+    markReveal(target, { ...(l.revision !== undefined ? { revision: l.revision } : {}), ...(l.fragment ? { fragment: l.fragment } : {}), ...(l.at !== undefined ? { at: l.at, ...(l.atLabel ? { label: l.atLabel } : {}), ...(l.atSays ? { says: l.atSays } : l.value ? { says: `the line ${l.value.expression} reads` } : {}) } : {}) }, host.actor ?? USER);
     this.track(() => host.navigate(target, how));
     // A host that kept the note in this reader without showing it again (it already showed it).
     if (this.msg?.id === target.id) this.takeReveal(target, host);
@@ -6675,7 +6839,8 @@ export class NoteSurface {
     // Every surface that shows the note takes it once (a preview following the list and the detail it opens in): the mark stays on the note.
     if (this.revealed === r) return;
     this.revealed = r;
-    if (r.fragment) void this.revealFragment(r.fragment, host, r.by);
+    if (r.revision !== undefined) void this.openRevision(host, r.revision, "next").catch((e: Error) => host.ctx.flash(`revision ${r.revision}: ${e.message}`));
+    else if (r.fragment) void this.revealFragment(r.fragment, host, r.by);
     else if (r.at !== undefined) void this.revealAt(r.at, host, r.by, r.label, r.says);
   }
 
@@ -6929,7 +7094,7 @@ export class NoteSurface {
    * Quote marks into a new block (`quote`): each transcluded and linked back, where `where` says (`inbox`, `note`,
    * or a block). One write: ctrl+z here (`ext.undo`) takes it back whole. The cards then say "quoted in".
    */
-  async quoteMarks(ids: string[], where: string, host: SurfaceHost, actor: Actor, text?: string) {
+  async quoteMarks(ids: string[], where: string, host: SurfaceHost, actor: Actor, text?: string, open = false) {
     const m = this.requireNote();
     const w = where.trim(), ref = /^!?\(\(([^)|^]+)/.exec(w)?.[1] ?? w;
     const place: QuotePlace = w === "" || w === "inbox" ? { kind: "inbox" } : w === "note" ? { kind: "note" } : { kind: "under", blockId: ref };
@@ -6941,15 +7106,33 @@ export class NoteSurface {
       throw new ActionRefused(why);
     }
     const label = ids.length === 1 ? "quote of a mark" : `quote of ${ids.length} marks`;
-    if (r.undo) EXT_UNDO.push({ undo: r.undo, label, by: partyOf(actor), context: m.id });
     outlineChanged([r.block.id]);
     await this.loadComments(host);
     if (this.session && this.comments) this.session.threads = this.comments;
-    say.flash(`quoted ${r.placement.said}: ${printable(r.block.text.split("\n", 1)[0] ?? "")}${r.undo ? " · ctrl+z undoes" : ""}`);
     this.noteAgent(actor, `quoted ${ids.length === 1 ? "a mark" : `${ids.length} marks`} ${r.placement.said}`);
     host.redraw();
-    return { block: r.block.id, title: r.block.text.split("\n", 1)[0], placed: r.placement.said, parent: r.placement.parentId, marks: r.marks, ...(r.undo ? { undo: r.undo } : {}) };
+    // Opened to write in (PIE-1184), its undo is the quote's own reader's, recorded after the open so ctrl+z there (once
+    // the edit is closed) takes the quote back before the layout's open; else this reader's, as always.
+    const opened = open ? await this.writeQuote(r.block.id, host) : null;
+    if (r.undo) EXT_UNDO.push({ undo: r.undo, label, by: partyOf(actor), context: opened ? r.block.id : m.id });
+    say.flash(`quoted ${r.placement.said}: ${printable(r.block.text.split("\n", 1)[0] ?? "")}${!r.undo ? "" : opened ? " · esc, then ctrl+z there undoes it" : " · ctrl+z undoes"}`);
+    return { ...(opened ? { tile: opened } : {}), block: r.block.id, title: r.block.text.split("\n", 1)[0], placed: r.placement.said, parent: r.placement.parentId, marks: r.marks, ...(r.undo ? { undo: r.undo } : {}) };
   }
+
+  /**
+   * The person's new quote opened to write in (PIE-1184), as their new notes open (`note.opens`: a float beside what they
+   * read, by default), lit as just arrived, the cursor at the end of the quote. The tile's name, or null: the quote is
+   * written either way, so nothing here fails it.
+   */
+  private async writeQuote(id: string, host: SurfaceHost): Promise<string | null> {
+    const at = host.writeNew ? await host.ctx.board.get(id).then(note => (note ? host.writeNew!(note) : null)).catch(() => null) : null;
+    const d = at?.surface.draft;
+    if (!at || !d || d.blockId !== id) return at?.tile ?? null;
+    // At the end of the quote, so ⏎ starts the reply under it; nothing is typed for them (closing it changes nothing).
+    d.place(d.text.split("\n").length - 1, Infinity);
+    return at.tile;
+  }
+
 
   /**
    * The note line (from 0) of the element at `x`, `y` (cells of the last render), else of the current element, else
@@ -8182,6 +8365,9 @@ export class NoteSurface {
     return out;
   }
 
+  /** Back (-1) or forward (1) walks this reader's own stops, not the view's trail (SurfaceHost.history). */
+  travelsHere(dir: -1 | 1): boolean { return (dir < 0 ? this.backs : this.aheads).length > 0; }
+
   /** The title back (-1) or forward (1) would show, or null. */
   peek(dir: -1 | 1): string | null {
     const p = (dir < 0 ? this.backs : this.aheads).at(-1);
@@ -8932,8 +9118,8 @@ export class NoteSurface {
     const m = this.msg;
     // An edit or the thread list covers the note; a comment written at its passage (PIE-770) keeps the margin as it was.
     if (!m || this.marginMode === "off" || this.modes.covers || this.printed) return 0;
-    const cards = (this.commentsFor === m.id ? this.comments ?? [] : []).some(c => c.start !== null && hasCard(c));
-    return cards ? 36 : 0;
+    const cards = (this.commentsFor === m.id ? this.comments ?? [] : []).some(c => (c.start !== null || isWholeNote(c)) && hasCard(c));
+    return cards ? MARGIN_RESERVE : 0;
   }
 
   /** What the passage toolbar offers: Comment, Ask and Explain (with an agent that answers in threads), and each extension's passage action. */
@@ -9160,7 +9346,7 @@ export class NoteSurface {
   closeDraftAction(discard: boolean): { closed: boolean; keptAt?: string; said?: string } {
     const s = this.drafting;
     if (!s) return { closed: false };
-    if (s.dirty && !discard && !s.busy) throw new ActionRefused("the draft has unsaved changes; edit.save saves it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
+    if (s.draft.written && !discard && !s.busy) throw new ActionRefused("the draft has unsaved changes; edit.save saves it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
     return this.replyParent && discard ? { closed: true, ...s.discard() } : s.close(discard);
   }
 
@@ -9318,7 +9504,7 @@ const SOURCES_CHIP = "[sources]";
 /** A thread on the whole note (PIE-846): no passage was ever quoted (one whose quoted words moved still has its quote). */
 export const isWholeNote = (c: Pick<Comment, "start" | "quote">) => c.start === null && !c.quote;
 
-function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text: string, width: number) => string[] | { lines: string[]; images?: DocImage[]; links?: LinkRange[] }, trim = false): { lines: string[]; controls: Control[]; images: DocImage[]; links: LinkRange[] } {
+function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text: string, width: number) => string[] | { lines: string[]; images?: DocImage[]; links?: LinkRange[] }, trim = false): { lines: string[]; bg: string; controls: Control[]; images: DocImage[]; links: LinkRange[] } {
   // Its pictures (PIE-846), on the panel's own rows: `col` cells in from the panel's left.
   const images: DocImage[] = [];
   const links: LinkRange[] = [];
@@ -9329,7 +9515,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
     for (const im of r.images ?? []) images.push({ ...im, line: lines.length + im.line, col: col + im.col });
     return r.lines;
   });
-  const edge = fg(c.open ? C.yellow : C.dark);
+  const edge = fg(c.open ? C.yellow : C.dark), bg = cardBg(c.props);
   const inner = Math.max(4, W - 2);
   const n = c.replies.length;
   const title = ` ${kindOf(c)} · ${c.open ? "■" : "·"} ${printable(authorName(c.author))} · ${ago(c.at)}${editedMark(c)} · ${c.lifecycle}${n ? ` · ${n} repl${n === 1 ? "y" : "ies"}` : ""} `;
@@ -9341,7 +9527,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   if (trim) {
     const summary = c.tldr ? `TL;DR ${c.tldr.body}` : c.replies.at(-1)?.body ?? c.body;
     lines.push(edge + "│ " + fg(C.grey) + drawEllipsized(body(summary, inner).join(" "), inner) + RESET);
-    return { lines, images: [], links: [], controls: [
+    return { lines: lines.map(l => onCard(l, W, bg)), bg, images: [], links: [], controls: [
       { thread: c.id, control: "toggle", row: 0, from: W - 3, to: W, label: "Fold thread" },
       { thread: c.id, control: "card", row: 0, from: 0, to: W - 3, label: "Open thread" },
       { thread: c.id, control: "card", row: 1, from: 0, to: W, label: "Open thread" },
@@ -9399,7 +9585,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
     col += shown.length;
   });
   lines.push(row + RESET, f.bottom());
-  return { lines, controls, images, links };
+  return { lines: lines.map(l => onCard(l, W, bg)), bg, controls, images, links };
 }
 
 /**
@@ -9830,7 +10016,8 @@ async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor
 async function travelAction(dir: -1 | 1, { surface, host, standing }: On, actor: Actor, steps = 1) {
   const word = dir < 0 ? "back" : "forward";
   // Where the view keeps the history itself (the river's columns), it moves the person's keys: theirs alone.
-  if (!standing && host.history) throw new ActionRefused(host.history.agentRefusal);
+  // This reader's own stops (n and p in the message reader) move only it, an agent's too.
+  if (!standing && host.history && !surface.travelsHere(dir)) throw new ActionRefused(host.history.agentRefusal);
   // The person's comment unsent here: asked first (PIE-785).
   // (Synchronous when nothing is asked: the follow goes on in the same tick, as it always did.)
   const asked = surface.askLeave(word, {}, actor, host);
@@ -9981,8 +10168,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (f.busy) throw new ActionRefused("the form is still submitting");
       f.busy = true;
       try {
-        const result = await host.ctx.dispatch!.act({ action: "ext.form.fill", args: { block: f.block, with: JSON.stringify(f.values(actor)) } }, actor);
-        f.clearWarning(actor);
+        const sent = f.values(actor);
+        const result = await host.ctx.dispatch!.act({ action: "ext.form.fill", args: { block: f.block, with: JSON.stringify(sent) } }, actor);
+        // It landed: the form clears for the next entry, so a second press can't write the same one again (a refusal keeps it).
+        f.reset(actor, sent);
         return result;
       } catch (error) { f.warning(actor, error instanceof Error ? error.message : String(error)); throw error; }
       finally { f.busy = false; host.redraw(); }
@@ -10171,7 +10360,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "complete": def({
     words: "complete what you're typing: a page, a reference, a file, a callout or a property",
     summary: "completion, as typing [[, ((, [file::, > [!, ::component, a property's [key:: or a figure's YAML offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/, [heading-pattern::, or a ::graph-meter block's lines ending in ti), or at the open draft's cursor; insert=n puts the nth into the draft (expect=<its insertion> refuses it if the list changed meanwhile); refine=^ or refine=# opens the finished ((reference)) at the draft's cursor again to search inside its note, as typing ^ or # in it does (PIE-762): a passage with no anchor gets one when inserted. Property keys and values come from the component schemas (PIE-618)",
-    keys: [{ via: "typing [[ (( [file:: > [! ::component or [key:: while writing" }, { keys: "tab ctrl+space", does: "open the completion" }, { keys: "↑ ↓", does: "move in it" }, { keys: "enter tab", does: "choose" }, { keys: "esc", does: "close it" }, { keys: "^ #", does: "in a ((reference))" }],
+    keys: [{ via: "typing [[ (( [file:: > [! ::component or [key:: while writing" }, { keys: "tab ctrl+space", does: "open the completion" }, { keys: "↑ ↓", does: "move in it" }, { keys: "enter tab", does: "choose", says: "insert the lit completion" }, { keys: "esc", does: "close it", says: "close the completion list" }, { keys: "^ #", does: "in a ((reference))" }],
     // Looking candidates up reads; putting one in types in the draft at its cursor: an agent's only in a draft it
     // opened and alone typed in, or one the person invited it into (an @name line; the insert uses the invitation up).
     touches: "draft", draft: "type", replay: "ask",
@@ -10251,7 +10440,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "edit": def({
-    summary: "open the note for editing (its whole text, at the revision the service has now); external=true opens it in $EDITOR (a reader's ctrl+e; in an open edit, or a comment or reply being written, edit.external, ctrl+x ctrl+e, hands that over). The person's e arms it first (edit.arm) and ⏎ or e again opens it; a click on an edit control opens it at once", keys: "e then ⏎/e, ctrl+e then ⏎/ctrl+e (e or ctrl+e alone with edit.arm.set on=false)",
+    summary: "open the note for editing (its whole text, at the revision the service has now); external=true opens it in $EDITOR (a reader's ctrl+e; in an open edit, or a comment or reply being written, edit.external, ctrl+x ctrl+e, hands that over). The person's e arms it first (edit.arm) and ⏎ or e again opens it; a click on an edit control opens it at once", keys: "e then ⏎/e, ctrl+e then ⏎/ctrl+e (e or ctrl+e alone when arming is off)",
     touches: "draft", draft: "write", replay: "ask",
     menu: noteRow("edit", "e", { now: ({ surface }) => (surface.draft ? { hide: true } : null) }),
     personWith: a => (a.external ? "the $EDITOR handoff takes over the person's terminal; send the text with edit.text" : null),
@@ -10296,11 +10485,109 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return { revision: want, current: list.revision, savedAt: r.savedAt, chars: r.chars, earlier: list.revisions.filter(x => x.revision < want).map(x => x.revision) };
     },
   }),
+  "revision.compare": def({
+    summary: "this note at an earlier revision, beside how it is now (PIE-1433): revision's text marked against the next revision kept (- was there, + came next), or against=now the note as it is now; ← → older and newer, Esc back to the note. Without revision=, the one before the note now. A suggestions page row (a table with at:) and the history list open it",
+    keys: [{ via: "a table row with at: (the suggestions page)" }, { via: "the tile menu's \"history\"" }],
+    touches: "tile", replay: "safe",
+    args: { revision: { type: "number", optional: true, about: "the revision (revisions or `ep0ch revisions <note>` lists them); default the one before the note now" },
+      against: { type: "string", optional: true, about: "next (the default: the next revision kept) or now (the note as it is now)" },
+      passage: { type: "string", optional: true, about: "text to scroll to (a review's passage); default the first change" } },
+    examples: [
+      { act: "revision.compare", does: "shows the last change: the revision before the note now, marked against it" },
+      { act: "revision.compare revision=3", does: "shows revision 3 beside the note, marked against revision 4" },
+      { act: "revision.compare revision=3 against=now", does: "shows revision 3 marked against the note as it is now" },
+    ],
+    async run({ revision, against, passage }, { surface, host, standing }) {
+      if (against !== undefined && against !== "next" && against !== "now") throw new ActionRefused("against is next or now");
+      const m = surface.requireNote(), to = (against ?? "next") as RevisionAgainst;
+      if (!standing) return { ...revisionFacts({ diff: await compareAt(host.ctx.board, m.id, revision, to), against: to, top: 0 }), shown: false };
+      return { ...revisionFacts(await surface.openRevision(host, revision, to, passage)), shown: true };
+    },
+  }),
+  "revision.older": def({
+    summary: "in the revision compare, the revision before the one shown (still against the next, or now)", keys: modeActionKeys(ATTACHED_KEYS, "revision.older"),
+    touches: "tile", replay: "safe", args: {},
+    async run(_, { surface, host }) {
+      const mode = surface.revisionMode, v = mode?.view;
+      if (!mode || !v) throw new ActionRefused("open the revision compare first (revision.compare)");
+      // From the revision asked last, not the one drawn: a second ← before the first's answer steps again.
+      const from = mode.want ?? v.diff.from.revision;
+      const older = v.diff.list.revisions.find(r => r.revision < from);
+      if (!older) throw new ActionRefused(`revision ${from} is the oldest kept for this note`);
+      mode.want = older.revision;
+      return revisionFacts(await surface.openRevision(host, older.revision, v.against));
+    },
+  }),
+  "revision.newer": def({
+    summary: "in the revision compare, the revision after the one shown", keys: modeActionKeys(ATTACHED_KEYS, "revision.newer"),
+    touches: "tile", replay: "safe", args: {},
+    async run(_, { surface, host }) {
+      const mode = surface.revisionMode, v = mode?.view;
+      if (!mode || !v) throw new ActionRefused("open the revision compare first (revision.compare)");
+      const from = mode.want ?? v.diff.from.revision;
+      const newer = [...v.diff.list.revisions].reverse().find(r => r.revision > from && r.revision < v.diff.current);
+      if (!newer) throw new ActionRefused(`revision ${from} is the last before the note now`);
+      mode.want = newer.revision;
+      return revisionFacts(await surface.openRevision(host, newer.revision, v.against));
+    },
+  }),
+  "revision.against": def({
+    summary: "in the revision compare, mark the revision against the note as it is now, or (again) against the next revision", keys: modeActionKeys(ATTACHED_KEYS, "revision.against"),
+    touches: "tile", replay: "safe", args: { to: { type: "string", optional: true, about: "now or next; left out, the other one" } },
+    examples: [{ act: "revision.against to=now", does: "marks the revision shown against the note as it is now" }, { act: "revision.against to=next", does: "marks it against the revision after it again" }],
+    async run({ to }, { surface, host }) {
+      const v = surface.revisionMode?.view;
+      if (!v) throw new ActionRefused("open the revision compare first (revision.compare)");
+      if (to !== undefined && to !== "now" && to !== "next") throw new ActionRefused("to is now or next");
+      return revisionFacts(await surface.openRevision(host, surface.revisionMode!.want ?? v.diff.from.revision, (to ?? (v.against === "now" ? "next" : "now")) as RevisionAgainst, v.passage));
+    },
+  }),
+  "revision.scroll": def({
+    summary: "scroll the revision compare's rows", keys: modeActionKeys(ATTACHED_KEYS, "revision.scroll"),
+    touches: "tile", replay: "safe", args: { by: { type: "number", about: "rows, down when positive" } },
+    examples: [{ act: "revision.scroll by=8", does: "scrolls the compare down a page" }, { act: "revision.scroll by=-1", does: "scrolls it up a row" }],
+    run({ by }, { surface, host }) {
+      const mode = surface.revisionMode;
+      if (!mode) throw new ActionRefused("open the revision compare first (revision.compare)");
+      mode.view.top = Math.max(0, mode.view.top + by);
+      host.redraw();
+      return { top: mode.view.top };
+    },
+  }),
+  "revision.focus": def({
+    summary: "give the keys to the revision compare or back to the comment being written beside it, keeping both open", keys: "a click in the compare, or on the note",
+    touches: "shape", replay: "safe", person: "the compare's keys are the person's; an agent reads revision.compare",
+    args: { on: { type: "boolean", about: "true gives the keys to the compare; false returns them to the reader and its comment" } },
+    examples: [{ act: "revision.focus on=false", does: "returns the keys to the comment being written" }],
+    run: ({ on }, { surface, host }) => surface.focusRevision(host, on),
+  }),
+  "revision.close": def({
+    summary: "close the revision compare: back to the note as it is now", keys: modeActionKeys(ATTACHED_KEYS, "revision.close"), confirms: true, says: () => "closed the revision compare",
+    touches: "tile", replay: "safe", args: {},
+    run(_, { surface, host }) { const open = !!surface.revisionMode; surface.closeRevision(); host.redraw(); return { closed: open }; },
+  }),
   "revisions": def({
-    summary: "the note's revisions (PIE-621): the current one, then the earlier texts the service keeps, newest first, each with when it was saved, by whom, its size and first line. revision.restore puts one into the edit",
+    summary: "the note's history (PIE-621, PIE-1433): the current revision, then the earlier texts the service keeps, newest first, each with when it was saved, by whom, its size and first line. The person's lists them over the screen (the tile menu's history); choosing one opens it beside how the note is now (revision.compare). An agent gets the list; revision.restore puts one into the edit",
+    keys: [{ via: "the tile menu's \"history\"" }],
     touches: "nothing", replay: "safe",
+    menu: noteRow("history", ""),
     args: {},
-    async run(_, { surface, host }) { return host.ctx.board.revisions(surface.requireNote().id); },
+    async run(_, { surface, host, standing }) {
+      const m = surface.requireNote(), list = await host.ctx.board.revisions(m.id);
+      if (!standing) return list;
+      const rows = list.revisions.filter(r => r.revision < list.revision);
+      if (!rows.length) throw new ActionRefused(`no earlier text is kept for this note (it is at revision ${list.revision})`);
+      if (!host.overlay) throw new ActionRefused(`this screen can't list the history over it · revision.compare revision=${rows[0]!.revision} opens the last change`);
+      const line = (r: (typeof rows)[number]) => `${String(r.revision).padStart(4)}  ${whenPut(Date.parse(r.savedAt)).padEnd(12)} ${revisionByline(r) || "·"}  ${printable(r.firstLine)}`;
+      const picker = new ListPicker<(typeof rows)[number], unknown>({
+        name: "history", items: () => rows, clickChooses: true,
+        row: (r, _i, on, w) => [pickRow(line(r), on, w)],
+        choose: r => { void surface.runKey("revision.compare", { revision: r.revision }, host); },
+        frame: (a, n) => ({ rect: centred(a, Math.min(80, a.cols - 2), Math.min(n + 2, a.rows)), title: `history · ${subject(m)} · now revision ${list.revision}` }),
+      });
+      host.overlay(picker);
+      return { ...list, shown: true };
+    },
   }),
   "edit.arm": def({
     hintId: "confirm",
@@ -10748,7 +11035,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run({ n, by }, { surface, host }) { surface.scrollInline(n, by); host.redraw(); return {}; },
   }),
   "element.select": def({
-    summary: "put the person's [ ] position on the nth element (elements lists them), or by=1 / by=-1 the next or previous one (from the view when none is current); n=0 lets go of it. row= picks a row inside that element's inline list. The reading ruler follows. An agent's is refused: the position is the person's (block.tint marks something for them)", keys: "[ ], click, esc lets go",
+    summary: "put the person's [ ] position on the nth element (elements lists them), or by=1 / by=-1 the next or previous one (from the view when none is current); n=0 lets go of it. row= picks a row inside that element's inline list. The reading ruler follows. An agent's is refused: the position is the person's (block.tint marks something for them)", keys: [{ keys: "[ ]", does: "the previous or next element" }, { keys: "click", does: "an element" }, { keys: "esc", does: "lets go", says: "let go of the element you are on" }],
     touches: "tile", replay: "safe", person: "the [ ] position is the person's; block.tint marks a block for them without moving it",
     args: {
       n: { type: "number", optional: true, about: "which element, from 1, as elements lists them; 0 lets go" },
@@ -10784,7 +11071,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: { label: { type: "string", optional: true, about: "the exact label of the ::button to pin; default: selected button, or the note's only one" } },
     keys: [{ via: "a right-click on a button (it becomes the [ ] position, unpressed), then pin to status bar in the tile menu" }],
     examples: [{ act: 'button.pin label="Collapse"', does: "pins the Collapse button from this note to your status bar" }],
-    menu: noteRow("pin to status bar", "", { now: ({ surface }) => surface.statusButtonLine() ? null : { hide: true } }),
+    // In the Button group, the menu's first (PIE-1428): about the button the right-click landed on.
+    menu: { ...noteRow("pin to status bar", "", { now: ({ surface }) => surface.statusButtonLine() ? null : { hide: true } }), group: BUTTON_GROUP },
     async run({ label }, { surface, host }, actor) {
       await surface.whole();
       const line = surface.statusButtonLine(label);
@@ -10800,7 +11088,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       alt: { type: "boolean", optional: true, about: "run the button's alt= action, as alt+click does" },
       n: { type: "number", optional: true, about: "which element, from 1 (elements lists them), when it is a pressable one" },
       line: { type: "number", optional: true, about: "source line from 1, with note=, to press a specific button when labels repeat" },
-      note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters): a ::button, a link, or a control its render script drew; the button's script acts on that note" },
+      note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters, a Work ID or a [[page]]): a ::button, a link, or a control its render script drew; the button's script acts on that note" },
     },
     examples: [
       { act: "button.press label=Water", does: "presses the Water button of this note, as whoever asks" },
@@ -10809,8 +11097,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run({ label, n, note, alt, line }, { surface, host }, actor) {
       if (note !== undefined) {
         if (label === undefined) throw new ActionRefused("note= needs label= (the button's words); open the note in a reader and use elements for n=");
-        const m = await host.ctx.board.get(note);
-        if (!m) throw new ActionRefused(`no note ${note}: button.press note=<id> takes a note's id`);
+        // Its first 8+ characters, a Work ID or a [[page]] too, as open id= takes them (PIE-1428): the one resolver, readNote's.
+        const m = await readNote(host.ctx, note);
+        if (!m) throw new ActionRefused(`no note ${note}: button.press note= takes a note's id, its first 8+ characters, a Work ID or a [[page]]`);
         const found: { label: string; act: string; alt?: string; line: number }[] = [];
         for (const c of buttonCallsOf(m.text)) if (c.act || c.problem) found.push({ label: c.label, act: c.act ?? "", alt: c.alt, line: c.line });
         m.text.split("\n").forEach((l, line) => { if (!l.includes("](act:")) return; for (const o of linkOccurrences(l)) if (o.kind === "markdown") { const act = /^act:\s*(\S.*)$/.exec(o.url.trim())?.[1]?.trim(); if (act) found.push({ label: o.text, act, line }); } });
@@ -11225,7 +11514,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "passage.act": def({
     summary: "act on a passage (ADR 0004 contract 5): comment on it, ask the agent that answers in threads about it (its answer lands in the passage's margin thread), have it explained, or run an extension's passage action (marginalia's highlight, define, cite). The passage is exact source text: the words named with quote= (near= among repeats), else the actor's own selection (the person's for the person; an agent's own, never the person's). The service checks it before anything is written",
-    keys: [{ keys: "a then c", does: "comment, while text is selected" }, { keys: "a then a", does: "ask" }, { keys: "a then e", does: "explain" }, { keys: "a then h", does: "highlight" }, { keys: "a then d", does: "define" }, { keys: "a then k", does: "cite with marginalia" }, { keys: "click", does: "its chip on the selection's line" }],
+    keys: [{ keys: "a then c", does: "comment, while text is selected" }, { keys: "a then a", does: "ask", says: "ask the agent about the selected passage" }, { keys: "a then e", does: "explain", says: "have the selected passage explained" }, { keys: "a then h", does: "highlight", says: "highlight the selected passage" }, { keys: "a then d", does: "define", says: "define the selected passage" }, { keys: "a then k", does: "cite with marginalia" }, { keys: "click", does: "its chip on the selection's line" }],
     touches: "draft", draft: "type", replay: "ask",
     args: {
       action: { type: "string", about: "comment, ask, explain, or an extension's passage action by its name (ext.<id>.<action>; passage.choices lists them)" },
@@ -11304,8 +11593,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "margin": def({
-    summary: "the margin's cards (ADR 0004 contract 6): one row each (trim), whole with their replies (full), or off: marks only (the highlights and marks stay on the words, the byline says \"marks\"). A wide reader has them in a column beside the text; a narrow one under each passage. Reading state agents may change for the person, kept with the tile (PIE-873) and taken by a reader opened from it",
-    keys: [{ keys: "M", does: "cycles trim, full, off (marks only)" }, { keys: "click", does: "the byline's comment count" }],
+    summary: `the margin's cards (ADR 0004 contract 6): trim, ${MARGIN_MODE_WORDS.trim.does}; full, ${MARGIN_MODE_WORDS.full.does}; off, ${MARGIN_MODE_WORDS.off.does} (the highlights stay on the words). The byline's count says which: ${MARGIN_MODES.map(x => `"${MARGIN_MODE_WORDS[x].chip}"`).join(", ")}. Reading state agents may change for the person, kept with the tile (PIE-873) and taken by a reader opened from it`,
+    keys: [{ keys: "M", does: "cycles trim, full, off (as marks)" }, { keys: "click", does: "the byline's comment count" }],
     touches: "shape", replay: "safe",
     args: { mode: { type: "string", optional: true, about: "trim, full or off; left out, the next one" } },
     examples: [
@@ -11313,13 +11602,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "margin mode=full", does: "shows each margin card whole, with its replies" },
     ],
     run({ mode }, { surface, host }, actor) {
-      const next = mode === undefined ? MARGIN_MODES[(MARGIN_MODES.indexOf(surface.marginMode) + 1) % MARGIN_MODES.length]! : (MARGIN_MODES as readonly string[]).includes(mode) ? mode as MarginMode : null;
+      const next = mode === undefined ? nextMargin(surface.marginMode) : (MARGIN_MODES as readonly string[]).includes(mode) ? mode as MarginMode : null;
       if (!next) throw new ActionRefused("mode is trim, full or off");
       surface.setMargin(next);
-      surface.noteAgent(actor, `comments: ${next === "off" ? "marks" : next}`);
+      surface.noteAgent(actor, `comments: ${MARGIN_MODE_WORDS[next].chip}`);
       // Kept with the tile (PIE-873): a handover, a restart and the next note read the same way.
       host.keptChanged?.();
-      host.ctx.flash(`margin: ${next === "trim" ? "cards a row each" : next === "full" ? "cards whole" : "off (highlights stay)"} · M`);
+      host.ctx.flash(`comments: ${MARGIN_MODE_WORDS[next].does} · M for ${MARGIN_MODE_WORDS[nextMargin(next)].chip}`);
       host.redraw();
       return { margin: next };
     },
@@ -11481,7 +11770,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "comment.leaving": def({
     summary: "answer \"about to leave an unsent comment\" (PIE-785), asked when the person follows a link, a comment mark, back or forward while their comment is unsent: save keeps it as unsent where it was written (opening it again brings it back) and goes on; keep goes back to writing; discard lets it go (a copy stays on disk) and goes on. The person's choice: an agent's action never asks it",
-    keys: [{ keys: "⏎ click", does: "the power bar's rows" }, { keys: "esc", does: "keeps writing" }],
+    keys: [{ keys: "⏎ click", does: "the power bar's rows" }, { keys: "esc", does: "keeps writing", says: "keep writing the comment" }],
     touches: "draft", draft: "leave", replay: "ask", person: "leaving the person's unsent comment is their choice",
     args: { choice: { type: "string", about: "save, keep or discard" } },
     examples: [
@@ -11521,7 +11810,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       await surface.whole();
       const id = surface.threadId(thread);
       surface.setExpanded(id, expand ?? !surface.threadShown(id));
-      if (actor.kind === "user") surface.readThread(id, host);
+      if (actor.kind === "user") { surface.readThread(id, host); surface.revealCard(id); }
       surface.noteAgent(actor, `${surface.threadShown(id) ? "opened" : "folded"} a comment`);
       host.redraw();
       return { thread: id, expanded: surface.threadShown(id) };
@@ -11756,7 +12045,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "quote": def({
-    summary: "quote marks into a new block (the margin's quote-tweet): a highlight, a comment or a reply, or several, each transcluded (!((mark))) under one [from::((mark))] line so it traces back to where it was said; each mark's card then says quoted in. where= inbox (the default), note (under this note) or a block (its id or ((ref))); the person's, left out, is asked in the power bar: the Inbox, this note, or any note by its words. text= the new block's own words above the quotes (its title). The marks stay where they are. One write: ctrl+z (ext.undo) takes it back. Recorded as whoever asks",
+    summary: "quote marks into a new block (the margin's quote-tweet): a highlight, a comment or a reply, or several, each transcluded (!((mark))) under one [from::((mark))] line so it traces back to where it was said; each mark's card then says quoted in. where= inbox (the default), note (under this note) or a block (its id or ((ref))); the person's, left out, is asked in the power bar: under this note (first: a quote-reply sits with what it answers), the Inbox, or any note by its words. The person's quote then opens where their new notes open (note.opens: a float beside the reader, by default), lit as just arrived, in their edit at the end of the quote (PIE-1184); an agent's opens nothing. text= the new block's own words above the quotes (its title). The marks stay where they are. One write: ctrl+z (ext.undo) takes it back. Recorded as whoever asks",
     keys: "q in the thread list (m) on the thread, or on the threads picked with space; a click on an expanded thread's [Quote] or a reply's [Quote]",
     touches: "nothing", replay: "ask",
     args: {
@@ -11768,7 +12057,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "quote threads=5b2e8d", does: "quotes that mark into a new block at the top of the Inbox" },
       { act: 'quote threads=5b2e8d,9c41af where=note text="Mulch notes"', does: "quotes both marks into a block titled Mulch notes under this note" },
     ],
-    async run({ threads, where, text }, { surface, host }, actor) {
+    async run({ threads, where, text }, { surface, host, standing }, actor) {
       surface.requireNote();
       await surface.loadComments(host);
       // The thread list's picks are the person's: only their own quote takes (and clears) them.
@@ -11776,11 +12065,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const named = threads ?? (s ? (s.picked.size ? [...s.picked].join(",") : s.threads[s.sel]?.id) : undefined);
       if (!named) throw new ActionRefused("say which marks: threads=<id>[,<id>…] (peek lists them under comments.threads); in the thread list, q quotes the current thread or the ones picked with space");
       const ids = surface.markIds(named);
-      const run = (answers: Record<string, string>) => surface.quoteMarks(ids, answers.where ?? "inbox", host, actor, text).then(r => { s?.picked.clear(); return r; });
+      // The person's quote lands where they are (PIE-1184): opened in their edit where their new notes open.
+      const run = (answers: Record<string, string>) => surface.quoteMarks(ids, answers.where ?? "inbox", host, actor, text, standing && actor.kind === "user").then(r => { s?.picked.clear(); return r; });
       if (where !== undefined || actor.kind === "agent") return run({ where: where ?? "inbox" });
+      // Under this note first: a quote-reply sits with what it answers.
       return askInBar(host.ctx as never, ids.length === 1 ? "Quote a mark" : `Quote ${ids.length} marks`, [{
-        name: "where", type: "note", label: "where it goes", description: "The new block transcludes each mark and links back to it. The Inbox, under this note, or type to find any note to put it under.",
-        choices: ["inbox", "note"], says: { inbox: "in the Inbox", note: "under this note" },
+        name: "where", type: "note", label: "where it goes", description: "The new block transcludes each mark and links back to it, and opens beside you to write in. Under this note (a child of it), the Inbox, or type to find any note to put it under.",
+        choices: ["note", "inbox"], says: { note: "under this note", inbox: "in the Inbox" },
       }], {}, actor, run);
     },
   }),
@@ -11804,7 +12095,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "props": def({
-    summary: "open the property panel: every property token (repeats and block/line/inline scope kept), with the summary line's keys", keys: "i, I (full)",
+    summary: "open the property panel: every property token (repeats and block/line/inline scope kept), with the summary line's keys", keys: [{ keys: "i", does: "open the property panel" }, { keys: "I", does: "full", says: "open the property panel filling the reader" }],
     touches: "nothing", replay: "safe",
     menu: noteRow("properties", "i", { busy: true }),
     args: { full: { type: "boolean", optional: true, about: "fill the reader instead of sitting above the note" } },
@@ -12187,7 +12478,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "list.preview": def({
     summary: "show this list's selected item's children in an attached preview; reading state only",
-    keys: [{ keys: "p", does: "fold chip" }, { via: "reader menu" }], touches: "tile", while: "typing", replay: "safe",
+    keys: [{ keys: "p", does: "fold chip", says: "preview the children of the selected list item" }, { via: "reader menu" }], touches: "tile", while: "typing", replay: "safe",
     menu: noteRow("preview list children", ""),
     args: { ...FOLD_ARGS, on: { type: "boolean", optional: true, about: "preview children instead of unfolding in place" } },
     examples: [{ act: 'list.preview text="Keep the beans" on=true', does: "previews the children of this list" }],
@@ -12796,7 +13087,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "sources.open": def({
     summary: "open the Sources inspector on this note (PIE-956): every generated region (handler lines, ::=, ::use, figures, ::fields, ::if, written output) with when it last read, from the service's one answer (site.sources), beside the note when the reader is wide. A page shows none of its mechanics by default; this is where \"where this comes from\" goes. An agent's call answers the same list and opens nothing in the person's reader",
-    keys: [{ keys: "S", does: "open sources" }, { keys: "click", does: "the header's [sources]" }],
+    keys: [{ keys: "S", does: "open sources", says: "show where this note's generated parts come from" }, { keys: "click", does: "the header's [sources]" }],
     touches: "shape", replay: "safe", says: () => "opened the sources", way: "the inspector opens beside their note · an agent reads the list in the answer, or sources.at line=",
     menu: noteRow("where this comes from (sources)", "S", { now: ({ surface }) => (!surface.msg || !isOutlineNote(surface.msg) || surface.msg.partial ? { hide: true } : null) }),
     args: {},

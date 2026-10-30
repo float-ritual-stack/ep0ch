@@ -544,9 +544,9 @@ Record owner-device verification as pending when it has not been exercised.
 
 ### Delivery claims
 
-Report implemented, exercised (with the actual journey), merged, deployed and
-owner-accepted separately. Lead with what the user can now do and remaining
-limits; test counts support that claim. A private merged-main run is not evidence
+Report implemented, exercised (with the actual journey), merged and deployed
+separately. Lead with what the user can now do and remaining limits; test counts
+support that claim. A private merged-main run is not evidence
 that the shared session or another device runs that version. Apply task transitions
 through the live workboard guide referenced by the root AGENTS.md; link new ideas separately
 from the scope whose acceptance is being recorded.

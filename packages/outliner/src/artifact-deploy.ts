@@ -3,6 +3,8 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync, renameSy
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { artifactRepoRef } from "@ep0ch/outline-core/media-line";
+import type { ArtifactDeployState, ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { patchPropertyText } from "./properties";
 import type { ArtifactStore } from "./artifact-store";
 import type { OutlinerStore } from "./store";
@@ -13,12 +15,11 @@ export interface Deployment {
   commit: string; contentHash?: string; deployedAt: string; reason: string;
 }
 
+/** The repo `input` names (artifactRepoRef's grammar, or a bare name in ep0ch-artifacts), refused unless it may deploy. */
 function artifactRepo(input: string): { name: string; repo: string; url: string } {
-  const raw = input.replace(/^https:\/\//, "").replace(/^github\.com\//, "").replace(/\.git$/, "");
-  const parts = raw.split("/");
-  const [owner, name] = parts.length === 1 ? ["ep0ch-artifacts", parts[0]!] : parts;
-  if (parts.length > 2 || !owner || !name || !/^[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(owner) || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name))
-    throw new Error("Use ep0ch artifact deploy ep0ch-artifacts/<repo>.");
+  const ref = artifactRepoRef(input) ?? (/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(input.trim()) ? artifactRepoRef(`ep0ch-artifacts/${input.trim()}`) : null);
+  if (!ref) throw new Error("Use ep0ch artifact deploy ep0ch-artifacts/<repo>.");
+  const { owner, name } = ref;
   const url = `https://github.com/${owner}/${name}`;
   if (owner !== "ep0ch-artifacts") throw new Error(`Only ep0ch-artifacts repos can deploy. Run:\ngh repo fork ${url} --org ep0ch-artifacts\ngh api -X POST repos/${owner}/${name}/transfer -f new_owner=ep0ch-artifacts`);
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) throw new Error("The repo name must also be a DNS label: lower-case letters, digits and hyphens.");
@@ -88,25 +89,85 @@ function rememberDeployment(artifacts: ArtifactStore, deployment: Deployment) {
 }
 
 const queues = new Map<string, Promise<unknown>>();
+/** How many runs are queued or under way per repo, by artifact root: what the card says is deploying. */
+const deploying = new Map<string, Map<string, number>>();
+const DEPLOY_ACTOR = { author: "agent" as const, actorId: "ext:artifact-deploy" };
+/** A failed run note's reason line: what the card reads back as why it stopped. */
+const STOPPED = "Stopped: ";
+
 export function deployArtifact(artifacts: ArtifactStore, store: OutlinerStore, input: string, requestedBy?: MutationProvenance, domain?: string) {
   const repo = artifactRepo(input);
   const previous = queues.get(artifacts.root) ?? Promise.resolve();
+  const inFlight = deploying.get(artifacts.root) ?? new Map<string, number>();
+  deploying.set(artifacts.root, inFlight.set(repo.repo, (inFlight.get(repo.repo) ?? 0) + 1));
   const run = previous.catch(() => {}).then(() => deploy(artifacts, store, repo, requestedBy, domain)).catch(error => {
-    const actor = { author: "agent" as const, actorId: "ext:artifact-deploy" };
-    store.changes.run(store.changes.attribution({ action: "artifacts.deploy", actor, requestedBy }), () =>
-      store.create(`Artifact ${repo.name}: failed [type::artifact-run] [status::failed]\n\nRepo: ${repo.repo}\n${error.message}\nRun ep0ch artifact deploy ${repo.repo} again after fixing the problem.`, null, "agent", actor));
+    store.changes.run(store.changes.attribution({ action: "artifacts.deploy", actor: DEPLOY_ACTOR, requestedBy }), () =>
+      store.create(`Artifact ${repo.name}: failed [type::artifact-run] [repo::${repo.repo}] [status::failed]\n\n${STOPPED}${error.message.split("\n").join(" · ")}\nRun ep0ch artifact deploy ${repo.repo} again after fixing the problem.`, catalogueOf(store).id, "agent", DEPLOY_ACTOR));
     throw error;
-  });
+  }).finally(() => { const left = (inFlight.get(repo.repo) ?? 1) - 1; if (left > 0) inFlight.set(repo.repo, left); else inFlight.delete(repo.repo); });
   queues.set(artifacts.root, run);
   void run.finally(() => { if (queues.get(artifacts.root) === run) queues.delete(artifacts.root); }).catch(() => {});
   return run;
 }
+
+/**
+ * Deploy every ep0ch-artifacts repo the note `id` names on an `[artifact::]`, on its header or a line of its own (the
+ * deploy rule's script, PIE-1060). A repo another owner holds is left alone and said, with the command that forks it.
+ */
+export async function deployNote(artifacts: ArtifactStore, store: OutlinerStore, id: string, requestedBy?: MutationProvenance) {
+  const note = store.resolveBlockRef(id);
+  const tokens = parsePropertyRecords(note.text);
+  const domain = tokens.find(p => p.key === "domain" && p.scope === "block")?.value;
+  const repos = [...new Set(tokens.filter(p => p.key === "artifact").map(p => artifactRepoRef(p.value)?.repo).filter((r): r is string => !!r))];
+  const runs: unknown[] = [];
+  for (const repo of repos) {
+    try { runs.push(await deployArtifact(artifacts, store, repo, requestedBy, domain)); }
+    catch (error) { runs.push({ repo, outcome: "failed", said: (error as Error).message }); }
+  }
+  return { note: note.id, runs, ...(repos.length ? {} : { said: "No ep0ch-artifacts repo on this note: nothing to deploy." }) };
+}
+
+/** The catalogue page ([[artifacts]]): the deployed artifacts' rows, and the runs that put them there. */
+function catalogueOf(store: OutlinerStore) {
+  const found = store.lookupBlockRef("[[artifacts]]");
+  const remembered = store.readMetadata("artifacts.catalogue");
+  return (remembered ? store.get(remembered) : null) ?? (found.kind === "found" ? found.block : store.create("Artifacts [page::artifacts]\n\nDeployed artifacts and their source commits.", null, "agent", DEPLOY_ACTOR));
+}
+
+/**
+ * What the repo an artifact line names is doing (PIE-1060), answered from this file's records: the deployment record
+ * (by name, so an imported deployment of a fork counts), a run under way here, and the newest run note. Undefined when
+ * `value` names no repo. The card and the published page both ask `artifacts.show`, which answers this.
+ */
+export function artifactRepoInfo(artifacts: ArtifactStore, store: OutlinerStore, value: string): ArtifactInfo | undefined {
+  const ref = artifactRepoRef(value);
+  if (!ref) return undefined;
+  // Its address is the live site's whatever the newest run did: a failed redeploy leaves the last one serving.
+  const info = (deploy: ArtifactDeployState): ArtifactInfo => ({ name: ref.name, files: [], bytes: 0, url: deploy.url ?? null, deploy });
+  try { artifactRepo(value); } catch (error) {
+    const [said, ...commands] = (error as Error).message.split("\n");
+    // The fork is the command to run; moving the repo instead is the message's other choice.
+    return info({ repo: ref.repo, state: "refused", said: said!.replace(/\. Run:$/, ": fork it there, or move it"), ...(commands.length ? { command: commands[0] } : {}) });
+  }
+  const rows = deployedArtifacts(artifacts);
+  const record = rows.find(row => row.repo === ref.repo && row.url !== "pending") ?? rows.find(row => row.name === ref.name && row.url !== "pending");
+  const pending = rows.find(row => (row.repo === ref.repo || row.name === ref.name) && row.url === "pending");
+  const runNote = store.queryBlocks({ where: `type=artifact-run repo=${ref.repo}`, sort: "created desc", limit: 1 }).blocks[0];
+  const status = runNote && parsePropertyRecords(runNote.text).find(p => p.key === "status" && p.scope === "block")?.value;
+  const run = runNote ? { id: runNote.id, title: runNote.text.split("\n")[0]!.replace(/\s*\[[^\]]*::[^\]]*\]/g, "").trim(), at: new Date(runNote.updatedAt ?? runNote.createdAt).toISOString() } : undefined;
+  const live = record ? { url: record.url, where: record.where, commit: record.commit, deployedAt: record.deployedAt, ...(record.repo !== ref.repo ? { recorded: record.repo } : {}) } : {};
+  const command = `ep0ch artifact deploy ${ref.repo}`;
+  const base = { repo: ref.repo, ...live, ...(run ? { run } : {}) };
+  if (deploying.get(artifacts.root)?.has(ref.repo)) return info({ ...base, state: "deploying" });
+  if (status === "failed" && (!record || Date.parse(record.deployedAt) < Date.parse(run!.at) || Number.isNaN(Date.parse(record.deployedAt))))
+    return info({ ...base, state: "failed", said: runNote!.text.split("\n").find(line => line.startsWith(STOPPED))?.slice(STOPPED.length) ?? "its last run failed", command });
+  if (record) return info({ ...base, state: "live" });
+  return info({ ...base, state: "not-deployed", ...(pending ? { said: pending.reason } : {}), command });
+}
 async function deploy(artifacts: ArtifactStore, store: OutlinerStore, repo: ReturnType<typeof artifactRepo>, requestedBy?: MutationProvenance, domain?: string) {
-  const source = store.queryBlocks({ filters: [{ key: "artifact" }], limit: 1000 }).blocks.find(note =>
-    parsePropertyRecords(note.text).some(p => {
-      if (p.key !== "artifact" || p.scope !== "block") return false;
-      try { return artifactRepo(p.value).repo === repo.repo; } catch { return false; }
-    }));
+  // The note that names it, on its header or a line of its own: its header's [domain::] names the address.
+  const source = store.queryBlocks({ filters: [{ key: "artifact" }], propertyScope: "all", limit: 1000 }).blocks.find(note =>
+    parsePropertyRecords(note.text).some(p => p.key === "artifact" && artifactRepoRef(p.value)?.repo === repo.repo));
   domain ??= source && parsePropertyRecords(source.text).find(p => p.key === "domain" && p.scope === "block")?.value;
   if (domain) {
     domain = domain.replace(/\.ep0ch\.sh$/, "");
@@ -155,19 +216,21 @@ async function deploy(artifacts: ArtifactStore, store: OutlinerStore, repo: Retu
     rememberDeployment(artifacts, deployment);
   }
   const outcome = unchanged ? "up-to-date" : "deployed";
-  registerArtifact(store, deployment!, requestedBy);
-  const actor = { author: "agent" as const, actorId: "ext:artifact-deploy" };
-  const run = store.changes.run(store.changes.attribution({ action: "artifacts.deploy", actor, requestedBy }), () =>
-    store.create(`Artifact ${repo.name}: ${outcome} [type::artifact-run]\n\nCommit: ${commit}\nWhere: ${choice.where}\nURL: ${deployment!.url}\nWhy: ${choice.reason}\n${unchanged ? "Up to date, nothing done." : "Deployed."}${dns ? `\nDNS: ${dns.record} (${dns.outcome})${"said" in dns ? `\n${dns.said}` : ""}` : ""}`, null, "agent", actor));
+  const catalogue = registerArtifact(store, deployment!, requestedBy);
+  const text = `Artifact ${repo.name}: ${outcome} [type::artifact-run] [repo::${repo.repo}] [status::${outcome}]\n\nCommit: ${commit}\nWhere: ${choice.where}\nURL: ${deployment!.url}\nWhy: ${choice.reason}\n${unchanged ? "Up to date, nothing done." : "Deployed."}${dns ? `\nDNS: ${dns.record} (${dns.outcome})${"said" in dns ? `\n${dns.said}` : ""}` : ""}`;
+  // A save that changes nothing checks again: the same answer is the newest run's, refreshed, not one more note per edit.
+  const last = store.queryBlocks({ where: `type=artifact-run repo=${repo.repo}`, sort: "created desc", limit: 1 }).blocks[0];
+  const run = store.changes.run(store.changes.attribution({ action: "artifacts.deploy", actor: DEPLOY_ACTOR, requestedBy }), () =>
+    unchanged && last && !last.text.includes("[status::failed]") && last.text.includes(`\nCommit: ${commit}\n`) && last.text.includes(`\nURL: ${deployment!.url}\n`)
+      ? store.update(last.id, `${last.text.split("\nChecked again ")[0]}\nChecked again ${new Date().toISOString()}: up to date, nothing done.`, last.revision, DEPLOY_ACTOR)
+      : store.create(text, catalogue, "agent", DEPLOY_ACTOR));
   return { ...deployment!, outcome, run: run.id, ...(dns ? { dns } : {}) };
 }
 
 function registerArtifact(store: OutlinerStore, row: Deployment, requestedBy?: MutationProvenance) {
   const actor = { author: "agent" as const, actorId: "ext:artifact-deploy" };
   return store.changes.run(store.changes.attribution({ action: "artifacts.register", actor, requestedBy }), () => store.inTransaction(() => {
-    const found = store.lookupBlockRef("[[artifacts]]");
-    const remembered = store.readMetadata("artifacts.catalogue");
-    const catalogue = (remembered ? store.get(remembered) : null) ?? (found.kind === "found" ? found.block : store.create("Artifacts [page::artifacts]\n\nDeployed artifacts and their source commits.", null, "agent", actor));
+    const catalogue = catalogueOf(store);
     const text = `${row.name} [type::artifact-deployment] [url::${row.url}] [repo::${row.repo}] [where::${row.where}] [deployed-at::${row.deployedAt}] [commit::${row.commit}]\n\n${row.reason}`;
     const old = store.children(catalogue.id).find(b => b.properties.some(p => p.key === "repo" && p.value === row.repo) && b.text.startsWith(`${row.name} `));
     if (!old) store.create(text, catalogue.id, "agent", actor);
@@ -223,12 +286,36 @@ export async function backfillArtifacts(artifacts: ArtifactStore, store: Outline
   return { imported, pending, summary };
 }
 
+const DEPLOY_SCRIPT = 'Deploy the repos named by this note [script::deploy-artifact] [effects::write] [deadline::5m]\n\n```js\ntext(await tools.artifact_deploy({ note: this.id }));\n```';
+/** The texts earlier versions seeded: a copy still reading one of them was never edited, and is brought up to this one. */
+const EARLIER_SCRIPTS = [
+  'Deploy the repo named by this note [script::deploy-artifact] [effects::write] [deadline::5m]\n\n```js\nconst repo = this.properties.find(p => p.key === "artifact");\nif (repo?.values[0]?.includes("/")) text(await tools.artifact_deploy({ repo: repo.values[0] }));\n```',
+  'Deploy the repo named by this note [script::deploy-artifact] [effects::write] [deadline::5m]\n\n```js\nconst repo = this.properties.find(p => p.key === "artifact");\nif (repo?.values[0]?.includes("/")) text(await tools.artifact_deploy({ repo: repo.values[0], domain: this.properties.find(p => p.key === "domain")?.values[0] }));\n```',
+];
+const earlierRule = (action: string) => `Deploy repos named by notes [rule-name::deploy-artifact] [rule-match::artifact] [rule-on::${action}] [rule-on-change::${action}]\n\nOnly ep0ch-artifacts repos deploy. The repo decides the destination; remove this rule to stop automatic deployment.`;
+const deployRule = (action: string) => `Deploy repos named by notes [rule-name::deploy-artifact] [rule-match::artifact] [property-scope::all] [rule-on::${action}] [rule-on-change::${action}]\n\nOnly ep0ch-artifacts repos deploy, named on the note's header or a line of its own. The repo decides the destination; remove this rule to stop automatic deployment.`;
+
+/**
+ * The deploy rule and its script, made once per outline. A copy that still reads as an earlier version seeded it (nobody
+ * edited it) is brought up to this one: the first read only the header's [artifact::], so a repo on a line of its own
+ * never deployed (PIE-1060). An edited copy is left as its author wrote it.
+ */
 export function seedArtifactRule(store: OutlinerStore) {
-  if (store.readMetadata("artifacts.deploy-rule")) return;
   const actor = { actorId: "ext:artifact-deploy" };
-  const script = store.create('Deploy the repo named by this note [script::deploy-artifact] [effects::write] [deadline::5m]\n\n```js\nconst repo = this.properties.find(p => p.key === "artifact");\nif (repo?.values[0]?.includes("/")) text(await tools.artifact_deploy({ repo: repo.values[0], domain: this.properties.find(p => p.key === "domain")?.values[0] }));\n```', null, "agent", actor);
-  const action = `${scriptSourceId(script.id)}/run`;
-  const rule = store.create(`Deploy repos named by notes [rule-name::deploy-artifact] [rule-match::artifact] [rule-on::${action}] [rule-on-change::${action}]\n\nOnly ep0ch-artifacts repos deploy. The repo decides the destination; remove this rule to stop automatic deployment.`, null, "agent", actor);
+  const seeded = store.readMetadata("artifacts.deploy-rule");
+  if (seeded) {
+    const rule = store.get(seeded);
+    if (!rule || rule.effectiveDeletedRootId) return;
+    const action = parsePropertyRecords(rule.text).find(p => p.key === "rule-on" && p.scope === "block")?.value;
+    if (!action) return;
+    if (rule.text === earlierRule(action)) store.update(rule.id, deployRule(action), rule.revision, DEPLOY_ACTOR);
+    const script = store.queryBlocks({ filters: [{ key: "script", value: "deploy-artifact" }], limit: 10 }).blocks
+      .find(block => action === `${scriptSourceId(block.id)}/run`);
+    if (script && EARLIER_SCRIPTS.includes(script.text)) store.update(script.id, DEPLOY_SCRIPT, script.revision, DEPLOY_ACTOR);
+    return;
+  }
+  const script = store.create(DEPLOY_SCRIPT, null, "agent", actor);
+  const rule = store.create(deployRule(`${scriptSourceId(script.id)}/run`), null, "agent", actor);
   store.writeMetadata("artifacts.deploy-rule", rule.id);
 }
 
@@ -244,7 +331,9 @@ async function vercelDeployments(commit?: string, project?: string): Promise<Ver
 }
 
 async function vercelTarget(artifacts: ArtifactStore, repo: ReturnType<typeof artifactRepo>, requested?: string) {
-  const remembered = deployedArtifacts(artifacts).find(row => row.repo === repo.repo && row.where === "vercel" && row.url !== "pending");
+  // By repo, else by name: the records are keyed by name, and an imported deployment may name the repo it was forked from.
+  const rows = deployedArtifacts(artifacts).filter(row => row.where === "vercel" && row.url !== "pending");
+  const remembered = rows.find(row => row.repo === repo.repo) ?? rows.find(row => row.name === repo.name);
   let project = repo.name;
   let exists = false;
   if (remembered || requested) {

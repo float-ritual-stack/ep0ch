@@ -11,7 +11,7 @@ import { asksPerItem, liveProps } from "@ep0ch/outline-core/figure-live";
 import { figureResultsMarkdown, resultsHead, type FigureResults, type ResultsContext } from "@ep0ch/outline-core/figure-results";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
 import { FIGURES } from "./figures/index";
-import { ACCENT, DIM, HI, INK, inlineRows, rowLink, rowLinks, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
+import { ACCENT, DIM, HI, INK, inlineRows, presentRow, rowLink, rowLinks, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
 export type { RowInline, RowLink } from "./figures/palette";
 import { setLinksSource, linksSource } from "./links";
 import type { SocketBoard } from "./socket";
@@ -42,6 +42,9 @@ const rep = (s: string, n: number) => s.repeat(Number.isFinite(n) ? Math.max(0, 
  * `+ ····· [ TITLE ] ····· +` around body lines, fitted to width. `control`: drawn after the footer when it fits (a
  * live figure's density, tagged so a click changes it), measured by what it draws.
  */
+/** A figure's warning, wrapped to the frame's inside: read whole however narrow (PIE-1428), never cut short. */
+function errorLines(text: string, W: number): string[] { return wrap(text, Math.max(16, W) - 4).map(l => fg(C.lred) + l + RESET); }
+
 export function frame(title: string, body: string[], W: number, footer = "", control = ""): string[] {
   const w = Math.max(16, W);
   const inner = w - 4;
@@ -288,6 +291,8 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     // Narrow with more than two columns (PIE-1402: a 44-column tile hid a record's passage and what was said behind
     // "+4 columns"): each row is a card, its title column first and every other cell under it as `header: value`,
     // wrapped, so nothing is hidden. Each line is its row's note (a cell naming a note, that note), as a row's are.
+    // `at:` (PIE-1433): the revision each row's link opens its note at, beside how it is now.
+    const revisionOf = (i: number): number | undefined => { const n = Number(p.rowRevisions?.[i]); return Number.isInteger(n) && n > 0 ? n : undefined; };
     if (tier(w) === "narrow" && remaining > 2 && rows.length) {
       const blocks: unknown[] = p.blocks ?? [];
       const named: (string | null)[][] = Array.isArray(p.cellBlocks) ? p.cellBlocks.map((r: (string | null)[]) => keepCols(r)) : [];
@@ -295,16 +300,19 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       const most = { compact: 1, cozy: 4, comfortable: 12 }[density];
       const card = (r: string[], i: number) => {
         const linkOf = (k: number) => named[i]?.[k] ?? blocks[i];
-        const lead = rowLines(r[tcol] ?? "", w, Math.max(2, most)).map(l => fg(HI) + BOLD + l + UNBOLD + RESET);
+        const at = (to: unknown) => (to === blocks[i] ? revisionOf(i) : undefined);
+        // Each cell's words drawn as the note's line (PIE-1334): its links labelled and followable, its code and bold.
+        const shown = (k: number, ink: number) => presentRow(r[k] ?? "", ink, ui?.rows, !!link && typeof linkOf(k) === "string");
+        const lead = rowLines(BOLD + shown(tcol, HI), w, Math.max(2, most)).map(l => l + UNBOLD + RESET);
         const cells = r.map((value, k) => {
           if (k === tcol || !value.trim()) return [];
-          const label = head[k] ? `${head[k]}: ` : "";
-          return rowLines(label + value, w, most, { hang: 2 }).map((l, n) => n === 0 && label ? fg(DIM) + label + fg(INK) + l.slice(label.length) + RESET : fg(INK) + l + RESET);
+          const label = head[k] ? `${fg(DIM)}${head[k]}: ` : "";
+          return rowLines(label + shown(k, INK), w, most, { hang: 2 }).map(l => l + RESET);
         });
         // A card whose cells all open one note is one row (one element, walked and scrolled as one); else each cell its own.
         const targets = new Set(r.map((_, k) => linkOf(k)));
-        if (targets.size === 1) return rowLinks(link, linkOf(tcol), [...lead, ...cells.flat()], ui?.key);
-        return [...rowLinks(link, linkOf(tcol), lead, ui?.key), ...cells.flatMap((lines, k) => rowLinks(link, linkOf(k), lines, ui?.key))];
+        if (targets.size === 1) return rowLinks(link, linkOf(tcol), [...lead, ...cells.flat()], ui?.key, undefined, at(linkOf(tcol)));
+        return [...rowLinks(link, linkOf(tcol), lead, ui?.key, undefined, at(linkOf(tcol))), ...cells.flatMap((lines, k) => rowLinks(link, linkOf(k), lines, ui?.key, undefined, at(linkOf(k))))];
       };
       return rows.flatMap((r, i) => [...(i ? [fg(DIM) + rep("·", Math.min(w, 12)) + RESET] : []), ...card(r, i)]);
     }
@@ -313,7 +321,14 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       reduce([tcol, [...Array(remaining).keys()].find(k => k !== tcol)!]);
       dropped += remaining - 2;
     }
-    const all = [head, ...rows, ...(foot ? [foot] : [])];
+    const blocks: unknown[] = p.blocks ?? [];
+    // A cell naming a note (PIE-1388, figure-live's cellBlocks) is that note's link; the row's other cells stay its own note's.
+    const named: (string | null)[][] = Array.isArray(p.cellBlocks) ? p.cellBlocks.map((r: (string | null)[]) => keepCols(r)) : [];
+    // Each body cell's words drawn as the note's line (PIE-1334): `[[page]]` and `((id|label))` as their labels,
+    // followable, a code span and bold as the prose draws them. A cell that is itself a link to a note draws the links
+    // in it as links but not elements of their own (RowInline.present's `linked`). Measured as drawn, not as written.
+    const shown = rows.map((r, i) => r.map((c, k) => presentRow(c, INK, ui?.rows, !!link && typeof (named[i]?.[k] ?? blocks[i]) === "string")));
+    const all = [head, ...shown, ...(foot ? [foot] : [])];
     const n = Math.max(...all.map(r => r.length));
     // Nothing to draw (a figure written without its `---` lines also says so: figureProps' warning, PIE-941).
     if (!n) return [fg(DIM) + "no columns or rows" + RESET];
@@ -327,17 +342,14 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const density = ui?.density ?? (isDensity(p.density) ? p.density : "cozy"), most = ui?.lines ?? 2;
     const tc = tcol;
     /** A row's lines; `linkOf(k)`, when given, is the note cell k links (each cell its own element), else the row is one. */
-    const drawRow = (r: string[], linkOf?: (k: number) => unknown) => {
+    const drawRow = (r: string[], linkOf?: (k: number) => unknown, at?: (to: unknown) => number | undefined) => {
       const cells = r.map((c, k) => rowLines(c, cw[k]!, most));
-      const tag = (text: string, k: number) => (linkOf ? rowLinks(link, linkOf(k), [text], ui?.key)[0]! : text);
+      const tag = (text: string, k: number) => (linkOf ? rowLinks(link, linkOf(k), [text], ui?.key, undefined, at?.(linkOf(k)))[0]! : text);
       return Array.from({ length: Math.max(...cells.map(c => c.length)) }, (_, i) => linkOf
         ? r.map((_, k) => tag(fg(INK) + cell(cells[k]![i] ?? "", k), k)).join(fg(DIM) + " ┊ ") + RESET
         : line(cells.map(c => c[i] ?? ""), fg(INK)));
     };
-    const blocks: unknown[] = p.blocks ?? [];
-    // A cell naming a note (PIE-1388, figure-live's cellBlocks) is that note's link; the row's other cells stay its own note's.
-    const named: (string | null)[][] = Array.isArray(p.cellBlocks) ? p.cellBlocks.map((r: (string | null)[]) => keepCols(r)) : [];
-    const body = rows.flatMap((r, i) => [...(density === "comfortable" && i ? [""] : []), ...(named[i]?.some(Boolean) && link ? drawRow(r, k => named[i]![k] ?? blocks[i]) : rowLinks(link, blocks[i], drawRow(r), ui?.key))]);
+    const body = shown.flatMap((r, i) => [...(density === "comfortable" && i ? [""] : []), ...(named[i]?.some(Boolean) && link ? drawRow(r, k => named[i]![k] ?? blocks[i], to => (to === blocks[i] ? revisionOf(i) : undefined)) : rowLinks(link, blocks[i], drawRow(r), ui?.key, undefined, revisionOf(i)))]);
     return [line(head, fg(HI)), rule, ...body, ...(foot ? [rule, line(foot, fg(HI))] : []), ...(dropped ? [fg(DIM) + `+${dropped} column${dropped === 1 ? "" : "s"} · widen to see` + RESET] : [])];
   },
 
@@ -387,7 +399,7 @@ const liveSiteOf = (src: FigureSource, args?: Record<string, string>): LiveSite 
 export function renderGraph(kind: string, source: string | FigureSource, W: number, link?: RowLink, figures?: FiguresEnv, rows?: RowInline, site?: LiveSite): string[] {
   const src = typeof source === "string" ? { yaml: source } : source;
   const read = figureProps(kind, src, note => childRows(note, liveSiteOf(src)));
-  if ("error" in read) return frame(kind, [fg(C.lred) + read.error + RESET], W);
+  if ("error" in read) return frame(kind, errorLines(read.error, W), W);
   let props = read.props;
   // Props written without their `---` lines (PIE-941): said in the figure, whatever it then draws.
   const warn = read.warning ? [fg(C.lred) + read.warning + RESET] : [];
@@ -398,7 +410,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   const key = `${title}#${same}`;
   // All kinds lend their row targets the same figure identity, including rows outside the current viewport.
   const rowLink = link;
-  link = rowLink ? (block, text, _figure, query) => rowLink(block, text, key, query) : undefined;
+  link = rowLink ? (block, text, _figure, query, at) => rowLink(block, text, key, query, at) : undefined;
   const chosen = figures?.ui?.(key);
   const writtenLines = props.lines === undefined ? undefined : Number(props.lines);
   const validLines = writtenLines === undefined || Number.isSafeInteger(writtenLines) && writtenLines >= 0;
@@ -407,7 +419,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   // A block with query:/view: is answered from the outline now, not from copied values.
   const live = figures?.answer && (props.query || props.view || kind === "tabs") ? { ...liveProps(kind, props, figures.answer), status: "library demo", waiting: false } : resolveLive(kind, props, src.note, { ...liveSiteOf(src, read.args), ...site });
   if (live) {
-    if (live.error && !live.status) return frame(title, [fg(C.lred) + live.error + RESET], W, "live");
+    if (live.error && !live.status) return frame(title, errorLines(live.error, W), W, "live");
     if (live.waiting) return frame(title, [fg(DIM) + "asking the outline…" + RESET], W, "live");
     props = live.props;
     const draw = KINDS[kind];
@@ -415,7 +427,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
     const tab = tabs ? (tabs.find(t => t.value === ui.tab) ?? tabs[0])?.value : undefined;
     figures?.seen?.({ key, n, kind, title, density: ui.density, ...(tabs ? { tabs } : {}), ...(tab !== undefined ? { tab } : {}) });
     const body = draw ? withRowLimit(ui.lines, () => draw(props, Math.max(10, W - 4), link, { ...ui, ...(tab !== undefined ? { tab } : {}) })) : [];
-    if (live.error) body.push(fg(C.lred) + live.error + RESET);
+    if (live.error) body.push(...errorLines(live.error, W));
     if (!body.length) body.push(fg(DIM) + "no results" + RESET);
     body.push(...warn);
     return frame(String(props.title ?? ""), body, W, live.status ?? "live", densityControl(kind, ui));

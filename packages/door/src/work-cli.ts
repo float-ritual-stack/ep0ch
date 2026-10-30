@@ -18,8 +18,10 @@ interface Later {
   revive(source: Client, o: { where?: string; limit?: number; apply?: boolean; jev?: boolean; actor?: string; progress?: (line: string) => void }): Promise<{ rows: { id: string; ticket: string; outcome: string }[] }>;
   laterSummary(report: unknown): string;
 }
+type TryAction = { name: string; summary: string; keys?: string; examples?: readonly { act: string; does: string }[] };
 interface Try {
-  planTries(tickets: unknown[], actions: { name: string; summary: string; keys?: string; examples?: readonly { act: string; does: string }[] }[], o: { jev: boolean }): Promise<{ jev: string; tokens: number }>;
+  planTries(tickets: unknown[], actions: TryAction[], o: { jev: boolean; places: unknown[]; links: Record<string, string[]>; open?: TryAction }): Promise<{ jev: string; tokens: number }>;
+  PLACES_QUERY: string;
   keepTries(into: Client, report: unknown): Promise<{ note: string; run: string }>;
   tryMarkdown(report: unknown): string;
 }
@@ -141,16 +143,20 @@ export async function workCommand(args: string[], io = { out: (s: string) => con
       return 0;
     }
     const m = await import(TRY) as Try;
-    const tickets: unknown[] = [];
+    const tickets: { id: string }[] = [];
     for (const id of ids) {
       const found = await clientOf(source).request<{ blocks: { id: string }[] }>({ action: "blocks.query", query: { where: `type=roadmap-item work-id=${id}`, limit: 1 } });
       const block = found.blocks[0] ? await clientOf(source).request<unknown>({ action: "get", blockId: found.blocks[0].id }) : null;
       if (!block) { io.err(`ep0ch work try: no ticket ${id} in ${source.address.outline}`); return 1; }
-      tickets.push(block);
+      tickets.push(block as { id: string });
     }
     const { registryActions } = await import("./actions-doc"), { keysText } = await import("./surface/actions");
     const actions = (await registryActions()).map(a => ({ name: a.name, summary: a.summary, ...(a.keys ? { keys: keysText(a.keys)! } : {}), ...(a.examples ? { examples: a.examples } : {}) }));
-    const report = await m.planTries(tickets, actions, { jev });
+    // The outline's pages and views, and what links each ticket (the service's backlinks): the places to open.
+    const places = (await clientOf(source).request<{ blocks: unknown[] }>({ action: "blocks.query", query: { where: m.PLACES_QUERY, limit: 1000 } })).blocks;
+    const links = Object.fromEntries(await Promise.all(tickets.map(async t => [t.id, (await clientOf(source).request<{ sources?: { blockId: string }[] }>({ action: "references.backlinks", query: { targetBlockId: t.id, limit: 200 } })).sources?.map(s => s.blockId) ?? []] as const)));
+    const open = actions.find(a => a.name === "screen.open");
+    const report = await m.planTries(tickets, actions, { jev, places, links, ...(open ? { open } : {}) });
     const kept = into ? await m.keepTries(clientOf(into), report) : undefined;
     io.out(rest.includes("--json") ? JSON.stringify({ ...(report as object), ...(kept ? { kept } : {}) }, null, 2)
       : `${m.tryMarkdown(report)}\n\nJev: ${report.jev} · ${report.tokens} tokens in${kept ? `\nkept in ${opts["--into"]}: ((${kept.note})) · run ${kept.run}` : ""}`);

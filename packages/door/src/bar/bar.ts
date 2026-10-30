@@ -89,6 +89,8 @@ export class PowerBar {
   private readonly docsGesture = new Gesture();
   private docsSelection: Selection | null = null;
   private docsRect: Rect | null = null;
+  /** Where the lit row's preview (its docs) was drawn last, docs or not: the line's completion list keeps off it (PIE-1439). */
+  private previewRect: Rect | null = null;
   private docsLines: string[] = [];
   private docsDoc: ReturnType<typeof draftPreviewDoc> | null = null;
   private docsRows() {
@@ -355,8 +357,9 @@ export class PowerBar {
       turn.answered(s.id); this.got.set(s.id, rows); this.kept.delete(s.id); this.build(); this.host.ctx.redraw();
       // An agent's bar is read once and put away: no re-ordering asked for it.
       if (this.quick || !s.later) return;
-      // The same hits re-ordered (Jev), after a pause: what's lit stays lit, as it did in the search it replaced.
-      turn.after(JEV_PAUSE_MS, () => void s.later!(q, rows, this.host, turn.signal)?.then(r => { if (r && alive()) { this.got.set(s.id, r.rows); if (r.said) this.said.set(s.id, r.said); this.build(true); this.host.ctx.redraw(); } }, () => {}));
+      // The same hits re-ordered (Jev), after a pause: a row the person moved to stays lit; the top row stays the top,
+      // Jev's best (PIE-1409), never the old best followed down the list.
+      turn.after(JEV_PAUSE_MS, () => void s.later!(q, rows, this.host, turn.signal)?.then(r => { if (r && alive()) { this.got.set(s.id, r.rows); if (r.said) this.said.set(s.id, r.said); this.build(); this.host.ctx.redraw(); } }, () => {}));
     };
     const fail = (s: BarSource, e: unknown) => {
       if (!alive()) return;
@@ -456,11 +459,15 @@ export class PowerBar {
     const said = [...this.problems].map(([id, why]) => `${barSource(id)?.title ?? id}: ${why}`).join(" · ");
     // Nothing found for what's typed, said on the line itself: a narrow bar draws no preview to say it in.
     const none = !this.items.length && !this.asking.size && this.query.trim() !== "" && !this.problems.size;
-    const count = [none ? "no matches" : `${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
+    const rows = none ? "no matches" : `${this.items.length} row${this.items.length === 1 ? "" : "s"}`, verdict = [...this.said.values()].join(" · ");
     // What's typed gets the row before the count does (PIE-1405, PIE-1418): a long query at 40 columns reads whole or
-    // scrolled with its « », and the count takes what's left, cut short (hover reads it).
-    const status = busy || count, room = Math.max(10, w - 2);
-    const field = Math.min(room, Math.max(10, room - 1 - width(status), width(this.query) + 1));
+    // scrolled with its « », and the count takes what's left, cut short (hover reads it). What a source said of its
+    // rows (Jev's "no strong match") is never cut: when it won't fit beside the query it gets a row of its own (PIE-1409).
+    const room = Math.max(10, w - 2), fieldFor = (status: string) => Math.min(room, Math.max(10, room - 1 - width(status), width(this.query) + 1));
+    const beside = busy || [rows, verdict].filter(Boolean).join(" · ");
+    const below = !busy && !!verdict && room - fieldFor(beside) - 1 < width(beside);
+    const status = below ? rows : beside;
+    const field = fieldFor(status);
     this.fieldW = field;
     const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, field)) : this.input.render(field, 1)[0]) + (room - field > 1 ? paint(" |08") + drawEllipsized(status, room - field - 1) : "");
     const scoped = this.scope ? barSource(this.scope) : undefined;
@@ -469,7 +476,9 @@ export class PowerBar {
     // click on it), wrapped onto more rows where the bar is narrow (the one strip, chip-rows' tabStrip).
     const menu = this.menuOpen ? tabStrip(this.menuEntries().map(([label, action, args], i) => ({ label, key: String(i + 1), hit: { action, args } })), { width: w, at: 1, lead: " ", overflow: "wrap", style: MENU_LOOK() }) : [];
     this.menuSpots = menu.map(r => r.hits.map(h => ({ from: h.from, to: h.to, action: h.action, args: h.args ?? {} })));
-    const head = [tabs, line, ...menu.map(r => r.text), ...this.sourceHead, fg(C.blue) + "─".repeat(w) + RESET];
+    // After the menu and the scope's own rows, so their clicks keep their rows.
+    const verdictRows = below ? wrap(verdict, w - 2).slice(0, 2).map(l => paint(" |08") + l) : [];
+    const head = [tabs, line, ...menu.map(r => r.text), ...this.sourceHead, ...verdictRows, fg(C.blue) + "─".repeat(w) + RESET];
     const tail = said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : [];
     const it = this.items[this.picker.sel];
     const empty = !this.items.length && !this.asking.size;
@@ -479,7 +488,7 @@ export class PowerBar {
       rect, title: " power bar ",
       foot: this.docsMode ? "docs: arrows / page keys select · y or cmd+c copy · enter example · esc returns to line" : scoped?.foot?.() ?? "esc clear/close · ↑↓ pick · ⏎ run · ⇥ complete · alt+o copy · alt+y button · alt+i insert · alt+m menu · alt+v docs",
       head, ...(tail.length ? { tail } : {}),
-      preview, previewPlaced: (rect: Rect | null) => { this.docsRect = this.docsLines.length ? rect : null; },
+      preview, previewPlaced: (rect: Rect | null) => { this.previewRect = rect; this.docsRect = this.docsLines.length ? rect : null; },
     };
   }
 
@@ -505,7 +514,8 @@ export class PowerBar {
     if ("lines" in p || "markdown" in p) {
       if (this.docsKey !== key + w) { this.docsKey = key + w; this.docsView.reset(); this.docsSelection = null; this.docsMode = false; }
       this.docsDoc = "markdown" in p ? draftPreviewDoc(p.markdown, w, { board: this.host.ctx.board, redraw: () => this.host.ctx.redraw() }) : null;
-      this.docsLines = this.docsDoc?.lines ?? ("lines" in p ? p.lines.flatMap(l => rowLines(paintable(l), w)).map(l => fg(C.grey) + l + RESET) : []);
+      // Each line whole, however narrow (PIE-1428: a refusal's how-to at 40 columns): the preview scrolls, it never cuts a line.
+      this.docsLines = this.docsDoc?.lines ?? ("lines" in p ? p.lines.flatMap(l => rowLines(paintable(l), w, Infinity)).map(l => fg(C.grey) + l + RESET) : []);
       this.docsExamples.clear();
       const info = this.host.dispatch.list().actions.find(a => a.name === (it.row.data as { action?: string })?.action);
       const plain = this.docsLines.map(l => rowsOf([l]).cells(0).join(""));
@@ -578,9 +588,11 @@ export class PowerBar {
     const c = completerOf(this.input), pop = c && completionOf(this.input);
     if (c) c.drawn = null;
     if (!c || !pop || this.scope === "ask" || this.compact()) return;
-    const word = this.query.slice(0, this.input.cursor).lastIndexOf(" ") + 1;
-    const pw = Math.min(r.cols - 2, Math.max(28, Math.min(72, r.cols - 6)));
-    const x = Math.max(1, Math.min(3 + Math.min(width(this.query.slice(0, word)), this.fieldW - 1), r.cols - 1 - pw)), y = 3;
+    const word = this.query.slice(0, this.input.cursor).lastIndexOf(" ") + 1, y = 3;
+    // Beside the docs, never over them: the list keeps to the rows' column where that holds one (28 cells at least).
+    const pv = this.previewRect, beside = pv && pv.col > 30 && pv.row + pv.rows > y ? pv.col - 1 : r.cols - 1;
+    const pw = Math.min(beside - 1, Math.max(28, Math.min(72, r.cols - 6)));
+    const x = Math.max(1, Math.min(3 + Math.min(width(this.query.slice(0, word)), this.fieldW - 1), beside - pw));
     const rows: (number | null)[] = [];
     const lines = renderCompletion(pop, pw, Math.max(3, Math.min(COMPLETION_ROWS, r.rows - y - 1)), rows, 0, values);
     lines.forEach((l, i) => canvas.text(x, y + i, l, pw));
@@ -698,7 +710,8 @@ export class PowerBar {
     if (op === "recall") { this.input.splice(0, this.query.length, line); this.refresh(); return { line }; }
     // Each word shell-quoted, so a value like "$HOME" or `cmd` pastes as written, never expanded.
     const text = op === "button" ? commandButton(line) : ["ep0ch", "act", ...lineWords(line)].map(shellWord).join(" ");
-    this.host.ctx.copy?.(text);
+    // Said on the status line and in its log too (PIE-1428): the toast is gone in a moment.
+    if (this.host.ctx.copy?.(text) === true) this.host.ctx.flash(`copied ${op === "button" ? "as a note button" : "the command"}: ${text}`);
     return { text };
   }
 

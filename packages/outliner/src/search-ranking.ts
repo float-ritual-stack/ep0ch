@@ -16,9 +16,11 @@ export interface SearchCollection<T extends SearchExcerpt> {matches:T[];complete
  * eval (pie's Search evals page, `type=jev-run experiment=search-eval`; `ep0ch search eval` runs it again): on 168 real
  * queries, a Noul yes at 0.8 rather than the skill's 0.7 cut the searches called sure with nothing there from 10 to 4,
  * for 3 fewer sure right answers. `exists` is the Noul's yes and no (between them it isn't settled); `strong` the top
- * Score (0–3) a sure answer needs; under `floor` the top isn't a match at all, whatever the Noul says.
+ * Score (0–3) a sure answer needs; `match` the top Score said "not sure" rather than "no strong match" (PIE-1409, 204
+ * cases, Oct 29: an unclaimed top at 1.5 to 2 was the note wanted 4 times in 20, at 2 or more 9 in 103, under 1.5 none
+ * of 5); under `floor` the top isn't a match at all, whatever the Noul says.
  */
-export const SEARCH_THRESHOLDS = { exists: { yes: 0.8, no: 0.3 }, strong: 2, floor: 1 };
+export const SEARCH_THRESHOLDS = { exists: { yes: 0.8, no: 0.3 }, strong: 2, match: 1.5, floor: 1 };
 /** The Noul reads the first candidates, each cut short: enough to judge "is it among these", not the whole of each. */
 export const EXISTS_CANDIDATES = 30, EXISTS_SNIPPET = 240;
 
@@ -74,7 +76,12 @@ const figure = (n: number) => (Math.round(n * 10) / 10).toFixed(1);
 /**
  * The truth table: Jev's top Score and its Noul in, what the search says out. Sure only when both agree; nothing here
  * when the Noul says no or the top is no match; otherwise the closest is named and not claimed. A Noul that didn't come
- * back leaves the Score to decide alone.
+ * back leaves the Score to decide alone. A top Jev scores as a match whose Noul isn't settled is "not sure", never "no
+ * strong match" (PIE-1409: a right #1 found by meaning, 2.4 of 3 at a Noul of 0.79, read as if nothing matched), and so is
+ * one just under a sure answer's Score (`match`: a right Seed swap at 1.9). A Noul that says no keeps "nothing here"
+ * over any top: 5 cases, 1 the note wanted, too few to overrule it.
+ * Measured, Oct 29 (204 cases): of those, 13 in 113 were the note wanted, so they stay unclaimed; the deep pass's own
+ * window Noul taken as a second yes said sure 2 more times rightly and 11 more times wrongly, so it isn't one.
  */
 export function certaintyOf(top: { title: string; score: number } | undefined, exists: number | undefined, t = SEARCH_THRESHOLDS): SearchCertainty {
   const sure = exists === undefined || exists >= t.exists.yes;
@@ -83,6 +90,9 @@ export function certaintyOf(top: { title: string; score: number } | undefined, e
   }
   if (top.score >= t.strong && sure) {
     return { verdict: "strong", label: "sure", said: `strong match: ${quoted(top.title)} (${figure(top.score)} of 3${exists !== undefined ? `, sure ${figure(exists)}` : ""})`, ...(exists !== undefined ? { exists } : {}), top: top.score };
+  }
+  if (top.score >= t.match) {
+    return { verdict: "weak", label: "not sure", said: `not sure it's the one: ${quoted(top.title)} (${figure(top.score)} of 3${exists !== undefined ? `, sure ${figure(exists)}` : ""})`, ...(exists !== undefined ? { exists } : {}), top: top.score };
   }
   return { verdict: "weak", label: "no strong match", said: `no strong match: the closest is ${quoted(top.title)} (${figure(top.score)} of 3)`, ...(exists !== undefined ? { exists } : {}), top: top.score };
 }

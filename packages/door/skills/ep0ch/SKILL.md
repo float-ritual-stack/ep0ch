@@ -40,6 +40,7 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
     ep0ch peek                       compact: the person, speed and the screen as text (a few KB)
     ep0ch peek --json                the whole state and the screen as one JSON object, nothing else: `| jq .person`
     ep0ch peek speed                 one part of the state (speed, person, layout, drawer, …), as JSON
+    ep0ch peek layout --full         the layout with each tile whole (peek gives it in brief, as layout.get)
     ep0ch actions                    what the current screen can do, with arguments and keys
     ep0ch actions --doc <action>     one action's page: its keys, one or two real act lines, its arguments
     ep0ch act <action> [key=value…] [--as <agent-id>]
@@ -272,7 +273,10 @@ yourself (path 1): `/exit`, then `claude --continue`.
   line of only `[page::x]` is titled `x` on save, so `text="[page::2026-09-30]"` gives `2026-09-30 [page::2026-09-30]`.
 - **Search:** `search query=<words>` answers the service's ranked hits (as Goto, `/` and `((` rank them, from the desk's current note); nothing
   on screen moves. `ep0ch find <words>` is the same without a door.
-- **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`), `tile.open`, `layout.move`,
+- **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`; each tile in brief, `full=true` for
+  its whole description: a tree's rows, a facets tile's lists), `tile.open` (never takes the person's keys, in yolo
+  too; naming neither a tile nor `where=`, one that would be too narrow beside the person's tile floats; its answer's
+  `why` says when it's narrow, and where it went: "…, and it went right of r1, as asked" for a place you named), `layout.move`,
   `block.mark reason=…` to ask for the person's attention. Pass `expected=<rev>` when you name by place.
   `tile.preview tile=<reader>` (`where=right|down|left|up`) opens a reader beside it where its opens land, linked in
   one step: then `link.follow tile=<reader> n=…` lands there and the reader keeps its note. Called again it answers

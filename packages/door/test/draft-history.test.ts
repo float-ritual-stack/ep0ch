@@ -5,6 +5,7 @@ import { BIG_PASTE_LINES, changeOf, Draft, DRAFT_ACTIONS, TYPING_PAUSE_MS, UNDO_
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
 import { editHint } from "../src/surface/editor";
 import { SocketBoard, USER } from "../src/socket";
+import { visible } from "../src/style";
 import { NOTE_ACTIONS } from "../src/surface/note";
 import { pasteKeys, type Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -211,6 +212,8 @@ describe("a draft's history", () => {
     expect(b.text).toBe("one two");                                    // the saved text stays: ctrl+z says so and asks
     expect(b.note).toContain("saved");
     expect(b.note).toContain("ctrl+z again");
+    // The ask first, whole on the draft's one row in a 40-column tile; what was saved after it (PIE-1428).
+    expect(b.note.split(" · ").slice(0, 2).join(" · ")).toBe("saved · ctrl+z again undoes past it");
     type(b, "!");                                                      // anything else lets the question go
     await undo(b);
     expect(b.text).toBe("one two");
@@ -322,6 +325,27 @@ describe.skipIf(!outliner)("against a scratch outline: past a save, and back to 
     again.pane.key(ctrl("y"), again.d);
     await until(() => again.draft().text === "Jam labels for ", "redone a word");
     expect((await board.get(b.id))!.text).toBe("Jam labels for the plums");   // nothing saved changed
+  }, 20_000);
+
+  test("at 40 columns the undo ask reads whole, wrapped under the draft's status, never cut (PIE-1431)", async () => {
+    const b = await board.request("create", { parentId: null, text: "Fig netting", author: "user" });
+    const a = await open(b.id);
+    a.pane.key({ kind: "end" }, a.d);
+    for (const c of " before June") a.pane.key(char(c), a.d);
+    a.pane.key(ctrl("s"), a.d);
+    await until(() => !a.pane.editing, "the save");
+    const again = await open(b.id);
+    again.pane.key(ctrl("z"), again.d);
+    await until(() => again.draft().note.includes("saved"), "ctrl+z asks");
+    const said = again.draft().note;
+    const rows = again.pane.render(40, 20, true, again.d).lines.map(l => visible(l).trimEnd());
+    const at = rows.findIndex(r => r.startsWith("saved · ctrl+z again"));
+    expect(at).toBeGreaterThan(-1);
+    expect(rows.every(r => r.length <= 40)).toBe(true);
+    // Its rows, joined, are the whole ask: the revision it keeps included.
+    const joined = rows.slice(at, at + 4).join(" ").replace(/\s+/g, " ");
+    expect(joined).toContain(said.replace(/\s+/g, " "));
+    expect(joined).toMatch(/revision \d+ stays in its history/);
   }, 20_000);
 
   test("a saved paste taken back: revision.restore puts the earlier text in the edit (one step), ctrl+s saves it; the CLI lists, prints and restores", async () => {

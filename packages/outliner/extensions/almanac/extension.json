@@ -3,7 +3,7 @@
   "id": "almanac",
   "version": 1,
   "name": "Almanac",
-  "description": "A scheduled program: each morning it writes a dated note under the almanac page, wherever that is, as ext:almanac.",
+  "description": "A dated note under your almanac page every morning.",
   "run": ["bun", "almanac.ts"],
   "configSchema": {
     "type": "object",

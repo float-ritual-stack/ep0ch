@@ -171,6 +171,10 @@ export class Draft {
     return linkOccurrences(this.text).find(l => l.start <= at && at <= l.end) ?? null;
   }
   get dirty() { return this.text !== this.original; }
+  /** Nothing written: it started empty and holds only spaces and line breaks (Enter in a new note, PIE-1449). Esc closes it as unchanged. */
+  get blank() { return !this.original.trim() && !this.text.trim(); }
+  /** Changed, and more than blank: what close, leave and discard keep or write. */
+  get written() { return this.dirty && !this.blank; }
   /** The text the draft started from (a kept edit keeps it: "add them" and the comparison read its own changes from it). */
   get started() { return this.original; }
   /** When the draft opened. */
@@ -282,11 +286,12 @@ export class Draft {
     const s = this.undos.at(-1);
     if (by.kind === "agent" && (!s || !sameParty(s.by, by))) return { asked: false, said: this.undoPatch(by) };
     if (!s) throw new ActionRefused("nothing to undo in this draft");
-    // Saved text is never taken back silently (PIE-1414): ctrl+z at a save says so; one after a pause goes past it.
+    // Saved text is never taken back silently (PIE-1414): ctrl+z at a save says so; one after a pause goes past it. The ask
+    // comes first, short enough to read whole on the draft's one row at 40 columns (PIE-1428); what was saved after it.
     // Going past is the person's alone (draft.undo's personWith): an agent at a save only ever hears the question.
     if (s.saved !== undefined && (!past || by.kind === "agent")) {
       this.undoArmed = Date.now();
-      return { asked: true, said: this.note = `saved · ctrl+z again undoes past the save (${s.what}; revision ${s.saved} stays in its history)` };
+      return { asked: true, said: this.note = `saved · ctrl+z again undoes past it · ${s.what}; revision ${s.saved} stays in its history` };
     }
     this.undos.pop();
     s.open = false;
@@ -483,7 +488,7 @@ export class Draft {
     if (k.kind === "esc") {
       // The first esc lets go of a selection; nothing else.
       if (this.anchor) { this.anchor = null; return "keep"; }
-      if (!this.dirty) return "close";
+      if (!this.written) return "close";
       // An edit opened by mistake (a stray `j` or `q` became text) closes on the first esc: its session drops the strays.
       if (this.stray() !== null) return "discard";
       if (!was) {
@@ -1402,7 +1407,8 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     },
   }),
   "draft.redo": def({
-    summary: "put back what draft.undo took back, in order; any new change drops what could be put back. An agent puts back only its own", keys: [{ keys: "ctrl+y", does: "redo" }, { via: "ctrl+shift+z (redo)" }],
+    words: "put back what you undid",
+    summary: "put back what draft.undo took back, in order; any new change drops what could be put back. An agent puts back only its own", keys: [{ keys: "ctrl+y", does: "redo", says: "put back the change you undid" }, { via: "ctrl+shift+z (redo)" }],
     touches: "draft", draft: "safe", replay: "ask",
     args: {},
     async run(_, d, actor) { const said = d.redo(actor); return { redone: said, left: d.redos.length }; },
@@ -1418,7 +1424,7 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     run({ on }, d, actor) { d.preview =on ?? !d.preview; return { preview: d.preview }; },
   }),
   "draft.copy": def({
-    summary: "the draft's selected text, returned. The host puts the person's on their clipboard (OSC 52; an agent's never) and says \"copied N chars\". A selection made with the mouse copies when the button comes up, as in a reader (EP0CH_COPY_ON_SELECT=0 turns it off); one made by keys (shift+arrows) is copied by cmd+c, alt+c or the frame's [copy]", keys: [{ keys: "cmd+c alt+c", does: "copy" }, { keys: "click", does: "the frame's [copy]" }, { keys: "drag", does: "the release of a drag copies" }],
+    summary: "the draft's selected text, returned. The host puts the person's on their clipboard (OSC 52; an agent's never) and says \"copied N chars\". A selection made with the mouse copies when the button comes up, as in a reader (EP0CH_COPY_ON_SELECT=0 turns it off); one made by keys (shift+arrows) is copied by cmd+c, alt+c or the frame's [copy]", keys: [{ keys: "cmd+c alt+c", does: "copy", says: "copy the selected text of the draft" }, { keys: "click", does: "the frame's [copy]" }, { keys: "drag", does: "the release of a drag copies" }],
     touches: "draft", draft: "type", replay: "safe",
     args: {},
     run(_, d, actor) {
