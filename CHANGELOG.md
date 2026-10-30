@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The door's tests that were written off as "known" are green again (PIE-1441, PIE-1446)
+
+- **ctrl+z right after closing an edit undoes:** an extension's undo (a margin quote) sent the moment an edit closed was refused "open in a draft" when the service's hold grant was still on its way; the undo now waits for that release.
+- **The drawer's parity case runs in 8 s, not 60:** typing into the drawer's terminal is the program's, not a new door input state to probe (399 builds, was 890).
+- **The comments showcase's deep-links test clicks the comment box,** not the section list beside it.
+- **Run:** `ep0ch install --apply`.
+
 ### A revision compare opened with a comment half-written shows both (PIE-1433)
 
 - **Both draw:** the compare sits beside the note (below it when narrow) and the comment you were writing stays where you left it; a split comment shows as a popup on the note's side. Before, the comment drew and the compare was hidden while its keys were live.
