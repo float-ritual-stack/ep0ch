@@ -31,8 +31,11 @@ bun src/cli.ts work help
 Add `--author agent --actor <id>` for agent writes. `work stage … done` is
 refused: Done goes through `work complete`, which creates or links the proof.
 `work deliver` reads the PR through `gh` and refuses a PR whose branches differ
-from the delivery's. A merged PR's delivery gets `merged-at` (GitHub's
-`mergedAt`) beside `pull-request-state=merged` and `merge-commit`.
+from the delivery's. The PR number is the delivery's identity: when GitHub
+retargets a stacked PR (its base merged, so it now merges into main), the
+delivery that records that PR follows its new base rather than refusing it. A
+merged PR's delivery gets `merged-at` (GitHub's `mergedAt`) beside
+`pull-request-state=merged` and `merge-commit`.
 
 ### Every merge on the record
 

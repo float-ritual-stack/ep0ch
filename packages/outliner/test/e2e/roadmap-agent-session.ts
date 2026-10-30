@@ -46,7 +46,8 @@ const stage = async (id: string, value: string) => {
     taskBlockId: id,
     deliveryBlockId: delivery.id, expectedDeliveryRevision: delivery.revision, expectedTaskRevision: block.revision,
     pullRequest: { number, url: `https://github.com/fixture/outliner-batch-test/pull/${number}`,
-      state: value === "review" ? "OPEN" : "MERGED", mergeCommit: value === "validate" ? "fixture-merge-commit" : null },
+      state: value === "review" ? "OPEN" : "MERGED", mergeCommit: value === "validate" ? "fixture-merge-commit" : null,
+      baseBranch: delivery.properties.find(p => p.key === "base-branch")!.value },
   }, mutation: { author: "agent", actorId: "batch-harness" } });
 };
 try {
