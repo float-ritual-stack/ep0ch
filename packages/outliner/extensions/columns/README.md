@@ -1,12 +1,17 @@
 # Columns
 
-Write `columns::` on a note and the notes under it become sections drawn side by side. When the reader is too
-narrow they stack, one under the other: under 24 characters a column, in the door, Detail and on the web alike.
+Write `columns::` on a note and the notes under it are drawn as sections side by side.
 
-- `columns::` takes one column per section (at most four). `columns:: 2` shows the first two.
-- Or write the sections in the block itself under the line, split by a line of `|||`.
-- Each child note is a section: its first line is the section's title, the rest is its words, drawn as each reader
-  draws a note (headings, lists, links and properties read as written).
-- Editing a section, adding one or moving one away redraws the line by itself.
-- The sections stay ordinary notes; the line only decides how a reader lays them out. A Markdown export reads them in
-  order, as they are written.
+## What you do
+
+- **Make columns:** write `columns::` on a note; each child note is a section.
+  - Its first line is the section's title, the rest its words, drawn as any note (headings, lists, links, properties).
+- **Pick how many:** `columns:: 2` shows the first two; at most four.
+- **Write them inline:** put the sections in the block itself under the line, split by a line of `|||`.
+- **Edit freely:** editing, adding or moving a section away redraws the line by itself.
+
+## Good to know
+
+- **Narrow readers stack them,** one under the other, under 24 characters a column; the door, Detail and the web alike.
+- **Sections stay ordinary notes.** The line only decides how a reader lays them out.
+- **Exports read in order:** a Markdown export reads them as they are written.

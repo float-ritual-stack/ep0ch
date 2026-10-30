@@ -8,14 +8,15 @@ import { ActionRefused, actionSet, def, type Replay } from "./surface/actions";
 export class MacroRecording {
   private saving = false;
   private readonly inside = new AsyncLocalStorage<boolean>();
-  private recording: { name: string; near?: string; steps: { line: string; replay: Replay; finished: Promise<boolean> }[] } | null = null;
+  private recording: { name?: string; near?: string; steps: { line: string; replay: Replay; finished: Promise<boolean> }[] } | null = null;
   get active() { return this.recording !== null; }
 
-  start(name: string, near?: string) {
+  /** Unnamed, it's named when it stops, after what it did (`recorded-note-open-1514`): never by its own timestamp alone. */
+  start(name: string | undefined, near?: string) {
     if (this.saving) throw new ActionRefused("The previous recording is saving; keep working, then macro.record starts the next one");
     if (this.recording) throw new ActionRefused("Already recording; macro.stop saves it first");
     this.recording = { name, near, steps: [] };
-    return { recording: name };
+    return { recording: name ?? "unnamed" };
   }
 
   run(req: ActRequest, replay: Replay, work: () => unknown): unknown {
@@ -43,11 +44,15 @@ export class MacroRecording {
     const lines = recording.steps.filter((_, i) => finished[i]).map(s => s.line);
     const replay = recording.steps.some((s, i) => finished[i] && s.replay === "ask") ? "Includes actions that write or reach outside the door. Run explicitly from the power bar." : "Recorded actions are safe to replay.";
     const body = lines.join("\n");
+    const actions = [...new Set(lines.map(line => line.split(/\s/)[0]!))];
+    const at = new Date(), hhmm = `${String(at.getHours()).padStart(2, "0")}${String(at.getMinutes()).padStart(2, "0")}`;
+    const name = recording.name ?? `recorded-${(actions[0] ?? "nothing").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${hhmm}`;
+    const title = recording.name ?? `Recorded: ${actions.slice(0, 3).join(", ")}${actions.length > 3 ? ` and ${actions.length - 3} more` : ""}`;
     const fence = "`".repeat(Math.max(3, ...[...body.matchAll(/`+/g)].map(m => m[0].length + 1)));
-    const text = `${recording.name} [script::${recording.name}] [effects::write]\n${replay}\n\n${fence}actions\n${body}\n${fence}`;
+    const text = `${title} [script::${name}] [effects::write]\n${replay}\n\n${fence}actions\n${body}\n${fence}`;
     try {
       const saved = await ctx.board.newNote(text, recording.near, USER);
-      ctx.flash(`Saved ${recording.name} · ${lines.length} actions · ((${saved.note.id})) · run it from ^K`);
+      ctx.flash(`Saved ${name} · ${lines.length} actions · ((${saved.note.id})) · run it from ^K`);
       return { block: saved.note.id, actions: lines.length };
     } catch (error) {
       this.recording = recording;
@@ -61,14 +66,14 @@ export const MACRO_ACTIONS = actionSet<{ ctx: Ctx; recording: MacroRecording }>(
     summary: "record your actions into an editable script; macro.stop saves it beside the note in front",
     keys: [{ keys: "alt+Q", does: "when not recording" }, { via: "^K then macro.record in the power bar" }, { keys: "click", does: "on the status bar's ⇧⌥Q or its power bar row" }],
     touches: "nothing", replay: "ask", person: "A recording belongs to the person; an agent writes a [script::] block instead",
-    args: { name: { type: "string", optional: true, about: "script name; default: a timestamped recording, editable after saving" } },
+    args: { name: { type: "string", optional: true, about: "script name; default: named after what it did when it stops (recorded-note-open-1514), editable after saving" } },
     examples: [
-      { act: "macro.record", does: "starts recording your actions under a timestamped name" },
+      { act: "macro.record", does: "starts recording your actions, named after them when it stops" },
       { act: "macro.record name=seed-swap-setup", does: "starts recording your actions into a script named seed-swap-setup" },
     ],
     run({ name }, { ctx, recording }) {
-      const result = recording.start(name ?? `recording-${Date.now()}`, ctx.noteInFront?.() ?? undefined);
-      ctx.flash(`Recording ${result.recording} · alt+Q or macro.stop saves it`);
+      const result = recording.start(name, ctx.noteInFront?.() ?? undefined);
+      ctx.flash(`Recording${name ? ` ${name}` : ""} · alt+Q or macro.stop saves it`);
       return result;
     },
   }),

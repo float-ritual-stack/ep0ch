@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Extension pages and the power bar's extensions say what each one does for you
+
+- **Every extension's page leads with what it does for you:** where to look, then what you do, as short lines; setup, how it works and the builder's guide sit lower. All 24 bundled pages rewritten, notify first.
+- **One line each, in plain words:** every extension's description (the hub, its page, the `&` list, the install preview) says what you get, not what kind of part it is.
+- **A page can't ship as a wall:** a test runs the write review's code rubric (walls, stacked bullets, long titles, prose alone) over every bundled page as the host writes it.
+- **Settings on a page:** one line per setting with its default, under a lead saying where to change them.
+- **The `&` list is one row per extension:** a row says its settings only when they need you (needs setup, failing); its preview says them in words, and `settings <name>` typed finds its form. The separate settings list is gone.
+- **A recording gets a real name:** unnamed, it's named after what it did (`recorded-note-open-1514`, titled "Recorded: note.open, …"), never `recording-<timestamp>`.
+- **Run:** `ep0ch install --apply`; pages are written again on the next reload. A recording saved before keeps its old name: rename its note.
+
 ### Open a note as it was at a revision, beside how it is now (PIE-1433)
 
 - **From Jev's suggestions:** a row opens its note with the revision the review read beside it, marked against the next one (`-` was there, `+` came next).

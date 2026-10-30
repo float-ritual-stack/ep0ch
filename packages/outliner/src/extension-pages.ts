@@ -186,7 +186,7 @@ export function whatItAdds(manifest: ExtensionManifest, directory?: string): str
       return spec?.description ? `${words(spec.description)}${fallen ? ` (${fallen})` : ""}` : fallen;
     };
     // A lead line saying where they're changed, then one item per setting: a bullet is one point (the write review's rule).
-    out.push(`- Settings (\`${directory ? join(directory, "config.json") : "config.json"}\`, in the door: ctrl+k then \`& settings ${manifest.id}\`; \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`):`,
+    out.push(`- **Settings:** in the door ctrl+k then \`& settings ${manifest.id}\`, or \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`, or edit \`${directory ? join(directory, "config.json") : "config.json"}\`:`,
       ...Object.entries(settings).map(([key, spec]) => `  - \`${key}\`${said(spec) ? `: ${said(spec)}` : ""}`));
   }
   return out;

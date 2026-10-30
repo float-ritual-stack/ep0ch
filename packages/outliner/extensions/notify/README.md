@@ -1,13 +1,12 @@
 # Notifications hub
 
-Your GitHub notifications become notes in the outline, one each, on two boards. Gmail, Jira and Slack fit the same
-shape, with made-up data until a real source is plugged in.
+One note per notification, on two boards. Gmail, Jira and Slack fit the same shape, with made-up data for now.
 
 ## Where to look
 
 - **[[notifications-state]]:** the board by read state, an Unread lane and a Read lane.
 - **[[notifications-source]]:** the board by source, a lane each for GitHub, Gmail, Jira and Slack.
-- **[[notifications]]:** the page every notification lands under.
+- **[[notifications]]:** the page every notification lands under, made by the first pull.
 
 ## What you do
 
@@ -28,8 +27,7 @@ shape, with made-up data until a real source is plugged in.
 
 - **Install:** `ep0ch ext add notify` for every outline, or add `--outline-folder ~/outlines/<name>` for one.
 - **GitHub:** `gh` on the service's PATH, logged in as the service's user. It runs `gh api notifications`, read-only.
-- **Settings:** `config.json` in the installed folder, all optional, such as
-  `{ "config": { "sources": ["github"], "page": "notifications", "days": 14 } }`.
+- **Settings:** all optional, each listed with its default under "What it adds" below.
 - **Gmail, Jira, Slack:** made-up data only. Name a file per source in `fixtures`, such as
   `"fixtures": { "gmail": "fixtures/gmail.json" }`, and list the source in `sources`.
   - A source with neither: the pull says so and carries on with the others.

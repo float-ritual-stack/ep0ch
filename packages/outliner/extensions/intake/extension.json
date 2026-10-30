@@ -12,7 +12,7 @@
     "properties": {
       "outlines": {
         "type": "array",
-        "description": "other outlines to search, each { outline, machine? } (machine: an ssh config name; left out, this machine)",
+        "description": "other outlines to search, each { outline, machine? }; machine is an ssh config name",
         "items": {
           "type": "object",
           "properties": { "outline": { "type": "string" }, "machine": { "type": "string" } },
@@ -20,16 +20,16 @@
           "additionalProperties": false
         }
       },
-      "archive": { "type": "array", "items": { "type": "string" }, "description": "a command that searches an archive: %word% is the request's most telling word (letters, digits and -), every word is on its stdin, and each line it prints is a hit; exit 1 with nothing printed is no hits (for example [\"ssh\", \"float-box\", \"rg\", \"-l\", \"-i\", \"-m1\", \"%word%\", \"/srv/archive/notes\"]). Left out, no archive" },
-      "answer": { "type": "array", "items": { "type": "string" }, "description": "a command that reads what was found on stdin and prints the note's words (for example [\"claude\", \"-p\"]). Left out, the list and a duplicate line from the titles alone" },
+      "archive": { "type": "array", "items": { "type": "string" }, "description": "a command that searches an archive; %word% is the request's key word, each printed line a hit (exit 1 with nothing is no hits)" },
+      "answer": { "type": "array", "items": { "type": "string" }, "description": "a command that reads the findings on stdin and prints the closing words; left out, the closing line comes from the titles" },
       "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 6, "description": "the most hits shown from each place" }
     },
     "additionalProperties": false
   },
   "actions": [
-    { "id": "prior-art", "label": "Look for prior art", "on": "block", "effects": "write", "description": "Under the request, a note \"Prior art and related\": run by a rule, it asks @prior-art; run by hand, it searches at once (no model)" }
+    { "id": "prior-art", "label": "Look for prior art", "on": "block", "effects": "write", "description": "Write a \"Prior art and related\" note under the request; by hand it searches at once, no model" }
   ],
   "agents": [
-    { "name": "prior-art", "description": "Searches this outline, the others in config and the archive for what came before a request, and fills in its \"Prior art and related\" note", "effects": "spend", "deadline": "5m" }
+    { "name": "prior-art", "description": "Searches your outlines and archive for what came before a request", "effects": "spend", "deadline": "5m" }
   ]
 }

@@ -7,6 +7,6 @@
   "run": ["bun", "issues.ts"],
   "sources": [
     { "id": "issues", "title": "issues", "triggers": ["[[", "key::"], "keys": ["issue"],
-      "description": "open issues by number or title: [[ or [issue:: then a word; ⏎ writes [issue::#12]" }
+      "description": "open issues by number or title; enter writes [issue::#12]" }
   ]
 }

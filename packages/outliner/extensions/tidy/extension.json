@@ -24,7 +24,7 @@
         "items": {
           "type": "string"
         },
-        "description": "The command that answers @tidy: the prompt on its stdin, a JSON replacement and message on its stdout (a resolution answers a conflict-region replacement, or ambiguous). Left out, Haiku through claude",
+        "description": "The command that answers @tidy: prompt on stdin, JSON replacement and message on stdout; left out, Haiku through claude",
         "default": ["claude", "-p", "--model", "haiku", "--tools", ""]
       }
     },

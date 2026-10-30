@@ -14,30 +14,30 @@
     "properties": {
       "board": { "type": "string", "minLength": 1, "description": "The outline other highlights land in (default readwise)" },
       "page": { "type": "string", "minLength": 1, "description": "The page in the board outline they land under (default readwise)" },
-      "publish": { "type": "boolean", "description": "Sending a note publishes it, unlisted and by link ([publish::public]), and its public page is the URL Reader gets (default true; false sends without publishing)" },
-      "link": { "type": "string", "minLength": 1, "description": "The URL a sent note gets in Reader, with {{props.outline}}, {{props.machine}} and {{props.id}} (default: its public permalink, else https://ep0ch.invalid/{{props.outline}}@{{props.machine}}/b/{{props.id}})" },
-      "machine": { "type": "string", "minLength": 1, "description": "This machine's name in ep0ch:// links (default the service's, from notes.address)" },
+      "publish": { "type": "boolean", "description": "Sending publishes the note, unlisted (default true; false sends without publishing)" },
+      "link": { "type": "string", "minLength": 1, "description": "The URL a sent note gets in Reader (default its public permalink)" },
+      "machine": { "type": "string", "minLength": 1, "description": "This machine's name in ep0ch:// links" },
       "tags": { "type": "array", "items": { "type": "string" }, "description": "Tags a sent document gets in Reader (default [\"ep0ch\"])" },
-      "locations": { "type": "array", "items": { "enum": ["new", "later", "shortlist", "archive", "feed"] }, "description": "Which Reader locations the library mirrors (default new, later, shortlist, archive); add \"feed\" to bring RSS items in" },
+      "locations": { "type": "array", "items": { "enum": ["new", "later", "shortlist", "archive", "feed"] }, "description": "Which Reader locations the library mirrors (add \"feed\" for RSS)" },
       "readerPage": { "type": "string", "minLength": 1, "description": "The page in the board outline the Reader library lands under (default reader)" },
       "api": { "type": "string", "minLength": 1, "description": "Readwise's address (default https://readwise.io); a test points it at a fake" },
-      "minutes": { "type": "integer", "minimum": 1, "maximum": 4, "description": "How long one pull may work before it stops and leaves the rest for the next (default 4)" }
+      "minutes": { "type": "integer", "minimum": 1, "maximum": 4, "description": "Minutes one pull may work (default 4)" }
     },
     "additionalProperties": false
   },
   "actions": [
     {
       "id": "send", "label": "Send to Reader", "on": "block", "effects": "write",
-      "description": "Saves the note (and the notes under it) to Readwise Reader as a document that links back here"
+      "description": "Saves the note and its children to Reader"
     },
     {
       "id": "pull", "label": "Pull Readwise highlights", "on": "outline", "effects": "write",
-      "description": "Fetches highlights changed since the last pull: one on a note you sent becomes an annotation at its passage; the rest land on the readwise board",
+      "description": "Brings in highlights changed since the last pull",
       "schedule": { "every": "1h", "once": "host" }
     },
     {
       "id": "library", "label": "Pull the Reader library", "on": "outline", "effects": "write",
-      "description": "Mirrors your Reader documents updated since the last run: a block each on the Reader page of the readwise board, with location, progress, tags and the link to its highlights",
+      "description": "Mirrors your Reader documents, a block each",
       "schedule": { "every": "1h", "once": "host" }
     }
   ]
