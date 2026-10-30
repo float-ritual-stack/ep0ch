@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Open a note as it was at a revision, beside how it is now (PIE-1433)
+
+- **From Jev's suggestions:** a row opens its note with the revision the review read beside it, marked against the next one (`-` was there, `+` came next).
+- **From any note:** the tile menu's **history** lists its revisions; a row opens the same compare.
+- **Keys:** ← → older and newer, `n` against the note now, Esc back to the note. Beside the text in a wide tile, below it in a narrow one.
+- **Tables:** `at: <property>` on a live `::graph-table` with `link:` opens each row's note at the revision that property holds.
+- **Run:** nothing beyond the usual `ep0ch install --apply` (GRAMMAR 13: an older door opens the note without the compare); pie's suggestions page gains `at: revision` on its own at the next review Jev records after the install (until then its rows open the note without the compare; adding `at: revision` under `link: note` by hand does it at once).
+
 ### A chat reads an away outline from its copy (PIE-1091)
 
 - **Snapshot and read while the laptop's away:** `outline_snapshot` and `reader_view` on an outline whose home is another machine (float-hub@laptop) are answered from float-2's read-only copy, each answer saying the copy's source, how fresh it is and whether it's stale. The snapshot link is float-2's web client's, works once and expires as any snapshot does.

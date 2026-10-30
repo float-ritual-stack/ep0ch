@@ -233,3 +233,24 @@ test("an existing suggestions page gains the quiet writes' table, with when, kee
   expect(upgradeSuggestionsPage(up)).toBe(up);
   expect(upgradeSuggestionsPage(SUGGESTIONS_PAGE)).toBe(SUGGESTIONS_PAGE);
 });
+
+// PIE-1433: a review row opens its note at the revision the review read; pie's page gains `at: revision` on its own.
+test("an existing suggestions page gains at: revision on its review tables, and only those", async () => {
+  const { SUGGESTIONS_PAGE, upgradeSuggestionsPage } = await import("../src/jev-suggestions");
+  const old = SUGGESTIONS_PAGE.split("\n").filter(l => l !== "at: revision").join("\n");
+  const up = upgradeSuggestionsPage(old);
+  expect(up).toBe(SUGGESTIONS_PAGE);
+  const tables = up.split("::graph-table").slice(1).map(t => t.slice(0, t.indexOf("\n::")));
+  for (const t of tables) expect(t.includes("at: revision")).toBe(/query: type=review-(finding|quiet)\b/.test(t) && t.includes("link: note"));
+  expect(tables.filter(t => t.includes("at: revision")).length).toBe(2);
+  expect(upgradeSuggestionsPage(up)).toBe(up);
+});
+
+test("a review table that names its own at: keeps it, wherever it is written", async () => {
+  const { SUGGESTIONS_PAGE, upgradeSuggestionsPage } = await import("../src/jev-suggestions");
+  const own = SUGGESTIONS_PAGE.split("\n").filter(l => l !== "at: revision").join("\n").replace("title: what each writer was told", "title: what each writer was told\nat: seen-at");
+  const up = upgradeSuggestionsPage(own);
+  const first = up.split("::graph-table")[1]!;
+  expect(first.slice(0, first.indexOf("\n::")).match(/^at:/gm)).toEqual(["at:"]);
+  expect(first).toContain("at: seen-at");
+});
