@@ -316,14 +316,15 @@ const components: ServiceSource = {
 const noteOf = (schema: ComponentSchema) => /^note:\(\(([^()\s]+)\)\)$/.exec(schema.origin ?? "")?.[1];
 
 /**
- * `::stale` naming no component yet: a last row offers it new, its starter note written under [[components]], the call
- * inserted and the note opened beside, in one choice (`component.new`). Only for a name a component can have.
+ * `::stale` naming no component yet: a row offers it new, its starter note written under [[components]], the call
+ * inserted and the note opened beside, in one choice (`component.new`). Only for a name a component can have. It comes
+ * first, so Enter makes it, unless a component's name holds what was typed: a match on a schema's words doesn't take Enter.
  */
 function newComponentRow(query: string, have: readonly string[]): SourceRow | null {
   const name = query.trim();
   if (!/^[a-z][a-z0-9-]*$/.test(name) || have.includes(name)) return null;
   return {
-    label: `+ new component ::${name}`, filter: name, insert: `::${name}{}`, kind: "new", newComponent: name, fallback: true,
+    label: `+ new component ::${name}`, filter: name, insert: `::${name}{}`, kind: "new", newComponent: name, ...(have.some(id => id.includes(name)) ? { fallback: true } : { preselect: true }),
     docs: `writes a render script note [script::${name}] [mode::render] under [[components]], puts ::${name}{} here and opens the note beside: what its fence returns draws under every ::${name}{} line`,
   };
 }

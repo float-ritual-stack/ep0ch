@@ -69,12 +69,12 @@ describe.skipIf(!outliner)("component.new on a scratch service", () => {
   const componentsPage = async () => (await board.resolvePage("components")).block?.id;
   const madeUnder = async (page: string, name: string) => (await board.children(page)).find(c => c.text.startsWith(`${name.charAt(0).toUpperCase()}`) && c.text.includes(`[script::${name}]`));
 
-  test("by key: ::zz-stale offers + new component last; choosing it writes the note under [[components]] and the call", async () => {
+  test("by key: ::zz-stale offers + new component first; choosing it writes the note under [[components]] and the call", async () => {
     const e = await editing(await create("Errand day\n"));
     e.type("::zz-stale");
     await until(() => !!completionOf(e.d) && !completionOf(e.d)!.loading && completionOf(e.d)!.items.some(i => i.newComponent), "the new component offered");
     const p = completionOf(e.d)!, i = p.items.findIndex(x => x.newComponent === "zz-stale");
-    expect(i).toBe(p.items.length - 1);
+    expect(i).toBe(0);
     expect(p.items[i]).toMatchObject({ label: "+ new component ::zz-stale", insertion: "::zz-stale{}" });
     expect(await componentsPage()).toBeUndefined();                       // offered, not made
     while (completionOf(e.d)!.index < i) e.press({ kind: "down" });
