@@ -19,7 +19,7 @@ import {
   type RenderedComponent,
 } from "./component-primitives";
 import { handlerCalls, mayHaveHandlerLines, pipelineCalls, PIPELINE, type HandlerCall } from "./extension-handlers";
-import { DEFAULT_DEADLINE_MS, durationMs, loadExtensionManifest, manifestSources, type ExtensionActionArg, type LoadedExtension, type ScriptSource } from "./extension-manifest";
+import { DEFAULT_DEADLINE_MS, durationMs, loadExtensionManifest, manifestSources, type ExtensionActionArg, type ExtensionHandler, type LoadedExtension, type ScriptSource } from "./extension-manifest";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
 import type { DraftGroupInput } from "./draft-patch-router";
 import { ExtensionWrites, MAX_WRITE_TEXT, MAX_WRITES, parseBlockWrite, type BlockWrite, type ExtensionWrite, type GroupOutcome, type TriggerWrite } from "./extension-writes";
@@ -40,6 +40,10 @@ import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks"
 import { resourceCommentSource } from "./resource-comments";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { createHash } from "node:crypto";
+import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
+import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
+import type { BlockSearchQuery, VisibleBlockCollection } from "./types";
+import { answerSite } from "./site-answer";
 
 /**
  * Runs extension handlers for the lines that ask for them, keeps their
@@ -77,6 +81,9 @@ import { createHash } from "node:crypto";
  */
 
 export interface ExtensionCallsOptions {
+  /** Ask and keep a service question for a handler line; the service's one QueryWatches owns invalidation. */
+  readonly watchQuery?: (blockId: string, callKey: string, question: BlockSearchQuery) => VisibleBlockCollection;
+  readonly forgetQuery?: (blockId: string, callKey: string) => void;
   readonly resolveProposal?: (id: string, by: MutationProvenance, trigger?: string) => Promise<{outcome: "resolved" | "open"; message: string; undo?: string; undoNote?: string}>;
   readonly undoDrafts?: import("./extension-writes").ExtensionWritesDeps["undoDrafts"];
   readonly script?: (extension: LoadedExtension, request: ExtensionActRequest) => ExtensionActResult | Promise<ExtensionActResult>;
@@ -505,6 +512,12 @@ function asker(requestedBy: MutationProvenance | undefined): { requestedBy?: { a
 /** Host-wide actions' runs (`once: "host"`), across every outline the host process serves: one at a time. */
 const HOST_OUTLINE_RUNS = new Map<string, Promise<ExtensionActResult>>();
 
+/** The extension request is capped at 256 KiB: rows go to a program as their properties and a short excerpt, never whole bodies. */
+const EXCERPT = 400;
+function compactAnswer(answer: VisibleBlockCollection): VisibleBlockCollection {
+  return { ...answer, blocks: answer.blocks.map(row => ({ ...row, text: row.text.slice(0, EXCERPT), displayText: row.displayText.slice(0, EXCERPT) })) };
+}
+
 export class ExtensionCalls {
   private readonly state = new Map<string, CallState>();
   private readonly passes = new Map<string, Promise<void>>();
@@ -517,6 +530,7 @@ export class ExtensionCalls {
   private readonly named = new Map<string, Set<string>>();
   /** Blocks with a render-mode line that ran a query: any content change may add or remove a match, so they look again. */
   private readonly queryReaders = new Set<string>();
+  private readonly queryInputs = new Set<string>();
   private stopped = false;
 
   constructor(
@@ -537,6 +551,19 @@ export class ExtensionCalls {
 
   stop(): void {
     this.stopped = true;
+    for (const key of this.queryInputs) {
+      const [blockId, callKey] = key.split("\0");
+      this.options.forgetQuery?.(blockId!, callKey!);
+    }
+    this.queryInputs.clear();
+  }
+
+  /** A deleted line's question no longer needs a service watch. */
+  removed(blockId: string): void {
+    for (const key of [...this.queryInputs]) if (key.startsWith(`${blockId}\0`)) {
+      this.queryInputs.delete(key);
+      this.options.forgetQuery?.(blockId, key.slice(blockId.length + 1));
+    }
   }
 
   /**
@@ -577,6 +604,14 @@ export class ExtensionCalls {
     }
     const changed = [...now].filter(([key, stamp]) => this.served.get(key) !== stamp).map(([key]) => key);
     this.served = now;
+    for (const key of [...this.queryInputs]) {
+      const [blockId, callKey] = key.split("\0");
+      const call = this.calls(blockId!)?.calls.find(candidate => candidate.callKey === callKey);
+      if (!call || !this.serving(call)?.manifest.handlers?.some(handler => handler.key === call.handlerKey && handler.query)) {
+        this.queryInputs.delete(key);
+        this.options.forgetQuery?.(blockId!, callKey!);
+      }
+    }
     const readers = new Set<string>();
     for (const key of changed) {
       for (const row of this.store.queryBlocks({ where: `text~"${key}::"`, limit: 200 }).blocks) readers.add(row.id);
@@ -718,6 +753,10 @@ export class ExtensionCalls {
     const found = this.calls(blockId);
     if (!found) return;
     const { block, calls } = found;
+    for (const key of [...this.queryInputs]) if (key.startsWith(`${blockId}\0`) && !calls.some(call => call.callKey === key.slice(blockId.length + 1))) {
+      this.queryInputs.delete(key);
+      this.options.forgetQuery?.(blockId, key.slice(blockId.length + 1));
+    }
     const seen = this.spendLinesSeen(blockId, calls, reason, options.created ?? false);
     // A spend line edited into another one (still being typed, or changed) replaces a result: it waits for r.
     const current = new Set(calls.map((call) => call.callKey));
@@ -815,13 +854,23 @@ export class ExtensionCalls {
   private outputDue(block: Block, call: HandlerCall, extension: LoadedExtension, row: ExtensionOutputRow | undefined, reason: CallReason, fresh: boolean): boolean {
     if (!this.automatic(call, reason, fresh, !row)) return false;
     if (reason === "refresh" || !row) return true;
-    if (row.result === null) return row.error !== null && this.now - Date.parse(row.attemptedAt) > RETRY_FAILED_MS && call.effects === "read";
     if (call.effects !== "read") return false;
     if (row.extensionVersion !== extension.version) return true;
-    // What it read changed (the block, a child, a block the line names): it redraws without r.
-    if (storedInputs(row) !== this.inputs(block, call.line)) return true;
-    if (this.scriptChanged(row, block, extension)) return true;
     const handler = extension.manifest.handlers?.find((candidate) => candidate.key === call.handlerKey);
+    // A corrected question must run on the save that corrected it, even if the previous answer failed.
+    if (storedInputs(row) !== this.inputs(block, call.line)) return true;
+    if (handler?.query) {
+      try {
+        const { hash } = this.queryInput(block, call, handler.query);
+        if ((row.request as { queryHash?: string } | null)?.queryHash !== hash) return true;
+      } catch {
+        // A question that no longer binds (its property was removed) must replace the old answer with its error.
+        return row.error === null || this.now - Date.parse(row.attemptedAt) > RETRY_FAILED_MS;
+      }
+    }
+    if (row.result === null || row.error !== null) return row.error !== null && this.now - Date.parse(row.attemptedAt) > RETRY_FAILED_MS;
+    // What it read changed (a script's notes or queries): it redraws without r.
+    if (this.scriptChanged(row, block, extension)) return true;
     const stale = durationMs(handler?.staleAfter);
     return stale !== undefined && row.ranAt !== null && this.now - Date.parse(row.ranAt) > stale;
   }
@@ -857,6 +906,51 @@ export class ExtensionCalls {
 
   private context(block: Block, line: number | undefined) { return blockCallContext(this.store, block, line, this.now); }
 
+  /** Bind a manifest question to this line using outline-core's one placeholder grammar. */
+  private queryInput(block: Block, call: HandlerCall, template: NonNullable<ExtensionHandler["query"]>): { answer: VisibleBlockCollection; hash: string; question: BlockSearchQuery } {
+    const fill = (value: string): string => {
+      let prepared = "", at = 0;
+      for (const span of interpolationSpans(value, { fences: "template" })) {
+        prepared += value.slice(at, span.start);
+        const name = span.path;
+        if (name === "argument") {
+          if (call.argument === null) throw new Error(`${call.handlerKey}:: needs an argument for query {{argument}}`);
+          prepared += call.argument;
+        } else if (name === "this") prepared += block.id;
+        else if (name.startsWith("option.")) {
+          const option = name.slice(7);
+          if (!(option in call.options)) throw new Error(`${call.handlerKey}:: has no --${option} for query {{${name}}}`);
+          prepared += String(call.options[option]);
+        } else prepared += value.slice(span.start, span.end); // Site paths keep their defaults for the Site resolver.
+        at = span.end;
+      }
+      prepared += value.slice(at);
+      if (!prepared.includes("{{")) return prepared;
+      const resolved = answerSite(this.store, { blockId: block.id, interpolate: { text: prepared, fences: "template" } }, Date.now).interpolated!;
+      const problem = resolved.values.find(value => value.problem && !value.usedDefault);
+      if (problem) throw new Error(`${call.handlerKey}:: query {{${problem.expression}}}: ${problem.problem!.message}`);
+      return resolved.text;
+    };
+    const question: BlockSearchQuery = {
+      where: fill(template.where),
+      this: template.this ? fill(template.this) : block.id,
+      ...(template.group ? { group: fill(template.group) } : {}),
+      ...(template.sort ? { sort: fill(template.sort) } : {}),
+      ...(template.limit ? { limit: template.limit } : {}),
+      ...(template.facets ? { facets: template.facets === true ? true : template.facets.map(fill) } : {}),
+      ...(template.facetKeys ? { facetKeys: template.facetKeys } : {}),
+      ...(template.facetValues ? { facetValues: template.facetValues } : {}),
+    };
+    const key = `${block.id}\0${call.callKey}`;
+    const queried = this.options.watchQuery?.(block.id, call.callKey, question) ?? this.store.queryBlocks({ ...question, machinery: DEFAULT_MACHINERY });
+    // The query owns membership. The shared record builder owns the title an extension presents; displayText still
+    // carries authored property chips, so using it as a title makes a collection hard to scan.
+    const answer = { ...queried, blocks: queried.blocks.map(row => ({ ...row, title: textRecord(row).title })) };
+    this.queryInputs.add(key);
+    const { generation: _generation, sequence: _sequence, ...content } = answer as VisibleBlockCollection & { sequence?: number };
+    return { answer, hash: createHash("sha256").update(JSON.stringify(content)).digest("hex").slice(0, 32), question };
+  }
+
   private async run(block: Block, call: HandlerCall, extension: LoadedExtension): Promise<void> {
     const key = this.outputKey(block.id, call.callKey);
     if (this.state.get(key)?.running) return;
@@ -872,7 +966,10 @@ export class ExtensionCalls {
     let reads: { id: string; revision: number | null }[] | undefined;
     let queries: { query: string; limit: number; ids: string[] }[] | undefined;
     let untracked = false;
+    let queried: { answer: VisibleBlockCollection; hash: string; question: BlockSearchQuery } | undefined;
     try {
+      const template = extension.manifest.handlers?.find(handler => handler.key === call.handlerKey)?.query;
+      queried = template ? this.queryInput(block, call, template) : undefined;
       let answer: { value: unknown };
       if (extension.script) {
         // A script is drawn by the same path as any handler line: it returns Blockdown, kept as the line's output.
@@ -884,7 +981,7 @@ export class ExtensionCalls {
         untracked = rendered.untracked === true;
         answer = { value: { markdown: rendered.markdown, ...(rendered.view ? { view: rendered.view } : {}) } };
       } else answer = await this.runtime.invokeLoaded(extension, "run",
-        { handler: call.handlerKey, ...request, context }, this.deadline(extension, call.handlerKey),
+        { handler: call.handlerKey, ...request, ...(queried ? { query: compactAnswer(queried.answer) } : {}), context }, this.deadline(extension, call.handlerKey),
         { label: `ext.${extension.id}.${call.handlerKey}`, writes: call.effects === "write" });
       let result: unknown;
       try {
@@ -895,8 +992,15 @@ export class ExtensionCalls {
         throw new Error(`${extension.name} returned something the service can't show: ${error instanceof ComponentError || error instanceof Error ? error.message : String(error)}`);
       }
       // A script's output is what its code read: the notes (and their revisions), the queries (and their rows), the code itself.
-      const request2 = extension.script ? { ...base.request, reads: reads ?? [], queries: queries ?? [], stamp: extension.stamp, ...(untracked ? { untracked: true } : {}) } : base.request;
-      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, request: request2, result });
+      const request2 = extension.script ? { ...base.request, reads: reads ?? [], queries: queries ?? [], stamp: extension.stamp, ...(untracked ? { untracked: true } : {}) } : { ...base.request, ...(queried ? { queryHash: queried.hash } : {}) };
+      // Keep the service's question and row identities with the last good result. Sources describes the answer that
+      // actually drew this component, even if a later attempted run fails and the old output stays on screen.
+      const saved = queried ? { ...(result as object), querySource: {
+        question: queried.question,
+        blocks: queried.answer.blocks.map(row => ({ id: row.id, title: textRecord(row).title, properties: row.properties.map(property => ({ key: property.key })) })),
+        completeness: queried.answer.completeness,
+      } } : result;
+      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, request: request2, result: saved });
       // A note it read changes the line's output: its change comes back here (`inputChanged`).
       for (const read of reads ?? []) this.watching(read.id, block.id);
       if (queries?.length) this.watchQueries(block.id);
@@ -904,7 +1008,7 @@ export class ExtensionCalls {
       // A note it read changed while it ran: what it drew is already out of date.
       if (reads?.some(read => this.revisionOf(read.id) !== read.revision)) void this.refreshOutput(block.id, "open").catch(() => {});
     } catch (error) {
-      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, error: message(error) });
+      if (this.store.get(block.id)) this.store.putExtensionOutput({ ...base, request: { ...base.request, ...(queried ? { queryHash: queried.hash } : {}) }, error: message(error) });
       this.state.set(key, { running: false, error: message(error) });
     }
     this.options.changed?.(block.id);
@@ -1063,7 +1167,7 @@ export class ExtensionCalls {
           : "not run yet";
       return { ...base, ...fetching, status: "not-run", reason: state?.running ? `${extension?.name ?? call.extensionId} is running` : waiting };
     }
-    const result = row.result as { markdown?: string; title?: string } & Partial<ComponentOutput>;
+    const result = row.result as { markdown?: string; title?: string; querySource?: NonNullable<ResourceProjection["output"]>["query"] } & Partial<ComponentOutput>;
     const markdown = call.kind === "component"
       ? renderComponent(result as ComponentOutput, "markdown").body
       : result.markdown ?? "";
@@ -1072,6 +1176,7 @@ export class ExtensionCalls {
       ranAt: row.ranAt!,
       ...(result.title ? { title: cleanExtensionText(result.title) } : {}),
       ...(scriptReads(row.request) ? { reads: scriptReads(row.request) } : {}),
+      ...(result.querySource ? { query: result.querySource } : {}),
       ...(call.kind === "component" || result.view ? { component: { data: result.data ?? null, view: result.view, ...(result.placement ? { placement: result.placement } : {}) } } : {}),
       ...(storedInputs(row) !== this.inputs(block, call.line) ? { inputsChanged: true as const } : {}),
       ...(extension && row.extensionVersion !== extension.version ? { versionChanged: true as const } : {}),

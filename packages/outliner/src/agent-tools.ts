@@ -48,7 +48,7 @@ import { textRecord } from "./block-records";
 import type { SiteAnswer } from "@ep0ch/outline-core/site";
 import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
-import type { BlockRecord } from "@ep0ch/outline-core/block-record";
+import { recordProperties, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import { isSystemNote, systemNoteKind } from "./note-placement";
 import { pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { readSavedView } from "./saved-view-read";
@@ -475,6 +475,8 @@ export interface FindInput {
   machinery?: string;
   /** Which chips property, hasKey and query read (PIE-1277): `block` (the note's own, the default), `line`, `inline` or `all`. */
   propertyScope?: string;
+  /** Rows carry their properties, grouped by key as a record does (PIE-1461): a table over many rows needs no read per row. */
+  properties?: boolean;
 }
 
 /** A chip a line-scope find matched (PIE-1277), as outline-core's matchFacts gives it: `line` counts from 1. */
@@ -491,9 +493,11 @@ export interface FindRow {
   workId?: string;
   /** With a propertyScope other than block: the chips that matched, so a buried `[needs::…]` says its line. */
   matches?: FindMatch[];
+  /** With `properties: true`: the row's properties, each key once with its values, as outline_read gives them (PIE-1461). */
+  properties?: { key: string; values: string[] }[];
 }
 
-function findRow(block: Block & { propertyMatches?: PropertyMatchContext[] }): FindRow {
+function findRow(block: Block & { propertyMatches?: PropertyMatchContext[] }, withProperties = false): FindRow {
   const workId = workIdOf(block);
   return {
     id: block.id,
@@ -504,6 +508,7 @@ function findRow(block: Block & { propertyMatches?: PropertyMatchContext[] }): F
     updated: block.updatedAt,
     ...(workId ? { workId } : {}),
     ...(block.propertyMatches?.length ? { matches: block.propertyMatches.map(matchFacts) } : {}),
+    ...(withProperties ? { properties: recordProperties(block.properties) } : {}),
   };
 }
 
@@ -534,7 +539,7 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
     const read = await readSavedView(client, view.id, { limit });
     if (read.errors.length) throw new WorkToolRefusal(`The view ${view.id} can't be read: ${read.errors.join("; ")}`);
     return {
-      blocks: read.blocks.map(findRow),
+      blocks: read.blocks.map(block => findRow(block, input.properties === true)),
       complete: read.nextOffset === undefined && (read.completeness?.kind ?? "complete") === "complete",
       ...(read.total === undefined ? {} : { total: read.total }),
     };
@@ -559,7 +564,7 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
       : s.status === "ranked" ? { status: "ranked", said: "ranked by Jev over the text matches" }
       : { status: s.status, said: `text matches only${s.message ? ` (${s.message})` : ""}` };
     return {
-      blocks: ids.flatMap(id => { const b = by.get(id); if (!b) return []; const score = scores.get(id); return [{ ...findRow(b), ...(score !== undefined ? { score } : {}), ...(byMeaning.has(id) ? { byMeaning: true } : {}) }]; }),
+      blocks: ids.flatMap(id => { const b = by.get(id); if (!b) return []; const score = scores.get(id); return [{ ...findRow(b, input.properties === true), ...(score !== undefined ? { score } : {}), ...(byMeaning.has(id) ? { byMeaning: true } : {}) }]; }),
       complete: found.completeness.kind === "complete" && found.matches.length <= shown, search,
     };
   }
@@ -581,7 +586,7 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
   // An older service ignores `where` and would return unfiltered results.
   if (query.where !== undefined) await client.requireCompatibleService();
   const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query });
-  return { blocks: found.blocks.map(findRow), complete: found.completeness.kind === "complete", ...(found.machineryLeftOut ? { machineryOmitted: found.machineryLeftOut } : {}) };
+  return { blocks: found.blocks.map(block => findRow(block, input.properties === true)), complete: found.completeness.kind === "complete", ...(found.machineryLeftOut ? { machineryOmitted: found.machineryLeftOut } : {}) };
 }
 
 // ─── Edit ──────────────────────────────────────────────────────────────────

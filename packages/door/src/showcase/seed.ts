@@ -729,6 +729,8 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.lineAsksAll = await make(notes.root.id, `${SEED.lineAsksAll} [type::virtual-branch] [query::club-ask] [property-scope::all]`);
   notes.gallery = await make(notes.root.id, galleryText());
   for (const card of galleryCards()) await make(notes.gallery.id, card);
+  // The saved view remains the one question; the installed workbench extension presents its live answer three ways.
+  notes.workbench = await make(notes.root.id, `${SEED.workbench} [type::virtual-branch] [query::type=chore] [group::stage] [sort::due] [direction::asc] [columns::stage,due,area]\nworkbench::\nEdit a chore's stage or due date, or change this note's query. The table, cards and list follow the same answer.`);
   // Marginalia (PIE-753): its kit installed as the rules are; the plan, the notebook, a highlight and an answered question.
   if (opts.ticketsConfig && rulesFrom && installExamples(opts.ticketsConfig, rulesFrom, ["marginalia", "intake"]).length) {
     const end = Date.now() + 10_000;

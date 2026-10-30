@@ -20,6 +20,12 @@ are its record. The outliner's entries from then are kept below, under
 - **`%name` in the power bar puts that tile first:** a field typed whole (a tile's name) ranks before a row listed earlier that only mentions it.
 - **The river keeps a spine again:** a flow's peeks give a cell to a kept spine as the flow lays out any new column; the readable-tiles check no longer refused every spine in a crowded river.
 - **Every door test passes alone:** power-bar, flow, showcase/hints and claude-mod-contract were red alone (and the flow, hints and mod ones red in any order): two door fixes above, a test that matched a label also drawn behind the bar, and one that read a reader's header the written title now heads (PIE-1248).
+
+### A saved view reads as a table, cards and a list: the collection workbench (Datacore spike)
+
+- **Collection workbench extension:** put `workbench::` in a saved view note and its `[query::]`, `[group::]`, `[sort::]` and `[columns::]` draw as a linked table, cards and a filterable list with previews; editing the view or any matching note updates it live, and every row opens its note. Install it from the extensions screen; uninstalling leaves the view and its notes.
+- **Query-fed handlers:** a read handler's manifest can declare `query`, a question the service answers and watches (the one `QueryWatches`) and passes the extension as `input.query`; Sources shows the bound question and its rows, and a result row opens its note. Rows reach the program as properties plus a short excerpt, so a collection of long notes still draws.
+- **Showcase:** "Garden collection workbench" in the kitchen sink, with the extension installed.
 - **Run:** `ep0ch install --apply`.
 
 ### A refusal never covers the lock chip it names (PIE-1456)

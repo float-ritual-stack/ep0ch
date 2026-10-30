@@ -52,6 +52,10 @@ export const PRIMITIVE_FIELDS = {
 export const RENDER_TARGETS = ["terminal", "markdown", "blockdown", "html", "json", "csv"] as const;
 export type RenderTarget = typeof RENDER_TARGETS[number];
 export const TONES = ["default", "good", "warn", "bad", "dim", "accent"] as const;
+/** A table cell: plain text or a number, or one that presses an action line or opens a note on its own (PIE-1461). */
+export type TableCell = string | number | { text: string; act?: ActionLine; link?: string; tone?: Tone };
+/** A cell's text, whatever its shape. */
+export const cellText = (value: TableCell): string => typeof value === "object" ? value.text : String(value);
 export type Tone = typeof TONES[number];
 
 /**
@@ -77,8 +81,10 @@ export type Primitive =
   /**
    * `links`: a block id or a Resource ref (`file:`, `web:`, `resource:`) per row (or null) that a client opens on Enter or a click.
    * `acts`: an action line to press per row (or null), in place of its link.
+   * A cell is text or a number, or `{ text, act?, link?, tone? }`: a cell of its own that presses or opens (PIE-1461), so one
+   * row can open its note from the title and change a property from another column.
    */
-  | { type: "table"; columns: string[]; rows: (string | number)[][]; links?: (string | null)[]; acts?: (ActionLine | null)[] }
+  | { type: "table"; columns: string[]; rows: TableCell[][]; links?: (string | null)[]; acts?: (ActionLine | null)[] }
   | { type: "checklist"; items: { label: string; done: boolean }[] }
   | { type: "sparkline"; label?: string; values: number[] }
   | { type: "card"; title: string; subtitle?: string; badge?: { label: string; tone?: Tone }; link?: string; act?: ActionLine; children?: Primitive[] }
@@ -355,7 +361,25 @@ export function validatePrimitive(value: unknown, path = "view", depth = 0, coun
       if (!Array.isArray(node.rows) || node.rows.length > MAX_ROWS) fail(`${path}.rows`, `must be a list of at most ${MAX_ROWS} rows`);
       const rows = node.rows.map((row, index) => {
         if (!Array.isArray(row) || row.length !== columns.length) fail(`${path}.rows[${index}]`, `must have ${columns.length} cells`);
-        return row.map((cell, column) => typeof cell === "number" ? finite(cell, `${path}.rows[${index}][${column}]`) : text(cell, `${path}.rows[${index}][${column}]`)!);
+        return row.map((cell, column): TableCell => {
+          const at = `${path}.rows[${index}][${column}]`;
+          if (typeof cell === "number") return finite(cell, at);
+          if (cell && typeof cell === "object" && !Array.isArray(cell)) {
+            const raw = cell as Record<string, unknown>;
+            only(raw, ["text", "act", "link", "tone"], at);
+            const out: Extract<TableCell, object> = { text: text(raw.text, `${at}.text`)! };
+            if (raw.act !== undefined) out.act = actionLine(raw.act, `${at}.act`);
+            if (raw.link !== undefined) {
+              if (typeof raw.link !== "string" || !linkable(raw.link)) fail(`${at}.link`, "must be a block id or a Resource ref (file:/path, web:https://…, resource:<id>)");
+              out.link = raw.link;
+            }
+            if (out.act && out.link) fail(at, "a cell presses or opens, not both");
+            const cellTone = tone(raw.tone, `${at}.tone`);
+            if (cellTone) out.tone = cellTone;
+            return out;
+          }
+          return text(cell, at)!;
+        });
       });
       let links: (string | null)[] | undefined;
       if (node.links !== undefined) {
@@ -513,7 +537,7 @@ export function trackText(pattern: BandPattern | undefined, width = 40): string 
 }
 
 const statText = (node: Extract<Primitive, { type: "stat" }>) => `${node.value}${node.unit ? ` ${node.unit}` : ""}`;
-const cell = (value: string | number) => String(value);
+const cell = (value: TableCell) => cellText(value);
 /** One line, no control characters: what a terminal cell may hold. */
 const oneLine = (value: string) => value.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ");
 
@@ -675,7 +699,7 @@ function htmlOf(node: Primitive, count = { images: 0 }): string {
     case "sparkline": return `<div class="ext-sparkline">${node.label ? `<span class="ext-label">${html(node.label)}</span> ` : ""}${sparkline(node.values)}</div>`;
     case "checklist": return `<ul class="ext-checklist">${node.items.map((item) => `<li><input type="checkbox" disabled${item.done ? " checked" : ""}> ${html(item.label)}</li>`).join("")}</ul>`;
     case "table": return `<table class="ext-table"><thead><tr>${node.columns.map((column) => `<th>${html(column)}</th>`).join("")}</tr></thead><tbody>${
-      node.rows.map((row) => `<tr>${row.map((value) => `<td>${html(cell(value))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+      node.rows.map((row) => `<tr>${row.map((value) => `<td>${typeof value === "object" && value.link && BLOCK_ID.test(value.link) ? `<a href="#${html(value.link)}">${html(value.text)}</a>` : html(cell(value))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
     case "card": return `<section class="ext-card"><header><strong>${html(node.title)}</strong>${node.badge ? ` <span class="ext-badge${toneClass(node.badge.tone)}">${html(node.badge.label)}</span>` : ""}${
       node.subtitle ? `<div class="ext-subtitle">${html(node.subtitle)}</div>` : ""}</header>${(node.children ?? []).map((child) => htmlOf(child, count)).join("")}</section>`;
     case "box": return `<section class="ext-box">${node.title ? `<h4>${html(node.title)}</h4>` : ""}${node.children.map((child) => htmlOf(child, count)).join("")}</section>`;
@@ -739,7 +763,7 @@ const csvCell = (value: unknown) => {
 /** Rows, when there are any: the view's first table, else data that is a list of flat objects. */
 function csv(output: ComponentOutput): string | null {
   const table = firstTable(output.view);
-  if (table) return [table.columns, ...table.rows].map((row) => row.map(csvCell).join(",")).join("\n");
+  if (table) return [table.columns, ...table.rows.map((row) => row.map(cell))].map((row) => row.map(csvCell).join(",")).join("\n");
   // A list is its rows' label and detail.
   const list = firstList(output.view);
   if (list) return [["label", "detail"], ...list.rows.map((row) => [row.label, row.detail ?? ""])].map((row) => row.map(csvCell).join(",")).join("\n");

@@ -1052,6 +1052,16 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "workbench", need: "open one saved collection and work with its live matches as a table, cards and a list, with the same row identity and open action",
+    part: "the query-fed extension handler (ADR 0004): a manifest Question is bound to the note, answered and watched by the service's blocks.query and QueryWatches, then passed as input.query to one component projection. The workbench extension composes table, card and list primitives; the door's NoteSurface draws them and its ListView owns the person's selection, preview and filter. The view note owns membership, group and sort; an extension owns only presentation.",
+    files: "outliner src/extension-manifest.ts, src/extension-calls.ts, src/query-watches.ts, extensions/workbench; door src/components.ts, src/surface/list-view.ts, src/surface/note.ts",
+    aside: "open the workbench note and choose a row by click or keys. It opens the same source note. Edit its [stage::] or [due::], return, and the query-fed projection changes without a refresh key. Edit [query::], [group::], [sort::] or [columns::] in the workbench note with completion: the same saved view controls the tree and all three presentations. An agent reads components.schemas and resources.projection.read, edits the same notes with revisions, and opens the same row through act.",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · collection workbench", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.workbench]]);
+    },
+  },
+  {
     key: "gallery", need: "show a picture in an extension's view (a card's cover, a gallery, a mood board)", part: "the image primitive (PIE-827): { type: \"image\", src, alt?, size?, fit?, height?, caption? } (caption: false, PIE-839: a card's cover drawn alone), outline-core's imagePrimitiveSpec turns it into the media line's spec, primitiveLines hands it to the reader's PrimitiveDraw.image, which lays it out as a note's [img::] line is (doc.ts mediaRows: the graphics budget, dark-first dimming, its caption); a zero-width tag on its first row says where the view put it, and the reader places the picture there, its cells on the terminal's own background (a terminal may draw it under a tinted cell)", files: "src/components.ts, src/doc.ts (mediaRows), src/surface/note.ts (pictureRows), outliner src/component-primitives.ts, outliner extensions/gallery",
     aside: "the outliner's gallery extension (installed with the rules): gallery:: draws the notes under it as cards with their [cover::] pictures, pic:: draws one · [ ] stops on a picture's caption and ⏎ opens it, a card's title opens its note · under Kitty graphics the pictures are drawn, dimmed as a note's are; elsewhere each caption says what it is · nothing is written to the outline: on a page each picture is served as a note's image is, when the publish roots allow it",
     stage(n, show) {
@@ -1475,6 +1485,14 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const a = new ReaderPane(true), b = new ReaderPane(true);
       return deskOf({ title: "showcase · wyrm", panes: [a, b], names: ["town", "player"] }, show, [[a, n.wyrm], [b, n.wyrmSleeper]]);
+    },
+  },
+  {
+    key: "lens", need: "draw a live, editable table of what a query holds, from one line in any note", part: "the query grammar reading this, q() rows with properties, a file render script, table cells that press or open, outline_set_property", files: "outliner/extensions/lens/scripts/ (lens.js, lens-set.js), outliner/extensions/lens/demo/",
+    aside: "Lens, installed with its lab. Jobs: press a stage cell to step it todo → doing → done (ctrl+z takes it back); the table redraws from the change · the day note's line reads {{this.page}}, so the same line in the next day shows that day's meetings · Seed order: cost=\"qty * price\" is a computed column, sum=cost its footer; edit a quantity and the sum follows · group=priority folds rows into boxes · lens:: view=[[Meetings]] draws a saved view · an agent runs what a press runs: lens-set note=<id> key=stage value=done",
+    stage(n, show) {
+      const a = new ReaderPane(true), b = new ReaderPane(true), c = new ReaderPane(true);
+      return deskOf({ title: "showcase · lens", panes: [a, b, c], names: ["jobs", "day", "order"], layout: ([x, y, z]) => pair("col", 0.5, leaf(x!), row(0.5, y!, z!)) }, show, [[a, n.lensJobs], [b, n.lensDay], [c, n.lensOrder]]);
     },
   },
   {

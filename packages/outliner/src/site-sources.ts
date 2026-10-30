@@ -75,13 +75,18 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
     const params = expr ? [] : Object.entries(slotProps(argument)).flatMap(([key, values]) => values.map(value => ({ key, value })));
     const t = deps.transformOf(p.extension.id, p.extension.handler);
     const markdown = p.output?.markdown ?? "";
+    const queried = p.output?.query;
+    const questionParams = queried ? Object.entries(queried.question).map(([key, value]) => ({ key, value: typeof value === "string" ? value : JSON.stringify(value) })) : [];
+    const queryRows = queried?.blocks ?? [];
+    if (queried) deps.depend?.(queryRows.map(row => row.id));
+    const visibleRows = request.hidden?.length ? queryRows.filter(row => !request.hidden!.includes(row.id)) : queryRows;
     out.push({
       key: String(line), kind: expr ? "expr" : "handler", name: expr ? "::=" : p.propertyKey, line, endLine: line,
       ...(p.output?.ranAt ? { readAt: p.output.ranAt } : {}), live: p.extension.effects === "read",
-      query: { params, text: written, editable: !expr },
+      query: queried ? { params: questionParams, text: queried.question.where ?? "", editable: false } : { params, text: written, editable: !expr },
       transform: expr ? { kind: "expression", label: "one-line script", text: argument } : { kind: t.kind, label: t.label, ...(t.block ? { block: t.block } : {}), ...(t.text !== undefined ? { text: t.text } : {}) },
-      result: resultOf(markdown),
-      ...(p.status !== "ready" && p.status !== "stale" ? { problem: p.reason ?? String(p.status) } : {}),
+      result: queried ? blocksResult(visibleRows) : resultOf(markdown),
+      ...(p.status !== "ready" && p.status !== "stale" ? { problem: p.reason ?? String(p.status) } : queried && visibleRows.length < queryRows.length ? { problem: "some query rows are not shared here" } : {}),
     });
   }
 

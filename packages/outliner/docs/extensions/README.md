@@ -300,6 +300,7 @@ extensions/horoscope/
 | `secretGroups` | `with-secrets` groups a call may ask for while it runs, by name, or `["*"]` for any ([chosen at run time](#secrets-chosen-at-run-time)). |
 | `env` | Host variables its process gets besides the base ones, by name (`["GH_CONFIG_DIR"]`), when the service has them. Never a secret: those are `secrets` and `secretGroups`. The service's own (`PATH`, `HOME`, `EP0CH_*`, …) are refused. |
 | `handlers[]` | The `key::` lines it serves (kinds 1–3). |
+| `handlers[].query` | A read output or component handler's service Question: `where` (required), `this`, `group`, `sort`, `limit`, `facets`, `facetKeys`, `facetValues`. The service watches the answer and passes it as `input.query` before `run`. |
 | `actions[]` | What it can do: one action is a key, a click and an agent call alike. |
 | `tiles[]` | Tile kinds (kind 4). |
 | `agents[]` | Agents a person addresses while they write (`@tidy …`); see [Agents in the note](#agents-in-the-note). |
@@ -308,6 +309,8 @@ extensions/horoscope/
 | `bar[]` | Gone (PIE-1344): the palette's old name for `sources[]`. A manifest that still says it is refused with the rename; answer the `source` operation. |
 | `components[]` | What the properties your lines or notes take are, as component schemas (at most 8); see [Component schemas](#component-schemas-docs-and-completion). Needs no `run`. |
 | `demo` | A folder of demo notes (usually `"demo"`), written under the extension's page when it's installed, once; see [An extension's page and its demo notes](#an-extensions-page-and-its-demo-notes). |
+
+A handler question uses the same grammar and answer as `blocks.query`. In its string fields, `{{argument}}` is the line's words, `{{option.name}}` is a declared fetch option, and `{{this.query}}` and other Site paths read the note the line is in. Bare `this` in the question's grammar names that note. The host evaluates the question once for the call, passes the full answer as `input.query` (each block also has its canonical record `title`), and reruns a read handler when that answer changes; a spend or write handler cannot declare a query. The query's membership, sort, groups, facets, completeness and hint are service answers, not code the extension implements. [Collection workbench](../../extensions/workbench) is a complete example using a saved view as its source.
 
 ### `config.json`
 
@@ -2464,11 +2467,9 @@ properties your sync writes; never a list of keys in code ([properties are open]
 ## Not yet
 
 - **The door's `::graph-*` figures** (`graph-check`, `graph-stat`, `graph-table`, `graph-rank`) stay
-  in the door for now. They are a rich component in shape, but they live in the door's core and
-  read the outline through queries on every paint. The door draws components from the service now
-  (the door's PIE-512); moving them still needs a query input in the `run` contract (a handler that
-  declares the query it reads, evaluated by the service). The primitives here are
-  the target they move to.
+  in the door for now. They are rich components in shape and already use service questions, but
+  the built-in figures have not been moved to query-fed extension handlers. The service now supplies
+  the question input a handler needs; the existing primitives can draw the result.
 - **Actions in Detail.** The service lists them with keys and labels; the door binds them
   (the door's PIE-512), Detail doesn't yet: its selection builds a passage through outline-core's
   `findPassage` for a comment, but doesn't run a passage action. Until then in Detail: `outliner ext act --quote`

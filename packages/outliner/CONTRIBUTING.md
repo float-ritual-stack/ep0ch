@@ -180,7 +180,10 @@ source evidence or distinguish authored glyphs from controls.
   `resources.projection.read` slot, renders targets and runs actions (writes
   kept inside the block, attributed `ext:<id>` with who asked as `requestedBy`; an
   update goes through `draft.patch`'s `edit` policy like an `@agent`'s, never its own
-  write path). `ext:<id>` actor ids are the runtime's alone: `server.ts` refuses a
+  write path). A read handler's manifest `query` is bound here to its line,
+  answered by `blocks.query`, kept by the service's `QueryWatches`, and passed
+  to the handler as `input.query`; the handler presents the answer but never
+  decides membership. `ext:<id>` actor ids are the runtime's alone: `server.ts` refuses a
   client request that names one. `src/component-primitives.ts`
   owns the shared primitive catalogue and the render targets with their
   fallback chain; a client draws those primitives, never a component by name.

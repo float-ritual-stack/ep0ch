@@ -65,7 +65,7 @@ export const EXAMPLE_EXTENSIONS = ["moon", "horoscope", "fancy-horror", "tarot",
 /** The outliner's example rules (PIE-600): one that decorates, one that runs, one on a text pattern. */
 export const RULE_EXAMPLES = ["meeting-card", "done-stamp", "shout"] as const;
 /** The outliner's extensions that ship demo notes: their pages under the Extensions hub, the demo under each. Installed with the rules. */
-export const DEMO_EXAMPLES = ["notify", "runbook", "structure", "wyrm"] as const;
+export const DEMO_EXAMPLES = ["notify", "runbook", "structure", "wyrm", "lens"] as const;
 /** The outliner's example programs: a scheduled almanac and the installable neat layout script. Installed with the rules. */
 export const PROGRAM_EXAMPLES = ["almanac", "neat"] as const;
 /**
@@ -76,7 +76,7 @@ export const CARD_EXAMPLES = ["echonet"] as const;
 /** The outliner's example form (PIE-828): one action that asks each note for the fields it writes. Installed with the rules. */
 export const FORM_EXAMPLES = ["form"] as const;
 /** The outliner's example of pictures in a view (PIE-827): gallery:: cards with covers, pic:: one picture. Installed with the rules. */
-export const VIEW_EXAMPLES = ["gallery"] as const;
+export const VIEW_EXAMPLES = ["gallery", "workbench"] as const;
 
 /** The outliner's example completion source (PIE-1340): open issues under [[ and [issue::. Installed with the rules. */
 export const SOURCE_EXAMPLES = ["issues"] as const;
