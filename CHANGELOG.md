@@ -23,6 +23,15 @@ are its record. The outliner's entries from then are kept below, under
 - **List keys:** Matches answers `list.pick`, `list.step`, `list.open`, `list.filter`; `/` filters it.
 - **Run:** `ep0ch install --apply`, then `ep0ch machinery backfill --apply` once per outline (pie, float-hub) to stamp the peer messages already there.
 
+### Opens into your readers never crush the other columns (PIE-1207, round two)
+
+- **A kept spine leaves every column readable:** a second open into a reader no list feeds keeps the first note as a spine beside that reader, never inside the links and activity column; when a spine would leave any tile under 28×6, the open replaces and says "no room for a spine · alt← returns <the old note>".
+- **A pinned reader is never halved while a reader sits idle:** an open aimed at a pinned reader goes to the reader opened beside it, else an idle unpinned reader on the screen (no list feeds it, an empty one first), and only then splits.
+- **The hint row names the tile:** `pinned · opens → reader2 · p unpins`, readable at 44 columns (`beside it` when a new reader will be opened).
+- **Docs say wires:** UI-GRAMMAR, AGENT-INTERFACE and the door README no longer mention a current note or a following reader.
+- **Try it:** `ep0ch --showcase`, section "reader-pins".
+- **Run:** `ep0ch install --apply` (door only; no PROTOCOL or schema change).
+
 ### An agent's answers read right, round two: script runs, asks from the bar (PIE-1436)
 
 - **A script run lists only what it changed:** `changed` leaves out what another writer made meanwhile (Jev's review records and suggestions page, the first time a create is reviewed) and any `[machine::…]` bookkeeping.

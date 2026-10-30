@@ -65,7 +65,7 @@ Bindings live in `.ep0ch/config.toml`. `ep0ch doctor --fix` repairs old `.ep0ch`
 `.ep0ch.bak`; old scripts move only with an explicit `ep0ch doctor --fix --move-scripts`.
 
 An open proposal offers `A` apply, `r` resolve, and `X` dismiss in its reader and the waiting-on-you tile.
-Resolve asks the outline's tidy agent to apply the intent to the current note, keeping unrelated edits.
+Resolve asks the outline's tidy agent to apply the intent to the note the proposal is on, keeping unrelated edits.
 Conflicting readings stay open with a one-line reason. Agents use `act proposal.resolve block=<id>` or
 `outline_proposal_resolve`; the power bar lists the same action. Ctrl+Z in the reader undoes a resolution.
 Outside a proposal, `r` still refreshes the note's projections or sends a held request.
@@ -1267,7 +1267,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | Tile | What it shows |
 |---|---|
 | outline (`tree`) | the tree; `←/→` fold, `⏎` opens (into its link, if it has one). `L` shows the selected row's links under it, as the outliner's Tree does: `→ outlinks`, `♦ resources` (`[file::]`, `jira::`), `← backlinks` (grouped as Detail groups them); each group folds (`space`, `h l`, a click); `l` or a click on a link's `▸` shows that note's links a level down; `⏎` or a click opens a link's note, or shows a resource's stored content in the reader (registering it first, and fetching it once, if it must) (`tree.links`, `tree.pick`). A note that is a virtual branch (`[type::virtual-branch]`, a hub that is a folder and a file) shows, opened, its physical children and then its matches as the service answers them (`views.read`): `◇` marks each match, the tag reads `V:n`, a line says `3 matches · children to depth 1`, and a `▸ more` row reads the next page (`⏎`). A match is opened on demand (`l`, a click, `⏎`) to its children, no further than the view's `[child-depth::]` (default 2); `D` (`tree.depth`) sets the depth for the view, or a click or `⏎` on the results line steps it: results only, 1, 2, 3, then the view's own. Nothing is written (PIE-882) **Move a note** (PIE-943, `tree.move`): `alt+↑` `alt+↓` (or `K` `J`, for a terminal that doesn't send Option+arrows) put the selected note up or down among its siblings, `I` moves it in, last under the note above (that opens), `O` out, right after its parent, `Z` asks where ("Move to…" in the power bar), `ctrl+z` puts the last move back. A drag onto a row moves the note under it (first); onto its `▸` mark, at the left edge, above it (when it started below) or below it, no modifier. A match of a view isn't the note: its row doesn't drag, and says so. `alt+←` `alt+→` are never move keys (a reader reads them as back and forward) |
-| reader | a reader keeps what's opened or wired into it: there is no current note (PIE-1207). `p` (or a click on its □ pin chip) pins it: **▣ pinned**, it keeps its note, every open aimed at it lands in a reader beside it, its hint row says where, and it comes back pinned after a restart; `reader.pin page=<name>` pins it on a page. `P` opens the policy panel. A reader's own navigation is local (PIE-794): a link followed in it changes only it; `alt+r` or a click on its crumbs shows its note in the outline (`reader.reveal`). An open never changes a reader's pin; `[ ]` elements, `⏎` act on one, `alt+⏎` or a ctrl-click opens a link beside, `u` parent, `( ) f F` fold, `b` its links (the links tile), a `#tag` (the service reads it as a tag) is a link: `⏎` or a click lists the notes carrying it in a query tile below the reader (PIE-800), `O` a reader beside it where its links open (`tile.preview`); `r` fetches the note's tickets now (a click on a ticket's age does too), `⏎` on a ticket's title opens the ticket block |
+| reader | a reader keeps what's opened or wired into it: there is no current note (PIE-1207). `p` (or a click on its □ pin chip) pins it: **▣ pinned**, it keeps its note, every open aimed at it lands in the idle unpinned reader on the screen, else a reader beside it, its hint row names that tile (`pinned · opens → reader2 · p unpins`), and it comes back pinned after a restart; `reader.pin page=<name>` pins it on a page. `P` opens the policy panel. A reader's own navigation is local (PIE-794): a link followed in it changes only it; `alt+r` or a click on its crumbs shows its note in the outline (`reader.reveal`). An open never changes a reader's pin; `[ ]` elements, `⏎` act on one, `alt+⏎` or a ctrl-click opens a link beside, `u` parent, `( ) f F` fold, `b` its links (the links tile), a `#tag` (the service reads it as a tag) is a link: `⏎` or a click lists the notes carrying it in a query tile below the reader (PIE-800), `O` a reader beside it where its links open (`tile.preview`); `r` fetches the note's tickets now (a click on a ticket's age does too), `⏎` on a ticket's title opens the ticket block |
 | detail | a reader that keeps its note: it changes only by an open into it (its link, `open`, a click) |
 | preview | a reader that follows a source: a tile's selection (`tile:tree`, `tile:board`) or a file (`file:~/draft.md`), re-read when it's saved. Read-only for a file |
 | terminal (`pty`) | a program in a pty the door owns: nvim, claude, a shell. Click it or `⏎` to type in it; `ctrl+]` back to the door |
@@ -2496,7 +2496,7 @@ so there is no hover. What is wrong (a line not run yet, a failure, a stale resu
 as a dim row. `[ ]` stops on the mark and on each control; ⏎ or a click on a control runs it (⏎ on the mark runs the line's
 first action, else runs it again). While the mark is the current element its actions' keys work (`w`): one
 printable character each, never one the reader keeps for itself (`[ ] ( ) f u r y v i c m e j k h l q g` and
-the like) or its host does (the BBS reader's `n p t`, a following reader's `p`); such an action is still a
+the like) or its host does (the BBS reader's `n p t`, a reader's `p` pin); such an action is still a
 click or `act` away. The footer names the keys that work there (`w ward · r again`). `r` with no `[ ]` position runs
 the note's one line that runs, or, when it has several (handler lines, components, `@name` requests), none: it says which
 there are and what to do. Ticket regions (`jira::`, a kept record) are unchanged. The drawing is `src/output-region.ts`
@@ -3360,7 +3360,7 @@ Hint cards use the existing desk float layer. Controls share the tile menu's gro
 with labels first and key captions aligned at the right. Click `⋯` or right-click for the
 searchable menu; hold Ctrl, press `Ctrl+]` then `?`, or press `?` over a frame for controls. A calm frame puts
 its number, title and state before the controls. The right cluster gets its space
-first, even for a long title or a following reader. The scroll thumb stays; a frame
+first, even for a long title or a pinned reader. The scroll thumb stays; a frame
 never shows a percentage. Extra wire details appear only where there is room. `hints` in the
 tune inspector is `full`, `brief`, or `off`; cards use the tile's tone on a dark
 surface. The showcase's `hints` section demonstrates linking live.

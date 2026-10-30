@@ -132,14 +132,25 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     expect(await app.act({ action: "reader.pin", tile: "reader", args: { on: true }, as: "test-agent" })).toMatchObject({ name: "reader", pinned: true });
     expect((app as any).message).toContain("test-agent");
     const kept = tile("reader").showing.id, before = tiles().length;
-    // The tree's ⏎ aimed at the pinned reader: a new reader beside it takes the note, said once; the hint row names it.
+    const reader = [...stage().panes.entries()].find(([id]: any) => stage().nameOf(id) === "reader")![1] as any;
+    screen();
+    expect(reader.hint()).toContain("pinned · opens → reader2 · p unpins");
+    // The tree's ⏎ aimed at the pinned reader: the idle reader2 takes it, no split, said once.
+    const idle = await app.act({ action: "open", args: { id: seeded.notes.shed.id, from: "tree" }, as: "test-agent" }) as any;
+    expect(idle.name).toBe("reader2");
+    expect(tiles().length).toBe(before);
+    expect((app as any).message).toContain("reader is pinned: opened in reader2");
+    // reader2 pinned too: a new reader beside the pinned one takes the next, and the hint row says so.
+    await app.act({ action: "reader.pin", tile: "reader2", args: { on: true }, as: "test-agent" });
+    screen();
+    expect(reader.hint()).toContain("pinned · opens → beside it · p unpins");
     const opened = await app.act({ action: "open", args: { id: seeded.notes.whiteboard.id, from: "tree" }, as: "test-agent" }) as any;
     expect(tiles().length).toBe(before + 1);
     expect(opened.name).not.toBe("reader");
     expect(tile("reader").showing.id).toBe(kept);
-    const reader = [...stage().panes.entries()].find(([id]: any) => stage().nameOf(id) === "reader")![1] as any;
     screen();
-    expect(reader.hint()).toContain(`pinned: opens land in ${opened.name}`);
+    expect(reader.hint()).toContain(`pinned · opens → ${opened.name}`);
+    await app.act({ action: "reader.pin", tile: "reader2", args: { on: false }, as: "test-agent" });
     expect(reader.headControls(40, stage())[0].text).toBe("▣ pinned");
     // Let go: the next ⏎ lands in it again.
     await app.act({ action: "reader.pin", tile: "reader", args: { on: false }, as: "test-agent" });

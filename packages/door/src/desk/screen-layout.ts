@@ -540,6 +540,8 @@ export interface PlacementRequest<I = number> {
   /** An unnamed open, optionally aimed at the screen's default tile. */
   default?: boolean;
   keys?: false;
+  /** Only asked where it lands (a header, a hint row, a wire's words, every frame): a spine's room isn't measured. */
+  inspect?: true;
 }
 export type NotePlacement<I = number> = {
   destination: { kind: "swap"; tile: I } | { kind: "new"; at: At<I> } | { kind: "into"; key: string } | { kind: "across"; target: string; rule: AltRule; source?: true } | { kind: "none"; reason: string };
@@ -555,6 +557,8 @@ export type NotePlacement<I = number> = {
   giveNewKeys: boolean;
   /** A new reader opened beside this tile (it's pinned, or its opens go beside it): the next open aimed there reuses it. */
   besideOf?: I;
+  /** The open would have kept the old note as a spine, but there's no room for one: it replaces (the note is a step back). */
+  noSpine?: true;
 };
 
 /** The reader opened beside tile `id` last (`Ctx.beside`), while it's here and can take an open. */
@@ -708,7 +712,12 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       const again = besideReader(s, ctx, target);
       const name = String(s.names.get(target));
       // It replaces there (no spine kept): the reader beside a pinned one is where its opens go, one at a time.
-      if (again !== undefined) return { ...placement(s, { ...request, default: false, to: again, keep: false }, ctx), route };
+      if (again !== undefined) return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: again, keep: false }, ctx), route };
+      // Else a reader on the screen that sits idle (no list feeds it, nothing pinned or typed in it), an empty one first:
+      // it takes the open before the pinned one is split in two (PIE-1207).
+      const idle = visible(s.tree).filter(id => id !== target && takesOpen(s, ctx, id) && ctx.tile(id).held);
+      const free = idle.find(id => !ctx.tile(id).showing) ?? idle[0];
+      if (free !== undefined) return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: free, keep: false }, ctx), route, besideOf: target, why: `${name} is pinned: opened in ${String(s.names.get(free))} · p in ${name} unpins it` };
       // A floating one has no split beside it: a float near it takes the open.
       result.destination = { kind: "new", at: isFloat(s, target) ? { kind: "float", near: target } : { kind: "split", target, dir: "right" } };
       result.besideOf = target;
@@ -744,7 +753,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       if (result.giveNewKeys) result.keys = target;
       const chain = chainOf(s.tree, target);
       const space = effective([{ by: "screen", policy: s.policy }, ...chain.map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
-      if (request.keep !== false && !s.wires.some(w => w.from === from && w.verb === verb && w.to === target) && (!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held && !request.default || request.keep) && facts.showing && facts.showing !== note && !allTiles(s).some(id => id !== target && ctx.tile(id).notes && !ctx.tile(id).follower && !ctx.tile(id).lists && ctx.tile(id).showing === facts.showing) && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
+      if (request.keep !== false && !s.wires.some(w => w.from === from && w.verb === verb && w.to === target) && (!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held && !request.default || request.keep) && !s.collapsed.has(target) && facts.showing && facts.showing !== note && !allTiles(s).some(id => id !== target && ctx.tile(id).notes && !ctx.tile(id).follower && !ctx.tile(id).lists && ctx.tile(id).showing === facts.showing) && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
         const order = leaves(s.tree), before = from === target ? order.indexOf(target) > 0 : order.indexOf(from) < order.indexOf(target);
         const row = parentOf(s.tree, target)?.parent;
         const flowCovers = row?.t === "flow" ? coversOf(s, row, ctx.area, id => !!ctx.tile(id).holds) : undefined;
@@ -756,13 +765,74 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
         // An agent's kept page never goes in left of the tile the person is typing in: it would shift their text along (PIE-1294).
         const typing = ctx.protectTyping && ctx.person.typingIn !== null && row ? row.kids.findIndex(k => leaves(k).includes(ctx.person.typingIn!)) : -1;
         if (edge && typing >= 0 && row!.kids.findIndex(k => leaves(k).includes(edge!.target)) + (edge.dir === "right" ? 1 : 0) <= typing) edge = spineEdge(row!, folded, target, "end", before);
-        result.keep = { tile: target, at: row?.t === "split" && row.key && edge
-          ? { kind: "in", key: row.key, node: row.id, index: row.kids.findIndex(k => leaves(k).includes(edge.target)) + (edge.dir === "right" ? 1 : 0) }
-          : { kind: "split", target: edge?.target ?? target, dir: edge?.dir ?? (before ? "left" : "right") } };
+        // A row with no key takes the spine as a split beside a tile: an edge that's a container (a column of replies over
+        // activity) would put it inside that, beside a tile it isn't about, so it goes beside the reader on that side instead.
+        if (edge && !(row?.t === "split" && row.key) && row?.kids.find(k => leaves(k).includes(edge!.target))?.t !== "leaf") edge = { target, dir: edge.dir };
+        const keep = { tile: target, at: row?.t === "split" && row.key && edge
+          ? { kind: "in" as const, key: row.key, node: row.id, index: row.kids.findIndex(k => leaves(k).includes(edge.target)) + (edge.dir === "right" ? 1 : 0) }
+          : { kind: "split" as const, target: edge?.target ?? target, dir: edge?.dir ?? (before ? "left" as const : "right" as const) } };
+        // A kept spine never takes the room another tile needs to read (PIE-1207): with none, the open replaces, and the
+        // note it showed is a step back in the reader's history.
+        if (request.inspect || spineFits(s, keep, ctx.area)) result.keep = keep;
+        else result.noSpine = true;
       }
     }
   }
   return result;
+}
+
+/** Tree `t` with leaf `id` put at a place: beside a tile, into its tabs, along an outer edge, into a named line, or the next column. */
+function putAt<I>(t: LNode<I>, id: I, at: At<I>): LNode<I> {
+  if (!leaves(t).length && at.kind === "edge") t = leaf(id);
+  else if (at.kind === "edge") t = edge(t, id, at.dir);
+  else if (at.kind === "tabs") t = tabInto(t, at.target, id, at.index);
+  else if (at.kind === "split") t = besideSlot(t, at.target, leaf(id), at.dir, at.weight ?? 0.5, !!at.pair);
+  else if (at.kind === "in") {
+    const target = at.node ? nodeById(t, at.node)! : node(t, at.key)!;
+    t = replaceNode(t, target, insert(target, at.key, leaf(id), at.weight ?? 1, at.index));
+  }
+  else if (at.kind === "next") {
+    const f = flowHolding(t, at.from)!;
+    f.flow.kids.splice(f.ci + 1, 0, leaf(id)); f.flow.weights.splice(f.ci + 1, 0, 1);
+  }
+  return normalise(t);
+}
+
+/**
+ * A spine `spine` was put beside `kept` (the reader whose old note it keeps): the row they're in keeps every other column
+ * at the width it had (`before`), the spine takes SPINE and the reader gives that up. Only the spine's own leaf is a spine:
+ * a column that merely holds it keeps its width (PIE-1207: the links and activity column took 3 columns when it did).
+ */
+function spineWeights<I>(tree: LNode<I>, kept: I, spine: I, before: ReadonlyMap<I, Rect>): void {
+  const parent = parentOf(tree, kept)?.parent;
+  if (!parent || !isLine(parent) || parent.t === "flow") return;
+  parent.weights = parent.kids.map(k => {
+    if (k.t === "leaf" && k.id === spine) return SPINE;
+    const boxes = leaves(k).flatMap(t => before.has(t) ? [before.get(t)!] : []);
+    const width = boxes.length ? Math.max(...boxes.map(r => r.col + r.cols)) - Math.min(...boxes.map(r => r.col)) : 1;
+    return Math.max(1, width - (leaves(k).includes(kept) ? SPINE : 0));
+  });
+}
+
+/**
+ * Whether keeping `keep.tile`'s old note as a spine leaves every tile that reads now still readable (OPEN_READS): the
+ * spine placed on a copy of the screen as the open would place it, then measured (PIE-1207: a kept spine never takes the
+ * room another column needs).
+ */
+function spineFits<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed" | "policy">, keep: { tile: I; at: At<I> }, area: Rect): boolean {
+  const reads = (r: Rect | undefined) => !!r && r.cols >= OPEN_READS.cols && r.rows >= OPEN_READS.rows;
+  const before = rects({ ...s, zoom: null }, area);
+  const spine = Symbol("spine") as unknown as I;
+  const tree = putAt(clone(s.tree), spine, keep.at);
+  spineWeights(tree, keep.tile, spine, before);
+  const after = rects({ ...s, tree, collapsed: new Map([...s.collapsed, [spine, {}]]), zoom: null }, area);
+  return [...before].every(([id, r]) => s.collapsed.has(id) || !reads(r) || reads(after.get(id)));
+}
+
+/** Tile `id` is a reader that can take an open now: shown, not a list or preview, not pinned, edited or holding work. */
+function takesOpen<I>(s: Pick<LayoutState<I>, "collapsed">, ctx: Ctx<I>, id: I): boolean {
+  const f = ctx.tile(id);
+  return !s.collapsed.has(id) && !!f.notes && !f.follower && !f.lists && !f.pinned && !f.editing && !f.holds && f.available !== false;
 }
 
 /** The flow tile `id` is a column of (the nearest one over it), and its column there. */
@@ -1162,22 +1232,7 @@ class Step<I> {
   private present(id: I) { refuse(this.all().includes(id) ? null : `no tile ${this.name(id)} in the layout`); }
 
   /** A tile put at a place in the tree: beside a tile, into its tabs, along an outer edge, into a named line, or the next column. */
-  private putAt(id: I, at: At<I>) {
-    const t = this.d.tree;
-    if (!leaves(t).length && at.kind === "edge") this.d.tree = leaf(id);
-    else if (at.kind === "edge") this.d.tree = edge(t, id, at.dir);
-    else if (at.kind === "tabs") this.d.tree = tabInto(t, at.target, id, at.index);
-    else if (at.kind === "split") this.d.tree = besideSlot(t, at.target, leaf(id), at.dir, at.weight ?? 0.5, !!at.pair);
-    else if (at.kind === "in") {
-      const target = at.node ? nodeById(t, at.node)! : node(t, at.key)!;
-      this.d.tree = replaceNode(t, target, insert(target, at.key, leaf(id), at.weight ?? 1, at.index));
-    }
-    else if (at.kind === "next") {
-      const f = flowHolding(t, at.from)!;
-      f.flow.kids.splice(f.ci + 1, 0, leaf(id)); f.flow.weights.splice(f.ci + 1, 0, 1);
-    }
-    this.d.tree = normalise(this.d.tree);
-  }
+  private putAt(id: I, at: At<I>) { this.d.tree = putAt(this.d.tree, id, at); }
 
   private open(op: Extract<Op<I>, { op: "open" }>, automatic = false) {
     if ("placement" in op) {
@@ -1188,15 +1243,7 @@ class Step<I> {
         const before = rects({ ...this.d, zoom: null }, this.ctx.area);
         this.open({ op: "open", tile: op.tile, name: op.name, kind: "reader", at: plan.keep.at, keys: false }, true);
         this.d.collapsed.set(op.tile, byOf(this.ctx.actor));
-        const parent = parentOf(this.d.tree, plan.keep.tile)?.parent;
-        if (parent && isLine(parent) && parent.t !== "flow") {
-          parent.weights = parent.kids.map(k => {
-            if (leaves(k).includes(op.tile)) return SPINE;
-            const boxes = leaves(k).flatMap(t => before.has(t) ? [before.get(t)!] : []);
-            const width = boxes.length ? Math.max(...boxes.map(r => r.col + r.cols)) - Math.min(...boxes.map(r => r.col)) : 1;
-            return Math.max(1, width - (leaves(k).includes(plan.keep!.tile) ? SPINE : 0));
-          });
-        }
+        spineWeights(this.d.tree, plan.keep.tile, op.tile, before);
       }
       if (dest.kind === "new") this.open({ op: "open", tile: op.tile, name: op.name, kind: op.kind ?? "reader", at: dest.at, ...(!plan.giveNewKeys ? { keys: false as const } : {}) }, true);
       if (plan.merge !== undefined) {
