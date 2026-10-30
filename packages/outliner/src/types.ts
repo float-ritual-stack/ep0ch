@@ -1507,7 +1507,7 @@ export interface BlockSearchQuery {
   sort?: BlockQuerySort | string;
   /** Rows returned: 200 when left out, at most 1000. */
   limit?: number;
-  /** A property name, or created:day|week|month, updated:day|week|month: the answer's `groups`, over every match. */
+  /** A property name, or a date bucket (created:month, updated:recent, due:week): the answer's `groups`, over every match. */
   group?: string;
   /** `true`: value counts for every key the matches carry; or these keys. */
   facets?: true | string[];
@@ -1573,11 +1573,12 @@ export const BLOCK_READ_FIELDS = [
   "author",
   "hasChildren",
   "text",
+  "excerpt",
 ] as const;
 export type BlockReadField = (typeof BLOCK_READ_FIELDS)[number];
 /** Omitted `fields` return everything except full text. */
 export const DEFAULT_BLOCK_READ_FIELDS: readonly BlockReadField[] = BLOCK_READ_FIELDS.filter(
-  (field) => field !== "text",
+  (field) => field !== "text" && field !== "excerpt",
 );
 
 /** A block reduced to the requested fields. Absent keys were not requested. */
@@ -1602,6 +1603,8 @@ export interface ProjectedBlock {
   /** `hasChildren`: at least one child outside Trash. */
   hasChildren?: boolean;
   text?: string;
+  /** `excerpt`: the words after the title as one line (outline-core `noteExcerpt`), what a list row previews. */
+  excerpt?: string;
 }
 
 export interface ProjectedVisibleBlock extends ProjectedBlock {

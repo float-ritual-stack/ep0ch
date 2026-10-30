@@ -154,7 +154,7 @@ export interface BlockRevisions {
  *
  * - `where`: the views' grammar (outline-core's atoms, the outliner's `block-query.ts`).
  * - `this`: the block `this` stands for in `where` (`links:this`). A `this` with none given is refused.
- * - `group`: a property name, or `created:day|week|month` / `updated:day|week|month`.
+ * - `group`: a property name, or a date bucket `<created|updated|property>:day|week|month|year|recent` (`recent`: Today, Yesterday, Previous 7 days, Previous 30 days, then months).
  * - `sort`: `"<property|created|updated|title>[ asc|desc]"`; `property:<name>` for a property so named. `work-stage`
  *   sorts in the workboard's stage order.
  * - `limit`: rows returned, 200 when left out, at most 1000. Groups and facets count every match.

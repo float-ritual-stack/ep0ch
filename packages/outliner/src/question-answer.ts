@@ -3,7 +3,7 @@
 // counts rows itself and every terminal gets the same answer. Pure: the store passes the matches and how to read a
 // match's values.
 import { QUESTION_FACET_CAP, type QuestionFacet, type QuestionGroup } from "@ep0ch/outline-core/protocol";
-import { readBound, readDate, readDateBound, readNumber, valueHolds, wallClock } from "@ep0ch/outline-core/dates";
+import { readBound, readDate, readDateBound, readNumber, valueHolds, fromWallClock, wallClock } from "@ep0ch/outline-core/dates";
 import { dateGroupOf, expressionPropertyKeys, sortPropertyKey, valueOrder, type DateUnit } from "./block-query";
 import type { Block, NormalizedBlockSearchQuery, QueryExpression } from "./types";
 
@@ -12,8 +12,29 @@ export type ValuesOf = (block: Block, key: string) => string[];
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** The bucket an ISO time falls in: `2026-10-09`, `2026-W41` (ISO week), `2026-10` or `2026`, in UTC. */
-export function dateBucket(iso: string, unit: DateUnit): string | null {
+/** The relative buckets, in the order a list shows them (newest first); a month after them is `YYYY-MM`. */
+export const RECENT_BUCKETS = ["Later", "Today", "Yesterday", "Previous 7 days", "Previous 30 days"] as const;
+
+/**
+ * The relative bucket an ISO time falls in, by this machine's wall clock (as `today` in a query): Today, Yesterday,
+ * Previous 7 days, Previous 30 days, then its month (`2026-09`); a time after today is Later.
+ */
+export function recentBucket(iso: string, now = Date.now()): string | null {
+  const at = new Date(iso);
+  if (!Number.isFinite(at.getTime())) return null;
+  const day = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  const ago = Math.round((day(new Date(now)) - day(at)) / 86_400_000);
+  if (ago < 0) return "Later";
+  if (ago === 0) return "Today";
+  if (ago === 1) return "Yesterday";
+  if (ago <= 7) return "Previous 7 days";
+  if (ago <= 30) return "Previous 30 days";
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}`;
+}
+
+/** The bucket an ISO time falls in: `2026-10-09`, `2026-W41` (ISO week), `2026-10` or `2026`, in UTC; `recent`: recentBucket. */
+export function dateBucket(iso: string, unit: DateUnit, now = Date.now()): string | null {
+  if (unit === "recent") return recentBucket(iso, now);
   const at = new Date(iso);
   if (!Number.isFinite(at.getTime())) return null;
   if (unit === "day") return at.toISOString().slice(0, 10);
@@ -38,10 +59,10 @@ export function questionGroups(matches: readonly Block[], rows: readonly Block[]
   const date = dateGroupOf(group);
   const wall = wallClock(now);
   const keysOf = (block: Block): (string | null)[] => {
-    if (date && "field" in date) return [dateBucket(block[date.field], date.unit)];
+    if (date && "field" in date) return [dateBucket(block[date.field], date.unit, now)];
     if (date) {
       // A span's bucket is its first day's.
-      const days = valuesOf(block, date.key).map(v => readDate(v, wall)).map(when => when && dateBucket(new Date(when.from).toISOString(), date.unit));
+      const days = valuesOf(block, date.key).map(v => readDate(v, wall)).map(when => when && dateBucket(new Date(date.unit === "recent" ? fromWallClock(when.from) : when.from).toISOString(), date.unit, now));
       const buckets = [...new Set(days.filter((d): d is string => !!d))];
       return buckets.length ? buckets : [null];
     }
@@ -56,7 +77,9 @@ export function questionGroups(matches: readonly Block[], rows: readonly Block[]
   };
   for (const block of matches) for (const value of keysOf(block)) at(value).count += 1;
   for (const block of rows) for (const value of keysOf(block)) at(value).ids.push(block.id);
-  const order = valueOrder(date ? null : group, date && "field" in date ? -1 : 1);
+  // Relative buckets go newest first whatever the key: the named ones in their order, then the months.
+  const rank = (v: string) => { const i = (RECENT_BUCKETS as readonly string[]).indexOf(v); return i < 0 ? RECENT_BUCKETS.length : i; };
+  const order = date?.unit === "recent" ? (a: string, b: string) => rank(a) - rank(b) || b.localeCompare(a) : valueOrder(date ? null : group, date && "field" in date ? -1 : 1);
   return [...groups.values()].sort((a, b) =>
     a.value === null || b.value === null ? (a.value === b.value ? 0 : a.value === null ? 1 : -1) : order(a.value, b.value));
 }
