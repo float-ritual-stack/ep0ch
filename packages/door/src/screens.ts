@@ -692,7 +692,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.open": def({
-    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: [{ keys: "N J K R W L F S Q B D G X T O C I E + A M n j k r w l f s q b d g x t o c i e a m", does: "the menu's letters open that screen" }, { keys: "⏎", does: "opens the lit menu item" }, { keys: "click", does: "on a menu item or its letter on the key line" }],
+    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: [{ keys: "N J K R W L F S Q B D G X T O C I E + A M n j k r w l f s q b d g x t o c i e a m", does: "the menu's letters open that screen", on: "menu" }, { keys: "⏎", does: "opens the lit menu item", on: "menu" }, { keys: "click", does: "on a menu item or its letter on the key line" }],
     touches: "screen", replay: "safe", says: out => (out?.opened ? { text: `· opened ${out.opened} · q goes back`, ms: 6000 } : null),
     // Logging off is the person's G alone, on their press too (an agent's never ends their session).
     personWith: a => ((itemNamed(a.name) ?? itemNamed(resolveScreen(a.name) ?? ""))?.key === "G" ? { always: "an agent doesn't log the person off; only G, pressed or clicked by them, does" } : null),
@@ -780,7 +780,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "session.end": def({
     summary: "end the session: the door stops, with every program in its terminal tiles and the drawer, and every attached terminal is let go (unsaved drafts are copied to disk and put aside, as when the door quits). Logging off (G, ctrl+c) only detaches the terminal you're on; this is how the session ends. With programs running or a draft unsaved it asks first: again within 3s ends it. The person's only",
-    keys: [{ keys: "E", does: "on the main menu" }, { keys: "click", does: "on End on the main menu's key line" }, { via: "`ep0ch session end [--ws <name>] [--yes]` from a shell (this folder's outline's session, or --ws's; --yes is force=true)" }],
+    keys: [{ keys: "E", does: "on the main menu", on: "menu" }, { keys: "click", does: "on End on the main menu's key line" }, { via: "`ep0ch session end [--ws <name>] [--yes]` from a shell (this folder's outline's session, or --ws's; --yes is force=true)" }],
     touches: "screen", replay: "ask",
     personAlways: "an agent doesn't end the person's session: it would stop the programs in their terminal tiles and let go of their terminals. A session an agent started on its own state dir it ends with `ep0ch session end` there",
     args: { force: { type: "boolean", optional: true, about: "end it even with programs running or a draft unsaved (the drafts are copied to disk and put aside); else it says what's running, and again within 3s ends it" } },
@@ -813,7 +813,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "screen.help": def({
     summary: "open the help screen over this one: every menu item and what it does (any key goes back; ? on the menu is the keys window, keys.open); an agent's waits until the person is idle and is said on the status bar",
-    keys: [{ keys: "H h", does: "on the main menu" }, { keys: "click", does: "on H help on the main menu's key line" }],
+    keys: [{ keys: "H h", does: "on the main menu", on: "menu" }, { keys: "click", does: "on H help on the main menu's key line" }],
     touches: "screen", replay: "safe", says: () => ({ text: "· opened help · any key goes back", ms: 6000 }),
     args: {},
     run(_, { ctx }) {

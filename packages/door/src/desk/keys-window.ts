@@ -9,7 +9,7 @@ import { RowView, wheelRows } from "../scroll";
 import { wrap } from "../text";
 import { keycap } from "../figures/keys";
 import { ActionRefused, actionSet, actRequestOf, allActionSets, chordName, def, keyCaption, keyName, lineWords, shownLine } from "../surface/actions";
-import { bindings, conflicts, fightOf, LAYERS, rebindEffects, shadowsOf, strayEntries, unbound, type Binding } from "../surface/key-catalog";
+import { bindings, conflicts, fightOf, LAYERS, rebindEffects, shadowsOf, strayEntries, unbound, worksIn, type Binding } from "../surface/key-catalog";
 import { bindingId, entriesOf, keymapPath, keymapProblem, keymapVersion, keyTable, resetKeys, setKeys, undoKeymap } from "../surface/keymap";
 import { filterLine, type LineField } from "../surface/line";
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
@@ -51,13 +51,14 @@ interface Row { b: Binding; head?: string }
 /** The words a filter matches a binding by: its keys, action, scope, layer and what it does. */
 const words = (b: Binding) => `${b.cap} ${b.key} ${b.action} ${b.id} ${b.scope} ${b.layer} ${b.does}${b.yours ? " yours" : ""}`.toLowerCase();
 /**
- * Whether binding `b` has every word of a filter: a word is in its words, except `in:<scope>`, which is its scope, the
- * set its table is part of (KeyTable.within: `in:river` holds the river column's tables) or its layer exactly (`?` opens the window with `in:note` in a
+ * Whether binding `b` has every word of a filter: a word is in its words, except `in:<scope>`, which is where it works
+ * (the catalog's `worksIn`: its scope, the set its table is part of, `in:river` the river column's tables, its layer, and
+ * the ^W chords on a screen of tiles) (`?` opens the window with `in:note` in a
  * reader, `in:board` on the board, `in:river` in the river's Library).
  */
 export function matches(b: Binding, filter: string): boolean {
   const w = words(b);
-  return filter.toLowerCase().split(/\s+/).filter(Boolean).every(x => (x.startsWith("in:") ? b.scope.toLowerCase() === x.slice(3) || b.within === x.slice(3) || b.layer === x.slice(3) : w.includes(x)));
+  return filter.toLowerCase().split(/\s+/).filter(Boolean).every(x => (x.startsWith("in:") ? worksIn(b, x.slice(3)) : w.includes(x)));
 }
 /** The bindings in the order the window lists them: by layer (the order a key passes them), then scope, as the parts say them. */
 const listed = (all: readonly Binding[]) => [...all].sort((a, b) => LAYERS.indexOf(a.layer) - LAYERS.indexOf(b.layer) || a.scope.localeCompare(b.scope));
