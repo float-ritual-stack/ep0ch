@@ -534,7 +534,15 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       await until(() => { app.flush(); return painted.map(l => visible(l)).join(" ").replace(/\s+/g, " ").includes("did you mean Bird lists?"); }, "the whole refusal in the log");
       const log = painted.map(l => visible(l));
       expect(log.join(" ")).not.toContain(inbox.id);
-      const row = log.findIndex(l => l.includes("in Inbox")), col = log[row]!.indexOf("in Inbox");
+      // In a link's colour, never the renderer's marks drawn as characters (each would take a cell and cut the row).
+      // Lit or not (the lit row is drawn plain behind its bar).
+      const log0 = app.screens().at(-1)!;
+      expect(log0.render(app).lines.join("")).not.toMatch(/[\uE000-\uE00A]/);
+      app.flash("the shed is locked"); press({ kind: "char", ch: "r" }); press({ kind: "up" });
+      expect(log0.render(app).lines.filter(l => visible(l).includes("in Inbox")).join("")).not.toMatch(/[\uE000-\uE00A]/);
+      await until(() => { app.flush(); return painted.some(l => visible(l).includes("the shed is locked")); }, "the later message listed");
+      const now = painted.map(l => visible(l));
+      const row = now.findIndex(l => l.includes("in Inbox")), col = now[row]!.indexOf("in Inbox");
       press({ kind: "mouse", action: "down", button: 0, x: col + 1, y: row });
       await until(() => app.screens().every(s => s.title !== "message log"), "the label opened its note, the log closed");
     } finally { size.cols = 220; app.flash(""); await board.trash(inbox.id, USER); }

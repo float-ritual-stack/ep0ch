@@ -22,7 +22,7 @@ import { artBlock, cloneGrid, locate, stamp } from "./art-view";
 import type { Ctx, Frame, Screen } from "./app";
 import { subject, type Msg } from "./board";
 import { artNamed, loadArt, members, PACK_DIR, packs, type Member } from "./packs";
-import { balanceStyles, C, center, chip, extractLinks, fg, pad, paint, RESET, selectedRow, styleMarks, visible, width } from "./style";
+import { balanceStyles, C, center, chip, extractLinks, fg, pad, paint, RESET, selectedRow, visible, width } from "./style";
 import { pageOf, presentLinks, type LinkTarget } from "./refs";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import { ARM_MS, editArmMs, useEditArm } from "./arm";
@@ -44,7 +44,7 @@ import { madeScreen, resolveScreen, screenNames, screenTargetArg, screenTitle } 
 import { screenNoteProblems } from "./desk/screen-notes";
 import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
-import { bbsDate, printable, rowLines, rule, wrap } from "./text";
+import { bbsDate, colourInline, printable, rowLines, rule, wrap } from "./text";
 import { LISTVIEW_ACTIONS } from "./surface/list-actions";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { copyNoteById, NOTE_REF_ACTIONS, ownOutline, type NoteRefOn } from "./note-ref";
@@ -1405,15 +1405,17 @@ export class StatusMessages extends BbsList {
     this.query.drawnAt(2, 1, w - 2);
     // Each message as a reader draws its words (PIE-1453): a labelled reference by its label, a link that a click opens.
     const drawn = rows.flatMap((r, i) => [
-      `${new Date(r.time).toTimeString().slice(0, 8)} ${r.kind}${r.action ? " | " + r.action : ""}${r.tile ? " | " + r.tile : ""}`,
-      ...balanceStyles(this.drawn(r, ctx).split("\n").flatMap(line => rowLines(line, w, Infinity))),
+      ...rowLines(`${new Date(r.time).toTimeString().slice(0, 8)} ${r.kind}${r.action ? " | " + r.action : ""}${r.tile ? " | " + r.tile : ""}`, w - 1, Infinity),
+      // A cell short of the width: the lit row draws its bar before it, and a full row would lose its last letter.
+      ...balanceStyles(this.drawn(r, ctx).split("\n").flatMap(line => rowLines(line, w - 1, Infinity))),
     ].map(text => ({ text, i })));
     const first = drawn.findIndex(r => r.i === this.sel), last = drawn.findLastIndex(r => r.i === this.sel);
     const top = this.view.place(this.sel, drawn.length, Math.max(1, h - lines.length - 1), [first, last]);
     this.linkBoxes = [];
     for (const r of drawn.slice(top, top + h - lines.length - 1)) {
       this.ptr.row(lines.length, r.i, w);
-      const { lines: [plain], ranges } = extractLinks([styleMarks(r.text)]);
+      // Its link marks in a reader's colours (colourInline), then each link's cells for a click.
+      const { lines: [plain], ranges } = extractLinks([colourInline(r.text, C.grey, true)]);
       // The lit row is drawn behind its bar, one cell in unless it starts with a space (selectedRow).
       const shift = r.i === this.sel && !visible(plain!).startsWith(" ") ? 1 : 0;
       for (const g of ranges) this.linkBoxes.push({ row: lines.length, from: g.from + shift, to: g.to + shift, i: r.i, n: g.n });
