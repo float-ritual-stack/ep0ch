@@ -21,6 +21,12 @@ are its record. The outliner's entries from then are kept below, under
 - **Try it:** `ep0ch --showcase`, section "reader-pins".
 - **Run:** `ep0ch install --apply` (door only; no PROTOCOL or schema change).
 
+### An install over the link finds your tools (PIE-1243)
+
+- **The link agent carries your PATH:** `ep0ch install --apply` writes the machine link's launchd agent (`~/Library/LaunchAgents/io.ep0ch.link.plist`) or systemd unit with the PATH of the shell it ran in, refreshed on every install. An install sent over the link then finds Herdr, restic and with-secrets in Homebrew and `~/.local/bin`, so the plugin link, the backups and the PATH link run instead of being reported missing.
+- **A missing tool says where it looked:** "Herdr isn't installed (checked PATH=…)", and the same on the backups and PATH-link steps, so an install run in the wrong environment shows itself.
+- **Run once on a connecting machine (the laptop):** `ep0ch install --apply` in your own terminal. Installs sent over the link don't rewrite the agent, so the first one after this change still runs on launchd's bare PATH.
+
 ### Every message reads whole and tells the truth (PIE-1453, PIE-1450)
 
 - **A long refusal at 44 columns says "… more":** the four rows said above the status bar end "… more alt+M" when the message is longer; a click on them (or alt+M) opens the message log, which draws it whole.
