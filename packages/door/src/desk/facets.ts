@@ -939,7 +939,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.day": def({
     summary: "narrow the selection to the notes changed on a day (the calendar's pick): day=YYYY-MM-DD, or by=<days> from the one picked; day= empty drops it. Matches and the facets follow. Days are the service's (as `updated >= YYYY-MM-DD` reads)",
-    keys: [{ keys: "click", does: "a day on the calendar", says: "narrow to the notes changed on the day clicked" }, { keys: "d", does: "today", says: "narrow to the notes changed today" }, { keys: ", .", does: "the day before, the day after", says: "step the picked day back or forward" }, { keys: "⏎ on the day's pick", does: "drops it", says: "drop the day from the selection" }],
+    keys: [{ keys: "click", does: "a day on the calendar", says: "narrow to the notes changed on the day clicked" }, { keys: "d", does: "today", says: "narrow to the notes changed today" }, { keys: ", .", does: "the day before, the day after", says: "step the picked day back or forward" }, { keys: "⏎", does: "on the day's pick, drops it", says: "drop the day from the selection" }],
     touches: "tile", replay: "safe", says: r => (r.day ? `the notes of ${String(r.day)}` : "every day"),
     args: { day: { type: "string", optional: true, about: "YYYY-MM-DD; empty drops the day" }, by: { type: "number", optional: true, about: "days on from the picked one" } },
     examples: [
