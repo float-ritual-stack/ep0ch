@@ -277,7 +277,7 @@ export function upgradeSuggestionsPage(text: string): string {
     out.push(l);
     if (l.trim() === "link: note" && /type=review-(finding|quiet)\b/.test(query)) {
       // Anywhere in the figure's properties, before or after `link:`: an `at:` written already is kept as it is.
-      const from = lines.slice(0, i).findLastIndex(x => x.trim() === "---"), end = lines.indexOf("---", i);
+      const from = lines.slice(0, i).map(x => x.trim()).lastIndexOf("---"), end = lines.indexOf("---", i);
       if (!lines.slice(from + 1, end < 0 ? undefined : end).some(x => x.startsWith("at:"))) out.push("at: revision");
     }
   });
