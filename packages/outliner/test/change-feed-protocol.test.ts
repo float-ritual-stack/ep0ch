@@ -450,7 +450,7 @@ test("every content mutation family is covered by the feed and matches its live 
     action: "deliveries.sync", mutation: { author: "agent", actorId: "delivery-bot" }, input: {
       taskBlockId: roadmap.block.id, deliveryBlockId: delivery.delivery.id,
       expectedDeliveryRevision: delivery.delivery.revision, expectedTaskRevision: store.require(roadmap.block.id).revision,
-      pullRequest: { number: 7, url: "https://github.com/example/orbit/pull/7", state: "OPEN", mergeCommit: null },
+      pullRequest: { number: 7, url: "https://github.com/example/orbit/pull/7", state: "OPEN", mergeCommit: null, baseBranch: "main" },
     },
   }), () => [roadmap.block.id]);
 

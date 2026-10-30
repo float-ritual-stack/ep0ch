@@ -218,16 +218,52 @@ test("a merge is landed once, ticket or not; landing a ticketed PR syncs its del
   expect(open.error).toContain("is open: a PR with no item is recorded when it merges");
 });
 
-test("a PR retargeted since its delivery was recorded still gets its merge row, and says the delivery it couldn't sync", async () => {
+test("a PR GitHub retargeted to main is the same delivery: the merge hook syncs it, base and all (PIE-1440)", async () => {
   const h = await setup();
   await h.create();
   h.pull(55, "OPEN", "feature/pie-001", null, REPO, { base: "wave/records" });
-  await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "55"]);
+  const opened = await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "55"]);
   h.pull(55, "MERGED", "feature/pie-001", "eee5555");
   const landed = await h.run(["work", "deliver", "--repo", REPO, "--pr", "55"]);
-  expect(landed.json).toMatchObject({ landed: { created: true, tickets: ["PIE-001"] }, deliveries: [], failed: [{ deliveryKey: "PIE-001/primary" }] });
-  expect(landed.json.failed[0].error).toContain("not feature/pie-001 into wave/records");
+  expect(landed.json).toMatchObject({
+    landed: { created: true, tickets: ["PIE-001"] },
+    deliveries: [{ blockId: opened.json.delivery.blockId, workId: "PIE-001", stage: "validate" }], failed: [],
+  });
+  const delivery = h.store.require(opened.json.delivery.blockId);
+  expect(delivery.properties).toContainEqual({ key: "base-branch", value: "main" });
+  expect(delivery.properties).toContainEqual({ key: "merge-commit", value: "eee5555" });
+  expect(delivery.properties.filter((property) => property.key === "base-branch")).toHaveLength(1);
   expect(landedOn(h.store, "2026-03-04")).toEqual(["eee5555"]);
+});
+
+test("work deliver follows a retargeted PR by its number, with or without --key; another PR is still refused (PIE-1440)", async () => {
+  const h = await setup();
+  const { json } = await h.create();
+  h.pull(56, "OPEN", "feature/pie-001", null, REPO, { base: "feat/write-review" });
+  const opened = await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "56"]);
+  h.pull(56, "OPEN", "feature/pie-001");
+  const retargeted = await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "56"]);
+  expect(retargeted.json).toMatchObject({ delivery: { blockId: opened.json.delivery.blockId, stage: "review", created: false }, changed: true });
+  expect(h.store.require(opened.json.delivery.blockId).properties).toContainEqual({ key: "base-branch", value: "main" });
+
+  // Retargeted back onto a stacked base, then merged: the keyed call loki runs to close it.
+  h.pull(56, "MERGED", "feature/pie-001", "fff5656", REPO, { base: "release/next" });
+  const merged = await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "56", "--key", "primary"]);
+  expect(merged.json).toMatchObject({ workStage: "validate", delivery: { blockId: opened.json.delivery.blockId, stage: "validate" } });
+  expect(h.store.require(opened.json.delivery.blockId).properties).toContainEqual({ key: "base-branch", value: "release/next" });
+  const proofFile = h.file("proof.md", "Checked in a private fixture");
+  const closed = await h.run(["work", "complete", "PIE-001", "--all-merged", "--proof-file", proofFile]);
+  expect(closed.error).toBe("");
+  expect(closed.json).toMatchObject({ workStage: "done" });
+
+  // A different PR on the same branch and key is another delivery, not a retarget.
+  const other = await h.create();
+  h.pull(57, "OPEN", "feature/pie-002", null, REPO, { base: "feat/write-review" });
+  await h.run(["work", "deliver", other.json.workId, "--repo", REPO, "--pr", "57"]);
+  h.pull(58, "OPEN", "feature/pie-002");
+  const another = await h.run(["work", "deliver", other.json.workId, "--repo", REPO, "--pr", "58", "--key", "primary"]);
+  expect(another.error).toContain("already records example-org/example-app:feature/pie-002 into feat/write-review; pass --key");
+  expect(h.store.children(json.blockId).filter((child) => child.properties.some((p) => p.key === "type" && p.value === "delivery"))).toHaveLength(1);
 });
 
 test("a PR delivered to two tickets lands as one row naming both (PIE-1352)", async () => {

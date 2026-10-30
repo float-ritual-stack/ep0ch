@@ -79,6 +79,36 @@ describe.skipIf(!outliner)("Esc lands where it was meant (PIE-1431)", () => {
     } finally { d.quit(); }
   });
 
+  test("typing in a terminal tile: Esc closes the message log opened from the status bar's brand, and the next Esc right after goes nowhere", async () => {
+    const d = await door();
+    try {
+      await d.typeIn();
+      const desk = d.A.stack.at(-1);
+      await d.feed(click(d.chip("brand"), d.rows - 1));
+      await until(() => d.A.stack.at(-1) !== desk, "the message log opens");
+      await d.feed("\x1b");
+      expect(d.A.stack.at(-1)).toBe(desk);
+      await d.feed("\x1b");                                  // a second Esc, at once: the log was what it was for
+      expect(await d.echoed(d.kettle)).toBe(false);
+      expect(d.desk.rawKeys()).toBe(true);
+    } finally { d.quit(); }
+  });
+
+  test("typing in the drawer's agent: the message log from the status bar takes Esc, and the next Esc right after never reaches the agent", async () => {
+    const d = await door();
+    try {
+      await d.app.dispatch.press("host.toggle", { open: true });
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's agent runs");
+      const desk = d.A.stack.at(-1);
+      await d.feed(click(d.chip("brand"), d.rows - 1));
+      await until(() => d.A.stack.at(-1) !== desk, "the message log opens");
+      await d.feed("\x1b");
+      expect(d.A.stack.at(-1)).toBe(desk);
+      await d.feed("\x1b");
+      expect(await d.echoed(() => d.app.drawer.tile as PtyPane | undefined)).toBe(false);
+    } finally { d.quit(); }
+  });
+
   test("under the Kitty keyboard protocol (Esc as CSI 27u) it's the same: the bar's Esc, then nothing, never the program's", async () => {
     const d = await door();
     try {

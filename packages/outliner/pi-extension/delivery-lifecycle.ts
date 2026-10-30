@@ -259,8 +259,11 @@ export async function inspectPullRequest(
     throw new Error("GitHub pull-request inspection returned invalid JSON");
   }
   if (!Array.isArray(parsed)) throw new Error("GitHub pull-request inspection returned a non-array");
+  // A delivery that records a PR follows that number wherever GitHub retargets it (PIE-1440); before one, the base picks.
   const matches = (parsed as GhPullRequest[]).filter((pull) =>
-    pull.baseRefName === delivery.baseBranch && pull.headRefName === delivery.workBranch
+    pull.headRefName === delivery.workBranch && (delivery.pullRequestNumber !== null
+      ? pull.number === delivery.pullRequestNumber
+      : pull.baseRefName === delivery.baseBranch)
   );
   if (matches.length === 0) return null;
   const pull = matches.find((candidate) => candidate.state === "OPEN") ?? matches[0]!;

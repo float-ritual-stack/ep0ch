@@ -18,6 +18,21 @@ are its record. The outliner's entries from then are kept below, under
 - **Tables:** `at: <property>` on a live `::graph-table` with `link:` opens each row's note at the revision that property holds.
 - **Run:** nothing beyond the usual `ep0ch install --apply` (GRAMMAR 13: an older door opens the note without the compare); pie's suggestions page gains `at: revision` on its own at the next review Jev records after the install (until then its rows open the note without the compare; adding `at: revision` under `link: note` by hand does it at once).
 
+### A chat reads an away outline from its copy (PIE-1091)
+
+- **Snapshot and read while the laptop's away:** `outline_snapshot` and `reader_view` on an outline whose home is another machine (float-hub@laptop) are answered from float-2's read-only copy, each answer saying the copy's source, how fresh it is and whether it's stale. The snapshot link is float-2's web client's, works once and expires as any snapshot does.
+- **Shares stay home:** `share_start` on an away outline is refused and names the command to run on its own machine (`ep0ch share start <ref> --ws float-hub`); listing and revoking the copy's own links work.
+- **Run:** nothing beyond the usual `ep0ch install --apply` (it restarts the gateway and the publishers).
+
+### Esc closes the message log too, never the terminal behind it (PIE-1431)
+
+- **The message log is over your terminal like the power bar is:** Esc closes it, and a second Esc right after goes
+  nowhere instead of into the terminal tile or the drawer's agent ("nothing to close · pause, then esc is the program's").
+  Whatever is over the program you type in now counts, a new overlay included.
+- **At 40 columns the undo ask reads whole:** "saved · ctrl+z again undoes past it · …; revision N stays in its
+  history" wraps under the draft's status instead of being cut.
+- **A link followed in a message reader is on its trail:** in a reader `ep0ch open` put over a menu screen, follow a
+  link, then alt+T lists where you came from; a pick goes back there.
 ### A new ticket's twin shows on its title, and `work try` points at pages (PIE-1258)
 
 - **On the title:** a new card in a roadmap lane asks for open work like it as soon as its title settles, before any
@@ -54,10 +69,10 @@ are its record. The outliner's entries from then are kept below, under
 - **At 40 columns:** the keys tile opens below, at the screen's width, instead of a 20-column strip beside.
 ### Search reads right wherever you search (PIE-1409)
 
-- **How sure, in plain words:** a right first result Jev isn't certain of says "not sure" instead of "no strong match" (the 0.8 line stays: measured on 204 cases).
-- **`[[` by meaning:** page completion finds pages by meaning too, as `((` does; after the re-rank the cursor stays on the row you were on.
+- **How sure, in plain words:** a right first result Jev isn't certain of (a score from 1.5 to 2 of 3) says "not sure" instead of "no strong match"; the 0.8 line for "sure" stays (both measured on 204 cases).
+- **`[[` by meaning:** page completion finds pages by meaning too, as `((` does; when Jev is sure of a find the cursor lands on it (Tab links it), otherwise it stays on the row you were on.
 - **At 40 columns** the search footer reads whole; **on the phone** Sources' download buttons are 70×46 px.
-- **The search evals page** shows hit@1, hit@5 and cost in plain words (`ep0ch search eval --into pie` refreshes it).
+- **The search evals page** shows hit@1, hit@5 and cost in plain words, as "7 of 12" rather than bare counts (`ep0ch search eval --into pie` refreshes it).
 - **Still open:** daily digests can outrank real notes; it stays on the ticket.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
 

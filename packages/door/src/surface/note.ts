@@ -3287,10 +3287,11 @@ export class NoteSurface {
       title: `editing · ${subject({ ...m, text: d.text })}`,
       status: [
         fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
-        // Who typed it takes the hint's row, not a row of its own: an agent's patch landing never moves the text down.
-        d.note ? fg(C.cyan) + pad(d.note, w) + RESET
-          : by ? fg(C.lmagenta) + pad(by, w) + RESET
-          : fg(C.cyan) + pad("whole text: subject, body and [key::value] properties", w) + RESET,
+        // Who typed it takes the hint's row, not a row of its own: an agent's patch landing never moves the text down. What
+        // the draft says (an ask: the undo at a save) wraps onto up to three rows rather than being cut (PIE-1428).
+        ...d.note ? rowLines(d.note, w, 3).map(l => fg(C.cyan) + pad(l, w) + RESET)
+          : by ? [fg(C.lmagenta) + pad(by, w) + RESET]
+          : [fg(C.cyan) + pad("whole text: subject, body and [key::value] properties", w) + RESET],
       ],
     }, w, h) };
   }
@@ -8331,6 +8332,9 @@ export class NoteSurface {
     return out;
   }
 
+  /** Back (-1) or forward (1) walks this reader's own stops, not the view's trail (SurfaceHost.history). */
+  travelsHere(dir: -1 | 1): boolean { return (dir < 0 ? this.backs : this.aheads).length > 0; }
+
   /** The title back (-1) or forward (1) would show, or null. */
   peek(dir: -1 | 1): string | null {
     const p = (dir < 0 ? this.backs : this.aheads).at(-1);
@@ -9979,7 +9983,8 @@ async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor
 async function travelAction(dir: -1 | 1, { surface, host, standing }: On, actor: Actor, steps = 1) {
   const word = dir < 0 ? "back" : "forward";
   // Where the view keeps the history itself (the river's columns), it moves the person's keys: theirs alone.
-  if (!standing && host.history) throw new ActionRefused(host.history.agentRefusal);
+  // This reader's own stops (n and p in the message reader) move only it, an agent's too.
+  if (!standing && host.history && !surface.travelsHere(dir)) throw new ActionRefused(host.history.agentRefusal);
   // The person's comment unsent here: asked first (PIE-785).
   // (Synchronous when nothing is asked: the follow goes on in the same tick, as it always did.)
   const asked = surface.askLeave(word, {}, actor, host);

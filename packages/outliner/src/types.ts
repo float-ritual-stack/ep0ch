@@ -1102,8 +1102,15 @@ export interface DeliverySyncInput {
   deliveryBlockId: string;
   expectedDeliveryRevision: number;
   expectedTaskRevision: number;
-  /** `mergedAt` is GitHub's ISO time of the merge, stamped as `merged-at` on a merged delivery (PIE-1352). */
-  pullRequest: { number: number; url: string; state: "OPEN" | "CLOSED" | "MERGED"; mergeCommit: string | null; mergedAt?: string | null };
+  /**
+   * `mergedAt` is GitHub's ISO time of the merge, stamped as `merged-at` on a merged delivery (PIE-1352).
+   * `baseBranch` is the PR's base now: a delivery already recording this PR follows it when GitHub retargets the PR
+   * (PIE-1440); a delivery recording no PR, or another, refuses a different base.
+   */
+  pullRequest: {
+    number: number; url: string; state: "OPEN" | "CLOSED" | "MERGED"; mergeCommit: string | null; mergedAt?: string | null;
+    baseBranch: string;
+  };
 }
 
 export interface DeliverySyncReceipt {
