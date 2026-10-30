@@ -2203,7 +2203,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** DeskApi.previewsEmpty: every preview following tile `from`'s selection here shows nothing yet. */
   previewsEmpty(from: Pane): boolean {
     const id = this.idOf(from);
-    return id === undefined || this.followers(id).every(p => p === from || !this.showing(p));
+    // A reader still reading the note a saved layout had it on counts as showing it: the list's first row never replaces it.
+    return id === undefined || this.followers(id).every(p => p === from || (!this.showing(p) && !(p instanceof ReaderPane && (p.want || p.wantNote()))));
   }
 
   /** A list's home (the reader it belongs to), if it has one here. */

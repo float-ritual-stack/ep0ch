@@ -685,7 +685,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, rule: undefined, to: route.beside, keep: true }, ctx), route };
     // The reader opened beside it last time takes the next one (the brief's, a pinned page's).
     const again = besideReader(s, ctx, route.beside);
-    if (!fresh && again !== undefined) return { ...placement(s, { ...request, keys: false, default: false, rule: undefined, to: again }, ctx), route };
+    if (!fresh && again !== undefined) return { ...placement(s, { ...request, keys: false, default: false, rule: undefined, to: again, keep: false }, ctx), route };
     result.destination = { kind: "new", at: { kind: "split", target: route.beside, dir: "right" } };
     result.besideOf = route.beside;
     if (!fresh) result.giveNewKeys = false;
@@ -702,7 +702,8 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     if (facts.pinned && !request.history) {
       const again = besideReader(s, ctx, target);
       const name = String(s.names.get(target));
-      if (again !== undefined) return { ...placement(s, { ...request, default: false, to: again }, ctx), route };
+      // It replaces there (no spine kept): the reader beside a pinned one is where its opens go, one at a time.
+      if (again !== undefined) return { ...placement(s, { ...request, default: false, to: again, keep: false }, ctx), route };
       result.destination = { kind: "new", at: { kind: "split", target, dir: "right" } };
       result.besideOf = target;
       result.why = `${name} is pinned: opened beside it · p in ${name} unpins it`;
