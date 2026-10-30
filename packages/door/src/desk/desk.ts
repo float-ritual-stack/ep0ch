@@ -29,7 +29,7 @@ import type { Ctx, Frame, Refusal, Screen, ViewState } from "../app";
 import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
 import { valuesOf } from "@ep0ch/outline-core/block-record";
 import { interpolate } from "@ep0ch/outline-core/interpolation";
-import { headedTitle, subject, type Msg } from "../board";
+import { EMBED_SUFFIX, headedTitle, subject, titleEmbed, type Msg } from "../board";
 import { BORDER_BOXES, borderGlyphs, Canvas, DOTTED_BOX, LINE_BOX, NO_BOX, overflows, shadowRects, type BoxGlyphs, type Rect } from "../canvas";
 import { TONE } from "../callouts";
 import { MOUSE_RIGHT, RowPresses, sideways, SidewaysWheel, type RowPress } from "../scroll";
@@ -4056,7 +4056,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const titleEnd = r.col + 3 + width(title);
     this.headPresses = this.headPresses.filter(c => c.id !== id || c.to <= titleEnd);
     this.wireChips = this.wireChips.flatMap(c => (c.id !== id || c.to <= titleEnd ? [c] : c.from < titleEnd - 1 ? [{ ...c, to: titleEnd - 1 }] : []));
-    const shownTitle = pane instanceof ReaderPane && pane.msg ? headedTitle(pane.titleNote!) : null;
+    const shownTitle = pane instanceof ReaderPane && pane.msg ? headedTitle(pane.titleNote!, pane.surface.src) : null;
     if (shownTitle && !visibleText(title).includes(shownTitle)) this.cutTitles.add(id); else this.cutTitles.delete(id);
     // One hint row: a tile whose keys the screen's hint row says for its kind (the board's lanes, outline, backlinks), or
     // whose controls sit on its header, doesn't repeat them along its frame.
@@ -4225,7 +4225,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const [strip] = tabStrip(set.ids.map((t, i) => ({ label: `${this.numLabel(t)}${this.displayTitle(t)}`, on: i === set.active, hit: { action: "tab.select", args: { tile: t } } })), { width: room, at: x, overflow: "share", style: tileTabs() });
       for (const h of strip!.hits) if (h.from < max) this.heads.push({ id: h.args!.tile as number, from: h.from, to: Math.min(max, h.to), row: r.row });
       this.headOut += strip!.text; x += width(strip!.text);
-    } else put(pad(`${this.numLabel(id)}${this.displayTitle(id)}`, room).trimEnd(), focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
+    } else {
+      const full = pad(`${this.numLabel(id)}${this.displayTitle(id)}`, room).trimEnd();
+      // An embed-only note's "· embed" is quiet (PIE-1458): its name is the embedded note's.
+      const quiet = full.endsWith(EMBED_SUFFIX) && titleEmbed(this.noteOf(id)?.text ?? "") ? EMBED_SUFFIX : "";
+      put(full.slice(0, full.length - quiet.length), focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
+      if (quiet) put(quiet, fg(C.dark), id);
+    }
     if (wire) {
       const from = xNow() + 1;
       put(wire, fg(C.lmagenta));
@@ -4289,9 +4295,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if ((p.writtenTitle && !p.systemTitle) || !m || (tabsOf(this.root, id)?.ids.length ?? 0) > 1) return this.displayTitle(id);
     if (rows !== undefined && p instanceof ReaderPane && !p.surface.titleShown(rows - 2, p.tileHeader)) {
       // A note that leaves its title out (PIE-1319) is named here alone, its Work ID first as everywhere (PIE-1356).
-      return [p.surface.state(), headedTitle(m)].filter(Boolean).join(" · ");
+      return [p.surface.state(), headedTitle(m, p.surface.src)].filter(Boolean).join(" · ");
     }
-    const name = this.nameOf(id), own = visibleText(p.title()), sub = headedTitle(m);
+    const name = this.nameOf(id), own = visibleText(p.title()), sub = headedTitle(m, p instanceof ReaderPane ? p.surface.src : null);
     const rest = own.startsWith(sub) ? own.slice(sub.length).replace(/^\s*·\s*/, "") : null;
     const kindWord = kindOf(p)?.word ?? p.kind;
     const word = rest === null ? own : !rest ? kindWord : /^\d/.test(rest) ? `${kindWord} ${rest}` : rest;
@@ -4304,7 +4310,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const shownNote = this.noteOf(id);
     const note = p.titleNote ?? shownNote ?? this.showing(p);
     // A note's own name, its Work ID first (PIE-1356): the tile bar, its tabs and a spine say it as the header does.
-    const system = p.headName?.() ?? (shownNote ? headedTitle(shownNote) : p.title());
+    // An embed-only note is named by the note it embeds (PIE-1458), as the reader's own answers resolve it.
+    const system = p.headName?.() ?? (shownNote ? headedTitle(shownNote, p instanceof ReaderPane ? p.surface.src : null) : p.title());
     if (!p.writtenTitle || p.systemTitle) return system;
     return interpolate(p.writtenTitle, span => {
       const missing = () => span.default === undefined ? [`⚠ {{${span.expression}}}`] : undefined;

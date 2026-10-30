@@ -3,8 +3,9 @@ import { headedTitle as titleWithWorkId } from "@ep0ch/outline-core/work-id-titl
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { noteTitleLine } from "@ep0ch/outline-core/property-parse";
 import { printable } from "./text";
-import { presentLinks, stripMarks } from "./refs";
-import { prop } from "./props";
+import { pageOf, pageView, presentLinks, refKey, referencesIn, refView, stripMarks } from "./refs";
+import { prop, type Source } from "./props";
+import { linkOccurrences } from "@ep0ch/outline-core/link-syntax";
 
 import type { PropertyMatch } from "@ep0ch/outline-core/protocol";
 import { statusWord } from "@ep0ch/outline-core/checklist-marks";
@@ -129,8 +130,28 @@ export function bodyLinesOf(text: string): { text: string; literal: boolean }[] 
   const from = Math.max(0, titleLine(text).line) + 1;
   return text.split("\n").flatMap((l, i) => (i < from || lit?.markers.has(i) ? [] : [{ text: l, literal: !!lit?.inside.has(i) }]));
 }
-/** A note's title as drawn: its first line, nothing in it a terminal acts on (an extension's write can store an escape). */
-export const subject = (m: Msg) => {
+/** What follows an embed-only note's name (PIE-1458): quiet words saying the note is the embed of another. */
+export const EMBED_SUFFIX = " · embed";
+/** The embed a note's title line is, when it is nothing else (`!((id))`, `![[page]]`): the note is named by its target. */
+export function titleEmbed(text: string) {
+  const t = titleLine(text).text.trim();
+  if (!t.startsWith("!")) return null;
+  const l = linkOccurrences(t, "inline")[0];
+  return l && l.kind !== "markdown" && l.embed && l.start === 0 && l.end === t.length ? l : null;
+}
+/**
+ * A note's title as drawn: its first line, nothing in it a terminal acts on (an extension's write can store an escape).
+ * A note whose title line is only an embed (PIE-1458) is named by the note it embeds, then EMBED_SUFFIX: the embedded
+ * title as `src` resolves it, its short id or page address until it has.
+ */
+export const subject = (m: Msg, src?: Source | null) => {
+  const embed = titleEmbed(m.text);
+  if (embed) {
+    const name = embed.kind === "block"
+      ? refView(embed.blockId, embed.fragmentId, embed.label, referencesIn(m.text, src)?.get(refKey(embed.blockId, embed.fragmentId, embed.outline))).text
+      : pageView(embed.displayAddress, embed.label, pageOf(embed.displayAddress, src)).text + (embed.fragmentId ? `^${embed.fragmentId}` : "");
+    return printable(name, " ").trim() + EMBED_SUFFIX;
+  }
   // A function of the text alone (links read with no source), drawn for every row of every list each frame: answered once per text.
   const known = SUBJECTS.get(m.text);
   if (known !== undefined) return known;
@@ -148,7 +169,9 @@ export const identityFields = (workId: string | undefined, page: string | undefi
  * A note's name wherever it's drawn (PIE-809, PIE-1356): its title with its Work ID first, `HUB-062 · <title>`, said
  * once (outline-core's `headedTitle`). The tile bar and its tabs, spines, lists, completion and the power bar read it.
  */
-export const headedTitle = (m: Msg): string => {
+export const headedTitle = (m: Msg, src?: Source | null): string => {
+  // An embed-only note's name is its target's, which changes with the target: asked of `src`'s answers each time.
+  if (titleEmbed(m.text)) return titleWithWorkId(subject(m, src), prop(m, "work-id"));
   // Drawn for every row of every list each frame, as `subject`: answered once per text and Work ID.
   const id = prop(m, "work-id"), key = id ? `${id}\n${m.text}` : m.text, known = HEADED.get(key);
   if (known !== undefined && headedAt === kept.generation) return known;

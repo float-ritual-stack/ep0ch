@@ -487,7 +487,7 @@ export class ReaderPane implements Pane, AttachedOwner {
     const st = this.surface.state();
     if (this.label !== null) {
       // A float says what it holds; in the row, which detail it is and whether ⏎ opens here.
-      if (this.floating) return this.msg ? headedTitle(this.titleNote!) || this.label : "float";
+      if (this.floating) return this.msg ? headedTitle(this.titleNote!, this.surface.src) || this.label : "float";
       return [this.label, this.msg ? "" : "empty", this.opensHere ? "⏎ opens here" : "", st].filter(Boolean).join(" · ");
     }
     if (!this.pinnable) return ["reader", st].filter(Boolean).join(" · ");
@@ -752,7 +752,7 @@ export class ReaderPane implements Pane, AttachedOwner {
     const s = this.surface, hold = s.draft ? "✎" : s.session ? "¶" : s.panel ? "≡" : "";
     const marks = [hold ? fg(C.yellow) + hold + RESET : fg(C.dark) + "·" + RESET, ...(this.newComments() ? [fg(C.yellow) + "■" + RESET] : [])];
     // The same title as its border (PIE-809): the Work ID first.
-    return { title: this.msg ? headedTitle(this.titleNote!) : this.title(), marks };
+    return { title: this.msg ? headedTitle(this.titleNote!, this.surface.src) : this.title(), marks };
   }
 
   /** Showing a note that isn't a block (a Resource, a file): it is read here, never edited. */

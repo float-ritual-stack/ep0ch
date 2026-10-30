@@ -1468,7 +1468,7 @@ export class NoteSurface {
     this.takeReveal(m, host);
     host.ctx.board.ancestors(m.id).then(a => {
       if (this.msg?.id !== m.id) return;
-      this.crumbs = a.map(subject).join(" › ") || "top level"; host.redraw();
+      this.crumbs = a.map(m => subject(m)).join(" › ") || "top level"; host.redraw();
     }, () => {});
     return true;
   }
@@ -3727,7 +3727,7 @@ export class NoteSurface {
     const m = this.msg;
     if (!m) return this.crumbs;
     const a = await host.ctx.board.ancestors(m.id);
-    if (this.msg?.id === m.id) { this.crumbs = a.map(subject).join(" › ") || "top level"; host.redraw(); }
+    if (this.msg?.id === m.id) { this.crumbs = a.map(m => subject(m)).join(" › ") || "top level"; host.redraw(); }
     return this.crumbs;
   }
   /** Whether the note shown is a new one being written (`note.new`). */
