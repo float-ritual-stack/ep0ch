@@ -341,6 +341,8 @@ export class FacetsPane implements Pane {
   private hits: { y: number; x0: number; x1: number; note?: string; act?: [string, Record<string, unknown>] }[] = [];
   /** Where the calendar was drawn: its first grid row, its left column, the month's lead blanks and days. */
   private cal: { y: number; x: number; lead: number; days: number } | null = null;
+  /** Split: the column Matches starts at (a click there is Matches', never the tree's row beside it). */
+  private listFrom: number | null = null;
 
   /** Matches drawn `cols` × `room`: the lines, and which note each line belongs to. */
   matchLines(cols: number, room: number, focused: boolean): { lines: string[]; notes: (string | null)[] } {
@@ -379,6 +381,7 @@ export class FacetsPane implements Pane {
     const noteRoom = inline ? (this.bodyRoom > 1 ? clamp(Math.round(this.bodyRoom * this.share), 1, this.bodyRoom - 1) : this.bodyRoom) : 0;
     this.noteRoom = noteRoom;
     const listW = split ? clamp(Math.round(w * 0.55), 30, w - 24) : w, treeW = split ? w - listW - 1 : w;
+    this.listFrom = split ? treeW : null;
     const treeRoom = this.bodyRoom - noteRoom;
     const calRoom = this.calendar && treeRoom >= CAL_ROWS + 6 && treeW >= CAL_COLS - 4 ? CAL_ROWS : 0;
     const keyRoom = treeRoom - calRoom;
@@ -583,6 +586,7 @@ export class FacetsPane implements Pane {
     // A note drawn on the row (split's list runs down beside the Matches line) wins over the line's chips.
     const hit = this.hits.find(h => h.note && h.y === y && x >= h.x0 && x < h.x1) ?? this.hits.find(h => h.y === y && x >= h.x0 && x < h.x1);
     if (k.action === "down" && hit?.note) { this.pressNote(hit.note, k, desk, press); return true; }
+    if (k.action === "down" && this.listFrom !== null && x >= this.listFrom && y > 1) return true;
     if (k.action === "down" && hit?.act) { this.act(desk, hit.act[0], hit.act[1]); return true; }
     if (k.action === "down" && y === this.divider) { if (this.place === "inline") this.dragging = true; return true; }
     const cal = this.cal;
@@ -592,7 +596,7 @@ export class FacetsPane implements Pane {
       return true;
     }
     if (k.action === "wheel-up" || k.action === "wheel-down") {
-      if (hit?.note || (this.place === "tile" ? false : y > this.divider)) { if (this.list.pickable(PERSON).length) this.act(desk, "facets.match", { by: wheelRows(k.action === "wheel-up" ? -1 : 1) }); return true; }
+      if (hit?.note || (this.listFrom !== null && x >= this.listFrom) || (this.place === "tile" ? false : y > this.divider)) { if (this.list.pickable(PERSON).length) this.act(desk, "facets.match", { by: wheelRows(k.action === "wheel-up" ? -1 : 1) }); return true; }
       if (this.rows().some(r => r.kind !== "note")) this.act(desk, "facets.pick", { by: wheelRows(k.action === "wheel-up" ? -1 : 1), part: "keys" });
       return true;
     }
