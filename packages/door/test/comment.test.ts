@@ -108,7 +108,7 @@ describe.skipIf(!outliner)("commenting against a scratch outline", () => {
   const desk = (pane?: ReaderPane) => {
     const d = {
       ctx: { board, flash: (m: string) => { flashes.push(m); d.redraw(); }, redraw: () => d.redraw(), suspend: (run: () => void) => run(), t: { cellW: 9, cellH: 18 }, graphics: false },
-      current: null, setCurrent() {}, focusKind() {}, redraw: () => { pane?.render(80, 30, true, d as unknown as DeskApi); },
+      openFromTile() {}, focusKind() {}, redraw: () => { pane?.render(80, 30, true, d as unknown as DeskApi); },
     };
     return d as unknown as DeskApi;
   };
