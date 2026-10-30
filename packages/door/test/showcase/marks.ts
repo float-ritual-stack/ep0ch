@@ -151,8 +151,8 @@ export const marks: Record<string, string[]> = {
   hero: ["An evening on the plot", "▀ header evening-beds.jpg", "hero-focus"],
   // A dashboard with [header::none] (PIE-1319): the border names it, its first figure starts on the first row.
   header: ["Plot at a glance", "THE HOUSE THIS WEEK"],
-  // Two readers on the notebook, each a tile whose header is its own to set (PIE-1248).
-  "tile-header": ["1 Allotment notebook", "2 Allotment notebook"],
+  // Two readers on the notebook, each a tile whose header is its own to set (PIE-1248); an embed-only note under them, named by its embed (PIE-1458).
+  "tile-header": ["1 Allotment notebook", "2 Allotment notebook", "3 Plot at a glance · embed"],
   // Two artifacts as cards (PIE-793): the React one titled by its line, the HTML one by its own <title>.
   artifacts: ["Toys on the desk", "◇ artifact", "[open ↗]", "Orbit lamp", "Orbit lamp pinned"],
   // The reader's header (PIE-657): the title in it, the dim line, the old header written out to compare.
