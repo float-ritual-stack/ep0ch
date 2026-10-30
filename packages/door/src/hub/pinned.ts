@@ -25,10 +25,8 @@ export class PinnedReader extends ReaderPane {
   private reload: Timer | null = null;
   constructor(readonly address: string, readonly label: string) { super(false); }
   override title() { return this.heading(); }
-  /** The desk's current note changed: the pinned page stays. */
-  override select() {}
   override host(desk: DeskApi): SurfaceHost {
-    return { ...super.host(desk), navigate: (m: Msg, how?: OpenHow) => desk.setCurrent(m, { reveal: true, from: this, ...how }) };
+    return { ...super.host(desk), navigate: (m: Msg, how?: OpenHow) => desk.openFromTile(m, { reveal: true, from: this, ...how }) };
   }
   override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {
     const empty = this.emptyLines();
@@ -86,7 +84,7 @@ export function pinnedKind(): TileKind {
     policy: { opens: "beside" },
     start: (p, env) => void (p as PinnedReader).load(env.desk),
     // An agent's open (ScreenSpec.lands) opens beside it too.
-    take: (p, m, desk, by) => { desk.setCurrent(m, { reveal: true, from: p, by: by ?? USER }); return null; },
+    take: (p, m, desk, by) => { desk.openFromTile(m, { reveal: true, from: p, by: by ?? USER }); return null; },
     peek: p => { const r = p as PinnedReader; return { address: r.address, page: r.page ? { id: r.page.id } : null, problem: r.problem || undefined }; },
   };
 }

@@ -74,9 +74,9 @@ export interface Policy {
   shuts?: boolean;
   /**
    * The open rule (PIE-513; was the layout's `rule`): where an open from one of its tiles lands when no link or
-   * opens-into says: the current note (`current`), a new column right after the tile's own in its flow (`next`, a
-   * flow's own rule when it says none), or a reader beside the tile, which stays on its own note (`beside`, PIE-515:
-   * a pinned page, the brief).
+   * opens-into says: the first reader that isn't pinned (`reader`, the default, PIE-1207), a new column right after the
+   * tile's own in its flow (`next`, a flow's own rule when it says none), or a reader beside the tile, which stays on its
+   * own note (`beside`, PIE-515: a pinned page, the brief). A saved `current` (the hidden current note, gone) reads as the default.
    */
   opens?: OpenRule;
   altOpens?: AltRule;
@@ -94,10 +94,11 @@ export interface Policy {
 }
 /** Where the host layer may appear over a screen. */
 export type HostMode = "beside" | "over" | "none";
-/** Where an open with no link lands: the current note, the next column of the flow it's in, or a reader beside it. */
+/** Where an alt-open lands: beside, a tab, the wired tile itself, or the first reader that isn't pinned (`first-unheld`). */
 export type AltRule = "beside" | "tab" | "tile" | "first-unheld";
 export const ALT_RULES: readonly AltRule[] = ["beside", "tab", "tile", "first-unheld"];
-export type OpenRule = "current" | "next" | "beside";
+/** Where an open with no link lands: the first reader that isn't pinned, the next column of the flow it's in, or a reader beside it. */
+export type OpenRule = "reader" | "next" | "beside";
 export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "altOpens", "host", "readable", "shuts", "agents", "spines", "min-width"] as const;
 /** The width a reader opened beside others still gets before earlier ones fold to spines, when no policy says (PIE-794). */
 export const READABLE = 48;
@@ -862,7 +863,7 @@ export interface Effective {
   accepts: string[] | null; opensInto: string | null;
   /** What an agent may do to a tile under it (PIE-639): the nearest layer that says wins; `free` when none does. */
   agents: AgentLevel;
-  /** The open rule: an open with no link lands as the current note, or in a new column after its own (a flow's). */
+  /** The open rule: an open with no link lands in the first reader that isn't pinned, a new column after its own (a flow's), or beside it. */
   opens: OpenRule;
   altOpens: AltRule;
   /** The full width of a flow column before the flow squeezes it. */
@@ -875,7 +876,7 @@ export interface Effective {
  * wins, and `locked` anywhere locks everything under it.
  */
 export function effective(layers: { by: string; policy?: Policy; flow?: boolean }[]): Effective {
-  const out: Effective = { spines: "book", "min-width": 40, locked: false, draggable: true, droppable: true, closable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, agents: "free", opens: "current", altOpens: "beside", readable: READABLE, by: {} };
+  const out: Effective = { spines: "book", "min-width": 40, locked: false, draggable: true, droppable: true, closable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, agents: "free", opens: "reader", altOpens: "beside", readable: READABLE, by: {} };
   for (const { by, policy: p, flow } of layers) {
     // A flow's own rule, when it says none: its tiles open into the next column.
     if (flow && !p?.opens) { out.opens = "next"; out.by.opens = by; }
@@ -1009,7 +1010,7 @@ export function policyOf(x: unknown): Policy {
   for (const k of ["min", "max", "fixed", "readable", "min-width"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
   if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)).map(canonKind))];
   if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;
-  if (o.opens === "current" || o.opens === "next" || o.opens === "beside") out.opens = o.opens;
+  if (o.opens === "reader" || o.opens === "next" || o.opens === "beside") out.opens = o.opens;
   if (SPINES.includes(o.spines as Spines)) out.spines = o.spines as Spines;
   if (ALT_RULES.includes(o.altOpens as AltRule)) out.altOpens = o.altOpens as AltRule;
   if (o.host === "beside" || o.host === "over" || o.host === "none") out.host = o.host;

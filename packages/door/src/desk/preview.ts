@@ -65,8 +65,6 @@ export class PreviewPane extends ReaderPane {
   }
   override hint() { return this.fileNow() ? "follows the file as it's saved · links open where this tile's go" : super.hint(); }
 
-  /** The desk's current note moved: a preview follows its source, not that. */
-  override select() {}
   /** Its source tile selected `m`. */
   follow(m: Msg | null, desk: DeskApi) { if (m && m.id !== this.msg?.id) this.show(m, desk); }
   /** A terminal tile it follows is editing `path` now (nvim changed buffer): show that file, re-read as it's saved. */

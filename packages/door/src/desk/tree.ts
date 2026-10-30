@@ -143,9 +143,9 @@ export class TreePane implements Pane {
     if (this.loaded) return;
     this.loaded = desk.ctx.board.roots().then(r => {
       this.roots = r; this.rebuild();
-      // A screen with no current note starts on the first root: only from a tree in sight (PIE-814: one in a shut dock
-      // set every following reader's note from where the person couldn't see it).
-      if (!desk.current && r[0] && desk.shownNow?.(this) !== false) desk.setCurrent(r[0], { from: this });
+      // The tiles its select wires go to start on the first root, when they show nothing yet: only from a tree in sight
+      // (PIE-814: one in a shut dock set them from where the person couldn't see it).
+      if (r[0] && desk.shownNow?.(this) !== false && desk.previewsEmpty?.(this)) desk.showFrom?.(this, r[0]);
       desk.redraw();
     }, () => {});
   }
@@ -249,7 +249,7 @@ export class TreePane implements Pane {
     this.rebuild(); desk.redraw();
   }
 
-  /** The selection moved to row `sel`: the row's note becomes the current one (a link row's is read first). */
+  /** The selection moved to row `sel`: the row's note shows where the tree's select wires go (a link row's is read first). */
   private pick(desk: DeskApi, actor: Actor = USER) {
     if (this.timer) clearTimeout(this.timer);
     const r = this.rows[this.sel];
@@ -257,12 +257,12 @@ export class TreePane implements Pane {
     // While the rows are due to be read again (a change just came), the row's copy may be older than the outline: the
     // note is read itself, so the reader never shows what was there before a save.
     if (r?.kind === "block") this.timer = setTimeout(() => {
-      if (!this.reload && !this.due && !this.rereading) return desk.setCurrent(r.m, { from: this, by: actor });
-      void desk.ctx.board.get(r.m.id).catch(() => null).then(m => { if (this.rows[this.sel]?.key === r.key) desk.setCurrent(m ?? r.m, { from: this, by: actor }); });
+      if (!this.reload && !this.due && !this.rereading) return desk.showFrom?.(this, r.m, actor);
+      void desk.ctx.board.get(r.m.id).catch(() => null).then(m => { if (this.rows[this.sel]?.key === r.key) desk.showFrom?.(this, m ?? r.m, actor); });
     }, 90);
-    else if (id) this.timer = setTimeout(() => void this.target(id, desk).then(m => { if (m && rowBlock(this.rows[this.sel]) === id) desk.setCurrent(m, { from: this, by: actor }); }, () => {}), 90);
+    else if (id) this.timer = setTimeout(() => void this.target(id, desk).then(m => { if (m && rowBlock(this.rows[this.sel]) === id) desk.showFrom?.(this, m, actor); }, () => {}), 90);
     // A resource shows what is stored for it (a ticket's block, a file's content) where the tree's selection goes (a
-    // preview following it), read only: nothing registers, and the current note stays (an open meanwhile isn't undone).
+    // preview following it), read only: nothing registers, and nothing else moves (an open meanwhile isn't undone).
     else if (r?.kind === "resource") {
       const key = r.key;
       this.timer = setTimeout(() => void linkNote(r, desk.ctx.board, "show").then(({ note }) => {
@@ -511,7 +511,7 @@ export class TreePane implements Pane {
     }
     const land = (m: Msg) => {
       const routed = desk.routes?.(this);
-      desk.setCurrent(m, { from: this, link: true, fresh, by: actor });
+      desk.openFromTile(m, { from: this, link: true, fresh, by: actor });
       if (!routed && !agent && !fresh) desk.focusKind("reader", actor);
     };
     if (r.kind === "block") { land(r.m); return { row: i + 1, id: r.m.id }; }
@@ -525,7 +525,7 @@ export class TreePane implements Pane {
     return { row: i + 1, resource: note.id.slice("resource:".length), title: subject(note), registered: !!registered };
   }
 
-  /** The person moved the selection to row `i` (a key, a click, `tree.pick`); `show`: its note becomes the current one. */
+  /** The person moved the selection to row `i` (a key, a click, `tree.pick`); `show`: its note shows where the tree's select wires go. */
   selectRow(i: number, desk: DeskApi, show = true, actor: Actor = USER) {
     this.picks++;
     this.sel = Math.max(0, Math.min(this.rows.length - 1, i));
@@ -539,7 +539,7 @@ export class TreePane implements Pane {
     const m = await this.target(id, desk);
     if (!m) throw new ActionRefused(`nothing answers at ${shortId(id)}`);
     // Where the tree's selection goes (a desk's previews and link); a view without that, its tree's own preview.
-    if (desk.showFrom) desk.showFrom(this, m, actor); else desk.setCurrent(m, { from: this, by: actor });
+    desk.showFrom?.(this, m, actor);
     return { row: i + 1, id: m.id };
   }
 
@@ -598,6 +598,8 @@ export class TreePane implements Pane {
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     this.drawnW = w; this.drawnH = h;
     if (!this.roots) return { lines: [dim("dialing the outline…")] };
+    // The row whose note is shown where the tree's opens land is drawn bright (PIE-1207: a wire's target, not a hidden current note).
+    const shown = desk.opensShow?.(this) ?? null;
     const draw = (r: TreeRow, on: boolean) => {
       const indent = "  ".repeat(r.depth);
       if (r.kind === "branch-note") {
@@ -616,7 +618,7 @@ export class TreePane implements Pane {
         const tag = found || prop(r.m, "status") || prop(r.m, "type") || "";
         const shownTag = drawEllipsized(tag, Math.min(14, Math.floor(w / 3)));
         const room = Math.max(4, w - (shownTag ? width(shownTag) + 1 : 0) - (on && !indent ? 1 : 0));
-        const here = desk.current?.id === r.m.id;
+        const here = shown === r.m.id;
         return rowLines(`${indent}${mark} ${headedTitle(r.m)}`, room - 1, undefined, { hang: indent.length + 2 }).map((line, j) => {
           const tail = !j && shownTag ? " " + (on ? "" : fg(C.brown)) + shownTag : "";
           return on ? selectedRow(pad(line, room) + tail, w, focused) : pad(fg(here ? C.yellow : C.grey) + line, room) + tail + RESET;

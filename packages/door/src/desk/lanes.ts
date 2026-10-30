@@ -690,7 +690,7 @@ export class Lanes implements SourceModel {
   card(): Msg | undefined { return this.laneTile()?.card(); }
 
   /** The preview shows the card the lanes' cursor is on. */
-  follow() { const m = this.card(), l = this.laneTile(); if (m && l) this.host.setCurrent(m, { from: l }); }
+  follow() { const m = this.card(), l = this.laneTile(); if (m && l) this.host.showFrom?.(l, m); }
 
   // ── where opens go on the board (DeskApi) ───────────────────────────────
 

@@ -106,8 +106,8 @@ export const selectTargets = <I>(s: Pick<LayoutState<I>, "wires">, from: I): I[]
 export interface TileFacts {
   kind: string;
   showing?: string;
-  following?: boolean;
   lists?: boolean;
+  /** A reader the person pinned (PIE-1207): it keeps its note, and every open aimed at it lands beside it. */
   pinned?: boolean;
   available?: boolean;
   /** Its kind's default policy (the innermost layer). */
@@ -118,6 +118,7 @@ export interface TileFacts {
   notes?: boolean;
   /** This tile keeps a NoteSurface reading trail that can receive another reader's history. */
   history?: boolean;
+  /** A reader the person owns (pinned or not): an unwired open into it keeps its old note as a spine. */
   held?: boolean;
   /** Made explicitly with split or tile.open; moves keep this fact on the tile. */
   deliberate?: boolean;
@@ -486,8 +487,8 @@ export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string, othe
 /**
  * Where tile `id`'s opens land (PIE-794: every open from a tile asks this, and only this): its own link (when that tile
  * is here), else the opens-into of the nearest container that names a tile here (not itself), else its home (a list's
- * reader), else the open rule: the next column of its flow (`next`), or none (a reader is its own home: the note
- * replaces its own; anything else moves the current note).
+ * reader), else the open rule: the next column of its flow (`next`), beside it (`beside`), or none (a reader is its own
+ * home: the note replaces its own; anything else lands in the first reader that isn't pinned).
  */
 function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt", facts?: TileFacts, tile?: (id: I) => TileFacts): { to: I } | { into: string } | { next: true } | { beside: I } | { tab: I } | { across: string; rule: AltRule } | null {
   const wire = s.wires.find(w => w.from === id && w.verb === verb && s.names.has(w.to));
@@ -498,7 +499,7 @@ function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names
     const rule = wire?.rule ?? (wire ? "tile" : altOpens ?? "beside");
     const target = wire?.to ?? (open && "to" in open ? open.to : id);
     if (rule === "first-unheld") {
-      const available = leaves(s.tree).find(t => { const f = tile?.(t); return f?.notes && !f.follower && !f.held && !f.editing && !f.holds; });
+      const available = leaves(s.tree).find(t => { const f = tile?.(t); return f?.notes && !f.follower && !f.pinned && !f.editing && !f.holds; });
       if (available !== undefined) return { to: available };
     }
     if (!wire && open && "across" in open) return { across: open.across, rule };
@@ -517,10 +518,7 @@ function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names
   const home = facts?.home !== undefined ? named(s, facts.home) : undefined;
   if (home !== undefined && home !== id) return { to: home };
   if (facts?.home?.includes("/")) return { across: facts.home, rule: "tile" };
-  if (e.opens === "beside") {
-    const existing = leaves(s.tree).find(t => t !== id && tile?.(t).following && !tile?.(t).held);
-    return existing !== undefined ? { to: existing } : { beside: id };
-  }
+  if (e.opens === "beside") return { beside: id };
   if (e.opens === "next" && flowHolding(s.tree, id)) return { next: true };
   return null;
 }
@@ -546,13 +544,23 @@ export type NotePlacement<I = number> = {
   merge?: I;
   reuse?: { reveal: boolean };
   why?: string;
-  current: boolean;
+  /** The person's open (their standing): the outline's cursor goes to the note too. An agent's never moves it. */
+  reveal: boolean;
   route: ReturnType<typeof landing<I>>;
   keys?: I;
   nextFrom?: I;
   giveNewKeys: boolean;
-  follow?: true;
+  /** A new reader opened beside this tile (it's pinned, or its opens go beside it): the next open aimed there reuses it. */
+  besideOf?: I;
 };
+
+/** The reader opened beside tile `id` last (`Ctx.beside`), while it's here and can take an open. */
+function besideReader<I>(s: Pick<LayoutState<I>, "names">, ctx: Ctx<I>, id: I): I | undefined {
+  const at = ctx.beside?.get(id);
+  if (at === undefined || !s.names.has(at)) return undefined;
+  const f = ctx.tile(at);
+  return f.notes && !f.pinned && !f.editing && !f.holds && f.available !== false ? at : undefined;
+}
 
 /**
  * The one place that decides where an open lands. A new-note place, explicit container/place or named tile wins;
@@ -562,9 +570,11 @@ export type NotePlacement<I = number> = {
  * at its container policy's stack front; a wire aimed at a tile replaces its note with history. New-note tabs that cannot fit float instead.
  * Automatic opens reuse the note already here; a history landing folds its duplicate into that tile, keeping the trail,
  * unless the tile is wired either way or follows a selection (a preview stepping onto its source's note shows it, PIE-1426).
- * Explicitly made tiles and pinned readers stay independent.
+ * Explicitly made tiles and pinned readers stay independent: an open aimed at a pinned reader (a wire, `to`, its own
+ * link) lands in the reader opened beside it, else a new one there (PIE-1207). With no route, the first reader that
+ * isn't pinned takes it; there is no hidden current note.
  * Floats, tabs, docks and shapes that cannot take a spine swap with reader history only.
- * Only the person's standing moves the current note or keys; an invitation is already resolved by the dispatcher.
+ * Only the person's standing moves the keys or reveals the note in the outline; an invitation is already resolved by the dispatcher.
  */
 export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names" | "across" | "collapsed" | "floats">, request: PlacementRequest<I>, ctx: Ctx<I>): NotePlacement<I> {
   const { from, to, fresh, note } = request;
@@ -575,7 +585,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     : openWire ? { across: openWire.to, rule: "beside" as const }
     : landing(s, from, verb, ctx.tile(from), ctx.tile);
   if (to !== undefined && request.rule && request.rule !== "tile") {
-    const available = request.rule === "first-unheld" ? leaves(s.tree).find(id => { const f = ctx.tile(id); return f.notes && !f.held && !f.editing && !f.holds && !f.follower; }) : undefined;
+    const available = request.rule === "first-unheld" ? leaves(s.tree).find(id => { const f = ctx.tile(id); return f.notes && !f.pinned && !f.editing && !f.holds && !f.follower; }) : undefined;
     route = available !== undefined ? { to: available } : request.rule === "tab" ? { tab: to } : { beside: to };
   }
   if (request.history) route = null;
@@ -583,7 +593,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   let inward = false;
   if (request.default && to === undefined && (!route || ctx.tile(from).notes)) {
     const readers = leaves(s.tree).filter(id => { const f = ctx.tile(id); return !s.collapsed.has(id) && f.notes && !f.follower && !f.editing && !f.holds && !f.pinned && f.available !== false; });
-    const target = readers.find(id => ctx.tile(id).following) ?? readers[0];
+    const target = readers[0];
     if (target !== undefined) route = { to: target };
     // No reader on this screen at all, but readers inside a mount (PIE-1306): the mount with the person's keys, else the
     // first, places it as its own open naming no tile, the way a mount with no reader hands one out (`outward`).
@@ -595,7 +605,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     }
   }
   const keys = ctx.keys ?? ctx.standing;
-  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, current: ctx.standing, route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
+  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, reveal: ctx.standing, route, giveNewKeys: keys && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
   if (request.newNote) {
     const policy = policyAt(s, from, ctx.tile(from));
     const tabs = ctx.tile(from).tabs;
@@ -671,19 +681,33 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   }
   else if (route && "tab" in route) result.destination = { kind: "new", at: { kind: "tabs", target: route.tab } };
   else if (route && "beside" in route) {
-    if (fresh && ctx.tile(route.beside).notes && !ctx.tile(route.beside).editing && !ctx.tile(route.beside).holds)
+    if (fresh && ctx.tile(route.beside).notes && !ctx.tile(route.beside).pinned && !ctx.tile(route.beside).editing && !ctx.tile(route.beside).holds)
       return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, rule: undefined, to: route.beside, keep: true }, ctx), route };
+    // The reader opened beside it last time takes the next one (the brief's, a pinned page's).
+    const again = besideReader(s, ctx, route.beside);
+    if (!fresh && again !== undefined) return { ...placement(s, { ...request, keys: false, default: false, rule: undefined, to: again }, ctx), route };
     result.destination = { kind: "new", at: { kind: "split", target: route.beside, dir: "right" } };
-    if (!fresh) { result.follow = true; result.giveNewKeys = false; }
+    result.besideOf = route.beside;
+    if (!fresh) result.giveNewKeys = false;
   }
   else {
     const target = route && "to" in route ? route.to : ctx.tile(from).notes ? from :
-      leaves(s.tree).find(id => { const f = ctx.tile(id); return f.following && !f.follower && f.available !== false; });
+      leaves(s.tree).find(id => { const f = ctx.tile(id); return f.notes && !f.follower && !f.lists && !f.pinned && !s.collapsed.has(id) && f.available !== false; });
     if (target === undefined) {
       if (ctx.outward) result.destination = { kind: "across", target: ctx.outward, rule: "tile", source: true };
       return result;
     }
     const facts = ctx.tile(target);
+    // A pinned reader keeps its note (PIE-1207): the open lands in the reader opened beside it, else a new one there.
+    if (facts.pinned && !request.history) {
+      const again = besideReader(s, ctx, target);
+      const name = String(s.names.get(target));
+      if (again !== undefined) return { ...placement(s, { ...request, default: false, to: again }, ctx), route };
+      result.destination = { kind: "new", at: { kind: "split", target, dir: "right" } };
+      result.besideOf = target;
+      result.why = `${name} is pinned: opened beside it · p in ${name} unpins it`;
+      return result;
+    }
     // Following a wire into a preview leaves the invoking reader's keys where they are.
     if (to === undefined && !fresh && facts.follower) result.giveNewKeys = false;
     if (facts.editing || facts.holds) {

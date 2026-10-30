@@ -579,9 +579,9 @@ export class App implements Ctx {
 
   /** The power bar while it's open (PIE-656): over every screen and the drawer, with the person's keys. */
   bar: PowerBar | null = null;
-  /** The note in the reader the person is in, else the note the screen shows as its current one. */
+  /** The note in the reader the person is in (the power bar's "this note"), else none. */
   noteInFront(): string | null {
-    try { const s = this.stack.at(-1); return s?.noteContext?.() ?? tilesOf(s)?.current?.id ?? null; } catch { return null; }
+    try { return this.stack.at(-1)?.noteContext?.() ?? null; } catch { return null; }
   }
   /** What the bar's sources reach: this door, its dispatcher, its screens, the note the person is on. */
   private readonly barRuns: import("./bar/command").BarRun[] = [];

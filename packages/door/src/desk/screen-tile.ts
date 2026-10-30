@@ -221,7 +221,7 @@ export class ScreenTile implements Pane {
     if (!m || m.id === this.selected) return;
     this.selected = m.id;
     const desk = this.desk;
-    queueMicrotask(() => desk?.setCurrent(m, { from: this }));
+    queueMicrotask(() => desk?.showFrom?.(this, m));
   }
 
   key(k: Key): boolean {

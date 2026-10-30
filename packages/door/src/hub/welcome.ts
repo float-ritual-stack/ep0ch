@@ -355,7 +355,7 @@ export class WelcomeList implements Pane {
     // so it empties rather than show something the detail no longer points at. An agent's leaves what the person
     // may be reading there. Either way the preview never repeats the note read.
     const other = d.msg?.id !== m.id, pv = this.preview(desk), standing = standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile");
-    if (other) desk.setCurrent(m, { from: this, to: d, by: actor, ...(focus ? {} : { keys: false as const }) });
+    if (other) desk.openFromTile(m, { from: this, to: d, by: actor, ...(focus ? {} : { keys: false as const }) });
     const here = d.msg?.id === m.id;
     if (pv && (pv.msg?.id === m.id || (other && standing && here))) pv.show(null, desk);
     if (here && focus && standing && !desk.holdsKeys?.()) desk.focusPane?.(d, actor);
@@ -479,9 +479,8 @@ export class WelcomeDetail extends ReaderPane {
   override readonly kind: TileKindName = "welcome.detail";
   /** The welcome list (the spec names it as this tile's source: `tile:welcome`). */
   list: WelcomeList | null = null;
-  constructor(readonly source: string) { super(true); this.holdOn(); }
-  /** It keeps the welcome note it was given: the current note never moves it, and it has no mode of its own to switch. */
-  override select() {}
+  /** It keeps the welcome note it was given; its pin has no chip of its own. */
+  constructor(readonly source: string) { super(true); }
   override headControls() { return null; }
   override title() {
     const s = this.list, m = this.msg;

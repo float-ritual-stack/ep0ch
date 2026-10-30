@@ -345,8 +345,8 @@ export class QueryPane implements Pane {
     const line = bodyMatch(m);
     if (line && (standing || open || fresh)) markReveal(m, { at: line.start, ...(line.raw ? { label: line.raw } : {}), says: `the line its ${line.key} is written on` }, actor);
     // An agent's pick is its own: the person's cursor and what the tile shows stay.
-    if (standing) { this.sel = i; if (this.home && desk.showFrom) desk.showFrom(this, m, actor); else desk.setCurrent(m, { from: this, by: actor }); }
-    if (open || fresh) desk.setCurrent(m, { from: this, link: true, ...(fresh ? { fresh: true } : {}), by: actor });
+    if (standing) { this.sel = i; desk.showFrom?.(this, m, actor); }
+    if (open || fresh) desk.openFromTile(m, { from: this, link: true, ...(fresh ? { fresh: true } : {}), by: actor });
     desk.redraw();
     return { card: m.id, title: subject(m), n: i + 1 };
   }

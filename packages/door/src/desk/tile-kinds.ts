@@ -499,4 +499,5 @@ export function serviceKind(o: { kind: TileKindName; about: string; noun?: strin
   };
 }
 
-export const FOLLOW_MODES = ["follows", "held", "pinned"] as const;
+/** A reader's one mode (PIE-1207): pinned, or left out. */
+export const READER_MODES = ["pinned"] as const;

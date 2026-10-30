@@ -483,7 +483,8 @@ export class BacklinksPane implements Pane {
       if (!agent && how === "open" && desk.showFrom) desk.showFrom(this, m);
       // Opened in its home, it's a row of this list, never its subject (PIE-794).
       if (how === "open") this.landed = m.id;
-      desk.setCurrent(m, { from: this, ...(how !== "show" ? { link: true } : {}), ...(how === "fresh" ? { fresh: true } : {}), by: actor });
+      if (how === "show") desk.showFrom?.(this, m, actor);
+      else desk.openFromTile(m, { from: this, link: true, ...(how === "fresh" ? { fresh: true } : {}), by: actor });
     }
     // A Resource just registered: the list asks again, so its row says so.
     if (registered && this.target) { desk.ctx.flash(`${r.kind === "resource" ? r.link.label : "it"} registered and shown`); void this.load(this.target, desk, true); }

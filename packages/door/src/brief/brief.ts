@@ -84,8 +84,6 @@ export class BriefReader extends ReaderPane {
     if ((c === "," || c === ".") && !this.holdsKeys && !desk.holdsKeys?.()) { void desk.press?.(this, BRIEF_ACTIONS, "brief.step", { by: c === "," ? -1 : 1 }); return true; }
     return super.key(k, desk);
   }
-  /** The desk's current note changed: the brief stays. */
-  override select() {}
   /**
    * The surface's host, with the brief's own header (the surface's `header` hook) while it shows a brief: the day and
    * "n of m briefs" first, then the title and who wrote it. A link to another brief steps to it, as `,` `.` do.
@@ -97,7 +95,7 @@ export class BriefReader extends ReaderPane {
       opensOnClick: link => !!this.briefs?.some(brief => brief.id === link.block),
       navigate: (m: Msg, how?: OpenHow) => {
         if (!how?.fresh && this.dayOf(m) >= 0) { void desk.perform?.("brief.show", { id: m.id }, how?.by ?? USER, this); return; }
-        desk.setCurrent(m, { reveal: true, from: this, ...how });
+        desk.openFromTile(m, { reveal: true, from: this, ...how });
       },
       ...(shown && this.msg?.id === shown.id ? { header: (m: Msg, w: number, info: HeaderInfo) => briefHeader(m, w, info, shown) } : {}),
     };
@@ -271,7 +269,7 @@ export function briefKind(): TileKind {
     // brief.step, its refusal answered); any other note opens beside it.
     take: (p, m, desk, by) => {
       const b = p as BriefReader, actor = by ?? USER, day = b.dayOf(m);
-      if (day < 0) { desk.setCurrent(m, { reveal: true, from: b, by: actor }); return null; }
+      if (day < 0) { desk.openFromTile(m, { reveal: true, from: b, by: actor }); return null; }
       const no = desk.ruleFor?.("screen", actor);
       if (no) return no;
       try { b.go(day, desk); return null; } catch (e) { return e instanceof Error ? e.message : String(e); }
