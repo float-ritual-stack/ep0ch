@@ -118,12 +118,12 @@ describe.skipIf(!outliner)("opens into the desk's readers keep every column read
     await mine("reader.pin", { on: true }, "reader");
     desk.render(D().ctx);
     const hint = pane("reader").hint();
-    expect(hint.slice(0, 44)).toContain("▣ pinned · opens → reader2 · p unpins");
+    expect(hint.slice(0, 44)).toContain("pinned · opens → reader2 · p unpins");
     // With no idle reader on the screen, it says the open goes beside it.
     await mine("tile.focus", {}, "reader2");
     await mine("open", { id: notes.peas.id });
     await mine("reader.pin", { on: true }, "reader2");
     desk.render(D().ctx);
-    expect(pane("reader").hint().slice(0, 44)).toContain("▣ pinned · opens → beside it · p unpins");
+    expect(pane("reader").hint().slice(0, 44)).toContain("pinned · opens → beside it · p unpins");
   });
 });

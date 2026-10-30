@@ -838,6 +838,32 @@ for (const cols of [160, 250]) for (const target of [1, 2]) test(`placement keep
   } finally { extra = {}; }
 });
 
+// PIE-1207, round two: tree | reader | reader2 | thread over activity, a quarter each. An open aimed at reader2 (nothing
+// feeds it) keeps its old note as a spine beside it, never inside the thread and activity column; where the spine would
+// leave a tile under the 28×6 a tile reads at, the open replaces instead and says there was no room.
+for (const [cols, fits] of [[177, true], [120, false]] as const) test(`a kept spine never crushes another column (${cols} columns)`, () => {
+  const area = { ...AREA, cols, rows: 58 };
+  const quarter = () => splitOf("row", [leaf(1), leaf(2), leaf(5), splitOf("col", [leaf(3), leaf(4)], [0.58, 0.42])], [1, 1, 1, 1]);
+  const s = init({ tree: quarter(), names: new Map([...NAMES, [5, "reader2"]]) });
+  extra = { 5: { notes: true, held: true, showing: "bike-shed" } };
+  try {
+    const before = place(s, area).rects;
+    const ask = { from: 5, to: 5, note: "pea-packet" };
+    const plan = placement(s, ask, ctxOf(PERSON, { focus: 5 }, area));
+    expect(!!plan.keep).toBe(fits);
+    expect(!!plan.noSpine).toBe(!fits);
+    const r = apply(s, { op: "open", tile: 9, placement: ask }, ctxOf(PERSON, { focus: 5 }, area));
+    if (!r.ok) throw new Error(r.refused);
+    const after = place(r.state, area).rects;
+    for (const id of [1, 2, 3, 4]) expect(after.get(id)!.cols).toBe(before.get(id)!.cols);
+    if (fits) {
+      expect(leaves(r.state.tree)).toEqual([1, 2, 5, 9, 3, 4]);
+      expect(after.get(9)!.col).toBe(after.get(5)!.col + after.get(5)!.cols);
+      expect(after.get(5)!.cols).toBeGreaterThanOrEqual(28);
+    } else expect(leaves(r.state.tree)).toEqual([1, 2, 5, 3, 4]);
+  } finally { extra = {}; }
+});
+
 describe("renaming a tile (PIE-1283)", () => {
   test("the name changes where a name is looked up, a taken name is refused, and the open rules that name it follow", () => {
     const into = ok(fresh(), { op: "policy", tile: 3, set: { opensInto: "reader" }, clear: [] }).state;

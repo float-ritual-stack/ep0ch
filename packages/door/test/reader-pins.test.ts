@@ -108,7 +108,7 @@ describe.skipIf(!outliner)("a reader's pin, against a scratch outline", () => {
     key(char("p"));
     await until(() => pane("keeps").pinned, "keeps pinned");
     render();
-    expect(pane("keeps").hint()).toContain("▣ pinned · opens → beside it · p unpins");
+    expect(pane("keeps").hint()).toContain("pinned · opens → beside it · p unpins");
     const before = new Set(names());
     await act("open", { id: notes.plan.id }, "keeps");
     const beside = names().find(n => !before.has(n))!;
@@ -117,7 +117,7 @@ describe.skipIf(!outliner)("a reader's pin, against a scratch outline", () => {
     expect(pane("keeps").msg?.id).toBe(notes.beans.id);
     expect(message()).toContain("keeps is pinned: opened beside it");
     render();
-    expect(pane("keeps").hint()).toContain(`▣ pinned · opens → ${beside} · p unpins`);
+    expect(pane("keeps").hint()).toContain(`pinned · opens → ${beside} · p unpins`);
     await act("open", { id: notes.shed.id }, "keeps");
     expect(tile(beside).showing.id).toBe(notes.shed.id);
     expect(names().length).toBe(before.size + 1);

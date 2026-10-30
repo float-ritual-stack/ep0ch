@@ -332,8 +332,8 @@ export const READER_OWN_KEYS = new Set("[]()fFuUrRSt~\"yYvViICcmMAXezjkhlqgGbO/?
 
 /**
  * The action a key runs on a handler line: one the line has, bound to a single printable character that
- * neither the reader (READER_OWN_KEYS) nor its host (`hostKeys`: the BBS reader's `n p t`, a following
- * reader's `p`) keeps for itself.
+ * neither the reader (READER_OWN_KEYS) nor its host (`hostKeys`: the BBS reader's `n p t`, a desk
+ * reader's `p` pin) keeps for itself.
  */
 export function handlerKeyAction(extension: string, handler: string, key: string, hostKeys = ""): ExtensionAction | undefined {
   if (READER_OWN_KEYS.has(key) || hostKeys.includes(key)) return undefined;
