@@ -27,6 +27,16 @@ export const outliner = [process.env.EP0CH_OUTLINER, resolve(import.meta.dir, ".
  */
 const TEST_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+/**
+ * Show note `m` in the screen's reader `tile` (default `reader`), as a note opened into it (PIE-1207: there is no current
+ * note to set; a test that needs a reader on a note puts it there).
+ */
+export const showIn = (desk: { paneNamed(name: string): unknown }, m: { id: string }, tile = "reader") => {
+  const r = desk.paneNamed(tile) as { hold(m: unknown, d: unknown): void } | undefined;
+  if (!r) throw new Error(`no tile ${tile} on that screen`);
+  r.hold(m, desk);
+};
+
 export const until = async (ok: () => boolean, what: string, ms = 5000) => {
   const end = Date.now() + ms;
   while (!ok()) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(20); }

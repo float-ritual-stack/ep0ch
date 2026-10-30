@@ -19,7 +19,7 @@ import { Offline, SocketBoard, USER, type Actor } from "../src/socket";
 import { askInBar } from "../src/bar/ask";
 import { notePageUrl } from "../src/open";
 import { KeyDecoder, type Key } from "../src/term";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, showIn, until } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const AGENT: Actor = { kind: "agent", id: "wren-agent" };
@@ -62,9 +62,11 @@ describe.skipIf(!outliner)("the power bar", () => {
     await app.whatChanged.seed(board);
     desk = openScreen("desk") as Desk;
     app.push(desk);
-    desk.setCurrent(notes.garden!);
+    showIn(desk, notes.garden!);
     await Bun.sleep(100);
   }, 30_000);
+  /** Some tile on the desk shows note `id` (where an open landed). */
+  const shows = (id: string) => (desk.layoutGet().tiles as any[]).some(t => t.showing?.id === id);
   // Each test starts with the bar put away, whatever the one before left.
   const closeBar = () => { if (peek().bar?.query) key({ kind: "esc" }); if (peek().bar) key({ kind: "esc" }); };
   beforeEach(closeBar);
@@ -288,7 +290,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     // Its preview is the note as a reader draws it.
     await until(() => frame().join("\n").includes("stake them in May"), "the preview drawn by the note surface", 5000);
     key({ kind: "enter" });
-    await until(() => (desk.describe() as any).current?.id === notes.beans!.id, "the note opened", 5000);
+    await until(() => shows(notes.beans!.id), "the note opened", 5000);
     expect(peek().bar).toBeUndefined();
     const before = desk.tileOutline().length;
     key(ctrlK); type("/bike");
@@ -601,7 +603,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(picked.result.written).toHaveLength(1);
     const ruled = await board.get(picked.result.written[0]);
     expect(ruled?.text).toBe("═".repeat(32));
-    expect(ruled?.parentId).toBe(desk.current!.id);
+    expect(ruled?.parentId).toBe((desk.paneNamed("reader") as any).msg.id);
   });
 
   test("what changed while the bar is open keeps the lit row lit and the notes found", async () => {
@@ -669,7 +671,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(r.rows[0].key).toBe(notes.beans!.id);
     // ⏎ lands on the latest.
     key({ kind: "enter" });
-    await until(() => (desk.describe() as any).current?.id === notes.beans!.id, "the latest opened", 5000);
+    await until(() => shows(notes.beans!.id), "the latest opened", 5000);
     key(ctrlK); key(ch("/"));
     await until(() => peek().bar?.scope === "notes" && peek().bar.rows.length > 1, "the recent notes again", 5000);
     // Typing runs the one search, not the recents.
@@ -746,7 +748,7 @@ describe.skipIf(!outliner)("the power bar", () => {
       }
     }
     // ⏎ at once after the paste, over the recent notes / listed before it: the pasted note opens, never a row kept from before.
-    desk.setCurrent(notes.garden!);
+    showIn(desk, notes.garden!);
     key(ctrlK); type("/");
     await until(() => peek().bar.rows.length > 0 && !peek().bar.asking, "the recent notes");
     key({ kind: "paste", text: `((${shed}|zzz))` });
@@ -817,7 +819,7 @@ describe.skipIf(!outliner)("the power bar", () => {
 
   test("docs scroll, select and load examples; a command copies and inserts as one unsaved button step", async () => {
     await app.dispatch.press("tile.focus", {}, "reader");
-    desk.setCurrent(notes.garden!);
+    showIn(desk, notes.garden!);
     await app.dispatch.press("bar.open", { query: "tile.collapse tile=reader on=true dir=v" });
     frame();
     const docs = () => peek().bar.docs;

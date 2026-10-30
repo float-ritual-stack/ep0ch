@@ -164,7 +164,7 @@ describe("opens into the next column (the flow's open rule)", () => {
     AREA = wide(220);
     const s = river(3);
     expect(placement(s, { from: 2, note: "arrival" }, ctxOf(PERSON, {})).route).toEqual({ next: true });
-    const current = ok(s, { op: "policy", node: flowIn(s).id!, set: { opens: "current" }, clear: [] }).state;
+    const current = ok(s, { op: "policy", node: flowIn(s).id!, set: { opens: "reader" }, clear: [] }).state;
     expect(placement(current, { from: 2, note: "arrival" }, ctxOf(PERSON, {})).route).toBeNull();
     const linked = ok(s, { op: "link", tile: 2, to: 3 }).state;
     expect(placement(linked, { from: 2, note: "arrival" }, ctxOf(PERSON, {})).route).toEqual({ to: 3 });

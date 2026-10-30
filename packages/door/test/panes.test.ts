@@ -102,7 +102,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     try {
       await B().fill();
       await until(() => !!(b.pane("Harvest") as any)?.items?.length, "the new lane starts");
-      b.setCurrent(card, { from: b.pane("Harvest")! });
+      b.showFrom(b.pane("Harvest")!, card);
       expect(B().preview.msg?.id).toBe(card.id);
     } finally {
       await (b as any).dispatch.act({ action: "layout.lock", args: { on: false } }, { kind: "user" });
@@ -124,7 +124,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
         (b as any).build(saved, false);
         await B().fill();
         await until(() => B().lanes.every((l: any) => l.items?.length), "the rebuilt lanes");
-        b.setCurrent(B().lanes[0].items[0], { from: B().lanes[0] });
+        b.showFrom(B().lanes[0], B().lanes[0].items[0]);
         await whole(B().preview);
         await mine(route, { source: "none" }, "preview");
       }
@@ -132,7 +132,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
       const kept = B().preview.msg?.id;
       await B().fill();
       const card = B().lanes[1].items[0];
-      b.setCurrent(card, { from: B().lanes[1] });
+      b.showFrom(B().lanes[1], card);
       expect(B().preview.msg?.id).toBe(kept);
       const saved = (b as any).layoutSpec();
       (b as any).build(saved, false);
@@ -395,7 +395,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(focus()).toBe("detail1");
     const mine = details()[0], held = details()[1], prior = mine.msg.id;
     const note = B().lanes[1].items[0];
-    b.setCurrent(note, { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
+    b.openFromTile(note, { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
     expect(mine.msg.id).toBe(note.id);
     expect(held.draft).toBeTruthy();
     expect(focus()).toBe("detail1");

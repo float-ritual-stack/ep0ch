@@ -10,7 +10,7 @@ import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
 import { Selection } from "../src/surface/selection";
 import { SocketBoard } from "../src/socket";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, showIn, until } from "./scratch";
 
 const QUESTION = "When the allotment committee moves the spring seed swap to the community hall, who carries the trestle tables over, and does the borrowed urn still need returning to the church by Sunday?";
 
@@ -36,7 +36,7 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     app.push(new MainMenu());
     desk = new Desk({ name: "q", title: "q", layout: { focus: "tree", root: { t: "split", dir: "row", weights: [0.3, 0.7], kids: [{ t: "leaf", kind: "tree", name: "tree" }, { t: "leaf", kind: "reader", name: "reader" }] } } } as any);
     app.push(desk);
-    desk.setCurrent(note);
+    showIn(desk, note);
     const r = () => D().pane("reader") as ReaderPane;
     await until(() => r().msg?.id === note.id, "the reader on the note");
     const lines = () => (desk.render(D().ctx).lines as string[]).map(plain);

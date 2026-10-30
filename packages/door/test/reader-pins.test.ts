@@ -21,8 +21,8 @@ describe("the reader modes before the pin, as saved layouts and agents wrote the
   test("detail is a reader, pinned when it names a page; held is no pin; follows and a note-less place are a former follower", () => {
     expect(canonSpec({ kind: "detail", name: "a", note: "n1" })).toEqual({ kind: "reader", name: "a", note: "n1" });
     expect(canonSpec({ kind: "detail", name: "b", page: "garden-now" })).toMatchObject({ kind: "reader", mode: "pinned", page: "garden-now" });
-    expect(canonSpec({ kind: "reader", name: "c", mode: "held", note: "n1" })).toEqual({ kind: "reader", name: "c", note: "n1" });
-    expect(canonSpec({ kind: "reader", name: "d", mode: "follows" })).toEqual({ kind: "reader", name: "d", wasFollowing: true });
+    expect(canonSpec({ kind: "reader", name: "c", mode: "held", note: "n1" } as any)).toEqual({ kind: "reader", name: "c", note: "n1" });
+    expect(canonSpec({ kind: "reader", name: "d", mode: "follows" } as any)).toEqual({ kind: "reader", name: "d", wasFollowing: true });
     expect(canonSpec({ kind: "reader", name: "e", nav: { v: 1 } })).toMatchObject({ kind: "reader", wasFollowing: true });
     expect(canonSpec({ kind: "reader", name: "f" })).toEqual({ kind: "reader", name: "f" });
     expect(canonSpec({ kind: "query", name: "q", mode: "held" })).toMatchObject({ kind: "query", mode: "held" });

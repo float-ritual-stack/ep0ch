@@ -55,7 +55,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
         b: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "backlinks", name: "links", source: "tile:reader", groups: "open" }, b: { t: "leaf", kind: "preview", name: "peek", source: "tile:links" } } } },
     });
     app.push(desk);
-    if (kind === "detail") reader("reader").hold(lamp, desk as any); else desk.setCurrent(lamp);
+    reader("reader").hold(lamp, desk as any);
     await until(() => links().target?.id === lamp.id && links().data !== null && rowOf(porch.id) >= 0 && rowOf(hall.id) >= 0, "the lamp's backlinks");
     await act("tile.focus", {}, "links");
   };
@@ -162,30 +162,11 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     await pickRow(hall.id);
     key({ kind: "alt-enter" });
     await until(() => get().tiles.length === before + 1, "a new detail");
-    const made = get().tiles.find((t: any) => t.kind === "reader" && t.mode === "held" && t.name !== "reader");
+    const made = get().tiles.find((t: any) => t.kind === "reader" && t.name !== "reader");
     expect(made.showing.id).toBe(lamp.id);
     expect(made.collapsed).toBe(true);
     expect(reader("reader").msg?.id).toBe(hall.id);
     expect(D().layoutGet().focus).toBe("links");
-    expect(links().target?.id).toBe(lamp.id);
-  }, 20_000);
-
-  test("a home that follows the current note: ⏎ moves the current note and the reader stays following; alt+⏎ keeps its old note beside it", async () => {
-    await setup("reader");
-    await until(() => reader("reader").msg?.id === lamp.id, "the reader on the lamp");
-    const before = get().tiles.length;
-    await pickRow(porch.id);
-    key({ kind: "alt-enter" });
-    await until(() => get().tiles.length === before + 1, "a new detail");
-    expect(get().tiles.find((t: any) => t.kind === "reader" && t.mode === "held" && t.collapsed)?.showing.id).toBe(lamp.id);
-    expect(reader("reader").msg?.id).toBe(porch.id);
-    expect(tile("links").linkFrom).toBe("home");
-    key({ kind: "enter" });
-    await until(() => reader("reader").msg?.id === porch.id, "⏎: the current note, which the reader follows");
-    // Opening never changes its mode: it still follows, and back returns to the lamp.
-    expect(reader("reader").followMode).toBe("follows");
-    expect(D().current?.id).toBe(porch.id);
-    render();
     expect(links().target?.id).toBe(lamp.id);
   }, 20_000);
 

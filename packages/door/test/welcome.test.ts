@@ -12,7 +12,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { landingOf, startScreens, type ScreenRequest } from "../src/start";
 import type { Key } from "../src/term";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, showIn, until } from "./scratch";
 import { prop } from "../src/props";
 import { traceRequests } from "../src/surface/dispatch";
 
@@ -382,7 +382,7 @@ describe.skipIf(!outliner)("a backlinks tile on the desk", () => {
     const desk = new Desk({ name: "test", title: "test", layout: { root: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "reader", name: "reader" }, b: { t: "leaf", kind: "backlinks", name: "backlinks", source: "tile:reader", groups: "open" } } } });
     const reader = desk.pane("reader") as ReaderPane, bl = desk.pane("backlinks") as BacklinksPane;
     app.push(desk);
-    desk.setCurrent(lamp);
+    showIn(desk, lamp);
     await until(() => bl.target?.id === lamp.id && bl.data !== null && bl.rows().some(r => r.kind === "backlink"), "the lamp's backlinks");
     await app.act({ action: "tile.focus", tile: "backlinks" });
     const d = desk as any;
