@@ -3,7 +3,7 @@
   "id": "meeting-card",
   "version": 2,
   "name": "Meeting card",
-  "description": "A rule that decorates: every block with [type::meeting] gets a header card of when, where and who, drawn above it.",
+  "description": "A card of when, where and who above every meeting note.",
   "run": ["bun", "meeting-card.ts"],
   "rules": [
     {

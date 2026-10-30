@@ -181,7 +181,13 @@ export function whatItAdds(manifest: ExtensionManifest, directory?: string): str
   const settings = (manifest.configSchema as { properties?: Record<string, { description?: string; default?: unknown }> } | undefined)?.properties;
   if (settings && Object.keys(settings).length) {
     const fallback = (value: unknown) => Array.isArray(value) && value.every((word) => typeof word === "string") ? commandLine(value) : JSON.stringify(value);
-    out.push(`- Settings (\`${directory ? join(directory, "config.json") : "config.json"}\`, in the door: ctrl+k then \`& settings ${manifest.id}\`; \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`): ${Object.entries(settings).map(([key, spec]) => `\`${key}\`${spec?.description ? ` (${words(spec.description)}${spec.default !== undefined ? `; default \`${fallback(spec.default).replaceAll("`", "'")}\`` : ""})` : spec?.default !== undefined ? ` (default \`${fallback(spec.default).replaceAll("`", "'")}\`)` : ""}`).join("; ")}`);
+    const said = (spec: { description?: string; default?: unknown } | undefined) => {
+      const fallen = spec?.default !== undefined ? `default \`${fallback(spec.default).replaceAll("`", "'")}\`` : "";
+      return spec?.description ? `${words(spec.description)}${fallen ? ` (${fallen})` : ""}` : fallen;
+    };
+    // A lead line saying where they're changed, then one item per setting: a bullet is one point (the write review's rule).
+    out.push(`- Settings (\`${directory ? join(directory, "config.json") : "config.json"}\`, in the door: ctrl+k then \`& settings ${manifest.id}\`; \`ep0ch act ext.${manifest.id}.settings <field>=<value>\`):`,
+      ...Object.entries(settings).map(([key, spec]) => `  - \`${key}\`${said(spec) ? `: ${said(spec)}` : ""}`));
   }
   return out;
 }

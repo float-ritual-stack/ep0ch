@@ -3,7 +3,7 @@
   "id": "marginalia",
   "version": 1,
   "name": "Marginalia",
-  "description": "Read with a pen: highlight a passage, look a word up, copy it with a citation, and ask @margin about it. Its answers land in the passage's margin thread.",
+  "description": "Read with a pen: highlight a passage, look a word up, copy it with a citation, or ask @margin about it.",
   "run": ["bun", "marginalia.ts"],
   "deadline": "2m",
   "configSchema": {

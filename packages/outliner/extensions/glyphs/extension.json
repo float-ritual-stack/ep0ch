@@ -3,7 +3,7 @@
   "id": "glyphs",
   "version": 2,
   "name": "Glyphs",
-  "description": "A bar source: the code page 437 shades, blocks and box lines by name, to copy or to rule a note with.",
+  "description": "Shades, blocks and box lines by name, to copy into a note or rule it with.",
   "run": ["bun", "glyphs.ts"],
   "sources": [
     { "id": "glyphs", "title": "glyphs", "prefix": "~", "description": "CP437 shades, blocks and box lines: ⏎ copies one; on a note, a rule of it under the note" }

@@ -3,7 +3,7 @@
   "id": "intake",
   "version": 1,
   "name": "Intake",
-  "description": "Prior art for a new request: a rule note runs prior-art when a request arrives, and @prior-art searches this outline, the others in config and optionally an archive, then writes what it found under the request with a line on likely duplicates.",
+  "description": "When a request arrives, what your outlines already hold on it, and any likely duplicate, written under it.",
   "run": ["bun", "intake.ts"],
   "deadline": "5m",
   "demo": "demo",

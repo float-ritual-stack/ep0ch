@@ -1,67 +1,64 @@
-# Notifications hub (a fetcher and a board)
+# Notifications hub
 
-Cold-start run 4 of the extension docs (PIE-741 and PIE-767). A deterministic fetcher, with no model: GitHub is real,
-and Gmail, Jira and Slack come from made-up files behind the same shape until a real one is plugged in.
+Your GitHub notifications become notes in the outline, one each, on two boards. Gmail, Jira and Slack fit the same
+shape, with made-up data until a real source is plugged in.
 
-```text
-Notifications [page::notifications] [notify.synced.github::…]      ← written by ext:notify's pull
-  └─ Fix the build [notify.key::github:101] [notify.source::github] [notify.kind::PullRequest] [notify.from::org/repo]
-       [notify.state::unread] [notify.received::2026-10-09T08:15:00Z] [notify.url::https://github.com/org/repo/pull/12]
-       [machine::notification]
+## Where to look
 
-Extensions › Notifications hub                                     ← its page, with these demo notes (yours once written)
-  ├─ Start here: your notifications on two boards
-  ├─ Notifications by read state [page::notifications-state]       ← a hub: the lanes are views
-  │    ├─ Unread [type::virtual-branch] [query::notify.state=unread] [machinery::show]
-  │    └─ Read   [type::virtual-branch] [query::notify.state=read] [machinery::show]
-  └─ Notifications by source [page::notifications-source]          ← a lane per source
-```
+- **[[notifications-state]]:** the board by read state, an Unread lane and a Read lane.
+- **[[notifications-source]]:** the board by source, a lane each for GitHub, Gmail, Jira and Slack.
+- **[[notifications]]:** the page every notification lands under.
 
-- **One note per notification**, keyed by `[notify.key::<source>:<id>]`. A pull looks the key up and writes only what
-  changed, so a second pull writes nothing. Properties: `notify.source`, `notify.kind`, `notify.from`,
-  `notify.state` (`unread` or `read`), `notify.received`, `notify.url`. Query them like any: `notify.source=github AND
-  notify.state=unread`.
-- **Notifications are machinery** (`[machine::notification]`, PIE-1427): what a tool fetched, not what anyone wrote
-  here. Lists, `ep0ch find` and a chat's "what changed lately" (`outline_query`) leave them out and say how many;
-  `machinery: show` brings them back, `machinery: only` with `machine=notification` asks for just them. The boards say
-  `[machinery::show]`. Notes fetched before version 4 get the stamp from `ep0ch machinery backfill --apply`.
-- **Read stays read.** Mark one read by editing `[notify.state::read]` or by dragging its card to the Read lane (the
-  lane's query is the patch). A pull never turns `read` back into `unread`, whatever the source says; it turns
-  `unread` into `read` when the source says it was read there (GitHub is fetched with `all=true` for that).
-- **Schedule:** `pull` runs every 5 minutes, once per host (`ep0ch ext run notify action:pull` runs it now).
-  The cursor per source is `[notify.synced.<source>::…]` on the page's first line. The first pull looks back
-  `days` (14).
-- **The boards are its demo notes** (`demo/` in this folder): installing it writes them once under its page in the
-  outline's Extensions hub, as `ext:notify`. They're yours from then on: edit them, move them, delete a lane for a source
-  you don't pull. A reinstall never writes them again; `ep0ch ext remove notify --demo remove` moves the ones you
-  didn't change to Trash.
+## What you do
 
-## Install
+- **Mark one read:** drag its card to the Read lane, or edit it to `[notify.state::read]`.
+- **Pull now:** `ep0ch ext run notify action:pull`. It pulls by itself every 5 minutes too.
+- **Find some:** query its properties like any others, such as `notify.source=github AND notify.state=unread`.
 
-```sh
-ep0ch ext add notify --outline-folder ~/outlines/<name>      # or `ep0ch ext add notify` for every outline
-```
+## Good to know
 
-Config (`config.json` in the installed folder), all optional:
+- **Read stays read.** A pull never turns a note you marked read back to unread.
+- **Read there is read here.** A pull marks a note read when GitHub says you read it there.
+- **Lists leave notifications out.** `ep0ch find`, lists and "what changed lately" skip them and say how many.
+  - `machinery: show` brings them back; the boards already say `[machinery::show]`.
+- **The boards are yours.** Edit them, move them, delete a lane for a source you don't pull.
+  - A reinstall never writes them again.
 
-```json
-{ "config": { "sources": ["github"], "page": "notifications", "days": 14 } }
-```
+## Setup
 
-- **GitHub** runs `gh api notifications` (read-only). `gh` must be on the service's PATH and logged in as the service
-  user: a call gets the service's `HOME`, and the manifest's `env` passes `GH_CONFIG_DIR` and `XDG_CONFIG_HOME` when
-  the service has them, so `gh` finds its login where it keeps it.
-- **Gmail, Jira, Slack** need `"fixtures": { "gmail": "fixtures/gmail.json", … }` in config to run (made-up data), and
-  list the source in `sources`. Without a fixture or a real source a pull says so and carries on with the others.
+- **Install:** `ep0ch ext add notify` for every outline, or add `--outline-folder ~/outlines/<name>` for one.
+- **GitHub:** `gh` on the service's PATH, logged in as the service's user. It runs `gh api notifications`, read-only.
+- **Settings:** `config.json` in the installed folder, all optional, such as
+  `{ "config": { "sources": ["github"], "page": "notifications", "days": 14 } }`.
+- **Gmail, Jira, Slack:** made-up data only. Name a file per source in `fixtures`, such as
+  `"fixtures": { "gmail": "fixtures/gmail.json" }`, and list the source in `sources`.
+  - A source with neither: the pull says so and carries on with the others.
+- **Remove:** `ep0ch ext remove notify --demo remove` also moves the boards you didn't change to Trash.
 
-## Plugging in a real source
+## How it works
 
-A source is `{ fetch({ since, days }): Promise<Notification[]> }` (`notification.ts`): the notifications changed
-since an ISO time, in the one shape (`id`, `kind`, `from`, `title`, `url?`, `unread`, `received`, `snippet?`). To add
-Gmail: in `sources.ts` write `gmail: Source` that calls the Gmail API (`users.messages.list` with
-`q=in:inbox after:<epoch>`, then `messages.get?format=metadata`), maps each message (`id` the message id, `from` the
-`From` header, `unread` its `UNREAD` label), and list it in `REAL`. Its token is a manifest `secrets` entry
-(`{ "group": "gmail", "key": "GMAIL_TOKEN" }`, run `with-secrets --add gmail GMAIL_TOKEN`); it reaches the process as
-`credentials.token` (read it from the request) and as `GMAIL_TOKEN` in its environment, and the service scrubs it from
-answers. Jira: search `updated >= "<since>"` and map comments and assignments; Slack: `search.messages` for
-`<@you>` or `conversations.history`. Nothing else changes: the page, keys, boards and tests are the same.
+- **One note per notification,** keyed by `[notify.key::<source>:<id>]`. A pull writes only what changed.
+- **Its properties:** `notify.source`, `notify.kind`, `notify.from`, `notify.state` (`unread` or `read`),
+  `notify.received`, `notify.url`.
+- **Stamped as machinery:** each note carries `[machine::notification]` (PIE-1427): fetched, not written by anyone.
+  - Notes from before version 4 get it from `ep0ch machinery backfill --apply`.
+- **Cursors:** each source's last pull is `[notify.synced.<source>::…]` on the page's first line.
+  - The first pull looks back `days` (14).
+- **GitHub's read state:** fetched with `all=true`, so threads read there come back marked read.
+- **The `gh` login:** a call gets the service's `HOME`. The manifest passes `GH_CONFIG_DIR` and `XDG_CONFIG_HOME` when
+  the service has them.
+
+## Adding a real source
+
+- **A source** is `{ fetch({ since, days }): Promise<Notification[]> }` (`notification.ts`).
+  - It returns the notifications changed since an ISO time.
+  - Each one: `id`, `kind`, `from`, `title`, `url?`, `unread`, `received`, `snippet?`.
+- **Gmail, for one:** in `sources.ts` write `gmail: Source`, and list it in `REAL`.
+  - Call `users.messages.list` with `q=in:inbox after:<epoch>`, then `messages.get?format=metadata`.
+  - Map each message: `id` its id, `from` its `From` header, `unread` its `UNREAD` label.
+- **Its token:** a manifest `secrets` entry, `{ "group": "gmail", "key": "GMAIL_TOKEN" }`.
+  - Add it with `with-secrets --add gmail GMAIL_TOKEN`.
+  - It reaches the process as `credentials.token` and as `GMAIL_TOKEN`; the service scrubs it from answers.
+- **Jira:** search `updated >= "<since>"`, and map comments and assignments.
+- **Slack:** `search.messages` for `<@you>`, or `conversations.history`.
+- **Nothing else changes:** the page, keys, boards and tests stay the same.

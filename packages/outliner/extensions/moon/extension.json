@@ -3,7 +3,7 @@
   "id": "moon",
   "version": 1,
   "name": "Moon",
-  "description": "Data: the moon on a date, put into a block as if you had copied it in.",
+  "description": "The moon's phase on a date, written into the note.",
   "run": ["bun", "moon.ts"],
   "handlers": [
     {
