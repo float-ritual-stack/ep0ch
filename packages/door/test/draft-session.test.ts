@@ -227,6 +227,15 @@ describe("the lifecycle, on a fake target", () => {
     const a = DraftSession.open(unchanged.t, { text: "Fern", base: 1 });
     expect(await a.leave()).toEqual({ left: "closed" });
     expect(unchanged.sent).toEqual([]);
+    // A new note with only a line break in it is nothing written (PIE-1449): leaving, esc and a discard all just close it.
+    const blank = fake({ place: "edit:note-new", blockId: "note-new" });
+    const n = DraftSession.open(blank.t, { text: "", base: 1 });
+    expect(keys(n, [{ kind: "enter" }, ESC])).toEqual(["close"]);
+    expect(await n.leave()).toEqual({ left: "closed" });
+    expect(blank.sent).toEqual([]);
+    const n2 = DraftSession.open(fake({ place: "edit:note-new2", blockId: "note-new2" }).t, { text: "", base: 1 });
+    keys(n2, [{ kind: "enter" }]);
+    expect(n2.discard()).toEqual({ said: "closed" });
 
     const ok = fake({ place: "edit:note-ok", blockId: "note-ok" }, [{ ok: true, revision: 2 }]);
     const b = DraftSession.open(ok.t, { text: "Fern", base: 1 });

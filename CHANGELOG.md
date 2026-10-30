@@ -18,6 +18,12 @@ are its record. The outliner's entries from then are kept below, under
 - **Handovers:** a session handed over while the picker had the keys gives them back to the edit, without "tile.focus in pick: no tile pick".
 - **Run:** `ep0ch install --apply`. `EP0CH_PICKER=tv` set by hand needs `--inline` too.
 
+### Refusals and the status line read in words; Esc in a new note's float does what you mean (PIE-1449)
+
+- **Enter, then Esc, in a new note's float closes it:** a new note holding only line breaks or spaces is nothing written, so Esc closes the float and the note goes to the trash, said once. It used to say "dropped 1 stray character" and stay open.
+- **A form's page refusal says where the note is, not its id:** "a note is titled Bird list, but it isn't a page"; two by that title are told apart by where each sits ("at the top, and in Garden"). Its did-you-mean names only pages about the same words, typos included, never one that shares a single word.
+- **^K stays on the status bar while a message is up:** the message takes the room beside it, so a click on ^K still opens the power bar.
+
 ### A delivery follows its PR when GitHub moves it to main (PIE-1440)
 
 - **Stacked PRs close:** a PR first opened into another branch and retargeted to main by GitHub is the same delivery: `work deliver PIE-n --pr N` (and the merge hook) update its base and merged state, so the ticket can close.

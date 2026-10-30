@@ -1930,12 +1930,13 @@ export class App implements Ctx {
     // as many as fit before it with a cell of the message: pins give way from the end, then the `!`, the `+N` (the way to
     // the rest) last. What is kept here is what is drawn and what a click finds (PIE-1415: a dropped `+N` had left its
     // hit box behind).
-    // From the items as they were before separating: a dropped neighbour's `│` never leads the kept ones.
-    let held = displaced ? items.filter(i => i.place === "left" && (i.id === "overflow" || (i.rank ?? RANK.builtin) >= RANK.pinned)) : [];
-    const own = (i: StatusItem) => i.id === "overflow" || i.id === "problems";
+    // From the items as they were before separating: a dropped neighbour's `│` never leads the kept ones. The ^K stays too
+    // (PIE-1449), the message beside it: the mouse's way to the power bar outlasts everything else here.
+    let held = displaced ? items.filter(i => i.place === "left" && (i.id === "power" || i.id === "overflow" || (i.rank ?? RANK.builtin) >= RANK.pinned)) : [];
+    const goesLast = ["problems", "overflow", "power"], own = (i: StatusItem) => goesLast.includes(i.id);
     while (held.length && width(statusText(separated(held, "left"))) >= room) {
       const last = held.findLastIndex(i => !own(i));
-      held = held.toSpliced(last >= 0 ? last : Math.max(0, held.findIndex(i => i.id === "problems")), 1);
+      held = held.toSpliced(last >= 0 ? last : Math.max(0, held.findIndex(i => i.id === goesLast.find(id => held.some(h => h.id === id)))), 1);
     }
     const kept = separated(held, "left"), keep = statusText(kept);
     this.messageCut = !!this.message && width((displaced ? keep : left) + middle) > room;
