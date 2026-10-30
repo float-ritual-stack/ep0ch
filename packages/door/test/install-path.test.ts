@@ -56,8 +56,9 @@ describe("the link agent carries the installing person's PATH", () => {
 
 describe("an install's facts read the PATH it was given", () => {
   /** A made-up machine: Herdr, restic and with-secrets in a Homebrew-like bin, none of them in /usr/bin or /bin. */
-  const home = join(scratch, "wren"), brew = join(scratch, "brew/bin");
-  mkdirSync(brew, { recursive: true });
+  // `bare` stands in for launchd's PATH: an empty folder, so a tool the test machine has in /usr/bin can't answer.
+  const home = join(scratch, "wren"), brew = join(scratch, "brew/bin"), bare = join(scratch, "bare/bin");
+  mkdirSync(brew, { recursive: true }); mkdirSync(bare, { recursive: true });
   const tool = (name: string, body: string) => { writeFileSync(join(brew, name), `#!/bin/sh\n${body}\n`); chmodSync(join(brew, name), 0o755); };
   tool("herdr", 'case "$1" in --version) echo "herdr 0.9.1";; status) echo \'{"running":false}\';; *) exit 1;; esac');
   tool("restic", 'echo "restic 0.17.3"');
@@ -74,14 +75,14 @@ describe("an install's facts read the PATH it was given", () => {
   }, 60_000);
 
   test("launchd's bare PATH: each missing tool says which PATH was checked", async () => {
-    const f = await facts("/usr/bin:/bin");
+    const f = await facts(bare);
     expect(f.herdr.path).toBeNull();
-    expect(pluginStep(f)).toMatchObject({ status: "manual", why: expect.stringContaining("Herdr isn't installed (checked PATH=/usr/bin:/bin)") });
+    expect(pluginStep(f)).toMatchObject({ status: "manual", why: expect.stringContaining(`Herdr isn't installed (checked PATH=${bare})`) });
     const backups = backupsStep({ ...f, databases: [{ name: "garden", path: join(home, "outlines/garden.sqlite") }] })!;
     expect(backups.why).toContain("restic isn't installed");
     expect(backups.why).toContain("with-secrets isn't on PATH");
-    expect(backups.why).toEndWith("; checked PATH=/usr/bin:/bin");
+    expect(backups.why).toEndWith(`; checked PATH=${bare}`);
     const link = linkStep({ ...f, ep0ch: { found: null, target: null, pointsHere: false }, linkDirs: f.linkDirs.map(d => ({ ...d, onPath: false })) });
-    expect(link).toMatchObject({ status: "manual", why: expect.stringContaining("(checked PATH=/usr/bin:/bin; install never uses sudo)") });
+    expect(link).toMatchObject({ status: "manual", why: expect.stringContaining(`(checked PATH=${bare}; install never uses sudo)`) });
   }, 60_000);
 });
