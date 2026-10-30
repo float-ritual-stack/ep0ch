@@ -96,6 +96,11 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     expect(today()).toMatchObject({ count: 206, more: 0 });
     expect(today().notes.length).toBe(206);
     expect(tilePane().list.picked(AS)?.id).toBe(picked);
+    // End reads the rest of a group on the way to its last note (PIE-1457): a fresh pick from the top, with a more row below.
+    await act("facets.query", { text: "tray=bulk updated >= -7d" });
+    await until(() => today()?.more === 6, "a fresh first page");
+    expect(await act("facets.match", { by: 1e9 })).toMatchObject({ title: "Seedling 0" });
+    expect(today()).toMatchObject({ more: 0 });
     // Matches answers the lists' actions in its own tile too.
     await act("facets.place", { place: "tile" });
     await until(() => !!D().describe().panes.find((p: any) => p.kind === "matches"), "the matches tile");

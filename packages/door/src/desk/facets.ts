@@ -29,6 +29,9 @@ import { ATTACHED_PLACES, AttachedTile, attachedPlaceOf, attachedRect, drawAttac
 import type { AttachedOwner, Attachment } from "./attached-tile";
 import { drawCalendar } from "../figures/days";
 import { chipsOf, matchGroups, matchRows, MORE, type MatchGroup } from "./facets-matches";
+
+/** A step past every row: End and G (the list clamps it to its last row). */
+const PAST_END = 1e9;
 import { bucketWhere, dayBound, dayOfClause } from "@ep0ch/outline-core/date-buckets";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import type { KindHost, TileKind } from "./tile-kinds";
@@ -576,7 +579,7 @@ export class FacetsPane implements Pane, AttachedOwner {
     // Every list's keys (PIE-1457): Home and g to the first note, End and G to the last; space opens, as it does on a
     // note in the facets tile's own Matches.
     const c = ch(k), by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8
-      : k.kind === "home" || c === "g" ? -1e9 : k.kind === "end" || c === "G" ? 1e9 : 0;
+      : k.kind === "home" || c === "g" ? -PAST_END : k.kind === "end" || c === "G" ? PAST_END : 0;
     const run = (name: string, args: Record<string, unknown> = {}) => { void desk.press?.(this, FACETS_ACTIONS, name, args); return true; };
     if (by) return run("facets.match", { by });
     if (k.kind === "enter" || c === " ") return run("facets.open");
@@ -687,7 +690,7 @@ export class FacetsPane implements Pane, AttachedOwner {
   key(k: Key, desk: DeskApi): boolean {
     if (this.draft !== null && k.kind !== "mouse") return this.draftKey(k, desk);
     const n = this.rows().length, c = ch(k), row = this.current();
-    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : k.kind === "home" || c === "g" ? -1e9 : k.kind === "end" || c === "G" ? 1e9 : 0;
+    const by = isDown(k) ? 1 : isUp(k) ? -1 : k.kind === "pgdn" ? 8 : k.kind === "pgup" ? -8 : k.kind === "home" || c === "g" ? -PAST_END : k.kind === "end" || c === "G" ? PAST_END : 0;
     if (by) { if (n) this.act(desk, "facets.pick", { by }); return true; }
     if (k.kind === "char" && k.ctrl && k.ch === "o") { this.act(desk, "facets.place"); return true; }
     if (k.kind === "enter" || c === " ") {
@@ -1027,13 +1030,17 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     run({ id, by }, { pane, desk, standing }, actor) {
       const p = pane as FacetsPane, who = standing ? PERSON : actorKey(actor);
       if ((id === undefined) === (by === undefined)) throw new ActionRefused("facets.match takes id or by");
-      const row = id !== undefined ? p.list.pick(who, p.noteFor({ id }).id) : p.list.step(who, by!) ?? p.list.picked(who);
-      if (row?.id.startsWith(MORE)) return p.readGroup(desk, row.id.slice(MORE.length));
-      const m = row?.source;
-      if (!m) throw new ActionRefused("Matches lists no note yet");
-      if (standing) { const at = p.rows().findIndex(r => r.kind === "note" && r.note.id === m.id); if (at >= 0) p.at = at; desk.showFrom?.(p.source(), m, actor); }
-      desk.redraw();
-      return { id: m.id, title: subject(m) };
+      const go = (): unknown => {
+        const row = id !== undefined ? p.list.pick(who, p.noteFor({ id }).id) : p.list.step(who, by!) ?? p.list.picked(who);
+        // End (a step past every row, PAST_END) reads a group's rest on the way and lands on the last note (PIE-1457).
+        if (row?.id.startsWith(MORE)) { const read = p.readGroup(desk, row.id.slice(MORE.length)); return by !== undefined && by >= PAST_END ? read.then(r => (r.notes ? go() : r)) : read; }
+        const m = row?.source;
+        if (!m) throw new ActionRefused("Matches lists no note yet");
+        if (standing) { const at = p.rows().findIndex(r => r.kind === "note" && r.note.id === m.id); if (at >= 0) p.at = at; desk.showFrom?.(p.source(), m, actor); }
+        desk.redraw();
+        return { id: m.id, title: subject(m) };
+      };
+      return go();
     },
   }),
   "facets.more": def({
