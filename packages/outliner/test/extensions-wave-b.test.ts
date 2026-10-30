@@ -9,10 +9,13 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
+import { Publisher } from "../src/publish";
 import { formatExtensionsList, runExtCommand } from "../src/extension-install";
 import type { ExtensionsListResult } from "../src/extension-registry";
 import type { ResourceProjection, ResourceProjectionReadResult } from "../src/resource-projection";
 import type { Block } from "../src/types";
+import type { SourcesAnswer } from "@ep0ch/outline-core/sources";
+import type { SiteAnswer } from "@ep0ch/outline-core/site";
 
 const REPO_EXTENSIONS = join(import.meta.dir, "..", "extensions");
 const PERSON = { author: "user" as const };
@@ -66,7 +69,7 @@ async function setup(options: { install?: string[]; userInstall?: string[]; now?
   const create = (text: string, parentId?: string, by?: { author: "user" | "agent"; actorId?: string }) =>
     client.request<Block>({ action: "create", text, ...(parentId ? { parentId } : {}),
       ...(by ? { author: by.author, ...(by.actorId ? { provenance: { actorId: by.actorId } } : {}) } : {}) });
-  const list = (reload = false) => client.request<ExtensionsListResult>({ action: "extensions.list", ...(reload ? { reload: true } : {}) });
+  const list = (reload = false) => client.request<ExtensionsListResult & { pages?: Record<string, string> }>({ action: "extensions.list", ...(reload ? { reload: true } : {}) });
   const projections = async (blockId: string) =>
     (await client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId })).projections;
   const projection = (blockId: string, kind: string, ready: (projection: ResourceProjection) => boolean = (p) => p.status === "ready") =>
@@ -320,6 +323,74 @@ test("fancy-horror (rich component): data plus a primitive view, rendered to eve
   expect(omens.filter((omen) => omen.warded).map((omen) => `Warded off ${omen.omen}`)).toEqual([warded.message]);
   const changes = store.changes.since(0, 1000);
   expect(changes.kind === "changes" && changes.changes.some((change) => change.action === "ext.fancy-horror.ward" && change.actor?.actorId === "ext:fancy-horror")).toBe(true);
+});
+
+test("a query-fed workbench presents one saved view and follows matches, source edits and question edits", async () => {
+  const { client, create, projection, projections, list, store } = await setup({ install: ["workbench"] });
+  const page = (await list()).pages?.workbench;
+  expect(page && store.children(page).map(child => child.text.split("\n", 1)[0])).toEqual([
+    expect.stringContaining("Seed workbench"), expect.stringContaining("Plant the peas"),
+    expect.stringContaining("Repair the gate"), expect.stringContaining("Label the trays"),
+  ]);
+  const first = await create("Plant herbs [type::workbench-test] [stage::ready] [due::2026-11-03]");
+  const board = await create("Seed workbench [type::virtual-branch] [publish::public] [query::type=workbench-test] [group::stage] [sort::due] [direction::asc] [columns::stage,due]\nworkbench::");
+  const defaults = await create("Default workbench [type::virtual-branch] [query::type=workbench-test]\nworkbench::");
+  const defaultProjection = await until("default workbench answer", async () => (await projections(defaults.id)).find(p => p.kind === "component" && (p.status === "ready" || p.status === "unavailable")));
+  expect(defaultProjection.status).toBe("ready");
+  const read = async () => (await projections(board.id))[0]?.output?.component as {
+    data: { blocks: { id: string; properties: { key: string; value: string }[] }[]; groups: { value: string; count: number }[]; columns: string[] };
+    view: { type: string; children: { type: string; title?: string; children?: { type: string; rows?: { id: string; do: { open: string } }[]; links?: string[] }[] }[] };
+  } | undefined;
+  await projection(board.id, "component");
+  const initial = await read();
+  expect(initial?.data.blocks.map(row => row.id)).toEqual([first.id]);
+  expect(initial?.data.columns).toEqual(["stage", "due"]);
+  expect(initial?.view.children.find(node => node.title?.startsWith("Table"))?.children?.[0]?.links).toEqual([first.id]);
+  expect((initial?.view.children.find(node => node.title?.startsWith("Table"))?.children?.[0] as { rows?: (string | number)[][] })?.rows?.[0]?.[0]).toBe("Plant herbs");
+  expect(initial?.view.children.find(node => node.title?.startsWith("List"))?.children?.[0]?.rows?.[0]?.do.open).toBe(first.id);
+  const source = (await client.request<SourcesAnswer>({ action: "site.sources", blockId: board.id })).sources.find(entry => entry.name === "workbench");
+  expect(source?.query.params).toEqual(expect.arrayContaining([
+    { key: "where", value: "type=workbench-test" }, { key: "group", value: "stage" }, { key: "sort", value: "due asc" },
+  ]));
+  expect(source?.query.text).toBe("type=workbench-test");
+  expect(source?.result).toMatchObject({ rows: 1, columns: ["id", "title"], table: [[first.id, "Plant herbs"]] });
+  expect(source?.result.propertyNames).toEqual(expect.arrayContaining(["type", "stage", "due"]));
+  const limited = await client.request<SiteAnswer>({ action: "site.answer", blockId: board.id, sources: true, hidden: [first.id] });
+  expect(limited.deps).toContain(first.id);
+  expect(limited.sources?.sources.find(entry => entry.name === "workbench")?.result.rows).toBe(0);
+  const publisher = new Publisher({ client });
+  await publisher.start();
+  cleanups.push(() => publisher.stop());
+  const request = new Request(`http://127.0.0.1/p/${board.id}?view=html`, { headers: { accept: "text/html" } });
+  const ownerPage = await publisher.handle(request, "tailnet");
+  expect(ownerPage.status).toBe(200);
+  const ownerHtml = await ownerPage.text();
+  expect(ownerHtml).toContain('class="ext-table"');
+  expect(ownerHtml).toContain('class="ext-card"');
+  expect(ownerHtml).toContain('class="ext-list"');
+  expect(ownerHtml).toContain("Plant herbs");
+  expect(ownerHtml).toContain("Sources");
+  const publicPage = await publisher.handle(request, "public");
+  expect(publicPage.status).toBe(200);
+  const publicHtml = await publicPage.text();
+  expect(publicHtml).toContain("not shared");
+  expect(publicHtml).not.toContain("Plant herbs");
+
+  const second = await create("Label trays [type::workbench-test] [stage::doing] [due::2026-11-02]", undefined, { author: "agent", actorId: "test-gardener" });
+  await until("the new match in the watched question", async () => (await read())?.data.blocks.length === 2);
+  expect((await read())?.data.blocks.map(row => row.id)).toEqual([second.id, first.id]);
+  expect((await read())?.data.groups.map(group => group.value)).toEqual(["doing", "ready"]);
+
+  const changed = await client.request<Block>({ action: "update", blockId: second.id, expectedRevision: second.revision,
+    text: "Label trays [type::workbench-test] [stage::ready] [due::2026-11-02]", mutation: { author: "agent", actorId: "test-gardener" } });
+  await until("the edited field in the live answer", async () => (await read())?.data.blocks.find(row => row.id === changed.id)?.properties.some(p => p.key === "stage" && p.value === "ready"));
+  expect((await read())?.data.groups.map(group => group.value)).toEqual(["ready"]);
+
+  await client.request({ action: "update", blockId: board.id, expectedRevision: board.revision,
+    text: "Seed workbench [type::virtual-branch] [publish::public] [query::type=workbench-test stage=doing] [group::stage] [sort::due] [direction::asc] [columns::stage,due]\nworkbench::",
+    mutation: PERSON });
+  await until("the edited question in the component", async () => (await read())?.data.blocks.length === 0);
+  expect((await read())?.view.children.find(node => node.title?.startsWith("List"))?.children?.[0]?.rows).toEqual([]);
 });
 
 test("an action's writes may land outside the block it acts on (PIE-754), apply together or not at all, and a read-only action can't write", async () => {
@@ -648,4 +719,17 @@ test("a form says where each entry lands: under it, under a page, or as a line i
   expect(store.get(word.id)!.text).toContain("[form-into::inlne]");
   await expect(fill(word.id, { book: "Moss" })).rejects.toThrow(/did you mean inline\?/);
   expect([...live(typo.id), ...live(word.id), ...live(shelf.id).slice(2)]).toEqual([]);
+});
+
+test("a workbench over long notes still draws, and a removed question replaces the old answer with why", async () => {
+  const { client, create, projection, projections } = await setup({ install: ["workbench"] });
+  const body = "leaf and root ".repeat(100);
+  for (let i = 0; i < 100; i++) await create(`Pot ${i} [type::workbench-long]\n${body}`);
+  const board = await create("Long pots [type::virtual-branch] [query::type=workbench-long]\nworkbench::");
+  await projection(board.id, "component");
+  const read = async () => (await projections(board.id))[0];
+  expect((await read())?.status).toBe("ready");
+  await client.request({ action: "update", blockId: board.id, expectedRevision: board.revision, text: "Long pots [type::virtual-branch]\nworkbench::", mutation: PERSON });
+  await until("the unbound question's reason", async () => (await read())?.status !== "ready");
+  expect((await read())?.status).not.toBe("ready");
 });

@@ -9,6 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { openScreen } from "../../src/desk/screen-specs";
 import { Desk } from "../../src/desk/desk";
 import { ReaderPane } from "../../src/desk/panes";
+import { itemsOf } from "../../src/surface/sources";
 import { App } from "../../src/app";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
@@ -32,6 +33,36 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   const { scratch, written, press, ch, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
+
+  test("the collection workbench showcase opens one live saved view through shared table, cards and list", async () => {
+    expect(await app.act({ action: "section", args: { name: "workbench" }, as: "test-agent" })).toMatchObject({ key: "workbench" });
+    await until(() => screen().includes("Garden collection workbench") && screen().includes("Table") && screen().includes("Cards") && screen().includes("List"), "the workbench's three presentations", 10_000);
+    const note = seeded.notes.workbench!;
+    const output = async () => (await board.readResourceProjections(note.id)).projections.find(p => p.kind === "component")?.output?.component as { data: { blocks: { id: string }[] }; view: { children: { title?: string }[] } } | undefined;
+    await untilAsync(async () => (await output())?.data.blocks.length === 5, "the five chores in the workbench");
+    const before = (await output())!.data.blocks.map(row => row.id);
+    const chore = (await board.children(seeded.notes.chores!.id))[0]!;
+    await board.update(chore.id, chore.text.replace("[type::chore]", "[type::other]"), chore.revision!, { kind: "agent", id: "test-agent" });
+    await untilAsync(async () => (await output())?.data.blocks.length === before.length - 1, "an agent's source edit in the live answer");
+    expect((await output())!.data.blocks.map(row => row.id)).not.toContain(chore.id);
+    expect((await output())!.view.children.some(child => child.title?.startsWith("Table"))).toBe(true);
+    await board.update(chore.id, chore.text, (await board.get(chore.id))!.revision!, { kind: "agent", id: "test-agent" });
+    await untilAsync(async () => (await output())?.data.blocks.length === before.length, "the restored row in the workbench");
+    screen();
+    const stage = S().stages.get(S().sel).top as Desk;
+    const pane = stage.pane("reader") as ReaderPane;
+    await stage.dispatch.press("sources.open", {}, "reader");
+    await until(() => !!pane.surface.sourcesMode?.panel.answer?.sources.some(source => source.name === "workbench"), "workbench in Sources");
+    const panel = pane.surface.sourcesMode!.panel;
+    const sourceIndex = panel.answer!.sources.findIndex(source => source.name === "workbench");
+    await stage.dispatch.press("sources.enter", { n: sourceIndex + 1 }, "reader");
+    const source = panel.answer!.sources[sourceIndex]!;
+    const target = before.find(id => id !== chore.id)!;
+    const resultIndex = itemsOf(source, panel.folds).findIndex(item => item.kind === "result" && item.block === target);
+    expect(resultIndex).toBeGreaterThanOrEqual(0);
+    expect(await stage.dispatch.press("sources.enter", { n: resultIndex + 1 }, "reader")).toMatchObject({ opened: target });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
 
 
   test("extensions as programs (PIE-754): almanac's schedule is listed; its action, through act with no block, writes a dated note under the Almanac page as ext:almanac, once a day", async () => {

@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A saved view reads as a table, cards and a list: the collection workbench (Datacore spike)
+
+- **Collection workbench extension:** put `workbench::` in a saved view note and its `[query::]`, `[group::]`, `[sort::]` and `[columns::]` draw as a linked table, cards and a filterable list with previews; editing the view or any matching note updates it live, and every row opens its note. Install it from the extensions screen; uninstalling leaves the view and its notes.
+- **Query-fed handlers:** a read handler's manifest can declare `query`, a question the service answers and watches (the one `QueryWatches`) and passes the extension as `input.query`; Sources shows the bound question and its rows, and a result row opens its note. Rows reach the program as properties plus a short excerpt, so a collection of long notes still draws.
+- **Showcase:** "Garden collection workbench" in the kitchen sink, with the extension installed.
+- **Run:** `ep0ch install --apply`.
+
 ### A refusal never covers the lock chip it names (PIE-1456)
 
 - **The ▣ stays clickable under a message:** a status message the bar cuts short is said whole above it, and on a desk it now sits above the hint row instead of over it (with a tile lifted, beside the drawer and in the showcase too), so its chips, dock handles and ▣ screen locked stay drawn and clickable at any width; a click on ▣ right after a refusal that says to click it unlocks (a click on the message still opens the log).

@@ -154,6 +154,7 @@ export function whatItAdds(manifest: ExtensionManifest, directory?: string): str
   for (const script of manifest.scripts ?? []) out.push(`- Script **${words(script.name)}** (\`${script.file}\`): ${words(script.about)}`);
   for (const handler of manifest.handlers ?? []) {
     out.push(`- \`${handler.key}::\` lines: ${handler.kind === "data" ? "a record kept as a block" : handler.kind === "output" ? "output drawn under the line" : handler.kind === "component" ? "a component drawn under the line" : "a Resource"} (${handler.effects})${scheduleWords(handler.schedule)}${handler.description ? `. ${words(handler.description)}` : ""}`);
+    if (handler.query) out.push(`  - Watched question: \`${words(handler.query.where)}\`${handler.query.group ? `, group \`${words(handler.query.group)}\`` : ""}${handler.query.sort ? `, sort \`${words(handler.query.sort)}\`` : ""}; its answer is \`input.query\`.`);
   }
   for (const action of manifest.actions ?? []) {
     out.push(`- Action **${words(action.label)}** (\`ext.${manifest.id}.${action.id}\`, ${ON_WORDS(action.on)}${action.key ? `, key \`${action.key}\`` : ""}${action.effects === "write" ? ", writes" : ""}${scheduleWords(action.schedule)})${action.description ? `: ${words(action.description)}` : ""}`);
@@ -170,8 +171,8 @@ export function whatItAdds(manifest: ExtensionManifest, directory?: string): str
     if (source.prefix || source.main) out.push(`- Power bar rows: **${words(source.title)}**${source.prefix ? ` (prefix \`${source.prefix}\`)` : ""}${about}`);
     if (source.triggers) out.push(`- Completion rows: **${words(source.title)}** under ${source.triggers.map(t => t === "key::" && source.keys ? source.keys.map(k => `\`[${k}::\``).join(", ") : `\`${t}\``).join(", ")}${about}`);
   }
-  for (const component of (manifest.components ?? []) as { key?: string; name?: string; title?: string }[]) {
-    out.push(`- Component schema \`${component.key ?? component.name ?? "?"}\`${component.title ? `: ${words(component.title)}` : ""}`);
+  for (const component of (manifest.components ?? []) as { id?: string; title?: string }[]) {
+    out.push(`- Component schema \`${component.id ?? "?"}\`${component.title ? `: ${words(component.title)}` : ""}`);
   }
   for (const [name, secret] of Object.entries(manifest.secrets ?? {})) {
     out.push(typeof secret === "string"

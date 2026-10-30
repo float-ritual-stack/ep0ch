@@ -18,7 +18,7 @@ import {
 } from "./resource-references";
 import type { AuthoredResourceReferenceLookup } from "./resource-references";
 import { extensionProvider, type ExtensionProvider, type ResourceDescription, type ResourceSource } from "./resources";
-import type { Block } from "./types";
+import type { Block, BlockCollectionCompleteness, BlockSearchQuery } from "./types";
 
 /**
  * `resources.projection.read`: a resource projection is a Resource's stored
@@ -73,6 +73,12 @@ export interface ExtensionProjectionOutput {
   readonly title?: string;
   /** A component's data and its view in the shared primitives (src/component-primitives.ts). */
   readonly component?: { readonly data: unknown; readonly view: unknown; readonly placement?: "replace" };
+  /** The service's bound question and returned rows for a query-fed handler, as they were when it ran. */
+  readonly query?: {
+    readonly question: BlockSearchQuery;
+    readonly blocks: readonly { readonly id: string; readonly title: string; readonly properties: readonly { readonly key: string }[] }[];
+    readonly completeness: BlockCollectionCompleteness;
+  };
   /** The notes a script's code read to draw this (its `reads` and the rows of its queries): a reader who may not see one is not shown the output. */
   readonly reads?: { readonly ids: readonly string[]; /** It saw more than could be listed: shown to no limited reader. */ readonly untracked?: true };
   /** The block changed since this ran. */

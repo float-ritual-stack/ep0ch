@@ -1,0 +1,42 @@
+{
+  "contract": 2,
+  "id": "workbench",
+  "version": 1,
+  "name": "Collection workbench",
+  "description": "One saved view, live as a table, cards and a selectable list.",
+  "run": ["bun", "workbench.ts"],
+  "handlers": [{
+    "key": "workbench",
+    "kind": "component",
+    "effects": "read",
+    "description": "Draw this view's question as table, cards and list; the note's query, group, sort and columns are the controls",
+    "query": {
+      "where": "{{this.query}}",
+      "group": "{{this.group || type}}",
+      "sort": "{{this.sort || updated}} {{this.direction || desc}}",
+      "facets": true,
+      "limit": 200
+    }
+  }],
+  "components": [{
+    "id": "workbench",
+    "group": "site",
+    "title": "Collection workbench",
+    "intro": "One saved view is the source. A workbench:: line draws its current matches as a table, cards and an openable list. Change [query::], [group::], [sort::], [direction::] or [columns::] in the same note and all three redraw; any property name may be a group, sort or column. The answer, row ids, facets and completeness are in the component's data for an agent or inspector.",
+    "where": "a view note with a workbench:: line",
+    "props": [
+      { "key": "workbench", "where": "line", "type": "text", "meaning": "Draws the live answer of this note's saved query", "samples": [""] },
+      { "key": "query", "where": "note", "type": "query", "complete": "query", "meaning": "The saved view's membership question; property names are open", "samples": ["type=workbench-seed"] },
+      { "key": "group", "where": "note", "type": "property", "meaning": "A property or date bucket to group on; defaults to type", "samples": ["stage"] },
+      { "key": "sort", "where": "note", "type": "property", "meaning": "A property, title, created or updated; defaults to updated", "samples": ["due"] },
+      { "key": "direction", "where": "note", "type": "enum", "meaning": "Sort direction; defaults to desc", "values": [{ "value": "asc", "meaning": "Low or old first" }, { "value": "desc", "meaning": "High or new first" }] },
+      { "key": "columns", "where": "note", "type": "text", "meaning": "Comma-separated property names for the table; defaults to the answer's most common fields", "samples": ["stage,due"] }
+    ],
+    "source": { "use": "Workbench [type::virtual-branch] [query::type=workbench-seed] [group::stage] [columns::stage,due]\nworkbench::" },
+    "example": {},
+    "sweep": [],
+    "grids": [],
+    "space": []
+  }],
+  "demo": "demo"
+}

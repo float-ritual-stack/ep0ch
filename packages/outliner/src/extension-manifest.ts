@@ -134,6 +134,17 @@ const Handler = Type.Object(
     link: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
     /** A data or resource handler's record fields a projection shows, in order. */
     fields: Type.Optional(Type.Array(Type.String({ pattern: "^[a-z][a-z0-9_-]{0,39}$" }), { maxItems: 8 })),
+    /** A service-owned question answered before a read handler runs. Its result is input.query. */
+    query: Type.Optional(Type.Object({
+      where: Type.String({ minLength: 1, maxLength: 500 }),
+      this: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+      group: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+      sort: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
+      facets: Type.Optional(Type.Union([Type.Literal(true), Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { maxItems: 50 })])),
+      facetKeys: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
+      facetValues: Type.Optional(Type.Integer({ minimum: 1, maximum: 1000 })),
+    }, { additionalProperties: false })),
     staleAfter: Type.Optional(Duration),
     pollEvery: Type.Optional(Duration),
     record: Type.Optional(Type.Boolean()),
@@ -582,6 +593,10 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
     if (RESERVED_HANDLER_KEYS.has(handler.key)) {
       throw new ExtensionLoadError(`extension.json: handlers/${index}/key ${handler.key} is a property the outline already uses; pick another key`);
     }
+    if (handler.query && (handler.effects !== "read" || (handler.kind !== "output" && handler.kind !== "component"))) {
+      throw new ExtensionLoadError(`extension.json: handlers/${index}/query belongs to a read output or component handler`);
+    }
+    if (handler.query && script) throw new ExtensionLoadError(`extension.json: handlers/${index}/query belongs to a folder extension; render scripts use q()`);
     // A resource handler makes the extension a provider of Resources (`ext:<id>`): one per extension, and its records
     // are its sync's, so it keeps no data handler beside it.
     if (handler.kind === "resource" && (manifest.handlers ?? []).some((other, at) => at !== index && (other.kind === "resource" || other.kind === "data"))) {
