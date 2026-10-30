@@ -21,6 +21,11 @@ are its record. The outliner's entries from then are kept below, under
 - **The river keeps a spine again:** a flow's peeks give a cell to a kept spine as the flow lays out any new column; the readable-tiles check no longer refused every spine in a crowded river.
 - **Every door test passes alone:** power-bar, flow, showcase/hints and claude-mod-contract were red alone (and the flow, hints and mod ones red in any order): two door fixes above, a test that matched a label also drawn behind the bar, and one that read a reader's header the written title now heads (PIE-1248).
 
+### A script you press is recorded as you, and ctrl+z undoes it (PIE-1462)
+
+- **Pressed, asked, run: written as whoever asked:** a lens status cell, a `::button` or any script run you start now saves its writes as you (`ep0ch revisions` reads "by you · via script"), and ctrl+z takes the press back; an agent's `act` or `script_run` of the same line is recorded as that agent, by its own actor id. A run nobody asked for (a rule, a schedule) still writes as `script:<name>`. The change feed keeps the script in its `action` and who asked in `requestedBy`.
+- **Run:** `ep0ch install --apply`.
+
 ### A saved view reads as a table, cards and a list: the collection workbench (Datacore spike)
 
 - **Collection workbench extension:** put `workbench::` in a saved view note and its `[query::]`, `[group::]`, `[sort::]` and `[columns::]` draw as a linked table, cards and a filterable list with previews; editing the view or any matching note updates it live, and every row opens its note. Install it from the extensions screen; uninstalling leaves the view and its notes.

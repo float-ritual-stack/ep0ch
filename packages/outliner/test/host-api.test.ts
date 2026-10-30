@@ -294,18 +294,19 @@ test("only opted-in dotted-folder scripts run, and effects do not restrict write
       const deadline = Date.now() + 4000;
       while (!completed.has(run.undo) && Date.now() < deadline) await Bun.sleep(10);
       const answer = completed.get(run.undo)!;
-      expect(run.writtenAs).toBe(`script:${name}`);
+      // A run somebody asked for writes as them, the script as how (PIE-1462).
+      expect(run.writtenAs).toBe("seed-requester");
       expect(answer.requestedBy).toMatchObject({ author: "agent", actorId: "seed-requester" });
       expect(answer.reason).toBe("done");
       expect(answer.message).toContain(`${name} done`);
       expect(store.queryBlocks({ where: "type=packet" }).blocks.length).toBe(index + 1);
     }
   } finally { await watcher.stop(); }
-  const made = store.queryBlocks({ where: "type=packet" }).blocks.find(b => b.actorId === "script:writer")!;
-  expect(store.require(made.id).actorId).toBe("script:writer");
   const page = store.changes.since(0, 1000);
-  expect(page.kind === "changes" && page.changes.find(c => c.blockId === made.id)).toMatchObject({
-    actor: { author: "agent", actorId: "script:writer" }, requestedBy: { author: "agent", actorId: "seed-requester" },
+  const wrote = page.kind === "changes" ? page.changes.find(c => c.action === "script:writer" && c.kind === "create") : undefined;
+  expect(store.require(wrote!.blockId!)).toMatchObject({ author: "agent", actorId: "seed-requester" });
+  expect(wrote).toMatchObject({
+    action: "script:writer", actor: { author: "agent", actorId: "seed-requester", taskId: expect.stringContaining("trigger:script:") }, requestedBy: { author: "agent", actorId: "seed-requester" },
   });
 });
 

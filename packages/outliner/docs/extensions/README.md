@@ -68,14 +68,16 @@ extensions. Saving a malformed source still saves the block; the registry report
 Starting a run returns immediately with its progress note and undo receipt. Each completed host call
 updates that child note; the run shows its author, source revision and the source diff since the previous
 run in this host. A source changed during a run stops its remaining host calls. Writes are attributed to
-`script:<name>` (`author: agent`), with whoever woke it recorded as `requestedBy`. There is no text-approval gate.
+whoever asked (a person's press is `author: user`, an agent's run its own actor id), the script recorded as how
+(`trigger:script:` task id, the change's `script:<name>` action); a run nobody asked for is `script:<name>`
+(`author: agent`), with whoever woke it recorded as `requestedBy`. There is no text-approval gate.
 
 `extensions.undo` with the returned receipt takes back saved writes, writes through door actions and live
 draft patches together. The draft's own patch comparison preserves intervening typing; a conflict refuses
 undo. Receipts last for this host process, as extension undo does. A run that could not prepare its draft
 inverse says why in its result note.
 
-Outside agents use MCP `script_run` with a script block's `ref` or `uri`. Writes are `script:<name>` with the MCP caller as `requestedBy`; the run has no `this`, `props` or `act`;
+Outside agents use MCP `script_run` with a script block's `ref` or `uri`. Writes are the MCP caller's, the script as how; the run has no `this`, `props` or `act`;
 the gateway's existing access setting and proposal handler apply to each write. Propose access produces
 proposals, full access applies writes, and read/none cannot start a run. Automatic agent-written views
 remain a later scripting slice.

@@ -120,8 +120,17 @@ export function parseSessionId(sessionId: string | undefined | null): { subject:
 /** The call a `sessionId` carries, or undefined. */
 export const callOf = (sessionId: string | undefined | null): string | undefined => parseSessionId(sessionId).call;
 
-/** Revision bylines retain the agent's identity when it used Evan's yolo permission. */
+/**
+ * The script a write ran as, from its task id (`trigger:script:script-<id>` for an unnamed one, `trigger:script:<ext id>`):
+ * a pressed script's write is recorded as the person or agent who pressed it, and this is the how (PIE-1462).
+ */
+const SCRIPT_TASK = "trigger:script:";
+export const scriptOf = (taskId: string | undefined | null): string | undefined => taskId?.startsWith(SCRIPT_TASK) ? taskId.slice(SCRIPT_TASK.length).split("+")[0] : undefined;
+
+/** Revision bylines retain the agent's identity when it used Evan's yolo permission, and say the script a person or agent asked for. */
 export function revisionByline(write: { author?: string; actorId?: string; taskId?: string }): string {
   const by = write.author === "agent" ? `by ${actorLabel(write.actorId) || "an agent"}` : write.author === "user" ? "by you" : "";
-  return by + (isViaYolo(write.taskId) ? " · for evan · via yolo" : "");
+  // The script's own writes (actor script:<name>) already say it; a person's or another agent's say it as how.
+  const how = by && write.actorId?.startsWith("script:") !== true && scriptOf(write.taskId) ? " · via script" : "";
+  return by + how + (isViaYolo(write.taskId) ? " · for evan · via yolo" : "");
 }

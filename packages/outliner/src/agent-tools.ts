@@ -91,7 +91,9 @@ export interface AgentActor {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function mutationOf(actor: AgentActor): MutationProvenance {
-  return { author: actor.author ?? "agent", ...provenanceOf(actor) };
+  // A person has no actor id (a run a person pressed writes as them, PIE-1462).
+  const { actorId, ...rest } = provenanceOf(actor);
+  return { author: actor.author ?? "agent", ...(actorId ? { actorId } : {}), ...rest };
 }
 
 function provenanceOf(actor: AgentActor) {
@@ -1637,7 +1639,8 @@ export function runAgentOperation(
   actor: AgentActor | undefined,
 ): Promise<unknown> {
   const writer = () => {
-    if (!actor?.actorId.trim()) throw new WorkToolRefusal(`agent ${operation} writes: pass --actor <agent id>`);
+    // A run a person pressed writes as them (author user, no actor id; PIE-1462).
+    if (!actor || (!actor.actorId.trim() && actor.author !== "user")) throw new WorkToolRefusal(`agent ${operation} writes: pass --actor <agent id>`);
     return actor;
   };
   // `ref` and its aliases; a wrong input is answered with the operation's arguments and a call that works.

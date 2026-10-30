@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { actorHandle, actorLabel, actorName, composeActor, parseActor } from "../src/attribution";
+import { actorHandle, actorLabel, actorName, composeActor, parseActor, revisionByline } from "../src/attribution";
 
 describe("attribution", () => {
   test("a persona rides on its principal and is shown with it", () => {
@@ -30,5 +30,12 @@ describe("attribution", () => {
     expect(actorName("ext:echonet")).toBe("ext:echonet");
     expect(actorName("ep0ch-door:box-a+wren/claude-code@box-a")).toBe("ep0ch-door:box-a + wren");
     expect(actorLabel("ep0ch-door:box-a+wren/claude-code@box-a")).toBe("ep0ch-door:box-a + wren (claude-code@box-a)");
+  });
+
+  test("a script run somebody asked for reads as them, via script; the script's own writes read as the script (PIE-1462)", () => {
+    expect(revisionByline({ author: "user", taskId: "trigger:script:script-1a2b" })).toBe("by you · via script");
+    expect(revisionByline({ author: "agent", actorId: "kitty", taskId: "trigger:script:script-1a2b+via:yolo" })).toBe("by kitty · via script · for evan · via yolo");
+    expect(revisionByline({ author: "agent", actorId: "script:neat", taskId: "trigger:script:script-1a2b" })).toBe("by script:neat");
+    expect(revisionByline({ author: "user" })).toBe("by you");
   });
 });

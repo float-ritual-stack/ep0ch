@@ -107,7 +107,7 @@ power bar's run asks a choice from its options, and a button's empty `note` slot
 |---|---|
 | `scriptFence` | `packages/outliner/src/script-sources.ts:40` |
 | `propsUsed` | `packages/outliner/src/script-sources.ts:54` |
-| `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:443` |
+| `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:454` |
 
 **Script IDs:** a note's `[script::name]` is its power-bar and handler name; the action uses `ext.<id>.run`.
 **Find the action:** `ep0ch ext ls --ws <ws>` lists each name and ID; a script ID is `script-` plus the first 24 SHA-256 hex characters of its identity (note ID or file path), not its name.
@@ -341,25 +341,28 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:52` |
-| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:879` |
-| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:449` |
+| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:976` |
+| `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:460` |
 
 ## Effects, access and attribution
 
 - **Render and action are kinds, not permissions.** A render context contains only read functions. Every action invocation (buttons, `of=`, keys and rules included) has the person's reach; `effects=read` does not prevent writing. `effects=read` and `effects=write` describe the script in Sources, x-ray and `ext ls`. A matching `[script::name]` note supplies `[effects::]` only when the fence omits `effects=`; files describe effects in `// ep0ch-script effects=write`.
   Effects also keep their restart replay meaning: an `actions` macro marked as writing is not re-run by itself after a restart.
 - **Trust the source.** Code in this outline, written by the person or their agents and attributed, runs. EchoNet packets never execute. Actual writes are recorded through the run's attribution and undo, and shown in Sources.
-- **Who wrote it.** Every write is `author: agent` with the actor id `script:<name>`, the run's undo id as the session, and
-  the task id `trigger:script:<extension id>`. Whoever asked is recorded as `requestedBy` (the person at their keyboard,
-  or the agent that ran `script_run`). The run note's second line says both.
+- **Who wrote it.** A run somebody asked for (a press, `act`, `script_run`, the CLI) writes as them: `author: user` for the
+  person at their keyboard, `author: agent` with the agent's own actor id for an agent, the run's undo id as the session, and
+  the task id `trigger:script:<extension id>` saying a script was how (`ep0ch revisions` reads "by you · via script"; the change
+  feed's `action` names it, `script:<name>`, and `requestedBy` repeats who asked). A run nobody asked for (a rule, a schedule, a
+  background run) writes as the script: `author: agent`, actor id `script:<name>`. One owner decides it, `ScriptRuns.start`
+  (`writer`). The run note's second line says both.
 - **Outside agents** run a script with the MCP tool `script_run` (`ref` or `uri` of the script's note). It runs as
-  `script:<name>` with the caller as `requestedBy`, and has no `this`, no `props` and no `act` (no note, no slots, no door).
+  the caller (the agent's own actor id, the script its how), and has no `this`, no `props` and no `act` (no note, no slots, no door).
   Running by block id selects the note's `[script::name]` from all authored sources; without that property, a single script is used, and several scripts are refused with their names. An empty or failed selected source refuses with its reason and never falls through to another script. Duplicate fence names in one note fail at load with both line numbers, visible in `ext ls`.
   The run is capped by the outline's MCP access level: `propose` turns each write into a proposal, `full` applies it,
   `none` and `read` can't start a run. `script_run` appears only when the gateway registers write tools.
 - **Yolo** (the person's switch, `agents.yolo`): while it is on the MCP access level reads as `full`, so the outline answers `full`
   (a `script_run` is still capped by the level its own request carries), and every agent request, a script's included, carries `via:yolo` on its task id.
-  A script's authorship doesn't change: it is still `script:<name>`.
+  A script's authorship doesn't change: whoever asked, with the script as how.
 - **Undo.** The run answers an undo id (the receipt); `extensions.undo` with it takes back the saved writes, door
   actions and live-draft patches together, and a conflict with typing since refuses the undo. Receipts last as long as
   the host process does.
@@ -368,11 +371,11 @@ examples lean on:
 |---|---|
 | `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:263` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:795` |
-| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1773` |
+| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1800` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4751` |
-| `viaYolo` | `packages/outliner/src/server.ts:4781` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:504` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4780` |
+| `viaYolo` | `packages/outliner/src/server.ts:4810` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:512` |
 
 ## Lifecycle
 
@@ -406,10 +409,10 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:258` |
-| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:272` |
+| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:280` |
 | `stopRun` | `packages/outliner/src/script-runs.ts:226` |
-| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:356` |
-| `scripts.stop` | `packages/outliner/src/server.ts:2199` |
+| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:364` |
+| `scripts.stop` | `packages/outliner/src/server.ts:2226` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2563` |
 
 ## Traps
