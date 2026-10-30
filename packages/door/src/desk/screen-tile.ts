@@ -18,8 +18,8 @@
 // `^W e` (`mount.enter`) goes in: every key is the mounted screen's, its ^W and Tab too, until ctrl+] or an Esc with
 // nothing left to close in it. A q with nothing left to leave in it is the holding screen's q: it leaves that screen, as on
 // any desk (PIE-727), or, from inside, comes out. What the mounted screen selects (the board's card) is the tile's selection: a preview
-// tile can follow it. A screen made for the current note each time it moves (`Follows`: the showcase's BBS message
-// reader beside a reader) is drawn the same way.
+// tile can follow it. A screen an exhibit makes once (`Exhibit`: the showcase's BBS message reader beside a reader) is
+// drawn the same way.
 import { nothingToClose, refused } from "../shell-keys";
 import type { Screen } from "../app";
 import type { Msg } from "../board";
@@ -37,8 +37,8 @@ import { screenNames } from "./screen-spec";
 import type { KindHost, TileKind } from "./tile-kinds";
 import type { TileSpec } from "./tiles";
 
-/** A screen made for the desk's current note, again each time it moves, and the tile's title. */
-export interface Follows { label: string; make(m: Msg | null): Screen | null }
+/** A screen an exhibit makes once, as the tile joins its desk, and the tile's title. */
+export interface Exhibit { label: string; make(): Screen | null }
 
 /** The screen-specs module, loaded when a mount is first shown (it builds desks, which build these tiles). */
 const specs = (): typeof import("./screen-specs") => require("./screen-specs");
@@ -68,7 +68,7 @@ export class ScreenTile implements Pane {
   /** Where its tiles are known across session daemons (`desk.json:t5`), set as it joins its screen. */
   private home: string | null = null;
 
-  constructor(readonly kind: string, spec: Partial<TileSpec> = {}, private readonly follows?: Follows, given?: ReadonlyMap<string, Pane>) {
+  constructor(readonly kind: string, spec: Partial<TileSpec> = {}, private readonly exhibit?: Exhibit, given?: ReadonlyMap<string, Pane>) {
     // The older kinds name their screen by their kind (a saved `board` tile is the board, mounted).
     this.screen = typeof spec.screen === "string" && spec.screen ? spec.screen : kind === "board" || kind === "river" ? kind : null;
     this.args = spec.args && typeof spec.args === "object" ? { ...spec.args } : {};
@@ -82,7 +82,7 @@ export class ScreenTile implements Pane {
   /** What it mounts, as `layout.get` and its spec say it. */
   get mount(): MountOf { return { screen: this.screen, args: this.args, part: this.part }; }
   /** A group: tiles gathered from its screen, with no screen of their own elsewhere. */
-  get group(): boolean { return !this.screen && !this.follows; }
+  get group(): boolean { return !this.screen && !this.exhibit; }
   /** The desk inside it (a mounted screen's, a group's), once it's shown. */
   get inner(): Desk | null { const s = this.framed?.first as Desk | undefined; return s && "savedState" in s ? s : null; }
 
@@ -112,7 +112,7 @@ export class ScreenTile implements Pane {
   /** Its screen's dispatcher (the board's card.*), for `act tile=<this>` and `tile=<this>/<a tile in it>`. */
   get dispatch() { return this.framed?.top.dispatch ?? null; }
   title() {
-    if (this.follows) return this.follows.label;
+    if (this.exhibit) return this.exhibit.label;
     if (this.problem) return `${this.screen ?? "group"} · ${this.problem}`;
     const t = this.inner?.title ?? this.framed?.top.title ?? this.screen ?? "group";
     const said = this.label ?? (this.part && !t.includes(this.part) ? `${t} · ${this.part}` : t);
@@ -128,7 +128,7 @@ export class ScreenTile implements Pane {
   init(desk: DeskApi) {
     // Moved to another screen (a group, your drawer): that one is its desk now, its screen inside as it was.
     if (this.framed) { this.desk = desk; return; }
-    if (this.follows) return;
+    if (this.exhibit) { this.frame(this.exhibit.make(), desk); return; }
     let s: Screen;
     try {
       s = specs().mountDesk({ ...this.mount, chain: desk.mountChain?.() ?? [], saved: this.saved, ...(this.label ? { label: this.label } : {}), ...(this.given ? { given: this.given } : {}) }, {
@@ -147,7 +147,6 @@ export class ScreenTile implements Pane {
   }
   /** Its place across session daemons (`<home>:<its id>`): the mounted screen's terminals are kept under it. */
   setHome(home: string | null) { this.home = home; const d = this.inner; if (d) d.home = home; }
-  select(m: Msg | null, desk: DeskApi) { if (this.follows) { this.framed?.dispose(); this.frame(this.follows.make(m), desk); } }
   private frame(s: Screen | null, desk: DeskApi) {
     this.desk = desk;
     // The desk it's on is read each time, never kept from the first: a mount moved (into a group, your drawer, back) answers to its new one.
@@ -207,7 +206,7 @@ export class ScreenTile implements Pane {
 
   /** Its controls on the header: full screen, in or out, and a group's spill. */
   headControls(_room: number, desk: DeskApi) {
-    if (this.follows || this.problem || !this.framed) return null;
+    if (this.exhibit || this.problem || !this.framed) return null;
     const run = (name: string, args: Record<string, unknown> = {}) => () => void desk.perform?.(name, args, USER, this);
     return [
       ...(this.screen ? [{ text: "▲ full", sgr: fg(C.grey), press: run("mount.out") }] : [{ text: "■ spill", sgr: fg(C.grey), press: run("tile.group", { on: false }) }]),

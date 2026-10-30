@@ -334,7 +334,7 @@ export class QueryPane implements Pane {
 
   /**
    * Pick card `i`: the person's cursor moves there and it becomes what the tile shows (a preview follows it; with a
-   * home, only where its selection goes: the current note stays, PIE-794); `open` opens it as ⏎ does, `fresh` as alt+⏎.
+   * home, only where its selection goes: its home keeps its note, PIE-794); `open` opens it as ⏎ does, `fresh` as alt+⏎.
    */
   pick(i: number, open: boolean, desk: DeskApi, actor: Actor = USER, fresh = false, standing = standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile")): { card: string; title: string; n: number } {
     const items = this.items ?? [];
@@ -387,7 +387,7 @@ export class QueryPane implements Pane {
 export interface QueryOn { pane: QueryPane; desk: DeskApi; standing: boolean }
 export const QUERY_ACTIONS = actionSet<QueryOn>()("query", {
   "query.pick": def({
-    summary: "pick a card in a query tile (tile=<its name>): n (from 1), id, or by=<cards> from the selected one; it becomes what the tile shows (a preview following it shows it; a tile beside a reader, its home, only previews: the current note stays), open=true opens it as ⏎ does (in its home, replacing its note), fresh=true as alt+⏎ (a new detail beside its home). An agent's pick is its own: the person's cursor stays (open=true opens it where the tile's opens go). On the board, card.select is the lanes' own",
+    summary: "pick a card in a query tile (tile=<its name>): n (from 1), id, or by=<cards> from the selected one; it becomes what the tile shows (a preview following it shows it; a tile beside a reader, its home, only previews: the home keeps its note), open=true opens it as ⏎ does (in its home, replacing its note), fresh=true as alt+⏎ (a new detail beside its home). An agent's pick is its own: the person's cursor stays (open=true opens it where the tile's opens go). On the board, card.select is the lanes' own",
     keys: [{ keys: "j k ↑ ↓ pgup pgdn", does: "pick" }, { keys: "click wheel", does: "pick" }, { keys: "⏎ double-click", does: "open", says: "open the picked card where this tile's opens land" }, { keys: "alt+⏎ alt-click ctrl-click middle-click", does: "open fresh", says: "open the picked card in a new detail beside" }],
     touches: "nothing", replay: "safe", says: (r, a) => `${a.open ? "opened" : "picked"} "${r.title}"`,
     args: {

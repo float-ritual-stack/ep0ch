@@ -136,7 +136,7 @@ const stagePanes = new WeakMap<Desk, Pane[]>();
  */
 function fill(d: Desk, m: Msg, reveal = false) {
   for (const p of stagePanes.get(d) ?? []) {
-    if (p instanceof ReaderPane && p.pinnable && !details.has(p) && !p.msg) p.show(m, d);
+    if (p instanceof ReaderPane && p.kind === "reader" && !details.has(p) && !p.msg) p.show(m, d);
     else if (reveal) void (p as Pane).reveal?.(m, d);
   }
 }
@@ -219,7 +219,7 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const r = new ReaderPane();
       // The BBS message reader hosts the same surface (PIE-426): its header, the surface's body and keys.
-      const bbs = new ScreenTile("exhibit", {}, { label: "the same NoteSurface, as the BBS reader · src/screens.ts", make: m => (m ? new MessageReader([m], 0) : null) });
+      const bbs = new ScreenTile("exhibit", {}, { label: "the same NoteSurface, as the BBS reader · src/screens.ts", make: () => (n.notebook ? new MessageReader([n.notebook], 0) : null) });
       return deskOf({ title: "showcase · note", panes: [r, bbs], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) fill(d, n.notebook); });
     },
   },

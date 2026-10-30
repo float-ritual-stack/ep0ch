@@ -8,7 +8,7 @@ import { outlineBoards, readTarget } from "./outline-boards";
 // does through src/backlinks.ts, and Kind, Stage and Sort on every group. Which groups it lists is the tile's own
 // (`groups`, saved with the layout, `backlinks.groups`): the thread tile is this tile with Children alone. Moving the selection, or giving
 // the tile the keys, shows the selected row where this tile's selection goes (a preview following it, or its
-// link) without moving the current note (so its home stays put): a note, a ticket's block, a Resource's stored content
+// link) and nowhere else (so its home keeps its note): a note, a ticket's block, a Resource's stored content
 // (read only: nothing is registered or fetched by showing it). ⏎ opens it for real (`backlinks.open`, PIE-646): in the
 // tile its opens land in, the tile linked to this one as a target, else its *home* (its `source`, a tile's name: the
 // reader it was opened beside), whose note it replaces (the layout's `landing`); alt+⏎ in a new detail beside its home.
@@ -475,8 +475,7 @@ export class BacklinksPane implements Pane {
     const { note: m, registered } = result;
     // The selection may have moved on while the note was read: only the latest pick shows.
     if (!agent && rowKey(this.rows()[this.sel]) !== rowKey(r)) return { row: i + 1, id: m.id };
-    // Shown: the previews following this tile (and its link) only; the current note stays, or a reader that
-    // follows it, whose links these are, would move to the row and the list with it.
+    // Shown: where this tile's select wires go only (its previews); its home, whose links these are, keeps its note.
     if (how === "show" && desk.showFrom) desk.showFrom(this, m, actor);
     else {
       // The person's open moves their selection there too: the preview following this tile shows it as well.

@@ -16,7 +16,7 @@ import { USER } from "../socket";
 interface Row { key: string; kind?: string; label: string; about: string }
 const ROWS: readonly Row[] = [
   { key: "t", kind: "tree", label: "the outline", about: "every note as a tree; ⏎ opens one where its opens land" },
-  { key: "r", kind: "reader", label: "a reader", about: "shows the current note" },
+  { key: "r", kind: "reader", label: "a reader", about: "shows what's opened or wired into it" },
   { key: "d", kind: "detail", label: "a detail", about: "keeps the note opened into it" },
   { key: "s", kind: "pty", label: "a terminal", about: "your shell" },
   // Q, not q: q is back on every screen.

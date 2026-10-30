@@ -64,7 +64,7 @@ export function briefHeader(m: Msg, w: number, info: HeaderInfo, s: Stepped): st
 
 /**
  * The brief's reader: a note surface that shows only the brief it's on, and knows the briefs (every one, oldest
- * first, read again as the outline changes). It never follows the desk's current note; a link followed in it opens
+ * first, read again as the outline changes). Only its own steps change it; a link followed in it opens
  * beside (its kind's open rule), unless it's another brief, which it steps to.
  */
 export class BriefReader extends ReaderPane {

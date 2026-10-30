@@ -708,7 +708,7 @@ export class TreePane implements Pane {
     }
     if (left) { const p = this.parentRow(this.sel); if (p >= 0) this.run(desk, "tree.pick", { n: p + 1 }); return true; }
     if (right || space) return true;
-    // ⏎ opens it: in the tile this one links to (PIE-473), else as the current note, the keys to a reader.
+    // ⏎ opens it: where its open wire goes (PIE-473), else in the first reader not pinned, the keys to that reader.
     if (k.kind === "enter" || k.kind === "alt-enter") { this.run(desk, "tree.pick", { n: this.sel + 1, open: true, fresh: k.kind === "alt-enter" }); return true; }
     return false;
   }

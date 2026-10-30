@@ -1,5 +1,5 @@
 // A page pinned in a reader: the note a `[[page]]` address names (`claude-now`, the agents' running status for the
-// day), live. The reader never follows the desk's current note; a link followed in it opens in a reader beside (its
+// day), live. Only its page changes it; a link followed in it opens in a reader beside (its
 // kind's open rule, `beside`), so the page stays where it is. A page that doesn't exist yet is waited for: the
 // reader asks again when the outline changes.
 //

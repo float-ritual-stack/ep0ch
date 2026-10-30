@@ -522,7 +522,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.preview": def({
-    summary: "Open a preview beside or below a list, connected by a select wire; selections show there without moving the current note. On a reader, open a detail where its opens land, connected by an open wire. A terminal's preview follows its file. Again reveals the existing target. where=right, down, left or up.",
+    summary: "Open a preview beside or below a list, connected by a select wire; selections show there and nowhere else. On a reader, open a detail where its opens land, connected by an open wire. A terminal's preview follows its file. Again reveals the existing target. where=right, down, left or up.",
     keys: "O in a reader; ^W v beside, ^W V below",
     // Said to the person too (confirms): ^W v on a tile already linked shows the one there, which looked like nothing happening.
     touches: "shape", replay: "safe", confirms: true,

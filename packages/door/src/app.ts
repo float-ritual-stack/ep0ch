@@ -279,7 +279,7 @@ export interface Ctx {
   eventsAll?: number;
   /** Times the outline connection came back (a `reconnected` or `reset`): a screen that wasn't on top then checks on its next render. */
   reconnects?: number;
-  /** The note in the reader the person is in, else the note the screen shows as its current one (the power bar's `near`). */
+  /** The note in front of the person (the power bar's `near`): the reader they're in, else what the tile with their keys shows. */
   noteInFront?(): string | null;
   /** The screen stack, bottom first (the shell's actions read it: `screen.list`, what `screen.back` leaves). */
   screens?(): readonly Screen[];

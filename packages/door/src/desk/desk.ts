@@ -2432,8 +2432,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /**
    * DeskApi.revealInOutline (`reader.reveal`: alt+r, a click on a reader's crumbs, PIE-794): the outline's cursor moves to
    * reader `p`'s note, as the outliner's Tree's r does, its dock sliding open if it's shut; an outline in the drawer or
-   * the screen beside does when this screen has none. Nothing else moves: not the current note, the reader, its mode or
-   * the keys. A held reader's own navigation never moves the outline: this is how to find where it is.
+   * the screen beside does when this screen has none. Nothing else moves: not the reader, its pin or the keys. A
+   * reader's own navigation never moves the outline: this is how to find where it is.
    */
   async revealInOutline(p: Pane): Promise<{ revealed: string; outline: string }> {
     const m = p instanceof ReaderPane ? p.msg : null;
