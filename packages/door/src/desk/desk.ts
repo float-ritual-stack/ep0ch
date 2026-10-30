@@ -770,7 +770,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return {
       deliberate: p?.deliberate, clearsOnClose: p?.clearsOnClose?.(), history: p instanceof ReaderPane,
       ...this.kindFacts(id),
-      ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), pinned: p instanceof ReaderPane && p.pinned, available: !actor || !p || !this.keptFrom(p, actor), lists: !!p && (k?.lists?.(p) ?? (!!k?.previews && !(p instanceof ReaderPane))), notes: !!k?.accepts?.notes, showing: this.showing(p)?.id, held: p instanceof ReaderPane && p.pinnable && !this.layout.altReaders.has(id) && this.layout.wires.some(w => w.to === id && w.from !== id && w.verb === "open"),
+      ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), pinned: p instanceof ReaderPane && p.pinned, available: !actor || !p || !this.keptFrom(p, actor), lists: !!p && (k?.lists?.(p) ?? (!!k?.previews && !(p instanceof ReaderPane))), notes: !!k?.accepts?.notes, showing: this.showing(p)?.id, held: p instanceof ReaderPane && p.pinnable && !this.layout.altReaders.has(id) && !this.listFed(id),
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
       ...(k?.placeholder ? { placeholder: true } : {}),
       ...(k?.follower ? { follower: true } : {}),
@@ -2048,6 +2048,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.run("tile.link", { ask: true, verb: "open" }, this.nameOf(id));
   }
 
+  /**
+   * Tile `id` shows what a list selects (PIE-1207: a select wire from a tree, a links tile, a lane): it is that list's
+   * reader, whose note an open replaces; any other reader the person owns keeps its old note as a spine.
+   */
+  private listFed(id: number): boolean {
+    return this.layout.wires.some(w => {
+      if (w.to !== id || w.verb !== "select" || w.from === id) return false;
+      const q = this.panes.get(w.from), k = kindOf(q);
+      return !!q && !!k?.previews && (k.lists?.(q) ?? !(q instanceof ReaderPane));
+    });
+  }
+
   /** DeskApi.opensShow: the note shown where tile `from`'s opens land (placement's answer), or null. */
   opensShow(from: Pane): string | null {
     const id = this.idOf(from);
@@ -3267,6 +3279,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(this.focus), made = madeFor(p);
     if (made && p instanceof ReaderPane && p.msg?.id === made.id) return made.context;
     return p instanceof ReaderPane && p.msg ? p.msg.id : null;
+  }
+
+  /**
+   * The note in front of the person (the power bar's "this note", PIE-1207: no current note): the reader they're in,
+   * else what the tile with their keys shows or has selected, else what its select wires show.
+   */
+  frontNote(): string | null {
+    const here = this.noteContext();
+    if (here) return here;
+    const p = this.panes.get(this.focus), m = this.showing(p);
+    if (m && isOutlineNote(m)) return m.id;
+    for (const to of selectTargets(this.layout, this.focus)) { const t = this.showing(this.panes.get(to)); if (t && isOutlineNote(t)) return t.id; }
+    return null;
   }
 
   /** What the spec says ctrl+n does with the keys where they are (PIE-591: the board's lanes make a card), or null. */
@@ -6405,7 +6430,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return { bar: true, scope: "notes", query: q };
     }
     if (q.length < 2) throw new ActionRefused("search needs query=<at least 2 characters>");
-    const hits = await this.ctx.board.search(q, Math.max(1, Math.min(100, limit ?? 30)), { near: this.noteContext() ?? undefined });
+    const hits = await this.ctx.board.search(q, Math.max(1, Math.min(100, limit ?? 30)), { near: this.frontNote() ?? undefined });
     return { query: q, hits: hits.map((m, i) => ({ n: i + 1, id: m.id, title: subject(m), ...(prop(m, "work-id") ? { workId: prop(m, "work-id") } : {}) })) };
   }
 

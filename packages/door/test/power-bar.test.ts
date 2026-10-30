@@ -592,7 +592,8 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(peek().bar.scope).toBe("ext.glyphs.glyphs");
     expect(peek().bar.rows.map((r: any) => r.label)).toContain("▒  medium shade");
     closeBar();
-    // With a note in front of the person, the source offers to rule it; picked, the extension writes under it.
+    // With a note in front of the person (the reader they're in), the source offers to rule it; picked, the extension writes under it.
+    await app.dispatch.act({ action: "tile.focus", tile: "reader" }, { kind: "user" });
     (app as any).lastInput = 0;
     const r = await app.act({ action: "bar.open", args: { scope: "~", query: "double box line" }, as: "wren-agent" }) as any;
     const n = r.rows.find((x: any) => x.label.startsWith("rule"))?.n;

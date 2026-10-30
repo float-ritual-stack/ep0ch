@@ -1069,7 +1069,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
       page: { type: "string", optional: true, about: "pin it on a page's note (`[[name]]`), shown again each time it starts" },
     },
     examples: [
-      { act: "reader.pin tile=detail", does: "pins the detail on its note: opens aimed at it land beside it" },
+      { act: "reader.pin tile=reader", does: "pins the reader on its note: opens aimed at it land beside it" },
       { act: "reader.pin tile=reader page=garden", does: "pins the reader to [[garden]], shown again each time it starts" },
     ],
     async run({ on, page }, { pane, desk }, actor) {
