@@ -4226,10 +4226,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const h of strip!.hits) if (h.from < max) this.heads.push({ id: h.args!.tile as number, from: h.from, to: Math.min(max, h.to), row: r.row });
       this.headOut += strip!.text; x += width(strip!.text);
     } else {
-      const full = pad(`${this.numLabel(id)}${this.displayTitle(id)}`, room).trimEnd();
-      // An embed-only note's "· embed" is quiet (PIE-1458): its name is the embedded note's.
-      const quiet = full.endsWith(EMBED_SUFFIX) && titleEmbed(this.noteOf(id)?.text ?? "") ? EMBED_SUFFIX : "";
-      put(full.slice(0, full.length - quiet.length), focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
+      const named = `${this.numLabel(id)}${this.displayTitle(id)}`;
+      // An embed-only note's "· embed" is quiet (PIE-1458): its name is the embedded note's, and where both don't fit
+      // the name keeps the room.
+      const embed = named.endsWith(EMBED_SUFFIX) && !!titleEmbed(this.noteOf(id)?.text ?? "");
+      const quiet = embed && width(named) <= room ? EMBED_SUFFIX : "";
+      const title = embed ? named.slice(0, named.length - EMBED_SUFFIX.length) : named;
+      put(pad(title, embed && !quiet ? room : room - width(quiet)).trimEnd(), focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
       if (quiet) put(quiet, fg(C.dark), id);
     }
     if (wire) {
