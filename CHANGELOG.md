@@ -16,6 +16,13 @@ are its record. The outliner's entries from then are kept below, under
 - **Wide enough to read:** an agent's `tile.open` that names neither a tile nor `where=` and would land under 28 columns (or 6 rows) beside your tile goes below it when that reads, else floats; one that names a place goes there. An agent moving or floating a tile doesn't take your keys in yolo either. Either way its answer (and the status line) says it was narrow. Your own opens split where you ask.
 - **`layout.get` in brief:** each tile as its kind describes itself in a line (a facets tile's selection and counts, a query tile without its cards); `full=true` gives today's whole answer. An eight-tile desk answered 336 KB.
 - **Run:** nothing beyond the usual `ep0ch install --apply`.
+### A revision compare opened with a comment half-written shows both (PIE-1433)
+
+- **Both draw:** the compare sits beside the note (below it when narrow) and the comment you were writing stays where you left it; a split comment shows as a popup on the note's side. Before, the comment drew and the compare was hidden while its keys were live.
+- **The comment keeps the keys:** ← and → still move the comment's cursor; a click in the compare gives it the keys (Esc closes it), a click in the comment returns them (`revision.focus` for agents and keys).
+- **The controls row stays put:** `[« older] [newer »] [against now] [esc back]` is the compare's top row, so a second click lands where the first did at 44 columns, however the title wraps.
+- **Two ← in one go step twice:** each step goes from the revision asked last, and only the last answer is drawn.
+- **Run:** `ep0ch install --apply`.
 
 ### @tidy and @margin answer with the Claude mod installed
 
@@ -23,6 +30,7 @@ are its record. The outliner's entries from then are kept below, under
 - **The mod stays out of it:** no tools, no `ep0ch` calls, no context, no status line and no Recent Mentions entry for its answer, so the call keeps its whole deadline.
 - **Even with MCP servers connected:** the session's refusal of the mod's first tool decides it, not whether any tool is listed.
 - **Run:** `ep0ch install --apply` on each machine (the laptop too).
+
 ### A form names its button and where each entry lands (PIE-1442)
 
 - **The button says your words:** `[form-submit::Log it]` on a form's note, and the door draws Log it where it drew Fill in the form.

@@ -41,7 +41,10 @@ export function openingRow(rows: readonly string[], passage?: string): number {
   return Math.max(0, at - 2);
 }
 
-/** Its rows at `cols` × `rows`: the title, the controls (with where each is, for clicks), then the marked text from `top`. */
+/**
+ * Its rows at `cols` × `rows`: the controls first (with where each is, for clicks), so they stay on the compare's top
+ * row however the title wraps and a second click lands where the first did; then the title, then the marked text from `top`.
+ */
 export function drawRevision(v: RevisionView, cols: number, rows: number): { lines: string[]; controls: { from: number; to: number; action: (typeof REVISION_CONTROLS)[number] }[]; body: number } {
   const lay = (actions: readonly (typeof REVISION_CONTROLS)[number][]) => {
     const controls: { from: number; to: number; action: (typeof REVISION_CONTROLS)[number] }[] = [];
@@ -57,7 +60,7 @@ export function drawRevision(v: RevisionView, cols: number, rows: number): { lin
   let { bar, controls } = lay(REVISION_CONTROLS);
   if (width(bar) > cols) ({ bar, controls } = lay(REVISION_CONTROLS.filter(a => a !== "revision.close")));
   const title = rowLines(revisionTitle(v), cols).map(l => pad(fg(C.white) + l, cols) + RESET);
-  const head = [...title, pad(fg(C.lcyan) + bar, cols) + RESET];
+  const head = [pad(fg(C.lcyan) + bar, cols) + RESET, ...title];
   // Every row whole, wrapped under its mark: the passage is the point, never cut short.
   const wrapped = v.diff.rows.map(r => rowLines(r, cols, 1000, { hang: 2 }).map(l => pad(diffInk(r) + l, cols) + RESET));
   if (v.opening !== undefined) { v.top = wrapped.slice(0, v.opening).reduce((n, ls) => n + ls.length, 0); delete v.opening; }
