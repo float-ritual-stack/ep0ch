@@ -22,6 +22,19 @@ are its record. The outliner's entries from then are kept below, under
 - **Whatever is in front of you gets the key:** the power bar, a status-bar menu, the message log, a tile menu or a
   float takes Esc, and nothing reaches the terminal under it. The door now asks one answer (where you are) for this,
   so a new overlay can't let a key leak to the program behind it; `ep0ch peek`'s `person` names that layer too.
+### What the new screens say is true at every width (PIE-1439)
+
+- **The keys window:** in the river, x, h, w and I no longer say a main-menu letter takes them first; a key says
+  "taken by" only where both keys work, and Conflicts agrees. `in:river` lists the ^W chords too.
+- **At 40 columns:** rows that read alike once cut keep the word that differs (`… left`, `… right`), and the hint row
+  keeps esc.
+- **A failed run:** the status line says a note's label, never a raw `((id|label))`; the message log keeps it whole.
+- **The power bar:** an argument's list keeps off the docs beside it; a note's edit lists its tile's actions first
+  from the start, as ctrl+k and / do.
+- **The twin row at 40 columns:** the offer gets a row of its own with its Work ID, the controls whole under it.
+- **outline_snapshot of a copy:** `asOf` is the copy's newest change, and the headline says it; `snapshotAt` is when
+  the snapshot was made.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
 
 ### A chat reads an away outline from its copy (PIE-1091)
 

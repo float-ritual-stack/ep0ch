@@ -1,7 +1,7 @@
 import type { SearchCertainty } from "@ep0ch/outline-core/protocol";
 import { SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
-import type { Ctx } from "../app";
+import type { Ctx, Screen } from "../app";
 import type { NoteSurface, SurfaceHost } from "./note";
 import { Canvas, type Rect } from "../canvas";
 // Reference completion in the edit control (PIE-416): typing `[[`, `((` or `[file::` in a draft offers
@@ -402,6 +402,13 @@ export interface CompletionState extends CompletionLookup {
 /** One draft's completion popup: a lookup at a time, newer typing or a dismissal dropping older answers. */
 export class Completer {
   state: CompletionState | null = null;
+  /** The screen the draft is on (its reader's desk): the actions here are that screen's, wherever the keys are (PIE-1439). */
+  where?: () => Screen | undefined;
+  /** The door's bar host for this draft's lookups: the ambient one, with the draft's own screen as `here`. */
+  private barHost(): BarHost | undefined {
+    const host = ambient?.board === this.board ? ambient.host?.() : undefined, here = this.where?.();
+    return host && here ? { ...host, here } : host;
+  }
   /** The tile host paints this popup after the screen, beyond the editor's rectangle. */
   screenLayer = false;
   private preview: { item: CompletionItem; surface: NoteSurface; host: SurfaceHost } | null = null;
@@ -420,10 +427,10 @@ export class Completer {
     const f = this.d, line = f.lines[f.row] ?? "", c = f.complete;
     if (c && c.grammar === "filter") { const t = filterTargetAtCursor(line, f.col); return t && { ...t, words: true }; }
     // An act line (the power bar's): past an action's name, the whole line through the cursor is one button step.
-    if (c && c.grammar === "act") { const host = ambient?.board === this.board ? ambient.host?.() : undefined; return host && actLineArgs(line.slice(0, f.col), host) ? { kind: "button-step", start: 0, end: wordEnd(line, f.col), query: line.slice(0, f.col) } : null; }
+    if (c && c.grammar === "act") { const host = this.barHost(); return host && actLineArgs(line.slice(0, f.col), host) ? { kind: "button-step", start: 0, end: wordEnd(line, f.col), query: line.slice(0, f.col) } : null; }
     // `/` at a line's start in a note's own edit: the actions that apply here, then their arguments (PIE-1076). Past a
     // real action's name the line is its arguments' even where a value starts `[[` (the sigil's rows, quoted for act).
-    const here = !c && this.own() ? actionHereAt(line, f.col, f.lines, f.row) : null, host = ambient?.board === this.board ? ambient.host?.() : undefined;
+    const here = !c && this.own() ? actionHereAt(line, f.col, f.lines, f.row) : null, host = this.barHost();
     if (here && host && actLineArgs(here.query, host)) return here;
     const t = completionTargetAtCursor(line, f.col, f.lines, f.row);
     if (!t && here) return here;
@@ -474,7 +481,7 @@ export class Completer {
       s.jev = "asking";
       this.redraw();
       try {
-        const r = await lookupCompletion(this.board, target, this.own(), { semantic: true, near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined, signal: turn.signal });
+        const r = await lookupCompletion(this.board, target, this.own(), { semantic: true, near: this.near(), limit: this.limit, host: this.barHost(), signal: turn.signal });
         if (r.jevOff) jevOff.add(this.board);
         const now = this.state;
         if (now !== s) return;
@@ -522,7 +529,7 @@ export class Completer {
   private async lookup(turn: SearchTurn, target: CompletionTarget, was: string | undefined, explicit = false): Promise<void> {
     try {
       // Only an answer is kept for the draft: a failed lookup is asked again next time, as the outliner does.
-      const r = await lookupCompletion(this.board, target, this.own(), { near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined, signal: turn.signal, ...(explicit ? { explicit } : {}) });
+      const r = await lookupCompletion(this.board, target, this.own(), { near: this.near(), limit: this.limit, host: this.barHost(), signal: turn.signal, ...(explicit ? { explicit } : {}) });
       if (r.jevOff) jevOff.add(this.board);
       if (!this.current(turn)) return;
       // `::` with nothing typed lists the components used ones first: the order this draft first saw stays while it's

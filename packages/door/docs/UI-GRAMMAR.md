@@ -1219,8 +1219,9 @@ desk's, until `^W e` goes in: then every key is the mount's, its `^W` too, and `
   `river` unless an edit is open), else its kind's action set's; the keys screen is for a screen without tiles (`ep0ch --screen keys`, a BBS list). `⏎` (or a second click
   on the selected row) is `keys.run`: the binding's action, pressed as the person in the tile the window opened beside;
   one needing arguments the binding doesn't give opens its form in the power bar (`bar.form op=open`). `esc` and `q`
-  close it. The catalog's bindings filtered as typed (`in:<scope>` is a scope
-  exactly, or a set a table says it is part of, `KeyTable.within`: `in:river` holds the river column's tables), each row one sentence: the action's
+  close it. The catalog's bindings filtered as typed (`in:<scope>` is where a binding works, the catalog's `worksIn`: a
+  scope exactly, a set a table says it is part of, `KeyTable.within`: `in:river` holds the river column's tables, and
+  the ^W chords on a screen of tiles), each row one sentence: the action's
   `words`, then where or when, or the row's own `says` (`TableRow.says`, `KeyRow.says`) where its hint word alone would
   be a fragment (`test/key-rows.test.ts` refuses a `, <word>` tail and an act argument), each with its layer, what it takes its key from and what takes it first, and whether a terminal tile's
   program still gets it. `r` records the new key (^W then a key for a ^W binding), says what it would take before ⏎
@@ -1228,7 +1229,11 @@ desk's, until `^W e` goes in: then every key is the mount's, its `^W` too, and `
 - **Conflicts are real fights only** (PIE-1425), by the order a key is looked up: two rows of one key table on one key
   whose kinds meet (`only`/`unless`: the table is read first to last, so the second never runs), and one key in two
   entries of the keymap file (the App presses the last). An action set's own keys are one key, one meaning at a time
-  (its code picks by state: esc clears the bar, then closes it), and a key in two layers is a shadow said on each row.
+  (its code picks by state: esc clears the bar, then closes it), and a key in two layers is a shadow said on each row,
+  only where both work (PIE-1439): a key row that is one screen's own says so (`KeyRow.on`: the main menu's letters
+  are `on: "menu"`), two screens' own keys never meet, a screen without tiles has no tile, mode or ^W keys, and a
+  screen's spec keys come before a tile's (`Desk.boundKey`), so the river's `x` is its own. At 40 columns rows that
+  read alike once cut keep the word that tells them apart (`ellipsizeApart`), and the hint row says esc early.
   A row of an action's keys reads as a whole sentence: the action's words, then the row's where or when.
 - **Unbound** (the fourth tab): every action of every action set that no binding reaches (`unbound` in the catalog,
   read from `allActionSets`, never a list), by layer and scope; its `r` is the same rebind, through the App's keymap

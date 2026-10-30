@@ -37,6 +37,8 @@ export interface PaneView { frame?: Rect; headerBand?: { row: number; rows: numb
 
 export interface DeskApi {
   ctx: Ctx;
+  /** The screen this desk is (the Desk itself): what a reader's edit lists its actions for (PIE-1439). */
+  screen?(): import("../app").Screen;
   /** The look (PIE-673) the desk resolved for tile `p` as it drew it last: its spacing, list density and where each comes from. */
   lookOf?(p: Pane): Look | undefined;
   /** What the tune inspector sees of tile `name`: its look, kind, title, content width, and in a reader the `::box` its `[ ]` is in. */
@@ -544,6 +546,7 @@ export class ReaderPane implements Pane {
       heroBounds: this.heroBounds,
       innerFrame: this.innerFrame,
       ctx: this.context(desk),
+      screen: () => desk.screen?.(),
       contextFor: m => {
         this.noteAddress = m?.address;
         this.outlineCtx = m?.address ? outlineBoards(desk.ctx).peek(m.address) : undefined;

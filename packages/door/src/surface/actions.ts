@@ -105,8 +105,10 @@ export type DraftUse = "type" | "leave" | "write" | "safe" | "text" | "replace";
 /**
  * One row of an action's keys: the keys and what they do under the action's heading (its page, `::graph-keys`), and
  * `says`, the whole sentence the keys window lists where `does` would read as a fragment after the action's words (PIE-1425).
+ * `on`, the one screen or tile these keys are that place's own, by the name `in:` filters it (`menu`: the main menu's
+ * letters, matched by its own key code; `tune`): the keys window then never says they take a key anywhere else (PIE-1439).
  */
-export type KeyRow = { keys: string; does: string; says?: string } | { via: string };
+export type KeyRow = { keys: string; does: string; says?: string; on?: string } | { via: string };
 /** An action's keys: rows (KeyRow), or one line that reads cleanly as them (declaredKeys, keyRows). */
 export type Keys = string | readonly KeyRow[];
 /** An action's keys as one line, for a listing (`actions`, a flash): each row's keys and what it does. */
