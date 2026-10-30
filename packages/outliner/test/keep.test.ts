@@ -55,6 +55,21 @@ test("keep makes the component note, rewrites the line, draws the same, and one 
   } finally { stop(); }
 }, 60_000);
 
+test("an agent runs keep by its extension's page: script_run has no note of the script's to name", async () => {
+  const { installed, create, store, client, stop } = await kept();
+  try {
+    store.configureMcpAccess("full");
+    const host = create("Bench\n::= 1 + 1");
+    const run = await client.request<{ message?: string; state: string }>({ action: "scripts.run", blockId: installed.page!, this: host.id, slots: { name: "bench-sum" },
+      access: "full", mutation: { author: "agent", actorId: "bench-agent" } });
+    expect(run.message).toContain("kept ::bench-sum");
+    expect(store.require(host.id).text).toBe("Bench\n::bench-sum{}");
+    // The page of an extension with no such script says what it holds, as a note without a script does.
+    const plain = create("Plain page [ext.page::nothing-here]");
+    await expect(client.request({ action: "scripts.run", blockId: plain.id, access: "full", mutation: { author: "agent", actorId: "bench-agent" } })).rejects.toThrow(/no authored script/);
+  } finally { stop(); }
+}, 60_000);
+
 test("keep refuses a taken name and a note with no ::= line, writing nothing; props become form fields", async () => {
   const { keep, create, store, stop } = await kept();
   try {

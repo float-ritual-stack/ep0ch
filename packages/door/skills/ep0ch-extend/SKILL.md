@@ -69,16 +69,16 @@ Not in the table: read the extensions reference's *Not yet* section. If it's lis
 2. **Read its props:** `outline_components {components:["board"]}` gives each prop (type, required, default) and an example line.
 3. **Use:** write the example line in a note, `::board{where="type=errand" group=status}`. The write's warnings name an
    attr it doesn't take (with a did-you-mean) and a required prop left out: fix them in the same turn.
-4. **Check:** `outline_read {view:true, width:100}` shows what it draws; a failure reads `board failed: …`.
+4. **Check:** `outline_read {view:true, width:100}` shows what it draws; a failure reads `unavailable` and why under its line.
 5. **Author:** a note `Name [script::x] [mode::render] [form-field::where query required]`, a line of gist, a demo
    line `::x{where="…"}`, then a `tsx` fence that returns tags (`<row>`, `<card title=…/>`). Use `query({where, group,
    facets})` for rows with their properties; `import { Lane } from "ui-kit"` reads a `[mode::module]` note.
 6. **Fix load problems:** the write's receipt names a tsx syntax error by line, an unknown import or a taken name.
    Once it loads, `outline_components` lists it within seconds.
-7. **Graduate a `::=` line:** `script_run` the `keep` extension's script with `name=x` on the note: the line becomes
+7. **Graduate a `::=` line:** `script_run {ref: "[[ext-keep]]", this: <the note>, slots: {name: "x"}}`: the line becomes
    `::x{}` and the expression a component note, one undo.
-8. **Probe data first:** `script_run` on `return await query({ where: "type=errand", facets: true })` shows the keys
-   and values a prop can take.
+8. **Probe data first:** `script_run` a scratch `[script::probe]` note whose fence is
+   `return await query({ where: "type=errand", facets: true })`: it answers the keys and values a prop can take.
 
 ## Writing it
 

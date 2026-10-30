@@ -92,6 +92,16 @@ test("Detail and the published page draw a ::board{…} region as they draw a bo
   }
 });
 
+test("Sources reads a ::board{…} call's props without its brace", async () => {
+  const { store, create, draw, client } = await setup();
+  create(BOARD);
+  const page = create("Shed\n\n::board{where=\"type=errand\" group=owner}");
+  await draw(page.id);
+  await until("the call drawn", () => store.extensionOutputs(page.id).find(r => r.result));
+  const answer = await client.request<import("@ep0ch/outline-core/sources").SourcesAnswer>({ action: "site.sources", blockId: page.id });
+  expect(answer.sources[0]!.query.params).toEqual([{ key: "where", value: "type=errand" }, { key: "group", value: "owner" }]);
+});
+
 test("a note holding only ::count{} draws in Detail; the readers' guard sees a call", async () => {
   const { store, create, draw, client } = await setup();
   create("Count [script::count] [mode::render]\n```js\nreturn 'COUNTED ' + this.title;\n```");

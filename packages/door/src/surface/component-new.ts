@@ -27,6 +27,7 @@ export function starterComponent(name: string): string {
     "",
     "```tsx",
     "const { rows } = await query({ where: props.where[0], limit: 20 })",
+    "if (!rows.length) return `No notes hold ${props.where[0]} yet: give the call a where=`",
     "return <stack>{rows.map(r => <card title={r.title} link={r.id}/>)}</stack>",
     "```",
   ].join("\n");

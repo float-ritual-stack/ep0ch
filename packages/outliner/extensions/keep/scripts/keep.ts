@@ -33,7 +33,7 @@ else at = lines.findIndex((_, i) => isPipe(i));
 if (!isPipe(at)) throw new Error(asked ? `line ${asked} isn't a ::= line in ${host.title || 'this note'}` : `${host.title || 'this note'} has no ::= line to keep`);
 
 const [, lead, expression] = PIPE.exec(lines[at]);
-// Each `props.x` the expression reads becomes a slot the component takes, as text.
+// Each prop the expression reads becomes a slot the component takes, as text.
 const slots = [];
 for (const m of expression.matchAll(/\bprops\.([a-z][a-z0-9_]*)|\bprops\[["']([a-z][a-z0-9_-]*)["']\]/g)) {
   const slot = m[1] ?? m[2];

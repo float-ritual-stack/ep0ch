@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { outputRegionText } from "../src/output-region";
-import { sourceCalls, withSlotProps, yamlParams } from "../src/sources";
+import { slotArgument, sourceCalls, withSlotProps, yamlParams } from "../src/sources";
 
 test("a note's own generated lines are found in order: ::use, ::fields, ::if , a figure, a written region (PIE-956)", () => {
   const region = outputRegionText({ label: "rota", producer: "p1", anchor: "out-rota-1", body: "- Mon" });
@@ -20,6 +20,11 @@ test("slot words are rewritten in place: a changed value, an added one, a quoted
   expect(withSlotProps("beds-table:: week=42", { week: "43" })).toBe("beds-table:: week=43");
   expect(withSlotProps("beds-table:: week=42 crop=beans", { crop: "peas and kale" })).toBe('beds-table:: week=42 crop="peas and kale"');
   expect(withSlotProps("beds-table::", { week: "7" })).toBe("beds-table:: week=7");
+  // A note component's call is the same line in its other spelling: its slots are written inside the braces.
+  expect(withSlotProps('::board{where="type=errand" group=owner}', { group: "status" })).toBe('::board{where="type=errand" group=status}');
+  expect(withSlotProps("::board{}", { group: "status" })).toBe("::board{group=status}");
+  expect(slotArgument('::board{where="type=errand" group=owner}')).toBe('where="type=errand" group=owner');
+  expect(slotArgument("weekly:: week=1")).toBe("week=1");
   expect(withSlotProps("weekly:: for the shed week=1", { week: "2" })).toBe("weekly:: for the shed week=2");
   expect(withSlotProps("not a handler", { a: "b" })).toBeNull();
   expect(withSlotProps("x:: a=1", { a: "two\nlines" })).toBeNull();

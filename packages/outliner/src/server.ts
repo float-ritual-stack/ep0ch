@@ -2294,13 +2294,17 @@ export class OutlinerServer {
         if (access !== "propose" && access !== "full") throw new Error(`MCP access is ${access}: no script runs`);
         await this.extensionRegistry.reload();
         const scripts = (await scriptSources(this.store)).filter(s => s.script?.blockId === request.blockId);
-        const name = this.store.require(request.blockId).properties.find(p => p.key === "script")?.value;
+        const properties = this.store.require(request.blockId).properties;
+        const name = properties.find(p => p.key === "script")?.value;
+        // A folder's script has no note of its own: its extension's page names it (`[[ext-keep]]`).
+        const page = scripts.length ? undefined : properties.find(p => p.key === "ext.page")?.value;
+        const bundled = page ? this.extensionRegistry.extension(`script:${page}`) : undefined;
         const nameOf = (s: (typeof scripts)[number]) => s.script!.fence?.name ?? name;
         if (!name && scripts.length > 1) throw new Error(`This block has several scripts: ${scripts.map(nameOf).join(", ")}. Set [script::name] to choose the note's own script, or run one by name from the door`);
         const selected = name ? scripts.find(s => nameOf(s) === name) : scripts[0];
-        if (!selected) throw new Error("This block has no authored script; add [script::name] and a closed js or ts fence");
-        const extension = this.extensionRegistry.extension(selected.expectedId);
-        if (!extension) throw new Error(`Script ${nameOf(selected)}: ${this.extensionRegistry.list().extensions.find(e => e.id === selected.expectedId)?.error ?? "not runnable"}`);
+        if (!selected && !bundled) throw new Error("This block has no authored script; add [script::name] and a closed js or ts fence");
+        const extension = bundled ?? this.extensionRegistry.extension(selected!.expectedId);
+        if (!extension) throw new Error(`Script ${nameOf(selected!)}: ${this.extensionRegistry.list().extensions.find(e => e.id === selected!.expectedId)?.error ?? "not runnable"}`);
         const slots = request.slots;
         if (slots !== undefined && (typeof slots !== "object" || slots === null || Array.isArray(slots) || Object.values(slots).some(v => typeof v !== "string"))) {
           throw new Error("scripts.run's slots are { name: \"value\" }: each value one line of text");

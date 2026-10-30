@@ -490,8 +490,9 @@ test("a block script's sh is a step on its run note", async () => {
   const run = await client.request<{ written: string[]; message: string; state: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });
   expect(run).toMatchObject({ message: "two trays", state: "done" });
   const log = store.get(run.written[0]!)!.text;
-  expect(log).toContain('1. sh: {"exit":0');
-  expect(log).toContain('"lines":"two trays\\n"');
+  // A person reads it: the command, how it ended, its size, and its first lines in a fence.
+  expect(log).toContain(`1. sh ${process.execPath} -e console.log('two trays') → exit 0, 10 B`);
+  expect(log).toContain("````text\ntwo trays\n````");
 });
 
 test("a run that reached outside leaves its run note even when it returns nothing", async () => {
@@ -505,6 +506,6 @@ test("a run that reached outside leaves its run note even when it returns nothin
   const note = () => store.children(store.queryBlocks({ where: "script=quiet-seed" }).blocks[0]!.id).find(b => b.text.includes(`script-run::${run.undo}`) && !b.text.split("\n")[0]!.includes("working"));
   for (let i = 0; i < 200 && !note(); i++) await Bun.sleep(25);
   const log = note()!;
-  expect(log.text).toContain('sh: {"exit":0');
+  expect(log.text).toContain("→ exit 0, ");
   expect(log.text).toContain(process.execPath);
 });

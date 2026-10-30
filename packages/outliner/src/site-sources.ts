@@ -6,7 +6,7 @@
 import { figureProps, figureSource } from "@ep0ch/outline-core/figure-props";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import type { SiteProduced } from "@ep0ch/outline-core/site";
-import { sourceCalls, yamlParams, type SourceEntry, type SourcesAnswer, type SourcesRequest } from "@ep0ch/outline-core/sources";
+import { slotArgument, sourceCalls, yamlParams, type SourceEntry, type SourcesAnswer, type SourcesRequest } from "@ep0ch/outline-core/sources";
 import { answerSite } from "./site-answer";
 import { slotProps } from "./script-runs";
 import type { ResourceProjection } from "./resource-projection";
@@ -71,7 +71,7 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
     const line = p.anchor.line;
     const written = lines[line] ?? "";
     const expr = /^\s*::=/.test(written);
-    const argument = expr ? written.replace(/^\s*::=\s*/, "") : (/^[^:]*::\s*(.*)$/.exec(written)?.[1] ?? "");
+    const argument = expr ? written.replace(/^\s*::=\s*/, "") : /^\s*(?:[-*+]\s+)?::[a-z]/.test(written) ? slotArgument(written) : (/^[^:]*::\s*(.*)$/.exec(written)?.[1] ?? "");
     const params = expr ? [] : Object.entries(slotProps(argument)).flatMap(([key, values]) => values.map(value => ({ key, value })));
     const t = deps.transformOf(p.extension.id, p.extension.handler);
     const markdown = p.output?.markdown ?? "";

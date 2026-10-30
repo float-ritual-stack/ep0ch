@@ -777,10 +777,10 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   }
   // A rule note that can't be used (PIE-600): said once, as the service words it.
   for (const p of next?.ruleProblems ?? []) if (!saidRules.has(p)) problems.push(`rule ${p}`);
-  // The filter: a handler line (`key::`, a bullet before it is fine) or a request line (`@name`).
+  // The filter: a handler line (`key::`, or a note component's `::key{`, a bullet before it is fine) or a request line (`@name`).
   const keys = served.flatMap(e => e.handlers.map(h => escape(h.key)));
   const agents = served.flatMap(e => (e.agents ?? []).map(a => escape(a.name)));
-  const alts = [...(keys.length ? [`(?:${keys.join("|")})::`] : []), ...(agents.length ? [`@(?:${agents.join("|")})(?![\\w-])`] : [])];
+  const alts = [...(keys.length ? [`(?:${keys.join("|")})::`, `::(?:${keys.join("|")})\\{`] : []), ...(agents.length ? [`@(?:${agents.join("|")})(?![\\w-])`] : [])];
   mentions = alts.length ? new RegExp(`(?:^|\\n)[ \\t]*(?:[-*+][ \\t]+)?(?:${alts.join("|")})`, "i") : null;
   // Actions: a handler line's and a block's are EXT_ACTIONS, on every screen, even when a tile lists it too
   // (tarot's keep: `k` in its tile, and act on a block=<id> without one). One on a tile (`tile:<kind>`) is

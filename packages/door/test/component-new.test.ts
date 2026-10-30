@@ -18,6 +18,8 @@ describe("the pure half", () => {
     expect(text.split("\n")[0]).toBe("Open count [script::open-count] [mode::render] [form-field::where query default=type=task]");
     expect(text).toContain("\n::open-count{}\n");
     expect(text).toContain("```tsx\n");
+    // An outline with no task still sees it working: it says what its where holds, never an empty region.
+    expect(text).toContain("No notes hold ${props.where[0]} yet");
   });
   test("a name any script answers to is refused, a render script's or an action's; a folder extension's title isn't a name", async () => {
     const wrote: string[] = [];

@@ -28,6 +28,17 @@ import type { Address, SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
 
+/** A command or URL as a run note says it: what ran, how it ended, how much, and its first lines. */
+function reachLine(step: HostStep): string {
+  const input = step.input as { argv?: string[]; url?: string; method?: string };
+  const result = step.result as { exit?: number; status?: number; bytes: number; lines?: string; stderr?: string };
+  const what = step.tool === "sh" ? (input.argv ?? []).join(" ") : `${input.method ?? "GET"} ${input.url}`;
+  const shown = what.length > 200 ? `${what.slice(0, 200)}…` : what;
+  const size = result.bytes < 1024 ? `${result.bytes} B` : `${(result.bytes / 1024).toFixed(1)} KB`;
+  const said = [result.lines, result.stderr].filter(Boolean).join("\n").trimEnd();
+  return `${step.tool} ${shown} → ${step.tool === "sh" ? `exit ${result.exit}` : `status ${result.status}`}, ${size}${said ? `\n\`\`\`\`text\n${said}\n\`\`\`\`` : ""}`;
+}
+
 const ANSWER_MS = 3000;
 /** Lets go of the connection's request queue (the server's `accept` sets it per request): a request that waits can call it. */
 export const queueRelease = new AsyncLocalStorage<() => void>();
@@ -383,7 +394,7 @@ export class ScriptRuns {
       if (s.phase === "start") return;
       const reached = s.tool === "sh" || s.tool === "fetch";
       // A command or URL is said with how it ended: the run note is its record.
-      lines.push(`\n${s.seq}. ${s.tool}: ${s.phase === "done" ? JSON.stringify(s.result) : s.error}${reached ? ` · ${JSON.stringify(s.input)}` : ""}`);
+      lines.push(`\n${s.seq}. ${reached && s.phase === "done" ? reachLine(s) : `${s.tool}: ${s.phase === "done" ? JSON.stringify(s.result) : s.error}${reached ? ` · ${JSON.stringify(s.input)}` : ""}`}`);
       // A run that reached outside (a command, a URL) always leaves its run note: it is the only record of that reach.
       if (!log && reached) {
         try { keep(); } catch (error) { controller.abort(error); }
