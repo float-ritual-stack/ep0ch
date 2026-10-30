@@ -629,7 +629,11 @@ export class OutlinerServer {
           this.extensionQueryConnections.set(key, connection);
         }
         const response = this.watches.ask(connection, { id: "extension-query", action: "blocks.query", watch: "input", query });
-        if (!response.ok) throw new Error(response.error);
+        if (!response.ok) {
+          this.watches.closed(connection);
+          this.extensionQueryConnections.delete(key);
+          throw new Error(response.error);
+        }
         return response.result as ReturnType<OutlinerStore["queryBlocks"]>;
       },
       forgetQuery: (blockId, callKey) => {

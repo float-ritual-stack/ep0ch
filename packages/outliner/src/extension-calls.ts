@@ -512,6 +512,12 @@ function asker(requestedBy: MutationProvenance | undefined): { requestedBy?: { a
 /** Host-wide actions' runs (`once: "host"`), across every outline the host process serves: one at a time. */
 const HOST_OUTLINE_RUNS = new Map<string, Promise<ExtensionActResult>>();
 
+/** The extension request is capped at 256 KiB: rows go to a program as their properties and a short excerpt, never whole bodies. */
+const EXCERPT = 400;
+function compactAnswer(answer: VisibleBlockCollection): VisibleBlockCollection {
+  return { ...answer, blocks: answer.blocks.map(row => ({ ...row, text: row.text.slice(0, EXCERPT), displayText: row.displayText.slice(0, EXCERPT) })) };
+}
+
 export class ExtensionCalls {
   private readonly state = new Map<string, CallState>();
   private readonly passes = new Map<string, Promise<void>>();
@@ -857,7 +863,10 @@ export class ExtensionCalls {
       try {
         const { hash } = this.queryInput(block, call, handler.query);
         if ((row.request as { queryHash?: string } | null)?.queryHash !== hash) return true;
-      } catch { return row.error !== null && this.now - Date.parse(row.attemptedAt) > RETRY_FAILED_MS; }
+      } catch {
+        // A question that no longer binds (its property was removed) must replace the old answer with its error.
+        return row.error === null || this.now - Date.parse(row.attemptedAt) > RETRY_FAILED_MS;
+      }
     }
     if (row.result === null || row.error !== null) return row.error !== null && this.now - Date.parse(row.attemptedAt) > RETRY_FAILED_MS;
     // What it read changed (a script's notes or queries): it redraws without r.
@@ -972,7 +981,7 @@ export class ExtensionCalls {
         untracked = rendered.untracked === true;
         answer = { value: { markdown: rendered.markdown, ...(rendered.view ? { view: rendered.view } : {}) } };
       } else answer = await this.runtime.invokeLoaded(extension, "run",
-        { handler: call.handlerKey, ...request, ...(queried ? { query: queried.answer } : {}), context }, this.deadline(extension, call.handlerKey),
+        { handler: call.handlerKey, ...request, ...(queried ? { query: compactAnswer(queried.answer) } : {}), context }, this.deadline(extension, call.handlerKey),
         { label: `ext.${extension.id}.${call.handlerKey}`, writes: call.effects === "write" });
       let result: unknown;
       try {

@@ -720,3 +720,16 @@ test("a form says where each entry lands: under it, under a page, or as a line i
   await expect(fill(word.id, { book: "Moss" })).rejects.toThrow(/did you mean inline\?/);
   expect([...live(typo.id), ...live(word.id), ...live(shelf.id).slice(2)]).toEqual([]);
 });
+
+test("a workbench over long notes still draws, and a removed question replaces the old answer with why", async () => {
+  const { client, create, projection, projections } = await setup({ install: ["workbench"] });
+  const body = "leaf and root ".repeat(100);
+  for (let i = 0; i < 100; i++) await create(`Pot ${i} [type::workbench-long]\n${body}`);
+  const board = await create("Long pots [type::virtual-branch] [query::type=workbench-long]\nworkbench::");
+  await projection(board.id, "component");
+  const read = async () => (await projections(board.id))[0];
+  expect((await read())?.status).toBe("ready");
+  await client.request({ action: "update", blockId: board.id, expectedRevision: board.revision, text: "Long pots [type::virtual-branch]\nworkbench::", mutation: PERSON });
+  await until("the unbound question's reason", async () => (await read())?.status !== "ready");
+  expect((await read())?.status).not.toBe("ready");
+});
