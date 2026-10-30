@@ -188,16 +188,16 @@ let whereLoad: Promise<WhereRun> | undefined
  */
 let oneShot = false
 /**
- * Registers `show`, the first of the mod's tools: false when the session refuses every plugin tool (the engine's
- * "refused: this session has no built-in tools" or "… runs with --bare"). Any other failure still throws.
+ * Registers `show`, the first of the mod's tools: `refused` when the session takes no plugin tools (the engine's
+ * "refused: this session has no built-in tools" or "… runs with --bare"), `failed` for any other failure, which
+ * leaves the session's start to go on and `show` to be tried again with the rest.
  */
-async function registerShow($: EngineInterface): Promise<boolean> {
+async function registerShow($: EngineInterface): Promise<'registered' | 'refused' | 'failed'> {
   try {
     await $.tool.register({ name: SHOW_TOOL.name, description: SHOW_TOOL.description, inputSchema: SHOW_TOOL.inputSchema })
-    return true
+    return 'registered'
   } catch (error) {
-    if (/ refused: this session /.test(error instanceof Error ? error.message : String(error))) return false
-    throw error
+    return / refused: this session /.test(error instanceof Error ? error.message : String(error)) ? 'refused' : 'failed'
   }
 }
 /** Where this Claude is bound (hooks/binding.ts): the load in flight, and when the last one started (the session clock). */
@@ -415,6 +415,7 @@ export function register(on: On, options: PluginOptions): void {
   // A registration is one session: the folder it started in is read anew, never the last registration's (a test file
   // registers once per case, each in a folder of its own).
   sessionCwd = null
+  oneShot = false
   // Recent mentions in Claude Code itself (hooks/mentions-view.ts): a band above the prompt or a pane, over the
   // outline's own mentions.list, each press opened by openNote like every other click.
   // The band above the prompt: the binding card (at the start and after /clear, until hidden) over Recent mentions.
@@ -517,7 +518,8 @@ export function register(on: On, options: PluginOptions): void {
     // `--bare`) is a one-shot text call with no use for the binding, the workboard or mentions, whose `ep0ch` calls
     // would only spend its deadline. Only the registration says so: its MCP servers' tools are still listed. Evan's
     // laptop, Oct 26 and 29: tidy's call failed with "session.start hook skipped: threw … \"show\" refused".
-    oneShot = !(await registerShow($))
+    const show = await registerShow($)
+    oneShot = show === 'refused'
     if (oneShot) return result
     reportStatus($, sessionStarted())
     sessionCwd = typeof e.cwd === 'string' && e.cwd ? e.cwd : null
@@ -561,7 +563,7 @@ export function register(on: On, options: PluginOptions): void {
       // Offered when a door is reachable (PIE-715): EP0CH_CONTROL, or, for a Claude that does not descend from a tile
       // (a background job, a resumed session), the door of the folder's outline, by `ep0ch where`'s own resolution.
       const door = (await $.env.get('EP0CH_CONTROL'))?.trim() || (await whereLoad)?.facts?.reach?.control
-      const tools = [...WORK_TOOLS, ...OUTLINE_TOOLS, COMPONENTS_TOOL, BIND_TOOL, ...(door ? DOOR_TOOLS : [])]
+      const tools = [...(show === 'failed' ? [SHOW_TOOL] : []), ...WORK_TOOLS, ...OUTLINE_TOOLS, COMPONENTS_TOOL, BIND_TOOL, ...(door ? DOOR_TOOLS : [])]
       for (const tool of tools) {
         // The core ones in the prompt's tool list, not behind tool search (PIE-721): what a session reads and writes notes with.
         await $.tool.register({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema, ...(UPFRONT_TOOLS.includes(tool.name) ? { isDeferred: false } : {}) })

@@ -68,9 +68,14 @@ function sessionIn(
   on('session.id', () => ({ value: 'session-1' }))
   // The engine takes the mod's tools, unless a test sets `refuse` to the engine's refusal (a one-shot session).
   const registered: string[] = []
-  const tools = { refuse: null as string | null }
+  const tools = { refuse: null as string | null, failOnce: null as string | null }
   on('tool.register', ($, e) => {
     registered.push(e.name)
+    if (tools.failOnce) {
+      const deny = tools.failOnce
+      tools.failOnce = null
+      return { deny }
+    }
     return tools.refuse ? { deny: `"${e.name}" refused: ${tools.refuse}` } : { value: { tool: `mcp__ep0ch__${e.name}` } }
   })
   on('session.cwd', () => ({ value: typeof cwd === 'function' ? cwd() : cwd }))
@@ -161,6 +166,17 @@ describe('register', () => {
   // Evan's laptop, Oct 29: the same command still failed ("answer command exited 1 … session.start hook skipped:
   // threw ep0ch: $.tool.register: \"show\" refused"). Its MCP servers' tools were listed, so the session looked like
   // it had tools; only the registration says it takes none from plugins. The refusal ends the mod's start, quietly.
+  test('a first registration that fails for another reason leaves the start to go on, and show is tried again', async ($, on) => {
+    const session = sessionIn(on, WORKSPACE, succeeding)
+    session.tools.failOnce = 'the tool server is busy'
+    await $.session.start(START)
+    await session.clock.settle()
+    // The rest of the start ran: its binding was read and the tools registered after it, show among them again.
+    expect(session.bindings.length).toBeGreaterThan(0)
+    expect(session.registered.filter(name => name === 'show')).toHaveLength(2)
+    expect(session.registered).toEqual(expect.arrayContaining(['work_stage', 'outline_read']))
+  })
+
   test('a session that refuses plugin tools while listing MCP ones starts clean and runs no ep0ch', async ($, on) => {
     const session = sessionIn(on, WORKSPACE, succeeding)
     on('tool.list', () => ({ value: [{ name: 'mcp__slack__send_message' }] }))
