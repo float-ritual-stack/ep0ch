@@ -4,7 +4,7 @@
 // screen, `ep0ch --screen keys`); every key and click runs one of KEYS_WINDOW_ACTIONS, and its own keys are a table the
 // keymap moves like any other. It draws what the catalog says (src/surface/key-catalog.ts) and words nothing of its own
 // about a binding.
-import { C, chip, ellipsize, fg, pad, RESET, selectedRow, width } from "../style";
+import { C, chip, ellipsize, ellipsizeApart, fg, pad, RESET, selectedRow, width } from "../style";
 import { RowView, wheelRows } from "../scroll";
 import { wrap } from "../text";
 import { keycap } from "../figures/keys";
@@ -30,11 +30,13 @@ const row = (key: string, action: string, label: string, args?: Record<string, u
 export const KEYS_WINDOW_KEYS: readonly ModeKey[] = keyTable("keys window", "the keys window (?)", [
   row("j", "keys.select", "select", { by: 1 }), row("down", "keys.select", "select", { by: 1 }),
   row("k", "keys.select", "select", { by: -1 }), row("up", "keys.select", "select", { by: -1 }),
+  // The way out early, so a hint row cut at 40 columns still says it (PIE-1439).
+  row("esc", "keys.close", "close"), row("q", "keys.close", "close"),
   row("pgdn", "keys.select", "page", { by: 10 }, "select the binding a page down"), row("pgup", "keys.select", "page", { by: -10 }, "select the binding a page up"),
   // Tabs by digit (the screen has no tile digits); Tab stays the desk's focus key.
   row("/", "keys.filter", "filter"), row("1", "keys.tab", "bindings", { tab: "bindings" }), row("2", "keys.tab", "conflicts", { tab: "conflicts" }), row("3", "keys.tab", "yours", { tab: "yours" }, "show the keys your keymap gives"), row("4", "keys.tab", "unbound", { tab: "unbound" }, "show the actions no key reaches"),
   row("r", "keys.rebind", "rebind", undefined, "move the selected binding to another key"), row("u", "keys.unbind", "unbind", undefined, "take the selected binding's key away"), row("d", "keys.reset", "built-in keys"),
-  row("enter", "keys.run", "run it"), row("ctrl+z", "keys.undo", "undo", undefined, "undo the last change to your keymap made here"), row("esc", "keys.close", "close"), row("q", "keys.close", "close"),
+  row("enter", "keys.run", "run it"), row("ctrl+z", "keys.undo", "undo", undefined, "undo the last change to your keymap made here"),
 ]);
 /** While the filter is typed: the line editor has every other key. */
 export const KEYS_FILTER_KEYS: readonly ModeKey[] = keyTable("keys filter", "the keys window's filter, being typed", [
@@ -155,6 +157,8 @@ export class KeysPane implements Pane {
     // The key column is as wide as the widest key shown (^W h to ctrl+space), so no key is cut.
     const shown = rows.slice(top, top + room);
     this.capW = Math.min(14, Math.max(listW < 60 ? 7 : 10, ...shown.map(r => (r.b.key ? width(r.b.cap) : listW < 60 ? 7 : 10))));
+    // Rows that would read alike once cut (h and l at 40 columns) keep the word that tells them apart.
+    this.shownDoes = shown.map(r => r.b.does);
     const listed = shown.map((r, i) => this.rowLine(r, top + i === this.at, listW));
     if (wide) {
       for (let i = 0; i < Math.max(room, 0); i++) {
@@ -173,12 +177,14 @@ export class KeysPane implements Pane {
 
   /** The key column's width as last drawn: the widest key shown. */
   private capW = 10;
+  /** What the rows drawn say, so a cut row keeps the word it differs from its neighbours by. */
+  private shownDoes: string[] = [];
   private rowLine(r: Row, on: boolean, w: number): string {
     // Narrow (a 44-column tile), the words get the room: the scope is in the detail, and the filter (`in:note`) says it.
     const narrow = w < 60, b = r.b, capW = this.capW + 2, cap = !b.key ? (narrow ? fg(C.brown) + ellipsize(b.scope, capW - 1) + RESET : fg(C.dark) + (b.rebind === true ? "no key" : "needs args") + RESET) : keycap(b.cap), scopeW = narrow ? 0 : Math.min(14, Math.max(6, Math.floor(w * 0.18)));
     const mark = b.yours ? fg(C.lcyan) + "●" + RESET : r.head ? fg(C.yellow) + "!" + RESET : " ";
     const scope = narrow ? "" : fg(C.brown) + pad(ellipsize(b.scope, scopeW), scopeW) + RESET + " ";
-    const text = mark + pad(cap, capW) + " " + scope + fg(C.grey) + ellipsize(b.does, Math.max(4, w - capW - scopeW - (narrow ? 3 : 4))) + RESET;
+    const text = mark + pad(cap, capW) + " " + scope + fg(C.grey) + ellipsizeApart(b.does, Math.max(4, w - capW - scopeW - (narrow ? 3 : 4)), this.shownDoes) + RESET;
     return on ? selectedRow(text, w) : text;
   }
 

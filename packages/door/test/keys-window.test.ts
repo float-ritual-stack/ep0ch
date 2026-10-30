@@ -9,7 +9,7 @@ import { App } from "../src/app";
 import { openScreen } from "../src/desk/screen-specs";
 import { wKey, wRows } from "../src/desk/wkeys";
 import { SocketBoard, USER } from "../src/socket";
-import { visible } from "../src/style";
+import { fitHint, visible } from "../src/style";
 import { bindings, conflicts, fightOf, rebindEffects, unbound, type Binding } from "../src/surface/key-catalog";
 import { allActionSets } from "../src/surface/actions";
 import { declaredOf, effective, keymapEntries, keymapProblem, resetKeys, keymapPath, moved, asTyped, parse, reloadKeymap, setKeys, undoKeymap } from "../src/surface/keymap";
@@ -384,6 +384,24 @@ describe.skipIf(!outliner)("the keys window on a scratch outline", () => {
       key({ kind: "esc" });
       await until(() => tiles() === before, "esc closed it");
     } finally { cols = 177; rows = 60; lines(); }
+  });
+
+  test("at 44 and 40 columns rows that differ in their last words keep them, and the hint row keeps esc (PIE-1439)", async () => {
+    await import("../src/river/column");
+    await shell("keys.open", {});
+    await until(() => focusedKind() === "keys", "the window");
+    try {
+      const p = keysPane();
+      p.filter = "in:river tile.focus"; p.at = 0;
+      for (const w of [44, 40]) {
+        const l = (p.render(w, 30, true, desk()).lines.map(visible) as string[]).join("\n");
+        expect(l, `left at ${w}`).toMatch(/…\s*left/);
+        expect(l, `right at ${w}`).toMatch(/…\s*right/);
+        expect(fitHint(p.hint(), w - 4).text, `the hint row at ${w}`).toContain("esc");
+      }
+      p.filter = "";
+    } finally { key({ kind: "esc" }); }
+    await until(() => focusedKind() !== "keys", "closed");
   });
 });
 
