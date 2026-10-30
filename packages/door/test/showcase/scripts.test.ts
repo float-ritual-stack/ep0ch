@@ -301,8 +301,6 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     screen();
     await until(() => !!extensionList()?.extensions.find(e => e.name === "seed-report"), "the script loaded");
     const extension = extensionList()!.extensions.find(e => e.name === "seed-report")!;
-    // The note in front of the person is the one the run is undone on (PIE-1207: the focused tile's, no current note).
-    await app.dispatch.act({ action: "tile.focus", tile: "source" }, USER);
     await app.dispatch.act({ action: "macro.record", args: { name: "scripted-recording" } }, USER);
     const run = await app.dispatch.act({ action: `ext.${extension.id}.run` }, USER) as { written: string[] };
     await untilAsync(async () => !(await board.get(run.written[0]!))!.text.includes("· working"), "the nested script finished");
@@ -369,8 +367,6 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
     await until(() => !!extensionList()?.extensions.find(e => e.name === "seed-report"), "the script bound");
     const extension = extensionList()?.extensions.find(e => e.name === "seed-report")!;
-    await app.dispatch.act({ action: "tile.focus", tile: "source" }, USER);
-    (app as any).lastInput = 0;
     const run = await app.act({ action: `ext.${extension.id}.run`, as: "test-agent" }) as { written: string[]; undo: string };
     await untilAsync(async () => !(await board.get(run.written[0]!))!.text.includes("· working"), "the script finished");
     const log = (await board.get(run.written[0]!))!;

@@ -233,7 +233,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     expect(d.layoutGet().focus).toBe("activity");
     press({ kind: "paste", text: "Garden visitors and callers" });
     press({ kind: "enter" });
-    const frame = screen().split("\n").find(l => l.includes("4 Garden"));
+    const frame = screen().split("\n").find(l => /\d Garden/.test(l));
     expect(frame).toContain("[name]");
     const chipY = screen().split("\n").indexOf(frame!), chipX = frame!.indexOf("[name]") + 1;
     press({ kind: "mouse", action: "down", button: 0, x: chipX, y: chipY });
