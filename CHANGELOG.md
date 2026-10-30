@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The navigator: browse by property, see the notes by day, read one beside (PIE-1443)
+
+- **One screen:** `ep0ch --screen navigator` (any outline; `--screen navigator '#tag'` starts on a query) puts the facets tree, its Matches and a reader side by side; at 44 columns the others fold to spines and ⏎ brings the reader forward.
+- **Matches by day:** the notes the selection leaves, grouped Today, Yesterday, Previous 7 days, Previous 30 days, then by month; each row its line of preview and its tags.
+- **Pinned first:** `*` pins or unpins a note (`[pinned::true]`); pinned notes head the list.
+- **Tag a row:** `t` asks for a tag or any property in the power bar, keys and values from the outline.
+- **Shortcuts and a calendar:** saved views sit at the top of the tree, a click sets the selection; a click on a day narrows to the notes changed that day (`d` today, `,` `.` step).
+- **Matches goes where you want it:** ctrl+o or its ⧉ chip puts it inline, split, floating, in a popup or in a tile of its own, as Sources and comments are.
+- **For other clients:** `blocks.query` takes `group=updated:recent` (any date key), and `blocks.read`/`blocks.query` answer an `excerpt` field.
+- **Run:** `ep0ch install --apply` on float-2 and the laptop (a PROTOCOL bump: the host and every door together).
+
 ### A revision compare opened with a comment half-written shows both (PIE-1433)
 
 - **Both draw:** the compare sits beside the note (below it when narrow) and the comment you were writing stays where you left it; a split comment shows as a popup on the note's side. Before, the comment drew and the compare was hidden while its keys were live.
