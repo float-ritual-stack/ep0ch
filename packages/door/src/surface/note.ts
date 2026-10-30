@@ -10165,8 +10165,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (f.busy) throw new ActionRefused("the form is still submitting");
       f.busy = true;
       try {
-        const result = await host.ctx.dispatch!.act({ action: "ext.form.fill", args: { block: f.block, with: JSON.stringify(f.values(actor)) } }, actor);
-        f.clearWarning(actor);
+        const sent = f.values(actor);
+        const result = await host.ctx.dispatch!.act({ action: "ext.form.fill", args: { block: f.block, with: JSON.stringify(sent) } }, actor);
+        // It landed: the form clears for the next entry, so a second press can't write the same one again (a refusal keeps it).
+        f.reset(actor, sent);
         return result;
       } catch (error) { f.warning(actor, error instanceof Error ? error.message : String(error)); throw error; }
       finally { f.busy = false; host.redraw(); }

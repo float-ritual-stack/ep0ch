@@ -26,7 +26,7 @@ export const FORM_CHOICE_KEYS: readonly ModeKey[] = keyTable("form choice", "a c
 ]);
 
 /** Where a form's entries land, in words (PIE-1442): what the note's `[form-into::…]` says, under its button. */
-function landing(into: FormSettings["into"]): string {
+function landsLine(into: FormSettings["into"]): string {
   if (into.kind === "inline") return "each entry is a line added to this note";
   if (into.kind === "page") return `each entry lands under [[${into.address}]]`;
   if (into.kind === "block") return `each entry lands under ((${into.id.slice(0, 8)}))`;
@@ -71,6 +71,18 @@ export class NoteForm {
     const d = this.draft(field, actor);
     d.splice(0, d.text.length, value, {}, actor);
     this.clearWarning(actor);
+  }
+  /**
+   * After a submit that landed (PIE-1445): this actor's answers that are still what it `sent` go back to their defaults,
+   * and the person's focus to the first field, ready for the next entry. One typed while it was landing stays, and so
+   * does their focus.
+   */
+  reset(actor: Actor, sent: Record<string, string>) {
+    const drafts = this.answers.get(partyOf(actor));
+    let kept = false;
+    for (const [name, d] of drafts ?? []) if (d.text === sent[name]) drafts!.delete(name); else kept = true;
+    this.clearWarning(actor);
+    if (actor.kind === "user" && !kept) this.focus = 0;
   }
   clearWarning(actor: Actor) { this.warnings.delete(partyOf(actor)); }
   warning(actor: Actor, text: string) { this.warnings.set(partyOf(actor), text); }
@@ -133,7 +145,7 @@ export class NoteForm {
     for (const l of [submit.top(), submit.row(tag("@submit", button, "form.submit")), submit.bottom()]) line(indent + l);
     const warning = this.warnings.get(partyOf(USER));
     if (warning) line(fg(C.yellow) + printable(warning) + RESET);
-    for (const text of wrap(printable(this.settingsProblem ?? landing(this.settings.into)), inner)) line(fg(this.settingsProblem ? C.yellow : C.dark) + text + RESET);
+    for (const text of wrap(printable(this.settingsProblem ?? landsLine(this.settings.into)), inner)) line(fg(this.settingsProblem ? C.yellow : C.dark) + text + RESET);
     for (const text of ["* required", ...wrap(modeHint(FORM_KEYS, () => undefined), inner)]) line(text);
     rows.push(f.bottom());
     return rows;

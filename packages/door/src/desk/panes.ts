@@ -87,6 +87,9 @@ export interface DeskApi {
   listPreviewTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   hasEditPreviewTile?(r: ReaderPane): boolean;
   editPreviewTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
+  /** Tile `p`'s attachment `attachment` (a facets tile's Matches, PIE-1443) in a tile of its own beside it (`on`), or that tile closed. */
+  attachedTile?(p: Pane, attachment: "matches", on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
+  hasAttachedTile?(p: Pane, attachment: "matches"): boolean;
   hasSourcesTile?(r: ReaderPane): boolean;
   sourcesTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   /** Reader `r`'s trail in a tile beside it (PIE-1425), or the one already open with the keys back in it; null when the layout can't place one. */

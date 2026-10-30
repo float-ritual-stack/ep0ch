@@ -264,7 +264,7 @@ export type BlockRefLookup =
   | { kind: "found"; block: Block; how: string }
   | { kind: "ambiguous"; ids: string[]; message: string }
   | { kind: "trashed"; message: string; id?: string }
-  | { kind: "missing"; message: string; didYouMean?: string };
+  | { kind: "missing"; message: string; didYouMean?: string; titled?: { ids: string[]; said: string } };
 
 // Singleton outline configuration uses the existing metadata table when it is not canonical user content
 // and needs no revisioned note body (same table as sequence/outline_instance_id/change-feed floor).
@@ -3503,11 +3503,33 @@ export class OutlinerStore {
     if (page?.status === "resolved" && page.block) return { kind: "found", block: page.block, how: parseWorkId(text) ? "Work ID" : "page address" };
     if (page?.status === "deleted") return trashed(page.block?.id);
     if (ref.trim().startsWith("[[")) {
+      // A note titled as the page with no [page::…] isn't a page: said as itself, never as a different page (PIE-1445).
+      const titled = this.titledFromCurrentRead(text);
       const near = this.completePageAddresses(text, 3).addresses.map(page => `[[${page.address}]]`);
-      return { kind: "missing", message: `no page ${text}`, ...(near.length ? { didYouMean: near.join(" or ") } : {}) };
+      const mean = near.length ? { didYouMean: near.join(" or ") } : {};
+      if (titled.length) {
+        const ids = titled.map(id => `((${id.slice(0, 8)}))`).join(", "), many = titled.length > 1;
+        const said = `${many ? "notes are" : "a note is"} titled ${text} (${ids}), but ${many ? "none is" : "it isn't"} a page: add [page::${text}] to ${many ? "one" : "it"}`;
+        return { kind: "missing", message: `no page [[${text}]]: ${said}${near.length ? `; did you mean ${near.join(" or ")}?` : ""}`, ...mean, titled: { ids: titled, said } };
+      }
+      return { kind: "missing", message: `no page ${text}`, ...mean };
     }
     const mean = this.workIdDidYouMeanFromCurrentRead(text) ?? nearest;
     return { kind: "missing", message: `No ${noun} ${ref}${mean ? `: ${mean}` : ""} (an id, ((id)), an id's first 8+ characters, a Work ID or a [[page]] names one)`, ...(mean ? { didYouMean: mean } : {}) };
+  }
+
+  /** The live notes titled `title` (case aside), at most three: what a [[page]] nobody has may have meant. */
+  private titledFromCurrentRead(title: string): string[] {
+    const words = (text: string) => text.trim().toLowerCase().split(/\s+/).join(" ");
+    const want = words(title);
+    if (!want) return [];
+    // Candidates hold the title's longest word anywhere (a title may follow properties, `[kind::list] Bird list`); the
+    // title as drawn decides, spaces collapsed.
+    // SQLite's lower() folds ASCII only, so the word is folded the same way here.
+    const word = title.trim().split(/\s+/).sort((a, b) => b.length - a.length)[0]!.replace(/[A-Z]/g, c => c.toLowerCase());
+    const rows = this.database.query("SELECT id FROM blocks WHERE effective_deleted_root_id IS NULL AND instr(lower(text), ?) > 0 LIMIT 500")
+      .all(word) as { id: string }[];
+    return rows.map(row => this.getFromCurrentRead(row.id)!).filter(block => words(blockDisplayTitle(block)) === want).slice(0, 3).map(block => block.id);
   }
 
   /** A note offered for a reference: its id, its title and where it sits (`id title · in A › B`). */

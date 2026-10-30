@@ -831,7 +831,7 @@ export class AgentDrawer {
   private ctx(actor: Actor, rows = 30, cols = 100): LayoutCtx<string> {
     const where = this.host.person?.() ?? NOBODY, who = layoutStanding(actor, where, { host: true });
     return {
-      actor, standing: who.standing, protectTyping: who.protectTyping, area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
+      actor, standing: who.standing, keys: who.keys, protectTyping: who.protectTyping, area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
       person: { focus: this.liftIn !== null && !this.inLift() ? HOST_SCREEN : this.keys, typingIn: this.entered ? HOST_TILES : null, busy: this.entered || where.busy, ...(this.host.person ? { held: who.held } : {}) },
     };
   }

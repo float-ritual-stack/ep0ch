@@ -234,7 +234,11 @@ type NamedBy = "name" | "id" | "place" | "block" | "focused" | "default";
 
 /** Standing comes from a press, never from a script's attribution or requestedBy. */
 export function standsAsPerson(actor: Actor, where: Whereabouts, touch: InviteScope): boolean {
-  return actor.kind === "user" || !!where.yolo || INVITES.covers(actor.invitation, touch, actor.run);
+  return !!where.yolo || pressedBy(actor, touch);
+}
+/** The person, or an agent their press invited for `touch`: standing without yolo (what moves their keys, PIE-1444). */
+function pressedBy(actor: Actor, touch: InviteScope): boolean {
+  return actor.kind === "user" || INVITES.covers(actor.invitation, touch, actor.run);
 }
 
 /** Where a step reaches (Dispatcher.rule): the tile, how a refusal names it, what an agent does instead, and `host`. */
@@ -250,9 +254,12 @@ export function stepRule(touches: "tile" | "screen", actor: Actor, where: Wherea
  * (`held`, given what the step would do: "shut the dock they have"). The one answer (PIE-1294), so the two contexts
  * can't drift apart.
  */
-export function layoutStanding(actor: Actor, where: Whereabouts, o: { host?: true; action?: string } = {}): { standing: boolean; protectTyping: boolean; held: (what: string) => string | null } {
+export function layoutStanding(actor: Actor, where: Whereabouts, o: { host?: true; action?: string } = {}): { standing: boolean; keys: boolean; protectTyping: boolean; held: (what: string) => string | null } {
   const standing = standsAsPerson(actor, where, "shape");
-  return { standing, protectTyping: actor.kind === "agent" && !standing, held: what => actorRule({ touches: "screen", ...(o.host ? { host: true as const } : {}) }, actor, where, { what, ...(o.action ? { action: o.action } : {}) }) };
+  // Whether a step's opens take the person's keys: theirs, or an agent they invited for the shape. Yolo lifts every guard
+  // but never this: an agent's open lands beside them and their focus stays (PIE-1444; an agent's tile.focus still moves it).
+  const keys = pressedBy(actor, "shape");
+  return { standing, keys, protectTyping: actor.kind === "agent" && !standing, held: what => actorRule({ touches: "screen", ...(o.host ? { host: true as const } : {}) }, actor, where, { what, ...(o.action ? { action: o.action } : {}) }) };
 }
 
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */

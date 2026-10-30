@@ -84,6 +84,8 @@ interface WireBlock {
   properties?: { key: string; value: string }[];
   /** A line-scope question's matches (PIE-1277). */
   propertyMatches?: PropertyMatch[];
+  /** The words after the title as one line (`fields: ["excerpt"]`, outline-core `noteExcerpt`): a list row's preview. */
+  excerpt?: string;
 }
 /** What `roadmap.items.create` takes (pi-herdr-outliner src/types.ts RoadmapItemCreateInput). */
 export interface RoadmapItemInput {
@@ -242,6 +244,7 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
   revision: b.revision,
   properties: (b.properties ?? []).map(p => ({ key: p.key, value: p.value })),
   ...(b.text === undefined ? { partial: true } : {}),
+  ...(b.excerpt ? { excerpt: b.excerpt } : {}),
   ...(b.deletedAt || b.effectiveDeletedRootId ? { deleted: true } : {}),
   ...(b.propertyMatches?.length ? { propertyMatches: b.propertyMatches } : {}),
 });
@@ -492,7 +495,11 @@ export interface SearchOptions { semantic?: boolean; /** With semantic: when the
 export interface FacetAnswer {
   facets: { key: string; count: number; more: number; values: { value: string; count: number; last: number }[] }[];
   notes: Msg[]; truncated: boolean; matched: number; hint?: string;
+  /** With `group=`: the service's groups of the notes (a date bucket's newest first), each its count over every match. */
+  groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[];
 }
+/** How the notes of a facet answer come: grouped by the service (`updated:recent`), sorted, each with its excerpt. */
+export interface FacetNotes { group?: string; sort?: string; excerpt?: boolean; facets?: boolean }
 
 export class SocketBoard implements Board {
   private sock: Socket | null = null;
@@ -1047,14 +1054,14 @@ export class SocketBoard implements Board {
    * `facets=true`, `facetValues`), with the notes themselves (up to `noteLimit`, none when `noteLimit` is 0). The door
    * never counts or narrows. `more`: values a key's list left out.
    */
-  async facetList(where: string, noteLimit = 200): Promise<FacetAnswer> {
-    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string; matched?: number }; facets?: { key: string; count: number; values: { value: string; count: number; last: string }[]; more?: number }[]; hint?: string }>(
-      "blocks.query", { query: { ...(where.trim() ? { where } : {}), facets: true, facetKeys: 1000, facetValues: 1000, limit: Math.max(1, Math.min(1000, noteLimit)) }, ...this.listFields(true) });
+  async facetList(where: string, noteLimit = 200, o: FacetNotes = {}): Promise<FacetAnswer> {
+    const r = await this.request<{ blocks: WireBlock[]; completeness?: { kind: string; matched?: number }; facets?: { key: string; count: number; values: { value: string; count: number; last: string }[]; more?: number }[]; hint?: string; groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[] }>(
+      "blocks.query", { query: { ...(where.trim() ? { where } : {}), ...(o.facets === false ? {} : { facets: true, facetKeys: 1000, facetValues: 1000 }), ...(o.group ? { group: o.group } : {}), ...(o.sort ? { sort: o.sort } : {}), limit: Math.max(1, Math.min(1000, noteLimit)) }, fields: o.excerpt ? [...LIST_FIELDS, "excerpt"] : LIST_FIELDS });
     const notes = noteLimit ? r.blocks.map(b => toMsg(b)) : [];
     const truncated = r.completeness?.kind === "truncated";
     return {
       facets: (r.facets ?? []).map(f => ({ key: f.key, count: f.count, more: f.more ?? 0, values: f.values.map(v => ({ value: v.value, count: v.count, last: Date.parse(v.last) || 0 })) })),
-      notes, truncated, matched: truncated ? r.completeness?.matched ?? notes.length : r.blocks.length, ...(r.hint ? { hint: r.hint } : {}),
+      notes, truncated, matched: truncated ? r.completeness?.matched ?? notes.length : r.blocks.length, ...(r.hint ? { hint: r.hint } : {}), ...(r.groups ? { groups: r.groups } : {}),
     };
   }
 

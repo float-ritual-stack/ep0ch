@@ -474,7 +474,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   ].join("\n"));
   await make(notes.root.id, "Fleece over the brassicas\nTwo layers on the north bed; weigh the edges with bricks. #frost-jobs");
   await make(notes.root.id, "Lift the dahlias\nDry the tubers in the shed; the stems go on the heap. #frost-jobs #compost");
-  await make(notes.root.id, "Lag the standpipe\nThe lagging is in the shed, top shelf. #frost-jobs/water");
+  await make(notes.root.id, "Lag the standpipe [pinned::true]\nThe lagging is in the shed, top shelf. #frost-jobs/water");
   // A thread whose replies carry stages (PIE-693): the links tile's Children group, narrowed by Stage like any other group.
   // Where it meets is a property whose value is a link (PIE-874): the shed lists the swap among its backlinks, as "meets-at".
   notes.swap = await make(notes.root.id, `${SEED.swap} [type::thread] [meets-at::[[${SEED.shed}]]]\nWho brings what to the seed swap on Saturday.`);

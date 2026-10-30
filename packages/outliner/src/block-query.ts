@@ -643,12 +643,14 @@ class ExpressionParser {
       }
       if (value?.kind !== "word") syntaxError(`${field} ${comparison.op} requires a time value`, value?.start ?? this.inputLength);
       this.index += 1;
+      // Quoted as a property's bound is (`updated >= "29 Oct 2026"`, a day on this machine's wall clock).
+      const bound = unquoted(value.text).trim();
       try {
-        parseQueryTime(value.text);
+        parseQueryTime(bound);
       } catch (error) {
         syntaxError(error instanceof Error ? error.message : String(error), value.start);
       }
-      return { kind: "time", field, op: comparison.op, value: value.text };
+      return { kind: "time", field, op: comparison.op, value: bound };
     }
     if (isQueryAtomWord(token.text)) {
       try {
@@ -1093,9 +1095,12 @@ export function expressionPropertyKeys(expression: QueryExpression | undefined):
   }
 }
 
-/** The date buckets a group can name: `created:day`, `updated:month`, and any property's (`due:week`, `sent:year`). */
-const DATE_GROUP = new RegExp(`^(${PROPERTY_KEY_SOURCE}):(day|week|month|year)$`);
-const GROUP_FORMS = "a property name, or a date bucket: <property>:day|week|month|year (due:week), created:month or updated:day";
+/**
+ * The date buckets a group can name: `created:day`, `updated:month`, and any property's (`due:week`, `sent:year`);
+ * `recent` is relative to now (Today, Yesterday, Previous 7 days, Previous 30 days, then the month: PIE-1443).
+ */
+const DATE_GROUP = new RegExp(`^(${PROPERTY_KEY_SOURCE}):(day|week|month|year|recent)$`);
+const GROUP_FORMS = "a property name, or a date bucket: <property>:day|week|month|year|recent (due:week), created:month or updated:recent";
 
 /** A group as the service keeps it: a property key lowercased, or a date bucket. Throws why it can't be one. */
 export function normalizeGroupField(group: unknown): string {
@@ -1109,7 +1114,7 @@ export function normalizeGroupField(group: unknown): string {
   return key;
 }
 
-export type DateUnit = "day" | "week" | "month" | "year";
+export type DateUnit = "day" | "week" | "month" | "year" | "recent";
 /** A group's date bucket: of a block's own time (`created:month`), or of a property's dates (`due:week`, PIE-769). */
 export type DateGroup = { field: "createdAt" | "updatedAt"; unit: DateUnit } | { key: string; unit: DateUnit };
 

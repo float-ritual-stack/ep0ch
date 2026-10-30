@@ -821,7 +821,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "agent-focus", need: "give each agent its own pointer without taking your keys", part: "the dispatcher targets explicit pointers kept by whereabouts; the tile footer and WhoPane show them", files: "src/surface/dispatch.ts, src/whereabouts.ts, src/desk/desk.ts, src/desk/panes.ts",
-    aside: "@fern points to the game, @moss to its second reader. Click a dim name to take your keys there. Agents set agent.focus tile=game line=3; no arguments clears it. An agent without a pointer works where your focus is, as before.",
+    aside: "@fern points to the game, @moss to its second reader. Click a dim name to take your keys there. Agents set agent.focus tile=game line=3; no arguments clears it. An agent without a pointer works where your focus is, as before. An agent's tile.open never takes your keys, in yolo too (PIE-1444): try act tile.open kind=facets --as fern: naming no tile and no where=, one that would be too narrow to read beside your tile floats instead, its answer saying why; act layout.get --as fern answers each tile in brief, full=true in whole.",
     stage(n, show) {
       const person = detailPane(), game = detailPane(), copy = detailPane(), who = new WhoPane();
       return deskOf({ title: "showcase · agent focus", panes: [person, game, copy, who], names: ["person", "game", "copy", "who"],
@@ -1392,6 +1392,13 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "navigator", need: "browse an outline as Notebook Navigator does: properties, tags and saved views on the left, the notes they pick grouped by day in the middle (pinned first, each with its chips and a line of preview), the picked note read on the right; narrow with a click, pin or tag a row with one key, pick a day on the calendar, save the pick as a view",
+    part: "the navigator screen (PIE-1443, `--screen navigator`): the facets tile (PIE-881) whose Matches is its attachment, placed as Sources and comments are (inline, split, floating, popup or a tile of its own: facets.place, ctrl+o), here in a tile (`matches`) wired select and open to a reader, in a flow that folds to spines when narrow. Matches is the one ListView: the service groups the notes (`group=updated:recent`: Today, Yesterday, Previous 7 days, Previous 30 days, months) and answers each one's excerpt (`excerpt`, outline-core `noteExcerpt`); the notes carrying `[pinned::true]` come first from a question of their own; a row's chips are the keys the tile shows (`show=`, tags unless it says). Saved views are the shortcuts at the top (facets.view), the calendar's day narrows the selection (facets.day), * pins (facets.pin), t asks for a tag or property in the power bar's form (facets.tag, the one completer)",
+    files: "src/desk/facets.ts, src/desk/facets-matches.ts, src/desk/attached-tile.ts (MATCHES_TILE), src/desk/screen-specs.ts, src/surface/list-view.ts (body lines), outline-core src/excerpt.ts, outliner src/question-answer.ts (recentBucket)",
+    aside: "the selection is #frost-jobs: Lag the standpipe is pinned, the rest grouped by day · j k or a click in Matches previews in the reader, ⏎ or a double click opens it there, alt+⏎ beside · * pins or unpins the picked note, t asks for a tag or a property (the key from the outline's keys, then its values) · ☼ views: a click sets the selection to that view's query · the calendar: a click on a day narrows to the notes changed that day, « » change the month, d is today, , . step a day · ctrl+o (or the ⧉ chip) moves Matches: inline under the facets, split beside them, floating, popup, a tile · v saves the selection as a view · at 44 columns the columns fold to spines and ⏎ brings the reader forward · agents: facets.match, facets.pin, facets.tag, facets.day, facets.view, facets.place, facets.list",
+    stage: () => openScreen("navigator", { query: "#frost-jobs", persist: false }),
+  },
+  {
     key: "rich-edit", need: "edit component fields where they are drawn, using the same draft as raw edit",
     part: "ElementEditor source spans and drawing over DraftSession; Markdown tables and static graph-table rows, one history and one cursor, including streamed draft patches",
     files: "src/surface/element-editor.ts, src/surface/note.ts, outline-core/src/table-shape.ts",
@@ -1711,6 +1718,7 @@ export class Showcase implements Screen {
   pick(i: number, enter = false) {
     this.sel = Math.max(0, Math.min(SECTIONS.length - 1, i));
     this.focus = enter && this.notes ? "stage" : "index";
+    if (this.focus === "stage") this.stage(this.sel)?.top.enterTiles?.();
     this.ctx.redraw();
   }
 

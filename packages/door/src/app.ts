@@ -359,8 +359,8 @@ export interface Screen {
    * one they type in, whether anything here holds their keys. The shell's whereabouts query reads it.
    */
   keys?(): ScreenKeys;
-  /** What this screen shows, for agents (`ep0ch-door peek`). */
-  describe?(): unknown;
+  /** What this screen shows, for agents (`ep0ch-door peek`); `full` false asks each tile for its brief description, as layout.get does (PIE-1447). */
+  describe?(o?: { full?: boolean }): unknown;
   /** Put a block in front of the user (`ep0ch-door open <id>`). */
   openBlock?(m: import("./board").Msg): void;
   /** The note in the reader the person is in here, where a new note goes under (PIE-544, `note.new`); none: the Inbox. */
@@ -423,7 +423,10 @@ export interface Screen {
   hostMode?(): HostMode;
   /** The tiles shown here, when they're a desk inside this screen (the showcase's stage): where a tile taken out of the drawer lands. */
   tilesHere?(): Desk | undefined;
-  /** A click in a tile lifted out of this screen enters its existing tile host. */
+  /**
+   * The person's keys come into this screen's tiles from outside it: a click in a tile lifted out of it, a frame's stage
+   * gone into. Its tile host takes them (the showcase: its stage; a desk: the edit of theirs left open on its focused reader).
+   */
   enterTiles?(): void;
 }
 
@@ -1101,7 +1104,8 @@ export class App implements Ctx {
   }
   private remoteSaid: { id?: string; verb: string; at: number } | null = null;
 
-  describe() {
+  /** The door's state as `peek` answers it; the layout in brief, as layout.get gives it, unless `full` (PIE-1447). */
+  describe(o: { full?: boolean } = {}) {
     const s = this.stack.at(-1);
     const b = this.board;
     const service = { protocol: b.protocol, offline: this.offline, sequence: b.lastSequence };
@@ -1118,9 +1122,9 @@ export class App implements Ctx {
       // Where the pointer rests on a cut-short value, and whether that value is being read in full (the pointer is the person's: this only says).
       hover: this.overflow.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
-      layout: this.screenDesk()?.layoutAll() ?? this.drawer.made?.layoutAll(),
+      layout: this.screenDesk()?.layoutAll(!!o.full) ?? this.drawer.made?.layoutAll(!!o.full),
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
-      ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.() ?? null };
+      ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.({ full: !!o.full }) ?? null };
   }
 
   /**
