@@ -106,6 +106,8 @@ export const marks: Record<string, string[]> = {
   steps: ["Shed roof build log", "Needs you", "felt from the merchant", "screws, not nails"],
   values: ["Vent rail demo", "Owner: Ada", "did you mean owner?", "Spring sowing jobs"],
   "figure-steps": ["Shed door test plan", "YOU TEST", "lift the latch twice", "Plane the door"],
+  // Links in a figure's cells (PIE-1334): the table drawn, a reference only a cell holds drawn as its label.
+  "figure-cells": ["ASKS WITH NO REPLY", "the greenhouse shade cloth"],
   "resource-comments": ["bed-plan.md", "Net the brassicas before the pigeons find them.", " (M)"],
   // The plan with its highlight and its answered question in the margin, the leaflet beside it, the notebook.
   marginalia: ["Greenhouse plan for the spring", "question · ", "cold-frame-guide.md", "Marginalia notebook"],
