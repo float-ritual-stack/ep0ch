@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An agent's tile opens beside you, readable, and never takes your keys (PIE-1444)
+
+- **Your focus stays, in yolo too:** an agent's `tile.open` (and any open it makes) leaves your keys on your tile, on the desk, in a group and while you type in the drawer. Yolo still lets an agent move your keys on purpose (`tile.focus`, the drawer); an open no longer does it on the way.
+- **Wide enough to read:** an agent's `tile.open` that names neither a tile nor `where=` and would land under 28 columns (or 6 rows) beside your tile goes below it when that reads, else floats; one that names a place goes there. An agent moving or floating a tile doesn't take your keys in yolo either. Either way its answer (and the status line) says it was narrow. Your own opens split where you ask.
+- **`layout.get` in brief:** each tile as its kind describes itself in a line (a facets tile's selection and counts, a query tile without its cards); `full=true` gives today's whole answer. An eight-tile desk answered 336 KB.
+- **Run:** nothing beyond the usual `ep0ch install --apply`.
 ### A revision compare opened with a comment half-written shows both (PIE-1433)
 
 - **Both draw:** the compare sits beside the note (below it when narrow) and the comment you were writing stays where you left it; a split comment shows as a popup on the note's side. Before, the comment drew and the compare was hidden while its keys were live.
