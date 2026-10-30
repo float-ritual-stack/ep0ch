@@ -548,6 +548,34 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { size.cols = 220; app.flash(""); await board.trash(inbox.id, USER); }
   });
 
+  test("the whole message's last row covers only its words: past them the screen shows and a click there is the screen's (PIE-1456)", async () => {
+    size.cols = 44;
+    try {
+      app.flash("");
+      app.flush();
+      const under = visible(painted.at(-2) ?? "");
+      const said = "Pipe stopped at step 2 of 3: no note named Seed swap; the step before it ran";
+      app.flash(said, 60_000, { kind: "warning" });
+      await until(() => { app.flush(); return visible(painted.at(-2) ?? "").includes("the step before it ran"); }, "the last row of the whole message");
+      // Its last row is short: the words, a cell either side, then the screen's own row as it was (a desk's ▣ chip).
+      const last = visible(painted.at(-2) ?? ""), end = last.indexOf("ran") + "ran ".length;
+      expect(end).toBeLessThan(40);
+      expect(last.slice(end)).toBe(under.slice(end));
+      const ran: string[] = [];
+      const stop = traceActions(a => ran.push(a.name));
+      try {
+        press({ kind: "mouse", action: "down", button: 0, x: 42, y: 38 });
+        await Bun.sleep(50);
+        expect(ran).not.toContain("status.log");
+        press({ kind: "mouse", action: "down", button: 0, x: 3, y: 38 });
+        await until(() => ran.includes("status.log"), "a click on its words opens the log");
+      } finally { stop(); }
+    } finally {
+      while (app.screens().at(-1)?.title === "message log") press({ kind: "esc" });
+      size.cols = 220; app.flash("");
+    }
+  });
+
   test("a message beside it never hides ^K: a click on it opens the power bar at 177 and 44 columns (PIE-1449)", async () => {
     try {
       for (const cols of [177, 44]) {

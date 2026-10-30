@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A refusal never covers the lock chip it names (PIE-1456)
+
+- **The ▣ stays clickable under a message:** a status message the bar cuts short is said whole above it; its last row now covers only its words, so the desk's hint row shows past them, and a click on ▣ screen locked unlocks right after a refusal that says to click it (a click on the words still opens the message log).
+- **containers.test passes alone:** it had been red alone since PIE-1453 made a click on the whole message open the log; "green in a whole run" was an older commit, not file order.
+- **Run:** `ep0ch install --apply`.
+
 ### Desk and navigator polish: spines, list keys, calendar days, backfill dates (PIE-1457)
 
 - **A kept spine sits beside its reader:** on a desk, the old note's spine goes next to the reader it came from, never at column 0 left of the tree, so the tree stays tile 1.

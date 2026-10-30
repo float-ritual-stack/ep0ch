@@ -617,8 +617,8 @@ export class App implements Ctx {
   private statusBoxes: StatusHit[] = [];
   /** The status bar's message didn't fit its row as last drawn: it's said whole above the bar (withWhole). */
   private messageCut = false;
-  /** How many rows above the bar that whole message takes as last drawn: a click on them opens the message log. */
-  private wholeRows = 0;
+  /** The cells each row of the whole message covers (withWhole), top first: a click on them opens the log. */
+  private wholeRows: number[] = [];
   /** The status-bar groups' menus the person opened, by the group's path: a nested group's opens beside its parent's. */
   private readonly statusMenus = new Map<string, ListPicker<MenuRow, unknown>>();
   /** What the narrow bar put in its `+N` chip, in the bar's order (`status.bar.menu overflow=true` lists them). */
@@ -1469,7 +1469,10 @@ export class App implements Ctx {
       return;
     }
     // The message said whole above the bar (withWhole): a click on it opens the message log, where it reads whole (PIE-1453).
-    if (k.kind === "mouse" && k.action === "down" && this.wholeRows && k.y < this.term.info.rows - 1 && k.y >= this.term.info.rows - 1 - this.wholeRows) {
+    // Only on the message's own cells: past its end the screen shows, and a click there is the screen's (a desk's ▣ chip
+    // the refusal names, PIE-1456).
+    const wholeAt = this.term.info.rows - 1 - this.wholeRows.length;
+    if (k.kind === "mouse" && k.action === "down" && k.y >= wholeAt && k.x < (this.wholeRows[k.y - wholeAt] ?? 0)) {
       void this.dispatch.press("status.log");
       return;
     }
@@ -1846,8 +1849,9 @@ export class App implements Ctx {
     // What the bar cuts short (a refusal at 40 columns) is said whole just above it while it's up (PIE-1428).
     // Longer than its four rows, it ends "… more alt+M"; a click on it (or alt+M) opens the message log, which has it whole (PIE-1453).
     const whole = this.messageCut && this.message ? referenceWords(this.message) : "";
-    if (whole) lines = withWhole(lines, whole, cols, this.messageWarning);
-    this.wholeRows = whole ? Math.min(4, wrap(printable(whole, " "), Math.max(1, cols - 2)).length) : 0;
+    const said = whole ? withWhole(lines, whole, cols, this.messageWarning) : null;
+    if (said) lines = said.lines;
+    this.wholeRows = said?.widths ?? [];
     lines.push(bar);
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     const readable = this.overflow.draw(lines, cols, Date.now());
@@ -2006,16 +2010,22 @@ export function withToast(lines: string[], text: string, cols: number, ok = true
 export const WHOLE_MORE = "… more alt+M";
 /**
  * A message the status bar cut short, wrapped whole over the rows just above it (at most four), in the bar's ink. One
- * longer than that ends its fourth row with WHOLE_MORE: the message log (status.log) draws it whole.
+ * longer than that ends its fourth row with WHOLE_MORE: the message log (status.log) draws it whole. Its last row covers
+ * only its words and a cell either side, so the screen's own bottom row shows past them (a desk's hint-row chips: the ▣
+ * a refusal names stays there to click, PIE-1456); the rows above it are whole. `widths` are the cells each row covers.
  */
-export function withWhole(lines: string[], text: string, cols: number, warning = false): string[] {
+export function withWhole(lines: string[], text: string, cols: number, warning = false): { lines: string[]; widths: number[] } {
   const room = Math.max(1, cols - 2), all = wrap(printable(text, " "), room), rows = all.slice(0, 4), out = [...lines];
   if (all.length > rows.length) {
     const more = ` ${WHOLE_MORE}`, last = rows.length - 1;
     rows[last] = splitVisible(rows[last]!, Math.max(0, room - width(more)))[0].trimEnd() + more;
   }
-  rows.forEach((r, i) => { const at = out.length - rows.length + i; if (at >= 0) out[at] = STATUS_INK + fg(warning ? C.yellow : C.lcyan) + pad(` ${r}`, cols) + RESET; });
-  return out;
+  const widths = rows.map((r, i) => (i === rows.length - 1 ? Math.min(cols, width(r) + 2) : cols));
+  rows.forEach((r, i) => {
+    const at = out.length - rows.length + i;
+    if (at >= 0) out[at] = STATUS_INK + fg(warning ? C.yellow : C.lcyan) + pad(` ${r}`, widths[i]!) + RESET + tailFrom(out[at] ?? "", widths[i]!);
+  });
+  return { lines: out, widths };
 }
 
 /**
