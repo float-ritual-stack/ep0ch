@@ -9,6 +9,7 @@ import type { Look, TileLooks } from "../look";
 import { MARGIN_MODES, type MarginMode } from "../surface/margin";
 import type { StyleLayer } from "@ep0ch/outline-core/style-cascade";
 import { RowView, type RowPress } from "../scroll";
+import type { AttachedOwner, AttachedSide, Attachment } from "./attached-tile";
 import type { Art } from "../ansi";
 import { whole } from "../art-view";
 import type { Ctx } from "../app";
@@ -365,7 +366,7 @@ export interface TileTrail {
   go(dir: -1 | 1, steps: number, desk: DeskApi, actor: Actor): Promise<string | null>;
 }
 
-export class ReaderPane implements Pane {
+export class ReaderPane implements Pane, AttachedOwner {
   readonly kind: TileKindName = "reader";
   readonly measured = true;
   protected readonly ownSurface = new NoteSurface();
@@ -526,6 +527,53 @@ export class ReaderPane implements Pane {
     this.listen(desk);
   }
   context(desk: DeskApi): Ctx { return this.outlineCtx ?? desk.ctx; }
+
+  // ── Its attachments in a tile of their own (AttachedOwner, PIE-846, PIE-1448): its comment, Sources, list and edit
+  // previews. The tile lends its room; the session, the inspector and the preview stay this reader's.
+
+  /** The host a list preview's tile works through: its edit session is this reader's, so the keys come back here. */
+  private listPreviewHost(desk: DeskApi): SurfaceHost {
+    const host = this.host(desk);
+    return { ...host, attachment: "list-preview", enterMode: () => { desk.focusPane?.(this, USER); host.enterMode?.(); } };
+  }
+  attachedView(a: Attachment, w: number, h: number, _focused: boolean, desk: DeskApi): PaneView | null {
+    if (a === "edit-preview") return this.surface.editPreviewTile(w, h, this.host(desk));
+    if (a === "list-preview") return this.surface.listPreviewTile(w, h, this.host(desk));
+    if (a === "sources") return this.surface.sourcesTile(w, h);
+    if (a === "comment") return this.surface.composerTile(w, h, this.host(desk));
+    return null;
+  }
+  attachedKey(a: Attachment, k: Key, desk: DeskApi): boolean {
+    if (a === "matches") return false;
+    if (a === "edit-preview") {
+      if (!this.surface.editPreviewKey(k, { ...this.host(desk), attachment: "edit-preview" })) void desk.perform?.("tile.focus", {}, USER, this);
+      return true;
+    }
+    if (a === "list-preview") return this.surface.key(k, this.listPreviewHost(desk));
+    if (this.surface.sourcesMode) this.surface.attachedKeys(a);
+    return (a === "sources" ? !!this.surface.sourcesMode : !!this.surface.session) && this.surface.key(k, this.host(desk));
+  }
+  attachedMouse(a: Attachment, k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean {
+    if (a === "matches") return false;
+    if (a === "comment") return this.surface.composerPointer(k, x, y, this.host(desk));
+    const host = a === "list-preview" ? this.listPreviewHost(desk) : { ...this.host(desk), attachment: a };
+    if (k.action === "wheel-up" || k.action === "wheel-down") { this.surface.wheel(k.action === "wheel-down" ? 1 : -1, host, { x, y }); return true; }
+    if (k.action === "down") this.surface.press(x, y, host);
+    if (k.action === "drag") this.surface.drag(x, y, host);
+    if (k.action === "up") this.surface.release(x, y, host);
+    return true;
+  }
+  attachedTitle(a: Attachment, source: string): string {
+    if (a === "edit-preview") return `edit preview · ${source}`;
+    if (a === "list-preview") return `list children · ${source}`;
+    if (a === "sources") return `sources · ${source}`;
+    return `${this.surface.session?.mode === "threads" ? "comments" : "comment"} · ${source}`;
+  }
+  attachedHint(a: Attachment): string { return a === "matches" ? "" : a === "list-preview" ? "list children · click placement chip to move · click text to edit" : this.surface.attachmentHint(a); }
+  attachedSide(a: Attachment, side: AttachedSide, desk: DeskApi): void {
+    void this.surface.runKey(a === "edit-preview" ? "edit.preview.place" : a === "list-preview" ? "list.preview.place" : a === "sources" ? "sources.place" : "comment.place", { side }, this.host(desk), true);
+  }
+  attachedSideWords(): string { return "the note's"; }
 
   host(desk: DeskApi): SurfaceHost {
     const pane = this;

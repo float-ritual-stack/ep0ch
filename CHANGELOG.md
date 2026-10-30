@@ -10,6 +10,19 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The navigator, round two: every note, real notes, pins that don't edit (PIE-1448)
+
+- **Every month reachable:** a group past the first 200 notes ends in a `▸ N more` row; walking onto it or a click reads the rest of that group (`facets.more`).
+- **Tool chatter gone:** the messages between Claude sessions the mod logs are machinery now (`[machine::peer-log]`), so Today shows your own notes.
+- **Headings stay:** the group a row sits under stays in view with it.
+- **`v` asks:** a name and where it goes (the hub your views already share); a pick that is already a view says which one.
+- **Pins don't edit:** `*` pins a note by a link on a `[[pins]]` page; the note itself is untouched.
+- **Day pick:** `0` and backspace drop it, as they drop any pick; a day clicked on a note's `::graph-calendar` narrows the screen's facets.
+- **Views:** the 8 changed last, each with its board's name (`Closed this week · Rexall weekly 2026-W44`), then `▸ more views`.
+- **When and where:** the calendar dots the days with notes; each row says when it changed and the note it lives under.
+- **List keys:** Matches answers `list.pick`, `list.step`, `list.open`, `list.filter`; `/` filters it.
+- **Run:** `ep0ch install --apply`, then `ep0ch machinery backfill --apply` once per outline (pie, float-hub) to stamp the peer messages already there.
+
 ### Opens into your readers never crush the other columns (PIE-1207, round two)
 
 - **A kept spine leaves every column readable:** a second open into a reader no list feeds keeps the first note as a spine beside that reader, never inside the links and activity column; when a spine would leave any tile under 28×6, the open replaces and says "no room for a spine · alt← returns <the old note>".

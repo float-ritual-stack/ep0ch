@@ -61,7 +61,7 @@ describe('the copy in the outline', () => {
     expect(sent.isDelivered).toBe(true)
     await s.clock.settle()
     const [note] = s.notes()
-    expect(note!.argv[2]).toMatch(/^→ to potting-shed · \d{4}-\d\d-\d\d \d\d:\d\d \[type::peer-message\] \[peer::potting-shed\]\n\n\[sysop\] are the seedlings in\?$/)
+    expect(note!.argv[2]).toMatch(/^→ to potting-shed · \d{4}-\d\d-\d\d \d\d:\d\d \[type::peer-message\] \[peer::potting-shed\] \[machine::peer-log\]\n\n\[sysop\] are the seedlings in\?$/)
     expect(note!.argv.slice(3, 5)).toEqual(['--near', PAGE])
     expect(note!.init?.env).toMatchObject({ EP0CH_WS: 'garden' })
   })

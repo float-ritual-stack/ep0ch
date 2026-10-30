@@ -13,6 +13,7 @@
 //   (date: date, state: status,          count: created|updated                ::
 //   last: 30), or source: backups                                              live: query + date: <property>
 import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
+import { dayBound } from "@ep0ch/outline-core/date-buckets";
 import { rowLines, wrap } from "../text";
 import { DAY, dayOf, dayState, isoOf, localDay, MONTH_ABBREVIATIONS, MONTH_NAMES, monthOf, today, uptimeDays, WEEKDAY_NAMES, weekday, weekStart, worse, type DayState } from "@ep0ch/outline-core/figure-props";
 export { dayOf, dayState, isoOf, localDay, monthOf, today, uptimeDays, weekStart, worse, type DayState };
@@ -133,10 +134,16 @@ export function drawCalendar(p: Props, w: number, link?: RowLink): string[] {
     const isToday = first + d - 1 === now, m = marked.get(d);
     const num = String(d).padStart(2);
     const ink = m ? (m.muted ? fg(INK) : fg(ACCENT) + BOLD) : fg(INK);
-    line += isToday ? fg(HI) + "[" + ink + num + UNBOLD + fg(HI) + "]" : " " + ink + num + UNBOLD + " ";
+    // `dots`: a marked day says so with a dot after it, not only its ink (the navigator's days with notes, PIE-1448).
+    // A live calendar's day is a link to its notes (PIE-1448): the day's clause on the figure's `date` property;
+    // a reader lists it, or the screen's facets tile takes it as its day.
+    // Only a live calendar's days stand for notes: a calendar of marks written by hand isn't a query.
+    const field = typeof p.date === "string" && p.date.trim() ? p.date.trim() : null, bound = dayBound(year, month, d);
+    const dayNum = link && field ? link("", num, undefined, `${field} >= ${bound} ${field} <= ${bound}`) : num;
+    line += isToday ? fg(HI) + "[" + ink + dayNum + UNBOLD + fg(HI) + "]" : " " + ink + dayNum + UNBOLD + (m && p.dots ? fg(ACCENT) + "·" : " ");
     if ((lead + d) % 7 === 0 || d === days) { out.push(line + RESET); line = ""; }
   }
-  if (marks.length) {
+  if (marks.length && !p.dots) {
     out.push("");
     for (const m of [...marks].sort((a, b) => a.day - b.day)) {
       const label = rowLinks(link, m.block, rowLines(m.label, Math.max(6, w - 5)));

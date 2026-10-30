@@ -9,7 +9,7 @@ import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -56,11 +56,55 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     expect(groups()).toEqual(["Today:Seed order,Pea trellis"]);
     const row = tile().matches.groups[0].notes.find((n: any) => n.title === "Pea trellis");
     expect(row).toMatchObject({ excerpt: "Netting arrives Thursday; posts first.", chips: ["#garden"] });
+    // A pin never edits the note it pins (PIE-1448): only the pins page changes.
+    const before = (await board.get(trellis))!.revision;
     expect(await act("facets.pin", { id: trellis })).toMatchObject({ id: trellis, pinned: true });
     await until(() => groups()[0] === "Pinned:Pea trellis", "the pinned note first");
     expect(groups()).toEqual(["Pinned:Pea trellis", "Today:Seed order"]);
+    expect((await board.get(trellis))!.revision).toBe(before);
+    const pins = await board.resolvePage("pins");
+    expect(pins.block && (await board.get(pins.block.id))!.text).toContain(trellis);
     expect(await act("facets.pin", { id: trellis })).toMatchObject({ pinned: false });
     await until(() => groups().length === 1, "unpinned");
+    expect((await board.get(trellis))!.revision).toBe(before);
+    // A note pinned only by its own [pinned::true], with the pins page there: unpinning takes the property off.
+    const own = (await board.request<any>("create", { parentId: null, text: "Cloche notes [plot::beds] [pinned::true]", author: "agent" })).id;
+    await until(() => groups()[0]?.startsWith("Pinned:") && groups()[0]!.includes("Cloche notes"), "pinned by its property");
+    expect(await act("facets.pin", { id: own })).toMatchObject({ pinned: false });
+    expect((await board.get(own))!.text).not.toContain("[pinned::true]");
+  }, 20_000);
+
+  test("every group can be reached: past the first page a group says how many more, and reading it lists them all (PIE-1448)", async () => {
+    // 205 made-up notes from the last two days: the first page holds 200.
+    for (let i = 0; i < 205; i++) await board.request<any>("create", { parentId: null, text: `Seedling ${i} [tray::bulk]`, author: "agent" });
+    await act("facets.query", { text: "tray=bulk" });
+    await until(() => tile().matched === 205, "the bulk notes");
+    const today = () => tile().matches.groups.find((g: any) => g.label === "Today");
+    expect(today()).toMatchObject({ count: 205, more: 5 });
+    expect(await act("facets.more", { group: "Today" })).toMatchObject({ group: "Today", notes: 205 });
+    expect(today()).toMatchObject({ count: 205, more: 0 });
+    expect(today().notes.length).toBe(205);
+    // A note written meanwhile (agents write all day) keeps the group read and the pick (this agent's own) where they were.
+    const tilePane = () => D().panes.get([...D().panes].find(([, x]: any) => x.kind === "facets")![0]);
+    const picked = today().notes[150].id;
+    await act("facets.match", { id: picked });
+    expect(tilePane().list.picked(AS)?.id).toBe(picked);
+    await board.request<any>("create", { parentId: null, text: "Seedling late [tray::bulk]", author: "agent" });
+    await until(() => tile().matched === 206, "the new note counted");
+    expect(today()).toMatchObject({ count: 206, more: 0 });
+    expect(today().notes.length).toBe(206);
+    expect(tilePane().list.picked(AS)?.id).toBe(picked);
+    // Matches answers the lists' actions in its own tile too.
+    await act("facets.place", { place: "tile" });
+    await until(() => !!D().describe().panes.find((p: any) => p.kind === "matches"), "the matches tile");
+    const m = D().describe().panes.find((p: any) => p.kind === "matches");
+    expect(await act("list.blocks", {}, m.name)).toMatchObject({ lists: [{ title: "Matches" }] });
+    await act("facets.place", { place: "inline" });
+  }, 60_000);
+
+  test("saving the pick as a view: a pick already saved is refused with that view's name", async () => {
+    await act("facets.query", { text: "plot=beds" });
+    await expect(act("facets.save", { name: "Beds again" })).rejects.toThrow(/already the view "Bed notes"/);
   }, 20_000);
 
   test("a row takes a tag or any property by one action, written to the note as the person would", async () => {
@@ -80,6 +124,12 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     await until(() => tile().matched === 0, "nothing that day");
     await act("facets.day", { day: "" });
     expect(tile().query).not.toContain("updated >=");
+    // 0 and backspace on the day's row drop it, as they drop any pick.
+    await act("facets.day", { day: iso });
+    const p = D().panes.get([...D().panes].find(([, x]: any) => x.kind === "facets")![0]);
+    p.at = p.rows().findIndex((r: any) => r.kind === "day");
+    p.key({ kind: "char", ch: "0" }, D());
+    await until(() => !tile().query.includes("updated >="), "the day dropped by 0");
     expect(tile().views.map((v: any) => v.title)).toContain("Bed notes");
     expect(await act("facets.view", { id: view })).toMatchObject({ query: "plot=beds" });
     expect(groups()[0]).toMatch(/^Today:/);
@@ -103,5 +153,14 @@ describe.skipIf(!outliner)("the navigator, against a scratch outline", () => {
     expect(layout.tiles.map((t: any) => t.kind)).toEqual(expect.arrayContaining(["facets", "matches", "reader"]));
     const matches = layout.tiles.find((t: any) => t.kind === "matches");
     expect(matches.wires?.find((w: any) => w.verb === "select")).toBeTruthy();
+    // A day a reader's ::graph-calendar opens (its link's query) is the facets tile's day, not a list tile beside it.
+    const reader = screen.pane("reader"), facets = () => screen.describe().panes.find((p: any) => p.name === "facets");
+    await until(() => !!facets()?.matches, "the screen's facets");
+    const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const words = `${d.getDate()} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getMonth()]} ${d.getFullYear()}`;
+    // The person's click on the day (an agent's would be refused: the facets tile has the person's keys).
+    await screen.openQuery(reader, `updated >= "${words}" updated <= "${words}"`, USER);
+    expect(facets().day).toBe(day);
+    expect(screen.layoutGet().tiles.some((t: any) => t.kind === "query")).toBe(false);
   }, 20_000);
 });

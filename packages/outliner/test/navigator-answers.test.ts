@@ -5,6 +5,11 @@ import { noteExcerpt } from "@ep0ch/outline-core/excerpt";
 import { normalizeGroupField, parseQueryExpression } from "../src/block-query";
 import { projectBlock } from "../src/block-projection";
 import { questionGroups, recentBucket } from "../src/question-answer";
+import { bucketWhere } from "@ep0ch/outline-core/date-buckets";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
 
 // Thursday Oct 30 2026, mid-afternoon on this machine's wall clock.
@@ -58,5 +63,28 @@ describe("a note's excerpt", () => {
   test("blocks.read answers it as a field", () => {
     const block = { id: "x", text: "Seed order\nForty packets of sugar snap.", properties: [], parentId: null, position: 0 } as unknown as Block;
     expect(projectBlock(block, false, ["excerpt"])).toEqual({ id: "x", excerpt: "Forty packets of sugar snap." });
+  });
+});
+
+describe("a group's notes, asked for by its own clause (PIE-1448)", () => {
+  test("bucketWhere holds exactly each group's notes, whatever the group", () => {
+    const root = mkdtempSync(join(tmpdir(), "navigator-buckets-"));
+    const store = new OutlinerStore(join(root, "outline.sqlite"));
+    try {
+      const now = new Date(); now.setHours(12, 0, 0, 0);
+      const ago = (days: number, hour = 10) => { const d = new Date(now); d.setDate(d.getDate() - days); d.setHours(hour); return d.toISOString(); };
+      // Near midnight too, where a UTC day and the wall clock's part ways.
+      const times = [...[0, 1, 3, 6, 9, 25, 40, 70, 400].map(n => ago(n)), ago(2, 0), ago(3, 23), ago(45, 0), ago(45, 23)];
+      const made = times.map((t, i) => { const b = store.create(`Note ${i} [plot::${i % 2 ? "beds" : "shed"}]`); store.database.query("UPDATE blocks SET updated_at = ? WHERE id = ?").run(t, b.id); return b.id; });
+      for (const group of ["updated:recent", "updated:day", "updated:week", "updated:month", "plot"]) {
+        const groups = store.queryBlocks({ where: "plot", group, limit: 1000 }).groups!;
+        for (const g of groups) {
+          const where = bucketWhere(group, g.value);
+          expect(where).not.toBeNull();
+          const ids = store.queryBlocks({ where: `plot ${where}`, limit: 1000 }).blocks.map(b => b.id).filter(id => made.includes(id)).sort();
+          expect({ group, value: g.value, ids }).toEqual({ group, value: g.value, ids: [...g.ids].sort() });
+        }
+      }
+    } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
   });
 });

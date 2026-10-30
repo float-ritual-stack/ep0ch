@@ -126,7 +126,8 @@ describe.skipIf(!outliner)("the facets tile, against a scratch outline", () => {
     const view = await board.get(saved.id);
     expect(prop(view!, "type")).toBe("virtual-branch");
     expect(prop(view!, "query")).toBe("plot=garden/* NOT week=5");
-    await expect(act("facets.save")).resolves.toBeTruthy();
+    // The same pick again is that view already (PIE-1448): said, never a second copy.
+    await expect(act("facets.save")).rejects.toThrow(/already the view "Garden, not week 5"/);
     await act("facets.clear");
     await expect(act("facets.save")).rejects.toThrow(/nothing is selected/);
   }, 20_000);

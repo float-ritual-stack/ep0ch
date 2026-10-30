@@ -95,3 +95,18 @@ describe("ListView", () => {
     expect(listRowLines({ id: "a", label: "A long label that wraps over the width of a narrow tile", detail: "and more", mark: "→" }, { cols: 20, lines: 2 }).length).toBe(2);
   });
 });
+
+describe("a group's heading stays over its rows (PIE-1448)", () => {
+  test("a row deep in a group keeps the group's heading in sight when the heading has scrolled off", () => {
+    const v = new ListView("sticky");
+    v.set([
+      { id: "h1", label: "Earlier", pick: false, group: "Earlier" }, { id: "e1", label: "old note", do: { open: "e1" }, group: "Earlier" },
+      { id: "h2", label: "Today", pick: false, group: "Today" },
+      ...Array.from({ length: 20 }, (_, i) => ({ id: `n${i}`, label: `note ${i}`, do: { open: `n${i}` }, group: "Today" })),
+    ]);
+    v.pick(PERSON, "n11");
+    const d = v.draw({ cols: 30, focused: true, selection: true, room: 6 });
+    expect(plain(d.lines[0]!)).toContain("Today");
+    expect(d.lines.map(l => plain(l)).join("\n")).toContain("note 11");
+  });
+});
