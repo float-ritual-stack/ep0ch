@@ -272,7 +272,7 @@ export interface Ctx {
    * editor, ctrl+t's picker. True when the screen has tiles and opened one; `done` is called with its exit code when it
    * ends, and the tile closes.
    */
-  inTile?(p: TileProgram, done: (code: number | null) => void): boolean;
+  inTile?(p: TileProgram, done: import("./term").TileExit): boolean;
   lastCall: number;
   events: number;          // outline changes seen since the menu last looked (the people's: machinery apart)
   /** Every change seen since the menu last looked, machinery too. */
@@ -409,7 +409,7 @@ export interface Screen {
   /** Leaving it loses something it doesn't keep itself (a screen built and not saved): said, and leaving asks twice. */
   shapeWarning?(): string | null;
   /** See Ctx.inTile. */
-  inTile?(p: TileProgram, done: (code: number | null) => void): boolean;
+  inTile?(p: TileProgram, done: import("./term").TileExit): boolean;
   /** What the person sees, for `view.subscribe`: diffed after every paint and pushed as events. */
   viewState?(): ViewState;
   /** The edits open here, by tile: what a session's next daemon opens again after a handoff (src/session/restore.ts). */
@@ -783,7 +783,7 @@ export class App implements Ctx {
     this.flash(dirty.length ? "an edit isn't saved · ctrl+s saves it · again within 3s leaves (the draft is copied to disk)" : warn!);
     return false;
   }
-  inTile(p: TileProgram, done: (code: number | null) => void): boolean { return (this.drawer.entered ? this.drawer.desk : this.stack.at(-1))?.inTile?.(p, done) ?? false; }
+  inTile(p: TileProgram, done: import("./term").TileExit): boolean { return (this.drawer.entered ? this.drawer.desk : this.stack.at(-1))?.inTile?.(p, done) ?? false; }
   confirmQuit(): boolean { return this.leaving([...this.stack, ...this.background], true); }
   get detaches(): boolean { return !!this.term.detachActive; }
   typingOn(): unknown { return this.term.typingOn?.() ?? null; }

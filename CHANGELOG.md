@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### ctrl+t opens television beside the edit again
+
+- **It loads:** tv 0.15.9 crashed the moment the door ran it (its fullscreen mode asks where the cursor is on its stdout, which the door sends to a file), and the door pasted the query it printed into the draft. The door now runs `tv --inline`, which asks on the terminal and fills the tile.
+- **It's seen:** with the drawer up over the desk, the picker opened under it, keys and all; the drawer is put away now, as going to a tile on the screen puts it away (alt+a brings it back).
+- **A failure says why:** a picker that exits with an error puts nothing in, whatever it printed; the edit says which code and why, and its tile stays with what it said until `^W x`.
+- **Handovers:** a session handed over while the picker had the keys gives them back to the edit, without "tile.focus in pick: no tile pick".
+- **Run:** `ep0ch install --apply`. `EP0CH_PICKER=tv` set by hand needs `--inline` too.
+
 ### A delivery follows its PR when GitHub moves it to main (PIE-1440)
 
 - **Stacked PRs close:** a PR first opened into another branch and retargeted to main by GitHub is the same delivery: `work deliver PIE-n --pr N` (and the merge hook) update its base and merged state, so the ticket can close.

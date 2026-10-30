@@ -5,12 +5,15 @@
 // is locked (the board), the person's terminal is handed to it (Ctx.suspend), as ctrl+e's editor is there. The door knows nothing of any picker's channels: the program and the channel are names the
 // person configures.
 //
-//   EP0CH_PICKER        the picker's command line (default `tv`); run by sh, so it may hold flags (`fzf -m`)
+//   EP0CH_PICKER        the picker's command line (default `tv --inline`); run by sh, so it may hold flags (`fzf -m`)
 //   EP0CH_PICK_CHANNEL  the argument it's given when the action names none (default `ep0ch`, the outline channel of
 //                       ext/television); empty for none
 //
 // The picker's stdout goes to a file in the door's state (pick/, private), so the picker draws on its terminal or tile
-// (television draws on stderr when its stdout isn't a terminal) and the door reads its answer after. Its environment is
+// (television draws on stderr when its stdout isn't a terminal) and the door reads its answer after. tv runs `--inline`:
+// its fullscreen mode asks the terminal where the cursor is on stdout, which is that file, so no answer comes and tv
+// crashes ("The cursor position could not be read", tv 0.15.9); inline asks on /dev/tty, and in a fresh tile it fills
+// the tile. A picker that fails puts nothing in, whatever it printed, and its tile stays with what it said. Its environment is
 // the drop shell's, or a terminal tile's (EP0CH_CONTROL names this door either way), plus the door's outline
 // (EP0CH_SOCKET, EP0CH_WS), so a channel that asks `ep0ch find` reads the outline this draft is in.
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
@@ -27,8 +30,8 @@ import type { Suspender } from "./surface/editor";
 
 type Env = Record<string, string | undefined>;
 
-/** The picker's command line: EP0CH_PICKER, else television's `tv`. */
-export const pickerOf = (env: Env = process.env) => env.EP0CH_PICKER?.trim() || "tv";
+/** The picker's command line: EP0CH_PICKER, else television's `tv --inline` (its fullscreen mode can't draw with its stdout in a file). */
+export const pickerOf = (env: Env = process.env) => env.EP0CH_PICKER?.trim() || "tv --inline";
 /** The argument given when the action names none: EP0CH_PICK_CHANNEL (empty: none), else `ep0ch`. */
 export const channelOf = (env: Env = process.env) => (env.EP0CH_PICK_CHANNEL !== undefined ? env.EP0CH_PICK_CHANNEL.trim() : "ep0ch");
 
@@ -52,13 +55,17 @@ export function pickerRun(channel: string, out: string, outline: { socket: strin
   const own: Record<string, string | null> = { EP0CH_SOCKET: outline.socket, EP0CH_WS: outline.name ?? null, EP0CH_MACHINE: null, EP0CH_PICK_OUT: out };
   const e = shellEnv(env, control);
   for (const [k, v] of Object.entries(own)) { if (v === null) delete e[k]; else e[k] = v; }
-  // sh runs the picker line (it may hold flags and shell words) with the channel as its argument, when there is one.
-  return { argv: ["sh", "-c", `${pickerOf(env)} \${1:+"$1"} > "$EP0CH_PICK_OUT"`, "sh", channel], cwd, env: e, own };
+  // sh runs the picker line (it may hold flags and shell words) with the channel as its argument, when there is one. The
+  // screen is cleared and the cursor put home first, so an inline picker (tv's) starts at the top and fills it.
+  return { argv: ["sh", "-c", `[ -t 2 ] && printf '\\033[H\\033[2J' >&2; ${pickerOf(env)} \${1:+"$1"} > "$EP0CH_PICK_OUT"`, "sh", channel], cwd, env: e, own };
 }
 
-/** References stay inline; several choices containing files form a list. Blank lines are dropped. */
+/** Terminal escapes and control bytes: a picker's drawing or a query that reached its stdout, never part of a choice. */
+const ESCAPES = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])|[\x00-\x08\x0b-\x1f\x7f]/g;
+
+/** References stay inline; several choices containing files form a list. Blank lines are dropped, and escapes. */
 export function pickedText(printed: string, cwd = homedir()): string {
-  const lines = printed.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const lines = printed.split(/\r?\n/).map(l => l.replace(ESCAPES, "").trim()).filter(Boolean);
   const choices = lines.map(line => {
     const token = /^\[file::(.*)\]$/.exec(line);
     const path = resolve(cwd, (token?.[1] ?? line).replace(/^~(?=$|\/)/, homedir()));
@@ -124,20 +131,24 @@ export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: stri
   const channel = o.channel ?? channelOf();
   const cwd = o.cwd ?? homedir();
   const picker = `${pickerOf()}${channel ? ` ${channel}` : ""}`;
-  const back = (code: number | null): Picked => {
+  /** Whether its code is a failure: anything but a choice (0), nothing chosen (130) or a hang-up (143, 129). */
+  const failed = (code: number | null) => code !== null && code !== 0 && code !== 130 && code !== 143 && code !== 129;
+  const back = (code: number | null, inTile = false): Picked => {
     // No code: its tile closed before it exited (or its terminal went), so whatever it wrote on the way out isn't a choice.
     if (code === null) return { nothing: `${picker} closed before a choice; nothing inserted` };
     let printed = "";
     try { printed = readFileSync(out, "utf8"); } catch { /* nothing chosen */ }
     const text = pickedText(printed, cwd);
-    // tv and fzf exit 0 or 130 when nothing was chosen (esc, ctrl+c); tv exits 1 on a channel it doesn't have too (its
-    // error went with its screen); 127 is sh's "not found".
-    if (!text) return { nothing: code === 127 ? `${picker} exited 127: not found (EP0CH_PICKER names the picker); nothing inserted`
-      : code === 1 ? `nothing chosen in ${picker}, or it has no ${channel ? `"${channel}"` : "such"} channel (tv's come from ext/television: ep0ch install --apply)`
+    // Only a picker that exited 0 chose: one that failed may have printed anything (tv's crash, a cursor query).
+    // tv exits 0 with nothing printed on esc, fzf 130; tv exits 1 on a channel it doesn't have and when it crashes (its
+    // error goes to its screen: in a tile, the tile stays to show it); 127 is sh's "not found".
+    const said = inTile ? " · what it said stays in its tile beside: ^W x closes it" : "";
+    if (!text || code !== 0) return { nothing: code === 127 ? `${picker} exited 127: not found (EP0CH_PICKER names the picker); nothing inserted${said}`
+      : code === 1 ? `${picker} exited 1 (it crashed, or it has no ${channel ? `"${channel}"` : "such"} channel: tv's come from ext/television, ep0ch install --apply); nothing inserted${said}`
       : code === 0 || code === 130 ? `nothing chosen in ${picker}`
       // 143 or 129: ended by a signal (its terminal hung up) before a choice.
       : code === 143 || code === 129 ? `${picker} closed before a choice; nothing inserted`
-      : `${picker} exited ${code}; nothing inserted` };
+      : `${picker} exited ${code}; nothing inserted${said}` };
     if (o.held && !o.held()) return { kept: text, at: keepCopy(text + "\n", "picked"), why: `the draft closed while ${picker} was open` };
     // Saved meanwhile (the tile left the reader free): the text that went is the one saved, so the choice is kept, not
     // pasted into a draft the save is landing from.
@@ -155,8 +166,10 @@ export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: stri
       const run = pickerRun(channel, out, outline, process.env, controlPath, cwd);
       const opened = ctx.inTile?.({ cmd: run.argv, cwd: run.cwd, own: run.own, name: "pick", shows: cwd, wide: true }, code => {
         let r: Picked;
-        try { r = back(code); } catch (e) { r = { nothing: `not inserted: ${(e as Error).message}` }; } finally { tidy(); }
+        try { r = back(code, failed(code)); } catch (e) { r = { nothing: `not inserted: ${(e as Error).message}` }; } finally { tidy(); }
         resolve(r);
+        // A picker that failed keeps its tile: what it said (tv's crash, an unknown channel) stays on screen.
+        return failed(code);
       });
       if (opened) d.note = `choosing in ${picker} beside · what you choose goes in at the cursor`;
       else resolve(null);

@@ -62,8 +62,9 @@ whole terminal. What you choose
 goes in at the cursor, space-separated, and the tile closes. Switch to `ep0ch-files` with tv's `ctrl-t` to put in
 files. `ctrl+]` leaves the tile for the door with tv still open; another `ctrl+t` on that draft meanwhile opens no
 second one. That action is the door's (`draft.pick`,
-src/pick.ts) and knows nothing of tv: `EP0CH_PICKER` names another picker (`fzf -m`), and `EP0CH_PICK_CHANNEL`
-its argument (default `ep0ch`, empty for none).
+src/pick.ts) and knows nothing of tv's channels: `EP0CH_PICKER` names another picker (`fzf -m`; default `tv --inline`,
+see Output below), and `EP0CH_PICK_CHANNEL` its argument (default `ep0ch`, empty for none). With the drawer up over the
+desk, ctrl+t puts it away so the picker is in view.
 
 `ctrl-g` in the `ep0ch` channel opens the note in the door through its control socket (`ep0ch open <id> --as
 television`): the agent path, so the door says "an agent (television) opened a note" and your focus stays where it
@@ -129,6 +130,9 @@ code.
   and sets no `COLUMNS`). `ep0ch-tv preview` reads the terminal's width from `/dev/tty` (`stty size`) and takes the
   channel's preview share (60%) less the border; `EP0CH_TV_PREVIEW` changes the share it assumes.
 - **Output:** tv prints each chosen entry's `output` template on its own line, and draws its screen on stderr when
-  its stdout isn't a terminal: that's how the door's `ctrl+t` reads the choice. The door runs `tv ep0ch > <file>` (a
-  private file in its state); in a tile, tv's stderr is the tile's terminal, so it draws there, and the door reads the
-  file when tv exits.
+  its stdout isn't a terminal: that's how the door's `ctrl+t` reads the choice. The door runs `tv --inline ep0ch >
+  <file>` (a private file in its state); in a tile, tv's stderr is the tile's terminal, so it draws there, and the door
+  reads the file when tv exits. `--inline`, because tv's fullscreen mode (0.15.9) asks where the cursor is on its
+  stdout, which is that file: no answer comes and tv crashes ("The cursor position could not be read"). Inline mode
+  asks on `/dev/tty`, and in a fresh tile it fills the tile. A picker that exits with an error puts nothing in; its tile
+  stays with what it said until `^W x`.

@@ -292,6 +292,42 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     D().closeId(idOf("edit"));
   });
 
+  test("ctrl+t's picker tile: a handover's restore never names it (it doesn't come back); one that failed stays until ^W x", async () => {
+    await mine("open", { id: notes.shed.id }, "middle");
+    await until(() => D().panes.get(idOf("middle")).msg?.id === notes.shed.id, "the shed in the middle reader");
+    await mine("edit", {}, "middle");
+    D().focus = idOf("middle");
+    const f = join(scratch.root, "door", "pick.txt");
+    writeFileSync(f, "");
+    let code: number | null | undefined;
+    expect(D().inTile({ cmd: ["sh", "-c", "sleep 0.3; exit 1"], name: "pick" }, (c: number | null) => { code = c; return true; })).toBe(true);
+    render();
+    expect(D().nameOf(D().focus)).toBe("pick");
+    // The handover's checkpoint: the edit in the middle reader, and the keys back to it, never to the picker's tile.
+    const steps = D().reopen();
+    expect(steps.some((s: { tile: string }) => s.tile === "pick")).toBe(false);
+    expect(steps.at(-1).tile).toBe("middle");
+    await until(() => code === 1, "the picker failing");
+    // What it said stays on screen; the keys are back in the edit.
+    expect(tile("pick")).toBeDefined();
+    expect(D().nameOf(D().focus)).toBe("middle");
+    D().closeId(idOf("pick"));
+    await mine("edit.cancel", {}, "middle").catch(() => {});
+  });
+
+  test("ctrl+t's picker under the drawer: the drawer is put away so the picker is seen (it opened, keys and all, where nobody could see it)", async () => {
+    await app.dispatch.act({ action: "host.toggle", args: { open: true } }, { kind: "user" });
+    await app.dispatch.act({ action: "host.leave", args: {} }, { kind: "user" }).catch(() => {});
+    render(); (app as any).paint?.();
+    const host = app.hostLayer;
+    await until(() => !!host.drawnRect(), "the drawer up over the desk");
+    D().focus = idOf("middle");
+    expect(D().inTile({ cmd: ["sleep", "5"], name: "pick", wide: true }, () => {})).toBe(true);
+    expect(host.drawnRect()).toBeNull();
+    expect(D().nameOf(D().focus)).toBe("pick");
+    D().closeId(idOf("pick"));
+  });
+
   test("S1: leaving the desk keeps it and its programs; D on the menu brings the same desk back; quitting asks", async () => {
     D().focus = idOf("tree");
     const pid = tile("claude").terminal.pid;

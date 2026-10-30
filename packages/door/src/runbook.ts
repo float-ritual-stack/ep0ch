@@ -11,7 +11,7 @@ import type { Actor } from "./socket";
 import { ActionRefused, actionSet, asActor, def } from "./surface/actions";
 import type { TileJob, TileProgram } from "./term";
 
-type Context = ExtOn["ctx"] & { inTile?(p: TileProgram, done: (code: number | null) => void): boolean };
+type Context = ExtOn["ctx"] & { inTile?(p: TileProgram, done: import("./term").TileExit): boolean };
 interface Run { key: string; ctx: Context; actor: Actor; step: RunbookStep; record: string; at: string; cwd: string; state: RunbookStatus; secrets: string[]; writes: Promise<void>; job?: TileJob }
 const runs = new Map<string, Run>();
 let closing = false;
