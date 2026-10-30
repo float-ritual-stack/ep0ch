@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The open door shows @margin's "working" and its answer, and a tick in the door closes its ask (PIE-1452, PIE-1451)
+
+- **A long `@margin` job shows in the thread as it runs:** the reader hears an extension's reply being made and rewritten under a thread (a plain create and edit, not an `annotate`), so `⋯ working: … (2 min)` and then the answer appear in the open note by themselves. Before, they showed only after reopening the note or after some other change repainted it.
+- **A tick on a permission ask in the door or on the web page closes it:** the tick gives its step an id (`^t-…`) and the service refuses an edit that drops one, so the mod's close-out was refused (silently) and the ask stayed on Waiting on Evan with live boxes. The close-out keeps each step's id: `✓ **allow this once** ^t-…`.
+- **Run:** `ep0ch install --apply` (the door and the mod change; no PROTOCOL bump).
+
 ### A repo on an artifact line shows its deployment and deploys on save (PIE-1060)
 
 - **The card is the repo:** `[artifact::https://github.com/ep0ch-artifacts/plastik-loop]` (or `github.com/…`, or `ep0ch-artifacts/plastik-loop`) on a line draws a repo card, not "can't read …/https:/github.com/…" and "isn't an artifact".
