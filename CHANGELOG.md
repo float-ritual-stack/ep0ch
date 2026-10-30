@@ -15,6 +15,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Table and compare cells draw their links:** a `[[page]]`, `((id|label))` or `((outline:id|label))` in a `::graph-table` or `::graph-compare` cell shows its label, not its markup; `[ ]` stops on it, ⏎ or a click follows it where the tile's wires say, and `act elements` lists it. Bold and code spans in a cell draw as in prose. Check, decision and timeline rows already did; every figure now goes through the same inline renderer.
 - **Columns are measured as drawn:** a cell's width is its label's, so a long id no longer widens its column; under 48 columns a table's cards keep their links too.
 - **A link's own `|` stays in the link:** `- shelter: ((0a1b2c3d|the greenhouse)) | [[Shed roof]]` is two cells, and a `: ` or ` — ` inside a link's label no longer splits a row's label or side note.
+- **A short-id reference follows:** `((0a1b2c3d|label))`, in prose or a cell, opens its note by ⏎ or a click (it used to say "nothing answers at 0a1b2c3d").
 - **On the published page:** every body cell is drawn as the note's prose is, so its links are real links; a reference written by its short id (`((0a1b2c3d|label))`) now links on the page, in prose as in a cell, as the service resolves it.
 - **Try it:** `ep0ch --showcase`, section "figure-cells".
 - **Run:** `ep0ch install --apply` (GRAMMAR 15; an older renderer warns once and keeps working).

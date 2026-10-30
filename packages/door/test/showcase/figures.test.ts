@@ -530,8 +530,14 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect(narrow).toContain("┊ Now: done, see latch.md");
     expect(narrow).toContain("┊   Now    the greenhouse");
     expect(narrow).not.toMatch(/\[\[|\(\(/);
-    // By keys: into the stage, [ ] to the table's door test plan link, ⏎ opens the test plan.
+    // By keys: into the stage, [ ] to the table's greenhouse (a reference by its short id), ⏎ opens it; back.
     press({ kind: "enter" });
+    for (let i = 0; i < 60 && !(await els()).find(e => e.current && e.n === greenhouse.n); i++) ch("]");
+    press({ kind: "enter" });
+    await until(() => screen().includes("once they have two leaves"), "the greenhouse open by ⏎", 5000);
+    press({ kind: "backspace" });
+    await until(() => screen().includes("ASKS WITH NO REPLY"), "back on the figures");
+    // Then the table's door test plan link, ⏎ opens the test plan.
     const plan = (await els()).filter(e => e.kind === "link" && e.label.includes("door test plan"))[1]!;
     for (let i = 0; i < 60 && !(await els()).find(e => e.current && e.n === plan.n); i++) ch("]");
     expect((await els()).find(e => e.current)?.n).toBe(plan.n);

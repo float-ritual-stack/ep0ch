@@ -113,8 +113,14 @@ function refsOf(text: string): { text: string; ids: string[] } {
 export function referencesIn(text: string, src: Source | null | undefined): Map<string, ReferenceResolution> | null {
   const refs = refsOf(text);
   if (!refs.text) return new Map();
-  return ask(refsBy, src, refs.text, async b => new Map((await b.resolveReferences(refs.text)).map(r => [refKey(r.blockId, r.fragmentId, r.requestedOutline), r])),
-    c => changedSince(c.at, refs.ids))?.value ?? null;
+  return ask(refsBy, src, refs.text, async b => {
+    const answers = await b.resolveReferences(refs.text), byKey = new Map(answers.map(r => [refKey(r.blockId, r.fragmentId, r.requestedOutline), r]));
+    // One answer per reference asked, in order, each naming the whole id: a reference written by its short id
+    // (`((0a1b2c3d|label))`, PIE-1334) is found by what was written too.
+    const asked = blockReferenceOccurrences(refs.text);
+    if (asked.length === answers.length) asked.forEach((q, k) => { const key = refKey(q.blockId, q.fragmentId, q.outline); if (!byKey.has(key)) byKey.set(key, answers[k]!); });
+    return byKey;
+  }, c => changedSince(c.at, refs.ids))?.value ?? null;
 }
 
 type CommentSubject = { kind: "block"; blockId: string } | { kind: "resource"; resourceId: string };
@@ -511,7 +517,9 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
       } else if (!l.embed || !embeds) {
         const answer = resolved.get(refKey(l.blockId, l.fragmentId, l.outline));
         const v = refView(l.blockId, l.fragmentId, l.label, answer);
-        const to: LinkTarget = { block: l.blockId, ...(answer?.outline || l.outline ? { outline: answer?.outline ?? l.outline, machine: answer?.machine } : {}), ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
+        // A reference written by its short id (`((0a1b2c3d|label))`) follows the whole id the service resolved it to
+        // (PIE-1334): `board.get` takes only a whole one.
+        const to: LinkTarget = { block: answer?.status === "resolved" && answer.blockId.length > l.blockId.length ? answer.blockId : l.blockId, ...(answer?.outline || l.outline ? { outline: answer?.outline ?? l.outline, machine: answer?.machine } : {}), ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
         spans.push({ ...l, draw: () => (l.embed ? `!${mark(v, to)} · embed not expanded here` : mark(v, to)) + sourceMark(l) });
       }
     }
