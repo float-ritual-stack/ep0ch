@@ -205,6 +205,22 @@ describe.skipIf(!outliner)("Esc lands where it was meant (PIE-1431)", () => {
     } finally { d.quit(); }
   });
 
+  test("the key probe takes keys, not clicks: the power bar a click opens over it is in front, its Esc first, then the probe's (PIE-1438)", async () => {
+    const d = await door();
+    try {
+      d.app.probeKeys(true);
+      await d.app.dispatch.press("bar.open");                // what a click on its chip runs (the probe's flash covers the bar's left)
+      await until(() => !!d.A.bar, "the power bar opens over the probe");
+      expect(d.app.person().over).toBe("bar");
+      d.A.paint();
+      await d.feed(click(2, 2));                             // a click outside it puts it away, as without the probe
+      expect(!!d.A.bar).toBe(false);
+      expect(d.app.person().over).toBe("probe");
+      await d.feed("\x1b");                                  // then Esc ends the probe
+      expect(d.app.person().over).toBeUndefined();
+    } finally { d.quit(); }
+  });
+
   test("a click on another tile and Esc in the same read: Esc is that tile's, never the terminal's", async () => {
     const d = await door();
     try {

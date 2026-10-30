@@ -30,8 +30,8 @@ export interface Whereabouts extends ScreenKeys {
   /** The layer their keys are in: the screen, or the host layer's drawer (the agent). */
   keys: "screen" | "host";
   /**
-   * The door's own layer over every screen and the drawer, which takes their next key first: the key probe, the power
-   * bar, or a status-bar menu opened over the screen while they're in the drawer. Left out when none is open.
+   * The door's own layer over every screen and the drawer, which takes their next key first: the power bar, the key
+   * probe, or a status-bar menu opened over the screen while they're in the drawer. Left out when none is open.
    */
   over?: DoorLayer;
   /**
@@ -54,7 +54,7 @@ export interface Whereabouts extends ScreenKeys {
 }
 
 /** The door's own layers over every screen (Whereabouts.over), top first. */
-export type DoorLayer = "probe" | "bar" | "menu";
+export type DoorLayer = "bar" | "probe" | "menu";
 
 /** The host layer's agent tile, as `typingIn` names it while the person types in the drawer. */
 export const HOST_AGENT = "drawer.agent";

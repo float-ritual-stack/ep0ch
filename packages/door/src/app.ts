@@ -1279,7 +1279,8 @@ export class App implements Ctx {
    */
   person(): Whereabouts {
     const s = this.stack.at(-1);
-    const over = this.probing ? "probe" as const : this.bar ? "bar" as const : this.overDrawer() ? "menu" as const : null;
+    // The power bar is above the key probe: the probe takes keys, not clicks, so a click can open the bar over it.
+    const over = this.bar ? "bar" as const : this.probing ? "probe" as const : this.overDrawer() ? "menu" as const : null;
     const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.entered, hostAddress: this.drawer.made?.keys().address, hostTile: ((t: string | null) => (t ? `drawer:${t}` : null))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor(), over, program: this.programUnder() });
     const w: Whereabouts = this.agentsYolo ? { ...w0, yolo: true } : w0;
     // The power bar holds their keys while it's open.
