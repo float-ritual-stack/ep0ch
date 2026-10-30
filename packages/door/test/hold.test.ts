@@ -32,7 +32,7 @@ describe.skipIf(!outliner)("pinning a reader", () => {
     expect(pane.key(char("p"), d)).toBe(true);
     await until(() => pane.pinned, "pinned");
     pane.opensGo = "detail2";                           // the desk sets it as it draws (opensOf)
-    expect(pane.hint()).toContain("pinned: opens land in detail2");
+    expect(pane.hint()).toContain("pinned · opens → detail2");
     expect(pane.hint()).toContain("p unpin");
     expect(pane.spec()).toMatchObject({ mode: "pinned", note: one.id });
     pane.key(char("p"), d);
