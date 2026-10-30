@@ -1310,7 +1310,7 @@ const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("sta
     run({ by }, { list, ctx }) { list.scroll(by); ctx.redraw(); return { scrolled: by }; },
   }),
   "status.element": def({
-    summary: "put the [ ] position on a link in the selected message, as a reader's [ ] steps through a note's elements: by=1 / by=-1 the next or previous link, n= the nth, n=0 lets go; ⏎ then opens it (status.link)",
+    summary: "put the [ ] position on a link in the selected message, as a reader's [ ] steps through a note's elements: by=1 / by=-1 the next or previous link, n= the nth, n=0 lets go; ⏎ then opens it (status.link). The first stop is the first link that leads somewhere (a [[page]] not written yet is stepped past); with none, the first, and the answer's missing and the hint row say why",
     keys: [{ keys: "[ ]", does: "the previous or next link in the selected message" }],
     touches: "screen", replay: "safe",
     args: {
