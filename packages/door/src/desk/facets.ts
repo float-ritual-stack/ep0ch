@@ -480,7 +480,7 @@ export class FacetsPane implements Pane {
     return false;
   }
   attachedMouse(k: Extract<Key, { kind: "mouse" }>, _x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
-    if (k.action === "wheel-up" || k.action === "wheel-down") { void desk.press?.(this, FACETS_ACTIONS, "facets.match", { by: wheelRows(k.action === "wheel-up" ? -1 : 1) }); return true; }
+    if (k.action === "wheel-up" || k.action === "wheel-down") { if (this.list.pickable(PERSON).length) void desk.press?.(this, FACETS_ACTIONS, "facets.match", { by: wheelRows(k.action === "wheel-up" ? -1 : 1) }); return true; }
     if (k.action !== "down") return true;
     const id = this.tileNotes[y];
     if (id) this.pressNote(id, k, desk, press);
@@ -592,7 +592,7 @@ export class FacetsPane implements Pane {
       return true;
     }
     if (k.action === "wheel-up" || k.action === "wheel-down") {
-      if (hit?.note || (this.place === "tile" ? false : y > this.divider)) { this.act(desk, "facets.match", { by: wheelRows(k.action === "wheel-up" ? -1 : 1) }); return true; }
+      if (hit?.note || (this.place === "tile" ? false : y > this.divider)) { if (this.list.pickable(PERSON).length) this.act(desk, "facets.match", { by: wheelRows(k.action === "wheel-up" ? -1 : 1) }); return true; }
       if (this.rows().some(r => r.kind !== "note")) this.act(desk, "facets.pick", { by: wheelRows(k.action === "wheel-up" ? -1 : 1), part: "keys" });
       return true;
     }

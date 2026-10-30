@@ -2,7 +2,7 @@
 // service's, so every client draws the same groups and the same preview line. Fictional notes.
 import { describe, expect, test } from "bun:test";
 import { noteExcerpt } from "@ep0ch/outline-core/excerpt";
-import { normalizeGroupField } from "../src/block-query";
+import { normalizeGroupField, parseQueryExpression } from "../src/block-query";
 import { projectBlock } from "../src/block-projection";
 import { questionGroups, recentBucket } from "../src/question-answer";
 import type { Block } from "../src/types";
@@ -26,6 +26,10 @@ describe("relative date buckets", () => {
     const evening = new Date(2026, 9, 29, 23, 30).toISOString();
     const groups = questionGroups([{ id: "a", updatedAt: evening, createdAt: evening, properties: [] } as unknown as Block], [], "updated:day", () => [], NOW);
     expect(groups.map(g => g.value)).toEqual(["2026-10-29"]);
+  });
+
+  test("a day written as people write it, quoted, is a range bound too: the calendar's day pick", () => {
+    expect(parseQueryExpression('updated >= "29 Oct 2026" updated <= "29 Oct 2026"')).toMatchObject({ kind: "and", operands: [{ kind: "time", value: "29 Oct 2026" }, { kind: "time", value: "29 Oct 2026" }] });
   });
 
   test("updated:recent is a group the service takes, its groups newest first", () => {

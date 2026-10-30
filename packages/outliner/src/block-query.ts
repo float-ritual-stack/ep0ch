@@ -643,12 +643,14 @@ class ExpressionParser {
       }
       if (value?.kind !== "word") syntaxError(`${field} ${comparison.op} requires a time value`, value?.start ?? this.inputLength);
       this.index += 1;
+      // Quoted as a property's bound is (`updated >= "29 Oct 2026"`, a day on this machine's wall clock).
+      const bound = unquoted(value.text).trim();
       try {
-        parseQueryTime(value.text);
+        parseQueryTime(bound);
       } catch (error) {
         syntaxError(error instanceof Error ? error.message : String(error), value.start);
       }
-      return { kind: "time", field, op: comparison.op, value: value.text };
+      return { kind: "time", field, op: comparison.op, value: bound };
     }
     if (isQueryAtomWord(token.text)) {
       try {
