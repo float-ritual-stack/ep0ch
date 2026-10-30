@@ -4,7 +4,10 @@
 // host layer's), and through them the draft session's rule. Before, each screen asked its own questions
 // (holdsKeys, personIn, isEntered, drawerHoldsKeys, holdsFocus, `=== this.focus`) and each rule picked
 // some of them; now a screen says once where the person's keys are on it (`Screen.keys`), the App adds the host
-// layer, the shell and the clock, and every rule asks the same thing.
+// layer, the shell and the clock, and every rule asks the same thing. Where the person's next key goes is the same
+// answer (PIE-1438): the door's own layer over everything (`over`), the drawer or the screen (`keys`), and a program under
+// them (`program`). The raw sink, the key router and Esc's hold read it; the guard test (test/one-owner.test.ts) fails
+// when another place decides it.
 
 /** Where the person's keys are on one screen, as that screen says it (Screen.keys). Tiles by the name `tile=` uses. */
 export interface ScreenKeys {
@@ -26,6 +29,17 @@ export interface ScreenKeys {
 export interface Whereabouts extends ScreenKeys {
   /** The layer their keys are in: the screen, or the host layer's drawer (the agent). */
   keys: "screen" | "host";
+  /**
+   * The door's own layer over every screen and the drawer, which takes their next key first: the power bar, the key
+   * probe, or a status-bar menu opened over the screen while they're in the drawer. Left out when none is open.
+   */
+  over?: DoorLayer;
+  /**
+   * A program has their keys (a terminal tile's, the drawer's agent's): its bytes go to it raw. `over`, something is
+   * open over it that takes them first (the door's layer, a screen pushed over it, a menu or picker on its desk or
+   * group), and an Esc closes that, never the program. Left out when no program has their keys.
+   */
+  program?: { over: boolean };
   /** The screen shown, by its title. */
   screen: string | null;
   /** Milliseconds since their last key or click. */
@@ -38,6 +52,11 @@ export interface Whereabouts extends ScreenKeys {
    */
   yolo?: true;
 }
+
+/** The door's own layers over every screen (Whereabouts.over), top first. */
+export type DoorLayer = "bar" | "probe" | "menu";
+/** Who takes the person's next key, as App.keyLayers works it out: the door's own layer and the program under it. */
+export type KeyLayers = Pick<Whereabouts, "over" | "program">;
 
 /** The host layer's agent tile, as `typingIn` names it while the person types in the drawer. */
 export const HOST_AGENT = "drawer.agent";
@@ -94,13 +113,18 @@ export function whereabouts(o: {
   suspended: string | null;
   loggedOn: boolean;
   idle: number;
+  /** The door's own layer open over everything, if any. */
+  over?: DoorLayer;
+  /** A program has their keys, and whether something is open over it (Whereabouts.program). */
+  program?: { over: boolean };
 }): Whereabouts {
   const k = o.keys ?? { focus: null, typingIn: null, busy: false };
   const away = !o.loggedOn ? `the door is at the ${o.screen ?? "logon"}; the person hasn't logged on`
     : o.suspended ? `the person is in the door's ${o.suspended} (the door waits under it)` : null;
-  if (o.inHost) return { address: o.hostAddress, focus: k.focus, typingIn: o.hostTile ?? HOST_AGENT, busy: true, why: `the person is typing in ${hostTyping(o.hostTile)}`, keys: "host", screen: o.screen, idle: o.idle, away };
+  const layers = { ...(o.over ? { over: o.over } : {}), ...(o.program ? { program: o.program } : {}) };
+  if (o.inHost) return { address: o.hostAddress, focus: k.focus, typingIn: o.hostTile ?? HOST_AGENT, busy: true, why: `the person is typing in ${hostTyping(o.hostTile)}`, keys: "host", ...layers, screen: o.screen, idle: o.idle, away };
   const why = k.busy ? (k.why ?? `the person is typing on the ${o.screen ?? "screen"}`) : undefined;
-  return { address: k.address, focus: k.focus, typingIn: k.typingIn, busy: k.busy || !!o.suspended, ...(k.busy && k.navHold && !o.suspended ? { navHold: true as const } : {}), ...(why ? { why } : o.suspended ? { why: away! } : {}), keys: "screen", screen: o.screen, idle: o.idle, away };
+  return { address: k.address, focus: k.focus, typingIn: k.typingIn, busy: k.busy || !!o.suspended, ...(k.busy && k.navHold && !o.suspended ? { navHold: true as const } : {}), ...(why ? { why } : o.suspended ? { why: away! } : {}), keys: "screen", ...layers, screen: o.screen, idle: o.idle, away };
 }
 
 /** The drawer's tile the person types in, as a refusal names it: `<its name> in the drawer`, or the drawer itself (never its container's id, `drawer.tiles`). */

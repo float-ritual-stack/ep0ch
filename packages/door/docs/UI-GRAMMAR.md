@@ -198,6 +198,11 @@ Waiting-on-you's terminal rows select before Enter takes the keys to that termin
 - **One dispatcher per screen host (PIE-514).** Keys, clicks and `act` all run actions through it; `tile=` has
   one grammar everywhere, and whether an agent may is read from each action's declared `touches` against one
   whereabouts query, not decided screen by screen.
+- **One owner for where a key goes (PIE-1438).** The person's whereabouts say which layer takes the next key: the
+  door's own over everything (`over`, top first: the power bar, the key probe, a status-bar menu over the drawer), the drawer or the
+  screen (`keys`), and a program under them (`program`, with whether something is open over it). The raw sink, the key
+  router and Esc's hold read that answer; a new overlay is over a program by being a layer it reads (a screen pushed, an
+  overlay on a desk), never by a check in the router. `test/one-owner.test.ts` fails on a new decider.
 - **Agents can arrange the desk and the board.** Note actions are shared everywhere, and the `tile.*`
   actions (open, close, resize, zoom, float, pin, collapse) are shared by the desk
   and the board. The river has
@@ -431,7 +436,7 @@ book-spines section runs all of it.
 | dispatcher | One per screen host: reads `tile=`, finds the action's set, checks `expected=` and the actor rule, runs it, says refusals and `says` | `Dispatcher` in `src/surface/dispatch.ts` | none |
 | touches | What an action declares it reaches (`nothing`, `tile`, `shape`, `draft`, `screen`), with `replay` (`safe`, `ask`): the one actor rule reads it | `ActionDef.touches`, `actorRule` | none |
 | repaints | Whether a run changed what's shown: left out, an action touching `nothing` changed nothing and every other did; `true`, `false` or a function of its answer. The person's press repaints once for it, never twice | `ActionDef.repaints`, `asPerson` | none |
-| whereabouts | Where the person is: the screen, the tile with their focus, the tile they type in, busy, idle, away; the shell's one answer | `App.person()`, `src/whereabouts.ts` | none |
+| whereabouts | Where the person is: the screen, the tile with their focus, the tile they type in, busy, idle, away, and who takes their next key (the door's own layer over everything, the drawer or the screen, a program under them: PIE-1438); the shell's one answer | `App.person()`, `src/whereabouts.ts` | none |
 | provenance | "an agent (id) · …" on screen and in writes | `asActor` `act:88` | provenance |
 | control socket | `peek`, `snap`, `open`, `actions`, `act` | `src/control.ts` | UI commands |
 | presence | Who is attached and what they read | `scr:355`, `pan:411` | client registry |

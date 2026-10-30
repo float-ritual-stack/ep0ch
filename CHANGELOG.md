@@ -17,6 +17,11 @@ are its record. The outliner's entries from then are kept below, under
 - **Keys:** ← → older and newer, `n` against the note now, Esc back to the note. Beside the text in a wide tile, below it in a narrow one.
 - **Tables:** `at: <property>` on a live `::graph-table` with `link:` opens each row's note at the revision that property holds.
 - **Run:** nothing beyond the usual `ep0ch install --apply` (GRAMMAR 13: an older door opens the note without the compare); pie's suggestions page gains `at: revision` on its own at the next review Jev records after the install (until then its rows open the note without the compare; adding `at: revision` under `link: note` by hand does it at once).
+### One place decides where your key goes (PIE-1438)
+
+- **Whatever is in front of you gets the key:** the power bar, a status-bar menu, the message log, a tile menu or a
+  float takes Esc, and nothing reaches the terminal under it. The door now asks one answer (where you are) for this,
+  so a new overlay can't let a key leak to the program behind it; `ep0ch peek`'s `person` names that layer too.
 
 ### A chat reads an away outline from its copy (PIE-1091)
 
