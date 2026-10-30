@@ -265,16 +265,19 @@ export function pad(s: string, w: number): string {
 export const ellipsize = (s: string, w: number): string => width(s) <= w ? s : w < 1 ? "" : headOf(s, w - 1) + "…";
 /**
  * `s` cut to `w` cells as `ellipsize` cuts it, unless that reads the same as one of `others` cut alike, though the two
- * differ (PIE-1439: "give your keys to the column …" for left and right): then the words they share are cut first, so the
- * word that differs is kept (`give your keys… on the left`). Plain text, as `ellipsize` takes.
+ * differ (PIE-1439: "give your keys to the column …" for left and right), or the cut falls in its last word: then the
+ * words before are cut first, so the word that differs is kept (`give your keys… left`). Plain text, as `ellipsize` takes.
  */
 export function ellipsizeApart(s: string, w: number, others: readonly string[]): string {
   const cut = ellipsize(s, w);
+  if (cut === s) return cut;
   const alike = others.filter(o => o !== s && ellipsize(o, w) === cut);
-  if (cut === s || !alike.length) return cut;
   const words = s.split(" ");
+  // Only the last word cut (`the tile to the rig…`): that word is the one a neighbour differs by, so it stays.
+  const lastCut = words.length > 1 && cut.length - 1 > s.lastIndexOf(" ");
+  if (!alike.length && !lastCut) return cut;
   // The words every look-alike shares with `s` from its start: the rest is what tells them apart.
-  const shared = Math.min(...alike.map(o => { const ow = o.split(" "); let n = 0; while (n < words.length && ow[n] === words[n]) n++; return n; }));
+  const shared = alike.length ? Math.min(...alike.map(o => { const ow = o.split(" "); let n = 0; while (n < words.length && ow[n] === words[n]) n++; return n; })) : words.length - 1;
   const rest = words.slice(shared).join(" ");
   if (width(rest) + 2 > w) return "…" + ellipsize(rest, w - 1);
   return ellipsize(words.slice(0, shared).join(" "), w - width(rest) - 1).replace(/…?$/, "…") + " " + rest;
