@@ -39,7 +39,7 @@ import { backlinkSourceIds, linkTargetIds, resolveBacklinkRelation } from "./bac
 import { loosenTyped, questionFacets, questionGroups, questionHint, questionKeys, questionValueWarning } from "./question-answer";
 import { STATUS_FAMILY_PROPERTY, facetRulesFromBlocks, linkTargetFacets, type BacklinkFacetRules } from "./backlink-facets";
 import { rankBlockFocusMatches } from "./block-focus";
-import { rankTextSearchMatches, searchTextTerms } from "@ep0ch/outline-core/search-match";
+import { rankTextSearchMatches, searchTextTerms, type SearchMatchKind } from "@ep0ch/outline-core/search-match";
 import { normalizeBlockReadFields, normalizeBlockReadIds, projectBlock } from "./block-projection";
 import { gotoCandidates, gotoMatch } from "./goto-search";
 import { contextList, searchContext, sortByContext, type SearchContext } from "./search-context";
@@ -253,6 +253,8 @@ const kindOrder = (kind: string) => kind === "page" ? 0 : kind === "work-id" ? 1
 const byAddress = (a: PageAddressMatchRow, b: PageAddressMatchRow) =>
   kindOrder(a.kind) - kindOrder(b.kind) || a.normalized_address.localeCompare(b.normalized_address) || a.block_id.localeCompare(b.block_id);
 const addressTitle = (row: PageAddressMatchRow) => firstLineWithoutPropertyTokens(row.text)?.trim() || row.block_id;
+/** What a did-you-mean for a missing page offers (PIE-1449): the matcher's kinds about the same words, typos included. */
+const NEAR_PAGE: ReadonlySet<SearchMatchKind> = new Set(["exact-title", "title-prefix", "title-contains", "text-contains", "title-terms", "text-terms", "typo-terms"]);
 
 interface WorkIdAllocatorRow {
   prefix: string;
@@ -264,7 +266,7 @@ export type BlockRefLookup =
   | { kind: "found"; block: Block; how: string }
   | { kind: "ambiguous"; ids: string[]; message: string }
   | { kind: "trashed"; message: string; id?: string }
-  | { kind: "missing"; message: string; didYouMean?: string; titled?: { ids: string[]; said: string } };
+  | { kind: "missing"; message: string; didYouMean?: string; titled?: { ids: string[]; said: string; places: string[] } };
 
 // Singleton outline configuration uses the existing metadata table when it is not canonical user content
 // and needs no revisioned note body (same table as sequence/outline_instance_id/change-feed floor).
@@ -3505,12 +3507,15 @@ export class OutlinerStore {
     if (ref.trim().startsWith("[[")) {
       // A note titled as the page with no [page::…] isn't a page: said as itself, never as a different page (PIE-1445).
       const titled = this.titledFromCurrentRead(text);
-      const near = this.completePageAddresses(text, 3).addresses.map(page => `[[${page.address}]]`);
+      const near = this.nearPageAddressesFromCurrentRead(text);
       const mean = near.length ? { didYouMean: near.join(" or ") } : {};
       if (titled.length) {
-        const ids = titled.map(id => `((${id.slice(0, 8)}))`).join(", "), many = titled.length > 1;
-        const said = `${many ? "notes are" : "a note is"} titled ${text} (${ids}), but ${many ? "none is" : "it isn't"} a page: add [page::${text}] to ${many ? "one" : "it"}`;
-        return { kind: "missing", message: `no page [[${text}]]: ${said}${near.length ? `; did you mean ${near.join(" or ")}?` : ""}`, ...mean, titled: { ids: titled, said } };
+        // Said in words (PIE-1449): the notes share the title, so each is told apart by where it is, never by a row of ((ids)).
+        const places = titled.map(id => this.placeWords(id)), many = titled.length > 1;
+        const said = many
+          ? `${titled.length} notes are titled ${text} (${places.join(", and ")}), but none is a page: add [page::${text}] to one`
+          : `a note is titled ${text}, but it isn't a page: add [page::${text}] to it`;
+        return { kind: "missing", message: `no page [[${text}]]: ${said}${near.length ? `; did you mean ${near.join(" or ")}?` : ""}`, ...mean, titled: { ids: titled, said, places } };
       }
       return { kind: "missing", message: `no page ${text}`, ...mean };
     }
@@ -3530,6 +3535,23 @@ export class OutlinerStore {
     const rows = this.database.query("SELECT id FROM blocks WHERE effective_deleted_root_id IS NULL AND instr(lower(text), ?) > 0 LIMIT 500")
       .all(word) as { id: string }[];
     return rows.map(row => this.getFromCurrentRead(row.id)!).filter(block => words(blockDisplayTitle(block)) === want).slice(0, 3).map(block => block.id);
+  }
+
+  /** Where a note sits, in words: `in Garden` (its parent's title), or `at the top`. */
+  private placeWords(id: string): string {
+    const parentId = this.getFromCurrentRead(id)?.parentId, parent = parentId ? this.getFromCurrentRead(parentId) : null;
+    return parent ? `in ${blockDisplayTitle(parent)}` : "at the top";
+  }
+
+  /**
+   * The pages a [[address]] nobody has may have meant (PIE-1449): the `[[` completer's matches (outline-core's search
+   * matcher) that are about the same words (the whole address, every word, a typo of each), never a page that shares one
+   * word of several or a scatter of its letters, which a completer lists while typing and a did-you-mean must not.
+   */
+  private nearPageAddressesFromCurrentRead(text: string, limit = 3): string[] {
+    const rows = this.pageAddressRows();
+    const matches = rankTextSearchMatches(rows.map(row => ({ id: "", title: row.display_address, subtitle: subtitleOf(row), text: `${row.display_address}\n${addressTitle(row)}`, row })), text);
+    return [...new Set(matches.filter(m => NEAR_PAGE.has(m.kind)).map(m => `[[${m.document.row.display_address}]]`))].slice(0, limit);
   }
 
   /** A note offered for a reference: its id, its title and where it sits (`id title · in A › B`). */

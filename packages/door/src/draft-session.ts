@@ -282,7 +282,8 @@ export class DraftSession {
   close(discard = false): { closed: boolean; keptAt?: string; said?: string } {
     if (!this.open) return { closed: false };
     if (this.draft.busy) throw new ActionRefused(`the ${this.target.verb} is still landing`);
-    if (this.draft.dirty) {
+    // Only spaces and line breaks in what started empty (a new note's Enter) is nothing written: it just closes.
+    if (this.draft.dirty && !this.draft.blank) {
       if (!discard) throw new ActionRefused("there's unsaved text; discard=true puts it aside as unsent");
       const said = this.putAside();
       this.end("aside");

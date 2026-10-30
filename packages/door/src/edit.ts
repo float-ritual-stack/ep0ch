@@ -171,6 +171,8 @@ export class Draft {
     return linkOccurrences(this.text).find(l => l.start <= at && at <= l.end) ?? null;
   }
   get dirty() { return this.text !== this.original; }
+  /** Nothing written: it started empty and holds only spaces and line breaks (Enter in a new note, PIE-1449). Esc closes it as unchanged. */
+  get blank() { return !this.original.trim() && !this.text.trim(); }
   /** The text the draft started from (a kept edit keeps it: "add them" and the comparison read its own changes from it). */
   get started() { return this.original; }
   /** When the draft opened. */
@@ -484,7 +486,7 @@ export class Draft {
     if (k.kind === "esc") {
       // The first esc lets go of a selection; nothing else.
       if (this.anchor) { this.anchor = null; return "keep"; }
-      if (!this.dirty) return "close";
+      if (!this.dirty || this.blank) return "close";
       // An edit opened by mistake (a stray `j` or `q` became text) closes on the first esc: its session drops the strays.
       if (this.stray() !== null) return "discard";
       if (!was) {
