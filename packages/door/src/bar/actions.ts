@@ -51,7 +51,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
     touches: "nothing", replay: "safe",
     args: {
       query: { type: "string", optional: true, about: "what's typed in it" },
-      scope: { type: "string", optional: true, about: "one source: tiles, notes, actions, recent, screens, extensions, an extension's (ext.<id>.<source>), or its prefix; all (the default) lists every one" },
+      scope: { type: "string", optional: true, about: "one source: tiles, notes, actions, recent, screens, agents, extensions, an extension's (ext.<id>.<source>), or its prefix; all (the default) lists every one" },
       by: { type: "number", optional: true, about: "the person's open bar: the next scope (1) or the one before (-1), round again, keeping what's typed" },
       keep: { type: "boolean", optional: true, about: "the person's open bar: change only its scope, keeping what's typed (its scope tabs and prefixes)" },
     },

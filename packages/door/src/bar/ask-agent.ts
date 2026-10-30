@@ -18,7 +18,7 @@ import { filtered } from "./filter";
 import type { BarHost, BarRow, BarSource } from "./source";
 
 /** An ask line: `@name` first, then what's asked. */
-const ASK_LINE = /^\s*@([A-Za-z0-9][A-Za-z0-9._-]*)(?:\s+([\s\S]*))?$/;
+const ASK_LINE = /^\s*@([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?)(?:[,:]?\s+([\s\S]*)|[,:]?$)/;
 
 /** The agent an ask line names and what it asks (empty while only the name is typed), or null for any other line. */
 export function askOf(line: string): { to: string; text: string } | null {
@@ -40,17 +40,24 @@ export function askTargetAt(line: string, col: number): CompletionTarget | null 
   return t && (t.kind === "page" || t.kind === "block") ? t : null;
 }
 
+const CONFIGS_MS = 5000;
+let configsRead: { layer: unknown; at: number; read: Promise<{ name: string; persona?: string }[]> } | null = null;
+
 /**
  * The agents here, by persona: the sessions the door holds that write as one (the agent panel's rows, what each is
  * doing), then the outline's agent configs that name one and aren't running here.
  */
 export async function agentsHere(host: BarHost): Promise<KindValue[]> {
   const layer = host.ctx.hostLayer, out = new Map<string, KindValue>();
+  // The agent configs are an outline query: read once a few seconds, not on every key while a name is typed.
+  const now = Date.now();
+  if (!configsRead || configsRead.layer !== layer || now - configsRead.at > CONFIGS_MS) configsRead = { layer, at: now, read: layer?.programs?.().catch(() => []) ?? Promise.resolve([]) };
+  const configs = await configsRead.read;
   for (const s of layer?.sessions?.() ?? []) {
     if (!s.persona || !PERSONA_PATTERN.test(s.persona) || out.has(s.persona)) continue;
     out.set(s.persona, { value: s.persona, label: `@${s.persona}`, detail: `${s.program} in ${tildeOf(s.folder)} · ${s.word}` });
   }
-  for (const c of await layer?.programs?.().catch(() => []) ?? []) {
+  for (const c of configs) {
     if (!c.persona || !PERSONA_PATTERN.test(c.persona) || out.has(c.persona)) continue;
     out.set(c.persona, { value: c.persona, label: `@${c.persona}`, detail: `agent config ${c.name} · no session here` });
   }
@@ -92,11 +99,11 @@ export async function askAgent(host: BarHost, o: { to: string; text: string; not
   const body = [`@${to} ${words}`, ...(tileLines.length ? ["", ...tileLines] : [])].join("\n");
   const receipt = await board.comment(crypto.randomUUID(), note.id, note.revision ?? 0, body, null, actor);
   const title = headedTitle(note);
-  return { to, note: note.id, title, thread: receipt.id, tiles, heard: `each session writing as ${to} hears it at its addressed check (15 s after it starts, then every 30 min) and answers in the thread` };
+  return { to, note: note.id, title, thread: receipt.id, tiles, heard: `a comment naming @${to}: each session writing as ${to} hears it at its next addressed check (the Claude mod's settle clock) and answers in the thread` };
 }
 
 /** What an ask did, in words: who, on which note, and when it's heard. */
-export const askedWords = (a: Asked) => `· asked @${a.to} on ${a.title} · ${a.to}'s sessions hear it at their next check and answer in the thread`;
+export const askedWords = (a: Asked) => `· asked @${a.to} on ${a.title} · a comment there: @${a.to} hears it at its next check and answers in the thread`;
 
 /** The row a typed ask line is: ⏎ (or a click) sends it. */
 function askRow(a: { to: string; text: string }): BarRow {
@@ -114,7 +121,7 @@ export const AGENTS: BarSource = {
   main: { empty: false, typed: true, most: 6 },
   named(query) { const a = askOf(query); return a?.text ? askRow(a) : null; },
   async rows(q, host, scope) {
-    const a = askOf(scope === "agents" && !q.trimStart().startsWith("@") ? `@${q}` : q) ?? (scope === "agents" && !q.trim() ? { to: "", text: "" } : null);
+    const a = askOf(scope === "agents" && !q.trimStart().startsWith("@") ? `@${q}` : q) ?? ((scope === "agents" && !q.trim()) || q.trim() === "@" ? { to: "", text: "" } : null);
     if (!a) return [];
     if (a.text) return [askRow(a)];
     return filtered(await agentsHere(host), a.to, r => [r.value, r.detail ?? ""]).map(v => ({ key: `agent:${v.value}`, label: v.label, fill: `@${v.value} `, ...(v.detail ? { detail: v.detail } : {}), data: { to: v.value, text: "" } }));
@@ -125,7 +132,8 @@ export const AGENTS: BarSource = {
     const near = host.near(), note = near ? await host.note(near).catch(() => null) : null;
     return { markdown: `**Ask @${a.to}**\n\n> @${a.to} ${a.text}\n\nSent as a comment on ${note ? `**${headedTitle(note)}**` : "the first note it links to"}; @${a.to}'s sessions hear it at their addressed check and answer in the thread.` };
   },
-  command: row => { const a = row.data as { to: string; text: string }; return a.text ? shownLine("agent.ask", { to: a.to, text: a.text }) : null; },
+  // The note it lands on goes in the line, so the copy runs the same ask from a shell or an agent.
+  command: (row, host) => { const a = row.data as { to: string; text: string }, note = host.near(); return a.text ? shownLine("agent.ask", { to: a.to, text: a.text, ...(note ? { note } : {}) }) : null; },
   pick(row, host, how) {
     const a = row.data as { to: string; text: string };
     if (!a.text) {

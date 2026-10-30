@@ -1,3 +1,4 @@
+import { DRAFT_PROPOSAL_TYPE } from "./draft-patch";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
@@ -66,6 +67,8 @@ type ChangeWord = NonNullable<ExtensionActResult["changed"]>[number]["change"];
 /** What a run's change says it did to a note (PIE-1436), and which word wins when it did several. */
 const CHANGED: Partial<Record<OutlinerChange["kind"], ChangeWord>> = { create: "created", edit: "edited", draft: "edited", move: "moved", reorder: "moved", delete: "trashed", restore: "restored" };
 const RANK: readonly ChangeWord[] = ["edited", "moved", "restored", "trashed", "created"];
+/** Blocks a run writes that aren't notes it changed: its proposals and comments (PIE-1436). */
+const NOT_NOTES: ReadonlySet<string> = new Set([DRAFT_PROPOSAL_TYPE, "annotation", "annotation-reply"]);
 
 export class ScriptRuns {
   private readonly running = new Set<AbortController>();
@@ -503,7 +506,13 @@ export class ScriptRuns {
           result.message = failure !== undefined ? stoppedSaid ?? `${failure || "Script failed"} · check the script and run it again`
             : reason === "done" ? message : "Script stopped; run it again when ready";
           result.state = reason;
-          const notes = [...changed].filter(([id]) => id !== log?.id).map(([id, change]) => ({ id, title: firstLineWithoutPropertyTokens(this.store.get(id)?.text ?? "")?.trim() || id.slice(0, 8), change }));
+          // Notes only: never its own log, a proposal or comment it wrote (at propose access a write is one), nor a note
+          // it made and trashed again in the same run.
+          const notes = [...changed].flatMap(([id, change]) => {
+            const b = this.store.get(id), type = b?.properties.find(p => p.key === "type")?.value;
+            if (!b || id === log?.id || NOT_NOTES.has(type ?? "") || (change === "created" && b.effectiveDeletedRootId)) return [];
+            return [{ id, title: firstLineWithoutPropertyTokens(b.text)?.trim() || id.slice(0, 8), change }];
+          });
           if (notes.length) result.changed = notes;
           if (returned !== undefined && returned !== result.message) result.answer = returned;
           if (trace && failure) { trace.problem = failure; trace.result.text += `\n${failure}`; }

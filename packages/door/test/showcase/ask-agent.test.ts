@@ -3,6 +3,7 @@
 // Driven by the person's keys as Evan would. Scratch service, fictional notes and a made-up demo agent.
 import { describe, expect, test } from "bun:test";
 import { completionOf } from "../../src/surface/completer";
+import { askOf } from "../../src/bar/ask-agent";
 import { until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
@@ -61,6 +62,10 @@ describe("showcase: ask an agent (PIE-1437)", () => {
     const c = (await h.board.comments(rota().id)).find(x => x.id === out.thread)!;
     expect(c.body).toBe("@wren sort the rota");
     expect(c.author).toBe("test-agent");
+    // A name ends where a person ends it: a comma, a colon or a full stop is punctuation, not the persona's.
+    expect(askOf("@wren, sort the rota")).toEqual({ to: "wren", text: "sort the rota" });
+    expect(askOf("@wren: sort it")).toEqual({ to: "wren", text: "sort it" });
+    expect(askOf("@wren. sort it")).toBeNull();
     // Nothing to ask is refused with what to write.
     await expect(h.app.act({ action: "agent.ask", args: { to: "wren", text: " " }, as: "test-agent" })).rejects.toThrow("what should @wren do?");
   }, 30_000);

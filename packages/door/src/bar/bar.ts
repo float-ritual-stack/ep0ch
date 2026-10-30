@@ -11,7 +11,7 @@ import { outlineBoards } from "../desk/outline-boards";
 // screen is shown and the drawer, as the drawer is: it takes every key while it's open (the person is busy), and
 // esc clears text, then closes an empty line; a click outside puts it away. What it lists is its sources' (src/bar/source.ts): with nothing typed, the
 // tiles and then what changed; typed, every source that answers in the main list, each under its heading; after a
-// prefix (`%` `/` `>` `+` `@`, an extension's) or alt+← alt+→, one source; tab fills the line with the lit row's words. A pick is the `bar.pick` action (⏎, a double click;
+// prefix (`%` `/` `>` `+` `:`, an extension's; `@` stays on the line, an ask line) or alt+← alt+→, one source; tab fills the line with the lit row's words. A pick is the `bar.pick` action (⏎, a double click;
 // alt+⏎ or an alt-click is the alternate), which hands the row back to its source.
 //
 // The preview is drawn by the readers' renderers, never one of the bar's own: a note through a note surface, Markdown

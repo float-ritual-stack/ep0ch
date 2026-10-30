@@ -6,7 +6,7 @@ import { HomeSurface } from "../surface/home";
 // Its rows are sessions; what a row does is the door's own actions on that session (the App's, so `act` reaches them
 // with no panel open): ⏎ or a click jumps to it (`agents.go`), a pulls it into your drawer (`agents.drawer`), d docks it
 // on the screen shown (`agents.dock`), n starts a new one (`agents.new`: pick the program, then the folder), @ asks it
-// (the power bar with `@persona ` on its line, sent by `agent.ask`). j k pick
+// (`agents.ask`: the power bar with `@persona ` on its line, sent by `agent.ask`). j k pick
 // (`agents.pick`, the kind's own). Moving one moves the same process: the conversation is kept.
 import { C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
@@ -87,7 +87,7 @@ export class AgentsPane implements Pane {
     if (ch(k) === "d" && n) { this.onRow("agents.dock"); return true; }
     if (ch(k) === "n") { this.onRow("agents.new"); return true; }
     // Ask it (PIE-1437): the power bar with `@persona ` on its line, its words completed there and sent by agent.ask.
-    if (ch(k) === "@" && n) { const s = this.picked(); void desk.ctx.press?.("bar.open", { query: s?.persona ? `@${s.persona} ` : "@" }); return true; }
+    if (ch(k) === "@" && n) { this.onRow("agents.ask"); return true; }
     return false;
   }
 
@@ -108,7 +108,7 @@ export class AgentsPane implements Pane {
   describe() { return this.rows().map((s, i) => sessionFacts(s, i + 1)); }
 }
 
-/** The panel's own action: which row is picked. What a row does is the door's (agents.go, agents.drawer, agents.dock, agents.new). */
+/** The panel's own action: which row is picked. What a row does is the door's (agents.go, agents.ask, agents.drawer, agents.dock, agents.new). */
 export const AGENTS_ACTIONS = actionSet<KindHost>()("agents", {
   "agents.pick": def({
     summary: "pick a row of the agent panel (n from 1; agents.list names them)",

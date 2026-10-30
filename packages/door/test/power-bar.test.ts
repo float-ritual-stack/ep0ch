@@ -1,6 +1,6 @@
 // PIE-656: the power bar. One palette over every screen (ctrl+k, the status bar's ^K, `act bar.open`): with nothing
 // typed the tiles open on every screen and in the drawer, indented as the layout tree, then what changed; typed, every
-// source under its heading; a prefix or tab scopes it to one (% tiles, / notes, > actions, + recent, @ screens, an
+// source under its heading; a prefix or tab scopes it to one (% tiles, / notes, > actions, + recent, : screens, an
 // extension's). A pick goes through the shared paths (the drawer's goTo, `open`, the dispatcher), and an agent's bar.*
 // never touches the person's bar, keys or screen. A scratch service, fictional notes, the glyphs example extension.
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";

@@ -94,6 +94,12 @@ test("script-run says which notes the run changed, not only its log (PIE-1436)",
   expect(ran.message).toBe("packed");
   expect(store.require(bag.id).text).toContain("[packing::ready]");
   expect(ran.changed).toEqual([{ id: bag.id, title: "Camping bag", change: "edited" }]);
+  // At propose access the write is a proposal beside the note: no note changed, and none is said to have.
+  store.configureMcpAccess("propose");
+  const tent = create("Tent bag");
+  const proposed = await runAgentOperation(client, "script-run", { ref: script.id, this: tent.id }, { actorId: WREN.actorId }) as { changed?: unknown[] };
+  expect(store.require(tent.id).text).not.toContain("[packing::ready]");
+  expect(proposed.changed).toBeUndefined();
 });
 
 test("a persona answers for its own clients only; a principal is only itself", async () => {
